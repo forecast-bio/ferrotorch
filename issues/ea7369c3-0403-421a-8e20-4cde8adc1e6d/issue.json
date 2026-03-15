@@ -7,8 +7,11 @@
   "parent_uuid": "dda48f10-f7bb-4888-8d32-97be7be11df3",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T13:32:51.055304280Z",
-  "updated_at": "2026-03-15T13:32:52.387857028Z",
+  "updated_at": "2026-03-15T13:33:05.407212401Z",
   "labels": [
     "feature"
+  ],
+  "blockers": [
+    "2b6bfe68-eaab-4cbd-92c4-591a09e4e3d7"
   ]
 }
