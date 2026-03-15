@@ -5,7 +5,7 @@
 [![crates.io](https://img.shields.io/crates/v/ferrotorch.svg)](https://crates.io/crates/ferrotorch)
 [![docs.rs](https://docs.rs/ferrotorch/badge.svg)](https://docs.rs/ferrotorch)
 [![license](https://img.shields.io/crates/l/ferrotorch.svg)](https://github.com/dollspace-gay/ferrotorch#license)
-[![tests](https://img.shields.io/badge/tests-1%2C350%2B_passing-brightgreen.svg)](#)
+[![tests](https://img.shields.io/badge/tests-1%2C500%2B_passing-brightgreen.svg)](#)
 
 ---
 
@@ -22,7 +22,10 @@ If you have ever wanted to train a ResNet or a transformer in Rust without pulli
 - **7 optimizers** --- SGD, Adam, AdamW, RMSprop, Adagrad, L-BFGS, and Muon, with parameter groups and 5 LR schedulers.
 - **JIT compiler** --- trace a forward pass into a static IR, then run constant folding, dead code elimination, operator fusion, and memory planning. `compile()` API mirrors `torch.compile`.
 - **GPU acceleration** --- NVIDIA via cudarc + cuBLAS (81.8x matmul speedup on RTX 3090), AMD/Intel/Apple via CubeCL (WGPU, ROCm, Vulkan, Metal).
-- **SafeTensors + PyTorch .pt import** --- load HuggingFace models directly; pure-Rust pickle parser for PyTorch checkpoints.
+- **GPU memory safety** --- pre-OOM hooks, VRAM reservation, budget enforcement, pressure watchdog, and emergency checkpointing. Never lose a training run to a Steam game again.
+- **ONNX export** --- trace a model and emit a standard `.onnx` file loadable by onnxruntime, TensorRT, CoreML. Hand-written protobuf encoder, no external dependency.
+- **Operation fusion** --- chain elementwise ops into a single kernel with PTX codegen. 2-5x GPU speedup for fused chains.
+- **SafeTensors + PyTorch .pt import** --- load HuggingFace models directly; pure-Rust pickle parser (28 opcodes) for PyTorch checkpoints.
 - **8 vision model architectures** --- ResNet, VGG, ViT, EfficientNet, ConvNeXt, Swin Transformer, U-Net, YOLO.
 - **INT8/INT4 quantization** --- per-tensor and per-channel post-training quantization with quantized matmul.
 - **Distributed training** --- DDP with gradient synchronization over a TCP backend, GPU-aware collectives.
@@ -111,8 +114,8 @@ ferrotorch is a workspace of 12 crates. Use the umbrella crate for convenience, 
 | **ferrotorch-train** | Learner, metrics, callbacks, training history |
 | **ferrotorch-vision** | 8 model architectures, MNIST/CIFAR datasets, image I/O |
 | **ferrotorch-jit** | Tracing, IR graph, optimization passes, codegen backends |
-| **ferrotorch-serialize** | SafeTensors, PyTorch .pt import, training checkpoints |
-| **ferrotorch-gpu** | NVIDIA CUDA backend via cudarc + cuBLAS |
+| **ferrotorch-serialize** | SafeTensors, PyTorch .pt import, ONNX export, checkpoints |
+| **ferrotorch-gpu** | NVIDIA CUDA backend, cuBLAS, memory guard, pre-OOM hooks |
 | **ferrotorch-cubecl** | Portable GPU via CubeCL (NVIDIA, AMD, Intel, Apple) |
 | **ferrotorch-distributed** | DDP, allreduce, broadcast, TCP backend |
 
@@ -147,6 +150,71 @@ if let Some(rt) = CubeRuntime::auto() {
     println!("Using device: {:?}", rt.device());
 }
 ```
+
+## GPU Memory Safety
+
+Unlike PyTorch, ferrotorch provides **proactive** GPU memory management. No more lost training runs.
+
+```rust
+use ferrotorch_gpu::*;
+
+let device = Arc::new(GpuDevice::new(0)?);
+
+// Reserve 22GB upfront — other apps can't steal it
+let guard = MemoryGuardBuilder::new(device.clone())
+    .budget_bytes(22 * 1024 * 1024 * 1024)
+    .reserve_bytes(22 * 1024 * 1024 * 1024)
+    .oom_policy(OomPolicy::WaitAndRetry { timeout_secs: 60 })
+    .build()?;
+
+// Register a pre-OOM hook: "halve the batch before crashing"
+guard.register_hook(MemoryHook {
+    name: "halve_batch".into(),
+    estimated_free_bytes: 2 * 1024 * 1024 * 1024,
+    execution_overhead_bytes: 50 * 1024 * 1024, // metadata setup cost
+    priority: 0,
+    callback: Box::new(|| { /* split batch, free old tensors */ 2_000_000_000 }),
+});
+
+// Emergency checkpoint on unrecoverable OOM
+guard.on_oom(|| save_checkpoint(&model, "emergency.ckpt").unwrap());
+
+// Background watchdog pauses training when VRAM gets tight
+let watchdog = Arc::new(MemoryWatchdog::new(device, 512 * 1024 * 1024, Duration::from_secs(1)));
+watchdog.clone().start();
+
+// In training loop
+for batch in loader.iter(epoch) {
+    watchdog.wait_if_paused();  // blocks until VRAM pressure lifts
+    let buf = guard.safe_alloc_with_hooks::<f32>(batch_size)?;  // hooks fire before OOM
+}
+```
+
+| Layer | What it prevents |
+|---|---|
+| **MemoryReservation** | Other processes stealing VRAM mid-training |
+| **Budget enforcement** | Allocations beyond your declared limit |
+| **Pre-OOM hooks** | Batch splitting, cache clearing — called *before* failure |
+| **OomPolicy** | Retry, wait, checkpoint-and-fail, or crash (your choice) |
+| **MemoryWatchdog** | Pauses training when free VRAM drops below threshold |
+| **Emergency checkpoint** | Saves model state before crash so you don't lose progress |
+
+## ONNX Export
+
+Export models to the ONNX standard format for deployment on any inference runtime:
+
+```rust
+use ferrotorch_serialize::export_onnx;
+
+export_onnx(
+    |inputs| model.forward(&inputs[0]),
+    &[example_input],
+    "model.onnx",
+    OnnxExportConfig { opset_version: 17, model_name: "my_model".into() },
+)?;
+```
+
+The exported `.onnx` file works with onnxruntime (C++/Python), NVIDIA TensorRT, Apple CoreML, and ONNX.js (browser). No external protobuf dependency — hand-written encoder in pure Rust.
 
 ## Model Zoo
 
@@ -184,6 +252,8 @@ let resnet = get_model::<f32>("resnet50", 1000)?;
 | **JIT / compile** | Tracing + fusion + codegen | TorchScript / torch.compile | No | Via libtorch | No |
 | **Distributed** | DDP | DDP / FSDP / Pipeline | No | Via libtorch | Partial |
 | **Quantization** | INT8 / INT4 | INT8 / INT4 / FP8 | INT8 | Via libtorch | GGUF |
+| **ONNX export** | Yes (pure Rust) | Yes | No | Yes | No |
+| **GPU memory safety** | Pre-OOM hooks, budget, watchdog | Basic caching | No | Via libtorch | No |
 | **Model zoo** | 8 architectures | Thousands | Limited | Via libtorch | LLM-focused |
 | **Training loop** | Learner + callbacks | Manual / Lightning | Learner | Manual | Manual |
 | **Proc macro** | `#[derive(Module)]` | No (dynamic) | `#[derive(Module)]` | No | No |
