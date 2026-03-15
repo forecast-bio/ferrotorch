@@ -22,7 +22,10 @@ edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 authors = ["doll"]
-repository = "https://github.com/doll/ferrotorch"
+repository = "https://github.com/dollspace-gay/ferrotorch"
+homepage = "https://github.com/dollspace-gay/ferrotorch"
+keywords = ["deep-learning", "machine-learning", "autograd", "neural-network", "tensor"]
+categories = ["science", "mathematics", "algorithms"]
 
 [workspace.dependencies]
 # Internal crates
