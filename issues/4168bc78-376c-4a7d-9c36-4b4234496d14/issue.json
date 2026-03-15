@@ -2,12 +2,13 @@
   "uuid": "4168bc78-376c-4a7d-9c36-4b4234496d14",
   "display_id": 12,
   "title": "Add GradFn: shape (reshape, transpose, permute, expand, cat, stack, split)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "parent_uuid": "fbfbd525-d49e-4e47-97c8-6d4d853a207b",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T01:25:38.397376195Z",
-  "updated_at": "2026-03-15T01:26:28.195465245Z",
+  "updated_at": "2026-03-15T01:53:11.341177285Z",
+  "closed_at": "2026-03-15T01:53:11.341177285Z",
   "labels": [
     "feature"
   ],
