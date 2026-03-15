@@ -1,6 +1,6 @@
 {
   "uuid": "8463b2ee-4a33-4c6b-8c66-d4cd49a43854",
-  "display_id": 180,
+  "display_id": 181,
   "title": "Fix PTX kernel recompilation bug — add module cache to avoid ~1700us per-call overhead",
   "status": "open",
   "priority": "high",
