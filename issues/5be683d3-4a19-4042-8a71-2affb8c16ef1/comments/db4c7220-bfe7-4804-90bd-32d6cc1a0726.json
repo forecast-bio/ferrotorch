@@ -1,0 +1,8 @@
+{
+  "uuid": "db4c7220-bfe7-4804-90bd-32d6cc1a0726",
+  "issue_uuid": "5be683d3-4a19-4042-8a71-2affb8c16ef1",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Real SafeTensors format via safetensors 0.5 crate. save_safetensors/load_safetensors for f32/f64, HuggingFace-compatible files, dtype validation. 9 tests.",
+  "created_at": "2026-03-15T17:22:19.965550942Z",
+  "kind": "result"
+}
