@@ -1,0 +1,10 @@
+{
+  "uuid": "206f1ecb-f591-48d9-9062-21f02d6c08cf",
+  "display_id": 159,
+  "title": "Add special mathematical functions module (torch.special equivalent) to ferrotorch-core",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T20:30:22.694284109Z",
+  "updated_at": "2026-03-15T20:30:22.694284109Z"
+}
