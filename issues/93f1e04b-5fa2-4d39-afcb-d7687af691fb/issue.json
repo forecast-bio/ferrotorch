@@ -1,0 +1,10 @@
+{
+  "uuid": "93f1e04b-5fa2-4d39-afcb-d7687af691fb",
+  "display_id": 149,
+  "title": "Phase 10 Wave 1: einsum, hooks, distributions, profiler, sparse, FFT",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T20:06:55.579960304Z",
+  "updated_at": "2026-03-15T20:06:55.579960304Z"
+}
