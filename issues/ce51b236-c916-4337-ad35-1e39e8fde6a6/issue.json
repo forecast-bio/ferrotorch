@@ -2,11 +2,12 @@
   "uuid": "ce51b236-c916-4337-ad35-1e39e8fde6a6",
   "display_id": 22,
   "title": "Update phase-1-autograd-engine.md: add operator overloading, display, method API, broadcasting, in-place ops, contiguous/clone, performance requirements",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T02:18:56.686590177Z",
-  "updated_at": "2026-03-15T02:18:58.202386701Z",
+  "updated_at": "2026-03-15T02:21:19.892531282Z",
+  "closed_at": "2026-03-15T02:21:19.892531282Z",
   "labels": [
     "design"
   ]
