@@ -1,0 +1,8 @@
+{
+  "uuid": "00b32267-9232-49fa-aaef-c4c6c233c440",
+  "issue_uuid": "dda48f10-f7bb-4888-8d32-97be7be11df3",
+  "author": "anon-a7c6025f",
+  "content": "Phase 5 scoped to MVP: ResNet (18/34/50), MNIST dataset, CIFAR-10 dataset, core image transforms (Resize, CenterCrop, Normalize, ToTensor), model registry, feature extractor. Full model zoo (VGG, ViT, EfficientNet, etc.) deferred — ResNet proves the architecture and the rest follow the same pattern.",
+  "created_at": "2026-03-15T13:32:26.453770456Z",
+  "kind": "decision"
+}
