@@ -5,6 +5,7 @@ pub mod grad_accumulator;
 pub mod grad_scaler;
 pub mod lbfgs;
 pub mod muon;
+pub mod natural_gradient;
 pub mod optimizer;
 pub mod rmsprop;
 pub mod scheduler;
@@ -17,6 +18,7 @@ pub use grad_accumulator::GradientAccumulator;
 pub use grad_scaler::{GradScaler, GradScalerConfig, GradScalerState};
 pub use lbfgs::{Lbfgs, LbfgsConfig, LineSearchFn};
 pub use muon::{Muon, MuonConfig};
+pub use natural_gradient::{Kfac, KfacConfig};
 pub use optimizer::{Optimizer, OptimizerState, ParamGroup};
 pub use rmsprop::{Rmsprop, RmspropConfig};
 pub use scheduler::{

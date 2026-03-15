@@ -3,6 +3,7 @@ pub mod creation;
 pub mod device;
 mod display;
 pub mod dtype;
+pub mod einops;
 pub mod einsum;
 pub mod error;
 pub mod fft;
@@ -22,7 +23,7 @@ pub mod tensor;
 pub mod vmap;
 
 // Public re-exports for ergonomic use.
-pub use autograd::{autocast, autocast_dtype, is_autocast_enabled, AutocastDtype, backward, grad, grad_norm, gradient_penalty, hessian, jacobian, jvp, vjp, is_grad_enabled, no_grad};
+pub use autograd::{autocast, autocast_dtype, is_autocast_enabled, AutocastDtype, backward, fixed_point, grad, grad_norm, gradient_penalty, hessian, jacobian, jvp, vjp, is_grad_enabled, no_grad};
 pub use creation::{
     arange, eye, from_slice, from_vec, full, linspace, ones, rand, randn, scalar, tensor, zeros,
 };
@@ -37,6 +38,7 @@ pub use quantize::{
 pub use storage::{StorageBuffer, TensorStorage};
 pub use sparse::SparseTensor;
 pub use tensor::{GradFn, Tensor, TensorId};
+pub use einops::{rearrange, rearrange_with, repeat, reduce, EinopsReduction};
 pub use einsum::{einsum, einsum_differentiable};
 pub use fft::{fft, fft2, ifft, ifft2, irfft, rfft};
 pub use grad_fns::fft::{fft_differentiable, ifft_differentiable, irfft_differentiable, rfft_differentiable};

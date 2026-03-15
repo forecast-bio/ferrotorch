@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.0] - 2026-03-15
 
 ### Fixed
+- Fix flaky backend_impl OnceLock test ordering (#173)
 - Fix FlashAttention GPU PTX register name collision (#168)
 - Rewrite GPU conv2d as pure GPU — im2col PTX kernel, no CPU roundtrip (#163)
 - Fix flaky watchdog timing test (#144)
@@ -14,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Wire up ferray-linalg for CPU matmul and fix crates.io dependency versions (#140)
 
 ### Added
+- Commit unified device-aware Tensor Steps 2-4 (#172)
 - Implement unified device-aware Tensor — Step 1: core infrastructure (#170)
 - Design unified device-aware Tensor architecture (#169)
 - Phase 10 Wave 4: FlashAttention GPU, gradient penalty, PagedAttention, GGUF (#165)

@@ -14,6 +14,7 @@ pub mod functional;
 pub mod hooks;
 pub mod init;
 pub mod linear;
+pub mod lora;
 pub mod loss;
 pub mod module;
 pub mod norm;
@@ -37,6 +38,7 @@ pub use dropout::{Dropout, Dropout2d};
 pub use embedding::Embedding;
 pub use init::NonLinearity;
 pub use linear::Linear;
+pub use lora::LoRALinear;
 pub use loss::{
     BCEWithLogitsLoss, CosineEmbeddingLoss, CrossEntropyLoss, HuberLoss, KLDivLoss, MSELoss,
     SmoothL1Loss,

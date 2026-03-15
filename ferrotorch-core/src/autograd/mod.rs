@@ -1,6 +1,7 @@
 pub mod autocast;
 pub mod autocast_ops;
 pub mod checkpoint;
+pub mod fixed_point;
 pub mod grad_penalty;
 pub mod graph;
 pub mod higher_order;
@@ -11,6 +12,7 @@ pub use autocast_ops::{
     autocast_category, autocast_log, should_cast_to_reduced, should_keep_full_precision,
     AutocastCategory,
 };
+pub use fixed_point::fixed_point;
 pub use grad_penalty::{grad_norm, gradient_penalty, jvp, vjp};
 pub use graph::backward;
 pub use higher_order::{grad, hessian, jacobian};
