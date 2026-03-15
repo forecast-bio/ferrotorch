@@ -2,11 +2,12 @@
   "uuid": "2bc31950-1e8f-453c-b954-173918a1175a",
   "display_id": 140,
   "title": "Wire up ferray-linalg for CPU matmul and fix crates.io dependency versions",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T19:02:35.292296302Z",
-  "updated_at": "2026-03-15T19:02:37.012017672Z",
+  "updated_at": "2026-03-15T19:07:53.047475714Z",
+  "closed_at": "2026-03-15T19:07:53.047475714Z",
   "labels": [
     "fix"
   ]
