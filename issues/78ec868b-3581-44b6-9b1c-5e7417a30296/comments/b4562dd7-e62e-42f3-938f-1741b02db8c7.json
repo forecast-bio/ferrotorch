@@ -1,0 +1,8 @@
+{
+  "uuid": "b4562dd7-e62e-42f3-938f-1741b02db8c7",
+  "issue_uuid": "78ec868b-3581-44b6-9b1c-5e7417a30296",
+  "author": "anon-a7c6025f",
+  "content": "Committed: README updated with GPU Memory Safety section (code example + 6-row feature table), ONNX Export section, updated key features (pre-OOM hooks, ONNX, fusion), updated crate table and comparison table, test badge to 1,500+.",
+  "created_at": "2026-03-15T19:58:39.200721739Z",
+  "kind": "result"
+}
