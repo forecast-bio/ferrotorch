@@ -152,7 +152,6 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                     .iter()
                     .map(|&v| v.to_f64().unwrap())
                     .collect();
-                let shape = tensor.shape().to_vec();
 
                 let numel = param_data.len();
 
@@ -165,10 +164,6 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                 // is NOT modified.
                 // ----------------------------------------------------------
                 let decay_factor = 1.0 - group_lr * group_wd;
-                let new_param: Vec<f64> = param_data
-                    .iter()
-                    .map(|&v| v * decay_factor)
-                    .collect();
 
                 // ----------------------------------------------------------
                 // 2-3. Moment updates (standard Adam, no L2 in gradient)
@@ -191,33 +186,25 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                 }
 
                 // ----------------------------------------------------------
-                // 4-5. Bias correction and parameter update
+                // 4-5. Bias correction and in-place parameter update
                 // ----------------------------------------------------------
                 let bc1 = 1.0 - beta1.powi(step as i32);
                 let bc2 = 1.0 - beta2.powi(step as i32);
 
-                let new_param_data: Vec<T> = (0..numel)
-                    .map(|i| {
+                no_grad(|| {
+                    // SAFETY: Optimizer step runs inside no_grad() with exclusive
+                    // access to parameters, so no aliasing references exist.
+                    let param_slice = unsafe { param.tensor().data_mut()? };
+                    for i in 0..numel {
                         let m_hat = state.exp_avg[i] / bc1;
                         let v_hat = state.exp_avg_sq[i] / bc2;
-                        let updated = new_param[i] - group_lr * m_hat / (v_hat.sqrt() + config.eps);
-                        T::from(updated).unwrap()
-                    })
-                    .collect();
-
-                // ----------------------------------------------------------
-                // Write back: create new tensor inside no_grad, replace param.
-                // ----------------------------------------------------------
-                let shape_clone = shape;
-                let new_tensor = no_grad(|| {
-                    Tensor::from_storage(
-                        TensorStorage::cpu(new_param_data),
-                        shape_clone,
-                        true,
-                    )
+                        // Apply decoupled weight decay then Adam update.
+                        let decayed = param_data[i] * decay_factor;
+                        let updated = decayed - group_lr * m_hat / (v_hat.sqrt() + config.eps);
+                        param_slice[i] = T::from(updated).unwrap();
+                    }
+                    Ok::<(), FerrotorchError>(())
                 })?;
-
-                self.param_groups[gi].params[pi] = Parameter::new(new_tensor);
             }
         }
 

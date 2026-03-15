@@ -16,4 +16,4 @@ pub use fixed_point::fixed_point;
 pub use grad_penalty::{grad_norm, gradient_penalty, jvp, vjp};
 pub use graph::{backward, backward_with_grad};
 pub use higher_order::{grad, hessian, jacobian};
-pub use no_grad::{is_grad_enabled, no_grad};
+pub use no_grad::{enable_grad, is_grad_enabled, no_grad, set_grad_enabled};
