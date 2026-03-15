@@ -2,12 +2,13 @@
   "uuid": "2cf92425-c295-4829-a6fd-08febe213228",
   "display_id": 29,
   "title": "Add Module trait, Parameter type, StateDict, error variants",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "parent_uuid": "ca772274-6f17-4e85-b908-7e56cc89257f",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T02:34:20.492700902Z",
-  "updated_at": "2026-03-15T02:34:21.884969631Z",
+  "updated_at": "2026-03-15T02:40:10.688300951Z",
+  "closed_at": "2026-03-15T02:40:10.688300951Z",
   "labels": [
     "feature"
   ]
