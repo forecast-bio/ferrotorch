@@ -2,11 +2,12 @@
   "uuid": "fdccb626-f054-4be3-bde7-283910d742f6",
   "display_id": 174,
   "title": "Add einops, LoRA, fixed-point derivatives, and natural gradient",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T22:18:22.662668022Z",
-  "updated_at": "2026-03-15T22:18:25.327522306Z",
+  "updated_at": "2026-03-15T22:26:50.439053092Z",
+  "closed_at": "2026-03-15T22:26:50.439053092Z",
   "labels": [
     "feature"
   ]
