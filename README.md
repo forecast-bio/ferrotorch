@@ -5,7 +5,7 @@
 [![crates.io](https://img.shields.io/crates/v/ferrotorch.svg)](https://crates.io/crates/ferrotorch)
 [![docs.rs](https://docs.rs/ferrotorch/badge.svg)](https://docs.rs/ferrotorch)
 [![license](https://img.shields.io/crates/l/ferrotorch.svg)](https://github.com/dollspace-gay/ferrotorch#license)
-[![tests](https://img.shields.io/badge/tests-1%2C500%2B_passing-brightgreen.svg)](#)
+[![tests](https://img.shields.io/badge/tests-1%2C800%2B_passing-brightgreen.svg)](#)
 
 ---
 
@@ -19,9 +19,9 @@ If you have ever wanted to train a ResNet or a transformer in Rust without pulli
 - **Reverse-mode autograd** with 30+ differentiable operations, topological-sort backward pass, gradient accumulation, and checkpointing.
 - **Operator overloading** --- write `&a + &b`, `&x * &y`, `-z` with natural Rust syntax. All ownership combinations supported.
 - **24+ neural network layers** including Linear, Conv1d/2d, LSTM, MultiheadAttention, BatchNorm, LayerNorm, RMSNorm, and LLM modules (RoPE, SwiGLU, KV cache, TransformerEncoder/DecoderLayer).
-- **7 optimizers** --- SGD, Adam, AdamW, RMSprop, Adagrad, L-BFGS, and Muon, with parameter groups and 5 LR schedulers.
+- **8 optimizers** --- SGD, Adam, AdamW, RMSprop, Adagrad, L-BFGS, Muon, and K-FAC (Kronecker-factored Fisher), with parameter groups and 5 LR schedulers.
 - **JIT compiler** --- trace a forward pass into a static IR, then run constant folding, dead code elimination, operator fusion, and memory planning. `compile()` API mirrors `torch.compile`.
-- **GPU acceleration** --- NVIDIA via cudarc + cuBLAS (81.8x matmul speedup on RTX 3090), AMD/Intel/Apple via CubeCL (WGPU, ROCm, Vulkan, Metal).
+- **GPU acceleration** --- unified device-aware tensors (`tensor.cuda()`, `model.to_device(Device::Cuda(0))`) with auto-dispatch to CPU or GPU. NVIDIA via cudarc + cuBLAS (81.8x matmul speedup on RTX 3090), AMD/Intel/Apple via CubeCL (WGPU, ROCm, Vulkan, Metal). No separate `GpuTensor` type.
 - **GPU memory safety** --- pre-OOM hooks, VRAM reservation, budget enforcement, pressure watchdog, and emergency checkpointing. Never lose a training run to a Steam game again.
 - **ONNX export** --- trace a model and emit a standard `.onnx` file loadable by onnxruntime, TensorRT, CoreML. Hand-written protobuf encoder, no external dependency.
 - **Operation fusion** --- chain elementwise ops into a single kernel with PTX codegen. 2-5x GPU speedup for fused chains.
@@ -31,6 +31,11 @@ If you have ever wanted to train a ResNet or a transformer in Rust without pulli
 - **Distributed training** --- DDP with gradient synchronization over a TCP backend, GPU-aware collectives.
 - **Training loop** --- `Learner` abstraction with metrics (loss, accuracy, top-k), callbacks (early stopping, progress logging), and training history.
 - **`#[derive(Module)]` proc macro** --- annotate fields with `#[param]`, `#[submodule]`, `#[skip]` and the Module trait is implemented for you.
+- **Einops** --- `rearrange("b c h w -> b (c h w)")`, `repeat`, `reduce` with readable string patterns.
+- **LoRA** --- parameter-efficient fine-tuning via `LoRALinear` with trainable low-rank A/B matrices and `merge()` for zero-overhead inference.
+- **Unified device-aware tensors** --- `tensor.cuda()`, `model.to_device(Device::Cuda(0))`, ops auto-dispatch to CPU or GPU. No separate `GpuTensor` type.
+- **Fixed-point derivatives** --- implicit differentiation for equilibrium models, Neural CAs, and DEQ networks.
+- **K-FAC natural gradient** --- Kronecker-factored Fisher approximation for second-order optimization.
 - **Zero-panic guarantee** --- every public function returns `Result<T, FerrotorchError>`.
 
 ## Quick Start
@@ -101,7 +106,7 @@ let history = learner.fit(&train_loader, Some(&val_loader), 50)?;
 
 ## Crate Overview
 
-ferrotorch is a workspace of 12 crates. Use the umbrella crate for convenience, or depend on individual crates for minimal compile times.
+ferrotorch is a workspace of 16 crates. Use the umbrella crate for convenience, or depend on individual crates for minimal compile times.
 
 | Crate | Description |
 |---|---|
@@ -109,7 +114,7 @@ ferrotorch is a workspace of 12 crates. Use the umbrella crate for convenience, 
 | **ferrotorch-core** | Tensor, autograd engine, 30+ differentiable ops, quantization |
 | **ferrotorch-nn** | Module trait, 24+ layers, losses, activations, `#[derive(Module)]` |
 | **ferrotorch-nn-derive** | Proc macro for `#[derive(Module)]` |
-| **ferrotorch-optim** | 7 optimizers, 5 LR schedulers, GradScaler for mixed precision |
+| **ferrotorch-optim** | 8 optimizers, 5 LR schedulers, GradScaler for mixed precision |
 | **ferrotorch-data** | Dataset, DataLoader, samplers, transforms |
 | **ferrotorch-train** | Learner, metrics, callbacks, training history |
 | **ferrotorch-vision** | 8 model architectures, MNIST/CIFAR datasets, image I/O |
@@ -118,6 +123,9 @@ ferrotorch is a workspace of 12 crates. Use the umbrella crate for convenience, 
 | **ferrotorch-gpu** | NVIDIA CUDA backend, cuBLAS, memory guard, pre-OOM hooks |
 | **ferrotorch-cubecl** | Portable GPU via CubeCL (NVIDIA, AMD, Intel, Apple) |
 | **ferrotorch-distributed** | DDP, allreduce, broadcast, TCP backend |
+| **ferrotorch-distributions** | Probability distributions (Normal, Uniform, Bernoulli, Categorical) |
+| **ferrotorch-hub** | Pretrained model registry, download, and caching |
+| **ferrotorch-profiler** | Operation profiling and Chrome trace export |
 
 ## GPU Support
 
@@ -149,6 +157,19 @@ use ferrotorch_cubecl::CubeRuntime;
 if let Some(rt) = CubeRuntime::auto() {
     println!("Using device: {:?}", rt.device());
 }
+```
+
+### Unified Device Model
+
+Unlike PyTorch's history of separate CPU/CUDA tensor types, ferrotorch uses
+a single `Tensor<T>` that is device-aware internally. Operations auto-dispatch:
+
+```rust
+let mut model = Linear::new(784, 10, true)?;
+model.to_device(Device::Cuda(0))?;    // Move weights to GPU
+let x = rand::<f32>(&[32, 784])?.cuda()?;
+let y = model.forward(&x)?;            // Auto-dispatches to GPU
+y.backward()?;                          // Autograd on GPU
 ```
 
 ## GPU Memory Safety
@@ -247,7 +268,7 @@ let resnet = get_model::<f32>("resnet50", 1000)?;
 | **Language** | Rust | Python/C++ | Rust | Rust (C++ FFI) | Rust |
 | **C++ dependency** | None | libtorch | None | libtorch | None |
 | **Autograd** | Reverse-mode, dynamic graph | Reverse-mode, dynamic graph | Reverse-mode | Via libtorch | Forward ops only |
-| **GPU** | CUDA + CubeCL (AMD/Intel/Apple) | CUDA + ROCm | CubeCL | Via libtorch | CUDA |
+| **GPU** | Unified tensors, CUDA + CubeCL | CUDA + ROCm | CubeCL | Via libtorch | CUDA |
 | **Eager mode** | Yes | Yes | Yes | Yes | Yes |
 | **JIT / compile** | Tracing + fusion + codegen | TorchScript / torch.compile | No | Via libtorch | No |
 | **Distributed** | DDP | DDP / FSDP / Pipeline | No | Via libtorch | Partial |
@@ -257,6 +278,9 @@ let resnet = get_model::<f32>("resnet50", 1000)?;
 | **Model zoo** | 8 architectures | Thousands | Limited | Via libtorch | LLM-focused |
 | **Training loop** | Learner + callbacks | Manual / Lightning | Learner | Manual | Manual |
 | **Proc macro** | `#[derive(Module)]` | No (dynamic) | `#[derive(Module)]` | No | No |
+| **LoRA** | Yes (`LoRALinear` + merge) | Via libraries | No | No | Yes |
+| **Einops** | Yes (rearrange/repeat/reduce) | Via library | No | No | No |
+| **Tests** | 1,800+ | Extensive | Growing | Via libtorch | Growing |
 
 ## Installation
 
