@@ -2,11 +2,12 @@
   "uuid": "b75be861-9b6b-4d1c-8d5a-ec3d9eac7e59",
   "display_id": 19,
   "title": "Iterate all design documents to production quality",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T02:17:24.357872179Z",
-  "updated_at": "2026-03-15T02:17:27.666574828Z",
+  "updated_at": "2026-03-15T02:26:41.053068540Z",
+  "closed_at": "2026-03-15T02:26:41.053068540Z",
   "labels": [
     "enhancement"
   ]
