@@ -92,7 +92,7 @@ const FLASH_ATTENTION_PTX: &str = "\
 .target sm_52
 .address_size 64
 
-// Dynamic shared memory declared externally — size set at launch.
+// Dynamic shared memory declared externally -- size set at launch.
 .extern .shared .align 4 .b8 smem[];
 
 .visible .entry flash_attention_kernel(
@@ -111,7 +111,8 @@ const FLASH_ATTENTION_PTX: &str = "\
     // ---------------------------------------------------------------
     // Register declarations
     // ---------------------------------------------------------------
-    .reg .u32 %tid, %bid, %bdim, %gid;
+    // All registers declared at top level (no nested .reg -- some PTX JITs choke on scoped regs)
+    .reg .u32 %ltid, %bid, %bdim, %gid;
     .reg .u32 %nq, %nk, %d, %dv, %caus, %tk;
     .reg .f32 %sc;
     .reg .u64 %Q, %K, %V, %O;
@@ -122,6 +123,28 @@ const FLASH_ATTENTION_PTX: &str = "\
     .reg .f32 %neg_inf, %zero, %one;
     .reg .pred %p_oob, %p_causal, %p_masked, %p_lnew_pos, %p_kloop, %p_dloop;
     .reg .pred %p_causal_en, %p_tile_done, %p_load_valid;
+    // Zero-output loop
+    .reg .u32 %zi;
+    .reg .u64 %zaddr;
+    // Tile loop
+    .reg .u32 %k_start, %k_end, %bk;
+    // K-load loop
+    .reg .u32 %total_k, %li;
+    .reg .u64 %ld_src, %ld_dst;
+    .reg .f32 %ld_val;
+    // V-load loop
+    .reg .u32 %total_v, %vi, %v_smem_off;
+    // Key/dim loops
+    .reg .u32 %ki, %di, %k_abs;
+    .reg .f32 %q_val, %k_val, %s_val, %v_val, %o_val;
+    .reg .f32 %tile_max;
+    .reg .pred %p_ki_done, %p_di_done, %p_masked_elem;
+    // exp computation
+    .reg .f32 %log2e, %arg_corr, %arg_p;
+    // output update
+    .reg .u32 %ovi, %v_smem_off_reg;
+    .reg .f32 %o_cur;
+    .reg .u64 %o_addr, %v_addr;
 
     // ---------------------------------------------------------------
     // Load parameters
@@ -143,10 +166,10 @@ const FLASH_ATTENTION_PTX: &str = "\
     // ---------------------------------------------------------------
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
-    mov.u32 %tid, %tid.x;
-    mad.lo.u32 %gid, %bid, %bdim, %tid;
+    mov.u32 %ltid, %tid.x;
+    mad.lo.u32 %gid, %bid, %bdim, %ltid;
 
-    // Out-of-bounds guard — threads beyond N_q do nothing (but still
+    // Out-of-bounds guard -- threads beyond N_q do nothing (but still
     // participate in shared-memory loads and barriers).
     setp.ge.u32 %p_oob, %gid, %nq;
 
@@ -171,7 +194,7 @@ const FLASH_ATTENTION_PTX: &str = "\
 
     // ---------------------------------------------------------------
     // Load this thread's query vector Q[gid, :] into the output area
-    // of global memory — we will use O_ptr as our accumulator
+    // of global memory -- we will use O_ptr as our accumulator
     // (initialized to zero) and only read Q from global memory.
     // Actually: we keep O in global memory and update in-place per tile.
     //
@@ -184,9 +207,6 @@ const FLASH_ATTENTION_PTX: &str = "\
 
     // Zero output O[gid, 0..d_v] if in-bounds.
     @%p_oob bra SKIP_ZERO_OUTPUT;
-    {
-        .reg .u32 %zi;
-        .reg .u64 %zaddr;
         mov.u32 %zi, 0;
 ZERO_LOOP:
         setp.ge.u32 %p_dloop, %zi, %dv;
@@ -202,14 +222,11 @@ ZERO_LOOP:
         add.u32 %zi, %zi, 1;
         bra ZERO_LOOP;
 ZERO_DONE:
-    }
 SKIP_ZERO_OUTPUT:
 
     // ---------------------------------------------------------------
     // Tile loop: iterate over K/V in chunks of tile_k
     // ---------------------------------------------------------------
-    {
-        .reg .u32 %k_start, %k_end, %bk;
         mov.u32 %k_start, 0;
 
 TILE_LOOP:
@@ -225,71 +242,53 @@ TILE_LOOP:
         // Cooperative load: K tile into smem[0 .. bk * d]
         // Each thread loads ceil(bk * d / blockDim.x) elements.
         // -----------------------------------------------------------
-        {
-            .reg .u32 %total_k, %li;
-            .reg .u64 %src, %dst;
-            .reg .f32 %ld_val;
-            mul.lo.u32 %total_k, %bk, %d;
-            mov.u32 %li, %tid;
+        mul.lo.u32 %total_k, %bk, %d;
+            mov.u32 %li, %ltid;
 LOAD_K_LOOP:
             setp.ge.u32 %p_load_valid, %li, %total_k;
             @%p_load_valid bra LOAD_K_DONE;
 
-            // K element index: k_start * d + li
-            // src = K + (k_start * d + li) * 4
             mad.lo.u32 %t0, %k_start, %d, %li;
             cvt.u64.u32 %off64, %t0;
             shl.b64 %off64, %off64, 2;
-            add.u64 %src, %K, %off64;
-            ld.global.f32 %ld_val, [%src];
+            add.u64 %ld_src, %K, %off64;
+            ld.global.f32 %ld_val, [%ld_src];
 
-            // dst = smem_base + li * 4
             cvt.u64.u32 %off64, %li;
             shl.b64 %off64, %off64, 2;
-            add.u64 %dst, %smem_base, %off64;
-            st.shared.f32 [%dst], %ld_val;
+            add.u64 %ld_dst, %smem_base, %off64;
+            st.shared.f32 [%ld_dst], %ld_val;
 
             add.u32 %li, %li, %bdim;
             bra LOAD_K_LOOP;
 LOAD_K_DONE:
-        }
 
         // -----------------------------------------------------------
         // Cooperative load: V tile into smem[bk*d .. bk*d + bk*d_v]
         // -----------------------------------------------------------
-        {
-            .reg .u32 %total_v, %vi, %v_smem_off;
-            .reg .u64 %src, %dst;
-            .reg .f32 %ld_val;
             mul.lo.u32 %total_v, %bk, %dv;
-            // V tile starts after K tile in shared memory.
-            // K tile occupies tile_k * d floats (use tile_k not bk so
-            // the V offset is constant across tiles of different bk).
-            mul.lo.u32 %v_smem_off, %tk, %d;  // tile_k * d
+            mul.lo.u32 %v_smem_off, %tk, %d;
 
-            mov.u32 %vi, %tid;
+            mov.u32 %vi, %ltid;
 LOAD_V_LOOP:
             setp.ge.u32 %p_load_valid, %vi, %total_v;
             @%p_load_valid bra LOAD_V_DONE;
 
-            // V element index: (k_start * d_v + vi)
             mad.lo.u32 %t0, %k_start, %dv, %vi;
             cvt.u64.u32 %off64, %t0;
             shl.b64 %off64, %off64, 2;
-            add.u64 %src, %V, %off64;
-            ld.global.f32 %ld_val, [%src];
+            add.u64 %ld_src, %V, %off64;
+            ld.global.f32 %ld_val, [%ld_src];
 
-            // dst = smem_base + (v_smem_off + vi) * 4
             add.u32 %t1, %v_smem_off, %vi;
             cvt.u64.u32 %off64, %t1;
             shl.b64 %off64, %off64, 2;
-            add.u64 %dst, %smem_base, %off64;
-            st.shared.f32 [%dst], %ld_val;
+            add.u64 %ld_dst, %smem_base, %off64;
+            st.shared.f32 [%ld_dst], %ld_val;
 
             add.u32 %vi, %vi, %bdim;
             bra LOAD_V_LOOP;
 LOAD_V_DONE:
-        }
 
         // Barrier: ensure all K/V data is in shared memory.
         bar.sync 0;
@@ -298,20 +297,6 @@ LOAD_V_DONE:
         // Per-thread: compute attention for this tile
         // -----------------------------------------------------------
         @%p_oob bra SKIP_COMPUTE;
-        {
-            .reg .u32 %ki, %di, %k_abs;
-            .reg .f32 %q_val, %k_val, %s_val, %v_val, %o_val;
-            .reg .f32 %tile_max;
-            .reg .pred %p_ki_done, %p_di_done, %p_masked_elem;
-
-            // -- Pass 1: compute dot products and find tile max ------
-            // We need the tile max before we can compute exp values,
-            // so we do two passes.  In the first pass we compute
-            // S[ki] = dot(Q[gid,:], K_tile[ki,:]) * scale and track max.
-
-            // Fused single pass: for each key in the tile, compute
-            // the dot product, apply causal mask, then do the
-            // incremental online softmax update (one key at a time).
 
             mov.u32 %ki, 0;
 KEY_LOOP:
@@ -362,9 +347,7 @@ SKIP_CAUSAL_MASK:
 
             // Compute corr = exp(m_old - m_new) and p = exp(s - m_new)
             // using ex2.approx (2^x) with log2(e) conversion.
-            {
-                .reg .f32 %log2e, %arg_corr, %arg_p;
-                mov.f32 %log2e, 0f3FB8AA3B;    // log2(e) = 1.4426950408889634
+            mov.f32 %log2e, 0f3FB8AA3B;    // log2(e) = 1.4426950408889634
 
                 // corr = exp(m_reg - m_new) = 2^((m_reg - m_new) * log2e)
                 sub.f32 %arg_corr, %m_reg, %m_new;
@@ -375,7 +358,6 @@ SKIP_CAUSAL_MASK:
                 sub.f32 %arg_p, %s_val, %m_new;
                 mul.f32 %arg_p, %arg_p, %log2e;
                 ex2.approx.f32 %p_val, %arg_p;
-            }
 
             // l_new = corr * l_reg + p_val
             fma.rn.f32 %l_new, %corr, %l_reg, %p_val;
@@ -394,26 +376,19 @@ SKIP_CAUSAL_MASK:
             div.approx.f32 %rescale_new, %p_val, %l_new;
 
             // Loop over d_v to update output.
-            {
-                .reg .u32 %ovi, %v_smem_off_reg;
-                .reg .f32 %o_cur;
-                .reg .u64 %o_addr, %v_addr;
-                mul.lo.u32 %v_smem_off_reg, %tk, %d;  // V offset in smem
+                mul.lo.u32 %v_smem_off_reg, %tk, %d;
 
                 mov.u32 %ovi, 0;
 OV_LOOP:
                 setp.ge.u32 %p_di_done, %ovi, %dv;
                 @%p_di_done bra OV_DONE;
 
-                // Load current O[gid * d_v + ovi]
                 mad.lo.u32 %t0, %gid, %dv, %ovi;
                 cvt.u64.u32 %off64, %t0;
                 shl.b64 %off64, %off64, 2;
                 add.u64 %o_addr, %O, %off64;
                 ld.global.f32 %o_cur, [%o_addr];
 
-                // Load V_tile[ki, ovi] from smem
-                // smem offset = (v_smem_off_reg + ki * d_v + ovi) * 4
                 mad.lo.u32 %t0, %ki, %dv, %ovi;
                 add.u32 %t0, %t0, %v_smem_off_reg;
                 cvt.u64.u32 %off64, %t0;
@@ -421,7 +396,6 @@ OV_LOOP:
                 add.u64 %v_addr, %smem_base, %off64;
                 ld.shared.f32 %v_val, [%v_addr];
 
-                // o_new = rescale_old * o_cur + rescale_new * v_val
                 mul.f32 %o_cur, %rescale_old, %o_cur;
                 fma.rn.f32 %o_cur, %rescale_new, %v_val, %o_cur;
 
@@ -430,27 +404,21 @@ OV_LOOP:
                 add.u32 %ovi, %ovi, 1;
                 bra OV_LOOP;
 OV_DONE:
-            }
 
 SKIP_OUTPUT_UPDATE:
-            // Update running statistics.
             mov.f32 %m_reg, %m_new;
             mov.f32 %l_reg, %l_new;
 
             add.u32 %ki, %ki, 1;
             bra KEY_LOOP;
 KEY_LOOP_END:
-        }
 SKIP_COMPUTE:
 
-        // Barrier before next tile (protect shared memory).
         bar.sync 0;
 
-        // Advance to next tile.
         add.u32 %k_start, %k_start, %tk;
         bra TILE_LOOP;
 TILE_LOOP_END:
-    }
 
     ret;
 }
