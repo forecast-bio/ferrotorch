@@ -1,0 +1,8 @@
+{
+  "uuid": "9c13ff71-6a27-4148-9073-987f6965ffee",
+  "issue_uuid": "c1f9bcda-1637-446d-87f9-4683ae9b4928",
+  "author": "anon-a7c6025f",
+  "content": "Creating comprehensive design doc covering all remaining PyTorch features: einsum, hooks, distributions, higher-order gradients, FlashAttention, profiler, sparse tensors, FFT, linalg, vmap, sequence packing, TensorBoard, hub, and more.",
+  "created_at": "2026-03-15T20:01:29.197483297Z",
+  "kind": "plan"
+}
