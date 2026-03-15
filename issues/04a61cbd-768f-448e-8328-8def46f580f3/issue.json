@@ -1,0 +1,10 @@
+{
+  "uuid": "04a61cbd-768f-448e-8328-8def46f580f3",
+  "display_id": 23,
+  "title": "Update phase-4-data-loading.md: add IterableDataset, pin_memory, worker error propagation, persistent_workers, automatic batching, reproducibility, mmap datasets",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T02:19:14.462351136Z",
+  "updated_at": "2026-03-15T02:19:14.462351136Z"
+}
