@@ -2,11 +2,12 @@
   "uuid": "0f44b2d4-7f1a-45ef-9b60-10a089374f23",
   "display_id": 63,
   "title": "Add ferrotorch-data data loading (Phase 4 epic)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T04:30:10.847472984Z",
-  "updated_at": "2026-03-15T04:30:15.170282706Z",
+  "updated_at": "2026-03-15T13:18:15.330114755Z",
+  "closed_at": "2026-03-15T13:18:15.330114755Z",
   "labels": [
     "feature"
   ]
