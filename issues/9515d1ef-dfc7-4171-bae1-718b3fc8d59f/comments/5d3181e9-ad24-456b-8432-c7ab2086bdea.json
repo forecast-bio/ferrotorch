@@ -1,0 +1,8 @@
+{
+  "uuid": "5d3181e9-ad24-456b-8432-c7ab2086bdea",
+  "issue_uuid": "9515d1ef-dfc7-4171-bae1-718b3fc8d59f",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: 5 GPU elementwise kernels (add, sub, mul, neg, relu) with hand-written PTX targeting sm_52, CPU fallback path. 15 new tests, 29 total GPU tests. PTX kernels confirmed executing on RTX 3090.",
+  "created_at": "2026-03-15T15:54:11.538067604Z",
+  "kind": "result"
+}
