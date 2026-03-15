@@ -1,0 +1,21 @@
+[package]
+name = "ferrotorch-hub"
+description = "Pretrained model registry, download, and caching for ferrotorch"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[dependencies]
+ferrotorch-core = { workspace = true }
+ferrotorch-nn = { workspace = true }
+ferrotorch-serialize = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

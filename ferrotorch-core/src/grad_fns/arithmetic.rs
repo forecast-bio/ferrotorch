@@ -162,6 +162,27 @@ struct MulBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for MulBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        // When grad_output requires_grad (i.e., create_graph=true), use
+        // differentiable operations so the backward pass itself is recorded
+        // in the computation graph for higher-order gradients.
+        if grad_output.requires_grad() || grad_output.grad_fn().is_some() {
+            let da = if self.a.requires_grad() {
+                // da = grad_output * b (differentiable mul)
+                Some(mul(grad_output, &self.b)?)
+            } else {
+                None
+            };
+
+            let db = if self.b.requires_grad() {
+                // db = grad_output * a (differentiable mul)
+                Some(mul(grad_output, &self.a)?)
+            } else {
+                None
+            };
+
+            return Ok(vec![da, db]);
+        }
+
         let go_data = grad_output.data()?;
 
         let da = if self.a.requires_grad() {
@@ -368,20 +389,37 @@ struct PowBackward<T: Float> {
 impl<T: Float> GradFn<T> for PowBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let da = if self.a.requires_grad() {
-            let go_data = grad_output.data()?;
-            let a_data = self.a.data()?;
-            let exp_t = T::from(self.exp).unwrap();
-            let exp_m1 = T::from(self.exp - 1.0).unwrap();
-            let grad_a: Vec<T> = go_data
-                .iter()
-                .zip(a_data.iter())
-                .map(|(&g, &a)| g * exp_t * a.powf(exp_m1))
-                .collect();
-            Some(Tensor::from_storage(
-                TensorStorage::cpu(grad_a),
-                self.a.shape().to_vec(),
-                false,
-            )?)
+            // When grad_output requires_grad (create_graph=true), use
+            // differentiable operations so the backward pass itself is
+            // tracked in the computation graph for higher-order gradients.
+            if grad_output.requires_grad() || grad_output.grad_fn().is_some() {
+                // da = grad_output * exp * a^(exp-1)
+                // Using differentiable pow and mul.
+                let a_pow = pow(&self.a, self.exp - 1.0)?; // a^(exp-1)
+                let exp_t = T::from(self.exp).unwrap();
+                let exp_tensor = Tensor::from_storage(
+                    TensorStorage::cpu(vec![exp_t; self.a.numel().max(1)]),
+                    self.a.shape().to_vec(),
+                    false,
+                )?;
+                let scaled = mul(&exp_tensor, &a_pow)?; // exp * a^(exp-1)
+                Some(mul(grad_output, &scaled)?) // grad_output * exp * a^(exp-1)
+            } else {
+                let go_data = grad_output.data()?;
+                let a_data = self.a.data()?;
+                let exp_t = T::from(self.exp).unwrap();
+                let exp_m1 = T::from(self.exp - 1.0).unwrap();
+                let grad_a: Vec<T> = go_data
+                    .iter()
+                    .zip(a_data.iter())
+                    .map(|(&g, &a)| g * exp_t * a.powf(exp_m1))
+                    .collect();
+                Some(Tensor::from_storage(
+                    TensorStorage::cpu(grad_a),
+                    self.a.shape().to_vec(),
+                    false,
+                )?)
+            }
         } else {
             None
         };

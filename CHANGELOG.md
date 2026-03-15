@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Wire up ferray-linalg for CPU matmul and fix crates.io dependency versions (#140)
 
 ### Added
+- Phase 10 Wave 2: linalg, vmap, pack_padded_seq, special functions, TensorBoard (#154)
 - Add per-crate READMEs and prep new crates for publishing (#153)
 - Phase 10 Wave 1: einsum, hooks, distributions, profiler, sparse, FFT (#149)
 - Design document for remaining PyTorch feature parity (#148)

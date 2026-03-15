@@ -16,6 +16,7 @@ members = [
     "ferrotorch-cubecl",
     "ferrotorch-distributions",
     "ferrotorch-profiler",
+    "ferrotorch-hub",
 ]
 
 [workspace.package]
@@ -45,6 +46,7 @@ ferrotorch-train = { version = "0.1.0", path = "ferrotorch-train" }
 ferrotorch-cubecl = { version = "0.1.0", path = "ferrotorch-cubecl" }
 ferrotorch-distributions = { version = "0.1.0", path = "ferrotorch-distributions" }
 ferrotorch-profiler = { version = "0.1.0", path = "ferrotorch-profiler" }
+ferrotorch-hub = { version = "0.1.0", path = "ferrotorch-hub" }
 
 # ferray ecosystem (version for crates.io, path for local dev)
 ferray-core = { version = "0.2.5", path = "../ferray/ferray-core", features = ["bf16"] }

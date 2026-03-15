@@ -5,6 +5,7 @@ extern crate self as ferrotorch_nn;
 
 pub mod activation;
 pub mod attention;
+pub mod flash_attention;
 pub mod container;
 pub mod conv;
 pub mod dropout;
@@ -28,6 +29,7 @@ pub use activation::{
     SiLU, Sigmoid, Softmax, Softplus, Tanh,
 };
 pub use attention::MultiheadAttention;
+pub use flash_attention::{flash_attention, standard_attention};
 pub use container::{ModuleDict, ModuleList, Sequential};
 pub use conv::{Conv1d, Conv2d, ConvTranspose2d};
 pub use dropout::{Dropout, Dropout2d};

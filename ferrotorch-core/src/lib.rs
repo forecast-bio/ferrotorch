@@ -21,7 +21,7 @@ pub mod tensor;
 pub mod vmap;
 
 // Public re-exports for ergonomic use.
-pub use autograd::{autocast, autocast_dtype, is_autocast_enabled, AutocastDtype, backward, is_grad_enabled, no_grad};
+pub use autograd::{autocast, autocast_dtype, is_autocast_enabled, AutocastDtype, backward, grad, hessian, jacobian, is_grad_enabled, no_grad};
 pub use creation::{
     arange, eye, from_slice, from_vec, full, linspace, ones, rand, randn, scalar, tensor, zeros,
 };
