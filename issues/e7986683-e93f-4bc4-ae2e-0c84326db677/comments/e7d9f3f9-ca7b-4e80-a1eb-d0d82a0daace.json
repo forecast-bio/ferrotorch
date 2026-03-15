@@ -1,0 +1,8 @@
+{
+  "uuid": "e7d9f3f9-ca7b-4e80-a1eb-d0d82a0daace",
+  "issue_uuid": "e7986683-e93f-4bc4-ae2e-0c84326db677",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: 7 activation grad_fns (relu, sigmoid, tanh, gelu, silu, softmax, log_softmax) with 21 tests. Numerically stable softmax via max-subtraction.",
+  "created_at": "2026-03-15T01:53:00.014095794Z",
+  "kind": "result"
+}
