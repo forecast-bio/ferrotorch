@@ -1,0 +1,8 @@
+{
+  "uuid": "e48ee81d-2bc1-4ca1-bc45-1f9a6b1a2b49",
+  "issue_uuid": "bc72f0a9-0ba7-4e52-9421-0a90a852989f",
+  "author": "anon-a7c6025f",
+  "content": "Design doc committed at .design/unified-device-tensor.md. Key decisions: 1) StorageBuffer gets Cuda variant, 2) GpuBackend trait in core (no circular dep), 3) GpuBufferHandle is type-erased (Box<dyn Any>), 4) ops dispatch via match on device(), 5) autograd unchanged, 6) Module::to(device) moves params. 5-step implementation plan, ~25 files touched.",
+  "created_at": "2026-03-15T21:50:49.154801029Z",
+  "kind": "result"
+}
