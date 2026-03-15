@@ -1,0 +1,10 @@
+{
+  "uuid": "9d86e71d-a6d2-430a-a3b6-e36f81a03355",
+  "display_id": 21,
+  "title": "Strengthen phase-3-optim-serialize design doc: grad scaler, param groups, optimizer state serialization, SafeTensors primary, PyTorch import, ONNX opset 17, scheduler composition",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T02:18:52.192463429Z",
+  "updated_at": "2026-03-15T02:18:52.192463429Z"
+}
