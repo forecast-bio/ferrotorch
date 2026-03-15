@@ -29,6 +29,7 @@ pub mod conv;
 pub mod device;
 pub mod error;
 pub mod kernels;
+pub mod memory_guard;
 pub mod tensor_bridge;
 pub mod transfer;
 
@@ -40,5 +41,9 @@ pub use buffer::CudaBuffer;
 pub use device::GpuDevice;
 pub use error::{GpuError, GpuResult};
 pub use kernels::{gpu_add, gpu_mul, gpu_neg, gpu_relu, gpu_sub};
+pub use memory_guard::{
+    MemoryGuard, MemoryGuardBuilder, MemoryGuardedDevice, MemoryReservation, MemoryStats,
+    MemoryWatchdog, OomPolicy,
+};
 pub use tensor_bridge::{cuda, cuda_default, tensor_to_cpu, tensor_to_gpu, GpuFloat, GpuTensor};
 pub use transfer::{alloc_zeros, cpu_to_gpu, gpu_to_cpu};

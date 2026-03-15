@@ -18,6 +18,21 @@ pub enum GpuError {
     /// Tried to operate on buffers from different devices.
     DeviceMismatch { expected: usize, got: usize },
 
+    /// GPU out of memory. Contains the requested size and the free bytes at
+    /// the time of the failed allocation.
+    OutOfMemory {
+        requested_bytes: usize,
+        free_bytes: usize,
+    },
+
+    /// Allocation rejected because it would exceed the user-configured memory
+    /// budget (see [`crate::memory_guard::MemoryGuard::set_budget`]).
+    BudgetExceeded {
+        requested_bytes: usize,
+        budget_bytes: usize,
+        used_bytes: usize,
+    },
+
     /// Binary op received buffers with different lengths.
     LengthMismatch { a: usize, b: usize },
 
@@ -50,6 +65,29 @@ impl fmt::Display for GpuError {
 
             GpuError::DeviceMismatch { expected, got } => {
                 write!(f, "device mismatch: expected cuda:{expected}, got cuda:{got}")
+            }
+
+            GpuError::OutOfMemory {
+                requested_bytes,
+                free_bytes,
+            } => {
+                write!(
+                    f,
+                    "GPU out of memory: requested {requested_bytes} bytes but only \
+                     {free_bytes} bytes free"
+                )
+            }
+
+            GpuError::BudgetExceeded {
+                requested_bytes,
+                budget_bytes,
+                used_bytes,
+            } => {
+                write!(
+                    f,
+                    "memory budget exceeded: requested {requested_bytes} bytes, \
+                     budget is {budget_bytes} bytes with {used_bytes} bytes already used"
+                )
             }
 
             GpuError::LengthMismatch { a, b } => {

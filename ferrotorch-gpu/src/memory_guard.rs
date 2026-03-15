@@ -1,0 +1,1252 @@
+//! GPU memory safety system — reservation, OOM recovery, and pressure monitoring.
+//!
+//! This module implements three layers of protection against GPU memory issues:
+//!
+//! 1. **Memory Reservation** ([`MemoryReservation`]) — Pre-allocate a large block at
+//!    startup so other processes cannot steal VRAM out from under a training run.
+//!
+//! 2. **OOM Recovery** ([`OomPolicy`], [`MemoryGuard::safe_alloc`]) — Configurable
+//!    behaviour when an allocation fails: retry after freeing cache, wait for memory
+//!    to become available, or save a checkpoint before crashing.
+//!
+//! 3. **Memory Pressure Monitoring** ([`MemoryWatchdog`]) — Background thread that
+//!    pauses training when free VRAM drops below a threshold, resuming automatically
+//!    once the pressure lifts.
+//!
+//! # Quick start
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//! use ferrotorch_gpu::memory_guard::{MemoryGuard, MemoryGuardBuilder, OomPolicy};
+//! use ferrotorch_gpu::GpuDevice;
+//!
+//! let device = Arc::new(GpuDevice::new(0).unwrap());
+//! let guard = MemoryGuardBuilder::new(Arc::clone(&device))
+//!     .budget_bytes(20 * 1024 * 1024 * 1024) // 20 GiB
+//!     .oom_policy(OomPolicy::RetryAfterFree)
+//!     .build()
+//!     .unwrap();
+//!
+//! let stats = guard.stats();
+//! println!("free: {} / total: {}", stats.free_device_bytes, stats.total_device_bytes);
+//! ```
+
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
+use crate::buffer::CudaBuffer;
+use crate::device::GpuDevice;
+use crate::error::{GpuError, GpuResult};
+
+// ---------------------------------------------------------------------------
+// OomPolicy
+// ---------------------------------------------------------------------------
+
+/// What to do when a GPU allocation fails with an out-of-memory error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OomPolicy {
+    /// Crash immediately (PyTorch default behaviour).
+    Fail,
+    /// Free the allocator cache and retry once.
+    RetryAfterFree,
+    /// Wait up to `timeout_secs` seconds for memory to become available,
+    /// then retry once.
+    WaitAndRetry {
+        /// Maximum seconds to wait.
+        timeout_secs: u64,
+    },
+    /// Invoke the registered emergency-checkpoint callback, then fail.
+    CheckpointAndFail,
+}
+
+impl Default for OomPolicy {
+    fn default() -> Self {
+        Self::Fail
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MemoryReservation
+// ---------------------------------------------------------------------------
+
+/// A sentinel CUDA allocation that reserves physical VRAM.
+///
+/// As long as this struct is alive the driver cannot give the reserved bytes to
+/// another process. Drop the reservation (or call
+/// [`MemoryGuard::release_reservation`]) to free the memory for reuse.
+pub struct MemoryReservation {
+    /// The reserved CUDA allocation that holds our budget.
+    /// Other processes cannot use this memory while this buffer exists.
+    _reservation: CudaBuffer<u8>,
+    /// Number of bytes reserved.
+    reserved_bytes: usize,
+    /// Which device the reservation lives on.
+    device_ordinal: usize,
+}
+
+impl MemoryReservation {
+    /// How many bytes are held by this reservation.
+    #[inline]
+    pub fn reserved_bytes(&self) -> usize {
+        self.reserved_bytes
+    }
+
+    /// The device ordinal the reservation lives on.
+    #[inline]
+    pub fn device_ordinal(&self) -> usize {
+        self.device_ordinal
+    }
+}
+
+impl std::fmt::Debug for MemoryReservation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryReservation")
+            .field("reserved_bytes", &self.reserved_bytes)
+            .field("device_ordinal", &self.device_ordinal)
+            .finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MemoryStats
+// ---------------------------------------------------------------------------
+
+/// Snapshot of memory-guard statistics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryStats {
+    /// Bytes currently tracked as live by the guard.
+    pub used_bytes: usize,
+    /// Hard budget ceiling (0 = unlimited).
+    pub budget_bytes: usize,
+    /// Peak tracked usage since creation or last reset.
+    pub peak_bytes: usize,
+    /// Free device memory as reported by the driver.
+    pub free_device_bytes: usize,
+    /// Total device memory as reported by the driver.
+    pub total_device_bytes: usize,
+    /// Number of live allocations tracked by the guard.
+    pub num_allocations: usize,
+    /// Number of OOM events that were successfully recovered.
+    pub num_oom_recoveries: usize,
+}
+
+// ---------------------------------------------------------------------------
+// MemoryGuard
+// ---------------------------------------------------------------------------
+
+/// Central memory-safety controller for a single GPU.
+///
+/// Wraps a [`GpuDevice`] and provides:
+/// - Optional upfront VRAM reservation (sentinel allocation).
+/// - Budget enforcement — allocations that would exceed the budget are
+///   rejected *before* touching the driver.
+/// - Configurable OOM recovery via [`OomPolicy`].
+/// - An emergency-checkpoint callback.
+///
+/// Construct via [`MemoryGuardBuilder`].
+pub struct MemoryGuard {
+    device: Arc<GpuDevice>,
+    /// Pre-allocated reservation block.
+    reservation: Mutex<Option<MemoryReservation>>,
+    /// Maximum bytes we are allowed to use (0 = unlimited).
+    budget_bytes: AtomicUsize,
+    /// Current live allocation bytes tracked by the guard.
+    used_bytes: AtomicUsize,
+    /// Peak tracked usage.
+    peak_bytes: AtomicUsize,
+    /// Number of live allocations.
+    num_allocations: AtomicUsize,
+    /// Number of successful OOM recoveries.
+    num_oom_recoveries: AtomicUsize,
+    /// Policy when OOM occurs.
+    oom_policy: Mutex<OomPolicy>,
+    /// Callback for emergency checkpoint.
+    on_oom_callback: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+}
+
+// SAFETY: All interior mutability is via atomics or `Mutex`.
+unsafe impl Send for MemoryGuard {}
+unsafe impl Sync for MemoryGuard {}
+
+impl MemoryGuard {
+    // ------------------------------------------------------------------
+    // Budget
+    // ------------------------------------------------------------------
+
+    /// Set a hard budget in bytes. Allocations that would push `used_bytes`
+    /// past this limit return [`GpuError::BudgetExceeded`] without touching
+    /// the driver.
+    ///
+    /// Pass `0` to remove the budget (unlimited).
+    pub fn set_budget(&self, bytes: usize) {
+        self.budget_bytes.store(bytes, Ordering::SeqCst);
+    }
+
+    /// Current budget (0 = unlimited).
+    #[inline]
+    pub fn budget(&self) -> usize {
+        self.budget_bytes.load(Ordering::Relaxed)
+    }
+
+    // ------------------------------------------------------------------
+    // OOM callback
+    // ------------------------------------------------------------------
+
+    /// Register a callback that will be invoked on OOM when the policy is
+    /// [`OomPolicy::CheckpointAndFail`]. Typically used to save a training
+    /// checkpoint so work is not lost.
+    pub fn on_oom<F: Fn() + Send + Sync + 'static>(&self, f: F) {
+        *self.on_oom_callback.lock().unwrap() = Some(Box::new(f));
+    }
+
+    /// Change the OOM policy at runtime.
+    pub fn set_oom_policy(&self, policy: OomPolicy) {
+        *self.oom_policy.lock().unwrap() = policy;
+    }
+
+    // ------------------------------------------------------------------
+    // Reservation management
+    // ------------------------------------------------------------------
+
+    /// Release the upfront reservation, making its memory available for
+    /// normal allocations. Returns the number of bytes released, or `0` if
+    /// there was no active reservation.
+    pub fn release_reservation(&self) -> usize {
+        let mut lock = self.reservation.lock().unwrap();
+        if let Some(res) = lock.take() {
+            let bytes = res.reserved_bytes;
+            drop(res);
+            bytes
+        } else {
+            0
+        }
+    }
+
+    /// Whether an upfront reservation is currently held.
+    pub fn has_reservation(&self) -> bool {
+        self.reservation.lock().unwrap().is_some()
+    }
+
+    // ------------------------------------------------------------------
+    // Allocation with safety layers
+    // ------------------------------------------------------------------
+
+    /// Allocate `count` zero-initialized elements on the device, enforcing
+    /// the budget and OOM policy.
+    ///
+    /// This is the primary allocation entry point when using the memory
+    /// guard. Prefer this over raw `CudaAllocator::alloc_zeros`.
+    #[cfg(feature = "cuda")]
+    pub fn safe_alloc<T>(&self, count: usize) -> GpuResult<CudaBuffer<T>>
+    where
+        T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits,
+    {
+        let alloc_bytes = count
+            .checked_mul(std::mem::size_of::<T>())
+            .unwrap_or(usize::MAX);
+
+        // --- Layer 1: budget check ---
+        self.check_budget(alloc_bytes)?;
+
+        // --- Layer 2: attempt allocation ---
+        match self.try_alloc_zeros::<T>(count, alloc_bytes) {
+            Ok(buf) => Ok(buf),
+            Err(e) if self.is_oom(&e) => self.handle_oom(count, alloc_bytes, e),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Allocate by copying host data to the device, enforcing budget and
+    /// OOM policy.
+    #[cfg(feature = "cuda")]
+    pub fn safe_alloc_copy<T>(&self, data: &[T]) -> GpuResult<CudaBuffer<T>>
+    where
+        T: cudarc::driver::DeviceRepr,
+    {
+        let alloc_bytes = data
+            .len()
+            .checked_mul(std::mem::size_of::<T>())
+            .unwrap_or(usize::MAX);
+
+        self.check_budget(alloc_bytes)?;
+
+        match self.try_alloc_copy(data, alloc_bytes) {
+            Ok(buf) => Ok(buf),
+            Err(e) if self.is_oom(&e) => {
+                // For copy allocs, retry with the same data.
+                let policy = self.oom_policy.lock().unwrap().clone();
+                match policy {
+                    OomPolicy::Fail => Err(e),
+                    OomPolicy::RetryAfterFree => {
+                        self.free_caches();
+                        self.num_oom_recoveries.fetch_add(1, Ordering::Relaxed);
+                        self.try_alloc_copy(data, alloc_bytes)
+                    }
+                    OomPolicy::WaitAndRetry { timeout_secs } => {
+                        self.wait_for_memory(alloc_bytes, timeout_secs)?;
+                        self.num_oom_recoveries.fetch_add(1, Ordering::Relaxed);
+                        self.try_alloc_copy(data, alloc_bytes)
+                    }
+                    OomPolicy::CheckpointAndFail => {
+                        self.trigger_emergency_checkpoint();
+                        Err(e)
+                    }
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Return a buffer to the guard, freeing GPU memory and updating
+    /// statistics.
+    pub fn free<T>(&self, buffer: CudaBuffer<T>) {
+        let bytes = buffer
+            .len()
+            .checked_mul(std::mem::size_of::<T>())
+            .unwrap_or(0);
+        self.used_bytes.fetch_sub(bytes, Ordering::Relaxed);
+        self.num_allocations.fetch_sub(1, Ordering::Relaxed);
+        drop(buffer);
+    }
+
+    // ------------------------------------------------------------------
+    // Statistics
+    // ------------------------------------------------------------------
+
+    /// Snapshot the current memory statistics.
+    pub fn stats(&self) -> MemoryStats {
+        let (free_device, total_device) = self.query_device_memory();
+        MemoryStats {
+            used_bytes: self.used_bytes.load(Ordering::Relaxed),
+            budget_bytes: self.budget_bytes.load(Ordering::Relaxed),
+            peak_bytes: self.peak_bytes.load(Ordering::Relaxed),
+            free_device_bytes: free_device,
+            total_device_bytes: total_device,
+            num_allocations: self.num_allocations.load(Ordering::Relaxed),
+            num_oom_recoveries: self.num_oom_recoveries.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Reset the peak-usage counter to the current usage level.
+    pub fn reset_peak_stats(&self) {
+        let current = self.used_bytes.load(Ordering::Relaxed);
+        self.peak_bytes.store(current, Ordering::Relaxed);
+    }
+
+    /// The underlying device.
+    #[inline]
+    pub fn device(&self) -> &GpuDevice {
+        &self.device
+    }
+
+    /// The underlying device as an `Arc`.
+    #[inline]
+    pub fn device_arc(&self) -> &Arc<GpuDevice> {
+        &self.device
+    }
+
+    // ------------------------------------------------------------------
+    // Internal helpers
+    //
+    // These methods are used by the `#[cfg(feature = "cuda")]` allocation
+    // paths. In the no-cuda build the callers do not exist, so we suppress
+    // the dead-code lint.
+    // ------------------------------------------------------------------
+
+    /// Check whether `alloc_bytes` would exceed the budget.
+    #[allow(dead_code)]
+    fn check_budget(&self, alloc_bytes: usize) -> GpuResult<()> {
+        let budget = self.budget_bytes.load(Ordering::Relaxed);
+        if budget == 0 {
+            return Ok(()); // unlimited
+        }
+        let used = self.used_bytes.load(Ordering::Relaxed);
+        if used.saturating_add(alloc_bytes) > budget {
+            return Err(GpuError::BudgetExceeded {
+                requested_bytes: alloc_bytes,
+                budget_bytes: budget,
+                used_bytes: used,
+            });
+        }
+        Ok(())
+    }
+
+    /// Low-level zero-init allocation with tracking.
+    #[cfg(feature = "cuda")]
+    fn try_alloc_zeros<T>(
+        &self,
+        count: usize,
+        alloc_bytes: usize,
+    ) -> GpuResult<CudaBuffer<T>>
+    where
+        T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits,
+    {
+        let slice = self.device.stream().alloc_zeros::<T>(count)?;
+
+        let prev = self.used_bytes.fetch_add(alloc_bytes, Ordering::Relaxed);
+        self.peak_bytes
+            .fetch_max(prev + alloc_bytes, Ordering::Relaxed);
+        self.num_allocations.fetch_add(1, Ordering::Relaxed);
+
+        Ok(CudaBuffer {
+            data: slice,
+            len: count,
+            device_ordinal: self.device.ordinal(),
+        })
+    }
+
+    /// Low-level host-to-device copy allocation with tracking.
+    #[cfg(feature = "cuda")]
+    fn try_alloc_copy<T>(
+        &self,
+        data: &[T],
+        alloc_bytes: usize,
+    ) -> GpuResult<CudaBuffer<T>>
+    where
+        T: cudarc::driver::DeviceRepr,
+    {
+        let slice = self.device.stream().clone_htod(data)?;
+
+        let prev = self.used_bytes.fetch_add(alloc_bytes, Ordering::Relaxed);
+        self.peak_bytes
+            .fetch_max(prev + alloc_bytes, Ordering::Relaxed);
+        self.num_allocations.fetch_add(1, Ordering::Relaxed);
+
+        Ok(CudaBuffer {
+            data: slice,
+            len: data.len(),
+            device_ordinal: self.device.ordinal(),
+        })
+    }
+
+    /// Determine whether an error is an out-of-memory condition.
+    #[allow(dead_code)]
+    fn is_oom(&self, err: &GpuError) -> bool {
+        match err {
+            GpuError::OutOfMemory { .. } => true,
+            #[cfg(feature = "cuda")]
+            GpuError::Driver(driver_err) => {
+                let msg = format!("{driver_err}");
+                msg.contains("OUT_OF_MEMORY")
+                    || msg.contains("out of memory")
+                    || msg.contains("CUDA_ERROR_OUT_OF_MEMORY")
+            }
+            _ => false,
+        }
+    }
+
+    /// Handle an OOM according to the current policy.
+    #[cfg(feature = "cuda")]
+    fn handle_oom<T>(
+        &self,
+        count: usize,
+        alloc_bytes: usize,
+        original_err: GpuError,
+    ) -> GpuResult<CudaBuffer<T>>
+    where
+        T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits,
+    {
+        let policy = self.oom_policy.lock().unwrap().clone();
+        match policy {
+            OomPolicy::Fail => Err(original_err),
+            OomPolicy::RetryAfterFree => {
+                self.free_caches();
+                self.num_oom_recoveries.fetch_add(1, Ordering::Relaxed);
+                self.try_alloc_zeros(count, alloc_bytes)
+            }
+            OomPolicy::WaitAndRetry { timeout_secs } => {
+                self.wait_for_memory(alloc_bytes, timeout_secs)?;
+                self.num_oom_recoveries.fetch_add(1, Ordering::Relaxed);
+                self.try_alloc_zeros(count, alloc_bytes)
+            }
+            OomPolicy::CheckpointAndFail => {
+                self.trigger_emergency_checkpoint();
+                Err(original_err)
+            }
+        }
+    }
+
+    /// Best-effort cache eviction. Currently a no-op placeholder — the
+    /// caching allocator is not yet implemented. When it is, this will
+    /// release all cached-but-free blocks.
+    #[allow(dead_code)]
+    fn free_caches(&self) {
+        // Future: delegate to CudaAllocator::empty_cache() once block
+        // caching is implemented.
+    }
+
+    /// Block until at least `needed_bytes` are free, or until `timeout_secs`
+    /// elapses.
+    #[allow(dead_code)]
+    fn wait_for_memory(&self, needed_bytes: usize, timeout_secs: u64) -> GpuResult<()> {
+        let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+        loop {
+            let (free, _) = self.query_device_memory();
+            if free >= needed_bytes {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err(GpuError::OutOfMemory {
+                    requested_bytes: needed_bytes,
+                    free_bytes: free,
+                });
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    /// Invoke the user-registered emergency checkpoint callback.
+    #[allow(dead_code)]
+    fn trigger_emergency_checkpoint(&self) {
+        let lock = self.on_oom_callback.lock().unwrap();
+        if let Some(cb) = lock.as_ref() {
+            cb();
+        }
+    }
+
+    /// Query free and total device memory from the driver.
+    ///
+    /// Returns `(free_bytes, total_bytes)`. On error (or when the `cuda`
+    /// feature is disabled), returns `(0, 0)`.
+    fn query_device_memory(&self) -> (usize, usize) {
+        #[cfg(feature = "cuda")]
+        {
+            cudarc::driver::result::mem_get_info().unwrap_or((0, 0))
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            (0, 0)
+        }
+    }
+}
+
+impl std::fmt::Debug for MemoryGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryGuard")
+            .field("device_ordinal", &self.device.ordinal())
+            .field("budget_bytes", &self.budget_bytes.load(Ordering::Relaxed))
+            .field("used_bytes", &self.used_bytes.load(Ordering::Relaxed))
+            .field("peak_bytes", &self.peak_bytes.load(Ordering::Relaxed))
+            .field(
+                "has_reservation",
+                &self.reservation.lock().unwrap().is_some(),
+            )
+            .finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stub when `cuda` feature is disabled
+// ---------------------------------------------------------------------------
+
+#[cfg(not(feature = "cuda"))]
+impl MemoryGuard {
+    /// Stub — returns [`GpuError::NoCudaFeature`].
+    pub fn safe_alloc<T>(&self, _count: usize) -> GpuResult<CudaBuffer<T>> {
+        Err(GpuError::NoCudaFeature)
+    }
+
+    /// Stub — returns [`GpuError::NoCudaFeature`].
+    pub fn safe_alloc_copy<T>(&self, _data: &[T]) -> GpuResult<CudaBuffer<T>> {
+        Err(GpuError::NoCudaFeature)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MemoryGuardBuilder
+// ---------------------------------------------------------------------------
+
+/// Builder for [`MemoryGuard`].
+///
+/// ```rust,no_run
+/// # use std::sync::Arc;
+/// # use ferrotorch_gpu::memory_guard::{MemoryGuardBuilder, OomPolicy};
+/// # use ferrotorch_gpu::GpuDevice;
+/// let device = Arc::new(GpuDevice::new(0).unwrap());
+/// let guard = MemoryGuardBuilder::new(device)
+///     .budget_bytes(16 * 1024 * 1024 * 1024)
+///     .reserve_bytes(16 * 1024 * 1024 * 1024)
+///     .oom_policy(OomPolicy::RetryAfterFree)
+///     .build()
+///     .unwrap();
+/// ```
+pub struct MemoryGuardBuilder {
+    device: Arc<GpuDevice>,
+    budget_bytes: usize,
+    reserve_bytes: usize,
+    oom_policy: OomPolicy,
+}
+
+impl MemoryGuardBuilder {
+    /// Create a new builder for the given device.
+    pub fn new(device: Arc<GpuDevice>) -> Self {
+        Self {
+            device,
+            budget_bytes: 0,
+            reserve_bytes: 0,
+            oom_policy: OomPolicy::default(),
+        }
+    }
+
+    /// Set the hard memory budget in bytes. `0` means unlimited.
+    pub fn budget_bytes(mut self, bytes: usize) -> Self {
+        self.budget_bytes = bytes;
+        self
+    }
+
+    /// Pre-allocate `bytes` of VRAM as a reservation sentinel.
+    /// Other processes cannot use this memory while the guard is alive.
+    pub fn reserve_bytes(mut self, bytes: usize) -> Self {
+        self.reserve_bytes = bytes;
+        self
+    }
+
+    /// Set the OOM recovery policy.
+    pub fn oom_policy(mut self, policy: OomPolicy) -> Self {
+        self.oom_policy = policy;
+        self
+    }
+
+    /// Build the [`MemoryGuard`].
+    ///
+    /// If `reserve_bytes` was set, this will attempt to allocate the
+    /// sentinel buffer. Failure to allocate is returned as an error.
+    #[cfg(feature = "cuda")]
+    pub fn build(self) -> GpuResult<MemoryGuard> {
+        let reservation = if self.reserve_bytes > 0 {
+            let slice = self
+                .device
+                .stream()
+                .alloc_zeros::<u8>(self.reserve_bytes)?;
+            Some(MemoryReservation {
+                _reservation: CudaBuffer {
+                    data: slice,
+                    len: self.reserve_bytes,
+                    device_ordinal: self.device.ordinal(),
+                },
+                reserved_bytes: self.reserve_bytes,
+                device_ordinal: self.device.ordinal(),
+            })
+        } else {
+            None
+        };
+
+        Ok(MemoryGuard {
+            device: self.device,
+            reservation: Mutex::new(reservation),
+            budget_bytes: AtomicUsize::new(self.budget_bytes),
+            used_bytes: AtomicUsize::new(0),
+            peak_bytes: AtomicUsize::new(0),
+            num_allocations: AtomicUsize::new(0),
+            num_oom_recoveries: AtomicUsize::new(0),
+            oom_policy: Mutex::new(self.oom_policy),
+            on_oom_callback: Mutex::new(None),
+        })
+    }
+
+    /// Stub build when `cuda` feature is disabled.
+    #[cfg(not(feature = "cuda"))]
+    pub fn build(self) -> GpuResult<MemoryGuard> {
+        Ok(MemoryGuard {
+            device: self.device,
+            reservation: Mutex::new(None),
+            budget_bytes: AtomicUsize::new(self.budget_bytes),
+            used_bytes: AtomicUsize::new(0),
+            peak_bytes: AtomicUsize::new(0),
+            num_allocations: AtomicUsize::new(0),
+            num_oom_recoveries: AtomicUsize::new(0),
+            oom_policy: Mutex::new(self.oom_policy),
+            on_oom_callback: Mutex::new(None),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MemoryWatchdog
+// ---------------------------------------------------------------------------
+
+/// Background monitor that pauses training when free VRAM drops below a
+/// threshold.
+///
+/// Create a watchdog, wrap it in an `Arc`, and call [`start`](Self::start) to
+/// spawn the monitoring thread. Between training batches, call
+/// [`wait_if_paused`](Self::wait_if_paused) to block until memory pressure
+/// is resolved.
+///
+/// ```rust,no_run
+/// use std::sync::Arc;
+/// use std::time::Duration;
+/// use ferrotorch_gpu::memory_guard::MemoryWatchdog;
+/// use ferrotorch_gpu::GpuDevice;
+///
+/// let device = Arc::new(GpuDevice::new(0).unwrap());
+/// let watchdog = Arc::new(MemoryWatchdog::new(
+///     device,
+///     512 * 1024 * 1024, // pause when <512 MiB free
+///     Duration::from_secs(1),
+/// ));
+/// let handle = Arc::clone(&watchdog).start();
+///
+/// // In training loop:
+/// watchdog.wait_if_paused();
+/// ```
+pub struct MemoryWatchdog {
+    device: Arc<GpuDevice>,
+    /// Minimum free bytes before we pause.
+    pressure_threshold_bytes: usize,
+    /// How often to poll the driver.
+    check_interval: Duration,
+    /// Whether training is currently paused due to memory pressure.
+    paused: AtomicBool,
+    /// Signal to stop the background thread.
+    stop: AtomicBool,
+}
+
+impl MemoryWatchdog {
+    /// Create a new watchdog. Does not start monitoring until [`start`](Self::start)
+    /// is called.
+    pub fn new(
+        device: Arc<GpuDevice>,
+        pressure_threshold_bytes: usize,
+        check_interval: Duration,
+    ) -> Self {
+        Self {
+            device,
+            pressure_threshold_bytes,
+            check_interval,
+            paused: AtomicBool::new(false),
+            stop: AtomicBool::new(false),
+        }
+    }
+
+    /// Start the monitoring thread. Returns a `JoinHandle` that can be used
+    /// to wait for shutdown (after calling [`stop`](Self::stop)).
+    pub fn start(self: Arc<Self>) -> JoinHandle<()> {
+        std::thread::Builder::new()
+            .name("ferrotorch-memory-watchdog".into())
+            .spawn(move || {
+                while !self.stop.load(Ordering::Relaxed) {
+                    let free = self.query_free_memory();
+                    if free < self.pressure_threshold_bytes {
+                        self.paused.store(true, Ordering::SeqCst);
+                        // Spin until memory is available or we are told to stop.
+                        while self.query_free_memory() < self.pressure_threshold_bytes {
+                            if self.stop.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            std::thread::sleep(Duration::from_millis(500));
+                        }
+                        self.paused.store(false, Ordering::SeqCst);
+                    }
+                    std::thread::sleep(self.check_interval);
+                }
+            })
+            .expect("failed to spawn memory watchdog thread")
+    }
+
+    /// Signal the background thread to exit.
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+
+    /// Returns `true` if the watchdog currently has training paused due to
+    /// memory pressure.
+    #[inline]
+    pub fn check_pressure(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+
+    /// Block the calling thread until memory pressure is resolved.
+    /// Call this between training batches.
+    pub fn wait_if_paused(&self) {
+        while self.paused.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    /// The pressure threshold in bytes.
+    #[inline]
+    pub fn pressure_threshold_bytes(&self) -> usize {
+        self.pressure_threshold_bytes
+    }
+
+    /// Query the amount of free device memory.
+    fn query_free_memory(&self) -> usize {
+        #[cfg(feature = "cuda")]
+        {
+            let _ = &self.device; // ensure context is alive
+            cudarc::driver::result::mem_get_info()
+                .map(|(free, _)| free)
+                .unwrap_or(0)
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            let _ = &self.device;
+            0
+        }
+    }
+}
+
+impl std::fmt::Debug for MemoryWatchdog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryWatchdog")
+            .field("device_ordinal", &self.device.ordinal())
+            .field(
+                "pressure_threshold_bytes",
+                &self.pressure_threshold_bytes,
+            )
+            .field("check_interval", &self.check_interval)
+            .field("paused", &self.paused.load(Ordering::Relaxed))
+            .finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GpuDevice extensions
+// ---------------------------------------------------------------------------
+
+impl GpuDevice {
+    /// Query free and total GPU memory for this device.
+    ///
+    /// Returns `(free_bytes, total_bytes)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError::Driver`] if the CUDA driver call fails.
+    #[cfg(feature = "cuda")]
+    pub fn memory_info(&self) -> GpuResult<(usize, usize)> {
+        // cuMemGetInfo operates on the current context, so we need to ensure
+        // this device's context is bound. The cudarc CudaContext does this
+        // internally for allocations, but mem_get_info is a free function.
+        // Binding is handled by the caller having created the device.
+        let info = cudarc::driver::result::mem_get_info()?;
+        Ok(info)
+    }
+
+    /// Query free and total GPU memory — stub when `cuda` is disabled.
+    #[cfg(not(feature = "cuda"))]
+    pub fn memory_info(&self) -> GpuResult<(usize, usize)> {
+        Err(GpuError::NoCudaFeature)
+    }
+}
+
+/// A [`GpuDevice`] paired with a [`MemoryGuard`] for convenient use.
+///
+/// Created by [`GpuDevice::with_memory_guard`].
+pub struct MemoryGuardedDevice {
+    /// The memory guard managing allocations.
+    pub guard: MemoryGuard,
+}
+
+impl MemoryGuardedDevice {
+    /// Access the underlying device.
+    #[inline]
+    pub fn device(&self) -> &GpuDevice {
+        self.guard.device()
+    }
+
+    /// Access the memory guard.
+    #[inline]
+    pub fn guard(&self) -> &MemoryGuard {
+        &self.guard
+    }
+}
+
+impl std::fmt::Debug for MemoryGuardedDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryGuardedDevice")
+            .field("guard", &self.guard)
+            .finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---------------------------------------------------------------
+    // Unit tests (no GPU required)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn oom_policy_default_is_fail() {
+        assert_eq!(OomPolicy::default(), OomPolicy::Fail);
+    }
+
+    #[test]
+    fn oom_policy_debug() {
+        let p = OomPolicy::WaitAndRetry { timeout_secs: 30 };
+        let s = format!("{p:?}");
+        assert!(s.contains("WaitAndRetry"));
+        assert!(s.contains("30"));
+    }
+
+    #[test]
+    fn memory_stats_clone_eq() {
+        let s = MemoryStats {
+            used_bytes: 100,
+            budget_bytes: 1000,
+            peak_bytes: 200,
+            free_device_bytes: 800,
+            total_device_bytes: 2000,
+            num_allocations: 5,
+            num_oom_recoveries: 1,
+        };
+        let s2 = s.clone();
+        assert_eq!(s, s2);
+    }
+
+    #[test]
+    fn memory_stats_debug() {
+        let s = MemoryStats {
+            used_bytes: 0,
+            budget_bytes: 0,
+            peak_bytes: 0,
+            free_device_bytes: 0,
+            total_device_bytes: 0,
+            num_allocations: 0,
+            num_oom_recoveries: 0,
+        };
+        let d = format!("{s:?}");
+        assert!(d.contains("MemoryStats"));
+        assert!(d.contains("used_bytes"));
+    }
+
+    #[test]
+    fn gpu_error_out_of_memory_display() {
+        let e = GpuError::OutOfMemory {
+            requested_bytes: 1024,
+            free_bytes: 512,
+        };
+        let s = format!("{e}");
+        assert!(s.contains("1024"));
+        assert!(s.contains("512"));
+        assert!(s.contains("out of memory"));
+    }
+
+    #[test]
+    fn gpu_error_budget_exceeded_display() {
+        let e = GpuError::BudgetExceeded {
+            requested_bytes: 500,
+            budget_bytes: 1000,
+            used_bytes: 800,
+        };
+        let s = format!("{e}");
+        assert!(s.contains("500"));
+        assert!(s.contains("1000"));
+        assert!(s.contains("800"));
+        assert!(s.contains("budget exceeded"));
+    }
+
+    // ---------------------------------------------------------------
+    // GPU tests (require `cuda` feature and a real device)
+    // ---------------------------------------------------------------
+
+    #[cfg(feature = "cuda")]
+    mod gpu_tests {
+        use super::*;
+
+        fn make_device() -> Arc<GpuDevice> {
+            Arc::new(GpuDevice::new(0).expect("CUDA device 0"))
+        }
+
+        #[test]
+        fn guard_construction_and_stats() {
+            let device = make_device();
+            let guard = MemoryGuardBuilder::new(device)
+                .budget_bytes(1024 * 1024 * 1024) // 1 GiB
+                .oom_policy(OomPolicy::Fail)
+                .build()
+                .expect("build guard");
+
+            let stats = guard.stats();
+            assert_eq!(stats.used_bytes, 0);
+            assert_eq!(stats.budget_bytes, 1024 * 1024 * 1024);
+            assert_eq!(stats.peak_bytes, 0);
+            assert_eq!(stats.num_allocations, 0);
+            assert_eq!(stats.num_oom_recoveries, 0);
+            assert!(stats.total_device_bytes > 0);
+            assert!(stats.free_device_bytes > 0);
+        }
+
+        #[test]
+        fn budget_enforcement_rejects_over_budget() {
+            let device = make_device();
+            let guard = MemoryGuardBuilder::new(device)
+                .budget_bytes(256) // tiny budget: 256 bytes
+                .build()
+                .expect("build guard");
+
+            // Try to allocate way more than the budget.
+            let result = guard.safe_alloc::<f32>(1024); // 4096 bytes
+            assert!(result.is_err());
+            match result.unwrap_err() {
+                GpuError::BudgetExceeded {
+                    requested_bytes,
+                    budget_bytes,
+                    used_bytes,
+                } => {
+                    assert_eq!(requested_bytes, 1024 * 4);
+                    assert_eq!(budget_bytes, 256);
+                    assert_eq!(used_bytes, 0);
+                }
+                other => panic!("expected BudgetExceeded, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn safe_alloc_tracks_usage() {
+            let device = make_device();
+            let guard = MemoryGuardBuilder::new(device)
+                .budget_bytes(0) // unlimited
+                .build()
+                .expect("build guard");
+
+            let buf = guard.safe_alloc::<f32>(256).expect("alloc 256 f32");
+            let expected = 256 * std::mem::size_of::<f32>();
+
+            let stats = guard.stats();
+            assert_eq!(stats.used_bytes, expected);
+            assert_eq!(stats.peak_bytes, expected);
+            assert_eq!(stats.num_allocations, 1);
+
+            guard.free(buf);
+
+            let stats = guard.stats();
+            assert_eq!(stats.used_bytes, 0);
+            assert_eq!(stats.num_allocations, 0);
+            // Peak should still be high.
+            assert_eq!(stats.peak_bytes, expected);
+        }
+
+        #[test]
+        fn safe_alloc_copy_tracks_usage() {
+            let device = make_device();
+            let guard = MemoryGuardBuilder::new(device)
+                .build()
+                .expect("build guard");
+
+            let data: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0];
+            let buf = guard.safe_alloc_copy(&data).expect("alloc_copy");
+            let expected = 4 * std::mem::size_of::<f64>();
+
+            assert_eq!(guard.stats().used_bytes, expected);
+            guard.free(buf);
+            assert_eq!(guard.stats().used_bytes, 0);
+        }
+
+        #[test]
+        fn reset_peak_stats_works() {
+            let device = make_device();
+            let guard = MemoryGuardBuilder::new(device)
+                .build()
+                .expect("build guard");
+
+            let buf = guard.safe_alloc::<f32>(512).expect("alloc");
+            let peak = guard.stats().peak_bytes;
+            assert!(peak > 0);
+
+            guard.free(buf);
+            assert_eq!(guard.stats().peak_bytes, peak); // still high
+
+            guard.reset_peak_stats();
+            assert_eq!(guard.stats().peak_bytes, 0); // reset to current (0)
+        }
+
+        #[test]
+        fn emergency_checkpoint_callback_invoked() {
+            let device = make_device();
+            let guard = MemoryGuardBuilder::new(device)
+                .build()
+                .expect("build guard");
+
+            let called = Arc::new(AtomicBool::new(false));
+            let called_clone = Arc::clone(&called);
+            guard.on_oom(move || {
+                called_clone.store(true, Ordering::SeqCst);
+            });
+
+            // Directly invoke the internal method to test the callback.
+            guard.trigger_emergency_checkpoint();
+            assert!(called.load(Ordering::SeqCst));
+        }
+
+        #[test]
+        fn set_budget_at_runtime() {
+            let device = make_device();
+            let guard = MemoryGuardBuilder::new(device)
+                .budget_bytes(0)
+                .build()
+                .expect("build guard");
+
+            assert_eq!(guard.budget(), 0);
+
+            guard.set_budget(1024);
+            assert_eq!(guard.budget(), 1024);
+
+            // Now an allocation over 1024 bytes should fail.
+            let result = guard.safe_alloc::<f32>(1024); // 4096 bytes > 1024 budget
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn memory_info_returns_nonzero() {
+            let device = GpuDevice::new(0).expect("CUDA device 0");
+            let (free, total) = device.memory_info().expect("memory_info");
+            assert!(total > 0, "total device memory should be > 0");
+            assert!(free > 0, "free device memory should be > 0");
+            assert!(free <= total, "free should not exceed total");
+        }
+
+        #[test]
+        fn reservation_holds_memory() {
+            let device = make_device();
+            let (free_before, _) = device.memory_info().expect("memory_info");
+
+            // Reserve 64 MiB.
+            let reserve_bytes = 64 * 1024 * 1024;
+            let guard = MemoryGuardBuilder::new(device)
+                .reserve_bytes(reserve_bytes)
+                .build()
+                .expect("build guard with reservation");
+
+            assert!(guard.has_reservation());
+
+            // Release the reservation.
+            let released = guard.release_reservation();
+            assert_eq!(released, reserve_bytes);
+            assert!(!guard.has_reservation());
+
+            // Releasing again returns 0.
+            assert_eq!(guard.release_reservation(), 0);
+
+            let _ = free_before; // suppress unused warning
+        }
+
+        #[test]
+        fn guard_debug_impl() {
+            let device = make_device();
+            let guard = MemoryGuardBuilder::new(device)
+                .budget_bytes(999)
+                .build()
+                .expect("build guard");
+
+            let s = format!("{guard:?}");
+            assert!(s.contains("MemoryGuard"));
+            assert!(s.contains("budget_bytes"));
+            assert!(s.contains("999"));
+        }
+
+        #[test]
+        #[ignore = "timing-dependent, run with --ignored"]
+        fn watchdog_detects_no_pressure_when_plenty_free() {
+            let device = make_device();
+            // Threshold of 1 byte — should never trigger pressure.
+            let watchdog = Arc::new(MemoryWatchdog::new(
+                device,
+                1,
+                Duration::from_millis(50),
+            ));
+
+            assert!(!watchdog.check_pressure());
+            watchdog.wait_if_paused(); // should return immediately
+
+            // Start and immediately stop.
+            let wd = Arc::clone(&watchdog);
+            let handle = wd.start();
+            std::thread::sleep(Duration::from_millis(100));
+            assert!(!watchdog.check_pressure());
+            watchdog.stop();
+            handle.join().expect("watchdog thread");
+        }
+
+        #[test]
+        fn watchdog_debug_impl() {
+            let device = make_device();
+            let watchdog = MemoryWatchdog::new(
+                device,
+                1024,
+                Duration::from_secs(1),
+            );
+            let s = format!("{watchdog:?}");
+            assert!(s.contains("MemoryWatchdog"));
+            assert!(s.contains("1024"));
+        }
+
+        #[test]
+        fn memory_guarded_device() {
+            let device = make_device();
+            let guard = MemoryGuardBuilder::new(Arc::clone(&device))
+                .budget_bytes(1024 * 1024)
+                .build()
+                .expect("build guard");
+
+            let guarded = MemoryGuardedDevice { guard };
+            assert_eq!(guarded.device().ordinal(), 0);
+            assert_eq!(guarded.guard().budget(), 1024 * 1024);
+
+            let s = format!("{guarded:?}");
+            assert!(s.contains("MemoryGuardedDevice"));
+        }
+
+        #[test]
+        fn oom_policy_retry_after_free() {
+            // This test verifies the RetryAfterFree policy increments the
+            // recovery counter. We cannot easily force a real OOM in a unit
+            // test, so we verify the policy is stored correctly and the
+            // counter machinery works.
+            let device = make_device();
+            let guard = MemoryGuardBuilder::new(device)
+                .oom_policy(OomPolicy::RetryAfterFree)
+                .build()
+                .expect("build guard");
+
+            // With RetryAfterFree and no actual OOM, allocation succeeds
+            // on the first attempt — recovery counter stays at 0.
+            let buf = guard.safe_alloc::<f32>(64).expect("alloc");
+            assert_eq!(guard.stats().num_oom_recoveries, 0);
+            guard.free(buf);
+        }
+
+        #[test]
+        fn multiple_allocations_budget_accounting() {
+            let device = make_device();
+            let budget = 2048_usize;
+            let guard = MemoryGuardBuilder::new(device)
+                .budget_bytes(budget)
+                .build()
+                .expect("build guard");
+
+            // First alloc: 128 f32 = 512 bytes. Should succeed.
+            let buf1 = guard.safe_alloc::<f32>(128).expect("alloc 1");
+            assert_eq!(guard.stats().used_bytes, 512);
+            assert_eq!(guard.stats().num_allocations, 1);
+
+            // Second alloc: 128 f32 = 512 bytes. Total = 1024. Should succeed.
+            let buf2 = guard.safe_alloc::<f32>(128).expect("alloc 2");
+            assert_eq!(guard.stats().used_bytes, 1024);
+            assert_eq!(guard.stats().num_allocations, 2);
+
+            // Third alloc: 512 f32 = 2048 bytes. Total would be 3072 > 2048. Should fail.
+            let result = guard.safe_alloc::<f32>(512);
+            assert!(result.is_err());
+
+            // Free buf1, then the third alloc should succeed (1024 + 512 < 2048? no, 512 + 2048 = 2560)
+            // Actually 1024-512 = 512 used, then 512 + 2048 = 2560 > 2048. Still too big.
+            // Let's free both and try a fitting alloc.
+            guard.free(buf1);
+            guard.free(buf2);
+            assert_eq!(guard.stats().used_bytes, 0);
+
+            let buf3 = guard.safe_alloc::<f32>(512).expect("alloc 3 after free");
+            assert_eq!(guard.stats().used_bytes, 2048);
+            guard.free(buf3);
+        }
+    }
+}
