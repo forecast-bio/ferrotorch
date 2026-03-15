@@ -1,0 +1,8 @@
+{
+  "uuid": "62b14fa2-aedc-43b2-bba5-9a8dc5fe0946",
+  "issue_uuid": "3605cd3e-4dd9-4dc2-9ba2-315662470a36",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Operator overloading (Add/Sub/Mul/Div/Neg for all 4 ownership combos: &T op &T, T op T, T op &T, &T op T), Display with PyTorch-style formatting (scalar, 1D, 2D, 3D+ summary, grad_fn name, requires_grad). 15 new tests, 218 total core tests.",
+  "created_at": "2026-03-15T14:35:06.459336522Z",
+  "kind": "result"
+}
