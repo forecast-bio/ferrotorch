@@ -1,0 +1,11 @@
+{
+  "uuid": "4679ae4b-d4d4-402d-96a5-31c4f312c051",
+  "display_id": 50,
+  "title": "Add Optimizer trait and ferrotorch-optim crate skeleton",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "62bf35be-d6f4-4b2c-a4c8-afaf5c3ffb88",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T03:17:42.128784933Z",
+  "updated_at": "2026-03-15T03:17:42.128784933Z"
+}
