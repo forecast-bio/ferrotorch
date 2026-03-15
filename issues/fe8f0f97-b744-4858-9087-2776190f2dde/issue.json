@@ -2,12 +2,13 @@
   "uuid": "fe8f0f97-b744-4858-9087-2776190f2dde",
   "display_id": 6,
   "title": "Add elementwise ops bridge to ferray-ufunc",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "parent_uuid": "fbfbd525-d49e-4e47-97c8-6d4d853a207b",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T01:25:14.530354815Z",
-  "updated_at": "2026-03-15T01:25:59.529189201Z",
+  "updated_at": "2026-03-15T01:45:10.252486420Z",
+  "closed_at": "2026-03-15T01:45:10.252486420Z",
   "labels": [
     "feature"
   ],
