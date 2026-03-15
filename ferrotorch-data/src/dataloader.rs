@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use ferrotorch_core::FerrotorchResult;
+use rayon::prelude::*;
 
 use crate::dataset::Dataset;
 use crate::sampler::{RandomSampler, Sampler, SequentialSampler};
@@ -28,6 +29,8 @@ pub struct DataLoader<D: Dataset> {
     shuffle: bool,
     drop_last: bool,
     seed: u64,
+    num_workers: usize,
+    custom_sampler: Option<Box<dyn Sampler>>,
     collate_fn: Option<Arc<dyn Fn(Vec<D::Sample>) -> FerrotorchResult<D::Sample> + Send + Sync>>,
 }
 
@@ -47,6 +50,8 @@ impl<D: Dataset> DataLoader<D> {
             shuffle: false,
             drop_last: false,
             seed: 0,
+            num_workers: 0,
+            custom_sampler: None,
             collate_fn: None,
         }
     }
@@ -73,6 +78,25 @@ impl<D: Dataset> DataLoader<D> {
     /// remaining deterministic.
     pub fn seed(mut self, seed: u64) -> Self {
         self.seed = seed;
+        self
+    }
+
+    /// Set the number of worker threads for parallel sample loading.
+    ///
+    /// When `n > 0`, each batch's samples are loaded in parallel using
+    /// rayon's work-stealing thread pool. When `n == 0` (the default),
+    /// samples are loaded sequentially on the calling thread.
+    pub fn num_workers(mut self, n: usize) -> Self {
+        self.num_workers = n;
+        self
+    }
+
+    /// Inject a custom [`Sampler`] to control index generation.
+    ///
+    /// When a custom sampler is set, it takes precedence over the
+    /// `shuffle` flag — the sampler fully controls index ordering.
+    pub fn with_sampler(mut self, sampler: Box<dyn Sampler>) -> Self {
+        self.custom_sampler = Some(sampler);
         self
     }
 
@@ -143,19 +167,22 @@ impl<D: Dataset> DataLoader<D> {
     /// The `epoch` parameter is passed to the sampler so that shuffled
     /// orderings vary across epochs yet remain reproducible.
     pub fn iter(&self, epoch: usize) -> DataLoaderIter<'_, D> {
-        let sampler: Box<dyn Sampler> = if self.shuffle {
-            Box::new(RandomSampler::new(self.dataset.len(), self.seed))
+        let indices = if let Some(ref sampler) = self.custom_sampler {
+            sampler.indices(epoch)
+        } else if self.shuffle {
+            let sampler = RandomSampler::new(self.dataset.len(), self.seed);
+            sampler.indices(epoch)
         } else {
-            Box::new(SequentialSampler::new(self.dataset.len()))
+            let sampler = SequentialSampler::new(self.dataset.len());
+            sampler.indices(epoch)
         };
-
-        let indices = sampler.indices(epoch);
 
         DataLoaderIter {
             dataset: &self.dataset,
             indices,
             batch_size: self.batch_size,
             drop_last: self.drop_last,
+            num_workers: self.num_workers,
             pos: 0,
         }
     }
@@ -165,15 +192,22 @@ impl<D: Dataset> DataLoader<D> {
 ///
 /// Each call to `next()` returns `Some(FerrotorchResult<Vec<D::Sample>>)`.
 /// The result is `Err` if any individual `Dataset::get` fails.
+///
+/// When `num_workers > 0`, samples within each batch are loaded in parallel
+/// using rayon's work-stealing thread pool.
 pub struct DataLoaderIter<'a, D: Dataset> {
     dataset: &'a D,
     indices: Vec<usize>,
     batch_size: usize,
     drop_last: bool,
+    num_workers: usize,
     pos: usize,
 }
 
-impl<D: Dataset> Iterator for DataLoaderIter<'_, D> {
+impl<D: Dataset> Iterator for DataLoaderIter<'_, D>
+where
+    D::Sample: Send,
+{
     type Item = FerrotorchResult<Vec<D::Sample>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -189,14 +223,24 @@ impl<D: Dataset> Iterator for DataLoaderIter<'_, D> {
         let batch_indices = &self.indices[self.pos..end];
         self.pos = end;
 
-        let mut batch = Vec::with_capacity(batch_indices.len());
-        for &idx in batch_indices {
-            match self.dataset.get(idx) {
-                Ok(sample) => batch.push(sample),
-                Err(e) => return Some(Err(e)),
+        if self.num_workers > 0 {
+            // Parallel path: load samples concurrently via rayon.
+            let batch: Result<Vec<_>, _> = batch_indices
+                .par_iter()
+                .map(|&idx| self.dataset.get(idx))
+                .collect();
+            Some(batch)
+        } else {
+            // Sequential path: load samples one at a time.
+            let mut batch = Vec::with_capacity(batch_indices.len());
+            for &idx in batch_indices {
+                match self.dataset.get(idx) {
+                    Ok(sample) => batch.push(sample),
+                    Err(e) => return Some(Err(e)),
+                }
             }
+            Some(Ok(batch))
         }
-        Some(Ok(batch))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -212,7 +256,7 @@ impl<D: Dataset> Iterator for DataLoaderIter<'_, D> {
     }
 }
 
-impl<D: Dataset> ExactSizeIterator for DataLoaderIter<'_, D> {}
+impl<D: Dataset> ExactSizeIterator for DataLoaderIter<'_, D> where D::Sample: Send {}
 
 /// Iterator over collated batches produced by a [`DataLoader`].
 ///
@@ -223,7 +267,10 @@ pub struct CollatedIter<'a, D: Dataset> {
     collate_fn: &'a (dyn Fn(Vec<D::Sample>) -> FerrotorchResult<D::Sample> + Send + Sync),
 }
 
-impl<D: Dataset> Iterator for CollatedIter<'_, D> {
+impl<D: Dataset> Iterator for CollatedIter<'_, D>
+where
+    D::Sample: Send,
+{
     type Item = FerrotorchResult<D::Sample>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -236,7 +283,7 @@ impl<D: Dataset> Iterator for CollatedIter<'_, D> {
     }
 }
 
-impl<D: Dataset> ExactSizeIterator for CollatedIter<'_, D> {}
+impl<D: Dataset> ExactSizeIterator for CollatedIter<'_, D> where D::Sample: Send {}
 
 #[cfg(test)]
 mod tests {
@@ -549,5 +596,124 @@ mod tests {
             .map(|r| r.unwrap())
             .collect();
         assert_eq!(batches, vec![vec![0, 1], vec![2, 3]]);
+    }
+
+    // ── num_workers ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_num_workers_builder() {
+        let loader = DataLoader::new(make_dataset(10), 2).num_workers(4);
+        assert_eq!(loader.num_workers, 4);
+    }
+
+    #[test]
+    fn test_num_workers_parallel_loads_all_samples() {
+        let loader = DataLoader::new(make_dataset(20), 5).num_workers(2);
+        let mut all: Vec<i32> = loader
+            .iter(0)
+            .flat_map(|b| b.unwrap())
+            .collect();
+        all.sort();
+        assert_eq!(all, (0..20).collect::<Vec<i32>>());
+    }
+
+    #[test]
+    fn test_num_workers_parallel_batch_sizes() {
+        let loader = DataLoader::new(make_dataset(7), 3).num_workers(2);
+        let sizes: Vec<usize> = loader
+            .iter(0)
+            .map(|b| b.unwrap().len())
+            .collect();
+        assert_eq!(sizes, vec![3, 3, 1]);
+    }
+
+    #[test]
+    fn test_num_workers_parallel_drop_last() {
+        let loader = DataLoader::new(make_dataset(10), 3)
+            .num_workers(2)
+            .drop_last(true);
+        let batches: Vec<_> = loader.iter(0).collect();
+        assert_eq!(batches.len(), 3);
+        for b in &batches {
+            assert_eq!(b.as_ref().unwrap().len(), 3);
+        }
+    }
+
+    #[test]
+    fn test_num_workers_parallel_with_shuffle() {
+        let loader = DataLoader::new(make_dataset(100), 100)
+            .num_workers(4)
+            .shuffle(true)
+            .seed(42);
+        let batch = loader.iter(0).next().unwrap().unwrap();
+        let sequential: Vec<i32> = (0..100).collect();
+        // Should be shuffled even in parallel mode.
+        assert_ne!(batch, sequential);
+        // But contain all elements.
+        let mut sorted = batch;
+        sorted.sort();
+        assert_eq!(sorted, sequential);
+    }
+
+    #[test]
+    fn test_num_workers_zero_is_sequential() {
+        // num_workers=0 should behave identically to default.
+        let loader = DataLoader::new(make_dataset(10), 3).num_workers(0);
+        let batches: Vec<Vec<i32>> = loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+        assert_eq!(batches, vec![vec![0, 1, 2], vec![3, 4, 5], vec![6, 7, 8], vec![9]]);
+    }
+
+    // ── custom sampler ──────────────────────────────────────────────
+
+    #[test]
+    fn test_with_sampler_overrides_shuffle() {
+        use crate::sampler::SequentialSampler;
+
+        // Even with shuffle=true, a custom sampler takes precedence.
+        let loader = DataLoader::new(make_dataset(6), 3)
+            .shuffle(true)
+            .seed(42)
+            .with_sampler(Box::new(SequentialSampler::new(6)));
+
+        let batches: Vec<Vec<i32>> = loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+        assert_eq!(batches, vec![vec![0, 1, 2], vec![3, 4, 5]]);
+    }
+
+    #[test]
+    fn test_with_distributed_sampler() {
+        use crate::sampler::DistributedSampler;
+
+        let ds = make_dataset(10);
+        // Rank 0 of 2, no shuffle => indices [0,2,4,6,8]
+        let sampler = DistributedSampler::new(10, 2, 0).shuffle(false);
+        let loader = DataLoader::new(ds, 3).with_sampler(Box::new(sampler));
+
+        let all: Vec<i32> = loader
+            .iter(0)
+            .flat_map(|b| b.unwrap())
+            .collect();
+        assert_eq!(all, vec![0, 2, 4, 6, 8]);
+    }
+
+    #[test]
+    fn test_with_sampler_and_num_workers() {
+        use crate::sampler::SequentialSampler;
+
+        let loader = DataLoader::new(make_dataset(8), 4)
+            .num_workers(2)
+            .with_sampler(Box::new(SequentialSampler::new(8)));
+
+        let mut all: Vec<i32> = loader
+            .iter(0)
+            .flat_map(|b| b.unwrap())
+            .collect();
+        all.sort();
+        assert_eq!(all, (0..8).collect::<Vec<i32>>());
     }
 }

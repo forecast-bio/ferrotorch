@@ -242,16 +242,20 @@ impl<T: Float> Tensor<T> {
                 .map_err(|e| FerrotorchError::LockPoisoned {
                     message: format!("grad mutex: {e}"),
                 })?;
-        match guard.take() {
+        match guard.as_mut() {
             None => {
+                // First gradient: clone the incoming gradient.
                 let data = incoming.data()?.to_vec();
                 let storage = TensorStorage::cpu(data);
                 let tensor = Tensor::from_storage(storage, incoming.shape().to_vec(), false)?;
                 *guard = Some(Box::new(tensor));
             }
             Some(existing) => {
-                let existing_data = existing.data()?;
+                // In-place accumulation: existing_grad += incoming_grad.
                 let incoming_data = incoming.data()?;
+                // SAFETY: We hold the mutex lock, giving exclusive access to
+                // the gradient tensor. No other thread can read or write it.
+                let existing_data = unsafe { existing.data_mut()? };
                 if existing_data.len() != incoming_data.len() {
                     return Err(FerrotorchError::ShapeMismatch {
                         message: format!(
@@ -261,14 +265,9 @@ impl<T: Float> Tensor<T> {
                         ),
                     });
                 }
-                let summed: Vec<T> = existing_data
-                    .iter()
-                    .zip(incoming_data.iter())
-                    .map(|(&a, &b)| a + b)
-                    .collect();
-                let storage = TensorStorage::cpu(summed);
-                let tensor = Tensor::from_storage(storage, existing.shape().to_vec(), false)?;
-                *guard = Some(Box::new(tensor));
+                for (e, &n) in existing_data.iter_mut().zip(incoming_data.iter()) {
+                    *e = *e + n;
+                }
             }
         }
         Ok(())

@@ -26,6 +26,7 @@ use ferrotorch_core::{Float, FerrotorchResult, Tensor};
 use ferrotorch_nn::Module;
 use ferrotorch_optim::scheduler::LrScheduler;
 use ferrotorch_optim::Optimizer;
+use ferrotorch_serialize::{TrainingCheckpoint, save_checkpoint, load_checkpoint};
 
 use crate::callback::Callback;
 use crate::history::{EpochResult, EvalResult, TrainingHistory};
@@ -146,6 +147,19 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
         self.step
     }
 
+    /// Load a training checkpoint from disk, restoring model weights,
+    /// optimizer state, and the epoch/step counters.
+    ///
+    /// The model's `load_state_dict` is called with `strict = true`.
+    pub fn load_checkpoint(&mut self, path: impl AsRef<std::path::Path>) -> FerrotorchResult<()> {
+        let ckpt: TrainingCheckpoint<T> = load_checkpoint(path)?;
+        self.model.load_state_dict(&ckpt.model_state, true)?;
+        self.optimizer.load_state_dict(&ckpt.optimizer_state)?;
+        self.epoch = ckpt.epoch;
+        self.step = ckpt.step;
+        Ok(())
+    }
+
     /// Run the training loop.
     ///
     /// Trains for `num_epochs` epochs on `train_data`. If `val_data` is
@@ -259,6 +273,19 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
             }
             for m in &self.val_metrics {
                 metrics.insert(format!("val_{}", m.name()), m.compute());
+            }
+
+            // Save checkpoint if checkpointing is enabled.
+            if let Some(ref dir) = self.checkpoint_dir {
+                let _ = std::fs::create_dir_all(dir);
+                let checkpoint = TrainingCheckpoint {
+                    model_state: self.model.state_dict(),
+                    optimizer_state: self.optimizer.state_dict(),
+                    epoch: self.epoch,
+                    step: self.step,
+                };
+                let path = dir.join(format!("checkpoint_epoch_{}.ftc", self.epoch));
+                let _ = save_checkpoint(&checkpoint, &path);
             }
 
             let epoch_result = EpochResult {

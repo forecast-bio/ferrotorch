@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -120,7 +120,7 @@ impl<T: Float> Optimizer<T> for Adam<T> {
 
                 let key = Self::param_key(gi, pi);
 
-                // Read parameter data and gradient data.
+                // Read parameter data and gradient data into f64 workspace.
                 let param_data: Vec<f64> = tensor
                     .data()?
                     .iter()
@@ -131,7 +131,6 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                     .iter()
                     .map(|&v| v.to_f64().unwrap())
                     .collect();
-                let shape = tensor.shape().to_vec();
 
                 // L2 weight decay: grad = grad + weight_decay * param.
                 if group_wd > 0.0 {
@@ -170,9 +169,12 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                 let bc1 = 1.0 - beta1.powi(step as i32);
                 let bc2 = 1.0 - beta2.powi(step as i32);
 
-                // Compute the update for each element.
-                let new_param_data: Vec<T> = (0..numel)
-                    .map(|i| {
+                // Apply update to parameter data in-place via data_mut.
+                no_grad(|| {
+                    // SAFETY: Optimizer step runs inside no_grad() with exclusive
+                    // access to parameters, so no aliasing references exist.
+                    let param_slice = unsafe { param.tensor().data_mut()? };
+                    for i in 0..numel {
                         let corrected_avg = state.exp_avg[i] / bc1;
                         let corrected_sq = state.exp_avg_sq[i] / bc2;
 
@@ -187,22 +189,10 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                         };
 
                         let updated = param_data[i] - group_lr * corrected_avg / denom;
-                        T::from(updated).unwrap()
-                    })
-                    .collect();
-
-                // Write updated parameter data inside no_grad.
-                let shape_clone = shape.clone();
-                let new_tensor = no_grad(|| {
-                    Tensor::from_storage(
-                        TensorStorage::cpu(new_param_data),
-                        shape_clone,
-                        true,
-                    )
+                        param_slice[i] = T::from(updated).unwrap();
+                    }
+                    Ok::<(), FerrotorchError>(())
                 })?;
-
-                // Replace the parameter with a fresh one wrapping the updated tensor.
-                self.param_groups[gi].params[pi] = Parameter::new(new_tensor);
             }
         }
 
@@ -304,6 +294,7 @@ impl<T: Float> Optimizer<T> for Adam<T> {
 mod tests {
     use super::*;
     use ferrotorch_core::grad_fns::arithmetic::{add, mul, pow, sub};
+    use ferrotorch_core::{Tensor, TensorStorage};
 
     /// Create a scalar parameter from a single f64 value.
     fn scalar_param(val: f64) -> Parameter<f64> {
