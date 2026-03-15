@@ -2,11 +2,12 @@
   "uuid": "9cfe2027-4ed2-45aa-8bcc-3e52c6a18c04",
   "display_id": 129,
   "title": "Dispatch wave 2 swarm for remaining items",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T17:18:27.734953704Z",
-  "updated_at": "2026-03-15T17:18:28.993700798Z",
+  "updated_at": "2026-03-15T17:36:41.205740493Z",
+  "closed_at": "2026-03-15T17:36:41.205740493Z",
   "labels": [
     "feature"
   ]
