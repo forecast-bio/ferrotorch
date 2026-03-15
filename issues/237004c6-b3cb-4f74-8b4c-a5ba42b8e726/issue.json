@@ -2,11 +2,12 @@
   "uuid": "237004c6-b3cb-4f74-8b4c-a5ba42b8e726",
   "display_id": 90,
   "title": "Implement TracedModule and compile() API in ferrotorch-jit/src/module.rs",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T14:18:39.462698237Z",
-  "updated_at": "2026-03-15T14:18:40.852972617Z",
+  "updated_at": "2026-03-15T15:22:56.022938960Z",
+  "closed_at": "2026-03-15T15:22:56.022938960Z",
   "labels": [
     "feature"
   ]
