@@ -1,0 +1,11 @@
+{
+  "uuid": "be0f3e64-cf52-4ed2-ada1-475ec8d0957b",
+  "display_id": 67,
+  "title": "Add data loading integration tests",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "0f44b2d4-7f1a-45ef-9b60-10a089374f23",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T04:30:50.924991293Z",
+  "updated_at": "2026-03-15T04:30:50.924991293Z"
+}
