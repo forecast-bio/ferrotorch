@@ -260,12 +260,16 @@ impl GpuBackend for CudaBackendImpl {
 /// - [`FerrotorchError::InvalidArgument`] if CUDA initialization fails.
 /// - [`FerrotorchError::InvalidArgument`] if a GPU backend is already registered.
 pub fn init_cuda_backend() -> FerrotorchResult<()> {
+    // Idempotent: if already registered, return Ok silently.
+    if ferrotorch_core::gpu_dispatch::has_gpu_backend() {
+        return Ok(());
+    }
     let backend = CudaBackendImpl::new()?;
-    ferrotorch_core::gpu_dispatch::register_gpu_backend(Box::new(backend)).map_err(
-        |_| FerrotorchError::InvalidArgument {
-            message: "GPU backend already registered".into(),
-        },
-    )
+    // OnceLock::set can still race if two threads call init concurrently —
+    // if that happens, the second set() fails but the backend is registered
+    // by the first. We treat that as success.
+    let _ = ferrotorch_core::gpu_dispatch::register_gpu_backend(Box::new(backend));
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
