@@ -178,10 +178,10 @@ impl<T: Float> Optimizer<T> for Adam<T> {
 
                         let denom = if config.amsgrad {
                             let max_sq = state.max_exp_avg_sq.as_mut().unwrap();
-                            if corrected_sq > max_sq[i] {
-                                max_sq[i] = corrected_sq;
+                            if state.exp_avg_sq[i] > max_sq[i] {
+                                max_sq[i] = state.exp_avg_sq[i];
                             }
-                            max_sq[i].sqrt() + config.eps
+                            (max_sq[i] / bc2).sqrt() + config.eps
                         } else {
                             corrected_sq.sqrt() + config.eps
                         };

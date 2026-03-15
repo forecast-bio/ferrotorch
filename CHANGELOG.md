@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.0] - 2026-03-15
 
 ### Fixed
+- Fix PTX kernel recompilation on every call — add module cache (#178)
 - Fix flaky backend_impl OnceLock test ordering (#173)
 - Fix FlashAttention GPU PTX register name collision (#168)
 - Rewrite GPU conv2d as pure GPU — im2col PTX kernel, no CPU roundtrip (#163)

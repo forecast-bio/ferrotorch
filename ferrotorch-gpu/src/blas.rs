@@ -99,6 +99,23 @@ pub fn gpu_matmul_f32(
         return alloc_zeros::<f32>(m * n, device);
     }
 
+    // Validate dimensions fit in i32 (cuBLAS uses i32 for matrix dimensions).
+    let m_i32 = i32::try_from(m).map_err(|_| GpuError::ShapeMismatch {
+        op: "matmul",
+        expected: vec![i32::MAX as usize],
+        got: vec![m],
+    })?;
+    let k_i32 = i32::try_from(k).map_err(|_| GpuError::ShapeMismatch {
+        op: "matmul",
+        expected: vec![i32::MAX as usize],
+        got: vec![k],
+    })?;
+    let n_i32 = i32::try_from(n).map_err(|_| GpuError::ShapeMismatch {
+        op: "matmul",
+        expected: vec![i32::MAX as usize],
+        got: vec![n],
+    })?;
+
     // Try cuBLAS SGEMM.
     match CudaBlas::new(device.stream().clone()) {
         Ok(blas) => {
@@ -110,14 +127,14 @@ pub fn gpu_matmul_f32(
             let cfg = GemmConfig {
                 transa: sys::cublasOperation_t::CUBLAS_OP_N,
                 transb: sys::cublasOperation_t::CUBLAS_OP_N,
-                m: n as i32,
-                n: m as i32,
-                k: k as i32,
+                m: n_i32,
+                n: m_i32,
+                k: k_i32,
                 alpha: 1.0f32,
-                lda: n as i32,
-                ldb: k as i32,
+                lda: n_i32,
+                ldb: k_i32,
                 beta: 0.0f32,
-                ldc: n as i32,
+                ldc: n_i32,
             };
 
             // SAFETY: All buffers are device-resident, properly sized,
@@ -196,6 +213,23 @@ pub fn gpu_matmul_f64(
         return alloc_zeros::<f64>(m * n, device);
     }
 
+    // Validate dimensions fit in i32 (cuBLAS uses i32 for matrix dimensions).
+    let m_i32 = i32::try_from(m).map_err(|_| GpuError::ShapeMismatch {
+        op: "matmul",
+        expected: vec![i32::MAX as usize],
+        got: vec![m],
+    })?;
+    let k_i32 = i32::try_from(k).map_err(|_| GpuError::ShapeMismatch {
+        op: "matmul",
+        expected: vec![i32::MAX as usize],
+        got: vec![k],
+    })?;
+    let n_i32 = i32::try_from(n).map_err(|_| GpuError::ShapeMismatch {
+        op: "matmul",
+        expected: vec![i32::MAX as usize],
+        got: vec![n],
+    })?;
+
     // Try cuBLAS DGEMM.
     match CudaBlas::new(device.stream().clone()) {
         Ok(blas) => {
@@ -204,14 +238,14 @@ pub fn gpu_matmul_f64(
             let cfg = GemmConfig {
                 transa: sys::cublasOperation_t::CUBLAS_OP_N,
                 transb: sys::cublasOperation_t::CUBLAS_OP_N,
-                m: n as i32,
-                n: m as i32,
-                k: k as i32,
+                m: n_i32,
+                n: m_i32,
+                k: k_i32,
                 alpha: 1.0f64,
-                lda: n as i32,
-                ldb: k as i32,
+                lda: n_i32,
+                ldb: k_i32,
                 beta: 0.0f64,
-                ldc: n as i32,
+                ldc: n_i32,
             };
 
             unsafe {

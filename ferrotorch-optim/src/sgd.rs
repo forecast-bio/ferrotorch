@@ -154,11 +154,7 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
                 let shape = param.shape().to_vec();
 
                 // Weight decay: grad = grad + weight_decay * param
-                let wd = if group_wd > 0.0 {
-                    group_wd
-                } else {
-                    self.config.weight_decay
-                };
+                let wd = group_wd;
                 if wd > 0.0 {
                     let wd_t = T::from(wd).unwrap();
                     for (g, &p) in grad_data.iter_mut().zip(param_data.iter()) {
@@ -216,7 +212,7 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
                 // Create a new parameter with the updated data.
                 let new_storage = TensorStorage::cpu(new_data);
                 let new_tensor =
-                    no_grad(|| Tensor::from_storage(new_storage, shape, false))?;
+                    no_grad(|| Tensor::from_storage(new_storage, shape, true))?;
                 let new_param = Parameter::new(new_tensor);
                 self.param_groups[gi].params[pi] = new_param;
             }

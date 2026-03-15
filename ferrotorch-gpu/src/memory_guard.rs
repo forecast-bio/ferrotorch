@@ -533,10 +533,9 @@ impl MemoryGuard {
         // Reflect freed memory in the atomic counter. Hooks freed memory
         // outside the guard's tracking, so we adjust used_bytes downward.
         if total_freed > 0 {
-            self.used_bytes.fetch_sub(
-                total_freed.min(self.used_bytes.load(Ordering::Relaxed)),
-                Ordering::Relaxed,
-            );
+            self.used_bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                Some(current.saturating_sub(total_freed))
+            }).ok();
         }
 
         total_freed
@@ -642,8 +641,12 @@ impl MemoryGuard {
             .len()
             .checked_mul(std::mem::size_of::<T>())
             .unwrap_or(0);
-        self.used_bytes.fetch_sub(bytes, Ordering::Relaxed);
-        self.num_allocations.fetch_sub(1, Ordering::Relaxed);
+        self.used_bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            Some(current.saturating_sub(bytes))
+        }).ok();
+        self.num_allocations.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            Some(current.saturating_sub(1))
+        }).ok();
         drop(buffer);
         self.notify_pressure_change();
     }

@@ -226,11 +226,7 @@ impl<T: Float> Optimizer<T> for Muon<T> {
                 let shape = param.shape().to_vec();
 
                 // Weight decay: grad = grad + wd * param
-                let wd = if group_wd > 0.0 {
-                    group_wd
-                } else {
-                    self.config.weight_decay
-                };
+                let wd = group_wd;
                 if wd > 0.0 {
                     for (g, &p) in grad_data.iter_mut().zip(param_data.iter()) {
                         *g += wd * p;
@@ -287,7 +283,7 @@ impl<T: Float> Optimizer<T> for Muon<T> {
                     .collect();
 
                 let new_storage = TensorStorage::cpu(new_data);
-                let new_tensor = no_grad(|| Tensor::from_storage(new_storage, shape, false))?;
+                let new_tensor = no_grad(|| Tensor::from_storage(new_storage, shape, true))?;
                 let new_param = Parameter::new(new_tensor);
                 self.param_groups[gi].params[pi] = new_param;
             }

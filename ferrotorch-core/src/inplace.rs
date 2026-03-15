@@ -67,7 +67,9 @@ impl<T: Float> Tensor<T> {
     pub fn add_scalar_(&self, value: T) -> FerrotorchResult<&Self> {
         check_inplace_allowed(self, "add_scalar_")?;
 
-        let data = self.data_mut()?;
+        // SAFETY: check_inplace_allowed ensures this tensor is not part of the
+        // computation graph and does not require grad, so no concurrent access.
+        let data = unsafe { self.data_mut()? };
         for x in data.iter_mut() {
             *x = *x + value;
         }
@@ -84,7 +86,9 @@ impl<T: Float> Tensor<T> {
     pub fn mul_scalar_(&self, value: T) -> FerrotorchResult<&Self> {
         check_inplace_allowed(self, "mul_scalar_")?;
 
-        let data = self.data_mut()?;
+        // SAFETY: check_inplace_allowed ensures this tensor is not part of the
+        // computation graph and does not require grad, so no concurrent access.
+        let data = unsafe { self.data_mut()? };
         for x in data.iter_mut() {
             *x = *x * value;
         }
@@ -101,7 +105,9 @@ impl<T: Float> Tensor<T> {
     pub fn fill_(&self, value: T) -> FerrotorchResult<&Self> {
         check_inplace_allowed(self, "fill_")?;
 
-        let data = self.data_mut()?;
+        // SAFETY: check_inplace_allowed ensures this tensor is not part of the
+        // computation graph and does not require grad, so no concurrent access.
+        let data = unsafe { self.data_mut()? };
         for x in data.iter_mut() {
             *x = value;
         }
@@ -142,7 +148,9 @@ impl<T: Float> Tensor<T> {
 
         check_inplace_allowed(self, "clamp_")?;
 
-        let data = self.data_mut()?;
+        // SAFETY: check_inplace_allowed ensures this tensor is not part of the
+        // computation graph and does not require grad, so no concurrent access.
+        let data = unsafe { self.data_mut()? };
         for x in data.iter_mut() {
             if *x < min {
                 *x = min;

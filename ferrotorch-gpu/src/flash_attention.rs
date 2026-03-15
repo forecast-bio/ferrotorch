@@ -482,6 +482,26 @@ pub fn gpu_flash_attention_f32(
         });
     }
 
+    if d_v > D_MAX {
+        return Err(GpuError::ShapeMismatch {
+            op: "flash_attention",
+            expected: vec![D_MAX],
+            got: vec![d_v],
+        });
+    }
+
+    // Validate shared memory requirement fits in 48 KiB.
+    // smem = (TILE_K * d + TILE_K * d_v) * sizeof(f32)
+    let smem_required = (TILE_K * d + TILE_K * d_v) * std::mem::size_of::<f32>();
+    const SMEM_LIMIT: usize = 48 * 1024; // 48 KiB
+    if smem_required > SMEM_LIMIT {
+        return Err(GpuError::ShapeMismatch {
+            op: "flash_attention",
+            expected: vec![SMEM_LIMIT],
+            got: vec![smem_required],
+        });
+    }
+
     let expected_q = batch_heads * n_q * d;
     if query.len() != expected_q {
         return Err(GpuError::ShapeMismatch {
@@ -550,6 +570,7 @@ pub fn gpu_flash_attention_f32(
         ctx,
         FLASH_ATTENTION_PTX,
         "flash_attention_kernel",
+        device.ordinal() as u32,
     )?;
 
     // --- Compute shared memory requirement ---------------------------------
@@ -565,6 +586,13 @@ pub fn gpu_flash_attention_f32(
 
     const BLOCK: u32 = 256;
 
+    if n_q > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "flash_attention",
+            expected: vec![u32::MAX as usize],
+            got: vec![n_q],
+        });
+    }
     let grid_x = ((n_q as u32).saturating_add(BLOCK - 1)) / BLOCK;
 
     let cfg = cudarc::driver::LaunchConfig {

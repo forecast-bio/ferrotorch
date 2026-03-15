@@ -204,7 +204,9 @@ impl<T: Float> Optimizer<T> for Rmsprop<T> {
                     };
 
                     // Apply update to parameter data (in-place via data_mut).
-                    let param_slice = param.data_mut()?;
+                    // SAFETY: Optimizer step runs inside no_grad() with exclusive
+                    // access to parameters, so no aliasing references exist.
+                    let param_slice = unsafe { param.data_mut()? };
 
                     if momentum > 0.0 {
                         let buf = state.momentum_buf.as_mut().unwrap();

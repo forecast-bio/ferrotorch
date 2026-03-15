@@ -127,7 +127,7 @@ impl<T: GpuFloat> std::fmt::Debug for GpuTensor<T> {
 /// Returns `true` if `T` is `f32` (the type our PTX kernels support).
 #[inline]
 fn is_f32<T: GpuFloat>() -> bool {
-    std::mem::size_of::<T>() == 4
+    std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
 }
 
 /// Shape-validation helper for binary operations.
@@ -160,7 +160,7 @@ impl<T: GpuFloat> GpuTensor<T> {
     pub fn add(&self, other: &GpuTensor<T>) -> GpuResult<GpuTensor<T>> {
         validate_shapes(self, other)?;
         if is_f32::<T>() {
-            // SAFETY: We have verified size_of::<T>() == 4, so T is f32-layout-compatible.
+            // SAFETY: We have verified T is f32 via TypeId, so T is f32-layout-compatible.
             let a_buf = unsafe { transmute_buffer_ref::<T, f32>(&self.buffer) };
             let b_buf = unsafe { transmute_buffer_ref::<T, f32>(&other.buffer) };
             let out_buf = gpu_add(a_buf, b_buf, &self.device)?;

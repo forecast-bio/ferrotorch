@@ -30,27 +30,31 @@ use cudarc::driver::{CudaContext, CudaFunction, DriverError};
 #[cfg(feature = "cuda")]
 use cudarc::nvrtc::Ptx;
 
-/// Global cache mapping kernel names to their compiled [`CudaFunction`]s.
+/// Global cache mapping (kernel name, device ordinal) to their compiled
+/// [`CudaFunction`]s.
 ///
-/// Keyed by `&'static str` kernel name (e.g. `"add_kernel"`).  Since all PTX
-/// source strings are `const` in this crate, the kernel name alone is
-/// sufficient to uniquely identify the module + entry point.
+/// Keyed by `(&'static str, u32)` -- the kernel name (e.g. `"add_kernel"`)
+/// and the CUDA device ordinal.  A kernel compiled for device 0 cannot be
+/// used on device 1, so the ordinal is part of the key.
 #[cfg(feature = "cuda")]
-static MODULE_CACHE: LazyLock<Mutex<HashMap<&'static str, CudaFunction>>> =
+static MODULE_CACHE: LazyLock<Mutex<HashMap<(&'static str, u32), CudaFunction>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Get a compiled kernel function, compiling the PTX only on first use.
 ///
-/// On the first call for a given `kernel_name`, this function compiles
-/// `ptx_src` into a CUDA module and extracts the named function.  The
-/// resulting [`CudaFunction`] is cached globally and returned by clone on
-/// all subsequent calls, eliminating the ~1700 us PTX compilation overhead.
+/// On the first call for a given `(kernel_name, device_ordinal)` pair, this
+/// function compiles `ptx_src` into a CUDA module and extracts the named
+/// function.  The resulting [`CudaFunction`] is cached globally and returned
+/// by clone on subsequent calls, eliminating the ~1700 us PTX compilation
+/// overhead.
 ///
 /// # Arguments
 ///
-/// - `ctx`         -- CUDA context (from `device.context()`).
-/// - `ptx_src`     -- PTX source string (a `&'static str` constant).
-/// - `kernel_name` -- entry-point name inside the PTX module.
+/// - `ctx`            -- CUDA context (from `device.context()`).
+/// - `ptx_src`        -- PTX source string (a `&'static str` constant).
+/// - `kernel_name`    -- entry-point name inside the PTX module.
+/// - `device_ordinal` -- CUDA device ordinal (so kernels compiled for
+///   device 0 are not reused on device 1).
 ///
 /// # Errors
 ///
@@ -60,14 +64,16 @@ pub fn get_or_compile(
     ctx: &Arc<CudaContext>,
     ptx_src: &'static str,
     kernel_name: &'static str,
+    device_ordinal: u32,
 ) -> Result<CudaFunction, DriverError> {
+    let key = (kernel_name, device_ordinal);
     let mut cache = MODULE_CACHE.lock().unwrap();
-    if let Some(func) = cache.get(kernel_name) {
+    if let Some(func) = cache.get(&key) {
         return Ok(func.clone());
     }
     let module = ctx.load_module(Ptx::from_src(ptx_src))?;
     let func = module.load_function(kernel_name)?;
-    cache.insert(kernel_name, func.clone());
+    cache.insert(key, func.clone());
     Ok(func)
 }
 
