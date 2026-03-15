@@ -2,12 +2,13 @@
   "uuid": "ecefc4d7-bb32-4982-ba43-7ae750be536a",
   "display_id": 82,
   "title": "Add IR serialization (bincode round-trip)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "parent_uuid": "0448b5ba-fdb6-494c-b52d-5f602ffbe8e9",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T13:59:38.982965378Z",
-  "updated_at": "2026-03-15T13:59:56.162362343Z",
+  "updated_at": "2026-03-15T14:15:34.919741428Z",
+  "closed_at": "2026-03-15T14:15:34.919741428Z",
   "labels": [
     "feature"
   ],
