@@ -6,5 +6,8 @@
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T17:47:50.928365236Z",
-  "updated_at": "2026-03-15T17:47:50.928365236Z"
+  "updated_at": "2026-03-15T17:47:52.578099514Z",
+  "labels": [
+    "gpu"
+  ]
 }
