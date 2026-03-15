@@ -2,12 +2,13 @@
   "uuid": "21690d01-9f2d-43cb-910d-4cffe65c037a",
   "display_id": 34,
   "title": "Add normalization layers (BatchNorm, LayerNorm, GroupNorm, RMSNorm) with grad_fns",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "parent_uuid": "ca772274-6f17-4e85-b908-7e56cc89257f",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T02:34:44.738310906Z",
-  "updated_at": "2026-03-15T02:35:54.638273314Z",
+  "updated_at": "2026-03-15T02:52:50.981087925Z",
+  "closed_at": "2026-03-15T02:52:50.981087925Z",
   "labels": [
     "feature"
   ],
