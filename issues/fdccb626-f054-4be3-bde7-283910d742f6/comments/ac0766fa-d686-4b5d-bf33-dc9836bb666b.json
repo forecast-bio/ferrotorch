@@ -1,0 +1,8 @@
+{
+  "uuid": "ac0766fa-d686-4b5d-bf33-dc9836bb666b",
+  "issue_uuid": "fdccb626-f054-4be3-bde7-283910d742f6",
+  "author": "anon-a7c6025f",
+  "content": "Four features, all independent files, dispatch in parallel: 1) einops rearrange/repeat/reduce with string patterns (core), 2) LoRA module for parameter-efficient fine-tuning (nn), 3) fixed-point implicit differentiation (core/autograd), 4) natural gradient via K-FAC approximation (optim).",
+  "created_at": "2026-03-15T22:18:42.030280154Z",
+  "kind": "plan"
+}
