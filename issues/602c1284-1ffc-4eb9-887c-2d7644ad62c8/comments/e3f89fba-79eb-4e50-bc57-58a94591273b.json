@@ -1,0 +1,8 @@
+{
+  "uuid": "e3f89fba-79eb-4e50-bc57-58a94591273b",
+  "issue_uuid": "602c1284-1ffc-4eb9-887c-2d7644ad62c8",
+  "author": "anon-a7c6025f",
+  "content": "Dispatching 5 parallel agents: full linalg (core), vmap (core), pack_padded_sequence (nn), special functions (core), TensorBoard (train). All independent files.",
+  "created_at": "2026-03-15T20:26:52.019275158Z",
+  "kind": "plan"
+}
