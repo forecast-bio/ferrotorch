@@ -31,8 +31,10 @@ pub mod callback;
 pub mod history;
 pub mod learner;
 pub mod metric;
+pub mod tensorboard;
 
 pub use callback::{Callback, EarlyStopping, ProgressLogger};
 pub use history::{EpochResult, EvalResult, TrainingHistory};
 pub use learner::{Learner, LossFn};
 pub use metric::{AccuracyMetric, LossMetric, Metric, RunningAverage, TopKAccuracy};
+pub use tensorboard::{TensorBoardCallback, TensorBoardWriter};

@@ -19,6 +19,7 @@ pub mod norm;
 pub mod parameter;
 pub mod pooling;
 pub mod rnn;
+pub mod rnn_utils;
 pub mod transformer;
 pub mod utils;
 
@@ -50,6 +51,7 @@ pub use pooling::{
     adaptive_avg_pool2d, avg_pool2d, max_pool2d, AdaptiveAvgPool2d, AvgPool2d, MaxPool2d,
 };
 pub use rnn::LSTM;
+pub use rnn_utils::{PackedSequence, pack_padded_sequence, pad_packed_sequence};
 pub use transformer::{
     KVCache, RotaryPositionEmbedding, SwiGLU, TransformerDecoderLayer, TransformerEncoderLayer,
 };
