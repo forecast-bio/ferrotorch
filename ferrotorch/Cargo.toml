@@ -22,3 +22,7 @@ ferrotorch-vision = { workspace = true }
 [[example]]
 name = "train_mnist"
 path = "examples/train_mnist.rs"
+
+[[example]]
+name = "benchmark"
+path = "../benchmarks/ferrotorch_bench.rs"
