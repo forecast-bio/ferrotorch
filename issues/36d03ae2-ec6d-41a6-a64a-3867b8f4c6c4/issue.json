@@ -1,0 +1,10 @@
+{
+  "uuid": "36d03ae2-ec6d-41a6-a64a-3867b8f4c6c4",
+  "display_id": 20,
+  "title": "Update phase-2-nn-modules.md: add derive macro, functional API, safetensors loading, mixed precision, gradient clipping, ModuleDict, strengthen test count",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T02:18:45.458669776Z",
+  "updated_at": "2026-03-15T02:18:45.458669776Z"
+}
