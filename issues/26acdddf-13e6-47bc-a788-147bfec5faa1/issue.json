@@ -1,0 +1,10 @@
+{
+  "uuid": "26acdddf-13e6-47bc-a788-147bfec5faa1",
+  "display_id": 103,
+  "title": "Add cuBLAS-backed GPU matrix multiplication to ferrotorch-gpu",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:06:47.807857220Z",
+  "updated_at": "2026-03-15T16:06:47.807857220Z"
+}
