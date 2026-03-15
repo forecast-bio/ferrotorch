@@ -1,0 +1,29 @@
+//! Operation profiling for ferrotorch.
+//!
+//! Provides [`Profiler`] for recording operation timings, memory events, and
+//! input shapes during a forward/backward pass.  The resulting [`ProfileReport`]
+//! can be rendered as a human-readable table or exported to Chrome trace JSON
+//! (`chrome://tracing`).
+//!
+//! # Quick start
+//!
+//! ```rust
+//! use ferrotorch_profiler::{with_profiler, ProfileConfig};
+//!
+//! let config = ProfileConfig::default();
+//! let (result, report) = with_profiler(config, |profiler| {
+//!     profiler.record("matmul", "tensor_op", &[&[32, 784], &[784, 256]]);
+//!     profiler.record("relu", "tensor_op", &[&[32, 256]]);
+//!     42
+//! });
+//!
+//! println!("{}", report.table(10));
+//! ```
+
+mod event;
+mod profiler;
+mod report;
+
+pub use event::ProfileEvent;
+pub use profiler::{ProfileConfig, Profiler, with_profiler};
+pub use report::{OpSummary, ProfileReport};

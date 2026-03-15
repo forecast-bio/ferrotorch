@@ -6,7 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [0.1.0] - 2026-03-15
 
+### Fixed
+- Fix flaky watchdog timing test (#144)
+- Wire up ferray-ufunc SIMD kernels for elementwise ops (#141)
+- Wire up ferray-linalg for CPU matmul and fix crates.io dependency versions (#140)
+
 ### Added
+- Design document for remaining PyTorch feature parity (#148)
+- Update README with pre-OOM hooks, ONNX export, and latest features (#147)
+- Add pre-OOM hooks system and ONNX export (#145)
+- Add GPU memory reservation, OOM recovery, and graceful pause-on-pressure (#142)
+- Add performance benchmarks vs PyTorch (#139)
+- Add comprehensive README and prepare crates for crates.io publishing (#138)
 - Phase 9: CubeCL + AMD GPU + Training + LLM + Quantization (#136)
 - Update CHANGELOG, add licenses, analyze Burn, plan AMD GPU support (#135)
 

@@ -5,3 +5,4 @@ pub mod activation;
 pub mod shape;
 pub mod indexing;
 pub mod comparison;
+pub mod fft;

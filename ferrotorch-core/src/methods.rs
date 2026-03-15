@@ -112,6 +112,24 @@ impl<T: Float> Tensor<T> {
         crate::grad_fns::shape::transpose_2d(self)
     }
 
+    /// Einstein summation with this tensor as the first operand.
+    ///
+    /// `others` contains the remaining input tensors (if any). The equation
+    /// must include subscripts for `self` followed by the `others`.
+    ///
+    /// ```ignore
+    /// // Matrix multiply: self @ other
+    /// let c = a.einsum("ij,jk->ik", &[&b])?;
+    ///
+    /// // Trace of self
+    /// let t = a.einsum("ii->", &[])?;
+    /// ```
+    pub fn einsum(&self, equation: &str, others: &[&Tensor<T>]) -> FerrotorchResult<Tensor<T>> {
+        let mut inputs: Vec<&Tensor<T>> = vec![self];
+        inputs.extend_from_slice(others);
+        crate::einsum::einsum_differentiable(equation, &inputs)
+    }
+
     // --- Shape ---
 
     pub fn reshape_t(&self, shape: &[isize]) -> FerrotorchResult<Tensor<T>> {

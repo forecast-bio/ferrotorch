@@ -10,6 +10,7 @@ pub mod conv;
 pub mod dropout;
 pub mod embedding;
 pub mod functional;
+pub mod hooks;
 pub mod init;
 pub mod linear;
 pub mod loss;
@@ -36,6 +37,7 @@ pub use loss::{
     BCEWithLogitsLoss, CosineEmbeddingLoss, CrossEntropyLoss, HuberLoss, KLDivLoss, MSELoss,
     SmoothL1Loss,
 };
+pub use hooks::{BackwardHook, ForwardHook, ForwardPreHook, HookHandle, HookedModule};
 pub use module::{Module, Reduction, StateDict};
 // Re-export the derive macro. The derive macro and the trait share the name
 // `Module` but live in different namespaces (macro vs type), so both are
