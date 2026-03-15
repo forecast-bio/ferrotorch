@@ -1,0 +1,8 @@
+{
+  "uuid": "069f356b-1b17-477c-9ea1-76d6f18ba58a",
+  "issue_uuid": "9b630cb2-de0b-4bcf-983c-5c53c8a5dd5c",
+  "author": "anon-a7c6025f",
+  "content": "Two features: 1) Pre-OOM hooks that fire BEFORE allocation fails — user registers callbacks like 'split batch in half' or 'free cache' with known memory costs, system calls them in order when projected allocation would exceed budget. Key: hooks declare upfront how much memory they'll free, so the system can plan. 2) ONNX export — trace model forward pass, emit ONNX protobuf graph. ONNX is a standard model interchange format so models can run in onnxruntime, TensorRT, CoreML etc.",
+  "created_at": "2026-03-15T19:42:41.412256428Z",
+  "kind": "plan"
+}
