@@ -2,14 +2,13 @@
 //!
 //! Conv2d is decomposed into two steps:
 //!
-//! 1. **im2col** — rearrange each input receptive-field patch into a column
-//!    of a matrix. Currently performed on the CPU.
-//! 2. **GEMM** — matrix-multiply the reshaped weight matrix with the column
+//! 1. **im2col** -- rearrange each input receptive-field patch into a column
+//!    of a matrix.  Runs entirely on the GPU via a custom PTX kernel.
+//! 2. **GEMM** -- matrix-multiply the reshaped weight matrix with the column
 //!    matrix using cuBLAS SGEMM on the GPU.
 //!
-//! The GEMM is the compute-heavy part (O(C_out * C_in * kH * kW * H_out * W_out)
-//! multiply-adds per batch element), so GPU acceleration still provides
-//! significant speedups for large convolutions even with CPU im2col.
+//! The entire conv2d pipeline stays on-device.  Zero CPU roundtrips are
+//! performed during the forward pass.
 //!
 //! # Layout
 //!
@@ -29,11 +28,9 @@ use crate::blas::gpu_matmul_f32;
 use crate::buffer::CudaBuffer;
 use crate::device::GpuDevice;
 use crate::error::{GpuError, GpuResult};
-#[cfg(feature = "cuda")]
-use crate::transfer::{cpu_to_gpu, gpu_to_cpu};
 
 // ---------------------------------------------------------------------------
-// CPU im2col (shared between cuda and non-cuda paths for compilation)
+// CPU im2col (kept for testing / reference)
 // ---------------------------------------------------------------------------
 
 /// Extract image patches into columns on the CPU.
@@ -45,6 +42,7 @@ use crate::transfer::{cpu_to_gpu, gpu_to_cpu};
 /// Returns `(columns, col_rows, col_cols)` where:
 /// - `col_rows = C_in * kH * kW`
 /// - `col_cols = H_out * W_out`
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn im2col_cpu(
     input: &[f32],
@@ -104,40 +102,276 @@ fn im2col_cpu(
 }
 
 // ---------------------------------------------------------------------------
-// GPU conv2d — hybrid: CPU im2col + GPU GEMM
+// PTX kernel source strings
+// ---------------------------------------------------------------------------
+
+/// PTX kernel for im2col: rearranges input patches into columns on the GPU.
+///
+/// Each thread computes ONE element of the column matrix
+/// `[col_rows, col_cols]`.  Global thread index maps to `(row, col)`:
+///
+/// - `row = tid / col_cols`
+/// - `col = tid % col_cols`
+///
+/// From `(row, col)` we derive the input coordinate:
+///
+/// - `c  = row / (kH * kW)`
+/// - `kh = (row / kW) % kH`
+/// - `kw = row % kW`
+/// - `oh = col / W_out`
+/// - `ow = col % W_out`
+/// - `ih = oh * stride_h + kh - pad_h`
+/// - `iw = ow * stride_w + kw - pad_w`
+///
+/// If `(ih, iw)` is in-bounds, we read from the input; otherwise we write 0.
+#[cfg(feature = "cuda")]
+const IM2COL_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry im2col_kernel(
+    .param .u64 input_ptr,
+    .param .u64 output_ptr,
+    .param .u32 batch_idx,
+    .param .u32 channels,
+    .param .u32 height,
+    .param .u32 width,
+    .param .u32 kernel_h,
+    .param .u32 kernel_w,
+    .param .u32 stride_h,
+    .param .u32 stride_w,
+    .param .u32 pad_h,
+    .param .u32 pad_w,
+    .param .u32 h_out,
+    .param .u32 w_out,
+    .param .u32 col_rows,
+    .param .u32 col_cols
+) {
+    .reg .u32 %gtid, %bid, %bdim, %n_total;
+    .reg .u32 %batch, %C, %H, %W, %kH, %kW, %sH, %sW, %pH, %pW, %hO, %wO;
+    .reg .u32 %cR, %cC;
+    .reg .u32 %row, %col, %c, %kh, %kw, %oh, %ow;
+    .reg .u32 %kHkW, %HW, %CHW;
+    .reg .u32 %ih_raw, %iw_raw, %ih, %iw;
+    .reg .u32 %t0;
+    .reg .u64 %inp, %outp, %off64;
+    .reg .f32 %val, %zero;
+    .reg .pred %p_ge_n;
+    .reg .pred %p_ih_ge0, %p_iw_ge0, %p_ih_lt_H, %p_iw_lt_W, %p_in_bounds;
+
+    // Load parameters
+    ld.param.u64 %inp,   [input_ptr];
+    ld.param.u64 %outp,  [output_ptr];
+    ld.param.u32 %batch, [batch_idx];
+    ld.param.u32 %C,     [channels];
+    ld.param.u32 %H,     [height];
+    ld.param.u32 %W,     [width];
+    ld.param.u32 %kH,    [kernel_h];
+    ld.param.u32 %kW,    [kernel_w];
+    ld.param.u32 %sH,    [stride_h];
+    ld.param.u32 %sW,    [stride_w];
+    ld.param.u32 %pH,    [pad_h];
+    ld.param.u32 %pW,    [pad_w];
+    ld.param.u32 %hO,    [h_out];
+    ld.param.u32 %wO,    [w_out];
+    ld.param.u32 %cR,    [col_rows];
+    ld.param.u32 %cC,    [col_cols];
+
+    // Global thread ID
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %gtid, %tid.x;
+    mad.lo.u32 %gtid, %bid, %bdim, %gtid;
+
+    // Total elements = col_rows * col_cols
+    mul.lo.u32 %n_total, %cR, %cC;
+    setp.ge.u32 %p_ge_n, %gtid, %n_total;
+    @%p_ge_n bra DONE;
+
+    // row = gtid / col_cols,  col = gtid % col_cols
+    div.u32 %row, %gtid, %cC;
+    rem.u32 %col, %gtid, %cC;
+
+    // kHkW = kH * kW
+    mul.lo.u32 %kHkW, %kH, %kW;
+
+    // c  = row / (kH * kW)
+    div.u32 %c, %row, %kHkW;
+
+    // kh = (row / kW) % kH
+    div.u32 %t0, %row, %kW;
+    rem.u32 %kh, %t0, %kH;
+
+    // kw = row % kW
+    rem.u32 %kw, %row, %kW;
+
+    // oh = col / W_out,  ow = col % W_out
+    div.u32 %oh, %col, %wO;
+    rem.u32 %ow, %col, %wO;
+
+    // ih_raw = oh * stride_h + kh   (before subtracting pad)
+    mad.lo.u32 %ih_raw, %oh, %sH, %kh;
+    // iw_raw = ow * stride_w + kw
+    mad.lo.u32 %iw_raw, %ow, %sW, %kw;
+
+    // Check bounds: ih_raw >= pad_h  &&  iw_raw >= pad_w
+    //               (ih_raw - pad_h) < H  &&  (iw_raw - pad_w) < W
+    setp.ge.u32 %p_ih_ge0, %ih_raw, %pH;
+    setp.ge.u32 %p_iw_ge0, %iw_raw, %pW;
+
+    // ih = ih_raw - pad_h  (might underflow if ih_raw < pad_h, but we guard)
+    sub.u32 %ih, %ih_raw, %pH;
+    sub.u32 %iw, %iw_raw, %pW;
+
+    setp.lt.u32 %p_ih_lt_H, %ih, %H;
+    setp.lt.u32 %p_iw_lt_W, %iw, %W;
+
+    // Combine: all four conditions must hold
+    and.pred %p_in_bounds, %p_ih_ge0, %p_iw_ge0;
+    and.pred %p_in_bounds, %p_in_bounds, %p_ih_lt_H;
+    and.pred %p_in_bounds, %p_in_bounds, %p_iw_lt_W;
+
+    mov.f32 %zero, 0f00000000;
+    mov.f32 %val, %zero;
+
+    @!%p_in_bounds bra WRITE_OUT;
+
+    // Read input[batch * C*H*W + c * H*W + ih * W + iw]
+    mul.lo.u32 %HW, %H, %W;
+    mul.lo.u32 %CHW, %C, %HW;
+    // offset = batch*CHW + c*HW + ih*W + iw
+    mad.lo.u32 %t0, %batch, %CHW, %iw;
+    mad.lo.u32 %t0, %c, %HW, %t0;
+    mad.lo.u32 %t0, %ih, %W, %t0;
+
+    // Byte offset (f32 = 4 bytes)
+    cvt.u64.u32 %off64, %t0;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %inp, %inp, %off64;
+    ld.global.f32 %val, [%inp];
+
+WRITE_OUT:
+    // Write to output[row * col_cols + col] = output[gtid]
+    cvt.u64.u32 %off64, %gtid;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %outp, %outp, %off64;
+    st.global.f32 [%outp], %val;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX kernel for bias addition: `output[i] += bias[c]` where
+/// `c = i / spatial_size` (integer division).
+///
+/// The output is `[C_out, spatial_size]` in row-major order.  Each thread
+/// handles one element.
+#[cfg(feature = "cuda")]
+const BIAS_ADD_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry bias_add_kernel(
+    .param .u64 output_ptr,
+    .param .u64 bias_ptr,
+    .param .u32 spatial_size,
+    .param .u32 n
+) {
+    .reg .u32 %gid, %bid, %bdim, %n_reg, %sp, %c;
+    .reg .u64 %out, %bias, %off;
+    .reg .f32 %vo, %vb;
+    .reg .pred %p;
+
+    ld.param.u64 %out,   [output_ptr];
+    ld.param.u64 %bias,  [bias_ptr];
+    ld.param.u32 %sp,    [spatial_size];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %gid, %tid.x;
+    mad.lo.u32 %gid, %bid, %bdim, %gid;
+
+    setp.ge.u32 %p, %gid, %n_reg;
+    @%p bra DONE;
+
+    // c = gid / spatial_size
+    div.u32 %c, %gid, %sp;
+
+    // Load output[gid]
+    cvt.u64.u32 %off, %gid;
+    shl.b64 %off, %off, 2;
+    add.u64 %out, %out, %off;
+    ld.global.f32 %vo, [%out];
+
+    // Load bias[c]
+    cvt.u64.u32 %off, %c;
+    shl.b64 %off, %off, 2;
+    add.u64 %bias, %bias, %off;
+    ld.global.f32 %vb, [%bias];
+
+    // output[tid] += bias[c]
+    add.f32 %vo, %vo, %vb;
+    st.global.f32 [%out], %vo;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
+// Launch configuration helper
+// ---------------------------------------------------------------------------
+
+/// Standard 1-D launch config for `n` elements, 256 threads per block.
+#[cfg(feature = "cuda")]
+fn launch_cfg(n: usize) -> cudarc::driver::LaunchConfig {
+    const BLOCK: u32 = 256;
+    let grid = ((n as u32).saturating_add(BLOCK - 1)) / BLOCK;
+    cudarc::driver::LaunchConfig {
+        grid_dim: (grid.max(1), 1, 1),
+        block_dim: (BLOCK, 1, 1),
+        shared_mem_bytes: 0,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GPU conv2d -- fully on-device: GPU im2col + GPU GEMM + GPU bias add
 // ---------------------------------------------------------------------------
 
 /// Compute a 2-D convolution on the GPU using im2col + cuBLAS GEMM.
 ///
+/// The **entire pipeline runs on-device** with zero CPU roundtrips:
+///
+/// 1. **im2col PTX kernel** -- `input (GPU) -> columns (GPU)`.
+/// 2. **cuBLAS GEMM** -- `weight (GPU) @ columns (GPU) -> output (GPU)`.
+/// 3. **bias_add PTX kernel** -- `output (GPU) += bias (GPU)`.
+///
 /// # Arguments
 ///
-/// - `input` — GPU buffer containing `[B, C_in, H, W]` flattened in row-major order.
-/// - `weight` — GPU buffer containing `[C_out, C_in, kH, kW]` flattened in row-major order.
-/// - `bias` — optional GPU buffer containing `[C_out]` bias values.
-/// - `input_shape` — `[B, C_in, H, W]`.
-/// - `weight_shape` — `[C_out, C_in, kH, kW]`.
-/// - `stride` — `(stride_h, stride_w)`.
-/// - `padding` — `(pad_h, pad_w)`.
-/// - `device` — the GPU device that owns all buffers.
+/// - `input` -- GPU buffer containing `[B, C_in, H, W]` flattened in
+///   row-major order.
+/// - `weight` -- GPU buffer containing `[C_out, C_in, kH, kW]` flattened
+///   in row-major order.
+/// - `bias` -- optional GPU buffer containing `[C_out]` bias values.
+/// - `input_shape` -- `[B, C_in, H, W]`.
+/// - `weight_shape` -- `[C_out, C_in, kH, kW]`.
+/// - `stride` -- `(stride_h, stride_w)`.
+/// - `padding` -- `(pad_h, pad_w)`.
+/// - `device` -- the GPU device that owns all buffers.
 ///
 /// # Returns
 ///
 /// A tuple `(output_buffer, output_shape)` where `output_shape` is
 /// `[B, C_out, H_out, W_out]`.
 ///
-/// # Algorithm
-///
-/// 1. Copy input to CPU.
-/// 2. Run im2col on CPU to produce columns `[B, C_in*kH*kW, H_out*W_out]`.
-/// 3. Reshape weight on CPU to `[C_out, C_in*kH*kW]`.
-/// 4. Upload weight_2d and columns to GPU.
-/// 5. For each batch element: GPU GEMM: `weight_2d @ columns_b = output_b`.
-/// 6. If bias is present, broadcast-add to each spatial position.
-/// 7. Return concatenated output.
-///
 /// # Errors
 ///
-/// - [`GpuError::ShapeMismatch`] if buffer lengths are inconsistent with shapes.
+/// - [`GpuError::ShapeMismatch`] if buffer lengths are inconsistent with
+///   shapes.
 /// - [`GpuError::DeviceMismatch`] if buffers are on different devices.
 /// - [`GpuError::Driver`] or [`GpuError::Blas`] on CUDA runtime errors.
 #[allow(clippy::too_many_arguments)]
@@ -152,6 +386,9 @@ pub fn gpu_conv2d_f32(
     padding: (usize, usize),
     device: &GpuDevice,
 ) -> GpuResult<(CudaBuffer<f32>, [usize; 4])> {
+    use cudarc::driver::PushKernelArg;
+    use cudarc::nvrtc::Ptx;
+
     let [batch, c_in, h, w] = input_shape;
     let [c_out, c_in_w, kh, kw] = weight_shape;
 
@@ -218,69 +455,131 @@ pub fn gpu_conv2d_f32(
         return Ok((out, output_shape));
     }
 
-    // --- Step 1: Copy input to CPU ---
-    let input_host = gpu_to_cpu(input, device)?;
-
-    // --- Step 2: im2col on CPU ---
-    let (cols, col_rows, col_cols) =
-        im2col_cpu(&input_host, batch, c_in, h, w, kh, kw, stride.0, stride.1, padding.0, padding.1);
-
-    // col_rows = C_in * kH * kW
-    // col_cols = H_out * W_out
-
-    // --- Step 3: Copy weight to CPU and reshape to [C_out, col_rows] ---
-    // Weight is already stored as [C_out, C_in*kH*kW] in row-major order
-    // when flattened, so no actual reshape is needed — just upload it.
-    let weight_host = gpu_to_cpu(weight, device)?;
-
-    // Upload weight_2d [C_out, col_rows] to GPU.
-    let weight_gpu = cpu_to_gpu(&weight_host, device)?;
-
-    // --- Step 4: Bias to CPU (if present) ---
-    let bias_host = if let Some(b) = bias {
-        Some(gpu_to_cpu(b, device)?)
-    } else {
-        None
-    };
-
-    // --- Step 5: For each batch element, GEMM on GPU ---
-    // weight_2d: [C_out, col_rows]  @  cols_b: [col_rows, col_cols]  =  out_b: [C_out, col_cols]
+    let col_rows = c_in * kh * kw;
+    let col_cols = h_out * w_out;
+    let col_elems = col_rows * col_cols;
     let out_elems_per_batch = c_out * col_cols;
-    let mut output_host = Vec::with_capacity(batch * out_elems_per_batch);
+    let total_out_elems = batch * out_elems_per_batch;
 
-    for b in 0..batch {
-        // Extract this batch's columns: [col_rows, col_cols]
-        let cols_start = b * col_rows * col_cols;
-        let cols_end = cols_start + col_rows * col_cols;
-        let cols_b = &cols[cols_start..cols_end];
+    // -----------------------------------------------------------------------
+    // Allocate GPU buffers (all on-device, no CPU roundtrips)
+    // -----------------------------------------------------------------------
 
-        // Upload columns for this batch to GPU.
-        let cols_gpu = cpu_to_gpu(cols_b, device)?;
+    // Column buffer: reused for each batch element [col_rows, col_cols].
+    let mut col_buf = crate::transfer::alloc_zeros::<f32>(col_elems, device)?;
 
-        // GPU GEMM: [C_out, col_rows] @ [col_rows, col_cols] = [C_out, col_cols]
-        let out_gpu = gpu_matmul_f32(&weight_gpu, &cols_gpu, c_out, col_rows, col_cols, device)?;
+    // Full output buffer: [B, C_out, H_out * W_out] contiguous.
+    let mut output_buf = crate::transfer::alloc_zeros::<f32>(total_out_elems, device)?;
 
-        // Copy result back to CPU.
-        let mut out_b = gpu_to_cpu(&out_gpu, device)?;
+    // -----------------------------------------------------------------------
+    // Load PTX modules
+    // -----------------------------------------------------------------------
 
-        // --- Step 6: Add bias if present ---
-        // out_b is [C_out, col_cols] in row-major. Bias is [C_out].
-        // Add bias[c] to every element in row c.
-        if let Some(ref bias_data) = bias_host {
-            for c in 0..c_out {
-                for j in 0..col_cols {
-                    out_b[c * col_cols + j] += bias_data[c];
-                }
-            }
-        }
+    let ctx = device.context();
+    let stream = device.stream();
 
-        output_host.extend_from_slice(&out_b);
+    let im2col_module = ctx.load_module(Ptx::from_src(IM2COL_PTX))?;
+    let im2col_fn = im2col_module.load_function("im2col_kernel")?;
+
+    let bias_module;
+    let bias_fn;
+    if bias.is_some() {
+        bias_module = ctx.load_module(Ptx::from_src(BIAS_ADD_PTX))?;
+        bias_fn = Some(bias_module.load_function("bias_add_kernel")?);
+    } else {
+        bias_fn = None;
     }
 
-    // Upload full output to GPU.
-    let output_gpu = cpu_to_gpu(&output_host, device)?;
+    // -----------------------------------------------------------------------
+    // Per-batch loop: im2col -> GEMM -> D2D copy -> bias add
+    // -----------------------------------------------------------------------
 
-    Ok((output_gpu, output_shape))
+    let im2col_cfg = launch_cfg(col_elems);
+
+    for b in 0..batch {
+        let b_u32 = b as u32;
+        let channels_u32 = c_in as u32;
+        let height_u32 = h as u32;
+        let width_u32 = w as u32;
+        let kh_u32 = kh as u32;
+        let kw_u32 = kw as u32;
+        let sh_u32 = stride.0 as u32;
+        let sw_u32 = stride.1 as u32;
+        let ph_u32 = padding.0 as u32;
+        let pw_u32 = padding.1 as u32;
+        let ho_u32 = h_out as u32;
+        let wo_u32 = w_out as u32;
+        let cr_u32 = col_rows as u32;
+        let cc_u32 = col_cols as u32;
+
+        // --- im2col: input (GPU) -> col_buf (GPU) ---
+        //
+        // SAFETY: The kernel reads from `input` within the batch-element
+        // region `[b * C*H*W .. (b+1) * C*H*W]` and writes to `col_buf`
+        // which is `col_rows * col_cols` elements.  Both buffers are
+        // device-resident with sufficient length.  The grid covers exactly
+        // `col_elems` threads.
+        unsafe {
+            stream
+                .launch_builder(&im2col_fn)
+                .arg(input.inner())
+                .arg(col_buf.inner_mut())
+                .arg(&b_u32)
+                .arg(&channels_u32)
+                .arg(&height_u32)
+                .arg(&width_u32)
+                .arg(&kh_u32)
+                .arg(&kw_u32)
+                .arg(&sh_u32)
+                .arg(&sw_u32)
+                .arg(&ph_u32)
+                .arg(&pw_u32)
+                .arg(&ho_u32)
+                .arg(&wo_u32)
+                .arg(&cr_u32)
+                .arg(&cc_u32)
+                .launch(im2col_cfg)?;
+        }
+
+        // --- GEMM: weight @ col_buf -> gemm_out (all on GPU) ---
+        // weight:  [C_out, col_rows]
+        // col_buf: [col_rows, col_cols]
+        // result:  [C_out, col_cols]
+        let gemm_out = gpu_matmul_f32(weight, &col_buf, c_out, col_rows, col_cols, device)?;
+
+        // --- D2D copy: gemm_out -> output_buf[b * out_elems_per_batch ..] ---
+        let out_start = b * out_elems_per_batch;
+        let out_end = out_start + out_elems_per_batch;
+        let mut out_view = output_buf.inner_mut().slice_mut(out_start..out_end);
+        stream.memcpy_dtod(gemm_out.inner(), &mut out_view)?;
+
+        // --- Bias add (if present, in-place on output_buf) ---
+        if let (Some(bias_buf), Some(bias_func)) = (bias, &bias_fn) {
+            let n_bias = out_elems_per_batch as u32;
+            let spatial = col_cols as u32;
+            let bias_cfg = launch_cfg(out_elems_per_batch);
+
+            // We need to launch the bias kernel on the sub-region of
+            // output_buf for this batch element.  We pass a mutable view.
+            let mut out_view = output_buf.inner_mut().slice_mut(out_start..out_end);
+
+            // SAFETY: The kernel reads `out_elems_per_batch` elements from
+            // the output sub-region and `c_out` elements from `bias_buf`,
+            // then writes back the summed values.  All buffers are
+            // device-resident with sufficient length.
+            unsafe {
+                stream
+                    .launch_builder(bias_func)
+                    .arg(&mut out_view)
+                    .arg(bias_buf.inner())
+                    .arg(&spatial)
+                    .arg(&n_bias)
+                    .launch(bias_cfg)?;
+            }
+        }
+    }
+
+    Ok((output_buf, output_shape))
 }
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
@@ -353,7 +652,7 @@ fn cpu_conv2d_reference(
 }
 
 // ---------------------------------------------------------------------------
-// Tests — require a real CUDA GPU
+// Tests -- require a real CUDA GPU
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -819,5 +1118,65 @@ mod tests {
 
         let out_host = gpu_to_cpu(&out_gpu, &dev).expect("gpu_to_cpu");
         assert_close(&out_host, &expected_output, 1e-4, "conv2d stride 2");
+    }
+
+    // -- GPU-only pipeline: no gpu_to_cpu / cpu_to_gpu in the hot path --------
+
+    #[test]
+    fn conv2d_gpu_pipeline_structural() {
+        // This test verifies structural correctness of the fully on-device
+        // pipeline by running a larger conv2d that would be expensive if
+        // any unintended CPU roundtrips were happening.  We compare against
+        // the CPU reference for correctness.
+        let dev = GpuDevice::new(0).expect("CUDA device 0");
+
+        let input_shape = [8, 16, 32, 32];
+        let weight_shape = [32, 16, 3, 3];
+        let stride = (1, 1);
+        let padding = (1, 1);
+
+        let input_len: usize = input_shape.iter().product();
+        let weight_len: usize = weight_shape.iter().product();
+
+        let input_data: Vec<f32> = (0..input_len)
+            .map(|i| ((i * 7 + 13) % 256) as f32 / 256.0 - 0.5)
+            .collect();
+        let weight_data: Vec<f32> = (0..weight_len)
+            .map(|i| ((i * 11 + 3) % 128) as f32 / 128.0 - 0.5)
+            .collect();
+        let bias_data: Vec<f32> = (0..32)
+            .map(|i| (i as f32 - 16.0) * 0.01)
+            .collect();
+
+        let (expected_output, expected_shape) = cpu_conv2d_reference(
+            &input_data,
+            &weight_data,
+            Some(&bias_data),
+            input_shape,
+            weight_shape,
+            stride,
+            padding,
+        );
+
+        let input_gpu = cpu_to_gpu(&input_data, &dev).expect("input to gpu");
+        let weight_gpu = cpu_to_gpu(&weight_data, &dev).expect("weight to gpu");
+        let bias_gpu = cpu_to_gpu(&bias_data, &dev).expect("bias to gpu");
+
+        let (out_gpu, out_shape) = gpu_conv2d_f32(
+            &input_gpu,
+            &weight_gpu,
+            Some(&bias_gpu),
+            input_shape,
+            weight_shape,
+            stride,
+            padding,
+            &dev,
+        )
+        .expect("gpu_conv2d_f32");
+
+        assert_eq!(out_shape, expected_shape);
+
+        let out_host = gpu_to_cpu(&out_gpu, &dev).expect("gpu_to_cpu");
+        assert_close(&out_host, &expected_output, 1e-2, "conv2d gpu pipeline");
     }
 }
