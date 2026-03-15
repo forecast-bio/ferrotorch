@@ -1,0 +1,10 @@
+{
+  "uuid": "461408f7-e1af-4649-891a-3c7c80e190b7",
+  "display_id": 84,
+  "title": "Create ferrotorch-jit crate with IR graph representation types",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T14:00:54.954912463Z",
+  "updated_at": "2026-03-15T14:00:54.954912463Z"
+}
