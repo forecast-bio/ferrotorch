@@ -1,0 +1,8 @@
+{
+  "uuid": "030c3005-0bf1-419a-bb24-811b5bcadc96",
+  "issue_uuid": "ca772274-6f17-4e85-b908-7e56cc89257f",
+  "author": "anon-a7c6025f",
+  "content": "Phase 2 epic. 20 subissues across 7 steps per orchestrator dispatch plan. Peak parallelism: 9 agents at step 4 (layer implementations). Design doc: .design/phase-2-nn-modules.md (16 REQ, 19 AC, 0 open questions). Depends on Phase 1 (complete, 203 tests passing).",
+  "created_at": "2026-03-15T02:34:13.459980063Z",
+  "kind": "plan"
+}
