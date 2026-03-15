@@ -1,0 +1,10 @@
+{
+  "uuid": "9fdb105d-b6b2-4c57-8794-2d1f8dce4556",
+  "display_id": 185,
+  "title": "Audit Wave 3: Missing differentiable ops + GPU completeness",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T23:36:05.326868176Z",
+  "updated_at": "2026-03-15T23:36:05.326868176Z"
+}
