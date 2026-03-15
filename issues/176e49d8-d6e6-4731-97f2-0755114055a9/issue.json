@@ -2,12 +2,13 @@
   "uuid": "176e49d8-d6e6-4731-97f2-0755114055a9",
   "display_id": 7,
   "title": "Add linalg ops bridge to ferray-linalg",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "parent_uuid": "fbfbd525-d49e-4e47-97c8-6d4d853a207b",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T01:25:17.889136668Z",
-  "updated_at": "2026-03-15T01:26:01.001911566Z",
+  "updated_at": "2026-03-15T01:45:18.661420142Z",
+  "closed_at": "2026-03-15T01:45:18.661420142Z",
   "labels": [
     "feature"
   ],
