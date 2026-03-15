@@ -253,11 +253,11 @@ fn derive_module_impl(input: DeriveInput) -> syn::Result<TokenStream2> {
 
     let expanded = quote! {
         impl #impl_generics ::ferrotorch_nn::Module<#float_param> for #name #ty_generics #where_clause {
-            fn forward(&self, _input: &::ferrotorch_core::Tensor<#float_param>) -> ::ferrotorch_core::FerrotorchResult<::ferrotorch_core::Tensor<#float_param>> {
-                ::std::unimplemented!(
-                    "Module::forward() must be manually implemented for {}",
-                    ::std::stringify!(#name)
-                )
+            /// Delegates to the inherent `forward()` method that the user must
+            /// define on this struct. Forgetting to define it produces a
+            /// compile-time error instead of a runtime panic.
+            fn forward(&self, input: &::ferrotorch_core::Tensor<#float_param>) -> ::ferrotorch_core::FerrotorchResult<::ferrotorch_core::Tensor<#float_param>> {
+                self.forward(input)
             }
 
             fn parameters(&self) -> ::std::vec::Vec<&::ferrotorch_nn::Parameter<#float_param>> {

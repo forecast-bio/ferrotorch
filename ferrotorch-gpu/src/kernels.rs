@@ -273,15 +273,27 @@ DONE:
 ///
 /// Uses 256 threads per block, which is a good default for elementwise ops
 /// on all modern NVIDIA architectures.
+///
+/// # Errors
+///
+/// Returns [`GpuError::ShapeMismatch`] if `n` exceeds `u32::MAX`, which
+/// would silently truncate the grid dimension.
 #[cfg(feature = "cuda")]
-fn launch_cfg(n: usize) -> LaunchConfig {
+fn launch_cfg(n: usize) -> GpuResult<LaunchConfig> {
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "kernel_launch",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     const BLOCK: u32 = 256;
     let grid = ((n as u32).saturating_add(BLOCK - 1)) / BLOCK;
-    LaunchConfig {
+    Ok(LaunchConfig {
         grid_dim: (grid.max(1), 1, 1),
         block_dim: (BLOCK, 1, 1),
         shared_mem_bytes: 0,
-    }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -352,13 +364,13 @@ fn try_launch_binary(
     // Attempt to load the kernel (cached after first compilation).
     // If it fails (e.g. unsupported arch), return None so the caller
     // can use the CPU fallback.
-    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name) {
+    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name, device.ordinal() as u32) {
         Ok(f) => f,
         Err(_) => return Ok(None),
     };
 
     let mut out = alloc_zeros::<f32>(n, device)?;
-    let cfg = launch_cfg(n);
+    let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
     // SAFETY: The kernel reads `n` f32 values from `a` and `b`, writes `n`
@@ -393,13 +405,13 @@ fn try_launch_unary(
     let stream = device.stream();
 
     // Attempt to load the kernel (cached after first compilation).
-    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name) {
+    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name, device.ordinal() as u32) {
         Ok(f) => f,
         Err(_) => return Ok(None),
     };
 
     let mut out = alloc_zeros::<f32>(n, device)?;
-    let cfg = launch_cfg(n);
+    let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
     // SAFETY: The kernel reads `n` f32 values from `a` and writes `n` f32

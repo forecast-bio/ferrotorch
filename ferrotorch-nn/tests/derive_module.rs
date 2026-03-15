@@ -1,6 +1,6 @@
 //! Integration tests for `#[derive(Module)]`.
 
-use ferrotorch_core::{Float, FerrotorchResult};
+use ferrotorch_core::{Float, FerrotorchResult, Tensor};
 // Importing `Module` brings in both the trait AND the derive macro (they
 // live in different namespaces: type vs macro).
 use ferrotorch_nn::{Linear, Module, Parameter};
@@ -30,6 +30,10 @@ impl<T: Float> TestModel<T> {
             training: true,
         })
     }
+
+    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        self.linear.forward(input)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +56,10 @@ impl<T: Float> ParamsOnly<T> {
             bias: Parameter::zeros(&[4])?,
             training: true,
         })
+    }
+
+    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        Ok(input.clone())
     }
 }
 
@@ -76,6 +84,11 @@ impl<T: Float> SubmodulesOnly<T> {
             training: true,
         })
     }
+
+    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let h = self.layer1.forward(input)?;
+        self.layer2.forward(&h)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +100,12 @@ struct EmptyModule<T: Float> {
     #[skip]
     _marker: std::marker::PhantomData<T>,
     training: bool,
+}
+
+impl<T: Float> EmptyModule<T> {
+    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        Ok(input.clone())
+    }
 }
 
 // ===========================================================================

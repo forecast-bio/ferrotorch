@@ -74,27 +74,16 @@ impl<T: Float> crate::tensor::GradFn<T> for CheckpointBackward<T> {
         let input_with_grad = self.input.clone().requires_grad_(true);
         let recomputed = (self.func)(&input_with_grad)?;
 
-        // Now backward through the recomputed graph.
-        // We need to scale by grad_output, but for simplicity in this
-        // initial implementation, we call backward on a scalar formed by
-        // sum(recomputed * grad_output).
-        //
-        // TODO: This is a simplified implementation. A production version
-        // would use torch.autograd.backward(recomputed, grad_output) directly.
-        // For now, this captures the core idea of recomputation.
-        let recomputed_data = recomputed.data()?;
-        let go_data = grad_output.data()?;
-        let product_sum: T = recomputed_data
-            .iter()
-            .zip(go_data.iter())
-            .map(|(&a, &b)| a * b)
-            .fold(<T as num_traits::Zero>::zero(), |acc, x| acc + x);
-
-        let _scalar = crate::creation::scalar(product_sum)?;
-        // If the recomputed output has a grad_fn, backward through it.
-        if recomputed.grad_fn().is_some() {
-            recomputed.backward()?;
-        }
+        // Use autograd to compute gradients with grad_output as the upstream gradient.
+        // We need to compute d(recomputed)/d(input) * grad_output.
+        // Since backward() on a non-scalar needs an external gradient, we compute
+        // the scalar sum(recomputed * grad_output) and backprop through that.
+        // This correctly propagates grad_output through the chain rule.
+        use crate::grad_fns::arithmetic::mul;
+        use crate::grad_fns::reduction::sum;
+        let weighted = mul(&recomputed, &grad_output.clone().requires_grad_(false).detach())?;
+        let scalar = sum(&weighted)?;
+        scalar.backward()?;
 
         let input_grad = input_with_grad.grad()?;
         Ok(vec![input_grad])

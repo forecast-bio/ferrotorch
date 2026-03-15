@@ -211,11 +211,6 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
                 self.optimizer.step()?;
                 self.optimizer.zero_grad()?;
 
-                // Scheduler step (per-batch).
-                if let Some(ref mut sched) = self.scheduler {
-                    sched.step(self.optimizer.as_mut());
-                }
-
                 // Track loss.
                 train_loss_sum += loss_val;
                 train_batch_count += 1;
@@ -230,6 +225,11 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
                 for cb in &mut self.callbacks {
                     cb.on_batch_end(batch_idx, loss_val);
                 }
+            }
+
+            // Scheduler step (per-epoch).
+            if let Some(ref mut sched) = self.scheduler {
+                sched.step(self.optimizer.as_mut());
             }
 
             let train_loss = if train_batch_count > 0 {

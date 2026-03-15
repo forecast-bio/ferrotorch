@@ -360,19 +360,14 @@ impl<T: Float> Tensor<T> {
 
     /// Borrow the underlying data as a mutable flat slice.
     ///
-    /// # Safety contract
+    /// # Safety
     ///
-    /// This uses `unsafe` to obtain a mutable reference through the `Arc`.
-    /// It is the caller's responsibility to ensure:
-    /// - No other references to this tensor's storage are being read or written
-    ///   concurrently.
-    /// - The tensor is a leaf (no `grad_fn`) — i.e., it is not part of an
-    ///   active computation graph.
-    ///
-    /// Optimizer `step()` methods satisfy both requirements: they run inside
+    /// The caller must ensure exclusive access to this tensor's storage.
+    /// No other references to this tensor's data may exist concurrently.
+    /// Optimizer `step()` methods satisfy this requirement: they run inside
     /// `no_grad()` (no graph is being built) and hold `&mut self` (exclusive
-    /// access).
-    pub fn data_mut(&self) -> FerrotorchResult<&mut [T]> {
+    /// access to the optimizer's parameter copies).
+    pub unsafe fn data_mut(&self) -> FerrotorchResult<&mut [T]> {
         let storage_ptr = Arc::as_ptr(&self.inner.storage) as *mut TensorStorage<T>;
         // SAFETY: Caller guarantees exclusive access (optimizer step inside no_grad).
         let storage = unsafe { &mut *storage_ptr };

@@ -27,11 +27,20 @@ pub struct SumBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for SumBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let go = grad_output.data()?[0];
+        // Extract the scalar value — works for both CPU and GPU by
+        // transferring to CPU if needed (it's just one number).
+        let go = if grad_output.is_cuda() {
+            let cpu = grad_output.cpu()?;
+            cpu.data()?[0]
+        } else {
+            grad_output.data()?[0]
+        };
         let numel = self.input.numel();
         let data = vec![go; numel];
-        let grad_input =
+        let grad_cpu =
             Tensor::from_storage(TensorStorage::cpu(data), self.input.shape().to_vec(), false)?;
+        // Place gradient on the same device as the input.
+        let grad_input = grad_cpu.to(self.input.device())?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -96,13 +105,19 @@ pub struct MeanBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for MeanBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let go = grad_output.data()?[0];
+        let go = if grad_output.is_cuda() {
+            let cpu = grad_output.cpu()?;
+            cpu.data()?[0]
+        } else {
+            grad_output.data()?[0]
+        };
         let numel = self.input.numel();
         let n = T::from(numel).unwrap();
         let val = go / n;
         let data = vec![val; numel];
-        let grad_input =
+        let grad_cpu =
             Tensor::from_storage(TensorStorage::cpu(data), self.input.shape().to_vec(), false)?;
+        let grad_input = grad_cpu.to(self.input.device())?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -154,8 +169,20 @@ pub struct ProdBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for ProdBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let go = grad_output.data()?[0];
-        let input_data = self.input.data()?;
+        let go = if grad_output.is_cuda() {
+            let cpu = grad_output.cpu()?;
+            cpu.data()?[0]
+        } else {
+            grad_output.data()?[0]
+        };
+
+        // Transfer input to CPU if on GPU for the prefix/suffix computation.
+        let input_cpu = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let input_data = input_cpu.data()?;
         let n = input_data.len();
 
         // Use prefix/suffix products to avoid division by zero.
@@ -176,11 +203,13 @@ impl<T: Float> GradFn<T> for ProdBackward<T> {
 
         let grad_data: Vec<T> = (0..n).map(|i| go * prefix[i] * suffix[i]).collect();
 
-        let grad_input = Tensor::from_storage(
+        let grad_cpu = Tensor::from_storage(
             TensorStorage::cpu(grad_data),
             self.input.shape().to_vec(),
             false,
         )?;
+        // Place gradient on the same device as the input.
+        let grad_input = grad_cpu.to(self.input.device())?;
         Ok(vec![Some(grad_input)])
     }
 

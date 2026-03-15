@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use crate::autograd::no_grad::is_grad_enabled;
+use crate::autograd::no_grad::{is_grad_enabled, no_grad};
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::ops::elementwise::{binary_map, scalar_map, unary_map, fast_add, fast_mul};
@@ -29,6 +29,104 @@ fn needs_grad_unary<T: Float>(a: &Tensor<T>) -> bool {
     is_grad_enabled() && a.requires_grad()
 }
 
+/// Reduce a gradient tensor to a target shape by summing over broadcast
+/// dimensions.
+///
+/// When two tensors with different shapes are combined via broadcasting,
+/// the backward pass must sum the gradient over the dimensions that were
+/// broadcast to recover the correct gradient shape for each input.
+///
+/// Algorithm:
+/// 1. If shapes already match, return `grad` as-is (clone).
+/// 2. Left-pad `target_shape` with 1s to match grad's ndim.
+/// 3. For each dimension where target has size 1 but grad has size > 1,
+///    sum over that dimension.
+/// 4. Reshape to `target_shape`.
+///
+/// For GPU tensors the grad is transferred to CPU first, reduced, then moved
+/// back. This is correct (though not optimal — a GPU reduction kernel would
+/// be better).
+fn reduce_grad_to_shape<T: Float>(
+    grad: &Tensor<T>,
+    target_shape: &[usize],
+) -> FerrotorchResult<Tensor<T>> {
+    let grad_shape = grad.shape();
+
+    // Fast path: shapes already match.
+    if grad_shape == target_shape {
+        return Ok(grad.clone());
+    }
+
+    // Scalar target: sum everything.
+    if target_shape.is_empty() {
+        // Use the reduction forward op which already handles GPU.
+        return crate::grad_fns::reduction::sum(grad);
+    }
+
+    // Transfer GPU grad to CPU for the reduction, then move back.
+    let device = grad.device();
+    let cpu_grad = if grad.is_cuda() {
+        grad.cpu()?
+    } else {
+        grad.clone()
+    };
+
+    let grad_data = cpu_grad.data()?;
+    let grad_ndim = grad_shape.len();
+    let target_ndim = target_shape.len();
+
+    // Left-pad target_shape with 1s to match grad_ndim.
+    let padded_target: Vec<usize> = if target_ndim < grad_ndim {
+        let mut p = vec![1usize; grad_ndim - target_ndim];
+        p.extend_from_slice(target_shape);
+        p
+    } else {
+        target_shape.to_vec()
+    };
+
+    let out_numel: usize = target_shape.iter().product();
+    let mut result = vec![<T as num_traits::Zero>::zero(); out_numel.max(1)];
+
+    // Precompute target strides for flat index calculation.
+    let mut target_strides = vec![1usize; target_ndim];
+    for td in (0..target_ndim.saturating_sub(1)).rev() {
+        target_strides[td] = target_strides[td + 1] * target_shape[td + 1];
+    }
+
+    let offset = grad_ndim - target_ndim; // number of leading 1-padded dims
+
+    for i in 0..grad_data.len() {
+        // Decompose grad flat index into per-axis coordinates.
+        let mut coords = [0usize; 16]; // support up to 16 dims
+        let mut rem = i;
+        for d in (0..grad_ndim).rev() {
+            coords[d] = rem % grad_shape[d];
+            rem /= grad_shape[d];
+        }
+
+        // Compute flat index in target by mapping each grad coord to
+        // the corresponding target coord (collapsing broadcast dims).
+        let mut flat = 0usize;
+        for td in 0..target_ndim {
+            let gd = td + offset;
+            let coord = if padded_target[gd] == 1 { 0 } else { coords[gd] };
+            flat += coord * target_strides[td];
+        }
+
+        result[flat] = result[flat] + grad_data[i];
+    }
+
+    let reduced =
+        Tensor::from_storage(TensorStorage::cpu(result), target_shape.to_vec(), false)?;
+
+    // Move back to original device if needed.
+    if device.is_cuda() {
+        reduced.to(device)
+    } else {
+        Ok(reduced)
+    }
+}
+
 // ===========================================================================
 // add
 // ===========================================================================
@@ -45,12 +143,12 @@ struct AddBackward<T: Float> {
 impl<T: Float> GradFn<T> for AddBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let da = if self.a.requires_grad() {
-            Some(grad_output.clone())
+            Some(reduce_grad_to_shape(grad_output, self.a.shape())?)
         } else {
             None
         };
         let db = if self.b.requires_grad() {
-            Some(grad_output.clone())
+            Some(reduce_grad_to_shape(grad_output, self.b.shape())?)
         } else {
             None
         };
@@ -120,18 +218,13 @@ struct SubBackward<T: Float> {
 impl<T: Float> GradFn<T> for SubBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let da = if self.a.requires_grad() {
-            Some(grad_output.clone())
+            Some(reduce_grad_to_shape(grad_output, self.a.shape())?)
         } else {
             None
         };
         let db = if self.b.requires_grad() {
-            let go_data = grad_output.data()?;
-            let neg: Vec<T> = go_data.iter().map(|&g| -g).collect();
-            Some(Tensor::from_storage(
-                TensorStorage::cpu(neg),
-                grad_output.shape().to_vec(),
-                false,
-            )?)
+            let neg_grad = no_grad(|| neg(grad_output))?;
+            Some(reduce_grad_to_shape(&neg_grad, self.b.shape())?)
         } else {
             None
         };
@@ -204,16 +297,18 @@ impl<T: Float> GradFn<T> for MulBackward<T> {
         // differentiable operations so the backward pass itself is recorded
         // in the computation graph for higher-order gradients.
         if grad_output.requires_grad() || grad_output.grad_fn().is_some() {
+            // Higher-order: use differentiable ops so the backward pass
+            // itself is recorded in the graph.
             let da = if self.a.requires_grad() {
-                // da = grad_output * b (differentiable mul)
-                Some(mul(grad_output, &self.b)?)
+                let raw = mul(grad_output, &self.b)?;
+                Some(reduce_grad_to_shape(&raw, self.a.shape())?)
             } else {
                 None
             };
 
             let db = if self.b.requires_grad() {
-                // db = grad_output * a (differentiable mul)
-                Some(mul(grad_output, &self.a)?)
+                let raw = mul(grad_output, &self.a)?;
+                Some(reduce_grad_to_shape(&raw, self.b.shape())?)
             } else {
                 None
             };
@@ -221,28 +316,18 @@ impl<T: Float> GradFn<T> for MulBackward<T> {
             return Ok(vec![da, db]);
         }
 
-        let go_data = grad_output.data()?;
-
+        // Standard (non-higher-order) path: use no_grad + op functions
+        // so it works on both CPU and GPU tensors.
         let da = if self.a.requires_grad() {
-            let b_data = self.b.data()?;
-            let grad_a: Vec<T> = go_data.iter().zip(b_data.iter()).map(|(&g, &b)| g * b).collect();
-            Some(Tensor::from_storage(
-                TensorStorage::cpu(grad_a),
-                self.a.shape().to_vec(),
-                false,
-            )?)
+            let raw = no_grad(|| mul(grad_output, &self.b))?;
+            Some(reduce_grad_to_shape(&raw, self.a.shape())?)
         } else {
             None
         };
 
         let db = if self.b.requires_grad() {
-            let a_data = self.a.data()?;
-            let grad_b: Vec<T> = go_data.iter().zip(a_data.iter()).map(|(&g, &a)| g * a).collect();
-            Some(Tensor::from_storage(
-                TensorStorage::cpu(grad_b),
-                self.b.shape().to_vec(),
-                false,
-            )?)
+            let raw = no_grad(|| mul(grad_output, &self.a))?;
+            Some(reduce_grad_to_shape(&raw, self.b.shape())?)
         } else {
             None
         };
@@ -312,6 +397,31 @@ struct DivBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for DivBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        if grad_output.is_cuda() {
+            // GPU path: use op-level functions in no_grad.
+            // da = grad / b
+            let da = if self.a.requires_grad() {
+                let raw = no_grad(|| div(grad_output, &self.b))?;
+                Some(reduce_grad_to_shape(&raw, self.a.shape())?)
+            } else {
+                None
+            };
+            // db = -grad * a / (b * b)
+            let db = if self.b.requires_grad() {
+                let raw = no_grad(|| {
+                    let neg_go = neg(grad_output)?;
+                    let neg_go_a = mul(&neg_go, &self.a)?;
+                    let b_sq = mul(&self.b, &self.b)?;
+                    div(&neg_go_a, &b_sq)
+                })?;
+                Some(reduce_grad_to_shape(&raw, self.b.shape())?)
+            } else {
+                None
+            };
+            return Ok(vec![da, db]);
+        }
+
+        // CPU path: direct data access for performance.
         let go_data = grad_output.data()?;
         let b_data = self.b.data()?;
 
@@ -321,11 +431,12 @@ impl<T: Float> GradFn<T> for DivBackward<T> {
                 .zip(b_data.iter())
                 .map(|(&g, &b)| g / b)
                 .collect();
-            Some(Tensor::from_storage(
+            let raw = Tensor::from_storage(
                 TensorStorage::cpu(grad_a),
-                self.a.shape().to_vec(),
+                grad_output.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(reduce_grad_to_shape(&raw, self.a.shape())?)
         } else {
             None
         };
@@ -337,11 +448,12 @@ impl<T: Float> GradFn<T> for DivBackward<T> {
                 .zip(a_data.iter().zip(b_data.iter()))
                 .map(|(&g, (&a, &b))| -g * a / (b * b))
                 .collect();
-            Some(Tensor::from_storage(
+            let raw = Tensor::from_storage(
                 TensorStorage::cpu(grad_b),
-                self.b.shape().to_vec(),
+                grad_output.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(reduce_grad_to_shape(&raw, self.b.shape())?)
         } else {
             None
         };
@@ -392,13 +504,7 @@ struct NegBackward<T: Float> {
 impl<T: Float> GradFn<T> for NegBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let da = if self.a.requires_grad() {
-            let go_data = grad_output.data()?;
-            let neg: Vec<T> = go_data.iter().map(|&g| -g).collect();
-            Some(Tensor::from_storage(
-                TensorStorage::cpu(neg),
-                grad_output.shape().to_vec(),
-                false,
-            )?)
+            Some(no_grad(|| neg(grad_output))?)
         } else {
             None
         };
@@ -479,7 +585,24 @@ impl<T: Float> GradFn<T> for PowBackward<T> {
                 )?;
                 let scaled = mul(&exp_tensor, &a_pow)?; // exp * a^(exp-1)
                 Some(mul(grad_output, &scaled)?) // grad_output * exp * a^(exp-1)
+            } else if grad_output.is_cuda() {
+                // GPU path: use op-level functions in no_grad.
+                // da = grad_output * exp * a^(exp-1)
+                let da = no_grad(|| {
+                    let a_pow = pow(&self.a, self.exp - 1.0)?;
+                    let exp_t = T::from(self.exp).unwrap();
+                    let exp_tensor = Tensor::from_storage(
+                        TensorStorage::cpu(vec![exp_t; self.a.numel().max(1)]),
+                        self.a.shape().to_vec(),
+                        false,
+                    )?;
+                    let exp_gpu = exp_tensor.to(self.a.device())?;
+                    let scaled = mul(&exp_gpu, &a_pow)?;
+                    mul(grad_output, &scaled)
+                })?;
+                Some(da)
             } else {
+                // CPU path: direct data access for performance.
                 let go_data = grad_output.data()?;
                 let a_data = self.a.data()?;
                 let exp_t = T::from(self.exp).unwrap();
@@ -545,19 +668,37 @@ struct SqrtBackward<T: Float> {
 impl<T: Float> GradFn<T> for SqrtBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let da = if self.a.requires_grad() {
-            let go_data = grad_output.data()?;
-            let a_data = self.a.data()?;
-            let two = T::from(2.0).unwrap();
-            let grad_a: Vec<T> = go_data
-                .iter()
-                .zip(a_data.iter())
-                .map(|(&g, &a)| g / (two * a.sqrt()))
-                .collect();
-            Some(Tensor::from_storage(
-                TensorStorage::cpu(grad_a),
-                self.a.shape().to_vec(),
-                false,
-            )?)
+            if grad_output.is_cuda() {
+                // GPU path: da = grad / (2 * sqrt(a))
+                let da = no_grad(|| {
+                    let sqrt_a = sqrt(&self.a)?;
+                    let two_t = T::from(2.0).unwrap();
+                    let two_tensor = Tensor::from_storage(
+                        TensorStorage::cpu(vec![two_t; self.a.numel().max(1)]),
+                        self.a.shape().to_vec(),
+                        false,
+                    )?;
+                    let two_gpu = two_tensor.to(self.a.device())?;
+                    let denom = mul(&two_gpu, &sqrt_a)?;
+                    div(grad_output, &denom)
+                })?;
+                Some(da)
+            } else {
+                // CPU path: direct data access for performance.
+                let go_data = grad_output.data()?;
+                let a_data = self.a.data()?;
+                let two = T::from(2.0).unwrap();
+                let grad_a: Vec<T> = go_data
+                    .iter()
+                    .zip(a_data.iter())
+                    .map(|(&g, &a)| g / (two * a.sqrt()))
+                    .collect();
+                Some(Tensor::from_storage(
+                    TensorStorage::cpu(grad_a),
+                    self.a.shape().to_vec(),
+                    false,
+                )?)
+            }
         } else {
             None
         };
@@ -604,29 +745,58 @@ struct AbsBackward<T: Float> {
 impl<T: Float> GradFn<T> for AbsBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let da = if self.a.requires_grad() {
-            let go_data = grad_output.data()?;
-            let a_data = self.a.data()?;
-            let zero = <T as num_traits::Zero>::zero();
-            let one = <T as num_traits::One>::one();
-            let grad_a: Vec<T> = go_data
-                .iter()
-                .zip(a_data.iter())
-                .map(|(&g, &a)| {
-                    let sign = if a > zero {
-                        one
-                    } else if a < zero {
-                        -one
-                    } else {
-                        zero
-                    };
-                    g * sign
-                })
-                .collect();
-            Some(Tensor::from_storage(
-                TensorStorage::cpu(grad_a),
-                self.a.shape().to_vec(),
-                false,
-            )?)
+            if grad_output.is_cuda() {
+                // GPU path: compute sign(a) on CPU, move to GPU, then mul.
+                // sign(a) is element-wise and only depends on `a`, not grad_output.
+                let a_cpu = self.a.cpu()?;
+                let a_data = a_cpu.data()?;
+                let zero = <T as num_traits::Zero>::zero();
+                let one = <T as num_traits::One>::one();
+                let sign_data: Vec<T> = a_data
+                    .iter()
+                    .map(|&a| {
+                        if a > zero {
+                            one
+                        } else if a < zero {
+                            -one
+                        } else {
+                            zero
+                        }
+                    })
+                    .collect();
+                let sign_cpu = Tensor::from_storage(
+                    TensorStorage::cpu(sign_data),
+                    self.a.shape().to_vec(),
+                    false,
+                )?;
+                let sign_gpu = sign_cpu.to(grad_output.device())?;
+                Some(no_grad(|| mul(grad_output, &sign_gpu))?)
+            } else {
+                // CPU path: direct data access for performance.
+                let go_data = grad_output.data()?;
+                let a_data = self.a.data()?;
+                let zero = <T as num_traits::Zero>::zero();
+                let one = <T as num_traits::One>::one();
+                let grad_a: Vec<T> = go_data
+                    .iter()
+                    .zip(a_data.iter())
+                    .map(|(&g, &a)| {
+                        let sign = if a > zero {
+                            one
+                        } else if a < zero {
+                            -one
+                        } else {
+                            zero
+                        };
+                        g * sign
+                    })
+                    .collect();
+                Some(Tensor::from_storage(
+                    TensorStorage::cpu(grad_a),
+                    self.a.shape().to_vec(),
+                    false,
+                )?)
+            }
         } else {
             None
         };

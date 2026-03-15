@@ -327,15 +327,26 @@ DONE:
 // ---------------------------------------------------------------------------
 
 /// Standard 1-D launch config for `n` elements, 256 threads per block.
+///
+/// # Errors
+///
+/// Returns [`GpuError::ShapeMismatch`] if `n` exceeds `u32::MAX`.
 #[cfg(feature = "cuda")]
-fn launch_cfg(n: usize) -> cudarc::driver::LaunchConfig {
+fn launch_cfg(n: usize) -> GpuResult<cudarc::driver::LaunchConfig> {
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "kernel_launch",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     const BLOCK: u32 = 256;
     let grid = ((n as u32).saturating_add(BLOCK - 1)) / BLOCK;
-    cudarc::driver::LaunchConfig {
+    Ok(cudarc::driver::LaunchConfig {
         grid_dim: (grid.max(1), 1, 1),
         block_dim: (BLOCK, 1, 1),
         shared_mem_bytes: 0,
-    }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -477,10 +488,11 @@ pub fn gpu_conv2d_f32(
     let ctx = device.context();
     let stream = device.stream();
 
-    let im2col_fn = crate::module_cache::get_or_compile(ctx, IM2COL_PTX, "im2col_kernel")?;
+    let ord = device.ordinal() as u32;
+    let im2col_fn = crate::module_cache::get_or_compile(ctx, IM2COL_PTX, "im2col_kernel", ord)?;
 
     let bias_fn = if bias.is_some() {
-        Some(crate::module_cache::get_or_compile(ctx, BIAS_ADD_PTX, "bias_add_kernel")?)
+        Some(crate::module_cache::get_or_compile(ctx, BIAS_ADD_PTX, "bias_add_kernel", ord)?)
     } else {
         None
     };
@@ -489,7 +501,7 @@ pub fn gpu_conv2d_f32(
     // Per-batch loop: im2col -> GEMM -> D2D copy -> bias add
     // -----------------------------------------------------------------------
 
-    let im2col_cfg = launch_cfg(col_elems);
+    let im2col_cfg = launch_cfg(col_elems)?;
 
     for b in 0..batch {
         let b_u32 = b as u32;
@@ -552,7 +564,7 @@ pub fn gpu_conv2d_f32(
         if let (Some(bias_buf), Some(bias_func)) = (bias, &bias_fn) {
             let n_bias = out_elems_per_batch as u32;
             let spatial = col_cols as u32;
-            let bias_cfg = launch_cfg(out_elems_per_batch);
+            let bias_cfg = launch_cfg(out_elems_per_batch)?;
 
             // We need to launch the bias kernel on the sub-region of
             // output_buf for this batch element.  We pass a mutable view.

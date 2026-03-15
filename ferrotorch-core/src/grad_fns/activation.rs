@@ -1428,7 +1428,7 @@ mod tests {
         let y = softplus(&x, 1.0, 20.0).unwrap();
 
         // Sum to get a scalar for backward.
-        let sum = crate::grad_fns::reduction::sum(&y)?;
+        let sum = crate::grad_fns::reduction::sum(&y).unwrap();
         backward(&sum).unwrap();
 
         let grad = x.grad().unwrap().unwrap();
