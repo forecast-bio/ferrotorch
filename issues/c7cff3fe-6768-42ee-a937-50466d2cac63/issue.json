@@ -1,0 +1,10 @@
+{
+  "uuid": "c7cff3fe-6768-42ee-a937-50466d2cac63",
+  "display_id": 75,
+  "title": "Implement MNIST and CIFAR-10/100 dataset loaders in ferrotorch-vision",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T13:38:28.209863225Z",
+  "updated_at": "2026-03-15T13:38:28.209863225Z"
+}
