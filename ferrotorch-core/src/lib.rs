@@ -23,7 +23,7 @@ pub mod tensor;
 pub mod vmap;
 
 // Public re-exports for ergonomic use.
-pub use autograd::{autocast, autocast_dtype, is_autocast_enabled, AutocastDtype, backward, fixed_point, grad, grad_norm, gradient_penalty, hessian, jacobian, jvp, vjp, is_grad_enabled, no_grad};
+pub use autograd::{autocast, autocast_dtype, is_autocast_enabled, AutocastDtype, backward, backward_with_grad, fixed_point, grad, grad_norm, gradient_penalty, hessian, jacobian, jvp, vjp, is_grad_enabled, no_grad};
 pub use creation::{
     arange, eye, from_slice, from_vec, full, full_like, linspace, ones, ones_like, rand,
     rand_like, randn, randn_like, scalar, tensor, zeros, zeros_like,
@@ -48,3 +48,5 @@ pub use grad_fns::shape::cat;
 pub use methods::{permute_t, view_t, contiguous_t, chunk_t, split_t};
 pub use vmap::{select, stack, vmap, vmap2};
 pub use special::{digamma, erf, erfc, erfinv, expm1, lgamma, log1p, sinc, xlogy};
+pub use grad_fns::transcendental::{exp, log, sin, cos, clamp};
+pub use grad_fns::activation::{sigmoid, tanh};

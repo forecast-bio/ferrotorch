@@ -6,3 +6,4 @@ pub mod shape;
 pub mod indexing;
 pub mod comparison;
 pub mod fft;
+pub mod transcendental;

@@ -42,6 +42,28 @@ impl<T: Float> Tensor<T> {
         crate::grad_fns::arithmetic::abs(self)
     }
 
+    // --- Transcendental ---
+
+    pub fn exp_t(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::grad_fns::transcendental::exp(self)
+    }
+
+    pub fn log_t(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::grad_fns::transcendental::log(self)
+    }
+
+    pub fn sin_t(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::grad_fns::transcendental::sin(self)
+    }
+
+    pub fn cos_t(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::grad_fns::transcendental::cos(self)
+    }
+
+    pub fn clamp_t(&self, min: T, max: T) -> FerrotorchResult<Tensor<T>> {
+        crate::grad_fns::transcendental::clamp(self, min, max)
+    }
+
     // --- Activation ---
 
     pub fn relu(&self) -> FerrotorchResult<Tensor<T>> {

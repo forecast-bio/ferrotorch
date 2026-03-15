@@ -7,7 +7,7 @@
 use std::any::Any;
 use std::sync::OnceLock;
 
-use crate::error::FerrotorchResult;
+use crate::error::{FerrotorchError, FerrotorchResult};
 
 /// Opaque handle to GPU memory.
 ///
@@ -69,6 +69,33 @@ pub trait GpuBackend: Send + Sync {
 
     // Reduction f32
     fn sum_f32(&self, a: &GpuBufferHandle, len: usize) -> FerrotorchResult<GpuBufferHandle>;
+
+    // Elementwise f64 (default impls return "not yet implemented" errors)
+    fn add_f64(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+    }
+    fn sub_f64(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+    }
+    fn mul_f64(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+    }
+    fn neg_f64(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+    }
+    fn relu_f64(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+    }
+
+    // Linalg f64
+    fn matmul_f64(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle, _m: usize, _k: usize, _n: usize) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+    }
+
+    // Reduction f64
+    fn sum_f64(&self, _a: &GpuBufferHandle, _numel: usize) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+    }
 }
 
 static GPU_BACKEND: OnceLock<Box<dyn GpuBackend>> = OnceLock::new();

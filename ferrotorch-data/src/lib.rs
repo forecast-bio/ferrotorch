@@ -3,7 +3,7 @@ pub mod dataset;
 pub mod sampler;
 pub mod transforms;
 
-pub use dataloader::DataLoader;
+pub use dataloader::{CollatedIter, DataLoader};
 pub use dataset::{Dataset, IterableDataset, MappedDataset, VecDataset, WorkerInfo};
 pub use sampler::{RandomSampler, Sampler, SequentialSampler};
 pub use transforms::{

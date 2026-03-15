@@ -64,12 +64,27 @@ impl CudaBackendImpl {
         GpuBufferHandle::new(Box::new(buf), ordinal, len)
     }
 
+    /// Wrap a `CudaBuffer<f64>` into a type-erased [`GpuBufferHandle`].
+    fn wrap_buffer_f64(buf: CudaBuffer<f64>, ordinal: usize) -> GpuBufferHandle {
+        let len = buf.len();
+        GpuBufferHandle::new(Box::new(buf), ordinal, len)
+    }
+
     /// Extract a `&CudaBuffer<f32>` from a [`GpuBufferHandle`].
     fn unwrap_buffer(handle: &GpuBufferHandle) -> FerrotorchResult<&CudaBuffer<f32>> {
         handle
             .downcast_ref::<CudaBuffer<f32>>()
             .ok_or(FerrotorchError::InvalidArgument {
                 message: "GPU handle does not contain a CudaBuffer<f32>".into(),
+            })
+    }
+
+    /// Extract a `&CudaBuffer<f64>` from a [`GpuBufferHandle`].
+    fn unwrap_buffer_f64(handle: &GpuBufferHandle) -> FerrotorchResult<&CudaBuffer<f64>> {
+        handle
+            .downcast_ref::<CudaBuffer<f64>>()
+            .ok_or(FerrotorchError::InvalidArgument {
+                message: "GPU handle does not contain a CudaBuffer<f64>".into(),
             })
     }
 
@@ -239,6 +254,24 @@ impl GpuBackend for CudaBackendImpl {
         let result_buf =
             crate::transfer::cpu_to_gpu(&[total], dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result_buf, a.device_ordinal()))
+    }
+
+    // -- Linalg f64 (cuBLAS DGEMM) --------------------------------------------
+
+    fn matmul_f64(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer_f64(a)?;
+        let b_buf = Self::unwrap_buffer_f64(b)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::blas::gpu_matmul_f64(a_buf, b_buf, m, k, n, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer_f64(result, a.device_ordinal()))
     }
 }
 

@@ -28,6 +28,7 @@ pub struct DataLoader<D: Dataset> {
     shuffle: bool,
     drop_last: bool,
     seed: u64,
+    collate_fn: Option<Arc<dyn Fn(Vec<D::Sample>) -> FerrotorchResult<D::Sample> + Send + Sync>>,
 }
 
 impl<D: Dataset> DataLoader<D> {
@@ -46,6 +47,7 @@ impl<D: Dataset> DataLoader<D> {
             shuffle: false,
             drop_last: false,
             seed: 0,
+            collate_fn: None,
         }
     }
 
@@ -72,6 +74,53 @@ impl<D: Dataset> DataLoader<D> {
     pub fn seed(mut self, seed: u64) -> Self {
         self.seed = seed;
         self
+    }
+
+    /// Set a collation function that merges a `Vec<Sample>` into a single
+    /// `Sample`.
+    ///
+    /// When set, each batch produced by the iterator will be passed through
+    /// the collation function. The iterator's `Item` type changes from
+    /// `FerrotorchResult<Vec<D::Sample>>` to `FerrotorchResult<D::Sample>`
+    /// when consumed via [`DataLoader::iter_collated`].
+    ///
+    /// The collate function is also available through the standard
+    /// [`DataLoader::iter`] path: if a collate function is **not** set,
+    /// the iterator returns raw `Vec<D::Sample>` batches as before.
+    pub fn with_collate<F>(mut self, f: F) -> Self
+    where
+        F: Fn(Vec<D::Sample>) -> FerrotorchResult<D::Sample> + Send + Sync + 'static,
+    {
+        self.collate_fn = Some(Arc::new(f));
+        self
+    }
+
+    /// Return a reference to the collation function, if one has been set.
+    pub fn collate_fn(
+        &self,
+    ) -> Option<&(dyn Fn(Vec<D::Sample>) -> FerrotorchResult<D::Sample> + Send + Sync)> {
+        self.collate_fn.as_deref()
+    }
+
+    /// Produce a collated batch iterator for the given epoch.
+    ///
+    /// Each call to `next()` returns a single collated `D::Sample` produced
+    /// by the collation function set via [`with_collate`](DataLoader::with_collate).
+    ///
+    /// # Panics
+    ///
+    /// Panics if no collation function has been set. Use [`iter`](DataLoader::iter)
+    /// for the uncollated path.
+    pub fn iter_collated(&self, epoch: usize) -> CollatedIter<'_, D> {
+        let collate_fn = self
+            .collate_fn
+            .as_ref()
+            .expect("iter_collated called without a collate_fn — use with_collate() first");
+
+        CollatedIter {
+            inner: self.iter(epoch),
+            collate_fn: collate_fn.as_ref(),
+        }
     }
 
     /// Return the number of batches that will be produced for one epoch.
@@ -164,6 +213,30 @@ impl<D: Dataset> Iterator for DataLoaderIter<'_, D> {
 }
 
 impl<D: Dataset> ExactSizeIterator for DataLoaderIter<'_, D> {}
+
+/// Iterator over collated batches produced by a [`DataLoader`].
+///
+/// Each call to `next()` returns `Some(FerrotorchResult<D::Sample>)` — a
+/// single collated sample produced by the user-supplied collation function.
+pub struct CollatedIter<'a, D: Dataset> {
+    inner: DataLoaderIter<'a, D>,
+    collate_fn: &'a (dyn Fn(Vec<D::Sample>) -> FerrotorchResult<D::Sample> + Send + Sync),
+}
+
+impl<D: Dataset> Iterator for CollatedIter<'_, D> {
+    type Item = FerrotorchResult<D::Sample>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let batch = self.inner.next()?;
+        Some(batch.and_then(|samples| (self.collate_fn)(samples)))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<D: Dataset> ExactSizeIterator for CollatedIter<'_, D> {}
 
 #[cfg(test)]
 mod tests {
@@ -380,5 +453,101 @@ mod tests {
         assert!(loader.shuffle);
         assert!(loader.drop_last);
         assert_eq!(loader.seed, 123);
+    }
+
+    // ── collate_fn ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_with_collate_sum() {
+        let loader = DataLoader::new(make_dataset(6), 3)
+            .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
+
+        let collated: Vec<i32> = loader
+            .iter_collated(0)
+            .map(|r| r.unwrap())
+            .collect();
+        // Sequential: [0,1,2] -> 3, [3,4,5] -> 12
+        assert_eq!(collated, vec![3, 12]);
+    }
+
+    #[test]
+    fn test_collate_with_remainder() {
+        let loader = DataLoader::new(make_dataset(5), 3)
+            .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
+
+        let collated: Vec<i32> = loader
+            .iter_collated(0)
+            .map(|r| r.unwrap())
+            .collect();
+        // [0,1,2] -> 3, [3,4] -> 7
+        assert_eq!(collated, vec![3, 7]);
+    }
+
+    #[test]
+    fn test_collate_with_drop_last() {
+        let loader = DataLoader::new(make_dataset(5), 3)
+            .drop_last(true)
+            .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
+
+        let collated: Vec<i32> = loader
+            .iter_collated(0)
+            .map(|r| r.unwrap())
+            .collect();
+        // Only [0,1,2] -> 3 (partial batch [3,4] dropped)
+        assert_eq!(collated, vec![3]);
+    }
+
+    #[test]
+    fn test_collate_fn_accessor() {
+        let loader = DataLoader::new(make_dataset(5), 3);
+        assert!(loader.collate_fn().is_none());
+
+        let loader = loader.with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
+        assert!(loader.collate_fn().is_some());
+    }
+
+    #[test]
+    fn test_collated_iter_size_hint() {
+        let loader = DataLoader::new(make_dataset(10), 3)
+            .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
+
+        let it = loader.iter_collated(0);
+        assert_eq!(it.len(), 4); // ceil(10/3) = 4
+    }
+
+    #[test]
+    fn test_collate_error_propagation() {
+        let loader = DataLoader::new(make_dataset(4), 2)
+            .with_collate(|_batch| {
+                Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                    message: "test error".into(),
+                })
+            });
+
+        let results: Vec<_> = loader.iter_collated(0).collect();
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_err());
+        assert!(results[1].is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "iter_collated called without a collate_fn")]
+    fn test_collated_iter_panics_without_collate_fn() {
+        let loader = DataLoader::new(make_dataset(5), 3);
+        let _ = loader.iter_collated(0);
+    }
+
+    #[test]
+    fn test_uncollated_iter_unaffected_by_collate() {
+        // The original iter() path still returns Vec<Sample> even when
+        // a collate_fn is set.
+        let loader = DataLoader::new(make_dataset(4), 2)
+            .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
+
+        let batches: Vec<Vec<i32>> = loader
+            .iter(0)
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(batches, vec![vec![0, 1], vec![2, 3]]);
     }
 }

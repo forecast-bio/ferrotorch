@@ -4,6 +4,7 @@
 //! function that performs the forward pass and attaches the grad_fn to the
 //! result tensor when gradient tracking is enabled.
 
+use std::any::TypeId;
 use std::sync::Arc;
 
 use crate::autograd::no_grad::{is_grad_enabled, no_grad};
@@ -12,6 +13,12 @@ use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::ops::elementwise::{binary_map, scalar_map, unary_map, fast_add, fast_mul};
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
+
+/// Returns `true` if `T` is `f64`.
+#[inline]
+fn is_f64<T: Float>() -> bool {
+    TypeId::of::<T>() == TypeId::of::<f64>()
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -173,7 +180,11 @@ pub fn add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
     if a.is_cuda() {
         let backend = crate::gpu_dispatch::gpu_backend()
             .ok_or(FerrotorchError::DeviceUnavailable)?;
-        let handle = backend.add_f32(a.gpu_handle()?, b.gpu_handle()?)?;
+        let handle = if is_f64::<T>() {
+            backend.add_f64(a.gpu_handle()?, b.gpu_handle()?)?
+        } else {
+            backend.add_f32(a.gpu_handle()?, b.gpu_handle()?)?
+        };
         let storage = TensorStorage::gpu(handle);
         let shape = a.shape().to_vec();
 
@@ -249,7 +260,11 @@ pub fn sub<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
     if a.is_cuda() {
         let backend = crate::gpu_dispatch::gpu_backend()
             .ok_or(FerrotorchError::DeviceUnavailable)?;
-        let handle = backend.sub_f32(a.gpu_handle()?, b.gpu_handle()?)?;
+        let handle = if is_f64::<T>() {
+            backend.sub_f64(a.gpu_handle()?, b.gpu_handle()?)?
+        } else {
+            backend.sub_f32(a.gpu_handle()?, b.gpu_handle()?)?
+        };
         let storage = TensorStorage::gpu(handle);
         let shape = a.shape().to_vec();
 
@@ -353,7 +368,11 @@ pub fn mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
     if a.is_cuda() {
         let backend = crate::gpu_dispatch::gpu_backend()
             .ok_or(FerrotorchError::DeviceUnavailable)?;
-        let handle = backend.mul_f32(a.gpu_handle()?, b.gpu_handle()?)?;
+        let handle = if is_f64::<T>() {
+            backend.mul_f64(a.gpu_handle()?, b.gpu_handle()?)?
+        } else {
+            backend.mul_f32(a.gpu_handle()?, b.gpu_handle()?)?
+        };
         let storage = TensorStorage::gpu(handle);
         let shape = a.shape().to_vec();
 
@@ -525,7 +544,11 @@ pub fn neg<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.is_cuda() {
         let backend = crate::gpu_dispatch::gpu_backend()
             .ok_or(FerrotorchError::DeviceUnavailable)?;
-        let handle = backend.neg_f32(a.gpu_handle()?)?;
+        let handle = if is_f64::<T>() {
+            backend.neg_f64(a.gpu_handle()?)?
+        } else {
+            backend.neg_f32(a.gpu_handle()?)?
+        };
         let storage = TensorStorage::gpu(handle);
         let shape = a.shape().to_vec();
 

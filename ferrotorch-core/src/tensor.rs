@@ -225,6 +225,14 @@ impl<T: Float> Tensor<T> {
         Ok(())
     }
 
+    /// Zero out the gradient of this tensor.
+    ///
+    /// Equivalent to `self.set_grad(None)`. Typically called before each
+    /// training iteration to prevent gradient accumulation across steps.
+    pub fn zero_grad(&self) -> FerrotorchResult<()> {
+        self.set_grad(None)
+    }
+
     /// Accumulate a gradient additively (used by the backward engine).
     pub(crate) fn accumulate_grad(&self, incoming: &Tensor<T>) -> FerrotorchResult<()> {
         let mut guard =

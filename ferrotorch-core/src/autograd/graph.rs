@@ -15,16 +15,43 @@ use crate::tensor::{Tensor, TensorId};
 /// `root` must be a scalar tensor (0-dim or single element). After this call,
 /// leaf tensors with `requires_grad = true` will have their `.grad()` populated.
 pub fn backward<T: Float>(root: &Tensor<T>) -> FerrotorchResult<()> {
-    // Validate root is scalar.
-    if !root.is_scalar() && root.numel() != 1 {
-        return Err(FerrotorchError::BackwardNonScalar {
-            shape: root.shape().to_vec(),
-        });
-    }
+    backward_with_grad(root, None)
+}
 
-    // Seed gradient: d(root)/d(root) = 1.
-    let ones_storage = crate::storage::TensorStorage::cpu(vec![<T as num_traits::One>::one()]);
-    let seed = Tensor::from_storage(ones_storage, vec![], false)?;
+/// Run backward pass through the computation graph.
+///
+/// If `gradient` is `None`, the root must be scalar and an implicit seed of 1.0 is used.
+/// If `gradient` is `Some`, it is used as the initial gradient for the root tensor,
+/// allowing backward on non-scalar tensors (needed for multi-head outputs, Jacobian
+/// computation, and custom loss functions).
+pub fn backward_with_grad<T: Float>(
+    root: &Tensor<T>,
+    gradient: Option<&Tensor<T>>,
+) -> FerrotorchResult<()> {
+    let seed = if let Some(ext_grad) = gradient {
+        // Validate that the external gradient shape matches the root shape.
+        if ext_grad.shape() != root.shape() {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "gradient shape {:?} does not match root shape {:?}",
+                    ext_grad.shape(),
+                    root.shape(),
+                ),
+            });
+        }
+        ext_grad.clone()
+    } else {
+        // No external gradient: root must be scalar.
+        if !root.is_scalar() && root.numel() != 1 {
+            return Err(FerrotorchError::BackwardNonScalar {
+                shape: root.shape().to_vec(),
+            });
+        }
+
+        // Seed gradient: d(root)/d(root) = 1.
+        let ones_storage = crate::storage::TensorStorage::cpu(vec![<T as num_traits::One>::one()]);
+        Tensor::from_storage(ones_storage, vec![], false)?
+    };
 
     // Phase 1: Collect all nodes and compute in-degree via BFS.
     //
@@ -141,7 +168,7 @@ pub fn backward<T: Float>(root: &Tensor<T>) -> FerrotorchResult<()> {
     Ok(())
 }
 
-/// Convenience method on Tensor for calling backward.
+/// Convenience methods on Tensor for calling backward.
 impl<T: Float> Tensor<T> {
     /// Compute gradients of all leaf tensors that contribute to this tensor.
     ///
@@ -149,6 +176,16 @@ impl<T: Float> Tensor<T> {
     /// leaf tensors with `requires_grad = true` will have their `.grad()` set.
     pub fn backward(&self) -> FerrotorchResult<()> {
         backward(self)
+    }
+
+    /// Run backward with an external gradient.
+    ///
+    /// This allows backward on non-scalar tensors by providing the initial
+    /// gradient explicitly. The gradient shape must match this tensor's shape.
+    /// Used for multi-head outputs, Jacobian computation, and custom loss
+    /// functions.
+    pub fn backward_with_gradient(&self, gradient: &Tensor<T>) -> FerrotorchResult<()> {
+        backward_with_grad(self, Some(gradient))
     }
 }
 
