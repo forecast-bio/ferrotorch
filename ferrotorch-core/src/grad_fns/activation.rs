@@ -429,8 +429,23 @@ pub fn relu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
 /// Compute `sigmoid(x)`, attaching a backward node when gradients are enabled.
 pub fn sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let one = <T as num_traits::One>::one();
-    let output = unary_map(input, |x| one / (one + (-x).exp()))?;
+    // SIMD-accelerated sigmoid: compute exp(-x) via SIMD, then 1/(1+exp(-x))
+    let output = if std::mem::size_of::<T>() == 4 {
+        let data = input.data()?;
+        let n = data.len();
+        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
+        // Negate
+        let neg: Vec<f32> = inp.iter().map(|&x| -x).collect();
+        // SIMD exp
+        let mut exp_out = vec![0.0f32; n];
+        ferray_ufunc::kernels::simd_f32::exp_f32(&neg, &mut exp_out);
+        // 1 / (1 + exp(-x))
+        let result: Vec<T> = exp_out.iter().map(|&e| T::from(1.0f32 / (1.0 + e)).unwrap()).collect();
+        Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false)?
+    } else {
+        let one = <T as num_traits::One>::one();
+        unary_map(input, |x| one / (one + (-x).exp()))?
+    };
 
     if is_grad_enabled() && input.requires_grad() {
         let result = Tensor::from_operation(

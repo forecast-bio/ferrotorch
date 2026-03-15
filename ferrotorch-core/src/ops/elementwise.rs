@@ -1,8 +1,7 @@
 //! Elementwise tensor operations.
 //!
-//! These operate on tensor data slices directly using `num_traits::Float`
-//! methods. SIMD-accelerated paths via ferray-ufunc kernels can be added
-//! as an optimization without changing the API.
+//! Uses ferray-ufunc SIMD kernels for f32/f64 fast paths and falls back
+//! to scalar loops for generic/broadcasting operations.
 
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
@@ -10,10 +9,170 @@ use crate::shape::broadcast_shapes;
 use crate::storage::TensorStorage;
 use crate::tensor::Tensor;
 
-/// Apply a unary function elementwise, producing a new tensor.
+// --- SIMD-accelerated specializations for f32 ---
+
+/// SIMD-accelerated add for same-shape f32 tensors.
+pub fn simd_add_f32(a: &Tensor<f32>, b: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
+    let a_data = a.data()?;
+    let b_data = b.data()?;
+    let mut output = vec![0.0f32; a_data.len()];
+    ferray_ufunc::kernels::simd_f32::add_f32(a_data, b_data, &mut output);
+    Tensor::from_storage(TensorStorage::cpu(output), a.shape().to_vec(), false)
+}
+
+/// SIMD-accelerated mul for same-shape f32 tensors.
+pub fn simd_mul_f32(a: &Tensor<f32>, b: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
+    let a_data = a.data()?;
+    let b_data = b.data()?;
+    let mut output = vec![0.0f32; a_data.len()];
+    ferray_ufunc::kernels::simd_f32::mul_f32(a_data, b_data, &mut output);
+    Tensor::from_storage(TensorStorage::cpu(output), a.shape().to_vec(), false)
+}
+
+/// SIMD-accelerated exp for f32.
+pub fn simd_exp_f32(input: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
+    let data = input.data()?;
+    let mut output = vec![0.0f32; data.len()];
+    ferray_ufunc::kernels::simd_f32::exp_f32(data, &mut output);
+    Tensor::from_storage(TensorStorage::cpu(output), input.shape().to_vec(), false)
+}
+
+/// SIMD-accelerated log for f32.
+pub fn simd_log_f32(input: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
+    let data = input.data()?;
+    let mut output = vec![0.0f32; data.len()];
+    ferray_ufunc::kernels::simd_f32::log_f32(data, &mut output);
+    Tensor::from_storage(TensorStorage::cpu(output), input.shape().to_vec(), false)
+}
+
+/// SIMD-accelerated sqrt for f32.
+pub fn simd_sqrt_f32(input: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
+    let data = input.data()?;
+    let mut output = vec![0.0f32; data.len()];
+    ferray_ufunc::kernels::simd_f32::sqrt_f32(data, &mut output);
+    Tensor::from_storage(TensorStorage::cpu(output), input.shape().to_vec(), false)
+}
+
+// --- SIMD-accelerated specializations for f64 ---
+
+/// SIMD-accelerated add for same-shape f64 tensors.
+pub fn simd_add_f64(a: &Tensor<f64>, b: &Tensor<f64>) -> FerrotorchResult<Tensor<f64>> {
+    let a_data = a.data()?;
+    let b_data = b.data()?;
+    let mut output = vec![0.0f64; a_data.len()];
+    ferray_ufunc::kernels::simd_f64::add_f64(a_data, b_data, &mut output);
+    Tensor::from_storage(TensorStorage::cpu(output), a.shape().to_vec(), false)
+}
+
+/// SIMD-accelerated mul for same-shape f64 tensors.
+pub fn simd_mul_f64(a: &Tensor<f64>, b: &Tensor<f64>) -> FerrotorchResult<Tensor<f64>> {
+    let a_data = a.data()?;
+    let b_data = b.data()?;
+    let mut output = vec![0.0f64; a_data.len()];
+    ferray_ufunc::kernels::simd_f64::mul_f64(a_data, b_data, &mut output);
+    Tensor::from_storage(TensorStorage::cpu(output), a.shape().to_vec(), false)
+}
+
+/// SIMD-accelerated exp for f64.
+pub fn simd_exp_f64(input: &Tensor<f64>) -> FerrotorchResult<Tensor<f64>> {
+    let data = input.data()?;
+    let mut output = vec![0.0f64; data.len()];
+    ferray_ufunc::kernels::simd_f64::exp_f64(data, &mut output);
+    Tensor::from_storage(TensorStorage::cpu(output), input.shape().to_vec(), false)
+}
+
+// --- SIMD-dispatching generic wrappers ---
+
+/// Transmute a Vec<f32> to Vec<T> (zero-cost when T is f32).
 ///
-/// This is the generic workhorse for `exp`, `log`, `sin`, etc.
-/// The `grad_fn` is attached by the calling grad_fn module, not here.
+/// SAFETY: Only call when size_of::<T>() == size_of::<f32>() (i.e., T is f32).
+#[inline]
+unsafe fn transmute_vec_f32_to_t<T: Float>(v: Vec<f32>) -> Vec<T> {
+    let mut v = std::mem::ManuallyDrop::new(v);
+    Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity())
+}
+
+/// Transmute a Vec<f64> to Vec<T> (zero-cost when T is f64).
+#[inline]
+unsafe fn transmute_vec_f64_to_t<T: Float>(v: Vec<f64>) -> Vec<T> {
+    let mut v = std::mem::ManuallyDrop::new(v);
+    Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity())
+}
+
+/// SIMD-accelerated add: dispatches to f32/f64 SIMD for same-shape tensors,
+/// falls back to generic binary_map with broadcasting.
+pub fn fast_add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if a.shape() == b.shape() {
+        let a_data = a.data()?;
+        let b_data = b.data()?;
+        let n = a_data.len();
+        if std::mem::size_of::<T>() == 4 {
+            let a_f32: &[f32] = unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+            let b_f32: &[f32] = unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
+            let mut out = vec![0.0f32; n];
+            ferray_ufunc::kernels::simd_f32::add_f32(a_f32, b_f32, &mut out);
+            let result = unsafe { transmute_vec_f32_to_t(out) };
+            return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
+        } else if std::mem::size_of::<T>() == 8 {
+            let a_f64: &[f64] = unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+            let b_f64: &[f64] = unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
+            let mut out = vec![0.0f64; n];
+            ferray_ufunc::kernels::simd_f64::add_f64(a_f64, b_f64, &mut out);
+            let result = unsafe { transmute_vec_f64_to_t(out) };
+            return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
+        }
+    }
+    binary_map(a, b, |x, y| x + y)
+}
+
+/// SIMD-accelerated mul.
+pub fn fast_mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if a.shape() == b.shape() {
+        let a_data = a.data()?;
+        let b_data = b.data()?;
+        let n = a_data.len();
+        if std::mem::size_of::<T>() == 4 {
+            let a_f32: &[f32] = unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+            let b_f32: &[f32] = unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
+            let mut out = vec![0.0f32; n];
+            ferray_ufunc::kernels::simd_f32::mul_f32(a_f32, b_f32, &mut out);
+            let result = unsafe { transmute_vec_f32_to_t(out) };
+            return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
+        } else if std::mem::size_of::<T>() == 8 {
+            let a_f64: &[f64] = unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+            let b_f64: &[f64] = unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
+            let mut out = vec![0.0f64; n];
+            ferray_ufunc::kernels::simd_f64::mul_f64(a_f64, b_f64, &mut out);
+            let result = unsafe { transmute_vec_f64_to_t(out) };
+            return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
+        }
+    }
+    binary_map(a, b, |x, y| x * y)
+}
+
+/// SIMD-accelerated exp.
+pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    let data = input.data()?;
+    let n = data.len();
+    if std::mem::size_of::<T>() == 4 {
+        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
+        let mut out = vec![0.0f32; n];
+        ferray_ufunc::kernels::simd_f32::exp_f32(inp, &mut out);
+        let result: Vec<T> = out.iter().map(|&v| T::from(v).unwrap()).collect();
+        return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
+    } else if std::mem::size_of::<T>() == 8 {
+        let inp: &[f64] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f64, n) };
+        let mut out = vec![0.0f64; n];
+        ferray_ufunc::kernels::simd_f64::exp_f64(inp, &mut out);
+        let result: Vec<T> = out.iter().map(|&v| T::from(v).unwrap()).collect();
+        return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
+    }
+    unary_map(input, |x| x.exp())
+}
+
+// --- Generic fallback operations ---
+
+/// Apply a unary function elementwise, producing a new tensor.
 pub fn unary_map<T: Float>(input: &Tensor<T>, f: impl Fn(T) -> T) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
     let result: Vec<T> = data.iter().map(|&x| f(x)).collect();

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::autograd::no_grad::is_grad_enabled;
 use crate::dtype::Float;
 use crate::error::FerrotorchResult;
-use crate::ops::elementwise::{binary_map, scalar_map, unary_map};
+use crate::ops::elementwise::{binary_map, scalar_map, unary_map, fast_add, fast_mul};
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
 
@@ -68,7 +68,7 @@ impl<T: Float> GradFn<T> for AddBackward<T> {
 
 /// Elementwise addition: `c = a + b`.
 pub fn add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let result = binary_map(a, b, |x, y| x + y)?;
+    let result = fast_add(a, b)?;
 
     if needs_grad(a, b) {
         let storage = TensorStorage::cpu(result.data()?.to_vec());
@@ -202,7 +202,7 @@ impl<T: Float> GradFn<T> for MulBackward<T> {
 
 /// Elementwise multiplication: `c = a * b`.
 pub fn mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let result = binary_map(a, b, |x, y| x * y)?;
+    let result = fast_mul(a, b)?;
 
     if needs_grad(a, b) {
         let storage = TensorStorage::cpu(result.data()?.to_vec());
