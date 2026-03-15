@@ -7,11 +7,12 @@
   "parent_uuid": "62bf35be-d6f4-4b2c-a4c8-afaf5c3ffb88",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T03:18:07.875186934Z",
-  "updated_at": "2026-03-15T03:18:41.276326891Z",
+  "updated_at": "2026-03-15T03:18:44.039418351Z",
   "labels": [
     "feature"
   ],
   "blockers": [
-    "4b337983-4caf-4d0f-8276-31f267f86713"
+    "4b337983-4caf-4d0f-8276-31f267f86713",
+    "1b344a40-636c-4412-af0e-8c8116b5e2a4"
   ]
 }
