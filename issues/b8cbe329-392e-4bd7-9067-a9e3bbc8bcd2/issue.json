@@ -1,0 +1,10 @@
+{
+  "uuid": "b8cbe329-392e-4bd7-9067-a9e3bbc8bcd2",
+  "display_id": 48,
+  "title": "Implement gradient clipping utilities in ferrotorch-nn/src/utils.rs",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T03:01:16.213791306Z",
+  "updated_at": "2026-03-15T03:01:16.213791306Z"
+}
