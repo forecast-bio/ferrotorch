@@ -1,0 +1,8 @@
+{
+  "uuid": "705abe13-eb80-4247-88fc-84f76ef7cad7",
+  "issue_uuid": "2cf92425-c295-4829-a6fd-08febe213228",
+  "author": "anon-a7c6025f",
+  "content": "Step 1 of Phase 2. Creating ferrotorch-nn crate skeleton with Module trait, Parameter type, StateDict type alias, Reduction enum, and new error variants. Files: Cargo.toml, src/lib.rs, src/module.rs, src/parameter.rs. This is the foundation all layers depend on.",
+  "created_at": "2026-03-15T02:37:38.815625136Z",
+  "kind": "plan"
+}
