@@ -250,6 +250,332 @@ pub fn prod<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 }
 
 // ---------------------------------------------------------------------------
+// SumDimBackward
+// ---------------------------------------------------------------------------
+
+/// Backward node for `sum_dim(input, dim, keepdim) -> reduced tensor`.
+///
+/// VJP: expand the gradient back along the reduced dimension to match the
+/// input shape. If `keepdim` was false, we first unsqueeze the reduced dim
+/// before expanding.
+#[derive(Debug)]
+pub struct SumDimBackward<T: Float> {
+    input: Tensor<T>,
+    dim: usize,
+    keepdim: bool,
+}
+
+impl<T: Float> GradFn<T> for SumDimBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let input_shape = self.input.shape();
+
+        // If keepdim was false, reinsert the reduced dimension as size 1.
+        let grad = if self.keepdim {
+            grad_output.clone()
+        } else {
+            let go_cpu = if grad_output.is_cuda() {
+                grad_output.cpu()?
+            } else {
+                grad_output.clone()
+            };
+            let mut unsqueezed_shape = go_cpu.shape().to_vec();
+            unsqueezed_shape.insert(self.dim, 1);
+            let data = go_cpu.data()?.to_vec();
+            Tensor::from_storage(TensorStorage::cpu(data), unsqueezed_shape, false)?
+        };
+
+        // Now expand (repeat) along the reduced dim to match input shape.
+        let grad_cpu = if grad.is_cuda() { grad.cpu()? } else { grad };
+        let grad_data = grad_cpu.data()?;
+        let grad_shape = grad_cpu.shape();
+
+        let out_numel: usize = input_shape.iter().product();
+        let mut result = Vec::with_capacity(out_numel);
+
+        for flat in 0..out_numel {
+            // Decompose flat index into input coords.
+            let mut rem = flat;
+            let mut coords = vec![0usize; input_shape.len()];
+            for d in (0..input_shape.len()).rev() {
+                coords[d] = rem % input_shape[d];
+                rem /= input_shape[d];
+            }
+            // Map to grad index: the reduced dim coordinate becomes 0 (size 1 in grad).
+            let mut grad_flat = 0usize;
+            let mut stride = 1usize;
+            for d in (0..grad_shape.len()).rev() {
+                let c = if d == self.dim { 0 } else { coords[d] };
+                grad_flat += c * stride;
+                stride *= grad_shape[d];
+            }
+            result.push(grad_data[grad_flat]);
+        }
+
+        let grad_cpu =
+            Tensor::from_storage(TensorStorage::cpu(result), input_shape.to_vec(), false)?;
+        let grad_input = grad_cpu.to(self.input.device())?;
+        Ok(vec![Some(grad_input)])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.input]
+    }
+
+    fn name(&self) -> &'static str {
+        "SumDimBackward"
+    }
+}
+
+/// Sum along a specific dimension.
+///
+/// If `keepdim` is true, the output tensor has the reduced dimension with size 1.
+/// If `keepdim` is false, the reduced dimension is removed.
+///
+/// `dim` supports negative indexing: `-1` means the last dimension.
+pub fn sum_dim<T: Float>(
+    input: &Tensor<T>,
+    dim: i64,
+    keepdim: bool,
+) -> FerrotorchResult<Tensor<T>> {
+    let ndim = input.ndim();
+    if ndim == 0 {
+        return Err(FerrotorchError::InvalidArgument {
+            message: "sum_dim: cannot reduce a scalar (0-D) tensor along a dimension".into(),
+        });
+    }
+
+    let norm_dim = if dim < 0 {
+        (ndim as i64 + dim) as usize
+    } else {
+        dim as usize
+    };
+
+    if norm_dim >= ndim {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "sum_dim: dim {} is out of bounds for tensor with {} dimensions",
+                dim, ndim
+            ),
+        });
+    }
+
+    let input_cpu = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let in_data = input_cpu.data()?;
+    let in_shape = input_cpu.shape();
+
+    // Compute output shape.
+    let mut out_shape: Vec<usize> = in_shape.to_vec();
+    if keepdim {
+        out_shape[norm_dim] = 1;
+    } else {
+        out_shape.remove(norm_dim);
+    }
+
+    // For the accumulation, we work with a "keepdim" view internally.
+    let mut accum_shape: Vec<usize> = in_shape.to_vec();
+    accum_shape[norm_dim] = 1;
+    let accum_numel: usize = accum_shape.iter().product();
+    let mut accum = vec![<T as num_traits::Zero>::zero(); accum_numel];
+
+    for flat in 0..input.numel() {
+        // Decompose flat index into per-axis coordinates.
+        let mut rem = flat;
+        let mut coords = vec![0usize; in_shape.len()];
+        for d in (0..in_shape.len()).rev() {
+            coords[d] = rem % in_shape[d];
+            rem /= in_shape[d];
+        }
+        // Map to accumulator index (reduced dim coord -> 0).
+        let mut oi = 0usize;
+        let mut os = 1usize;
+        for d in (0..accum_shape.len()).rev() {
+            let c = if d == norm_dim { 0 } else { coords[d] };
+            oi += c * os;
+            os *= accum_shape[d];
+        }
+        accum[oi] = accum[oi] + in_data[flat];
+    }
+
+    if is_grad_enabled() && input.requires_grad() {
+        let grad_fn = Arc::new(SumDimBackward {
+            input: input.clone(),
+            dim: norm_dim,
+            keepdim,
+        });
+        let result = Tensor::from_operation(TensorStorage::cpu(accum), out_shape, grad_fn)?;
+        result.to(input.device())
+    } else {
+        let result = Tensor::from_storage(TensorStorage::cpu(accum), out_shape, false)?;
+        result.to(input.device())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MeanDimBackward
+// ---------------------------------------------------------------------------
+
+/// Backward node for `mean_dim(input, dim, keepdim) -> reduced tensor`.
+///
+/// VJP: expand the gradient back along the reduced dimension and divide by
+/// the size of that dimension.
+#[derive(Debug)]
+pub struct MeanDimBackward<T: Float> {
+    input: Tensor<T>,
+    dim: usize,
+    keepdim: bool,
+}
+
+impl<T: Float> GradFn<T> for MeanDimBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let input_shape = self.input.shape();
+        let dim_size = input_shape[self.dim];
+        let n = T::from(dim_size).unwrap();
+
+        // If keepdim was false, reinsert the reduced dimension as size 1.
+        let grad = if self.keepdim {
+            grad_output.clone()
+        } else {
+            let go_cpu = if grad_output.is_cuda() {
+                grad_output.cpu()?
+            } else {
+                grad_output.clone()
+            };
+            let mut unsqueezed_shape = go_cpu.shape().to_vec();
+            unsqueezed_shape.insert(self.dim, 1);
+            let data = go_cpu.data()?.to_vec();
+            Tensor::from_storage(TensorStorage::cpu(data), unsqueezed_shape, false)?
+        };
+
+        // Expand along the reduced dim, dividing by dim_size.
+        let grad_cpu = if grad.is_cuda() { grad.cpu()? } else { grad };
+        let grad_data = grad_cpu.data()?;
+        let grad_shape = grad_cpu.shape();
+
+        let out_numel: usize = input_shape.iter().product();
+        let mut result = Vec::with_capacity(out_numel);
+
+        for flat in 0..out_numel {
+            let mut rem = flat;
+            let mut coords = vec![0usize; input_shape.len()];
+            for d in (0..input_shape.len()).rev() {
+                coords[d] = rem % input_shape[d];
+                rem /= input_shape[d];
+            }
+            let mut grad_flat = 0usize;
+            let mut stride = 1usize;
+            for d in (0..grad_shape.len()).rev() {
+                let c = if d == self.dim { 0 } else { coords[d] };
+                grad_flat += c * stride;
+                stride *= grad_shape[d];
+            }
+            result.push(grad_data[grad_flat] / n);
+        }
+
+        let grad_cpu =
+            Tensor::from_storage(TensorStorage::cpu(result), input_shape.to_vec(), false)?;
+        let grad_input = grad_cpu.to(self.input.device())?;
+        Ok(vec![Some(grad_input)])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.input]
+    }
+
+    fn name(&self) -> &'static str {
+        "MeanDimBackward"
+    }
+}
+
+/// Mean along a specific dimension.
+///
+/// If `keepdim` is true, the output tensor has the reduced dimension with size 1.
+/// If `keepdim` is false, the reduced dimension is removed.
+///
+/// `dim` supports negative indexing: `-1` means the last dimension.
+pub fn mean_dim<T: Float>(
+    input: &Tensor<T>,
+    dim: i64,
+    keepdim: bool,
+) -> FerrotorchResult<Tensor<T>> {
+    let ndim = input.ndim();
+    if ndim == 0 {
+        return Err(FerrotorchError::InvalidArgument {
+            message: "mean_dim: cannot reduce a scalar (0-D) tensor along a dimension".into(),
+        });
+    }
+
+    let norm_dim = if dim < 0 {
+        (ndim as i64 + dim) as usize
+    } else {
+        dim as usize
+    };
+
+    if norm_dim >= ndim {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "mean_dim: dim {} is out of bounds for tensor with {} dimensions",
+                dim, ndim
+            ),
+        });
+    }
+
+    let input_cpu = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let in_data = input_cpu.data()?;
+    let in_shape = input_cpu.shape();
+    let dim_size = in_shape[norm_dim];
+    let n = T::from(dim_size).unwrap();
+
+    // Compute output shape.
+    let mut out_shape: Vec<usize> = in_shape.to_vec();
+    if keepdim {
+        out_shape[norm_dim] = 1;
+    } else {
+        out_shape.remove(norm_dim);
+    }
+
+    // Accumulate sum first, then divide.
+    let mut accum_shape: Vec<usize> = in_shape.to_vec();
+    accum_shape[norm_dim] = 1;
+    let accum_numel: usize = accum_shape.iter().product();
+    let mut accum = vec![<T as num_traits::Zero>::zero(); accum_numel];
+
+    for flat in 0..input.numel() {
+        let mut rem = flat;
+        let mut coords = vec![0usize; in_shape.len()];
+        for d in (0..in_shape.len()).rev() {
+            coords[d] = rem % in_shape[d];
+            rem /= in_shape[d];
+        }
+        let mut oi = 0usize;
+        let mut os = 1usize;
+        for d in (0..accum_shape.len()).rev() {
+            let c = if d == norm_dim { 0 } else { coords[d] };
+            oi += c * os;
+            os *= accum_shape[d];
+        }
+        accum[oi] = accum[oi] + in_data[flat];
+    }
+
+    // Divide by dim size to get mean.
+    for v in &mut accum {
+        *v = *v / n;
+    }
+
+    if is_grad_enabled() && input.requires_grad() {
+        let grad_fn = Arc::new(MeanDimBackward {
+            input: input.clone(),
+            dim: norm_dim,
+            keepdim,
+        });
+        let result = Tensor::from_operation(TensorStorage::cpu(accum), out_shape, grad_fn)?;
+        result.to(input.device())
+    } else {
+        let result = Tensor::from_storage(TensorStorage::cpu(accum), out_shape, false)?;
+        result.to(input.device())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -564,5 +890,233 @@ mod tests {
         let analytic = x.grad().unwrap().unwrap().item().unwrap();
 
         numerical_grad_check(prod, 3.0, analytic, 1e-5);
+    }
+
+    // --- sum_dim forward tests ---
+
+    #[test]
+    fn test_sum_dim_axis0_2d() {
+        // [[1, 2, 3], [4, 5, 6]] sum along axis 0 -> [5, 7, 9]
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], false);
+        let s = sum_dim(&x, 0, false).unwrap();
+        assert_eq!(s.shape(), &[3]);
+        let d = s.data().unwrap();
+        assert!((d[0] - 5.0).abs() < 1e-12);
+        assert!((d[1] - 7.0).abs() < 1e-12);
+        assert!((d[2] - 9.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_sum_dim_axis1_2d() {
+        // [[1, 2, 3], [4, 5, 6]] sum along axis 1 -> [6, 15]
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], false);
+        let s = sum_dim(&x, 1, false).unwrap();
+        assert_eq!(s.shape(), &[2]);
+        let d = s.data().unwrap();
+        assert!((d[0] - 6.0).abs() < 1e-12);
+        assert!((d[1] - 15.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_sum_dim_keepdim_true() {
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], false);
+        let s = sum_dim(&x, 0, true).unwrap();
+        assert_eq!(s.shape(), &[1, 3]);
+        let d = s.data().unwrap();
+        assert!((d[0] - 5.0).abs() < 1e-12);
+        assert!((d[1] - 7.0).abs() < 1e-12);
+        assert!((d[2] - 9.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_sum_dim_negative_dim() {
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], false);
+        // dim=-1 means axis 1
+        let s = sum_dim(&x, -1, false).unwrap();
+        assert_eq!(s.shape(), &[2]);
+        let d = s.data().unwrap();
+        assert!((d[0] - 6.0).abs() < 1e-12);
+        assert!((d[1] - 15.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_sum_dim_1d() {
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0], &[4], false);
+        let s = sum_dim(&x, 0, false).unwrap();
+        assert!(s.is_scalar());
+        assert!((s.item().unwrap() - 10.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_sum_dim_1d_keepdim() {
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0], &[4], false);
+        let s = sum_dim(&x, 0, true).unwrap();
+        assert_eq!(s.shape(), &[1]);
+        assert!((s.data().unwrap()[0] - 10.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_sum_dim_3d() {
+        // shape [2, 2, 3], sum along dim=1
+        let data: Vec<f64> = (1..=12).map(|x| x as f64).collect();
+        let x = leaf(&data, &[2, 2, 3], false);
+        let s = sum_dim(&x, 1, false).unwrap();
+        assert_eq!(s.shape(), &[2, 3]);
+        let d = s.data().unwrap();
+        // [1,2,3] + [4,5,6] = [5,7,9]
+        assert!((d[0] - 5.0).abs() < 1e-12);
+        assert!((d[1] - 7.0).abs() < 1e-12);
+        assert!((d[2] - 9.0).abs() < 1e-12);
+        // [7,8,9] + [10,11,12] = [17,19,21]
+        assert!((d[3] - 17.0).abs() < 1e-12);
+        assert!((d[4] - 19.0).abs() < 1e-12);
+        assert!((d[5] - 21.0).abs() < 1e-12);
+    }
+
+    // --- sum_dim backward tests ---
+
+    #[test]
+    fn test_sum_dim_backward_axis0_no_keepdim() {
+        // x: [2, 3], sum(dim=0) -> [3]
+        // grad of sum along axis 0: each row gets the same gradient
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], true);
+        let s = sum_dim(&x, 0, false).unwrap();
+        // sum the result to get a scalar for backward
+        let loss = sum(&s).unwrap();
+        loss.backward().unwrap();
+
+        let g = x.grad().unwrap().unwrap();
+        assert_eq!(g.shape(), &[2, 3]);
+        for &v in g.data().unwrap() {
+            assert!((v - 1.0).abs() < 1e-12, "expected 1.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_sum_dim_backward_axis1_keepdim() {
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], true);
+        let s = sum_dim(&x, 1, true).unwrap();
+        assert_eq!(s.shape(), &[2, 1]);
+        let loss = sum(&s).unwrap();
+        loss.backward().unwrap();
+
+        let g = x.grad().unwrap().unwrap();
+        assert_eq!(g.shape(), &[2, 3]);
+        for &v in g.data().unwrap() {
+            assert!((v - 1.0).abs() < 1e-12, "expected 1.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_sum_dim_has_grad_fn() {
+        let x = leaf(&[1.0, 2.0, 3.0], &[3], true);
+        let s = sum_dim(&x, 0, false).unwrap();
+        assert!(s.grad_fn().is_some());
+        assert_eq!(s.grad_fn().unwrap().name(), "SumDimBackward");
+    }
+
+    #[test]
+    fn test_sum_dim_no_grad_fn_when_not_requires_grad() {
+        let x = leaf(&[1.0, 2.0, 3.0], &[3], false);
+        let s = sum_dim(&x, 0, false).unwrap();
+        assert!(s.grad_fn().is_none());
+    }
+
+    #[test]
+    fn test_sum_dim_no_grad_fn_in_no_grad_context() {
+        let x = leaf(&[1.0, 2.0, 3.0], &[3], true);
+        let s = no_grad(|| sum_dim(&x, 0, false)).unwrap();
+        assert!(s.grad_fn().is_none());
+    }
+
+    // --- mean_dim forward tests ---
+
+    #[test]
+    fn test_mean_dim_axis0_2d() {
+        // [[1, 2, 3], [4, 5, 6]] mean along axis 0 -> [2.5, 3.5, 4.5]
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], false);
+        let m = mean_dim(&x, 0, false).unwrap();
+        assert_eq!(m.shape(), &[3]);
+        let d = m.data().unwrap();
+        assert!((d[0] - 2.5).abs() < 1e-12);
+        assert!((d[1] - 3.5).abs() < 1e-12);
+        assert!((d[2] - 4.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_mean_dim_axis1_2d() {
+        // [[1, 2, 3], [4, 5, 6]] mean along axis 1 -> [2, 5]
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], false);
+        let m = mean_dim(&x, 1, false).unwrap();
+        assert_eq!(m.shape(), &[2]);
+        let d = m.data().unwrap();
+        assert!((d[0] - 2.0).abs() < 1e-12);
+        assert!((d[1] - 5.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_mean_dim_keepdim() {
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], false);
+        let m = mean_dim(&x, 0, true).unwrap();
+        assert_eq!(m.shape(), &[1, 3]);
+        let d = m.data().unwrap();
+        assert!((d[0] - 2.5).abs() < 1e-12);
+        assert!((d[1] - 3.5).abs() < 1e-12);
+        assert!((d[2] - 4.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_mean_dim_negative_dim() {
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], false);
+        let m = mean_dim(&x, -1, false).unwrap();
+        assert_eq!(m.shape(), &[2]);
+        let d = m.data().unwrap();
+        assert!((d[0] - 2.0).abs() < 1e-12);
+        assert!((d[1] - 5.0).abs() < 1e-12);
+    }
+
+    // --- mean_dim backward tests ---
+
+    #[test]
+    fn test_mean_dim_backward_axis0() {
+        // x: [2, 3], mean(dim=0) -> [3]
+        // grad: each element gets 1/2 (since dim_size=2)
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], true);
+        let m = mean_dim(&x, 0, false).unwrap();
+        let loss = sum(&m).unwrap();
+        loss.backward().unwrap();
+
+        let g = x.grad().unwrap().unwrap();
+        assert_eq!(g.shape(), &[2, 3]);
+        let expected = 1.0 / 2.0;
+        for &v in g.data().unwrap() {
+            assert!((v - expected).abs() < 1e-12, "expected {expected}, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_mean_dim_backward_axis1_keepdim() {
+        // x: [2, 3], mean(dim=1, keepdim=true) -> [2, 1]
+        // grad: each element gets 1/3 (since dim_size=3)
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], true);
+        let m = mean_dim(&x, 1, true).unwrap();
+        assert_eq!(m.shape(), &[2, 1]);
+        let loss = sum(&m).unwrap();
+        loss.backward().unwrap();
+
+        let g = x.grad().unwrap().unwrap();
+        assert_eq!(g.shape(), &[2, 3]);
+        let expected = 1.0 / 3.0;
+        for &v in g.data().unwrap() {
+            assert!((v - expected).abs() < 1e-12, "expected {expected}, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_mean_dim_has_grad_fn() {
+        let x = leaf(&[1.0, 2.0, 3.0], &[3], true);
+        let m = mean_dim(&x, 0, false).unwrap();
+        assert!(m.grad_fn().is_some());
+        assert_eq!(m.grad_fn().unwrap().name(), "MeanDimBackward");
     }
 }

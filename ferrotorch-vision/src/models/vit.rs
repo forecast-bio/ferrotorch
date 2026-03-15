@@ -245,7 +245,7 @@ impl<T: Float> Module<T> for TransformerBlock<T> {
         let mlp_out = Tensor::from_storage(
             TensorStorage::cpu(mlp_out_data),
             vec![batch, seq_len, embed_dim],
-            false,
+            normed2.requires_grad(),
         )?;
 
         add(&x, &mlp_out)
@@ -458,7 +458,7 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
         let cls_features = Tensor::from_storage(
             TensorStorage::cpu(cls_out),
             vec![batch, self.embed_dim],
-            false,
+            x.requires_grad(),
         )?;
 
         // 7. Classification head: Linear(embed_dim, num_classes)

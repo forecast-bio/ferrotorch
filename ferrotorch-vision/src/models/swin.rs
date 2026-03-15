@@ -126,7 +126,7 @@ impl<T: Float> Module<T> for SwinBlock<T> {
         let mlp_out = Tensor::from_storage(
             TensorStorage::cpu(mlp_out_data),
             vec![batch, seq_len, dim],
-            false,
+            normed2.requires_grad(),
         )?;
 
         add(&x, &mlp_out)
@@ -467,7 +467,7 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
         let x = Tensor::from_storage(
             TensorStorage::cpu(pooled),
             vec![batch, self.final_dim],
-            false,
+            input.requires_grad(),
         )?;
 
         // 4. LayerNorm on the pooled features.

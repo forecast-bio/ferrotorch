@@ -170,6 +170,31 @@ pub fn randn<T: Float>(shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
     Tensor::from_storage(TensorStorage::cpu(data), shape.to_vec(), false)
 }
 
+/// Create a tensor of zeros with the same shape as `other`.
+pub fn zeros_like<T: Float>(other: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    zeros(other.shape())
+}
+
+/// Create a tensor of ones with the same shape as `other`.
+pub fn ones_like<T: Float>(other: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    ones(other.shape())
+}
+
+/// Create a tensor filled with `value` with the same shape as `other`.
+pub fn full_like<T: Float>(other: &Tensor<T>, value: T) -> FerrotorchResult<Tensor<T>> {
+    full(other.shape(), value)
+}
+
+/// Create a random tensor [0,1) with the same shape as `other`.
+pub fn rand_like<T: Float>(other: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    rand(other.shape())
+}
+
+/// Create a random normal tensor with the same shape as `other`.
+pub fn randn_like<T: Float>(other: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    randn(other.shape())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,5 +315,44 @@ mod tests {
         let t: Tensor<f32> = zeros(&[0, 3]).unwrap();
         assert_eq!(t.shape(), &[0, 3]);
         assert_eq!(t.numel(), 0);
+    }
+
+    #[test]
+    fn test_zeros_like() {
+        let t: Tensor<f32> = rand(&[3, 4]).unwrap();
+        let z = zeros_like(&t).unwrap();
+        assert_eq!(z.shape(), &[3, 4]);
+        assert!(z.data().unwrap().iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_ones_like() {
+        let t: Tensor<f64> = zeros(&[2, 5]).unwrap();
+        let o = ones_like(&t).unwrap();
+        assert_eq!(o.shape(), &[2, 5]);
+        assert!(o.data().unwrap().iter().all(|&x| x == 1.0));
+    }
+
+    #[test]
+    fn test_full_like() {
+        let t: Tensor<f32> = zeros(&[4, 3]).unwrap();
+        let f = full_like(&t, 7.0).unwrap();
+        assert_eq!(f.shape(), &[4, 3]);
+        assert!(f.data().unwrap().iter().all(|&x| (x - 7.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn test_rand_like() {
+        let t: Tensor<f32> = zeros(&[5, 6]).unwrap();
+        let r = rand_like(&t).unwrap();
+        assert_eq!(r.shape(), &[5, 6]);
+        assert!(r.data().unwrap().iter().all(|&x| x >= 0.0 && x < 1.0));
+    }
+
+    #[test]
+    fn test_randn_like() {
+        let t: Tensor<f32> = zeros(&[50]).unwrap();
+        let r = randn_like(&t).unwrap();
+        assert_eq!(r.shape(), &[50]);
     }
 }

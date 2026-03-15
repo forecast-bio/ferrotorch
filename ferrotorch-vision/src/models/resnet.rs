@@ -499,10 +499,18 @@ impl<T: Float> Module<T> for ResNet<T> {
 
     fn train(&mut self) {
         self.training = true;
+        for block in &mut self.layer1 { block.train(); }
+        for block in &mut self.layer2 { block.train(); }
+        for block in &mut self.layer3 { block.train(); }
+        for block in &mut self.layer4 { block.train(); }
     }
 
     fn eval(&mut self) {
         self.training = false;
+        for block in &mut self.layer1 { block.eval(); }
+        for block in &mut self.layer2 { block.eval(); }
+        for block in &mut self.layer3 { block.eval(); }
+        for block in &mut self.layer4 { block.eval(); }
     }
 
     fn is_training(&self) -> bool {

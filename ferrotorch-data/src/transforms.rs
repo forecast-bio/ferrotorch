@@ -204,22 +204,33 @@ impl<T: Float> Default for RandomHorizontalFlip<T> {
     }
 }
 
-/// Generate a random `f64` in [0, 1) using a fast xorshift seeded from
-/// system time and thread id.
-fn random_f64() -> f64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    use std::time::SystemTime;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-    let mut hasher = DefaultHasher::new();
-    SystemTime::now().hash(&mut hasher);
-    std::thread::current().id().hash(&mut hasher);
-    // Mix in a counter so consecutive calls within the same nanosecond differ.
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    COUNTER
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        .hash(&mut hasher);
-    let state = hasher.finish();
+static GLOBAL_SEED: AtomicU64 = AtomicU64::new(42);
+static RNG_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Set the global random seed for reproducibility.
+///
+/// Resets the internal counter so that subsequent random operations produce
+/// the same sequence as a fresh start with this seed.
+pub fn manual_seed(seed: u64) {
+    GLOBAL_SEED.store(seed, Ordering::SeqCst);
+    RNG_COUNTER.store(0, Ordering::SeqCst);
+}
+
+/// Generate a random `f64` in [0, 1) using a seedable splitmix64 PRNG.
+///
+/// Each call atomically increments a global counter, ensuring unique outputs
+/// across threads. Use [`manual_seed`] to reset the sequence for
+/// reproducibility.
+fn random_f64() -> f64 {
+    let seed = GLOBAL_SEED.load(Ordering::Relaxed);
+    let counter = RNG_COUNTER.fetch_add(1, Ordering::Relaxed);
+    // splitmix64 — good statistical properties for a counter-based PRNG.
+    let mut state = seed.wrapping_add(counter.wrapping_mul(0x9E3779B97F4A7C15));
+    state = (state ^ (state >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    state = (state ^ (state >> 27)).wrapping_mul(0x94D049BB133111EB);
+    state = state ^ (state >> 31);
     (state as f64) / (u64::MAX as f64)
 }
 

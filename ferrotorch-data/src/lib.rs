@@ -7,5 +7,5 @@ pub use dataloader::DataLoader;
 pub use dataset::{Dataset, IterableDataset, MappedDataset, VecDataset, WorkerInfo};
 pub use sampler::{RandomSampler, Sampler, SequentialSampler};
 pub use transforms::{
-    Compose, Normalize, RandomCrop, RandomHorizontalFlip, ToTensor, Transform,
+    manual_seed, Compose, Normalize, RandomCrop, RandomHorizontalFlip, ToTensor, Transform,
 };
