@@ -2,12 +2,13 @@
   "uuid": "3f65db6e-7cb6-4e0a-8b47-f7428caab652",
   "display_id": 36,
   "title": "Add Dropout and Dropout2d with grad_fn",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "parent_uuid": "ca772274-6f17-4e85-b908-7e56cc89257f",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T02:34:50.036748037Z",
-  "updated_at": "2026-03-15T02:36:00.021797316Z",
+  "updated_at": "2026-03-15T02:52:56.595582564Z",
+  "closed_at": "2026-03-15T02:52:56.595582564Z",
   "labels": [
     "feature"
   ],
