@@ -2,12 +2,13 @@
   "uuid": "b677e88b-7b56-4a35-b071-e6ff5a969748",
   "display_id": 8,
   "title": "Add GradFn: arithmetic (add, sub, mul, div, neg, pow, sqrt, abs)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "parent_uuid": "fbfbd525-d49e-4e47-97c8-6d4d853a207b",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T01:25:27.018046339Z",
-  "updated_at": "2026-03-15T01:26:16.289127369Z",
+  "updated_at": "2026-03-15T01:52:32.416546920Z",
+  "closed_at": "2026-03-15T01:52:32.416546920Z",
   "labels": [
     "feature"
   ],
