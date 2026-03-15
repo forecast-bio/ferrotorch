@@ -2,11 +2,12 @@
   "uuid": "d6a06f33-1d7e-495a-96c8-68186e814626",
   "display_id": 61,
   "title": "Implement Adam optimizer in ferrotorch-optim",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T03:23:34.218937601Z",
-  "updated_at": "2026-03-15T03:23:35.581320403Z",
+  "updated_at": "2026-03-15T13:32:04.341461827Z",
+  "closed_at": "2026-03-15T13:32:04.341461827Z",
   "labels": [
     "feature"
   ]
