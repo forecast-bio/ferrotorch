@@ -14,6 +14,8 @@ members = [
     "ferrotorch-gpu",
     "ferrotorch-distributed",
     "ferrotorch-cubecl",
+    "ferrotorch-distributions",
+    "ferrotorch-profiler",
 ]
 
 [workspace.package]
@@ -41,6 +43,8 @@ ferrotorch-gpu = { version = "0.1.0", path = "ferrotorch-gpu" }
 ferrotorch-distributed = { version = "0.1.0", path = "ferrotorch-distributed" }
 ferrotorch-train = { version = "0.1.0", path = "ferrotorch-train" }
 ferrotorch-cubecl = { version = "0.1.0", path = "ferrotorch-cubecl" }
+ferrotorch-distributions = { version = "0.1.0", path = "ferrotorch-distributions" }
+ferrotorch-profiler = { version = "0.1.0", path = "ferrotorch-profiler" }
 
 # ferray ecosystem (version for crates.io, path for local dev)
 ferray-core = { version = "0.2.5", path = "../ferray/ferray-core", features = ["bf16"] }
@@ -64,3 +68,4 @@ image = "0.25"
 safetensors = "0.5"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
+rustfft = "6.2"

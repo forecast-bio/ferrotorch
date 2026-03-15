@@ -3,7 +3,9 @@ pub mod creation;
 pub mod device;
 mod display;
 pub mod dtype;
+pub mod einsum;
 pub mod error;
+pub mod fft;
 pub mod grad_fns;
 pub mod ops;
 mod inplace;
@@ -11,6 +13,7 @@ mod methods;
 mod ops_trait;
 pub mod quantize;
 pub mod shape;
+pub mod sparse;
 pub mod storage;
 pub mod tensor;
 
@@ -28,4 +31,8 @@ pub use quantize::{
     QuantizedTensor,
 };
 pub use storage::{StorageBuffer, TensorStorage};
+pub use sparse::SparseTensor;
 pub use tensor::{GradFn, Tensor, TensorId};
+pub use einsum::{einsum, einsum_differentiable};
+pub use fft::{fft, fft2, ifft, ifft2, irfft, rfft};
+pub use grad_fns::fft::{fft_differentiable, ifft_differentiable, irfft_differentiable, rfft_differentiable};
