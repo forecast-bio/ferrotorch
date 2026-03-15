@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-readme = "../README.md"
+readme = "README.md"
 
 [dependencies]
 ferrotorch-core = { workspace = true }
