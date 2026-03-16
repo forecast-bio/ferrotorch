@@ -12,12 +12,38 @@ keywords.workspace = true
 categories.workspace = true
 readme = "README.md"
 
+[features]
+default = ["train", "serialize", "jit", "distributions", "profiler", "hub"]
+train = ["dep:ferrotorch-train"]
+serialize = ["dep:ferrotorch-serialize"]
+jit = ["dep:ferrotorch-jit"]
+distributions = ["dep:ferrotorch-distributions"]
+profiler = ["dep:ferrotorch-profiler"]
+hub = ["dep:ferrotorch-hub"]
+gpu = ["dep:ferrotorch-gpu"]
+cubecl = ["dep:ferrotorch-cubecl"]
+distributed = ["dep:ferrotorch-distributed"]
+
 [dependencies]
+# Always included
 ferrotorch-core = { workspace = true }
 ferrotorch-nn = { workspace = true }
 ferrotorch-optim = { workspace = true }
 ferrotorch-data = { workspace = true }
 ferrotorch-vision = { workspace = true }
+
+# Default features (included unless user opts out)
+ferrotorch-train = { workspace = true, optional = true }
+ferrotorch-serialize = { workspace = true, optional = true }
+ferrotorch-jit = { workspace = true, optional = true }
+ferrotorch-distributions = { workspace = true, optional = true }
+ferrotorch-profiler = { workspace = true, optional = true }
+ferrotorch-hub = { workspace = true, optional = true }
+
+# Optional (require CUDA or special hardware)
+ferrotorch-gpu = { workspace = true, optional = true }
+ferrotorch-cubecl = { workspace = true, optional = true }
+ferrotorch-distributed = { workspace = true, optional = true }
 
 [[example]]
 name = "train_mnist"

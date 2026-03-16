@@ -7,6 +7,7 @@ pub mod prelude {
     pub use ferrotorch_nn::{ReLU, GELU, SiLU, Sigmoid, Tanh, Softmax};
     pub use ferrotorch_nn::{BatchNorm2d, LayerNorm, Dropout};
     pub use ferrotorch_nn::{CrossEntropyLoss, MSELoss};
+    pub use ferrotorch_nn::{LSTM, GRU};
     pub use ferrotorch_optim::{Optimizer, Adam, AdamW, Sgd};
 }
 
@@ -18,4 +19,68 @@ pub mod nn {
 /// Optimizers and learning rate schedulers.
 pub mod optim {
     pub use ferrotorch_optim::*;
+}
+
+/// Data loading, datasets, samplers, and transforms.
+pub mod data {
+    pub use ferrotorch_data::*;
+}
+
+/// Computer vision models, datasets, and transforms.
+pub mod vision {
+    pub use ferrotorch_vision::*;
+}
+
+/// Training loop, Learner, callbacks, and metrics.
+#[cfg(feature = "train")]
+pub mod train {
+    pub use ferrotorch_train::*;
+}
+
+/// Model serialization: ONNX export, PyTorch import, safetensors, GGUF.
+#[cfg(feature = "serialize")]
+pub mod serialize {
+    pub use ferrotorch_serialize::*;
+}
+
+/// JIT tracing, IR graph, optimization passes, and code generation.
+#[cfg(feature = "jit")]
+pub mod jit {
+    pub use ferrotorch_jit::*;
+}
+
+/// Probability distributions for sampling and variational inference.
+#[cfg(feature = "distributions")]
+pub mod distributions {
+    pub use ferrotorch_distributions::*;
+}
+
+/// Performance profiling and Chrome trace export.
+#[cfg(feature = "profiler")]
+pub mod profiler {
+    pub use ferrotorch_profiler::*;
+}
+
+/// Model hub for downloading and caching pretrained models.
+#[cfg(feature = "hub")]
+pub mod hub {
+    pub use ferrotorch_hub::*;
+}
+
+/// CUDA GPU backend with PTX kernels and cuBLAS.
+#[cfg(feature = "gpu")]
+pub mod gpu {
+    pub use ferrotorch_gpu::*;
+}
+
+/// Portable GPU compute via CubeCL (CUDA + WGPU + ROCm).
+#[cfg(feature = "cubecl")]
+pub mod cubecl {
+    pub use ferrotorch_cubecl::*;
+}
+
+/// Distributed training: DDP, collective ops, TCP backend.
+#[cfg(feature = "distributed")]
+pub mod distributed {
+    pub use ferrotorch_distributed::*;
 }
