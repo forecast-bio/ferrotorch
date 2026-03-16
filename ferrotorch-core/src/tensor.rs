@@ -291,6 +291,21 @@ impl<T: Float> Tensor<T> {
         Ok(&slice[self.inner.offset..end])
     }
 
+    /// Get tensor data as an owned `Vec<T>`, transparently transferring from
+    /// GPU if needed.
+    ///
+    /// For CPU tensors this copies the slice. For GPU tensors it performs a
+    /// device-to-host transfer. This is a convenience for operations that
+    /// don't yet have native GPU kernels.
+    pub fn data_vec(&self) -> FerrotorchResult<Vec<T>> {
+        if self.is_cuda() {
+            let cpu_tensor = self.cpu()?;
+            Ok(cpu_tensor.data()?.to_vec())
+        } else {
+            Ok(self.data()?.to_vec())
+        }
+    }
+
     /// Move this tensor to a device, returning a new tensor.
     ///
     /// If the tensor is already on the target device, returns a cheap clone

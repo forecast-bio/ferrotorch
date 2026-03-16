@@ -51,7 +51,8 @@ impl<T: Float> GradFn<T> for EmbeddingBackward<T> {
             return Ok(vec![None]);
         }
 
-        let go_data = grad_output.data()?;
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let go_data = cpu_go.data()?;
         let dim = self.embedding_dim;
 
         // Allocate a full-size gradient for the weight matrix, initialized to zero.
@@ -242,8 +243,9 @@ impl<T: Float> Module<T> for Embedding<T> {
             });
         }
 
-        let input_data = input.data()?;
-        let weight_data = self.weight.data()?;
+        let input_data = input.data_vec()?;
+        let cpu_weight = if self.weight.tensor().is_cuda() { self.weight.tensor().cpu()? } else { self.weight.tensor().clone() };
+        let weight_data = cpu_weight.data()?;
         let dim = self.embedding_dim;
         let n = input_data.len();
 

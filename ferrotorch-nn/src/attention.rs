@@ -300,7 +300,7 @@ impl<T: Float> MultiheadAttention<T> {
             }
 
             // Collect output data for this batch element.
-            let out_data = output.data()?.to_vec();
+            let out_data = output.data_vec()?;
             batch_outputs.push(out_data);
         }
 
@@ -432,7 +432,7 @@ fn extract_batch_slice<T: Float>(
     let dim1 = shape[1];
     let dim2 = shape[2];
     let slice_size = dim1 * dim2;
-    let data = tensor.data()?;
+    let data = tensor.data_vec()?;
     let start = b * slice_size;
     let end = start + slice_size;
     let slice_data = data[start..end].to_vec();
@@ -448,11 +448,11 @@ fn expand_bias_to_2d<T: Float>(
     bias: &Tensor<T>,
     rows: usize,
 ) -> FerrotorchResult<Tensor<T>> {
-    let bias_data = bias.data()?;
-    let dim = bias_data.len();
+    let bias_vec = bias.data_vec()?;
+    let dim = bias_vec.len();
     let mut expanded = Vec::with_capacity(rows * dim);
     for _ in 0..rows {
-        expanded.extend_from_slice(bias_data);
+        expanded.extend_from_slice(&bias_vec);
     }
     Tensor::from_storage(
         TensorStorage::cpu(expanded),
@@ -473,7 +473,7 @@ fn reshape_to_heads<T: Float>(
     seq_len: usize,
     head_dim: usize,
 ) -> FerrotorchResult<Tensor<T>> {
-    let data = tensor.data()?;
+    let data = tensor.data_vec()?;
     // data layout: [seq_len, embed_dim] where embed_dim = num_heads * head_dim
     // Interpret as [seq_len, num_heads, head_dim], then transpose to [num_heads, seq_len, head_dim]
     let mut result = vec![<T as num_traits::Zero>::zero(); num_heads * seq_len * head_dim];
@@ -501,7 +501,7 @@ fn expand_scalar_to_2d<T: Float>(
     rows: usize,
     cols: usize,
 ) -> FerrotorchResult<Tensor<T>> {
-    let val = scalar.data()?[0];
+    let val = scalar.data_vec()?[0];
     let data = vec![val; rows * cols];
     Tensor::from_storage(
         TensorStorage::cpu(data),
@@ -518,9 +518,8 @@ fn apply_causal_mask<T: Float>(
     scores: &Tensor<T>,
     seq_len: usize,
 ) -> FerrotorchResult<Tensor<T>> {
-    let data = scores.data()?;
     let neg_inf = T::from(-1e9).unwrap();
-    let mut masked = data.to_vec();
+    let mut masked = scores.data_vec()?;
 
     for i in 0..seq_len {
         for j in (i + 1)..seq_len {
@@ -549,7 +548,7 @@ fn concat_heads<T: Float>(
     let mut result = vec![<T as num_traits::Zero>::zero(); seq_len * embed_dim];
 
     for (h, head) in heads.iter().enumerate() {
-        let head_data = head.data()?;
+        let head_data = head.data_vec()?;
         for s in 0..seq_len {
             for d in 0..head_dim {
                 let src_idx = s * head_dim + d;

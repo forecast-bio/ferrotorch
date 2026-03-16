@@ -106,9 +106,12 @@ struct MSEBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for MSEBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let pred_data = self.pred.data()?;
-        let target_data = self.target.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_pred = if self.pred.is_cuda() { self.pred.cpu()? } else { self.pred.clone() };
+        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let pred_data = cpu_pred.data()?;
+        let target_data = cpu_target.data()?;
+        let grad_data = cpu_go.data()?;
         let two = T::from(2.0).unwrap();
         let n = T::from(pred_data.len()).unwrap();
 
@@ -213,8 +216,8 @@ impl CrossEntropyLoss {
             });
         }
 
-        let logits_data = logits.data()?;
-        let targets_data = targets.data()?;
+        let logits_data = logits.data_vec()?;
+        let targets_data = targets.data_vec()?;
         let ls = T::from(self.label_smoothing).unwrap();
         let one = <T as One>::one();
 
@@ -326,9 +329,12 @@ impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
         let shape = self.logits.shape();
         let batch = shape[0];
         let classes = shape[1];
-        let sm_data = self.softmax.data()?;
-        let targets_data = self.targets.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_sm = if self.softmax.is_cuda() { self.softmax.cpu()? } else { self.softmax.clone() };
+        let cpu_targets = if self.targets.is_cuda() { self.targets.cpu()? } else { self.targets.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let sm_data = cpu_sm.data()?;
+        let targets_data = cpu_targets.data()?;
+        let grad_data = cpu_go.data()?;
         let ls = T::from(self.label_smoothing).unwrap();
         let one = <T as One>::one();
         let inv_c = T::from(1.0).unwrap() / T::from(classes).unwrap();
@@ -407,8 +413,8 @@ impl BCEWithLogitsLoss {
             });
         }
 
-        let logits_data = logits.data()?;
-        let targets_data = targets.data()?;
+        let logits_data = logits.data_vec()?;
+        let targets_data = targets.data_vec()?;
         let zero = <T as Zero>::zero();
         let one = <T as One>::one();
 
@@ -465,9 +471,12 @@ struct BCEWithLogitsBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for BCEWithLogitsBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let logits_data = self.logits.data()?;
-        let targets_data = self.targets.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_logits = if self.logits.is_cuda() { self.logits.cpu()? } else { self.logits.clone() };
+        let cpu_targets = if self.targets.is_cuda() { self.targets.cpu()? } else { self.targets.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let logits_data = cpu_logits.data()?;
+        let targets_data = cpu_targets.data()?;
+        let grad_data = cpu_go.data()?;
         let one = <T as One>::one();
         let n = T::from(logits_data.len()).unwrap();
 
@@ -558,8 +567,8 @@ impl HuberLoss {
             });
         }
 
-        let pred_data = pred.data()?;
-        let target_data = target.data()?;
+        let pred_data = pred.data_vec()?;
+        let target_data = target.data_vec()?;
         let delta = T::from(self.delta).unwrap();
         let half = T::from(0.5).unwrap();
 
@@ -624,9 +633,12 @@ struct HuberBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for HuberBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let pred_data = self.pred.data()?;
-        let target_data = self.target.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_pred = if self.pred.is_cuda() { self.pred.cpu()? } else { self.pred.clone() };
+        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let pred_data = cpu_pred.data()?;
+        let target_data = cpu_target.data()?;
+        let grad_data = cpu_go.data()?;
         let delta = T::from(self.delta).unwrap();
         let n = T::from(pred_data.len()).unwrap();
 
@@ -741,8 +753,8 @@ impl KLDivLoss {
             });
         }
 
-        let input_data = input.data()?;
-        let target_data = target.data()?;
+        let input_data = input.data_vec()?;
+        let target_data = target.data_vec()?;
         let zero = <T as Zero>::zero();
 
         // KL(target || input) = sum(target * (log(target) - input))
@@ -801,8 +813,10 @@ struct KLDivBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for KLDivBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let target_data = self.target.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let target_data = cpu_target.data()?;
+        let grad_data = cpu_go.data()?;
         let n = T::from(target_data.len()).unwrap();
 
         let result: Vec<T> = match self.reduction {
@@ -888,9 +902,9 @@ impl CosineEmbeddingLoss {
             });
         }
 
-        let x1_data = x1.data()?;
-        let x2_data = x2.data()?;
-        let y_data = y.data()?;
+        let x1_data = x1.data_vec()?;
+        let x2_data = x2.data_vec()?;
+        let y_data = y.data_vec()?;
         let zero = <T as Zero>::zero();
         let one = <T as One>::one();
         let margin_t = T::from(self.margin).unwrap();

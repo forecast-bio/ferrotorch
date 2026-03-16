@@ -16,7 +16,7 @@
 
 use ferrotorch_core::grad_fns::arithmetic::add;
 use ferrotorch_core::grad_fns::linalg::mm_differentiable;
-use ferrotorch_core::grad_fns::shape::transpose_2d;
+use ferrotorch_core::grad_fns::shape::{reshape, transpose_2d};
 use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor};
 
 use crate::init::{kaiming_uniform, NonLinearity};
@@ -163,16 +163,11 @@ impl<T: Float> Module<T> for Linear<T> {
         let output = mm_differentiable(input, &weight_t)?;
 
         // Add bias if present: [batch, out_features] + [out_features] (broadcast)
+        // Uses the differentiable `add` op which handles broadcasting and GPU
+        // dispatch, so gradients flow to the bias parameter automatically.
         match &self.bias {
             Some(bias) => {
-                // Reshape bias to [1, out_features] for broadcast addition
-                // with the [batch, out_features] output.
-                let bias_data = bias.tensor().data()?;
-                let bias_2d = Tensor::from_storage(
-                    ferrotorch_core::TensorStorage::cpu(bias_data.to_vec()),
-                    vec![1, self.out_features],
-                    bias.requires_grad(),
-                )?;
+                let bias_2d = reshape(bias.tensor(), &[1, self.out_features as isize])?;
                 add(&output, &bias_2d)
             }
             None => Ok(output),

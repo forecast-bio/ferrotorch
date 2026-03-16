@@ -32,8 +32,10 @@ impl<T: Float> ReluBackward<T> {
 
 impl<T: Float> GradFn<T> for ReluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let input_data = self.input.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let input_data = cpu_input.data()?;
+        let grad_data = cpu_go.data()?;
         let zero = <T as num_traits::Zero>::zero();
 
         let result: Vec<T> = input_data
@@ -80,8 +82,10 @@ impl<T: Float> SigmoidBackward<T> {
 
 impl<T: Float> GradFn<T> for SigmoidBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let s_data = self.output.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_output = if self.output.is_cuda() { self.output.cpu()? } else { self.output.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let s_data = cpu_output.data()?;
+        let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
 
         let result: Vec<T> = s_data
@@ -128,8 +132,10 @@ impl<T: Float> TanhBackward<T> {
 
 impl<T: Float> GradFn<T> for TanhBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let t_data = self.output.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_output = if self.output.is_cuda() { self.output.cpu()? } else { self.output.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let t_data = cpu_output.data()?;
+        let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
 
         let result: Vec<T> = t_data
@@ -183,8 +189,10 @@ impl<T: Float> GeluBackward<T> {
 
 impl<T: Float> GradFn<T> for GeluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let input_data = self.input.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let input_data = cpu_input.data()?;
+        let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
         let k = T::from(1.702).unwrap();
 
@@ -234,8 +242,10 @@ impl<T: Float> SiluBackward<T> {
 
 impl<T: Float> GradFn<T> for SiluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let input_data = self.input.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let input_data = cpu_input.data()?;
+        let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
 
         let result: Vec<T> = input_data
@@ -287,8 +297,10 @@ impl<T: Float> SoftmaxBackward<T> {
 
 impl<T: Float> GradFn<T> for SoftmaxBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let s_data = self.output.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_output = if self.output.is_cuda() { self.output.cpu()? } else { self.output.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let s_data = cpu_output.data()?;
+        let grad_data = cpu_go.data()?;
         let shape = self.output.shape();
 
         if shape.is_empty() {
@@ -360,8 +372,10 @@ impl<T: Float> LogSoftmaxBackward<T> {
 
 impl<T: Float> GradFn<T> for LogSoftmaxBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let sm_data = self.softmax_output.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_sm = if self.softmax_output.is_cuda() { self.softmax_output.cpu()? } else { self.softmax_output.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let sm_data = cpu_sm.data()?;
+        let grad_data = cpu_go.data()?;
         let shape = self.input.shape();
 
         if shape.is_empty() {
@@ -447,8 +461,9 @@ pub fn relu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// No GPU sigmoid kernel yet -- GPU tensors transfer to CPU for this op.
 pub fn sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     // SIMD-accelerated sigmoid: compute exp(-x) via SIMD, then 1/(1+exp(-x))
+    let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
     let output = if std::mem::size_of::<T>() == 4 {
-        let data = input.data()?;
+        let data = cpu_input.data()?;
         let n = data.len();
         let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
         // Negate
@@ -540,7 +555,8 @@ pub fn silu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// Compute `softmax(x)` along the last axis, attaching a backward node when
 /// gradients are enabled.
 pub fn softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let data = input.data()?;
+    let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let data = cpu_input.data()?;
     let shape = input.shape();
 
     let result = if shape.is_empty() {
@@ -590,7 +606,8 @@ pub fn softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// Compute `log_softmax(x)` along the last axis, attaching a backward node
 /// when gradients are enabled.
 pub fn log_softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let data = input.data()?;
+    let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let data = cpu_input.data()?;
     let shape = input.shape();
 
     // Compute softmax and log_softmax simultaneously for efficiency.
@@ -675,8 +692,10 @@ impl<T: Float> SoftplusBackward<T> {
 
 impl<T: Float> GradFn<T> for SoftplusBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let input_data = self.input.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let input_data = cpu_input.data()?;
+        let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
         let beta = T::from(self.beta).unwrap();
         let threshold = T::from(self.threshold).unwrap();
@@ -774,8 +793,10 @@ impl<T: Float> EluBackward<T> {
 
 impl<T: Float> GradFn<T> for EluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let input_data = self.input.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let input_data = cpu_input.data()?;
+        let grad_data = cpu_go.data()?;
         let zero = <T as num_traits::Zero>::zero();
         let alpha = T::from(self.alpha).unwrap();
 
@@ -868,8 +889,10 @@ impl<T: Float> MishBackward<T> {
 
 impl<T: Float> GradFn<T> for MishBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let input_data = self.input.data()?;
-        let grad_data = grad_output.data()?;
+        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let input_data = cpu_input.data()?;
+        let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
 
         let result: Vec<T> = input_data

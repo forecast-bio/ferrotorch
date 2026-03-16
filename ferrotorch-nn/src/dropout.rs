@@ -64,7 +64,8 @@ struct DropoutBackward<T: Float> {
 impl<T: Float> GradFn<T> for DropoutBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let da = if self.input.requires_grad() {
-            let go_data = grad_output.data()?;
+            let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+            let go_data = cpu_go.data()?;
             let grad_a: Vec<T> = go_data
                 .iter()
                 .zip(self.scaled_mask.iter())
@@ -107,7 +108,8 @@ struct Dropout2dBackward<T: Float> {
 impl<T: Float> GradFn<T> for Dropout2dBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let da = if self.input.requires_grad() {
-            let go_data = grad_output.data()?;
+            let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+            let go_data = cpu_go.data()?;
             let grad_a: Vec<T> = go_data
                 .iter()
                 .zip(self.scaled_mask.iter())
@@ -179,6 +181,7 @@ impl<T: Float> Module<T> for Dropout<T> {
             return Ok(input.clone());
         }
 
+        let device = input.device();
         let numel = input.numel();
         let scale = T::from(1.0 / (1.0 - self.p)).unwrap();
         let zero = <T as num_traits::Zero>::zero();
@@ -195,14 +198,14 @@ impl<T: Float> Module<T> for Dropout<T> {
             .collect();
 
         // Forward: element-wise multiply input by scaled mask.
-        let input_data = input.data()?;
+        let input_data = input.data_vec()?;
         let output_data: Vec<T> = input_data
             .iter()
             .zip(scaled_mask.iter())
             .map(|(&x, &m)| x * m)
             .collect();
 
-        if is_grad_enabled() && input.requires_grad() {
+        let result = if is_grad_enabled() && input.requires_grad() {
             Tensor::from_operation(
                 TensorStorage::cpu(output_data),
                 input.shape().to_vec(),
@@ -210,10 +213,11 @@ impl<T: Float> Module<T> for Dropout<T> {
                     input: input.clone(),
                     scaled_mask,
                 }),
-            )
+            )?
         } else {
-            Tensor::from_storage(TensorStorage::cpu(output_data), input.shape().to_vec(), false)
-        }
+            Tensor::from_storage(TensorStorage::cpu(output_data), input.shape().to_vec(), false)?
+        };
+        if device.is_cuda() { result.to(device) } else { Ok(result) }
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
@@ -287,6 +291,7 @@ impl<T: Float> Module<T> for Dropout2d<T> {
             return Ok(input.clone());
         }
 
+        let device = input.device();
         let shape = input.shape();
         if shape.len() < 2 {
             return Err(FerrotorchError::InvalidArgument {
@@ -325,14 +330,14 @@ impl<T: Float> Module<T> for Dropout2d<T> {
             mask
         };
 
-        let input_data = input.data()?;
+        let input_data = input.data_vec()?;
         let output_data: Vec<T> = input_data
             .iter()
             .zip(scaled_mask.iter())
             .map(|(&x, &m)| x * m)
             .collect();
 
-        if is_grad_enabled() && input.requires_grad() {
+        let result = if is_grad_enabled() && input.requires_grad() {
             Tensor::from_operation(
                 TensorStorage::cpu(output_data),
                 input.shape().to_vec(),
@@ -340,10 +345,11 @@ impl<T: Float> Module<T> for Dropout2d<T> {
                     input: input.clone(),
                     scaled_mask,
                 }),
-            )
+            )?
         } else {
-            Tensor::from_storage(TensorStorage::cpu(output_data), input.shape().to_vec(), false)
-        }
+            Tensor::from_storage(TensorStorage::cpu(output_data), input.shape().to_vec(), false)?
+        };
+        if device.is_cuda() { result.to(device) } else { Ok(result) }
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {

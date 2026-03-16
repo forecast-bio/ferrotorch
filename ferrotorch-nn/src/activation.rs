@@ -505,8 +505,9 @@ impl<T: Float> PReLU<T> {
         // relu_x = relu(input)
         let relu_x = act::relu(input)?;
 
-        // Get alpha value.
-        let alpha_data = self.alpha.data()?;
+        // Get alpha value (transfer to CPU if needed).
+        let cpu_alpha = if self.alpha.tensor().is_cuda() { self.alpha.tensor().cpu()? } else { self.alpha.tensor().clone() };
+        let alpha_data = cpu_alpha.data()?;
         let alpha_val = alpha_data[0];
 
         let one_minus_alpha = T::from(1.0).unwrap() - alpha_val;
@@ -853,7 +854,8 @@ impl GLU {
         }
 
         let half = last_dim / 2;
-        let data = input.data()?;
+        let device = input.device();
+        let data = input.data_vec()?;
 
         // Compute the stride of the last dimension (number of elements per
         // "row" in the last dimension).
@@ -876,11 +878,12 @@ impl GLU {
         let mut out_shape = shape.to_vec();
         out_shape[ndim - 1] = half;
 
-        Tensor::from_storage(
+        let out = Tensor::from_storage(
             ferrotorch_core::TensorStorage::cpu(result),
             out_shape,
             false,
-        )
+        )?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 }
 

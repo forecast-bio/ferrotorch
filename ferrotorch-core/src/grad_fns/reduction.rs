@@ -228,7 +228,8 @@ impl<T: Float> GradFn<T> for ProdBackward<T> {
 /// When gradient tracking is enabled and the input requires grad, the returned
 /// tensor carries a [`ProdBackward`] node.
 pub fn prod<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let data = input.data()?;
+    let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let data = cpu_input.data()?;
     let total = data
         .iter()
         .copied()

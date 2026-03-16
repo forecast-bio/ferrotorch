@@ -8,11 +8,42 @@
 use std::sync::Arc;
 
 use crate::autograd::no_grad::is_grad_enabled;
+use crate::device::Device;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::ops::linalg::transpose;
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
+
+// ---------------------------------------------------------------------------
+// GPU-aware helper
+// ---------------------------------------------------------------------------
+
+/// Transfer a tensor to CPU if it's on GPU, returning the original device.
+///
+/// Shape ops don't have native GPU kernels yet, so they round-trip through
+/// CPU: transfer to CPU -> do the work -> transfer back. This helper
+/// encapsulates the first half of that pattern.
+#[inline]
+fn ensure_cpu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Device)> {
+    let device = input.device();
+    let cpu_input = if input.is_cuda() {
+        input.cpu()?
+    } else {
+        input.clone()
+    };
+    Ok((cpu_input, device))
+}
+
+/// Move a tensor to the given device if it isn't already there.
+#[inline]
+fn restore_device<T: Float>(tensor: Tensor<T>, device: Device) -> FerrotorchResult<Tensor<T>> {
+    if device.is_cuda() {
+        tensor.to(device)
+    } else {
+        Ok(tensor)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // ReshapeBackward
@@ -63,17 +94,19 @@ pub fn reshape<T: Float>(input: &Tensor<T>, new_shape: &[isize]) -> FerrotorchRe
     let numel = input.numel();
     let resolved = resolve_shape(new_shape, numel)?;
 
-    let data = input.data()?.to_vec();
+    let (cpu_input, device) = ensure_cpu(input)?;
+    let data = cpu_input.data()?.to_vec();
 
-    if is_grad_enabled() && input.requires_grad() {
+    let result = if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(ReshapeBackward::new(
             input.clone(),
             input.shape().to_vec(),
         ));
-        Tensor::from_operation(TensorStorage::cpu(data), resolved, grad_fn)
+        Tensor::from_operation(TensorStorage::cpu(data), resolved, grad_fn)?
     } else {
-        Tensor::from_storage(TensorStorage::cpu(data), resolved, false)
-    }
+        Tensor::from_storage(TensorStorage::cpu(data), resolved, false)?
+    };
+    restore_device(result, device)
 }
 
 // ---------------------------------------------------------------------------
@@ -118,17 +151,19 @@ impl<T: Float> GradFn<T> for FlattenBackward<T> {
 /// Flatten a tensor to 1-D.
 pub fn flatten<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let numel = input.numel();
-    let data = input.data()?.to_vec();
+    let (cpu_input, device) = ensure_cpu(input)?;
+    let data = cpu_input.data()?.to_vec();
 
-    if is_grad_enabled() && input.requires_grad() {
+    let result = if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(FlattenBackward::new(
             input.clone(),
             input.shape().to_vec(),
         ));
-        Tensor::from_operation(TensorStorage::cpu(data), vec![numel], grad_fn)
+        Tensor::from_operation(TensorStorage::cpu(data), vec![numel], grad_fn)?
     } else {
-        Tensor::from_storage(TensorStorage::cpu(data), vec![numel], false)
-    }
+        Tensor::from_storage(TensorStorage::cpu(data), vec![numel], false)?
+    };
+    restore_device(result, device)
 }
 
 // ---------------------------------------------------------------------------
@@ -190,14 +225,16 @@ pub fn squeeze<T: Float>(input: &Tensor<T>, axis: isize) -> FerrotorchResult<Ten
 
     let mut new_shape = input.shape().to_vec();
     new_shape.remove(norm_axis);
-    let data = input.data()?.to_vec();
+    let (cpu_input, device) = ensure_cpu(input)?;
+    let data = cpu_input.data()?.to_vec();
 
-    if is_grad_enabled() && input.requires_grad() {
+    let result = if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(SqueezeBackward::new(input.clone(), norm_axis));
-        Tensor::from_operation(TensorStorage::cpu(data), new_shape, grad_fn)
+        Tensor::from_operation(TensorStorage::cpu(data), new_shape, grad_fn)?
     } else {
-        Tensor::from_storage(TensorStorage::cpu(data), new_shape, false)
-    }
+        Tensor::from_storage(TensorStorage::cpu(data), new_shape, false)?
+    };
+    restore_device(result, device)
 }
 
 // ---------------------------------------------------------------------------
@@ -271,14 +308,16 @@ pub fn unsqueeze<T: Float>(input: &Tensor<T>, axis: isize) -> FerrotorchResult<T
 
     let mut new_shape = input.shape().to_vec();
     new_shape.insert(norm_axis, 1);
-    let data = input.data()?.to_vec();
+    let (cpu_input, device) = ensure_cpu(input)?;
+    let data = cpu_input.data()?.to_vec();
 
-    if is_grad_enabled() && input.requires_grad() {
+    let result = if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(UnsqueezeBackward::new(input.clone(), norm_axis));
-        Tensor::from_operation(TensorStorage::cpu(data), new_shape, grad_fn)
+        Tensor::from_operation(TensorStorage::cpu(data), new_shape, grad_fn)?
     } else {
-        Tensor::from_storage(TensorStorage::cpu(data), new_shape, false)
-    }
+        Tensor::from_storage(TensorStorage::cpu(data), new_shape, false)?
+    };
+    restore_device(result, device)
 }
 
 // ---------------------------------------------------------------------------
@@ -327,15 +366,17 @@ pub fn transpose_2d<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
         });
     }
 
-    let result = transpose(input)?;
+    let (cpu_input, device) = ensure_cpu(input)?;
+    let transposed = transpose(&cpu_input)?;
 
-    if is_grad_enabled() && input.requires_grad() {
-        let data = result.data()?.to_vec();
+    let result = if is_grad_enabled() && input.requires_grad() {
+        let data = transposed.data()?.to_vec();
         let grad_fn = Arc::new(TransposeBackward::new(input.clone()));
-        Tensor::from_operation(TensorStorage::cpu(data), result.shape().to_vec(), grad_fn)
+        Tensor::from_operation(TensorStorage::cpu(data), transposed.shape().to_vec(), grad_fn)?
     } else {
-        Ok(result)
-    }
+        transposed
+    };
+    restore_device(result, device)
 }
 
 // ---------------------------------------------------------------------------
@@ -444,7 +485,8 @@ pub fn expand<T: Float>(input: &Tensor<T>, new_shape: &[usize]) -> FerrotorchRes
     }
 
     // Build expanded data via broadcast indexing.
-    let in_data = input.data()?;
+    let (cpu_input, device) = ensure_cpu(input)?;
+    let in_data = cpu_input.data()?;
     let out_numel: usize = new_shape.iter().product();
     let mut out_data = Vec::with_capacity(out_numel);
 
@@ -453,15 +495,16 @@ pub fn expand<T: Float>(input: &Tensor<T>, new_shape: &[usize]) -> FerrotorchRes
         out_data.push(in_data[idx]);
     }
 
-    if is_grad_enabled() && input.requires_grad() {
+    let result = if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(ExpandBackward::new(
             input.clone(),
             in_shape.to_vec(),
         ));
-        Tensor::from_operation(TensorStorage::cpu(out_data), new_shape.to_vec(), grad_fn)
+        Tensor::from_operation(TensorStorage::cpu(out_data), new_shape.to_vec(), grad_fn)?
     } else {
-        Tensor::from_storage(TensorStorage::cpu(out_data), new_shape.to_vec(), false)
-    }
+        Tensor::from_storage(TensorStorage::cpu(out_data), new_shape.to_vec(), false)?
+    };
+    restore_device(result, device)
 }
 
 // ---------------------------------------------------------------------------
@@ -600,6 +643,14 @@ pub fn cat<T: Float>(tensors: &[Tensor<T>], axis: isize) -> FerrotorchResult<Ten
     let total_along_axis: usize = split_sizes.iter().sum();
     out_shape[norm_axis] = total_along_axis;
 
+    // Determine the original device from the first tensor and transfer all to CPU.
+    let device = tensors[0].device();
+    let cpu_tensors: Vec<Tensor<T>> = if device.is_cuda() {
+        tensors.iter().map(|t| t.cpu()).collect::<FerrotorchResult<_>>()?
+    } else {
+        tensors.to_vec()
+    };
+
     // Compute strides for the interleaved copy.
     let outer: usize = out_shape[..norm_axis].iter().product();
     let inner: usize = if norm_axis + 1 < ndim {
@@ -612,7 +663,7 @@ pub fn cat<T: Float>(tensors: &[Tensor<T>], axis: isize) -> FerrotorchResult<Ten
     let mut out_data = vec![<T as num_traits::Zero>::zero(); out_numel];
 
     let mut offset = 0usize;
-    for t in tensors {
+    for t in &cpu_tensors {
         let t_data = t.data()?;
         let t_axis_size = t.shape()[norm_axis];
         for o in 0..outer {
@@ -627,16 +678,17 @@ pub fn cat<T: Float>(tensors: &[Tensor<T>], axis: isize) -> FerrotorchResult<Ten
 
     let any_requires_grad = tensors.iter().any(|t| t.requires_grad());
 
-    if is_grad_enabled() && any_requires_grad {
+    let result = if is_grad_enabled() && any_requires_grad {
         let grad_fn = Arc::new(CatBackward::new(
             tensors.to_vec(),
             norm_axis,
             split_sizes,
         ));
-        Tensor::from_operation(TensorStorage::cpu(out_data), out_shape, grad_fn)
+        Tensor::from_operation(TensorStorage::cpu(out_data), out_shape, grad_fn)?
     } else {
-        Tensor::from_storage(TensorStorage::cpu(out_data), out_shape, false)
-    }
+        Tensor::from_storage(TensorStorage::cpu(out_data), out_shape, false)?
+    };
+    restore_device(result, device)
 }
 
 // ---------------------------------------------------------------------------
