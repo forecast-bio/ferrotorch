@@ -6,8 +6,10 @@ Core tensor and autograd engine for ferrotorch -- PyTorch in Rust.
 
 - **`Tensor<T>`** -- N-dimensional tensor with automatic differentiation
 - **Autograd** -- reverse-mode automatic differentiation via `backward()`, `no_grad()`, and `autocast`
-- **Creation functions** -- `tensor`, `zeros`, `ones`, `rand`, `randn`, `arange`, `linspace`, `eye`, `full`, `scalar`
-- **Arithmetic & math ops** -- element-wise operations with broadcast support
+- **Creation functions** -- `tensor`, `zeros`, `ones`, `rand`, `randn`, `arange`, `linspace`, `eye`, `full`, `scalar`, `zeros_like`, `ones_like`, `rand_like`, `randn_like`, `full_like`
+- **Arithmetic & math ops** -- element-wise operations with broadcast support, differentiable `exp`, `log`, `sin`, `cos`, `clamp`
+- **Tensor manipulation** -- `permute`, `view`, `contiguous`, `chunk`, `split`
+- **Reductions** -- `sum_dim`, `mean_dim` with axis and keepdim support
 - **Einsum** -- differentiable Einstein summation (`einsum`, `einsum_differentiable`)
 - **FFT** -- `fft`, `ifft`, `rfft`, `irfft`, `fft2`, `ifft2` with differentiable variants
 - **Quantization** -- `quantize`, `dequantize`, `quantized_matmul`, `QuantizedTensor`

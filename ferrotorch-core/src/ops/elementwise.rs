@@ -89,14 +89,14 @@ pub fn simd_exp_f64(input: &Tensor<f64>) -> FerrotorchResult<Tensor<f64>> {
 #[inline]
 unsafe fn transmute_vec_f32_to_t<T: Float>(v: Vec<f32>) -> Vec<T> {
     let mut v = std::mem::ManuallyDrop::new(v);
-    Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity())
+    unsafe { Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity()) }
 }
 
 /// Transmute a Vec<f64> to Vec<T> (zero-cost when T is f64).
 #[inline]
 unsafe fn transmute_vec_f64_to_t<T: Float>(v: Vec<f64>) -> Vec<T> {
     let mut v = std::mem::ManuallyDrop::new(v);
-    Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity())
+    unsafe { Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity()) }
 }
 
 /// SIMD-accelerated add: dispatches to f32/f64 SIMD for same-shape tensors,

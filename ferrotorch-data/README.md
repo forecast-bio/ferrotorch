@@ -7,9 +7,9 @@ Data loading, batching, and transforms for ferrotorch.
 - **`Dataset` trait** -- `Dataset` and `IterableDataset` for random-access and streaming data
 - **`VecDataset`** -- in-memory dataset from vectors
 - **`MappedDataset`** -- lazy map transform over an existing dataset
-- **`DataLoader`** -- parallel batched iteration with configurable workers
-- **Samplers** -- `SequentialSampler`, `RandomSampler`, and the `Sampler` trait
-- **Transforms** -- `ToTensor`, `Normalize`, `RandomCrop`, `RandomHorizontalFlip`, `Compose`, and the `Transform` trait
+- **`DataLoader`** -- parallel batched iteration with rayon-based `num_workers`, custom `collate_fn` support
+- **Samplers** -- `SequentialSampler`, `RandomSampler`, `DistributedSampler` (multi-rank), custom sampler injection, and the `Sampler` trait
+- **Transforms** -- `ToTensor`, `Normalize`, `RandomCrop`, `RandomHorizontalFlip`, `Compose`, and the `Transform` trait with seedable RNG (`manual_seed`)
 
 ## Quick start
 

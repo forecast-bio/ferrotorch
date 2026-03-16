@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-readme = "../README.md"
+readme = "README.md"
 
 [dependencies]
 ferrotorch-core = { workspace = true }
@@ -22,7 +22,3 @@ ferrotorch-vision = { workspace = true }
 [[example]]
 name = "train_mnist"
 path = "examples/train_mnist.rs"
-
-[[example]]
-name = "benchmark"
-path = "../benchmarks/ferrotorch_bench.rs"

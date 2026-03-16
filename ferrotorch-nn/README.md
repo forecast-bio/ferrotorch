@@ -11,8 +11,9 @@ Neural network modules for ferrotorch -- layers, losses, and initialization.
 - **Normalization** -- `LayerNorm`, `BatchNorm2d`, `GroupNorm`, `RMSNorm`
 - **Activations** -- `ReLU`, `GELU`, `SiLU`, `Mish`, `Sigmoid`, `Tanh`, `Softmax`, `LogSoftmax`, and more
 - **Pooling** -- `MaxPool2d`, `AvgPool2d`, `AdaptiveAvgPool2d` (functional and module forms)
-- **Recurrent** -- `LSTM`
+- **Recurrent** -- `LSTM`, `GRU`
 - **Transformer** -- `TransformerEncoderLayer`, `TransformerDecoderLayer`, `MultiheadAttention`, `RotaryPositionEmbedding`, `KVCache`, `SwiGLU`
+- **Utility modules** -- `Flatten`, `Identity`
 - **Containers** -- `Sequential`, `ModuleList`, `ModuleDict`
 - **Losses** -- `CrossEntropyLoss`, `MSELoss`, `BCEWithLogitsLoss`, `HuberLoss`, `KLDivLoss`, `SmoothL1Loss`, `CosineEmbeddingLoss`
 - **Hooks** -- `ForwardHook`, `BackwardHook`, `ForwardPreHook`, `HookedModule`

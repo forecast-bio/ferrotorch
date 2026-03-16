@@ -48,11 +48,11 @@ ferrotorch-distributions = { version = "0.1.0", path = "ferrotorch-distributions
 ferrotorch-profiler = { version = "0.1.0", path = "ferrotorch-profiler" }
 ferrotorch-hub = { version = "0.1.0", path = "ferrotorch-hub" }
 
-# ferray ecosystem (version for crates.io, path for local dev)
-ferray-core = { version = "0.2.5", path = "../ferray/ferray-core", features = ["bf16"] }
-ferray-ufunc = { version = "0.2.5", path = "../ferray/ferray-ufunc" }
-ferray-linalg = { version = "0.2.5", path = "../ferray/ferray-linalg" }
-ferray-random = { version = "0.2.5", path = "../ferray/ferray-random" }
+# ferray ecosystem
+ferray-core = { version = "0.2.5", features = ["bf16"] }
+ferray-ufunc = "0.2.5"
+ferray-linalg = "0.2.5"
+ferray-random = "0.2.5"
 
 # CubeCL portable GPU compute
 cubecl = "0.10.0-pre.2"

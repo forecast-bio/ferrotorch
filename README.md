@@ -5,7 +5,7 @@
 [![crates.io](https://img.shields.io/crates/v/ferrotorch.svg)](https://crates.io/crates/ferrotorch)
 [![docs.rs](https://docs.rs/ferrotorch/badge.svg)](https://docs.rs/ferrotorch)
 [![license](https://img.shields.io/crates/l/ferrotorch.svg)](https://github.com/dollspace-gay/ferrotorch#license)
-[![tests](https://img.shields.io/badge/tests-1%2C800%2B_passing-brightgreen.svg)](#)
+[![tests](https://img.shields.io/badge/tests-2%2C000%2B_passing-brightgreen.svg)](#)
 
 ---
 
@@ -16,32 +16,35 @@ If you have ever wanted to train a ResNet or a transformer in Rust without pulli
 ## Key Features
 
 - **Pure Rust, no C/C++ FFI** --- the only foreign call is cudarc for the CUDA driver API. Everything else compiles with `cargo build`.
-- **Reverse-mode autograd** with 30+ differentiable operations, topological-sort backward pass, gradient accumulation, and checkpointing.
+- **Reverse-mode autograd** with 40+ differentiable operations (including exp, log, sin, cos, clamp), topological-sort backward pass, gradient accumulation, broadcast gradient reduction, checkpointing, and `backward_with_gradient()` for non-scalar tensors.
 - **Operator overloading** --- write `&a + &b`, `&x * &y`, `-z` with natural Rust syntax. All ownership combinations supported.
-- **24+ neural network layers** including Linear, Conv1d/2d, LSTM, MultiheadAttention, BatchNorm, LayerNorm, RMSNorm, and LLM modules (RoPE, SwiGLU, KV cache, TransformerEncoder/DecoderLayer).
-- **8 optimizers** --- SGD, Adam, AdamW, RMSprop, Adagrad, L-BFGS, Muon, and K-FAC (Kronecker-factored Fisher), with parameter groups and 5 LR schedulers.
+- **26+ neural network layers** including Linear, Conv1d/2d, LSTM, GRU, MultiheadAttention, BatchNorm, LayerNorm, RMSNorm, Flatten, Identity, and LLM modules (RoPE, SwiGLU, KV cache, TransformerEncoder/DecoderLayer).
+- **8 optimizers** --- SGD, Adam, AdamW (in-place updates), RMSprop, Adagrad, L-BFGS, Muon, and K-FAC (Kronecker-factored Fisher), with parameter groups, 5 LR schedulers, and gradient clipping (`clip_grad_norm`, `clip_grad_value`).
 - **JIT compiler** --- trace a forward pass into a static IR, then run constant folding, dead code elimination, operator fusion, and memory planning. `compile()` API mirrors `torch.compile`.
-- **GPU acceleration** --- unified device-aware tensors (`tensor.cuda()`, `model.to_device(Device::Cuda(0))`) with auto-dispatch to CPU or GPU. NVIDIA via cudarc + cuBLAS (81.8x matmul speedup on RTX 3090), AMD/Intel/Apple via CubeCL (WGPU, ROCm, Vulkan, Metal). No separate `GpuTensor` type.
+- **GPU acceleration** --- unified device-aware tensors (`tensor.cuda()`, `model.to_device(Device::Cuda(0))`) with auto-dispatch to CPU or GPU, f32/f64 dispatch. NVIDIA via cudarc + cuBLAS (81.8x matmul speedup on RTX 3090), AMD/Intel/Apple via CubeCL (WGPU, ROCm, Vulkan, Metal). No separate `GpuTensor` type.
 - **GPU memory safety** --- pre-OOM hooks, VRAM reservation, budget enforcement, pressure watchdog, and emergency checkpointing. Never lose a training run to a Steam game again.
 - **ONNX export** --- trace a model and emit a standard `.onnx` file loadable by onnxruntime, TensorRT, CoreML. Hand-written protobuf encoder, no external dependency.
 - **Operation fusion** --- chain elementwise ops into a single kernel with PTX codegen. 2-5x GPU speedup for fused chains.
 - **SafeTensors + PyTorch .pt import** --- load HuggingFace models directly; pure-Rust pickle parser (28 opcodes) for PyTorch checkpoints.
 - **8 vision model architectures** --- ResNet, VGG, ViT, EfficientNet, ConvNeXt, Swin Transformer, U-Net, YOLO.
 - **INT8/INT4 quantization** --- per-tensor and per-channel post-training quantization with quantized matmul.
-- **Distributed training** --- DDP with gradient synchronization over a TCP backend, GPU-aware collectives.
-- **Training loop** --- `Learner` abstraction with metrics (loss, accuracy, top-k), callbacks (early stopping, progress logging), and training history.
+- **Distributed training** --- DDP with gradient synchronization over a TCP backend, GPU-aware collectives, `DistributedSampler` for multi-rank training.
+- **Training loop** --- `Learner` abstraction with metrics (loss, accuracy, top-k), callbacks (early stopping, progress logging), training history, and model checkpointing (save/load).
 - **`#[derive(Module)]` proc macro** --- annotate fields with `#[param]`, `#[submodule]`, `#[skip]` and the Module trait is implemented for you.
 - **Einops** --- `rearrange("b c h w -> b (c h w)")`, `repeat`, `reduce` with readable string patterns.
 - **LoRA** --- parameter-efficient fine-tuning via `LoRALinear` with trainable low-rank A/B matrices and `merge()` for zero-overhead inference.
-- **Unified device-aware tensors** --- `tensor.cuda()`, `model.to_device(Device::Cuda(0))`, ops auto-dispatch to CPU or GPU. No separate `GpuTensor` type.
+- **Tensor operations** --- `sum_dim`/`mean_dim` with axis and keepdim, `permute`/`view`/`contiguous`/`chunk`/`split`, `zeros_like`/`ones_like`/`rand_like`/`randn_like`/`full_like` creation ops.
+- **Grad context managers** --- `enable_grad()`, `set_grad_enabled()` for fine-grained autograd control.
+- **Parallel DataLoader** --- rayon-based `num_workers`, custom `collate_fn`, `DistributedSampler`, seedable transform RNG via `manual_seed`.
 - **Fixed-point derivatives** --- implicit differentiation for equilibrium models, Neural CAs, and DEQ networks.
 - **K-FAC natural gradient** --- Kronecker-factored Fisher approximation for second-order optimization.
+- **Prelude** --- `use ferrotorch::prelude::*` for convenient one-line imports.
 - **Zero-panic guarantee** --- every public function returns `Result<T, FerrotorchError>`.
 
 ## Quick Start
 
 ```rust
-use ferrotorch_core::*;
+use ferrotorch::prelude::*;
 
 // Build a small computation graph
 let a = scalar(2.0f32)?.requires_grad_(true);
@@ -59,9 +62,7 @@ println!("{}", b.grad()?.unwrap()); // tensor(2.)
 A condensed version of `ferrotorch/examples/train_mnist.rs`:
 
 ```rust
-use ferrotorch_core::*;
-use ferrotorch_nn::*;
-use ferrotorch_optim::*;
+use ferrotorch::prelude::*;
 
 // 3-layer MLP: 784 -> 128 -> 64 -> 10
 let mut model = Sequential::new(vec![
@@ -111,12 +112,12 @@ ferrotorch is a workspace of 16 crates. Use the umbrella crate for convenience, 
 | Crate | Description |
 |---|---|
 | **ferrotorch** | Top-level re-export crate (`cargo add ferrotorch`) |
-| **ferrotorch-core** | Tensor, autograd engine, 30+ differentiable ops, quantization |
-| **ferrotorch-nn** | Module trait, 24+ layers, losses, activations, `#[derive(Module)]` |
+| **ferrotorch-core** | Tensor, autograd engine, 40+ differentiable ops, quantization |
+| **ferrotorch-nn** | Module trait, 26+ layers, losses, activations, `#[derive(Module)]` |
 | **ferrotorch-nn-derive** | Proc macro for `#[derive(Module)]` |
-| **ferrotorch-optim** | 8 optimizers, 5 LR schedulers, GradScaler for mixed precision |
-| **ferrotorch-data** | Dataset, DataLoader, samplers, transforms |
-| **ferrotorch-train** | Learner, metrics, callbacks, training history |
+| **ferrotorch-optim** | 8 optimizers, 5 LR schedulers, gradient clipping, GradScaler |
+| **ferrotorch-data** | Dataset, parallel DataLoader, samplers, transforms, collate_fn |
+| **ferrotorch-train** | Learner, metrics, callbacks, training history, checkpointing |
 | **ferrotorch-vision** | 8 model architectures, MNIST/CIFAR datasets, image I/O |
 | **ferrotorch-jit** | Tracing, IR graph, optimization passes, codegen backends |
 | **ferrotorch-serialize** | SafeTensors, PyTorch .pt import, ONNX export, checkpoints |
@@ -280,7 +281,7 @@ let resnet = get_model::<f32>("resnet50", 1000)?;
 | **Proc macro** | `#[derive(Module)]` | No (dynamic) | `#[derive(Module)]` | No | No |
 | **LoRA** | Yes (`LoRALinear` + merge) | Via libraries | No | No | Yes |
 | **Einops** | Yes (rearrange/repeat/reduce) | Via library | No | No | No |
-| **Tests** | 1,800+ | Extensive | Growing | Via libtorch | Growing |
+| **Tests** | 2,000+ | Extensive | Growing | Via libtorch | Growing |
 
 ## Installation
 

@@ -80,22 +80,51 @@ pub fn mm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>>
     }
 
     // Delegate to ferray-linalg (faer-backed optimized BLAS).
-    // LinalgFloat is only f32/f64 — dispatch based on element size.
+    // LinalgFloat is only f32/f64 — dispatch based on TypeId to avoid
+    // unnecessary f64 round-trips for f32 data.
     let a_data = a.data()?;
     let b_data = b.data()?;
 
-    let result = if std::mem::size_of::<T>() == 4 {
-        // f32 path
-        let a_f32: Vec<f32> = a_data.iter().map(|&v| v.to_f64().unwrap() as f32).collect();
-        let b_f32: Vec<f32> = b_data.iter().map(|&v| v.to_f64().unwrap() as f32).collect();
-        let a_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[m, k]), a_f32)
+    let result = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+        // Direct f32 path — reinterpret the T slice as f32 without going
+        // through to_f64().unwrap() as f32 for every element.
+        // SAFETY: We confirmed T is f32 via TypeId check above, so the cast
+        // from *const T to *const f32 is sound and layout-compatible.
+        let a_f32: &[f32] =
+            unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, a_data.len()) };
+        let b_f32: &[f32] =
+            unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, b_data.len()) };
+        let a_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[m, k]), a_f32.to_vec())
             .map_err(FerrotorchError::Ferray)?;
-        let b_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[k, n]), b_f32)
+        let b_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[k, n]), b_f32.to_vec())
             .map_err(FerrotorchError::Ferray)?;
         let r = ferray_linalg::matmul(&a_arr, &b_arr).map_err(FerrotorchError::Ferray)?;
-        r.as_slice().unwrap().iter().map(|&v| T::from(v).unwrap()).collect::<Vec<T>>()
+        // Reinterpret the f32 result slice back as T (which is f32).
+        let r_slice = r.as_slice().unwrap();
+        // SAFETY: T is f32, so casting *const f32 to *const T is sound.
+        let r_as_t: &[T] =
+            unsafe { std::slice::from_raw_parts(r_slice.as_ptr() as *const T, r_slice.len()) };
+        r_as_t.to_vec()
+    } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+        // Direct f64 path — reinterpret the T slice as f64 without conversion.
+        // SAFETY: We confirmed T is f64 via TypeId check above.
+        let a_f64: &[f64] =
+            unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, a_data.len()) };
+        let b_f64: &[f64] =
+            unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, b_data.len()) };
+        let a_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[m, k]), a_f64.to_vec())
+            .map_err(FerrotorchError::Ferray)?;
+        let b_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[k, n]), b_f64.to_vec())
+            .map_err(FerrotorchError::Ferray)?;
+        let r = ferray_linalg::matmul(&a_arr, &b_arr).map_err(FerrotorchError::Ferray)?;
+        // Reinterpret the f64 result slice back as T (which is f64).
+        let r_slice = r.as_slice().unwrap();
+        // SAFETY: T is f64, so casting *const f64 to *const T is sound.
+        let r_as_t: &[T] =
+            unsafe { std::slice::from_raw_parts(r_slice.as_ptr() as *const T, r_slice.len()) };
+        r_as_t.to_vec()
     } else {
-        // f64 path
+        // Fallback for any other Float type: go through f64.
         let a_f64: Vec<f64> = a_data.iter().map(|&v| v.to_f64().unwrap()).collect();
         let b_f64: Vec<f64> = b_data.iter().map(|&v| v.to_f64().unwrap()).collect();
         let a_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[m, k]), a_f64)

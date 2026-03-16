@@ -7,13 +7,14 @@ Optimizers and learning rate schedulers for ferrotorch.
 - **Optimizer trait** -- `Optimizer` with `step`, `zero_grad`, and `ParamGroup` support
 - **Optimizers**:
   - `SGD` (with momentum, weight decay, Nesterov)
-  - `Adam`, `AdamW`
+  - `Adam`, `AdamW` (with in-place parameter updates for performance)
   - `Adagrad`
   - `RMSprop`
   - `L-BFGS` (with line search)
   - `Muon`
+- **Gradient clipping** -- `clip_grad_norm_`, `clip_grad_value_` utilities
 - **Learning rate schedulers** -- `StepLR`, `CosineAnnealingLR`, `ReduceLROnPlateau`, `LinearWarmup`, `SequentialLr`, `cosine_warmup_scheduler`
-- **Gradient accumulation** -- `GradientAccumulator` for micro-batching
+- **Gradient accumulation** -- `GradientAccumulator` for micro-batching with optimized accumulation
 - **Gradient scaling** -- `GradScaler` for mixed-precision training
 
 ## Quick start
