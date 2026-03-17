@@ -1,0 +1,8 @@
+{
+  "uuid": "52b1d64d-2b35-4e68-b2f9-50cafcff19a0",
+  "issue_uuid": "04a2b8b1-71ca-49c6-8dd2-d1ac431619f6",
+  "author": "anon-a7c6025f",
+  "content": "Revised plan: implement the StrongWolfe line search that effective_max_eval was scaffolded for. Add step_with_closure() to Lbfgs that takes a closure for function re-evaluation, implement Nocedal & Wright Algorithm 3.5/3.6 (line search + zoom). The existing step() stays as fixed-step mode. Fix the other two warnings (move test-only imports, remove genuinely unused import).",
+  "created_at": "2026-03-17T02:52:15.102337728Z",
+  "kind": "plan"
+}
