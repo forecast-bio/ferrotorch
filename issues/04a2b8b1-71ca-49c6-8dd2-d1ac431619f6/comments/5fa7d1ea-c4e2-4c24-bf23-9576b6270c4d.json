@@ -1,0 +1,8 @@
+{
+  "uuid": "5fa7d1ea-c4e2-4c24-bf23-9576b6270c4d",
+  "issue_uuid": "04a2b8b1-71ca-49c6-8dd2-d1ac431619f6",
+  "author": "anon-a7c6025f",
+  "content": "User wants intelligent cleanup — check if unused imports/code represent incomplete features before removing.",
+  "created_at": "2026-03-17T02:50:20.617709945Z",
+  "kind": "decision"
+}
