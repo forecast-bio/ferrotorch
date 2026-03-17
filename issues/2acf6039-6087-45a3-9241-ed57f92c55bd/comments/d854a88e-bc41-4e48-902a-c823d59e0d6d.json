@@ -1,0 +1,8 @@
+{
+  "uuid": "d854a88e-bc41-4e48-902a-c823d59e0d6d",
+  "issue_uuid": "2acf6039-6087-45a3-9241-ed57f92c55bd",
+  "author": "anon-a7c6025f",
+  "content": "Forward pass sanity check passes: tiny GPT-2 (2 layers, d=64, 4 heads, 108K params) produces correct output shape [1, 8, 100], all values finite, loss=22.07, gradients flow to parameters. Training loop with synthetic data runs. Build is clean (only upstream ferrotorch-optim warnings).",
+  "created_at": "2026-03-17T02:37:13.193749528Z",
+  "kind": "result"
+}
