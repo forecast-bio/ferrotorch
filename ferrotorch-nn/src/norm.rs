@@ -113,12 +113,42 @@ impl<T: Float> Module<T> for LayerNorm<T> {
             });
         }
 
-        // norm_size = product of normalized_shape dimensions.
         let norm_size: usize = self.normalized_shape.iter().product();
-        // batch_size = product of all other dimensions.
         let batch_size = input.numel() / norm_size;
 
-        // Transfer to CPU for computation if on GPU.
+        // GPU fast path: native LayerNorm kernel.
+        if input.is_cuda() && self.elementwise_affine {
+            if let Some(backend) = ferrotorch_core::gpu_dispatch::gpu_backend() {
+                let eps_f32 = self.eps as f32;
+                let handle = backend.layernorm_f32(
+                    input.gpu_handle()?,
+                    self.weight.tensor().gpu_handle()?,
+                    self.bias.tensor().gpu_handle()?,
+                    batch_size,
+                    norm_size,
+                    eps_f32,
+                )?;
+                return if is_grad_enabled() && input.requires_grad() {
+                    let grad_fn = Arc::new(LayerNormBackward {
+                        input: input.clone(),
+                        weight: self.weight.tensor().clone(),
+                        bias: self.bias.tensor().clone(),
+                        normalized_shape: self.normalized_shape.clone(),
+                        eps: self.eps,
+                        elementwise_affine: self.elementwise_affine,
+                    });
+                    Tensor::from_operation(
+                        TensorStorage::gpu(handle),
+                        shape,
+                        grad_fn,
+                    )
+                } else {
+                    Tensor::from_storage(TensorStorage::gpu(handle), shape, false)
+                };
+            }
+        }
+
+        // CPU path.
         let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
         let input_data = cpu_input.data()?;
         let eps_t = T::from(self.eps).unwrap();
@@ -136,22 +166,13 @@ impl<T: Float> Module<T> for LayerNorm<T> {
             let end = start + norm_size;
             let slice = &input_data[start..end];
 
-            // Compute mean.
             let mean = slice.iter().copied().fold(zero::<T>(), |a, x| a + x) / n_t;
-
-            // Compute variance.
-            let var = slice
-                .iter()
-                .copied()
-                .fold(zero::<T>(), |a, x| {
-                    let d = x - mean;
-                    a + d * d
-                })
-                / n_t;
-
+            let var = slice.iter().copied().fold(zero::<T>(), |a, x| {
+                let d = x - mean;
+                a + d * d
+            }) / n_t;
             let inv_std = (var + eps_t).sqrt().recip();
 
-            // Normalize and apply affine.
             for (i, &x) in slice.iter().enumerate() {
                 let normed = (x - mean) * inv_std;
                 if self.elementwise_affine {

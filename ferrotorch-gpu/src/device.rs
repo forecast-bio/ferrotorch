@@ -7,6 +7,8 @@
 use std::sync::Arc;
 
 #[cfg(feature = "cuda")]
+use cudarc::cublas::CudaBlas;
+#[cfg(feature = "cuda")]
 use cudarc::driver::{CudaContext, CudaStream};
 
 use crate::error::GpuResult;
@@ -15,58 +17,64 @@ use crate::error::GpuError;
 
 /// Handle to a single CUDA GPU device.
 ///
-/// Create one per device ordinal. The underlying CUDA context and default
-/// stream are reference-counted, so cloning a `GpuDevice` is cheap.
+/// Holds a CUDA context, default stream, and a **cached cuBLAS handle**.
+/// The cuBLAS handle is created once and reused for all matmul/bmm ops,
+/// eliminating the ~1.7ms `cuModuleLoadData` overhead that occurs when
+/// creating a new `CudaBlas` per operation.
 #[cfg(feature = "cuda")]
 pub struct GpuDevice {
     ctx: Arc<CudaContext>,
     stream: Arc<CudaStream>,
+    blas: CudaBlas,
     ordinal: usize,
 }
 
 #[cfg(feature = "cuda")]
 impl GpuDevice {
-    /// Initialize a CUDA device by ordinal (0-indexed).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`GpuError::Driver`] if the CUDA driver cannot create a context
-    /// for the requested device (e.g. ordinal out of range, driver not loaded).
     pub fn new(ordinal: usize) -> GpuResult<Self> {
         let ctx = CudaContext::new(ordinal)?;
         let stream = ctx.default_stream();
+        let blas = CudaBlas::new(stream.clone())?;
+        Ok(Self { ctx, stream, blas, ordinal })
+    }
+
+    /// Create a `GpuDevice` with a non-blocking stream forked from the
+    /// given device's default stream. The forked stream supports CUDA graph
+    /// capture (which the legacy default stream does not).
+    pub fn fork_for_capture(parent: &GpuDevice) -> GpuResult<Self> {
+        let stream = parent.stream.fork()?;
+        let blas = CudaBlas::new(stream.clone())?;
         Ok(Self {
-            ctx,
+            ctx: Arc::clone(&parent.ctx),
             stream,
-            ordinal,
+            blas,
+            ordinal: parent.ordinal,
         })
     }
 
-    /// The underlying CUDA context (reference-counted).
     #[inline]
-    pub fn context(&self) -> &Arc<CudaContext> {
-        &self.ctx
-    }
+    pub fn context(&self) -> &Arc<CudaContext> { &self.ctx }
 
-    /// The default CUDA stream for this device.
     #[inline]
-    pub fn stream(&self) -> &Arc<CudaStream> {
-        &self.stream
-    }
+    pub fn stream(&self) -> &Arc<CudaStream> { &self.stream }
 
-    /// The device ordinal (0-indexed).
+    /// The cached cuBLAS handle — reused for all matmul/bmm operations.
     #[inline]
-    pub fn ordinal(&self) -> usize {
-        self.ordinal
-    }
+    pub fn blas(&self) -> &CudaBlas { &self.blas }
+
+    #[inline]
+    pub fn ordinal(&self) -> usize { self.ordinal }
 }
 
 #[cfg(feature = "cuda")]
 impl Clone for GpuDevice {
     fn clone(&self) -> Self {
+        let blas = CudaBlas::new(self.stream.clone())
+            .expect("CudaBlas::new failed in GpuDevice::clone");
         Self {
             ctx: Arc::clone(&self.ctx),
             stream: Arc::clone(&self.stream),
+            blas,
             ordinal: self.ordinal,
         }
     }

@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.3] - 2026-03-17
+
+### Fixed
+- Fix PTX register name collision (`%tid` → `%r_tid`) — all elementwise kernels were silently falling back to CPU due to `CUDA_ERROR_INVALID_PTX`
+- Fix softmax PTX: wrong hex prefix for float literals (`0xff` → `0f`), undeclared shared memory registers (`%saddr`, `%sbase`)
+- Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
+
+### Added
+- **GPU buffer pool** (`pool.rs`): caching allocator that reuses freed `CudaSlice`s by element count, eliminating `cuMemAllocAsync`/`cuMemFreeAsync` per op
+- **CUDA graph capture** (`graph.rs`): `DeviceScalar<T>`, `CapturedGraph`, `begin_capture`/`end_capture` API for replaying entire decode passes as a single driver call
+- **`_into` kernel variants**: non-allocating versions of all decode-path kernels (add, mul, scale, gelu, layernorm, softmax, permute, embed_lookup, matmul, bmm, slice_read) for pre-allocated output buffers
+- **Indirect-parameter PTX kernels**: `slice_write_indirect` and `causal_mask_indirect` read variable parameters (pos, total_len) from device memory for CUDA graph compatibility
+- **`scale_f32` PTX kernel**: scalar multiply (`out[i] = a[i] * scalar`) exposed via `GpuBackend::scale_f32()`
+- **`GpuBackend::as_any()`**: downcast trait method for backend-specific access
+- **`GpuBufferHandle::into_inner()`**: consume handle and extract concrete type
+- **`GpuDevice::fork_for_capture()`**: create non-blocking stream for CUDA graph capture
+- **`get_cuda_device()`**: retrieve the shared `GpuDevice` from the registered backend
+- **`precompile_decode_kernels()`**: pre-compile all decode-path PTX modules before graph capture
+- **`CudaBuffer` pool-aware Drop**: returns `CudaSlice` to pool via function pointer dispatch (f32/f64)
+- **`GpuError::PtxCompileFailed`** variant for explicit PTX compilation failure reporting
+- M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
+
+### Changed
+- `CudaBuffer<T>.data` is now `Option<CudaSlice<T>>` with custom Drop for pool integration
+- `alloc_zeros_f32` / `alloc_zeros_f64` check pool before allocating from CUDA driver
+- All kernel output allocations in `kernels.rs` and `blas.rs` use pool-aware `alloc_zeros_f32`/`alloc_zeros_f64`
+
+### Performance
+- **GPT-2 124M decode: 3.5 tok/s → 100 tok/s (29x) on WSL2/RTX 3090**
+  - PTX bug fixes alone: 3.5 → 90 tok/s (elementwise ops moved from CPU fallback to GPU)
+  - CUDA graph capture: 90 → 100 tok/s (300 kernel launches collapsed to 1 graph replay)
+
 ## [0.1.0] - 2026-03-15
 
 ### Fixed

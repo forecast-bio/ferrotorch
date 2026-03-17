@@ -461,7 +461,7 @@ pub fn gpu_conv2d_f32(
 
     // Handle degenerate case.
     if batch == 0 || c_out == 0 || h_out == 0 || w_out == 0 {
-        let out = crate::transfer::alloc_zeros::<f32>(0, device)?;
+        let out = crate::transfer::alloc_zeros_f32(0, device)?;
         return Ok((out, output_shape));
     }
 
@@ -476,10 +476,10 @@ pub fn gpu_conv2d_f32(
     // -----------------------------------------------------------------------
 
     // Column buffer: reused for each batch element [col_rows, col_cols].
-    let mut col_buf = crate::transfer::alloc_zeros::<f32>(col_elems, device)?;
+    let mut col_buf = crate::transfer::alloc_zeros_f32(col_elems, device)?;
 
     // Full output buffer: [B, C_out, H_out * W_out] contiguous.
-    let mut output_buf = crate::transfer::alloc_zeros::<f32>(total_out_elems, device)?;
+    let mut output_buf = crate::transfer::alloc_zeros_f32(total_out_elems, device)?;
 
     // -----------------------------------------------------------------------
     // Load PTX modules (cached after first compilation)

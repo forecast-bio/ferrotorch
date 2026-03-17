@@ -22,9 +22,10 @@ where
 {
     let slice = device.stream().clone_htod(data)?;
     Ok(CudaBuffer {
+        data: Some(slice),
         len: data.len(),
         device_ordinal: device.ordinal(),
-        data: slice,
+        pool_fn: None,
     })
 }
 
@@ -45,15 +46,48 @@ where
             got: device.ordinal(),
         });
     }
-    let vec = device.stream().clone_dtoh(&buffer.data)?;
+    let vec = device.stream().clone_dtoh(buffer.inner())?;
     Ok(vec)
 }
 
-/// Allocate a zero-initialized [`CudaBuffer`] on the given device.
+/// Allocate a zero-initialized [`CudaBuffer<f32>`] on the given device.
 ///
-/// # Errors
+/// Checks the global buffer pool first. On a pool hit, the existing
+/// `CudaSlice` (with its CUDA events) is reused and only `cuMemsetD8Async`
+/// is called. On a miss, a fresh allocation is made via cudarc.
+#[cfg(feature = "cuda")]
+pub fn alloc_zeros_f32(len: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::CudaSlice;
+
+    // Pool hit: reuse a cached CudaSlice — no cuMemAllocAsync, no cuEventCreate.
+    if let Some(mut slice) = crate::pool::pool_take::<CudaSlice<f32>>(device.ordinal(), len, 4) {
+        device.stream().memset_zeros(&mut slice)?;
+        return Ok(CudaBuffer::<f32>::new_pooled(slice, len, device.ordinal()));
+    }
+
+    // Pool miss: fresh allocation from CUDA driver — still pooled on drop.
+    let slice = device.stream().alloc_zeros::<f32>(len)?;
+    Ok(CudaBuffer::<f32>::new_pooled(slice, len, device.ordinal()))
+}
+
+/// Allocate a zero-initialized [`CudaBuffer<f64>`] on the given device.
 ///
-/// Returns [`GpuError::Driver`] if the allocation fails.
+/// Pool-aware variant for f64 buffers.
+#[cfg(feature = "cuda")]
+pub fn alloc_zeros_f64(len: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    use cudarc::driver::CudaSlice;
+
+    if let Some(mut slice) = crate::pool::pool_take::<CudaSlice<f64>>(device.ordinal(), len, 8) {
+        device.stream().memset_zeros(&mut slice)?;
+        return Ok(CudaBuffer::<f64>::new_pooled(slice, len, device.ordinal()));
+    }
+
+    let slice = device.stream().alloc_zeros::<f64>(len)?;
+    Ok(CudaBuffer::<f64>::new_pooled(slice, len, device.ordinal()))
+}
+
+/// Generic alloc_zeros — kept for backward compatibility and non-f32/f64 types.
+/// Does NOT use the pool (no pool support for arbitrary T).
 #[cfg(feature = "cuda")]
 pub fn alloc_zeros<T>(len: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<T>>
 where
@@ -61,9 +95,10 @@ where
 {
     let slice = device.stream().alloc_zeros::<T>(len)?;
     Ok(CudaBuffer {
+        data: Some(slice),
         len,
         device_ordinal: device.ordinal(),
-        data: slice,
+        pool_fn: None,
     })
 }
 
@@ -86,6 +121,18 @@ pub fn gpu_to_cpu<T>(_buffer: &CudaBuffer<T>, _device: &GpuDevice) -> GpuResult<
 /// Stub — always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn alloc_zeros<T>(_len: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<T>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub — always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn alloc_zeros_f32(_len: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub — always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn alloc_zeros_f64(_len: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
     Err(GpuError::NoCudaFeature)
 }
 
@@ -124,7 +171,48 @@ mod tests {
     }
 
     #[test]
-    fn alloc_zeros_f32() {
+    fn alloc_zeros_f32_basic() {
+        let device = GpuDevice::new(0).expect("CUDA device 0");
+        let buf = alloc_zeros_f32(1024, &device).expect("alloc_zeros_f32");
+        assert_eq!(buf.len(), 1024);
+        assert!(buf.pooled);
+
+        let host = gpu_to_cpu(&buf, &device).expect("gpu_to_cpu");
+        assert!(host.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn pool_reuse_f32() {
+        let device = GpuDevice::new(0).expect("CUDA device 0");
+
+        // Allocate and drop — should go to pool.
+        let buf = alloc_zeros_f32(512, &device).expect("alloc 1");
+        assert!(buf.pooled);
+        drop(buf);
+
+        assert!(crate::pool::cached_bytes(0) > 0);
+
+        // Second allocation of same size — should hit pool.
+        let buf2 = alloc_zeros_f32(512, &device).expect("alloc 2");
+        assert!(buf2.pooled);
+
+        let host = gpu_to_cpu(&buf2, &device).expect("gpu_to_cpu");
+        assert!(host.iter().all(|&x| x == 0.0), "pooled buffer must be zeroed");
+    }
+
+    #[test]
+    fn empty_cache_clears_pool() {
+        let device = GpuDevice::new(0).expect("CUDA device 0");
+        let buf = alloc_zeros_f32(256, &device).expect("alloc");
+        drop(buf);
+        assert!(crate::pool::cached_bytes(0) > 0);
+
+        crate::pool::empty_cache(0);
+        assert_eq!(crate::pool::cached_bytes(0), 0);
+    }
+
+    #[test]
+    fn alloc_zeros_generic() {
         let device = GpuDevice::new(0).expect("CUDA device 0");
         let buf = alloc_zeros::<f32>(1024, &device).expect("alloc_zeros");
         assert_eq!(buf.len(), 1024);
@@ -161,12 +249,9 @@ mod tests {
 
     #[test]
     fn device_mismatch_rejected() {
-        // This test only makes sense with 1 GPU — it just verifies the
-        // mismatch check path by constructing a buffer that claims ordinal 99.
         let device = GpuDevice::new(0).expect("CUDA device 0");
         let host: Vec<f32> = vec![1.0];
         let mut buf = cpu_to_gpu(&host, &device).expect("cpu_to_gpu");
-        // Manually tamper with the ordinal to simulate a mismatch.
         buf.device_ordinal = 99;
 
         let err = gpu_to_cpu(&buf, &device).unwrap_err();

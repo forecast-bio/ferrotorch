@@ -49,6 +49,11 @@ impl CudaBackendImpl {
         })
     }
 
+    /// Get the device for ordinal 0 (the default device).
+    pub fn default_device(&self) -> FerrotorchResult<&Arc<GpuDevice>> {
+        self.device(0)
+    }
+
     /// Look up a device by ordinal.
     fn device(&self, ordinal: usize) -> FerrotorchResult<&Arc<GpuDevice>> {
         self.devices
@@ -101,6 +106,10 @@ impl CudaBackendImpl {
 // ---------------------------------------------------------------------------
 
 impl GpuBackend for CudaBackendImpl {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn cpu_to_gpu(
         &self,
         data: &[u8],
@@ -157,7 +166,7 @@ impl GpuBackend for CudaBackendImpl {
     ) -> FerrotorchResult<GpuBufferHandle> {
         let dev = self.device(device)?;
         let buf =
-            crate::transfer::alloc_zeros::<f32>(len, dev).map_err(Self::map_gpu_err)?;
+            crate::transfer::alloc_zeros_f32(len, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(buf, device))
     }
 
@@ -273,11 +282,238 @@ impl GpuBackend for CudaBackendImpl {
             .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer_f64(result, a.device_ordinal()))
     }
+
+    // -- Broadcast binary f32 -------------------------------------------------
+
+    fn broadcast_add_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        a_shape: &[usize],
+        b_shape: &[usize],
+        out_shape: &[usize],
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let b_buf = Self::unwrap_buffer(b)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_broadcast_add(a_buf, b_buf, a_shape, b_shape, out_shape, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn broadcast_sub_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        a_shape: &[usize],
+        b_shape: &[usize],
+        out_shape: &[usize],
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let b_buf = Self::unwrap_buffer(b)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_broadcast_sub(a_buf, b_buf, a_shape, b_shape, out_shape, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn broadcast_mul_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        a_shape: &[usize],
+        b_shape: &[usize],
+        out_shape: &[usize],
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let b_buf = Self::unwrap_buffer(b)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_broadcast_mul(a_buf, b_buf, a_shape, b_shape, out_shape, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn softmax_f32(
+        &self,
+        a: &GpuBufferHandle,
+        rows: usize,
+        cols: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_softmax(a_buf, rows, cols, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn dropout_f32(
+        &self,
+        a: &GpuBufferHandle,
+        threshold: u32,
+        scale: f32,
+        seed: u32,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_dropout(a_buf, threshold, scale, seed, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn transpose_2d_f32(
+        &self,
+        a: &GpuBufferHandle,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_transpose_2d(a_buf, m, n, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn permute_0213_f32(
+        &self,
+        a: &GpuBufferHandle,
+        d0: usize,
+        d1: usize,
+        d2: usize,
+        d3: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_permute_0213(a_buf, d0, d1, d2, d3, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn bmm_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        batch: usize,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let b_buf = Self::unwrap_buffer(b)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::blas::gpu_bmm_f32(a_buf, b_buf, batch, m, k, n, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn gelu_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_gelu(a_buf, dev).map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn layernorm_f32(
+        &self,
+        input: &GpuBufferHandle,
+        weight: &GpuBufferHandle,
+        bias: &GpuBufferHandle,
+        rows: usize,
+        cols: usize,
+        eps: f32,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let in_buf = Self::unwrap_buffer(input)?;
+        let w_buf = Self::unwrap_buffer(weight)?;
+        let b_buf = Self::unwrap_buffer(bias)?;
+        let dev = self.device(input.device_ordinal())?;
+        let result = crate::kernels::gpu_layernorm(in_buf, w_buf, b_buf, rows, cols, eps, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, input.device_ordinal()))
+    }
+
+    fn slice_write_f32(
+        &self,
+        src: &GpuBufferHandle,
+        dst: &mut GpuBufferHandle,
+        n_batch: usize,
+        d: usize,
+        max_len: usize,
+        pos: usize,
+    ) -> FerrotorchResult<()> {
+        let src_buf = Self::unwrap_buffer(src)?;
+        let dst_buf = dst.downcast_mut::<CudaBuffer<f32>>()
+            .ok_or(FerrotorchError::InvalidArgument {
+                message: "slice_write_f32: dst is not CudaBuffer<f32>".into(),
+            })?;
+        let dev = self.device(src.device_ordinal())?;
+        crate::kernels::gpu_slice_write(src_buf, dst_buf, n_batch, d, max_len, pos, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(())
+    }
+
+    fn slice_read_f32(
+        &self,
+        src: &GpuBufferHandle,
+        n_batch: usize,
+        d: usize,
+        len: usize,
+        max_len: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let src_buf = Self::unwrap_buffer(src)?;
+        let dev = self.device(src.device_ordinal())?;
+        let result = crate::kernels::gpu_slice_read(src_buf, n_batch, d, len, max_len, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, src.device_ordinal()))
+    }
+
+    fn embed_lookup_f32(
+        &self,
+        idx: &GpuBufferHandle,
+        weight: &GpuBufferHandle,
+        d: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let idx_buf = Self::unwrap_buffer(idx)?;
+        let w_buf = Self::unwrap_buffer(weight)?;
+        let dev = self.device(idx.device_ordinal())?;
+        let result = crate::kernels::gpu_embed_lookup(idx_buf, w_buf, d, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, idx.device_ordinal()))
+    }
+
+    fn scale_f32(
+        &self,
+        a: &GpuBufferHandle,
+        scalar: f32,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_scale(a_buf, scalar, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
+
+/// Get the `GpuDevice` from the registered CUDA backend.
+///
+/// This retrieves the device that was created during [`init_cuda_backend`],
+/// ensuring all kernel modules and cuBLAS handles are shared. Creating a
+/// second `GpuDevice` via `GpuDevice::new(0)` would create a separate
+/// CUDA context with its own module cache, which is not interoperable.
+pub fn get_cuda_device() -> FerrotorchResult<Arc<GpuDevice>> {
+    let backend = ferrotorch_core::gpu_dispatch::gpu_backend()
+        .ok_or(FerrotorchError::DeviceUnavailable)?;
+    // The global backend is a &dyn GpuBackend. We know it's CudaBackendImpl
+    // because init_cuda_backend registered it. Downcast via Any.
+    let cuda_backend = backend.as_any()
+        .downcast_ref::<CudaBackendImpl>()
+        .ok_or(FerrotorchError::InvalidArgument {
+            message: "registered GPU backend is not CudaBackendImpl".into(),
+        })?;
+    Ok(Arc::clone(cuda_backend.default_device()?))
+}
 
 /// Initialize the CUDA backend and register it with ferrotorch-core.
 ///

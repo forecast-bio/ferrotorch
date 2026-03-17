@@ -1027,3 +1027,121 @@ mod tests {
         assert!(s.grad_fn().is_none());
     }
 }
+
+// ===========================================================================
+// bmm (batched matmul) — GPU-accelerated via strided batch SGEMM
+// ===========================================================================
+
+/// Batched matrix multiply: `C[i] = A[i] @ B[i]` for `i` in `0..batch`.
+///
+/// `a` shape: `[batch, m, k]`, `b` shape: `[batch, k, n]`.
+/// Returns `[batch, m, n]`.
+///
+/// On GPU, dispatches to cuBLAS `SgemmStridedBatched`. On CPU, falls back
+/// to per-batch `mm`.
+pub fn bmm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if a.ndim() != 3 || b.ndim() != 3 {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!("bmm requires 3-D tensors, got {:?} and {:?}", a.shape(), b.shape()),
+        });
+    }
+    if a.device() != b.device() {
+        return Err(FerrotorchError::DeviceMismatch { expected: a.device(), got: b.device() });
+    }
+
+    let batch = a.shape()[0];
+    let m = a.shape()[1];
+    let k = a.shape()[2];
+    let n = b.shape()[2];
+
+    if b.shape()[0] != batch || b.shape()[1] != k {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!("bmm: a is [{batch},{m},{k}], b is {:?}", b.shape()),
+        });
+    }
+
+    let out_shape = vec![batch, m, n];
+
+    // GPU path.
+    if a.is_cuda() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let handle = backend.bmm_f32(
+                a.gpu_handle()?, b.gpu_handle()?,
+                batch, m, k, n,
+            )?;
+            return Tensor::from_storage(TensorStorage::gpu(handle), out_shape, false);
+        }
+    }
+
+    // CPU path: loop over batch.
+    let a_data = a.data()?;
+    let b_data = b.data()?;
+    let mut out = Vec::with_capacity(batch * m * n);
+
+    for bi in 0..batch {
+        let a_off = bi * m * k;
+        let b_off = bi * k * n;
+        for i in 0..m {
+            for j in 0..n {
+                let mut sum = <T as num_traits::Zero>::zero();
+                for p in 0..k {
+                    sum = sum + a_data[a_off + i * k + p] * b_data[b_off + p * n + j];
+                }
+                out.push(sum);
+            }
+        }
+    }
+
+    Tensor::from_storage(TensorStorage::cpu(out), out_shape, false)
+}
+
+// ===========================================================================
+// permute_0213 — swap dims 1 and 2 of a 4D tensor
+// ===========================================================================
+
+/// Permute a 4-D tensor from `[d0, d1, d2, d3]` to `[d0, d2, d1, d3]`.
+///
+/// Primary use: reshape attention heads `[B, S, H, D_h]` → `[B, H, S, D_h]`.
+/// On GPU, dispatches to a native PTX kernel. On CPU, does direct index mapping.
+pub fn permute_0213<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if input.ndim() != 4 {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!("permute_0213 requires 4-D tensor, got {:?}", input.shape()),
+        });
+    }
+
+    let d0 = input.shape()[0];
+    let d1 = input.shape()[1];
+    let d2 = input.shape()[2];
+    let d3 = input.shape()[3];
+    let out_shape = vec![d0, d2, d1, d3];
+
+    // GPU path.
+    if input.is_cuda() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let handle = backend.permute_0213_f32(
+                input.gpu_handle()?, d0, d1, d2, d3,
+            )?;
+            return Tensor::from_storage(TensorStorage::gpu(handle), out_shape, false);
+        }
+    }
+
+    // CPU path.
+    let data = input.data()?;
+    let total = d0 * d1 * d2 * d3;
+    let mut out = vec![<T as num_traits::Zero>::zero(); total];
+
+    for i0 in 0..d0 {
+        for i1 in 0..d1 {
+            for i2 in 0..d2 {
+                for i3 in 0..d3 {
+                    let in_idx = ((i0 * d1 + i1) * d2 + i2) * d3 + i3;
+                    let out_idx = ((i0 * d2 + i2) * d1 + i1) * d3 + i3;
+                    out[out_idx] = data[in_idx];
+                }
+            }
+        }
+    }
+
+    Tensor::from_storage(TensorStorage::cpu(out), out_shape, false)
+}

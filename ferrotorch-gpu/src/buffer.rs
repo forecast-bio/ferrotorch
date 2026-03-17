@@ -1,20 +1,83 @@
-//! GPU memory buffer.
+//! GPU memory buffer with pool-aware Drop.
 //!
 //! [`CudaBuffer`] owns a region of device memory via `cudarc::driver::CudaSlice`
-//! and tracks its length and originating device ordinal.
+//! and tracks its length and originating device ordinal. When dropped, pooled
+//! buffers are returned to the global GPU memory pool for reuse instead of
+//! being freed back to the CUDA driver.
 
 #[cfg(feature = "cuda")]
 use cudarc::driver::CudaSlice;
 
+/// Type-erased function pointer that returns a `CudaSlice<T>` to the pool.
+/// Stored as `Option` — `None` means "don't pool, just drop normally."
+#[cfg(feature = "cuda")]
+type PoolReturnFn<T> = Option<fn(usize, usize, CudaSlice<T>)>;
+
+/// Return a `CudaSlice<f32>` to the global pool.
+#[cfg(feature = "cuda")]
+fn return_f32(device: usize, len: usize, slice: CudaSlice<f32>) {
+    crate::pool::pool_return::<CudaSlice<f32>>(device, len, 4, slice);
+}
+
+/// Return a `CudaSlice<f64>` to the global pool.
+#[cfg(feature = "cuda")]
+fn return_f64(device: usize, len: usize, slice: CudaSlice<f64>) {
+    crate::pool::pool_return::<CudaSlice<f64>>(device, len, 8, slice);
+}
+
 /// Owned GPU memory buffer holding `len` elements of type `T`.
 ///
-/// The buffer is tied to the device that allocated it. Dropping it frees the
-/// underlying device allocation.
+/// When `pool_fn` is `Some`, dropping returns the inner `CudaSlice` to the
+/// global pool ([`crate::pool`]) instead of freeing GPU memory.
 #[cfg(feature = "cuda")]
 pub struct CudaBuffer<T> {
-    pub(crate) data: CudaSlice<T>,
+    /// The underlying CUDA device memory. Wrapped in `Option` so
+    /// `Drop` can `take()` it without double-free.
+    pub(crate) data: Option<CudaSlice<T>>,
     pub(crate) len: usize,
     pub(crate) device_ordinal: usize,
+    /// If `Some`, this function is called in Drop to return the slice
+    /// to the pool. If `None`, CudaSlice::Drop frees normally.
+    pub(crate) pool_fn: PoolReturnFn<T>,
+}
+
+/// Helper to create a pooled f32 buffer.
+#[cfg(feature = "cuda")]
+impl CudaBuffer<f32> {
+    /// Create a pooled f32 buffer that returns to the global pool on drop.
+    pub(crate) fn new_pooled(slice: CudaSlice<f32>, len: usize, device: usize) -> Self {
+        Self {
+            data: Some(slice),
+            len,
+            device_ordinal: device,
+            pool_fn: Some(return_f32),
+        }
+    }
+}
+
+#[cfg(feature = "cuda")]
+impl CudaBuffer<f64> {
+    /// Create a pooled f64 buffer that returns to the global pool on drop.
+    pub(crate) fn new_pooled(slice: CudaSlice<f64>, len: usize, device: usize) -> Self {
+        Self {
+            data: Some(slice),
+            len,
+            device_ordinal: device,
+            pool_fn: Some(return_f64),
+        }
+    }
+}
+
+#[cfg(feature = "cuda")]
+impl<T> Drop for CudaBuffer<T> {
+    fn drop(&mut self) {
+        if let Some(slice) = self.data.take() {
+            if let Some(return_fn) = self.pool_fn {
+                return_fn(self.device_ordinal, self.len, slice);
+            }
+            // else: CudaSlice::Drop fires naturally (cuMemFreeAsync)
+        }
+    }
 }
 
 #[cfg(feature = "cuda")]
@@ -40,13 +103,13 @@ impl<T> CudaBuffer<T> {
     /// Borrow the underlying `CudaSlice` for use with cudarc APIs.
     #[inline]
     pub fn inner(&self) -> &CudaSlice<T> {
-        &self.data
+        self.data.as_ref().expect("CudaBuffer: inner slice already taken")
     }
 
     /// Mutably borrow the underlying `CudaSlice`.
     #[inline]
     pub fn inner_mut(&mut self) -> &mut CudaSlice<T> {
-        &mut self.data
+        self.data.as_mut().expect("CudaBuffer: inner slice already taken")
     }
 }
 
@@ -56,6 +119,7 @@ impl<T> std::fmt::Debug for CudaBuffer<T> {
         f.debug_struct("CudaBuffer")
             .field("len", &self.len)
             .field("device_ordinal", &self.device_ordinal)
+            .field("pooled", &self.pool_fn.is_some())
             .finish_non_exhaustive()
     }
 }

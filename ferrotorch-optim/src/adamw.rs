@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -300,6 +300,7 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
 mod tests {
     use super::*;
     use ferrotorch_core::grad_fns::arithmetic::{add, pow};
+    use ferrotorch_core::{Tensor, TensorStorage};
 
     /// Create a scalar parameter from a single f64 value.
     fn scalar_param(val: f64) -> Parameter<f64> {

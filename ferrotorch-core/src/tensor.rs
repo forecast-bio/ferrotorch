@@ -111,6 +111,36 @@ impl<T: Float> Tensor<T> {
         })
     }
 
+    /// Create a view of this tensor with a different shape, sharing the
+    /// same underlying storage. Zero-copy — no data movement.
+    ///
+    /// The new shape must have the same total number of elements.
+    pub fn view_reshape(&self, new_shape: Vec<usize>) -> FerrotorchResult<Self> {
+        let new_numel: usize = new_shape.iter().product();
+        if new_numel != self.numel() {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "view_reshape: new shape {:?} ({} elements) vs old {:?} ({} elements)",
+                    new_shape, new_numel, self.shape(), self.numel()
+                ),
+            });
+        }
+        let strides = c_contiguous_strides(&new_shape);
+        Ok(Self {
+            inner: Arc::new(TensorInner {
+                id: TensorId::next(),
+                storage: Arc::clone(&self.inner.storage),
+                shape: new_shape,
+                strides,
+                offset: self.inner.offset,
+                grad: Mutex::new(None),
+                grad_fn: None,
+                requires_grad: false,
+                is_leaf: true,
+            }),
+        })
+    }
+
     /// Create a tensor that is the result of an operation (non-leaf).
     ///
     /// The resulting tensor has `requires_grad = true`, `is_leaf = false`,

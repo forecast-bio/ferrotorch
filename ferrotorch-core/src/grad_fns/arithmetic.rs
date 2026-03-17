@@ -11,6 +11,7 @@ use crate::autograd::no_grad::{is_grad_enabled, no_grad};
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::ops::elementwise::{binary_map, scalar_map, unary_map, fast_add, fast_mul};
+use crate::shape::broadcast_shapes;
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
 
@@ -180,22 +181,30 @@ pub fn add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
     if a.is_cuda() {
         let backend = crate::gpu_dispatch::gpu_backend()
             .ok_or(FerrotorchError::DeviceUnavailable)?;
-        let handle = if is_f64::<T>() {
-            backend.add_f64(a.gpu_handle()?, b.gpu_handle()?)?
+
+        let needs_broadcast = a.shape() != b.shape();
+        let (handle, out_shape) = if needs_broadcast {
+            let out_shape = broadcast_shapes(a.shape(), b.shape())?;
+            let h = backend.broadcast_add_f32(
+                a.gpu_handle()?, b.gpu_handle()?,
+                a.shape(), b.shape(), &out_shape,
+            )?;
+            (h, out_shape)
+        } else if is_f64::<T>() {
+            (backend.add_f64(a.gpu_handle()?, b.gpu_handle()?)?, a.shape().to_vec())
         } else {
-            backend.add_f32(a.gpu_handle()?, b.gpu_handle()?)?
+            (backend.add_f32(a.gpu_handle()?, b.gpu_handle()?)?, a.shape().to_vec())
         };
         let storage = TensorStorage::gpu(handle);
-        let shape = a.shape().to_vec();
 
         if needs_grad(a, b) {
             Tensor::from_operation(
                 storage,
-                shape,
+                out_shape,
                 Arc::new(AddBackward { a: a.clone(), b: b.clone() }),
             )
         } else {
-            Tensor::from_storage(storage, shape, false)
+            Tensor::from_storage(storage, out_shape, false)
         }
     } else {
         let result = fast_add(a, b)?;
@@ -260,22 +269,30 @@ pub fn sub<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
     if a.is_cuda() {
         let backend = crate::gpu_dispatch::gpu_backend()
             .ok_or(FerrotorchError::DeviceUnavailable)?;
-        let handle = if is_f64::<T>() {
-            backend.sub_f64(a.gpu_handle()?, b.gpu_handle()?)?
+
+        let needs_broadcast = a.shape() != b.shape();
+        let (handle, out_shape) = if needs_broadcast {
+            let out_shape = broadcast_shapes(a.shape(), b.shape())?;
+            let h = backend.broadcast_sub_f32(
+                a.gpu_handle()?, b.gpu_handle()?,
+                a.shape(), b.shape(), &out_shape,
+            )?;
+            (h, out_shape)
+        } else if is_f64::<T>() {
+            (backend.sub_f64(a.gpu_handle()?, b.gpu_handle()?)?, a.shape().to_vec())
         } else {
-            backend.sub_f32(a.gpu_handle()?, b.gpu_handle()?)?
+            (backend.sub_f32(a.gpu_handle()?, b.gpu_handle()?)?, a.shape().to_vec())
         };
         let storage = TensorStorage::gpu(handle);
-        let shape = a.shape().to_vec();
 
         if needs_grad(a, b) {
             Tensor::from_operation(
                 storage,
-                shape,
+                out_shape,
                 Arc::new(SubBackward { a: a.clone(), b: b.clone() }),
             )
         } else {
-            Tensor::from_storage(storage, shape, false)
+            Tensor::from_storage(storage, out_shape, false)
         }
     } else {
         let result = binary_map(a, b, |x, y| x - y)?;
@@ -368,22 +385,30 @@ pub fn mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
     if a.is_cuda() {
         let backend = crate::gpu_dispatch::gpu_backend()
             .ok_or(FerrotorchError::DeviceUnavailable)?;
-        let handle = if is_f64::<T>() {
-            backend.mul_f64(a.gpu_handle()?, b.gpu_handle()?)?
+
+        let needs_broadcast = a.shape() != b.shape();
+        let (handle, out_shape) = if needs_broadcast {
+            let out_shape = broadcast_shapes(a.shape(), b.shape())?;
+            let h = backend.broadcast_mul_f32(
+                a.gpu_handle()?, b.gpu_handle()?,
+                a.shape(), b.shape(), &out_shape,
+            )?;
+            (h, out_shape)
+        } else if is_f64::<T>() {
+            (backend.mul_f64(a.gpu_handle()?, b.gpu_handle()?)?, a.shape().to_vec())
         } else {
-            backend.mul_f32(a.gpu_handle()?, b.gpu_handle()?)?
+            (backend.mul_f32(a.gpu_handle()?, b.gpu_handle()?)?, a.shape().to_vec())
         };
         let storage = TensorStorage::gpu(handle);
-        let shape = a.shape().to_vec();
 
         if needs_grad(a, b) {
             Tensor::from_operation(
                 storage,
-                shape,
+                out_shape,
                 Arc::new(MulBackward { a: a.clone(), b: b.clone() }),
             )
         } else {
-            Tensor::from_storage(storage, shape, false)
+            Tensor::from_storage(storage, out_shape, false)
         }
     } else {
         let result = fast_mul(a, b)?;

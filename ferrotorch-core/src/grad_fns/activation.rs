@@ -514,6 +514,23 @@ pub fn tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// gelu(x) ≈ x * sigmoid(1.702 * x)
 /// ```
 pub fn gelu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    // GPU fast path.
+    if input.is_cuda() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let handle = backend.gelu_f32(input.gpu_handle()?)?;
+            return if is_grad_enabled() && input.requires_grad() {
+                Tensor::from_operation(
+                    TensorStorage::gpu(handle),
+                    input.shape().to_vec(),
+                    Arc::new(GeluBackward::new(input.clone())),
+                )
+            } else {
+                Tensor::from_storage(TensorStorage::gpu(handle), input.shape().to_vec(), false)
+            };
+        }
+    }
+
+    // CPU path.
     let one = <T as num_traits::One>::one();
     let k = T::from(1.702).unwrap();
     let output = unary_map(input, |x| {
@@ -555,12 +572,38 @@ pub fn silu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// Compute `softmax(x)` along the last axis, attaching a backward node when
 /// gradients are enabled.
 pub fn softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
-    let data = cpu_input.data()?;
-    let shape = input.shape();
+    let shape = input.shape().to_vec();
+
+    // GPU fast path: dispatch to native softmax kernel.
+    if input.is_cuda() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let last_dim = *shape.last().unwrap_or(&1);
+            let rows = input.numel() / last_dim.max(1);
+            let handle = backend.softmax_f32(input.gpu_handle()?, rows, last_dim)?;
+
+            return if is_grad_enabled() && input.requires_grad() {
+                // Clone the result buffer so backward can reference the output.
+                let cache_handle = backend.clone_buffer(&handle)?;
+                let output_cache = Tensor::from_storage(
+                    TensorStorage::gpu(cache_handle),
+                    shape.clone(),
+                    false,
+                )?;
+                Tensor::from_operation(
+                    TensorStorage::gpu(handle),
+                    shape,
+                    Arc::new(SoftmaxBackward::new(input.clone(), output_cache)),
+                )
+            } else {
+                Tensor::from_storage(TensorStorage::gpu(handle), shape, false)
+            };
+        }
+    }
+
+    // CPU path.
+    let data = input.data()?;
 
     let result = if shape.is_empty() {
-        // Scalar: softmax is always 1.
         vec![<T as num_traits::One>::one()]
     } else {
         let last_dim = *shape.last().unwrap();
@@ -569,7 +612,6 @@ pub fn softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
         for i in 0..outer {
             let base = i * last_dim;
-            // Numerical stability: subtract max.
             let mut max_val = data[base];
             for j in 1..last_dim {
                 if data[base + j] > max_val {
@@ -590,7 +632,7 @@ pub fn softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     };
 
     let output =
-        Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
+        Tensor::from_storage(TensorStorage::cpu(result), shape, false)?;
 
     if is_grad_enabled() && input.requires_grad() {
         Tensor::from_operation(

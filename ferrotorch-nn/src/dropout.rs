@@ -181,11 +181,52 @@ impl<T: Float> Module<T> for Dropout<T> {
             return Ok(input.clone());
         }
 
-        let device = input.device();
         let numel = input.numel();
         let scale = T::from(1.0 / (1.0 - self.p)).unwrap();
         let zero = <T as num_traits::Zero>::zero();
 
+        // GPU fast path: run dropout kernel entirely on device.
+        if input.is_cuda() {
+            if let Some(backend) = ferrotorch_core::gpu_dispatch::gpu_backend() {
+                let threshold = (self.p * u32::MAX as f64) as u32;
+                let scale_f32 = 1.0f32 / (1.0 - self.p as f32);
+                let seed = xorshift_seed() as u32;
+                let handle = backend.dropout_f32(
+                    input.gpu_handle()?,
+                    threshold,
+                    scale_f32,
+                    seed,
+                )?;
+
+                // For backward, we need the mask. Reconstruct it from the same
+                // seed on CPU (the kernel is deterministic for a given seed).
+                if is_grad_enabled() && input.requires_grad() {
+                    let scaled_mask: Vec<T> = (0..numel)
+                        .map(|i| {
+                            let mut r = (i as u32).wrapping_mul(2654435761) ^ seed;
+                            r ^= r << 13; r ^= r >> 17; r ^= r << 5;
+                            if r < threshold { zero } else { scale }
+                        })
+                        .collect();
+                    return Tensor::from_operation(
+                        TensorStorage::gpu(handle),
+                        input.shape().to_vec(),
+                        Arc::new(DropoutBackward {
+                            input: input.clone(),
+                            scaled_mask,
+                        }),
+                    );
+                } else {
+                    return Tensor::from_storage(
+                        TensorStorage::gpu(handle),
+                        input.shape().to_vec(),
+                        false,
+                    );
+                }
+            }
+        }
+
+        // CPU path.
         let mut state = xorshift_seed();
         let scaled_mask: Vec<T> = (0..numel)
             .map(|_| {
@@ -197,7 +238,6 @@ impl<T: Float> Module<T> for Dropout<T> {
             })
             .collect();
 
-        // Forward: element-wise multiply input by scaled mask.
         let input_data = input.data_vec()?;
         let output_data: Vec<T> = input_data
             .iter()
@@ -205,7 +245,7 @@ impl<T: Float> Module<T> for Dropout<T> {
             .map(|(&x, &m)| x * m)
             .collect();
 
-        let result = if is_grad_enabled() && input.requires_grad() {
+        if is_grad_enabled() && input.requires_grad() {
             Tensor::from_operation(
                 TensorStorage::cpu(output_data),
                 input.shape().to_vec(),
@@ -213,11 +253,10 @@ impl<T: Float> Module<T> for Dropout<T> {
                     input: input.clone(),
                     scaled_mask,
                 }),
-            )?
+            )
         } else {
-            Tensor::from_storage(TensorStorage::cpu(output_data), input.shape().to_vec(), false)?
-        };
-        if device.is_cuda() { result.to(device) } else { Ok(result) }
+            Tensor::from_storage(TensorStorage::cpu(output_data), input.shape().to_vec(), false)
+        }
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {

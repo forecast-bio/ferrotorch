@@ -75,9 +75,10 @@ impl CudaAllocator {
         self.peak_bytes.fetch_max(prev + bytes, Ordering::Relaxed);
 
         Ok(CudaBuffer {
-            data: slice,
+            data: Some(slice),
             len: count,
             device_ordinal: self.device.ordinal(),
+            pool_fn: None,
         })
     }
 
@@ -100,9 +101,10 @@ impl CudaAllocator {
         self.peak_bytes.fetch_max(prev + bytes, Ordering::Relaxed);
 
         Ok(CudaBuffer {
-            data: slice,
+            data: Some(slice),
             len: data.len(),
             device_ordinal: self.device.ordinal(),
+            pool_fn: None,
         })
     }
 

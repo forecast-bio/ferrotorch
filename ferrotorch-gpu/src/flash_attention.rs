@@ -554,12 +554,12 @@ pub fn gpu_flash_attention_f32(
 
     let total_out = batch_heads * n_q * d_v;
     if batch_heads == 0 || n_q == 0 || d_v == 0 {
-        return crate::transfer::alloc_zeros::<f32>(0, device);
+        return crate::transfer::alloc_zeros_f32(0, device);
     }
 
     // --- Allocate output ---------------------------------------------------
 
-    let mut output = crate::transfer::alloc_zeros::<f32>(total_out, device)?;
+    let mut output = crate::transfer::alloc_zeros_f32(total_out, device)?;
 
     // --- Load PTX module (cached after first compilation) -----------------
 

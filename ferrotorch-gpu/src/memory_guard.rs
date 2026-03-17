@@ -731,9 +731,10 @@ impl MemoryGuard {
         self.num_allocations.fetch_add(1, Ordering::Relaxed);
 
         Ok(CudaBuffer {
-            data: slice,
+            data: Some(slice),
             len: count,
             device_ordinal: self.device.ordinal(),
+            pool_fn: None,
         })
     }
 
@@ -755,9 +756,10 @@ impl MemoryGuard {
         self.num_allocations.fetch_add(1, Ordering::Relaxed);
 
         Ok(CudaBuffer {
-            data: slice,
+            data: Some(slice),
             len: data.len(),
             device_ordinal: self.device.ordinal(),
+            pool_fn: None,
         })
     }
 
@@ -967,9 +969,10 @@ impl MemoryGuardBuilder {
                 .alloc_zeros::<u8>(self.reserve_bytes)?;
             Some(MemoryReservation {
                 _reservation: CudaBuffer {
-                    data: slice,
+                    data: Some(slice),
                     len: self.reserve_bytes,
                     device_ordinal: self.device.ordinal(),
+                    pool_fn: None,
                 },
                 reserved_bytes: self.reserve_bytes,
                 device_ordinal: self.device.ordinal(),

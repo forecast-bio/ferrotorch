@@ -174,9 +174,11 @@ pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
 /// Apply a unary function elementwise, producing a new tensor.
 pub fn unary_map<T: Float>(input: &Tensor<T>, f: impl Fn(T) -> T) -> FerrotorchResult<Tensor<T>> {
-    let data = input.data()?;
+    let device = input.device();
+    let data = input.data_vec()?;
     let result: Vec<T> = data.iter().map(|&x| f(x)).collect();
-    Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false)
+    let out = Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false)?;
+    if device.is_cuda() { out.to(device) } else { Ok(out) }
 }
 
 /// Apply a binary function elementwise on two tensors with broadcasting.

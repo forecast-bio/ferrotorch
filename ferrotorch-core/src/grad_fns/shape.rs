@@ -94,8 +94,14 @@ pub fn reshape<T: Float>(input: &Tensor<T>, new_shape: &[isize]) -> FerrotorchRe
     let numel = input.numel();
     let resolved = resolve_shape(new_shape, numel)?;
 
-    let (cpu_input, device) = ensure_cpu(input)?;
-    let data = cpu_input.data()?.to_vec();
+    // GPU fast path: reshape is just a metadata change — share the
+    // underlying storage via Arc, zero data movement.
+    if input.is_cuda() {
+        return input.view_reshape(resolved);
+    }
+
+    // CPU path.
+    let data = input.data()?.to_vec();
 
     let result = if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(ReshapeBackward::new(
@@ -106,7 +112,7 @@ pub fn reshape<T: Float>(input: &Tensor<T>, new_shape: &[isize]) -> FerrotorchRe
     } else {
         Tensor::from_storage(TensorStorage::cpu(data), resolved, false)?
     };
-    restore_device(result, device)
+    Ok(result)
 }
 
 // ---------------------------------------------------------------------------
@@ -366,17 +372,33 @@ pub fn transpose_2d<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
         });
     }
 
-    let (cpu_input, device) = ensure_cpu(input)?;
-    let transposed = transpose(&cpu_input)?;
+    let m = input.shape()[0];
+    let n = input.shape()[1];
+    let out_shape = vec![n, m];
 
-    let result = if is_grad_enabled() && input.requires_grad() {
+    // GPU fast path: run transpose kernel on device.
+    if input.is_cuda() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let handle = backend.transpose_2d_f32(input.gpu_handle()?, m, n)?;
+            return if is_grad_enabled() && input.requires_grad() {
+                let grad_fn = Arc::new(TransposeBackward::new(input.clone()));
+                Tensor::from_operation(TensorStorage::gpu(handle), out_shape, grad_fn)
+            } else {
+                Tensor::from_storage(TensorStorage::gpu(handle), out_shape, false)
+            };
+        }
+    }
+
+    // CPU path.
+    let transposed = transpose(input)?;
+
+    if is_grad_enabled() && input.requires_grad() {
         let data = transposed.data()?.to_vec();
         let grad_fn = Arc::new(TransposeBackward::new(input.clone()));
-        Tensor::from_operation(TensorStorage::cpu(data), transposed.shape().to_vec(), grad_fn)?
+        Tensor::from_operation(TensorStorage::cpu(data), out_shape, grad_fn)
     } else {
-        transposed
-    };
-    restore_device(result, device)
+        Ok(transposed)
+    }
 }
 
 // ---------------------------------------------------------------------------

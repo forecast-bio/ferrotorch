@@ -46,6 +46,9 @@ pub enum GpuError {
     /// cuBLAS error forwarded from cudarc.
     #[cfg(feature = "cuda")]
     Blas(cudarc::cublas::result::CublasError),
+
+    /// PTX kernel compilation failed (e.g. unsupported GPU architecture).
+    PtxCompileFailed { kernel: &'static str },
 }
 
 impl fmt::Display for GpuError {
@@ -100,6 +103,10 @@ impl fmt::Display for GpuError {
 
             #[cfg(feature = "cuda")]
             GpuError::Blas(e) => write!(f, "cuBLAS error: {e}"),
+
+            GpuError::PtxCompileFailed { kernel } => {
+                write!(f, "PTX kernel compilation failed: {kernel}")
+            }
         }
     }
 }

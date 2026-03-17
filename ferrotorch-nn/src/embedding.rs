@@ -291,7 +291,10 @@ impl<T: Float> Module<T> for Embedding<T> {
 
         let output_shape = vec![n, dim];
 
-        if self.weight.requires_grad() && is_grad_enabled() {
+        // Output device matches the weight's device (GPU if model is on GPU).
+        let device = self.weight.tensor().device();
+
+        let result = if self.weight.requires_grad() && is_grad_enabled() {
             let grad_fn = Arc::new(EmbeddingBackward {
                 weight: self.weight.tensor().clone(),
                 indices,
@@ -299,9 +302,15 @@ impl<T: Float> Module<T> for Embedding<T> {
                 embedding_dim: dim,
                 padding_idx: self.padding_idx,
             });
-            Tensor::from_operation(TensorStorage::cpu(output_data), output_shape, grad_fn)
+            Tensor::from_operation(TensorStorage::cpu(output_data), output_shape, grad_fn)?
         } else {
-            Tensor::from_storage(TensorStorage::cpu(output_data), output_shape, false)
+            Tensor::from_storage(TensorStorage::cpu(output_data), output_shape, false)?
+        };
+
+        if device.is_cuda() {
+            result.to(device)
+        } else {
+            Ok(result)
         }
     }
 

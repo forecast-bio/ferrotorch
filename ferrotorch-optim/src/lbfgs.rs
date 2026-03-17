@@ -318,31 +318,156 @@ fn inf_norm(v: &[f64]) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Optimizer trait implementation
+// Strong Wolfe line search (Nocedal & Wright, Algorithms 3.5 + 3.6)
 // ---------------------------------------------------------------------------
 
-impl<T: Float> Optimizer<T> for Lbfgs<T> {
-    fn step(&mut self) -> FerrotorchResult<()> {
-        if self.config.line_search_fn.is_some() {
-            return Err(FerrotorchError::InvalidArgument {
-                message: "L-BFGS line search is not yet implemented; use \
-                          line_search_fn: None for fixed-step mode"
-                    .to_string(),
-            });
+/// Sufficient decrease constant (Armijo condition).
+const WOLFE_C1: f64 = 1e-4;
+/// Curvature condition constant (suitable for quasi-Newton methods).
+const WOLFE_C2: f64 = 0.9;
+/// Maximum bracket expansion factor.
+const WOLFE_ALPHA_MAX: f64 = 50.0;
+
+/// Strong Wolfe line search.
+///
+/// Finds a step size `alpha` along the search direction such that:
+///
+/// 1. **Armijo** (sufficient decrease):
+///    `f(x + alpha*d) <= f(x) + c1 * alpha * g0^T * d`
+///
+/// 2. **Strong curvature**:
+///    `|g(x + alpha*d)^T * d| <= c2 * |g0^T * d|`
+///
+/// The `eval_fn` is called with a candidate `alpha`, sets parameters to
+/// `x0 + alpha * direction`, runs forward + backward, and returns
+/// `(loss, directional_derivative)`.
+///
+/// Reference: Nocedal & Wright, "Numerical Optimization", 2nd ed.,
+/// Algorithm 3.5 (line search) and Algorithm 3.6 (zoom).
+fn strong_wolfe_search(
+    f0: f64,
+    g0_dot_d: f64,
+    max_evals: usize,
+    mut eval_fn: impl FnMut(f64) -> FerrotorchResult<(f64, f64)>,
+) -> FerrotorchResult<f64> {
+    let mut alpha_prev = 0.0;
+    let mut f_prev = f0;
+    let mut alpha = 1.0;
+    let mut evals = 0;
+
+    for i in 0..max_evals {
+        let (fi, gi_dot_d) = eval_fn(alpha)?;
+        evals += 1;
+
+        // Armijo violation or non-monotone: bracket found.
+        if fi > f0 + WOLFE_C1 * alpha * g0_dot_d || (i > 0 && fi >= f_prev) {
+            return zoom(
+                alpha_prev, alpha, f0, g0_dot_d, f_prev, fi,
+                max_evals.saturating_sub(evals), &mut eval_fn,
+            );
         }
 
+        // Strong curvature condition satisfied.
+        if gi_dot_d.abs() <= WOLFE_C2 * g0_dot_d.abs() {
+            return Ok(alpha);
+        }
+
+        // Positive slope: bracket found in the opposite direction.
+        if gi_dot_d >= 0.0 {
+            return zoom(
+                alpha, alpha_prev, f0, g0_dot_d, fi, f_prev,
+                max_evals.saturating_sub(evals), &mut eval_fn,
+            );
+        }
+
+        f_prev = fi;
+        alpha_prev = alpha;
+        alpha = (2.0 * alpha).min(WOLFE_ALPHA_MAX);
+    }
+
+    Ok(alpha)
+}
+
+/// Zoom phase of the Strong Wolfe line search (Algorithm 3.6).
+///
+/// Bisects the interval `[alpha_lo, alpha_hi]` to find a step size
+/// satisfying both Wolfe conditions.
+fn zoom(
+    mut alpha_lo: f64,
+    mut alpha_hi: f64,
+    f0: f64,
+    g0_dot_d: f64,
+    mut f_lo: f64,
+    _f_hi: f64,
+    max_evals: usize,
+    eval_fn: &mut impl FnMut(f64) -> FerrotorchResult<(f64, f64)>,
+) -> FerrotorchResult<f64> {
+    for _ in 0..max_evals {
+        let alpha_j = 0.5 * (alpha_lo + alpha_hi);
+
+        let (fj, gj_dot_d) = eval_fn(alpha_j)?;
+
+        if fj > f0 + WOLFE_C1 * alpha_j * g0_dot_d || fj >= f_lo {
+            alpha_hi = alpha_j;
+        } else {
+            if gj_dot_d.abs() <= WOLFE_C2 * g0_dot_d.abs() {
+                return Ok(alpha_j);
+            }
+
+            if gj_dot_d * (alpha_hi - alpha_lo) >= 0.0 {
+                alpha_hi = alpha_lo;
+            }
+
+            alpha_lo = alpha_j;
+            f_lo = fj;
+        }
+
+        if (alpha_hi - alpha_lo).abs() < 1e-12 {
+            return Ok(alpha_lo);
+        }
+    }
+
+    Ok(alpha_lo)
+}
+
+// ---------------------------------------------------------------------------
+// step_with_closure (Strong Wolfe line search entry point)
+// ---------------------------------------------------------------------------
+
+impl<T: Float> Lbfgs<T> {
+    /// One optimization step with a re-evaluatable closure.
+    ///
+    /// Required when `line_search_fn` is `Some(StrongWolfe)`. The closure
+    /// must compute the forward and backward passes on the current
+    /// parameters and return the scalar loss:
+    ///
+    /// ```ignore
+    /// let loss = optimizer.step_with_closure(|| {
+    ///     // zero_grad is called internally by the optimizer
+    ///     let output = model.forward(&input)?;
+    ///     let loss = loss_fn.forward(&output, &target)?;
+    ///     loss.backward()?;
+    ///     loss.item().map(|v| v as f64)
+    /// })?;
+    /// ```
+    pub fn step_with_closure(
+        &mut self,
+        mut closure: impl FnMut() -> FerrotorchResult<f64>,
+    ) -> FerrotorchResult<f64> {
         let lr = self.param_groups.first().map(|g| g.lr).unwrap_or(self.config.lr);
 
-        // Gather current parameters and gradients.
+        // Evaluate closure at current point to get initial loss & gradient.
+        self.zero_grad()?;
+        let loss0 = closure()?;
+
         let (flat_params, shapes) = self.gather_params()?;
         let flat_grad = self.gather_grads()?;
 
-        // Early termination: gradient is small enough.
         if inf_norm(&flat_grad) <= self.config.tolerance_grad {
-            return Ok(());
+            return Ok(loss0);
         }
 
-        // If we have previous params/grad, compute (s, y) and update history.
+        // Update curvature history from previous step.
         if let (Some(prev_params), Some(prev_grad)) = (
             self.state.prev_flat_params.take(),
             self.state.prev_flat_grad.take(),
@@ -357,38 +482,103 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
             self.update_history(s, y);
         }
 
-        // Compute L-BFGS search direction via two-loop recursion.
+        let direction = self.two_loop_recursion(&flat_grad);
+        let g0_dot_d = dot(&flat_grad, &direction);
+
+        // Choose step size via line search or fixed lr.
+        let alpha = if self.config.line_search_fn == Some(LineSearchFn::StrongWolfe) {
+            let max_evals = self.config.effective_max_eval();
+            let shapes_ref = &shapes;
+            let params_ref = &flat_params;
+            let dir_ref = &direction;
+
+            strong_wolfe_search(loss0, g0_dot_d, max_evals, |alpha| {
+                let n = params_ref.len();
+                let mut candidate = vec![0.0; n];
+                for i in 0..n {
+                    candidate[i] = params_ref[i] + alpha * dir_ref[i];
+                }
+                self.scatter_params(&candidate, shapes_ref)?;
+
+                self.zero_grad()?;
+                let fi = closure()?;
+                let gi = self.gather_grads()?;
+                let gi_dot_d = dot(&gi, dir_ref);
+                Ok((fi, gi_dot_d))
+            })?
+        } else {
+            lr
+        };
+
+        // Apply the chosen step size.
+        let n = flat_params.len();
+        let mut new_params = vec![0.0; n];
+        for i in 0..n {
+            new_params[i] = flat_params[i] + alpha * direction[i];
+        }
+
+        self.state.prev_flat_params = Some(flat_params);
+        self.state.prev_flat_grad = Some(flat_grad);
+        self.state.n_iter += 1;
+
+        self.scatter_params(&new_params, &shapes)?;
+
+        // Re-evaluate at the final point.
+        self.zero_grad()?;
+        closure()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Optimizer trait implementation
+// ---------------------------------------------------------------------------
+
+impl<T: Float> Optimizer<T> for Lbfgs<T> {
+    fn step(&mut self) -> FerrotorchResult<()> {
+        if self.config.line_search_fn.is_some() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "L-BFGS with line search requires a closure; \
+                          use optimizer.step_with_closure(|| { ... }) instead"
+                    .to_string(),
+            });
+        }
+
+        let lr = self.param_groups.first().map(|g| g.lr).unwrap_or(self.config.lr);
+
+        let (flat_params, shapes) = self.gather_params()?;
+        let flat_grad = self.gather_grads()?;
+
+        if inf_norm(&flat_grad) <= self.config.tolerance_grad {
+            return Ok(());
+        }
+
+        if let (Some(prev_params), Some(prev_grad)) = (
+            self.state.prev_flat_params.take(),
+            self.state.prev_flat_grad.take(),
+        ) {
+            let n = flat_params.len();
+            let mut s = vec![0.0; n];
+            let mut y = vec![0.0; n];
+            for i in 0..n {
+                s[i] = flat_params[i] - prev_params[i];
+                y[i] = flat_grad[i] - prev_grad[i];
+            }
+            self.update_history(s, y);
+        }
+
         let direction = self.two_loop_recursion(&flat_grad);
 
-        // Update parameters: x_{k+1} = x_k + lr * direction.
-        // (direction already points in the descent direction, i.e. -H*g.)
         let n = flat_params.len();
         let mut new_params = vec![0.0; n];
         for i in 0..n {
             new_params[i] = flat_params[i] + lr * direction[i];
         }
 
-        // Check for insufficient change.
-        let max_change = flat_params
-            .iter()
-            .zip(new_params.iter())
-            .map(|(&a, &b)| (a - b).abs())
-            .fold(0.0_f64, f64::max);
-
-        // Save current state for next iteration's (s, y) computation.
         self.state.prev_flat_params = Some(flat_params);
         self.state.prev_flat_grad = Some(flat_grad);
         self.state.n_iter += 1;
 
-        // Scatter updated values back into parameters.
-        self.scatter_params(&new_params, &shapes)?;
-
-        if max_change <= self.config.tolerance_change {
-            // Converged -- still applied the update above, but the caller
-            // can check convergence externally.
-        }
-
-        Ok(())
+        self.scatter_params(&new_params, &shapes)
     }
 
     fn zero_grad(&mut self) -> FerrotorchResult<()> {
@@ -869,11 +1059,11 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Line search not-yet-implemented error
+    // step() with line_search_fn errors (must use step_with_closure)
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_lbfgs_line_search_not_implemented() {
+    fn test_lbfgs_step_requires_closure_for_line_search() {
         let p = scalar_param(1.0);
         let mut opt = Lbfgs::new(
             vec![p],
@@ -883,7 +1073,6 @@ mod tests {
             },
         );
 
-        // Manually set a gradient so step() actually tries to run.
         let grad =
             Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
         opt.param_groups[0].params[0]
@@ -893,5 +1082,136 @@ mod tests {
 
         let result = opt.step();
         assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // Strong Wolfe line search: convergence on quadratic
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Helper: run step_with_closure using external param access to avoid
+    // borrow conflict (closure captures params by clone, not by ref to opt).
+    // -----------------------------------------------------------------------
+
+    /// Run L-BFGS with step_with_closure on f(x) = x^2.
+    /// Params are accessed through the optimizer's scatter/gather internally;
+    /// the closure reads them by cloning from the param group.
+    fn run_quadratic_with_closure(line_search: Option<LineSearchFn>, lr: f64, steps: usize) -> f64 {
+        let p = scalar_param(5.0);
+        let mut opt = Lbfgs::new(
+            vec![p],
+            LbfgsConfig {
+                lr,
+                line_search_fn: line_search,
+                ..Default::default()
+            },
+        );
+
+        // We need a shared reference to the parameter that the closure can
+        // access independently of &mut opt. Clone the tensor each iteration
+        // by reading through a raw pointer — safe because step_with_closure
+        // only mutates params between closure calls, not during.
+        //
+        // The idiomatic way: extract the param pointer before the loop.
+        // step_with_closure sets params internally, so we read from the
+        // param_groups after each scatter.
+        for _ in 0..steps {
+            // Read current param value BEFORE the mutable borrow.
+            let param_ptr = &opt.param_groups[0].params[0] as *const Parameter<f64>;
+
+            opt.step_with_closure(|| {
+                // SAFETY: step_with_closure scatters new param values before
+                // calling the closure, so the tensor data is valid.
+                let x = unsafe { &*param_ptr }.tensor().clone();
+                let loss = pow(&x, 2.0).unwrap();
+                loss.backward().unwrap();
+                loss.item()
+            })
+            .unwrap();
+        }
+
+        param_val(&opt, 0, 0)
+    }
+
+    #[test]
+    fn test_strong_wolfe_quadratic() {
+        let val = run_quadratic_with_closure(Some(LineSearchFn::StrongWolfe), 1.0, 50);
+        assert!(
+            val.abs() < 1e-3,
+            "Strong Wolfe: expected x near 0, got {val}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Strong Wolfe line search: convergence on Rosenbrock
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_strong_wolfe_rosenbrock() {
+        let px = scalar_param(-1.0);
+        let py = scalar_param(1.0);
+
+        let mut opt = Lbfgs::new(
+            vec![px, py],
+            LbfgsConfig {
+                lr: 1.0,
+                line_search_fn: Some(LineSearchFn::StrongWolfe),
+                history_size: 10,
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..5000 {
+            let px_ptr = &opt.param_groups[0].params[0] as *const Parameter<f64>;
+            let py_ptr = &opt.param_groups[0].params[1] as *const Parameter<f64>;
+
+            opt.step_with_closure(|| {
+                let x = unsafe { &*px_ptr }.tensor().clone();
+                let y = unsafe { &*py_ptr }.tensor().clone();
+
+                let one =
+                    Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false)
+                        .unwrap();
+                let hundred =
+                    Tensor::from_storage(TensorStorage::cpu(vec![100.0_f64]), vec![], false)
+                        .unwrap();
+
+                let diff1 = sub(&one, &x).unwrap();
+                let term1 = pow(&diff1, 2.0).unwrap();
+                let x_sq = pow(&x, 2.0).unwrap();
+                let diff2 = sub(&y, &x_sq).unwrap();
+                let diff2_sq = pow(&diff2, 2.0).unwrap();
+                let term2 = mul(&hundred, &diff2_sq).unwrap();
+                let loss = add(&term1, &term2).unwrap();
+                loss.backward().unwrap();
+                loss.item()
+            })
+            .unwrap();
+        }
+
+        let final_x = param_val(&opt, 0, 0);
+        let final_y = param_val(&opt, 0, 1);
+
+        assert!(
+            (final_x - 1.0).abs() < 0.1,
+            "Strong Wolfe Rosenbrock: expected x near 1.0, got {final_x}"
+        );
+        assert!(
+            (final_y - 1.0).abs() < 0.1,
+            "Strong Wolfe Rosenbrock: expected y near 1.0, got {final_y}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // step_with_closure works without line search too (fixed step)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_step_with_closure_fixed_step() {
+        let val = run_quadratic_with_closure(None, 0.5, 100);
+        assert!(
+            val.abs() < 1e-3,
+            "closure fixed-step: expected x near 0, got {val}"
+        );
     }
 }
