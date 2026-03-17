@@ -1,0 +1,8 @@
+{
+  "uuid": "38472bd9-dffd-42ab-9744-f5f954fe568a",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "GPU add/sub/mul kernels require equal-length buffers — no broadcasting support. Need to implement broadcast-aware GPU elementwise ops. The kernel itself stays element-wise, but we broadcast the smaller tensor into a full-size buffer before launching.",
+  "created_at": "2026-03-17T03:38:01.362017795Z",
+  "kind": "observation"
+}
