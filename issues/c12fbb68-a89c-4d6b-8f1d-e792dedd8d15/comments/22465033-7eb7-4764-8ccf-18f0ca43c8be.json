@@ -1,0 +1,8 @@
+{
+  "uuid": "22465033-7eb7-4764-8ccf-18f0ca43c8be",
+  "issue_uuid": "c12fbb68-a89c-4d6b-8f1d-e792dedd8d15",
+  "author": "anon-a7c6025f",
+  "content": "Committed: feat: GPU buffer pool, CUDA graph capture, PTX bug fixes — 29x decode speedup [CL-198] | Files: 30 files changed, 4898 insertions(+), 527 deletions(-) | v0.1.3",
+  "created_at": "2026-03-17T15:26:49.191607372Z",
+  "kind": "result"
+}
