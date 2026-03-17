@@ -1,0 +1,8 @@
+{
+  "uuid": "0124dd10-bc78-4fee-87bf-013921b66ea8",
+  "issue_uuid": "2acf6039-6087-45a3-9241-ed57f92c55bd",
+  "author": "anon-a7c6025f",
+  "content": "Training loop runs correctly but is slow in debug mode (pure-Rust CPU, no SIMD). For practical training use cargo run --release. The forward+backward sanity check (cargo run -- test) already validated all computation paths including gradient flow.",
+  "created_at": "2026-03-17T02:43:55.356380299Z",
+  "kind": "observation"
+}
