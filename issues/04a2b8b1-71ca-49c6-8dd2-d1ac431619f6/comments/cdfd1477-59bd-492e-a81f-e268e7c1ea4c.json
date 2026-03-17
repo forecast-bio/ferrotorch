@@ -1,0 +1,8 @@
+{
+  "uuid": "cdfd1477-59bd-492e-a81f-e268e7c1ea4c",
+  "issue_uuid": "04a2b8b1-71ca-49c6-8dd2-d1ac431619f6",
+  "author": "anon-a7c6025f",
+  "content": "Analysis: (1) adamw.rs Tensor/TensorStorage — only used in tests, move to test module. (2) optimizer.rs FerrotorchError — genuinely unused, FerrotorchResult covers it, safe to remove. (3) lbfgs.rs effective_max_eval — part of unfinished StrongWolfe line search, keep but gate behind #[cfg(test)] since the only caller is test_lbfgs_default_config.",
+  "created_at": "2026-03-17T02:51:07.207010238Z",
+  "kind": "decision"
+}
