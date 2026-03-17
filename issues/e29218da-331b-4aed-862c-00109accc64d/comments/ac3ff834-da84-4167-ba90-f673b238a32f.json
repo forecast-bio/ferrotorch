@@ -1,0 +1,8 @@
+{
+  "uuid": "ac3ff834-da84-4167-ba90-f673b238a32f",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "DeviceMismatch: forward pass creates intermediate tensors on CPU (position embeddings, scale factors, causal masks, bias expansions) that get mixed with GPU parameters. Need to move all internally-created tensors to the model's device.",
+  "created_at": "2026-03-17T03:19:01.447385050Z",
+  "kind": "observation"
+}
