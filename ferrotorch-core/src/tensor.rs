@@ -575,6 +575,15 @@ impl<T: Float> Tensor<T> {
     pub fn is_same(&self, other: &Self) -> bool {
         self.inner.id == other.inner.id
     }
+
+    /// Returns true if two tensors share the same underlying storage allocation.
+    ///
+    /// Used by tests to verify that view operations (squeeze, unsqueeze, flatten)
+    /// are zero-copy.
+    #[cfg(test)]
+    pub(crate) fn shares_storage(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner.storage, &other.inner.storage)
+    }
 }
 
 // --- Trait impls ---
@@ -674,6 +683,17 @@ mod tests {
 
         assert!(t.is_same(&t2));
         assert_eq!(t.id(), t2.id());
+    }
+
+    #[test]
+    fn test_view_operation_shares_storage() {
+        use crate::grad_fns::shape::FlattenBackward;
+        let storage = TensorStorage::cpu(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let t = Tensor::from_storage(storage, vec![2, 3], true).unwrap();
+        let grad_fn = Arc::new(FlattenBackward::new(t.clone(), t.shape().to_vec()));
+        let view = t.view_operation(vec![6], grad_fn).unwrap();
+        assert!(t.shares_storage(&view), "view_operation must share storage");
+        assert!(!t.is_same(&view), "view_operation creates new tensor identity");
     }
 
     #[test]

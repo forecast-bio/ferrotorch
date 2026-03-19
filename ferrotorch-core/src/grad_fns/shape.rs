@@ -1209,12 +1209,23 @@ mod tests {
     #[test]
     fn test_shape_ops_share_storage_with_input() {
         // view_operation must share storage — no data copy.
+        // This catches the old ensure_cpu/restore_device pattern which
+        // allocated new storage even on CPU.
         let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], true);
         let flat = flatten(&x).unwrap();
 
-        // Verify data is identical (shared storage).
         assert_eq!(flat.data().unwrap(), x.data().unwrap());
         assert_eq!(flat.shape(), &[6]);
+        // Pointer equality: must be the same Arc, not a copy.
+        assert!(flat.shares_storage(&x), "flatten should share storage with input (zero-copy)");
+
+        let orig = leaf(&[1.0, 2.0, 3.0], &[1, 3], true);
+        let sq2 = squeeze(&orig, 0).unwrap();
+        assert!(sq2.shares_storage(&orig), "squeeze should share storage with input (zero-copy)");
+
+        let orig3 = leaf(&[1.0, 2.0, 3.0], &[3], true);
+        let us = unsqueeze(&orig3, 0).unwrap();
+        assert!(us.shares_storage(&orig3), "unsqueeze should share storage with input (zero-copy)");
     }
 
     #[test]
