@@ -1,4 +1,5 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
+use rustc_hash::FxHashMap as HashMap;
 
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
@@ -48,9 +49,10 @@ pub fn backward_with_grad<T: Float>(
             });
         }
 
-        // Seed gradient: d(root)/d(root) = 1.
+        // Seed gradient: d(root)/d(root) = 1, on the same device as root.
         let ones_storage = crate::storage::TensorStorage::cpu(vec![<T as num_traits::One>::one()]);
-        Tensor::from_storage(ones_storage, vec![], false)?
+        let seed_cpu = Tensor::from_storage(ones_storage, vec![], false)?;
+        seed_cpu.to(root.device())?
     };
 
     // Phase 1: Collect all nodes and compute in-degree via BFS.
@@ -58,8 +60,8 @@ pub fn backward_with_grad<T: Float>(
     // We traverse the graph from `root` backward through `grad_fn().inputs()`.
     // `in_degree[id]` counts how many times a tensor is used as an input to
     // an operation — this is needed for Kahn's algorithm.
-    let mut in_degree: HashMap<TensorId, usize> = HashMap::new();
-    let mut node_map: HashMap<TensorId, &Tensor<T>> = HashMap::new();
+    let mut in_degree: HashMap<TensorId, usize> = HashMap::default();
+    let mut node_map: HashMap<TensorId, &Tensor<T>> = HashMap::default();
     let mut queue: VecDeque<&Tensor<T>> = VecDeque::new();
 
     // Start from root.
@@ -116,7 +118,7 @@ pub fn backward_with_grad<T: Float>(
     //
     // We maintain a map of accumulated output gradients for each node.
     // For the root, the gradient is the seed (1.0).
-    let mut grads: HashMap<TensorId, Tensor<T>> = HashMap::new();
+    let mut grads: HashMap<TensorId, Tensor<T>> = HashMap::default();
     grads.insert(root.id(), seed);
 
     for &id in &topo_order {
@@ -143,18 +145,22 @@ pub fn backward_with_grad<T: Float>(
                         } else {
                             // Non-leaf: accumulate into the grads map for the next iteration.
                             if let Some(existing) = grads.remove(&input.id()) {
-                                // Add existing + grad.
-                                let a = existing.data()?;
-                                let b = grad.data()?;
-                                let summed: Vec<T> =
-                                    a.iter().zip(b.iter()).map(|(&x, &y)| x + y).collect();
-                                let storage = crate::storage::TensorStorage::cpu(summed);
+                                // GPU-aware in-place addition.
+                                let device = existing.device();
+                                let existing_cpu = if existing.is_cuda() { existing.cpu()? } else { existing };
+                                let grad_cpu = if grad.is_cuda() { grad.cpu()? } else { grad };
+                                let mut existing_data = existing_cpu.data()?.to_vec();
+                                let grad_data = grad_cpu.data()?;
+                                for (e, &g) in existing_data.iter_mut().zip(grad_data.iter()) {
+                                    *e = *e + g;
+                                }
+                                let storage = crate::storage::TensorStorage::cpu(existing_data);
                                 let combined = Tensor::from_storage(
                                     storage,
-                                    existing.shape().to_vec(),
+                                    existing_cpu.shape().to_vec(),
                                     false,
                                 )?;
-                                grads.insert(input.id(), combined);
+                                grads.insert(input.id(), combined.to(device)?);
                             } else {
                                 grads.insert(input.id(), grad);
                             }

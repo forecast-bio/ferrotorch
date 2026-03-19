@@ -71,10 +71,11 @@ impl<T: Float> GradFn<T> for ReshapeBackward<T> {
         if !self.input.requires_grad() {
             return Ok(vec![None]);
         }
-        let data = grad_output.data()?.to_vec();
+        let (cpu_go, device) = ensure_cpu(grad_output)?;
+        let data = cpu_go.data()?.to_vec();
         let grad_input =
             Tensor::from_storage(TensorStorage::cpu(data), self.input_shape.clone(), false)?;
-        Ok(vec![Some(grad_input)])
+        Ok(vec![Some(restore_device(grad_input, device)?)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -95,23 +96,24 @@ pub fn reshape<T: Float>(input: &Tensor<T>, new_shape: &[isize]) -> FerrotorchRe
     let resolved = resolve_shape(new_shape, numel)?;
 
     // GPU fast path: reshape is just a metadata change — share the
-    // underlying storage via Arc, zero data movement.
+    // For non-grad tensors, use view_reshape (zero-copy, shared Arc storage).
+    if !is_grad_enabled() || !input.requires_grad() {
+        return input.view_reshape(resolved);
+    }
+
+    // Grad path: need a new tensor with grad_fn attached.
+    // We still need to copy data for a new identity, but use into_storage_and_shape
+    // to avoid double-copy when the input has refcount 1.
     if input.is_cuda() {
         return input.view_reshape(resolved);
     }
 
-    // CPU path.
     let data = input.data()?.to_vec();
-
-    let result = if is_grad_enabled() && input.requires_grad() {
-        let grad_fn = Arc::new(ReshapeBackward::new(
-            input.clone(),
-            input.shape().to_vec(),
-        ));
-        Tensor::from_operation(TensorStorage::cpu(data), resolved, grad_fn)?
-    } else {
-        Tensor::from_storage(TensorStorage::cpu(data), resolved, false)?
-    };
+    let grad_fn = Arc::new(ReshapeBackward::new(
+        input.clone(),
+        input.shape().to_vec(),
+    ));
+    let result = Tensor::from_operation(TensorStorage::cpu(data), resolved, grad_fn)?;
     Ok(result)
 }
 
@@ -139,10 +141,11 @@ impl<T: Float> GradFn<T> for FlattenBackward<T> {
         if !self.input.requires_grad() {
             return Ok(vec![None]);
         }
-        let data = grad_output.data()?.to_vec();
+        let (cpu_go, device) = ensure_cpu(grad_output)?;
+        let data = cpu_go.data()?.to_vec();
         let grad_input =
             Tensor::from_storage(TensorStorage::cpu(data), self.input_shape.clone(), false)?;
-        Ok(vec![Some(grad_input)])
+        Ok(vec![Some(restore_device(grad_input, device)?)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -157,19 +160,16 @@ impl<T: Float> GradFn<T> for FlattenBackward<T> {
 /// Flatten a tensor to 1-D.
 pub fn flatten<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let numel = input.numel();
-    let (cpu_input, device) = ensure_cpu(input)?;
-    let data = cpu_input.data()?.to_vec();
 
-    let result = if is_grad_enabled() && input.requires_grad() {
+    if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(FlattenBackward::new(
             input.clone(),
             input.shape().to_vec(),
         ));
-        Tensor::from_operation(TensorStorage::cpu(data), vec![numel], grad_fn)?
+        input.view_operation(vec![numel], grad_fn)
     } else {
-        Tensor::from_storage(TensorStorage::cpu(data), vec![numel], false)?
-    };
-    restore_device(result, device)
+        input.view_reshape(vec![numel])
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -198,12 +198,13 @@ impl<T: Float> GradFn<T> for SqueezeBackward<T> {
         if !self.input.requires_grad() {
             return Ok(vec![None]);
         }
+        let (cpu_go, device) = ensure_cpu(grad_output)?;
         // Re-insert the size-1 dimension at `self.axis`.
-        let mut new_shape = grad_output.shape().to_vec();
+        let mut new_shape = cpu_go.shape().to_vec();
         new_shape.insert(self.axis, 1);
-        let data = grad_output.data()?.to_vec();
+        let data = cpu_go.data()?.to_vec();
         let grad_input = Tensor::from_storage(TensorStorage::cpu(data), new_shape, false)?;
-        Ok(vec![Some(grad_input)])
+        Ok(vec![Some(restore_device(grad_input, device)?)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -231,16 +232,14 @@ pub fn squeeze<T: Float>(input: &Tensor<T>, axis: isize) -> FerrotorchResult<Ten
 
     let mut new_shape = input.shape().to_vec();
     new_shape.remove(norm_axis);
-    let (cpu_input, device) = ensure_cpu(input)?;
-    let data = cpu_input.data()?.to_vec();
 
-    let result = if is_grad_enabled() && input.requires_grad() {
-        let grad_fn = Arc::new(SqueezeBackward::new(input.clone(), norm_axis));
-        Tensor::from_operation(TensorStorage::cpu(data), new_shape, grad_fn)?
-    } else {
-        Tensor::from_storage(TensorStorage::cpu(data), new_shape, false)?
-    };
-    restore_device(result, device)
+    // No-grad fast path: zero-copy view reshape.
+    if !is_grad_enabled() || !input.requires_grad() {
+        return input.view_reshape(new_shape);
+    }
+
+    let grad_fn = Arc::new(SqueezeBackward::new(input.clone(), norm_axis));
+    input.view_operation(new_shape, grad_fn)
 }
 
 // ---------------------------------------------------------------------------
@@ -269,12 +268,13 @@ impl<T: Float> GradFn<T> for UnsqueezeBackward<T> {
         if !self.input.requires_grad() {
             return Ok(vec![None]);
         }
+        let (cpu_go, device) = ensure_cpu(grad_output)?;
         // Remove the size-1 dimension at `self.axis`.
-        let mut new_shape = grad_output.shape().to_vec();
+        let mut new_shape = cpu_go.shape().to_vec();
         new_shape.remove(self.axis);
-        let data = grad_output.data()?.to_vec();
+        let data = cpu_go.data()?.to_vec();
         let grad_input = Tensor::from_storage(TensorStorage::cpu(data), new_shape, false)?;
-        Ok(vec![Some(grad_input)])
+        Ok(vec![Some(restore_device(grad_input, device)?)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -314,16 +314,14 @@ pub fn unsqueeze<T: Float>(input: &Tensor<T>, axis: isize) -> FerrotorchResult<T
 
     let mut new_shape = input.shape().to_vec();
     new_shape.insert(norm_axis, 1);
-    let (cpu_input, device) = ensure_cpu(input)?;
-    let data = cpu_input.data()?.to_vec();
 
-    let result = if is_grad_enabled() && input.requires_grad() {
-        let grad_fn = Arc::new(UnsqueezeBackward::new(input.clone(), norm_axis));
-        Tensor::from_operation(TensorStorage::cpu(data), new_shape, grad_fn)?
-    } else {
-        Tensor::from_storage(TensorStorage::cpu(data), new_shape, false)?
-    };
-    restore_device(result, device)
+    // No-grad fast path: zero-copy view reshape.
+    if !is_grad_enabled() || !input.requires_grad() {
+        return input.view_reshape(new_shape);
+    }
+
+    let grad_fn = Arc::new(UnsqueezeBackward::new(input.clone(), norm_axis));
+    input.view_operation(new_shape, grad_fn)
 }
 
 // ---------------------------------------------------------------------------
@@ -393,9 +391,9 @@ pub fn transpose_2d<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
     let transposed = transpose(input)?;
 
     if is_grad_enabled() && input.requires_grad() {
-        let data = transposed.data()?.to_vec();
+        let (storage, _shape) = transposed.into_storage_and_shape()?;
         let grad_fn = Arc::new(TransposeBackward::new(input.clone()));
-        Tensor::from_operation(TensorStorage::cpu(data), out_shape, grad_fn)
+        Tensor::from_operation(storage, out_shape, grad_fn)
     } else {
         Ok(transposed)
     }
@@ -448,9 +446,12 @@ impl<T: Float> GradFn<T> for ExpandBackward<T> {
             }
         }
 
+        // Transfer to CPU for the reduction if needed.
+        let (cpu_go, device) = ensure_cpu(grad_output)?;
+
         // Repeatedly sum along the reduced axes (from highest to lowest so
         // indices remain valid as we remove dimensions).
-        let mut grad = grad_output.clone();
+        let mut grad = cpu_go;
         for &axis in reduce_axes.iter().rev() {
             grad = crate::ops::elementwise::sum_axis(&grad, axis)?;
         }
@@ -460,7 +461,7 @@ impl<T: Float> GradFn<T> for ExpandBackward<T> {
         let data = grad.data()?.to_vec();
         let grad_input =
             Tensor::from_storage(TensorStorage::cpu(data), in_shape.clone(), false)?;
-        Ok(vec![Some(grad_input)])
+        Ok(vec![Some(restore_device(grad_input, device)?)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -517,16 +518,24 @@ pub fn expand<T: Float>(input: &Tensor<T>, new_shape: &[usize]) -> FerrotorchRes
         out_data.push(in_data[idx]);
     }
 
-    let result = if is_grad_enabled() && input.requires_grad() {
+    if is_grad_enabled() && input.requires_grad() {
+        // For GPU: transfer data first, THEN wrap with from_operation to preserve grad_fn.
+        let storage = if device.is_cuda() {
+            let tmp = Tensor::from_storage(TensorStorage::cpu(out_data), new_shape.to_vec(), false)?;
+            let gpu_tmp = tmp.to(device)?;
+            gpu_tmp.into_storage_and_shape()?.0
+        } else {
+            TensorStorage::cpu(out_data)
+        };
         let grad_fn = Arc::new(ExpandBackward::new(
             input.clone(),
             in_shape.to_vec(),
         ));
-        Tensor::from_operation(TensorStorage::cpu(out_data), new_shape.to_vec(), grad_fn)?
+        Tensor::from_operation(storage, new_shape.to_vec(), grad_fn)
     } else {
-        Tensor::from_storage(TensorStorage::cpu(out_data), new_shape.to_vec(), false)?
-    };
-    restore_device(result, device)
+        let result = Tensor::from_storage(TensorStorage::cpu(out_data), new_shape.to_vec(), false)?;
+        restore_device(result, device)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -557,8 +566,9 @@ impl<T: Float> CatBackward<T> {
 
 impl<T: Float> GradFn<T> for CatBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let grad_data = grad_output.data()?;
-        let out_shape = grad_output.shape();
+        let (cpu_go, device) = ensure_cpu(grad_output)?;
+        let grad_data = cpu_go.data()?;
+        let out_shape = cpu_go.shape();
         let ndim = out_shape.len();
         let axis = self.axis;
 
@@ -597,7 +607,7 @@ impl<T: Float> GradFn<T> for CatBackward<T> {
                 self.inputs[i].shape().to_vec(),
                 false,
             )?;
-            result.push(Some(grad_tensor));
+            result.push(Some(restore_device(grad_tensor, device)?));
             offset += split_size * inner;
         }
 
@@ -700,17 +710,24 @@ pub fn cat<T: Float>(tensors: &[Tensor<T>], axis: isize) -> FerrotorchResult<Ten
 
     let any_requires_grad = tensors.iter().any(|t| t.requires_grad());
 
-    let result = if is_grad_enabled() && any_requires_grad {
+    if is_grad_enabled() && any_requires_grad {
+        let storage = if device.is_cuda() {
+            let tmp = Tensor::from_storage(TensorStorage::cpu(out_data), out_shape.clone(), false)?;
+            let gpu_tmp = tmp.to(device)?;
+            gpu_tmp.into_storage_and_shape()?.0
+        } else {
+            TensorStorage::cpu(out_data)
+        };
         let grad_fn = Arc::new(CatBackward::new(
             tensors.to_vec(),
             norm_axis,
             split_sizes,
         ));
-        Tensor::from_operation(TensorStorage::cpu(out_data), out_shape, grad_fn)?
+        Tensor::from_operation(storage, out_shape, grad_fn)
     } else {
-        Tensor::from_storage(TensorStorage::cpu(out_data), out_shape, false)?
-    };
-    restore_device(result, device)
+        let result = Tensor::from_storage(TensorStorage::cpu(out_data), out_shape, false)?;
+        restore_device(result, device)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1090,5 +1107,123 @@ mod tests {
     #[test]
     fn test_resolve_shape_mismatch() {
         assert!(resolve_shape(&[2, 2], 6).is_err());
+    }
+
+    // -- graph preservation through shape ops --
+    //
+    // Shape ops must produce non-leaf tensors with grad_fn when the input
+    // requires_grad. This is critical on GPU where `Tensor::to()` creates
+    // detached leaf tensors — a `restore_device(from_operation(...))` pattern
+    // would sever the graph.
+
+    #[test]
+    fn test_squeeze_preserves_grad_fn() {
+        let x = leaf(&[1.0, 2.0, 3.0], &[1, 3], true);
+        let y = squeeze(&x, 0).unwrap();
+        assert!(y.grad_fn().is_some(), "squeeze must attach a grad_fn");
+        assert!(!y.is_leaf(), "squeeze output must be non-leaf");
+        assert!(y.requires_grad(), "squeeze output must require grad");
+    }
+
+    #[test]
+    fn test_unsqueeze_preserves_grad_fn() {
+        let x = leaf(&[1.0, 2.0, 3.0], &[3], true);
+        let y = unsqueeze(&x, 0).unwrap();
+        assert!(y.grad_fn().is_some(), "unsqueeze must attach a grad_fn");
+        assert!(!y.is_leaf(), "unsqueeze output must be non-leaf");
+        assert!(y.requires_grad(), "unsqueeze output must require grad");
+    }
+
+    #[test]
+    fn test_flatten_preserves_grad_fn() {
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0], &[2, 2], true);
+        let y = flatten(&x).unwrap();
+        assert!(y.grad_fn().is_some(), "flatten must attach a grad_fn");
+        assert!(!y.is_leaf(), "flatten output must be non-leaf");
+        assert!(y.requires_grad(), "flatten output must require grad");
+    }
+
+    #[test]
+    fn test_squeeze_backward_reaches_leaf() {
+        // Simulates the goodness_from_output pattern: x -> pow -> mm -> squeeze -> loss.
+        // The squeeze backward must propagate gradients back to x.
+        let x = leaf(&[1.0, 2.0, 3.0], &[3, 1], true);
+        let squeezed = squeeze(&x, 1).unwrap();
+        let loss = sum_to_scalar(&squeezed);
+
+        backward(&loss).unwrap();
+
+        let grad = x.grad().unwrap().expect("squeeze must propagate gradients to leaf input");
+        assert_eq!(grad.shape(), &[3, 1]);
+        for &v in grad.data().unwrap() {
+            assert!((v - 1.0).abs() < 1e-6, "expected gradient 1.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_unsqueeze_backward_reaches_leaf() {
+        let x = leaf(&[1.0, 2.0, 3.0], &[3], true);
+        let unsqueezed = unsqueeze(&x, 1).unwrap();
+        let loss = sum_to_scalar(&unsqueezed);
+
+        backward(&loss).unwrap();
+
+        let grad = x.grad().unwrap().expect("unsqueeze must propagate gradients to leaf input");
+        assert_eq!(grad.shape(), &[3]);
+        for &v in grad.data().unwrap() {
+            assert!((v - 1.0).abs() < 1e-6, "expected gradient 1.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_squeeze_in_longer_chain() {
+        // Mirrors the FF loss computation graph: leaf -> op -> squeeze -> op -> scalar.
+        // Backward must reach the original leaf through the squeeze node.
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], true);
+
+        // Multiply x by a constant (creates an intermediate with grad_fn).
+        let two = leaf(&[2.0; 6], &[3, 2], false);
+        let scaled = crate::grad_fns::arithmetic::mul(&x, &two).unwrap();
+
+        // Sum columns via matmul with ones to get [3, 1].
+        let ones = leaf(&[1.0, 1.0], &[2, 1], false);
+        let row_sums = crate::grad_fns::linalg::mm_differentiable(&scaled, &ones).unwrap();
+
+        // Squeeze to [3] — this is the operation that previously severed the graph on GPU.
+        let squeezed = squeeze(&row_sums, 1).unwrap();
+        assert!(squeezed.grad_fn().is_some(), "squeeze must preserve graph");
+
+        let loss = sum_to_scalar(&squeezed);
+        backward(&loss).unwrap();
+
+        let grad = x.grad().unwrap().expect(
+            "backward through squeeze in a longer chain must reach leaf parameters"
+        );
+        assert_eq!(grad.shape(), &[3, 2]);
+        // d(loss)/d(x) = 2.0 * ones (from the scaling and sum).
+        for &v in grad.data().unwrap() {
+            assert!((v - 2.0).abs() < 1e-6, "expected gradient 2.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_shape_ops_share_storage_with_input() {
+        // view_operation must share storage — no data copy.
+        let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], true);
+        let flat = flatten(&x).unwrap();
+
+        // Verify data is identical (shared storage).
+        assert_eq!(flat.data().unwrap(), x.data().unwrap());
+        assert_eq!(flat.shape(), &[6]);
+    }
+
+    #[test]
+    fn test_squeeze_no_grad_is_view() {
+        // Without requires_grad, squeeze should be a cheap view_reshape.
+        let x = leaf(&[1.0, 2.0, 3.0], &[1, 3], false);
+        let y = squeeze(&x, 0).unwrap();
+        assert!(y.grad_fn().is_none());
+        assert_eq!(y.shape(), &[3]);
+        assert_eq!(y.data().unwrap(), &[1.0, 2.0, 3.0]);
     }
 }
