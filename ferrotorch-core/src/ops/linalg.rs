@@ -58,6 +58,210 @@ pub fn dot<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
     Tensor::from_storage(TensorStorage::cpu(vec![result]), vec![], false)
 }
 
+/// Threshold for switching from direct ikj loop to faer.
+/// For matrices at or below this size, the naive loop avoids ferray/faer overhead.
+const DIRECT_MM_THRESHOLD: usize = 128;
+
+/// Raw matrix multiply on borrowed slices: (M,K) @ (K,N) -> Vec<T>.
+/// Zero input allocations — operates directly on the borrowed data.
+/// This is the hot-path workhorse used by both `mm` and `mm_differentiable`.
+pub fn mm_raw<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize) -> Vec<T> {
+    let max_dim = m.max(n).max(k);
+    let zero = <T as num_traits::Zero>::zero();
+
+    if max_dim <= DIRECT_MM_THRESHOLD {
+        // Direct ikj loop — cache-friendly, zero intermediate allocations.
+        // Uses unsafe get_unchecked to eliminate bounds checks in the hot loop.
+        let mut result = vec![zero; m * n];
+        unsafe {
+            for i in 0..m {
+                let a_row = i * k;
+                let r_row = i * n;
+                for p in 0..k {
+                    let a_ip = *a_data.get_unchecked(a_row + p);
+                    let b_row = p * n;
+                    for j in 0..n {
+                        let r = result.get_unchecked_mut(r_row + j);
+                        *r = *r + a_ip * *b_data.get_unchecked(b_row + j);
+                    }
+                }
+            }
+        }
+        result
+    } else {
+        // Large matrices — use matrixmultiply::sgemm/dgemm for zero-copy BLAS.
+        // Operates directly on borrowed slices via raw pointers, no intermediate
+        // Array construction or data copies.
+        let mut result = vec![zero; m * n];
+        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            let a_ptr = a_data.as_ptr() as *const f32;
+            let b_ptr = b_data.as_ptr() as *const f32;
+            let c_ptr = result.as_mut_ptr() as *mut f32;
+            unsafe {
+                matrixmultiply::sgemm(
+                    m, k, n,
+                    1.0,          // alpha
+                    a_ptr, k as isize, 1,  // A row-major: row stride = k, col stride = 1
+                    b_ptr, n as isize, 1,  // B row-major: row stride = n, col stride = 1
+                    0.0,          // beta
+                    c_ptr, n as isize, 1,  // C row-major: row stride = n, col stride = 1
+                );
+            }
+        } else {
+            let a_f64: Vec<f64> = a_data.iter().map(|&v| v.to_f64().unwrap()).collect();
+            let b_f64: Vec<f64> = b_data.iter().map(|&v| v.to_f64().unwrap()).collect();
+            let mut r_f64 = vec![0.0f64; m * n];
+            unsafe {
+                matrixmultiply::dgemm(
+                    m, k, n,
+                    1.0,
+                    a_f64.as_ptr(), k as isize, 1,
+                    b_f64.as_ptr(), n as isize, 1,
+                    0.0,
+                    r_f64.as_mut_ptr(), n as isize, 1,
+                );
+            }
+            for (r, &v) in result.iter_mut().zip(r_f64.iter()) {
+                *r = T::from(v).unwrap();
+            }
+        }
+        result
+    }
+}
+
+/// Matrix multiply with B transposed: A @ B^T.
+/// A is (M,K), B is (N,K) stored row-major, result is (M,N).
+/// For small matrices, uses a direct loop. For large matrices, transposes B
+/// then delegates to faer via `mm_raw` (which uses BLAS-like performance).
+pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize) -> Vec<T> {
+    let max_dim = m.max(n).max(k);
+    let zero = <T as num_traits::Zero>::zero();
+
+    if max_dim <= DIRECT_MM_THRESHOLD {
+        // Direct loop — both A row and B row are accessed sequentially.
+        // B is (N,K) row-major, so B[j][p] = b_data[j*k + p].
+        // C[i][j] = sum_p A[i][p] * B[j][p]
+        let mut result = vec![zero; m * n];
+        unsafe {
+            for i in 0..m {
+                let a_row = i * k;
+                let r_row = i * n;
+                for j in 0..n {
+                    let b_row = j * k;
+                    let mut acc = zero;
+                    for p in 0..k {
+                        acc = acc + *a_data.get_unchecked(a_row + p) * *b_data.get_unchecked(b_row + p);
+                    }
+                    *result.get_unchecked_mut(r_row + j) = acc;
+                }
+            }
+        }
+        result
+    } else {
+        // Large matrices — use sgemm with transposed B strides (zero-copy).
+        // B is (N,K) row-major. For A @ B^T, treat B as (K,N) col-major:
+        // B^T row stride = 1, col stride = k.
+        let mut result = vec![zero; m * n];
+        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            let a_ptr = a_data.as_ptr() as *const f32;
+            let b_ptr = b_data.as_ptr() as *const f32;
+            let c_ptr = result.as_mut_ptr() as *mut f32;
+            unsafe {
+                matrixmultiply::sgemm(
+                    m, k, n,
+                    1.0,
+                    a_ptr, k as isize, 1,      // A row-major
+                    b_ptr, 1, k as isize,       // B^T: row stride=1, col stride=k
+                    0.0,
+                    c_ptr, n as isize, 1,       // C row-major
+                );
+            }
+        } else {
+            let a_f64: Vec<f64> = a_data.iter().map(|&v| v.to_f64().unwrap()).collect();
+            let b_f64: Vec<f64> = b_data.iter().map(|&v| v.to_f64().unwrap()).collect();
+            let mut r_f64 = vec![0.0f64; m * n];
+            unsafe {
+                matrixmultiply::dgemm(
+                    m, k, n,
+                    1.0,
+                    a_f64.as_ptr(), k as isize, 1,
+                    b_f64.as_ptr(), 1, k as isize,
+                    0.0,
+                    r_f64.as_mut_ptr(), n as isize, 1,
+                );
+            }
+            for (r, &v) in result.iter_mut().zip(r_f64.iter()) {
+                *r = T::from(v).unwrap();
+            }
+        }
+        result
+    }
+}
+
+/// Matrix multiply with A transposed: A^T @ B.
+/// A is (K,M) stored row-major, B is (K,N) row-major, result is (M,N).
+/// Computes C[i,j] = sum_k A[k,i] * B[k,j] = A^T @ B without materializing the transpose.
+pub fn mm_raw_at<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize) -> Vec<T> {
+    let max_dim = m.max(n).max(k);
+    let zero = <T as num_traits::Zero>::zero();
+
+    if max_dim <= DIRECT_MM_THRESHOLD {
+        // Direct loop: A is (K,M) row-major, B is (K,N) row-major.
+        // C[i,j] = sum_p A[p,i] * B[p,j]
+        let mut result = vec![zero; m * n];
+        unsafe {
+            for p in 0..k {
+                let a_row = p * m;
+                let b_row = p * n;
+                for i in 0..m {
+                    let a_val = *a_data.get_unchecked(a_row + i);
+                    let r_row = i * n;
+                    for j in 0..n {
+                        let r = result.get_unchecked_mut(r_row + j);
+                        *r = *r + a_val * *b_data.get_unchecked(b_row + j);
+                    }
+                }
+            }
+        }
+        result
+    } else {
+        let mut result = vec![zero; m * n];
+        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            let a_ptr = a_data.as_ptr() as *const f32;
+            let b_ptr = b_data.as_ptr() as *const f32;
+            let c_ptr = result.as_mut_ptr() as *mut f32;
+            unsafe {
+                matrixmultiply::sgemm(
+                    m, k, n,
+                    1.0,
+                    a_ptr, 1, m as isize,       // A^T: row stride=1, col stride=m
+                    b_ptr, n as isize, 1,       // B row-major
+                    0.0,
+                    c_ptr, n as isize, 1,       // C row-major
+                );
+            }
+        } else {
+            let a_f64: Vec<f64> = a_data.iter().map(|&v| v.to_f64().unwrap()).collect();
+            let b_f64: Vec<f64> = b_data.iter().map(|&v| v.to_f64().unwrap()).collect();
+            let mut r_f64 = vec![0.0f64; m * n];
+            unsafe {
+                matrixmultiply::dgemm(
+                    m, k, n,
+                    1.0,
+                    a_f64.as_ptr(), 1, m as isize,
+                    b_f64.as_ptr(), n as isize, 1,
+                    0.0,
+                    r_f64.as_mut_ptr(), n as isize, 1,
+                );
+            }
+            for (r, &v) in result.iter_mut().zip(r_f64.iter()) {
+                *r = T::from(v).unwrap();
+            }
+        }
+        result
+    }
+}
+
 /// Matrix-matrix multiply: (M,K) @ (K,N) -> (M,N).
 pub fn mm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.ndim() != 2 || b.ndim() != 2 {
@@ -79,61 +283,9 @@ pub fn mm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>>
         });
     }
 
-    // Delegate to ferray-linalg (faer-backed optimized BLAS).
-    // LinalgFloat is only f32/f64 — dispatch based on TypeId to avoid
-    // unnecessary f64 round-trips for f32 data.
     let a_data = a.data()?;
     let b_data = b.data()?;
-
-    let result = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
-        // Direct f32 path — reinterpret the T slice as f32 without going
-        // through to_f64().unwrap() as f32 for every element.
-        // SAFETY: We confirmed T is f32 via TypeId check above, so the cast
-        // from *const T to *const f32 is sound and layout-compatible.
-        let a_f32: &[f32] =
-            unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, a_data.len()) };
-        let b_f32: &[f32] =
-            unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, b_data.len()) };
-        let a_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[m, k]), a_f32.to_vec())
-            .map_err(FerrotorchError::Ferray)?;
-        let b_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[k, n]), b_f32.to_vec())
-            .map_err(FerrotorchError::Ferray)?;
-        let r = ferray_linalg::matmul(&a_arr, &b_arr).map_err(FerrotorchError::Ferray)?;
-        // Reinterpret the f32 result slice back as T (which is f32).
-        let r_slice = r.as_slice().unwrap();
-        // SAFETY: T is f32, so casting *const f32 to *const T is sound.
-        let r_as_t: &[T] =
-            unsafe { std::slice::from_raw_parts(r_slice.as_ptr() as *const T, r_slice.len()) };
-        r_as_t.to_vec()
-    } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
-        // Direct f64 path — reinterpret the T slice as f64 without conversion.
-        // SAFETY: We confirmed T is f64 via TypeId check above.
-        let a_f64: &[f64] =
-            unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, a_data.len()) };
-        let b_f64: &[f64] =
-            unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, b_data.len()) };
-        let a_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[m, k]), a_f64.to_vec())
-            .map_err(FerrotorchError::Ferray)?;
-        let b_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[k, n]), b_f64.to_vec())
-            .map_err(FerrotorchError::Ferray)?;
-        let r = ferray_linalg::matmul(&a_arr, &b_arr).map_err(FerrotorchError::Ferray)?;
-        // Reinterpret the f64 result slice back as T (which is f64).
-        let r_slice = r.as_slice().unwrap();
-        // SAFETY: T is f64, so casting *const f64 to *const T is sound.
-        let r_as_t: &[T] =
-            unsafe { std::slice::from_raw_parts(r_slice.as_ptr() as *const T, r_slice.len()) };
-        r_as_t.to_vec()
-    } else {
-        // Fallback for any other Float type: go through f64.
-        let a_f64: Vec<f64> = a_data.iter().map(|&v| v.to_f64().unwrap()).collect();
-        let b_f64: Vec<f64> = b_data.iter().map(|&v| v.to_f64().unwrap()).collect();
-        let a_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[m, k]), a_f64)
-            .map_err(FerrotorchError::Ferray)?;
-        let b_arr = ferray_core::Array::from_vec(ferray_core::IxDyn::new(&[k, n]), b_f64)
-            .map_err(FerrotorchError::Ferray)?;
-        let r = ferray_linalg::matmul(&a_arr, &b_arr).map_err(FerrotorchError::Ferray)?;
-        r.as_slice().unwrap().iter().map(|&v| T::from(v).unwrap()).collect::<Vec<T>>()
-    };
+    let result = mm_raw(a_data, b_data, m, k, n);
 
     Tensor::from_storage(TensorStorage::cpu(result), vec![m, n], false)
 }

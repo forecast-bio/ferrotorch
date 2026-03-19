@@ -163,10 +163,10 @@ pub fn log<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let output = unary_map(input, |x| x.ln())?;
 
     if needs_grad_unary(input) {
-        let storage = TensorStorage::cpu(output.data()?.to_vec());
+        let (storage, shape) = output.into_storage_and_shape()?;
         Tensor::from_operation(
             storage,
-            output.shape().to_vec(),
+            shape,
             Arc::new(LogBackward {
                 input: input.clone(),
             }),

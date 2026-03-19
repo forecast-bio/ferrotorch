@@ -889,6 +889,132 @@ DONE:
 ";
 
 // ---------------------------------------------------------------------------
+// Backward activation kernels
+// ---------------------------------------------------------------------------
+
+/// PTX source for `relu_backward_kernel`: `out[i] = (input[i] > 0) ? grad[i] : 0`.
+/// Takes two inputs: grad (upstream gradient) and input (forward activation input).
+#[cfg(feature = "cuda")]
+pub(crate) const RELU_BACKWARD_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry relu_backward_kernel(
+    .param .u64 grad_ptr,
+    .param .u64 input_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %grad, %input, %out, %off;
+    .reg .f32 %vg, %vi, %zero, %vr;
+    .reg .pred %p, %pos;
+
+    ld.param.u64 %grad, [grad_ptr];
+    ld.param.u64 %input, [input_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %grad, %grad, %off;
+    add.u64 %input, %input, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %vg, [%grad];
+    ld.global.f32 %vi, [%input];
+    mov.f32 %zero, 0f00000000;
+    setp.gt.f32 %pos, %vi, %zero;
+    selp.f32 %vr, %vg, %zero, %pos;
+    st.global.f32 [%out], %vr;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `gelu_backward_kernel`:
+/// `out[i] = grad[i] * (sig + 1.702 * x * sig * (1 - sig))`
+/// where `sig = sigmoid(1.702 * x)`.
+/// This is the exact derivative of `gelu(x) = x * sigmoid(1.702 * x)`.
+#[cfg(feature = "cuda")]
+pub(crate) const GELU_BACKWARD_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry gelu_backward_kernel(
+    .param .u64 grad_ptr,
+    .param .u64 input_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %grad, %input, %out, %off;
+    .reg .f32 %vg, %x, %k, %kx, %neg_kx, %log2e, %exp_neg, %one, %denom, %sig;
+    .reg .f32 %one_minus_sig, %kx_sig_oms, %dsig, %result;
+    .reg .pred %p;
+
+    ld.param.u64 %grad, [grad_ptr];
+    ld.param.u64 %input, [input_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %grad, %grad, %off;
+    add.u64 %input, %input, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %vg, [%grad];
+    ld.global.f32 %x, [%input];
+
+    // sig = sigmoid(1.702 * x)
+    mov.f32 %k, 0f3FDA2720;
+    mul.f32 %kx, %k, %x;
+    neg.f32 %neg_kx, %kx;
+    mov.f32 %log2e, 0f3FB8AA3B;
+    mul.f32 %neg_kx, %neg_kx, %log2e;
+    ex2.approx.f32 %exp_neg, %neg_kx;
+    mov.f32 %one, 0f3F800000;
+    add.f32 %denom, %one, %exp_neg;
+    rcp.approx.f32 %sig, %denom;
+
+    // d/dx gelu(x) = sig + k * x * sig * (1 - sig)
+    sub.f32 %one_minus_sig, %one, %sig;
+    mul.f32 %kx_sig_oms, %kx, %sig;
+    mul.f32 %kx_sig_oms, %kx_sig_oms, %one_minus_sig;
+    add.f32 %dsig, %sig, %kx_sig_oms;
+
+    // out = grad * d_gelu
+    mul.f32 %result, %vg, %dsig;
+    st.global.f32 [%out], %result;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
 // LayerNorm PTX kernel (row-wise: mean, var, normalize+affine)
 // ---------------------------------------------------------------------------
 
@@ -2231,6 +2357,55 @@ pub fn gpu_relu(
     cpu_fallback_unary(a, device, |x| x.max(0.0))
 }
 
+/// ReLU backward: `out[i] = (input[i] > 0) ? grad[i] : 0`.
+#[cfg(feature = "cuda")]
+pub fn gpu_relu_backward(
+    grad: &CudaBuffer<f32>,
+    input: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    validate_binary(grad, input, device)?;
+
+    if let Some(out) = try_launch_binary(grad, input, device, RELU_BACKWARD_PTX, "relu_backward_kernel")? {
+        return Ok(out);
+    }
+
+    // CPU fallback
+    let grad_host = gpu_to_cpu(grad, device)?;
+    let input_host = gpu_to_cpu(input, device)?;
+    let result: Vec<f32> = grad_host.iter().zip(input_host.iter())
+        .map(|(&g, &x)| if x > 0.0 { g } else { 0.0 })
+        .collect();
+    cpu_to_gpu(&result, device)
+}
+
+/// GELU backward: `out[i] = grad[i] * (sig + 1.702 * x * sig * (1 - sig))`
+/// where `sig = sigmoid(1.702 * x)`.
+#[cfg(feature = "cuda")]
+pub fn gpu_gelu_backward(
+    grad: &CudaBuffer<f32>,
+    input: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    validate_binary(grad, input, device)?;
+
+    if let Some(out) = try_launch_binary(grad, input, device, GELU_BACKWARD_PTX, "gelu_backward_kernel")? {
+        return Ok(out);
+    }
+
+    // CPU fallback
+    let grad_host = gpu_to_cpu(grad, device)?;
+    let input_host = gpu_to_cpu(input, device)?;
+    let result: Vec<f32> = grad_host.iter().zip(input_host.iter())
+        .map(|(&g, &x)| {
+            let k: f32 = 1.702;
+            let sig = 1.0 / (1.0 + (-k * x).exp());
+            g * (sig + k * x * sig * (1.0 - sig))
+        })
+        .collect();
+    cpu_to_gpu(&result, device)
+}
+
 /// Scalar multiply: `out[i] = a[i] * scalar`.
 ///
 /// Multiplies every element by a constant float value on the GPU.
@@ -3235,6 +3410,8 @@ pub fn precompile_decode_kernels(device: &GpuDevice) -> GpuResult<()> {
     compile(SLICE_WRITE_INDIRECT_PTX, "slice_write_indirect_kernel")?;
     compile(CAUSAL_MASK_INDIRECT_PTX, "causal_mask_indirect_kernel")?;
     compile(SLICE_READ_PTX, "slice_read_kernel")?;
+    compile(RELU_BACKWARD_PTX, "relu_backward_kernel")?;
+    compile(GELU_BACKWARD_PTX, "gelu_backward_kernel")?;
     Ok(())
 }
 
@@ -3382,6 +3559,18 @@ pub fn gpu_slice_read(
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_embed_lookup(
     _idx: &CudaBuffer<f32>, _weight: &CudaBuffer<f32>, _d: usize, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_relu_backward(
+    _grad: &CudaBuffer<f32>, _input: &CudaBuffer<f32>, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_gelu_backward(
+    _grad: &CudaBuffer<f32>, _input: &CudaBuffer<f32>, _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
 
 // ---------------------------------------------------------------------------

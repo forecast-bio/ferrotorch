@@ -183,8 +183,7 @@ impl<T: Float> Module<T> for LayerNorm<T> {
             }
         }
 
-        let result =
-            Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
+        let storage = TensorStorage::cpu(output);
 
         if is_grad_enabled() && input.requires_grad() {
             let grad_fn = Arc::new(LayerNormBackward {
@@ -196,15 +195,14 @@ impl<T: Float> Module<T> for LayerNorm<T> {
                 elementwise_affine: self.elementwise_affine,
             });
             let out = Tensor::from_operation(
-                TensorStorage::cpu(result.data()?.to_vec()),
-                result.shape().to_vec(),
+                storage,
+                shape.to_vec(),
                 grad_fn,
             )?;
             if device.is_cuda() { out.to(device) } else { Ok(out) }
-        } else if device.is_cuda() {
-            result.to(device)
         } else {
-            Ok(result)
+            let result = Tensor::from_storage(storage, shape.to_vec(), false)?;
+            if device.is_cuda() { result.to(device) } else { Ok(result) }
         }
     }
 
@@ -348,28 +346,32 @@ impl<T: Float> GradFn<T> for LayerNormBackward<T> {
             }
         }
 
+        let device = self.input.device();
         let grad_input_tensor = Tensor::from_storage(
             TensorStorage::cpu(grad_input),
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input_tensor = if device.is_cuda() { grad_input_tensor.to(device)? } else { grad_input_tensor };
 
         let grad_weight_out = if self.elementwise_affine && self.weight.requires_grad() {
-            Some(Tensor::from_storage(
+            let gw = Tensor::from_storage(
                 TensorStorage::cpu(grad_weight),
                 self.normalized_shape.clone(),
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { gw.to(device)? } else { gw })
         } else {
             None
         };
 
         let grad_bias_out = if self.elementwise_affine && self.bias.requires_grad() {
-            Some(Tensor::from_storage(
+            let gb = Tensor::from_storage(
                 TensorStorage::cpu(grad_bias),
                 self.normalized_shape.clone(),
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { gb.to(device)? } else { gb })
         } else {
             None
         };

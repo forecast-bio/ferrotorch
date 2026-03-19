@@ -14,9 +14,7 @@
 //! - `grad_bias` is accumulated through `AddBackward` (broadcast reduction)
 //! - `grad_input` is accumulated through `MmBackward`
 
-use ferrotorch_core::grad_fns::arithmetic::add;
-use ferrotorch_core::grad_fns::linalg::mm_differentiable;
-use ferrotorch_core::grad_fns::shape::{reshape, transpose_2d};
+use ferrotorch_core::grad_fns::linalg::linear_fused;
 use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor};
 
 use crate::init::{kaiming_uniform, NonLinearity};
@@ -154,24 +152,13 @@ impl<T: Float> Module<T> for Linear<T> {
             });
         }
 
-        // Compute weight^T: [in_features, out_features]
-        // Uses differentiable transpose so gradients flow back to the weight parameter.
-        let weight_t = transpose_2d(self.weight.tensor())?;
-
-        // Compute input @ weight^T: [batch, out_features]
-        // Uses differentiable mm which attaches MmBackward when grad is enabled.
-        let output = mm_differentiable(input, &weight_t)?;
-
-        // Add bias if present: [batch, out_features] + [out_features] (broadcast)
-        // Uses the differentiable `add` op which handles broadcasting and GPU
-        // dispatch, so gradients flow to the bias parameter automatically.
-        match &self.bias {
-            Some(bias) => {
-                let bias_2d = reshape(bias.tensor(), &[1, self.out_features as isize])?;
-                add(&output, &bias_2d)
-            }
-            None => Ok(output),
-        }
+        // Fused linear: input @ weight^T + bias in a single operation.
+        // Creates one tensor instead of three (mm_bt result, reshaped bias, add result).
+        linear_fused(
+            input,
+            self.weight.tensor(),
+            self.bias.as_ref().map(|b| b.tensor()),
+        )
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {

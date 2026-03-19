@@ -80,11 +80,8 @@ pub fn sum<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
             let grad_fn = Arc::new(SumBackward {
                 input: input.clone(),
             });
-            Tensor::from_operation(
-                TensorStorage::cpu(result.data()?.to_vec()),
-                result.shape().to_vec(),
-                grad_fn,
-            )
+            let (storage, shape) = result.into_storage_and_shape()?;
+            Tensor::from_operation(storage, shape, grad_fn)
         } else {
             Ok(result)
         }
@@ -141,11 +138,8 @@ pub fn mean<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let grad_fn = Arc::new(MeanBackward {
             input: input.clone(),
         });
-        Tensor::from_operation(
-            TensorStorage::cpu(result.data()?.to_vec()),
-            result.shape().to_vec(),
-            grad_fn,
-        )
+        let (storage, shape) = result.into_storage_and_shape()?;
+        Tensor::from_operation(storage, shape, grad_fn)
     } else {
         Ok(result)
     }
@@ -240,11 +234,8 @@ pub fn prod<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let grad_fn = Arc::new(ProdBackward {
             input: input.clone(),
         });
-        Tensor::from_operation(
-            TensorStorage::cpu(result.data()?.to_vec()),
-            result.shape().to_vec(),
-            grad_fn,
-        )
+        let (storage, shape) = result.into_storage_and_shape()?;
+        Tensor::from_operation(storage, shape, grad_fn)
     } else {
         Ok(result)
     }

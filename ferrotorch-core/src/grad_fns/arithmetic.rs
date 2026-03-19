@@ -210,10 +210,10 @@ pub fn add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
         let result = fast_add(a, b)?;
 
         if needs_grad(a, b) {
-            let storage = TensorStorage::cpu(result.data()?.to_vec());
+            let (storage, shape) = result.into_storage_and_shape()?;
             Tensor::from_operation(
                 storage,
-                result.shape().to_vec(),
+                shape,
                 Arc::new(AddBackward { a: a.clone(), b: b.clone() }),
             )
         } else {
@@ -298,10 +298,10 @@ pub fn sub<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
         let result = binary_map(a, b, |x, y| x - y)?;
 
         if needs_grad(a, b) {
-            let storage = TensorStorage::cpu(result.data()?.to_vec());
+            let (storage, shape) = result.into_storage_and_shape()?;
             Tensor::from_operation(
                 storage,
-                result.shape().to_vec(),
+                shape,
                 Arc::new(SubBackward { a: a.clone(), b: b.clone() }),
             )
         } else {
@@ -414,10 +414,10 @@ pub fn mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
         let result = fast_mul(a, b)?;
 
         if needs_grad(a, b) {
-            let storage = TensorStorage::cpu(result.data()?.to_vec());
+            let (storage, shape) = result.into_storage_and_shape()?;
             Tensor::from_operation(
                 storage,
-                result.shape().to_vec(),
+                shape,
                 Arc::new(MulBackward { a: a.clone(), b: b.clone() }),
             )
         } else {
@@ -519,10 +519,10 @@ pub fn div<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
     let result = binary_map(a, b, |x, y| x / y)?;
 
     if needs_grad(a, b) {
-        let storage = TensorStorage::cpu(result.data()?.to_vec());
+        let (storage, shape) = result.into_storage_and_shape()?;
         Tensor::from_operation(
             storage,
-            result.shape().to_vec(),
+            shape,
             Arc::new(DivBackward {
                 a: a.clone(),
                 b: b.clone(),
@@ -590,10 +590,10 @@ pub fn neg<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let result = unary_map(a, |x| -x)?;
 
         if needs_grad_unary(a) {
-            let storage = TensorStorage::cpu(result.data()?.to_vec());
+            let (storage, shape) = result.into_storage_and_shape()?;
             Tensor::from_operation(
                 storage,
-                result.shape().to_vec(),
+                shape,
                 Arc::new(NegBackward { a: a.clone() }),
             )
         } else {
@@ -687,10 +687,10 @@ pub fn pow<T: Float>(a: &Tensor<T>, exp: f64) -> FerrotorchResult<Tensor<T>> {
     let result = scalar_map(a, exp_t, |x, e| x.powf(e))?;
 
     if needs_grad_unary(a) {
-        let storage = TensorStorage::cpu(result.data()?.to_vec());
+        let (storage, shape) = result.into_storage_and_shape()?;
         Tensor::from_operation(
             storage,
-            result.shape().to_vec(),
+            shape,
             Arc::new(PowBackward {
                 a: a.clone(),
                 exp,
@@ -767,10 +767,10 @@ pub fn sqrt<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let result = unary_map(a, |x| x.sqrt())?;
 
     if needs_grad_unary(a) {
-        let storage = TensorStorage::cpu(result.data()?.to_vec());
+        let (storage, shape) = result.into_storage_and_shape()?;
         Tensor::from_operation(
             storage,
-            result.shape().to_vec(),
+            shape,
             Arc::new(SqrtBackward { a: a.clone() }),
         )
     } else {
@@ -865,10 +865,10 @@ pub fn abs<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let result = unary_map(a, |x| x.abs())?;
 
     if needs_grad_unary(a) {
-        let storage = TensorStorage::cpu(result.data()?.to_vec());
+        let (storage, shape) = result.into_storage_and_shape()?;
         Tensor::from_operation(
             storage,
-            result.shape().to_vec(),
+            shape,
             Arc::new(AbsBackward { a: a.clone() }),
         )
     } else {

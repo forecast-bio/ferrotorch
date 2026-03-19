@@ -141,6 +141,39 @@ impl<T: Float> Tensor<T> {
         })
     }
 
+    /// Create a zero-copy view with a grad_fn attached. Used for shape ops
+    /// (squeeze, unsqueeze, reshape, etc.) that don't change data layout.
+    /// Shares the underlying storage with the source tensor.
+    pub fn view_operation(
+        &self,
+        new_shape: Vec<usize>,
+        grad_fn: Arc<dyn GradFn<T>>,
+    ) -> FerrotorchResult<Self> {
+        let new_numel: usize = new_shape.iter().product();
+        if new_numel != self.numel() {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "view_operation: new shape {:?} ({} elements) vs {:?} ({} elements)",
+                    new_shape, new_numel, self.shape(), self.numel()
+                ),
+            });
+        }
+        let strides = c_contiguous_strides(&new_shape);
+        Ok(Self {
+            inner: Arc::new(TensorInner {
+                id: TensorId::next(),
+                storage: Arc::clone(&self.inner.storage),
+                shape: new_shape,
+                strides,
+                offset: self.inner.offset,
+                grad: Mutex::new(None),
+                grad_fn: Some(grad_fn),
+                requires_grad: true,
+                is_leaf: false,
+            }),
+        })
+    }
+
     /// Create a tensor that is the result of an operation (non-leaf).
     ///
     /// The resulting tensor has `requires_grad = true`, `is_leaf = false`,
@@ -264,6 +297,7 @@ impl<T: Float> Tensor<T> {
     }
 
     /// Accumulate a gradient additively (used by the backward engine).
+    /// Handles GPU tensors by transferring to CPU for accumulation.
     pub(crate) fn accumulate_grad(&self, incoming: &Tensor<T>) -> FerrotorchResult<()> {
         let mut guard =
             self.inner
@@ -274,15 +308,17 @@ impl<T: Float> Tensor<T> {
                 })?;
         match guard.as_mut() {
             None => {
-                // First gradient: clone the incoming gradient.
-                let data = incoming.data()?.to_vec();
+                // First gradient: clone the incoming gradient (on CPU).
+                let cpu_incoming = if incoming.is_cuda() { incoming.cpu()? } else { incoming.clone() };
+                let data = cpu_incoming.data()?.to_vec();
                 let storage = TensorStorage::cpu(data);
                 let tensor = Tensor::from_storage(storage, incoming.shape().to_vec(), false)?;
                 *guard = Some(Box::new(tensor));
             }
             Some(existing) => {
                 // In-place accumulation: existing_grad += incoming_grad.
-                let incoming_data = incoming.data()?;
+                let cpu_incoming = if incoming.is_cuda() { incoming.cpu()? } else { incoming.clone() };
+                let incoming_data = cpu_incoming.data()?;
                 // SAFETY: We hold the mutex lock, giving exclusive access to
                 // the gradient tensor. No other thread can read or write it.
                 let existing_data = unsafe { existing.data_mut()? };
@@ -333,6 +369,34 @@ impl<T: Float> Tensor<T> {
             Ok(cpu_tensor.data()?.to_vec())
         } else {
             Ok(self.data()?.to_vec())
+        }
+    }
+
+    /// Consume this tensor and return its storage and shape.
+    ///
+    /// If this is the only reference to the underlying data, the storage Vec
+    /// is extracted without copying. Otherwise falls back to cloning.
+    /// Used internally to avoid double-copies when rewrapping op results.
+    pub fn into_storage_and_shape(self) -> FerrotorchResult<(TensorStorage<T>, Vec<usize>)> {
+        let shape = self.inner.shape.clone();
+        // Try to unwrap the inner Arc to get ownership of TensorInner.
+        match Arc::try_unwrap(self.inner) {
+            Ok(inner) => {
+                // We own the inner. Try to unwrap the storage Arc.
+                match Arc::try_unwrap(inner.storage) {
+                    Ok(storage) => Ok((storage, shape)),
+                    Err(arc_storage) => {
+                        // Storage is shared — must clone.
+                        Ok(((*arc_storage).clone(), shape))
+                    }
+                }
+            }
+            Err(arc_inner) => {
+                // Inner is shared — must clone data.
+                let data = arc_inner.storage.as_slice();
+                let end = arc_inner.offset + shape.iter().product::<usize>();
+                Ok((TensorStorage::cpu(data[arc_inner.offset..end].to_vec()), shape))
+            }
         }
     }
 
@@ -511,6 +575,15 @@ impl<T: Float> Tensor<T> {
     pub fn is_same(&self, other: &Self) -> bool {
         self.inner.id == other.inner.id
     }
+
+    /// Returns true if two tensors share the same underlying storage allocation.
+    ///
+    /// Used by tests to verify that view operations (squeeze, unsqueeze, flatten)
+    /// are zero-copy.
+    #[cfg(test)]
+    pub(crate) fn shares_storage(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner.storage, &other.inner.storage)
+    }
 }
 
 // --- Trait impls ---
@@ -610,6 +683,17 @@ mod tests {
 
         assert!(t.is_same(&t2));
         assert_eq!(t.id(), t2.id());
+    }
+
+    #[test]
+    fn test_view_operation_shares_storage() {
+        use crate::grad_fns::shape::FlattenBackward;
+        let storage = TensorStorage::cpu(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let t = Tensor::from_storage(storage, vec![2, 3], true).unwrap();
+        let grad_fn = Arc::new(FlattenBackward::new(t.clone(), t.shape().to_vec()));
+        let view = t.view_operation(vec![6], grad_fn).unwrap();
+        assert!(t.shares_storage(&view), "view_operation must share storage");
+        assert!(!t.is_same(&view), "view_operation creates new tensor identity");
     }
 
     #[test]

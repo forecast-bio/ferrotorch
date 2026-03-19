@@ -35,26 +35,26 @@ use crate::parameter::Parameter;
 /// ```
 #[derive(Debug)]
 pub struct MultiheadAttention<T: Float> {
-    embed_dim: usize,
-    num_heads: usize,
-    head_dim: usize,
+    pub embed_dim: usize,
+    pub num_heads: usize,
+    pub head_dim: usize,
 
     /// Query projection weight: [embed_dim, embed_dim].
-    q_proj: Parameter<T>,
+    pub q_proj: Parameter<T>,
     /// Key projection weight: [embed_dim, embed_dim].
-    k_proj: Parameter<T>,
+    pub k_proj: Parameter<T>,
     /// Value projection weight: [embed_dim, embed_dim].
-    v_proj: Parameter<T>,
+    pub v_proj: Parameter<T>,
     /// Output projection weight: [embed_dim, embed_dim].
-    out_proj: Parameter<T>,
+    pub out_proj: Parameter<T>,
 
     /// Optional biases: [embed_dim].
-    q_bias: Option<Parameter<T>>,
-    k_bias: Option<Parameter<T>>,
-    v_bias: Option<Parameter<T>>,
-    out_bias: Option<Parameter<T>>,
+    pub q_bias: Option<Parameter<T>>,
+    pub k_bias: Option<Parameter<T>>,
+    pub v_bias: Option<Parameter<T>>,
+    pub out_bias: Option<Parameter<T>>,
 
-    training: bool,
+    pub training: bool,
 }
 
 impl<T: Float> MultiheadAttention<T> {
@@ -207,6 +207,42 @@ impl<T: Float> MultiheadAttention<T> {
             });
         }
 
+        // ─── Fast path: self-attention with seq_len=1 ───────────────
+        // When seq_len=1, attention scores are [1,1] -> softmax = 1.0,
+        // so context = V identically. The whole MHA reduces to:
+        //   output = V_proj(input) @ W_O^T + bias
+        // We skip Q/K projections (saves 2 matmuls) and the per-head
+        // attention loop (saves reshape, transpose, softmax per head).
+        //
+        // We also batch across the batch dimension: instead of looping
+        // over batch elements doing [1,D]@[D,D], we squeeze to [B,D]
+        // and do a single [B,D]@[D,D] matmul.
+        if seq_q == 1 && seq_k == 1 && !causal_mask {
+            use ferrotorch_core::grad_fns::linalg::linear_fused;
+
+            // Squeeze [batch, 1, embed_dim] -> [batch, embed_dim]
+            let v_2d = value.reshape_t(&[batch as isize, self.embed_dim as isize])?;
+
+            // V_proj = v_2d @ W_V^T + v_bias -> [batch, embed_dim]
+            let v_proj = linear_fused(
+                &v_2d,
+                self.v_proj.tensor(),
+                self.v_bias.as_ref().map(|b| b.tensor()),
+            )?;
+
+            // O_proj = v_proj @ W_O^T + o_bias -> [batch, embed_dim]
+            let output = linear_fused(
+                &v_proj,
+                self.out_proj.tensor(),
+                self.out_bias.as_ref().map(|b| b.tensor()),
+            )?;
+
+            // Unsqueeze [batch, embed_dim] -> [batch, 1, embed_dim]
+            return output.reshape_t(&[batch as isize, 1, self.embed_dim as isize]);
+        }
+
+        // ─── General path: full multi-head attention ────────────────
+
         // Transpose projection weights once: W_Q.T, W_K.T, W_V.T, W_O.T
         let wq_t = transpose_2d(self.q_proj.tensor())?;
         let wk_t = transpose_2d(self.k_proj.tensor())?;
@@ -222,7 +258,8 @@ impl<T: Float> MultiheadAttention<T> {
         )?;
 
         // Process each batch element independently (no batched matmul yet).
-        let mut batch_outputs: Vec<Vec<T>> = Vec::with_capacity(batch);
+        let total_elements = batch * seq_q * self.embed_dim;
+        let mut result_data: Vec<T> = Vec::with_capacity(total_elements);
 
         for b in 0..batch {
             // Extract batch slices: [seq, embed_dim] as 2D tensors.
@@ -300,15 +337,8 @@ impl<T: Float> MultiheadAttention<T> {
             }
 
             // Collect output data for this batch element.
-            let out_data = output.data_vec()?;
-            batch_outputs.push(out_data);
-        }
-
-        // Reassemble into [batch, seq_q, embed_dim].
-        let total_elements = batch * seq_q * self.embed_dim;
-        let mut result_data = Vec::with_capacity(total_elements);
-        for bo in &batch_outputs {
-            result_data.extend_from_slice(bo);
+            let out_data = output.data()?;
+            result_data.extend_from_slice(&out_data);
         }
 
         Tensor::from_storage(
@@ -334,6 +364,24 @@ impl<T: Float> MultiheadAttention<T> {
     #[inline]
     pub fn head_dim(&self) -> usize {
         self.head_dim
+    }
+
+    /// Fast 2D self-attention for seq_len=1: [batch, embed_dim] -> [batch, embed_dim].
+    /// Avoids unsqueeze/squeeze overhead. For seq_len=1, attention is identity on V,
+    /// so this is just V_proj + O_proj (two fused linear ops).
+    pub fn forward_2d(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        use ferrotorch_core::grad_fns::linalg::linear_fused;
+
+        let v_proj = linear_fused(
+            input,
+            self.v_proj.tensor(),
+            self.v_bias.as_ref().map(|b| b.tensor()),
+        )?;
+        linear_fused(
+            &v_proj,
+            self.out_proj.tensor(),
+            self.out_bias.as_ref().map(|b| b.tensor()),
+        )
     }
 }
 
@@ -432,7 +480,7 @@ fn extract_batch_slice<T: Float>(
     let dim1 = shape[1];
     let dim2 = shape[2];
     let slice_size = dim1 * dim2;
-    let data = tensor.data_vec()?;
+    let data = tensor.data()?;
     let start = b * slice_size;
     let end = start + slice_size;
     let slice_data = data[start..end].to_vec();
@@ -448,7 +496,7 @@ fn expand_bias_to_2d<T: Float>(
     bias: &Tensor<T>,
     rows: usize,
 ) -> FerrotorchResult<Tensor<T>> {
-    let bias_vec = bias.data_vec()?;
+    let bias_vec = bias.data()?;
     let dim = bias_vec.len();
     let mut expanded = Vec::with_capacity(rows * dim);
     for _ in 0..rows {
@@ -473,7 +521,7 @@ fn reshape_to_heads<T: Float>(
     seq_len: usize,
     head_dim: usize,
 ) -> FerrotorchResult<Tensor<T>> {
-    let data = tensor.data_vec()?;
+    let data = tensor.data()?;
     // data layout: [seq_len, embed_dim] where embed_dim = num_heads * head_dim
     // Interpret as [seq_len, num_heads, head_dim], then transpose to [num_heads, seq_len, head_dim]
     let mut result = vec![<T as num_traits::Zero>::zero(); num_heads * seq_len * head_dim];
@@ -501,7 +549,7 @@ fn expand_scalar_to_2d<T: Float>(
     rows: usize,
     cols: usize,
 ) -> FerrotorchResult<Tensor<T>> {
-    let val = scalar.data_vec()?[0];
+    let val = scalar.data()?[0];
     let data = vec![val; rows * cols];
     Tensor::from_storage(
         TensorStorage::cpu(data),
@@ -519,7 +567,7 @@ fn apply_causal_mask<T: Float>(
     seq_len: usize,
 ) -> FerrotorchResult<Tensor<T>> {
     let neg_inf = T::from(-1e9).unwrap();
-    let mut masked = scores.data_vec()?;
+    let mut masked = scores.data()?.to_vec();
 
     for i in 0..seq_len {
         for j in (i + 1)..seq_len {
@@ -548,7 +596,7 @@ fn concat_heads<T: Float>(
     let mut result = vec![<T as num_traits::Zero>::zero(); seq_len * embed_dim];
 
     for (h, head) in heads.iter().enumerate() {
-        let head_data = head.data_vec()?;
+        let head_data = head.data()?;
         for s in 0..seq_len {
             for d in 0..head_dim {
                 let src_idx = s * head_dim + d;

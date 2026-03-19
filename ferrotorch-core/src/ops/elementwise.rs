@@ -222,9 +222,16 @@ pub fn scalar_map<T: Float>(
     scalar: T,
     f: impl Fn(T, T) -> T,
 ) -> FerrotorchResult<Tensor<T>> {
-    let data = input.data()?;
+    // GPU fallback: transfer to CPU, compute, transfer back.
+    let (cpu_input, device) = if input.is_cuda() {
+        (input.cpu()?, input.device())
+    } else {
+        (input.clone(), input.device())
+    };
+    let data = cpu_input.data()?;
     let result: Vec<T> = data.iter().map(|&x| f(x, scalar)).collect();
-    Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false)
+    let out = Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false)?;
+    if device.is_cuda() { out.to(device) } else { Ok(out) }
 }
 
 /// Map a flat linear index in the output shape to a flat index in an input
@@ -310,10 +317,17 @@ pub fn sum_axis<T: Float>(input: &Tensor<T>, axis: usize) -> FerrotorchResult<Te
 
 /// Mean of all elements, returning a scalar.
 pub fn mean<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let data = input.data()?;
+    // GPU fallback: transfer to CPU, compute, transfer back.
+    let (cpu_input, device) = if input.is_cuda() {
+        (input.cpu()?, input.device())
+    } else {
+        (input.clone(), input.device())
+    };
+    let data = cpu_input.data()?;
     let n = T::from(data.len()).unwrap();
     let total = data.iter().copied().fold(<T as num_traits::Zero>::zero(), |a, b| a + b);
-    Tensor::from_storage(TensorStorage::cpu(vec![total / n]), vec![], false)
+    let out = Tensor::from_storage(TensorStorage::cpu(vec![total / n]), vec![], false)?;
+    if device.is_cuda() { out.to(device) } else { Ok(out) }
 }
 
 #[cfg(test)]

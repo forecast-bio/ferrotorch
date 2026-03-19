@@ -1549,8 +1549,10 @@ dependencies = [
  "ferray-random",
  "ferray-ufunc",
  "half",
+ "matrixmultiply",
  "num-traits",
  "rayon",
+ "rustc-hash 2.1.1",
  "rustfft",
  "thiserror 2.0.18",
 ]

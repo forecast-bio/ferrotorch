@@ -118,6 +118,12 @@ impl<T: Float> Tensor<T> {
         crate::grad_fns::linalg::mm_differentiable(self, other)
     }
 
+    /// Fused A @ B^T — avoids materializing the transpose of B.
+    /// A: [M, K], B: [N, K] -> [M, N].
+    pub fn mm_bt(&self, other: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::grad_fns::linalg::mm_bt_differentiable(self, other)
+    }
+
     pub fn bmm(&self, other: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         crate::grad_fns::linalg::bmm_differentiable(self, other)
     }

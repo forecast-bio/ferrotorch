@@ -3,14 +3,21 @@
 //! Each struct stores the tensors needed for the VJP (vector-Jacobian product)
 //! and implements [`GradFn`] to participate in reverse-mode autodiff.
 
+use std::any::TypeId;
 use std::sync::Arc;
 
 use crate::autograd::no_grad::is_grad_enabled;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
+use crate::gpu_dispatch::gpu_backend;
 use crate::ops::elementwise::unary_map;
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
+
+#[inline]
+fn is_f32<T: Float>() -> bool {
+    TypeId::of::<T>() == TypeId::of::<f32>()
+}
 
 // ---------------------------------------------------------------------------
 // ReLU
@@ -32,6 +39,22 @@ impl<T: Float> ReluBackward<T> {
 
 impl<T: Float> GradFn<T> for ReluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        // GPU-native path for f32
+        if grad_output.is_cuda() && is_f32::<T>() {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let result_h = backend.relu_backward_f32(
+                grad_output.gpu_handle()?,
+                self.input.gpu_handle()?,
+            )?;
+            let grad_input = Tensor::from_storage(
+                TensorStorage::gpu(result_h),
+                self.input.shape().to_vec(),
+                false,
+            )?;
+            return Ok(vec![Some(grad_input)]);
+        }
+
+        // CPU fallback
         let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
         let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
         let input_data = cpu_input.data()?;
@@ -49,6 +72,7 @@ impl<T: Float> GradFn<T> for ReluBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
         Ok(vec![Some(grad_input)])
     }
 
@@ -99,6 +123,7 @@ impl<T: Float> GradFn<T> for SigmoidBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
         Ok(vec![Some(grad_input)])
     }
 
@@ -149,6 +174,7 @@ impl<T: Float> GradFn<T> for TanhBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
         Ok(vec![Some(grad_input)])
     }
 
@@ -189,6 +215,22 @@ impl<T: Float> GeluBackward<T> {
 
 impl<T: Float> GradFn<T> for GeluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        // GPU-native path for f32
+        if grad_output.is_cuda() && is_f32::<T>() {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let result_h = backend.gelu_backward_f32(
+                grad_output.gpu_handle()?,
+                self.input.gpu_handle()?,
+            )?;
+            let grad_input = Tensor::from_storage(
+                TensorStorage::gpu(result_h),
+                self.input.shape().to_vec(),
+                false,
+            )?;
+            return Ok(vec![Some(grad_input)]);
+        }
+
+        // CPU fallback
         let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
         let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
         let input_data = cpu_input.data()?;
@@ -210,6 +252,7 @@ impl<T: Float> GradFn<T> for GeluBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
         Ok(vec![Some(grad_input)])
     }
 
@@ -262,6 +305,7 @@ impl<T: Float> GradFn<T> for SiluBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
         Ok(vec![Some(grad_input)])
     }
 
@@ -333,6 +377,7 @@ impl<T: Float> GradFn<T> for SoftmaxBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
         Ok(vec![Some(grad_input)])
     }
 
@@ -408,6 +453,7 @@ impl<T: Float> GradFn<T> for LogSoftmaxBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
         Ok(vec![Some(grad_input)])
     }
 
@@ -445,11 +491,8 @@ pub fn relu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
         if is_grad_enabled() && input.requires_grad() {
             let grad_fn = Arc::new(ReluBackward::new(input.clone()));
-            Tensor::from_operation(
-                TensorStorage::cpu(output.data()?.to_vec()),
-                output.shape().to_vec(),
-                grad_fn,
-            )
+            let (storage, shape) = output.into_storage_and_shape()?;
+            Tensor::from_operation(storage, shape, grad_fn)
         } else {
             Ok(output)
         }
@@ -479,15 +522,16 @@ pub fn sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         unary_map(input, |x| one / (one + (-x).exp()))?
     };
 
+    let device = input.device();
     if is_grad_enabled() && input.requires_grad() {
         let result = Tensor::from_operation(
             TensorStorage::cpu(output.data()?.to_vec()),
             output.shape().to_vec(),
             Arc::new(SigmoidBackward::new(input.clone(), output.clone())),
         )?;
-        Ok(result)
+        if device.is_cuda() { result.to(device) } else { Ok(result) }
     } else {
-        Ok(output)
+        if device.is_cuda() { output.to(device) } else { Ok(output) }
     }
 }
 
@@ -539,11 +583,8 @@ pub fn gelu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     })?;
 
     if is_grad_enabled() && input.requires_grad() {
-        Tensor::from_operation(
-            TensorStorage::cpu(output.data()?.to_vec()),
-            output.shape().to_vec(),
-            Arc::new(GeluBackward::new(input.clone())),
-        )
+        let (storage, shape) = output.into_storage_and_shape()?;
+        Tensor::from_operation(storage, shape, Arc::new(GeluBackward::new(input.clone())))
     } else {
         Ok(output)
     }

@@ -71,11 +71,12 @@ impl<T: Float> GradFn<T> for DropoutBackward<T> {
                 .zip(self.scaled_mask.iter())
                 .map(|(&g, &m)| g * m)
                 .collect();
-            Some(Tensor::from_storage(
+            let g = Tensor::from_storage(
                 TensorStorage::cpu(grad_a),
                 self.input.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(if self.input.is_cuda() { g.to(self.input.device())? } else { g })
         } else {
             None
         };
@@ -115,11 +116,12 @@ impl<T: Float> GradFn<T> for Dropout2dBackward<T> {
                 .zip(self.scaled_mask.iter())
                 .map(|(&g, &m)| g * m)
                 .collect();
-            Some(Tensor::from_storage(
+            let g = Tensor::from_storage(
                 TensorStorage::cpu(grad_a),
                 self.input.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(if self.input.is_cuda() { g.to(self.input.device())? } else { g })
         } else {
             None
         };
@@ -238,7 +240,7 @@ impl<T: Float> Module<T> for Dropout<T> {
             })
             .collect();
 
-        let input_data = input.data_vec()?;
+        let input_data = input.data()?;
         let output_data: Vec<T> = input_data
             .iter()
             .zip(scaled_mask.iter())
@@ -369,7 +371,7 @@ impl<T: Float> Module<T> for Dropout2d<T> {
             mask
         };
 
-        let input_data = input.data_vec()?;
+        let input_data = input.data()?;
         let output_data: Vec<T> = input_data
             .iter()
             .zip(scaled_mask.iter())

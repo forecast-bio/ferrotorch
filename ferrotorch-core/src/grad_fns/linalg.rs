@@ -3,14 +3,70 @@
 //! Each struct captures the forward inputs and implements `GradFn` to
 //! compute VJPs (vector-Jacobian products) for reverse-mode autodiff.
 
+use std::any::TypeId;
 use std::sync::Arc;
 
 use crate::autograd::no_grad::is_grad_enabled;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
+use crate::gpu_dispatch::gpu_backend;
 use crate::ops::linalg::{self, mm, transpose};
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
+
+/// Returns `true` if `T` is `f32`.
+#[inline]
+fn is_f32<T: Float>() -> bool {
+    TypeId::of::<T>() == TypeId::of::<f32>()
+}
+
+/// GPU-native matmul backward for f32 tensors.
+/// dA = grad_C @ B^T, dB = A^T @ grad_C — all on GPU, no CPU roundtrip.
+fn mm_backward_gpu<T: Float>(
+    grad_output: &Tensor<T>,
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+) -> FerrotorchResult<(Option<Tensor<T>>, Option<Tensor<T>>)> {
+    let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+    let go_h = grad_output.gpu_handle()?;
+    let m = grad_output.shape()[0];
+    let n = grad_output.shape()[1];
+
+    let grad_a = if a.requires_grad() {
+        // dA = grad_C @ B^T: grad_C is (M,N), B is (K_b,N) => B^T is (N,K_b)
+        // result is (M, K_b)
+        let k = b.shape()[0];
+        let b_h = b.gpu_handle()?;
+        let bt_h = backend.transpose_2d_f32(b_h, k, n)?;
+        let result_h = backend.matmul_f32(go_h, &bt_h, m, n, k)?;
+        Some(Tensor::from_storage(
+            TensorStorage::gpu(result_h),
+            vec![m, k],
+            false,
+        )?)
+    } else {
+        None
+    };
+
+    let grad_b = if b.requires_grad() {
+        // dB = A^T @ grad_C: A is (M,K_a), A^T is (K_a,M), grad_C is (M,N)
+        // result is (K_a, N)
+        let k = a.shape()[1];
+        let a_h = a.gpu_handle()?;
+        let at_h = backend.transpose_2d_f32(a_h, m, k)?;
+        let result_h = backend.matmul_f32(&at_h, go_h, k, m, n)?;
+        Some(Tensor::from_storage(
+            TensorStorage::gpu(result_h),
+            vec![k, n],
+            false,
+        )?)
+    } else {
+        None
+    };
+
+    Ok((grad_a, grad_b))
+}
+
 
 // ---------------------------------------------------------------------------
 // MmBackward — C = A @ B  (2D x 2D)
@@ -35,18 +91,40 @@ impl<T: Float> MmBackward<T> {
 
 impl<T: Float> GradFn<T> for MmBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        // GPU-native path: stay on GPU for f32 tensors.
+        if grad_output.is_cuda() && is_f32::<T>() {
+            let (ga, gb) = mm_backward_gpu(grad_output, &self.a, &self.b)?;
+            return Ok(vec![ga, gb]);
+        }
+
+        // CPU fallback (also handles f64 GPU tensors).
+        let device = grad_output.device();
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_a = if self.a.is_cuda() { self.a.cpu()? } else { self.a.clone() };
+        let cpu_b = if self.b.is_cuda() { self.b.cpu()? } else { self.b.clone() };
+
         let grad_a = if self.a.requires_grad() {
-            // dA = grad_C @ B^T
-            let bt = transpose(&self.b)?;
-            Some(mm(grad_output, &bt)?)
+            let gc_data = cpu_go.data()?;
+            let b_data = cpu_b.data()?;
+            let m = grad_output.shape()[0];
+            let n = grad_output.shape()[1];
+            let k = self.b.shape()[0];
+            let result = crate::ops::linalg::mm_raw_bt(&gc_data, &b_data, m, n, k);
+            let t = Tensor::from_storage(TensorStorage::cpu(result), vec![m, k], false)?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
 
         let grad_b = if self.b.requires_grad() {
-            // dB = A^T @ grad_C
-            let at = transpose(&self.a)?;
-            Some(mm(&at, grad_output)?)
+            let a_data = cpu_a.data()?;
+            let gc_data = cpu_go.data()?;
+            let m = self.a.shape()[0];
+            let k = self.a.shape()[1];
+            let n = grad_output.shape()[1];
+            let result = crate::ops::linalg::mm_raw_at(&a_data, &gc_data, k, m, n);
+            let t = Tensor::from_storage(TensorStorage::cpu(result), vec![k, n], false)?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
@@ -86,11 +164,17 @@ impl<T: Float> MvBackward<T> {
 
 impl<T: Float> GradFn<T> for MvBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        // GPU-aware: pull to CPU, compute, restore device.
+        let device = grad_output.device();
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_a = if self.a.is_cuda() { self.a.cpu()? } else { self.a.clone() };
+        let cpu_x = if self.x.is_cuda() { self.x.cpu()? } else { self.x.clone() };
+
         // grad_output is shape (M,) — the upstream gradient on y.
         let grad_a = if self.a.requires_grad() {
             // dA = outer(grad_y, x): shape (M, K)
-            let grad_data = grad_output.data()?;
-            let x_data = self.x.data()?;
+            let grad_data = cpu_go.data()?;
+            let x_data = cpu_x.data()?;
             let m = grad_data.len();
             let k = x_data.len();
             let mut outer = vec![<T as num_traits::Zero>::zero(); m * k];
@@ -99,20 +183,21 @@ impl<T: Float> GradFn<T> for MvBackward<T> {
                     outer[i * k + j] = grad_data[i] * x_data[j];
                 }
             }
-            Some(Tensor::from_storage(
+            let t = Tensor::from_storage(
                 TensorStorage::cpu(outer),
                 vec![m, k],
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
 
         let grad_x = if self.x.requires_grad() {
             // dx = A^T @ grad_y
-            // A is (M, K), A^T is (K, M), grad_y is (M,) -> result is (K,)
-            let at = transpose(&self.a)?;
-            Some(linalg::mv(&at, grad_output)?)
+            let at = transpose(&cpu_a)?;
+            let t = linalg::mv(&at, &cpu_go)?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
@@ -152,30 +237,34 @@ impl<T: Float> DotBackward<T> {
 
 impl<T: Float> GradFn<T> for DotBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let s = grad_output.item()?;
+        let device = grad_output.device();
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let s = cpu_go.item()?;
 
         let grad_a = if self.a.requires_grad() {
-            // da = grad_s * b
-            let b_data = self.b.data()?;
+            let cpu_b = if self.b.is_cuda() { self.b.cpu()? } else { self.b.clone() };
+            let b_data = cpu_b.data()?;
             let result: Vec<T> = b_data.iter().map(|&v| s * v).collect();
-            Some(Tensor::from_storage(
+            let t = Tensor::from_storage(
                 TensorStorage::cpu(result),
                 self.a.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
 
         let grad_b = if self.b.requires_grad() {
-            // db = grad_s * a
-            let a_data = self.a.data()?;
+            let cpu_a = if self.a.is_cuda() { self.a.cpu()? } else { self.a.clone() };
+            let a_data = cpu_a.data()?;
             let result: Vec<T> = a_data.iter().map(|&v| s * v).collect();
-            Some(Tensor::from_storage(
+            let t = Tensor::from_storage(
                 TensorStorage::cpu(result),
                 self.b.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
@@ -215,6 +304,11 @@ impl<T: Float> BmmBackward<T> {
 
 impl<T: Float> GradFn<T> for BmmBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let device = grad_output.device();
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_a = if self.a.is_cuda() { self.a.cpu()? } else { self.a.clone() };
+        let cpu_b = if self.b.is_cuda() { self.b.cpu()? } else { self.b.clone() };
+
         let batch = self.a.shape()[0];
         let m = self.a.shape()[1];
         let k = self.a.shape()[2];
@@ -222,8 +316,8 @@ impl<T: Float> GradFn<T> for BmmBackward<T> {
 
         let grad_a = if self.a.requires_grad() {
             // dA[b] = grad_C[b] @ B[b]^T   — shape per batch: (M,N) @ (N,K) -> (M,K)
-            let grad_data = grad_output.data()?;
-            let b_data = self.b.data()?;
+            let grad_data = cpu_go.data()?;
+            let b_data = cpu_b.data()?;
             let mut result = vec![<T as num_traits::Zero>::zero(); batch * m * k];
 
             for bi in 0..batch {
@@ -241,19 +335,20 @@ impl<T: Float> GradFn<T> for BmmBackward<T> {
                     }
                 }
             }
-            Some(Tensor::from_storage(
+            let t = Tensor::from_storage(
                 TensorStorage::cpu(result),
                 vec![batch, m, k],
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
 
         let grad_b = if self.b.requires_grad() {
             // dB[b] = A[b]^T @ grad_C[b]   — shape per batch: (K,M) @ (M,N) -> (K,N)
-            let a_data = self.a.data()?;
-            let grad_data = grad_output.data()?;
+            let a_data = cpu_a.data()?;
+            let grad_data = cpu_go.data()?;
             let mut result = vec![<T as num_traits::Zero>::zero(); batch * k * n];
 
             for bi in 0..batch {
@@ -271,11 +366,12 @@ impl<T: Float> GradFn<T> for BmmBackward<T> {
                     }
                 }
             }
-            Some(Tensor::from_storage(
+            let t = Tensor::from_storage(
                 TensorStorage::cpu(result),
                 vec![batch, k, n],
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
@@ -329,17 +425,21 @@ impl<T: Float> GradFn<T> for MatmulBackward<T> {
             }
             (1, 2) => {
                 // vm: y = a @ B where a is (K,), B is (K,N), y is (N,)
-                // da = B @ grad_y  (K,N) @ (N,) -> (K,)
-                // dB = outer(a, grad_y): dB[k,n] = a[k] * grad_y[n]
+                let device = grad_output.device();
+                let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+                let cpu_a = if self.a.is_cuda() { self.a.cpu()? } else { self.a.clone() };
+                let cpu_b = if self.b.is_cuda() { self.b.cpu()? } else { self.b.clone() };
+
                 let grad_a = if self.a.requires_grad() {
-                    Some(linalg::mv(&self.b, grad_output)?)
+                    let t = linalg::mv(&cpu_b, &cpu_go)?;
+                    Some(if device.is_cuda() { t.to(device)? } else { t })
                 } else {
                     None
                 };
 
                 let grad_b = if self.b.requires_grad() {
-                    let a_data = self.a.data()?;
-                    let grad_data = grad_output.data()?;
+                    let a_data = cpu_a.data()?;
+                    let grad_data = cpu_go.data()?;
                     let k = a_data.len();
                     let n = grad_data.len();
                     let mut outer = vec![<T as num_traits::Zero>::zero(); k * n];
@@ -348,11 +448,12 @@ impl<T: Float> GradFn<T> for MatmulBackward<T> {
                             outer[ki * n + ni] = a_data[ki] * grad_data[ni];
                         }
                     }
-                    Some(Tensor::from_storage(
+                    let t = Tensor::from_storage(
                         TensorStorage::cpu(outer),
                         vec![k, n],
                         false,
-                    )?)
+                    )?;
+                    Some(if device.is_cuda() { t.to(device)? } else { t })
                 } else {
                     None
                 };
@@ -406,34 +507,410 @@ pub fn mm_differentiable<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchRe
             Tensor::from_storage(storage, shape, false)
         }
     } else {
-        let result = mm(a, b)?;
+        let m = a.shape()[0];
+        let k = a.shape()[1];
+        let n = b.shape()[1];
+
+        if k != b.shape()[0] {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "mm: inner dimensions mismatch: ({},{}) @ ({},{})",
+                    m, k, b.shape()[0], n
+                ),
+            });
+        }
+
+        let a_data = a.data()?;
+        let b_data = b.data()?;
+
+        // Compute result directly — no intermediate Tensor allocation.
+        let result_vec = linalg::mm_raw(a_data, b_data, m, k, n);
+        let storage = TensorStorage::cpu(result_vec);
+        let shape = vec![m, n];
 
         if is_grad_enabled() && (a.requires_grad() || b.requires_grad()) {
             let grad_fn = Arc::new(MmBackward::new(a.clone(), b.clone()));
-            Tensor::from_operation(
-                TensorStorage::cpu(result.data()?.to_vec()),
-                result.shape().to_vec(),
-                grad_fn,
-            )
+            Tensor::from_operation(storage, shape, grad_fn)
         } else {
-            Ok(result)
+            Tensor::from_storage(storage, shape, false)
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MmBtBackward — C = A @ B^T  (fused transpose, no materialized B^T)
+// ---------------------------------------------------------------------------
+
+/// Backward for fused `C = A @ B^T` (B is NOT transposed in storage).
+///
+/// Forward: C[i,j] = sum_k A[i,k] * B[j,k]  (B is (N,K) row-major)
+///
+/// VJP:
+/// - `dA = grad_C @ B`   (no transpose — B is already in the right layout)
+/// - `dB = grad_C^T @ A` (which is the same as grad_C transposed times A)
+#[derive(Debug)]
+struct MmBtBackward<T: Float> {
+    a: Tensor<T>,   // (M, K)
+    b: Tensor<T>,   // (N, K) — original, not transposed
+}
+
+impl<T: Float> MmBtBackward<T> {
+    fn new(a: Tensor<T>, b: Tensor<T>) -> Self {
+        Self { a, b }
+    }
+}
+
+impl<T: Float> GradFn<T> for MmBtBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let device = grad_output.device();
+
+        // GPU-native path for f32.
+        if grad_output.is_cuda() && is_f32::<T>() {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let go_h = grad_output.gpu_handle()?;
+            let m = grad_output.shape()[0];
+            let n = grad_output.shape()[1];
+
+            let grad_a = if self.a.requires_grad() {
+                // dA = grad_C @ B: (M,N) @ (N,K) -> (M,K)
+                let k = self.b.shape()[1];
+                let b_h = self.b.gpu_handle()?;
+                let result_h = backend.matmul_f32(go_h, b_h, m, n, k)?;
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h), vec![m, k], false,
+                )?)
+            } else { None };
+
+            let grad_b = if self.b.requires_grad() {
+                // dB = grad_C^T @ A: (N,M) @ (M,K) -> (N,K)
+                let k = self.a.shape()[1];
+                let got_h = backend.transpose_2d_f32(go_h, m, n)?;
+                let a_h = self.a.gpu_handle()?;
+                let result_h = backend.matmul_f32(&got_h, a_h, n, m, k)?;
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h), vec![n, k], false,
+                )?)
+            } else { None };
+
+            return Ok(vec![grad_a, grad_b]);
+        }
+
+        let grad_a = if self.a.requires_grad() {
+            Some(mm(grad_output, &self.b)?)
+        } else {
+            None
+        };
+
+        let grad_b = if self.b.requires_grad() {
+            let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+            let cpu_a = if self.a.is_cuda() { self.a.cpu()? } else { self.a.clone() };
+            let gc_data = cpu_go.data()?;
+            let a_data = cpu_a.data()?;
+            let m = grad_output.shape()[0];
+            let n = grad_output.shape()[1];
+            let k = self.a.shape()[1];
+            let result = crate::ops::linalg::mm_raw_at(&gc_data, &a_data, n, m, k);
+            let t = Tensor::from_storage(TensorStorage::cpu(result), vec![n, k], false)?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
+        } else {
+            None
+        };
+
+        Ok(vec![grad_a, grad_b])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.a, &self.b]
+    }
+
+    fn name(&self) -> &'static str {
+        "MmBtBackward"
+    }
+}
+
+/// Fused differentiable `A @ B^T`. Avoids materializing the transpose of B.
+///
+/// A: (M, K), B: (N, K) -> result: (M, N)
+/// Linear layer uses this: input @ weight^T where weight is (out, in).
+pub fn mm_bt_differentiable<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    let m = a.shape()[0];
+    let k = a.shape()[1];
+    let n = b.shape()[0];
+
+    if b.ndim() != 2 || b.shape()[1] != k {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "mm_bt: A is ({},{}) but B is {:?} (expected ({},{}))",
+                m, k, b.shape(), n, k
+            ),
+        });
+    }
+
+    // GPU path: transpose B then matmul.
+    if a.is_cuda() {
+        let backend = crate::gpu_dispatch::gpu_backend()
+            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let bt_handle = backend.transpose_2d_f32(b.gpu_handle()?, n, k)?;
+        let handle = backend.matmul_f32(a.gpu_handle()?, &bt_handle, m, k, n)?;
+        let storage = TensorStorage::gpu(handle);
+        let shape = vec![m, n];
+
+        return if is_grad_enabled() && (a.requires_grad() || b.requires_grad()) {
+            let grad_fn = Arc::new(MmBtBackward::new(a.clone(), b.clone()));
+            Tensor::from_operation(storage, shape, grad_fn)
+        } else {
+            Tensor::from_storage(storage, shape, false)
+        };
+    }
+
+    let a_data = a.data()?;
+    let b_data = b.data()?;
+    let result_vec = linalg::mm_raw_bt(a_data, b_data, m, k, n);
+    let storage = TensorStorage::cpu(result_vec);
+    let shape = vec![m, n];
+
+    if is_grad_enabled() && (a.requires_grad() || b.requires_grad()) {
+        let grad_fn = Arc::new(MmBtBackward::new(a.clone(), b.clone()));
+        Tensor::from_operation(storage, shape, grad_fn)
+    } else {
+        Tensor::from_storage(storage, shape, false)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fused Linear: C = A @ W^T + bias  (avoids intermediate tensors)
+// ---------------------------------------------------------------------------
+
+/// Backward for fused linear: C = A @ W^T + bias.
+/// grad_A = grad_C @ W, grad_W = grad_C^T @ A, grad_bias = sum(grad_C, dim=0).
+#[derive(Debug)]
+struct LinearFusedBackward<T: Float> {
+    input: Tensor<T>,    // (M, K)
+    weight: Tensor<T>,   // (N, K) — not transposed
+    has_bias: bool,
+    bias: Option<Tensor<T>>,  // (N,)
+}
+
+impl<T: Float> GradFn<T> for LinearFusedBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let device = grad_output.device();
+        let m = grad_output.shape()[0];
+        let n = grad_output.shape()[1];
+
+        // GPU-native path for f32 tensors.
+        if grad_output.is_cuda() && is_f32::<T>() {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let go_h = grad_output.gpu_handle()?;
+
+            // grad_input = grad_C @ W: grad_C(M,N) @ W(N,K) -> (M,K)
+            let grad_input = if self.input.requires_grad() {
+                let k = self.weight.shape()[1];
+                let w_h = self.weight.gpu_handle()?;
+                let result_h = backend.matmul_f32(go_h, w_h, m, n, k)?;
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h), vec![m, k], false,
+                )?)
+            } else { None };
+
+            // grad_weight = grad_C^T @ input: (N,M) @ (M,K) -> (N,K)
+            let grad_weight = if self.weight.requires_grad() {
+                let k = self.input.shape()[1];
+                let got_h = backend.transpose_2d_f32(go_h, m, n)?;
+                let inp_h = self.input.gpu_handle()?;
+                let result_h = backend.matmul_f32(&got_h, inp_h, n, m, k)?;
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h), vec![n, k], false,
+                )?)
+            } else { None };
+
+            // grad_bias = sum(grad_C, dim=0) -> (N,)
+            // No row-wise sum kernel; pull grad_C to CPU for this small op.
+            let grad_bias = if self.has_bias {
+                if let Some(ref b) = self.bias {
+                    if b.requires_grad() {
+                        let cpu_go = grad_output.cpu()?;
+                        let gc_data = cpu_go.data()?;
+                        let zero = <T as num_traits::Zero>::zero();
+                        let mut gb = vec![zero; n];
+                        for i in 0..m {
+                            let row = i * n;
+                            for j in 0..n {
+                                gb[j] = gb[j] + gc_data[row + j];
+                            }
+                        }
+                        let t = Tensor::from_storage(TensorStorage::cpu(gb), vec![n], false)?;
+                        Some(t.to(device)?)
+                    } else { None }
+                } else { None }
+            } else { None };
+
+            return Ok(vec![grad_input, grad_weight, grad_bias]);
+        }
+
+        // CPU fallback.
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let gc_data = cpu_go.data()?;
+
+        let grad_input = if self.input.requires_grad() {
+            let cpu_w = if self.weight.is_cuda() { self.weight.cpu()? } else { self.weight.clone() };
+            let w_data = cpu_w.data()?;
+            let k = self.weight.shape()[1];
+            let result = crate::ops::linalg::mm_raw(&gc_data, &w_data, m, n, k);
+            let t = Tensor::from_storage(TensorStorage::cpu(result), vec![m, k], false)?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
+        } else { None };
+
+        let grad_weight = if self.weight.requires_grad() {
+            let cpu_inp = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
+            let a_data = cpu_inp.data()?;
+            let k = self.input.shape()[1];
+            let result = crate::ops::linalg::mm_raw_at(&gc_data, &a_data, n, m, k);
+            let t = Tensor::from_storage(TensorStorage::cpu(result), vec![n, k], false)?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
+        } else { None };
+
+        let grad_bias = if self.has_bias {
+            if let Some(ref b) = self.bias {
+                if b.requires_grad() {
+                    let zero = <T as num_traits::Zero>::zero();
+                    let mut gb = vec![zero; n];
+                    for i in 0..m {
+                        let row = i * n;
+                        for j in 0..n {
+                            gb[j] = gb[j] + gc_data[row + j];
+                        }
+                    }
+                    let t = Tensor::from_storage(TensorStorage::cpu(gb), vec![n], false)?;
+                    Some(if device.is_cuda() { t.to(device)? } else { t })
+                } else { None }
+            } else { None }
+        } else { None };
+
+        Ok(vec![grad_input, grad_weight, grad_bias])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        let mut v = vec![&self.input, &self.weight];
+        if let Some(ref b) = self.bias {
+            v.push(b);
+        }
+        v
+    }
+
+    fn name(&self) -> &'static str {
+        "LinearFusedBackward"
+    }
+}
+
+/// Fused differentiable linear: output = input @ weight^T + bias.
+/// Creates a single tensor (instead of 3) with a combined backward.
+pub fn linear_fused<T: Float>(
+    input: &Tensor<T>,
+    weight: &Tensor<T>,
+    bias: Option<&Tensor<T>>,
+) -> FerrotorchResult<Tensor<T>> {
+    let m = input.shape()[0];
+    let k = input.shape()[1];
+    let n = weight.shape()[0];
+
+    // GPU path: transpose weight, matmul, broadcast_add bias.
+    if input.is_cuda() {
+        let backend = crate::gpu_dispatch::gpu_backend()
+            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        // C = input @ weight^T
+        let wt_handle = backend.transpose_2d_f32(weight.gpu_handle()?, n, k)?;
+        let mut result_handle = backend.matmul_f32(input.gpu_handle()?, &wt_handle, m, k, n)?;
+        // Add bias if present
+        if let Some(b) = bias {
+            let out_shape = vec![m, n];
+            let b_shape = vec![n];
+            result_handle = backend.broadcast_add_f32(
+                &result_handle, b.gpu_handle()?,
+                &out_shape, &b_shape, &out_shape,
+            )?;
+        }
+        let storage = TensorStorage::gpu(result_handle);
+        let shape = vec![m, n];
+
+        let needs_grad = is_grad_enabled() && (input.requires_grad() || weight.requires_grad()
+            || bias.map_or(false, |b| b.requires_grad()));
+
+        return if needs_grad {
+            let grad_fn = Arc::new(LinearFusedBackward {
+                input: input.clone(),
+                weight: weight.clone(),
+                has_bias: bias.is_some(),
+                bias: bias.map(|b| b.clone()),
+            });
+            Tensor::from_operation(storage, shape, grad_fn)
+        } else {
+            Tensor::from_storage(storage, shape, false)
+        };
+    }
+
+    let a_data = input.data()?;
+    let w_data = weight.data()?;
+    let mut result_vec = linalg::mm_raw_bt(&a_data, &w_data, m, k, n);
+
+    // Fuse bias addition
+    if let Some(b) = bias {
+        let b_data = b.data()?;
+        for i in 0..m {
+            let row = i * n;
+            for j in 0..n {
+                result_vec[row + j] = result_vec[row + j] + b_data[j];
+            }
+        }
+    }
+
+    let storage = TensorStorage::cpu(result_vec);
+    let shape = vec![m, n];
+
+    let needs_grad = is_grad_enabled() && (input.requires_grad() || weight.requires_grad()
+        || bias.map_or(false, |b| b.requires_grad()));
+
+    if needs_grad {
+        let grad_fn = Arc::new(LinearFusedBackward {
+            input: input.clone(),
+            weight: weight.clone(),
+            has_bias: bias.is_some(),
+            bias: bias.map(|b| b.clone()),
+        });
+        Tensor::from_operation(storage, shape, grad_fn)
+    } else {
+        Tensor::from_storage(storage, shape, false)
     }
 }
 
 /// Differentiable matrix-vector multiply. Attaches `MvBackward` when needed.
 pub fn mv_differentiable<T: Float>(a: &Tensor<T>, x: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let result = linalg::mv(a, x)?;
+    let needs_grad = is_grad_enabled() && (a.requires_grad() || x.requires_grad());
 
-    if is_grad_enabled() && (a.requires_grad() || x.requires_grad()) {
+    // Compute mv directly from slices to avoid double-copy.
+    let a_data = a.data()?;
+    let x_data = x.data()?;
+    let m = a.shape()[0];
+    let k = a.shape()[1];
+    let zero = <T as num_traits::Zero>::zero();
+
+    let mut result_vec = vec![zero; m];
+    for i in 0..m {
+        let mut acc = zero;
+        let row = i * k;
+        for p in 0..k {
+            acc = acc + a_data[row + p] * x_data[p];
+        }
+        result_vec[i] = acc;
+    }
+
+    let storage = TensorStorage::cpu(result_vec);
+    let shape = vec![m];
+
+    if needs_grad {
         let grad_fn = Arc::new(MvBackward::new(a.clone(), x.clone()));
-        Tensor::from_operation(
-            TensorStorage::cpu(result.data()?.to_vec()),
-            result.shape().to_vec(),
-            grad_fn,
-        )
+        Tensor::from_operation(storage, shape, grad_fn)
     } else {
-        Ok(result)
+        Tensor::from_storage(storage, shape, false)
     }
 }
 
@@ -442,33 +919,61 @@ pub fn dot_differentiable<T: Float>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> FerrotorchResult<Tensor<T>> {
-    let result = linalg::dot(a, b)?;
+    let needs_grad = is_grad_enabled() && (a.requires_grad() || b.requires_grad());
 
-    if is_grad_enabled() && (a.requires_grad() || b.requires_grad()) {
+    let a_data = a.data()?;
+    let b_data = b.data()?;
+    let result_val = a_data
+        .iter()
+        .zip(b_data.iter())
+        .fold(<T as num_traits::Zero>::zero(), |acc, (&x, &y)| acc + x * y);
+
+    let storage = TensorStorage::cpu(vec![result_val]);
+    let shape = vec![];
+
+    if needs_grad {
         let grad_fn = Arc::new(DotBackward::new(a.clone(), b.clone()));
-        Tensor::from_operation(
-            TensorStorage::cpu(result.data()?.to_vec()),
-            result.shape().to_vec(),
-            grad_fn,
-        )
+        Tensor::from_operation(storage, shape, grad_fn)
     } else {
-        Ok(result)
+        Tensor::from_storage(storage, shape, false)
     }
 }
 
 /// Differentiable batched matmul with `BmmBackward`.
 pub fn bmm_differentiable<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let result = linalg::bmm(a, b)?;
+    let needs_grad = is_grad_enabled() && (a.requires_grad() || b.requires_grad());
 
-    if is_grad_enabled() && (a.requires_grad() || b.requires_grad()) {
+    // Compute bmm directly from slices to avoid double-copy.
+    let a_data = a.data()?;
+    let b_data = b.data()?;
+    let batch = a.shape()[0];
+    let m = a.shape()[1];
+    let k = a.shape()[2];
+    let n = b.shape()[2];
+    let zero = <T as num_traits::Zero>::zero();
+
+    let slice_a = m * k;
+    let slice_b = k * n;
+    let slice_c = m * n;
+    let mut result_vec = vec![zero; batch * slice_c];
+
+    for bi in 0..batch {
+        let a_off = bi * slice_a;
+        let b_off = bi * slice_b;
+        let c_off = bi * slice_c;
+        // Use mm_raw for each batch slice for cache-friendly performance.
+        let batch_result = linalg::mm_raw(&a_data[a_off..a_off + slice_a], &b_data[b_off..b_off + slice_b], m, k, n);
+        result_vec[c_off..c_off + slice_c].copy_from_slice(&batch_result);
+    }
+
+    let storage = TensorStorage::cpu(result_vec);
+    let shape = vec![batch, m, n];
+
+    if needs_grad {
         let grad_fn = Arc::new(BmmBackward::new(a.clone(), b.clone()));
-        Tensor::from_operation(
-            TensorStorage::cpu(result.data()?.to_vec()),
-            result.shape().to_vec(),
-            grad_fn,
-        )
+        Tensor::from_operation(storage, shape, grad_fn)
     } else {
-        Ok(result)
+        Tensor::from_storage(storage, shape, false)
     }
 }
 
@@ -499,15 +1004,22 @@ pub fn matmul_differentiable<T: Float>(
             Tensor::from_storage(storage, shape, false)
         }
     } else {
+        // Dispatch to specialized paths that avoid double-copy.
+        match (a.ndim(), b.ndim()) {
+            (1, 1) => return dot_differentiable(a, b),
+            (2, 1) => return mv_differentiable(a, b),
+            (2, 2) => return mm_differentiable(a, b),
+            (3, 3) => return bmm_differentiable(a, b),
+            _ => {}
+        }
+
+        // Fallback for other shapes — still goes through linalg::matmul.
         let result = linalg::matmul(a, b)?;
 
         if is_grad_enabled() && (a.requires_grad() || b.requires_grad()) {
             let grad_fn = Arc::new(MatmulBackward::new(a.clone(), b.clone()));
-            Tensor::from_operation(
-                TensorStorage::cpu(result.data()?.to_vec()),
-                result.shape().to_vec(),
-                grad_fn,
-            )
+            let (storage, shape) = result.into_storage_and_shape()?;
+            Tensor::from_operation(storage, shape, grad_fn)
         } else {
             Ok(result)
         }
