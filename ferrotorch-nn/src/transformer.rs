@@ -34,11 +34,40 @@ use crate::parameter::Parameter;
 // RotaryPositionEmbedding (RoPE)
 // ===========================================================================
 
+/// Selects how RoPE pairs elements for rotation.
+///
+/// - **`Interleaved`** (default) — pairs `(x[2i], x[2i+1])`.
+///   Used by the original RoFormer paper.
+/// - **`HalfRotation`** — pairs `(x[i], x[i + d/2])`.
+///   Used by LLaMA, GPT-NeoX, and Pythia.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum RoPEConvention {
+    /// Pairs consecutive elements: `(x[2i], x[2i+1])`. Original RoFormer.
+    #[default]
+    Interleaved,
+    /// Pairs first-half with second-half: `(x[i], x[i+d/2])`. LLaMA/GPT-NeoX.
+    HalfRotation,
+}
+
+impl std::fmt::Display for RoPEConvention {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RoPEConvention::Interleaved => write!(f, "interleaved"),
+            RoPEConvention::HalfRotation => write!(f, "half_rotation"),
+        }
+    }
+}
+
 /// Rotary Position Embeddings (RoPE).
 ///
 /// Precomputes sin/cos frequency tables up to `max_seq_len` and applies
 /// pairwise rotation to an input tensor, encoding absolute position
 /// information that degrades gracefully with relative distance.
+///
+/// Two element-pairing conventions are supported (see [`RoPEConvention`]):
+///
+/// - **Interleaved** (default): pairs `(x[2i], x[2i+1])` — RoFormer.
+/// - **HalfRotation**: pairs `(x[i], x[i+d/2])` — LLaMA, GPT-NeoX, Pythia.
 ///
 /// RoPE is **not** a [`Module`] — it is a stateless utility applied inside
 /// attention layers before the dot product.
@@ -56,6 +85,7 @@ pub struct RotaryPositionEmbedding<T: Float> {
     dim: usize,
     max_seq_len: usize,
     base: f64,
+    convention: RoPEConvention,
     /// Precomputed cosines: `[max_seq_len, dim/2]`.
     cos_cache: Tensor<T>,
     /// Precomputed sines: `[max_seq_len, dim/2]`.
@@ -63,7 +93,7 @@ pub struct RotaryPositionEmbedding<T: Float> {
 }
 
 impl<T: Float> RotaryPositionEmbedding<T> {
-    /// Create a new RoPE instance.
+    /// Create a new RoPE instance with the default interleaved convention.
     ///
     /// # Arguments
     ///
@@ -75,6 +105,19 @@ impl<T: Float> RotaryPositionEmbedding<T> {
     ///
     /// Returns an error if `dim` is odd or zero, or if `max_seq_len` is zero.
     pub fn new(dim: usize, max_seq_len: usize, base: f64) -> FerrotorchResult<Self> {
+        Self::with_convention(dim, max_seq_len, base, RoPEConvention::default())
+    }
+
+    /// Create a new RoPE instance with a specified pairing convention.
+    ///
+    /// Use [`RoPEConvention::HalfRotation`] for LLaMA, GPT-NeoX, and Pythia
+    /// compatibility.
+    pub fn with_convention(
+        dim: usize,
+        max_seq_len: usize,
+        base: f64,
+        convention: RoPEConvention,
+    ) -> FerrotorchResult<Self> {
         if dim == 0 || dim % 2 != 0 {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!("RoPE dim must be even and positive, got {dim}"),
@@ -122,6 +165,7 @@ impl<T: Float> RotaryPositionEmbedding<T> {
             dim,
             max_seq_len,
             base,
+            convention,
             cos_cache,
             sin_cache,
         })
@@ -184,24 +228,55 @@ impl<T: Float> RotaryPositionEmbedding<T> {
         let total = x.numel();
         let mut output = Vec::with_capacity(total);
 
-        for b in 0..batch_dims {
-            for s in 0..seq_len {
-                let pos = seq_offset + s;
-                let cos_row_start = pos * half_dim;
-                let sin_row_start = pos * half_dim;
-                let x_start = b * seq_len * self.dim + s * self.dim;
+        match self.convention {
+            RoPEConvention::Interleaved => {
+                // Pair (x[2i], x[2i+1]) — original RoFormer convention.
+                for b in 0..batch_dims {
+                    for s in 0..seq_len {
+                        let pos = seq_offset + s;
+                        let cache_start = pos * half_dim;
+                        let x_start = b * seq_len * self.dim + s * self.dim;
 
-                for i in 0..half_dim {
-                    let x_even = x_data[x_start + 2 * i];
-                    let x_odd = x_data[x_start + 2 * i + 1];
-                    let cos_val = cos_data[cos_row_start + i];
-                    let sin_val = sin_data[sin_row_start + i];
+                        for i in 0..half_dim {
+                            let x_even = x_data[x_start + 2 * i];
+                            let x_odd = x_data[x_start + 2 * i + 1];
+                            let cos_val = cos_data[cache_start + i];
+                            let sin_val = sin_data[cache_start + i];
 
-                    // Rotation:
-                    //   x_rot[2i]   = x[2i] * cos - x[2i+1] * sin
-                    //   x_rot[2i+1] = x[2i] * sin + x[2i+1] * cos
-                    output.push(x_even * cos_val - x_odd * sin_val);
-                    output.push(x_even * sin_val + x_odd * cos_val);
+                            output.push(x_even * cos_val - x_odd * sin_val);
+                            output.push(x_even * sin_val + x_odd * cos_val);
+                        }
+                    }
+                }
+            }
+            RoPEConvention::HalfRotation => {
+                // Pair (x[i], x[i + d/2]) — LLaMA/GPT-NeoX convention.
+                // Output layout: first half then second half (same as input).
+                for b in 0..batch_dims {
+                    for s in 0..seq_len {
+                        let pos = seq_offset + s;
+                        let cache_start = pos * half_dim;
+                        let x_start = b * seq_len * self.dim + s * self.dim;
+
+                        // First half: x_rot[i] = x[i] * cos - x[i + d/2] * sin
+                        for i in 0..half_dim {
+                            let x_first = x_data[x_start + i];
+                            let x_second = x_data[x_start + half_dim + i];
+                            let cos_val = cos_data[cache_start + i];
+                            let sin_val = sin_data[cache_start + i];
+
+                            output.push(x_first * cos_val - x_second * sin_val);
+                        }
+                        // Second half: x_rot[i + d/2] = x[i] * sin + x[i + d/2] * cos
+                        for i in 0..half_dim {
+                            let x_first = x_data[x_start + i];
+                            let x_second = x_data[x_start + half_dim + i];
+                            let cos_val = cos_data[cache_start + i];
+                            let sin_val = sin_data[cache_start + i];
+
+                            output.push(x_first * sin_val + x_second * cos_val);
+                        }
+                    }
                 }
             }
         }
@@ -225,6 +300,12 @@ impl<T: Float> RotaryPositionEmbedding<T> {
     #[inline]
     pub fn base(&self) -> f64 {
         self.base
+    }
+
+    /// The pairing convention.
+    #[inline]
+    pub fn convention(&self) -> RoPEConvention {
+        self.convention
     }
 }
 
@@ -1040,6 +1121,111 @@ mod tests {
         let rope = RotaryPositionEmbedding::<f32>::new(8, 128, 10000.0).unwrap();
         let x = ferrotorch_core::zeros::<f32>(&[4, 10]).unwrap(); // dim=10 != 8
         assert!(rope.apply(&x, 0).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // RoPE — HalfRotation convention
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_rope_half_rotation_construction() {
+        let rope = RotaryPositionEmbedding::<f32>::with_convention(
+            8, 128, 10000.0, RoPEConvention::HalfRotation,
+        ).unwrap();
+        assert_eq!(rope.convention(), RoPEConvention::HalfRotation);
+    }
+
+    #[test]
+    fn test_rope_half_rotation_output_shape() {
+        let rope = RotaryPositionEmbedding::<f32>::with_convention(
+            8, 128, 10000.0, RoPEConvention::HalfRotation,
+        ).unwrap();
+        let x = ferrotorch_core::zeros::<f32>(&[2, 4, 8]).unwrap();
+        let y = rope.apply(&x, 0).unwrap();
+        assert_eq!(y.shape(), &[2, 4, 8]);
+    }
+
+    #[test]
+    fn test_rope_half_rotation_position_zero_is_identity() {
+        // At position 0, cos(0)=1, sin(0)=0 → identity regardless of convention.
+        let rope = RotaryPositionEmbedding::<f64>::with_convention(
+            4, 64, 10000.0, RoPEConvention::HalfRotation,
+        ).unwrap();
+        let x = ferrotorch_core::from_slice(&[1.0, 2.0, 3.0, 4.0], &[1, 4]).unwrap();
+        let y = rope.apply(&x, 0).unwrap();
+        let x_data = x.data().unwrap();
+        let y_data = y.data().unwrap();
+        for (i, (&xv, &yv)) in x_data.iter().zip(y_data.iter()).enumerate() {
+            assert!(
+                (xv - yv).abs() < 1e-10,
+                "half-rot pos 0 should be identity, index {i}: x={xv}, y={yv}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rope_half_rotation_correctness() {
+        // dim=4, so half_dim=2. For half-rotation:
+        //   x_rot[0] = x[0]*cos0 - x[2]*sin0
+        //   x_rot[1] = x[1]*cos1 - x[3]*sin1
+        //   x_rot[2] = x[0]*sin0 + x[2]*cos0
+        //   x_rot[3] = x[1]*sin1 + x[3]*cos1
+        let rope = RotaryPositionEmbedding::<f64>::with_convention(
+            4, 64, 10000.0, RoPEConvention::HalfRotation,
+        ).unwrap();
+
+        // Use position 1 so sin != 0.
+        let x = ferrotorch_core::from_slice(&[1.0, 2.0, 3.0, 4.0], &[1, 4]).unwrap();
+        let y = rope.apply(&x, 1).unwrap();
+
+        // Get the cached cos/sin at position 1.
+        let cos_data = rope.cos_cache.data().unwrap();
+        let sin_data = rope.sin_cache.data().unwrap();
+        // Position 1 → row offset = 1 * half_dim = 2
+        let c0 = cos_data[2]; let c1 = cos_data[3];
+        let s0 = sin_data[2]; let s1 = sin_data[3];
+
+        let expected = [
+            1.0 * c0 - 3.0 * s0,
+            2.0 * c1 - 4.0 * s1,
+            1.0 * s0 + 3.0 * c0,
+            2.0 * s1 + 4.0 * c1,
+        ];
+
+        let y_data = y.data().unwrap();
+        for (i, (&actual, &exp)) in y_data.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (actual - exp).abs() < 1e-10,
+                "half-rot index {i}: actual={actual}, expected={exp}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rope_interleaved_vs_half_rotation_differ() {
+        // Same input at position > 0 should produce different outputs.
+        let rope_il = RotaryPositionEmbedding::<f64>::with_convention(
+            4, 64, 10000.0, RoPEConvention::Interleaved,
+        ).unwrap();
+        let rope_hr = RotaryPositionEmbedding::<f64>::with_convention(
+            4, 64, 10000.0, RoPEConvention::HalfRotation,
+        ).unwrap();
+
+        let x = ferrotorch_core::from_slice(&[1.0, 2.0, 3.0, 4.0], &[1, 4]).unwrap();
+        let y_il = rope_il.apply(&x, 1).unwrap();
+        let y_hr = rope_hr.apply(&x, 1).unwrap();
+
+        // They should differ (different pairing).
+        let il_data = y_il.data().unwrap();
+        let hr_data = y_hr.data().unwrap();
+        let any_differ = il_data.iter().zip(hr_data.iter()).any(|(&a, &b)| (a - b).abs() > 1e-10);
+        assert!(any_differ, "interleaved and half-rotation should produce different outputs at pos > 0");
+    }
+
+    #[test]
+    fn test_rope_default_convention_is_interleaved() {
+        let rope = RotaryPositionEmbedding::<f32>::new(8, 128, 10000.0).unwrap();
+        assert_eq!(rope.convention(), RoPEConvention::Interleaved);
     }
 
     // -----------------------------------------------------------------------

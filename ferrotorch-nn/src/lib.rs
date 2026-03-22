@@ -59,6 +59,7 @@ pub use pooling::{
 pub use rnn::{GRU, LSTM};
 pub use rnn_utils::{PackedSequence, pack_padded_sequence, pad_packed_sequence};
 pub use transformer::{
-    KVCache, RotaryPositionEmbedding, SwiGLU, TransformerDecoderLayer, TransformerEncoderLayer,
+    KVCache, RoPEConvention, RotaryPositionEmbedding, SwiGLU, TransformerDecoderLayer,
+    TransformerEncoderLayer,
 };
 pub use utils::{clip_grad_norm_, clip_grad_value_};
