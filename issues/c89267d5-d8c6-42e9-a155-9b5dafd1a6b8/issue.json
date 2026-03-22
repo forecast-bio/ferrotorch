@@ -1,0 +1,11 @@
+{
+  "uuid": "c89267d5-d8c6-42e9-a155-9b5dafd1a6b8",
+  "display_id": 203,
+  "title": "Update differentiable matmul wrappers and backward passes for broadcast",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "025ce69b-990b-4d0f-bb9a-2d779ff7715c",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-22T21:28:29.963368026Z",
+  "updated_at": "2026-03-22T21:28:29.963368026Z"
+}
