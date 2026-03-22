@@ -441,62 +441,22 @@ struct DivBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for DivBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        if grad_output.is_cuda() {
-            // GPU path: use op-level functions in no_grad.
-            // da = grad / b
-            let da = if self.a.requires_grad() {
-                let raw = no_grad(|| div(grad_output, &self.b))?;
-                Some(reduce_grad_to_shape(&raw, self.a.shape())?)
-            } else {
-                None
-            };
-            // db = -grad * a / (b * b)
-            let db = if self.b.requires_grad() {
-                let raw = no_grad(|| {
-                    let neg_go = neg(grad_output)?;
-                    let neg_go_a = mul(&neg_go, &self.a)?;
-                    let b_sq = mul(&self.b, &self.b)?;
-                    div(&neg_go_a, &b_sq)
-                })?;
-                Some(reduce_grad_to_shape(&raw, self.b.shape())?)
-            } else {
-                None
-            };
-            return Ok(vec![da, db]);
-        }
-
-        // CPU path: direct data access for performance.
-        let go_data = grad_output.data()?;
-        let b_data = self.b.data()?;
-
+        // Use op-level functions which handle broadcasting correctly.
+        // da = grad / b
         let da = if self.a.requires_grad() {
-            let grad_a: Vec<T> = go_data
-                .iter()
-                .zip(b_data.iter())
-                .map(|(&g, &b)| g / b)
-                .collect();
-            let raw = Tensor::from_storage(
-                TensorStorage::cpu(grad_a),
-                grad_output.shape().to_vec(),
-                false,
-            )?;
+            let raw = no_grad(|| div(grad_output, &self.b))?;
             Some(reduce_grad_to_shape(&raw, self.a.shape())?)
         } else {
             None
         };
-
+        // db = -grad * a / (b * b)
         let db = if self.b.requires_grad() {
-            let a_data = self.a.data()?;
-            let grad_b: Vec<T> = go_data
-                .iter()
-                .zip(a_data.iter().zip(b_data.iter()))
-                .map(|(&g, (&a, &b))| -g * a / (b * b))
-                .collect();
-            let raw = Tensor::from_storage(
-                TensorStorage::cpu(grad_b),
-                grad_output.shape().to_vec(),
-                false,
-            )?;
+            let raw = no_grad(|| {
+                let neg_go = neg(grad_output)?;
+                let neg_go_a = mul(&neg_go, &self.a)?;
+                let b_sq = mul(&self.b, &self.b)?;
+                div(&neg_go_a, &b_sq)
+            })?;
             Some(reduce_grad_to_shape(&raw, self.b.shape())?)
         } else {
             None
@@ -1024,6 +984,38 @@ mod tests {
 
         assert_scalar_approx(&a.grad().unwrap().unwrap(), 0.25, 1e-6);
         assert_scalar_approx(&b.grad().unwrap().unwrap(), -0.375, 1e-6);
+    }
+
+    #[test]
+    fn test_div_backward_tensor_by_scalar() {
+        // Reproducer from GitHub issue #7:
+        // x = [1, 2, 3, 4] (shape [2,2]), s = 2.0 (scalar)
+        // y = x / s = [0.5, 1.0, 1.5, 2.0]
+        // loss = sum(y) = 5.0
+        // d_loss/d_x = 1/s = 0.5 for all elements
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f64, 2.0, 3.0, 4.0]),
+            vec![2, 2],
+            true,
+        ).unwrap();
+        let s = Tensor::from_storage(
+            TensorStorage::cpu(vec![2.0f64]),
+            vec![],
+            false,
+        ).unwrap();
+        let y = div(&x, &s).unwrap();
+        let loss = crate::grad_fns::reduction::sum(&y).unwrap();
+        loss.backward().unwrap();
+
+        let grad = x.grad().unwrap().expect("x should have grad");
+        assert_eq!(grad.shape(), &[2, 2]);
+        let g = grad.data().unwrap();
+        for (i, &v) in g.iter().enumerate() {
+            assert!(
+                (v - 0.5).abs() < 1e-10,
+                "grad[{i}] = {v}, expected 0.5"
+            );
+        }
     }
 
     #[test]
