@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 - Add GELU approximation modes matching PyTorch (none, tanh) plus existing sigmoid (#205)
 - Add GELU approximation modes matching PyTorch (none, tanh) plus existing sigmoid (#205)
+- Add GELU approximation modes matching PyTorch (none, tanh) plus existing sigmoid (#205)
 - Update differentiable matmul wrappers and backward passes for broadcast (#203)
 - Update nn::Linear to accept arbitrary-rank inputs (#201)
 - Add batched broadcast matmul for arbitrary-rank tensors (#200)
