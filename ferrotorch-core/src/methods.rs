@@ -427,12 +427,17 @@ pub fn chunk_t<T: Float>(
 /// Split tensor into pieces of given sizes along `dim`.
 ///
 /// The sum of `split_sizes` must equal the tensor's size along `dim`.
+/// When gradient tracking is enabled and the input requires grad, each
+/// output chunk is connected to the autograd graph via `SplitBackward`.
 pub fn split_t<T: Float>(
     input: &Tensor<T>,
     split_sizes: &[usize],
     dim: usize,
 ) -> FerrotorchResult<Vec<Tensor<T>>> {
+    use std::sync::Arc;
+    use crate::autograd::no_grad::is_grad_enabled;
     use crate::error::FerrotorchError;
+    use crate::grad_fns::shape::SplitBackward;
     use crate::storage::TensorStorage;
 
     let shape = input.shape();
@@ -458,6 +463,7 @@ pub fn split_t<T: Float>(
     }
 
     let in_data = input.data()?;
+    let needs_grad = is_grad_enabled() && input.requires_grad();
 
     let outer: usize = shape[..dim].iter().product();
     let inner: usize = if dim + 1 < ndim {
@@ -468,7 +474,7 @@ pub fn split_t<T: Float>(
     let total_along_dim = shape[dim];
 
     let mut results = Vec::with_capacity(split_sizes.len());
-    let mut offset = 0usize;
+    let mut offset_along_dim = 0usize;
 
     for &split_size in split_sizes {
         let mut chunk_shape = shape.to_vec();
@@ -477,16 +483,26 @@ pub fn split_t<T: Float>(
         let mut chunk_data = vec![<T as num_traits::Zero>::zero(); chunk_numel];
 
         for o in 0..outer {
-            let src_start = o * total_along_dim * inner + offset;
+            let src_start = o * total_along_dim * inner + offset_along_dim * inner;
             let dst_start = o * split_size * inner;
             let row_len = split_size * inner;
             chunk_data[dst_start..dst_start + row_len]
                 .copy_from_slice(&in_data[src_start..src_start + row_len]);
         }
 
-        let t = Tensor::from_storage(TensorStorage::cpu(chunk_data), chunk_shape, false)?;
+        let t = if needs_grad {
+            let grad_fn = Arc::new(SplitBackward::new(
+                input.clone(),
+                dim,
+                offset_along_dim,
+                split_size,
+            ));
+            Tensor::from_operation(TensorStorage::cpu(chunk_data), chunk_shape, grad_fn)?
+        } else {
+            Tensor::from_storage(TensorStorage::cpu(chunk_data), chunk_shape, false)?
+        };
         results.push(t);
-        offset += split_size * inner;
+        offset_along_dim += split_size;
     }
 
     Ok(results)
@@ -694,6 +710,118 @@ mod tests {
     fn test_split_bad_sizes() {
         let a = from_slice(&[1.0f32, 2.0, 3.0], &[3]).unwrap();
         assert!(a.split(&[1, 1], 0).is_err()); // sum != 3
+    }
+
+    // --- split/chunk autograd ---
+
+    #[test]
+    fn test_split_preserves_grad() {
+        // Split a requires-grad tensor and verify chunks have grad_fn.
+        let a = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]),
+            vec![6],
+            true,
+        ).unwrap();
+        let chunks = a.split(&[2, 4], 0).unwrap();
+        assert!(chunks[0].grad_fn().is_some(), "chunk 0 should have grad_fn");
+        assert!(chunks[1].grad_fn().is_some(), "chunk 1 should have grad_fn");
+    }
+
+    #[test]
+    fn test_split_backward_simple() {
+        // x = [1, 2, 3, 4, 5, 6], split into [1,2,3] and [4,5,6].
+        // loss = sum(chunk0) + 2*sum(chunk1)
+        // d_loss/d_x = [1, 1, 1, 2, 2, 2]
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0]),
+            vec![6],
+            true,
+        ).unwrap();
+        let chunks = x.split(&[3, 3], 0).unwrap();
+
+        let sum0 = crate::grad_fns::reduction::sum(&chunks[0]).unwrap();
+        let sum1 = crate::grad_fns::reduction::sum(&chunks[1]).unwrap();
+
+        // 2 * sum1
+        let two = Tensor::from_storage(
+            TensorStorage::cpu(vec![2.0f64]),
+            vec![],
+            false,
+        ).unwrap();
+        let scaled = crate::grad_fns::arithmetic::mul(&sum1, &two).unwrap();
+        let loss = crate::grad_fns::arithmetic::add(&sum0, &scaled).unwrap();
+
+        loss.backward().unwrap();
+
+        let grad = x.grad().unwrap().expect("x should have grad");
+        assert_eq!(grad.shape(), &[6]);
+        let g = grad.data().unwrap();
+        // First 3 elements: grad from sum0 = 1.0 each
+        // Last 3 elements: grad from 2*sum1 = 2.0 each
+        for i in 0..3 {
+            assert!(
+                (g[i] - 1.0).abs() < 1e-10,
+                "grad[{i}] = {}, expected 1.0", g[i]
+            );
+        }
+        for i in 3..6 {
+            assert!(
+                (g[i] - 2.0).abs() < 1e-10,
+                "grad[{i}] = {}, expected 2.0", g[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_chunk_backward_2d() {
+        // x shape [2, 4], chunk into 2 along dim=1 -> two [2, 2] tensors.
+        // loss = sum(chunk0) * 3 + sum(chunk1)
+        // grad_x[:, 0:2] = 3, grad_x[:, 2:4] = 1
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f64; 8]),
+            vec![2, 4],
+            true,
+        ).unwrap();
+        let chunks = x.chunk(2, 1).unwrap();
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].shape(), &[2, 2]);
+        assert_eq!(chunks[1].shape(), &[2, 2]);
+
+        let sum0 = crate::grad_fns::reduction::sum(&chunks[0]).unwrap();
+        let sum1 = crate::grad_fns::reduction::sum(&chunks[1]).unwrap();
+
+        let three = Tensor::from_storage(
+            TensorStorage::cpu(vec![3.0f64]),
+            vec![],
+            false,
+        ).unwrap();
+        let scaled = crate::grad_fns::arithmetic::mul(&sum0, &three).unwrap();
+        let loss = crate::grad_fns::arithmetic::add(&scaled, &sum1).unwrap();
+        loss.backward().unwrap();
+
+        let grad = x.grad().unwrap().expect("x should have grad");
+        assert_eq!(grad.shape(), &[2, 4]);
+        let g = grad.data().unwrap();
+        // Row 0: [3, 3, 1, 1], Row 1: [3, 3, 1, 1]
+        let expected = [3.0, 3.0, 1.0, 1.0, 3.0, 3.0, 1.0, 1.0];
+        for (i, (&actual, &exp)) in g.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (actual - exp).abs() < 1e-10,
+                "grad[{i}] = {actual}, expected {exp}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_split_no_grad_when_disabled() {
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32, 2.0, 3.0]),
+            vec![3],
+            false, // no grad
+        ).unwrap();
+        let chunks = x.split(&[1, 2], 0).unwrap();
+        assert!(chunks[0].grad_fn().is_none());
+        assert!(chunks[1].grad_fn().is_none());
     }
 
     // --- size / dim aliases ---

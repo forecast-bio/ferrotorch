@@ -623,6 +623,82 @@ impl<T: Float> GradFn<T> for CatBackward<T> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// SplitBackward — backward for split/chunk
+// ---------------------------------------------------------------------------
+
+/// Backward for a single chunk produced by `split`.
+///
+/// Each chunk gets its own `SplitBackward`. The VJP zero-pads the incoming
+/// gradient into the original tensor's shape at the correct offset along
+/// the split dimension.
+#[derive(Debug)]
+pub struct SplitBackward<T: Float> {
+    /// The original unsplit tensor (needed for shape and requires_grad).
+    input: Tensor<T>,
+    /// The split dimension.
+    dim: usize,
+    /// Offset of this chunk along `dim` in the original tensor.
+    offset: usize,
+    /// Size of this chunk along `dim`.
+    chunk_size: usize,
+}
+
+impl<T: Float> SplitBackward<T> {
+    pub fn new(input: Tensor<T>, dim: usize, offset: usize, chunk_size: usize) -> Self {
+        Self { input, dim, offset, chunk_size }
+    }
+}
+
+impl<T: Float> GradFn<T> for SplitBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        if !self.input.requires_grad() {
+            return Ok(vec![None]);
+        }
+
+        let (cpu_go, device) = ensure_cpu(grad_output)?;
+        let grad_data = cpu_go.data()?;
+        let orig_shape = self.input.shape();
+        let ndim = orig_shape.len();
+
+        let outer: usize = orig_shape[..self.dim].iter().product();
+        let inner: usize = if self.dim + 1 < ndim {
+            orig_shape[self.dim + 1..].iter().product()
+        } else {
+            1
+        };
+        let total_along_dim = orig_shape[self.dim];
+
+        // Build a zero tensor with the original shape, then copy the gradient
+        // into the correct slice.
+        let orig_numel: usize = orig_shape.iter().product();
+        let mut result = vec![<T as num_traits::Zero>::zero(); orig_numel];
+
+        for o in 0..outer {
+            let dst_start = o * total_along_dim * inner + self.offset * inner;
+            let src_start = o * self.chunk_size * inner;
+            let row_len = self.chunk_size * inner;
+            result[dst_start..dst_start + row_len]
+                .copy_from_slice(&grad_data[src_start..src_start + row_len]);
+        }
+
+        let grad_tensor = Tensor::from_storage(
+            TensorStorage::cpu(result),
+            orig_shape.to_vec(),
+            false,
+        )?;
+        Ok(vec![Some(restore_device(grad_tensor, device)?)])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.input]
+    }
+
+    fn name(&self) -> &'static str {
+        "SplitBackward"
+    }
+}
+
 /// Concatenate tensors along an axis.
 ///
 /// All tensors must have the same shape except along `axis`.
