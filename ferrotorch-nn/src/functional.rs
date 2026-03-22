@@ -141,13 +141,24 @@ pub fn tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     act::tanh(input)
 }
 
-/// Applies the Gaussian Error Linear Unit (sigmoid approximation):
-/// `gelu(x) = x * sigmoid(1.702 * x)`.
+/// Applies the Gaussian Error Linear Unit with the default exact (erf) mode.
 ///
+/// For other approximation modes, use [`gelu_with`].
 /// Differentiable — attaches `GeluBackward` when gradient tracking is enabled.
 #[inline]
 pub fn gelu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     act::gelu(input)
+}
+
+/// Applies GELU with a configurable approximation mode.
+///
+/// See [`act::GeluApproximate`] for available modes.
+#[inline]
+pub fn gelu_with<T: Float>(
+    input: &Tensor<T>,
+    approximate: act::GeluApproximate,
+) -> FerrotorchResult<Tensor<T>> {
+    act::gelu_with(input, approximate)
 }
 
 /// Applies the Sigmoid Linear Unit (Swish) function:

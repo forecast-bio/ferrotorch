@@ -8,11 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - Update rustls-webpki to 0.103.10 (#204)
+- Update rustls-webpki to 0.103.10 (#204)
 - Fix PTX register name collision (`%tid` → `%r_tid`) — all elementwise kernels were silently falling back to CPU due to `CUDA_ERROR_INVALID_PTX`
 - Fix softmax PTX: wrong hex prefix for float literals (`0xff` → `0f`), undeclared shared memory registers (`%saddr`, `%sbase`)
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- Add GELU approximation modes matching PyTorch (none, tanh) plus existing sigmoid (#205)
+- Add GELU approximation modes matching PyTorch (none, tanh) plus existing sigmoid (#205)
 - Update differentiable matmul wrappers and backward passes for broadcast (#203)
 - Update nn::Linear to accept arbitrary-rank inputs (#201)
 - Add batched broadcast matmul for arbitrary-rank tensors (#200)

@@ -36,6 +36,9 @@ pub enum IrOpKind {
     Mv,
     Dot,
     Transpose,
+    /// Fused linear: `output = input @ weight^T + bias`.
+    /// Inputs: `[input, weight]` or `[input, weight, bias]`.
+    Linear,
 
     // Activation
     Relu,

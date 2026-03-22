@@ -44,6 +44,7 @@ fn map_name_to_op(name: &str, output_shape: &[usize]) -> FerrotorchResult<IrOpKi
         "MatmulBackward" => Ok(IrOpKind::Matmul),
         "MvBackward" => Ok(IrOpKind::Mv),
         "DotBackward" => Ok(IrOpKind::Dot),
+        "LinearFusedBackward" => Ok(IrOpKind::Linear),
 
         // Activation
         "ReluBackward" => Ok(IrOpKind::Relu),

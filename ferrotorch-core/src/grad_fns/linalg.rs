@@ -1132,7 +1132,7 @@ pub fn matmul_differentiable<T: Float>(
             (1, 1) => return dot_differentiable(a, b),
             (2, 1) => return mv_differentiable(a, b),
             (2, 2) => return mm_differentiable(a, b),
-            (3, 3) => return bmm_differentiable(a, b),
+            (3, 3) if a.shape()[0] == b.shape()[0] => return bmm_differentiable(a, b),
             _ => {}
         }
 

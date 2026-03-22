@@ -52,6 +52,7 @@ const KNOWN_OPS: &[&str] = &[
     "MatmulBackward",
     "MvBackward",
     "DotBackward",
+    "LinearFusedBackward",
     // Activation
     "ReluBackward",
     "SigmoidBackward",
@@ -596,6 +597,7 @@ fn map_name_to_op(name: &str, output_shape: &[usize]) -> FerrotorchResult<IrOpKi
         "MatmulBackward" => Ok(IrOpKind::Matmul),
         "MvBackward" => Ok(IrOpKind::Mv),
         "DotBackward" => Ok(IrOpKind::Dot),
+        "LinearFusedBackward" => Ok(IrOpKind::Linear),
         "ReluBackward" => Ok(IrOpKind::Relu),
         "SigmoidBackward" => Ok(IrOpKind::Sigmoid),
         "TanhBackward" => Ok(IrOpKind::Tanh),

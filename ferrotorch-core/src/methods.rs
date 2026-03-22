@@ -82,6 +82,13 @@ impl<T: Float> Tensor<T> {
         crate::grad_fns::activation::gelu(self)
     }
 
+    pub fn gelu_with(
+        &self,
+        approximate: crate::grad_fns::activation::GeluApproximate,
+    ) -> FerrotorchResult<Tensor<T>> {
+        crate::grad_fns::activation::gelu_with(self, approximate)
+    }
+
     pub fn silu(&self) -> FerrotorchResult<Tensor<T>> {
         crate::grad_fns::activation::silu(self)
     }

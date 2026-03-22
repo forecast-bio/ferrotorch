@@ -188,35 +188,61 @@ impl<T: Float> GradFn<T> for TanhBackward<T> {
 }
 
 // ---------------------------------------------------------------------------
-// GELU (sigmoid approximation)
+// GELU — configurable approximation
 // ---------------------------------------------------------------------------
 
-/// Backward for `gelu(x)` using the sigmoid approximation:
+/// Selects the GELU approximation method.
 ///
-/// ```text
-/// gelu(x) ≈ x * sigmoid(1.702 * x)
-/// ```
+/// Matches PyTorch's `approximate` parameter on `nn.GELU`, plus the existing
+/// fast sigmoid approximation as a third option.
 ///
-/// Derivative:
-/// ```text
-/// grad * (s + 1.702 * x * s * (1 - s))
-/// ```
-/// where `s = sigmoid(1.702 * x)`.
+/// - **`None`** (default) — exact: `x * 0.5 * (1 + erf(x / sqrt(2)))`.
+///   Matches PyTorch `nn.GELU(approximate="none")`.
+/// - **`Tanh`** — `x * 0.5 * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))`.
+///   Matches PyTorch `nn.GELU(approximate="tanh")`.
+/// - **`Sigmoid`** — `x * sigmoid(1.702 * x)`.
+///   Fast approximation from the original ferrotorch implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum GeluApproximate {
+    /// Exact GELU using the error function (PyTorch default).
+    #[default]
+    None,
+    /// Tanh approximation (PyTorch `approximate="tanh"`).
+    Tanh,
+    /// Fast sigmoid approximation: `x * sigmoid(1.702 * x)`.
+    Sigmoid,
+}
+
+impl std::fmt::Display for GeluApproximate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GeluApproximate::None => write!(f, "none"),
+            GeluApproximate::Tanh => write!(f, "tanh"),
+            GeluApproximate::Sigmoid => write!(f, "sigmoid"),
+        }
+    }
+}
+
+/// Backward for `gelu(x)`, dispatching based on approximation mode.
 #[derive(Debug)]
 pub struct GeluBackward<T: Float> {
     input: Tensor<T>,
+    approximate: GeluApproximate,
 }
 
 impl<T: Float> GeluBackward<T> {
-    pub fn new(input: Tensor<T>) -> Self {
-        Self { input }
+    pub fn new(input: Tensor<T>, approximate: GeluApproximate) -> Self {
+        Self { input, approximate }
     }
 }
 
 impl<T: Float> GradFn<T> for GeluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        // GPU-native path for f32
-        if grad_output.is_cuda() && is_f32::<T>() {
+        // GPU-native path for sigmoid mode only (the only mode with a PTX kernel).
+        if self.approximate == GeluApproximate::Sigmoid
+            && grad_output.is_cuda()
+            && is_f32::<T>()
+        {
             let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
             let result_h = backend.gelu_backward_f32(
                 grad_output.gpu_handle()?,
@@ -230,22 +256,51 @@ impl<T: Float> GradFn<T> for GeluBackward<T> {
             return Ok(vec![Some(grad_input)]);
         }
 
-        // CPU fallback
+        // CPU path (all modes).
         let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
         let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
         let input_data = cpu_input.data()?;
         let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
-        let k = T::from(1.702).unwrap();
 
-        let result: Vec<T> = input_data
-            .iter()
-            .zip(grad_data.iter())
-            .map(|(&x, &g)| {
-                let s = one / (one + (-k * x).exp());
-                g * (s + k * x * s * (one - s))
-            })
-            .collect();
+        let result: Vec<T> = match self.approximate {
+            GeluApproximate::None => {
+                // Exact: gelu(x) = x * Φ(x) where Φ is the standard normal CDF.
+                // d/dx = Φ(x) + x * φ(x) where φ(x) = exp(-x²/2) / sqrt(2π)
+                let sqrt_2 = T::from(std::f64::consts::SQRT_2).unwrap();
+                let inv_sqrt_2pi = T::from(1.0 / (2.0 * std::f64::consts::PI).sqrt()).unwrap();
+                let half = T::from(0.5).unwrap();
+                input_data.iter().zip(grad_data.iter()).map(|(&x, &g)| {
+                    let cdf = half * (one + erf_approx(x / sqrt_2));
+                    let pdf = inv_sqrt_2pi * (-(x * x) / (one + one)).exp();
+                    g * (cdf + x * pdf)
+                }).collect()
+            }
+            GeluApproximate::Tanh => {
+                // Tanh approx: gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))
+                // Let u = sqrt(2/π) * (x + 0.044715 * x³)
+                // d/dx = 0.5 * (1 + tanh(u)) + 0.5 * x * (1 - tanh²(u)) * sqrt(2/π) * (1 + 0.134145 * x²)
+                let half = T::from(0.5).unwrap();
+                let sqrt_2_over_pi = T::from((2.0 / std::f64::consts::PI).sqrt()).unwrap();
+                let c = T::from(0.044715).unwrap();
+                let c3 = T::from(3.0 * 0.044715).unwrap(); // 0.134145
+                input_data.iter().zip(grad_data.iter()).map(|(&x, &g)| {
+                    let x3 = x * x * x;
+                    let inner = sqrt_2_over_pi * (x + c * x3);
+                    let tanh_inner = inner.tanh();
+                    let dtanh = one - tanh_inner * tanh_inner;
+                    let d_inner = sqrt_2_over_pi * (one + c3 * x * x);
+                    g * (half * (one + tanh_inner) + half * x * dtanh * d_inner)
+                }).collect()
+            }
+            GeluApproximate::Sigmoid => {
+                let k = T::from(1.702).unwrap();
+                input_data.iter().zip(grad_data.iter()).map(|(&x, &g)| {
+                    let s = one / (one + (-k * x).exp());
+                    g * (s + k * x * s * (one - s))
+                }).collect()
+            }
+        };
 
         let grad_input = Tensor::from_storage(
             TensorStorage::cpu(result),
@@ -263,6 +318,29 @@ impl<T: Float> GradFn<T> for GeluBackward<T> {
     fn name(&self) -> &'static str {
         "GeluBackward"
     }
+}
+
+/// Approximate erf(x) using Abramowitz & Stegun formula 7.1.26 (max error ~1.5e-7).
+fn erf_approx<T: Float>(x: T) -> T {
+    let one = <T as num_traits::One>::one();
+    let zero = <T as num_traits::Zero>::zero();
+    let sign = if x < zero { -one } else { one };
+    let x = if x < zero { -x } else { x };
+
+    let p = T::from(0.3275911).unwrap();
+    let a1 = T::from(0.254829592).unwrap();
+    let a2 = T::from(-0.284496736).unwrap();
+    let a3 = T::from(1.421413741).unwrap();
+    let a4 = T::from(-1.453152027).unwrap();
+    let a5 = T::from(1.061405429).unwrap();
+
+    let t = one / (one + p * x);
+    let t2 = t * t;
+    let t3 = t2 * t;
+    let t4 = t3 * t;
+    let t5 = t4 * t;
+    let poly = a1 * t + a2 * t2 + a3 * t3 + a4 * t4 + a5 * t5;
+    sign * (one - poly * (-x * x).exp())
 }
 
 // ---------------------------------------------------------------------------
@@ -551,22 +629,23 @@ pub fn tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     }
 }
 
-/// Compute `gelu(x)` using the sigmoid approximation, attaching a backward
+/// Compute `gelu(x)` with configurable approximation, attaching a backward
 /// node when gradients are enabled.
 ///
-/// ```text
-/// gelu(x) ≈ x * sigmoid(1.702 * x)
-/// ```
-pub fn gelu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    // GPU fast path.
-    if input.is_cuda() {
+/// See [`GeluApproximate`] for the available modes.
+pub fn gelu_with<T: Float>(
+    input: &Tensor<T>,
+    approximate: GeluApproximate,
+) -> FerrotorchResult<Tensor<T>> {
+    // GPU fast path — only available for Sigmoid mode (has PTX kernel).
+    if approximate == GeluApproximate::Sigmoid && input.is_cuda() {
         if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
             let handle = backend.gelu_f32(input.gpu_handle()?)?;
             return if is_grad_enabled() && input.requires_grad() {
                 Tensor::from_operation(
                     TensorStorage::gpu(handle),
                     input.shape().to_vec(),
-                    Arc::new(GeluBackward::new(input.clone())),
+                    Arc::new(GeluBackward::new(input.clone(), approximate)),
                 )
             } else {
                 Tensor::from_storage(TensorStorage::gpu(handle), input.shape().to_vec(), false)
@@ -576,18 +655,52 @@ pub fn gelu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
     // CPU path.
     let one = <T as num_traits::One>::one();
-    let k = T::from(1.702).unwrap();
-    let output = unary_map(input, |x| {
-        let s = one / (one + (-k * x).exp());
-        x * s
-    })?;
+    let output = match approximate {
+        GeluApproximate::None => {
+            // Exact: gelu(x) = x * 0.5 * (1 + erf(x / sqrt(2)))
+            let sqrt_2 = T::from(std::f64::consts::SQRT_2).unwrap();
+            let half = T::from(0.5).unwrap();
+            unary_map(input, |x| {
+                x * half * (one + erf_approx(x / sqrt_2))
+            })?
+        }
+        GeluApproximate::Tanh => {
+            // Tanh approx: gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))
+            let half = T::from(0.5).unwrap();
+            let sqrt_2_over_pi = T::from((2.0 / std::f64::consts::PI).sqrt()).unwrap();
+            let c = T::from(0.044715).unwrap();
+            unary_map(input, |x| {
+                let inner = sqrt_2_over_pi * (x + c * x * x * x);
+                half * x * (one + inner.tanh())
+            })?
+        }
+        GeluApproximate::Sigmoid => {
+            let k = T::from(1.702).unwrap();
+            unary_map(input, |x| {
+                let s = one / (one + (-k * x).exp());
+                x * s
+            })?
+        }
+    };
 
     if is_grad_enabled() && input.requires_grad() {
         let (storage, shape) = output.into_storage_and_shape()?;
-        Tensor::from_operation(storage, shape, Arc::new(GeluBackward::new(input.clone())))
+        Tensor::from_operation(
+            storage,
+            shape,
+            Arc::new(GeluBackward::new(input.clone(), approximate)),
+        )
     } else {
         Ok(output)
     }
+}
+
+/// Compute `gelu(x)` with the default exact (erf-based) approximation.
+///
+/// This matches PyTorch's `nn.GELU(approximate="none")` default. For other
+/// modes, use [`gelu_with`].
+pub fn gelu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    gelu_with(input, GeluApproximate::default())
 }
 
 /// Compute `silu(x) = x * sigmoid(x)`, attaching a backward node when
@@ -1214,17 +1327,112 @@ mod tests {
 
     #[test]
     fn test_gelu_forward_zero() {
-        let x = leaf_scalar(0.0);
-        let y = gelu(&x).unwrap();
-        // gelu(0) = 0 * sigmoid(0) = 0.
-        assert!(y.item().unwrap().abs() < 1e-7);
+        // gelu(0) = 0 for all modes.
+        for mode in [GeluApproximate::None, GeluApproximate::Tanh, GeluApproximate::Sigmoid] {
+            let x = leaf_scalar(0.0);
+            let y = gelu_with(&x, mode).unwrap();
+            assert!(y.item().unwrap().abs() < 1e-7, "gelu({mode}) at 0 should be 0");
+        }
     }
 
     #[test]
-    fn test_gelu_backward() {
+    fn test_gelu_exact_forward_values() {
+        // Test exact (erf) mode against known values.
+        // gelu(1.0) = 1.0 * 0.5 * (1 + erf(1/sqrt(2))) ≈ 0.8413
+        let x = leaf_scalar(1.0);
+        let y = gelu_with(&x, GeluApproximate::None).unwrap();
+        let val = y.item().unwrap();
+        assert!(
+            (val - 0.8413).abs() < 1e-3,
+            "exact gelu(1.0) ≈ 0.8413, got {val}"
+        );
+
+        // gelu(-1.0) ≈ -0.1587
+        let x = leaf_scalar(-1.0);
+        let y = gelu_with(&x, GeluApproximate::None).unwrap();
+        let val = y.item().unwrap();
+        assert!(
+            (val - (-0.1587)).abs() < 1e-3,
+            "exact gelu(-1.0) ≈ -0.1587, got {val}"
+        );
+    }
+
+    #[test]
+    fn test_gelu_tanh_forward_values() {
+        // Tanh approx should be close to exact.
+        let x = leaf_scalar(1.0);
+        let y = gelu_with(&x, GeluApproximate::Tanh).unwrap();
+        let val = y.item().unwrap();
+        assert!(
+            (val - 0.8412).abs() < 2e-3,
+            "tanh gelu(1.0) ≈ 0.8412, got {val}"
+        );
+    }
+
+    #[test]
+    fn test_gelu_sigmoid_forward_values() {
+        // Sigmoid approx: gelu(x) = x * sigmoid(1.702 * x)
+        let x = leaf_scalar(1.0);
+        let y = gelu_with(&x, GeluApproximate::Sigmoid).unwrap();
+        let val = y.item().unwrap();
+        let expected = 1.0 / (1.0 + (-1.702_f64).exp());
+        assert!(
+            (val - expected).abs() < 1e-5,
+            "sigmoid gelu(1.0) ≈ {expected}, got {val}"
+        );
+    }
+
+    #[test]
+    fn test_gelu_backward_exact() {
         let val = 1.0_f64;
         let x = leaf_scalar(val);
-        let y = gelu(&x).unwrap();
+        let y = gelu_with(&x, GeluApproximate::None).unwrap();
+        backward(&y).unwrap();
+
+        let grad = x.grad().unwrap().unwrap();
+        let expected = numerical_grad_scalar(
+            |v| {
+                let sqrt_2 = std::f64::consts::SQRT_2;
+                let cdf = 0.5 * (1.0 + erf_approx(v / sqrt_2));
+                v * cdf
+            },
+            val,
+        );
+        assert!(
+            (grad.item().unwrap() - expected).abs() < 1e-4,
+            "exact gelu grad at x={val}: expected {expected}, got {}",
+            grad.item().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_gelu_backward_tanh() {
+        let val = 1.0_f64;
+        let x = leaf_scalar(val);
+        let y = gelu_with(&x, GeluApproximate::Tanh).unwrap();
+        backward(&y).unwrap();
+
+        let grad = x.grad().unwrap().unwrap();
+        let expected = numerical_grad_scalar(
+            |v| {
+                let sqrt_2_over_pi = (2.0 / std::f64::consts::PI).sqrt();
+                let inner = sqrt_2_over_pi * (v + 0.044715 * v * v * v);
+                0.5 * v * (1.0 + inner.tanh())
+            },
+            val,
+        );
+        assert!(
+            (grad.item().unwrap() - expected).abs() < 1e-4,
+            "tanh gelu grad at x={val}: expected {expected}, got {}",
+            grad.item().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_gelu_backward_sigmoid() {
+        let val = 1.0_f64;
+        let x = leaf_scalar(val);
+        let y = gelu_with(&x, GeluApproximate::Sigmoid).unwrap();
         backward(&y).unwrap();
 
         let grad = x.grad().unwrap().unwrap();
@@ -1238,10 +1446,21 @@ mod tests {
         );
         assert!(
             (grad.item().unwrap() - expected).abs() < 1e-4,
-            "gelu grad at x={}: expected {}, got {}",
-            val,
-            expected,
+            "sigmoid gelu grad at x={val}: expected {expected}, got {}",
             grad.item().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_gelu_default_is_exact() {
+        // gelu() without mode should use exact (erf).
+        let x = leaf_scalar(1.0);
+        let y_default = gelu(&x).unwrap();
+        let x2 = leaf_scalar(1.0);
+        let y_exact = gelu_with(&x2, GeluApproximate::None).unwrap();
+        assert!(
+            (y_default.item().unwrap() - y_exact.item().unwrap()).abs() < 1e-10,
+            "default gelu should match exact mode"
         );
     }
 

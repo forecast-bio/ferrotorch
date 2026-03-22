@@ -27,8 +27,8 @@ pub mod transformer;
 pub mod utils;
 
 pub use activation::{
-    CELU, ELU, GELU, GLU, HardSigmoid, HardSwish, LeakyReLU, LogSoftmax, Mish, PReLU, ReLU, SELU,
-    SiLU, Sigmoid, Softmax, Softplus, Tanh,
+    CELU, ELU, GELU, GLU, GeluApproximate, HardSigmoid, HardSwish, LeakyReLU, LogSoftmax, Mish,
+    PReLU, ReLU, SELU, SiLU, Sigmoid, Softmax, Softplus, Tanh,
 };
 pub use attention::MultiheadAttention;
 pub use flash_attention::{flash_attention, standard_attention};

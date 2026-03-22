@@ -593,6 +593,16 @@ fn map_ir_op(op: &IrOpKind, node_name: &str, elem_type: i32) -> FerrotorchResult
             aux_initializer: None,
         }),
 
+        // Linear: maps to ONNX Gemm (General Matrix Multiply).
+        // Gemm computes Y = alpha * A @ B + beta * C, with transB=1 for weight^T.
+        IrOpKind::Linear => Ok(OnnxOpMapping {
+            op_type: "Gemm",
+            attributes: vec![
+                encode_attr_int("transB", 1),
+            ],
+            aux_initializer: None,
+        }),
+
         // Not exportable
         IrOpKind::Input { .. } | IrOpKind::Constant { .. } | IrOpKind::Output => {
             // These are handled specially — not emitted as ONNX nodes.

@@ -55,6 +55,7 @@ const TAG_MM: u8 = 31;
 const TAG_MV: u8 = 32;
 const TAG_DOT: u8 = 33;
 const TAG_TRANSPOSE: u8 = 34;
+const TAG_LINEAR: u8 = 35;
 
 const TAG_RELU: u8 = 40;
 const TAG_SIGMOID: u8 = 41;
@@ -223,6 +224,7 @@ fn write_op_kind(w: &mut Writer, op: &IrOpKind) {
         IrOpKind::Mv => w.write_u8(TAG_MV),
         IrOpKind::Dot => w.write_u8(TAG_DOT),
         IrOpKind::Transpose => w.write_u8(TAG_TRANSPOSE),
+        IrOpKind::Linear => w.write_u8(TAG_LINEAR),
 
         IrOpKind::Relu => w.write_u8(TAG_RELU),
         IrOpKind::Sigmoid => w.write_u8(TAG_SIGMOID),
@@ -306,6 +308,7 @@ fn read_op_kind(r: &mut Reader<'_>) -> FerrotorchResult<IrOpKind> {
         TAG_MV => Ok(IrOpKind::Mv),
         TAG_DOT => Ok(IrOpKind::Dot),
         TAG_TRANSPOSE => Ok(IrOpKind::Transpose),
+        TAG_LINEAR => Ok(IrOpKind::Linear),
 
         TAG_RELU => Ok(IrOpKind::Relu),
         TAG_SIGMOID => Ok(IrOpKind::Sigmoid),
@@ -657,6 +660,7 @@ mod tests {
             IrOpKind::Mv,
             IrOpKind::Dot,
             IrOpKind::Transpose,
+            IrOpKind::Linear,
             IrOpKind::Relu,
             IrOpKind::Sigmoid,
             IrOpKind::Tanh,

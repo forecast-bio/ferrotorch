@@ -267,6 +267,19 @@ pub fn interpret<T: Float>(graph: &IrGraph, inputs: &[Tensor<T>]) -> FerrotorchR
                 set_outputs(&mut values, &node.outputs, result);
             }
 
+            IrOpKind::Linear => {
+                // Inputs: [input, weight] or [input, weight, bias]
+                let input = get_value(&values, node.inputs[0])?;
+                let weight = get_value(&values, node.inputs[1])?;
+                let bias = if node.inputs.len() > 2 {
+                    Some(get_value(&values, node.inputs[2])?)
+                } else {
+                    None
+                };
+                let result = grad_linalg::linear_fused(input, weight, bias)?;
+                set_outputs(&mut values, &node.outputs, result);
+            }
+
             // ----- Shape ops -----
             IrOpKind::Reshape { shape: new_shape } => {
                 let a = get_unary_input(&values, &node.inputs)?;

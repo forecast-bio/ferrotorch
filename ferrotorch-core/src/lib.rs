@@ -49,4 +49,4 @@ pub use methods::{permute_t, view_t, contiguous_t, chunk_t, split_t};
 pub use vmap::{select, stack, vmap, vmap2};
 pub use special::{digamma, erf, erfc, erfinv, expm1, lgamma, log1p, sinc, xlogy};
 pub use grad_fns::transcendental::{exp, log, sin, cos, clamp};
-pub use grad_fns::activation::{sigmoid, tanh};
+pub use grad_fns::activation::{sigmoid, tanh, gelu, gelu_with, GeluApproximate};

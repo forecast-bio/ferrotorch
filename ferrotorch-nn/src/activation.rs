@@ -87,23 +87,41 @@ impl_activation_module!(ReLU);
 // GELU
 // ===========================================================================
 
-/// Applies the Gaussian Error Linear Unit (sigmoid approximation):
+pub use act::GeluApproximate;
+
+/// Applies the Gaussian Error Linear Unit activation function.
 ///
-/// `GELU(x) = x * sigmoid(1.702 * x)`
+/// Three approximation modes are available (see [`GeluApproximate`]):
+///
+/// - **`None`** (default) — exact erf-based, matches PyTorch `approximate="none"`.
+/// - **`Tanh`** — tanh approximation, matches PyTorch `approximate="tanh"`.
+/// - **`Sigmoid`** — fast `x * sigmoid(1.702 * x)`.
 #[derive(Debug, Clone)]
 pub struct GELU {
+    approximate: GeluApproximate,
     training: bool,
 }
 
 impl GELU {
-    /// Create a new `GELU` module.
+    /// Create a new `GELU` module with the default exact (erf) mode.
     pub fn new() -> Self {
-        Self { training: true }
+        Self {
+            approximate: GeluApproximate::default(),
+            training: true,
+        }
+    }
+
+    /// Create a new `GELU` module with the specified approximation mode.
+    pub fn with_approximate(approximate: GeluApproximate) -> Self {
+        Self {
+            approximate,
+            training: true,
+        }
     }
 
     /// Forward pass.
     pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        act::gelu(input)
+        act::gelu_with(input, self.approximate)
     }
 }
 
