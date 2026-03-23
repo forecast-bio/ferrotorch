@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.3] - 2026-03-17
 
 ### Fixed
+- Fix bmm_differentiable GPU crash from .data() on GPU tensors (#212)
 - Fix view/reshape on GPU tensors dropping requires_grad and breaking autograd graph (#211)
 - Fix index_select and masked_fill to use proper GPU kernels instead of CPU fallback (#210)
 - Update rustls-webpki to 0.103.10 (#204)

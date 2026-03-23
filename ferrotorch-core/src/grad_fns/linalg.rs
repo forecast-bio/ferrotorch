@@ -282,6 +282,46 @@ impl<T: Float> GradFn<T> for DotBackward<T> {
 }
 
 // ---------------------------------------------------------------------------
+// batch_transpose — swap dims 1 and 2 of a 3D tensor
+// ---------------------------------------------------------------------------
+
+/// Transpose dims 1 and 2 of a 3D tensor: `[batch, r, c]` → `[batch, c, r]`.
+///
+/// This is a data rearrangement (not a view) that works on any device.
+/// Used by `BmmBackward` to compute `bmm(grad_C, B^T)` and `bmm(A^T, grad_C)`.
+fn batch_transpose<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    let batch = input.shape()[0];
+    let r = input.shape()[1];
+    let c = input.shape()[2];
+
+    let data = input.data_vec()?;
+    let mut out = vec![<T as num_traits::Zero>::zero(); batch * c * r];
+
+    for bi in 0..batch {
+        let src_off = bi * r * c;
+        let dst_off = bi * c * r;
+        for i in 0..r {
+            for j in 0..c {
+                out[dst_off + j * r + i] = data[src_off + i * c + j];
+            }
+        }
+    }
+
+    let result = Tensor::from_storage(
+        TensorStorage::cpu(out),
+        vec![batch, c, r],
+        false,
+    )?;
+
+    // Put result on the same device as input.
+    if input.is_cuda() {
+        result.to(input.device())
+    } else {
+        Ok(result)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // BmmBackward — C[b] = A[b] @ B[b]  (3D batched matmul)
 // ---------------------------------------------------------------------------
 
@@ -304,74 +344,18 @@ impl<T: Float> BmmBackward<T> {
 
 impl<T: Float> GradFn<T> for BmmBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let device = grad_output.device();
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
-        let cpu_a = if self.a.is_cuda() { self.a.cpu()? } else { self.a.clone() };
-        let cpu_b = if self.b.is_cuda() { self.b.cpu()? } else { self.b.clone() };
-
-        let batch = self.a.shape()[0];
-        let m = self.a.shape()[1];
-        let k = self.a.shape()[2];
-        let n = self.b.shape()[2];
-
+        // PyTorch approach: grad_A = bmm(grad_C, B^T), grad_B = bmm(A^T, grad_C)
+        // where ^T transposes dims 1 and 2. Uses the same GPU-aware bmm path.
         let grad_a = if self.a.requires_grad() {
-            // dA[b] = grad_C[b] @ B[b]^T   — shape per batch: (M,N) @ (N,K) -> (M,K)
-            let grad_data = cpu_go.data()?;
-            let b_data = cpu_b.data()?;
-            let mut result = vec![<T as num_traits::Zero>::zero(); batch * m * k];
-
-            for bi in 0..batch {
-                let g_off = bi * m * n;
-                let b_off = bi * k * n;
-                let r_off = bi * m * k;
-                for i in 0..m {
-                    for j in 0..k {
-                        let mut acc = <T as num_traits::Zero>::zero();
-                        for p in 0..n {
-                            // grad[b,i,p] * B[b,j,p]  (B transposed: B^T[p,j] = B[j,p])
-                            acc = acc + grad_data[g_off + i * n + p] * b_data[b_off + j * n + p];
-                        }
-                        result[r_off + i * k + j] = acc;
-                    }
-                }
-            }
-            let t = Tensor::from_storage(
-                TensorStorage::cpu(result),
-                vec![batch, m, k],
-                false,
-            )?;
-            Some(if device.is_cuda() { t.to(device)? } else { t })
+            let bt = batch_transpose(&self.b)?;
+            Some(crate::autograd::no_grad::no_grad(|| bmm(grad_output, &bt))?)
         } else {
             None
         };
 
         let grad_b = if self.b.requires_grad() {
-            // dB[b] = A[b]^T @ grad_C[b]   — shape per batch: (K,M) @ (M,N) -> (K,N)
-            let a_data = cpu_a.data()?;
-            let grad_data = cpu_go.data()?;
-            let mut result = vec![<T as num_traits::Zero>::zero(); batch * k * n];
-
-            for bi in 0..batch {
-                let a_off = bi * m * k;
-                let g_off = bi * m * n;
-                let r_off = bi * k * n;
-                for i in 0..k {
-                    for j in 0..n {
-                        let mut acc = <T as num_traits::Zero>::zero();
-                        for p in 0..m {
-                            // A^T[b,i,p] * grad[b,p,j]  (A^T[i,p] = A[p,i])
-                            acc = acc + a_data[a_off + p * k + i] * grad_data[g_off + p * n + j];
-                        }
-                        result[r_off + i * n + j] = acc;
-                    }
-                }
-            }
-            let t = Tensor::from_storage(
-                TensorStorage::cpu(result),
-                vec![batch, k, n],
-                false,
-            )?;
-            Some(if device.is_cuda() { t.to(device)? } else { t })
+            let at = batch_transpose(&self.a)?;
+            Some(crate::autograd::no_grad::no_grad(|| bmm(&at, grad_output))?)
         } else {
             None
         };
@@ -1062,40 +1046,18 @@ pub fn dot_differentiable<T: Float>(
 }
 
 /// Differentiable batched matmul with `BmmBackward`.
+///
+/// Uses the GPU-aware `bmm()` for the forward pass (dispatches to cuBLAS on
+/// GPU, CPU loops otherwise), then attaches `BmmBackward` for autograd.
 pub fn bmm_differentiable<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let needs_grad = is_grad_enabled() && (a.requires_grad() || b.requires_grad());
+    let result = bmm(a, b)?;
 
-    // Compute bmm directly from slices to avoid double-copy.
-    let a_data = a.data()?;
-    let b_data = b.data()?;
-    let batch = a.shape()[0];
-    let m = a.shape()[1];
-    let k = a.shape()[2];
-    let n = b.shape()[2];
-    let zero = <T as num_traits::Zero>::zero();
-
-    let slice_a = m * k;
-    let slice_b = k * n;
-    let slice_c = m * n;
-    let mut result_vec = vec![zero; batch * slice_c];
-
-    for bi in 0..batch {
-        let a_off = bi * slice_a;
-        let b_off = bi * slice_b;
-        let c_off = bi * slice_c;
-        // Use mm_raw for each batch slice for cache-friendly performance.
-        let batch_result = linalg::mm_raw(&a_data[a_off..a_off + slice_a], &b_data[b_off..b_off + slice_b], m, k, n);
-        result_vec[c_off..c_off + slice_c].copy_from_slice(&batch_result);
-    }
-
-    let storage = TensorStorage::cpu(result_vec);
-    let shape = vec![batch, m, n];
-
-    if needs_grad {
+    if is_grad_enabled() && (a.requires_grad() || b.requires_grad()) {
         let grad_fn = Arc::new(BmmBackward::new(a.clone(), b.clone()));
+        let (storage, shape) = result.into_storage_and_shape()?;
         Tensor::from_operation(storage, shape, grad_fn)
     } else {
-        Tensor::from_storage(storage, shape, false)
+        Ok(result)
     }
 }
 
