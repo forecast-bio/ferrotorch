@@ -40,7 +40,8 @@ impl<T: Float> GradFn<T> for IndexSelectBackward<T> {
         }
 
         let input_len = self.input.numel();
-        let go_data = grad_output.data()?;
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let go_data = cpu_go.data()?;
 
         // Scatter-add: accumulate grad_output into the gradient of the input.
         let mut grad_input = vec![<T as num_traits::Zero>::zero(); input_len];
@@ -86,7 +87,8 @@ pub fn index_select_1d<T: Float>(
         });
     }
 
-    let input_data = input.data()?;
+    let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let input_data = cpu_input.data()?;
     let input_len = input_data.len();
 
     // Validate all indices are in bounds.
@@ -143,7 +145,8 @@ impl<T: Float> GradFn<T> for MaskedFillBackward<T> {
             return Ok(vec![None]);
         }
 
-        let go_data = grad_output.data()?;
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let go_data = cpu_go.data()?;
         let mut grad_input: Vec<T> = go_data.to_vec();
 
         // Zero out gradient where the mask was true.
@@ -181,7 +184,8 @@ pub fn masked_fill<T: Float>(
     mask: &[bool],
     value: T,
 ) -> FerrotorchResult<Tensor<T>> {
-    let input_data = input.data()?;
+    let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let input_data = cpu_input.data()?;
 
     if mask.len() != input_data.len() {
         return Err(FerrotorchError::ShapeMismatch {
