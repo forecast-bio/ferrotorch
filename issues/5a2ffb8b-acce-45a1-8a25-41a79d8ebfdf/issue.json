@@ -2,11 +2,12 @@
   "uuid": "5a2ffb8b-acce-45a1-8a25-41a79d8ebfdf",
   "display_id": 229,
   "title": "Fix FlashAttention, RoPE, KVCache, SwiGLU crash on GPU",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-23T19:01:00.100728664Z",
-  "updated_at": "2026-03-23T19:01:02.158313738Z",
+  "updated_at": "2026-03-23T19:08:53.351226200Z",
+  "closed_at": "2026-03-23T19:08:53.351226200Z",
   "labels": [
     "bug"
   ]
