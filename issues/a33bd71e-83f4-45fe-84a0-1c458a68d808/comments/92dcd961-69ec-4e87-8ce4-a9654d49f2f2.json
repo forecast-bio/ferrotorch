@@ -1,0 +1,8 @@
+{
+  "uuid": "92dcd961-69ec-4e87-8ce4-a9654d49f2f2",
+  "issue_uuid": "a33bd71e-83f4-45fe-84a0-1c458a68d808",
+  "author": "anon-a7c6025f",
+  "content": "Two optimizer strategies exist: (1) In-place via data_mut() — panics on GPU (Adam, AdamW, RMSProp). (2) Replacement via TensorStorage::cpu() — creates CPU storage even for GPU params (SGD, Adagrad, Muon, LBFGS). Fix: add an unsafe update_data() method on Tensor that writes CPU data into storage on any device. For CPU it copies into the existing Vec; for GPU it uploads to a new buffer and swaps the StorageBuffer. Then update all optimizers to use it.",
+  "created_at": "2026-03-23T18:42:32.514027437Z",
+  "kind": "plan"
+}
