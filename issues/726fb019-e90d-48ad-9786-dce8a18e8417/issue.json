@@ -1,0 +1,10 @@
+{
+  "uuid": "726fb019-e90d-48ad-9786-dce8a18e8417",
+  "display_id": 223,
+  "title": "Fix in-place ops crash on GPU — add_scalar_, mul_scalar_, fill_, clamp_",
+  "status": "open",
+  "priority": "critical",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T18:59:59.911714001Z",
+  "updated_at": "2026-03-23T18:59:59.911714001Z"
+}
