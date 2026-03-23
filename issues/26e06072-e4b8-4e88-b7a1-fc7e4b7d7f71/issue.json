@@ -2,11 +2,12 @@
   "uuid": "26e06072-e4b8-4e88-b7a1-fc7e4b7d7f71",
   "display_id": 251,
   "title": "Perf Phase 4B: Add backward and reduction GPU kernels",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-23T22:46:30.112261457Z",
-  "updated_at": "2026-03-23T22:46:31.524129214Z",
+  "updated_at": "2026-03-23T22:51:11.664132425Z",
+  "closed_at": "2026-03-23T22:51:11.664132425Z",
   "labels": [
     "enhancement"
   ]
