@@ -2,11 +2,12 @@
   "uuid": "02b37127-b11e-475c-978a-1e1869473160",
   "display_id": 235,
   "title": "Fix vision models GPU crashes — ViT, Swin, ConvNeXt, UNet",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-23T19:01:18.707787937Z",
-  "updated_at": "2026-03-23T19:01:20.016218168Z",
+  "updated_at": "2026-03-23T19:09:17.324096337Z",
+  "closed_at": "2026-03-23T19:09:17.324096337Z",
   "labels": [
     "bug"
   ]
