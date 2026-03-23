@@ -1,0 +1,8 @@
+{
+  "uuid": "8750de77-9739-45c0-a6dd-3bcd8630d660",
+  "issue_uuid": "a33bd71e-83f4-45fe-84a0-1c458a68d808",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Added Tensor::update_data() — device-transparent in-place write that handles both CPU (copies into existing Vec) and GPU (uploads to new buffer, swaps StorageBuffer). Fixed all 7 optimizers: Adam, AdamW, RMSProp switched from data()/data_mut() to data_vec()/update_data(). SGD, Adagrad, Muon, LBFGS switched from parameter replacement to update_data(), preserving tensor identity. All 574 core + 127 optimizer tests pass.",
+  "created_at": "2026-03-23T18:48:32.586975837Z",
+  "kind": "result"
+}
