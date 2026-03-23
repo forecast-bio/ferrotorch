@@ -1,0 +1,8 @@
+{
+  "uuid": "497ff8a0-c06b-4d9b-b593-54a8bbf80a24",
+  "issue_uuid": "52149ca7-103a-44b0-9857-b8948df2a5db",
+  "author": "anon-a7c6025f",
+  "content": "The commit 84d6f13 fixed GPU .data() crashes in indexing paths by silently moving tensors to CPU before .data(). This is a performance regression — every forward/backward call triggers GPU→CPU transfers and results end up on CPU. Need proper GPU kernels for: (1) index_select_1d forward, (2) IndexSelectBackward backward, (3) masked_fill forward, (4) MaskedFillBackward backward.",
+  "created_at": "2026-03-23T18:03:32.414947154Z",
+  "kind": "plan"
+}
