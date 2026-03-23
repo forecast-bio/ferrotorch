@@ -71,11 +71,9 @@ impl<T: Float> GradFn<T> for ReshapeBackward<T> {
         if !self.input.requires_grad() {
             return Ok(vec![None]);
         }
-        let (cpu_go, device) = ensure_cpu(grad_output)?;
-        let data = cpu_go.data()?.to_vec();
-        let grad_input =
-            Tensor::from_storage(TensorStorage::cpu(data), self.input_shape.clone(), false)?;
-        Ok(vec![Some(restore_device(grad_input, device)?)])
+        // Reshape is a pure metadata change — zero-copy view on any device.
+        let grad_input = grad_output.view_reshape(self.input_shape.clone())?;
+        Ok(vec![Some(grad_input)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -95,26 +93,17 @@ pub fn reshape<T: Float>(input: &Tensor<T>, new_shape: &[isize]) -> FerrotorchRe
     let numel = input.numel();
     let resolved = resolve_shape(new_shape, numel)?;
 
-    // GPU fast path: reshape is just a metadata change — share the
-    // For non-grad tensors, use view_reshape (zero-copy, shared Arc storage).
+    // No-grad fast path: zero-copy view reshape (works on any device).
     if !is_grad_enabled() || !input.requires_grad() {
         return input.view_reshape(resolved);
     }
 
-    // Grad path: need a new tensor with grad_fn attached.
-    // We still need to copy data for a new identity, but use into_storage_and_shape
-    // to avoid double-copy when the input has refcount 1.
-    if input.is_cuda() {
-        return input.view_reshape(resolved);
-    }
-
-    let data = input.data()?.to_vec();
+    // Grad path: zero-copy view with grad_fn attached (works on any device).
     let grad_fn = Arc::new(ReshapeBackward::new(
         input.clone(),
         input.shape().to_vec(),
     ));
-    let result = Tensor::from_operation(TensorStorage::cpu(data), resolved, grad_fn)?;
-    Ok(result)
+    input.view_operation(resolved, grad_fn)
 }
 
 // ---------------------------------------------------------------------------
@@ -141,11 +130,9 @@ impl<T: Float> GradFn<T> for FlattenBackward<T> {
         if !self.input.requires_grad() {
             return Ok(vec![None]);
         }
-        let (cpu_go, device) = ensure_cpu(grad_output)?;
-        let data = cpu_go.data()?.to_vec();
-        let grad_input =
-            Tensor::from_storage(TensorStorage::cpu(data), self.input_shape.clone(), false)?;
-        Ok(vec![Some(restore_device(grad_input, device)?)])
+        // Unflatten is a pure metadata change — zero-copy view on any device.
+        let grad_input = grad_output.view_reshape(self.input_shape.clone())?;
+        Ok(vec![Some(grad_input)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -198,13 +185,11 @@ impl<T: Float> GradFn<T> for SqueezeBackward<T> {
         if !self.input.requires_grad() {
             return Ok(vec![None]);
         }
-        let (cpu_go, device) = ensure_cpu(grad_output)?;
-        // Re-insert the size-1 dimension at `self.axis`.
-        let mut new_shape = cpu_go.shape().to_vec();
+        // Re-insert the size-1 dimension at `self.axis` — pure metadata change.
+        let mut new_shape = grad_output.shape().to_vec();
         new_shape.insert(self.axis, 1);
-        let data = cpu_go.data()?.to_vec();
-        let grad_input = Tensor::from_storage(TensorStorage::cpu(data), new_shape, false)?;
-        Ok(vec![Some(restore_device(grad_input, device)?)])
+        let grad_input = grad_output.view_reshape(new_shape)?;
+        Ok(vec![Some(grad_input)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -268,13 +253,11 @@ impl<T: Float> GradFn<T> for UnsqueezeBackward<T> {
         if !self.input.requires_grad() {
             return Ok(vec![None]);
         }
-        let (cpu_go, device) = ensure_cpu(grad_output)?;
-        // Remove the size-1 dimension at `self.axis`.
-        let mut new_shape = cpu_go.shape().to_vec();
+        // Remove the size-1 dimension at `self.axis` — pure metadata change.
+        let mut new_shape = grad_output.shape().to_vec();
         new_shape.remove(self.axis);
-        let data = cpu_go.data()?.to_vec();
-        let grad_input = Tensor::from_storage(TensorStorage::cpu(data), new_shape, false)?;
-        Ok(vec![Some(restore_device(grad_input, device)?)])
+        let grad_input = grad_output.view_reshape(new_shape)?;
+        Ok(vec![Some(grad_input)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
