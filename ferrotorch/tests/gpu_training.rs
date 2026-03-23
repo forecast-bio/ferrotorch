@@ -389,3 +389,237 @@ fn test_vae_training_cpu() {
 
     assert!(last_loss < first_loss, "VAE CPU: loss should decrease. first={first_loss}, last={last_loss}");
 }
+
+// =====================================================================
+// Experiment 6: Pythia-70M architecture (GPT-NeoX)
+// =====================================================================
+//
+// Pythia-70M uses GPT-NeoX: parallel attention + MLP in each block,
+// rotary position embeddings (RoPE), untied embedding/unembedding.
+// We use reduced dimensions for test speed but identical structure.
+
+/// GPT-NeoX block: attention and MLP run in parallel, then add.
+///   h = x + Attn(LN(x)) + MLP(LN(x))
+/// This is different from standard transformer where they're sequential.
+#[derive(Debug)]
+struct NeoXBlock {
+    ln: LayerNorm<f32>,
+    qkv: Linear<f32>,
+    out_proj: Linear<f32>,
+    mlp_up: Linear<f32>,
+    mlp_down: Linear<f32>,
+    rope: RotaryPositionEmbedding<f32>,
+    n_heads: usize,
+    head_dim: usize,
+}
+
+impl NeoXBlock {
+    fn new(d_model: usize, n_heads: usize, max_seq: usize) -> FerrotorchResult<Self> {
+        let head_dim = d_model / n_heads;
+        Ok(Self {
+            ln: LayerNorm::new(vec![d_model], 1e-5, true)?,
+            qkv: Linear::new(d_model, 3 * d_model, true)?,
+            out_proj: Linear::new(d_model, d_model, true)?,
+            mlp_up: Linear::new(d_model, 4 * d_model, true)?,
+            mlp_down: Linear::new(4 * d_model, d_model, true)?,
+            rope: RotaryPositionEmbedding::new(head_dim, max_seq, 10000.0)?,
+            n_heads,
+            head_dim,
+        })
+    }
+
+    fn forward(&self, x: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
+        let batch = x.shape()[0];
+        let seq = x.shape()[1];
+        let d_model = x.shape()[2];
+
+        // Single LayerNorm — GPT-NeoX uses one LN for both attention and MLP
+        let normed = self.ln.forward(x)?;
+
+        // === Attention path ===
+        let qkv = self.qkv.forward(&normed)?;
+        let qkv_chunks = chunk_t(&qkv, 3, 2)?;
+        let q = &qkv_chunks[0];
+        let k = &qkv_chunks[1];
+        let v = &qkv_chunks[2];
+
+        // Reshape to [batch*n_heads, seq, head_dim] for bmm
+        let q = q.view(&[batch as i64 * self.n_heads as i64, seq as i64, self.head_dim as i64])?;
+        let k = k.view(&[batch as i64 * self.n_heads as i64, seq as i64, self.head_dim as i64])?;
+        let v = v.view(&[batch as i64 * self.n_heads as i64, seq as i64, self.head_dim as i64])?;
+
+        // Apply RoPE to Q and K
+        let q = self.rope.apply(&q, 0)?;
+        let k = self.rope.apply(&k, 0)?;
+
+        // Attention scores: Q @ K^T / sqrt(head_dim)
+        let k_t = permute_t(&k, &[0, 2, 1])?;
+        let scores = grad_fns::linalg::bmm_differentiable(&q, &k_t)?;
+        let scale = scalar::<f32>((self.head_dim as f32).sqrt())?;
+        let scores = grad_fns::arithmetic::div(&scores, &scale)?;
+
+        // Causal mask: zero out future positions
+        let mask_data: Vec<f32> = (0..seq * seq)
+            .map(|i| {
+                let row = i / seq;
+                let col = i % seq;
+                if col <= row { 0.0 } else { -1e9 }
+            })
+            .collect();
+        let mask = from_vec(mask_data, &[1, seq, seq])?;
+        let scores = grad_fns::arithmetic::add(&scores, &mask)?;
+
+        let attn = grad_fns::activation::softmax(&scores)?;
+        let attn_out = grad_fns::linalg::bmm_differentiable(&attn, &v)?;
+
+        // Reshape back to [batch, seq, d_model]
+        let attn_out = attn_out.view(&[batch as i64, seq as i64, d_model as i64])?;
+        let attn_out = self.out_proj.forward(&attn_out)?;
+
+        // === MLP path (runs in parallel with attention in GPT-NeoX) ===
+        let mlp_h = self.mlp_up.forward(&normed)?;
+        let mlp_h = mlp_h.relu()?; // Pythia uses GELU but ReLU is simpler for testing
+        let mlp_out = self.mlp_down.forward(&mlp_h)?;
+
+        // === Parallel residual: x + attn_out + mlp_out ===
+        let h = grad_fns::arithmetic::add(x, &attn_out)?;
+        grad_fns::arithmetic::add(&h, &mlp_out)
+    }
+
+    fn parameters(&self) -> Vec<&Parameter<f32>> {
+        let mut p = Vec::new();
+        p.extend(self.ln.parameters());
+        p.extend(self.qkv.parameters());
+        p.extend(self.out_proj.parameters());
+        p.extend(self.mlp_up.parameters());
+        p.extend(self.mlp_down.parameters());
+        p
+    }
+}
+
+#[test]
+fn test_pythia_architecture_cpu() {
+    // Pythia-70M dimensions scaled down for test speed:
+    // Real: 6 layers, 8 heads, d=512, vocab=50304, seq=2048
+    // Test: 2 layers, 4 heads, d=64, vocab=256, seq=16
+    let d_model = 64;
+    let n_heads = 4;
+    let n_layers = 2;
+    let vocab_size = 256;
+    let max_seq = 32;
+    let batch = 2;
+    let seq = 16;
+
+    // Build model components
+    let token_emb = Embedding::<f32>::new(vocab_size, d_model, None).unwrap();
+    let blocks: Vec<NeoXBlock> = (0..n_layers)
+        .map(|_| NeoXBlock::new(d_model, n_heads, max_seq).unwrap())
+        .collect();
+    let final_ln = LayerNorm::new(vec![d_model], 1e-5, true).unwrap();
+    let lm_head = Linear::new(d_model, vocab_size, false).unwrap(); // untied unembedding
+
+    // Collect all parameters
+    let mut all_params: Vec<Parameter<f32>> = Vec::new();
+    all_params.extend(token_emb.parameters().into_iter().cloned());
+    for block in &blocks {
+        all_params.extend(block.parameters().into_iter().cloned());
+    }
+    all_params.extend(final_ln.parameters().into_iter().cloned());
+    all_params.extend(lm_head.parameters().into_iter().cloned());
+
+    let param_count: usize = all_params.iter().map(|p| p.tensor().numel()).sum();
+    eprintln!("Pythia-test parameter count: {param_count}");
+
+    let mut optimizer = AdamW::new(
+        all_params,
+        AdamWConfig {
+            lr: 1e-3,
+            betas: (0.9, 0.95), // Pythia uses beta2=0.95
+            weight_decay: 0.01,
+            ..Default::default()
+        },
+    );
+
+    let ce_loss = CrossEntropyLoss::new(Reduction::Mean, 0.0);
+
+    let mut first_loss = 0.0f32;
+    let mut last_loss = 0.0f32;
+
+    for step in 0..10 {
+        // Random token IDs: [batch, seq]
+        let token_ids: Vec<f32> = (0..batch * seq)
+            .map(|i| (i % vocab_size) as f32)
+            .collect();
+        // Target: next-token prediction (shift by 1)
+        let target_ids: Vec<f32> = (0..batch * seq)
+            .map(|i| ((i + 1) % vocab_size) as f32)
+            .collect();
+
+        optimizer.zero_grad().unwrap();
+
+        // === Forward pass ===
+
+        // Token embedding: look up each token individually, then stack
+        let mut emb_data = Vec::new();
+        for &tid in &token_ids {
+            let idx = from_vec(vec![tid], &[1]).unwrap();
+            let emb = token_emb.forward(&idx).unwrap(); // [1, d_model]
+            emb_data.extend(emb.data_vec().unwrap());
+        }
+        let mut h = from_vec(emb_data, &[batch, seq, d_model]).unwrap()
+            .requires_grad_(true);
+
+        // Transformer blocks
+        for block in &blocks {
+            h = block.forward(&h).unwrap();
+        }
+
+        // Final LayerNorm + LM head
+        let h = final_ln.forward(&h).unwrap();
+        let logits = lm_head.forward(&h).unwrap(); // [batch, seq, vocab]
+
+        // Reshape for loss: [batch*seq, vocab] vs [batch*seq]
+        let logits_flat = logits.view(&[(batch * seq) as i64, vocab_size as i64]).unwrap();
+        let targets = from_vec(target_ids, &[batch * seq]).unwrap();
+
+        let loss = ce_loss.forward(&logits_flat, &targets).unwrap();
+        let loss_val = loss.data_vec().unwrap()[0];
+
+        if step == 0 {
+            first_loss = loss_val;
+            eprintln!("Step 0 loss: {loss_val:.4}");
+        }
+        last_loss = loss_val;
+        if step == 9 {
+            eprintln!("Step 9 loss: {loss_val:.4}");
+        }
+
+        // === Backward pass ===
+        loss.backward().unwrap();
+
+        // Sync gradients to optimizer
+        let mut all_model_params: Vec<&Parameter<f32>> = Vec::new();
+        all_model_params.extend(token_emb.parameters());
+        for block in &blocks {
+            all_model_params.extend(block.parameters());
+        }
+        all_model_params.extend(final_ln.parameters());
+        all_model_params.extend(lm_head.parameters());
+
+        let opt_params = &optimizer.param_groups()[0].params;
+        for (mp, op) in all_model_params.iter().zip(opt_params.iter()) {
+            if let Some(g) = mp.grad().unwrap() {
+                op.set_grad(Some(g)).unwrap();
+            }
+        }
+
+        // === Optimizer step ===
+        optimizer.step().unwrap();
+    }
+
+    assert!(
+        last_loss < first_loss,
+        "Pythia CPU: loss should decrease. first={first_loss:.4}, last={last_loss:.4}"
+    );
+    eprintln!("Pythia test PASSED: {first_loss:.4} -> {last_loss:.4}");
+}
