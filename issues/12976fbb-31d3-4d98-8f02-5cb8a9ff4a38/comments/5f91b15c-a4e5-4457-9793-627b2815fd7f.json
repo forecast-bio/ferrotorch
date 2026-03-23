@@ -1,0 +1,8 @@
+{
+  "uuid": "5f91b15c-a4e5-4457-9793-627b2815fd7f",
+  "issue_uuid": "12976fbb-31d3-4d98-8f02-5cb8a9ff4a38",
+  "author": "anon-a7c6025f",
+  "content": "The current fast_sigmoid does negate→alloc→SIMD exp→reciprocal = 3 passes + 2 allocations. PyTorch does sigmoid in one fused pass with a polynomial approximation. Plan: write fused single-pass SIMD kernels for sigmoid, sin, cos that process 4/8 f32s at a time without intermediate buffers. Use the Cody-Waite + minimax polynomial approach.",
+  "created_at": "2026-03-23T23:05:14.356953589Z",
+  "kind": "plan"
+}
