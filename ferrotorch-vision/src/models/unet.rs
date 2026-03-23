@@ -66,8 +66,9 @@ impl<T: Float> GradFn<T> for UpsampleNearest2xBackward<T> {
         ];
         let out_h = in_h * 2;
         let out_w = in_w * 2;
+        let device = grad_output.device();
 
-        let grad_data = grad_output.data()?;
+        let grad_data = grad_output.data_vec()?;
         let mut grad_input = vec![<T as num_traits::Zero>::zero(); batch * channels * in_h * in_w];
 
         for b in 0..batch {
@@ -90,7 +91,7 @@ impl<T: Float> GradFn<T> for UpsampleNearest2xBackward<T> {
         }
 
         let gi =
-            Tensor::from_storage(TensorStorage::cpu(grad_input), self.input_shape.clone(), false)?;
+            Tensor::from_storage(TensorStorage::cpu(grad_input), self.input_shape.clone(), false)?.to(device)?;
         Ok(vec![Some(gi)])
     }
 
@@ -117,8 +118,9 @@ fn upsample_nearest_2x<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T
     let in_w = shape[3];
     let out_h = in_h * 2;
     let out_w = in_w * 2;
+    let device = input.device();
 
-    let data = input.data()?;
+    let data = input.data_vec()?;
     let out_numel = batch * channels * out_h * out_w;
     let mut out_data = Vec::with_capacity(out_numel);
 
@@ -145,9 +147,9 @@ fn upsample_nearest_2x<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T
             input.clone(),
             shape.to_vec(),
         ));
-        Tensor::from_operation(TensorStorage::cpu(out_data), out_shape, grad_fn)
+        Tensor::from_operation(TensorStorage::cpu(out_data), out_shape, grad_fn)?.to(device)
     } else {
-        Tensor::from_storage(TensorStorage::cpu(out_data), out_shape, false)
+        Tensor::from_storage(TensorStorage::cpu(out_data), out_shape, false)?.to(device)
     }
 }
 

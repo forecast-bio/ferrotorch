@@ -89,8 +89,8 @@ where
         for _ in 0..max_iter {
             let x_next = f(&x, params)?;
             // Compute L1 norm of the difference.
-            let x_data = x.data()?;
-            let x_next_data = x_next.data()?;
+            let x_data = x.data_vec()?;
+            let x_next_data = x_next.data_vec()?;
             let norm: f64 = x_data
                 .iter()
                 .zip(x_next_data.iter())
@@ -107,7 +107,7 @@ where
     // 2. If any parameter requires grad, attach a FixedPointBackward node
     //    that uses implicit differentiation via the Neumann series.
     if params.iter().any(|p| p.requires_grad()) {
-        let x_star_data = x_star.data()?.to_vec();
+        let x_star_data = x_star.data_vec()?;
         let x_star_shape = x_star.shape().to_vec();
         let storage = TensorStorage::cpu(x_star_data);
 
@@ -178,7 +178,7 @@ impl<T: Float> GradFn<T> for FixedPointBackward<T> {
         //
         // We compute J_x^T @ v via a VJP: if y = f(x, p), then
         // VJP(y, x, v) = J_x^T @ v = grad(y, x, grad_output=v).
-        let go_data = grad_output.data()?.to_vec();
+        let go_data = grad_output.data_vec()?;
         let go_shape = grad_output.shape().to_vec();
 
         let mut v_data = go_data.clone();
@@ -186,7 +186,7 @@ impl<T: Float> GradFn<T> for FixedPointBackward<T> {
         for _ in 0..self.backward_max_iter {
             // Create a fresh x* that requires grad so we can compute J_x^T @ v.
             let x_fresh = Tensor::from_storage(
-                TensorStorage::cpu(self.x_star.data()?.to_vec()),
+                TensorStorage::cpu(self.x_star.data_vec()?),
                 self.x_star.shape().to_vec(),
                 true,
             )?;
@@ -197,7 +197,7 @@ impl<T: Float> GradFn<T> for FixedPointBackward<T> {
                 .iter()
                 .map(|p| {
                     Tensor::from_storage(
-                        TensorStorage::cpu(p.data().unwrap().to_vec()),
+                        TensorStorage::cpu(p.data_vec().unwrap()),
                         p.shape().to_vec(),
                         false,
                     )
@@ -222,7 +222,7 @@ impl<T: Float> GradFn<T> for FixedPointBackward<T> {
             let grads = grad(&yv, &[&x_fresh], false, false)?;
 
             let jt_v = match &grads[0] {
-                Some(g) => g.data()?.to_vec(),
+                Some(g) => g.data_vec()?,
                 None => vec![<T as num_traits::Zero>::zero(); n],
             };
 
@@ -252,7 +252,7 @@ impl<T: Float> GradFn<T> for FixedPointBackward<T> {
 
         // Create x* without grad (we don't need x gradients here).
         let x_detached = Tensor::from_storage(
-            TensorStorage::cpu(self.x_star.data()?.to_vec()),
+            TensorStorage::cpu(self.x_star.data_vec()?),
             self.x_star.shape().to_vec(),
             false,
         )?;
@@ -263,7 +263,7 @@ impl<T: Float> GradFn<T> for FixedPointBackward<T> {
             .iter()
             .map(|p| {
                 Tensor::from_storage(
-                    TensorStorage::cpu(p.data().unwrap().to_vec()),
+                    TensorStorage::cpu(p.data_vec().unwrap()),
                     p.shape().to_vec(),
                     p.requires_grad(),
                 )

@@ -487,7 +487,7 @@ fn broadcast_matmul_backward<T: Float>(
                 message: "Cannot transpose last two dims of tensor with ndim < 2".into(),
             });
         }
-        let data = t.data()?;
+        let data = t.data_vec()?;
         let rows = shape[nd - 2];
         let cols = shape[nd - 1];
         let mat_size = rows * cols;
@@ -511,6 +511,7 @@ fn broadcast_matmul_backward<T: Float>(
     // where a dimension was size-1 (broadcast) in the original but expanded
     // in the gradient. We need to sum over those expanded dimensions.
     let reduce_to_shape = |grad: Tensor<T>, target: &[usize]| -> FerrotorchResult<Tensor<T>> {
+        let grad_device = grad.device();
         let grad_shape = grad.shape().to_vec();
         if grad_shape == target {
             return Ok(grad);
@@ -519,7 +520,7 @@ fn broadcast_matmul_backward<T: Float>(
         let grad_nd = grad_shape.len();
         let target_nd = target.len();
         let offset = grad_nd - target_nd;
-        let grad_data = grad.data()?;
+        let grad_data = grad.data_vec()?;
 
         // Compute target total size.
         let target_size: usize = target.iter().product::<usize>().max(1);
@@ -561,7 +562,8 @@ fn broadcast_matmul_backward<T: Float>(
             result[target_flat] = result[target_flat] + grad_data[flat];
         }
 
-        Tensor::from_storage(TensorStorage::cpu(result), target.to_vec(), false)
+        let t = Tensor::from_storage(TensorStorage::cpu(result), target.to_vec(), false)?;
+        Ok(if grad_device.is_cuda() { t.to(grad_device)? } else { t })
     };
 
     let grad_a = if a.requires_grad() {

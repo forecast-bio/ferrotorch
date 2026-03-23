@@ -1,10 +1,12 @@
 //! In-place tensor operations following PyTorch's trailing-underscore convention.
 //!
-//! These methods mutate the tensor's underlying storage directly through
-//! [`Tensor::data_mut()`], which performs an unsafe pointer cast through the
-//! `Arc<TensorStorage>`. This is sound under the same contract as optimizer
-//! updates: the caller must ensure no concurrent reads or writes to the same
-//! storage.
+//! These methods mutate the tensor's underlying storage through
+//! [`Tensor::data_vec()`] + [`Tensor::update_data()`], which is
+//! device-transparent (works on both CPU and GPU tensors). The
+//! `update_data()` call performs an unsafe pointer cast through the
+//! `Arc<TensorStorage>` — this is sound under the same contract as
+//! optimizer updates: the caller must ensure no concurrent reads or
+//! writes to the same storage.
 //!
 //! # Autograd safety
 //!
@@ -67,12 +69,13 @@ impl<T: Float> Tensor<T> {
     pub fn add_scalar_(&self, value: T) -> FerrotorchResult<&Self> {
         check_inplace_allowed(self, "add_scalar_")?;
 
-        // SAFETY: check_inplace_allowed ensures this tensor is not part of the
-        // computation graph and does not require grad, so no concurrent access.
-        let data = unsafe { self.data_mut()? };
+        let mut data = self.data_vec()?;
         for x in data.iter_mut() {
             *x = *x + value;
         }
+        // SAFETY: check_inplace_allowed ensures this tensor is not part of the
+        // computation graph and does not require grad, so no concurrent access.
+        unsafe { self.update_data(&data)? };
 
         Ok(self)
     }
@@ -86,12 +89,13 @@ impl<T: Float> Tensor<T> {
     pub fn mul_scalar_(&self, value: T) -> FerrotorchResult<&Self> {
         check_inplace_allowed(self, "mul_scalar_")?;
 
-        // SAFETY: check_inplace_allowed ensures this tensor is not part of the
-        // computation graph and does not require grad, so no concurrent access.
-        let data = unsafe { self.data_mut()? };
+        let mut data = self.data_vec()?;
         for x in data.iter_mut() {
             *x = *x * value;
         }
+        // SAFETY: check_inplace_allowed ensures this tensor is not part of the
+        // computation graph and does not require grad, so no concurrent access.
+        unsafe { self.update_data(&data)? };
 
         Ok(self)
     }
@@ -105,12 +109,10 @@ impl<T: Float> Tensor<T> {
     pub fn fill_(&self, value: T) -> FerrotorchResult<&Self> {
         check_inplace_allowed(self, "fill_")?;
 
+        let new_data = vec![value; self.numel()];
         // SAFETY: check_inplace_allowed ensures this tensor is not part of the
         // computation graph and does not require grad, so no concurrent access.
-        let data = unsafe { self.data_mut()? };
-        for x in data.iter_mut() {
-            *x = value;
-        }
+        unsafe { self.update_data(&new_data)? };
 
         Ok(self)
     }
@@ -148,9 +150,7 @@ impl<T: Float> Tensor<T> {
 
         check_inplace_allowed(self, "clamp_")?;
 
-        // SAFETY: check_inplace_allowed ensures this tensor is not part of the
-        // computation graph and does not require grad, so no concurrent access.
-        let data = unsafe { self.data_mut()? };
+        let mut data = self.data_vec()?;
         for x in data.iter_mut() {
             if *x < min {
                 *x = min;
@@ -158,6 +158,9 @@ impl<T: Float> Tensor<T> {
                 *x = max;
             }
         }
+        // SAFETY: check_inplace_allowed ensures this tensor is not part of the
+        // computation graph and does not require grad, so no concurrent access.
+        unsafe { self.update_data(&data)? };
 
         Ok(self)
     }

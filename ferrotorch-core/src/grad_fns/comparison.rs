@@ -25,7 +25,8 @@ pub struct WhereBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for WhereBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let go = grad_output.data()?;
+        let device = grad_output.device();
+        let go = grad_output.data_vec()?;
         let zero = <T as num_traits::Zero>::zero();
 
         // grad_x = grad_output where condition is true, 0 otherwise
@@ -53,7 +54,11 @@ impl<T: Float> GradFn<T> for WhereBackward<T> {
             false,
         )?;
 
-        Ok(vec![Some(grad_x_tensor), Some(grad_y_tensor)])
+        if device.is_cuda() {
+            Ok(vec![Some(grad_x_tensor.to(device)?), Some(grad_y_tensor.to(device)?)])
+        } else {
+            Ok(vec![Some(grad_x_tensor), Some(grad_y_tensor)])
+        }
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -78,8 +83,9 @@ pub fn where_<T: Float>(
     x: &Tensor<T>,
     y: &Tensor<T>,
 ) -> FerrotorchResult<Tensor<T>> {
-    let x_data = x.data()?;
-    let y_data = y.data()?;
+    let device = x.device();
+    let x_data = x.data_vec()?;
+    let y_data = y.data_vec()?;
 
     debug_assert_eq!(condition.len(), x_data.len());
     debug_assert_eq!(condition.len(), y_data.len());
@@ -92,16 +98,17 @@ pub fn where_<T: Float>(
 
     let needs_grad = is_grad_enabled() && (x.requires_grad() || y.requires_grad());
 
-    if needs_grad {
+    let out = if needs_grad {
         let grad_fn = Arc::new(WhereBackward {
             condition: condition.to_vec(),
             x: x.clone(),
             y: y.clone(),
         });
-        Tensor::from_operation(TensorStorage::cpu(result), x.shape().to_vec(), grad_fn)
+        Tensor::from_operation(TensorStorage::cpu(result), x.shape().to_vec(), grad_fn)?
     } else {
-        Tensor::from_storage(TensorStorage::cpu(result), x.shape().to_vec(), false)
-    }
+        Tensor::from_storage(TensorStorage::cpu(result), x.shape().to_vec(), false)?
+    };
+    if device.is_cuda() { out.to(device) } else { Ok(out) }
 }
 
 #[cfg(test)]

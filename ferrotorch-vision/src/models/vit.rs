@@ -80,6 +80,7 @@ impl<T: Float> Module<T> for PatchEmbed<T> {
         let h = shape[2];
         let w = shape[3];
         let num_patches = (h / self.patch_size) * (w / self.patch_size);
+        let device = input.device();
 
         // Conv2d: [B, C, H, W] -> [B, embed_dim, H/patch_size, W/patch_size]
         let x = self.proj.forward(input)?;
@@ -91,7 +92,7 @@ impl<T: Float> Module<T> for PatchEmbed<T> {
         // We need [B, num_patches, embed_dim] where num_patches = grid_h * grid_w.
         // This is equivalent to: reshape to [B, embed_dim, num_patches], then
         // permute(0, 2, 1) -> [B, num_patches, embed_dim].
-        let x_data = x.data()?;
+        let x_data = x.data_vec()?;
         let mut out = vec![<T as num_traits::Zero>::zero(); batch * num_patches * self.embed_dim];
 
         for b in 0..batch {
@@ -110,7 +111,7 @@ impl<T: Float> Module<T> for PatchEmbed<T> {
             TensorStorage::cpu(out),
             vec![batch, num_patches, self.embed_dim],
             input.requires_grad(),
-        )
+        )?.to(device)
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
@@ -213,6 +214,7 @@ impl<T: Float> Module<T> for TransformerBlock<T> {
         let batch = shape[0];
         let seq_len = shape[1];
         let embed_dim = shape[2];
+        let device = input.device();
 
         // --- Sub-block 1: LayerNorm -> MultiheadAttention -> residual add ---
         let normed1 = self.norm1.forward(input)?;
@@ -224,7 +226,7 @@ impl<T: Float> Module<T> for TransformerBlock<T> {
 
         // MLP expects 2-D [seq_len, embed_dim] input (Linear is 2-D only).
         // Process each batch element independently.
-        let normed2_data = normed2.data()?;
+        let normed2_data = normed2.data_vec()?;
         let slice_size = seq_len * embed_dim;
         let mut mlp_out_data = Vec::with_capacity(batch * slice_size);
 
@@ -236,9 +238,9 @@ impl<T: Float> Module<T> for TransformerBlock<T> {
                 TensorStorage::cpu(slice_data),
                 vec![seq_len, embed_dim],
                 normed2.requires_grad(),
-            )?;
+            )?.to(device)?;
             let mlp_result = self.mlp_forward(&slice_tensor)?;
-            let result_data = mlp_result.data()?;
+            let result_data = mlp_result.data_vec()?;
             mlp_out_data.extend_from_slice(&result_data);
         }
 
@@ -246,7 +248,7 @@ impl<T: Float> Module<T> for TransformerBlock<T> {
             TensorStorage::cpu(mlp_out_data),
             vec![batch, seq_len, embed_dim],
             normed2.requires_grad(),
-        )?;
+        )?.to(device)?;
 
         add(&x, &mlp_out)
     }
@@ -390,13 +392,14 @@ impl<T: Float> VisionTransformer<T> {
 impl<T: Float> Module<T> for VisionTransformer<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let batch = input.shape()[0];
+        let device = input.device();
 
         // 1. Patch embedding: [B, 3, H, W] -> [B, num_patches, embed_dim]
         let x = self.patch_embed.forward(input)?;
 
         // 2. Prepend CLS token: [B, num_patches, embed_dim] -> [B, num_patches+1, embed_dim]
-        let cls_data = self.cls_token.data()?;
-        let x_data = x.data()?;
+        let cls_data = self.cls_token.data_vec()?;
+        let x_data = x.data_vec()?;
 
         let seq_len = self.num_patches + 1;
         let mut prepended = Vec::with_capacity(batch * seq_len * self.embed_dim);
@@ -414,12 +417,12 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
             TensorStorage::cpu(prepended),
             vec![batch, seq_len, self.embed_dim],
             input.requires_grad(),
-        )?;
+        )?.to(device)?;
 
         // 3. Add position embedding: [B, seq_len, embed_dim] + [1, seq_len, embed_dim]
         // Broadcast pos_embed across batch dimension.
-        let pos_data = self.pos_embed.data()?;
-        let x_data = x.data()?;
+        let pos_data = self.pos_embed.data_vec()?;
+        let x_data = x.data_vec()?;
         let total = batch * seq_len * self.embed_dim;
         let pos_size = seq_len * self.embed_dim;
         let mut pos_added = Vec::with_capacity(total);
@@ -435,7 +438,7 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
             TensorStorage::cpu(pos_added),
             vec![batch, seq_len, self.embed_dim],
             input.requires_grad(),
-        )?;
+        )?.to(device)?;
 
         // 4. Transformer encoder blocks.
         for block in &self.blocks {
@@ -446,7 +449,7 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
         let x = self.norm.forward(&x)?;
 
         // 6. Extract CLS token: take [:, 0, :] -> [B, embed_dim]
-        let x_data = x.data()?;
+        let x_data = x.data_vec()?;
         let mut cls_out = Vec::with_capacity(batch * self.embed_dim);
 
         for b in 0..batch {
@@ -459,7 +462,7 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
             TensorStorage::cpu(cls_out),
             vec![batch, self.embed_dim],
             x.requires_grad(),
-        )?;
+        )?.to(device)?;
 
         // 7. Classification head: Linear(embed_dim, num_classes)
         self.head.forward(&cls_features)

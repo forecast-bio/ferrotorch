@@ -283,17 +283,18 @@ struct DropoutBackward<T: Float> {
 impl<T: Float> GradFn<T> for DropoutBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let da = if self.input.requires_grad() {
-            let go_data = grad_output.data()?;
+            let go_data = grad_output.data_vec()?;
             let grad_a: Vec<T> = go_data
                 .iter()
                 .zip(self.scaled_mask.iter())
                 .map(|(&g, &m)| g * m)
                 .collect();
-            Some(Tensor::from_storage(
+            let g = Tensor::from_storage(
                 TensorStorage::cpu(grad_a),
                 self.input.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(if self.input.is_cuda() { g.to(self.input.device())? } else { g })
         } else {
             None
         };
@@ -358,14 +359,15 @@ pub fn dropout<T: Float>(
         .collect();
 
     // Forward: element-wise multiply input by scaled mask.
-    let input_data = input.data()?;
+    let device = input.device();
+    let input_data = input.data_vec()?;
     let output_data: Vec<T> = input_data
         .iter()
         .zip(scaled_mask.iter())
         .map(|(&x, &m)| x * m)
         .collect();
 
-    if is_grad_enabled() && input.requires_grad() {
+    let result = if is_grad_enabled() && input.requires_grad() {
         Tensor::from_operation(
             TensorStorage::cpu(output_data),
             input.shape().to_vec(),
@@ -373,10 +375,11 @@ pub fn dropout<T: Float>(
                 input: input.clone(),
                 scaled_mask,
             }),
-        )
+        )?
     } else {
-        Tensor::from_storage(TensorStorage::cpu(output_data), input.shape().to_vec(), false)
-    }
+        Tensor::from_storage(TensorStorage::cpu(output_data), input.shape().to_vec(), false)?
+    };
+    if device.is_cuda() { result.to(device) } else { Ok(result) }
 }
 
 // ===========================================================================
@@ -419,7 +422,7 @@ pub fn mse_loss<T: Float>(
             target: target.clone(),
         });
         Tensor::from_operation(
-            TensorStorage::cpu(reduced.data()?.to_vec()),
+            TensorStorage::cpu(reduced.data_vec()?),
             reduced.shape().to_vec(),
             grad_fn,
         )
@@ -439,9 +442,9 @@ struct MSEBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for MSEBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let pred_data = self.pred.data()?;
-        let target_data = self.target.data()?;
-        let grad_data = grad_output.data()?;
+        let pred_data = self.pred.data_vec()?;
+        let target_data = self.target.data_vec()?;
+        let grad_data = grad_output.data_vec()?;
         let two = T::from(2.0).unwrap();
         let n = T::from(pred_data.len()).unwrap();
         let go = grad_data[0];
@@ -457,6 +460,7 @@ impl<T: Float> GradFn<T> for MSEBackward<T> {
             self.pred.shape().to_vec(),
             false,
         )?;
+        let grad_input = grad_input.to(self.pred.device())?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -507,8 +511,8 @@ pub fn cross_entropy<T: Float>(
         });
     }
 
-    let logits_data = logits.data()?;
-    let targets_data = targets.data()?;
+    let logits_data = logits.data_vec()?;
+    let targets_data = targets.data_vec()?;
 
     // Compute log_softmax along dim=-1 and the softmax values (for backward).
     let mut log_probs = vec![<T as num_traits::Zero>::zero(); batch * classes];
@@ -563,7 +567,7 @@ pub fn cross_entropy<T: Float>(
             softmax: softmax_tensor,
         });
         Tensor::from_operation(
-            TensorStorage::cpu(reduced.data()?.to_vec()),
+            TensorStorage::cpu(reduced.data_vec()?),
             reduced.shape().to_vec(),
             grad_fn,
         )
@@ -587,9 +591,9 @@ impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
         let shape = self.logits.shape();
         let batch = shape[0];
         let classes = shape[1];
-        let sm_data = self.softmax.data()?;
-        let targets_data = self.targets.data()?;
-        let grad_data = grad_output.data()?;
+        let sm_data = self.softmax.data_vec()?;
+        let targets_data = self.targets.data_vec()?;
+        let grad_data = grad_output.data_vec()?;
         let go = grad_data[0];
 
         let mut result = vec![<T as num_traits::Zero>::zero(); batch * classes];
@@ -613,6 +617,7 @@ impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
             self.logits.shape().to_vec(),
             false,
         )?;
+        let grad_input = grad_input.to(self.logits.device())?;
         Ok(vec![Some(grad_input)])
     }
 

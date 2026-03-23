@@ -41,9 +41,10 @@ impl<T: Float> Bernoulli<T> {
 impl<T: Float> Distribution<T> for Bernoulli<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
         // sample = (rand < probs) as float
+        let device = self.probs.device();
         let u = creation::rand::<T>(shape)?;
-        let u_data = u.data()?;
-        let probs_data = self.probs.data()?;
+        let u_data = u.data_vec()?;
+        let probs_data = self.probs.data_vec()?;
         let one = <T as num_traits::One>::one();
         let zero = <T as num_traits::Zero>::zero();
 
@@ -52,7 +53,8 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
             .zip(probs_data.iter().cycle())
             .map(|(&u_val, &p)| if u_val < p { one } else { zero })
             .collect();
-        Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)
+        let out = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 
     fn rsample(&self, _shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
@@ -65,8 +67,9 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // log_prob = x * log(p) + (1 - x) * log(1 - p)
-        let probs_data = self.probs.data()?;
-        let val_data = value.data()?;
+        let device = self.probs.device();
+        let probs_data = self.probs.data_vec()?;
+        let val_data = value.data_vec()?;
         let one = <T as num_traits::One>::one();
 
         // Clamp probs to avoid log(0)
@@ -81,16 +84,18 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
             })
             .collect();
 
-        Tensor::from_storage(
+        let out = Tensor::from_storage(
             TensorStorage::cpu(result),
             value.shape().to_vec(),
             false,
-        )
+        )?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
         // entropy = -p * log(p) - (1-p) * log(1-p)
-        let probs_data = self.probs.data()?;
+        let device = self.probs.device();
+        let probs_data = self.probs.data_vec()?;
         let one = <T as num_traits::One>::one();
         let eps = T::from(1e-7).unwrap();
 
@@ -102,11 +107,12 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
             })
             .collect();
 
-        Tensor::from_storage(
+        let out = Tensor::from_storage(
             TensorStorage::cpu(result),
             self.probs.shape().to_vec(),
             false,
-        )
+        )?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 }
 

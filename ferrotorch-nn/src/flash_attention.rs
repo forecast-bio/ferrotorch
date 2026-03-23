@@ -60,9 +60,10 @@ pub fn flash_attention<T: Float>(
 
     let scale = T::from(1.0 / (d as f64).sqrt()).unwrap();
 
-    let q_data = query.data()?;
-    let k_data = key.data()?;
-    let v_data = value.data()?;
+    let device = query.device();
+    let q_data = query.data_vec()?;
+    let k_data = key.data_vec()?;
+    let v_data = value.data_vec()?;
 
     let mut output_data = vec![<T as num_traits::Zero>::zero(); batch * n_q * d_v];
 
@@ -87,31 +88,35 @@ pub fn flash_attention<T: Float>(
         );
     }
 
-    let result = Tensor::from_storage(
-        TensorStorage::cpu(output_data),
-        vec![batch, n_q, d_v],
-        false,
-    )?;
-
     // Attach backward if any input requires grad.
-    if is_grad_enabled()
+    let result = if is_grad_enabled()
         && (query.requires_grad() || key.requires_grad() || value.requires_grad())
     {
+        let result_plain = Tensor::from_storage(
+            TensorStorage::cpu(output_data.clone()),
+            vec![batch, n_q, d_v],
+            false,
+        )?;
         let grad_fn = Arc::new(FlashAttentionBackward {
             query: query.clone(),
             key: key.clone(),
             value: value.clone(),
-            output: result.clone(),
+            output: result_plain,
             causal,
         });
         Tensor::from_operation(
-            TensorStorage::cpu(result.data()?.to_vec()),
-            result.shape().to_vec(),
+            TensorStorage::cpu(output_data),
+            vec![batch, n_q, d_v],
             grad_fn,
-        )
+        )?
     } else {
-        Ok(result)
-    }
+        Tensor::from_storage(
+            TensorStorage::cpu(output_data),
+            vec![batch, n_q, d_v],
+            false,
+        )?
+    };
+    if device.is_cuda() { result.to(device) } else { Ok(result) }
 }
 
 // ---------------------------------------------------------------------------
@@ -380,10 +385,10 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
         let neg_inf = T::from(-1e30).unwrap();
         let zero = <T as num_traits::Zero>::zero();
 
-        let q_data = self.query.data()?;
-        let k_data = self.key.data()?;
-        let v_data = self.value.data()?;
-        let go_data = grad_output.data()?;
+        let q_data = self.query.data_vec()?;
+        let k_data = self.key.data_vec()?;
+        let v_data = self.value.data_vec()?;
+        let go_data = grad_output.data_vec()?;
 
         let needs_grad_q = self.query.requires_grad();
         let needs_grad_k = self.key.requires_grad();
@@ -548,31 +553,34 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
         }
 
         let grad_q = if needs_grad_q {
-            Some(Tensor::from_storage(
+            let g = Tensor::from_storage(
                 TensorStorage::cpu(grad_q_data),
                 self.query.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(if self.query.is_cuda() { g.to(self.query.device())? } else { g })
         } else {
             None
         };
 
         let grad_k = if needs_grad_k {
-            Some(Tensor::from_storage(
+            let g = Tensor::from_storage(
                 TensorStorage::cpu(grad_k_data),
                 self.key.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(if self.key.is_cuda() { g.to(self.key.device())? } else { g })
         } else {
             None
         };
 
         let grad_v = if needs_grad_v {
-            Some(Tensor::from_storage(
+            let g = Tensor::from_storage(
                 TensorStorage::cpu(grad_v_data),
                 self.value.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(if self.value.is_cuda() { g.to(self.value.device())? } else { g })
         } else {
             None
         };

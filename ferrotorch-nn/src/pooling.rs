@@ -144,7 +144,10 @@ fn max_pool2d_forward<T: Float>(
     let (batch, channels, h, w) = validate_4d(input)?;
     let (out_h, out_w) = validate_pool_params(h, w, kernel_size, stride, padding)?;
 
-    let data = input.data()?;
+    // Save device for restoring on output.
+    let input_device = input.device();
+
+    let data = input.data_vec()?;
     let total = batch * channels * out_h * out_w;
     let mut output = vec![<T as num_traits::Zero>::zero(); total];
     // Store the flat index of the max element within the input for each output element.
@@ -201,9 +204,11 @@ fn max_pool2d_forward<T: Float>(
                 input: input.clone(),
                 indices,
             }),
-        )
+        )?
+        .to(input_device) // restore device
     } else {
-        Tensor::from_storage(storage, out_shape, false)
+        Tensor::from_storage(storage, out_shape, false)?
+            .to(input_device) // restore device
     }
 }
 
@@ -224,7 +229,7 @@ impl<T: Float> GradFn<T> for MaxPool2dBackward<T> {
             return Ok(vec![None]);
         }
 
-        let go_data = grad_output.data()?;
+        let go_data = grad_output.data_vec()?;
         let input_numel = self.input.numel();
         let mut grad_input = vec![<T as num_traits::Zero>::zero(); input_numel];
 
@@ -320,7 +325,10 @@ fn avg_pool2d_forward<T: Float>(
     let (batch, channels, h, w) = validate_4d(input)?;
     let (out_h, out_w) = validate_pool_params(h, w, kernel_size, stride, padding)?;
 
-    let data = input.data()?;
+    // Save device for restoring on output.
+    let input_device = input.device();
+
+    let data = input.data_vec()?;
     let total = batch * channels * out_h * out_w;
     let mut output = vec![<T as num_traits::Zero>::zero(); total];
 
@@ -370,9 +378,11 @@ fn avg_pool2d_forward<T: Float>(
                 stride,
                 padding,
             }),
-        )
+        )?
+        .to(input_device) // restore device
     } else {
-        Tensor::from_storage(storage, out_shape, false)
+        Tensor::from_storage(storage, out_shape, false)?
+            .to(input_device) // restore device
     }
 }
 
@@ -394,7 +404,7 @@ impl<T: Float> GradFn<T> for AvgPool2dBackward<T> {
             return Ok(vec![None]);
         }
 
-        let go_data = grad_output.data()?;
+        let go_data = grad_output.data_vec()?;
         let in_shape = self.input.shape();
         let (batch, channels, h, w) = (in_shape[0], in_shape[1], in_shape[2], in_shape[3]);
         let out_h = pool_output_size(h, self.kernel_size[0], self.stride[0], self.padding[0]);
@@ -526,7 +536,10 @@ fn adaptive_avg_pool2d_forward<T: Float>(
         });
     }
 
-    let data = input.data()?;
+    // Save device for restoring on output.
+    let input_device = input.device();
+
+    let data = input.data_vec()?;
     let total = batch * channels * out_h * out_w;
     let mut output = vec![<T as num_traits::Zero>::zero(); total];
 
@@ -568,9 +581,11 @@ fn adaptive_avg_pool2d_forward<T: Float>(
                 input: input.clone(),
                 output_size,
             }),
-        )
+        )?
+        .to(input_device) // restore device
     } else {
-        Tensor::from_storage(storage, out_shape, false)
+        Tensor::from_storage(storage, out_shape, false)?
+            .to(input_device) // restore device
     }
 }
 
@@ -590,7 +605,7 @@ impl<T: Float> GradFn<T> for AdaptiveAvgPool2dBackward<T> {
             return Ok(vec![None]);
         }
 
-        let go_data = grad_output.data()?;
+        let go_data = grad_output.data_vec()?;
         let in_shape = self.input.shape();
         let (batch, channels, h, w) = (in_shape[0], in_shape[1], in_shape[2], in_shape[3]);
         let (out_h, out_w) = self.output_size;

@@ -287,7 +287,8 @@ pub fn permute_t<T: Float>(input: &Tensor<T>, dims: &[usize]) -> FerrotorchResul
     }
 
     let in_shape = input.shape();
-    let in_data = input.data()?;
+    let device = input.device();
+    let in_data = input.data_vec()?;
 
     // Compute output shape.
     let out_shape: Vec<usize> = dims.iter().map(|&d| in_shape[d]).collect();
@@ -314,15 +315,16 @@ pub fn permute_t<T: Float>(input: &Tensor<T>, dims: &[usize]) -> FerrotorchResul
     }
 
     // Permute is differentiable: backward is the inverse permutation.
-    if crate::autograd::no_grad::is_grad_enabled() && input.requires_grad() {
+    let out = if crate::autograd::no_grad::is_grad_enabled() && input.requires_grad() {
         let grad_fn = std::sync::Arc::new(PermuteBackward {
             input: input.clone(),
             dims: dims.to_vec(),
         });
-        Tensor::from_operation(TensorStorage::cpu(out_data), out_shape, grad_fn)
+        Tensor::from_operation(TensorStorage::cpu(out_data), out_shape, grad_fn)?
     } else {
-        Tensor::from_storage(TensorStorage::cpu(out_data), out_shape, false)
-    }
+        Tensor::from_storage(TensorStorage::cpu(out_data), out_shape, false)?
+    };
+    if device.is_cuda() { out.to(device) } else { Ok(out) }
 }
 
 /// Backward for permute: apply the inverse permutation to the gradient.
@@ -462,7 +464,8 @@ pub fn split_t<T: Float>(
         });
     }
 
-    let in_data = input.data()?;
+    let device = input.device();
+    let in_data = input.data_vec()?;
     let needs_grad = is_grad_enabled() && input.requires_grad();
 
     let outer: usize = shape[..dim].iter().product();
@@ -501,6 +504,7 @@ pub fn split_t<T: Float>(
         } else {
             Tensor::from_storage(TensorStorage::cpu(chunk_data), chunk_shape, false)?
         };
+        let t = if device.is_cuda() { t.to(device)? } else { t };
         results.push(t);
         offset_along_dim += split_size;
     }

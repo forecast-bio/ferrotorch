@@ -38,7 +38,8 @@ use ferrotorch_nn::pooling::AdaptiveAvgPool2d;
 fn nhwc_from_nchw<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape();
     let (b, c, h, w) = (shape[0], shape[1], shape[2], shape[3]);
-    let data = input.data()?;
+    let device = input.device();
+    let data = input.data_vec()?;
     let total = b * c * h * w;
     let mut out = vec![<T as num_traits::Zero>::zero(); total];
 
@@ -58,14 +59,15 @@ fn nhwc_from_nchw<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         TensorStorage::cpu(out),
         vec![b, h, w, c],
         input.requires_grad(),
-    )
+    )?.to(device)
 }
 
 /// Permute a 4-D tensor from `[B, H, W, C]` to `[B, C, H, W]`.
 fn nchw_from_nhwc<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape();
     let (b, h, w, c) = (shape[0], shape[1], shape[2], shape[3]);
-    let data = input.data()?;
+    let device = input.device();
+    let data = input.data_vec()?;
     let total = b * c * h * w;
     let mut out = vec![<T as num_traits::Zero>::zero(); total];
 
@@ -85,7 +87,7 @@ fn nchw_from_nhwc<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         TensorStorage::cpu(out),
         vec![b, c, h, w],
         input.requires_grad(),
-    )
+    )?.to(device)
 }
 
 /// Apply `LayerNorm` on the channel dimension of a `[B, C, H, W]` tensor.

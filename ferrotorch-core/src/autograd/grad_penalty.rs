@@ -79,9 +79,9 @@ where
 
     // 1. Random interpolation coefficient alpha ~ U(0, 1).
     let alpha_tensor: Tensor<T> = crate::creation::rand(real.shape())?;
-    let alpha_data = alpha_tensor.data()?;
-    let real_data = real.data()?;
-    let fake_data = fake.data()?;
+    let alpha_data = alpha_tensor.data_vec()?;
+    let real_data = real.data_vec()?;
+    let fake_data = fake.data_vec()?;
 
     // x_interp = alpha * real + (1 - alpha) * fake
     let one = <T as num_traits::One>::one();
@@ -158,7 +158,7 @@ pub fn grad_norm<T: Float>(
     let mut total_sq = zero;
 
     for maybe_grad in grads.iter().flatten() {
-        let g_data = maybe_grad.data()?;
+        let g_data = maybe_grad.data_vec()?;
         for &val in g_data.iter() {
             total_sq += val * val;
         }
@@ -206,8 +206,8 @@ where
     let h = T::from(1e-4).unwrap();
     let two_h = T::from(2e-4).unwrap();
 
-    let input_data = input.data()?;
-    let v_data = v.data()?;
+    let input_data = input.data_vec()?;
+    let v_data = v.data_vec()?;
     let n = input.numel();
 
     // x_plus = input + h * v
@@ -227,8 +227,8 @@ where
     let f_plus = f(&x_plus)?;
     let f_minus = f(&x_minus)?;
 
-    let fp_data = f_plus.data()?;
-    let fm_data = f_minus.data()?;
+    let fp_data = f_plus.data_vec()?;
+    let fm_data = f_minus.data_vec()?;
 
     // (f(x+hv) - f(x-hv)) / (2h)
     let result_data: Vec<T> = fp_data
@@ -271,7 +271,7 @@ where
 {
     // Create a fresh input that requires grad.
     let x = Tensor::from_storage(
-        TensorStorage::cpu(input.data()?.to_vec()),
+        TensorStorage::cpu(input.data_vec()?),
         input.shape().to_vec(),
         true,
     )?;
@@ -281,8 +281,8 @@ where
 
     // We need a scalar output for grad(). Compute the dot product y . v
     // to get a scalar whose gradient w.r.t. x is v^T @ J.
-    let y_data = y.data()?;
-    let v_data = v.data()?;
+    let y_data = y.data_vec()?;
+    let v_data = v.data_vec()?;
 
     if y_data.len() != v_data.len() {
         return Err(crate::error::FerrotorchError::ShapeMismatch {
@@ -296,7 +296,7 @@ where
 
     // Construct y_weighted = y * v using differentiable mul, then sum.
     let v_tensor = Tensor::from_storage(
-        TensorStorage::cpu(v_data.to_vec()),
+        TensorStorage::cpu(v_data),
         y.shape().to_vec(),
         false,
     )?;

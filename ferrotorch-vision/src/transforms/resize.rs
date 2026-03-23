@@ -41,7 +41,7 @@ impl<T: Float> Transform<T> for Resize<T> {
         let out_h = self.height;
         let out_w = self.width;
 
-        let data = input.data()?;
+        let data = input.data_vec()?;
         let mut output = Vec::with_capacity(channels * out_h * out_w);
 
         for c in 0..channels {

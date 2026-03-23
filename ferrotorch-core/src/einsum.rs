@@ -170,7 +170,7 @@ fn einsum_single<T: Float>(
         out_shape.iter().product()
     };
 
-    let data = input.data()?;
+    let data = input.data_vec()?;
     let in_shape = input.shape();
 
     // General approach: iterate over all output index combinations plus all
@@ -352,8 +352,8 @@ fn einsum_two<T: Float>(
     let free_b_total: usize = free_b_sizes.iter().product::<usize>().max(1);
     let contract_total: usize = contract_sizes.iter().product::<usize>().max(1);
 
-    let a_data = a.data()?;
-    let b_data = b.data()?;
+    let a_data = a.data_vec()?;
+    let b_data = b.data_vec()?;
     let a_shape = a.shape();
     let b_shape = b.shape();
 
@@ -645,14 +645,15 @@ pub fn einsum_differentiable<T: Float>(
     let any_requires_grad = inputs.iter().any(|t| t.requires_grad());
 
     if is_grad_enabled() && any_requires_grad {
-        match inputs.len() {
+        let device = result.device();
+        let wrapped = match inputs.len() {
             1 => {
                 let grad_fn = Arc::new(EinsumBackwardSingle {
                     equation: equation.to_string(),
                     input: inputs[0].clone(),
                 });
                 Tensor::from_operation(
-                    TensorStorage::cpu(result.data()?.to_vec()),
+                    TensorStorage::cpu(result.data_vec()?),
                     result.shape().to_vec(),
                     grad_fn,
                 )
@@ -664,13 +665,14 @@ pub fn einsum_differentiable<T: Float>(
                     b: inputs[1].clone(),
                 });
                 Tensor::from_operation(
-                    TensorStorage::cpu(result.data()?.to_vec()),
+                    TensorStorage::cpu(result.data_vec()?),
                     result.shape().to_vec(),
                     grad_fn,
                 )
             }
             _ => Ok(result),
-        }
+        }?;
+        Ok(if device.is_cuda() { wrapped.to(device)? } else { wrapped })
     } else {
         Ok(result)
     }
@@ -724,7 +726,7 @@ impl<T: Float> GradFn<T> for EinsumBackwardSingle<T> {
             let in_shape: Vec<usize> = self.input.shape().to_vec();
             let in_numel = self.input.numel();
             let mut grad_data = vec![<T as num_traits::Zero>::zero(); in_numel];
-            let grad_out_data = grad_output.data()?;
+            let grad_out_data = grad_output.data_vec()?;
 
             // General approach: for each element of grad_A, we need to determine
             // the gradient. The gradient of sum over repeated indices is nonzero

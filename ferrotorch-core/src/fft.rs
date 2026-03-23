@@ -111,7 +111,8 @@ pub fn fft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<Te
         });
     }
 
-    let data = input.data()?;
+    let device = input.device();
+    let data = input.data_vec()?;
     let batch_shape = &shape[..ndim - 2];
     let batch_size: usize = batch_shape.iter().product::<usize>().max(1);
 
@@ -138,7 +139,8 @@ pub fn fft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<Te
     out_shape.push(fft_n);
     out_shape.push(2);
 
-    Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)
+    let out = Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)?;
+    if device.is_cuda() { out.to(device) } else { Ok(out) }
 }
 
 /// 1-D inverse FFT along the last dimension.
@@ -172,7 +174,8 @@ pub fn ifft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<T
         });
     }
 
-    let data = input.data()?;
+    let device = input.device();
+    let data = input.data_vec()?;
     let batch_shape = &shape[..ndim - 2];
     let batch_size: usize = batch_shape.iter().product::<usize>().max(1);
 
@@ -197,7 +200,8 @@ pub fn ifft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<T
     out_shape.push(fft_n);
     out_shape.push(2);
 
-    Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)
+    let out = Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)?;
+    if device.is_cuda() { out.to(device) } else { Ok(out) }
 }
 
 /// 1-D real-to-complex FFT along the last dimension.
@@ -221,7 +225,8 @@ pub fn rfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<T
         });
     }
 
-    let data = input.data()?;
+    let device = input.device();
+    let data = input.data_vec()?;
     let batch_shape = &shape[..ndim - 1];
     let batch_size: usize = batch_shape.iter().product::<usize>().max(1);
 
@@ -257,7 +262,8 @@ pub fn rfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<T
     out_shape.push(half_n);
     out_shape.push(2);
 
-    Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)
+    let out = Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)?;
+    if device.is_cuda() { out.to(device) } else { Ok(out) }
 }
 
 /// 1-D complex-to-real inverse FFT.
@@ -292,7 +298,8 @@ pub fn irfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<
         });
     }
 
-    let data = input.data()?;
+    let device = input.device();
+    let data = input.data_vec()?;
     let batch_shape = &shape[..ndim - 2];
     let batch_size: usize = batch_shape.iter().product::<usize>().max(1);
 
@@ -333,7 +340,8 @@ pub fn irfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<
     let mut out_shape = batch_shape.to_vec();
     out_shape.push(output_n);
 
-    Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)
+    let out = Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)?;
+    if device.is_cuda() { out.to(device) } else { Ok(out) }
 }
 
 /// 2-D FFT (complex-to-complex) along the last two spatial dimensions.
@@ -412,10 +420,11 @@ fn fft_2d_row_pass<T: Float>(
     inverse: bool,
 ) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape();
+    let device = input.device();
     let ndim = shape.len();
     let batch_shape = &shape[..ndim - 3];
     let batch_size: usize = batch_shape.iter().product::<usize>().max(1);
-    let data = input.data()?;
+    let data = input.data_vec()?;
 
     // Transpose [batch, rows, cols, 2] -> [batch, cols, rows, 2] so rows become the last spatial dim.
     let mut transposed = vec![T::from(0.0).unwrap(); data.len()];
@@ -447,7 +456,7 @@ fn fft_2d_row_pass<T: Float>(
     };
 
     // Transpose back [batch, cols, rows, 2] -> [batch, rows, cols, 2].
-    let t_data = transformed.data()?;
+    let t_data = transformed.data_vec()?;
     let mut result = vec![T::from(0.0).unwrap(); t_data.len()];
     for b in 0..batch_size {
         let base = b * rows * cols * 2;
@@ -466,7 +475,8 @@ fn fft_2d_row_pass<T: Float>(
     out_shape.push(cols);
     out_shape.push(2);
 
-    Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)
+    let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
+    if device.is_cuda() { out.to(device) } else { Ok(out) }
 }
 
 // ---------------------------------------------------------------------------

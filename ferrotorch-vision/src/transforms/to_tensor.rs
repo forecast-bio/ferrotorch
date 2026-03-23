@@ -47,7 +47,7 @@ impl<T: Float> Transform<T> for VisionToTensor<T> {
         let c = shape[2];
 
         let scale: T = <T as NumCast>::from(255.0).unwrap();
-        let data = input.data()?;
+        let data = input.data_vec()?;
 
         // Transpose HWC -> CHW and divide by 255.
         let mut output = vec![<T as num_traits::Zero>::zero(); c * h * w];

@@ -19,8 +19,13 @@
 //! - [`TransformerDecoderLayer`] — A pre-norm decoder block with
 //!   self-attention, cross-attention, and feedforward sub-layers.
 
+use std::sync::Arc;
+
+use ferrotorch_core::autograd::no_grad::is_grad_enabled;
 use ferrotorch_core::grad_fns::activation::silu;
 use ferrotorch_core::grad_fns::arithmetic::{add, mul};
+use ferrotorch_core::grad_fns::shape::reshape;
+use ferrotorch_core::tensor::GradFn;
 use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 
 use crate::attention::MultiheadAttention;
@@ -55,6 +60,105 @@ impl std::fmt::Display for RoPEConvention {
             RoPEConvention::Interleaved => write!(f, "interleaved"),
             RoPEConvention::HalfRotation => write!(f, "half_rotation"),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RoPEBackward
+// ---------------------------------------------------------------------------
+
+/// Backward node for RoPE.
+///
+/// RoPE applies a linear rotation per position, so the backward pass
+/// applies the *inverse* rotation (transpose of the rotation matrix,
+/// which is just cos / -sin swap).
+#[derive(Debug)]
+struct RoPEBackward<T: Float> {
+    input: Tensor<T>,
+    cos_flat: Vec<T>,
+    sin_flat: Vec<T>,
+    half_dim: usize,
+    seq_len: usize,
+    batch_dims: usize,
+    dim: usize,
+    seq_offset: usize,
+    convention: RoPEConvention,
+}
+
+impl<T: Float> GradFn<T> for RoPEBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let da = if self.input.requires_grad() {
+            let go_data = grad_output.data_vec()?;
+            let total = go_data.len();
+            let mut grad_input = Vec::with_capacity(total);
+
+            match self.convention {
+                RoPEConvention::Interleaved => {
+                    for b in 0..self.batch_dims {
+                        for s in 0..self.seq_len {
+                            let cache_start = (self.seq_offset + s) * self.half_dim;
+                            let go_start = b * self.seq_len * self.dim + s * self.dim;
+
+                            for i in 0..self.half_dim {
+                                let go_even = go_data[go_start + 2 * i];
+                                let go_odd = go_data[go_start + 2 * i + 1];
+                                let cos_val = self.cos_flat[cache_start + i];
+                                let sin_val = self.sin_flat[cache_start + i];
+
+                                // Inverse rotation: R^T * grad
+                                grad_input.push(go_even * cos_val + go_odd * sin_val);
+                                grad_input.push(-go_even * sin_val + go_odd * cos_val);
+                            }
+                        }
+                    }
+                }
+                RoPEConvention::HalfRotation => {
+                    for b in 0..self.batch_dims {
+                        for s in 0..self.seq_len {
+                            let cache_start = (self.seq_offset + s) * self.half_dim;
+                            let go_start = b * self.seq_len * self.dim + s * self.dim;
+
+                            // First half of grad_input: dx[i] = go_first[i]*cos + go_second[i]*sin
+                            for i in 0..self.half_dim {
+                                let go_first = go_data[go_start + i];
+                                let go_second = go_data[go_start + self.half_dim + i];
+                                let cos_val = self.cos_flat[cache_start + i];
+                                let sin_val = self.sin_flat[cache_start + i];
+
+                                grad_input.push(go_first * cos_val + go_second * sin_val);
+                            }
+                            // Second half: dx[i+d/2] = -go_first[i]*sin + go_second[i]*cos
+                            for i in 0..self.half_dim {
+                                let go_first = go_data[go_start + i];
+                                let go_second = go_data[go_start + self.half_dim + i];
+                                let cos_val = self.cos_flat[cache_start + i];
+                                let sin_val = self.sin_flat[cache_start + i];
+
+                                grad_input.push(-go_first * sin_val + go_second * cos_val);
+                            }
+                        }
+                    }
+                }
+            }
+
+            let g = Tensor::from_storage(
+                TensorStorage::cpu(grad_input),
+                self.input.shape().to_vec(),
+                false,
+            )?;
+            Some(if self.input.is_cuda() { g.to(self.input.device())? } else { g })
+        } else {
+            None
+        };
+        Ok(vec![da])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.input]
+    }
+
+    fn name(&self) -> &'static str {
+        "RoPEBackward"
     }
 }
 
@@ -217,10 +321,11 @@ impl<T: Float> RotaryPositionEmbedding<T> {
             });
         }
 
+        let device = x.device();
         let half_dim = self.dim / 2;
-        let cos_data = self.cos_cache.data()?;
-        let sin_data = self.sin_cache.data()?;
-        let x_data = x.data()?;
+        let cos_data = self.cos_cache.data_vec()?;
+        let sin_data = self.sin_cache.data_vec()?;
+        let x_data = x.data_vec()?;
 
         // Number of independent "instances" before the (seq, dim) axes.
         let batch_dims: usize = shape[..ndim - 2].iter().product();
@@ -281,7 +386,26 @@ impl<T: Float> RotaryPositionEmbedding<T> {
             }
         }
 
-        Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)
+        let result = if is_grad_enabled() && x.requires_grad() {
+            Tensor::from_operation(
+                TensorStorage::cpu(output),
+                shape.to_vec(),
+                Arc::new(RoPEBackward {
+                    input: x.clone(),
+                    cos_flat: cos_data,
+                    sin_flat: sin_data,
+                    half_dim,
+                    seq_len,
+                    batch_dims,
+                    dim: self.dim,
+                    seq_offset,
+                    convention: self.convention,
+                }),
+            )?
+        } else {
+            Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?
+        };
+        if device.is_cuda() { result.to(device) } else { Ok(result) }
     }
 
     /// The embedding dimension.
@@ -372,29 +496,20 @@ impl<T: Float> SwiGLU<T> {
     /// Forward pass for 3-D input `[batch, seq_len, in_features]`.
     ///
     /// Internally reshapes to 2-D, applies the SwiGLU computation, then
-    /// reshapes back.
+    /// reshapes back. Uses differentiable `reshape` to preserve autograd.
     fn forward_3d(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let shape = input.shape();
         let batch = shape[0];
         let seq_len = shape[1];
-        let features = shape[2];
 
-        // Flatten to [batch * seq_len, features].
-        let flat = Tensor::from_storage(
-            TensorStorage::cpu(input.data()?.to_vec()),
-            vec![batch * seq_len, features],
-            input.requires_grad(),
-        )?;
+        // Flatten to [batch * seq_len, features] — differentiable reshape.
+        let flat = reshape(input, &[(batch * seq_len) as isize, -1])?;
 
         let output_flat = self.forward_2d(&flat)?;
 
-        // Reshape back to [batch, seq_len, out_features].
+        // Reshape back to [batch, seq_len, out_features] — differentiable.
         let out_features = output_flat.shape()[1];
-        Tensor::from_storage(
-            TensorStorage::cpu(output_flat.data()?.to_vec()),
-            vec![batch, seq_len, out_features],
-            false,
-        )
+        reshape(&output_flat, &[batch as isize, seq_len as isize, out_features as isize])
     }
 
     /// Forward pass for 2-D input `[batch, in_features]`.
@@ -622,12 +737,13 @@ fn concat_along_dim2<T: Float>(
         });
     }
 
+    let device = a.device();
     let (batch, heads, seq_a, dim) = (sa[0], sa[1], sa[2], sa[3]);
     let seq_b = sb[2];
     let seq_out = seq_a + seq_b;
 
-    let a_data = a.data()?;
-    let b_data = b.data()?;
+    let a_data = a.data_vec()?;
+    let b_data = b.data_vec()?;
 
     let mut output = Vec::with_capacity(batch * heads * seq_out * dim);
 
@@ -642,11 +758,12 @@ fn concat_along_dim2<T: Float>(
         }
     }
 
-    Tensor::from_storage(
+    let result = Tensor::from_storage(
         TensorStorage::cpu(output),
         vec![batch, heads, seq_out, dim],
         false,
-    )
+    )?;
+    if device.is_cuda() { result.to(device) } else { Ok(result) }
 }
 
 // ===========================================================================

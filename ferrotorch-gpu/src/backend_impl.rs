@@ -117,35 +117,76 @@ impl GpuBackend for CudaBackendImpl {
         device: usize,
     ) -> FerrotorchResult<GpuBufferHandle> {
         let dev = self.device(device)?;
-        // Reinterpret raw bytes as an f32 slice.
-        // SAFETY: The caller (ferrotorch-core) guarantees that `data` was
-        // originally an f32 slice serialised to bytes, and `elem_size == 4`.
-        let f32_count = data.len() / elem_size;
-        let f32_data: &[f32] = unsafe {
-            std::slice::from_raw_parts(data.as_ptr() as *const f32, f32_count)
-        };
-        let buf = crate::transfer::cpu_to_gpu(f32_data, dev).map_err(Self::map_gpu_err)?;
-        Ok(Self::wrap_buffer(buf, device))
+        match elem_size {
+            4 => {
+                // SAFETY: The caller (ferrotorch-core) guarantees that `data`
+                // was originally an f32 slice serialised to bytes.
+                let count = data.len() / 4;
+                let f32_data: &[f32] = unsafe {
+                    std::slice::from_raw_parts(data.as_ptr() as *const f32, count)
+                };
+                let buf = crate::transfer::cpu_to_gpu(f32_data, dev)
+                    .map_err(Self::map_gpu_err)?;
+                Ok(Self::wrap_buffer(buf, device))
+            }
+            8 => {
+                // SAFETY: The caller (ferrotorch-core) guarantees that `data`
+                // was originally an f64 slice serialised to bytes.
+                let count = data.len() / 8;
+                let f64_data: &[f64] = unsafe {
+                    std::slice::from_raw_parts(data.as_ptr() as *const f64, count)
+                };
+                let buf = crate::transfer::cpu_to_gpu(f64_data, dev)
+                    .map_err(Self::map_gpu_err)?;
+                Ok(Self::wrap_buffer_f64(buf, device))
+            }
+            other => Err(FerrotorchError::InvalidArgument {
+                message: format!("cpu_to_gpu: unsupported elem_size {other} (expected 4 or 8)"),
+            }),
+        }
     }
 
     fn gpu_to_cpu(&self, handle: &GpuBufferHandle) -> FerrotorchResult<Vec<u8>> {
-        let buf = Self::unwrap_buffer(handle)?;
         let dev = self.device(handle.device_ordinal())?;
-        let f32_data =
-            crate::transfer::gpu_to_cpu(buf, dev).map_err(Self::map_gpu_err)?;
 
-        // Reinterpret Vec<f32> as Vec<u8> without copying.
-        // SAFETY: f32 has alignment 4 and size 4. We adjust len and capacity
-        // accordingly. The original Vec is consumed via ManuallyDrop so its
-        // destructor won't free the allocation.
-        let bytes = unsafe {
-            let mut v = std::mem::ManuallyDrop::new(f32_data);
-            let ptr = v.as_mut_ptr() as *mut u8;
-            let len = v.len() * 4;
-            let cap = v.capacity() * 4;
-            Vec::from_raw_parts(ptr, len, cap)
-        };
-        Ok(bytes)
+        // Try f32 first, then f64.
+        if let Ok(buf) = Self::unwrap_buffer(handle) {
+            let f32_data =
+                crate::transfer::gpu_to_cpu(buf, dev).map_err(Self::map_gpu_err)?;
+
+            // Reinterpret Vec<f32> as Vec<u8> without copying.
+            // SAFETY: f32 has alignment 4 and size 4. We adjust len and capacity
+            // accordingly. The original Vec is consumed via ManuallyDrop so its
+            // destructor won't free the allocation.
+            let bytes = unsafe {
+                let mut v = std::mem::ManuallyDrop::new(f32_data);
+                let ptr = v.as_mut_ptr() as *mut u8;
+                let len = v.len() * 4;
+                let cap = v.capacity() * 4;
+                Vec::from_raw_parts(ptr, len, cap)
+            };
+            Ok(bytes)
+        } else if let Ok(buf) = Self::unwrap_buffer_f64(handle) {
+            let f64_data =
+                crate::transfer::gpu_to_cpu(buf, dev).map_err(Self::map_gpu_err)?;
+
+            // Reinterpret Vec<f64> as Vec<u8> without copying.
+            // SAFETY: f64 has alignment 8 and size 8. We adjust len and capacity
+            // accordingly. The original Vec is consumed via ManuallyDrop so its
+            // destructor won't free the allocation.
+            let bytes = unsafe {
+                let mut v = std::mem::ManuallyDrop::new(f64_data);
+                let ptr = v.as_mut_ptr() as *mut u8;
+                let len = v.len() * 8;
+                let cap = v.capacity() * 8;
+                Vec::from_raw_parts(ptr, len, cap)
+            };
+            Ok(bytes)
+        } else {
+            Err(FerrotorchError::InvalidArgument {
+                message: "gpu_to_cpu: handle is neither CudaBuffer<f32> nor CudaBuffer<f64>".into(),
+            })
+        }
     }
 
     fn clone_buffer(
@@ -155,19 +196,39 @@ impl GpuBackend for CudaBackendImpl {
         // Clone via GPU -> CPU -> GPU round-trip.
         // Correct but not optimal; a device-to-device memcpy would be better.
         let bytes = self.gpu_to_cpu(handle)?;
-        self.cpu_to_gpu(&bytes, 4, handle.device_ordinal())
+        // Determine elem_size from the concrete buffer type.
+        let elem_size = if handle.downcast_ref::<CudaBuffer<f64>>().is_some() {
+            8
+        } else {
+            4
+        };
+        self.cpu_to_gpu(&bytes, elem_size, handle.device_ordinal())
     }
 
     fn alloc_zeros(
         &self,
         len: usize,
-        _elem_size: usize,
+        elem_size: usize,
         device: usize,
     ) -> FerrotorchResult<GpuBufferHandle> {
         let dev = self.device(device)?;
-        let buf =
-            crate::transfer::alloc_zeros_f32(len, dev).map_err(Self::map_gpu_err)?;
-        Ok(Self::wrap_buffer(buf, device))
+        match elem_size {
+            4 => {
+                let buf = crate::transfer::alloc_zeros_f32(len, dev)
+                    .map_err(Self::map_gpu_err)?;
+                Ok(Self::wrap_buffer(buf, device))
+            }
+            8 => {
+                let buf = crate::transfer::alloc_zeros_f64(len, dev)
+                    .map_err(Self::map_gpu_err)?;
+                Ok(Self::wrap_buffer_f64(buf, device))
+            }
+            other => Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "alloc_zeros: unsupported elem_size {other} (expected 4 or 8)"
+                ),
+            }),
+        }
     }
 
     // -- Elementwise f32 ------------------------------------------------------

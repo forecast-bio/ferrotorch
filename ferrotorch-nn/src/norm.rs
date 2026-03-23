@@ -726,28 +726,37 @@ impl<T: Float> GradFn<T> for GroupNormBackward<T> {
             }
         }
 
+        let device = self.input.device();
+
         let grad_input_tensor = Tensor::from_storage(
             TensorStorage::cpu(grad_input),
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input_tensor = if device.is_cuda() {
+            grad_input_tensor.to(device)?
+        } else {
+            grad_input_tensor
+        };
 
         let grad_weight_out = if self.affine && self.weight.requires_grad() {
-            Some(Tensor::from_storage(
+            let t = Tensor::from_storage(
                 TensorStorage::cpu(grad_weight),
                 vec![self.num_channels],
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
 
         let grad_bias_out = if self.affine && self.bias.requires_grad() {
-            Some(Tensor::from_storage(
+            let t = Tensor::from_storage(
                 TensorStorage::cpu(grad_bias),
                 vec![self.num_channels],
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
@@ -999,18 +1008,26 @@ impl<T: Float> GradFn<T> for RMSNormBackward<T> {
             }
         }
 
+        let device = self.input.device();
+
         let grad_input_tensor = Tensor::from_storage(
             TensorStorage::cpu(grad_input),
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input_tensor = if device.is_cuda() {
+            grad_input_tensor.to(device)?
+        } else {
+            grad_input_tensor
+        };
 
         let grad_weight_out = if self.weight.requires_grad() {
-            Some(Tensor::from_storage(
+            let t = Tensor::from_storage(
                 TensorStorage::cpu(grad_weight),
                 self.normalized_shape.clone(),
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };

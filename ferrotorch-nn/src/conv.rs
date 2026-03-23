@@ -292,16 +292,19 @@ impl<T: Float> Module<T> for Conv2d<T> {
         let h_out = (h_padded - kh) / sh + 1;
         let w_out = (w_padded - kw) / sw + 1;
 
-        let input_data = input.data()?;
+        // Save the input device so we can restore it on the output.
+        let input_device = input.device();
+
+        let input_data = input.data_vec()?;
 
         // im2col: [B, C_in * kH * kW, H_out * W_out]
         let (cols, col_rows, col_cols) =
-            im2col(input_data, batch, c_in, h, w, kh, kw, sh, sw, ph, pw);
+            im2col(&input_data, batch, c_in, h, w, kh, kw, sh, sw, ph, pw);
 
         // Reshape weight to 2D: [C_out, C_in * kH * kW]
-        let weight_data = self.weight.data()?;
+        let weight_data = self.weight.data_vec()?;
         let weight_2d = Tensor::from_storage(
-            TensorStorage::cpu(weight_data.to_vec()),
+            TensorStorage::cpu(weight_data),
             vec![self.out_channels, col_rows],
             false,
         )?;
@@ -328,7 +331,7 @@ impl<T: Float> Module<T> for Conv2d<T> {
 
         // Add bias if present: broadcast [C_out] over [B, C_out, H_out, W_out].
         if let Some(ref bias) = self.bias {
-            let bias_data = bias.data()?;
+            let bias_data = bias.data_vec()?;
             for b in 0..batch {
                 for c in 0..self.out_channels {
                     let bval = bias_data[c];
@@ -372,9 +375,10 @@ impl<T: Float> Module<T> for Conv2d<T> {
                 TensorStorage::cpu(result.data()?.to_vec()),
                 result.shape().to_vec(),
                 grad_fn,
-            )
+            )?
+            .to(input_device) // restore device
         } else {
-            Ok(result)
+            result.to(input_device)
         }
     }
 
@@ -446,7 +450,7 @@ struct Conv2dBackward<T: Float> {
 impl<T: Float> GradFn<T> for Conv2dBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         // grad_output shape: [B, C_out, H_out, W_out]
-        let go_data = grad_output.data()?;
+        let go_data = grad_output.data_vec()?;
         let batch = self.input.shape()[0];
         let h = self.input.shape()[2];
         let w = self.input.shape()[3];
@@ -538,9 +542,9 @@ impl<T: Float> GradFn<T> for Conv2dBackward<T> {
         //   weight_2d^T @ grad_output_b -> [col_rows, H_out * W_out]
         //   then col2im to get [C_in, H, W]
         let grad_input = if self.input.requires_grad() {
-            let weight_data = self.weight.data()?;
+            let weight_data = self.weight.data_vec()?;
             let weight_2d = Tensor::from_storage(
-                TensorStorage::cpu(weight_data.to_vec()),
+                TensorStorage::cpu(weight_data),
                 vec![self.out_channels, self.col_rows],
                 false,
             )?;
@@ -752,17 +756,20 @@ impl<T: Float> Module<T> for Conv1d<T> {
 
         let l_out = (l_padded - k) / s + 1;
 
+        // Save the input device so we can restore it on the output.
+        let input_device = input.device();
+
         // Reshape input [B, C_in, L] -> [B, C_in, 1, L] and use 2-D im2col
         // with kernel (1, k), stride (1, s), padding (0, p).
-        let input_data = input.data()?;
+        let input_data = input.data_vec()?;
 
         let (cols, col_rows, col_cols) =
-            im2col(input_data, batch, c_in, 1, length, 1, k, 1, s, 0, p);
+            im2col(&input_data, batch, c_in, 1, length, 1, k, 1, s, 0, p);
 
         // Reshape weight [C_out, C_in, k] to 2-D: [C_out, C_in * k]
-        let weight_data = self.weight.data()?;
+        let weight_data = self.weight.data_vec()?;
         let weight_2d = Tensor::from_storage(
-            TensorStorage::cpu(weight_data.to_vec()),
+            TensorStorage::cpu(weight_data),
             vec![self.out_channels, col_rows],
             false,
         )?;
@@ -789,7 +796,7 @@ impl<T: Float> Module<T> for Conv1d<T> {
 
         // Add bias if present: broadcast [C_out] over [B, C_out, L_out].
         if let Some(ref bias) = self.bias {
-            let bias_data = bias.data()?;
+            let bias_data = bias.data_vec()?;
             for b in 0..batch {
                 for c in 0..self.out_channels {
                     let bval = bias_data[c];
@@ -830,9 +837,10 @@ impl<T: Float> Module<T> for Conv1d<T> {
                 TensorStorage::cpu(result.data()?.to_vec()),
                 result.shape().to_vec(),
                 grad_fn,
-            )
+            )?
+            .to(input_device) // restore device
         } else {
-            Ok(result)
+            result.to(input_device)
         }
     }
 
@@ -897,7 +905,7 @@ struct Conv1dBackward<T: Float> {
 impl<T: Float> GradFn<T> for Conv1dBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         // grad_output shape: [B, C_out, L_out]
-        let go_data = grad_output.data()?;
+        let go_data = grad_output.data_vec()?;
         let batch = self.input.shape()[0];
         let length = self.input.shape()[2];
         let k = self.kernel_size;
@@ -970,9 +978,9 @@ impl<T: Float> GradFn<T> for Conv1dBackward<T> {
 
         // --- grad_input ---
         let grad_input = if self.input.requires_grad() {
-            let weight_data = self.weight.data()?;
+            let weight_data = self.weight.data_vec()?;
             let weight_2d = Tensor::from_storage(
-                TensorStorage::cpu(weight_data.to_vec()),
+                TensorStorage::cpu(weight_data),
                 vec![self.out_channels, self.col_rows],
                 false,
             )?;
@@ -1257,16 +1265,19 @@ impl<T: Float> Module<T> for ConvTranspose2d<T> {
         let (ph, pw) = self.padding;
         let (oph, opw) = self.output_padding;
 
+        // Save the input device so we can restore it on the output.
+        let input_device = input.device();
+
         // Step 1: Insert zeros between input elements (stride insertion).
-        let input_data = input.data()?;
+        let input_data = input.data_vec()?;
         let (upsampled, h_up, w_up) =
-            stride_insert_zeros(input_data, batch, c_in, h, w, sh, sw);
+            stride_insert_zeros(&input_data, batch, c_in, h, w, sh, sw);
 
         // Step 2: Flip the kernel and transpose channel dimensions.
         // Weight: [in_channels, out_channels, kH, kW]
         // Flipped: [out_channels, in_channels, kH, kW] with spatial flip.
-        let weight_data = self.weight.data()?;
-        let flipped = flip_kernel(weight_data, self.in_channels, self.out_channels, kh, kw);
+        let weight_data = self.weight.data_vec()?;
+        let flipped = flip_kernel(&weight_data, self.in_channels, self.out_channels, kh, kw);
 
         // Step 3: Apply a regular convolution on the upsampled input using the
         // flipped kernel. The "padding" for this internal convolution is
@@ -1335,7 +1346,7 @@ impl<T: Float> Module<T> for ConvTranspose2d<T> {
 
         // Add bias if present.
         if let Some(ref bias) = self.bias {
-            let bias_data = bias.data()?;
+            let bias_data = bias.data_vec()?;
             for b in 0..batch {
                 for c in 0..self.out_channels {
                     let bval = bias_data[c];
@@ -1377,9 +1388,10 @@ impl<T: Float> Module<T> for ConvTranspose2d<T> {
                 TensorStorage::cpu(result.data()?.to_vec()),
                 result.shape().to_vec(),
                 grad_fn,
-            )
+            )?
+            .to(input_device) // restore device
         } else {
-            Ok(result)
+            result.to(input_device)
         }
     }
 
@@ -1445,7 +1457,7 @@ struct ConvTranspose2dBackward<T: Float> {
 impl<T: Float> GradFn<T> for ConvTranspose2dBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         // grad_output shape: [B, C_out, H_out, W_out]
-        let go_data = grad_output.data()?;
+        let go_data = grad_output.data_vec()?;
         let batch = self.input.shape()[0];
         let h_in = self.input.shape()[2];
         let w_in = self.input.shape()[3];
@@ -1464,19 +1476,19 @@ impl<T: Float> GradFn<T> for ConvTranspose2dBackward<T> {
         //
         // Reshape weight [C_in, C_out, kH, kW] -> [C_in, C_out * kH * kW] for matmul.
         let grad_input = if self.input.requires_grad() {
-            let weight_data = self.weight.data()?;
+            let weight_data = self.weight.data_vec()?;
             let col_rows = self.out_channels * kh * kw;
 
             // Reshape weight to [C_in, C_out * kH * kW]
             let weight_2d = Tensor::from_storage(
-                TensorStorage::cpu(weight_data.to_vec()),
+                TensorStorage::cpu(weight_data),
                 vec![self.in_channels, col_rows],
                 false,
             )?;
 
             // im2col on grad_output with the conv parameters
             let (go_cols, _go_col_rows, go_col_cols) = im2col(
-                go_data,
+                &go_data,
                 batch,
                 self.out_channels,
                 self.h_out,
@@ -1526,7 +1538,7 @@ impl<T: Float> GradFn<T> for ConvTranspose2dBackward<T> {
             let zero = <T as num_traits::Zero>::zero();
             let weight_numel = self.in_channels * self.out_channels * kh * kw;
             let mut gw = vec![zero; weight_numel];
-            let input_data = self.input.data()?;
+            let input_data = self.input.data_vec()?;
 
             for b in 0..batch {
                 for ci in 0..self.in_channels {

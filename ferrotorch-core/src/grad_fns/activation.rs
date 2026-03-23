@@ -617,15 +617,16 @@ pub fn sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 pub fn tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let output = unary_map(input, |x| x.tanh())?;
 
+    let device = input.device();
     if is_grad_enabled() && input.requires_grad() {
         let result = Tensor::from_operation(
             TensorStorage::cpu(output.data()?.to_vec()),
             output.shape().to_vec(),
             Arc::new(TanhBackward::new(input.clone(), output.clone())),
         )?;
-        Ok(result)
+        if device.is_cuda() { result.to(device) } else { Ok(result) }
     } else {
-        Ok(output)
+        if device.is_cuda() { output.to(device) } else { Ok(output) }
     }
 }
 
@@ -712,14 +713,16 @@ pub fn silu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         x * s
     })?;
 
+    let device = input.device();
     if is_grad_enabled() && input.requires_grad() {
-        Tensor::from_operation(
+        let result = Tensor::from_operation(
             TensorStorage::cpu(output.data()?.to_vec()),
             output.shape().to_vec(),
             Arc::new(SiluBackward::new(input.clone())),
-        )
+        )?;
+        if device.is_cuda() { result.to(device) } else { Ok(result) }
     } else {
-        Ok(output)
+        if device.is_cuda() { output.to(device) } else { Ok(output) }
     }
 }
 
@@ -917,6 +920,11 @@ impl<T: Float> GradFn<T> for SoftplusBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input = if self.input.device().is_cuda() {
+            grad_input.to(self.input.device())?
+        } else {
+            grad_input
+        };
         Ok(vec![Some(grad_input)])
     }
 
@@ -955,14 +963,16 @@ pub fn softplus<T: Float>(
         }
     })?;
 
+    let device = input.device();
     if is_grad_enabled() && input.requires_grad() {
-        Tensor::from_operation(
+        let result = Tensor::from_operation(
             TensorStorage::cpu(output.data()?.to_vec()),
             output.shape().to_vec(),
             Arc::new(SoftplusBackward::new(input.clone(), beta, threshold)),
-        )
+        )?;
+        if device.is_cuda() { result.to(device) } else { Ok(result) }
     } else {
-        Ok(output)
+        if device.is_cuda() { output.to(device) } else { Ok(output) }
     }
 }
 

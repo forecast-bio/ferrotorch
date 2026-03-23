@@ -68,6 +68,7 @@ fn broadcast_batch_shapes(a: &[usize], b: &[usize]) -> FerrotorchResult<Vec<usiz
 /// is at least 1D). 1D operands are promoted before dispatch and the added
 /// dimension is squeezed from the output, matching `torch.matmul`.
 fn broadcast_matmul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    let device = a.device();
     // --- 1D promotion ------------------------------------------------
     // If a is 1D (K,) → treat as (1, K) and squeeze row from output.
     // If b is 1D (K,) → treat as (K, 1) and squeeze col from output.
@@ -123,8 +124,8 @@ fn broadcast_matmul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<
     let b_mat_size = k * n;
     let c_mat_size = m * n;
 
-    let a_data = a.data()?;
-    let b_data = b.data()?;
+    let a_data = a.data_vec()?;
+    let b_data = b.data_vec()?;
     let mut result = vec![<T as num_traits::Zero>::zero(); batch_size * c_mat_size];
 
     for bi in 0..batch_size {
@@ -159,7 +160,8 @@ fn broadcast_matmul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<
         out_shape.pop();
     }
 
-    Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)
+    let t = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
+    Ok(if device.is_cuda() { t.to(device)? } else { t })
 }
 
 /// Compute the strides needed to map a flat index in the broadcast shape

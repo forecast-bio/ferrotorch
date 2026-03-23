@@ -95,6 +95,7 @@ impl<T: Float> Module<T> for SwinBlock<T> {
         let batch = shape[0];
         let seq_len = shape[1];
         let dim = shape[2];
+        let device = input.device();
 
         // --- Sub-block 1: LayerNorm -> MultiheadAttention -> residual ---
         let normed1 = self.norm1.forward(input)?;
@@ -105,7 +106,7 @@ impl<T: Float> Module<T> for SwinBlock<T> {
         let normed2 = self.norm2.forward(&x)?;
 
         // MLP expects 2-D [seq_len, dim] — process each batch element.
-        let normed2_data = normed2.data()?;
+        let normed2_data = normed2.data_vec()?;
         let slice_size = seq_len * dim;
         let mut mlp_out_data = Vec::with_capacity(batch * slice_size);
 
@@ -117,9 +118,9 @@ impl<T: Float> Module<T> for SwinBlock<T> {
                 TensorStorage::cpu(slice_data),
                 vec![seq_len, dim],
                 normed2.requires_grad(),
-            )?;
+            )?.to(device)?;
             let mlp_result = self.mlp_forward(&slice_tensor)?;
-            let result_data = mlp_result.data()?;
+            let result_data = mlp_result.data_vec()?;
             mlp_out_data.extend_from_slice(&result_data);
         }
 
@@ -127,7 +128,7 @@ impl<T: Float> Module<T> for SwinBlock<T> {
             TensorStorage::cpu(mlp_out_data),
             vec![batch, seq_len, dim],
             normed2.requires_grad(),
-        )?;
+        )?.to(device)?;
 
         add(&x, &mlp_out)
     }
@@ -249,6 +250,8 @@ impl<T: Float> SwinStage<T> {
         spatial_h: usize,
         spatial_w: usize,
     ) -> FerrotorchResult<Tensor<T>> {
+        let device = input.device();
+
         // Run transformer blocks on [B, H*W, C]
         let mut x = self.blocks[0].forward(input)?;
         for block in &self.blocks[1..] {
@@ -262,7 +265,7 @@ impl<T: Float> SwinStage<T> {
             let dim = shape[2];
 
             // Transpose [B, H*W, C] -> [B, C, H, W]
-            let x_data = x.data()?;
+            let x_data = x.data_vec()?;
             let num_tokens = spatial_h * spatial_w;
             let mut transposed = vec![<T as num_traits::Zero>::zero(); batch * dim * num_tokens];
 
@@ -282,7 +285,7 @@ impl<T: Float> SwinStage<T> {
                 TensorStorage::cpu(transposed),
                 vec![batch, dim, spatial_h, spatial_w],
                 x.requires_grad(),
-            )?;
+            )?.to(device)?;
 
             // Conv2d downsample: [B, C, H, W] -> [B, 2*C, H/2, W/2]
             let ds_out = ds.forward(&x_4d)?;
@@ -293,7 +296,7 @@ impl<T: Float> SwinStage<T> {
             let new_tokens = new_h * new_w;
 
             // Transpose [B, 2*C, H/2, W/2] -> [B, (H/2)*(W/2), 2*C]
-            let ds_data = ds_out.data()?;
+            let ds_data = ds_out.data_vec()?;
             let mut out = vec![<T as num_traits::Zero>::zero(); batch * new_tokens * new_dim];
 
             for b in 0..batch {
@@ -310,7 +313,7 @@ impl<T: Float> SwinStage<T> {
                 TensorStorage::cpu(out),
                 vec![batch, new_tokens, new_dim],
                 x.requires_grad(),
-            )
+            )?.to(device)
         } else {
             Ok(x)
         }
@@ -407,6 +410,7 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let shape = input.shape();
         let batch = shape[0];
+        let device = input.device();
 
         // 1. Patch partition: [B, 3, H, W] -> [B, embed_dim, H/4, W/4]
         let x = self.patch_embed.forward(input)?;
@@ -417,7 +421,7 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
         let num_tokens = spatial_h * spatial_w;
 
         // Transpose [B, C, H, W] -> [B, H*W, C]
-        let x_data = x.data()?;
+        let x_data = x.data_vec()?;
         let mut seq_data = vec![<T as num_traits::Zero>::zero(); batch * num_tokens * embed_dim];
 
         for b in 0..batch {
@@ -434,7 +438,7 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
             TensorStorage::cpu(seq_data),
             vec![batch, num_tokens, embed_dim],
             input.requires_grad(),
-        )?;
+        )?.to(device)?;
 
         // 2. Process through stages.
         for stage in &self.stages {
@@ -448,7 +452,7 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
 
         // 3. Adaptive average pool: mean over the spatial (token) dimension.
         //    x: [B, num_tokens_final, final_dim] -> [B, final_dim]
-        let x_data = x.data()?;
+        let x_data = x.data_vec()?;
         let final_tokens = spatial_h * spatial_w;
         let mut pooled = vec![<T as num_traits::Zero>::zero(); batch * self.final_dim];
 
@@ -468,7 +472,7 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
             TensorStorage::cpu(pooled),
             vec![batch, self.final_dim],
             input.requires_grad(),
-        )?;
+        )?.to(device)?;
 
         // 4. LayerNorm on the pooled features.
         //    LayerNorm expects [*, normalized_shape], so [B, final_dim] works directly.

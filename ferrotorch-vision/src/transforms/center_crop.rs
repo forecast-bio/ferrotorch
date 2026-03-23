@@ -52,7 +52,7 @@ impl<T: Float> Transform<T> for CenterCrop<T> {
         let top = (in_h - self.height) / 2;
         let left = (in_w - self.width) / 2;
 
-        let data = input.data()?;
+        let data = input.data_vec()?;
         let mut output = Vec::with_capacity(channels * self.height * self.width);
 
         for c in 0..channels {

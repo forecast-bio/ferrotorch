@@ -423,9 +423,15 @@ impl<T: Float> Tensor<T> {
             }
             Err(arc_inner) => {
                 // Inner is shared — must clone data.
-                let data = arc_inner.storage.as_slice();
-                let end = arc_inner.offset + shape.iter().product::<usize>();
-                Ok((TensorStorage::cpu(data[arc_inner.offset..end].to_vec()), shape))
+                if arc_inner.storage.is_gpu() {
+                    // GPU storage cannot be sliced on the host; clone the
+                    // entire buffer via the backend's clone_buffer().
+                    Ok(((*arc_inner.storage).clone(), shape))
+                } else {
+                    let data = arc_inner.storage.as_slice();
+                    let end = arc_inner.offset + shape.iter().product::<usize>();
+                    Ok((TensorStorage::cpu(data[arc_inner.offset..end].to_vec()), shape))
+                }
             }
         }
     }

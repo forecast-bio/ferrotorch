@@ -64,8 +64,7 @@ struct DropoutBackward<T: Float> {
 impl<T: Float> GradFn<T> for DropoutBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let da = if self.input.requires_grad() {
-            let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
-            let go_data = cpu_go.data()?;
+            let go_data = grad_output.data_vec()?;
             let grad_a: Vec<T> = go_data
                 .iter()
                 .zip(self.scaled_mask.iter())
@@ -109,8 +108,7 @@ struct Dropout2dBackward<T: Float> {
 impl<T: Float> GradFn<T> for Dropout2dBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let da = if self.input.requires_grad() {
-            let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
-            let go_data = cpu_go.data()?;
+            let go_data = grad_output.data_vec()?;
             let grad_a: Vec<T> = go_data
                 .iter()
                 .zip(self.scaled_mask.iter())
@@ -371,7 +369,7 @@ impl<T: Float> Module<T> for Dropout2d<T> {
             mask
         };
 
-        let input_data = input.data()?;
+        let input_data = input.data_vec()?;
         let output_data: Vec<T> = input_data
             .iter()
             .zip(scaled_mask.iter())

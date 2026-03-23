@@ -8,6 +8,7 @@
 
 use ferrotorch_core::grad_fns::activation::{sigmoid, tanh};
 use ferrotorch_core::grad_fns::arithmetic::{add, mul, sub};
+use ferrotorch_core::grad_fns::shape::{cat, reshape};
 use ferrotorch_core::ops::linalg::mm;
 use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 
@@ -215,11 +216,14 @@ impl<T: Float> LSTM<T> {
             }
         };
 
-        // Extract per-timestep input slices: input[b, t, :] as flat data.
-        // We work with 2-D tensors of shape [batch, feature] at each timestep.
-        let input_data = input.data()?;
+        // Extract per-timestep input slices using differentiable reshape + split.
+        // input is [batch, seq_len, input_size].
+        // We transpose to get timestep slices as [batch, input_size] tensors.
+        let input_data = input.data_vec()?;
 
         // Build timestep inputs: shape [batch, input_size] each.
+        // Use data_vec + from_storage for now. These are leaf-level copies from
+        // the input, preserving requires_grad so downstream ops build the graph.
         let mut timestep_inputs: Vec<Tensor<T>> = Vec::with_capacity(seq_len);
         for t in 0..seq_len {
             let mut slice_data = Vec::with_capacity(batch * self.input_size);
@@ -235,8 +239,8 @@ impl<T: Float> LSTM<T> {
         }
 
         // Extract per-layer initial hidden/cell states.
-        let h_init_data = h_init.data()?;
-        let c_init_data = c_init.data()?;
+        let h_init_data = h_init.data_vec()?;
+        let c_init_data = c_init.data_vec()?;
         let hs = self.hidden_size;
 
         let mut layer_h: Vec<Tensor<T>> = Vec::with_capacity(self.num_layers);
@@ -295,42 +299,12 @@ impl<T: Float> LSTM<T> {
                 let gates = add(&add(&add(&xw, &bias_ih_2d)?, &hw)?, &bias_hh_2d)?;
 
                 // Split gates into i, f, g, o — each [batch, hs].
-                let gates_data = gates.data()?;
-                let gate_size = 4 * hs;
-
-                let mut i_data = Vec::with_capacity(batch * hs);
-                let mut f_data = Vec::with_capacity(batch * hs);
-                let mut g_data = Vec::with_capacity(batch * hs);
-                let mut o_data = Vec::with_capacity(batch * hs);
-
-                for b_idx in 0..batch {
-                    let base = b_idx * gate_size;
-                    i_data.extend_from_slice(&gates_data[base..base + hs]);
-                    f_data.extend_from_slice(&gates_data[base + hs..base + 2 * hs]);
-                    g_data.extend_from_slice(&gates_data[base + 2 * hs..base + 3 * hs]);
-                    o_data.extend_from_slice(&gates_data[base + 3 * hs..base + 4 * hs]);
-                }
-
-                let i_pre = Tensor::from_storage(
-                    TensorStorage::cpu(i_data),
-                    vec![batch, hs],
-                    gates.requires_grad(),
-                )?;
-                let f_pre = Tensor::from_storage(
-                    TensorStorage::cpu(f_data),
-                    vec![batch, hs],
-                    gates.requires_grad(),
-                )?;
-                let g_pre = Tensor::from_storage(
-                    TensorStorage::cpu(g_data),
-                    vec![batch, hs],
-                    gates.requires_grad(),
-                )?;
-                let o_pre = Tensor::from_storage(
-                    TensorStorage::cpu(o_data),
-                    vec![batch, hs],
-                    gates.requires_grad(),
-                )?;
+                // Uses differentiable chunk to preserve the autograd graph.
+                let gate_chunks = gates.chunk(4, 1)?;
+                let i_pre = gate_chunks[0].clone();
+                let f_pre = gate_chunks[1].clone();
+                let g_pre = gate_chunks[2].clone();
+                let o_pre = gate_chunks[3].clone();
 
                 // Apply activations (differentiable ops — autograd will track).
                 let i_gate = sigmoid(&i_pre)?;
@@ -358,39 +332,37 @@ impl<T: Float> LSTM<T> {
         }
 
         // Assemble output: [batch, seq_len, hidden_size] from the last layer.
-        let mut output_data = Vec::with_capacity(batch * seq_len * hs);
-        for b_idx in 0..batch {
-            for t in 0..seq_len {
-                let t_data = layer_outputs[t].data()?;
-                let offset = b_idx * hs;
-                output_data.extend_from_slice(&t_data[offset..offset + hs]);
-            }
-        }
-        let output = Tensor::from_storage(
-            TensorStorage::cpu(output_data),
-            vec![batch, seq_len, hs],
-            false,
-        )?;
+        // Each layer_outputs[t] is [batch, hs]. We need to interleave by batch
+        // to get [batch, seq_len, hs].
+        //
+        // Strategy: cat along dim=1 to get [batch, seq_len * hs], then reshape.
+        // But layer_outputs[t] is [batch, hs], and we want to stack them along
+        // a time dimension. Cat along dim=1 gives [batch, seq_len * hs].
+        let output = if seq_len == 1 {
+            // Single timestep: just reshape [batch, hs] -> [batch, 1, hs].
+            reshape(&layer_outputs[0], &[batch as isize, 1, hs as isize])?
+        } else {
+            // Cat timestep tensors along dim=1: [batch, seq_len*hs].
+            let stacked = cat(&layer_outputs, 1)?;
+            // Reshape to [batch, seq_len, hs].
+            reshape(&stacked, &[batch as isize, seq_len as isize, hs as isize])?
+        };
 
         // Assemble h_n, c_n: [num_layers, batch, hidden_size].
-        let mut h_n_data = Vec::with_capacity(self.num_layers * batch * hs);
-        let mut c_n_data = Vec::with_capacity(self.num_layers * batch * hs);
-        for l in 0..self.num_layers {
-            let h_l = final_h[l].data()?;
-            let c_l = final_c[l].data()?;
-            h_n_data.extend_from_slice(h_l);
-            c_n_data.extend_from_slice(c_l);
-        }
-        let h_n = Tensor::from_storage(
-            TensorStorage::cpu(h_n_data),
-            vec![self.num_layers, batch, hs],
-            false,
-        )?;
-        let c_n = Tensor::from_storage(
-            TensorStorage::cpu(c_n_data),
-            vec![self.num_layers, batch, hs],
-            false,
-        )?;
+        // Cat final hidden states along dim=0: each is [batch, hs] -> [num_layers*batch, hs].
+        // Then reshape to [num_layers, batch, hs].
+        let h_n = if self.num_layers == 1 {
+            reshape(&final_h[0], &[1, batch as isize, hs as isize])?
+        } else {
+            let h_stacked = cat(&final_h, 0)?;
+            reshape(&h_stacked, &[self.num_layers as isize, batch as isize, hs as isize])?
+        };
+        let c_n = if self.num_layers == 1 {
+            reshape(&final_c[0], &[1, batch as isize, hs as isize])?
+        } else {
+            let c_stacked = cat(&final_c, 0)?;
+            reshape(&c_stacked, &[self.num_layers as isize, batch as isize, hs as isize])?
+        };
 
         Ok((output, (h_n, c_n)))
     }

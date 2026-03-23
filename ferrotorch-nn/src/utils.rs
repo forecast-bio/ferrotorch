@@ -4,7 +4,7 @@
 //! `torch.nn.utils.clip_grad_value_`, operating in-place on the
 //! gradients of a parameter slice.
 
-use ferrotorch_core::{Float, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{Device, Float, FerrotorchResult, Tensor, TensorStorage};
 
 use crate::parameter::Parameter;
 
@@ -41,8 +41,8 @@ pub fn clip_grad_norm_<T: Float>(
         // Infinity norm: max absolute value across all gradients.
         let mut max_val: f64 = 0.0;
         for g in &grads {
-            let data = g.data()?;
-            for &v in data {
+            let data = g.data_vec()?;
+            for v in &data {
                 let abs_v = v.to_f64().unwrap().abs();
                 if abs_v > max_val {
                     max_val = abs_v;
@@ -54,8 +54,8 @@ pub fn clip_grad_norm_<T: Float>(
         // General p-norm: (sum |g_i|^p)^(1/p).
         let mut accum: f64 = 0.0;
         for g in &grads {
-            let data = g.data()?;
-            for &v in data {
+            let data = g.data_vec()?;
+            for v in &data {
                 accum += v.to_f64().unwrap().abs().powf(norm_type);
             }
         }
@@ -69,10 +69,12 @@ pub fn clip_grad_norm_<T: Float>(
 
         for param in params {
             if let Some(g) = param.grad()? {
-                let data = g.data()?;
+                let data = g.data_vec()?;
                 let scaled: Vec<T> = data.iter().map(|&v| v * clip_t).collect();
+                let device = g.device();
                 let new_grad =
                     Tensor::from_storage(TensorStorage::cpu(scaled), g.shape().to_vec(), false)?;
+                let new_grad = if device != Device::Cpu { new_grad.to(device)? } else { new_grad };
                 param.set_grad(Some(new_grad))?;
             }
         }
@@ -99,7 +101,7 @@ pub fn clip_grad_value_<T: Float>(
 
     for param in params {
         if let Some(g) = param.grad()? {
-            let data = g.data()?;
+            let data = g.data_vec()?;
             let clamped: Vec<T> = data
                 .iter()
                 .map(|&v| {
@@ -112,8 +114,10 @@ pub fn clip_grad_value_<T: Float>(
                     }
                 })
                 .collect();
+            let device = g.device();
             let new_grad =
                 Tensor::from_storage(TensorStorage::cpu(clamped), g.shape().to_vec(), false)?;
+            let new_grad = if device != Device::Cpu { new_grad.to(device)? } else { new_grad };
             param.set_grad(Some(new_grad))?;
         }
     }

@@ -483,10 +483,12 @@ pub fn rearrange_with<T: Float>(
     }
 
     let out_shape = output_shape(&parsed.right, &sizes);
-    let data = input.data()?;
-    let result_data = rearrange_impl(data, input.shape(), &parsed, &sizes, &out_shape)?;
+    let device = input.device();
+    let data = input.data_vec()?;
+    let result_data = rearrange_impl(&data, input.shape(), &parsed, &sizes, &out_shape)?;
 
-    Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)
+    let t = Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)?;
+    Ok(if device.is_cuda() { t.to(device)? } else { t })
 }
 
 // ---------------------------------------------------------------------------
@@ -543,7 +545,8 @@ pub fn repeat<T: Float>(
     // elementary order), map its coordinates back to the input.
     let out_numel: usize = right_elem_shape.iter().product();
     let left_elem_shape = elementary_shape(&parsed.left, &sizes);
-    let data = input.data()?;
+    let device = input.device();
+    let data = input.data_vec()?;
 
     let mut result = Vec::with_capacity(out_numel);
     for dst_flat in 0..out_numel {
@@ -562,7 +565,8 @@ pub fn repeat<T: Float>(
 
     // The result buffer is in right-elementary order. Reshape to out_shape
     // (which merges groups). Since it's the same total size, just reinterpret.
-    Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)
+    let t = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
+    Ok(if device.is_cuda() { t.to(device)? } else { t })
 }
 
 // ---------------------------------------------------------------------------
@@ -620,7 +624,8 @@ pub fn reduce<T: Float>(
     let out_shape = output_shape(&parsed.right, &sizes);
 
     let out_numel: usize = right_elem_shape.iter().product();
-    let data = input.data()?;
+    let device = input.device();
+    let data = input.data_vec()?;
     let in_numel: usize = left_elem_shape.iter().product();
 
     // Compute how many elements are reduced per output element.
@@ -676,7 +681,8 @@ pub fn reduce<T: Float>(
         }
     }
 
-    Tensor::from_storage(TensorStorage::cpu(accum), out_shape, false)
+    let t = Tensor::from_storage(TensorStorage::cpu(accum), out_shape, false)?;
+    Ok(if device.is_cuda() { t.to(device)? } else { t })
 }
 
 // ---------------------------------------------------------------------------

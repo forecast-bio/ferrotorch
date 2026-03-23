@@ -76,7 +76,7 @@ impl MSELoss {
                 reduction: self.reduction,
             });
             Tensor::from_operation(
-                TensorStorage::cpu(reduced.data()?.to_vec()),
+                TensorStorage::cpu(reduced.data_vec()?),
                 reduced.shape().to_vec(),
                 grad_fn,
             )
@@ -150,6 +150,7 @@ impl<T: Float> GradFn<T> for MSEBackward<T> {
             self.pred.shape().to_vec(),
             false,
         )?;
+        let grad_input = grad_input.to(self.pred.device())?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -290,7 +291,7 @@ impl CrossEntropyLoss {
                 reduction: self.reduction,
             });
             Tensor::from_operation(
-                TensorStorage::cpu(reduced.data()?.to_vec()),
+                TensorStorage::cpu(reduced.data_vec()?),
                 reduced.shape().to_vec(),
                 grad_fn,
             )
@@ -365,6 +366,7 @@ impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
             shape.to_vec(),
             false,
         )?;
+        let grad_input = grad_input.to(self.logits.device())?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -443,7 +445,7 @@ impl BCEWithLogitsLoss {
                 reduction: self.reduction,
             });
             Tensor::from_operation(
-                TensorStorage::cpu(reduced.data()?.to_vec()),
+                TensorStorage::cpu(reduced.data_vec()?),
                 reduced.shape().to_vec(),
                 grad_fn,
             )
@@ -519,6 +521,7 @@ impl<T: Float> GradFn<T> for BCEWithLogitsBackward<T> {
             self.logits.shape().to_vec(),
             false,
         )?;
+        let grad_input = grad_input.to(self.logits.device())?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -601,7 +604,7 @@ impl HuberLoss {
                 reduction: self.reduction,
             });
             Tensor::from_operation(
-                TensorStorage::cpu(reduced.data()?.to_vec()),
+                TensorStorage::cpu(reduced.data_vec()?),
                 reduced.shape().to_vec(),
                 grad_fn,
             )
@@ -699,6 +702,7 @@ impl<T: Float> GradFn<T> for HuberBackward<T> {
             self.pred.shape().to_vec(),
             false,
         )?;
+        let grad_input = grad_input.to(self.pred.device())?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -785,7 +789,7 @@ impl KLDivLoss {
                 reduction: self.reduction,
             });
             Tensor::from_operation(
-                TensorStorage::cpu(reduced.data()?.to_vec()),
+                TensorStorage::cpu(reduced.data_vec()?),
                 reduced.shape().to_vec(),
                 grad_fn,
             )
@@ -840,6 +844,7 @@ impl<T: Float> GradFn<T> for KLDivBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
+        let grad_input = grad_input.to(self.input.device())?;
         Ok(vec![Some(grad_input)])
     }
 

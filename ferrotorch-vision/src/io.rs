@@ -216,7 +216,7 @@ pub fn tensor_to_raw_image<T: Float>(tensor: &Tensor<T>) -> FerrotorchResult<Raw
     let zero = <T as num_traits::Zero>::zero();
     let one = <T as num_traits::One>::one();
     let scale: f64 = 255.0;
-    let data_slice = tensor.data()?;
+    let data_slice = tensor.data_vec()?;
 
     let mut output = vec![0u8; h * w * c];
     for row in 0..h {

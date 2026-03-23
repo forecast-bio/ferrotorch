@@ -59,10 +59,11 @@ impl<T: Float> Uniform<T> {
 
 impl<T: Float> Distribution<T> for Uniform<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        let device = self.low.device();
         let u = creation::rand::<T>(shape)?;
-        let low_data = self.low.data()?;
-        let high_data = self.high.data()?;
-        let u_data = u.data()?;
+        let low_data = self.low.data_vec()?;
+        let high_data = self.high.data_vec()?;
+        let u_data = u.data_vec()?;
 
         let result: Vec<T> = u_data
             .iter()
@@ -70,14 +71,16 @@ impl<T: Float> Distribution<T> for Uniform<T> {
             .zip(high_data.iter().cycle())
             .map(|((&u_val, &lo), &hi)| lo + (hi - lo) * u_val)
             .collect();
-        Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)
+        let out = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        let device = self.low.device();
         let u = creation::rand::<T>(shape)?;
-        let low_data = self.low.data()?;
-        let high_data = self.high.data()?;
-        let u_data = u.data()?;
+        let low_data = self.low.data_vec()?;
+        let high_data = self.high.data_vec()?;
+        let u_data = u.data_vec()?;
 
         let result: Vec<T> = u_data
             .iter()
@@ -87,7 +90,7 @@ impl<T: Float> Distribution<T> for Uniform<T> {
             .collect();
         let storage = TensorStorage::cpu(result);
 
-        if (self.low.requires_grad() || self.high.requires_grad())
+        let out = if (self.low.requires_grad() || self.high.requires_grad())
             && ferrotorch_core::is_grad_enabled()
         {
             let grad_fn = Arc::new(UniformRsampleBackward {
@@ -95,17 +98,19 @@ impl<T: Float> Distribution<T> for Uniform<T> {
                 high: self.high.clone(),
                 u: u.clone(),
             });
-            Tensor::from_operation(storage, shape.to_vec(), grad_fn)
+            Tensor::from_operation(storage, shape.to_vec(), grad_fn)?
         } else {
-            Tensor::from_storage(storage, shape.to_vec(), false)
-        }
+            Tensor::from_storage(storage, shape.to_vec(), false)?
+        };
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // log_prob = -log(high - low) if low <= x < high, else -inf
-        let low_data = self.low.data()?;
-        let high_data = self.high.data()?;
-        let val_data = value.data()?;
+        let device = self.low.device();
+        let low_data = self.low.data_vec()?;
+        let high_data = self.high.data_vec()?;
+        let val_data = value.data_vec()?;
 
         let neg_inf = T::neg_infinity();
 
@@ -122,7 +127,7 @@ impl<T: Float> Distribution<T> for Uniform<T> {
             })
             .collect();
 
-        if (self.low.requires_grad() || self.high.requires_grad() || value.requires_grad())
+        let out = if (self.low.requires_grad() || self.high.requires_grad() || value.requires_grad())
             && ferrotorch_core::is_grad_enabled()
         {
             let grad_fn = Arc::new(UniformLogProbBackward {
@@ -134,20 +139,22 @@ impl<T: Float> Distribution<T> for Uniform<T> {
                 TensorStorage::cpu(result),
                 value.shape().to_vec(),
                 grad_fn,
-            )
+            )?
         } else {
             Tensor::from_storage(
                 TensorStorage::cpu(result),
                 value.shape().to_vec(),
                 false,
-            )
-        }
+            )?
+        };
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
         // entropy = log(high - low)
-        let low_data = self.low.data()?;
-        let high_data = self.high.data()?;
+        let device = self.low.device();
+        let low_data = self.low.data_vec()?;
+        let high_data = self.high.data_vec()?;
 
         let result: Vec<T> = low_data
             .iter()
@@ -155,11 +162,12 @@ impl<T: Float> Distribution<T> for Uniform<T> {
             .map(|(&lo, &hi)| (hi - lo).ln())
             .collect();
 
-        Tensor::from_storage(
+        let out = Tensor::from_storage(
             TensorStorage::cpu(result),
             self.low.shape().to_vec(),
             false,
-        )
+        )?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 }
 
@@ -180,8 +188,9 @@ struct UniformRsampleBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for UniformRsampleBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let go = grad_output.data()?;
-        let u_data = self.u.data()?;
+        let device = grad_output.device();
+        let go = grad_output.data_vec()?;
+        let u_data = self.u.data_vec()?;
         let one = <T as num_traits::One>::one();
         let zero = <T as num_traits::Zero>::zero();
 
@@ -195,6 +204,7 @@ impl<T: Float> GradFn<T> for UniformRsampleBackward<T> {
             self.low.shape().to_vec(),
             false,
         )?;
+        let grad_low = if device.is_cuda() { grad_low.to(device)? } else { grad_low };
 
         // grad_high = sum(grad_output * u)
         let grad_high_val: T = go
@@ -206,6 +216,7 @@ impl<T: Float> GradFn<T> for UniformRsampleBackward<T> {
             self.high.shape().to_vec(),
             false,
         )?;
+        let grad_high = if device.is_cuda() { grad_high.to(device)? } else { grad_high };
 
         Ok(vec![
             if self.low.requires_grad() {
@@ -246,10 +257,11 @@ struct UniformLogProbBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for UniformLogProbBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let go = grad_output.data()?;
-        let low_data = self.low.data()?;
-        let high_data = self.high.data()?;
-        let val_data = self.value.data()?;
+        let device = grad_output.device();
+        let go = grad_output.data_vec()?;
+        let low_data = self.low.data_vec()?;
+        let high_data = self.high.data_vec()?;
+        let val_data = self.value.data_vec()?;
         let one = <T as num_traits::One>::one();
         let zero = <T as num_traits::Zero>::zero();
 
@@ -274,11 +286,13 @@ impl<T: Float> GradFn<T> for UniformLogProbBackward<T> {
             self.low.shape().to_vec(),
             false,
         )?;
+        let grad_low = if device.is_cuda() { grad_low.to(device)? } else { grad_low };
         let grad_high = Tensor::from_storage(
             TensorStorage::cpu(vec![grad_high_val]),
             self.high.shape().to_vec(),
             false,
         )?;
+        let grad_high = if device.is_cuda() { grad_high.to(device)? } else { grad_high };
 
         // d(lp)/d(value) = 0 inside bounds
         let grad_value = Tensor::from_storage(
@@ -286,6 +300,7 @@ impl<T: Float> GradFn<T> for UniformLogProbBackward<T> {
             self.value.shape().to_vec(),
             false,
         )?;
+        let grad_value = if device.is_cuda() { grad_value.to(device)? } else { grad_value };
 
         Ok(vec![
             if self.low.requires_grad() {

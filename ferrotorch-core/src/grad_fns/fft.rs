@@ -55,17 +55,19 @@ impl<T: Float> FftBackward<T> {
 impl<T: Float> GradFn<T> for FftBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let grad_input = if self.input.requires_grad() {
+            let device = grad_output.device();
             // grad_x = n * ifft(grad_y)
             let inv = fft::ifft(grad_output, self.n)?;
             let fft_n = grad_output.shape()[grad_output.ndim() - 2];
             let scale = T::from(fft_n).unwrap();
-            let inv_data = inv.data()?;
+            let inv_data = inv.data_vec()?;
             let scaled: Vec<T> = inv_data.iter().map(|&v| v * scale).collect();
-            Some(Tensor::from_storage(
+            let t = Tensor::from_storage(
                 TensorStorage::cpu(scaled),
                 inv.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
@@ -106,17 +108,19 @@ impl<T: Float> IfftBackward<T> {
 impl<T: Float> GradFn<T> for IfftBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let grad_input = if self.input.requires_grad() {
+            let device = grad_output.device();
             // grad_x = fft(grad_y) / n
             let fwd = fft::fft(grad_output, self.n)?;
             let fft_n = grad_output.shape()[grad_output.ndim() - 2];
             let scale = T::from(1.0).unwrap() / T::from(fft_n).unwrap();
-            let fwd_data = fwd.data()?;
+            let fwd_data = fwd.data_vec()?;
             let scaled: Vec<T> = fwd_data.iter().map(|&v| v * scale).collect();
-            Some(Tensor::from_storage(
+            let t = Tensor::from_storage(
                 TensorStorage::cpu(scaled),
                 fwd.shape().to_vec(),
                 false,
-            )?)
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
         };
@@ -234,15 +238,17 @@ pub fn fft_differentiable<T: Float>(
     input: &Tensor<T>,
     n: Option<usize>,
 ) -> FerrotorchResult<Tensor<T>> {
+    let device = input.device();
     let result = fft::fft(input, n)?;
 
     if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(FftBackward::new(input.clone(), n));
-        Tensor::from_operation(
-            TensorStorage::cpu(result.data()?.to_vec()),
+        let out = Tensor::from_operation(
+            TensorStorage::cpu(result.data_vec()?),
             result.shape().to_vec(),
             grad_fn,
-        )
+        )?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     } else {
         Ok(result)
     }
@@ -253,15 +259,17 @@ pub fn ifft_differentiable<T: Float>(
     input: &Tensor<T>,
     n: Option<usize>,
 ) -> FerrotorchResult<Tensor<T>> {
+    let device = input.device();
     let result = fft::ifft(input, n)?;
 
     if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(IfftBackward::new(input.clone(), n));
-        Tensor::from_operation(
-            TensorStorage::cpu(result.data()?.to_vec()),
+        let out = Tensor::from_operation(
+            TensorStorage::cpu(result.data_vec()?),
             result.shape().to_vec(),
             grad_fn,
-        )
+        )?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     } else {
         Ok(result)
     }
@@ -272,17 +280,19 @@ pub fn rfft_differentiable<T: Float>(
     input: &Tensor<T>,
     n: Option<usize>,
 ) -> FerrotorchResult<Tensor<T>> {
+    let device = input.device();
     let input_n = *input.shape().last().unwrap();
     let fft_n = n.unwrap_or(input_n);
     let result = fft::rfft(input, n)?;
 
     if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(RfftBackward::new(input.clone(), n, fft_n));
-        Tensor::from_operation(
-            TensorStorage::cpu(result.data()?.to_vec()),
+        let out = Tensor::from_operation(
+            TensorStorage::cpu(result.data_vec()?),
             result.shape().to_vec(),
             grad_fn,
-        )
+        )?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     } else {
         Ok(result)
     }
@@ -293,6 +303,7 @@ pub fn irfft_differentiable<T: Float>(
     input: &Tensor<T>,
     n: Option<usize>,
 ) -> FerrotorchResult<Tensor<T>> {
+    let device = input.device();
     let shape = input.shape();
     let half_n = shape[shape.len() - 2];
     let output_n = n.unwrap_or(2 * (half_n - 1));
@@ -300,11 +311,12 @@ pub fn irfft_differentiable<T: Float>(
 
     if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(IrfftBackward::new(input.clone(), n, output_n));
-        Tensor::from_operation(
-            TensorStorage::cpu(result.data()?.to_vec()),
+        let out = Tensor::from_operation(
+            TensorStorage::cpu(result.data_vec()?),
             result.shape().to_vec(),
             grad_fn,
-        )
+        )?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     } else {
         Ok(result)
     }

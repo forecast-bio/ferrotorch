@@ -202,8 +202,8 @@ pub fn grad<T: Float>(
                                 grads.insert(input.id(), summed);
                             } else {
                                 // Plain element-wise add (non-differentiable).
-                                let a = existing.data()?;
-                                let b = grad_tensor.data()?;
+                                let a = existing.data_vec()?;
+                                let b = grad_tensor.data_vec()?;
                                 let summed: Vec<T> =
                                     a.iter().zip(b.iter()).map(|(&x, &y)| x + y).collect();
                                 let storage = TensorStorage::cpu(summed);

@@ -58,7 +58,7 @@ impl<T: Float> Categorical<T> {
             });
         }
 
-        let probs_data = probs.data()?;
+        let probs_data = probs.data_vec()?;
 
         // Normalize probabilities.
         let zero = <T as num_traits::Zero>::zero();
@@ -102,9 +102,10 @@ impl<T: Float> Categorical<T> {
 
 impl<T: Float> Distribution<T> for Categorical<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        let device = self.probs.device();
         let numel: usize = shape.iter().product();
         let u = creation::rand::<T>(shape)?;
-        let u_data = u.data()?;
+        let u_data = u.data_vec()?;
 
         let mut result = Vec::with_capacity(numel);
         for &u_val in u_data.iter() {
@@ -124,7 +125,8 @@ impl<T: Float> Distribution<T> for Categorical<T> {
             result.push(T::from(idx).unwrap());
         }
 
-        Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)
+        let out = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 
     fn rsample(&self, _shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
@@ -137,8 +139,9 @@ impl<T: Float> Distribution<T> for Categorical<T> {
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // log_prob = log(probs[index])
-        let probs_data = self.probs.data()?;
-        let val_data = value.data()?;
+        let device = self.probs.device();
+        let probs_data = self.probs.data_vec()?;
+        let val_data = value.data_vec()?;
 
         // Normalize probs for log computation.
         let zero = <T as num_traits::Zero>::zero();
@@ -158,16 +161,18 @@ impl<T: Float> Distribution<T> for Categorical<T> {
             })
             .collect();
 
-        Tensor::from_storage(
+        let out = Tensor::from_storage(
             TensorStorage::cpu(result),
             value.shape().to_vec(),
             false,
-        )
+        )?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
         // entropy = -sum(p * log(p))
-        let probs_data = self.probs.data()?;
+        let device = self.probs.device();
+        let probs_data = self.probs.data_vec()?;
         let zero = <T as num_traits::Zero>::zero();
         let total: T = probs_data.iter().copied().fold(zero, |a, b| a + b);
         let eps = T::from(1e-7).unwrap();
@@ -177,7 +182,8 @@ impl<T: Float> Distribution<T> for Categorical<T> {
             acc - p_norm * p_norm.ln()
         });
 
-        Tensor::from_storage(TensorStorage::cpu(vec![h]), vec![], false)
+        let out = Tensor::from_storage(TensorStorage::cpu(vec![h]), vec![], false)?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 }
 

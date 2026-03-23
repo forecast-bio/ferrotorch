@@ -60,10 +60,11 @@ impl<T: Float> Normal<T> {
 
 impl<T: Float> Distribution<T> for Normal<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        let device = self.loc.device();
         let eps = creation::randn::<T>(shape)?;
-        let loc_data = self.loc.data()?;
-        let scale_data = self.scale.data()?;
-        let eps_data = eps.data()?;
+        let loc_data = self.loc.data_vec()?;
+        let scale_data = self.scale.data_vec()?;
+        let eps_data = eps.data_vec()?;
 
         let result: Vec<T> = eps_data
             .iter()
@@ -71,14 +72,16 @@ impl<T: Float> Distribution<T> for Normal<T> {
             .zip(scale_data.iter().cycle())
             .map(|((&e, &l), &s)| l + s * e)
             .collect();
-        Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)
+        let out = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        let device = self.loc.device();
         let eps = creation::randn::<T>(shape)?;
-        let loc_data = self.loc.data()?;
-        let scale_data = self.scale.data()?;
-        let eps_data = eps.data()?;
+        let loc_data = self.loc.data_vec()?;
+        let scale_data = self.scale.data_vec()?;
+        let eps_data = eps.data_vec()?;
 
         let result: Vec<T> = eps_data
             .iter()
@@ -88,7 +91,7 @@ impl<T: Float> Distribution<T> for Normal<T> {
             .collect();
         let storage = TensorStorage::cpu(result);
 
-        if (self.loc.requires_grad() || self.scale.requires_grad())
+        let out = if (self.loc.requires_grad() || self.scale.requires_grad())
             && ferrotorch_core::is_grad_enabled()
         {
             let grad_fn = Arc::new(NormalRsampleBackward {
@@ -96,17 +99,19 @@ impl<T: Float> Distribution<T> for Normal<T> {
                 scale: self.scale.clone(),
                 eps: eps.clone(),
             });
-            Tensor::from_operation(storage, shape.to_vec(), grad_fn)
+            Tensor::from_operation(storage, shape.to_vec(), grad_fn)?
         } else {
-            Tensor::from_storage(storage, shape.to_vec(), false)
-        }
+            Tensor::from_storage(storage, shape.to_vec(), false)?
+        };
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // log_prob = -0.5 * ((x - loc) / scale)^2 - log(scale) - 0.5 * log(2*pi)
-        let loc_data = self.loc.data()?;
-        let scale_data = self.scale.data()?;
-        let val_data = value.data()?;
+        let device = self.loc.device();
+        let loc_data = self.loc.data_vec()?;
+        let scale_data = self.scale.data_vec()?;
+        let val_data = value.data_vec()?;
 
         let two_pi = T::from(2.0 * std::f64::consts::PI).unwrap();
         let half = T::from(0.5).unwrap();
@@ -122,7 +127,7 @@ impl<T: Float> Distribution<T> for Normal<T> {
             })
             .collect();
 
-        if (self.loc.requires_grad() || self.scale.requires_grad() || value.requires_grad())
+        let out = if (self.loc.requires_grad() || self.scale.requires_grad() || value.requires_grad())
             && ferrotorch_core::is_grad_enabled()
         {
             let grad_fn = Arc::new(NormalLogProbBackward {
@@ -134,19 +139,21 @@ impl<T: Float> Distribution<T> for Normal<T> {
                 TensorStorage::cpu(result),
                 value.shape().to_vec(),
                 grad_fn,
-            )
+            )?
         } else {
             Tensor::from_storage(
                 TensorStorage::cpu(result),
                 value.shape().to_vec(),
                 false,
-            )
-        }
+            )?
+        };
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
         // entropy = 0.5 + 0.5 * log(2*pi) + log(scale)
-        let scale_data = self.scale.data()?;
+        let device = self.scale.device();
+        let scale_data = self.scale.data_vec()?;
         let half = T::from(0.5).unwrap();
         let two_pi = T::from(2.0 * std::f64::consts::PI).unwrap();
         let log_2pi = two_pi.ln();
@@ -156,11 +163,12 @@ impl<T: Float> Distribution<T> for Normal<T> {
             .map(|&s| half + half * log_2pi + s.ln())
             .collect();
 
-        Tensor::from_storage(
+        let out = Tensor::from_storage(
             TensorStorage::cpu(result),
             self.scale.shape().to_vec(),
             false,
-        )
+        )?;
+        if device.is_cuda() { out.to(device) } else { Ok(out) }
     }
 }
 
@@ -181,8 +189,9 @@ struct NormalRsampleBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for NormalRsampleBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let go = grad_output.data()?;
-        let eps_data = self.eps.data()?;
+        let device = grad_output.device();
+        let go = grad_output.data_vec()?;
+        let eps_data = self.eps.data_vec()?;
 
         // grad_loc = sum(grad_output) (scalar loc broadcast to all samples)
         let grad_loc_val: T = go
@@ -194,6 +203,7 @@ impl<T: Float> GradFn<T> for NormalRsampleBackward<T> {
             self.loc.shape().to_vec(),
             false,
         )?;
+        let grad_loc = if device.is_cuda() { grad_loc.to(device)? } else { grad_loc };
 
         // grad_scale = sum(grad_output * eps)
         let grad_scale_val: T = go.iter().zip(eps_data.iter()).fold(
@@ -205,6 +215,7 @@ impl<T: Float> GradFn<T> for NormalRsampleBackward<T> {
             self.scale.shape().to_vec(),
             false,
         )?;
+        let grad_scale = if device.is_cuda() { grad_scale.to(device)? } else { grad_scale };
 
         Ok(vec![
             if self.loc.requires_grad() {
@@ -245,10 +256,11 @@ struct NormalLogProbBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for NormalLogProbBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let go = grad_output.data()?;
-        let loc_data = self.loc.data()?;
-        let scale_data = self.scale.data()?;
-        let val_data = self.value.data()?;
+        let device = grad_output.device();
+        let go = grad_output.data_vec()?;
+        let loc_data = self.loc.data_vec()?;
+        let scale_data = self.scale.data_vec()?;
+        let val_data = self.value.data_vec()?;
         let one = <T as num_traits::One>::one();
 
         // d(lp)/d(loc) = (x - loc) / scale^2, then sum over sample dims
@@ -266,6 +278,7 @@ impl<T: Float> GradFn<T> for NormalLogProbBackward<T> {
             self.loc.shape().to_vec(),
             false,
         )?;
+        let grad_loc = if device.is_cuda() { grad_loc.to(device)? } else { grad_loc };
 
         // d(lp)/d(scale) = ((x - loc)^2 / scale^3) - 1/scale, summed
         let grad_scale_val: T = go
@@ -285,6 +298,7 @@ impl<T: Float> GradFn<T> for NormalLogProbBackward<T> {
             self.scale.shape().to_vec(),
             false,
         )?;
+        let grad_scale = if device.is_cuda() { grad_scale.to(device)? } else { grad_scale };
 
         // d(lp)/d(value) = -(x - loc) / scale^2, per-element
         let grad_value: Vec<T> = go
@@ -299,6 +313,7 @@ impl<T: Float> GradFn<T> for NormalLogProbBackward<T> {
             self.value.shape().to_vec(),
             false,
         )?;
+        let grad_val_tensor = if device.is_cuda() { grad_val_tensor.to(device)? } else { grad_val_tensor };
 
         Ok(vec![
             if self.loc.requires_grad() {
