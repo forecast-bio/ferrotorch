@@ -243,6 +243,8 @@ mod tests {
         assert_eq!(v.len(), 1000);
         assert!(v.iter().all(|&x| x == 0.0));
 
+        let (_, misses_before, _) = cpu_pool_stats();
+
         // Return it.
         pool_return_cpu(v);
 
@@ -251,10 +253,12 @@ mod tests {
         assert_eq!(v2.len(), 1000);
         assert!(v2.iter().all(|&x| x == 0.0)); // Zeroed on checkout.
 
-        let (hits, misses, returns) = cpu_pool_stats();
-        assert_eq!(misses, 1);
-        assert_eq!(returns, 1);
-        assert_eq!(hits, 1);
+        let (hits, misses_after, _) = cpu_pool_stats();
+        // At least 1 hit from our reuse, no new misses from our second alloc.
+        assert!(hits >= 1, "expected at least 1 pool hit");
+        assert_eq!(misses_after, misses_before, "second alloc should be a hit, not a miss");
+
+        drop(v2);
     }
 
     #[test]

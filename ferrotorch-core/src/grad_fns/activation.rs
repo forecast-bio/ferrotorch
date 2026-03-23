@@ -602,12 +602,12 @@ pub fn sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
     let device = input.device();
     if is_grad_enabled() && input.requires_grad() {
-        let result = Tensor::from_operation(
-            TensorStorage::cpu(output.data()?.to_vec()),
+        let storage = TensorStorage::on_device(output.data()?.to_vec(), device)?;
+        Tensor::from_operation(
+            storage,
             output.shape().to_vec(),
             Arc::new(SigmoidBackward::new(input.clone(), output.clone())),
-        )?;
-        if device.is_cuda() { result.to(device) } else { Ok(result) }
+        )
     } else {
         if device.is_cuda() { output.to(device) } else { Ok(output) }
     }
@@ -619,12 +619,12 @@ pub fn tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
     let device = input.device();
     if is_grad_enabled() && input.requires_grad() {
-        let result = Tensor::from_operation(
-            TensorStorage::cpu(output.data()?.to_vec()),
+        let storage = TensorStorage::on_device(output.data()?.to_vec(), device)?;
+        Tensor::from_operation(
+            storage,
             output.shape().to_vec(),
             Arc::new(TanhBackward::new(input.clone(), output.clone())),
-        )?;
-        if device.is_cuda() { result.to(device) } else { Ok(result) }
+        )
     } else {
         if device.is_cuda() { output.to(device) } else { Ok(output) }
     }
@@ -715,12 +715,12 @@ pub fn silu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
     let device = input.device();
     if is_grad_enabled() && input.requires_grad() {
-        let result = Tensor::from_operation(
-            TensorStorage::cpu(output.data()?.to_vec()),
+        let storage = TensorStorage::on_device(output.data()?.to_vec(), device)?;
+        Tensor::from_operation(
+            storage,
             output.shape().to_vec(),
             Arc::new(SiluBackward::new(input.clone())),
-        )?;
-        if device.is_cuda() { result.to(device) } else { Ok(result) }
+        )
     } else {
         if device.is_cuda() { output.to(device) } else { Ok(output) }
     }
@@ -965,12 +965,12 @@ pub fn softplus<T: Float>(
 
     let device = input.device();
     if is_grad_enabled() && input.requires_grad() {
-        let result = Tensor::from_operation(
-            TensorStorage::cpu(output.data()?.to_vec()),
+        let storage = TensorStorage::on_device(output.data()?.to_vec(), device)?;
+        Tensor::from_operation(
+            storage,
             output.shape().to_vec(),
             Arc::new(SoftplusBackward::new(input.clone(), beta, threshold)),
-        )?;
-        if device.is_cuda() { result.to(device) } else { Ok(result) }
+        )
     } else {
         if device.is_cuda() { output.to(device) } else { Ok(output) }
     }

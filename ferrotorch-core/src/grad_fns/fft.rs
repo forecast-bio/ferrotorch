@@ -243,12 +243,8 @@ pub fn fft_differentiable<T: Float>(
 
     if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(FftBackward::new(input.clone(), n));
-        let out = Tensor::from_operation(
-            TensorStorage::cpu(result.data_vec()?),
-            result.shape().to_vec(),
-            grad_fn,
-        )?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        let storage = TensorStorage::on_device(result.data_vec()?, device)?;
+        Tensor::from_operation(storage, result.shape().to_vec(), grad_fn)
     } else {
         Ok(result)
     }
@@ -264,12 +260,8 @@ pub fn ifft_differentiable<T: Float>(
 
     if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(IfftBackward::new(input.clone(), n));
-        let out = Tensor::from_operation(
-            TensorStorage::cpu(result.data_vec()?),
-            result.shape().to_vec(),
-            grad_fn,
-        )?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        let storage = TensorStorage::on_device(result.data_vec()?, device)?;
+        Tensor::from_operation(storage, result.shape().to_vec(), grad_fn)
     } else {
         Ok(result)
     }
@@ -287,12 +279,8 @@ pub fn rfft_differentiable<T: Float>(
 
     if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(RfftBackward::new(input.clone(), n, fft_n));
-        let out = Tensor::from_operation(
-            TensorStorage::cpu(result.data_vec()?),
-            result.shape().to_vec(),
-            grad_fn,
-        )?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        let storage = TensorStorage::on_device(result.data_vec()?, device)?;
+        Tensor::from_operation(storage, result.shape().to_vec(), grad_fn)
     } else {
         Ok(result)
     }
@@ -311,12 +299,8 @@ pub fn irfft_differentiable<T: Float>(
 
     if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(IrfftBackward::new(input.clone(), n, output_n));
-        let out = Tensor::from_operation(
-            TensorStorage::cpu(result.data_vec()?),
-            result.shape().to_vec(),
-            grad_fn,
-        )?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        let storage = TensorStorage::on_device(result.data_vec()?, device)?;
+        Tensor::from_operation(storage, result.shape().to_vec(), grad_fn)
     } else {
         Ok(result)
     }

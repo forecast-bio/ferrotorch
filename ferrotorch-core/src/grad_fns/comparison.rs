@@ -98,17 +98,17 @@ pub fn where_<T: Float>(
 
     let needs_grad = is_grad_enabled() && (x.requires_grad() || y.requires_grad());
 
-    let out = if needs_grad {
+    let storage = TensorStorage::on_device(result, device)?;
+    if needs_grad {
         let grad_fn = Arc::new(WhereBackward {
             condition: condition.to_vec(),
             x: x.clone(),
             y: y.clone(),
         });
-        Tensor::from_operation(TensorStorage::cpu(result), x.shape().to_vec(), grad_fn)?
+        Tensor::from_operation(storage, x.shape().to_vec(), grad_fn)
     } else {
-        Tensor::from_storage(TensorStorage::cpu(result), x.shape().to_vec(), false)?
-    };
-    if device.is_cuda() { out.to(device) } else { Ok(out) }
+        Tensor::from_storage(storage, x.shape().to_vec(), false)
+    }
 }
 
 #[cfg(test)]
