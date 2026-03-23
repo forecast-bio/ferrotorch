@@ -152,6 +152,16 @@ pub trait GpuBackend: Send + Sync {
     fn relu_backward_f32(&self, grad: &GpuBufferHandle, input: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
     // gelu_backward: out[i] = grad[i] * (sig + 1.702*x*sig*(1-sig)) where sig = sigmoid(1.702*x)
     fn gelu_backward_f32(&self, grad: &GpuBufferHandle, input: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
+
+    // Indexing operations
+    // index_select_1d: out[i] = input[indices[i]]  (indices stored as f32)
+    fn index_select_1d_f32(&self, input: &GpuBufferHandle, indices: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
+    // scatter_add_1d: out = zeros(input_len); for i: out[indices[i]] += grad_output[i]  (atomic)
+    fn scatter_add_1d_f32(&self, grad_output: &GpuBufferHandle, indices: &GpuBufferHandle, input_len: usize) -> FerrotorchResult<GpuBufferHandle>;
+    // masked_fill: out[i] = mask[i] ? value : input[i]  (mask stored as f32, 1.0/0.0)
+    fn masked_fill_f32(&self, input: &GpuBufferHandle, mask: &GpuBufferHandle, value: f32) -> FerrotorchResult<GpuBufferHandle>;
+    // masked_zero: out[i] = mask[i] ? 0.0 : grad[i]  (backward of masked_fill)
+    fn masked_zero_f32(&self, grad: &GpuBufferHandle, mask: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
 }
 
 static GPU_BACKEND: OnceLock<Box<dyn GpuBackend>> = OnceLock::new();

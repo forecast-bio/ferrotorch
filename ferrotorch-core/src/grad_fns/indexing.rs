@@ -9,10 +9,21 @@
 use std::sync::Arc;
 
 use crate::autograd::no_grad::is_grad_enabled;
+use crate::device::Device;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
+use crate::gpu_dispatch::gpu_backend;
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
+
+/// Upload a CPU `&[f32]` slice to a GPU buffer on the given device ordinal.
+fn upload_f32_to_gpu(data: &[f32], ordinal: usize) -> FerrotorchResult<crate::gpu_dispatch::GpuBufferHandle> {
+    let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+    let bytes: &[u8] = unsafe {
+        std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4)
+    };
+    backend.cpu_to_gpu(bytes, 4, ordinal)
+}
 
 // ---------------------------------------------------------------------------
 // index_select (1D)
@@ -40,23 +51,41 @@ impl<T: Float> GradFn<T> for IndexSelectBackward<T> {
         }
 
         let input_len = self.input.numel();
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
-        let go_data = cpu_go.data()?;
 
-        // Scatter-add: accumulate grad_output into the gradient of the input.
-        let mut grad_input = vec![<T as num_traits::Zero>::zero(); input_len];
-
-        for (i, &idx) in self.indices.iter().enumerate() {
-            grad_input[idx] += go_data[i];
+        if grad_output.is_cuda() {
+            // GPU path: scatter-add via GPU kernel.
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let ordinal = match grad_output.device() {
+                Device::Cuda(o) => o,
+                _ => unreachable!(),
+            };
+            let indices_f32: Vec<f32> = self.indices.iter().map(|&i| i as f32).collect();
+            let idx_handle = upload_f32_to_gpu(&indices_f32, ordinal)?;
+            let result_handle = backend.scatter_add_1d_f32(
+                grad_output.gpu_handle()?,
+                &idx_handle,
+                input_len,
+            )?;
+            let grad_tensor = Tensor::from_storage(
+                TensorStorage::gpu(result_handle),
+                self.input.shape().to_vec(),
+                false,
+            )?;
+            Ok(vec![Some(grad_tensor)])
+        } else {
+            // CPU path: direct scatter-add.
+            let go_data = grad_output.data()?;
+            let mut grad_input = vec![<T as num_traits::Zero>::zero(); input_len];
+            for (i, &idx) in self.indices.iter().enumerate() {
+                grad_input[idx] += go_data[i];
+            }
+            let grad_tensor = Tensor::from_storage(
+                TensorStorage::cpu(grad_input),
+                self.input.shape().to_vec(),
+                false,
+            )?;
+            Ok(vec![Some(grad_tensor)])
         }
-
-        let grad_tensor = Tensor::from_storage(
-            TensorStorage::cpu(grad_input),
-            self.input.shape().to_vec(),
-            false,
-        )?;
-
-        Ok(vec![Some(grad_tensor)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -87,11 +116,9 @@ pub fn index_select_1d<T: Float>(
         });
     }
 
-    let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
-    let input_data = cpu_input.data()?;
-    let input_len = input_data.len();
+    let input_len = input.shape()[0];
 
-    // Validate all indices are in bounds.
+    // Validate all indices are in bounds (shape is CPU metadata).
     for &idx in indices {
         if idx >= input_len {
             return Err(FerrotorchError::IndexOutOfBounds {
@@ -102,18 +129,46 @@ pub fn index_select_1d<T: Float>(
         }
     }
 
-    // Forward: select elements.
-    let output_data: Vec<T> = indices.iter().map(|&idx| input_data[idx]).collect();
     let output_shape = vec![indices.len()];
 
-    if input.requires_grad() && is_grad_enabled() {
-        let grad_fn = Arc::new(IndexSelectBackward {
-            input: input.clone(),
-            indices: indices.to_vec(),
-        });
-        Tensor::from_operation(TensorStorage::cpu(output_data), output_shape, grad_fn)
+    if input.is_cuda() {
+        // GPU path: gather via GPU kernel.
+        let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+        let ordinal = match input.device() {
+            Device::Cuda(o) => o,
+            _ => unreachable!(),
+        };
+        let indices_f32: Vec<f32> = indices.iter().map(|&i| i as f32).collect();
+        let idx_handle = upload_f32_to_gpu(&indices_f32, ordinal)?;
+        let result_handle = backend.index_select_1d_f32(
+            input.gpu_handle()?,
+            &idx_handle,
+        )?;
+        let storage = TensorStorage::gpu(result_handle);
+
+        if input.requires_grad() && is_grad_enabled() {
+            let grad_fn = Arc::new(IndexSelectBackward {
+                input: input.clone(),
+                indices: indices.to_vec(),
+            });
+            Tensor::from_operation(storage, output_shape, grad_fn)
+        } else {
+            Tensor::from_storage(storage, output_shape, false)
+        }
     } else {
-        Tensor::from_storage(TensorStorage::cpu(output_data), output_shape, false)
+        // CPU path: direct gather.
+        let input_data = input.data()?;
+        let output_data: Vec<T> = indices.iter().map(|&idx| input_data[idx]).collect();
+
+        if input.requires_grad() && is_grad_enabled() {
+            let grad_fn = Arc::new(IndexSelectBackward {
+                input: input.clone(),
+                indices: indices.to_vec(),
+            });
+            Tensor::from_operation(TensorStorage::cpu(output_data), output_shape, grad_fn)
+        } else {
+            Tensor::from_storage(TensorStorage::cpu(output_data), output_shape, false)
+        }
     }
 }
 
@@ -130,13 +185,13 @@ pub fn index_select_1d<T: Float>(
 /// The gradient is zeroed at every position where the mask was true, because
 /// those positions were replaced by a constant and no longer depend on the input.
 ///
-/// The mask is stored as the flat indices where the mask was `true`.
+/// The mask is stored as a flat `Vec<bool>` for GPU reconstruction.
 #[derive(Debug)]
 pub struct MaskedFillBackward<T: Float> {
     /// The original input tensor (saved for shape).
     pub input: Tensor<T>,
-    /// Flat indices where the mask was `true` during the forward pass.
-    pub masked_indices: Vec<usize>,
+    /// The full boolean mask from the forward pass.
+    pub mask: Vec<bool>,
 }
 
 impl<T: Float> GradFn<T> for MaskedFillBackward<T> {
@@ -145,22 +200,41 @@ impl<T: Float> GradFn<T> for MaskedFillBackward<T> {
             return Ok(vec![None]);
         }
 
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
-        let go_data = cpu_go.data()?;
-        let mut grad_input: Vec<T> = go_data.to_vec();
-
-        // Zero out gradient where the mask was true.
-        for &idx in &self.masked_indices {
-            grad_input[idx] = <T as num_traits::Zero>::zero();
+        if grad_output.is_cuda() {
+            // GPU path: masked-zero via GPU kernel.
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let ordinal = match grad_output.device() {
+                Device::Cuda(o) => o,
+                _ => unreachable!(),
+            };
+            let mask_f32: Vec<f32> = self.mask.iter().map(|&m| if m { 1.0 } else { 0.0 }).collect();
+            let mask_handle = upload_f32_to_gpu(&mask_f32, ordinal)?;
+            let result_handle = backend.masked_zero_f32(
+                grad_output.gpu_handle()?,
+                &mask_handle,
+            )?;
+            let grad_tensor = Tensor::from_storage(
+                TensorStorage::gpu(result_handle),
+                self.input.shape().to_vec(),
+                false,
+            )?;
+            Ok(vec![Some(grad_tensor)])
+        } else {
+            // CPU path: direct mask zeroing.
+            let go_data = grad_output.data()?;
+            let mut grad_input: Vec<T> = go_data.to_vec();
+            for (i, &m) in self.mask.iter().enumerate() {
+                if m {
+                    grad_input[i] = <T as num_traits::Zero>::zero();
+                }
+            }
+            let grad_tensor = Tensor::from_storage(
+                TensorStorage::cpu(grad_input),
+                self.input.shape().to_vec(),
+                false,
+            )?;
+            Ok(vec![Some(grad_tensor)])
         }
-
-        let grad_tensor = Tensor::from_storage(
-            TensorStorage::cpu(grad_input),
-            self.input.shape().to_vec(),
-            false,
-        )?;
-
-        Ok(vec![Some(grad_tensor)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -184,43 +258,65 @@ pub fn masked_fill<T: Float>(
     mask: &[bool],
     value: T,
 ) -> FerrotorchResult<Tensor<T>> {
-    let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
-    let input_data = cpu_input.data()?;
+    let input_len = input.numel();
 
-    if mask.len() != input_data.len() {
+    if mask.len() != input_len {
         return Err(FerrotorchError::ShapeMismatch {
             message: format!(
                 "masked_fill: mask length {} does not match input length {}",
                 mask.len(),
-                input_data.len()
+                input_len
             ),
         });
     }
 
-    // Collect flat indices where the mask is true (needed for backward).
-    let masked_indices: Vec<usize> = mask
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &m)| if m { Some(i) } else { None })
-        .collect();
-
-    // Forward: replace masked positions with the fill value.
-    let output_data: Vec<T> = input_data
-        .iter()
-        .zip(mask.iter())
-        .map(|(&x, &m)| if m { value } else { x })
-        .collect();
-
     let output_shape = input.shape().to_vec();
 
-    if input.requires_grad() && is_grad_enabled() {
-        let grad_fn = Arc::new(MaskedFillBackward {
-            input: input.clone(),
-            masked_indices,
-        });
-        Tensor::from_operation(TensorStorage::cpu(output_data), output_shape, grad_fn)
+    if input.is_cuda() {
+        // GPU path: masked-fill via GPU kernel.
+        let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+        let ordinal = match input.device() {
+            Device::Cuda(o) => o,
+            _ => unreachable!(),
+        };
+        let mask_f32: Vec<f32> = mask.iter().map(|&m| if m { 1.0 } else { 0.0 }).collect();
+        let mask_handle = upload_f32_to_gpu(&mask_f32, ordinal)?;
+        // value must be f32 for the GPU kernel.
+        let value_f32: f32 = num_traits::ToPrimitive::to_f32(&value).unwrap_or(0.0);
+        let result_handle = backend.masked_fill_f32(
+            input.gpu_handle()?,
+            &mask_handle,
+            value_f32,
+        )?;
+        let storage = TensorStorage::gpu(result_handle);
+
+        if input.requires_grad() && is_grad_enabled() {
+            let grad_fn = Arc::new(MaskedFillBackward {
+                input: input.clone(),
+                mask: mask.to_vec(),
+            });
+            Tensor::from_operation(storage, output_shape, grad_fn)
+        } else {
+            Tensor::from_storage(storage, output_shape, false)
+        }
     } else {
-        Tensor::from_storage(TensorStorage::cpu(output_data), output_shape, false)
+        // CPU path: direct masked fill.
+        let input_data = input.data()?;
+        let output_data: Vec<T> = input_data
+            .iter()
+            .zip(mask.iter())
+            .map(|(&x, &m)| if m { value } else { x })
+            .collect();
+
+        if input.requires_grad() && is_grad_enabled() {
+            let grad_fn = Arc::new(MaskedFillBackward {
+                input: input.clone(),
+                mask: mask.to_vec(),
+            });
+            Tensor::from_operation(TensorStorage::cpu(output_data), output_shape, grad_fn)
+        } else {
+            Tensor::from_storage(TensorStorage::cpu(output_data), output_shape, false)
+        }
     }
 }
 

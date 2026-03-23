@@ -1015,6 +1015,241 @@ DONE:
 ";
 
 // ---------------------------------------------------------------------------
+// Index-select (1-D gather) PTX kernel
+// ---------------------------------------------------------------------------
+// Thread i: output[i] = input[indices[i]]
+// Indices are stored as f32 on the GPU (cast to u32 via truncation).
+
+#[cfg(feature = "cuda")]
+pub(crate) const INDEX_SELECT_1D_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry index_select_1d_kernel(
+    .param .u64 input_ptr,
+    .param .u64 indices_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n_indices
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %idx;
+    .reg .u64 %input, %indices, %out, %off, %addr;
+    .reg .f32 %idx_f, %val;
+    .reg .pred %p;
+
+    ld.param.u64 %input, [input_ptr];
+    ld.param.u64 %indices, [indices_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n_indices];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    // Byte offset for thread
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    // Read indices[tid] (f32 -> u32)
+    add.u64 %addr, %indices, %off;
+    ld.global.f32 %idx_f, [%addr];
+    cvt.rzi.u32.f32 %idx, %idx_f;
+
+    // Read input[idx]
+    cvt.u64.u32 %addr, %idx;
+    shl.b64 %addr, %addr, 2;
+    add.u64 %addr, %input, %addr;
+    ld.global.f32 %val, [%addr];
+
+    // Write output[tid]
+    add.u64 %addr, %out, %off;
+    st.global.f32 [%addr], %val;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
+// Scatter-add (1-D) PTX kernel — backward of index_select
+// ---------------------------------------------------------------------------
+// Thread i: atomicAdd(grad_input[indices[i]], grad_output[i])
+// The output buffer (grad_input) must be pre-zeroed.
+// Uses atom.global.add.f32 for safe concurrent accumulation when
+// duplicate indices map multiple threads to the same output slot.
+
+#[cfg(feature = "cuda")]
+pub(crate) const SCATTER_ADD_1D_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry scatter_add_1d_kernel(
+    .param .u64 grad_output_ptr,
+    .param .u64 indices_ptr,
+    .param .u64 grad_input_ptr,
+    .param .u32 n_indices
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %idx;
+    .reg .u64 %go, %indices, %gi, %off, %addr;
+    .reg .f32 %idx_f, %grad_val, %dummy;
+    .reg .pred %p;
+
+    ld.param.u64 %go, [grad_output_ptr];
+    ld.param.u64 %indices, [indices_ptr];
+    ld.param.u64 %gi, [grad_input_ptr];
+    ld.param.u32 %n_reg, [n_indices];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    // Byte offset for thread
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    // Read grad_output[tid]
+    add.u64 %addr, %go, %off;
+    ld.global.f32 %grad_val, [%addr];
+
+    // Read indices[tid] (f32 -> u32)
+    add.u64 %addr, %indices, %off;
+    ld.global.f32 %idx_f, [%addr];
+    cvt.rzi.u32.f32 %idx, %idx_f;
+
+    // Atomic add: grad_input[idx] += grad_val
+    cvt.u64.u32 %addr, %idx;
+    shl.b64 %addr, %addr, 2;
+    add.u64 %addr, %gi, %addr;
+    atom.global.add.f32 %dummy, [%addr], %grad_val;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
+// Masked-fill PTX kernel
+// ---------------------------------------------------------------------------
+// Thread i: output[i] = mask[i] >= 0.5 ? fill_value : input[i]
+// Mask is stored as f32 (1.0 = true, 0.0 = false).
+
+#[cfg(feature = "cuda")]
+pub(crate) const MASKED_FILL_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry masked_fill_kernel(
+    .param .u64 input_ptr,
+    .param .u64 mask_ptr,
+    .param .u64 out_ptr,
+    .param .f32 fill_value,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %input, %mask, %out, %off;
+    .reg .f32 %in_val, %mask_val, %fill, %result, %half;
+    .reg .pred %p, %pmask;
+
+    ld.param.u64 %input, [input_ptr];
+    ld.param.u64 %mask, [mask_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.f32 %fill, [fill_value];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %input, %input, %off;
+    add.u64 %mask, %mask, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %in_val, [%input];
+    ld.global.f32 %mask_val, [%mask];
+    mov.f32 %half, 0f3F000000;
+    setp.ge.f32 %pmask, %mask_val, %half;
+    selp.f32 %result, %fill, %in_val, %pmask;
+    st.global.f32 [%out], %result;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
+// Masked-zero PTX kernel — backward of masked_fill
+// ---------------------------------------------------------------------------
+// Thread i: output[i] = mask[i] >= 0.5 ? 0.0 : grad_output[i]
+// Zeroes gradient at positions where the forward mask was true.
+
+#[cfg(feature = "cuda")]
+pub(crate) const MASKED_ZERO_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry masked_zero_kernel(
+    .param .u64 grad_ptr,
+    .param .u64 mask_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %grad, %mask, %out, %off;
+    .reg .f32 %vg, %mask_val, %zero, %result, %half;
+    .reg .pred %p, %pmask;
+
+    ld.param.u64 %grad, [grad_ptr];
+    ld.param.u64 %mask, [mask_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %grad, %grad, %off;
+    add.u64 %mask, %mask, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %vg, [%grad];
+    ld.global.f32 %mask_val, [%mask];
+    mov.f32 %zero, 0f00000000;
+    mov.f32 %half, 0f3F000000;
+    setp.ge.f32 %pmask, %mask_val, %half;
+    selp.f32 %result, %zero, %vg, %pmask;
+    st.global.f32 [%out], %result;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
 // LayerNorm PTX kernel (row-wise: mean, var, normalize+affine)
 // ---------------------------------------------------------------------------
 
@@ -2406,6 +2641,204 @@ pub fn gpu_gelu_backward(
     cpu_to_gpu(&result, device)
 }
 
+// ---------------------------------------------------------------------------
+// Public API -- Index-select 1-D (gather)
+// ---------------------------------------------------------------------------
+
+/// Gather elements from `input` at positions given by `indices`.
+///
+/// `indices` is a GPU buffer of f32 values encoding integer indices.
+/// Output has `indices.len()` elements: `out[i] = input[indices[i]]`.
+#[cfg(feature = "cuda")]
+pub fn gpu_index_select_1d(
+    input: &CudaBuffer<f32>,
+    indices: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(input, device)?;
+
+    let n = indices.len();
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx, INDEX_SELECT_1D_PTX, "index_select_1d_kernel", device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback.
+            let input_host = gpu_to_cpu(input, device)?;
+            let indices_host = gpu_to_cpu(indices, device)?;
+            let result: Vec<f32> = indices_host.iter()
+                .map(|&idx_f| input_host[idx_f as usize])
+                .collect();
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(indices.inner())
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Public API -- Scatter-add 1-D (backward of index_select)
+// ---------------------------------------------------------------------------
+
+/// Scatter-add `grad_output` back into an output buffer of `input_len` elements,
+/// using positions from `indices`.
+///
+/// `indices` is a GPU buffer of f32 values encoding integer indices.
+/// Output: `out = zeros(input_len); for i: out[indices[i]] += grad_output[i]`
+///
+/// Uses atomic adds for safe concurrent accumulation.
+#[cfg(feature = "cuda")]
+pub fn gpu_scatter_add_1d(
+    grad_output: &CudaBuffer<f32>,
+    indices: &CudaBuffer<f32>,
+    input_len: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(grad_output, device)?;
+
+    let n = grad_output.len();
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx, SCATTER_ADD_1D_PTX, "scatter_add_1d_kernel", device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback.
+            let go_host = gpu_to_cpu(grad_output, device)?;
+            let idx_host = gpu_to_cpu(indices, device)?;
+            let mut result = vec![0.0f32; input_len];
+            for (i, &idx_f) in idx_host.iter().enumerate() {
+                result[idx_f as usize] += go_host[i];
+            }
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(input_len, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(grad_output.inner())
+            .arg(indices.inner())
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Public API -- Masked fill
+// ---------------------------------------------------------------------------
+
+/// Fill elements of `input` with `value` where `mask` is true.
+///
+/// `mask` is a GPU buffer of f32 values (1.0 = true, 0.0 = false).
+/// Output: `out[i] = mask[i] >= 0.5 ? value : input[i]`
+#[cfg(feature = "cuda")]
+pub fn gpu_masked_fill(
+    input: &CudaBuffer<f32>,
+    mask: &CudaBuffer<f32>,
+    value: f32,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_binary(input, mask, device)?;
+
+    let n = input.len();
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx, MASKED_FILL_PTX, "masked_fill_kernel", device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback.
+            let input_host = gpu_to_cpu(input, device)?;
+            let mask_host = gpu_to_cpu(mask, device)?;
+            let result: Vec<f32> = input_host.iter().zip(mask_host.iter())
+                .map(|(&x, &m)| if m >= 0.5 { value } else { x })
+                .collect();
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(mask.inner())
+            .arg(out.inner_mut())
+            .arg(&value)
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Public API -- Masked zero (backward of masked_fill)
+// ---------------------------------------------------------------------------
+
+/// Zero out gradient at positions where `mask` is true.
+///
+/// `mask` is a GPU buffer of f32 values (1.0 = true, 0.0 = false).
+/// Output: `out[i] = mask[i] >= 0.5 ? 0.0 : grad[i]`
+#[cfg(feature = "cuda")]
+pub fn gpu_masked_zero(
+    grad: &CudaBuffer<f32>,
+    mask: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    validate_binary(grad, mask, device)?;
+
+    if let Some(out) = try_launch_binary(grad, mask, device, MASKED_ZERO_PTX, "masked_zero_kernel")? {
+        return Ok(out);
+    }
+
+    // CPU fallback.
+    let grad_host = gpu_to_cpu(grad, device)?;
+    let mask_host = gpu_to_cpu(mask, device)?;
+    let result: Vec<f32> = grad_host.iter().zip(mask_host.iter())
+        .map(|(&g, &m)| if m >= 0.5 { 0.0 } else { g })
+        .collect();
+    cpu_to_gpu(&result, device)
+}
+
 /// Scalar multiply: `out[i] = a[i] * scalar`.
 ///
 /// Multiplies every element by a constant float value on the GPU.
@@ -3571,6 +4004,30 @@ pub fn gpu_relu_backward(
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_gelu_backward(
     _grad: &CudaBuffer<f32>, _input: &CudaBuffer<f32>, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_index_select_1d(
+    _input: &CudaBuffer<f32>, _indices: &CudaBuffer<f32>, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_scatter_add_1d(
+    _grad_output: &CudaBuffer<f32>, _indices: &CudaBuffer<f32>, _input_len: usize, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_masked_fill(
+    _input: &CudaBuffer<f32>, _mask: &CudaBuffer<f32>, _value: f32, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_masked_zero(
+    _grad: &CudaBuffer<f32>, _mask: &CudaBuffer<f32>, _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
 
 // ---------------------------------------------------------------------------

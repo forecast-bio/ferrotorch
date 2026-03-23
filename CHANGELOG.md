@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.3] - 2026-03-17
 
 ### Fixed
+- Fix index_select and masked_fill to use proper GPU kernels instead of CPU fallback (#210)
 - Update rustls-webpki to 0.103.10 (#204)
 - Update rustls-webpki to 0.103.10 (#204)
 - Fix PTX register name collision (`%tid` → `%r_tid`) — all elementwise kernels were silently falling back to CPU due to `CUDA_ERROR_INVALID_PTX`

@@ -516,6 +516,60 @@ impl GpuBackend for CudaBackendImpl {
             .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, grad.device_ordinal()))
     }
+
+    fn index_select_1d_f32(
+        &self,
+        input: &GpuBufferHandle,
+        indices: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let input_buf = Self::unwrap_buffer(input)?;
+        let idx_buf = Self::unwrap_buffer(indices)?;
+        let dev = self.device(input.device_ordinal())?;
+        let result = crate::kernels::gpu_index_select_1d(input_buf, idx_buf, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, input.device_ordinal()))
+    }
+
+    fn scatter_add_1d_f32(
+        &self,
+        grad_output: &GpuBufferHandle,
+        indices: &GpuBufferHandle,
+        input_len: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let go_buf = Self::unwrap_buffer(grad_output)?;
+        let idx_buf = Self::unwrap_buffer(indices)?;
+        let dev = self.device(grad_output.device_ordinal())?;
+        let result = crate::kernels::gpu_scatter_add_1d(go_buf, idx_buf, input_len, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, grad_output.device_ordinal()))
+    }
+
+    fn masked_fill_f32(
+        &self,
+        input: &GpuBufferHandle,
+        mask: &GpuBufferHandle,
+        value: f32,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let input_buf = Self::unwrap_buffer(input)?;
+        let mask_buf = Self::unwrap_buffer(mask)?;
+        let dev = self.device(input.device_ordinal())?;
+        let result = crate::kernels::gpu_masked_fill(input_buf, mask_buf, value, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, input.device_ordinal()))
+    }
+
+    fn masked_zero_f32(
+        &self,
+        grad: &GpuBufferHandle,
+        mask: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let grad_buf = Self::unwrap_buffer(grad)?;
+        let mask_buf = Self::unwrap_buffer(mask)?;
+        let dev = self.device(grad.device_ordinal())?;
+        let result = crate::kernels::gpu_masked_zero(grad_buf, mask_buf, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, grad.device_ordinal()))
+    }
 }
 
 // ---------------------------------------------------------------------------
