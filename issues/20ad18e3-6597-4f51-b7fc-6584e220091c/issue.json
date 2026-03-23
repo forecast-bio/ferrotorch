@@ -2,11 +2,12 @@
   "uuid": "20ad18e3-6597-4f51-b7fc-6584e220091c",
   "display_id": 249,
   "title": "Add Pythia-70M architecture integration test for GPU training validation",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-23T22:29:54.651330713Z",
-  "updated_at": "2026-03-23T22:29:55.976576064Z",
+  "updated_at": "2026-03-23T22:32:28.639304425Z",
+  "closed_at": "2026-03-23T22:32:28.639304425Z",
   "labels": [
     "feature"
   ]
