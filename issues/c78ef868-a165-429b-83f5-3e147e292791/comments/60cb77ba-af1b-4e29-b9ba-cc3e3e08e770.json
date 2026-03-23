@@ -1,0 +1,8 @@
+{
+  "uuid": "60cb77ba-af1b-4e29-b9ba-cc3e3e08e770",
+  "issue_uuid": "c78ef868-a165-429b-83f5-3e147e292791",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Added ToDeviceBackward grad_fn to tensor.rs. When to() is called on a non-leaf tensor with requires_grad under grad-enabled context, the result is created via from_operation with ToDeviceBackward, which copies gradients back to the source device during backward. Leaf tensors still get from_storage (they're gradient sources, not graph nodes). All 574 core tests + 23 embedding tests pass.",
+  "created_at": "2026-03-23T18:39:29.680403979Z",
+  "kind": "result"
+}
