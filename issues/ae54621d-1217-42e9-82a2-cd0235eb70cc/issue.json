@@ -1,0 +1,10 @@
+{
+  "uuid": "ae54621d-1217-42e9-82a2-cd0235eb70cc",
+  "display_id": 253,
+  "title": "Perf Phase 3B: Wire fast_sigmoid and fast_tanh into activation forward paths",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T22:59:38.606931363Z",
+  "updated_at": "2026-03-23T22:59:38.606931363Z"
+}
