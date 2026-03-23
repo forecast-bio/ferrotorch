@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.3] - 2026-03-17
 
 ### Fixed
+- Fix Tensor::to() to preserve autograd graph across device transfers (#214)
 - Fix Embedding backward to produce weight gradients on GPU (#213)
 - Fix bmm_differentiable GPU crash from .data() on GPU tensors (#212)
 - Fix view/reshape on GPU tensors dropping requires_grad and breaking autograd graph (#211)

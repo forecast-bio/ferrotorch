@@ -214,6 +214,36 @@ impl<T: Float> Tensor<T> {
     }
 }
 
+// --- ToDeviceBackward ---
+
+/// Backward for `Tensor::to(device)`.
+///
+/// Copies the gradient back to the source tensor's device so that
+/// gradients flow through device transfers.
+#[derive(Debug)]
+struct ToDeviceBackward<T: Float> {
+    source: Tensor<T>,
+}
+
+impl<T: Float> GradFn<T> for ToDeviceBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let target_device = self.source.device();
+        if grad_output.device() == target_device {
+            Ok(vec![Some(grad_output.clone())])
+        } else {
+            Ok(vec![Some(grad_output.to(target_device)?)])
+        }
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.source]
+    }
+
+    fn name(&self) -> &'static str {
+        "ToDeviceBackward"
+    }
+}
+
 // --- Accessors ---
 
 impl<T: Float> Tensor<T> {
@@ -408,6 +438,11 @@ impl<T: Float> Tensor<T> {
         if self.device() == device {
             return Ok(self.clone());
         }
+
+        let needs_grad_fn = self.requires_grad()
+            && !self.is_leaf()
+            && crate::autograd::no_grad::is_grad_enabled();
+
         match (self.device(), device) {
             (Device::Cpu, Device::Cuda(ordinal)) => {
                 let backend = crate::gpu_dispatch::gpu_backend()
@@ -421,7 +456,14 @@ impl<T: Float> Tensor<T> {
                 };
                 let handle = backend.cpu_to_gpu(bytes, std::mem::size_of::<T>(), ordinal)?;
                 let storage = TensorStorage::gpu(handle);
-                Tensor::from_storage(storage, self.shape().to_vec(), self.requires_grad())
+                if needs_grad_fn {
+                    let grad_fn = Arc::new(ToDeviceBackward {
+                        source: self.clone(),
+                    });
+                    Tensor::from_operation(storage, self.shape().to_vec(), grad_fn)
+                } else {
+                    Tensor::from_storage(storage, self.shape().to_vec(), self.requires_grad())
+                }
             }
             (Device::Cuda(_), Device::Cpu) => {
                 let backend = crate::gpu_dispatch::gpu_backend()
@@ -434,7 +476,15 @@ impl<T: Float> Tensor<T> {
                     let cap = bytes.capacity() / std::mem::size_of::<T>();
                     Vec::from_raw_parts(bytes.as_mut_ptr() as *mut T, len, cap)
                 };
-                Tensor::from_storage(TensorStorage::cpu(data), self.shape().to_vec(), self.requires_grad())
+                let storage = TensorStorage::cpu(data);
+                if needs_grad_fn {
+                    let grad_fn = Arc::new(ToDeviceBackward {
+                        source: self.clone(),
+                    });
+                    Tensor::from_operation(storage, self.shape().to_vec(), grad_fn)
+                } else {
+                    Tensor::from_storage(storage, self.shape().to_vec(), self.requires_grad())
+                }
             }
             (Device::Cuda(a), Device::Cuda(b)) if a != b => {
                 // Cross-GPU: go through CPU for now
