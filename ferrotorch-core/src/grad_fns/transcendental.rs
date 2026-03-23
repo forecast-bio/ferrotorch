@@ -76,37 +76,17 @@ impl<T: Float> GradFn<T> for ExpBackward<T> {
 
 /// Differentiable elementwise exponential: `c[i] = exp(x[i])`.
 pub fn exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    if input.is_cuda() {
-        let output = crate::ops::elementwise::fast_exp(input)?;
+    let output = crate::ops::elementwise::fast_exp(input)?;
 
-        if needs_grad_unary(input) {
-            Tensor::from_operation(
-                TensorStorage::cpu(output.data()?.to_vec()),
-                output.shape().to_vec(),
-                Arc::new(ExpBackward {
-                    input: input.clone(),
-                    output: output.clone(),
-                }),
-            )
-        } else {
-            Ok(output)
-        }
+    if needs_grad_unary(input) {
+        let grad_fn = Arc::new(ExpBackward {
+            input: input.clone(),
+            output: output.clone(),
+        });
+        let (storage, shape) = output.into_storage_and_shape()?;
+        Tensor::from_operation(storage, shape, grad_fn)
     } else {
-        let output = crate::ops::elementwise::fast_exp(input)?;
-
-        if needs_grad_unary(input) {
-            let storage = TensorStorage::cpu(output.data()?.to_vec());
-            Tensor::from_operation(
-                storage,
-                output.shape().to_vec(),
-                Arc::new(ExpBackward {
-                    input: input.clone(),
-                    output: output.clone(),
-                }),
-            )
-        } else {
-            Ok(output)
-        }
+        Ok(output)
     }
 }
 
@@ -233,10 +213,10 @@ pub fn sin<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let output = unary_map(input, |x| x.sin())?;
 
     if needs_grad_unary(input) {
-        let storage = TensorStorage::cpu(output.data()?.to_vec());
+        let (storage, shape) = output.into_storage_and_shape()?;
         Tensor::from_operation(
             storage,
-            output.shape().to_vec(),
+            shape,
             Arc::new(SinBackward {
                 input: input.clone(),
             }),
@@ -304,10 +284,10 @@ pub fn cos<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let output = unary_map(input, |x| x.cos())?;
 
     if needs_grad_unary(input) {
-        let storage = TensorStorage::cpu(output.data()?.to_vec());
+        let (storage, shape) = output.into_storage_and_shape()?;
         Tensor::from_operation(
             storage,
-            output.shape().to_vec(),
+            shape,
             Arc::new(CosBackward {
                 input: input.clone(),
             }),
@@ -419,10 +399,10 @@ pub fn clamp<T: Float>(input: &Tensor<T>, min: T, max: T) -> FerrotorchResult<Te
     })?;
 
     if needs_grad_unary(input) {
-        let storage = TensorStorage::cpu(output.data()?.to_vec());
+        let (storage, shape) = output.into_storage_and_shape()?;
         Tensor::from_operation(
             storage,
-            output.shape().to_vec(),
+            shape,
             Arc::new(ClampBackward {
                 input: input.clone(),
                 min,
