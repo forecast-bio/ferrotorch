@@ -296,10 +296,10 @@ fn batch_transpose<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let device = input.device();
 
     // Use zero-copy borrow for CPU tensors, owned copy only for GPU.
-    let (cpu_input, is_gpu) = if input.is_cuda() {
-        (input.cpu()?, true)
+    let cpu_input = if input.is_cuda() {
+        input.cpu()?
     } else {
-        (input.clone(), false)
+        input.clone()
     };
     let data = cpu_input.data()?;
     let mut out = vec![<T as num_traits::Zero>::zero(); batch * c * r];
@@ -314,18 +314,8 @@ fn batch_transpose<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         }
     }
 
-    let result = Tensor::from_storage(
-        TensorStorage::cpu(out),
-        vec![batch, c, r],
-        false,
-    )?;
-
-    // Put result on the same device as input.
-    if is_gpu {
-        result.to(device)
-    } else {
-        Ok(result)
-    }
+    let storage = TensorStorage::on_device(out, device)?;
+    Tensor::from_storage(storage, vec![batch, c, r], false)
 }
 
 // ---------------------------------------------------------------------------

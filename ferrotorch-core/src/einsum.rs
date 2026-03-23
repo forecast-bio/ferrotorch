@@ -652,11 +652,8 @@ pub fn einsum_differentiable<T: Float>(
                     equation: equation.to_string(),
                     input: inputs[0].clone(),
                 });
-                Tensor::from_operation(
-                    TensorStorage::cpu(result.data_vec()?),
-                    result.shape().to_vec(),
-                    grad_fn,
-                )
+                let storage = TensorStorage::on_device(result.data_vec()?, device)?;
+                Tensor::from_operation(storage, result.shape().to_vec(), grad_fn)
             }
             2 => {
                 let grad_fn = Arc::new(EinsumBackwardTwo {
@@ -664,15 +661,12 @@ pub fn einsum_differentiable<T: Float>(
                     a: inputs[0].clone(),
                     b: inputs[1].clone(),
                 });
-                Tensor::from_operation(
-                    TensorStorage::cpu(result.data_vec()?),
-                    result.shape().to_vec(),
-                    grad_fn,
-                )
+                let storage = TensorStorage::on_device(result.data_vec()?, device)?;
+                Tensor::from_operation(storage, result.shape().to_vec(), grad_fn)
             }
             _ => Ok(result),
         }?;
-        Ok(if device.is_cuda() { wrapped.to(device)? } else { wrapped })
+        Ok(wrapped)
     } else {
         Ok(result)
     }

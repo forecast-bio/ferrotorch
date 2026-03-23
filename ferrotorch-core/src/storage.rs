@@ -30,6 +30,31 @@ impl<T: Element> TensorStorage<T> {
         }
     }
 
+    /// Create storage on `target_device` from CPU data.
+    ///
+    /// If `target_device` is CPU, wraps the `Vec` directly (zero-copy).
+    /// If `target_device` is GPU, uploads the data and returns GPU storage.
+    ///
+    /// Use this instead of `TensorStorage::cpu(data).to(device)` to avoid
+    /// injecting a `ToDeviceBackward` node into the autograd graph.
+    pub fn on_device(data: Vec<T>, target_device: Device) -> crate::error::FerrotorchResult<Self> {
+        match target_device {
+            Device::Cpu => Ok(Self::cpu(data)),
+            Device::Cuda(ordinal) => {
+                let backend = crate::gpu_dispatch::gpu_backend()
+                    .ok_or(crate::error::FerrotorchError::DeviceUnavailable)?;
+                let bytes: &[u8] = unsafe {
+                    std::slice::from_raw_parts(
+                        data.as_ptr() as *const u8,
+                        data.len() * std::mem::size_of::<T>(),
+                    )
+                };
+                let handle = backend.cpu_to_gpu(bytes, std::mem::size_of::<T>(), ordinal)?;
+                Ok(Self::gpu(handle))
+            }
+        }
+    }
+
     /// Create a new GPU storage from a handle.
     pub fn gpu(handle: GpuBufferHandle) -> Self {
         let device = Device::Cuda(handle.device_ordinal());

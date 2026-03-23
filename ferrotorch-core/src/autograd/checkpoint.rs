@@ -45,13 +45,8 @@ where
     });
 
     let device = output.device();
-    let result = Tensor::from_operation(
-        TensorStorage::cpu(output.data_vec()?),
-        output.shape().to_vec(),
-        checkpoint_fn,
-    )?;
-
-    Ok(if device.is_cuda() { result.to(device)? } else { result })
+    let storage = TensorStorage::on_device(output.data_vec()?, device)?;
+    Tensor::from_operation(storage, output.shape().to_vec(), checkpoint_fn)
 }
 
 struct CheckpointBackward<T: Float> {
