@@ -1,0 +1,8 @@
+{
+  "uuid": "be6b6ac1-ca15-470f-9804-490176385d05",
+  "issue_uuid": "02b37127-b11e-475c-978a-1e1869473160",
+  "author": "anon-a7c6025f",
+  "content": "Fixed all ~30 GPU crash sites in ferrotorch-vision. Replaced .data() with .data_vec() for GPU-safe reads, and restored device on all TensorStorage::cpu() outputs via .to(device). Fixed files: vit.rs, swin.rs, convnext.rs, unet.rs, to_tensor.rs, resize.rs, center_crop.rs, io.rs. All 180 tests pass.",
+  "created_at": "2026-03-23T19:09:15.885859069Z",
+  "kind": "note"
+}
