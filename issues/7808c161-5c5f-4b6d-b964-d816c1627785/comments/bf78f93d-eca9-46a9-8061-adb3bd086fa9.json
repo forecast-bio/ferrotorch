@@ -1,0 +1,8 @@
+{
+  "uuid": "bf78f93d-eca9-46a9-8061-adb3bd086fa9",
+  "issue_uuid": "7808c161-5c5f-4b6d-b964-d816c1627785",
+  "author": "anon-a7c6025f",
+  "content": "Fixed. Added device capture + restore to tanh(), silu(), and softplus() forward paths in activation.rs, matching the existing sigmoid() pattern. Also fixed SoftplusBackward::backward to restore device on the returned gradient. All ferrotorch-core and ferrotorch-nn tests pass (594 total).",
+  "created_at": "2026-03-23T19:04:44.606392136Z",
+  "kind": "note"
+}
