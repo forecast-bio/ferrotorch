@@ -1,0 +1,10 @@
+{
+  "uuid": "7808c161-5c5f-4b6d-b964-d816c1627785",
+  "display_id": 219,
+  "title": "Fix tanh, silu, softplus returning CPU tensors when GPU input has grad",
+  "status": "open",
+  "priority": "critical",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T18:59:47.654040524Z",
+  "updated_at": "2026-03-23T18:59:47.654040524Z"
+}
