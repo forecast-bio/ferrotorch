@@ -1,0 +1,8 @@
+{
+  "uuid": "93270cbe-0937-40fc-98ef-fe4432d2174e",
+  "issue_uuid": "52149ca7-103a-44b0-9857-b8948df2a5db",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: 4 PTX GPU kernels (index_select_1d, scatter_add_1d, masked_fill, masked_zero) with full plumbing through GpuBackend trait → CudaBackendImpl → grad_fns/indexing.rs. All indexing ops now dispatch to GPU when input is_cuda(), keeping tensors on-device. scatter_add uses atom.global.add.f32 for safe concurrent accumulation with duplicate indices. MaskedFillBackward changed from Vec<usize> sparse indices to Vec<bool> full mask for GPU reconstruction. All 574 core tests pass.",
+  "created_at": "2026-03-23T18:16:52.127649087Z",
+  "kind": "result"
+}
