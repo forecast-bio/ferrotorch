@@ -2,11 +2,12 @@
   "uuid": "df7dcec5-0dbb-49de-a37f-87dff7b0b40b",
   "display_id": 225,
   "title": "Fix permute, split, chunk, where crash on GPU tensors",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-23T19:00:47.863318826Z",
-  "updated_at": "2026-03-23T19:00:49.225491232Z",
+  "updated_at": "2026-03-23T19:08:02.712922516Z",
+  "closed_at": "2026-03-23T19:08:02.712922516Z",
   "labels": [
     "bug"
   ]
