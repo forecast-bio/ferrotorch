@@ -1,0 +1,10 @@
+{
+  "uuid": "26e8038c-fc87-4cf9-b4b7-97d44936919a",
+  "display_id": 222,
+  "title": "Fix LSTM autograd graph severed by from_storage leaf creation",
+  "status": "open",
+  "priority": "critical",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T18:59:56.299671280Z",
+  "updated_at": "2026-03-23T18:59:56.299671280Z"
+}
