@@ -1,0 +1,8 @@
+{
+  "uuid": "e965cfe8-e670-4ffe-af39-e655db784638",
+  "issue_uuid": "16e0246b-bdc9-49ad-8ec1-33838db7c13f",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: bmm_differentiable forward now calls the GPU-aware bmm() (cuBLAS on GPU, CPU loops otherwise) and attaches BmmBackward. Backward uses batch_transpose + bmm under no_grad — same pattern as PyTorch. batch_transpose uses data_vec() for device-transparent access and to() to restore the result to the original device. All 574 core tests pass.",
+  "created_at": "2026-03-23T18:32:23.850458674Z",
+  "kind": "result"
+}
