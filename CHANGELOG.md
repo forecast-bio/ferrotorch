@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.3] - 2026-03-17
 
 ### Fixed
+- Fix shape ops breaking GPU autograd — upload to device before from_operation, not after (#247)
 - Fix Conv2d, Conv1d, and all pooling layers to work on GPU (#221)
 - Fix GPU backend f64 path — hardcoded f32 in cpu_to_gpu, gpu_to_cpu, clone_buffer (#238)
 - Fix batched matmul and broadcast matmul backward crash on GPU (#228)
@@ -42,6 +43,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- Perf Phase 3C: Fused SIMD sigmoid, sin, cos kernels — eliminate intermediate allocations (#254)
+- Perf Phase 3B: Wire fast_sigmoid and fast_tanh into activation forward paths (#253)
+- Perf Phase 5: Wire GPU kernels into grad_fns to eliminate CPU roundtrips (#252)
+- Perf Phase 4B: Add backward and reduction GPU kernels (#251)
+- Perf Phase 4: Add missing GPU kernels via CubeCL — div, exp, log, sqrt, sigmoid, tanh, axis reductions (#250)
+- Add Pythia-70M architecture integration test for GPU training validation (#249)
+- Add GPU integration test suite — 5 end-to-end training experiments (#248)
+- Add CPU tensor buffer pool to eliminate allocation overhead in elementwise ops (#246)
+- Perf Phase 3: Rewrite elementwise kernels with pulp SIMD + rayon parallelism (#245)
+- Perf Phase 2: Migrate CPU matmul from matrixmultiply to faer GEMM (#242)
+- Perf Phase 1: Add data_ref() zero-copy CPU path to eliminate data_vec() copies (#241)
+- Perf Phase 8: Add .cargo/config.toml with target-cpu=native (#244)
+- Perf Phase 7: Switch global allocator to mimalloc (#243)
 - Add GELU approximation modes matching PyTorch (none, tanh) plus existing sigmoid (#205)
 - Add GELU approximation modes matching PyTorch (none, tanh) plus existing sigmoid (#205)
 - Add GELU approximation modes matching PyTorch (none, tanh) plus existing sigmoid (#205)

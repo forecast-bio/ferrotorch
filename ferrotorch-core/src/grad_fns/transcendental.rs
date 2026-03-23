@@ -12,7 +12,7 @@ use crate::autograd::no_grad::{is_grad_enabled, no_grad};
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::gpu_dispatch::gpu_backend;
-use crate::ops::elementwise::unary_map;
+use crate::ops::elementwise::{unary_map, fast_sin, fast_cos};
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
 
@@ -256,7 +256,7 @@ impl<T: Float> GradFn<T> for SinBackward<T> {
 
 /// Differentiable elementwise sine: `c[i] = sin(x[i])`.
 pub fn sin<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let output = unary_map(input, |x| x.sin())?;
+    let output = fast_sin(input)?;
 
     if needs_grad_unary(input) {
         let (storage, shape) = output.into_storage_and_shape()?;
@@ -327,7 +327,7 @@ impl<T: Float> GradFn<T> for CosBackward<T> {
 
 /// Differentiable elementwise cosine: `c[i] = cos(x[i])`.
 pub fn cos<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let output = unary_map(input, |x| x.cos())?;
+    let output = fast_cos(input)?;
 
     if needs_grad_unary(input) {
         let (storage, shape) = output.into_storage_and_shape()?;

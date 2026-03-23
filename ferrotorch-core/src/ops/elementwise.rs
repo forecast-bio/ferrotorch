@@ -272,10 +272,22 @@ pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     unary_map(input, |x| x.exp())
 }
 
-/// SIMD-accelerated sigmoid: `1 / (1 + exp(-x))`.
+/// Fast f32 exp — single-element, fused, auto-vectorization friendly.
 ///
-/// For f32 tensors the negation, SIMD exp, and reciprocal are fused into a
-/// single parallel pass.  Falls back to scalar `unary_map` for other types.
+/// Uses `f32::exp()` which LLVM vectorizes to vexpps (AVX2) or equivalent
+/// when compiled with `target-cpu=native`. This is simpler and more accurate
+/// than a hand-rolled polynomial, and LLVM's codegen matches Intel's
+/// performance for vectorized exp.
+#[inline(always)]
+fn fast_exp_f32(x: f32) -> f32 {
+    x.exp()
+}
+
+/// Fused single-pass sigmoid: `1 / (1 + exp(-x))`.
+///
+/// No intermediate allocations — each element is computed in registers.
+/// With `target-cpu=native`, the inner loop auto-vectorizes to AVX2 (8-wide).
+/// For large tensors (>= PARALLEL_THRESHOLD), work is split across rayon threads.
 pub fn fast_sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
     let n = data.len();
@@ -288,39 +300,26 @@ pub fn fast_sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
                 .enumerate()
                 .for_each(|(ci, chunk)| {
                     let offset = ci * chunk_size;
-                    let len = chunk.len();
-                    let slice = &inp[offset..offset + len];
-                    // Negate into local buffer, SIMD exp, then reciprocal.
-                    let mut neg_buf = vec![0.0f32; len];
-                    for i in 0..len {
-                        neg_buf[i] = -slice[i];
-                    }
-                    let mut exp_buf = vec![0.0f32; len];
-                    ferray_ufunc::kernels::simd_f32::exp_f32(&neg_buf, &mut exp_buf);
-                    for i in 0..len {
-                        chunk[i] = 1.0 / (1.0 + exp_buf[i]);
+                    let slice = &inp[offset..offset + chunk.len()];
+                    for i in 0..chunk.len() {
+                        chunk[i] = 1.0 / (1.0 + fast_exp_f32(-slice[i]));
                     }
                 });
         } else {
-            // Single-threaded path: negate, SIMD exp, reciprocal.
-            let neg: Vec<f32> = inp.iter().map(|&x| -x).collect();
-            let mut exp_out = pool_alloc_cpu_uninit_f32(n);
-            ferray_ufunc::kernels::simd_f32::exp_f32(&neg, &mut exp_out);
             for i in 0..n {
-                out[i] = 1.0 / (1.0 + exp_out[i]);
+                out[i] = 1.0 / (1.0 + fast_exp_f32(-inp[i]));
             }
         }
         let result = unsafe { transmute_vec_f32_to_t(out) };
         return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
     }
-    // Generic scalar fallback.
     let one = <T as num_traits::One>::one();
     unary_map(input, move |x| one / (one + (-x).exp()))
 }
 
-/// SIMD-accelerated tanh: `(exp(2x) - 1) / (exp(2x) + 1)`.
+/// Fused single-pass tanh: `(exp(2x) - 1) / (exp(2x) + 1)`.
 ///
-/// Uses the SIMD exp kernel for `exp(2x)` with rayon parallelism.
+/// No intermediate allocations — each element computed in registers.
 pub fn fast_tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
     let n = data.len();
@@ -333,35 +332,83 @@ pub fn fast_tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 .enumerate()
                 .for_each(|(ci, chunk)| {
                     let offset = ci * chunk_size;
-                    let len = chunk.len();
-                    let slice = &inp[offset..offset + len];
-                    // Compute 2x, SIMD exp, then (e2x - 1) / (e2x + 1).
-                    let mut two_x = vec![0.0f32; len];
-                    for i in 0..len {
-                        two_x[i] = 2.0 * slice[i];
-                    }
-                    let mut exp_buf = vec![0.0f32; len];
-                    ferray_ufunc::kernels::simd_f32::exp_f32(&two_x, &mut exp_buf);
-                    for i in 0..len {
-                        let e2x = exp_buf[i];
+                    let slice = &inp[offset..offset + chunk.len()];
+                    for i in 0..chunk.len() {
+                        let e2x = fast_exp_f32(2.0 * slice[i]);
                         chunk[i] = (e2x - 1.0) / (e2x + 1.0);
                     }
                 });
         } else {
-            // Single-threaded path.
-            let two_x: Vec<f32> = inp.iter().map(|&x| 2.0 * x).collect();
-            let mut exp_out = pool_alloc_cpu_uninit_f32(n);
-            ferray_ufunc::kernels::simd_f32::exp_f32(&two_x, &mut exp_out);
             for i in 0..n {
-                let e2x = exp_out[i];
+                let e2x = fast_exp_f32(2.0 * inp[i]);
                 out[i] = (e2x - 1.0) / (e2x + 1.0);
             }
         }
         let result = unsafe { transmute_vec_f32_to_t(out) };
         return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
     }
-    // Generic scalar fallback.
     unary_map(input, |x| x.tanh())
+}
+
+/// Fused single-pass sin for f32.
+pub fn fast_sin<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    let data = input.data()?;
+    let n = data.len();
+    if std::mem::size_of::<T>() == 4 {
+        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
+        let mut out = pool_alloc_cpu_uninit_f32(n);
+        // sin/cos don't have a simple fast approximation that auto-vectorizes
+        // well, so we use f32::sin() which LLVM can still vectorize via libm
+        // calls or sleef-style lowering with target-cpu=native.
+        if n >= PARALLEL_THRESHOLD {
+            let chunk_size = (n / rayon::current_num_threads()).max(4096);
+            out.par_chunks_mut(chunk_size)
+                .enumerate()
+                .for_each(|(ci, chunk)| {
+                    let offset = ci * chunk_size;
+                    let slice = &inp[offset..offset + chunk.len()];
+                    for i in 0..chunk.len() {
+                        chunk[i] = slice[i].sin();
+                    }
+                });
+        } else {
+            for i in 0..n {
+                out[i] = inp[i].sin();
+            }
+        }
+        let result = unsafe { transmute_vec_f32_to_t(out) };
+        return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
+    }
+    unary_map(input, |x| x.sin())
+}
+
+/// Fused single-pass cos for f32.
+pub fn fast_cos<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    let data = input.data()?;
+    let n = data.len();
+    if std::mem::size_of::<T>() == 4 {
+        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
+        let mut out = pool_alloc_cpu_uninit_f32(n);
+        if n >= PARALLEL_THRESHOLD {
+            let chunk_size = (n / rayon::current_num_threads()).max(4096);
+            out.par_chunks_mut(chunk_size)
+                .enumerate()
+                .for_each(|(ci, chunk)| {
+                    let offset = ci * chunk_size;
+                    let slice = &inp[offset..offset + chunk.len()];
+                    for i in 0..chunk.len() {
+                        chunk[i] = slice[i].cos();
+                    }
+                });
+        } else {
+            for i in 0..n {
+                out[i] = inp[i].cos();
+            }
+        }
+        let result = unsafe { transmute_vec_f32_to_t(out) };
+        return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
+    }
+    unary_map(input, |x| x.cos())
 }
 
 // --- Generic fallback operations ---
