@@ -48,6 +48,14 @@ ferrotorch-gpu = { workspace = true, optional = true }
 ferrotorch-cubecl = { workspace = true, optional = true }
 ferrotorch-distributed = { workspace = true, optional = true }
 
+[[test]]
+name = "gpu_training"
+path = "tests/gpu_training.rs"
+
+[[test]]
+name = "pythia_real"
+path = "tests/pythia_real.rs"
+
 [[example]]
 name = "train_mnist"
 path = "examples/train_mnist.rs"

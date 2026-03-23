@@ -5,14 +5,22 @@
 //! function that performs the forward pass and attaches the grad_fn to the
 //! result tensor when gradient tracking is enabled.
 
+use std::any::TypeId;
 use std::sync::Arc;
 
 use crate::autograd::no_grad::{is_grad_enabled, no_grad};
 use crate::dtype::Float;
-use crate::error::FerrotorchResult;
+use crate::error::{FerrotorchError, FerrotorchResult};
+use crate::gpu_dispatch::gpu_backend;
 use crate::ops::elementwise::unary_map;
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
+
+/// Returns `true` if `T` is `f32`.
+#[inline]
+fn is_f32<T: Float>() -> bool {
+    TypeId::of::<T>() == TypeId::of::<f32>()
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -76,17 +84,38 @@ impl<T: Float> GradFn<T> for ExpBackward<T> {
 
 /// Differentiable elementwise exponential: `c[i] = exp(x[i])`.
 pub fn exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let output = crate::ops::elementwise::fast_exp(input)?;
+    if input.is_cuda() && is_f32::<T>() {
+        let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+        let handle = backend.exp_f32(input.gpu_handle()?)?;
+        let storage = TensorStorage::gpu(handle);
+        let shape = input.shape().to_vec();
 
-    if needs_grad_unary(input) {
-        let grad_fn = Arc::new(ExpBackward {
-            input: input.clone(),
-            output: output.clone(),
-        });
-        let (storage, shape) = output.into_storage_and_shape()?;
-        Tensor::from_operation(storage, shape, grad_fn)
+        if needs_grad_unary(input) {
+            // We need the output for the backward pass (dx = grad * exp(x)).
+            // Build output tensor first, then clone to attach grad_fn.
+            let output = Tensor::from_storage(storage, shape.clone(), false)?;
+            let grad_fn = Arc::new(ExpBackward {
+                input: input.clone(),
+                output: output.clone(),
+            });
+            let (s, sh) = output.into_storage_and_shape()?;
+            Tensor::from_operation(s, sh, grad_fn)
+        } else {
+            Tensor::from_storage(storage, shape, false)
+        }
     } else {
-        Ok(output)
+        let output = crate::ops::elementwise::fast_exp(input)?;
+
+        if needs_grad_unary(input) {
+            let grad_fn = Arc::new(ExpBackward {
+                input: input.clone(),
+                output: output.clone(),
+            });
+            let (storage, shape) = output.into_storage_and_shape()?;
+            Tensor::from_operation(storage, shape, grad_fn)
+        } else {
+            Ok(output)
+        }
     }
 }
 
@@ -140,19 +169,36 @@ impl<T: Float> GradFn<T> for LogBackward<T> {
 
 /// Differentiable elementwise natural log: `c[i] = ln(x[i])`.
 pub fn log<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let output = unary_map(input, |x| x.ln())?;
+    if input.is_cuda() && is_f32::<T>() {
+        let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+        let handle = backend.log_f32(input.gpu_handle()?)?;
+        let storage = TensorStorage::gpu(handle);
+        let shape = input.shape().to_vec();
 
-    if needs_grad_unary(input) {
-        let (storage, shape) = output.into_storage_and_shape()?;
-        Tensor::from_operation(
-            storage,
-            shape,
-            Arc::new(LogBackward {
-                input: input.clone(),
-            }),
-        )
+        if needs_grad_unary(input) {
+            Tensor::from_operation(
+                storage,
+                shape,
+                Arc::new(LogBackward { input: input.clone() }),
+            )
+        } else {
+            Tensor::from_storage(storage, shape, false)
+        }
     } else {
-        Ok(output)
+        let output = unary_map(input, |x| x.ln())?;
+
+        if needs_grad_unary(input) {
+            let (storage, shape) = output.into_storage_and_shape()?;
+            Tensor::from_operation(
+                storage,
+                shape,
+                Arc::new(LogBackward {
+                    input: input.clone(),
+                }),
+            )
+        } else {
+            Ok(output)
+        }
     }
 }
 

@@ -162,6 +162,52 @@ pub trait GpuBackend: Send + Sync {
     fn masked_fill_f32(&self, input: &GpuBufferHandle, mask: &GpuBufferHandle, value: f32) -> FerrotorchResult<GpuBufferHandle>;
     // masked_zero: out[i] = mask[i] ? 0.0 : grad[i]  (backward of masked_fill)
     fn masked_zero_f32(&self, grad: &GpuBufferHandle, mask: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
+
+    // Elementwise unary/binary f32 (default impls for forward ops)
+    fn div_f32(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "div_f32 GPU op not yet implemented".into() })
+    }
+    fn exp_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "exp_f32 GPU op not yet implemented".into() })
+    }
+    fn log_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "log_f32 GPU op not yet implemented".into() })
+    }
+    fn sqrt_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "sqrt_f32 GPU op not yet implemented".into() })
+    }
+    fn pow_f32(&self, _a: &GpuBufferHandle, _exponent: f32) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "pow_f32 GPU op not yet implemented".into() })
+    }
+    fn abs_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "abs_f32 GPU op not yet implemented".into() })
+    }
+    fn sigmoid_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "sigmoid_f32 GPU op not yet implemented".into() })
+    }
+    fn tanh_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "tanh_f32 GPU op not yet implemented".into() })
+    }
+
+    // Sigmoid backward: out[i] = grad[i] * output[i] * (1 - output[i])
+    fn sigmoid_backward_f32(&self, _grad: &GpuBufferHandle, _output: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "sigmoid_backward_f32 GPU op not yet implemented".into() })
+    }
+
+    // Tanh backward: out[i] = grad[i] * (1 - output[i]^2)
+    fn tanh_backward_f32(&self, _grad: &GpuBufferHandle, _output: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "tanh_backward_f32 GPU op not yet implemented".into() })
+    }
+
+    // Softmax backward: out[i] = output[i] * (grad[i] - dot(grad_row, output_row))
+    fn softmax_backward_f32(&self, _grad: &GpuBufferHandle, _output: &GpuBufferHandle, _cols: usize) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "softmax_backward_f32 GPU op not yet implemented".into() })
+    }
+
+    // Sum along one axis of a tensor
+    fn sum_axis_f32(&self, _a: &GpuBufferHandle, _shape: &[usize], _axis: usize) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "sum_axis_f32 GPU op not yet implemented".into() })
+    }
 }
 
 static GPU_BACKEND: OnceLock<Box<dyn GpuBackend>> = OnceLock::new();

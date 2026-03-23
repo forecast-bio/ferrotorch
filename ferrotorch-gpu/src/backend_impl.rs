@@ -631,6 +631,62 @@ impl GpuBackend for CudaBackendImpl {
             .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, grad.device_ordinal()))
     }
+
+    fn sigmoid_backward_f32(
+        &self,
+        grad: &GpuBufferHandle,
+        output: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let grad_buf = Self::unwrap_buffer(grad)?;
+        let output_buf = Self::unwrap_buffer(output)?;
+        let dev = self.device(grad.device_ordinal())?;
+        let result = crate::kernels::gpu_sigmoid_backward(grad_buf, output_buf, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, grad.device_ordinal()))
+    }
+
+    fn tanh_backward_f32(
+        &self,
+        grad: &GpuBufferHandle,
+        output: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let grad_buf = Self::unwrap_buffer(grad)?;
+        let output_buf = Self::unwrap_buffer(output)?;
+        let dev = self.device(grad.device_ordinal())?;
+        let result = crate::kernels::gpu_tanh_backward(grad_buf, output_buf, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, grad.device_ordinal()))
+    }
+
+    fn softmax_backward_f32(
+        &self,
+        grad: &GpuBufferHandle,
+        output: &GpuBufferHandle,
+        cols: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let grad_buf = Self::unwrap_buffer(grad)?;
+        let output_buf = Self::unwrap_buffer(output)?;
+        let dev = self.device(grad.device_ordinal())?;
+        let result = crate::kernels::gpu_softmax_backward(grad_buf, output_buf, cols, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, grad.device_ordinal()))
+    }
+
+    fn sum_axis_f32(
+        &self,
+        a: &GpuBufferHandle,
+        shape: &[usize],
+        axis: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let outer: usize = shape[..axis].iter().product();
+        let axis_size = shape[axis];
+        let inner: usize = shape[axis+1..].iter().product::<usize>().max(1);
+        let result = crate::kernels::gpu_sum_axis(a_buf, outer, axis_size, inner, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -1250,6 +1250,324 @@ DONE:
 ";
 
 // ---------------------------------------------------------------------------
+// Sigmoid backward PTX kernel: out[i] = grad[i] * output[i] * (1 - output[i])
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "cuda")]
+pub(crate) const SIGMOID_BACKWARD_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry sigmoid_backward_kernel(
+    .param .u64 grad_ptr,
+    .param .u64 output_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %grad, %output, %out, %off;
+    .reg .f32 %vg, %vo, %one, %one_minus_o, %result;
+    .reg .pred %p;
+
+    ld.param.u64 %grad, [grad_ptr];
+    ld.param.u64 %output, [output_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %grad, %grad, %off;
+    add.u64 %output, %output, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %vg, [%grad];
+    ld.global.f32 %vo, [%output];
+    mov.f32 %one, 0f3F800000;
+    sub.f32 %one_minus_o, %one, %vo;
+    mul.f32 %result, %vo, %one_minus_o;
+    mul.f32 %result, %vg, %result;
+    st.global.f32 [%out], %result;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
+// Tanh backward PTX kernel: out[i] = grad[i] * (1 - output[i]^2)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "cuda")]
+pub(crate) const TANH_BACKWARD_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry tanh_backward_kernel(
+    .param .u64 grad_ptr,
+    .param .u64 output_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %grad, %output, %out, %off;
+    .reg .f32 %vg, %vo, %one, %o_sq, %one_minus_sq, %result;
+    .reg .pred %p;
+
+    ld.param.u64 %grad, [grad_ptr];
+    ld.param.u64 %output, [output_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %grad, %grad, %off;
+    add.u64 %output, %output, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %vg, [%grad];
+    ld.global.f32 %vo, [%output];
+    mov.f32 %one, 0f3F800000;
+    mul.f32 %o_sq, %vo, %vo;
+    sub.f32 %one_minus_sq, %one, %o_sq;
+    mul.f32 %result, %vg, %one_minus_sq;
+    st.global.f32 [%out], %result;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
+// Softmax backward PTX kernel (row-wise, shared-memory dot product)
+// ---------------------------------------------------------------------------
+// For each row of length `cols`:
+//   dot = sum(grad[row] * output[row])
+//   out[i] = output[i] * (grad[i] - dot)
+// One block per row, 256 threads per block.
+
+#[cfg(feature = "cuda")]
+pub(crate) const SOFTMAX_BACKWARD_PTX: &str = "\
+.version 7.0\n\
+.target sm_52\n\
+.address_size 64\n\
+\n\
+.shared .align 4 .f32 sdata[256];\n\
+\n\
+.visible .entry softmax_backward_kernel(\n\
+    .param .u64 grad_ptr,\n\
+    .param .u64 output_ptr,\n\
+    .param .u64 out_ptr,\n\
+    .param .u32 rows,\n\
+    .param .u32 cols\n\
+) {\n\
+    .reg .u32 %r_tid, %bid, %bdim, %rows_reg, %cols_reg, %j, %half, %other_tid;\n\
+    .reg .u64 %grad, %output, %out, %row_off, %off, %sbase, %saddr;\n\
+    .reg .f32 %vg, %vo, %dot, %other_val, %diff, %result;\n\
+    .reg .pred %p, %loop_p, %reduce_p;\n\
+\n\
+    ld.param.u64 %grad, [grad_ptr];\n\
+    ld.param.u64 %output, [output_ptr];\n\
+    ld.param.u64 %out, [out_ptr];\n\
+    ld.param.u32 %rows_reg, [rows];\n\
+    ld.param.u32 %cols_reg, [cols];\n\
+\n\
+    mov.u32 %bid, %ctaid.x;\n\
+    mov.u32 %bdim, %ntid.x;\n\
+    mov.u32 %r_tid, %tid.x;\n\
+    mov.u64 %sbase, sdata;\n\
+\n\
+    setp.ge.u32 %p, %bid, %rows_reg;\n\
+    @%p bra DONE;\n\
+\n\
+    // row_off = bid * cols * 4 (byte offset)\n\
+    cvt.u64.u32 %row_off, %bid;\n\
+    cvt.u64.u32 %off, %cols_reg;\n\
+    mul.lo.u64 %row_off, %row_off, %off;\n\
+    shl.b64 %row_off, %row_off, 2;\n\
+\n\
+    // Phase 1: compute partial dot = sum(grad[j] * output[j]) for this thread's elements\n\
+    mov.f32 %dot, 0f00000000;\n\
+    mov.u32 %j, %r_tid;\n\
+DOT_LOOP:\n\
+    setp.ge.u32 %loop_p, %j, %cols_reg;\n\
+    @%loop_p bra DOT_LOOP_DONE;\n\
+    cvt.u64.u32 %off, %j;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %saddr, %grad, %off;\n\
+    add.u64 %saddr, %saddr, %row_off;\n\
+    ld.global.f32 %vg, [%saddr];\n\
+    add.u64 %saddr, %output, %off;\n\
+    add.u64 %saddr, %saddr, %row_off;\n\
+    ld.global.f32 %vo, [%saddr];\n\
+    fma.rn.f32 %dot, %vg, %vo, %dot;\n\
+    add.u32 %j, %j, %bdim;\n\
+    bra DOT_LOOP;\n\
+DOT_LOOP_DONE:\n\
+\n\
+    // Store partial dot into shared memory and reduce\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %saddr, %sbase, %off;\n\
+    st.shared.f32 [%saddr], %dot;\n\
+    bar.sync 0;\n\
+\n\
+    mov.u32 %half, %bdim;\n\
+DOT_REDUCE:\n\
+    shr.u32 %half, %half, 1;\n\
+    setp.eq.u32 %reduce_p, %half, 0;\n\
+    @%reduce_p bra DOT_REDUCE_DONE;\n\
+    setp.ge.u32 %reduce_p, %r_tid, %half;\n\
+    @%reduce_p bra DOT_REDUCE_SKIP;\n\
+    add.u32 %other_tid, %r_tid, %half;\n\
+    cvt.u64.u32 %off, %other_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %saddr, %sbase, %off;\n\
+    ld.shared.f32 %other_val, [%saddr];\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %saddr, %sbase, %off;\n\
+    ld.shared.f32 %dot, [%saddr];\n\
+    add.f32 %dot, %dot, %other_val;\n\
+    st.shared.f32 [%saddr], %dot;\n\
+DOT_REDUCE_SKIP:\n\
+    bar.sync 0;\n\
+    bra DOT_REDUCE;\n\
+DOT_REDUCE_DONE:\n\
+\n\
+    // Broadcast dot to all threads\n\
+    ld.shared.f32 %dot, [sdata];\n\
+    bar.sync 0;\n\
+\n\
+    // Phase 2: out[j] = output[j] * (grad[j] - dot)\n\
+    mov.u32 %j, %r_tid;\n\
+WRITE_LOOP:\n\
+    setp.ge.u32 %loop_p, %j, %cols_reg;\n\
+    @%loop_p bra WRITE_LOOP_DONE;\n\
+    cvt.u64.u32 %off, %j;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %saddr, %grad, %off;\n\
+    add.u64 %saddr, %saddr, %row_off;\n\
+    ld.global.f32 %vg, [%saddr];\n\
+    add.u64 %saddr, %output, %off;\n\
+    add.u64 %saddr, %saddr, %row_off;\n\
+    ld.global.f32 %vo, [%saddr];\n\
+    sub.f32 %diff, %vg, %dot;\n\
+    mul.f32 %result, %vo, %diff;\n\
+    add.u64 %saddr, %out, %off;\n\
+    add.u64 %saddr, %saddr, %row_off;\n\
+    st.global.f32 [%saddr], %result;\n\
+    add.u32 %j, %j, %bdim;\n\
+    bra WRITE_LOOP;\n\
+WRITE_LOOP_DONE:\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+// ---------------------------------------------------------------------------
+// Sum-axis PTX kernel: reduce along one axis of a tensor
+// ---------------------------------------------------------------------------
+// Parameters: input_ptr, output_ptr, outer_size, axis_size, inner_size, total_output
+// Thread i: output[i] = sum_{k=0}^{axis_size-1} input[outer_idx * axis_size * inner_size + k * inner_size + inner_idx]
+// where outer_idx = i / inner_size, inner_idx = i % inner_size.
+
+#[cfg(feature = "cuda")]
+pub(crate) const SUM_AXIS_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry sum_axis_kernel(
+    .param .u64 input_ptr,
+    .param .u64 output_ptr,
+    .param .u32 outer_size,
+    .param .u32 axis_size,
+    .param .u32 inner_size,
+    .param .u32 total_output
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %outer_sz, %axis_sz, %inner_sz;
+    .reg .u32 %outer_idx, %inner_idx, %k, %tmp;
+    .reg .u64 %in, %out, %off, %addr;
+    .reg .f32 %val, %sum;
+    .reg .pred %p, %lp;
+
+    ld.param.u64 %in, [input_ptr];
+    ld.param.u64 %out, [output_ptr];
+    ld.param.u32 %outer_sz, [outer_size];
+    ld.param.u32 %axis_sz, [axis_size];
+    ld.param.u32 %inner_sz, [inner_size];
+    ld.param.u32 %n_reg, [total_output];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    // outer_idx = r_tid / inner_size
+    div.u32 %outer_idx, %r_tid, %inner_sz;
+    // inner_idx = r_tid % inner_size
+    rem.u32 %inner_idx, %r_tid, %inner_sz;
+
+    // base = outer_idx * axis_size * inner_size + inner_idx
+    mul.lo.u32 %tmp, %outer_idx, %axis_sz;
+    mul.lo.u32 %tmp, %tmp, %inner_sz;
+    add.u32 %tmp, %tmp, %inner_idx;
+
+    mov.f32 %sum, 0f00000000;
+    mov.u32 %k, 0;
+SUM_LOOP:
+    setp.ge.u32 %lp, %k, %axis_sz;
+    @%lp bra SUM_LOOP_DONE;
+
+    // addr = in + (tmp + k * inner_size) * 4
+    mul.lo.u32 %inner_idx, %k, %inner_sz;
+    add.u32 %inner_idx, %tmp, %inner_idx;
+    cvt.u64.u32 %off, %inner_idx;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    ld.global.f32 %val, [%addr];
+    add.f32 %sum, %sum, %val;
+
+    add.u32 %k, %k, 1;
+    bra SUM_LOOP;
+SUM_LOOP_DONE:
+
+    // output[r_tid] = sum
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %out, %off;
+    st.global.f32 [%addr], %sum;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
 // LayerNorm PTX kernel (row-wise: mean, var, normalize+affine)
 // ---------------------------------------------------------------------------
 
@@ -2839,6 +3157,207 @@ pub fn gpu_masked_zero(
     cpu_to_gpu(&result, device)
 }
 
+// ---------------------------------------------------------------------------
+// Public API -- Sigmoid backward
+// ---------------------------------------------------------------------------
+
+/// Sigmoid backward: `out[i] = grad[i] * output[i] * (1 - output[i])`.
+///
+/// `grad` and `output` must have the same length and reside on `device`.
+#[cfg(feature = "cuda")]
+pub fn gpu_sigmoid_backward(
+    grad: &CudaBuffer<f32>,
+    output: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    validate_binary(grad, output, device)?;
+
+    if let Some(out) = try_launch_binary(grad, output, device, SIGMOID_BACKWARD_PTX, "sigmoid_backward_kernel")? {
+        return Ok(out);
+    }
+
+    // CPU fallback
+    let grad_host = gpu_to_cpu(grad, device)?;
+    let output_host = gpu_to_cpu(output, device)?;
+    let result: Vec<f32> = grad_host.iter().zip(output_host.iter())
+        .map(|(&g, &o)| g * o * (1.0 - o))
+        .collect();
+    cpu_to_gpu(&result, device)
+}
+
+// ---------------------------------------------------------------------------
+// Public API -- Tanh backward
+// ---------------------------------------------------------------------------
+
+/// Tanh backward: `out[i] = grad[i] * (1 - output[i]^2)`.
+///
+/// `grad` and `output` must have the same length and reside on `device`.
+#[cfg(feature = "cuda")]
+pub fn gpu_tanh_backward(
+    grad: &CudaBuffer<f32>,
+    output: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    validate_binary(grad, output, device)?;
+
+    if let Some(out) = try_launch_binary(grad, output, device, TANH_BACKWARD_PTX, "tanh_backward_kernel")? {
+        return Ok(out);
+    }
+
+    // CPU fallback
+    let grad_host = gpu_to_cpu(grad, device)?;
+    let output_host = gpu_to_cpu(output, device)?;
+    let result: Vec<f32> = grad_host.iter().zip(output_host.iter())
+        .map(|(&g, &o)| g * (1.0 - o * o))
+        .collect();
+    cpu_to_gpu(&result, device)
+}
+
+// ---------------------------------------------------------------------------
+// Public API -- Softmax backward
+// ---------------------------------------------------------------------------
+
+/// Softmax backward (row-wise): one block per row, shared-memory dot reduction.
+///
+/// For each row of length `cols`:
+///   `dot = sum(grad[row] * output[row])`
+///   `out[i] = output[i] * (grad[i] - dot)`
+///
+/// `rows` = total elements / cols. Both `grad` and `output` have `rows * cols` elements.
+#[cfg(feature = "cuda")]
+pub fn gpu_softmax_backward(
+    grad: &CudaBuffer<f32>,
+    output: &CudaBuffer<f32>,
+    cols: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_binary(grad, output, device)?;
+
+    let total = grad.len();
+    let rows = total / cols;
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx, SOFTMAX_BACKWARD_PTX, "softmax_backward_kernel", device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback
+            let grad_host = gpu_to_cpu(grad, device)?;
+            let output_host = gpu_to_cpu(output, device)?;
+            let mut result = vec![0.0f32; total];
+            for r in 0..rows {
+                let base = r * cols;
+                let mut dot = 0.0f32;
+                for c in 0..cols {
+                    dot += grad_host[base + c] * output_host[base + c];
+                }
+                for c in 0..cols {
+                    result[base + c] = output_host[base + c] * (grad_host[base + c] - dot);
+                }
+            }
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(total, device)?;
+    let rows_u32 = rows as u32;
+    let cols_u32 = cols as u32;
+
+    // One block per row, 256 threads per block.
+    let cfg = LaunchConfig {
+        grid_dim: ((rows as u32).max(1), 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 256 * 4,
+    };
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(grad.inner())
+            .arg(output.inner())
+            .arg(out.inner_mut())
+            .arg(&rows_u32)
+            .arg(&cols_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Public API -- Sum axis
+// ---------------------------------------------------------------------------
+
+/// Reduce along one axis of a tensor.
+///
+/// Thread i computes:
+///   `output[i] = sum_{k=0}^{axis_size-1} input[outer_idx * axis_size * inner_size + k * inner_size + inner_idx]`
+///
+/// where `outer_idx = i / inner_size`, `inner_idx = i % inner_size`.
+#[cfg(feature = "cuda")]
+pub fn gpu_sum_axis(
+    a: &CudaBuffer<f32>,
+    outer: usize,
+    axis_size: usize,
+    inner: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(a, device)?;
+
+    let total_output = outer * inner;
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx, SUM_AXIS_PTX, "sum_axis_kernel", device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback
+            let host = gpu_to_cpu(a, device)?;
+            let mut result = vec![0.0f32; total_output];
+            for i in 0..total_output {
+                let outer_idx = i / inner;
+                let inner_idx = i % inner;
+                let mut sum = 0.0f32;
+                for k in 0..axis_size {
+                    sum += host[outer_idx * axis_size * inner + k * inner + inner_idx];
+                }
+                result[i] = sum;
+            }
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(total_output, device)?;
+    let cfg = launch_cfg(total_output)?;
+    let outer_u32 = outer as u32;
+    let axis_size_u32 = axis_size as u32;
+    let inner_u32 = inner as u32;
+    let total_u32 = total_output as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a.inner())
+            .arg(out.inner_mut())
+            .arg(&outer_u32)
+            .arg(&axis_size_u32)
+            .arg(&inner_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
 /// Scalar multiply: `out[i] = a[i] * scalar`.
 ///
 /// Multiplies every element by a constant float value on the GPU.
@@ -4028,6 +4547,30 @@ pub fn gpu_masked_fill(
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_masked_zero(
     _grad: &CudaBuffer<f32>, _mask: &CudaBuffer<f32>, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_sigmoid_backward(
+    _grad: &CudaBuffer<f32>, _output: &CudaBuffer<f32>, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_tanh_backward(
+    _grad: &CudaBuffer<f32>, _output: &CudaBuffer<f32>, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_softmax_backward(
+    _grad: &CudaBuffer<f32>, _output: &CudaBuffer<f32>, _cols: usize, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_sum_axis(
+    _a: &CudaBuffer<f32>, _outer: usize, _axis_size: usize, _inner: usize, _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
 
 // ---------------------------------------------------------------------------
