@@ -25,6 +25,9 @@ cubecl = ["dep:ferrotorch-cubecl"]
 distributed = ["dep:ferrotorch-distributed"]
 
 [dependencies]
+# Global allocator
+mimalloc = { version = "0.1", default-features = false }
+
 # Always included
 ferrotorch-core = { workspace = true }
 ferrotorch-nn = { workspace = true }
@@ -48,3 +51,7 @@ ferrotorch-distributed = { workspace = true, optional = true }
 [[example]]
 name = "train_mnist"
 path = "examples/train_mnist.rs"
+
+[[example]]
+name = "ferrotorch_bench"
+path = "examples/ferrotorch_bench.rs"

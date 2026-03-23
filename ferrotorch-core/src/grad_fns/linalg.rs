@@ -293,8 +293,15 @@ fn batch_transpose<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let batch = input.shape()[0];
     let r = input.shape()[1];
     let c = input.shape()[2];
+    let device = input.device();
 
-    let data = input.data_vec()?;
+    // Use zero-copy borrow for CPU tensors, owned copy only for GPU.
+    let (cpu_input, is_gpu) = if input.is_cuda() {
+        (input.cpu()?, true)
+    } else {
+        (input.clone(), false)
+    };
+    let data = cpu_input.data()?;
     let mut out = vec![<T as num_traits::Zero>::zero(); batch * c * r];
 
     for bi in 0..batch {
@@ -314,8 +321,8 @@ fn batch_transpose<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     )?;
 
     // Put result on the same device as input.
-    if input.is_cuda() {
-        result.to(input.device())
+    if is_gpu {
+        result.to(device)
     } else {
         Ok(result)
     }
@@ -487,7 +494,9 @@ fn broadcast_matmul_backward<T: Float>(
                 message: "Cannot transpose last two dims of tensor with ndim < 2".into(),
             });
         }
-        let data = t.data_vec()?;
+        let t_device = t.device();
+        let cpu_t = if t.is_cuda() { t.cpu()? } else { t.clone() };
+        let data = cpu_t.data()?;
         let rows = shape[nd - 2];
         let cols = shape[nd - 1];
         let mat_size = rows * cols;
@@ -504,7 +513,8 @@ fn broadcast_matmul_backward<T: Float>(
         let mut out_shape = shape.to_vec();
         out_shape[nd - 2] = cols;
         out_shape[nd - 1] = rows;
-        Tensor::from_storage(TensorStorage::cpu(out), out_shape, false)
+        let result = Tensor::from_storage(TensorStorage::cpu(out), out_shape, false)?;
+        if t_device.is_cuda() { result.to(t_device) } else { Ok(result) }
     };
 
     // Sum-reduce grad to match the original shape. This handles the case
@@ -520,7 +530,9 @@ fn broadcast_matmul_backward<T: Float>(
         let grad_nd = grad_shape.len();
         let target_nd = target.len();
         let offset = grad_nd - target_nd;
-        let grad_data = grad.data_vec()?;
+        // Use zero-copy borrow for CPU, owned copy only for GPU.
+        let cpu_grad = if grad.is_cuda() { grad.cpu()? } else { grad };
+        let grad_data = cpu_grad.data()?;
 
         // Compute target total size.
         let target_size: usize = target.iter().product::<usize>().max(1);

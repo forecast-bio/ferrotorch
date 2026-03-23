@@ -237,8 +237,20 @@ pub fn dot<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
 }
 
 /// Threshold for switching from direct ikj loop to faer.
-/// For matrices at or below this size, the naive loop avoids ferray/faer overhead.
+/// For matrices at or below this size, the naive loop avoids faer overhead.
 const DIRECT_MM_THRESHOLD: usize = 128;
+
+/// Choose parallelism for faer matmul.  For medium matrices use sequential
+/// to avoid thread-pool overhead; for large matrices use rayon.
+#[inline]
+fn faer_par(m: usize, k: usize, n: usize) -> faer::Par {
+    // Rough heuristic: only pay rayon spawn cost when there's enough work.
+    if m * k * n >= 512 * 512 * 512 {
+        faer::Par::rayon(0)
+    } else {
+        faer::Par::Seq
+    }
+}
 
 /// Raw matrix multiply on borrowed slices: (M,K) @ (K,N) -> Vec<T>.
 /// Zero input allocations — operates directly on the borrowed data.
@@ -267,38 +279,37 @@ pub fn mm_raw<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize
         }
         result
     } else {
-        // Large matrices — use matrixmultiply::sgemm/dgemm for zero-copy BLAS.
-        // Operates directly on borrowed slices via raw pointers, no intermediate
-        // Array construction or data copies.
+        // Large matrices — use faer GEMM for high-performance BLAS.
+        // faer supports arbitrary strides natively and auto-vectorises with AVX/SSE.
         let mut result = vec![zero; m * n];
         if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
-            let a_ptr = a_data.as_ptr() as *const f32;
-            let b_ptr = b_data.as_ptr() as *const f32;
-            let c_ptr = result.as_mut_ptr() as *mut f32;
-            unsafe {
-                matrixmultiply::sgemm(
-                    m, k, n,
-                    1.0,          // alpha
-                    a_ptr, k as isize, 1,  // A row-major: row stride = k, col stride = 1
-                    b_ptr, n as isize, 1,  // B row-major: row stride = n, col stride = 1
-                    0.0,          // beta
-                    c_ptr, n as isize, 1,  // C row-major: row stride = n, col stride = 1
-                );
-            }
+            let a_f32 = unsafe { &*(a_data as *const [T] as *const [f32]) };
+            let b_f32 = unsafe { &*(b_data as *const [T] as *const [f32]) };
+            let c_f32 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f32]) };
+            let a_mat = faer::mat::MatRef::from_row_major_slice(a_f32, m, k);
+            let b_mat = faer::mat::MatRef::from_row_major_slice(b_f32, k, n);
+            let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f32, m, n);
+            let par = faer_par(m, k, n);
+            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f32, par);
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+            let a_f64 = unsafe { &*(a_data as *const [T] as *const [f64]) };
+            let b_f64 = unsafe { &*(b_data as *const [T] as *const [f64]) };
+            let c_f64 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f64]) };
+            let a_mat = faer::mat::MatRef::from_row_major_slice(a_f64, m, k);
+            let b_mat = faer::mat::MatRef::from_row_major_slice(b_f64, k, n);
+            let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f64, m, n);
+            let par = faer_par(m, k, n);
+            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
         } else {
+            // Fallback for f16/bf16: upcast to f64, run faer, downcast.
             let a_f64: Vec<f64> = a_data.iter().map(|&v| v.to_f64().unwrap()).collect();
             let b_f64: Vec<f64> = b_data.iter().map(|&v| v.to_f64().unwrap()).collect();
             let mut r_f64 = vec![0.0f64; m * n];
-            unsafe {
-                matrixmultiply::dgemm(
-                    m, k, n,
-                    1.0,
-                    a_f64.as_ptr(), k as isize, 1,
-                    b_f64.as_ptr(), n as isize, 1,
-                    0.0,
-                    r_f64.as_mut_ptr(), n as isize, 1,
-                );
-            }
+            let a_mat = faer::mat::MatRef::from_row_major_slice(&a_f64, m, k);
+            let b_mat = faer::mat::MatRef::from_row_major_slice(&b_f64, k, n);
+            let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(&mut r_f64, m, n);
+            let par = faer_par(m, k, n);
+            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
             for (r, &v) in result.iter_mut().zip(r_f64.iter()) {
                 *r = T::from(v).unwrap();
             }
@@ -309,8 +320,8 @@ pub fn mm_raw<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize
 
 /// Matrix multiply with B transposed: A @ B^T.
 /// A is (M,K), B is (N,K) stored row-major, result is (M,N).
-/// For small matrices, uses a direct loop. For large matrices, transposes B
-/// then delegates to faer via `mm_raw` (which uses BLAS-like performance).
+/// For small matrices, uses a direct loop. For large matrices, uses faer GEMM
+/// with a zero-copy transposed view of B.
 pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize) -> Vec<T> {
     let max_dim = m.max(n).max(k);
     let zero = <T as num_traits::Zero>::zero();
@@ -336,38 +347,37 @@ pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
         }
         result
     } else {
-        // Large matrices — use sgemm with transposed B strides (zero-copy).
-        // B is (N,K) row-major. For A @ B^T, treat B as (K,N) col-major:
-        // B^T row stride = 1, col stride = k.
+        // Large matrices — use faer GEMM with zero-copy transposed B view.
+        // B is (N,K) row-major. Wrap as (N,K) MatRef then .transpose() to get (K,N).
         let mut result = vec![zero; m * n];
         if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
-            let a_ptr = a_data.as_ptr() as *const f32;
-            let b_ptr = b_data.as_ptr() as *const f32;
-            let c_ptr = result.as_mut_ptr() as *mut f32;
-            unsafe {
-                matrixmultiply::sgemm(
-                    m, k, n,
-                    1.0,
-                    a_ptr, k as isize, 1,      // A row-major
-                    b_ptr, 1, k as isize,       // B^T: row stride=1, col stride=k
-                    0.0,
-                    c_ptr, n as isize, 1,       // C row-major
-                );
-            }
+            let a_f32 = unsafe { &*(a_data as *const [T] as *const [f32]) };
+            let b_f32 = unsafe { &*(b_data as *const [T] as *const [f32]) };
+            let c_f32 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f32]) };
+            let a_mat = faer::mat::MatRef::from_row_major_slice(a_f32, m, k);
+            // B is (N,K) row-major; transpose gives (K,N) view — zero copy.
+            let b_mat = faer::mat::MatRef::from_row_major_slice(b_f32, n, k).transpose();
+            let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f32, m, n);
+            let par = faer_par(m, k, n);
+            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f32, par);
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+            let a_f64 = unsafe { &*(a_data as *const [T] as *const [f64]) };
+            let b_f64 = unsafe { &*(b_data as *const [T] as *const [f64]) };
+            let c_f64 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f64]) };
+            let a_mat = faer::mat::MatRef::from_row_major_slice(a_f64, m, k);
+            let b_mat = faer::mat::MatRef::from_row_major_slice(b_f64, n, k).transpose();
+            let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f64, m, n);
+            let par = faer_par(m, k, n);
+            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
         } else {
             let a_f64: Vec<f64> = a_data.iter().map(|&v| v.to_f64().unwrap()).collect();
             let b_f64: Vec<f64> = b_data.iter().map(|&v| v.to_f64().unwrap()).collect();
             let mut r_f64 = vec![0.0f64; m * n];
-            unsafe {
-                matrixmultiply::dgemm(
-                    m, k, n,
-                    1.0,
-                    a_f64.as_ptr(), k as isize, 1,
-                    b_f64.as_ptr(), 1, k as isize,
-                    0.0,
-                    r_f64.as_mut_ptr(), n as isize, 1,
-                );
-            }
+            let a_mat = faer::mat::MatRef::from_row_major_slice(&a_f64, m, k);
+            let b_mat = faer::mat::MatRef::from_row_major_slice(&b_f64, n, k).transpose();
+            let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(&mut r_f64, m, n);
+            let par = faer_par(m, k, n);
+            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
             for (r, &v) in result.iter_mut().zip(r_f64.iter()) {
                 *r = T::from(v).unwrap();
             }
@@ -403,35 +413,37 @@ pub fn mm_raw_at<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
         }
         result
     } else {
+        // Large matrices — use faer GEMM with zero-copy transposed A view.
+        // A is (K,M) row-major. Wrap as (K,M) MatRef then .transpose() to get (M,K).
         let mut result = vec![zero; m * n];
         if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
-            let a_ptr = a_data.as_ptr() as *const f32;
-            let b_ptr = b_data.as_ptr() as *const f32;
-            let c_ptr = result.as_mut_ptr() as *mut f32;
-            unsafe {
-                matrixmultiply::sgemm(
-                    m, k, n,
-                    1.0,
-                    a_ptr, 1, m as isize,       // A^T: row stride=1, col stride=m
-                    b_ptr, n as isize, 1,       // B row-major
-                    0.0,
-                    c_ptr, n as isize, 1,       // C row-major
-                );
-            }
+            let a_f32 = unsafe { &*(a_data as *const [T] as *const [f32]) };
+            let b_f32 = unsafe { &*(b_data as *const [T] as *const [f32]) };
+            let c_f32 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f32]) };
+            // A is (K,M) row-major; transpose gives (M,K) view — zero copy.
+            let a_mat = faer::mat::MatRef::from_row_major_slice(a_f32, k, m).transpose();
+            let b_mat = faer::mat::MatRef::from_row_major_slice(b_f32, k, n);
+            let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f32, m, n);
+            let par = faer_par(m, k, n);
+            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f32, par);
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+            let a_f64 = unsafe { &*(a_data as *const [T] as *const [f64]) };
+            let b_f64 = unsafe { &*(b_data as *const [T] as *const [f64]) };
+            let c_f64 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f64]) };
+            let a_mat = faer::mat::MatRef::from_row_major_slice(a_f64, k, m).transpose();
+            let b_mat = faer::mat::MatRef::from_row_major_slice(b_f64, k, n);
+            let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f64, m, n);
+            let par = faer_par(m, k, n);
+            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
         } else {
             let a_f64: Vec<f64> = a_data.iter().map(|&v| v.to_f64().unwrap()).collect();
             let b_f64: Vec<f64> = b_data.iter().map(|&v| v.to_f64().unwrap()).collect();
             let mut r_f64 = vec![0.0f64; m * n];
-            unsafe {
-                matrixmultiply::dgemm(
-                    m, k, n,
-                    1.0,
-                    a_f64.as_ptr(), 1, m as isize,
-                    b_f64.as_ptr(), n as isize, 1,
-                    0.0,
-                    r_f64.as_mut_ptr(), n as isize, 1,
-                );
-            }
+            let a_mat = faer::mat::MatRef::from_row_major_slice(&a_f64, k, m).transpose();
+            let b_mat = faer::mat::MatRef::from_row_major_slice(&b_f64, k, n);
+            let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(&mut r_f64, m, n);
+            let par = faer_par(m, k, n);
+            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
             for (r, &v) in result.iter_mut().zip(r_f64.iter()) {
                 *r = T::from(v).unwrap();
             }

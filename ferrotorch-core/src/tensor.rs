@@ -387,6 +387,19 @@ impl<T: Float> Tensor<T> {
         Ok(&slice[self.inner.offset..end])
     }
 
+    /// Borrow the underlying data as a flat slice (CPU-only alias for `data()`).
+    ///
+    /// Identical to [`data()`](Self::data) — returns a zero-copy `&[T]` reference
+    /// to the tensor's storage. Returns `Err(GpuTensorNotAccessible)` if the
+    /// tensor lives on a GPU; call `.cpu()` first to transfer.
+    ///
+    /// This alias exists for call-site clarity: use `data_ref()` when you want
+    /// to emphasise that no copy is made, vs `data_vec()` which always copies.
+    #[inline]
+    pub fn data_ref(&self) -> FerrotorchResult<&[T]> {
+        self.data()
+    }
+
     /// Get tensor data as an owned `Vec<T>`, transparently transferring from
     /// GPU if needed.
     ///
