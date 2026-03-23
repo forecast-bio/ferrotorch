@@ -1,0 +1,8 @@
+{
+  "uuid": "26ebee3e-a0fd-4de3-aee5-9c7ea9f14039",
+  "issue_uuid": "1e20549c-e501-4ec9-8486-2cf84490ab70",
+  "author": "anon-a7c6025f",
+  "content": "Plan: The outer Err branch (line 424-429) in into_storage_and_shape calls arc_inner.storage.as_slice() which panics on GPU storage. Fix: check if storage is GPU. If so, clone the entire storage via TensorStorage::clone() (which already correctly uses clone_buffer for GPU). For CPU, keep the existing slice+to_vec path that extracts just the offset window. This mirrors the inner Err branch at line 418-420.",
+  "created_at": "2026-03-23T19:02:23.052233639Z",
+  "kind": "plan"
+}
