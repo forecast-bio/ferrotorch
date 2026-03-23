@@ -1,0 +1,10 @@
+{
+  "uuid": "a74c472d-c79a-4feb-8020-1c5f16ce0f30",
+  "display_id": 233,
+  "title": "Fix serialization save crash on GPU tensors",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T19:01:13.294483570Z",
+  "updated_at": "2026-03-23T19:01:13.294483570Z"
+}
