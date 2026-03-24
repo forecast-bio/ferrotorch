@@ -1,6 +1,7 @@
 // CL-332: Vision Transforms & Augmentation — RandomApply / RandomChoice
 use ferrotorch_core::{Float, FerrotorchResult, Tensor};
-use ferrotorch_data::{random_f64, Transform};
+use super::rng::random_f64;
+use ferrotorch_data::Transform;
 
 /// Apply a list of transforms sequentially with probability `p`.
 ///

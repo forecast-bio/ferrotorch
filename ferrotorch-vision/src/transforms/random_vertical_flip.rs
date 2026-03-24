@@ -1,6 +1,7 @@
 // CL-332: Vision Transforms & Augmentation — RandomVerticalFlip
 use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
-use ferrotorch_data::{random_f64, Transform};
+use super::rng::random_f64;
+use ferrotorch_data::Transform;
 
 /// Randomly flip a `[C, H, W]` tensor along the vertical axis (H dimension)
 /// with probability `p`.

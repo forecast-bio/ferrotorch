@@ -1,6 +1,7 @@
 // CL-332: Vision Transforms & Augmentation — RandomRotation
 use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
-use ferrotorch_data::{random_f64, Transform};
+use super::rng::random_f64;
+use ferrotorch_data::Transform;
 use num_traits::NumCast;
 
 /// Rotate a `[C, H, W]` tensor by a random angle using bilinear interpolation.
