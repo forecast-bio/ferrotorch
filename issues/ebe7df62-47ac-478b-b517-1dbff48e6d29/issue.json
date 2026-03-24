@@ -1,0 +1,10 @@
+{
+  "uuid": "ebe7df62-47ac-478b-b517-1dbff48e6d29",
+  "display_id": 279,
+  "title": "T3.5: DataLoader prefetch pipeline + pin_memory",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-24T02:44:37.632852070Z",
+  "updated_at": "2026-03-24T02:44:37.632852070Z"
+}
