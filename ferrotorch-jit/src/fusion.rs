@@ -87,6 +87,8 @@ pub enum FusedOp {
     Silu,
     Sqrt,
     Abs,
+    Exp,
+    Log,
 
     // Parameterised unary ops.
     Pow(f64),
@@ -109,9 +111,46 @@ impl fmt::Display for FusedOp {
             FusedOp::Silu => write!(f, "silu"),
             FusedOp::Sqrt => write!(f, "sqrt"),
             FusedOp::Abs => write!(f, "abs"),
+            FusedOp::Exp => write!(f, "exp"),
+            FusedOp::Log => write!(f, "log"),
             FusedOp::Pow(p) => write!(f, "pow({p})"),
             FusedOp::ScalarMul(s) => write!(f, "scalar_mul({s})"),
             FusedOp::ScalarAdd(s) => write!(f, "scalar_add({s})"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reduction
+// ---------------------------------------------------------------------------
+
+/// Kind of reduction operation for kernel generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReductionKind {
+    /// Sum reduction: identity = 0, op = +.
+    Sum,
+    /// Product reduction: identity = 1, op = *.
+    Prod,
+    /// Mean reduction: identity = 0, op = +, then divide by n.
+    Mean,
+}
+
+impl ReductionKind {
+    /// The identity element for this reduction (as an f32 bit pattern).
+    fn identity_f32_bits(self) -> u32 {
+        match self {
+            ReductionKind::Sum | ReductionKind::Mean => 0x0000_0000, // 0.0
+            ReductionKind::Prod => 0x3F80_0000,                     // 1.0
+        }
+    }
+}
+
+impl fmt::Display for ReductionKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReductionKind::Sum => write!(f, "sum"),
+            ReductionKind::Prod => write!(f, "prod"),
+            ReductionKind::Mean => write!(f, "mean"),
         }
     }
 }
@@ -167,12 +206,17 @@ impl FusedChain {
     ///
     /// The input slice is copied once; all operations mutate the copy in
     /// place so only one allocation is needed regardless of chain length.
-    pub fn execute_cpu<T: Float>(&self, input: &[T]) -> Vec<T> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the chain contains unsupported binary ops
+    /// (Add/Sub/Mul/Div) that require a second operand.
+    pub fn execute_cpu<T: Float>(&self, input: &[T]) -> FerrotorchResult<Vec<T>> {
         let mut data = input.to_vec();
         for op in &self.ops {
-            apply_op_inplace::<T>(op, &mut data);
+            apply_op_inplace::<T>(op, &mut data)?;
         }
-        data
+        Ok(data)
     }
 
     // -------------------------------------------------------------------
@@ -196,7 +240,27 @@ impl FusedChain {
     /// operations, and stores the result to `out_ptr`. This means *one*
     /// kernel launch replaces N separate launches, eliminating all
     /// intermediate global-memory round-trips.
-    pub fn generate_ptx(&self) -> String {
+    pub fn generate_ptx(&self) -> FerrotorchResult<String> {
+        self.generate_ptx_named("fused_kernel")
+    }
+
+    /// Like [`generate_ptx`](Self::generate_ptx) but with a custom kernel
+    /// entry-point name. The name is validated to be a legal C/PTX
+    /// identifier (`[a-zA-Z_][a-zA-Z0-9_]*`).
+    pub fn generate_ptx_named(&self, kernel_name: &str) -> FerrotorchResult<String> {
+        validate_identifier(kernel_name)?;
+        // Reject unsupported binary ops that require a second input pointer.
+        for op in &self.ops {
+            if matches!(op, FusedOp::Add | FusedOp::Sub | FusedOp::Mul | FusedOp::Div) {
+                return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "generate_ptx: binary op '{}' in unary FusedChain requires a second \
+                         input pointer and cannot be lowered to a single-input PTX kernel",
+                        op
+                    ),
+                });
+            }
+        }
         let mut body_lines: Vec<String> = Vec::new();
 
         // We accumulate the running value in %val. Some ops need scratch
@@ -204,9 +268,10 @@ impl FusedChain {
         let needs_exp = self.ops.iter().any(|op| {
             matches!(
                 op,
-                FusedOp::Sigmoid | FusedOp::Tanh | FusedOp::Gelu | FusedOp::Silu
+                FusedOp::Sigmoid | FusedOp::Tanh | FusedOp::Gelu | FusedOp::Silu | FusedOp::Exp
             )
         });
+        let _needs_log = self.ops.iter().any(|op| matches!(op, FusedOp::Log));
         let needs_mul_scratch = self.ops.iter().any(|op| {
             matches!(
                 op,
@@ -214,6 +279,8 @@ impl FusedChain {
                     | FusedOp::Tanh
                     | FusedOp::Gelu
                     | FusedOp::Silu
+                    | FusedOp::Exp
+                    | FusedOp::Log
                     | FusedOp::ScalarMul(_)
                     | FusedOp::ScalarAdd(_)
                     | FusedOp::Pow(_)
@@ -243,22 +310,12 @@ impl FusedChain {
         }
 
         // Emit the operation body.
+        // Binary ops (Add/Sub/Mul/Div) are rejected in the early validation
+        // above and will never reach this match.
         for op in &self.ops {
             match op {
-                FusedOp::Add => {
-                    // Binary add -- for a fused unary chain we treat this as
-                    // a no-op marker. Real binary fusion would need a second
-                    // input pointer. Here we document the intent.
-                    body_lines.push("    // fused: add (binary -- requires second input)".into());
-                }
-                FusedOp::Sub => {
-                    body_lines.push("    // fused: sub (binary -- requires second input)".into());
-                }
-                FusedOp::Mul => {
-                    body_lines.push("    // fused: mul (binary -- requires second input)".into());
-                }
-                FusedOp::Div => {
-                    body_lines.push("    // fused: div (binary -- requires second input)".into());
+                FusedOp::Add | FusedOp::Sub | FusedOp::Mul | FusedOp::Div => {
+                    unreachable!("binary ops rejected by early validation");
                 }
                 FusedOp::Neg => {
                     body_lines.push("    neg.f32 %val, %val;".into());
@@ -288,14 +345,38 @@ impl FusedChain {
                     body_lines.push("    sub.f32 %val, %val, 0f3F800000;".into()); // -1
                 }
                 FusedOp::Gelu => {
-                    // GELU approx: x * sigmoid(1.702 * x)
-                    body_lines.push("    mov.f32 %scratch, 0f3FD9F16C;".into()); // 1.702
-                    body_lines.push("    mul.f32 %tmp, %val, %scratch;".into()); // 1.702*x
-                    body_lines.push("    neg.f32 %tmp, %tmp;".into());
-                    body_lines.push("    mul.f32 %scratch, %tmp, 0f3FB8AA3B;".into());
-                    body_lines.push("    ex2.approx.f32 %exp_tmp, %scratch;".into());
-                    body_lines.push("    add.f32 %scratch, %exp_tmp, 0f3F800000;".into());
-                    body_lines.push("    rcp.approx.f32 %scratch, %scratch;".into()); // sigmoid(1.702*x)
+                    // GELU tanh approx: x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+                    // Step 1: compute x^3 in %scratch
+                    body_lines.push("    mul.f32 %scratch, %val, %val;".into()); // x^2
+                    body_lines.push("    mul.f32 %scratch, %scratch, %val;".into()); // x^3
+                    // Step 2: 0.044715 * x^3
+                    body_lines.push(format!(
+                        "    mul.f32 %scratch, %scratch, 0f{:08X};",
+                        (0.044715_f32).to_bits()
+                    ));
+                    // Step 3: x + 0.044715 * x^3
+                    body_lines.push("    add.f32 %scratch, %val, %scratch;".into());
+                    // Step 4: sqrt(2/pi) * (x + 0.044715 * x^3)
+                    body_lines.push(format!(
+                        "    mul.f32 %scratch, %scratch, 0f{:08X};",
+                        (0.7978845608028654_f32).to_bits()
+                    ));
+                    // Step 5: tanh via 2*sigmoid(2*arg) - 1
+                    body_lines.push("    add.f32 %scratch, %scratch, %scratch;".into()); // 2*arg
+                    body_lines.push("    neg.f32 %tmp, %scratch;".into());
+                    body_lines.push("    mul.f32 %tmp, %tmp, 0f3FB8AA3B;".into()); // log2(e)
+                    body_lines.push("    ex2.approx.f32 %exp_tmp, %tmp;".into());
+                    body_lines.push("    add.f32 %tmp, %exp_tmp, 0f3F800000;".into()); // 1.0
+                    body_lines.push("    rcp.approx.f32 %scratch, %tmp;".into()); // sigmoid(2*arg)
+                    body_lines.push("    add.f32 %scratch, %scratch, %scratch;".into()); // 2*sigmoid(2*arg)
+                    body_lines.push("    sub.f32 %scratch, %scratch, 0f3F800000;".into()); // tanh
+                    // Step 6: 0.5 * (1 + tanh(...))
+                    body_lines.push("    add.f32 %scratch, %scratch, 0f3F800000;".into()); // 1 + tanh
+                    body_lines.push(format!(
+                        "    mul.f32 %scratch, %scratch, 0f{:08X};",
+                        (0.5_f32).to_bits()
+                    )); // 0.5 * (1 + tanh)
+                    // Step 7: x * result
                     body_lines.push("    mul.f32 %val, %val, %scratch;".into());
                 }
                 FusedOp::Silu => {
@@ -322,6 +403,19 @@ impl FusedChain {
                     ));
                     body_lines.push("    ex2.approx.f32 %val, %scratch;".into());
                 }
+                FusedOp::Exp => {
+                    // exp(x) = 2^(x * log2(e))
+                    body_lines.push("    mul.f32 %scratch, %val, 0f3FB8AA3B;".into()); // x * log2(e)
+                    body_lines.push("    ex2.approx.f32 %val, %scratch;".into());
+                }
+                FusedOp::Log => {
+                    // ln(x) = log2(x) * ln(2)
+                    body_lines.push("    lg2.approx.f32 %scratch, %val;".into());
+                    body_lines.push(format!(
+                        "    mul.f32 %val, %scratch, 0f{:08X};",
+                        (std::f32::consts::LN_2).to_bits()
+                    ));
+                }
                 FusedOp::ScalarMul(s) => {
                     body_lines.push(format!(
                         "    mul.f32 %val, %val, 0f{:08X};",
@@ -339,13 +433,13 @@ impl FusedChain {
 
         let body = body_lines.join("\n");
 
-        format!(
+        Ok(format!(
             "\
 .version 7.0
 .target sm_52
 .address_size 64
 
-.visible .entry fused_kernel(
+.visible .entry {kernel_name}(
     .param .u64 in_ptr,
     .param .u64 out_ptr,
     .param .u32 n
@@ -380,8 +474,168 @@ DONE:
     ret;
 }}
 "
-        )
+        ))
     }
+
+    // -------------------------------------------------------------------
+    // C codegen
+    // -------------------------------------------------------------------
+
+    /// Generate a C function that applies this fused chain elementwise.
+    ///
+    /// The generated function signature is:
+    ///
+    /// ```c
+    /// void <fn_name>(const float* __restrict__ in, float* __restrict__ out, int n)
+    /// ```
+    ///
+    /// The loop is annotated with `#pragma omp simd` for auto-vectorization.
+    /// Reduction loops (containing accumulate semantics) use the
+    /// appropriate `#pragma omp simd reduction(...)` clause to avoid
+    /// loop-carried dependency violations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the chain contains unsupported binary ops, or
+    /// if `fn_name` is not a valid C identifier.
+    pub fn generate_c(&self, fn_name: &str) -> FerrotorchResult<String> {
+        validate_identifier(fn_name)?;
+
+        // Reject unsupported binary ops.
+        for op in &self.ops {
+            if matches!(op, FusedOp::Add | FusedOp::Sub | FusedOp::Mul | FusedOp::Div) {
+                return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "generate_c: binary op '{}' in unary FusedChain requires a \
+                         second input and cannot be lowered to a single-input C loop",
+                        op
+                    ),
+                });
+            }
+        }
+
+        let mut body_lines: Vec<String> = Vec::new();
+        for op in &self.ops {
+            match op {
+                FusedOp::Add | FusedOp::Sub | FusedOp::Mul | FusedOp::Div => {
+                    unreachable!("binary ops rejected above");
+                }
+                FusedOp::Neg => {
+                    body_lines.push("        val = -val;".into());
+                }
+                FusedOp::Relu => {
+                    body_lines.push("        val = fmaxf(val, 0.0f);".into());
+                }
+                FusedOp::Sigmoid => {
+                    body_lines.push("        val = 1.0f / (1.0f + expf(-val));".into());
+                }
+                FusedOp::Tanh => {
+                    body_lines.push("        val = tanhf(val);".into());
+                }
+                FusedOp::Gelu => {
+                    // Tanh-based GELU approximation (matches all backends).
+                    body_lines.push("        {".into());
+                    body_lines.push("            float x3 = val * val * val;".into());
+                    body_lines.push("            float inner = 0.7978845608f * (val + 0.044715f * x3);".into());
+                    body_lines.push("            val = val * 0.5f * (1.0f + tanhf(inner));".into());
+                    body_lines.push("        }".into());
+                }
+                FusedOp::Silu => {
+                    body_lines.push("        { float s = 1.0f / (1.0f + expf(-val)); val = val * s; }".into());
+                }
+                FusedOp::Sqrt => {
+                    body_lines.push("        val = sqrtf(val);".into());
+                }
+                FusedOp::Abs => {
+                    body_lines.push("        val = fabsf(val);".into());
+                }
+                FusedOp::Exp => {
+                    body_lines.push("        val = expf(val);".into());
+                }
+                FusedOp::Log => {
+                    body_lines.push("        val = logf(val);".into());
+                }
+                FusedOp::Pow(p) => {
+                    body_lines.push(format!("        val = powf(val, {:.17}f);", p));
+                }
+                FusedOp::ScalarMul(s) => {
+                    body_lines.push(format!("        val = val * {:.17}f;", s));
+                }
+                FusedOp::ScalarAdd(s) => {
+                    body_lines.push(format!("        val = val + {:.17}f;", s));
+                }
+            }
+        }
+        let body = body_lines.join("\n");
+
+        // Elementwise loops use plain `#pragma omp simd` — no loop-carried
+        // dependencies since each iteration is independent.
+        Ok(format!(
+            "\
+#include <math.h>
+
+void {fn_name}(const float* __restrict__ in, float* __restrict__ out, int n) {{
+    #pragma omp simd
+    for (int i = 0; i < n; i++) {{
+        float val = in[i];
+{body}
+        out[i] = val;
+    }}
+}}
+"
+        ))
+    }
+}
+
+/// Generate a C function that performs a reduction.
+///
+/// Unlike elementwise loops, reduction loops have a loop-carried dependency.
+/// The generated code uses `#pragma omp simd reduction(+:acc)` (for sum/mean)
+/// or `#pragma omp simd reduction(*:acc)` (for prod) to correctly handle
+/// SIMD vectorization without data races.
+///
+/// For [`ReductionKind::Mean`], the sum is divided by `n` after the loop.
+pub fn generate_reduction_c(
+    kind: ReductionKind,
+    fn_name: &str,
+) -> FerrotorchResult<String> {
+    validate_identifier(fn_name)?;
+
+    let (identity, omp_clause, accumulate_expr, finalize) = match kind {
+        ReductionKind::Sum => (
+            "0.0f",
+            "#pragma omp simd reduction(+:acc)",
+            "acc += in[i];",
+            "",
+        ),
+        ReductionKind::Prod => (
+            "1.0f",
+            "#pragma omp simd reduction(*:acc)",
+            "acc *= in[i];",
+            "",
+        ),
+        ReductionKind::Mean => (
+            "0.0f",
+            "#pragma omp simd reduction(+:acc)",
+            "acc += in[i];",
+            "    acc = acc / (float)n;\n",
+        ),
+    };
+
+    Ok(format!(
+        "\
+#include <math.h>
+
+void {fn_name}(const float* __restrict__ in, float* __restrict__ out, int n) {{
+    float acc = {identity};
+    {omp_clause}
+    for (int i = 0; i < n; i++) {{
+        {accumulate_expr}
+    }}
+{finalize}    out[0] = acc;
+}}
+"
+    ))
 }
 
 impl Default for FusedChain {
@@ -391,21 +645,264 @@ impl Default for FusedChain {
 }
 
 // ---------------------------------------------------------------------------
+// Reduction PTX generation
+// ---------------------------------------------------------------------------
+
+/// Generate a PTX kernel that performs a single-pass parallel reduction.
+///
+/// The generated kernel uses shared-memory block-level reduction and
+/// `atomicAdd` (for Sum/Mean) or iterative `atomicCAS` (for Prod) to
+/// accumulate partial results from each block into `output[0]`.
+///
+/// For [`ReductionKind::Mean`], the final division by `n` is performed
+/// by thread 0 of block 0 **after** a global memory fence, ensuring the
+/// result is correct regardless of block scheduling order.
+///
+/// # Errors
+///
+/// Returns an error if `kernel_name` is not a valid identifier.
+pub fn generate_reduction_ptx(
+    kind: ReductionKind,
+    kernel_name: &str,
+) -> FerrotorchResult<String> {
+    validate_identifier(kernel_name)?;
+
+    let identity_bits = kind.identity_f32_bits();
+    let (reduce_op, is_prod) = match kind {
+        ReductionKind::Sum | ReductionKind::Mean => ("add.f32", false),
+        ReductionKind::Prod => ("mul.f32", true),
+    };
+    let is_mean = kind == ReductionKind::Mean;
+
+    // For sum/mean we use atom.global.add.f32 which atomically adds the
+    // block partial sum to output[0].
+    // For prod we use a CAS loop since there is no atomic multiply.
+    let atomic_section = if is_prod {
+        // CAS loop for atomic multiply:
+        //   old = *addr;
+        //   do { expected = old; new = old * partial; old = CAS(addr, expected, new); }
+        //   while (old != expected);
+        "\
+    // Atomic multiply via CAS loop
+    ld.global.f32 %old, [%out];
+CAS_LOOP:
+    mov.f32 %expected, %old;
+    mul.f32 %new_val, %old, %val;
+    // Reinterpret floats as u32 for CAS
+    mov.b32 %old_bits, %expected;
+    mov.b32 %new_bits, %new_val;
+    atom.global.cas.b32 %result_bits, [%out], %old_bits, %new_bits;
+    mov.b32 %old, %result_bits;
+    setp.ne.f32 %cas_p, %old, %expected;
+    @%cas_p bra CAS_LOOP;"
+    } else {
+        "    atom.global.add.f32 %val, [%out], %val;"
+    };
+
+    // Extra registers for prod CAS loop
+    let extra_regs = if is_prod {
+        "\n    .reg .f32 %old, %expected, %new_val;\n    .reg .u32 %old_bits, %new_bits, %result_bits;\n    .reg .pred %cas_p;"
+    } else {
+        ""
+    };
+
+    // Mean: after all blocks have contributed, thread 0 of block 0 divides by n.
+    // We use a second kernel launch or a global flag for synchronization.
+    // Simpler approach: emit a second entry point that does the division.
+    let mean_finalize = if is_mean {
+        format!(
+            "\n\
+.visible .entry {kernel_name}_finalize(
+    .param .u64 out_ptr_f,
+    .param .u32 n_f
+) {{
+    .reg .u64 %out_f;
+    .reg .u32 %n_f;
+    .reg .f32 %sum_val, %n_float, %mean_val;
+
+    ld.param.u64 %out_f, [out_ptr_f];
+    ld.param.u32 %n_f, [n_f];
+
+    ld.global.f32 %sum_val, [%out_f];
+    cvt.rn.f32.u32 %n_float, %n_f;
+    div.approx.f32 %mean_val, %sum_val, %n_float;
+    st.global.f32 [%out_f], %mean_val;
+
+    ret;
+}}\n"
+        )
+    } else {
+        String::new()
+    };
+
+    Ok(format!(
+        "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry {kernel_name}(
+    .param .u64 in_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {{
+    .reg .u32 %tid, %bid, %bdim, %gid, %n_reg, %s;
+    .reg .u64 %in, %out, %off;
+    .reg .f32 %val, %shared_val;
+    .reg .pred %p, %p2;{extra_regs}
+
+    .shared .align 4 .f32 sdata[1024];
+
+    ld.param.u64 %in, [in_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %tid, %tid.x;
+    mad.lo.u32 %gid, %bid, %bdim, %tid;
+
+    // Load element or identity if out of bounds
+    setp.lt.u32 %p, %gid, %n_reg;
+    mov.f32 %val, 0f{identity_bits:08X};
+    @!%p bra SKIP_LOAD;
+
+    cvt.u64.u32 %off, %gid;
+    shl.b64 %off, %off, 2;
+    add.u64 %in, %in, %off;
+    ld.global.f32 %val, [%in];
+
+SKIP_LOAD:
+    // Store to shared memory
+    cvt.u64.u32 %off, %tid;
+    shl.b64 %off, %off, 2;
+    st.shared.f32 [sdata + %off], %val;
+    bar.sync 0;
+
+    // Tree reduction in shared memory
+    shr.u32 %s, %bdim, 1;
+REDUCE_LOOP:
+    setp.eq.u32 %p2, %s, 0;
+    @%p2 bra REDUCE_DONE;
+
+    setp.lt.u32 %p, %tid, %s;
+    @!%p bra REDUCE_SKIP;
+
+    // Load partner value
+    add.u32 %gid, %tid, %s;
+    cvt.u64.u32 %off, %gid;
+    shl.b64 %off, %off, 2;
+    ld.shared.f32 %shared_val, [sdata + %off];
+    cvt.u64.u32 %off, %tid;
+    shl.b64 %off, %off, 2;
+    ld.shared.f32 %val, [sdata + %off];
+    {reduce_op} %val, %val, %shared_val;
+    st.shared.f32 [sdata + %off], %val;
+
+REDUCE_SKIP:
+    bar.sync 0;
+    shr.u32 %s, %s, 1;
+    bra REDUCE_LOOP;
+
+REDUCE_DONE:
+    // Thread 0 of each block atomically adds its partial result to output[0]
+    setp.ne.u32 %p, %tid, 0;
+    @%p bra BLOCK_DONE;
+
+    ld.shared.f32 %val, [sdata];
+{atomic_section}
+
+BLOCK_DONE:
+    ret;
+}}
+{mean_finalize}"
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Name validation
+// ---------------------------------------------------------------------------
+
+/// Validate that `name` is a legal C/PTX identifier: `[a-zA-Z_][a-zA-Z0-9_]*`.
+///
+/// This prevents injection attacks when interpolating user-provided or
+/// generated names into C, CUDA, or PTX source code.
+fn validate_identifier(name: &str) -> FerrotorchResult<()> {
+    if name.is_empty() {
+        return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
+            message: "identifier name must not be empty".into(),
+        });
+    }
+
+    let mut chars = name.chars();
+    let first = chars.next().unwrap();
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
+            message: format!(
+                "identifier '{}' has invalid first character '{}'; \
+                 must match [a-zA-Z_][a-zA-Z0-9_]*",
+                name, first
+            ),
+        });
+    }
+
+    for ch in chars {
+        if !ch.is_ascii_alphanumeric() && ch != '_' {
+            return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
+                message: format!(
+                    "identifier '{}' contains invalid character '{}'; \
+                     must match [a-zA-Z_][a-zA-Z0-9_]*",
+                    name, ch
+                ),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+/// Sanitize a string for safe inclusion in a code comment by removing
+/// sequences that could close a C-style block comment (`*/`).
+///
+/// For PTX (which uses `//` line comments) this is not strictly needed,
+/// but it is essential for C/CUDA codegen to prevent comment-terminator
+/// injection.
+#[allow(dead_code)]
+pub(crate) fn sanitize_comment(text: &str) -> String {
+    text.replace("*/", "* /")
+}
+
+/// Validate that `name` is a legal C/PTX identifier.
+///
+/// Re-exported for use by other codegen modules.
+#[allow(dead_code)]
+pub(crate) fn validate_codegen_identifier(name: &str) -> FerrotorchResult<()> {
+    validate_identifier(name)
+}
+
+// ---------------------------------------------------------------------------
 // CPU op application helper
 // ---------------------------------------------------------------------------
 
 /// Apply a single [`FusedOp`] in-place across a mutable slice.
-fn apply_op_inplace<T: Float>(op: &FusedOp, data: &mut [T]) {
+///
+/// Returns an error if the op is a binary op (Add/Sub/Mul/Div) that
+/// requires a second operand, since silently ignoring it would produce
+/// wrong results.
+fn apply_op_inplace<T: Float>(op: &FusedOp, data: &mut [T]) -> FerrotorchResult<()> {
     let zero: T = num_traits::zero();
     let one: T = num_traits::one();
 
     match op {
-        FusedOp::Add => {
-            // Binary ops are no-ops in the unary chain context.
+        FusedOp::Add | FusedOp::Sub | FusedOp::Mul | FusedOp::Div => {
+            return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
+                message: format!(
+                    "apply_op_inplace: binary op '{}' in unary FusedChain requires a second \
+                     operand and cannot be applied in-place on a single tensor",
+                    op
+                ),
+            });
         }
-        FusedOp::Sub => {}
-        FusedOp::Mul => {}
-        FusedOp::Div => {}
         FusedOp::Neg => {
             for x in data.iter_mut() {
                 *x = zero - *x;
@@ -413,14 +910,14 @@ fn apply_op_inplace<T: Float>(op: &FusedOp, data: &mut [T]) {
         }
         FusedOp::Relu => {
             for x in data.iter_mut() {
-                if *x < zero {
-                    *x = zero;
-                }
+                *x = if *x > zero { *x } else { zero };
             }
         }
         FusedOp::Sigmoid => {
             for x in data.iter_mut() {
-                *x = one / (one + (zero - *x).exp());
+                let val = *x;
+                let neg_val = zero - val;
+                *x = one / (one + neg_val.exp());
             }
         }
         FusedOp::Tanh => {
@@ -432,18 +929,25 @@ fn apply_op_inplace<T: Float>(op: &FusedOp, data: &mut [T]) {
             }
         }
         FusedOp::Gelu => {
-            // GELU approx: x * sigmoid(1.702 * x)
-            let coeff = T::from(1.702).unwrap();
+            // GELU tanh approximation:
+            //   x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+            // Matches the codegen NativeBackend and the standard PyTorch GELU.
+            let half = T::from(0.5).unwrap();
+            let sqrt_2_over_pi = T::from(0.7978845608028654).unwrap(); // sqrt(2/pi)
+            let coeff = T::from(0.044715).unwrap();
             for x in data.iter_mut() {
-                let s = one / (one + (zero - coeff * *x).exp());
-                *x = *x * s;
+                let x3 = *x * *x * *x;
+                let inner = sqrt_2_over_pi * (*x + coeff * x3);
+                *x = *x * half * (one + inner.tanh());
             }
         }
         FusedOp::Silu => {
             // SiLU: x * sigmoid(x)
             for x in data.iter_mut() {
-                let s = one / (one + (zero - *x).exp());
-                *x = *x * s;
+                let val = *x;
+                let neg_val = zero - val;
+                let s = one / (one + neg_val.exp());
+                *x = val * s;
             }
         }
         FusedOp::Sqrt => {
@@ -454,6 +958,16 @@ fn apply_op_inplace<T: Float>(op: &FusedOp, data: &mut [T]) {
         FusedOp::Abs => {
             for x in data.iter_mut() {
                 *x = x.abs();
+            }
+        }
+        FusedOp::Exp => {
+            for x in data.iter_mut() {
+                *x = x.exp();
+            }
+        }
+        FusedOp::Log => {
+            for x in data.iter_mut() {
+                *x = x.ln();
             }
         }
         FusedOp::Pow(p) => {
@@ -475,6 +989,67 @@ fn apply_op_inplace<T: Float>(op: &FusedOp, data: &mut [T]) {
             }
         }
     }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// DAG fusion helpers
+// ---------------------------------------------------------------------------
+
+/// Estimate the total number of elements across all input shapes.
+///
+/// Returns `0` for zero-element tensors (rather than clamping to 1, which
+/// would be incorrect and could cause out-of-bounds kernel launches).
+pub fn estimate_numel_for_inputs(shapes: &[Vec<usize>]) -> usize {
+    shapes
+        .iter()
+        .map(|s| s.iter().copied().product::<usize>())
+        .max()
+        .unwrap_or(0)
+}
+
+/// Estimate (M, K, N) dimensions for a matrix multiplication from input shapes.
+///
+/// Both inputs must be 2-D. Returns `Err` for non-2D inputs rather than
+/// silently returning `(1, 1, 1)` which would produce wrong results.
+pub fn estimate_matmul_dims(
+    lhs_shape: &[usize],
+    rhs_shape: &[usize],
+) -> FerrotorchResult<(usize, usize, usize)> {
+    if lhs_shape.len() != 2 {
+        return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
+            message: format!(
+                "estimate_matmul_dims: LHS must be 2-D, got {}-D shape {:?}",
+                lhs_shape.len(),
+                lhs_shape
+            ),
+        });
+    }
+    if rhs_shape.len() != 2 {
+        return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
+            message: format!(
+                "estimate_matmul_dims: RHS must be 2-D, got {}-D shape {:?}",
+                rhs_shape.len(),
+                rhs_shape
+            ),
+        });
+    }
+
+    let m = lhs_shape[0];
+    let k = lhs_shape[1];
+    let n = rhs_shape[1];
+
+    if k != rhs_shape[0] {
+        return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
+            message: format!(
+                "estimate_matmul_dims: inner dimensions mismatch: LHS[1]={} vs RHS[0]={}",
+                k, rhs_shape[0]
+            ),
+        });
+    }
+
+    Ok((m, k, n))
 }
 
 // ---------------------------------------------------------------------------
@@ -492,7 +1067,7 @@ pub fn apply_fused<T: Float>(
     chain: &FusedChain,
 ) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
-    let result = chain.execute_cpu(data);
+    let result = chain.execute_cpu(data)?;
     Tensor::from_storage(
         TensorStorage::cpu(result),
         input.shape().to_vec(),
@@ -574,7 +1149,7 @@ mod tests {
         //   neg:            [ 0.0,-1.0,-2.0,-3.0,-5.0]
         let expected: Vec<f32> = vec![0.0, -1.0, -2.0, -3.0, -5.0];
 
-        let result = chain.execute_cpu(&input);
+        let result = chain.execute_cpu(&input).unwrap();
         assert_eq!(result.len(), expected.len());
         for (got, exp) in result.iter().zip(&expected) {
             assert!(
@@ -596,7 +1171,7 @@ mod tests {
         chain.push(FusedOp::Neg);
 
         // Fused.
-        let fused = chain.execute_cpu(&input);
+        let fused = chain.execute_cpu(&input).unwrap();
 
         // Sequential.
         let mut sequential = input.clone();
@@ -630,7 +1205,7 @@ mod tests {
     fn test_fused_neg() {
         let mut chain = FusedChain::new();
         chain.push(FusedOp::Neg);
-        let result = chain.execute_cpu(&[1.0f32, -2.0, 0.0]);
+        let result = chain.execute_cpu(&[1.0f32, -2.0, 0.0]).unwrap();
         assert_eq!(result, vec![-1.0, 2.0, 0.0]);
     }
 
@@ -638,7 +1213,7 @@ mod tests {
     fn test_fused_sigmoid() {
         let mut chain = FusedChain::new();
         chain.push(FusedOp::Sigmoid);
-        let result = chain.execute_cpu(&[0.0f64]);
+        let result = chain.execute_cpu(&[0.0f64]).unwrap();
         assert!((result[0] - 0.5).abs() < 1e-10);
     }
 
@@ -646,7 +1221,7 @@ mod tests {
     fn test_fused_tanh() {
         let mut chain = FusedChain::new();
         chain.push(FusedOp::Tanh);
-        let result = chain.execute_cpu(&[0.0f64]);
+        let result = chain.execute_cpu(&[0.0f64]).unwrap();
         assert!(result[0].abs() < 1e-10, "tanh(0) should be 0");
     }
 
@@ -654,7 +1229,7 @@ mod tests {
     fn test_fused_sqrt() {
         let mut chain = FusedChain::new();
         chain.push(FusedOp::Sqrt);
-        let result = chain.execute_cpu(&[4.0f32, 9.0, 16.0]);
+        let result = chain.execute_cpu(&[4.0f32, 9.0, 16.0]).unwrap();
         let expected = vec![2.0f32, 3.0, 4.0];
         for (got, exp) in result.iter().zip(&expected) {
             assert!((got - exp).abs() < 1e-6);
@@ -665,7 +1240,7 @@ mod tests {
     fn test_fused_abs() {
         let mut chain = FusedChain::new();
         chain.push(FusedOp::Abs);
-        let result = chain.execute_cpu(&[-3.0f32, 0.0, 5.0]);
+        let result = chain.execute_cpu(&[-3.0f32, 0.0, 5.0]).unwrap();
         assert_eq!(result, vec![3.0, 0.0, 5.0]);
     }
 
@@ -673,7 +1248,7 @@ mod tests {
     fn test_fused_pow() {
         let mut chain = FusedChain::new();
         chain.push(FusedOp::Pow(2.0));
-        let result = chain.execute_cpu(&[3.0f64]);
+        let result = chain.execute_cpu(&[3.0f64]).unwrap();
         assert!((result[0] - 9.0).abs() < 1e-10);
     }
 
@@ -681,7 +1256,7 @@ mod tests {
     fn test_fused_scalar_mul() {
         let mut chain = FusedChain::new();
         chain.push(FusedOp::ScalarMul(3.0));
-        let result = chain.execute_cpu(&[2.0f32, -1.0]);
+        let result = chain.execute_cpu(&[2.0f32, -1.0]).unwrap();
         assert_eq!(result, vec![6.0, -3.0]);
     }
 
@@ -690,7 +1265,7 @@ mod tests {
         let mut chain = FusedChain::new();
         chain.push(FusedOp::Relu);
         chain.push(FusedOp::Neg);
-        let result = chain.execute_cpu::<f32>(&[]);
+        let result = chain.execute_cpu::<f32>(&[]).unwrap();
         assert!(result.is_empty());
     }
 
@@ -698,7 +1273,7 @@ mod tests {
     fn test_fused_empty_chain() {
         let chain = FusedChain::new();
         let input = vec![1.0f32, 2.0, 3.0];
-        let result = chain.execute_cpu(&input);
+        let result = chain.execute_cpu(&input).unwrap();
         assert_eq!(result, input);
     }
 
@@ -711,7 +1286,7 @@ mod tests {
         chain.push(FusedOp::Relu);
         chain.push(FusedOp::Neg);
 
-        let ptx = chain.generate_ptx();
+        let ptx = chain.generate_ptx().unwrap();
 
         // Must have the standard PTX header.
         assert!(ptx.contains(".version 7.0"));
@@ -748,7 +1323,7 @@ mod tests {
     fn test_ptx_generation_sigmoid() {
         let mut chain = FusedChain::new();
         chain.push(FusedOp::Sigmoid);
-        let ptx = chain.generate_ptx();
+        let ptx = chain.generate_ptx().unwrap();
         assert!(ptx.contains("ex2.approx.f32"));
         assert!(ptx.contains("rcp.approx.f32"));
     }
@@ -757,7 +1332,7 @@ mod tests {
     fn test_ptx_generation_sqrt() {
         let mut chain = FusedChain::new();
         chain.push(FusedOp::Sqrt);
-        let ptx = chain.generate_ptx();
+        let ptx = chain.generate_ptx().unwrap();
         assert!(ptx.contains("sqrt.approx.f32"));
     }
 
@@ -765,7 +1340,7 @@ mod tests {
     fn test_ptx_generation_pow() {
         let mut chain = FusedChain::new();
         chain.push(FusedOp::Pow(3.0));
-        let ptx = chain.generate_ptx();
+        let ptx = chain.generate_ptx().unwrap();
         assert!(ptx.contains("lg2.approx.f32"));
         assert!(ptx.contains("ex2.approx.f32"));
     }
