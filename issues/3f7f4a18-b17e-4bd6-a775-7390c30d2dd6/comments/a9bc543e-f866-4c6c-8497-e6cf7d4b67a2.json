@@ -1,0 +1,8 @@
+{
+  "uuid": "a9bc543e-f866-4c6c-8497-e6cf7d4b67a2",
+  "issue_uuid": "3f7f4a18-b17e-4bd6-a775-7390c30d2dd6",
+  "author": "anon-a7c6025f",
+  "content": "Breaking all gaps from the 16-agent analysis into ~30 independent work units. Each unit must: (1) touch only one crate, (2) have zero dependencies on other units, (3) be completable by a single agent in one session, (4) include specific files to edit, functions to implement, and tests to write.",
+  "created_at": "2026-03-24T11:39:00.600768381Z",
+  "kind": "plan"
+}
