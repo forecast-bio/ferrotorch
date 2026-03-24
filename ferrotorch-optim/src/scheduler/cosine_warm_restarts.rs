@@ -9,8 +9,8 @@
 
 use ferrotorch_core::Float;
 
-use crate::optimizer::Optimizer;
 use super::LrScheduler;
+use crate::optimizer::Optimizer;
 
 /// Cosine annealing with warm restarts.
 ///
@@ -163,8 +163,7 @@ mod tests {
             sched.step(&mut opt);
         }
         // t_cur=9 of t_i=10: close to eta_min but not quite.
-        let expected_9 =
-            0.5 * 0.1 * (1.0 + (std::f64::consts::PI * 9.0 / 10.0).cos());
+        let expected_9 = 0.5 * 0.1 * (1.0 + (std::f64::consts::PI * 9.0 / 10.0).cos());
         assert!(
             (opt.lr - expected_9).abs() < 1e-10,
             "step 9: expected {expected_9}, got {}",
@@ -243,8 +242,8 @@ mod tests {
         for _ in 0..9 {
             sched.step(&mut opt);
         }
-        let expected = eta_min
-            + 0.5 * (base - eta_min) * (1.0 + (std::f64::consts::PI * 9.0 / 10.0).cos());
+        let expected =
+            eta_min + 0.5 * (base - eta_min) * (1.0 + (std::f64::consts::PI * 9.0 / 10.0).cos());
         assert!(
             (opt.lr - expected).abs() < 1e-10,
             "near end: expected {expected}, got {}",

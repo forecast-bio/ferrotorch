@@ -18,8 +18,12 @@
 use std::sync::Arc;
 
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 use ferrotorch_core::tensor::GradFn;
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
+
+/// Score modification function signature: `(score, b, h, q_idx, kv_idx) -> modified_score`.
+type ScoreModFn<T> =
+    dyn Fn(&Tensor<T>, &Tensor<T>, &Tensor<T>, &Tensor<T>, &Tensor<T>) -> Tensor<T>;
 
 // ===========================================================================
 // BlockMask — sparse attention patterns
@@ -71,8 +75,8 @@ impl BlockMask {
             });
         }
 
-        let num_q_blocks = (n_q + q_block_size - 1) / q_block_size;
-        let num_k_blocks = (n_k + k_block_size - 1) / k_block_size;
+        let num_q_blocks = n_q.div_ceil(q_block_size);
+        let num_k_blocks = n_k.div_ceil(k_block_size);
 
         if mask.len() != num_q_blocks {
             return Err(FerrotorchError::InvalidArgument {
@@ -113,8 +117,8 @@ impl BlockMask {
                 message: "BlockMask: block_size must be positive".into(),
             });
         }
-        let num_q_blocks = (n_q + block_size - 1) / block_size;
-        let num_k_blocks = (n_k + block_size - 1) / block_size;
+        let num_q_blocks = n_q.div_ceil(block_size);
+        let num_k_blocks = n_k.div_ceil(block_size);
         let mask = vec![vec![true; num_k_blocks]; num_q_blocks];
         Ok(Self {
             mask,
@@ -139,7 +143,7 @@ impl BlockMask {
                 message: "BlockMask: block_size must be positive".into(),
             });
         }
-        let num_blocks = (n + block_size - 1) / block_size;
+        let num_blocks = n.div_ceil(block_size);
         let mut mask = Vec::with_capacity(num_blocks);
 
         for q_blk in 0..num_blocks {
@@ -188,7 +192,7 @@ impl BlockMask {
             });
         }
 
-        let num_blocks = (n + block_size - 1) / block_size;
+        let num_blocks = n.div_ceil(block_size);
         let mut mask = Vec::with_capacity(num_blocks);
 
         for q_blk in 0..num_blocks {
@@ -326,8 +330,7 @@ impl<T: Float> GradFn<T> for FlexAttentionBackward<T> {
                 for dv in 0..d_v {
                     let mut acc = zero;
                     for i in 0..n_q {
-                        acc = acc + attn_data[attn_base + i * n_k + j]
-                            * go_data[go_base + i * d_v + dv];
+                        acc += attn_data[attn_base + i * n_k + j] * go_data[go_base + i * d_v + dv];
                     }
                     dv_data[v_base + j * d_v + dv] = acc;
                 }
@@ -339,8 +342,7 @@ impl<T: Float> GradFn<T> for FlexAttentionBackward<T> {
                 for j in 0..n_k {
                     let mut acc = zero;
                     for dv in 0..d_v {
-                        acc = acc + go_data[go_base + i * d_v + dv]
-                            * v_data[v_base + j * d_v + dv];
+                        acc += go_data[go_base + i * d_v + dv] * v_data[v_base + j * d_v + dv];
                     }
                     da[i * n_k + j] = acc;
                 }
@@ -352,12 +354,11 @@ impl<T: Float> GradFn<T> for FlexAttentionBackward<T> {
                 // sum_j(dA_ij * A_ij)
                 let mut dot_sum = zero;
                 for j in 0..n_k {
-                    dot_sum = dot_sum
-                        + da[i * n_k + j] * attn_data[attn_base + i * n_k + j];
+                    dot_sum += da[i * n_k + j] * attn_data[attn_base + i * n_k + j];
                 }
                 for j in 0..n_k {
-                    ds[i * n_k + j] = attn_data[attn_base + i * n_k + j]
-                        * (da[i * n_k + j] - dot_sum);
+                    ds[i * n_k + j] =
+                        attn_data[attn_base + i * n_k + j] * (da[i * n_k + j] - dot_sum);
                 }
             }
 
@@ -366,7 +367,7 @@ impl<T: Float> GradFn<T> for FlexAttentionBackward<T> {
                 for dd in 0..d {
                     let mut acc = zero;
                     for j in 0..n_k {
-                        acc = acc + ds[i * n_k + j] * k_data[k_base + j * d + dd];
+                        acc += ds[i * n_k + j] * k_data[k_base + j * d + dd];
                     }
                     dq_data[q_base + i * d + dd] = acc * scale;
                 }
@@ -377,7 +378,7 @@ impl<T: Float> GradFn<T> for FlexAttentionBackward<T> {
                 for dd in 0..d {
                     let mut acc = zero;
                     for i in 0..n_q {
-                        acc = acc + ds[i * n_k + j] * q_data[q_base + i * d + dd];
+                        acc += ds[i * n_k + j] * q_data[q_base + i * d + dd];
                     }
                     dk_data[k_base + j * d + dd] = acc * scale;
                 }
@@ -468,7 +469,7 @@ pub fn flex_attention<T: Float>(
     query: &Tensor<T>,
     key: &Tensor<T>,
     value: &Tensor<T>,
-    score_mod: Option<&dyn Fn(&Tensor<T>, &Tensor<T>, &Tensor<T>, &Tensor<T>, &Tensor<T>) -> Tensor<T>>,
+    score_mod: Option<&ScoreModFn<T>>,
     block_mask: Option<&BlockMask>,
 ) -> FerrotorchResult<Tensor<T>> {
     // --- Validate shapes ---
@@ -565,7 +566,7 @@ pub fn flex_attention<T: Float>(
 
                 let mut dot = zero;
                 for dd in 0..d {
-                    dot = dot + q_data[q_base + i * d + dd] * k_data[k_base + j * d + dd];
+                    dot += q_data[q_base + i * d + dd] * k_data[k_base + j * d + dd];
                 }
                 scores[i * n_k + j] = dot * scale;
             }
@@ -583,11 +584,8 @@ pub fn flex_attention<T: Float>(
                     }
 
                     let score_val = scores[i * n_k + j];
-                    let score_tensor = Tensor::from_storage(
-                        TensorStorage::cpu(vec![score_val]),
-                        vec![1],
-                        false,
-                    )?;
+                    let score_tensor =
+                        Tensor::from_storage(TensorStorage::cpu(vec![score_val]), vec![1], false)?;
                     let b_tensor = Tensor::from_storage(
                         TensorStorage::cpu(vec![T::from(b).unwrap()]),
                         vec![1],
@@ -640,7 +638,7 @@ pub fn flex_attention<T: Float>(
             for j in 0..n_k {
                 let e = (scores[row_start + j] - row_max).exp();
                 all_attn_weights[attn_base + row_start + j] = e;
-                sum_exp = sum_exp + e;
+                sum_exp += e;
             }
 
             // Normalize.
@@ -657,9 +655,8 @@ pub fn flex_attention<T: Float>(
             for dv in 0..d_v {
                 let mut acc = zero;
                 for j in 0..n_k {
-                    acc = acc
-                        + all_attn_weights[attn_base + i * n_k + j]
-                            * v_data[v_base + j * d_v + dv];
+                    acc +=
+                        all_attn_weights[attn_base + i * n_k + j] * v_data[v_base + j * d_v + dv];
                 }
                 output_data[o_base + i * d_v + dv] = acc;
             }
@@ -690,11 +687,7 @@ pub fn flex_attention<T: Float>(
             }),
         )
     } else {
-        Tensor::from_storage(
-            TensorStorage::cpu(output_data),
-            output_shape,
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(output_data), output_shape, false)
     }
 }
 
@@ -712,8 +705,9 @@ pub fn flex_attention<T: Float>(
 /// ```ignore
 /// let output = flex_attention(&q, &k, &v, Some(&causal_score_mod()), None)?;
 /// ```
-pub fn causal_score_mod<T: Float>(
-) -> impl Fn(&Tensor<T>, &Tensor<T>, &Tensor<T>, &Tensor<T>, &Tensor<T>) -> Tensor<T> {
+#[allow(clippy::type_complexity)]
+pub fn causal_score_mod<T: Float>()
+-> impl Fn(&Tensor<T>, &Tensor<T>, &Tensor<T>, &Tensor<T>, &Tensor<T>) -> Tensor<T> {
     move |score, _b, _h, q_idx, kv_idx| {
         let q_pos = q_idx.data().unwrap()[0];
         let k_pos = kv_idx.data().unwrap()[0];
@@ -735,6 +729,7 @@ pub fn causal_score_mod<T: Float>(
 /// # Arguments
 ///
 /// - `slope` - The per-head slope value. Typically geometric: `1/2^(8*h/H)`.
+#[allow(clippy::type_complexity)]
 pub fn alibi_score_mod<T: Float>(
     slope: T,
 ) -> impl Fn(&Tensor<T>, &Tensor<T>, &Tensor<T>, &Tensor<T>, &Tensor<T>) -> Tensor<T> {
@@ -756,6 +751,7 @@ pub fn alibi_score_mod<T: Float>(
 ///
 /// - `bias_table` - 1-D tensor of shape `[2 * max_dist + 1]`.
 /// - `max_dist` - Maximum relative distance.
+#[allow(clippy::type_complexity)]
 pub fn relative_position_bias_score_mod<T: Float>(
     bias_table: Tensor<T>,
     max_dist: usize,
@@ -791,7 +787,9 @@ mod tests {
         let mut data = Vec::with_capacity(numel);
         let mut state = seed;
         for _ in 0..numel {
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
             let val = (state >> 33) as f64 / (u32::MAX as f64) * 2.0 - 1.0;
             data.push(val);
         }
@@ -804,7 +802,9 @@ mod tests {
         let mut data = Vec::with_capacity(numel);
         let mut state = seed;
         for _ in 0..numel {
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
             let val = (state >> 33) as f64 / (u32::MAX as f64) * 2.0 - 1.0;
             data.push(val);
         }
@@ -1085,7 +1085,10 @@ mod tests {
         let v_data = v.data().unwrap();
         for (i, (&o, &v_val)) in out_data.iter().zip(v_data.iter()).enumerate() {
             let diff = (o - v_val).abs();
-            assert!(diff < ATOL, "single position: out[{i}]={o} vs v[{i}]={v_val}");
+            assert!(
+                diff < ATOL,
+                "single position: out[{i}]={o} vs v[{i}]={v_val}"
+            );
         }
     }
 
@@ -1123,12 +1126,7 @@ mod tests {
             0.0, 1.0, 0.0, 0.0, // row 1
             0.0, 0.0, 1.0, 0.0, // row 2
         ];
-        let v = Tensor::from_storage(
-            TensorStorage::cpu(v_data),
-            vec![1, 3, 4],
-            false,
-        )
-        .unwrap();
+        let v = Tensor::from_storage(TensorStorage::cpu(v_data), vec![1, 3, 4], false).unwrap();
 
         let out = flex_attention(&q, &k, &v, None, None).unwrap();
         let out_data = out.data().unwrap();
@@ -1158,12 +1156,8 @@ mod tests {
     fn test_relative_position_bias() {
         // Create a simple bias table: [0.0, 0.1, 0.2, 0.3, 0.4] for max_dist=2
         let bias_data = vec![0.0f64, 0.1, 0.2, 0.3, 0.4];
-        let bias_table = Tensor::from_storage(
-            TensorStorage::cpu(bias_data),
-            vec![5],
-            false,
-        )
-        .unwrap();
+        let bias_table =
+            Tensor::from_storage(TensorStorage::cpu(bias_data), vec![5], false).unwrap();
 
         let rpb = relative_position_bias_score_mod(bias_table, 2);
 
@@ -1192,7 +1186,10 @@ mod tests {
         let result = alibi(&score, &b, &h, &q, &k);
         let val = result.data().unwrap()[0];
         // distance=0, so bias=0, score stays 1.0
-        assert!((val - 1.0).abs() < ATOL, "ALiBi zero dist: expected 1.0, got {val}");
+        assert!(
+            (val - 1.0).abs() < ATOL,
+            "ALiBi zero dist: expected 1.0, got {val}"
+        );
     }
 
     #[test]
@@ -1207,6 +1204,9 @@ mod tests {
         let result = alibi(&score, &b, &h, &q, &k);
         let val = result.data().unwrap()[0];
         // distance = 2 - 5 = -3, bias = -0.5 * -3 = 1.5, score = 1.0 + 1.5 = 2.5
-        assert!((val - 2.5).abs() < ATOL, "ALiBi negative dist: expected 2.5, got {val}");
+        assert!(
+            (val - 2.5).abs() < ATOL,
+            "ALiBi negative dist: expected 2.5, got {val}"
+        );
     }
 }

@@ -12,7 +12,7 @@
 //! This mirrors the behaviour of `torch.cuda.amp.GradScaler`.
 
 use ferrotorch_core::grad_fns::arithmetic::mul;
-use ferrotorch_core::{scalar, Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor, scalar};
 
 use crate::optimizer::Optimizer;
 
@@ -299,7 +299,7 @@ impl<T: Float> GradScaler<T> {
 mod tests {
     use super::*;
     use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
-    use ferrotorch_core::{Float, FerrotorchResult, Tensor, TensorStorage};
+    use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage};
     use ferrotorch_nn::Parameter;
 
     // -----------------------------------------------------------------------
@@ -464,7 +464,10 @@ mod tests {
 
         let stepped = scaler.step(&mut opt).unwrap();
         assert!(!stepped, "step should be skipped when inf is found");
-        assert!(!opt.step_called, "optimizer step should not have been called");
+        assert!(
+            !opt.step_called,
+            "optimizer step should not have been called"
+        );
 
         scaler.update();
         assert!(
@@ -612,7 +615,10 @@ mod tests {
         let mut opt = MockOptimizer::new(vec![p]);
         let stepped = scaler.step(&mut opt).unwrap();
         assert!(stepped, "disabled scaler should always step");
-        assert!(opt.step_called, "optimizer step should be called when disabled");
+        assert!(
+            opt.step_called,
+            "optimizer step should be called when disabled"
+        );
     }
 
     // -----------------------------------------------------------------------

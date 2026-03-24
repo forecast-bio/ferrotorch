@@ -253,8 +253,7 @@ where
     }
 
     // Check if any input requires grad.
-    let any_requires_grad =
-        init_carry.requires_grad() || xs.iter().any(|t| t.requires_grad());
+    let any_requires_grad = init_carry.requires_grad() || xs.iter().any(|t| t.requires_grad());
 
     if !any_requires_grad {
         return Ok((carry, raw_outputs));
@@ -369,17 +368,18 @@ mod tests {
     use crate::storage::TensorStorage;
 
     fn leaf_vec(data: &[f32], requires_grad: bool) -> Tensor<f32> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            vec![data.len()],
+            requires_grad,
+        )
+        .unwrap()
     }
 
     fn assert_close(actual: &[f32], expected: &[f32], tol: f32) {
         assert_eq!(actual.len(), expected.len(), "length mismatch");
         for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
-            assert!(
-                (a - e).abs() < tol,
-                "index {i}: got {a}, expected {e}"
-            );
+            assert!((a - e).abs() < tol, "index {i}: got {a}, expected {e}");
         }
     }
 
@@ -398,9 +398,7 @@ mod tests {
                 // Return first operand.
                 Ok(vec![ops[0].clone()])
             },
-            |ops| {
-                Ok(vec![ops[1].clone()])
-            },
+            |ops| Ok(vec![ops[1].clone()]),
             &[a, b],
         )
         .unwrap();
@@ -432,9 +430,11 @@ mod tests {
 
         let result = cond(
             true,
-            |_ops| Err(FerrotorchError::InvalidArgument {
-                message: "test error".into(),
-            }),
+            |_ops| {
+                Err(FerrotorchError::InvalidArgument {
+                    message: "test error".into(),
+                })
+            },
             |ops| Ok(vec![ops[0].clone()]),
             &[a],
         );
@@ -510,11 +510,8 @@ mod tests {
                 let data_c = carry.data()?;
                 let data_x = x.data()?;
                 let sum_val = data_c[0] + data_x[0];
-                let new_carry = Tensor::from_storage(
-                    TensorStorage::cpu(vec![sum_val]),
-                    vec![1],
-                    false,
-                )?;
+                let new_carry =
+                    Tensor::from_storage(TensorStorage::cpu(vec![sum_val]), vec![1], false)?;
                 Ok((new_carry.clone(), new_carry))
             },
             &init,
@@ -534,12 +531,8 @@ mod tests {
         let init = leaf_vec(&[0.0], false);
         let xs: Vec<Tensor<f32>> = vec![];
 
-        let (final_carry, outputs) = scan(
-            |carry, _x| Ok((carry.clone(), carry.clone())),
-            &init,
-            &xs,
-        )
-        .unwrap();
+        let (final_carry, outputs) =
+            scan(|carry, _x| Ok((carry.clone(), carry.clone())), &init, &xs).unwrap();
 
         assert!(outputs.is_empty());
         assert_close(final_carry.data().unwrap(), &[0.0], 1e-6);
@@ -551,9 +544,11 @@ mod tests {
         let xs = vec![leaf_vec(&[1.0], false)];
 
         let result = scan(
-            |_carry, _x| Err(FerrotorchError::InvalidArgument {
-                message: "step error".into(),
-            }),
+            |_carry, _x| {
+                Err(FerrotorchError::InvalidArgument {
+                    message: "step error".into(),
+                })
+            },
             &init,
             &xs,
         );
@@ -571,11 +566,8 @@ mod tests {
                 let data_c = carry.data()?;
                 let data_x = x.data()?;
                 let sum_val = data_c[0] + data_x[0];
-                let new_carry = Tensor::from_storage(
-                    TensorStorage::cpu(vec![sum_val]),
-                    vec![1],
-                    false,
-                )?;
+                let new_carry =
+                    Tensor::from_storage(TensorStorage::cpu(vec![sum_val]), vec![1], false)?;
                 Ok((new_carry.clone(), new_carry))
             },
             &init,

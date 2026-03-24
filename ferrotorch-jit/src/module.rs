@@ -15,7 +15,7 @@ use ferrotorch_nn::parameter::Parameter;
 use crate::aot_autograd;
 use crate::graph::IrGraph;
 use crate::interpreter::interpret;
-use crate::optimize::{optimize, OptimizationConfig};
+use crate::optimize::{OptimizationConfig, optimize};
 use crate::trace::trace;
 
 // ---------------------------------------------------------------------------
@@ -412,11 +412,7 @@ mod tests {
         // Graph: y = x + x
         let mut g = IrGraph::new();
         let x = g.add_input(vec![3]);
-        let (_, add_outs) = g.add_node(
-            crate::graph::IrOpKind::Add,
-            vec![x, x],
-            vec![vec![3]],
-        );
+        let (_, add_outs) = g.add_node(crate::graph::IrOpKind::Add, vec![x, x], vec![vec![3]]);
         g.set_outputs(vec![add_outs[0]]);
 
         let module = TracedModule::<f32>::new(g);
@@ -438,11 +434,7 @@ mod tests {
         let mut g = IrGraph::new();
         let a = g.add_input(vec![3]);
         let b = g.add_input(vec![3]);
-        let (_, add_outs) = g.add_node(
-            crate::graph::IrOpKind::Add,
-            vec![a, b],
-            vec![vec![3]],
-        );
+        let (_, add_outs) = g.add_node(crate::graph::IrOpKind::Add, vec![a, b], vec![vec![3]]);
         g.set_outputs(vec![add_outs[0]]);
 
         let module = TracedModule::<f32>::new(g);
@@ -463,11 +455,7 @@ mod tests {
         let mut g = IrGraph::new();
         let a = g.add_input(vec![3]);
         let b = g.add_input(vec![3]);
-        let (_, add_outs) = g.add_node(
-            crate::graph::IrOpKind::Add,
-            vec![a, b],
-            vec![vec![3]],
-        );
+        let (_, add_outs) = g.add_node(crate::graph::IrOpKind::Add, vec![a, b], vec![vec![3]]);
         g.set_outputs(vec![add_outs[0]]);
 
         let module = TracedModule::<f32>::new(g);
@@ -485,11 +473,7 @@ mod tests {
         let mut g = IrGraph::new();
         let a = g.add_input(vec![3]);
         let b = g.add_input(vec![3]);
-        let (_, add_outs) = g.add_node(
-            crate::graph::IrOpKind::Add,
-            vec![a, b],
-            vec![vec![3]],
-        );
+        let (_, add_outs) = g.add_node(crate::graph::IrOpKind::Add, vec![a, b], vec![vec![3]]);
         g.set_outputs(vec![add_outs[0]]);
 
         let module = TracedModule::<f32>::new(g);
@@ -508,11 +492,7 @@ mod tests {
     fn test_graph_accessor() {
         let mut g = IrGraph::new();
         let x = g.add_input(vec![3]);
-        let (_, relu_outs) = g.add_node(
-            crate::graph::IrOpKind::Relu,
-            vec![x],
-            vec![vec![3]],
-        );
+        let (_, relu_outs) = g.add_node(crate::graph::IrOpKind::Relu, vec![x], vec![vec![3]]);
         g.set_outputs(vec![relu_outs[0]]);
 
         let module = TracedModule::<f32>::new(g);
@@ -527,11 +507,7 @@ mod tests {
     fn test_module_trait_empty_parameters() {
         let mut g = IrGraph::new();
         let x = g.add_input(vec![3]);
-        let (_, relu_outs) = g.add_node(
-            crate::graph::IrOpKind::Relu,
-            vec![x],
-            vec![vec![3]],
-        );
+        let (_, relu_outs) = g.add_node(crate::graph::IrOpKind::Relu, vec![x], vec![vec![3]]);
         g.set_outputs(vec![relu_outs[0]]);
 
         let module = TracedModule::<f32>::new(g);
@@ -548,11 +524,7 @@ mod tests {
     fn test_module_trait_forward() {
         let mut g = IrGraph::new();
         let x = g.add_input(vec![3]);
-        let (_, relu_outs) = g.add_node(
-            crate::graph::IrOpKind::Relu,
-            vec![x],
-            vec![vec![3]],
-        );
+        let (_, relu_outs) = g.add_node(crate::graph::IrOpKind::Relu, vec![x], vec![vec![3]]);
         g.set_outputs(vec![relu_outs[0]]);
 
         let module: Box<dyn Module<f32>> = Box::new(TracedModule::<f32>::new(g));
@@ -596,11 +568,7 @@ mod tests {
             sum(&product).unwrap()
         };
 
-        assert_close(
-            result.data().unwrap(),
-            eager_result.data().unwrap(),
-            1e-5,
-        );
+        assert_close(result.data().unwrap(), eager_result.data().unwrap(), 1e-5);
         assert_eq!(result.data().unwrap(), &[32.0]);
     }
 
@@ -681,9 +649,7 @@ mod tests {
         assert!(!config.fullgraph);
 
         let module = compile_with_config(
-            |inputs: &[Tensor<f32>]| -> FerrotorchResult<Tensor<f32>> {
-                sum(&inputs[0])
-            },
+            |inputs: &[Tensor<f32>]| -> FerrotorchResult<Tensor<f32>> { sum(&inputs[0]) },
             &[x],
             config,
         )
@@ -730,9 +696,7 @@ mod tests {
         let x = grad_vec(vec![1.0, 2.0, 3.0]);
 
         let module = compile(
-            |inputs: &[Tensor<f32>]| -> FerrotorchResult<Tensor<f32>> {
-                sum(&inputs[0])
-            },
+            |inputs: &[Tensor<f32>]| -> FerrotorchResult<Tensor<f32>> { sum(&inputs[0]) },
             &[x],
             None,
         )
@@ -763,11 +727,7 @@ mod tests {
         let mut layer = Linear::<f32>::new(3, 2, false).unwrap();
 
         // Set deterministic weights for reproducible test.
-        layer.weight = Parameter::from_slice(
-            &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-            &[2, 3],
-        )
-        .unwrap();
+        layer.weight = Parameter::from_slice(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0], &[2, 3]).unwrap();
 
         // Create an example input with gradient tracking.
         let example_input = Tensor::from_storage(
@@ -803,11 +763,7 @@ mod tests {
         assert!(module.input_count() >= 1);
 
         // Execute with the required number of inputs.
-        let test_input = tensor_2d(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-            2,
-            3,
-        );
+        let test_input = tensor_2d(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, 3);
 
         if module.input_count() == 1 {
             // Weight was inlined as a constant.
@@ -819,17 +775,9 @@ mod tests {
             // Weight was captured as a separate leaf input by the tracer.
             // Build the inputs list: explicit input first, then the weight
             // parameter (and its transpose if the tracer captured it too).
-            let weight_data = tensor_2d(
-                &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-                2,
-                3,
-            );
+            let weight_data = tensor_2d(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0], 2, 3);
             // weight^T = [[1,0],[0,1],[0,0]] shape [3,2]
-            let weight_t_data = tensor_2d(
-                &[1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                3,
-                2,
-            );
+            let weight_t_data = tensor_2d(&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0], 3, 2);
 
             let mut all_inputs = vec![test_input];
             // Add weight-related inputs until we match input_count.

@@ -28,38 +28,45 @@ pub mod blas;
 pub mod buffer;
 pub mod conv;
 pub mod device;
-pub mod flash_attention;
 pub mod error;
+pub mod flash_attention;
 pub mod graph;
 pub mod kernels;
-pub mod module_cache;
 pub mod memory_guard;
+pub mod module_cache;
 pub mod pool;
 pub mod rng;
 pub mod tensor_bridge;
 pub mod transfer;
 
 // Re-exports for ergonomic use.
-pub use backend_impl::{init_cuda_backend, get_cuda_device, CudaBackendImpl};
 pub use allocator::CudaAllocator;
+pub use backend_impl::{CudaBackendImpl, get_cuda_device, init_cuda_backend};
+pub use blas::gpu_bmm_f32;
+pub use blas::{gpu_bmm_f32_into, gpu_matmul_f32_into};
 pub use blas::{gpu_matmul_f32, gpu_matmul_f64};
-pub use conv::gpu_conv2d_f32;
-pub use flash_attention::gpu_flash_attention_f32;
 pub use buffer::CudaBuffer;
+pub use conv::gpu_conv2d_f32;
 pub use device::GpuDevice;
 pub use error::{GpuError, GpuResult};
+pub use flash_attention::gpu_flash_attention_f32;
 pub use kernels::{gpu_add, gpu_mul, gpu_neg, gpu_relu, gpu_sub};
-pub use kernels::{gpu_broadcast_add, gpu_broadcast_sub, gpu_broadcast_mul};
-pub use kernels::{gpu_softmax, gpu_dropout, gpu_transpose_2d, gpu_permute_0213, gpu_gelu, gpu_layernorm, gpu_slice_write, gpu_slice_read, gpu_small_matmul, gpu_small_bmm, gpu_embed_lookup};
-pub use kernels::{gpu_add_into, gpu_mul_into, gpu_scale_into, gpu_gelu_into, gpu_embed_lookup_into, gpu_transpose_2d_into, gpu_permute_0213_into, gpu_softmax_into, gpu_layernorm_into, gpu_slice_read_into, gpu_small_matmul_into};
-pub use kernels::{gpu_slice_write_indirect, gpu_causal_mask_indirect};
-pub use blas::gpu_bmm_f32;
-pub use blas::{gpu_matmul_f32_into, gpu_bmm_f32_into};
+pub use kernels::{
+    gpu_add_into, gpu_embed_lookup_into, gpu_gelu_into, gpu_layernorm_into, gpu_mul_into,
+    gpu_permute_0213_into, gpu_scale_into, gpu_slice_read_into, gpu_small_matmul_into,
+    gpu_softmax_into, gpu_transpose_2d_into,
+};
+pub use kernels::{gpu_broadcast_add, gpu_broadcast_mul, gpu_broadcast_sub};
+pub use kernels::{gpu_causal_mask_indirect, gpu_slice_write_indirect};
+pub use kernels::{
+    gpu_dropout, gpu_embed_lookup, gpu_gelu, gpu_layernorm, gpu_permute_0213, gpu_slice_read,
+    gpu_slice_write, gpu_small_bmm, gpu_small_matmul, gpu_softmax, gpu_transpose_2d,
+};
 pub use memory_guard::{
     MemoryGuard, MemoryGuardBuilder, MemoryGuardedDevice, MemoryHook, MemoryPressureListener,
     MemoryReservation, MemoryStats, MemoryWatchdog, OomPolicy, PressureLevel,
 };
-pub use tensor_bridge::{cuda, cuda_default, tensor_to_cpu, tensor_to_gpu, GpuFloat, GpuTensor};
-pub use pool::{empty_cache, empty_cache_all, cached_bytes, round_len};
-pub use rng::{PhiloxGenerator, PhiloxState, CudaRngManager, cuda_rng_manager, fork_rng, join_rng};
+pub use pool::{cached_bytes, empty_cache, empty_cache_all, round_len};
+pub use rng::{CudaRngManager, PhiloxGenerator, PhiloxState, cuda_rng_manager, fork_rng, join_rng};
+pub use tensor_bridge::{GpuFloat, GpuTensor, cuda, cuda_default, tensor_to_cpu, tensor_to_gpu};
 pub use transfer::{alloc_zeros, alloc_zeros_f32, alloc_zeros_f64, cpu_to_gpu, gpu_to_cpu};

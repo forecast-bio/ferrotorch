@@ -33,11 +33,7 @@ impl GpuCodegen {
     /// - Bounds checking against `n`
     /// - Shared memory declarations for reductions
     /// - Coalesced memory access patterns (sequential thread -> sequential address)
-    pub fn generate_cuda_source(
-        loops: &[LoopIR],
-        fn_name: &str,
-        num_inputs: usize,
-    ) -> String {
+    pub fn generate_cuda_source(loops: &[LoopIR], fn_name: &str, num_inputs: usize) -> String {
         let mut out = String::new();
 
         out.push_str("#include <math.h>\n\n");
@@ -264,13 +260,21 @@ fn emit_cuda_stmt_with_var_replace(
 
         LoopIR::Assign { var, value } => {
             let val = emit_cuda_expr_replace(value, old_var, new_var);
-            let actual_var = if var == old_var { new_var } else { var.as_str() };
+            let actual_var = if var == old_var {
+                new_var
+            } else {
+                var.as_str()
+            };
             out.push_str(&format!("{pad}{actual_var} = {val};\n"));
         }
 
         LoopIR::Accumulate { var, value } => {
             let val = emit_cuda_expr_replace(value, old_var, new_var);
-            let actual_var = if var == old_var { new_var } else { var.as_str() };
+            let actual_var = if var == old_var {
+                new_var
+            } else {
+                var.as_str()
+            };
             out.push_str(&format!("{pad}{actual_var} += {val};\n"));
         }
 
@@ -361,7 +365,10 @@ fn emit_cuda_expr_replace(expr: &Expr, old_var: &str, new_var: &str) -> String {
             let buf = cuda_buffer_name(buffer);
             format!("{buf}[{idx}]")
         }
-        Expr::Cast { target_type, operand } => {
+        Expr::Cast {
+            target_type,
+            operand,
+        } => {
             let inner = emit_cuda_expr_replace(operand, old_var, new_var);
             format!("(({target_type}){inner})")
         }
@@ -505,9 +512,7 @@ impl GpuCodegen {
         out.push('\n');
 
         // Block size hint comment
-        out.push_str(&format!(
-            "    // recommended block size: {block_size}\n\n"
-        ));
+        out.push_str(&format!("    // recommended block size: {block_size}\n\n"));
 
         // Emit the kernel body
         emit_ptx_body(&mut out, loops, num_inputs);
@@ -558,13 +563,20 @@ fn analyze_ptx_needs_recursive(
                 *needs_loop = true;
                 analyze_ptx_needs_recursive(body, extra, needs_loop, needs_zero);
             }
-            LoopIR::Store { value, .. } | LoopIR::Assign { value, .. } | LoopIR::Let { value, .. } => {
+            LoopIR::Store { value, .. }
+            | LoopIR::Assign { value, .. }
+            | LoopIR::Let { value, .. } => {
                 count_expr_regs(value, extra, needs_zero);
             }
             LoopIR::Accumulate { value, .. } => {
                 count_expr_regs(value, extra, needs_zero);
             }
-            LoopIR::If { condition, then_body, else_body, .. } => {
+            LoopIR::If {
+                condition,
+                then_body,
+                else_body,
+                ..
+            } => {
                 count_expr_regs(condition, extra, needs_zero);
                 analyze_ptx_needs_recursive(then_body, extra, needs_loop, needs_zero);
                 analyze_ptx_needs_recursive(else_body, extra, needs_loop, needs_zero);
@@ -578,7 +590,10 @@ fn count_expr_regs(expr: &Expr, extra: &mut usize, needs_zero: &mut bool) {
     match expr {
         Expr::UnaryOp { op, operand } => {
             match op {
-                UnaryOpKind::Sigmoid | UnaryOpKind::Tanh | UnaryOpKind::Gelu | UnaryOpKind::Silu => {
+                UnaryOpKind::Sigmoid
+                | UnaryOpKind::Tanh
+                | UnaryOpKind::Gelu
+                | UnaryOpKind::Silu => {
                     // These ops need scratch registers
                     *extra = (*extra).max(3);
                 }
@@ -767,17 +782,13 @@ fn emit_ptx_unary_op(out: &mut String, op: &UnaryOpKind, reg: &str) {
         }
         UnaryOpKind::Exp => {
             // exp(x) = 2^(x * log2(e))
-            out.push_str(&format!(
-                "    mul.f32 {reg}, {reg}, 0f3FB8AA3B;\n"
-            )); // log2(e)
+            out.push_str(&format!("    mul.f32 {reg}, {reg}, 0f3FB8AA3B;\n")); // log2(e)
             out.push_str(&format!("    ex2.approx.f32 {reg}, {reg};\n"));
         }
         UnaryOpKind::Log => {
             // log(x) = log2(x) / log2(e) = log2(x) * ln(2)
             out.push_str(&format!("    lg2.approx.f32 {reg}, {reg};\n"));
-            out.push_str(&format!(
-                "    mul.f32 {reg}, {reg}, 0f3F317218;\n"
-            )); // ln(2)
+            out.push_str(&format!("    mul.f32 {reg}, {reg}, 0f3F317218;\n")); // ln(2)
         }
         UnaryOpKind::Relu => {
             out.push_str(&format!("    max.f32 {reg}, {reg}, %zero;\n"));

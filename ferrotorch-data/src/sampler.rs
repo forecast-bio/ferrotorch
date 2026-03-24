@@ -5,6 +5,11 @@ pub trait Sampler: Send + Sync {
 
     /// Total number of samples.
     fn len(&self) -> usize;
+
+    /// Whether the sampler produces zero indices.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// Fisher-Yates shuffle with a deterministic xorshift64 PRNG.
@@ -131,8 +136,7 @@ impl Sampler for DistributedSampler {
         }
 
         // Pad to be evenly divisible by num_replicas.
-        let total_size =
-            ((self.num_samples + self.num_replicas - 1) / self.num_replicas) * self.num_replicas;
+        let total_size = self.num_samples.div_ceil(self.num_replicas) * self.num_replicas;
         while indices.len() < total_size {
             let wrap_idx = indices.len() - self.num_samples;
             indices.push(indices[wrap_idx]);
@@ -147,7 +151,7 @@ impl Sampler for DistributedSampler {
     }
 
     fn len(&self) -> usize {
-        (self.num_samples + self.num_replicas - 1) / self.num_replicas
+        self.num_samples.div_ceil(self.num_replicas)
     }
 }
 

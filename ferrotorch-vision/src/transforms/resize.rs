@@ -1,4 +1,4 @@
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
 
 /// Resize spatial dimensions of a `[C, H, W]` tensor to a target `(height, width)`.
@@ -48,17 +48,9 @@ impl<T: Float> Transform<T> for Resize<T> {
             let channel_offset = c * in_h * in_w;
             for oh in 0..out_h {
                 // Nearest-neighbor: map output row to input row.
-                let ih = if in_h == 1 {
-                    0
-                } else {
-                    (oh * in_h) / out_h
-                };
+                let ih = if in_h == 1 { 0 } else { (oh * in_h) / out_h };
                 for ow in 0..out_w {
-                    let iw = if in_w == 1 {
-                        0
-                    } else {
-                        (ow * in_w) / out_w
-                    };
+                    let iw = if in_w == 1 { 0 } else { (ow * in_w) / out_w };
                     output.push(data[channel_offset + ih * in_w + iw]);
                 }
             }
@@ -98,12 +90,8 @@ mod tests {
     fn test_resize_identity() {
         // Resize to same size should preserve values.
         let data = vec![1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(data.clone()),
-            vec![1, 3, 3],
-            false,
-        )
-        .unwrap();
+        let t =
+            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![1, 3, 3], false).unwrap();
         let resize = Resize::<f64>::new(3, 3);
         let out = resize.apply(t).unwrap();
         assert_eq!(out.data().unwrap(), &data);

@@ -165,9 +165,13 @@ fn digamma_scalar<T: Float>(x: T) -> T {
     let six = T::from(6.0).unwrap();
     while z < six {
         #[allow(clippy::assign_op_pattern)]
-        { result = result - one / z; }
+        {
+            result = result - one / z;
+        }
         #[allow(clippy::assign_op_pattern)]
-        { z = z + one; }
+        {
+            z = z + one;
+        }
     }
 
     // Asymptotic expansion for large z:

@@ -21,7 +21,7 @@ use ferrotorch_core::grad_fns::reduction as red;
 use ferrotorch_core::grad_fns::shape::transpose_2d;
 use ferrotorch_core::ops::elementwise::{binary_map, mean as elem_mean};
 use ferrotorch_core::tensor::GradFn;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 // ===========================================================================
 // Linear
@@ -197,10 +197,7 @@ pub fn log_softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 ///
 /// - `input` — Input tensor of any shape.
 /// - `negative_slope` — Slope for negative inputs (default in PyTorch: 0.01).
-pub fn leaky_relu<T: Float>(
-    input: &Tensor<T>,
-    negative_slope: f64,
-) -> FerrotorchResult<Tensor<T>> {
+pub fn leaky_relu<T: Float>(input: &Tensor<T>, negative_slope: f64) -> FerrotorchResult<Tensor<T>> {
     if (negative_slope - 0.0).abs() < f64::EPSILON {
         // Degenerate case: standard ReLU.
         return act::relu(input);
@@ -294,7 +291,11 @@ impl<T: Float> GradFn<T> for DropoutBackward<T> {
                 self.input.shape().to_vec(),
                 false,
             )?;
-            Some(if self.input.is_cuda() { g.to(self.input.device())? } else { g })
+            Some(if self.input.is_cuda() {
+                g.to(self.input.device())?
+            } else {
+                g
+            })
         } else {
             None
         };
@@ -327,11 +328,7 @@ impl<T: Float> GradFn<T> for DropoutBackward<T> {
 /// # Errors
 ///
 /// Returns an error if `p` is outside `[0, 1)`.
-pub fn dropout<T: Float>(
-    input: &Tensor<T>,
-    p: f64,
-    training: bool,
-) -> FerrotorchResult<Tensor<T>> {
+pub fn dropout<T: Float>(input: &Tensor<T>, p: f64, training: bool) -> FerrotorchResult<Tensor<T>> {
     if !(0.0..1.0).contains(&p) {
         return Err(FerrotorchError::InvalidArgument {
             message: format!("dropout probability must be in [0, 1), got {p}"),
@@ -377,9 +374,17 @@ pub fn dropout<T: Float>(
             }),
         )?
     } else {
-        Tensor::from_storage(TensorStorage::cpu(output_data), input.shape().to_vec(), false)?
+        Tensor::from_storage(
+            TensorStorage::cpu(output_data),
+            input.shape().to_vec(),
+            false,
+        )?
     };
-    if device.is_cuda() { result.to(device) } else { Ok(result) }
+    if device.is_cuda() {
+        result.to(device)
+    } else {
+        Ok(result)
+    }
 }
 
 // ===========================================================================
@@ -395,10 +400,7 @@ pub fn dropout<T: Float>(
 ///
 /// - `pred` and `target` must have the same shape.
 /// - **returns**: scalar tensor.
-pub fn mse_loss<T: Float>(
-    pred: &Tensor<T>,
-    target: &Tensor<T>,
-) -> FerrotorchResult<Tensor<T>> {
+pub fn mse_loss<T: Float>(pred: &Tensor<T>, target: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if pred.shape() != target.shape() {
         return Err(FerrotorchError::ShapeMismatch {
             message: format!(
@@ -531,7 +533,7 @@ pub fn cross_entropy<T: Float>(
         for c in 0..classes {
             let e = (logits_data[base + c] - max_val).exp();
             softmax_out[base + c] = e;
-            sum_exp = sum_exp + e;
+            sum_exp += e;
         }
         let log_sum = sum_exp.ln();
         for c in 0..classes {
@@ -542,25 +544,18 @@ pub fn cross_entropy<T: Float>(
 
     // Compute per-sample NLL and reduce with mean.
     let mut total_loss = <T as num_traits::Zero>::zero();
-    for b in 0..batch {
+    for (b, &target) in targets_data.iter().enumerate() {
         let base = b * classes;
-        let target_class = targets_data[b].to_usize().unwrap_or(0);
+        let target_class = target.to_usize().unwrap_or(0);
         total_loss = total_loss - log_probs[base + target_class];
     }
     let loss_val = total_loss / T::from(batch).unwrap();
 
-    let reduced = Tensor::from_storage(
-        TensorStorage::cpu(vec![loss_val]),
-        vec![],
-        false,
-    )?;
+    let reduced = Tensor::from_storage(TensorStorage::cpu(vec![loss_val]), vec![], false)?;
 
     if is_grad_enabled() && logits.requires_grad() {
-        let softmax_tensor = Tensor::from_storage(
-            TensorStorage::cpu(softmax_out),
-            vec![batch, classes],
-            false,
-        )?;
+        let softmax_tensor =
+            Tensor::from_storage(TensorStorage::cpu(softmax_out), vec![batch, classes], false)?;
         let grad_fn = Arc::new(CrossEntropyBackward {
             logits: logits.clone(),
             targets: targets.clone(),
@@ -599,9 +594,9 @@ impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
         let mut result = vec![<T as num_traits::Zero>::zero(); batch * classes];
         let inv_batch = T::from(1.0).unwrap() / T::from(batch).unwrap();
 
-        for b in 0..batch {
+        for (b, &target) in targets_data.iter().enumerate() {
             let base = b * classes;
-            let target_class = targets_data[b].to_usize().unwrap_or(0);
+            let target_class = target.to_usize().unwrap_or(0);
             for c in 0..classes {
                 let one_hot = if c == target_class {
                     <T as num_traits::One>::one()
@@ -635,9 +630,7 @@ impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
 // ===========================================================================
 
 // Re-export types for convenience.
-pub use crate::upsample::{
-    GridSampleMode, GridSamplePaddingMode, InterpolateMode,
-};
+pub use crate::upsample::{GridSampleMode, GridSamplePaddingMode, InterpolateMode};
 
 /// Spatially resize a `[B, C, H, W]` tensor using the specified interpolation mode.
 ///

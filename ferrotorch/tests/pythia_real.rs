@@ -62,9 +62,21 @@ impl NeoXBlock {
         let qkv_chunks = chunk_t(&qkv, 3, 2)?;
 
         // Reshape to [batch*n_heads, seq, head_dim]
-        let q = qkv_chunks[0].view(&[batch as i64 * self.n_heads as i64, seq as i64, self.head_dim as i64])?;
-        let k = qkv_chunks[1].view(&[batch as i64 * self.n_heads as i64, seq as i64, self.head_dim as i64])?;
-        let v = qkv_chunks[2].view(&[batch as i64 * self.n_heads as i64, seq as i64, self.head_dim as i64])?;
+        let q = qkv_chunks[0].view(&[
+            batch as i64 * self.n_heads as i64,
+            seq as i64,
+            self.head_dim as i64,
+        ])?;
+        let k = qkv_chunks[1].view(&[
+            batch as i64 * self.n_heads as i64,
+            seq as i64,
+            self.head_dim as i64,
+        ])?;
+        let v = qkv_chunks[2].view(&[
+            batch as i64 * self.n_heads as i64,
+            seq as i64,
+            self.head_dim as i64,
+        ])?;
 
         // RoPE
         let q = self.rope.apply(&q, 0)?;
@@ -110,7 +122,13 @@ impl NeoXBlock {
 }
 
 impl PythiaModel {
-    fn new(n_layers: usize, d_model: usize, n_heads: usize, vocab: usize, max_seq: usize) -> FerrotorchResult<Self> {
+    fn new(
+        n_layers: usize,
+        d_model: usize,
+        n_heads: usize,
+        vocab: usize,
+        max_seq: usize,
+    ) -> FerrotorchResult<Self> {
         let blocks = (0..n_layers)
             .map(|_| NeoXBlock::new(d_model, n_heads, max_seq))
             .collect::<FerrotorchResult<Vec<_>>>()?;
@@ -122,7 +140,12 @@ impl PythiaModel {
         })
     }
 
-    fn forward(&self, token_ids: &[f32], batch: usize, seq: usize) -> FerrotorchResult<Tensor<f32>> {
+    fn forward(
+        &self,
+        token_ids: &[f32],
+        batch: usize,
+        seq: usize,
+    ) -> FerrotorchResult<Tensor<f32>> {
         let d_model = self.token_emb.embedding_dim;
 
         // Embed tokens
@@ -173,7 +196,10 @@ fn test_pythia_70m_training_benchmark() {
     let model = PythiaModel::new(n_layers, d_model, n_heads, vocab, max_seq).unwrap();
 
     let param_count: usize = model.parameters().iter().map(|p| p.tensor().numel()).sum();
-    eprintln!("Parameter count: {param_count} ({:.1}M)", param_count as f64 / 1e6);
+    eprintln!(
+        "Parameter count: {param_count} ({:.1}M)",
+        param_count as f64 / 1e6
+    );
 
     let mut optimizer = AdamW::new(
         model.parameters().into_iter().cloned().collect(),
@@ -221,9 +247,13 @@ fn test_pythia_70m_training_benchmark() {
         optimizer.step().unwrap();
 
         let step_ms = step_start.elapsed().as_secs_f64() * 1000.0;
-        if step > 0 { total_time_ms += step_ms; } // skip warmup step
+        if step > 0 {
+            total_time_ms += step_ms;
+        } // skip warmup step
 
-        if step == 0 { first_loss = loss_val; }
+        if step == 0 {
+            first_loss = loss_val;
+        }
         last_loss = loss_val;
         eprintln!("  Step {step}: loss={loss_val:.4}, time={step_ms:.0}ms");
     }

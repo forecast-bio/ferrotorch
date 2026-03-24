@@ -132,8 +132,7 @@ where
     };
 
     // Check if any operand requires grad.
-    let any_requires_grad = is_grad_enabled()
-        && operands.iter().any(|op| op.requires_grad());
+    let any_requires_grad = is_grad_enabled() && operands.iter().any(|op| op.requires_grad());
 
     if !any_requires_grad {
         return Ok(branch_outputs);
@@ -153,11 +152,7 @@ where
             operands: operands_vec.clone(),
             output_index: i,
         });
-        let wrapped = Tensor::from_operation(
-            TensorStorage::cpu(data),
-            shape,
-            grad_fn,
-        )?;
+        let wrapped = Tensor::from_operation(TensorStorage::cpu(data), shape, grad_fn)?;
         result.push(wrapped);
     }
 
@@ -392,12 +387,8 @@ mod tests {
 
     #[test]
     fn test_cond_true_branch() {
-        let pred = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let pred =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0]), vec![], false).unwrap();
 
         let x = ones::<f32>(&[3]).unwrap();
 
@@ -441,12 +432,8 @@ mod tests {
 
     #[test]
     fn test_cond_false_branch() {
-        let pred = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![0.0]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let pred =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.0]), vec![], false).unwrap();
 
         let x = ones::<f32>(&[3]).unwrap();
 
@@ -489,12 +476,8 @@ mod tests {
     #[test]
     fn test_cond_threshold_boundary() {
         // pred = 0.5 exactly => false branch (> 0.5 is true, not >=)
-        let pred = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![0.5]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let pred =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.5]), vec![], false).unwrap();
 
         let x = ones::<f32>(&[2]).unwrap();
 
@@ -513,12 +496,8 @@ mod tests {
     #[test]
     fn test_cond_just_above_threshold() {
         // pred = 0.51 => true branch
-        let pred = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![0.51]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let pred =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.51]), vec![], false).unwrap();
 
         let x = ones::<f32>(&[2]).unwrap();
 
@@ -536,12 +515,8 @@ mod tests {
 
     #[test]
     fn test_cond_non_scalar_pred_error() {
-        let pred = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0, 0.0]),
-            vec![2],
-            false,
-        )
-        .unwrap();
+        let pred = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0, 0.0]), vec![2], false)
+            .unwrap();
 
         let x = ones::<f32>(&[3]).unwrap();
 
@@ -557,12 +532,8 @@ mod tests {
 
     #[test]
     fn test_cond_multiple_outputs() {
-        let pred = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let pred =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0]), vec![], false).unwrap();
 
         let x = ones::<f32>(&[2]).unwrap();
 
@@ -597,12 +568,8 @@ mod tests {
 
     #[test]
     fn test_cond_empty_operands() {
-        let pred = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let pred =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0]), vec![], false).unwrap();
 
         let result = cond(
             &pred,
@@ -618,20 +585,12 @@ mod tests {
 
     #[test]
     fn test_cond_with_requires_grad() {
-        let pred = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let pred =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0]), vec![], false).unwrap();
 
         // Create operand with requires_grad=true.
-        let x = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0, 2.0, 3.0]),
-            vec![3],
-            true,
-        )
-        .unwrap();
+        let x = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0, 2.0, 3.0]), vec![3], true)
+            .unwrap();
 
         let result = cond(
             &pred,
@@ -660,12 +619,8 @@ mod tests {
     #[test]
     fn test_cond_scalar_pred_single_element() {
         // Shape [1] should also work as "scalar".
-        let pred = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0]),
-            vec![1],
-            false,
-        )
-        .unwrap();
+        let pred =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0]), vec![1], false).unwrap();
 
         let x = ones::<f32>(&[2]).unwrap();
 
@@ -682,14 +637,8 @@ mod tests {
 
     #[test]
     fn test_validate_cond_branches_matching() {
-        let a = vec![
-            ones::<f32>(&[3, 4]).unwrap(),
-            zeros::<f32>(&[2]).unwrap(),
-        ];
-        let b = vec![
-            zeros::<f32>(&[3, 4]).unwrap(),
-            ones::<f32>(&[2]).unwrap(),
-        ];
+        let a = vec![ones::<f32>(&[3, 4]).unwrap(), zeros::<f32>(&[2]).unwrap()];
+        let b = vec![zeros::<f32>(&[3, 4]).unwrap(), ones::<f32>(&[2]).unwrap()];
 
         assert!(validate_cond_branches(&a, &b).is_ok());
     }
@@ -697,10 +646,7 @@ mod tests {
     #[test]
     fn test_validate_cond_branches_count_mismatch() {
         let a = vec![ones::<f32>(&[3]).unwrap()];
-        let b = vec![
-            ones::<f32>(&[3]).unwrap(),
-            ones::<f32>(&[3]).unwrap(),
-        ];
+        let b = vec![ones::<f32>(&[3]).unwrap(), ones::<f32>(&[3]).unwrap()];
 
         assert!(validate_cond_branches(&a, &b).is_err());
     }
@@ -722,12 +668,8 @@ mod tests {
         let init = full::<f32>(&[2], 1.0).unwrap();
         let xs: &[Tensor<f32>] = &[];
 
-        let (final_carry, outputs) = scan(
-            |carry, _x| (carry.clone(), carry.clone()),
-            &init,
-            xs,
-        )
-        .unwrap();
+        let (final_carry, outputs) =
+            scan(|carry, _x| (carry.clone(), carry.clone()), &init, xs).unwrap();
 
         assert_eq!(final_carry.shape(), &[2]);
         assert_eq!(final_carry.data().unwrap(), &[1.0, 1.0]);
@@ -750,12 +692,9 @@ mod tests {
                 let c_data = carry.data().unwrap();
                 let x_data = x.data().unwrap();
                 let sum_val = c_data[0] + x_data[0];
-                let new_carry = Tensor::from_storage(
-                    TensorStorage::cpu(vec![sum_val]),
-                    vec![1],
-                    false,
-                )
-                .unwrap();
+                let new_carry =
+                    Tensor::from_storage(TensorStorage::cpu(vec![sum_val]), vec![1], false)
+                        .unwrap();
                 let output = new_carry.clone();
                 (new_carry, output)
             },
@@ -811,10 +750,7 @@ mod tests {
     #[test]
     fn test_scan_carry_shape_preserved() {
         let init = zeros::<f32>(&[3, 4]).unwrap();
-        let xs = vec![
-            ones::<f32>(&[3, 4]).unwrap(),
-            ones::<f32>(&[3, 4]).unwrap(),
-        ];
+        let xs = vec![ones::<f32>(&[3, 4]).unwrap(), ones::<f32>(&[3, 4]).unwrap()];
 
         let (final_carry, outputs) = scan(
             |carry, x| {
@@ -870,12 +806,8 @@ mod tests {
 
                 // Output is the sum of carry elements (scalar).
                 let sum: f32 = new_data.iter().sum();
-                let output = Tensor::from_storage(
-                    TensorStorage::cpu(vec![sum]),
-                    vec![1],
-                    false,
-                )
-                .unwrap();
+                let output =
+                    Tensor::from_storage(TensorStorage::cpu(vec![sum]), vec![1], false).unwrap();
 
                 (new_carry, output)
             },
@@ -909,12 +841,9 @@ mod tests {
                 let c = carry.data().unwrap();
                 let xd = x.data().unwrap();
                 let product = c[0] * xd[0];
-                let new_carry = Tensor::from_storage(
-                    TensorStorage::cpu(vec![product]),
-                    vec![1],
-                    false,
-                )
-                .unwrap();
+                let new_carry =
+                    Tensor::from_storage(TensorStorage::cpu(vec![product]), vec![1], false)
+                        .unwrap();
                 let output = new_carry.clone();
                 (new_carry, output)
             },
@@ -933,12 +862,8 @@ mod tests {
 
     #[test]
     fn test_scan_with_requires_grad() {
-        let init = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![0.0]),
-            vec![1],
-            true,
-        )
-        .unwrap();
+        let init =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.0]), vec![1], true).unwrap();
 
         let xs = vec![
             full::<f32>(&[1], 1.0).unwrap(),
@@ -950,12 +875,8 @@ mod tests {
                 let c = carry.data().unwrap();
                 let xd = x.data().unwrap();
                 let sum = c[0] + xd[0];
-                let new_carry = Tensor::from_storage(
-                    TensorStorage::cpu(vec![sum]),
-                    vec![1],
-                    false,
-                )
-                .unwrap();
+                let new_carry =
+                    Tensor::from_storage(TensorStorage::cpu(vec![sum]), vec![1], false).unwrap();
                 let output = new_carry.clone();
                 (new_carry, output)
             },
@@ -990,12 +911,8 @@ mod tests {
                 let c = carry.data().unwrap();
                 let xd = x.data().unwrap();
                 let ema = alpha * xd[0] + (1.0 - alpha) * c[0];
-                let new_carry = Tensor::from_storage(
-                    TensorStorage::cpu(vec![ema]),
-                    vec![1],
-                    false,
-                )
-                .unwrap();
+                let new_carry =
+                    Tensor::from_storage(TensorStorage::cpu(vec![ema]), vec![1], false).unwrap();
                 let output = new_carry.clone();
                 (new_carry, output)
             },

@@ -8,10 +8,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use safetensors::tensor::{Dtype, SafeTensors, TensorView};
 use safetensors::serialize_to_file;
+use safetensors::tensor::{Dtype, SafeTensors, TensorView};
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_nn::StateDict;
 
 /// Return the `safetensors::Dtype` that corresponds to the concrete `Float`
@@ -81,9 +81,11 @@ pub fn save_safetensors<T: Float>(
     let mut entries: Vec<TensorEntry<'_>> = Vec::with_capacity(keys.len());
     for key in &keys {
         let tensor = &state[*key];
-        let data_slice = tensor.data().map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!("failed to read tensor \"{key}\": {e}"),
-        })?;
+        let data_slice = tensor
+            .data()
+            .map_err(|e| FerrotorchError::InvalidArgument {
+                message: format!("failed to read tensor \"{key}\": {e}"),
+            })?;
         let byte_data = as_le_bytes(data_slice);
         entries.push(TensorEntry {
             name: key.as_str(),
@@ -99,10 +101,7 @@ pub fn save_safetensors<T: Float>(
         .map(|entry| {
             let view = TensorView::new(dtype, entry.shape.clone(), entry.data).map_err(|e| {
                 FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "failed to create TensorView for \"{}\": {e}",
-                        entry.name
-                    ),
+                    message: format!("failed to create TensorView for \"{}\": {e}", entry.name),
                 }
             });
             view.map(|v| (entry.name.to_string(), v))
@@ -125,14 +124,14 @@ pub fn load_safetensors<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<St
     let expected = expected_dtype::<T>()?;
     let elem_size = std::mem::size_of::<T>();
 
-    let file_data =
-        std::fs::read(path).map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!("failed to read safetensors file {}: {e}", path.display()),
-        })?;
-
-    let st = SafeTensors::deserialize(&file_data).map_err(|e| FerrotorchError::InvalidArgument {
-        message: format!("failed to parse safetensors file {}: {e}", path.display()),
+    let file_data = std::fs::read(path).map_err(|e| FerrotorchError::InvalidArgument {
+        message: format!("failed to read safetensors file {}: {e}", path.display()),
     })?;
+
+    let st =
+        SafeTensors::deserialize(&file_data).map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("failed to parse safetensors file {}: {e}", path.display()),
+        })?;
 
     let tensor_list = st.tensors();
     let mut state: StateDict<T> = HashMap::with_capacity(tensor_list.len());
@@ -148,7 +147,11 @@ pub fn load_safetensors<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<St
 
         let shape = view.shape().to_vec();
         let byte_data = view.data();
-        let numel: usize = if shape.is_empty() { 1 } else { shape.iter().product() };
+        let numel: usize = if shape.is_empty() {
+            1
+        } else {
+            shape.iter().product()
+        };
 
         // Validate byte length.
         let expected_bytes = numel * elem_size;
@@ -362,10 +365,7 @@ mod tests {
     fn test_dtype_mismatch() {
         // Save as f32, try to load as f64.
         let mut state: StateDict<f32> = HashMap::new();
-        state.insert(
-            "x".to_string(),
-            make_tensor_f32(vec![1.0, 2.0], vec![2]),
-        );
+        state.insert("x".to_string(), make_tensor_f32(vec![1.0, 2.0], vec![2]));
 
         let dir = std::env::temp_dir().join("ferrotorch_test_st_dtype_mm");
         std::fs::create_dir_all(&dir).unwrap();
@@ -421,10 +421,7 @@ mod tests {
     #[test]
     fn test_1d_tensor() {
         let mut state: StateDict<f32> = HashMap::new();
-        state.insert(
-            "vec".to_string(),
-            make_tensor_f32(vec![42.0], vec![1]),
-        );
+        state.insert("vec".to_string(), make_tensor_f32(vec![42.0], vec![1]));
 
         let dir = std::env::temp_dir().join("ferrotorch_test_st_1d");
         std::fs::create_dir_all(&dir).unwrap();

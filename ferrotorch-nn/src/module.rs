@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ferrotorch_core::{Device, Float, FerrotorchError, FerrotorchResult, Tensor};
+use ferrotorch_core::{Device, FerrotorchError, FerrotorchResult, Float, Tensor};
 
 use crate::parameter::Parameter;
 
@@ -212,8 +212,14 @@ mod tests {
     fn test_module_state_dict_strict_extra_key() {
         let mut m = SimpleModule::<f32>::new(3).unwrap();
         let mut sd = HashMap::new();
-        sd.insert("weight".to_string(), ferrotorch_core::zeros::<f32>(&[3]).unwrap());
-        sd.insert("extra".to_string(), ferrotorch_core::zeros::<f32>(&[1]).unwrap());
+        sd.insert(
+            "weight".to_string(),
+            ferrotorch_core::zeros::<f32>(&[3]).unwrap(),
+        );
+        sd.insert(
+            "extra".to_string(),
+            ferrotorch_core::zeros::<f32>(&[1]).unwrap(),
+        );
 
         assert!(m.load_state_dict(&sd, true).is_err());
         assert!(m.load_state_dict(&sd, false).is_ok());
@@ -223,7 +229,10 @@ mod tests {
     fn test_module_state_dict_shape_mismatch() {
         let mut m = SimpleModule::<f32>::new(3).unwrap();
         let mut sd = HashMap::new();
-        sd.insert("weight".to_string(), ferrotorch_core::zeros::<f32>(&[5]).unwrap());
+        sd.insert(
+            "weight".to_string(),
+            ferrotorch_core::zeros::<f32>(&[5]).unwrap(),
+        );
 
         assert!(m.load_state_dict(&sd, true).is_err());
     }

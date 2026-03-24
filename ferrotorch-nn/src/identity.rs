@@ -8,7 +8,7 @@
 //! (`start_dim=1, end_dim=-1`) flattens everything except the batch dimension.
 
 use ferrotorch_core::grad_fns::shape::reshape;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor};
 
 use crate::module::Module;
 use crate::parameter::Parameter;
@@ -261,8 +261,12 @@ mod tests {
 
     /// Helper: create a leaf tensor with given data, shape, and requires_grad.
     fn leaf(data: &[f64], shape: &[usize], requires_grad: bool) -> Tensor<f64> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), shape.to_vec(), requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            shape.to_vec(),
+            requires_grad,
+        )
+        .unwrap()
     }
 
     // -----------------------------------------------------------------------
@@ -352,7 +356,11 @@ mod tests {
     fn test_flatten_all_dims() {
         // start_dim=0, end_dim=-1 => flatten everything.
         let flatten = Flatten::new(0, -1);
-        let input = leaf(&(0..24).map(|i| i as f64).collect::<Vec<_>>(), &[2, 3, 4], false);
+        let input = leaf(
+            &(0..24).map(|i| i as f64).collect::<Vec<_>>(),
+            &[2, 3, 4],
+            false,
+        );
         let output: Tensor<f64> = flatten.forward(&input).unwrap();
         assert_eq!(output.shape(), &[24]);
     }
@@ -361,7 +369,11 @@ mod tests {
     fn test_flatten_noop_single_dim() {
         // start_dim == end_dim => no-op.
         let flatten = Flatten::new(1, 1);
-        let input = leaf(&(0..12).map(|i| i as f64).collect::<Vec<_>>(), &[3, 4], false);
+        let input = leaf(
+            &(0..12).map(|i| i as f64).collect::<Vec<_>>(),
+            &[3, 4],
+            false,
+        );
         let output: Tensor<f64> = flatten.forward(&input).unwrap();
         assert_eq!(output.shape(), &[3, 4]);
     }
@@ -400,7 +412,11 @@ mod tests {
     #[test]
     fn test_flatten_start_gt_end_error() {
         let flatten = Flatten::new(2, 1);
-        let input = leaf(&(0..24).map(|i| i as f64).collect::<Vec<_>>(), &[2, 3, 4], false);
+        let input = leaf(
+            &(0..24).map(|i| i as f64).collect::<Vec<_>>(),
+            &[2, 3, 4],
+            false,
+        );
         assert!(Module::<f64>::forward(&flatten, &input).is_err());
     }
 
@@ -415,8 +431,8 @@ mod tests {
 
     #[test]
     fn test_flatten_backward() {
-        use std::sync::Arc;
         use ferrotorch_core::tensor::GradFn;
+        use std::sync::Arc;
 
         /// Sum backward helper that propagates gradients.
         #[derive(Debug)]
@@ -448,7 +464,11 @@ mod tests {
         }
 
         let flatten = Flatten::default();
-        let input = leaf(&(0..24).map(|i| i as f64).collect::<Vec<_>>(), &[2, 3, 4], true);
+        let input = leaf(
+            &(0..24).map(|i| i as f64).collect::<Vec<_>>(),
+            &[2, 3, 4],
+            true,
+        );
         let output: Tensor<f64> = flatten.forward(&input).unwrap();
         assert_eq!(output.shape(), &[2, 12]);
         assert!(output.requires_grad());
@@ -459,12 +479,7 @@ mod tests {
         let sum_gf = Arc::new(SumBackwardHelper {
             input: output.clone(),
         });
-        let loss = Tensor::from_operation(
-            TensorStorage::cpu(vec![total]),
-            vec![],
-            sum_gf,
-        )
-        .unwrap();
+        let loss = Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf).unwrap();
         backward(&loss).unwrap();
 
         let grad = input.grad().unwrap().unwrap();

@@ -89,7 +89,9 @@ struct Writer {
 
 impl Writer {
     fn new() -> Self {
-        Self { buf: Vec::with_capacity(4096) }
+        Self {
+            buf: Vec::with_capacity(4096),
+        }
     }
 
     fn write_bytes(&mut self, bytes: &[u8]) {
@@ -145,7 +147,9 @@ impl<'a> Reader<'a> {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
                     "IR deserialize: unexpected EOF at offset {} (need {} bytes, have {})",
-                    self.pos, n, self.remaining()
+                    self.pos,
+                    n,
+                    self.remaining()
                 ),
             });
         }
@@ -556,8 +560,7 @@ mod tests {
 
         let x = g.add_input(vec![2, 3]);
         let (_, add_outs) = g.add_node(IrOpKind::Add, vec![x, x], vec![vec![2, 3]]);
-        let (_, relu_outs) =
-            g.add_node(IrOpKind::Relu, vec![add_outs[0]], vec![vec![2, 3]]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![add_outs[0]], vec![vec![2, 3]]);
         g.set_outputs(vec![relu_outs[0]]);
 
         let bytes = g.serialize();
@@ -683,9 +686,7 @@ mod tests {
             IrOpKind::Silu,
             IrOpKind::Softmax,
             IrOpKind::LogSoftmax,
-            IrOpKind::Reshape {
-                shape: vec![-1, 3],
-            },
+            IrOpKind::Reshape { shape: vec![-1, 3] },
             IrOpKind::Flatten,
             IrOpKind::Squeeze { axis: 1 },
             IrOpKind::Unsqueeze { axis: 0 },

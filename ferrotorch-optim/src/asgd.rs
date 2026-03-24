@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -167,9 +167,7 @@ impl<T: Float> Optimizer<T> for Asgd<T> {
                 // Update parameters.
                 // p = p * (1 - lambd * eta) - eta * g
                 let new_param_data: Vec<f64> = (0..numel)
-                    .map(|i| {
-                        param_data[i] * (1.0 - config.lambd * eta) - eta * grad_data[i]
-                    })
+                    .map(|i| param_data[i] * (1.0 - config.lambd * eta) - eta * grad_data[i])
                     .collect();
 
                 // Update running average.
@@ -304,10 +302,7 @@ mod tests {
     }
 
     fn param_val(opt: &Asgd<f64>, group: usize, idx: usize) -> f64 {
-        opt.param_groups[group].params[idx]
-            .tensor()
-            .data()
-            .unwrap()[0]
+        opt.param_groups[group].params[idx].tensor().data().unwrap()[0]
     }
 
     fn set_grad_scalar(opt: &Asgd<f64>, group: usize, idx: usize, val: f64) {
@@ -387,10 +382,7 @@ mod tests {
         opt.step().unwrap();
 
         let eta_2 = opt.state[&key].eta;
-        assert!(
-            eta_2 < eta_1,
-            "eta should decrease: {eta_1} -> {eta_2}"
-        );
+        assert!(eta_2 < eta_1, "eta should decrease: {eta_1} -> {eta_2}");
     }
 
     #[test]
@@ -426,10 +418,7 @@ mod tests {
         opt.step().unwrap();
 
         let mu = opt.state[&key].mu;
-        assert!(
-            mu < 1.0,
-            "mu should be less than 1 after t0, got {mu}"
-        );
+        assert!(mu < 1.0, "mu should be less than 1 after t0, got {mu}");
     }
 
     #[test]
@@ -448,7 +437,10 @@ mod tests {
         opt.step().unwrap();
 
         let averaged = opt.averaged_param(0, 0);
-        assert!(averaged.is_some(), "averaged params should exist after step");
+        assert!(
+            averaged.is_some(),
+            "averaged params should exist after step"
+        );
     }
 
     #[test]
@@ -456,19 +448,20 @@ mod tests {
         let p = scalar_param(1.0);
         let mut opt = Asgd::new(vec![p], AsgdConfig::default());
 
-        let grad =
-            Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
+        let grad = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
         opt.param_groups[0].params[0]
             .tensor()
             .set_grad(Some(grad))
             .unwrap();
 
         opt.zero_grad().unwrap();
-        assert!(opt.param_groups[0].params[0]
-            .tensor()
-            .grad()
-            .unwrap()
-            .is_none());
+        assert!(
+            opt.param_groups[0].params[0]
+                .tensor()
+                .grad()
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
 use ferrotorch_core::gpu_dispatch::GpuRngState;
 use ferrotorch_core::tensor::GradFn;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::module::Module;
 use crate::parameter::Parameter;
@@ -159,7 +159,11 @@ impl<T: Float> GradFn<T> for DropoutBackward<T> {
                 self.input.shape().to_vec(),
                 false,
             )?;
-            Some(if self.input.is_cuda() { g.to(self.input.device())? } else { g })
+            Some(if self.input.is_cuda() {
+                g.to(self.input.device())?
+            } else {
+                g
+            })
         } else {
             None
         };
@@ -203,7 +207,11 @@ impl<T: Float> GradFn<T> for Dropout2dBackward<T> {
                 self.input.shape().to_vec(),
                 false,
             )?;
-            Some(if self.input.is_cuda() { g.to(self.input.device())? } else { g })
+            Some(if self.input.is_cuda() {
+                g.to(self.input.device())?
+            } else {
+                g
+            })
         } else {
             None
         };
@@ -277,11 +285,8 @@ impl<T: Float> Module<T> for Dropout<T> {
                 let threshold = (self.p * u32::MAX as f64) as u32;
                 let scale_f32 = 1.0f32 / (1.0 - self.p as f32);
 
-                let (handle, rng_state) = backend.dropout_philox_f32(
-                    input.gpu_handle()?,
-                    threshold,
-                    scale_f32,
-                )?;
+                let (handle, rng_state) =
+                    backend.dropout_philox_f32(input.gpu_handle()?, threshold, scale_f32)?;
 
                 // For backward, we need the mask. Regenerate it from the saved
                 // Philox RNG state using the same deterministic hash that the
@@ -336,7 +341,11 @@ impl<T: Float> Module<T> for Dropout<T> {
                 }),
             )
         } else {
-            Tensor::from_storage(TensorStorage::cpu(output_data), input.shape().to_vec(), false)
+            Tensor::from_storage(
+                TensorStorage::cpu(output_data),
+                input.shape().to_vec(),
+                false,
+            )
         }
     }
 
@@ -452,12 +461,8 @@ impl<T: Float> Module<T> for Dropout2d<T> {
                     false,
                 )?;
                 let ones_gpu = ones_tensor.to(device)?;
-                let channel_mask_handle = backend.dropout_f32(
-                    ones_gpu.gpu_handle()?,
-                    threshold,
-                    scale_f32,
-                    seed,
-                )?;
+                let channel_mask_handle =
+                    backend.dropout_f32(ones_gpu.gpu_handle()?, threshold, scale_f32, seed)?;
 
                 // Retrieve channel mask to CPU for broadcasting and backward.
                 let mask_tensor = Tensor::<f32>::from_storage(
@@ -470,8 +475,8 @@ impl<T: Float> Module<T> for Dropout2d<T> {
                 // Expand channel mask to full element mask.
                 let scaled_mask: Vec<T> = {
                     let mut mask = Vec::with_capacity(numel);
-                    for bc in 0..num_channels {
-                        let val = if channel_mask_cpu[bc] == 0.0 { zero } else { scale };
+                    for &cm in &channel_mask_cpu {
+                        let val = if cm == 0.0 { zero } else { scale };
                         for _ in 0..spatial {
                             mask.push(val);
                         }
@@ -517,8 +522,8 @@ impl<T: Float> Module<T> for Dropout2d<T> {
         // Expand channel mask to full element mask.
         let scaled_mask: Vec<T> = {
             let mut mask = Vec::with_capacity(numel);
-            for bc in 0..batch * channels {
-                let val = if channel_mask[bc] { scale } else { zero };
+            for &cm in &channel_mask {
+                let val = if cm { scale } else { zero };
                 for _ in 0..spatial {
                     mask.push(val);
                 }
@@ -543,9 +548,17 @@ impl<T: Float> Module<T> for Dropout2d<T> {
                 }),
             )?
         } else {
-            Tensor::from_storage(TensorStorage::cpu(output_data), input.shape().to_vec(), false)?
+            Tensor::from_storage(
+                TensorStorage::cpu(output_data),
+                input.shape().to_vec(),
+                false,
+            )?
         };
-        if device.is_cuda() { result.to(device) } else { Ok(result) }
+        if device.is_cuda() {
+            result.to(device)
+        } else {
+            Ok(result)
+        }
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {

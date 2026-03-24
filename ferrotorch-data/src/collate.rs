@@ -1,6 +1,6 @@
 // CL-325 — default_collate: stack tensors into batches
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, stack};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, stack};
 
 /// Stack a `Vec<Tensor<T>>` along a new leading dimension (dim 0).
 ///

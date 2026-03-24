@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use image::{ImageBuffer, Rgb, Rgba};
 use num_traits::NumCast;
 
@@ -137,9 +137,10 @@ pub fn write_image(path: impl AsRef<Path>, image: &RawImage) -> FerrotorchResult
                             image.channels,
                         ),
                     })?;
-            buf.save(path.as_ref()).map_err(|e| FerrotorchError::InvalidArgument {
-                message: format!("failed to write image '{}': {e}", path.as_ref().display()),
-            })?;
+            buf.save(path.as_ref())
+                .map_err(|e| FerrotorchError::InvalidArgument {
+                    message: format!("failed to write image '{}': {e}", path.as_ref().display()),
+                })?;
         }
         4 => {
             let buf: ImageBuffer<Rgba<u8>, _> =
@@ -153,9 +154,10 @@ pub fn write_image(path: impl AsRef<Path>, image: &RawImage) -> FerrotorchResult
                             image.channels,
                         ),
                     })?;
-            buf.save(path.as_ref()).map_err(|e| FerrotorchError::InvalidArgument {
-                message: format!("failed to write image '{}': {e}", path.as_ref().display()),
-            })?;
+            buf.save(path.as_ref())
+                .map_err(|e| FerrotorchError::InvalidArgument {
+                    message: format!("failed to write image '{}': {e}", path.as_ref().display()),
+                })?;
         }
         _ => {
             return Err(FerrotorchError::InvalidArgument {
@@ -206,10 +208,7 @@ pub fn tensor_to_raw_image<T: Float>(tensor: &Tensor<T>) -> FerrotorchResult<Raw
 
     if c != 3 && c != 4 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "tensor_to_raw_image: expected 3 or 4 channels, got {}",
-                c,
-            ),
+            message: format!("tensor_to_raw_image: expected 3 or 4 channels, got {}", c,),
         });
     }
 
@@ -261,8 +260,8 @@ mod tests {
         assert_eq!(raw.data.len(), 4 * 3 * 3);
 
         // Spot-check pixel (0, 0).
-        assert_eq!(raw.data[0], 0);   // R: 0*60
-        assert_eq!(raw.data[1], 0);   // G: 0*80
+        assert_eq!(raw.data[0], 0); // R: 0*60
+        assert_eq!(raw.data[1], 0); // G: 0*80
         assert_eq!(raw.data[2], 128); // B: 128
     }
 
@@ -303,11 +302,7 @@ mod tests {
         let path = dir.path().join("tensor_test.png");
 
         let img = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_fn(5, 4, |x, y| {
-            Rgb([
-                ((x + y) % 256) as u8,
-                ((x * 2 + y) % 256) as u8,
-                255,
-            ])
+            Rgb([((x + y) % 256) as u8, ((x * 2 + y) % 256) as u8, 255])
         });
         img.save(&path).unwrap();
 
@@ -374,12 +369,8 @@ mod tests {
             0.5, 0.5,
             0.0, 1.0,
         ];
-        let tensor = Tensor::from_storage(
-            TensorStorage::cpu(values.clone()),
-            vec![3, 2, 2],
-            false,
-        )
-        .unwrap();
+        let tensor =
+            Tensor::from_storage(TensorStorage::cpu(values.clone()), vec![3, 2, 2], false).unwrap();
 
         write_tensor_as_image(&path, &tensor).unwrap();
         let loaded: Tensor<f32> = read_image_as_tensor(&path).unwrap();
@@ -431,12 +422,8 @@ mod tests {
             0.0, 0.0,
             0.0, 0.0,
         ];
-        let tensor = Tensor::from_storage(
-            TensorStorage::cpu(values),
-            vec![3, 2, 2],
-            false,
-        )
-        .unwrap();
+        let tensor =
+            Tensor::from_storage(TensorStorage::cpu(values), vec![3, 2, 2], false).unwrap();
 
         let raw = tensor_to_raw_image(&tensor).unwrap();
         assert_eq!(raw.width, 2);
@@ -450,12 +437,9 @@ mod tests {
 
     #[test]
     fn test_write_tensor_rejects_non_3d() {
-        let tensor = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![0.0; 12]),
-            vec![2, 6],
-            false,
-        )
-        .unwrap();
+        let tensor =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.0; 12]), vec![2, 6], false)
+                .unwrap();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("bad.png");
         assert!(write_tensor_as_image(&path, &tensor).is_err());

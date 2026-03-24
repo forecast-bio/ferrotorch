@@ -140,13 +140,17 @@ impl<T> CudaBuffer<T> {
     /// Borrow the underlying `CudaSlice` for use with cudarc APIs.
     #[inline]
     pub fn inner(&self) -> &CudaSlice<T> {
-        self.data.as_ref().expect("CudaBuffer: inner slice already taken")
+        self.data
+            .as_ref()
+            .expect("CudaBuffer: inner slice already taken")
     }
 
     /// Mutably borrow the underlying `CudaSlice`.
     #[inline]
     pub fn inner_mut(&mut self) -> &mut CudaSlice<T> {
-        self.data.as_mut().expect("CudaBuffer: inner slice already taken")
+        self.data
+            .as_mut()
+            .expect("CudaBuffer: inner slice already taken")
     }
 }
 

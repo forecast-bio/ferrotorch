@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -301,19 +301,19 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                 .copied()
                 .unwrap_or(0.0) as u64;
 
-            let exp_avg = entry
-                .get("exp_avg")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!("missing exp_avg in state for key {key}"),
-                })?;
+            let exp_avg =
+                entry
+                    .get("exp_avg")
+                    .cloned()
+                    .ok_or_else(|| FerrotorchError::InvalidArgument {
+                        message: format!("missing exp_avg in state for key {key}"),
+                    })?;
 
-            let exp_avg_sq = entry
-                .get("exp_avg_sq")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
+            let exp_avg_sq = entry.get("exp_avg_sq").cloned().ok_or_else(|| {
+                FerrotorchError::InvalidArgument {
                     message: format!("missing exp_avg_sq in state for key {key}"),
-                })?;
+                }
+            })?;
 
             self.state.insert(
                 key.clone(),
@@ -346,21 +346,14 @@ mod tests {
 
     /// Create a 1-D parameter from a slice.
     fn vec_param(data: &[f64]) -> Parameter<f64> {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(data.to_vec()),
-            vec![data.len()],
-            true,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], true)
+            .unwrap();
         Parameter::new(t)
     }
 
     /// Read a scalar parameter's current value from the optimizer.
     fn param_val(opt: &AdamW<f64>, group: usize, idx: usize) -> f64 {
-        opt.param_groups[group].params[idx]
-            .tensor()
-            .data()
-            .unwrap()[0]
+        opt.param_groups[group].params[idx].tensor().data().unwrap()[0]
     }
 
     /// Read a vector parameter's data from the optimizer.
@@ -383,12 +376,8 @@ mod tests {
 
     /// Set gradient on a vector parameter inside the optimizer.
     fn set_grad_vec(opt: &AdamW<f64>, group: usize, idx: usize, data: &[f64]) {
-        let grad = Tensor::from_storage(
-            TensorStorage::cpu(data.to_vec()),
-            vec![data.len()],
-            false,
-        )
-        .unwrap();
+        let grad = Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], false)
+            .unwrap();
         opt.param_groups[group].params[idx]
             .tensor()
             .set_grad(Some(grad))
@@ -614,10 +603,7 @@ mod tests {
         opt.step().unwrap();
 
         let val = param_val(&opt, 0, 0);
-        assert!(
-            (val - (-0.001)).abs() < 1e-8,
-            "expected ~-0.001, got {val}"
-        );
+        assert!((val - (-0.001)).abs() < 1e-8, "expected ~-0.001, got {val}");
     }
 
     // -------------------------------------------------------------------
@@ -631,18 +617,22 @@ mod tests {
 
         // Set a gradient.
         set_grad_vec(&opt, 0, 0, &[0.5, 0.5]);
-        assert!(opt.param_groups[0].params[0]
-            .tensor()
-            .grad()
-            .unwrap()
-            .is_some());
+        assert!(
+            opt.param_groups[0].params[0]
+                .tensor()
+                .grad()
+                .unwrap()
+                .is_some()
+        );
 
         opt.zero_grad().unwrap();
-        assert!(opt.param_groups[0].params[0]
-            .tensor()
-            .grad()
-            .unwrap()
-            .is_none());
+        assert!(
+            opt.param_groups[0].params[0]
+                .tensor()
+                .grad()
+                .unwrap()
+                .is_none()
+        );
     }
 
     // -------------------------------------------------------------------
@@ -737,10 +727,7 @@ mod tests {
         let v2 = param_val(&opt, 1, 0);
 
         // p1 should be unchanged (no wd, no grad update with zero grad).
-        assert!(
-            (v1 - 5.0).abs() < 1e-10,
-            "p1 should stay at 5.0, got {v1}"
-        );
+        assert!((v1 - 5.0).abs() < 1e-10, "p1 should stay at 5.0, got {v1}");
 
         // p2 should have decayed: 5.0 * (1 - 0.01 * 1.0) = 5.0 * 0.99 = 4.95
         assert!(
@@ -810,7 +797,10 @@ mod tests {
             set_grad_scalar(&opt, 0, 0, 2.0 * x);
             opt.step().unwrap();
         }
-        assert!(prev_loss < 0.01, "should converge, final loss = {prev_loss}");
+        assert!(
+            prev_loss < 0.01,
+            "should converge, final loss = {prev_loss}"
+        );
     }
 
     // -------------------------------------------------------------------
@@ -884,13 +874,7 @@ mod tests {
 
         let vx = param_val(&opt, 0, 0);
         let vy = param_val(&opt, 0, 1);
-        assert!(
-            vx.abs() < 0.1,
-            "expected x near 0, got {vx}"
-        );
-        assert!(
-            vy.abs() < 0.1,
-            "expected y near 0, got {vy}"
-        );
+        assert!(vx.abs() < 0.1, "expected x near 0, got {vx}");
+        assert!(vy.abs() < 0.1, "expected y near 0, got {vy}");
     }
 }

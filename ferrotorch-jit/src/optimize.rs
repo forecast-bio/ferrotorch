@@ -469,18 +469,18 @@ fn fuse_chain(graph: &mut IrGraph, chain: &[IrNodeId]) {
     // appear after all of its predecessors in the graph's topological ordering.
     {
         let topo = graph.topological_order();
-        let topo_pos: HashMap<IrNodeId, usize> = topo
-            .iter()
-            .enumerate()
-            .map(|(i, &nid)| (nid, i))
-            .collect();
+        let topo_pos: HashMap<IrNodeId, usize> =
+            topo.iter().enumerate().map(|(i, &nid)| (nid, i)).collect();
         for window in chain.windows(2) {
             let pos_a = topo_pos.get(&window[0]);
             let pos_b = topo_pos.get(&window[1]);
             assert!(
                 pos_a < pos_b,
                 "fuse_chain: chain is not in valid topological order: {:?} (pos {:?}) must precede {:?} (pos {:?})",
-                window[0], pos_a, window[1], pos_b,
+                window[0],
+                pos_a,
+                window[1],
+                pos_b,
             );
         }
     }
@@ -770,7 +770,9 @@ mod tests {
         // length >= 2.  No fusion occurs.
         assert_eq!(g.node_count(), 6);
         assert!(
-            g.nodes.iter().all(|n| !matches!(&n.op, IrOpKind::FusedElementwise { .. })),
+            g.nodes
+                .iter()
+                .all(|n| !matches!(&n.op, IrOpKind::FusedElementwise { .. })),
             "should not have any FusedElementwise node"
         );
     }
@@ -849,7 +851,10 @@ mod tests {
         let count_before = g.node_count();
         let plan = optimize(&mut g, &config);
         assert_eq!(g.node_count(), count_before);
-        assert!(plan.is_none(), "memory planning disabled, should return None");
+        assert!(
+            plan.is_none(),
+            "memory planning disabled, should return None"
+        );
     }
 
     #[test]

@@ -339,9 +339,8 @@ fn einsum_two<T: Float>(
         }
     }
     for &c in &b_unique {
-        if !a_unique.contains(&c)
-            && out_subs.contains(&c) {
-                free_b_chars.push(c);
+        if !a_unique.contains(&c) && out_subs.contains(&c) {
+            free_b_chars.push(c);
         }
         // If not in output either, it's summed over in B only.
     }

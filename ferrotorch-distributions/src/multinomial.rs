@@ -78,7 +78,7 @@ impl<T: Float> Multinomial<T> {
         let mut cdf = Vec::with_capacity(k);
         let mut cumsum = zero;
         for &p in probs_data.iter() {
-            cumsum = cumsum + p / total;
+            cumsum += p / total;
             cdf.push(cumsum);
         }
         if let Some(last) = cdf.last_mut() {
@@ -148,7 +148,7 @@ impl<T: Float> Distribution<T> for Multinomial<T> {
                     }
                 }
                 let idx = lo.min(k - 1);
-                counts[idx] = counts[idx] + one;
+                counts[idx] += one;
             }
 
             result.extend_from_slice(&counts);
@@ -157,7 +157,11 @@ impl<T: Float> Distribution<T> for Multinomial<T> {
         let mut out_shape = shape.to_vec();
         out_shape.push(k);
         let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn rsample(&self, _shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
@@ -200,9 +204,9 @@ impl<T: Float> Distribution<T> for Multinomial<T> {
 
             for j in 0..k {
                 let x_j = val_data[s * k + j];
-                log_factorial_xs = log_factorial_xs + lgamma_t(x_j + one);
+                log_factorial_xs += lgamma_t(x_j + one);
                 if x_j > zero {
-                    log_powers = log_powers + x_j * self.log_probs[j];
+                    log_powers += x_j * self.log_probs[j];
                 }
             }
 
@@ -217,7 +221,11 @@ impl<T: Float> Distribution<T> for Multinomial<T> {
         };
 
         let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
@@ -229,7 +237,6 @@ impl<T: Float> Distribution<T> for Multinomial<T> {
         // For exact computation with small total_count, we enumerate.
         // For simplicity and correctness, use the Stirling-based approximation.
         let device = self.probs.device();
-        let k = self.num_categories;
         let n_t = T::from(self.total_count).unwrap();
         let one = <T as num_traits::One>::one();
         let zero = <T as num_traits::Zero>::zero();
@@ -240,8 +247,8 @@ impl<T: Float> Distribution<T> for Multinomial<T> {
 
         // Categorical entropy
         let mut cat_entropy = zero;
-        for j in 0..k {
-            let p = (probs_data[j] / total).max(eps);
+        for &pj in &probs_data {
+            let p = (pj / total).max(eps);
             cat_entropy = cat_entropy - p * p.ln();
         }
 
@@ -253,14 +260,18 @@ impl<T: Float> Distribution<T> for Multinomial<T> {
         // Add the expected sum of lgamma(x_k + 1) term (approximation)
         // For each category: E[lgamma(X_k + 1)] ≈ lgamma(n*p_k + 1) for large n
         let mut correction = zero;
-        for j in 0..k {
-            let p = (probs_data[j] / total).max(eps);
-            correction = correction + lgamma_t(n_t * p + one);
+        for &pj in &probs_data {
+            let p = (pj / total).max(eps);
+            correction += lgamma_t(n_t * p + one);
         }
         let h = h + correction;
 
         let out = Tensor::from_storage(TensorStorage::cpu(vec![h]), vec![], false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 }
 
@@ -473,7 +484,10 @@ mod tests {
             let mut one_count = 0;
             for j in 0..3 {
                 let v = data[s * 3 + j];
-                assert!(v == 0.0 || v == 1.0, "single trial counts should be 0 or 1, got {v}");
+                assert!(
+                    v == 0.0 || v == 1.0,
+                    "single trial counts should be 0 or 1, got {v}"
+                );
                 if v == 1.0 {
                     one_count += 1;
                 }

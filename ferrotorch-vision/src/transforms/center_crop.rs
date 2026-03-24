@@ -1,4 +1,4 @@
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
 
 /// Extract the center region of size `(height, width)` from a `[C, H, W]`
@@ -103,12 +103,8 @@ mod tests {
     #[test]
     fn test_center_crop_exact_size() {
         let data: Vec<f64> = (0..12).map(|i| i as f64).collect();
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(data.clone()),
-            vec![1, 3, 4],
-            false,
-        )
-        .unwrap();
+        let t =
+            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![1, 3, 4], false).unwrap();
         let crop = CenterCrop::<f64>::new(3, 4);
         let out = crop.apply(t).unwrap();
         assert_eq!(out.shape(), &[1, 3, 4]);

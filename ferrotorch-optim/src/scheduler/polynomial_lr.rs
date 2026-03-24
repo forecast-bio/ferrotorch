@@ -8,8 +8,8 @@
 
 use ferrotorch_core::Float;
 
-use crate::optimizer::Optimizer;
 use super::LrScheduler;
+use crate::optimizer::Optimizer;
 
 /// Polynomial learning rate scheduler.
 ///
@@ -188,11 +188,7 @@ mod tests {
             sched.step(&mut opt);
         }
         // Should stay at 0.
-        assert!(
-            opt.lr.abs() < 1e-12,
-            "expected ~0.0, got {}",
-            opt.lr
-        );
+        assert!(opt.lr.abs() < 1e-12, "expected ~0.0, got {}", opt.lr);
     }
 
     #[test]

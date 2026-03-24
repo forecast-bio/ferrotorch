@@ -1,4 +1,4 @@
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use num_traits::NumCast;
 
 // ---------------------------------------------------------------------------
@@ -405,12 +405,8 @@ mod tests {
 
     #[test]
     fn test_compose_empty() {
-        let t = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0, 2.0]),
-            vec![2],
-            false,
-        )
-        .unwrap();
+        let t = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0, 2.0]), vec![2], false)
+            .unwrap();
         let compose = Compose::new(vec![]);
         let out = compose.apply(t).unwrap();
         assert_eq!(out.data().unwrap(), &[1.0, 2.0]);
@@ -424,12 +420,7 @@ mod tests {
         // Channel 0: [2, 4, 6], mean=4, std=2 => [-1, 0, 1]
         // Channel 1: [10, 20, 30], mean=20, std=10 => [-1, 0, 1]
         let data = vec![2.0, 4.0, 6.0, 10.0, 20.0, 30.0];
-        let t = Tensor::<f64>::from_storage(
-            TensorStorage::cpu(data),
-            vec![2, 3],
-            false,
-        )
-        .unwrap();
+        let t = Tensor::<f64>::from_storage(TensorStorage::cpu(data), vec![2, 3], false).unwrap();
 
         let norm = Normalize::<f64>::new(vec![4.0, 20.0], vec![2.0, 10.0]);
         let out = norm.apply(t).unwrap();
@@ -447,12 +438,7 @@ mod tests {
     fn test_normalize_identity() {
         // mean=0, std=1 should be identity.
         let data = vec![1.0, 2.0, 3.0];
-        let t = Tensor::<f64>::from_storage(
-            TensorStorage::cpu(data),
-            vec![1, 3],
-            false,
-        )
-        .unwrap();
+        let t = Tensor::<f64>::from_storage(TensorStorage::cpu(data), vec![1, 3], false).unwrap();
 
         let norm = Normalize::<f64>::new(vec![0.0], vec![1.0]);
         let out = norm.apply(t).unwrap();
@@ -464,12 +450,9 @@ mod tests {
 
     #[test]
     fn test_normalize_channel_mismatch() {
-        let t = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0, 2.0, 3.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let t =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0, 2.0, 3.0]), vec![3], false)
+                .unwrap();
         let norm = Normalize::<f32>::new(vec![0.0, 0.0], vec![1.0, 1.0]);
         assert!(norm.apply(t).is_err());
     }
@@ -478,12 +461,9 @@ mod tests {
 
     #[test]
     fn test_to_tensor_identity() {
-        let t = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0, 2.0, 3.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let t =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0, 2.0, 3.0]), vec![3], false)
+                .unwrap();
         let out = ToTensor.apply(t.clone()).unwrap();
         assert!(out.is_same(&t));
     }
@@ -515,12 +495,9 @@ mod tests {
     #[test]
     fn test_random_horizontal_flip_never() {
         // p=0.0 should never flip.
-        let t = Tensor::<f64>::from_storage(
-            TensorStorage::cpu(vec![1.0, 2.0, 3.0]),
-            vec![1, 3],
-            false,
-        )
-        .unwrap();
+        let t =
+            Tensor::<f64>::from_storage(TensorStorage::cpu(vec![1.0, 2.0, 3.0]), vec![1, 3], false)
+                .unwrap();
         let flip = RandomHorizontalFlip::<f64>::new(0.0);
         let out = flip.apply(t).unwrap();
         let d = out.data().unwrap();
@@ -598,12 +575,8 @@ mod tests {
     fn test_random_crop_values_are_subset() {
         // Every value in the cropped output should exist in the original.
         let t = sequential_tensor(1, 8, 8);
-        let original: std::collections::HashSet<u64> = t
-            .data()
-            .unwrap()
-            .iter()
-            .map(|&v| v.to_bits())
-            .collect();
+        let original: std::collections::HashSet<u64> =
+            t.data().unwrap().iter().map(|&v| v.to_bits()).collect();
         let crop = RandomCrop::<f64>::new(4, 4);
         let out = crop.apply(t).unwrap();
         for &val in out.data().unwrap() {

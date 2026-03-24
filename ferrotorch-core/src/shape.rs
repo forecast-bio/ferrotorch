@@ -9,16 +9,8 @@ pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> FerrotorchResult<Vec<usize>
     let mut result = Vec::with_capacity(max_ndim);
 
     for i in 0..max_ndim {
-        let da = if i < a.len() {
-            a[a.len() - 1 - i]
-        } else {
-            1
-        };
-        let db = if i < b.len() {
-            b[b.len() - 1 - i]
-        } else {
-            1
-        };
+        let da = if i < a.len() { a[a.len() - 1 - i] } else { 1 };
+        let db = if i < b.len() { b[b.len() - 1 - i] } else { 1 };
 
         if da == db {
             result.push(da);
@@ -30,7 +22,11 @@ pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> FerrotorchResult<Vec<usize>
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
                     "cannot broadcast shapes {:?} and {:?}: dimension mismatch at axis {} ({} vs {})",
-                    a, b, max_ndim - 1 - i, da, db
+                    a,
+                    b,
+                    max_ndim - 1 - i,
+                    da,
+                    db
                 ),
             });
         }
@@ -83,7 +79,11 @@ pub fn channels_last_strides(shape: &[usize]) -> Vec<isize> {
 ///
 /// [CL-309] WU-05: channels-last memory format support
 pub fn channels_last_3d_strides(shape: &[usize]) -> Vec<isize> {
-    debug_assert_eq!(shape.len(), 5, "channels_last_3d_strides requires a 5D shape");
+    debug_assert_eq!(
+        shape.len(),
+        5,
+        "channels_last_3d_strides requires a 5D shape"
+    );
     let [_n, c, d, h, w] = [shape[0], shape[1], shape[2], shape[3], shape[4]];
     vec![
         (d * h * w * c) as isize, // N stride
@@ -139,7 +139,10 @@ mod tests {
     #[test]
     fn test_broadcast_expand() {
         assert_eq!(broadcast_shapes(&[1, 3], &[2, 1]).unwrap(), vec![2, 3]);
-        assert_eq!(broadcast_shapes(&[5, 1, 4], &[3, 1]).unwrap(), vec![5, 3, 4]);
+        assert_eq!(
+            broadcast_shapes(&[5, 1, 4], &[3, 1]).unwrap(),
+            vec![5, 3, 4]
+        );
     }
 
     #[test]

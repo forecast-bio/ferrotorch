@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_nn::Parameter;
 
 /// Serializable optimizer state for checkpointing.

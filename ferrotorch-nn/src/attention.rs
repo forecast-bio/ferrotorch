@@ -9,7 +9,7 @@ use ferrotorch_core::grad_fns::activation::softmax;
 use ferrotorch_core::grad_fns::arithmetic::{add, mul};
 use ferrotorch_core::grad_fns::linalg::mm_differentiable;
 use ferrotorch_core::grad_fns::shape::{expand, transpose_2d};
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::init::{xavier_uniform, zeros};
 use crate::module::Module;
@@ -161,7 +161,7 @@ impl<T: Float> MultiheadAttention<T> {
 
         let batch = query.shape()[0];
         let seq_q = query.shape()[1];
-        let seq_k = key.shape()[0 + 1]; // key.shape()[1]
+        let seq_k = key.shape()[1];
 
         if query.shape()[2] != self.embed_dim
             || key.shape()[2] != self.embed_dim
@@ -251,11 +251,7 @@ impl<T: Float> MultiheadAttention<T> {
 
         // Scale factor: 1 / sqrt(head_dim) as a scalar tensor for broadcasting.
         let scale_val = T::from(1.0 / (self.head_dim as f64).sqrt()).unwrap();
-        let scale = Tensor::from_storage(
-            TensorStorage::cpu(vec![scale_val]),
-            vec![1],
-            false,
-        )?;
+        let scale = Tensor::from_storage(TensorStorage::cpu(vec![scale_val]), vec![1], false)?;
 
         // Process each batch element independently (no batched matmul yet).
         let total_elements = batch * seq_q * self.embed_dim;
@@ -338,7 +334,7 @@ impl<T: Float> MultiheadAttention<T> {
 
             // Collect output data for this batch element.
             let out_data = output.data()?;
-            result_data.extend_from_slice(&out_data);
+            result_data.extend_from_slice(out_data);
         }
 
         Tensor::from_storage(
@@ -472,10 +468,7 @@ impl<T: Float> Module<T> for MultiheadAttention<T> {
 /// Extract a 2-D slice `[seq, dim]` from a 3-D tensor at batch index `b`.
 ///
 /// This creates a new tensor (copies data) since we don't have strided views.
-fn extract_batch_slice<T: Float>(
-    tensor: &Tensor<T>,
-    b: usize,
-) -> FerrotorchResult<Tensor<T>> {
+fn extract_batch_slice<T: Float>(tensor: &Tensor<T>, b: usize) -> FerrotorchResult<Tensor<T>> {
     let shape = tensor.shape();
     let dim1 = shape[1];
     let dim2 = shape[2];
@@ -495,10 +488,7 @@ fn extract_batch_slice<T: Float>(
 ///
 /// Uses the differentiable `expand` primitive so that gradients flow back
 /// to the original bias parameter through `ExpandBackward`.
-fn expand_bias_to_2d<T: Float>(
-    bias: &Tensor<T>,
-    rows: usize,
-) -> FerrotorchResult<Tensor<T>> {
+fn expand_bias_to_2d<T: Float>(bias: &Tensor<T>, rows: usize) -> FerrotorchResult<Tensor<T>> {
     let dim = bias.shape()[0];
     // Reshape [dim] -> [1, dim], then expand to [rows, dim].
     let bias_2d = bias.reshape_t(&[1, dim as isize])?;
@@ -547,21 +537,14 @@ fn expand_scalar_to_2d<T: Float>(
 ) -> FerrotorchResult<Tensor<T>> {
     let val = scalar.data()?[0];
     let data = vec![val; rows * cols];
-    Tensor::from_storage(
-        TensorStorage::cpu(data),
-        vec![rows, cols],
-        false,
-    )
+    Tensor::from_storage(TensorStorage::cpu(data), vec![rows, cols], false)
 }
 
 /// Apply a causal (lower-triangular) mask to attention scores.
 ///
 /// Sets positions where `col > row` to a very large negative value (-1e9)
 /// so that softmax drives them to zero.
-fn apply_causal_mask<T: Float>(
-    scores: &Tensor<T>,
-    seq_len: usize,
-) -> FerrotorchResult<Tensor<T>> {
+fn apply_causal_mask<T: Float>(scores: &Tensor<T>, seq_len: usize) -> FerrotorchResult<Tensor<T>> {
     let neg_inf = T::from(-1e9).unwrap();
     let mut masked = scores.data()?.to_vec();
 
@@ -602,11 +585,7 @@ fn concat_heads<T: Float>(
         }
     }
 
-    Tensor::from_storage(
-        TensorStorage::cpu(result),
-        vec![seq_len, embed_dim],
-        false,
-    )
+    Tensor::from_storage(TensorStorage::cpu(result), vec![seq_len, embed_dim], false)
 }
 
 // ===========================================================================

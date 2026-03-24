@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float};
 use ferrotorch_nn::StateDict;
 use ferrotorch_optim::OptimizerState;
 
@@ -67,10 +67,9 @@ pub fn save_checkpoint<T: Float>(
     let sd_bytes = serialize_state_dict_to_bytes(&checkpoint.model_state)?;
     write_section(&mut file, &sd_bytes)?;
 
-    file.flush()
-        .map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!("flush error: {e}"),
-        })?;
+    file.flush().map_err(|e| FerrotorchError::InvalidArgument {
+        message: format!("flush error: {e}"),
+    })?;
 
     Ok(())
 }
@@ -150,9 +149,12 @@ fn read_section(file: &mut std::fs::File) -> FerrotorchResult<Vec<u8>> {
 fn parse_metadata(s: &str) -> FerrotorchResult<(usize, usize)> {
     let extract = |key: &str| -> FerrotorchResult<usize> {
         let pattern = format!(r#""{}":"#, key);
-        let start = s.find(&pattern).ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!("missing key \"{key}\" in metadata: {s}"),
-        })? + pattern.len();
+        let start = s
+            .find(&pattern)
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("missing key \"{key}\" in metadata: {s}"),
+            })?
+            + pattern.len();
         let rest = &s[start..];
         let end = rest
             .find(|c: char| c == ',' || c == '}')
@@ -227,9 +229,11 @@ fn deserialize_optimizer_state(s: &str) -> FerrotorchResult<OptimizerState> {
         }
 
         // "key":{...}
-        let colon_pos = entry.find(":{").ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!("invalid optimizer state entry: {entry}"),
-        })?;
+        let colon_pos = entry
+            .find(":{")
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("invalid optimizer state entry: {entry}"),
+            })?;
         let key = entry[..colon_pos].trim().trim_matches('"').to_string();
         let value_str = &entry[colon_pos + 1..];
 
@@ -296,31 +300,27 @@ fn parse_inner_opt_state(s: &str) -> FerrotorchResult<HashMap<String, Vec<f64>>>
         }
 
         // "key":[v1,v2,...]
-        let colon_pos =
-            entry
-                .find(":[")
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!("invalid inner state entry: {entry}"),
-                })?;
+        let colon_pos = entry
+            .find(":[")
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("invalid inner state entry: {entry}"),
+            })?;
         let key = entry[..colon_pos].trim().trim_matches('"').to_string();
         let arr_str = &entry[colon_pos + 1..];
 
         // Parse array: [v1,v2,...]
-        let arr_inner = arr_str
-            .trim()
-            .trim_start_matches('[')
-            .trim_end_matches(']');
+        let arr_inner = arr_str.trim().trim_start_matches('[').trim_end_matches(']');
         let values: Vec<f64> = if arr_inner.trim().is_empty() {
             Vec::new()
         } else {
             arr_inner
                 .split(',')
                 .map(|v| {
-                    v.trim().parse::<f64>().map_err(|e| {
-                        FerrotorchError::InvalidArgument {
+                    v.trim()
+                        .parse::<f64>()
+                        .map_err(|e| FerrotorchError::InvalidArgument {
                             message: format!("failed to parse optimizer value \"{v}\": {e}"),
-                        }
-                    })
+                        })
                 })
                 .collect::<FerrotorchResult<Vec<f64>>>()?
         };
@@ -428,7 +428,10 @@ fn deserialize_state_dict_from_bytes<T: Float>(bytes: &[u8]) -> FerrotorchResult
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
                     "tensor \"{}\" requires bytes [{}..{}] but body has {} bytes",
-                    meta.name, meta.byte_offset, end, body.len()
+                    meta.name,
+                    meta.byte_offset,
+                    end,
+                    body.len()
                 ),
             });
         }
@@ -552,9 +555,11 @@ impl AsyncCheckpointer {
     /// Block until the in-flight save completes (if any).
     pub fn wait(&mut self) -> FerrotorchResult<()> {
         if let Some(handle) = self.handle.take() {
-            handle.join().map_err(|_| FerrotorchError::InvalidArgument {
-                message: "async checkpoint thread panicked".into(),
-            })??;
+            handle
+                .join()
+                .map_err(|_| FerrotorchError::InvalidArgument {
+                    message: "async checkpoint thread panicked".into(),
+                })??;
         }
         Ok(())
     }
@@ -588,10 +593,7 @@ mod tests {
             "fc.weight".to_string(),
             make_tensor(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]),
         );
-        model_state.insert(
-            "fc.bias".to_string(),
-            make_tensor(vec![0.5, -0.5], vec![2]),
-        );
+        model_state.insert("fc.bias".to_string(), make_tensor(vec![0.5, -0.5], vec![2]));
 
         let mut optimizer_state: OptimizerState = HashMap::new();
         let mut adam_state = HashMap::new();
@@ -648,7 +650,10 @@ mod tests {
             step: 0,
         };
 
-        let dir = std::env::temp_dir().join(format!("ferrotorch_test_ckpt_empty_opt_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "ferrotorch_test_ckpt_empty_opt_{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("checkpoint.ftc");
 
@@ -688,14 +693,8 @@ mod tests {
         let loaded = deserialize_optimizer_state(&json).unwrap();
 
         assert_eq!(loaded.len(), 2);
-        assert_eq!(
-            loaded["layer1.weight"]["momentum"],
-            vec![1.0, 2.0, 3.0]
-        );
-        assert_eq!(
-            loaded["layer1.weight"]["velocity"],
-            vec![0.1, 0.2, 0.3]
-        );
+        assert_eq!(loaded["layer1.weight"]["momentum"], vec![1.0, 2.0, 3.0]);
+        assert_eq!(loaded["layer1.weight"]["velocity"], vec![0.1, 0.2, 0.3]);
         assert_eq!(loaded["layer1.bias"]["momentum"], vec![4.0, 5.0]);
     }
 

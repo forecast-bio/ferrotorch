@@ -62,11 +62,7 @@ impl<T: Float> GradFn<T> for FftBackward<T> {
             let scale = T::from(fft_n).unwrap();
             let inv_data = inv.data_vec()?;
             let scaled: Vec<T> = inv_data.iter().map(|&v| v * scale).collect();
-            let t = Tensor::from_storage(
-                TensorStorage::cpu(scaled),
-                inv.shape().to_vec(),
-                false,
-            )?;
+            let t = Tensor::from_storage(TensorStorage::cpu(scaled), inv.shape().to_vec(), false)?;
             Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
@@ -115,11 +111,7 @@ impl<T: Float> GradFn<T> for IfftBackward<T> {
             let scale = T::from(1.0).unwrap() / T::from(fft_n).unwrap();
             let fwd_data = fwd.data_vec()?;
             let scaled: Vec<T> = fwd_data.iter().map(|&v| v * scale).collect();
-            let t = Tensor::from_storage(
-                TensorStorage::cpu(scaled),
-                fwd.shape().to_vec(),
-                false,
-            )?;
+            let t = Tensor::from_storage(TensorStorage::cpu(scaled), fwd.shape().to_vec(), false)?;
             Some(if device.is_cuda() { t.to(device)? } else { t })
         } else {
             None
@@ -158,7 +150,11 @@ pub struct RfftBackward<T: Float> {
 
 impl<T: Float> RfftBackward<T> {
     pub fn new(input: Tensor<T>, n: Option<usize>, fft_n: usize) -> Self {
-        Self { input, _n: n, fft_n }
+        Self {
+            input,
+            _n: n,
+            fft_n,
+        }
     }
 }
 
@@ -204,7 +200,11 @@ pub struct IrfftBackward<T: Float> {
 
 impl<T: Float> IrfftBackward<T> {
     pub fn new(input: Tensor<T>, n: Option<usize>, output_n: usize) -> Self {
-        Self { input, _n: n, output_n }
+        Self {
+            input,
+            _n: n,
+            output_n,
+        }
     }
 }
 
@@ -366,10 +366,7 @@ mod tests {
         let input = leaf(&[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &[4, 2]);
         let result = fft_differentiable(&input, None).unwrap();
 
-        let grad_out = no_grad_leaf(
-            &[1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0],
-            &[4, 2],
-        );
+        let grad_out = no_grad_leaf(&[1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0], &[4, 2]);
         let grads = result.grad_fn().unwrap().backward(&grad_out).unwrap();
         assert!(grads[0].is_some());
 
@@ -387,27 +384,17 @@ mod tests {
         // grad_input = fft(grad_output) / n.
         // fft([1,0,0,0]) = [1,1,1,1].
         // grad_input = [1,1,1,1] / 4 = [0.25, 0.25, 0.25, 0.25].
-        let input = leaf(
-            &[1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0],
-            &[4, 2],
-        );
+        let input = leaf(&[1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0], &[4, 2]);
         let result = ifft_differentiable(&input, None).unwrap();
 
-        let grad_out = no_grad_leaf(
-            &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            &[4, 2],
-        );
+        let grad_out = no_grad_leaf(&[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &[4, 2]);
         let grads = result.grad_fn().unwrap().backward(&grad_out).unwrap();
         assert!(grads[0].is_some());
 
         let g = grads[0].as_ref().unwrap();
         let gd = g.data().unwrap();
         // Each complex value should be (0.25, 0.0).
-        assert_close(
-            gd,
-            &[0.25, 0.0, 0.25, 0.0, 0.25, 0.0, 0.25, 0.0],
-            1e-10,
-        );
+        assert_close(gd, &[0.25, 0.0, 0.25, 0.0, 0.25, 0.0, 0.25, 0.0], 1e-10);
     }
 
     #[test]
@@ -430,9 +417,8 @@ mod tests {
     #[test]
     fn no_grad_context_disables_tracking() {
         let input = leaf(&[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &[4, 2]);
-        let result = crate::autograd::no_grad::no_grad(|| {
-            fft_differentiable(&input, None).unwrap()
-        });
+        let result =
+            crate::autograd::no_grad::no_grad(|| fft_differentiable(&input, None).unwrap());
         assert!(result.grad_fn().is_none());
     }
 }

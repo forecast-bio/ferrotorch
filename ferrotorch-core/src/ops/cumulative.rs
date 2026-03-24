@@ -294,7 +294,9 @@ pub fn logcumsumexp_forward<T: Float>(input: &Tensor<T>, dim: i64) -> Ferrotorch
                 // When the running max changes, rescale the accumulator.
                 if m > prev_max && prev_max != neg_inf {
                     #[allow(clippy::assign_op_pattern)]
-                    { acc = acc * (prev_max - m).exp(); }
+                    {
+                        acc = acc * (prev_max - m).exp();
+                    }
                 }
                 acc += (in_data[idx] - m).exp();
                 out[idx] = m + acc.ln();

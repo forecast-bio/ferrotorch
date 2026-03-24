@@ -372,8 +372,7 @@ pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
                     let b_row = j * k;
                     let mut acc = zero;
                     for p in 0..k {
-                        acc +=
-                            *a_data.get_unchecked(a_row + p) * *b_data.get_unchecked(b_row + p);
+                        acc += *a_data.get_unchecked(a_row + p) * *b_data.get_unchecked(b_row + p);
                     }
                     *result.get_unchecked_mut(r_row + j) = acc;
                 }

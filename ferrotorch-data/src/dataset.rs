@@ -35,7 +35,10 @@ pub trait IterableDataset: Send + Sync {
     ///
     /// When used with multiple workers, each worker receives a
     /// `WorkerInfo` to partition the stream.
-    fn iter(&self, worker_info: Option<&WorkerInfo>) -> Box<dyn Iterator<Item = FerrotorchResult<Self::Sample>> + Send + '_>;
+    fn iter(
+        &self,
+        worker_info: Option<&WorkerInfo>,
+    ) -> Box<dyn Iterator<Item = FerrotorchResult<Self::Sample>> + Send + '_>;
 }
 
 /// Information about the current data loading worker.
@@ -72,13 +75,14 @@ impl<S: Send + Sync + Clone + 'static> Dataset for VecDataset<S> {
     }
 
     fn get(&self, index: usize) -> FerrotorchResult<Self::Sample> {
-        self.data.get(index).cloned().ok_or_else(|| {
-            FerrotorchError::IndexOutOfBounds {
+        self.data
+            .get(index)
+            .cloned()
+            .ok_or(FerrotorchError::IndexOutOfBounds {
                 index,
                 axis: 0,
                 size: self.data.len(),
-            }
-        })
+            })
     }
 }
 

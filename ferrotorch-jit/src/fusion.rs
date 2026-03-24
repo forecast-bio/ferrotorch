@@ -140,7 +140,7 @@ impl ReductionKind {
     fn identity_f32_bits(self) -> u32 {
         match self {
             ReductionKind::Sum | ReductionKind::Mean => 0x0000_0000, // 0.0
-            ReductionKind::Prod => 0x3F80_0000,                     // 1.0
+            ReductionKind::Prod => 0x3F80_0000,                      // 1.0
         }
     }
 }
@@ -251,7 +251,10 @@ impl FusedChain {
         validate_identifier(kernel_name)?;
         // Reject unsupported binary ops that require a second input pointer.
         for op in &self.ops {
-            if matches!(op, FusedOp::Add | FusedOp::Sub | FusedOp::Mul | FusedOp::Div) {
+            if matches!(
+                op,
+                FusedOp::Add | FusedOp::Sub | FusedOp::Mul | FusedOp::Div
+            ) {
                 return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
                     message: format!(
                         "generate_ptx: binary op '{}' in unary FusedChain requires a second \
@@ -503,7 +506,10 @@ DONE:
 
         // Reject unsupported binary ops.
         for op in &self.ops {
-            if matches!(op, FusedOp::Add | FusedOp::Sub | FusedOp::Mul | FusedOp::Div) {
+            if matches!(
+                op,
+                FusedOp::Add | FusedOp::Sub | FusedOp::Mul | FusedOp::Div
+            ) {
                 return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
                     message: format!(
                         "generate_c: binary op '{}' in unary FusedChain requires a \
@@ -536,12 +542,16 @@ DONE:
                     // Tanh-based GELU approximation (matches all backends).
                     body_lines.push("        {".into());
                     body_lines.push("            float x3 = val * val * val;".into());
-                    body_lines.push("            float inner = 0.7978845608f * (val + 0.044715f * x3);".into());
+                    body_lines.push(
+                        "            float inner = 0.7978845608f * (val + 0.044715f * x3);".into(),
+                    );
                     body_lines.push("            val = val * 0.5f * (1.0f + tanhf(inner));".into());
                     body_lines.push("        }".into());
                 }
                 FusedOp::Silu => {
-                    body_lines.push("        { float s = 1.0f / (1.0f + expf(-val)); val = val * s; }".into());
+                    body_lines.push(
+                        "        { float s = 1.0f / (1.0f + expf(-val)); val = val * s; }".into(),
+                    );
                 }
                 FusedOp::Sqrt => {
                     body_lines.push("        val = sqrtf(val);".into());
@@ -595,10 +605,7 @@ void {fn_name}(const float* __restrict__ in, float* __restrict__ out, int n) {{
 /// SIMD vectorization without data races.
 ///
 /// For [`ReductionKind::Mean`], the sum is divided by `n` after the loop.
-pub fn generate_reduction_c(
-    kind: ReductionKind,
-    fn_name: &str,
-) -> FerrotorchResult<String> {
+pub fn generate_reduction_c(kind: ReductionKind, fn_name: &str) -> FerrotorchResult<String> {
     validate_identifier(fn_name)?;
 
     let (identity, omp_clause, accumulate_expr, finalize) = match kind {
@@ -661,10 +668,7 @@ impl Default for FusedChain {
 /// # Errors
 ///
 /// Returns an error if `kernel_name` is not a valid identifier.
-pub fn generate_reduction_ptx(
-    kind: ReductionKind,
-    kernel_name: &str,
-) -> FerrotorchResult<String> {
+pub fn generate_reduction_ptx(kind: ReductionKind, kernel_name: &str) -> FerrotorchResult<String> {
     validate_identifier(kernel_name)?;
 
     let identity_bits = kind.identity_f32_bits();
@@ -1062,17 +1066,10 @@ pub fn estimate_matmul_dims(
 /// Currently executes on the CPU. When a CUDA device is available the chain
 /// could be dispatched via the PTX kernel returned by
 /// [`FusedChain::generate_ptx`].
-pub fn apply_fused<T: Float>(
-    input: &Tensor<T>,
-    chain: &FusedChain,
-) -> FerrotorchResult<Tensor<T>> {
+pub fn apply_fused<T: Float>(input: &Tensor<T>, chain: &FusedChain) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
     let result = chain.execute_cpu(data)?;
-    Tensor::from_storage(
-        TensorStorage::cpu(result),
-        input.shape().to_vec(),
-        false,
-    )
+    Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false)
 }
 
 // ---------------------------------------------------------------------------
@@ -1152,10 +1149,7 @@ mod tests {
         let result = chain.execute_cpu(&input).unwrap();
         assert_eq!(result.len(), expected.len());
         for (got, exp) in result.iter().zip(&expected) {
-            assert!(
-                (got - exp).abs() < 1e-6,
-                "got {got}, expected {exp}",
-            );
+            assert!((got - exp).abs() < 1e-6, "got {got}, expected {exp}",);
         }
     }
 
@@ -1363,10 +1357,7 @@ mod tests {
 
         assert_eq!(result_data.len(), expected.len());
         for (got, exp) in result_data.iter().zip(&expected) {
-            assert!(
-                (got - exp).abs() < 1e-6,
-                "got {got}, expected {exp}",
-            );
+            assert!((got - exp).abs() < 1e-6, "got {got}, expected {exp}",);
         }
         assert_eq!(result.shape(), &[5]);
     }

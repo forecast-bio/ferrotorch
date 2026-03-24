@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_nn::StateDict;
 
 // ---------------------------------------------------------------------------
@@ -41,7 +41,10 @@ pub enum PickleValue {
     List(Vec<PickleValue>),
     Dict(Vec<(PickleValue, PickleValue)>),
     /// `GLOBAL module name` -- a Python callable / class reference.
-    Global { module: String, name: String },
+    Global {
+        module: String,
+        name: String,
+    },
     /// `REDUCE` -- `callable(*args)`.
     Reduce {
         callable: Box<PickleValue>,
@@ -193,12 +196,8 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 if pos + 4 > data.len() {
                     return Err(pickle_err("unexpected end of pickle data (LONG_BINPUT)"));
                 }
-                let idx = u32::from_le_bytes([
-                    data[pos],
-                    data[pos + 1],
-                    data[pos + 2],
-                    data[pos + 3],
-                ]);
+                let idx =
+                    u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
                 pos += 4;
                 if let Some(top) = stack.last() {
                     memo.insert(idx, top.clone());
@@ -230,18 +229,12 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 if pos + 4 > data.len() {
                     return Err(pickle_err("unexpected end of pickle data (LONG_BINGET)"));
                 }
-                let idx = u32::from_le_bytes([
-                    data[pos],
-                    data[pos + 1],
-                    data[pos + 2],
-                    data[pos + 3],
-                ]);
+                let idx =
+                    u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
                 pos += 4;
                 let val = memo
                     .get(&idx)
-                    .ok_or_else(|| {
-                        pickle_err(&format!("LONG_BINGET: memo index {idx} not found"))
-                    })?
+                    .ok_or_else(|| pickle_err(&format!("LONG_BINGET: memo index {idx} not found")))?
                     .clone();
                 stack.push(val);
             }
@@ -289,12 +282,9 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 if pos + 4 > data.len() {
                     return Err(pickle_err("unexpected end (BINUNICODE len)"));
                 }
-                let len = u32::from_le_bytes([
-                    data[pos],
-                    data[pos + 1],
-                    data[pos + 2],
-                    data[pos + 3],
-                ]) as usize;
+                let len =
+                    u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]])
+                        as usize;
                 pos += 4;
                 if pos + len > data.len() {
                     return Err(pickle_err("unexpected end (BINUNICODE data)"));
@@ -323,12 +313,9 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 if pos + 4 > data.len() {
                     return Err(pickle_err("unexpected end (BINSTRING len)"));
                 }
-                let len = i32::from_le_bytes([
-                    data[pos],
-                    data[pos + 1],
-                    data[pos + 2],
-                    data[pos + 3],
-                ]) as usize;
+                let len =
+                    i32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]])
+                        as usize;
                 pos += 4;
                 if pos + len > data.len() {
                     return Err(pickle_err("unexpected end (BINSTRING data)"));
@@ -356,12 +343,9 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 if pos + 4 > data.len() {
                     return Err(pickle_err("unexpected end (BINBYTES len)"));
                 }
-                let len = u32::from_le_bytes([
-                    data[pos],
-                    data[pos + 1],
-                    data[pos + 2],
-                    data[pos + 3],
-                ]) as usize;
+                let len =
+                    u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]])
+                        as usize;
                 pos += 4;
                 if pos + len > data.len() {
                     return Err(pickle_err("unexpected end (BINBYTES data)"));
@@ -393,12 +377,8 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 if pos + 4 > data.len() {
                     return Err(pickle_err("unexpected end (BININT)"));
                 }
-                let v = i32::from_le_bytes([
-                    data[pos],
-                    data[pos + 1],
-                    data[pos + 2],
-                    data[pos + 3],
-                ]);
+                let v =
+                    i32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
                 pos += 4;
                 stack.push(PickleValue::Int(v as i64));
             }
@@ -839,18 +819,15 @@ fn dtype_element_size(dtype: &str) -> usize {
 ///
 /// Returns an error if the file is not a valid ZIP, the pickle cannot be
 /// parsed, or a tensor dtype cannot be converted to `T`.
-pub fn load_pytorch_state_dict<T: Float>(
-    path: impl AsRef<Path>,
-) -> FerrotorchResult<StateDict<T>> {
+pub fn load_pytorch_state_dict<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<StateDict<T>> {
     let path = path.as_ref();
     let file = std::fs::File::open(path).map_err(|e| FerrotorchError::InvalidArgument {
         message: format!("failed to open pytorch file {}: {e}", path.display()),
     })?;
 
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!("failed to read ZIP archive {}: {e}", path.display()),
-        })?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| FerrotorchError::InvalidArgument {
+        message: format!("failed to read ZIP archive {}: {e}", path.display()),
+    })?;
 
     // Find the pickle file.
     let pkl_name = find_pkl_name(&mut archive)?;
@@ -934,18 +911,12 @@ fn find_pkl_name(archive: &mut zip::ZipArchive<std::fs::File>) -> FerrotorchResu
     }
 
     Err(FerrotorchError::InvalidArgument {
-        message: format!(
-            "no .pkl file found in pytorch archive. Files: {:?}",
-            names
-        ),
+        message: format!("no .pkl file found in pytorch archive. Files: {:?}", names),
     })
 }
 
 /// Determine the prefix path for data blobs.
-fn find_data_prefix(
-    archive: &mut zip::ZipArchive<std::fs::File>,
-    infos: &[TensorInfo],
-) -> String {
+fn find_data_prefix(archive: &mut zip::ZipArchive<std::fs::File>, infos: &[TensorInfo]) -> String {
     if infos.is_empty() {
         return "archive/data/".to_string();
     }
@@ -971,12 +942,11 @@ fn read_zip_entry(
     archive: &mut zip::ZipArchive<std::fs::File>,
     name: &str,
 ) -> FerrotorchResult<Vec<u8>> {
-    let mut entry =
-        archive
-            .by_name(name)
-            .map_err(|e| FerrotorchError::InvalidArgument {
-                message: format!("ZIP entry \"{name}\" not found: {e}"),
-            })?;
+    let mut entry = archive
+        .by_name(name)
+        .map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("ZIP entry \"{name}\" not found: {e}"),
+        })?;
 
     let mut buf = Vec::with_capacity(entry.size() as usize);
     entry
@@ -1416,7 +1386,9 @@ mod tests {
 
     #[test]
     fn test_pickle_list_append() {
-        let data = [0x80, 0x02, EMPTY_LIST, BININT1, 1, APPEND, BININT1, 2, APPEND, STOP];
+        let data = [
+            0x80, 0x02, EMPTY_LIST, BININT1, 1, APPEND, BININT1, 2, APPEND, STOP,
+        ];
         match parse_pickle(&data).unwrap() {
             PickleValue::List(items) => assert_eq!(items.len(), 2),
             other => panic!("expected List, got: {:?}", other),
@@ -1425,7 +1397,9 @@ mod tests {
 
     #[test]
     fn test_pickle_list_appends() {
-        let data = [0x80, 0x02, EMPTY_LIST, MARK, BININT1, 1, BININT1, 2, APPENDS, STOP];
+        let data = [
+            0x80, 0x02, EMPTY_LIST, MARK, BININT1, 1, BININT1, 2, APPENDS, STOP,
+        ];
         match parse_pickle(&data).unwrap() {
             PickleValue::List(items) => assert_eq!(items.len(), 2),
             other => panic!("expected List, got: {:?}", other),

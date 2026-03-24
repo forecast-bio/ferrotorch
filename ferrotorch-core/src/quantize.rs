@@ -919,7 +919,8 @@ impl FakeQuantize {
 
         // Calculate or use cached qparams.
         // When observer is disabled and we have cached params, skip recalculation.
-        let qparams = if let Some(cached) = self.qparams.as_ref().filter(|_| !self.observer_enabled) {
+        let qparams = if let Some(cached) = self.qparams.as_ref().filter(|_| !self.observer_enabled)
+        {
             cached.clone()
         } else {
             let qp = self.observer.calculate_qparams(self.dtype);

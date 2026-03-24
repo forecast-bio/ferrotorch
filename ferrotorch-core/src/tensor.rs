@@ -361,9 +361,13 @@ impl<T: Float> Tensor<T> {
     where
         F: Fn(&Tensor<T>) -> Option<Tensor<T>> + Send + Sync + 'static,
     {
-        let mut guard = self.inner.hooks.lock().map_err(|e| FerrotorchError::LockPoisoned {
-            message: format!("hook storage mutex: {e}"),
-        })?;
+        let mut guard = self
+            .inner
+            .hooks
+            .lock()
+            .map_err(|e| FerrotorchError::LockPoisoned {
+                message: format!("hook storage mutex: {e}"),
+            })?;
         Ok(guard.add_grad_hook(func))
     }
 
@@ -380,9 +384,13 @@ impl<T: Float> Tensor<T> {
     where
         F: Fn(&Tensor<T>) + Send + Sync + 'static,
     {
-        let mut guard = self.inner.hooks.lock().map_err(|e| FerrotorchError::LockPoisoned {
-            message: format!("hook storage mutex: {e}"),
-        })?;
+        let mut guard = self
+            .inner
+            .hooks
+            .lock()
+            .map_err(|e| FerrotorchError::LockPoisoned {
+                message: format!("hook storage mutex: {e}"),
+            })?;
         Ok(guard.add_post_accumulate_hook(func))
     }
 
@@ -393,9 +401,13 @@ impl<T: Float> Tensor<T> {
         &self,
         handle: crate::autograd::hooks::HookHandle,
     ) -> FerrotorchResult<bool> {
-        let mut guard = self.inner.hooks.lock().map_err(|e| FerrotorchError::LockPoisoned {
-            message: format!("hook storage mutex: {e}"),
-        })?;
+        let mut guard = self
+            .inner
+            .hooks
+            .lock()
+            .map_err(|e| FerrotorchError::LockPoisoned {
+                message: format!("hook storage mutex: {e}"),
+            })?;
         Ok(guard.remove(handle))
     }
 

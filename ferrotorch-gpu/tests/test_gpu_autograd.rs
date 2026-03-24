@@ -19,7 +19,7 @@
 
 #![cfg(feature = "cuda")]
 
-use ferrotorch_core::{backward, Device, Tensor, TensorStorage};
+use ferrotorch_core::{Device, Tensor, TensorStorage, backward};
 use ferrotorch_gpu::init_cuda_backend;
 
 // ---------------------------------------------------------------------------
@@ -36,39 +36,38 @@ fn ensure_cuda() {
 
 /// Create a leaf tensor on GPU with requires_grad.
 fn gpu_leaf(data: &[f32], shape: &[usize]) -> Tensor<f32> {
-    let t = Tensor::from_storage(
-        TensorStorage::cpu(data.to_vec()),
-        shape.to_vec(),
-        true,
-    )
-    .expect("cpu tensor");
+    let t = Tensor::from_storage(TensorStorage::cpu(data.to_vec()), shape.to_vec(), true)
+        .expect("cpu tensor");
     t.to(Device::Cuda(0)).expect("to GPU")
 }
 
 /// Create a constant tensor on GPU (no grad).
 fn gpu_const(data: &[f32], shape: &[usize]) -> Tensor<f32> {
-    let t = Tensor::from_storage(
-        TensorStorage::cpu(data.to_vec()),
-        shape.to_vec(),
-        false,
-    )
-    .expect("cpu tensor");
+    let t = Tensor::from_storage(TensorStorage::cpu(data.to_vec()), shape.to_vec(), false)
+        .expect("cpu tensor");
     t.to(Device::Cuda(0)).expect("to GPU")
 }
 
 /// Pull grad off a (possibly GPU) tensor and return it as a CPU f32 vec.
 fn grad_data(t: &Tensor<f32>) -> Vec<f32> {
-    let g = t
-        .grad()
-        .expect("grad access")
-        .expect("grad must be Some");
-    let cpu = if g.is_cuda() { g.cpu().expect("cpu") } else { g };
+    let g = t.grad().expect("grad access").expect("grad must be Some");
+    let cpu = if g.is_cuda() {
+        g.cpu().expect("cpu")
+    } else {
+        g
+    };
     cpu.data().expect("data").to_vec()
 }
 
 /// Loose float comparison.
 fn approx_eq(a: &[f32], b: &[f32], tol: f32) {
-    assert_eq!(a.len(), b.len(), "length mismatch: {} vs {}", a.len(), b.len());
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "length mismatch: {} vs {}",
+        a.len(),
+        b.len()
+    );
     for (i, (x, y)) in a.iter().zip(b).enumerate() {
         assert!(
             (x - y).abs() < tol,
@@ -173,8 +172,14 @@ fn gpu_squeeze_preserves_graph() {
 
     assert_eq!(squeezed.shape(), &[3]);
     assert!(squeezed.is_cuda(), "squeeze output must stay on GPU");
-    assert!(squeezed.grad_fn().is_some(), "squeeze must attach grad_fn on GPU");
-    assert!(!squeezed.is_leaf(), "squeeze output must be non-leaf on GPU");
+    assert!(
+        squeezed.grad_fn().is_some(),
+        "squeeze must attach grad_fn on GPU"
+    );
+    assert!(
+        !squeezed.is_leaf(),
+        "squeeze output must be non-leaf on GPU"
+    );
 }
 
 /// Unsqueeze on a GPU tensor must attach a grad_fn and remain non-leaf.
@@ -189,8 +194,14 @@ fn gpu_unsqueeze_preserves_graph() {
 
     assert_eq!(unsqueezed.shape(), &[1, 3]);
     assert!(unsqueezed.is_cuda(), "unsqueeze output must stay on GPU");
-    assert!(unsqueezed.grad_fn().is_some(), "unsqueeze must attach grad_fn on GPU");
-    assert!(!unsqueezed.is_leaf(), "unsqueeze output must be non-leaf on GPU");
+    assert!(
+        unsqueezed.grad_fn().is_some(),
+        "unsqueeze must attach grad_fn on GPU"
+    );
+    assert!(
+        !unsqueezed.is_leaf(),
+        "unsqueeze output must be non-leaf on GPU"
+    );
 }
 
 /// Flatten on a GPU tensor must attach a grad_fn and remain non-leaf.
@@ -205,7 +216,10 @@ fn gpu_flatten_preserves_graph() {
 
     assert_eq!(flat.shape(), &[6]);
     assert!(flat.is_cuda(), "flatten output must stay on GPU");
-    assert!(flat.grad_fn().is_some(), "flatten must attach grad_fn on GPU");
+    assert!(
+        flat.grad_fn().is_some(),
+        "flatten must attach grad_fn on GPU"
+    );
     assert!(!flat.is_leaf(), "flatten output must be non-leaf on GPU");
 }
 
@@ -273,7 +287,10 @@ fn gpu_ff_goodness_pattern() {
     let row_sums = scaled.mm(&ones).expect("mm"); // [3, 1]
     let squeezed = row_sums.squeeze_t(1).expect("squeeze"); // [3]
 
-    assert!(squeezed.grad_fn().is_some(), "squeeze must preserve graph on GPU");
+    assert!(
+        squeezed.grad_fn().is_some(),
+        "squeeze must preserve graph on GPU"
+    );
 
     let loss = squeezed.sum_all().expect("sum");
     backward(&loss).expect("backward");

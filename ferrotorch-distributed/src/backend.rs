@@ -107,10 +107,9 @@ impl TcpBackend {
 
             // Accept connections from ranks 1..world_size-1.
             for _ in 1..world_size {
-                let (mut stream, _addr) =
-                    listener.accept().map_err(|e| DistributedError::Io {
-                        message: format!("rank 0 accept: {e}"),
-                    })?;
+                let (mut stream, _addr) = listener.accept().map_err(|e| DistributedError::Io {
+                    message: format!("rank 0 accept: {e}"),
+                })?;
                 // First 8 bytes: the connecting rank as little-endian u64.
                 let mut rank_buf = [0u8; 8];
                 stream
@@ -130,10 +129,9 @@ impl TcpBackend {
             }
         } else {
             // Non-zero rank: connect to rank 0 and announce our rank.
-            let mut stream =
-                TcpStream::connect(master_addr).map_err(|e| DistributedError::Io {
-                    message: format!("rank {rank} connect to {master_addr}: {e}"),
-                })?;
+            let mut stream = TcpStream::connect(master_addr).map_err(|e| DistributedError::Io {
+                message: format!("rank {rank} connect to {master_addr}: {e}"),
+            })?;
             stream
                 .write_all(&(rank as u64).to_le_bytes())
                 .map_err(|e| DistributedError::Io {
@@ -200,11 +198,9 @@ impl Backend for TcpBackend {
             .as_ref()
             .ok_or(DistributedError::NoConnection { rank: dst_rank })?;
 
-        let mut stream = conn
-            .lock()
-            .map_err(|e| DistributedError::LockPoisoned {
-                message: format!("send to rank {dst_rank}: {e}"),
-            })?;
+        let mut stream = conn.lock().map_err(|e| DistributedError::LockPoisoned {
+            message: format!("send to rank {dst_rank}: {e}"),
+        })?;
 
         // Length-prefixed protocol: send length (8 bytes LE) then payload.
         let len_bytes = (data.len() as u64).to_le_bytes();
@@ -213,11 +209,9 @@ impl Backend for TcpBackend {
             .map_err(|e| DistributedError::Io {
                 message: format!("send len to rank {dst_rank}: {e}"),
             })?;
-        stream
-            .write_all(data)
-            .map_err(|e| DistributedError::Io {
-                message: format!("send data to rank {dst_rank}: {e}"),
-            })?;
+        stream.write_all(data).map_err(|e| DistributedError::Io {
+            message: format!("send data to rank {dst_rank}: {e}"),
+        })?;
         stream.flush().map_err(|e| DistributedError::Io {
             message: format!("flush to rank {dst_rank}: {e}"),
         })?;
@@ -241,11 +235,9 @@ impl Backend for TcpBackend {
             .as_ref()
             .ok_or(DistributedError::NoConnection { rank: src_rank })?;
 
-        let mut stream = conn
-            .lock()
-            .map_err(|e| DistributedError::LockPoisoned {
-                message: format!("recv from rank {src_rank}: {e}"),
-            })?;
+        let mut stream = conn.lock().map_err(|e| DistributedError::LockPoisoned {
+            message: format!("recv from rank {src_rank}: {e}"),
+        })?;
 
         // Read length prefix.
         let mut len_bytes = [0u8; 8];
@@ -264,11 +256,9 @@ impl Backend for TcpBackend {
             .into());
         }
 
-        stream
-            .read_exact(dst)
-            .map_err(|e| DistributedError::Io {
-                message: format!("recv data from rank {src_rank}: {e}"),
-            })?;
+        stream.read_exact(dst).map_err(|e| DistributedError::Io {
+            message: format!("recv data from rank {src_rank}: {e}"),
+        })?;
 
         Ok(())
     }
@@ -294,11 +284,9 @@ impl Backend for TcpBackend {
             .as_ref()
             .ok_or(DistributedError::NoConnection { rank: src_rank })?;
 
-        let mut stream = conn
-            .lock()
-            .map_err(|e| DistributedError::LockPoisoned {
-                message: format!("recv_timeout from rank {src_rank}: {e}"),
-            })?;
+        let mut stream = conn.lock().map_err(|e| DistributedError::LockPoisoned {
+            message: format!("recv_timeout from rank {src_rank}: {e}"),
+        })?;
 
         // Set the read timeout for this operation.
         stream
@@ -449,12 +437,11 @@ impl Backend for SimulatedBackend {
         }
 
         // channels[self.rank][dst_rank].sender
-        let tx = self.channels[self.rank][dst_rank]
-            .0
-            .lock()
-            .map_err(|e| DistributedError::LockPoisoned {
+        let tx = self.channels[self.rank][dst_rank].0.lock().map_err(|e| {
+            DistributedError::LockPoisoned {
                 message: format!("send channel lock rank {} -> {dst_rank}: {e}", self.rank),
-            })?;
+            }
+        })?;
 
         tx.send(data.to_vec())
             .map_err(|e| DistributedError::ChannelClosed {
@@ -474,18 +461,15 @@ impl Backend for SimulatedBackend {
         }
 
         // channels[src_rank][self.rank].receiver
-        let rx = self.channels[src_rank][self.rank]
-            .1
-            .lock()
-            .map_err(|e| DistributedError::LockPoisoned {
+        let rx = self.channels[src_rank][self.rank].1.lock().map_err(|e| {
+            DistributedError::LockPoisoned {
                 message: format!("recv channel lock rank {src_rank} -> {}: {e}", self.rank),
-            })?;
+            }
+        })?;
 
-        let data = rx
-            .recv()
-            .map_err(|e| DistributedError::ChannelClosed {
-                message: format!("recv rank {src_rank} -> {}: {e}", self.rank),
-            })?;
+        let data = rx.recv().map_err(|e| DistributedError::ChannelClosed {
+            message: format!("recv rank {src_rank} -> {}: {e}", self.rank),
+        })?;
 
         if data.len() != dst.len() {
             return Err(DistributedError::SizeMismatch {
@@ -513,22 +497,24 @@ impl Backend for SimulatedBackend {
             .into());
         }
 
-        let rx = self.channels[src_rank][self.rank]
-            .1
-            .lock()
-            .map_err(|e| DistributedError::LockPoisoned {
+        let rx = self.channels[src_rank][self.rank].1.lock().map_err(|e| {
+            DistributedError::LockPoisoned {
                 message: format!(
                     "recv_timeout channel lock rank {src_rank} -> {}: {e}",
                     self.rank
                 ),
-            })?;
+            }
+        })?;
 
         let data = rx.recv_timeout(timeout).map_err(|e| match e {
             mpsc::RecvTimeoutError::Timeout => DistributedError::Timeout {
                 seconds: timeout.as_secs(),
             },
             mpsc::RecvTimeoutError::Disconnected => DistributedError::ChannelClosed {
-                message: format!("recv_timeout rank {src_rank} -> {}: disconnected", self.rank),
+                message: format!(
+                    "recv_timeout rank {src_rank} -> {}: disconnected",
+                    self.rank
+                ),
             },
         })?;
 

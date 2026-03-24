@@ -67,7 +67,9 @@ fn emit_rust_stmt(out: &mut String, stmt: &LoopIR, indent: usize) {
 
             // Add SIMD-friendly comment for inner loops
             if body.iter().all(|s| !matches!(s, LoopIR::Loop { .. })) {
-                out.push_str(&format!("{pad}// SIMD: sequential access, no dependencies\n"));
+                out.push_str(&format!(
+                    "{pad}// SIMD: sequential access, no dependencies\n"
+                ));
             }
 
             // Add parallelism hint for large outer loops
@@ -194,7 +196,10 @@ fn emit_rust_expr(expr: &Expr) -> String {
             let buf = rust_buffer_access(buffer);
             format!("{buf}[{idx} as usize]")
         }
-        Expr::Cast { target_type, operand } => {
+        Expr::Cast {
+            target_type,
+            operand,
+        } => {
             let inner = emit_rust_expr(operand);
             format!("({inner} as {target_type})")
         }
@@ -256,11 +261,7 @@ impl CpuCodegen {
     /// The function uses `restrict` pointers to enable alias analysis,
     /// `#pragma omp simd` on inner loops, and `#pragma omp parallel for`
     /// on outer loops above a size threshold.
-    pub fn generate_c_source(
-        loops: &[LoopIR],
-        fn_name: &str,
-        num_inputs: usize,
-    ) -> String {
+    pub fn generate_c_source(loops: &[LoopIR], fn_name: &str, num_inputs: usize) -> String {
         let mut out = String::new();
 
         out.push_str("#include <math.h>\n");
@@ -426,7 +427,10 @@ fn emit_c_expr(expr: &Expr) -> String {
             let buf = c_buffer_name(buffer);
             format!("{buf}[{idx}]")
         }
-        Expr::Cast { target_type, operand } => {
+        Expr::Cast {
+            target_type,
+            operand,
+        } => {
             let inner = emit_c_expr(operand);
             format!("(({target_type}){inner})")
         }
@@ -563,11 +567,7 @@ mod tests {
     #[test]
     fn test_rust_if_statement() {
         let loops = vec![LoopIR::If {
-            condition: Expr::bin(
-                BinOpKind::Mod,
-                Expr::var("i"),
-                Expr::int(2),
-            ),
+            condition: Expr::bin(BinOpKind::Mod, Expr::var("i"), Expr::int(2)),
             then_body: vec![LoopIR::Store {
                 buffer: "out".into(),
                 index: Expr::var("i"),

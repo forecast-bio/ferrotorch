@@ -12,21 +12,18 @@ pub mod hooks;
 pub mod no_grad;
 
 pub use autocast::{
-    autocast, autocast_dtype, is_autocast_debug, is_autocast_enabled, set_autocast_debug,
-    AutocastDtype,
+    AutocastDtype, autocast, autocast_dtype, is_autocast_debug, is_autocast_enabled,
+    set_autocast_debug,
 };
 pub use autocast_ops::{
-    autocast_category, autocast_guard, autocast_log, drain_autocast_events,
-    should_cast_to_reduced, should_keep_full_precision, AutocastCategory, AutocastEvent,
+    AutocastCategory, AutocastEvent, autocast_category, autocast_guard, autocast_log,
+    drain_autocast_events, should_cast_to_reduced, should_keep_full_precision,
 };
 pub use cond_scan::{cond, scan, validate_cond_branches};
 pub use fixed_point::fixed_point;
 pub use forward_ad::{
-    jacfwd, jvp_exact, DualTensor,
-    dual_add, dual_sub, dual_mul, dual_div, dual_neg,
-    dual_matmul,
-    dual_relu, dual_sigmoid, dual_tanh,
-    dual_exp, dual_log, dual_sin, dual_cos,
+    DualTensor, dual_add, dual_cos, dual_div, dual_exp, dual_log, dual_matmul, dual_mul, dual_neg,
+    dual_relu, dual_sigmoid, dual_sin, dual_sub, dual_tanh, jacfwd, jvp_exact,
 };
 pub use grad_penalty::{grad_norm, gradient_penalty, jvp, vjp};
 pub use graph::{backward, backward_with_grad};

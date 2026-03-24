@@ -67,10 +67,7 @@ impl HubCache {
     /// Creates the cache directory if it does not exist.
     pub fn store(&self, name: &str, data: &[u8]) -> FerrotorchResult<()> {
         std::fs::create_dir_all(&self.cache_dir).map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!(
-                "failed to create cache directory {:?}: {e}",
-                self.cache_dir
-            ),
+            message: format!("failed to create cache directory {:?}: {e}", self.cache_dir),
         })?;
         let path = self.path(name);
         std::fs::write(&path, data).map_err(|e| FerrotorchError::InvalidArgument {
@@ -94,10 +91,7 @@ impl HubCache {
         }
         let entries =
             std::fs::read_dir(&self.cache_dir).map_err(|e| FerrotorchError::InvalidArgument {
-                message: format!(
-                    "failed to read cache directory {:?}: {e}",
-                    self.cache_dir
-                ),
+                message: format!("failed to read cache directory {:?}: {e}", self.cache_dir),
             })?;
         for entry in entries {
             let entry = entry.map_err(|e| FerrotorchError::InvalidArgument {
@@ -185,10 +179,7 @@ mod tests {
             format: crate::registry::WeightsFormat::FerrotorchStateDict,
             num_parameters: 0,
         };
-        assert_eq!(
-            cache.path_for_model(&info),
-            dir.path().join("mymodel.fts")
-        );
+        assert_eq!(cache.path_for_model(&info), dir.path().join("mymodel.fts"));
     }
 
     #[test]

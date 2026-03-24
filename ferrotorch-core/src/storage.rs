@@ -90,7 +90,9 @@ impl<T: Element> TensorStorage<T> {
     pub fn as_slice(&self) -> &[T] {
         match &self.data {
             StorageBuffer::Cpu(v) => v.as_slice(),
-            StorageBuffer::Gpu(_) => panic!("cannot access GPU tensor as CPU slice -- call .cpu() first"),
+            StorageBuffer::Gpu(_) => {
+                panic!("cannot access GPU tensor as CPU slice -- call .cpu() first")
+            }
         }
     }
 
@@ -98,7 +100,9 @@ impl<T: Element> TensorStorage<T> {
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         match &mut self.data {
             StorageBuffer::Cpu(v) => v.as_mut_slice(),
-            StorageBuffer::Gpu(_) => panic!("cannot mutate GPU tensor as CPU slice -- call .cpu() first"),
+            StorageBuffer::Gpu(_) => {
+                panic!("cannot mutate GPU tensor as CPU slice -- call .cpu() first")
+            }
         }
     }
 

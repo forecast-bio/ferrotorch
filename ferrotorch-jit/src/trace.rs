@@ -269,11 +269,12 @@ where
     }
 
     // Step 6: Mark the graph output.
-    let output_ir = *tensor_to_ir.get(&output.id()).ok_or_else(|| {
-        FerrotorchError::InvalidArgument {
-            message: "traced output tensor not found in IR value map".into(),
-        }
-    })?;
+    let output_ir =
+        *tensor_to_ir
+            .get(&output.id())
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: "traced output tensor not found in IR value map".into(),
+            })?;
     graph.set_outputs(vec![output_ir]);
 
     Ok(graph)
@@ -402,12 +403,8 @@ mod tests {
 
     #[test]
     fn trace_no_grad_fn_returns_error() {
-        let x = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32, 2.0, 3.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let x = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32, 2.0, 3.0]), vec![3], false)
+            .unwrap();
 
         let result = trace(
             |inputs: &[Tensor<f32>]| -> FerrotorchResult<Tensor<f32>> {

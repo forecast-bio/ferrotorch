@@ -11,9 +11,9 @@ use cudarc::cublas::CudaBlas;
 #[cfg(feature = "cuda")]
 use cudarc::driver::{CudaContext, CudaStream};
 
-use crate::error::GpuResult;
 #[cfg(not(feature = "cuda"))]
 use crate::error::GpuError;
+use crate::error::GpuResult;
 
 /// Handle to a single CUDA GPU device.
 ///
@@ -35,7 +35,12 @@ impl GpuDevice {
         let ctx = CudaContext::new(ordinal)?;
         let stream = ctx.default_stream();
         let blas = CudaBlas::new(stream.clone())?;
-        Ok(Self { ctx, stream, blas, ordinal })
+        Ok(Self {
+            ctx,
+            stream,
+            blas,
+            ordinal,
+        })
     }
 
     /// Create a `GpuDevice` with a non-blocking stream forked from the
@@ -53,24 +58,32 @@ impl GpuDevice {
     }
 
     #[inline]
-    pub fn context(&self) -> &Arc<CudaContext> { &self.ctx }
+    pub fn context(&self) -> &Arc<CudaContext> {
+        &self.ctx
+    }
 
     #[inline]
-    pub fn stream(&self) -> &Arc<CudaStream> { &self.stream }
+    pub fn stream(&self) -> &Arc<CudaStream> {
+        &self.stream
+    }
 
     /// The cached cuBLAS handle — reused for all matmul/bmm operations.
     #[inline]
-    pub fn blas(&self) -> &CudaBlas { &self.blas }
+    pub fn blas(&self) -> &CudaBlas {
+        &self.blas
+    }
 
     #[inline]
-    pub fn ordinal(&self) -> usize { self.ordinal }
+    pub fn ordinal(&self) -> usize {
+        self.ordinal
+    }
 }
 
 #[cfg(feature = "cuda")]
 impl Clone for GpuDevice {
     fn clone(&self) -> Self {
-        let blas = CudaBlas::new(self.stream.clone())
-            .expect("CudaBlas::new failed in GpuDevice::clone");
+        let blas =
+            CudaBlas::new(self.stream.clone()).expect("CudaBlas::new failed in GpuDevice::clone");
         Self {
             ctx: Arc::clone(&self.ctx),
             stream: Arc::clone(&self.stream),

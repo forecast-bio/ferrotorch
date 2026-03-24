@@ -15,11 +15,9 @@
 
 use std::sync::Arc;
 
-use ferrotorch_core::{from_vec, FerrotorchResult};
+use ferrotorch_core::{FerrotorchResult, from_vec};
 use ferrotorch_data::DataLoader;
-use ferrotorch_nn::{
-    CrossEntropyLoss, Linear, Module, Parameter, ReLU, Reduction, Sequential,
-};
+use ferrotorch_nn::{CrossEntropyLoss, Linear, Module, Parameter, ReLU, Reduction, Sequential};
 use ferrotorch_optim::{Adam, AdamConfig, Optimizer};
 use ferrotorch_vision::{Mnist, Split};
 
@@ -46,7 +44,11 @@ fn main() -> FerrotorchResult<()> {
 
     let num_params: usize = model.parameters().iter().map(|p| p.numel()).sum();
     println!("Model: 3-layer MLP (784 -> 128 -> 64 -> 10)");
-    println!("Parameters: {} ({} total elements)", model.parameters().len(), num_params);
+    println!(
+        "Parameters: {} ({} total elements)",
+        model.parameters().len(),
+        num_params
+    );
     println!();
 
     // ── 2. Create synthetic dataset and data loader ────────────────
@@ -61,7 +63,11 @@ fn main() -> FerrotorchResult<()> {
         .seed(42);
 
     println!("Dataset: Synthetic MNIST, {} samples", num_samples);
-    println!("Batch size: {}, {} batches/epoch\n", batch_size, train_loader.len());
+    println!(
+        "Batch size: {}, {} batches/epoch\n",
+        batch_size,
+        train_loader.len()
+    );
 
     // ── 3. Create optimizer ────────────────────────────────────────
     //
@@ -201,10 +207,7 @@ fn sync_params_from_optimizer(
     let opt_params = &optimizer.param_groups()[0].params;
 
     // Collect updated tensors first to avoid borrow overlap.
-    let updated_tensors: Vec<_> = opt_params
-        .iter()
-        .map(|p| p.tensor().clone())
-        .collect();
+    let updated_tensors: Vec<_> = opt_params.iter().map(|p| p.tensor().clone()).collect();
 
     let model_params = model.parameters_mut();
     for (mp, updated) in model_params.into_iter().zip(updated_tensors.into_iter()) {

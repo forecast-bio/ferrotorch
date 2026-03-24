@@ -69,23 +69,38 @@ fn kl_dispatch<T: Float>(
         return kl_normal_normal(pn, qn);
     }
     // Bernoulli-Bernoulli
-    if let (Some(pb), Some(qb)) = (p.downcast_ref::<Bernoulli<T>>(), q.downcast_ref::<Bernoulli<T>>()) {
+    if let (Some(pb), Some(qb)) = (
+        p.downcast_ref::<Bernoulli<T>>(),
+        q.downcast_ref::<Bernoulli<T>>(),
+    ) {
         return kl_bernoulli_bernoulli(pb, qb);
     }
     // Uniform-Uniform
-    if let (Some(pu), Some(qu)) = (p.downcast_ref::<Uniform<T>>(), q.downcast_ref::<Uniform<T>>()) {
+    if let (Some(pu), Some(qu)) = (
+        p.downcast_ref::<Uniform<T>>(),
+        q.downcast_ref::<Uniform<T>>(),
+    ) {
         return kl_uniform_uniform(pu, qu);
     }
     // Categorical-Categorical
-    if let (Some(pc), Some(qc)) = (p.downcast_ref::<Categorical<T>>(), q.downcast_ref::<Categorical<T>>()) {
+    if let (Some(pc), Some(qc)) = (
+        p.downcast_ref::<Categorical<T>>(),
+        q.downcast_ref::<Categorical<T>>(),
+    ) {
         return kl_categorical_categorical(pc, qc);
     }
     // Normal-Uniform
-    if let (Some(pn), Some(qu)) = (p.downcast_ref::<Normal<T>>(), q.downcast_ref::<Uniform<T>>()) {
+    if let (Some(pn), Some(qu)) = (
+        p.downcast_ref::<Normal<T>>(),
+        q.downcast_ref::<Uniform<T>>(),
+    ) {
         return kl_normal_uniform(pn, qu);
     }
     // Uniform-Normal
-    if let (Some(pu), Some(qn)) = (p.downcast_ref::<Uniform<T>>(), q.downcast_ref::<Normal<T>>()) {
+    if let (Some(pu), Some(qn)) = (
+        p.downcast_ref::<Uniform<T>>(),
+        q.downcast_ref::<Normal<T>>(),
+    ) {
         return kl_uniform_normal(pu, qn);
     }
 
@@ -128,17 +143,16 @@ fn kl_normal_normal<T: Float>(p: &Normal<T>, q: &Normal<T>) -> FerrotorchResult<
         })
         .collect();
 
-    Tensor::from_storage(
-        TensorStorage::cpu(result),
-        p.loc().shape().to_vec(),
-        false,
-    )
+    Tensor::from_storage(TensorStorage::cpu(result), p.loc().shape().to_vec(), false)
 }
 
 /// KL(Bernoulli(p) || Bernoulli(q))
 ///
 /// = p * log(p/q) + (1-p) * log((1-p)/(1-q))
-fn kl_bernoulli_bernoulli<T: Float>(p: &Bernoulli<T>, q: &Bernoulli<T>) -> FerrotorchResult<Tensor<T>> {
+fn kl_bernoulli_bernoulli<T: Float>(
+    p: &Bernoulli<T>,
+    q: &Bernoulli<T>,
+) -> FerrotorchResult<Tensor<T>> {
     let p_probs = p.probs().data_vec()?;
     let q_probs = q.probs().data_vec()?;
 
@@ -185,11 +199,7 @@ fn kl_uniform_uniform<T: Float>(p: &Uniform<T>, q: &Uniform<T>) -> FerrotorchRes
         })
         .collect();
 
-    Tensor::from_storage(
-        TensorStorage::cpu(result),
-        p.low().shape().to_vec(),
-        false,
-    )
+    Tensor::from_storage(TensorStorage::cpu(result), p.low().shape().to_vec(), false)
 }
 
 /// KL(Categorical(p) || Categorical(q))
@@ -261,11 +271,7 @@ fn kl_normal_uniform<T: Float>(p: &Normal<T>, q: &Uniform<T>) -> FerrotorchResul
         })
         .collect();
 
-    Tensor::from_storage(
-        TensorStorage::cpu(result),
-        p.loc().shape().to_vec(),
-        false,
-    )
+    Tensor::from_storage(TensorStorage::cpu(result), p.loc().shape().to_vec(), false)
 }
 
 /// KL(Uniform(a, b) || Normal(loc, scale))
@@ -301,13 +307,8 @@ fn kl_uniform_normal<T: Float>(p: &Uniform<T>, q: &Normal<T>) -> FerrotorchResul
         })
         .collect();
 
-    Tensor::from_storage(
-        TensorStorage::cpu(result),
-        p.low().shape().to_vec(),
-        false,
-    )
+    Tensor::from_storage(TensorStorage::cpu(result), p.low().shape().to_vec(), false)
 }
-
 
 // ---------------------------------------------------------------------------
 // Tests

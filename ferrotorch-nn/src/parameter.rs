@@ -1,4 +1,4 @@
-use ferrotorch_core::{Device, Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{Device, FerrotorchResult, Float, Tensor};
 
 /// A tensor registered for gradient descent.
 ///

@@ -1,6 +1,6 @@
 // CL-332: Vision Transforms & Augmentation — RandomResizedCrop
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 use super::rng::random_f64;
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
 
 /// Crop a random region of the input, then resize to a target size.
@@ -100,7 +100,8 @@ impl<T: Float> Transform<T> for RandomResizedCrop<T> {
         let mut found = false;
 
         for _ in 0..10 {
-            let target_area = area * (self.scale_lo + random_f64() * (self.scale_hi - self.scale_lo));
+            let target_area =
+                area * (self.scale_lo + random_f64() * (self.scale_hi - self.scale_lo));
             let log_lo = self.ratio_lo.ln();
             let log_hi = self.ratio_hi.ln();
             let aspect = (log_lo + random_f64() * (log_hi - log_lo)).exp();
@@ -134,10 +135,14 @@ impl<T: Float> Transform<T> for RandomResizedCrop<T> {
             let in_ratio = in_w as f64 / in_h as f64;
             if in_ratio < target_ratio {
                 crop_w = in_w;
-                crop_h = ((in_w as f64 / target_ratio).round() as usize).max(1).min(in_h);
+                crop_h = ((in_w as f64 / target_ratio).round() as usize)
+                    .max(1)
+                    .min(in_h);
             } else {
                 crop_h = in_h;
-                crop_w = ((in_h as f64 * target_ratio).round() as usize).max(1).min(in_w);
+                crop_w = ((in_h as f64 * target_ratio).round() as usize)
+                    .max(1)
+                    .min(in_w);
             }
             crop_top = (in_h - crop_h) / 2;
             crop_left = (in_w - crop_w) / 2;
@@ -154,7 +159,14 @@ impl<T: Float> Transform<T> for RandomResizedCrop<T> {
                 let start = ch_off + row * in_w + crop_left;
                 cropped.extend_from_slice(&data[start..start + crop_w]);
             }
-            nn_resize_channel(&cropped, crop_h, crop_w, self.height, self.width, &mut output);
+            nn_resize_channel(
+                &cropped,
+                crop_h,
+                crop_w,
+                self.height,
+                self.width,
+                &mut output,
+            );
         }
 
         let storage = TensorStorage::cpu(output);
@@ -169,8 +181,7 @@ mod tests {
     #[test]
     fn test_random_resized_crop_output_shape() {
         let data: Vec<f64> = (0..300).map(|i| i as f64).collect();
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![3, 10, 10], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 10, 10], false).unwrap();
         let rrc = RandomResizedCrop::<f64>::new(5, 5, (0.08, 1.0), (0.75, 1.333));
         let out = rrc.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 5, 5]);
@@ -181,8 +192,7 @@ mod tests {
         // scale=(1.0, 1.0), ratio=(1.0, 1.0): should crop the entire image
         // and resize to target.
         let data: Vec<f64> = (0..48).map(|i| i as f64).collect();
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![3, 4, 4], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 4, 4], false).unwrap();
         let rrc = RandomResizedCrop::<f64>::new(2, 2, (1.0, 1.0), (1.0, 1.0));
         let out = rrc.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 2, 2]);
@@ -192,13 +202,11 @@ mod tests {
     fn test_random_resized_crop_values_from_input() {
         let data: Vec<f64> = (0..75).map(|i| i as f64).collect();
         let t =
-            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 5, 5], false)
-                .unwrap();
+            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 5, 5], false).unwrap();
         let rrc = RandomResizedCrop::<f64>::new(3, 3, (0.5, 1.0), (0.75, 1.333));
         let out = rrc.apply(t).unwrap();
         let out_data = out.data().unwrap();
-        let original: std::collections::HashSet<u64> =
-            data.iter().map(|&v| v.to_bits()).collect();
+        let original: std::collections::HashSet<u64> = data.iter().map(|&v| v.to_bits()).collect();
         for &val in out_data {
             assert!(
                 original.contains(&val.to_bits()),
@@ -218,8 +226,7 @@ mod tests {
     #[test]
     fn test_random_resized_crop_multichannel() {
         let data: Vec<f64> = (0..192).map(|i| i as f64).collect();
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![3, 8, 8], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 8, 8], false).unwrap();
         let rrc = RandomResizedCrop::<f64>::new(4, 4, (0.2, 0.8), (0.75, 1.333));
         let out = rrc.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);

@@ -32,8 +32,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 use ferrotorch_core::Float;
+use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 
 use crate::callback::Callback;
 use crate::history::EpochResult;
@@ -355,7 +355,8 @@ impl TensorBoardWriter {
             .iter()
             .map(|(k, &v)| (format!("{main_tag}/{k}"), v as f32))
             .collect();
-        let tag_value_refs: Vec<(&str, f32)> = pairs.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        let tag_value_refs: Vec<(&str, f32)> =
+            pairs.iter().map(|(k, v)| (k.as_str(), *v)).collect();
         let summary = encode_summary(&tag_value_refs);
         let event = encode_event_summary(wall_time, step, &summary);
         write_record(&mut self.file, &event)?;
@@ -504,10 +505,7 @@ mod tests {
         writer.add_scalar("loss", 0.5, 0).unwrap();
         writer.flush().unwrap();
 
-        let entries: Vec<_> = fs::read_dir(&dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .collect();
+        let entries: Vec<_> = fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
         assert_eq!(entries.len(), 1);
 
         let metadata = entries[0].metadata().unwrap();
@@ -542,10 +540,7 @@ mod tests {
         let writer = TensorBoardWriter::new(&dir).unwrap();
         drop(writer);
 
-        let entries: Vec<_> = fs::read_dir(&dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .collect();
+        let entries: Vec<_> = fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
         let data = fs::read(entries[0].path()).unwrap();
 
         // The first record must contain "brain.Event:2".
@@ -567,16 +562,14 @@ mod tests {
         writer.add_scalars("loss", &values, 0).unwrap();
         writer.flush().unwrap();
 
-        let entries: Vec<_> = fs::read_dir(&dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .collect();
+        let entries: Vec<_> = fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
         let data = fs::read(entries[0].path()).unwrap();
 
         // Both compound tags should appear in the binary data.
-        assert!(data
-            .windows(b"loss/train".len())
-            .any(|w| w == b"loss/train"));
+        assert!(
+            data.windows(b"loss/train".len())
+                .any(|w| w == b"loss/train")
+        );
         assert!(data.windows(b"loss/val".len()).any(|w| w == b"loss/val"));
     }
 
@@ -609,17 +602,13 @@ mod tests {
         };
         Callback::<f32>::on_epoch_end(&mut cb, 0, &result);
 
-        let entries: Vec<_> = fs::read_dir(&dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .collect();
+        let entries: Vec<_> = fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
         let data = fs::read(entries[0].path()).unwrap();
-        assert!(data
-            .windows(b"train_loss".len())
-            .any(|w| w == b"train_loss"));
-        assert!(data
-            .windows(b"val_loss".len())
-            .any(|w| w == b"val_loss"));
+        assert!(
+            data.windows(b"train_loss".len())
+                .any(|w| w == b"train_loss")
+        );
+        assert!(data.windows(b"val_loss".len()).any(|w| w == b"val_loss"));
     }
 
     /// `TensorBoardCallback::on_batch_end` writes batch loss without panicking.
@@ -632,14 +621,12 @@ mod tests {
         // Flush the internal writer so buffered data reaches disk.
         cb.writer.lock().unwrap().flush().unwrap();
 
-        let entries: Vec<_> = fs::read_dir(&dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .collect();
+        let entries: Vec<_> = fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
         let data = fs::read(entries[0].path()).unwrap();
-        assert!(data
-            .windows(b"batch_loss".len())
-            .any(|w| w == b"batch_loss"));
+        assert!(
+            data.windows(b"batch_loss".len())
+                .any(|w| w == b"batch_loss")
+        );
     }
 
     /// Protobuf encoding round-trip: an event's raw bytes should contain the
@@ -647,23 +634,25 @@ mod tests {
     #[test]
     fn test_protobuf_encoding_contains_tag() {
         let summary = encode_summary(&[("my_metric", 3.14)]);
-        assert!(summary
-            .windows(b"my_metric".len())
-            .any(|w| w == b"my_metric"));
+        assert!(
+            summary
+                .windows(b"my_metric".len())
+                .any(|w| w == b"my_metric")
+        );
 
         let event = encode_event_summary(0.0, 0, &summary);
-        assert!(event
-            .windows(b"my_metric".len())
-            .any(|w| w == b"my_metric"));
+        assert!(event.windows(b"my_metric".len()).any(|w| w == b"my_metric"));
     }
 
     /// The file_version event encodes the expected version string.
     #[test]
     fn test_file_version_event_contains_string() {
         let event = encode_event_file_version(0.0);
-        assert!(event
-            .windows(b"brain.Event:2".len())
-            .any(|w| w == b"brain.Event:2"));
+        assert!(
+            event
+                .windows(b"brain.Event:2".len())
+                .any(|w| w == b"brain.Event:2")
+        );
     }
 
     /// Record framing: a written record has expected minimum size.

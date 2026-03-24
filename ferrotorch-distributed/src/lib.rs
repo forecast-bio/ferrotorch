@@ -60,13 +60,12 @@ pub mod gpu_collective;
 // Re-export key types at crate root for convenience.
 pub use backend::{Backend, SimulatedBackend, TcpBackend};
 pub use checkpoint::{
-    AsyncCheckpointer, CheckpointFuture, DistCheckpointError, DistributedCheckpoint,
-    ShardMetadata, TensorShardSpec, flat_shard_metadata, load_distributed, reshard,
-    save_distributed,
+    AsyncCheckpointer, CheckpointFuture, DistCheckpointError, DistributedCheckpoint, ShardMetadata,
+    TensorShardSpec, flat_shard_metadata, load_distributed, reshard, save_distributed,
 };
 pub use collective::{
-    all_gather, all_gather_with_timeout, allreduce, allreduce_with_timeout, barrier, broadcast,
-    reduce_scatter, reduce_scatter_with_timeout, ReduceOp, DEFAULT_COLLECTIVE_TIMEOUT,
+    DEFAULT_COLLECTIVE_TIMEOUT, ReduceOp, all_gather, all_gather_with_timeout, allreduce,
+    allreduce_with_timeout, barrier, broadcast, reduce_scatter, reduce_scatter_with_timeout,
 };
 pub use ddp::DDP;
 pub use error::DistributedError;

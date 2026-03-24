@@ -281,10 +281,8 @@ mod tests {
         let warmup = LinearWarmup::new(0.5, 10);
         let cosine = CosineAnnealingLR::new(0.5, 90, 0.0);
 
-        let mut seq: SequentialLr<f32> = SequentialLr::new(vec![
-            (Box::new(warmup), 10),
-            (Box::new(cosine), usize::MAX),
-        ]);
+        let mut seq: SequentialLr<f32> =
+            SequentialLr::new(vec![(Box::new(warmup), 10), (Box::new(cosine), usize::MAX)]);
         let mut opt = MockOptimizer::new(0.0);
 
         // Take 1 step in warmup phase.

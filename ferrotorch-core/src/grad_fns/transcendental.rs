@@ -12,7 +12,7 @@ use crate::autograd::no_grad::{is_grad_enabled, no_grad};
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::gpu_dispatch::gpu_backend;
-use crate::ops::elementwise::{unary_map, fast_sin, fast_cos};
+use crate::ops::elementwise::{fast_cos, fast_sin, unary_map};
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
 
@@ -51,7 +51,9 @@ impl<T: Float> GradFn<T> for ExpBackward<T> {
         let da = if self.input.requires_grad() {
             if grad_output.is_cuda() {
                 // GPU path: dx = grad * output
-                Some(no_grad(|| crate::grad_fns::arithmetic::mul(grad_output, &self.output))?)
+                Some(no_grad(|| {
+                    crate::grad_fns::arithmetic::mul(grad_output, &self.output)
+                })?)
             } else {
                 // CPU path: direct data access for performance.
                 let go_data = grad_output.data()?;
@@ -136,7 +138,9 @@ impl<T: Float> GradFn<T> for LogBackward<T> {
         let da = if self.input.requires_grad() {
             if grad_output.is_cuda() {
                 // GPU path: dx = grad / x
-                Some(no_grad(|| crate::grad_fns::arithmetic::div(grad_output, &self.input))?)
+                Some(no_grad(|| {
+                    crate::grad_fns::arithmetic::div(grad_output, &self.input)
+                })?)
             } else {
                 // CPU path
                 let go_data = grad_output.data()?;
@@ -179,7 +183,9 @@ pub fn log<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
             Tensor::from_operation(
                 storage,
                 shape,
-                Arc::new(LogBackward { input: input.clone() }),
+                Arc::new(LogBackward {
+                    input: input.clone(),
+                }),
             )
         } else {
             Tensor::from_storage(storage, shape, false)
@@ -391,7 +397,9 @@ impl<T: Float> GradFn<T> for ClampBackward<T> {
                     false,
                 )?;
                 let mask_gpu = mask_cpu.to(grad_output.device())?;
-                Some(no_grad(|| crate::grad_fns::arithmetic::mul(grad_output, &mask_gpu))?)
+                Some(no_grad(|| {
+                    crate::grad_fns::arithmetic::mul(grad_output, &mask_gpu)
+                })?)
             } else {
                 // CPU path
                 let go_data = grad_output.data()?;
@@ -475,8 +483,12 @@ mod tests {
 
     /// Create a leaf 1-D tensor.
     fn leaf_vec(data: &[f32], requires_grad: bool) -> Tensor<f32> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            vec![data.len()],
+            requires_grad,
+        )
+        .unwrap()
     }
 
     /// Assert a scalar tensor is approximately equal to `expected`.
@@ -504,7 +516,14 @@ mod tests {
 
     #[test]
     fn test_log_forward() {
-        let a = leaf_vec(&[1.0, std::f32::consts::E, std::f32::consts::E * std::f32::consts::E], false);
+        let a = leaf_vec(
+            &[
+                1.0,
+                std::f32::consts::E,
+                std::f32::consts::E * std::f32::consts::E,
+            ],
+            false,
+        );
         let c = log(&a).unwrap();
         let d = c.data().unwrap();
         assert!((d[0] - 0.0).abs() < 1e-5);
@@ -514,7 +533,10 @@ mod tests {
 
     #[test]
     fn test_sin_forward() {
-        let a = leaf_vec(&[0.0, std::f32::consts::FRAC_PI_2, std::f32::consts::PI], false);
+        let a = leaf_vec(
+            &[0.0, std::f32::consts::FRAC_PI_2, std::f32::consts::PI],
+            false,
+        );
         let c = sin(&a).unwrap();
         let d = c.data().unwrap();
         assert!((d[0] - 0.0).abs() < 1e-6);
@@ -524,7 +546,10 @@ mod tests {
 
     #[test]
     fn test_cos_forward() {
-        let a = leaf_vec(&[0.0, std::f32::consts::FRAC_PI_2, std::f32::consts::PI], false);
+        let a = leaf_vec(
+            &[0.0, std::f32::consts::FRAC_PI_2, std::f32::consts::PI],
+            false,
+        );
         let c = cos(&a).unwrap();
         let d = c.data().unwrap();
         assert!((d[0] - 1.0).abs() < 1e-6);
@@ -701,12 +726,7 @@ mod tests {
 
     /// Check gradient using central finite differences:
     ///   grad ~= (f(x+h) - f(x-h)) / (2*h)
-    fn numerical_grad_check(
-        f: impl Fn(f32) -> f32,
-        x: f32,
-        analytic_grad: f32,
-        tol: f32,
-    ) {
+    fn numerical_grad_check(f: impl Fn(f32) -> f32, x: f32, analytic_grad: f32, tol: f32) {
         let h = 1e-4_f32;
         let numerical = (f(x + h) - f(x - h)) / (2.0 * h);
         assert!(

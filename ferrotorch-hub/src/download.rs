@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float};
 use ferrotorch_nn::StateDict;
 
 use crate::cache::HubCache;

@@ -1,6 +1,6 @@
 //! Integration tests for `#[derive(Module)]`.
 
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 // Importing `Module` brings in both the trait AND the derive macro (they
 // live in different namespaces: type vs macro).
 use ferrotorch_nn::{Linear, Module, Parameter};
@@ -217,10 +217,7 @@ fn test_submodules_only_struct() {
 
     let named = model.named_parameters();
     let keys: Vec<&str> = named.iter().map(|(k, _)| k.as_str()).collect();
-    assert_eq!(
-        keys,
-        &["layer1.weight", "layer1.bias", "layer2.weight"]
-    );
+    assert_eq!(keys, &["layer1.weight", "layer1.bias", "layer2.weight"]);
 }
 
 #[test]

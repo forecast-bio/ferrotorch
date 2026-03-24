@@ -75,12 +75,12 @@ impl GgmlType {
         match self {
             Self::F32 => 4,
             Self::F16 => 2,
-            Self::Q4_0 => 18,  // 2 (f16 scale) + 16 (32 nibbles)
-            Self::Q4_1 => 20,  // 2 (f16 scale) + 2 (f16 min) + 16 (32 nibbles)
-            Self::Q5_0 => 22,  // 2 (f16 scale) + 4 (high bits) + 16 (32 nibbles low)
-            Self::Q5_1 => 24,  // 2 (f16 scale) + 2 (f16 min) + 4 (high bits) + 16
-            Self::Q8_0 => 34,  // 2 (f16 scale) + 32 (int8 values)
-            Self::Q8_1 => 40,  // 4 (f32 scale) + 4 (f32 min) + 32 (int8 values)
+            Self::Q4_0 => 18, // 2 (f16 scale) + 16 (32 nibbles)
+            Self::Q4_1 => 20, // 2 (f16 scale) + 2 (f16 min) + 16 (32 nibbles)
+            Self::Q5_0 => 22, // 2 (f16 scale) + 4 (high bits) + 16 (32 nibbles low)
+            Self::Q5_1 => 24, // 2 (f16 scale) + 2 (f16 min) + 4 (high bits) + 16
+            Self::Q8_0 => 34, // 2 (f16 scale) + 32 (int8 values)
+            Self::Q8_1 => 40, // 4 (f32 scale) + 4 (f32 min) + 32 (int8 values)
         }
     }
 }
@@ -778,9 +778,7 @@ pub fn dequantize_gguf_tensor(file: &GgufFile, tensor_name: &str) -> FerrotorchR
         .tensors
         .iter()
         .find(|t| t.name == tensor_name)
-        .ok_or_else(|| {
-            gguf_err(&format!("tensor \"{tensor_name}\" not found in GGUF file"))
-        })?;
+        .ok_or_else(|| gguf_err(&format!("tensor \"{tensor_name}\" not found in GGUF file")))?;
 
     let num_elements: u64 = if info.dims.is_empty() {
         1
@@ -1167,7 +1165,7 @@ mod tests {
         let bytes = build_gguf(
             &[],
             &[
-                ("layer.weight", &[2, 3], 0, &data),   // F32, shape [2, 3]
+                ("layer.weight", &[2, 3], 0, &data), // F32, shape [2, 3]
             ],
         );
 
@@ -1263,8 +1261,8 @@ mod tests {
         let bytes = build_gguf(
             &[
                 ("layers", 4, &uint32_val),       // Uint32
-                ("general.name", 8, &string_val),  // String
-                ("use_cache", 7, &bool_val),       // Bool
+                ("general.name", 8, &string_val), // String
+                ("use_cache", 7, &bool_val),      // Bool
             ],
             &[],
         );

@@ -8,11 +8,11 @@
 
 use std::sync::Arc;
 
-use ferrotorch_core::storage::TensorStorage;
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
-use ferrotorch_nn::{Module, Parameter};
 use crate::backend::Backend;
-use crate::collective::{allreduce, ReduceOp};
+use crate::collective::{ReduceOp, allreduce};
+use ferrotorch_core::storage::TensorStorage;
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
+use ferrotorch_nn::{Module, Parameter};
 
 /// Distributed Data Parallel module wrapper.
 ///
@@ -106,7 +106,8 @@ impl<M: Module<T>, T: Float> DDP<M, T> {
                     flat_data.extend(data);
                 }
                 None => {
-                    flat_data.extend(std::iter::repeat(<T as num_traits::Zero>::zero()).take(numel));
+                    flat_data
+                        .extend(std::iter::repeat(<T as num_traits::Zero>::zero()).take(numel));
                 }
             }
         }
@@ -286,10 +287,7 @@ mod tests {
                     let synced_grad = ddp.module().weight.tensor().grad().unwrap().unwrap();
                     let data = synced_grad.data().unwrap();
                     for &v in data {
-                        assert!(
-                            (v - 1.5).abs() < 1e-5,
-                            "rank {rank}: expected 1.5, got {v}"
-                        );
+                        assert!((v - 1.5).abs() < 1e-5, "rank {rank}: expected 1.5, got {v}");
                     }
                 })
             })

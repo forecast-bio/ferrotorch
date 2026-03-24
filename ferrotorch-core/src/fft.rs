@@ -7,8 +7,8 @@
 //! All functions work on f32 and f64 tensors. Internally, computation is
 //! performed in f64 via rustfft, then converted back to the input dtype.
 
-use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
+use rustfft::num_complex::Complex;
 
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
@@ -35,12 +35,7 @@ fn complex_to_pairs<T: Float>(data: &[Complex<f64>]) -> Vec<T> {
 /// The last dimension has size `n`.
 ///
 /// Returns the transformed data with the same layout.
-fn fft_1d_last_axis(
-    data: &mut [Complex<f64>],
-    batch_shape: &[usize],
-    n: usize,
-    inverse: bool,
-) {
+fn fft_1d_last_axis(data: &mut [Complex<f64>], batch_shape: &[usize], n: usize, inverse: bool) {
     let mut planner = FftPlanner::<f64>::new();
     let fft = if inverse {
         planner.plan_fft_inverse(n)
@@ -140,7 +135,11 @@ pub fn fft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<Te
     out_shape.push(2);
 
     let out = Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)?;
-    if device.is_cuda() { out.to(device) } else { Ok(out) }
+    if device.is_cuda() {
+        out.to(device)
+    } else {
+        Ok(out)
+    }
 }
 
 /// 1-D inverse FFT along the last dimension.
@@ -201,7 +200,11 @@ pub fn ifft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<T
     out_shape.push(2);
 
     let out = Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)?;
-    if device.is_cuda() { out.to(device) } else { Ok(out) }
+    if device.is_cuda() {
+        out.to(device)
+    } else {
+        Ok(out)
+    }
 }
 
 /// 1-D real-to-complex FFT along the last dimension.
@@ -263,7 +266,11 @@ pub fn rfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<T
     out_shape.push(2);
 
     let out = Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)?;
-    if device.is_cuda() { out.to(device) } else { Ok(out) }
+    if device.is_cuda() {
+        out.to(device)
+    } else {
+        Ok(out)
+    }
 }
 
 /// 1-D complex-to-real inverse FFT.
@@ -341,7 +348,11 @@ pub fn irfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<
     out_shape.push(output_n);
 
     let out = Tensor::from_storage(TensorStorage::cpu(result_data), out_shape, false)?;
-    if device.is_cuda() { out.to(device) } else { Ok(out) }
+    if device.is_cuda() {
+        out.to(device)
+    } else {
+        Ok(out)
+    }
 }
 
 /// 2-D FFT (complex-to-complex) along the last two spatial dimensions.
@@ -445,8 +456,7 @@ fn fft_2d_row_pass<T: Float>(
     trans_shape.push(cols);
     trans_shape.push(rows);
     trans_shape.push(2);
-    let trans_tensor =
-        Tensor::from_storage(TensorStorage::cpu(transposed), trans_shape, false)?;
+    let trans_tensor = Tensor::from_storage(TensorStorage::cpu(transposed), trans_shape, false)?;
 
     // FFT along the last spatial dim (rows).
     let transformed = if inverse {
@@ -476,7 +486,11 @@ fn fft_2d_row_pass<T: Float>(
     out_shape.push(2);
 
     let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
-    if device.is_cuda() { out.to(device) } else { Ok(out) }
+    if device.is_cuda() {
+        out.to(device)
+    } else {
+        Ok(out)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -494,7 +508,13 @@ mod tests {
     }
 
     fn assert_close(a: &[f64], b: &[f64], tol: f64) {
-        assert_eq!(a.len(), b.len(), "length mismatch: {} vs {}", a.len(), b.len());
+        assert_eq!(
+            a.len(),
+            b.len(),
+            "length mismatch: {} vs {}",
+            a.len(),
+            b.len()
+        );
         for (i, (&x, &y)) in a.iter().zip(b.iter()).enumerate() {
             assert!(
                 (x - y).abs() < tol,
@@ -543,7 +563,11 @@ mod tests {
         let d = result.data().unwrap();
 
         // DC component (index 0): re = n, im = 0.
-        assert!((d[0] - n as f64).abs() < 1e-10, "DC re = {}, expected {n}", d[0]);
+        assert!(
+            (d[0] - n as f64).abs() < 1e-10,
+            "DC re = {}, expected {n}",
+            d[0]
+        );
         assert!(d[1].abs() < 1e-10, "DC im = {}", d[1]);
 
         // All other bins should be 0.
@@ -693,8 +717,7 @@ mod tests {
     #[test]
     fn fft_with_truncation() {
         // Truncate [1, 2, 3, 4] to length 2 -> FFT of [1, 2].
-        let input =
-            complex_tensor(&[(1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0)]);
+        let input = complex_tensor(&[(1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0)]);
         let result = fft(&input, Some(2)).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
         let d = result.data().unwrap();
@@ -713,8 +736,12 @@ mod tests {
     fn fft2_ifft2_roundtrip() {
         // 2x3 complex matrix.
         let pairs = vec![
-            (1.0, 0.0), (2.0, 0.0), (3.0, 0.0),
-            (4.0, 0.0), (5.0, 0.0), (6.0, 0.0),
+            (1.0, 0.0),
+            (2.0, 0.0),
+            (3.0, 0.0),
+            (4.0, 0.0),
+            (5.0, 0.0),
+            (6.0, 0.0),
         ];
         let mut data = Vec::new();
         for &(re, im) in &pairs {
@@ -753,9 +780,8 @@ mod tests {
         // Signal 1: [1, 1, 1, 1] (constant) -> [4, 0, 0, 0].
         let data = vec![
             // batch 0: impulse
-            1.0, 0.0,  0.0, 0.0,  0.0, 0.0,  0.0, 0.0,
-            // batch 1: constant
-            1.0, 0.0,  1.0, 0.0,  1.0, 0.0,  1.0, 0.0,
+            1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // batch 1: constant
+            1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0,
         ];
         let input = t(&data, &[2, 4, 2]);
         let result = fft(&input, None).unwrap();
@@ -785,12 +811,7 @@ mod tests {
     #[test]
     fn fft_f32() {
         let data: Vec<f32> = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(data),
-            vec![4, 2],
-            false,
-        )
-        .unwrap();
+        let input = Tensor::from_storage(TensorStorage::cpu(data), vec![4, 2], false).unwrap();
         let result = fft(&input, None).unwrap();
         assert_eq!(result.shape(), &[4, 2]);
         let d = result.data().unwrap();

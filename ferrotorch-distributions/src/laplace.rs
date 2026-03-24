@@ -73,7 +73,11 @@ fn laplace_icdf_sample<T: Float>(u01: T, loc: T, scale: T) -> T {
     let u_abs = u.abs().min(one - eps); // clamp to avoid log(0)
 
     // sign(u) * (-log(1 - |u|))
-    let sign = if u >= <T as num_traits::Zero>::zero() { one } else { -one };
+    let sign = if u >= <T as num_traits::Zero>::zero() {
+        one
+    } else {
+        -one
+    };
     loc - scale * sign * (one - u_abs).ln()
 }
 
@@ -150,11 +154,7 @@ impl<T: Float> Distribution<T> for Laplace<T> {
             .map(|((&x, &l), &s)| -(two * s).ln() - (x - l).abs() / s)
             .collect();
 
-        let out = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            value.shape().to_vec(),
-            false,
-        )?;
+        let out = Tensor::from_storage(TensorStorage::cpu(result), value.shape().to_vec(), false)?;
         if device.is_cuda() {
             out.to(device)
         } else {
@@ -292,10 +292,7 @@ mod tests {
         let samples = dist.sample(&[10000]).unwrap();
         let data = samples.data().unwrap();
         let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
-        assert!(
-            (mean - 3.0).abs() < 0.15,
-            "expected mean ~3.0, got {mean}"
-        );
+        assert!((mean - 3.0).abs() < 0.15, "expected mean ~3.0, got {mean}");
     }
 
     #[test]

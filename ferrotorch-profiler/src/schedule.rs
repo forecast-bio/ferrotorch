@@ -69,7 +69,10 @@ impl std::fmt::Debug for ProfileSchedule {
             .field("current_step", &self.current_step)
             .field("current_cycle", &self.current_cycle)
             .field("phase", &self.phase)
-            .field("on_trace_ready", &self.on_trace_ready.as_ref().map(|_| ".."))
+            .field(
+                "on_trace_ready",
+                &self.on_trace_ready.as_ref().map(|_| ".."),
+            )
             .finish()
     }
 }

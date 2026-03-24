@@ -11,8 +11,8 @@
 
 use ferrotorch_core::Float;
 
-use crate::optimizer::Optimizer;
 use super::LrScheduler;
+use crate::optimizer::Optimizer;
 
 /// Policy for the cyclic learning rate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -301,11 +301,7 @@ mod tests {
         for _ in 0..15 {
             sched.step(&mut opt);
         }
-        assert!(
-            opt.lr.abs() < 1e-10,
-            "expected valley 0.0, got {}",
-            opt.lr
-        );
+        assert!(opt.lr.abs() < 1e-10, "expected valley 0.0, got {}", opt.lr);
     }
 
     #[test]
@@ -321,10 +317,6 @@ mod tests {
             sched.step(&mut opt);
         }
         // x = 1 + 5/20 - 1 = 0.25, scale_factor = 0.25/0.5 = 0.5
-        assert!(
-            (opt.lr - 0.5).abs() < 1e-10,
-            "expected 0.5, got {}",
-            opt.lr
-        );
+        assert!((opt.lr - 0.5).abs() < 1e-10, "expected 0.5, got {}", opt.lr);
     }
 }

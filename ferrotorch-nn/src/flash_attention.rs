@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -61,11 +61,7 @@ pub fn flash_attention<T: Float>(
     // Early return for empty sequence lengths — produce a correctly shaped
     // empty output rather than risking undefined behavior in the tiled kernel.
     if n_q == 0 || n_k == 0 {
-        return Tensor::from_storage(
-            TensorStorage::cpu(vec![]),
-            vec![batch, n_q, d_v],
-            false,
-        );
+        return Tensor::from_storage(TensorStorage::cpu(vec![]), vec![batch, n_q, d_v], false);
     }
 
     let scale = T::from(1.0 / (d as f64).sqrt()).unwrap();
@@ -126,7 +122,11 @@ pub fn flash_attention<T: Float>(
             false,
         )?
     };
-    if device.is_cuda() { result.to(device) } else { Ok(result) }
+    if device.is_cuda() {
+        result.to(device)
+    } else {
+        Ok(result)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -196,9 +196,7 @@ fn validate_inputs<T: Float>(
 
     if causal && n_q != n_k {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "causal mask requires N_q == N_k, got N_q={n_q}, N_k={n_k}"
-            ),
+            message: format!("causal mask requires N_q == N_k, got N_q={n_q}, N_k={n_k}"),
         });
     }
 
@@ -227,9 +225,9 @@ fn validate_inputs<T: Float>(
 /// Total: O(N_q + block_q * block_k), never O(N_q * N_k).
 #[allow(clippy::too_many_arguments)]
 fn flash_attention_single<T: Float>(
-    q: &[T],       // [N_q, d]
-    k: &[T],       // [N_k, d]
-    v: &[T],       // [N_k, d_v]
+    q: &[T],          // [N_q, d]
+    k: &[T],          // [N_k, d]
+    v: &[T],          // [N_k, d_v]
     output: &mut [T], // [N_q, d_v]
     n_q: usize,
     n_k: usize,
@@ -249,7 +247,7 @@ fn flash_attention_single<T: Float>(
     // Output accumulator is `output` itself, initialized to zero.
 
     // Iterate over key/value blocks.
-    let num_k_blocks = (n_k + block_size - 1) / block_size;
+    let num_k_blocks = n_k.div_ceil(block_size);
 
     for j_block in 0..num_k_blocks {
         let k_start = j_block * block_size;
@@ -257,7 +255,7 @@ fn flash_attention_single<T: Float>(
         let bk = k_end - k_start; // actual block size (may be smaller at tail)
 
         // Iterate over query blocks.
-        let num_q_blocks = (n_q + block_size - 1) / block_size;
+        let num_q_blocks = n_q.div_ceil(block_size);
 
         for i_block in 0..num_q_blocks {
             let q_start = i_block * block_size;
@@ -282,7 +280,7 @@ fn flash_attention_single<T: Float>(
                     let k_row = k_start + ki;
                     let mut dot = zero;
                     for dd in 0..d {
-                        dot = dot + q[q_row * d + dd] * k[k_row * d + dd];
+                        dot += q[q_row * d + dd] * k[k_row * d + dd];
                     }
                     s_tile[qi * bk + ki] = dot * scale;
                 }
@@ -328,7 +326,7 @@ fn flash_attention_single<T: Float>(
                 for ki in 0..bk {
                     let p = (s_row[ki] - m_new).exp();
                     p_row[ki] = p;
-                    tile_sum = tile_sum + p;
+                    tile_sum += p;
                 }
 
                 // Update running sum: l_new = correction * l_old + tile_sum.
@@ -345,9 +343,9 @@ fn flash_attention_single<T: Float>(
                     for dv in 0..d_v {
                         // P_row @ V_block column dv.
                         let mut pv = zero;
-                        for ki in 0..bk {
+                        for (ki, &p_ki) in p_row.iter().enumerate() {
                             let k_row = k_start + ki;
-                            pv = pv + p_row[ki] * v[k_row * d_v + dv];
+                            pv += p_ki * v[k_row * d_v + dv];
                         }
                         output[o_row_start + dv] =
                             rescale_old * output[o_row_start + dv] + rescale_new * pv;
@@ -384,10 +382,7 @@ struct FlashAttentionBackward<T: Float> {
 }
 
 impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> {
-    fn backward(
-        &self,
-        grad_output: &Tensor<T>,
-    ) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let batch = self.query.shape()[0];
         let n_q = self.query.shape()[1];
         let d = self.query.shape()[2];
@@ -440,7 +435,7 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
                 for j in 0..n_k {
                     let mut dot = zero;
                     for dd in 0..d {
-                        dot = dot + q[i * d + dd] * k[j * d + dd];
+                        dot += q[i * d + dd] * k[j * d + dd];
                     }
                     scores[i * n_k + j] = dot * scale;
                 }
@@ -471,7 +466,7 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
                 for j in 0..n_k {
                     let e = (row[j] - row_max).exp();
                     attn[row_start + j] = e;
-                    sum_exp = sum_exp + e;
+                    sum_exp += e;
                 }
                 if sum_exp > zero {
                     for j in 0..n_k {
@@ -487,10 +482,9 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
                     for dv in 0..d_v {
                         let mut acc = zero;
                         for i in 0..n_q {
-                            acc = acc + attn[i * n_k + j] * go[i * d_v + dv];
+                            acc += attn[i * n_k + j] * go[i * d_v + dv];
                         }
-                        grad_v_data[gv_base + j * d_v + dv] =
-                            grad_v_data[gv_base + j * d_v + dv] + acc;
+                        grad_v_data[gv_base + j * d_v + dv] += acc;
                     }
                 }
             }
@@ -506,7 +500,7 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
                     for j in 0..n_k {
                         let mut dot = zero;
                         for dv in 0..d_v {
-                            dot = dot + go[i * d_v + dv] * v[j * d_v + dv];
+                            dot += go[i * d_v + dv] * v[j * d_v + dv];
                         }
                         grad_attn[i * n_k + j] = dot;
                     }
@@ -520,7 +514,7 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
                     // Compute dot(attn_row, grad_attn_row)
                     let mut dot_ag = zero;
                     for j in 0..n_k {
-                        dot_ag = dot_ag + attn[row_start + j] * grad_attn[row_start + j];
+                        dot_ag += attn[row_start + j] * grad_attn[row_start + j];
                     }
                     for j in 0..n_k {
                         grad_scores[row_start + j] =
@@ -540,10 +534,9 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
                         for dd in 0..d {
                             let mut acc = zero;
                             for j in 0..n_k {
-                                acc = acc + grad_scores[i * n_k + j] * k[j * d + dd];
+                                acc += grad_scores[i * n_k + j] * k[j * d + dd];
                             }
-                            grad_q_data[gq_base + i * d + dd] =
-                                grad_q_data[gq_base + i * d + dd] + acc;
+                            grad_q_data[gq_base + i * d + dd] += acc;
                         }
                     }
                 }
@@ -555,10 +548,9 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
                         for dd in 0..d {
                             let mut acc = zero;
                             for i in 0..n_q {
-                                acc = acc + grad_scores[i * n_k + j] * q[i * d + dd];
+                                acc += grad_scores[i * n_k + j] * q[i * d + dd];
                             }
-                            grad_k_data[gk_base + j * d + dd] =
-                                grad_k_data[gk_base + j * d + dd] + acc;
+                            grad_k_data[gk_base + j * d + dd] += acc;
                         }
                     }
                 }
@@ -571,7 +563,11 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
                 self.query.shape().to_vec(),
                 false,
             )?;
-            Some(if self.query.is_cuda() { g.to(self.query.device())? } else { g })
+            Some(if self.query.is_cuda() {
+                g.to(self.query.device())?
+            } else {
+                g
+            })
         } else {
             None
         };
@@ -582,7 +578,11 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
                 self.key.shape().to_vec(),
                 false,
             )?;
-            Some(if self.key.is_cuda() { g.to(self.key.device())? } else { g })
+            Some(if self.key.is_cuda() {
+                g.to(self.key.device())?
+            } else {
+                g
+            })
         } else {
             None
         };
@@ -593,7 +593,11 @@ impl<T: Float> ferrotorch_core::tensor::GradFn<T> for FlashAttentionBackward<T> 
                 self.value.shape().to_vec(),
                 false,
             )?;
-            Some(if self.value.is_cuda() { g.to(self.value.device())? } else { g })
+            Some(if self.value.is_cuda() {
+                g.to(self.value.device())?
+            } else {
+                g
+            })
         } else {
             None
         };
@@ -667,7 +671,7 @@ pub fn standard_attention<T: Float>(
             for j in 0..n_k {
                 let mut dot = zero;
                 for dd in 0..d {
-                    dot = dot + q[i * d + dd] * k[j * d + dd];
+                    dot += q[i * d + dd] * k[j * d + dd];
                 }
                 scores[i * n_k + j] = dot * scale;
             }
@@ -696,7 +700,7 @@ pub fn standard_attention<T: Float>(
             for j in 0..n_k {
                 let e = (scores[row_start + j] - row_max).exp();
                 attn[row_start + j] = e;
-                sum_exp = sum_exp + e;
+                sum_exp += e;
             }
             if sum_exp > zero {
                 for j in 0..n_k {
@@ -710,7 +714,7 @@ pub fn standard_attention<T: Float>(
             for dv in 0..d_v {
                 let mut acc = zero;
                 for j in 0..n_k {
-                    acc = acc + attn[i * n_k + j] * v[j * d_v + dv];
+                    acc += attn[i * n_k + j] * v[j * d_v + dv];
                 }
                 output_data[o_base + i * d_v + dv] = acc;
             }
@@ -759,7 +763,9 @@ mod tests {
         let mut state = seed;
         for _ in 0..numel {
             // LCG: state = (a * state + c) mod m
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
             // Map to [-1, 1].
             let val = (state >> 33) as f64 / (u32::MAX as f64) * 2.0 - 1.0;
             data.push(val);
@@ -773,7 +779,9 @@ mod tests {
         let mut data = Vec::with_capacity(numel);
         let mut state = seed;
         for _ in 0..numel {
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
             let val = (state >> 33) as f64 / (u32::MAX as f64) * 2.0 - 1.0;
             data.push(val);
         }
@@ -875,12 +883,7 @@ mod tests {
         let d = 2;
         // Use uniform Q=K so attention weights (before mask) would be uniform.
         let data = vec![1.0_f64; n * d];
-        let qkv = Tensor::from_storage(
-            TensorStorage::cpu(data),
-            vec![1, n, d],
-            false,
-        )
-        .unwrap();
+        let qkv = Tensor::from_storage(TensorStorage::cpu(data), vec![1, n, d], false).unwrap();
 
         let out = flash_attention(&qkv, &qkv, &qkv, true, 2).unwrap();
         let out_data = out.data().unwrap();
@@ -942,8 +945,20 @@ mod tests {
         let out_bs10 = flash_attention(&q, &k, &v, true, 10).unwrap();
 
         let ref_data = out_bs2.data().unwrap();
-        assert_close(out_bs3.data().unwrap(), ref_data, ATOL_F64, RTOL_F64, "bs3_causal");
-        assert_close(out_bs5.data().unwrap(), ref_data, ATOL_F64, RTOL_F64, "bs5_causal");
+        assert_close(
+            out_bs3.data().unwrap(),
+            ref_data,
+            ATOL_F64,
+            RTOL_F64,
+            "bs3_causal",
+        );
+        assert_close(
+            out_bs5.data().unwrap(),
+            ref_data,
+            ATOL_F64,
+            RTOL_F64,
+            "bs5_causal",
+        );
         assert_close(
             out_bs10.data().unwrap(),
             ref_data,
@@ -981,10 +996,7 @@ mod tests {
         // Verify values are finite.
         let data = out.data().unwrap();
         for (i, &val) in data.iter().enumerate() {
-            assert!(
-                val.is_finite(),
-                "non-finite at index {i}: {val}"
-            );
+            assert!(val.is_finite(), "non-finite at index {i}: {val}");
         }
     }
 
@@ -1003,12 +1015,8 @@ mod tests {
         // Sum to get a scalar for backward.
         let out_data = out.data().unwrap();
         let sum_val: f64 = out_data.iter().copied().sum();
-        let _sum_tensor = Tensor::from_storage(
-            TensorStorage::cpu(vec![sum_val]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let _sum_tensor =
+            Tensor::from_storage(TensorStorage::cpu(vec![sum_val]), vec![], false).unwrap();
 
         // We need to use the autograd engine. Since flash_attention returns
         // a tensor with grad_fn, we build a sum reduction and call backward.
@@ -1077,18 +1085,10 @@ mod tests {
             q_plus[idx] += eps;
             q_minus[idx] -= eps;
 
-            let qp = Tensor::from_storage(
-                TensorStorage::cpu(q_plus),
-                q.shape().to_vec(),
-                false,
-            )
-            .unwrap();
-            let qm = Tensor::from_storage(
-                TensorStorage::cpu(q_minus),
-                q.shape().to_vec(),
-                false,
-            )
-            .unwrap();
+            let qp = Tensor::from_storage(TensorStorage::cpu(q_plus), q.shape().to_vec(), false)
+                .unwrap();
+            let qm = Tensor::from_storage(TensorStorage::cpu(q_minus), q.shape().to_vec(), false)
+                .unwrap();
 
             let fp: f64 = flash_attention(&qp, &k, &v, false, 2)
                 .unwrap()
@@ -1122,18 +1122,10 @@ mod tests {
             k_plus[idx] += eps;
             k_minus[idx] -= eps;
 
-            let kp = Tensor::from_storage(
-                TensorStorage::cpu(k_plus),
-                k.shape().to_vec(),
-                false,
-            )
-            .unwrap();
-            let km = Tensor::from_storage(
-                TensorStorage::cpu(k_minus),
-                k.shape().to_vec(),
-                false,
-            )
-            .unwrap();
+            let kp = Tensor::from_storage(TensorStorage::cpu(k_plus), k.shape().to_vec(), false)
+                .unwrap();
+            let km = Tensor::from_storage(TensorStorage::cpu(k_minus), k.shape().to_vec(), false)
+                .unwrap();
 
             let fp: f64 = flash_attention(&q, &kp, &v, false, 2)
                 .unwrap()
@@ -1167,18 +1159,10 @@ mod tests {
             v_plus[idx] += eps;
             v_minus[idx] -= eps;
 
-            let vp = Tensor::from_storage(
-                TensorStorage::cpu(v_plus),
-                v.shape().to_vec(),
-                false,
-            )
-            .unwrap();
-            let vm = Tensor::from_storage(
-                TensorStorage::cpu(v_minus),
-                v.shape().to_vec(),
-                false,
-            )
-            .unwrap();
+            let vp = Tensor::from_storage(TensorStorage::cpu(v_plus), v.shape().to_vec(), false)
+                .unwrap();
+            let vm = Tensor::from_storage(TensorStorage::cpu(v_minus), v.shape().to_vec(), false)
+                .unwrap();
 
             let fp: f64 = flash_attention(&q, &k, &vp, false, 2)
                 .unwrap()
@@ -1239,18 +1223,10 @@ mod tests {
             q_plus[idx] += eps;
             q_minus[idx] -= eps;
 
-            let qp = Tensor::from_storage(
-                TensorStorage::cpu(q_plus),
-                q.shape().to_vec(),
-                false,
-            )
-            .unwrap();
-            let qm = Tensor::from_storage(
-                TensorStorage::cpu(q_minus),
-                q.shape().to_vec(),
-                false,
-            )
-            .unwrap();
+            let qp = Tensor::from_storage(TensorStorage::cpu(q_plus), q.shape().to_vec(), false)
+                .unwrap();
+            let qm = Tensor::from_storage(TensorStorage::cpu(q_minus), q.shape().to_vec(), false)
+                .unwrap();
 
             let fp: f64 = flash_attention(&qp, &k, &v, true, 2)
                 .unwrap()

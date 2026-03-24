@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{Float, FerrotorchResult, no_grad};
+use ferrotorch_core::{FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -179,8 +179,7 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
 
                     if *step == 0 {
                         // First step: buf = grad.clone()
-                        self.momentum_buffers
-                            .insert(key.clone(), grad_data.clone());
+                        self.momentum_buffers.insert(key.clone(), grad_data.clone());
                     } else {
                         // buf = momentum * buf + (1 - dampening) * grad
                         let mom_t = T::from(momentum).unwrap();

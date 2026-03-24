@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -190,8 +190,7 @@ impl<T: Float> Optimizer<T> for NAdam<T> {
 
                 let new_values: Vec<T> = (0..numel)
                     .map(|i| {
-                        let grad_component =
-                            (1.0 - mu) * grad_data[i] / (1.0 - state.mu_product);
+                        let grad_component = (1.0 - mu) * grad_data[i] / (1.0 - state.mu_product);
                         let momentum_component =
                             mu_next * state.exp_avg[i] / (1.0 - mu_product_next);
                         let m_hat = grad_component + momentum_component;
@@ -271,19 +270,19 @@ impl<T: Float> Optimizer<T> for NAdam<T> {
                 .copied()
                 .unwrap_or(1.0);
 
-            let exp_avg = entry
-                .get("exp_avg")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!("missing exp_avg in state for key {key}"),
-                })?;
+            let exp_avg =
+                entry
+                    .get("exp_avg")
+                    .cloned()
+                    .ok_or_else(|| FerrotorchError::InvalidArgument {
+                        message: format!("missing exp_avg in state for key {key}"),
+                    })?;
 
-            let exp_avg_sq = entry
-                .get("exp_avg_sq")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
+            let exp_avg_sq = entry.get("exp_avg_sq").cloned().ok_or_else(|| {
+                FerrotorchError::InvalidArgument {
                     message: format!("missing exp_avg_sq in state for key {key}"),
-                })?;
+                }
+            })?;
 
             self.state.insert(
                 key.clone(),
@@ -315,10 +314,7 @@ mod tests {
     }
 
     fn param_val(opt: &NAdam<f64>, group: usize, idx: usize) -> f64 {
-        opt.param_groups[group].params[idx]
-            .tensor()
-            .data()
-            .unwrap()[0]
+        opt.param_groups[group].params[idx].tensor().data().unwrap()[0]
     }
 
     #[test]
@@ -377,19 +373,20 @@ mod tests {
         let p = scalar_param(1.0);
         let mut opt = NAdam::new(vec![p], NAdamConfig::default());
 
-        let grad =
-            Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
+        let grad = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
         opt.param_groups[0].params[0]
             .tensor()
             .set_grad(Some(grad))
             .unwrap();
 
         opt.zero_grad().unwrap();
-        assert!(opt.param_groups[0].params[0]
-            .tensor()
-            .grad()
-            .unwrap()
-            .is_none());
+        assert!(
+            opt.param_groups[0].params[0]
+                .tensor()
+                .grad()
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

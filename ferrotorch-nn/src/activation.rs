@@ -9,7 +9,7 @@ use ferrotorch_core::grad_fns::activation as act;
 use ferrotorch_core::grad_fns::arithmetic;
 use ferrotorch_core::grad_fns::transcendental;
 use ferrotorch_core::ops::elementwise::unary_map;
-use ferrotorch_core::{normalize_axis, Float, FerrotorchError, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, normalize_axis};
 
 use crate::module::Module;
 use crate::parameter::Parameter;
@@ -525,7 +525,11 @@ impl<T: Float> PReLU<T> {
         let relu_x = act::relu(input)?;
 
         // Get alpha value (transfer to CPU if needed).
-        let cpu_alpha = if self.alpha.tensor().is_cuda() { self.alpha.tensor().cpu()? } else { self.alpha.tensor().clone() };
+        let cpu_alpha = if self.alpha.tensor().is_cuda() {
+            self.alpha.tensor().cpu()?
+        } else {
+            self.alpha.tensor().clone()
+        };
         let alpha_data = cpu_alpha.data()?;
         let alpha_val = alpha_data[0];
 
@@ -902,7 +906,11 @@ impl GLU {
             out_shape,
             false,
         )?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 }
 
@@ -1222,13 +1230,7 @@ impl Hardshrink {
         let lam = T::from(self.lambda).unwrap();
         let neg_lam = T::from(-self.lambda).unwrap();
         let zero = <T as num_traits::Zero>::zero();
-        unary_map(input, |x| {
-            if x > lam || x < neg_lam {
-                x
-            } else {
-                zero
-            }
-        })
+        unary_map(input, |x| if x > lam || x < neg_lam { x } else { zero })
     }
 }
 
@@ -1393,13 +1395,7 @@ impl RReLU {
         } else {
             // Deterministic: mean slope.
             let mean_slope = T::from((self.lower + self.upper) / 2.0).unwrap();
-            unary_map(input, |x| {
-                if x >= zero {
-                    x
-                } else {
-                    mean_slope * x
-                }
-            })
+            unary_map(input, |x| if x >= zero { x } else { mean_slope * x })
         }
     }
 }
@@ -1644,10 +1640,7 @@ mod tests {
 
         // exp(log_softmax) should sum to 1.
         let total: f64 = d.iter().map(|&v| v.exp()).sum();
-        assert!(
-            (total - 1.0).abs() < 1e-7,
-            "exp(log_softmax) sum = {total}"
-        );
+        assert!((total - 1.0).abs() < 1e-7, "exp(log_softmax) sum = {total}");
 
         // All log-probabilities should be negative.
         assert!(d.iter().all(|&v| v <= 0.0));
@@ -1684,8 +1677,16 @@ mod tests {
         let y = m.forward(&x).unwrap();
         let d = y.data().unwrap();
 
-        assert!((d[0] - (-1.0)).abs() < 1e-7, "LeakyReLU(-5, slope=0.2) = {}", d[0]);
-        assert!((d[1] - 3.0).abs() < 1e-7, "LeakyReLU(3, slope=0.2) = {}", d[1]);
+        assert!(
+            (d[0] - (-1.0)).abs() < 1e-7,
+            "LeakyReLU(-5, slope=0.2) = {}",
+            d[0]
+        );
+        assert!(
+            (d[1] - 3.0).abs() < 1e-7,
+            "LeakyReLU(3, slope=0.2) = {}",
+            d[1]
+        );
     }
 
     #[test]
@@ -1951,7 +1952,11 @@ mod tests {
         assert!((d[1] - 0.0).abs() < 1e-7, "HardSwish(0) = {}", d[1]);
         assert!((d[2] - 3.0).abs() < 1e-7, "HardSwish(3) = {}", d[2]);
         assert!((d[3] - 5.0).abs() < 1e-7, "HardSwish(5) = {}", d[3]);
-        assert!((d[4] - (-1.0 / 3.0)).abs() < 1e-7, "HardSwish(-1) = {}", d[4]);
+        assert!(
+            (d[4] - (-1.0 / 3.0)).abs() < 1e-7,
+            "HardSwish(-1) = {}",
+            d[4]
+        );
     }
 
     #[test]
@@ -1995,7 +2000,11 @@ mod tests {
         let y = m.forward(&x).unwrap();
         let d = y.data().unwrap();
         let expected = 2.0_f64.ln() / 2.0;
-        assert!((d[0] - expected).abs() < 1e-7, "Softplus(0, beta=2) = {}", d[0]);
+        assert!(
+            (d[0] - expected).abs() < 1e-7,
+            "Softplus(0, beta=2) = {}",
+            d[0]
+        );
     }
 
     #[test]
@@ -2132,10 +2141,17 @@ mod tests {
         let x = t(&[-10.0, -1.0, 0.0, 1.0, 10.0]);
         let y = m.forward(&x).unwrap();
         let d = y.data().unwrap();
-        assert!(d.iter().all(|&v| v <= 0.0), "All LogSigmoid values should be <= 0");
+        assert!(
+            d.iter().all(|&v| v <= 0.0),
+            "All LogSigmoid values should be <= 0"
+        );
 
         // For large positive x, log(sigmoid(x)) -> 0.
-        assert!(d[4].abs() < 1e-4, "LogSigmoid(10) should be ~0, got {}", d[4]);
+        assert!(
+            d[4].abs() < 1e-4,
+            "LogSigmoid(10) should be ~0, got {}",
+            d[4]
+        );
 
         // For large negative x, log(sigmoid(x)) -> x.
         assert!(
@@ -2288,7 +2304,10 @@ mod tests {
         // tanhshrink(0) = 0 - tanh(0) = 0
         let x = t(&[0.0]);
         let y = m.forward(&x).unwrap();
-        assert!(y.data().unwrap()[0].abs() < 1e-7, "Tanhshrink(0) should be 0");
+        assert!(
+            y.data().unwrap()[0].abs() < 1e-7,
+            "Tanhshrink(0) should be 0"
+        );
 
         // For large |x|, tanh(x) -> sign(x), so tanhshrink(x) -> x - sign(x).
         let x = t(&[10.0, -10.0]);
@@ -2355,8 +2374,16 @@ mod tests {
         let x = t(&[100.0, -100.0]);
         let y = m.forward(&x).unwrap();
         let d = y.data().unwrap();
-        assert!(d[0] > 0.99 && d[0] < 1.0, "Softsign(100) should be ~1, got {}", d[0]);
-        assert!(d[1] < -0.99 && d[1] > -1.0, "Softsign(-100) should be ~-1, got {}", d[1]);
+        assert!(
+            d[0] > 0.99 && d[0] < 1.0,
+            "Softsign(100) should be ~1, got {}",
+            d[0]
+        );
+        assert!(
+            d[1] < -0.99 && d[1] > -1.0,
+            "Softsign(-100) should be ~-1, got {}",
+            d[1]
+        );
     }
 
     #[test]
@@ -2380,8 +2407,16 @@ mod tests {
         let y = m.forward(&x).unwrap();
         let d = y.data().unwrap();
 
-        assert!((d[0] - (-2.0 * mean_slope)).abs() < 1e-7, "RReLU(-2,eval) = {}", d[0]);
-        assert!((d[1] - (-mean_slope)).abs() < 1e-7, "RReLU(-1,eval) = {}", d[1]);
+        assert!(
+            (d[0] - (-2.0 * mean_slope)).abs() < 1e-7,
+            "RReLU(-2,eval) = {}",
+            d[0]
+        );
+        assert!(
+            (d[1] - (-mean_slope)).abs() < 1e-7,
+            "RReLU(-1,eval) = {}",
+            d[1]
+        );
         assert!((d[2] - 0.0).abs() < 1e-7, "RReLU(0,eval) = {}", d[2]);
         assert!((d[3] - 1.0).abs() < 1e-7, "RReLU(1,eval) = {}", d[3]);
         assert!((d[4] - 2.0).abs() < 1e-7, "RReLU(2,eval) = {}", d[4]);
@@ -2555,7 +2590,10 @@ mod tests {
         ferrotorch_core::backward(&y).unwrap();
 
         let grad = x.grad().unwrap();
-        assert!(grad.is_some(), "Softplus backward should produce a gradient");
+        assert!(
+            grad.is_some(),
+            "Softplus backward should produce a gradient"
+        );
     }
 
     #[test]
@@ -2679,10 +2717,8 @@ mod tests {
             ferrotorch_core::backward(&y).unwrap();
 
             let grad = x.grad().unwrap().unwrap();
-            let expected = numerical_grad(
-                |v| if v > 0.0 { v } else { alpha * (v.exp() - 1.0) },
-                val,
-            );
+            let expected =
+                numerical_grad(|v| if v > 0.0 { v } else { alpha * (v.exp() - 1.0) }, val);
             assert!(
                 (grad.item().unwrap() - expected).abs() < 1e-4,
                 "ELU grad at x={}: expected {}, got {}",

@@ -411,10 +411,7 @@ where
     let shape = input.shape();
     if shape.len() != 1 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "jacfwd: input must be 1-D, got shape {:?}",
-                shape
-            ),
+            message: format!("jacfwd: input must be 1-D, got shape {:?}", shape),
         });
     }
 
@@ -462,14 +459,17 @@ mod tests {
 
     /// Create a leaf 1-D tensor.
     fn leaf_vec(data: &[f32], requires_grad: bool) -> Tensor<f32> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            vec![data.len()],
+            requires_grad,
+        )
+        .unwrap()
     }
 
     /// Create a leaf 2-D tensor.
     fn leaf_mat(data: &[f32], rows: usize, cols: usize) -> Tensor<f32> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![rows, cols], false)
-            .unwrap()
+        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![rows, cols], false).unwrap()
     }
 
     /// Assert a scalar approximately equals expected.
@@ -514,8 +514,10 @@ mod tests {
 
     #[test]
     fn test_dual_add() {
-        let a = DualTensor::new(leaf_vec(&[1.0, 2.0], false), leaf_vec(&[0.5, 0.3], false)).unwrap();
-        let b = DualTensor::new(leaf_vec(&[3.0, 4.0], false), leaf_vec(&[0.1, 0.2], false)).unwrap();
+        let a =
+            DualTensor::new(leaf_vec(&[1.0, 2.0], false), leaf_vec(&[0.5, 0.3], false)).unwrap();
+        let b =
+            DualTensor::new(leaf_vec(&[3.0, 4.0], false), leaf_vec(&[0.1, 0.2], false)).unwrap();
         let c = dual_add(&a, &b).unwrap();
 
         let p = c.primal.data_vec().unwrap();
@@ -528,8 +530,10 @@ mod tests {
 
     #[test]
     fn test_dual_sub() {
-        let a = DualTensor::new(leaf_vec(&[5.0, 3.0], false), leaf_vec(&[1.0, 0.5], false)).unwrap();
-        let b = DualTensor::new(leaf_vec(&[2.0, 1.0], false), leaf_vec(&[0.3, 0.1], false)).unwrap();
+        let a =
+            DualTensor::new(leaf_vec(&[5.0, 3.0], false), leaf_vec(&[1.0, 0.5], false)).unwrap();
+        let b =
+            DualTensor::new(leaf_vec(&[2.0, 1.0], false), leaf_vec(&[0.3, 0.1], false)).unwrap();
         let c = dual_sub(&a, &b).unwrap();
 
         let p = c.primal.data_vec().unwrap();
@@ -566,7 +570,8 @@ mod tests {
 
     #[test]
     fn test_dual_neg() {
-        let a = DualTensor::new(leaf_vec(&[3.0, -2.0], false), leaf_vec(&[1.0, 0.5], false)).unwrap();
+        let a =
+            DualTensor::new(leaf_vec(&[3.0, -2.0], false), leaf_vec(&[1.0, 0.5], false)).unwrap();
         let c = dual_neg(&a).unwrap();
 
         let p = c.primal.data_vec().unwrap();
@@ -617,7 +622,8 @@ mod tests {
     #[test]
     fn test_dual_relu_positive() {
         // relu(x) for x > 0: d(relu) = dx
-        let a = DualTensor::new(leaf_vec(&[2.0, 3.0], false), leaf_vec(&[0.5, 1.0], false)).unwrap();
+        let a =
+            DualTensor::new(leaf_vec(&[2.0, 3.0], false), leaf_vec(&[0.5, 1.0], false)).unwrap();
         let c = dual_relu(&a).unwrap();
 
         let p = c.primal.data_vec().unwrap();
@@ -631,7 +637,8 @@ mod tests {
     #[test]
     fn test_dual_relu_negative() {
         // relu(x) for x < 0: d(relu) = 0
-        let a = DualTensor::new(leaf_vec(&[-1.0, -5.0], false), leaf_vec(&[0.5, 1.0], false)).unwrap();
+        let a =
+            DualTensor::new(leaf_vec(&[-1.0, -5.0], false), leaf_vec(&[0.5, 1.0], false)).unwrap();
         let c = dual_relu(&a).unwrap();
 
         let p = c.primal.data_vec().unwrap();
@@ -649,7 +656,12 @@ mod tests {
         let c = dual_sigmoid(&a).unwrap();
 
         assert_approx(c.primal.data_vec().unwrap()[0], 0.5, 1e-5, "sigmoid primal");
-        assert_approx(c.tangent.data_vec().unwrap()[0], 0.25, 1e-5, "sigmoid tangent");
+        assert_approx(
+            c.tangent.data_vec().unwrap()[0],
+            0.25,
+            1e-5,
+            "sigmoid tangent",
+        );
     }
 
     #[test]
@@ -684,7 +696,12 @@ mod tests {
 
         let e = std::f32::consts::E;
         assert_approx(c.primal.data_vec().unwrap()[0], e, 1e-5, "exp(1) primal");
-        assert_approx(c.tangent.data_vec().unwrap()[0], 2.0 * e, 1e-4, "exp(1) tangent");
+        assert_approx(
+            c.tangent.data_vec().unwrap()[0],
+            2.0 * e,
+            1e-4,
+            "exp(1) tangent",
+        );
     }
 
     #[test]
@@ -695,7 +712,12 @@ mod tests {
         let c = dual_log(&a).unwrap();
 
         assert_approx(c.primal.data_vec().unwrap()[0], 1.0, 1e-5, "log primal");
-        assert_approx(c.tangent.data_vec().unwrap()[0], 2.0 / e, 1e-5, "log tangent");
+        assert_approx(
+            c.tangent.data_vec().unwrap()[0],
+            2.0 / e,
+            1e-5,
+            "log tangent",
+        );
     }
 
     #[test]
@@ -715,8 +737,18 @@ mod tests {
         let a = DualTensor::new(leaf_vec(&[pi_half], false), leaf_vec(&[1.0], false)).unwrap();
         let c = dual_sin(&a).unwrap();
 
-        assert_approx(c.primal.data_vec().unwrap()[0], 1.0, 1e-5, "sin(pi/2) primal");
-        assert_approx(c.tangent.data_vec().unwrap()[0], 0.0, 1e-5, "sin(pi/2) tangent");
+        assert_approx(
+            c.primal.data_vec().unwrap()[0],
+            1.0,
+            1e-5,
+            "sin(pi/2) primal",
+        );
+        assert_approx(
+            c.tangent.data_vec().unwrap()[0],
+            0.0,
+            1e-5,
+            "sin(pi/2) tangent",
+        );
     }
 
     #[test]
@@ -736,8 +768,18 @@ mod tests {
         let a = DualTensor::new(leaf_vec(&[pi_half], false), leaf_vec(&[1.0], false)).unwrap();
         let c = dual_cos(&a).unwrap();
 
-        assert_approx(c.primal.data_vec().unwrap()[0], 0.0, 1e-5, "cos(pi/2) primal");
-        assert_approx(c.tangent.data_vec().unwrap()[0], -1.0, 1e-5, "cos(pi/2) tangent");
+        assert_approx(
+            c.primal.data_vec().unwrap()[0],
+            0.0,
+            1e-5,
+            "cos(pi/2) primal",
+        );
+        assert_approx(
+            c.tangent.data_vec().unwrap()[0],
+            -1.0,
+            1e-5,
+            "cos(pi/2) tangent",
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -766,11 +808,7 @@ mod tests {
         let input = leaf_vec(&[3.0, 4.0], false);
         let v = leaf_vec(&[1.0, 1.0], false);
 
-        let (_primal, tangent) = jvp_exact(
-            |x| dual_mul(&x, &x),
-            &input,
-            &v,
-        ).unwrap();
+        let (_primal, tangent) = jvp_exact(|x| dual_mul(&x, &x), &input, &v).unwrap();
 
         let t = tangent.data_vec().unwrap();
         // Jv = [2*3*1, 2*4*1] = [6, 8]
@@ -792,10 +830,16 @@ mod tests {
             },
             &input,
             &v,
-        ).unwrap();
+        )
+        .unwrap();
 
         let e = std::f32::consts::E;
-        assert_approx(tangent.data_vec().unwrap()[0], 2.0 * e, 1e-4, "jvp exp(x^2) tangent");
+        assert_approx(
+            tangent.data_vec().unwrap()[0],
+            2.0 * e,
+            1e-4,
+            "jvp exp(x^2) tangent",
+        );
     }
 
     #[test]
@@ -817,11 +861,7 @@ mod tests {
         let v = leaf_vec(&[1.0, 1.0], false);
 
         // Exact forward-mode JVP.
-        let (_primal, exact_tangent) = jvp_exact(
-            |x| dual_mul(&x, &x),
-            &input,
-            &v,
-        ).unwrap();
+        let (_primal, exact_tangent) = jvp_exact(|x| dual_mul(&x, &x), &input, &v).unwrap();
 
         let exact = exact_tangent.data_vec().unwrap();
         // Expected: [6, 8]
@@ -841,12 +881,15 @@ mod tests {
         let jac = jacfwd(
             |x| {
                 let two = DualTensor::constant(
-                    Tensor::from_storage(TensorStorage::cpu(vec![2.0f32; 3]), vec![3], false).unwrap()
-                ).unwrap();
+                    Tensor::from_storage(TensorStorage::cpu(vec![2.0f32; 3]), vec![3], false)
+                        .unwrap(),
+                )
+                .unwrap();
                 dual_mul(&two, &x)
             },
             &input,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(jac.shape(), &[3, 3]);
         let data = jac.data_vec().unwrap();
@@ -908,8 +951,18 @@ mod tests {
         let sum = dual_add(&x, &y).unwrap();
         let prod = dual_mul(&sum, &x).unwrap();
 
-        assert_approx(prod.primal.data_vec().unwrap()[0], 15.0, 1e-5, "chain primal");
-        assert_approx(prod.tangent.data_vec().unwrap()[0], 8.0, 1e-5, "chain tangent");
+        assert_approx(
+            prod.primal.data_vec().unwrap()[0],
+            15.0,
+            1e-5,
+            "chain primal",
+        );
+        assert_approx(
+            prod.tangent.data_vec().unwrap()[0],
+            8.0,
+            1e-5,
+            "chain tangent",
+        );
     }
 
     #[test]
@@ -919,8 +972,18 @@ mod tests {
         let ex = dual_exp(&x).unwrap();
         let result = dual_log(&ex).unwrap();
 
-        assert_approx(result.primal.data_vec().unwrap()[0], 2.0, 1e-4, "log(exp) primal");
-        assert_approx(result.tangent.data_vec().unwrap()[0], 1.0, 1e-4, "log(exp) tangent");
+        assert_approx(
+            result.primal.data_vec().unwrap()[0],
+            2.0,
+            1e-4,
+            "log(exp) primal",
+        );
+        assert_approx(
+            result.tangent.data_vec().unwrap()[0],
+            1.0,
+            1e-4,
+            "log(exp) tangent",
+        );
     }
 
     #[test]
@@ -937,8 +1000,18 @@ mod tests {
         let c2 = dual_mul(&cx, &cx).unwrap();
         let sum = dual_add(&s2, &c2).unwrap();
 
-        assert_approx(sum.primal.data_vec().unwrap()[0], 1.0, 1e-4, "sin^2+cos^2 primal");
-        assert_approx(sum.tangent.data_vec().unwrap()[0], 0.0, 1e-4, "sin^2+cos^2 tangent");
+        assert_approx(
+            sum.primal.data_vec().unwrap()[0],
+            1.0,
+            1e-4,
+            "sin^2+cos^2 primal",
+        );
+        assert_approx(
+            sum.tangent.data_vec().unwrap()[0],
+            0.0,
+            1e-4,
+            "sin^2+cos^2 tangent",
+        );
     }
 
     #[test]

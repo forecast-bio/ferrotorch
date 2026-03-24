@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -232,19 +232,21 @@ impl<T: Float> Optimizer<T> for Adamax<T> {
                 .copied()
                 .unwrap_or(0.0) as u64;
 
-            let exp_avg = entry
-                .get("exp_avg")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!("missing exp_avg in state for key {key}"),
-                })?;
+            let exp_avg =
+                entry
+                    .get("exp_avg")
+                    .cloned()
+                    .ok_or_else(|| FerrotorchError::InvalidArgument {
+                        message: format!("missing exp_avg in state for key {key}"),
+                    })?;
 
-            let exp_inf = entry
-                .get("exp_inf")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!("missing exp_inf in state for key {key}"),
-                })?;
+            let exp_inf =
+                entry
+                    .get("exp_inf")
+                    .cloned()
+                    .ok_or_else(|| FerrotorchError::InvalidArgument {
+                        message: format!("missing exp_inf in state for key {key}"),
+                    })?;
 
             self.state.insert(
                 key.clone(),
@@ -275,10 +277,7 @@ mod tests {
     }
 
     fn param_val(opt: &Adamax<f64>, group: usize, idx: usize) -> f64 {
-        opt.param_groups[group].params[idx]
-            .tensor()
-            .data()
-            .unwrap()[0]
+        opt.param_groups[group].params[idx].tensor().data().unwrap()[0]
     }
 
     #[test]
@@ -337,19 +336,20 @@ mod tests {
         let p = scalar_param(1.0);
         let mut opt = Adamax::new(vec![p], AdamaxConfig::default());
 
-        let grad =
-            Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
+        let grad = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
         opt.param_groups[0].params[0]
             .tensor()
             .set_grad(Some(grad))
             .unwrap();
 
         opt.zero_grad().unwrap();
-        assert!(opt.param_groups[0].params[0]
-            .tensor()
-            .grad()
-            .unwrap()
-            .is_none());
+        assert!(
+            opt.param_groups[0].params[0]
+                .tensor()
+                .grad()
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

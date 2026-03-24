@@ -783,7 +783,8 @@ mod tests {
             let q_slice = &q_data[bh * n_q * d..(bh + 1) * n_q * d];
             let k_slice = &k_data[bh * n_k * d..(bh + 1) * n_k * d];
             let v_slice = &v_data[bh * n_k * d_v..(bh + 1) * n_k * d_v];
-            let out = cpu_flash_attention_ref(q_slice, k_slice, v_slice, n_q, n_k, d, d_v, scale, false);
+            let out =
+                cpu_flash_attention_ref(q_slice, k_slice, v_slice, n_q, n_k, d, d_v, scale, false);
             expected.extend_from_slice(&out);
         }
 
@@ -793,14 +794,30 @@ mod tests {
         let v_gpu = cpu_to_gpu(&v_data, &dev).expect("v to gpu");
 
         let out_gpu = gpu_flash_attention_f32(
-            &q_gpu, &k_gpu, &v_gpu, n_q, n_k, d, d_v, batch_heads, scale, false, &dev,
+            &q_gpu,
+            &k_gpu,
+            &v_gpu,
+            n_q,
+            n_k,
+            d,
+            d_v,
+            batch_heads,
+            scale,
+            false,
+            &dev,
         )
         .expect("gpu_flash_attention_f32");
 
         assert_eq!(out_gpu.len(), batch_heads * n_q * d_v);
 
         let out_host = gpu_to_cpu(&out_gpu, &dev).expect("gpu_to_cpu");
-        assert_close(&out_host, &expected, 1e-2, 1e-5, "flash_attention non-causal");
+        assert_close(
+            &out_host,
+            &expected,
+            1e-2,
+            1e-5,
+            "flash_attention non-causal",
+        );
     }
 
     #[test]
@@ -824,9 +841,8 @@ mod tests {
             .collect();
 
         // CPU reference (causal).
-        let expected = cpu_flash_attention_ref(
-            &q_data, &k_data, &v_data, n, n, d, d_v, scale, true,
-        );
+        let expected =
+            cpu_flash_attention_ref(&q_data, &k_data, &v_data, n, n, d, d_v, scale, true);
 
         // GPU.
         let q_gpu = cpu_to_gpu(&q_data, &dev).expect("q to gpu");
@@ -834,7 +850,17 @@ mod tests {
         let v_gpu = cpu_to_gpu(&v_data, &dev).expect("v to gpu");
 
         let out_gpu = gpu_flash_attention_f32(
-            &q_gpu, &k_gpu, &v_gpu, n, n, d, d_v, batch_heads, scale, true, &dev,
+            &q_gpu,
+            &k_gpu,
+            &v_gpu,
+            n,
+            n,
+            d,
+            d_v,
+            batch_heads,
+            scale,
+            true,
+            &dev,
         )
         .expect("gpu_flash_attention_f32 causal");
 
@@ -861,17 +887,22 @@ mod tests {
         let k_gpu = cpu_to_gpu(&k_data, &dev).expect("k to gpu");
         let v_gpu = cpu_to_gpu(&v_data, &dev).expect("v to gpu");
 
-        let out_gpu = gpu_flash_attention_f32(
-            &q_gpu, &k_gpu, &v_gpu, n, n, d, d_v, 1, scale, true, &dev,
-        )
-        .expect("gpu_flash_attention_f32");
+        let out_gpu =
+            gpu_flash_attention_f32(&q_gpu, &k_gpu, &v_gpu, n, n, d, d_v, 1, scale, true, &dev)
+                .expect("gpu_flash_attention_f32");
 
         let out_host = gpu_to_cpu(&out_gpu, &dev).expect("gpu_to_cpu");
 
         // First row of output should be V[0, :].
         let first_row = &out_host[..d_v];
         let v_first_row = &v_data[..d_v];
-        assert_close(first_row, v_first_row, 1e-3, 1e-5, "causal first row == V[0,:]");
+        assert_close(
+            first_row,
+            v_first_row,
+            1e-3,
+            1e-5,
+            "causal first row == V[0,:]",
+        );
     }
 
     #[test]
@@ -894,7 +925,17 @@ mod tests {
         let v_gpu = cpu_to_gpu(&v_data, &dev).expect("v to gpu");
 
         let out_gpu = gpu_flash_attention_f32(
-            &q_gpu, &k_gpu, &v_gpu, n_q, n_k, d, d_v, batch_heads, scale, false, &dev,
+            &q_gpu,
+            &k_gpu,
+            &v_gpu,
+            n_q,
+            n_k,
+            d,
+            d_v,
+            batch_heads,
+            scale,
+            false,
+            &dev,
         )
         .expect("gpu_flash_attention_f32");
 
@@ -923,21 +964,36 @@ mod tests {
             .map(|i| ((i * 13 + 7) % 50) as f32 / 50.0 - 0.5)
             .collect();
 
-        let expected = cpu_flash_attention_ref(
-            &q_data, &k_data, &v_data, n_q, n_k, d, d_v, scale, false,
-        );
+        let expected =
+            cpu_flash_attention_ref(&q_data, &k_data, &v_data, n_q, n_k, d, d_v, scale, false);
 
         let q_gpu = cpu_to_gpu(&q_data, &dev).expect("q to gpu");
         let k_gpu = cpu_to_gpu(&k_data, &dev).expect("k to gpu");
         let v_gpu = cpu_to_gpu(&v_data, &dev).expect("v to gpu");
 
         let out_gpu = gpu_flash_attention_f32(
-            &q_gpu, &k_gpu, &v_gpu, n_q, n_k, d, d_v, batch_heads, scale, false, &dev,
+            &q_gpu,
+            &k_gpu,
+            &v_gpu,
+            n_q,
+            n_k,
+            d,
+            d_v,
+            batch_heads,
+            scale,
+            false,
+            &dev,
         )
         .expect("gpu_flash_attention_f32");
 
         let out_host = gpu_to_cpu(&out_gpu, &dev).expect("gpu_to_cpu");
-        assert_close(&out_host, &expected, 1e-2, 1e-5, "flash_attention diff seq lens");
+        assert_close(
+            &out_host,
+            &expected,
+            1e-2,
+            1e-5,
+            "flash_attention diff seq lens",
+        );
     }
 
     #[test]
@@ -986,17 +1042,19 @@ mod tests {
         let dev = GpuDevice::new(0).expect("CUDA device 0");
 
         let q_data = vec![0.0f32; 10]; // wrong length
-        let k_data = vec![0.0f32; 1 * 4 * 8];
-        let v_data = vec![0.0f32; 1 * 4 * 8];
+        let k_data = vec![0.0f32; 4 * 8]; // B=1
+        let v_data = vec![0.0f32; 4 * 8]; // B=1
 
         let q = cpu_to_gpu(&q_data, &dev).expect("q");
         let k = cpu_to_gpu(&k_data, &dev).expect("k");
         let v = cpu_to_gpu(&v_data, &dev).expect("v");
 
-        let err = gpu_flash_attention_f32(&q, &k, &v, 4, 4, 8, 8, 1, 0.5, false, &dev)
-            .unwrap_err();
+        let err = gpu_flash_attention_f32(&q, &k, &v, 4, 4, 8, 8, 1, 0.5, false, &dev).unwrap_err();
         match err {
-            GpuError::ShapeMismatch { op: "flash_attention", .. } => {}
+            GpuError::ShapeMismatch {
+                op: "flash_attention",
+                ..
+            } => {}
             other => panic!("unexpected error: {other}"),
         }
     }
@@ -1006,18 +1064,21 @@ mod tests {
         let dev = GpuDevice::new(0).expect("CUDA device 0");
 
         // d = 256 > D_MAX = 128
-        let q_data = vec![0.0f32; 1 * 2 * 256];
-        let k_data = vec![0.0f32; 1 * 2 * 256];
-        let v_data = vec![0.0f32; 1 * 2 * 64];
+        let q_data = vec![0.0f32; 2 * 256]; // B=1
+        let k_data = vec![0.0f32; 2 * 256]; // B=1
+        let v_data = vec![0.0f32; 2 * 64]; // B=1
 
         let q = cpu_to_gpu(&q_data, &dev).expect("q");
         let k = cpu_to_gpu(&k_data, &dev).expect("k");
         let v = cpu_to_gpu(&v_data, &dev).expect("v");
 
-        let err = gpu_flash_attention_f32(&q, &k, &v, 2, 2, 256, 64, 1, 0.5, false, &dev)
-            .unwrap_err();
+        let err =
+            gpu_flash_attention_f32(&q, &k, &v, 2, 2, 256, 64, 1, 0.5, false, &dev).unwrap_err();
         match err {
-            GpuError::ShapeMismatch { op: "flash_attention", .. } => {}
+            GpuError::ShapeMismatch {
+                op: "flash_attention",
+                ..
+            } => {}
             other => panic!("unexpected error: {other}"),
         }
     }

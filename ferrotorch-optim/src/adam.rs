@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -274,19 +274,19 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                 .copied()
                 .unwrap_or(0.0) as u64;
 
-            let exp_avg = entry
-                .get("exp_avg")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!("missing exp_avg in state for key {key}"),
-                })?;
+            let exp_avg =
+                entry
+                    .get("exp_avg")
+                    .cloned()
+                    .ok_or_else(|| FerrotorchError::InvalidArgument {
+                        message: format!("missing exp_avg in state for key {key}"),
+                    })?;
 
-            let exp_avg_sq = entry
-                .get("exp_avg_sq")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
+            let exp_avg_sq = entry.get("exp_avg_sq").cloned().ok_or_else(|| {
+                FerrotorchError::InvalidArgument {
                     message: format!("missing exp_avg_sq in state for key {key}"),
-                })?;
+                }
+            })?;
 
             let max_exp_avg_sq = entry.get("max_exp_avg_sq").cloned();
 
@@ -322,10 +322,7 @@ mod tests {
 
     /// Read a scalar parameter's current value.
     fn param_val(opt: &Adam<f64>, group: usize, idx: usize) -> f64 {
-        opt.param_groups[group].params[idx]
-            .tensor()
-            .data()
-            .unwrap()[0]
+        opt.param_groups[group].params[idx].tensor().data().unwrap()[0]
     }
 
     // -----------------------------------------------------------------------
@@ -356,8 +353,8 @@ mod tests {
             let y_tensor = opt.param_groups[0].params[1].tensor().clone();
 
             // f(x, y) = (1 - x)^2 + 100*(y - x^2)^2
-            let one = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false)
-                .unwrap();
+            let one =
+                Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
             let hundred =
                 Tensor::from_storage(TensorStorage::cpu(vec![100.0_f64]), vec![], false).unwrap();
 
@@ -407,20 +404,24 @@ mod tests {
             .unwrap();
 
         // Verify gradient exists.
-        assert!(opt.param_groups[0].params[0]
-            .tensor()
-            .grad()
-            .unwrap()
-            .is_some());
+        assert!(
+            opt.param_groups[0].params[0]
+                .tensor()
+                .grad()
+                .unwrap()
+                .is_some()
+        );
 
         // Zero it out.
         opt.zero_grad().unwrap();
 
-        assert!(opt.param_groups[0].params[0]
-            .tensor()
-            .grad()
-            .unwrap()
-            .is_none());
+        assert!(
+            opt.param_groups[0].params[0]
+                .tensor()
+                .grad()
+                .unwrap()
+                .is_none()
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -443,7 +444,10 @@ mod tests {
 
         // Save state.
         let saved = opt.state_dict();
-        assert!(!saved.is_empty(), "state dict should be non-empty after steps");
+        assert!(
+            !saved.is_empty(),
+            "state dict should be non-empty after steps"
+        );
 
         // Verify the state contains expected keys.
         let key = Adam::<f64>::param_key(0, 0);
@@ -590,13 +594,7 @@ mod tests {
 
         let v1 = param_val(&opt, 0, 0);
         let v2 = param_val(&opt, 0, 1);
-        assert!(
-            v1.abs() < 0.5,
-            "expected p1 near 0, got {v1}"
-        );
-        assert!(
-            v2.abs() < 0.5,
-            "expected p2 near 0, got {v2}"
-        );
+        assert!(v1.abs() < 0.5, "expected p1 near 0, got {v1}");
+        assert!(v2.abs() < 0.5, "expected p2 near 0, got {v2}");
     }
 }

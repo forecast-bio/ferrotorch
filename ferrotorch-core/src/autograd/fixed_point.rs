@@ -35,7 +35,8 @@ use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
 
 /// Type alias for the fixed-point function f(x, params) -> x.
-type FixedPointFn<T> = Arc<dyn Fn(&Tensor<T>, &[&Tensor<T>]) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
+type FixedPointFn<T> =
+    Arc<dyn Fn(&Tensor<T>, &[&Tensor<T>]) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
 
 /// Find a fixed point of `f` starting from `x0`, then compute its derivative
 /// w.r.t. `params` using the implicit function theorem.

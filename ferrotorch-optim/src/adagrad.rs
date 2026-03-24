@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage, no_grad};
 use ferrotorch_nn::Parameter;
 
-use crate::optimizer::{f64_vec_to_tensor, tensor_to_f64_vec, Optimizer, OptimizerState, ParamGroup};
+use crate::optimizer::{
+    Optimizer, OptimizerState, ParamGroup, f64_vec_to_tensor, tensor_to_f64_vec,
+};
 
 /// Configuration for the Adagrad optimizer.
 ///
@@ -116,18 +118,9 @@ impl<T: Float> Adagrad<T> {
             let numel: usize = shape.iter().product();
             let init_val = T::from(self.config.initial_accumulator_value).unwrap();
             let sum_data = vec![init_val; numel];
-            let sum = Tensor::from_storage(
-                TensorStorage::cpu(sum_data),
-                shape.to_vec(),
-                false,
-            )?;
-            self.state.insert(
-                key,
-                AdagradParamState {
-                    sum,
-                    step_count: 0,
-                },
-            );
+            let sum = Tensor::from_storage(TensorStorage::cpu(sum_data), shape.to_vec(), false)?;
+            self.state
+                .insert(key, AdagradParamState { sum, step_count: 0 });
         }
         Ok(())
     }
@@ -152,8 +145,8 @@ impl<T: Float> Optimizer<T> for Adagrad<T> {
                     None => continue,
                 };
                 let mut grad_vec: Vec<T> = grad_tensor.data_vec()?;
-                let param_vec: Vec<T> = self.param_groups[group_idx].params[param_idx]
-                    .data_vec()?;
+                let param_vec: Vec<T> =
+                    self.param_groups[group_idx].params[param_idx].data_vec()?;
 
                 // Maximize: negate gradient. CL-321
                 if self.config.maximize {
@@ -292,9 +285,7 @@ impl<T: Float> Optimizer<T> for Adagrad<T> {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
 
-            if gi >= self.param_groups.len()
-                || pi >= self.param_groups[gi].params.len()
-            {
+            if gi >= self.param_groups.len() || pi >= self.param_groups[gi].params.len() {
                 continue;
             }
 
@@ -310,17 +301,11 @@ impl<T: Float> Optimizer<T> for Adagrad<T> {
             } else {
                 let numel: usize = shape.iter().product();
                 let init = T::from(self.config.initial_accumulator_value).unwrap();
-                Tensor::from_storage(
-                    TensorStorage::cpu(vec![init; numel]),
-                    shape.clone(),
-                    false,
-                )?
+                Tensor::from_storage(TensorStorage::cpu(vec![init; numel]), shape.clone(), false)?
             };
 
-            self.state.insert(
-                (gi, pi),
-                AdagradParamState { sum, step_count },
-            );
+            self.state
+                .insert((gi, pi), AdagradParamState { sum, step_count });
         }
         Ok(())
     }
@@ -331,17 +316,10 @@ mod tests {
     use super::*;
 
     /// Helper: create a parameter with known data and set its gradient.
-    fn make_param_with_grad(
-        data: &[f32],
-        grad: &[f32],
-    ) -> FerrotorchResult<Parameter<f32>> {
+    fn make_param_with_grad(data: &[f32], grad: &[f32]) -> FerrotorchResult<Parameter<f32>> {
         let shape = vec![data.len()];
         let param = Parameter::from_slice(data, &shape)?;
-        let grad_tensor = Tensor::from_storage(
-            TensorStorage::cpu(grad.to_vec()),
-            shape,
-            false,
-        )?;
+        let grad_tensor = Tensor::from_storage(TensorStorage::cpu(grad.to_vec()), shape, false)?;
         param.set_grad(Some(grad_tensor))?;
         Ok(param)
     }
@@ -365,21 +343,15 @@ mod tests {
         for _ in 0..100 {
             // Compute gradient: d/dx(x^2) = 2x.
             let grad_val = 2.0 * current_val;
-            let grad_tensor = Tensor::from_storage(
-                TensorStorage::cpu(vec![grad_val]),
-                vec![1],
-                false,
-            )
-            .unwrap();
+            let grad_tensor =
+                Tensor::from_storage(TensorStorage::cpu(vec![grad_val]), vec![1], false).unwrap();
             opt.param_groups_mut()[0].params[0]
                 .set_grad(Some(grad_tensor))
                 .unwrap();
 
             opt.step().unwrap();
 
-            current_val = opt.param_groups()[0].params[0]
-                .data()
-                .unwrap()[0];
+            current_val = opt.param_groups()[0].params[0].data().unwrap()[0];
         }
 
         // After 100 steps, x should be much closer to 0 than the initial 5.0.
@@ -393,10 +365,7 @@ mod tests {
     fn test_accumulator_grows_monotonically() {
         let param = make_param_with_grad(&[1.0, 2.0, 3.0], &[0.5, -1.0, 0.3]).unwrap();
         let config = AdagradConfig::default();
-        let mut opt = Adagrad::new(
-            vec![ParamGroup::new(vec![param], config.lr)],
-            config,
-        );
+        let mut opt = Adagrad::new(vec![ParamGroup::new(vec![param], config.lr)], config);
 
         // Step once to initialize state.
         opt.step().unwrap();
@@ -409,12 +378,9 @@ mod tests {
         }
 
         // Set new gradients and step again.
-        let grad2 = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.2f32, 0.8, -0.1]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let grad2 =
+            Tensor::from_storage(TensorStorage::cpu(vec![0.2f32, 0.8, -0.1]), vec![3], false)
+                .unwrap();
         opt.param_groups_mut()[0].params[0]
             .set_grad(Some(grad2))
             .unwrap();
@@ -469,30 +435,16 @@ mod tests {
 
         // First step: step_count = 1, clr = lr / (1 + 0 * decay) = lr.
         // Both should have the same result after step 1.
-        let val_no_decay_1 = opt_no_decay.param_groups()[0].params[0]
-            .data()
-            .unwrap()[0];
-        let val_decay_1 = opt_decay.param_groups()[0].params[0]
-            .data()
-            .unwrap()[0];
+        let val_no_decay_1 = opt_no_decay.param_groups()[0].params[0].data().unwrap()[0];
+        let val_decay_1 = opt_decay.param_groups()[0].params[0].data().unwrap()[0];
         assert!(
             (val_no_decay_1 - val_decay_1).abs() < 1e-6,
             "first step should be identical: {val_no_decay_1} vs {val_decay_1}"
         );
 
         // Set the same gradient again for step 2.
-        let g1 = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32]),
-            vec![1],
-            false,
-        )
-        .unwrap();
-        let g2 = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32]),
-            vec![1],
-            false,
-        )
-        .unwrap();
+        let g1 = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32]), vec![1], false).unwrap();
+        let g2 = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32]), vec![1], false).unwrap();
         opt_no_decay.param_groups_mut()[0].params[0]
             .set_grad(Some(g1))
             .unwrap();
@@ -503,12 +455,8 @@ mod tests {
         opt_no_decay.step().unwrap();
         opt_decay.step().unwrap();
 
-        let val_no_decay_2 = opt_no_decay.param_groups()[0].params[0]
-            .data()
-            .unwrap()[0];
-        let val_decay_2 = opt_decay.param_groups()[0].params[0]
-            .data()
-            .unwrap()[0];
+        let val_no_decay_2 = opt_no_decay.param_groups()[0].params[0].data().unwrap()[0];
+        let val_decay_2 = opt_decay.param_groups()[0].params[0].data().unwrap()[0];
 
         // The decayed optimizer should have moved less (closer to initial).
         let update_no_decay = (val_no_decay_1 - val_no_decay_2).abs();
@@ -545,10 +493,7 @@ mod tests {
             weight_decay: 0.5,
             ..Default::default()
         };
-        let mut opt_wd = Adagrad::new(
-            vec![ParamGroup::new(vec![p_wd], config_wd.lr)],
-            config_wd,
-        );
+        let mut opt_wd = Adagrad::new(vec![ParamGroup::new(vec![p_wd], config_wd.lr)], config_wd);
 
         opt_no_wd.step().unwrap();
         opt_wd.step().unwrap();
@@ -578,18 +523,8 @@ mod tests {
         // of weight decay becomes visible on subsequent steps where the larger
         // accumulator (from the inflated effective gradient) causes smaller updates.
         // Set identical gradients for step 2 and verify divergence.
-        let g1 = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32]),
-            vec![1],
-            false,
-        )
-        .unwrap();
-        let g2 = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32]),
-            vec![1],
-            false,
-        )
-        .unwrap();
+        let g1 = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32]), vec![1], false).unwrap();
+        let g2 = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32]), vec![1], false).unwrap();
         opt_no_wd.param_groups_mut()[0].params[0]
             .set_grad(Some(g1))
             .unwrap();
@@ -613,10 +548,7 @@ mod tests {
     fn test_zero_grad() {
         let param = make_param_with_grad(&[1.0, 2.0], &[0.5, 0.5]).unwrap();
         let config = AdagradConfig::default();
-        let mut opt = Adagrad::new(
-            vec![ParamGroup::new(vec![param], config.lr)],
-            config,
-        );
+        let mut opt = Adagrad::new(vec![ParamGroup::new(vec![param], config.lr)], config);
 
         // Gradients should exist before zero_grad.
         assert!(opt.param_groups()[0].params[0].grad().unwrap().is_some());
@@ -634,10 +566,7 @@ mod tests {
             lr: 0.05,
             ..Default::default()
         };
-        let mut opt = Adagrad::new(
-            vec![ParamGroup::new(vec![param], config.lr)],
-            config,
-        );
+        let mut opt = Adagrad::new(vec![ParamGroup::new(vec![param], config.lr)], config);
 
         // Take a step to populate state.
         opt.step().unwrap();
@@ -649,10 +578,7 @@ mod tests {
             lr: 0.05,
             ..Default::default()
         };
-        let mut opt2 = Adagrad::new(
-            vec![ParamGroup::new(vec![param2], config2.lr)],
-            config2,
-        );
+        let mut opt2 = Adagrad::new(vec![ParamGroup::new(vec![param2], config2.lr)], config2);
         opt2.load_state_dict(&saved).unwrap();
 
         // Verify step count was restored.
@@ -662,10 +588,7 @@ mod tests {
         let original_sum = opt.state[&(0, 0)].sum.data().unwrap();
         let loaded_sum = opt2.state[&(0, 0)].sum.data().unwrap();
         for (&a, &b) in original_sum.iter().zip(loaded_sum.iter()) {
-            assert!(
-                (a - b).abs() < 1e-6,
-                "sum mismatch: {a:?} vs {b:?}"
-            );
+            assert!((a - b).abs() < 1e-6, "sum mismatch: {a:?} vs {b:?}");
         }
     }
 

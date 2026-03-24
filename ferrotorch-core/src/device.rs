@@ -33,4 +33,3 @@ impl core::fmt::Display for Device {
         }
     }
 }
-

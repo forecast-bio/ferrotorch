@@ -26,11 +26,7 @@ fn is_f32<T: Float>() -> bool {
 
 /// GPU-native matmul backward for f32 tensors.
 /// dA = grad_C @ B^T, dB = A^T @ grad_C — all on GPU, no CPU roundtrip.
-fn mm_backward_gpu<T: Float>(
-    grad_output: &Tensor<T>,
-    a: &Tensor<T>,
-    b: &Tensor<T>,
-) -> GradPair<T> {
+fn mm_backward_gpu<T: Float>(grad_output: &Tensor<T>, a: &Tensor<T>, b: &Tensor<T>) -> GradPair<T> {
     let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
     let go_h = grad_output.gpu_handle()?;
     let m = grad_output.shape()[0];

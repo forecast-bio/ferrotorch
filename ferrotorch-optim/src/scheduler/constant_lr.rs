@@ -7,8 +7,8 @@
 
 use ferrotorch_core::Float;
 
-use crate::optimizer::Optimizer;
 use super::LrScheduler;
+use crate::optimizer::Optimizer;
 
 /// Constant factor learning rate scheduler.
 ///
@@ -185,11 +185,7 @@ mod tests {
         for _ in 0..20 {
             sched.step(&mut opt);
         }
-        assert!(
-            (opt.lr - 0.1).abs() < 1e-12,
-            "expected 0.1, got {}",
-            opt.lr
-        );
+        assert!((opt.lr - 0.1).abs() < 1e-12, "expected 0.1, got {}", opt.lr);
     }
 
     #[test]
@@ -201,11 +197,7 @@ mod tests {
         for _ in 0..20 {
             sched.step(&mut opt);
         }
-        assert!(
-            (opt.lr - 0.1).abs() < 1e-12,
-            "expected 0.1, got {}",
-            opt.lr
-        );
+        assert!((opt.lr - 0.1).abs() < 1e-12, "expected 0.1, got {}", opt.lr);
     }
 
     #[test]
@@ -221,11 +213,7 @@ mod tests {
 
         // After phase: lr = base_lr.
         sched.step(&mut opt);
-        assert!(
-            (opt.lr - 0.1).abs() < 1e-12,
-            "expected 0.1, got {}",
-            opt.lr
-        );
+        assert!((opt.lr - 0.1).abs() < 1e-12, "expected 0.1, got {}", opt.lr);
     }
 
     #[test]

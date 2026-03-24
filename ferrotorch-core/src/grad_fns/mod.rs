@@ -1,10 +1,10 @@
-pub mod arithmetic;
-pub mod cumulative;
-pub mod reduction;
-pub mod linalg;
 pub mod activation;
-pub mod shape;
-pub mod indexing;
+pub mod arithmetic;
 pub mod comparison;
+pub mod cumulative;
 pub mod fft;
+pub mod indexing;
+pub mod linalg;
+pub mod reduction;
+pub mod shape;
 pub mod transcendental;

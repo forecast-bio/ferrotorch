@@ -80,7 +80,6 @@ pub fn get_or_compile(
 #[cfg(test)]
 #[cfg(feature = "cuda")]
 mod tests {
-    use super::*;
     use crate::device::GpuDevice;
     use crate::transfer::{cpu_to_gpu, gpu_to_cpu};
 
@@ -122,7 +121,11 @@ mod tests {
         let out2 = crate::kernels::gpu_add(&a, &b, &dev).expect("gpu_add 2nd");
         let host2 = gpu_to_cpu(&out2, &dev).expect("gpu_to_cpu 2nd");
 
-        for (i, ((&g1, &g2), &e)) in host1.iter().zip(host2.iter()).zip(expected.iter()).enumerate()
+        for (i, ((&g1, &g2), &e)) in host1
+            .iter()
+            .zip(host2.iter())
+            .zip(expected.iter())
+            .enumerate()
         {
             assert!(
                 (g1 - e).abs() < 1e-6,

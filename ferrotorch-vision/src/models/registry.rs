@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float};
 use ferrotorch_nn::Module;
 
 /// A factory function that constructs a model given `pretrained` and `num_classes`.
@@ -35,14 +35,15 @@ impl<T: Float> ModelRegistry<T> {
         pretrained: bool,
         num_classes: usize,
     ) -> FerrotorchResult<Box<dyn Module<T>>> {
-        let constructor = self.models.get(name).ok_or_else(|| {
-            FerrotorchError::InvalidArgument {
-                message: format!(
-                    "unknown model: \"{name}\". Available: {:?}",
-                    self.list_models()
-                ),
-            }
-        })?;
+        let constructor =
+            self.models
+                .get(name)
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "unknown model: \"{name}\". Available: {:?}",
+                        self.list_models()
+                    ),
+                })?;
         constructor(pretrained, num_classes)
     }
 

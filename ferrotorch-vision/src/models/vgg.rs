@@ -8,7 +8,7 @@
 
 use ferrotorch_core::grad_fns::activation::relu;
 use ferrotorch_core::grad_fns::shape::reshape;
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 
 use ferrotorch_nn::module::Module;
 use ferrotorch_nn::parameter::Parameter;
@@ -134,11 +134,19 @@ enum VggCfg {
 fn vgg11_cfg() -> Vec<VggCfg> {
     use VggCfg::*;
     vec![
-        Conv(64), Pool,
-        Conv(128), Pool,
-        Conv(256), Conv(256), Pool,
-        Conv(512), Conv(512), Pool,
-        Conv(512), Conv(512), Pool,
+        Conv(64),
+        Pool,
+        Conv(128),
+        Pool,
+        Conv(256),
+        Conv(256),
+        Pool,
+        Conv(512),
+        Conv(512),
+        Pool,
+        Conv(512),
+        Conv(512),
+        Pool,
     ]
 }
 
@@ -146,11 +154,24 @@ fn vgg11_cfg() -> Vec<VggCfg> {
 fn vgg16_cfg() -> Vec<VggCfg> {
     use VggCfg::*;
     vec![
-        Conv(64), Conv(64), Pool,
-        Conv(128), Conv(128), Pool,
-        Conv(256), Conv(256), Conv(256), Pool,
-        Conv(512), Conv(512), Conv(512), Pool,
-        Conv(512), Conv(512), Conv(512), Pool,
+        Conv(64),
+        Conv(64),
+        Pool,
+        Conv(128),
+        Conv(128),
+        Pool,
+        Conv(256),
+        Conv(256),
+        Conv(256),
+        Pool,
+        Conv(512),
+        Conv(512),
+        Conv(512),
+        Pool,
+        Conv(512),
+        Conv(512),
+        Conv(512),
+        Pool,
     ]
 }
 
@@ -357,7 +378,7 @@ pub fn vgg16<T: Float>(num_classes: usize) -> FerrotorchResult<VGG<T>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::{no_grad, TensorStorage};
+    use ferrotorch_core::{TensorStorage, no_grad};
 
     /// Create a 4-D tensor from flat data.
     fn leaf_4d(data: &[f32], shape: [usize; 4], requires_grad: bool) -> Tensor<f32> {

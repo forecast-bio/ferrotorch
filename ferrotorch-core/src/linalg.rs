@@ -42,7 +42,11 @@ fn tensor_to_array2_f32<T: Float>(
             message: format!("expected 2-D tensor, got {:?}", shape),
         });
     }
-    let data: Vec<f32> = t.data()?.iter().map(|&v| v.to_f64().unwrap() as f32).collect();
+    let data: Vec<f32> = t
+        .data()?
+        .iter()
+        .map(|&v| v.to_f64().unwrap() as f32)
+        .collect();
     ferray_core::Array::from_vec(ferray_core::Ix2::new([shape[0], shape[1]]), data)
         .map_err(FerrotorchError::Ferray)
 }
@@ -60,7 +64,11 @@ fn tensor_to_arraydyn_f64<T: Float>(
 fn tensor_to_arraydyn_f32<T: Float>(
     t: &Tensor<T>,
 ) -> FerrotorchResult<ferray_core::Array<f32, ferray_core::IxDyn>> {
-    let data: Vec<f32> = t.data()?.iter().map(|&v| v.to_f64().unwrap() as f32).collect();
+    let data: Vec<f32> = t
+        .data()?
+        .iter()
+        .map(|&v| v.to_f64().unwrap() as f32)
+        .collect();
     ferray_core::Array::from_vec(ferray_core::IxDyn::new(t.shape()), data)
         .map_err(FerrotorchError::Ferray)
 }
@@ -488,10 +496,7 @@ mod tests {
 
     #[test]
     fn test_det_identity() {
-        let eye = t(
-            &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-            &[3, 3],
-        );
+        let eye = t(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], &[3, 3]);
         let d = det(&eye).unwrap();
         assert!(d.is_scalar());
         assert!((d.item().unwrap() - 1.0).abs() < 1e-10);
@@ -644,10 +649,7 @@ mod tests {
     #[test]
     fn test_matrix_norm_identity() {
         // Frobenius norm of n x n identity = sqrt(n)
-        let eye = t(
-            &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-            &[3, 3],
-        );
+        let eye = t(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], &[3, 3]);
         let n = matrix_norm(&eye).unwrap();
         assert!(n.is_scalar());
         let expected = (3.0f64).sqrt();

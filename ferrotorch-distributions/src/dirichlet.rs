@@ -131,10 +131,10 @@ impl<T: Float> Distribution<T> for Dirichlet<T> {
             // Draw Gamma(alpha_j, 1) for each category and normalize
             let mut gammas = Vec::with_capacity(k);
             let mut total = <T as num_traits::Zero>::zero();
-            for j in 0..k {
-                let g = sample_gamma(alpha[j]);
+            for &a in &alpha {
+                let g = sample_gamma(a);
                 gammas.push(g);
-                total = total + g;
+                total += g;
             }
             for g in gammas {
                 result.push(g / total);
@@ -144,7 +144,11 @@ impl<T: Float> Distribution<T> for Dirichlet<T> {
         let mut out_shape = shape.to_vec();
         out_shape.push(k);
         let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
@@ -159,10 +163,10 @@ impl<T: Float> Distribution<T> for Dirichlet<T> {
 
         for s in 0..n {
             let mut total = <T as num_traits::Zero>::zero();
-            for j in 0..k {
-                let g = sample_gamma(alpha[j]);
+            for &a in &alpha {
+                let g = sample_gamma(a);
                 gamma_vals.push(g);
-                total = total + g;
+                total += g;
             }
             for j in 0..k {
                 result.push(gamma_vals[s * k + j] / total);
@@ -174,11 +178,8 @@ impl<T: Float> Distribution<T> for Dirichlet<T> {
         let storage = TensorStorage::cpu(result.clone());
 
         let out = if self.concentration.requires_grad() && ferrotorch_core::is_grad_enabled() {
-            let sample_tensor = Tensor::from_storage(
-                TensorStorage::cpu(result),
-                out_shape.clone(),
-                false,
-            )?;
+            let sample_tensor =
+                Tensor::from_storage(TensorStorage::cpu(result), out_shape.clone(), false)?;
             let grad_fn = Arc::new(DirichletRsampleBackward {
                 concentration: self.concentration.clone(),
                 samples: sample_tensor,
@@ -189,7 +190,11 @@ impl<T: Float> Distribution<T> for Dirichlet<T> {
         } else {
             Tensor::from_storage(storage, out_shape, false)?
         };
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
@@ -227,7 +232,7 @@ impl<T: Float> Distribution<T> for Dirichlet<T> {
                 // xlogy: (alpha - 1) * log(x), handle x=0 when alpha=1
                 let a_minus_1 = alpha[j] - one;
                 if a_minus_1 != zero {
-                    log_prob = log_prob + a_minus_1 * x_j.max(T::from(1e-30).unwrap()).ln();
+                    log_prob += a_minus_1 * x_j.max(T::from(1e-30).unwrap()).ln();
                 }
             }
             result.push(log_prob);
@@ -241,7 +246,11 @@ impl<T: Float> Distribution<T> for Dirichlet<T> {
         };
 
         let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
@@ -263,14 +272,18 @@ impl<T: Float> Distribution<T> for Dirichlet<T> {
         let digamma_sum = digamma_t(alpha_sum);
 
         let mut sum_digamma_term = zero;
-        for j in 0..k {
-            sum_digamma_term = sum_digamma_term + (alpha[j] - one) * digamma_t(alpha[j]);
+        for &a in &alpha {
+            sum_digamma_term += (a - one) * digamma_t(a);
         }
 
         let h = sum_lgamma - lgamma_sum - (k_t - alpha_sum) * digamma_sum - sum_digamma_term;
 
         let out = Tensor::from_storage(TensorStorage::cpu(vec![h]), vec![], false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 }
 
@@ -340,10 +353,7 @@ fn digamma_f64(mut x: f64) -> f64 {
 
     // Asymptotic expansion: psi(x) ~ ln(x) - 1/(2x) - 1/(12x^2) + ...
     let x2 = x * x;
-    result += x.ln()
-        - 0.5 / x
-        - 1.0 / (12.0 * x2)
-        + 1.0 / (120.0 * x2 * x2)
+    result += x.ln() - 0.5 / x - 1.0 / (12.0 * x2) + 1.0 / (120.0 * x2 * x2)
         - 1.0 / (252.0 * x2 * x2 * x2);
 
     result
@@ -386,15 +396,14 @@ impl<T: Float> GradFn<T> for DirichletRsampleBackward<T> {
             // Compute the correction factor
             let mut xg_sum = zero;
             for j in 0..k {
-                xg_sum = xg_sum + x_data[s * k + j] * go[s * k + j];
+                xg_sum += x_data[s * k + j] * go[s * k + j];
             }
 
             for j in 0..k {
                 let dig_alpha_j = digamma_t(alpha[j]);
                 let grad_j = x_data[s * k + j] * (dig_alpha_j - dig_sum);
                 // Correct with the simplex Jacobian
-                grad_alpha[j] = grad_alpha[j]
-                    + (go[s * k + j] - xg_sum) * grad_j;
+                grad_alpha[j] += (go[s * k + j] - xg_sum) * grad_j;
             }
         }
 
@@ -465,7 +474,10 @@ mod tests {
             let mut sum = 0.0f32;
             for j in 0..3 {
                 let val = data[s * 3 + j];
-                assert!(val > 0.0, "Dirichlet sample elements must be positive, got {val}");
+                assert!(
+                    val > 0.0,
+                    "Dirichlet sample elements must be positive, got {val}"
+                );
                 sum += val;
             }
             assert!(

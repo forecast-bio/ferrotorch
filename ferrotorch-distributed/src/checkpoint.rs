@@ -23,7 +23,7 @@ use safetensors::tensor::{Dtype, SafeTensors, TensorView};
 use serde::{Deserialize, Serialize};
 
 use ferrotorch_core::storage::TensorStorage;
-use ferrotorch_core::{Float, FerrotorchError, Tensor};
+use ferrotorch_core::{FerrotorchError, Float, Tensor};
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -198,9 +198,10 @@ fn load_tensors_from_file<T: Float>(
         message: format!("reading {}: {e}", path.display()),
     })?;
 
-    let st = SafeTensors::deserialize(&file_data).map_err(|e| DistCheckpointError::Serialization {
-        message: format!("parsing {}: {e}", path.display()),
-    })?;
+    let st =
+        SafeTensors::deserialize(&file_data).map_err(|e| DistCheckpointError::Serialization {
+            message: format!("parsing {}: {e}", path.display()),
+        })?;
 
     let tensor_list = st.tensors();
     let mut result: HashMap<String, Tensor<T>> = HashMap::with_capacity(tensor_list.len());
@@ -218,7 +219,11 @@ fn load_tensors_from_file<T: Float>(
 
         let shape = view.shape().to_vec();
         let byte_data = view.data();
-        let numel: usize = if shape.is_empty() { 1 } else { shape.iter().product() };
+        let numel: usize = if shape.is_empty() {
+            1
+        } else {
+            shape.iter().product()
+        };
         let expected_bytes = numel * elem_size;
 
         if byte_data.len() != expected_bytes {
@@ -445,13 +450,12 @@ pub fn reshard<T: Float>(
         let mut shard_shapes: Vec<Vec<usize>> = Vec::with_capacity(old_world_size);
 
         for old_rank in 0..old_world_size {
-            let tensor = old_shards[old_rank].get(name).ok_or_else(|| {
-                DistCheckpointError::Tensor {
-                    message: format!(
-                        "tensor \"{name}\" missing from rank {old_rank} shard"
-                    ),
-                }
-            })?;
+            let tensor =
+                old_shards[old_rank]
+                    .get(name)
+                    .ok_or_else(|| DistCheckpointError::Tensor {
+                        message: format!("tensor \"{name}\" missing from rank {old_rank} shard"),
+                    })?;
             shard_datas.push(tensor.data_vec().map_err(|e| DistCheckpointError::Tensor {
                 message: format!("reading tensor \"{name}\" from rank {old_rank}: {e}"),
             })?);
@@ -459,12 +463,7 @@ pub fn reshard<T: Float>(
         }
 
         // Reconstruct the full tensor by concatenating along shard_dim.
-        let full_data = concat_along_dim(
-            &shard_datas,
-            &shard_shapes,
-            shard_dim,
-            full_shape,
-        )?;
+        let full_data = concat_along_dim(&shard_datas, &shard_shapes, shard_dim, full_shape)?;
 
         // Now split the full tensor along shard_dim for the new world size.
         let full_dim_size = full_shape[shard_dim];
@@ -476,22 +475,14 @@ pub fn reshard<T: Float>(
         let mut new_shape = full_shape.clone();
         new_shape[shard_dim] = new_size;
 
-        let new_data = slice_along_dim(
-            &full_data,
-            full_shape,
-            shard_dim,
-            new_offset,
-            new_size,
-        );
+        let new_data = slice_along_dim(&full_data, full_shape, shard_dim, new_offset, new_size);
 
-        let tensor = Tensor::from_storage(
-            TensorStorage::cpu(new_data),
-            new_shape,
-            false,
-        )
-        .map_err(|e| DistCheckpointError::Tensor {
-            message: format!("creating resharded tensor \"{name}\": {e}"),
-        })?;
+        let tensor =
+            Tensor::from_storage(TensorStorage::cpu(new_data), new_shape, false).map_err(|e| {
+                DistCheckpointError::Tensor {
+                    message: format!("creating resharded tensor \"{name}\": {e}"),
+                }
+            })?;
 
         result.insert(name.clone(), tensor);
     }
@@ -630,9 +621,11 @@ impl CheckpointFuture {
     /// the cached result.
     pub fn wait(&mut self) -> Result<(), DistCheckpointError> {
         if let Some(handle) = self.handle.take() {
-            let res = handle.join().map_err(|_| DistCheckpointError::AsyncFailed {
-                message: "background checkpoint thread panicked".into(),
-            })?;
+            let res = handle
+                .join()
+                .map_err(|_| DistCheckpointError::AsyncFailed {
+                    message: "background checkpoint thread panicked".into(),
+                })?;
             self.result = Some(res);
         }
 
@@ -699,12 +692,7 @@ impl AsyncCheckpointer {
     /// - `rank`: this process's rank.
     /// - `world_size`: total number of ranks.
     /// - `shard_spec`: metadata describing how tensors are sharded.
-    pub fn new(
-        dir: PathBuf,
-        rank: usize,
-        world_size: usize,
-        shard_spec: ShardMetadata,
-    ) -> Self {
+    pub fn new(dir: PathBuf, rank: usize, world_size: usize, shard_spec: ShardMetadata) -> Self {
         Self {
             dir,
             rank,
@@ -747,11 +735,12 @@ impl AsyncCheckpointer {
     ) -> Result<CheckpointFuture, DistCheckpointError> {
         // Check that no other save is in progress.
         {
-            let mut guard = self.in_flight.lock().map_err(|e| {
-                DistCheckpointError::AsyncFailed {
-                    message: format!("lock poisoned: {e}"),
-                }
-            })?;
+            let mut guard =
+                self.in_flight
+                    .lock()
+                    .map_err(|e| DistCheckpointError::AsyncFailed {
+                        message: format!("lock poisoned: {e}"),
+                    })?;
             if *guard {
                 return Err(DistCheckpointError::AsyncFailed {
                     message: "another async checkpoint is already in flight".into(),
@@ -791,12 +780,10 @@ impl AsyncCheckpointer {
                 let mut tensors: HashMap<String, Tensor<f32>> =
                     HashMap::with_capacity(staged.len());
                 for (name, (data, shape)) in staged {
-                    let tensor =
-                        Tensor::from_storage(TensorStorage::cpu(data), shape, false).map_err(
-                            |e| DistCheckpointError::Tensor {
-                                message: format!("rebuilding tensor \"{name}\": {e}"),
-                            },
-                        )?;
+                    let tensor = Tensor::from_storage(TensorStorage::cpu(data), shape, false)
+                        .map_err(|e| DistCheckpointError::Tensor {
+                            message: format!("rebuilding tensor \"{name}\": {e}"),
+                        })?;
                     tensors.insert(name, tensor);
                 }
 
@@ -807,12 +794,11 @@ impl AsyncCheckpointer {
 
                 // Rank 0 writes metadata.
                 if rank == 0 {
-                    let json =
-                        serde_json::to_string_pretty(&shard_spec).map_err(|e| {
-                            DistCheckpointError::Serialization {
-                                message: format!("serializing metadata: {e}"),
-                            }
-                        })?;
+                    let json = serde_json::to_string_pretty(&shard_spec).map_err(|e| {
+                        DistCheckpointError::Serialization {
+                            message: format!("serializing metadata: {e}"),
+                        }
+                    })?;
                     std::fs::write(metadata_path(&dir), json)?;
                 }
 
@@ -877,8 +863,8 @@ pub fn flat_shard_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::storage::TensorStorage;
     use ferrotorch_core::Tensor;
+    use ferrotorch_core::storage::TensorStorage;
     use std::collections::HashMap;
 
     fn make_tensor(data: Vec<f32>, shape: Vec<usize>) -> Tensor<f32> {
@@ -903,7 +889,10 @@ mod tests {
         cleanup(&dir);
 
         let mut state: HashMap<String, Tensor<f32>> = HashMap::new();
-        state.insert("weight".into(), make_tensor(vec![1.0, 2.0, 3.0, 4.0], vec![4]));
+        state.insert(
+            "weight".into(),
+            make_tensor(vec![1.0, 2.0, 3.0, 4.0], vec![4]),
+        );
         state.insert("bias".into(), make_tensor(vec![0.1, 0.2], vec![2]));
 
         let spec = ShardMetadata {
@@ -1056,10 +1045,7 @@ mod tests {
         for rank in 0..4 {
             let start = rank as f32 * 2.0 + 1.0;
             let mut state: HashMap<String, Tensor<f32>> = HashMap::new();
-            state.insert(
-                "w".into(),
-                make_tensor(vec![start, start + 1.0], vec![2]),
-            );
+            state.insert("w".into(), make_tensor(vec![start, start + 1.0], vec![2]));
             save_distributed(&state, &dir, rank, 4, &spec).unwrap();
         }
 
@@ -1344,13 +1330,8 @@ mod tests {
         let data1 = vec![3.0f32, 4.0, 5.0];
         let full_shape = vec![5];
 
-        let result = concat_along_dim(
-            &[data0, data1],
-            &[vec![2], vec![3]],
-            0,
-            &full_shape,
-        )
-        .unwrap();
+        let result =
+            concat_along_dim(&[data0, data1], &[vec![2], vec![3]], 0, &full_shape).unwrap();
 
         assert_eq!(result, vec![1.0, 2.0, 3.0, 4.0, 5.0]);
     }
@@ -1362,13 +1343,8 @@ mod tests {
         let data1 = vec![4.0f32, 5.0, 6.0];
         let full_shape = vec![2, 3];
 
-        let result = concat_along_dim(
-            &[data0, data1],
-            &[vec![1, 3], vec![1, 3]],
-            0,
-            &full_shape,
-        )
-        .unwrap();
+        let result =
+            concat_along_dim(&[data0, data1], &[vec![1, 3], vec![1, 3]], 0, &full_shape).unwrap();
 
         assert_eq!(result, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
     }
@@ -1381,13 +1357,8 @@ mod tests {
         let data1 = vec![2.0f32, 4.0];
         let full_shape = vec![2, 2];
 
-        let result = concat_along_dim(
-            &[data0, data1],
-            &[vec![2, 1], vec![2, 1]],
-            1,
-            &full_shape,
-        )
-        .unwrap();
+        let result =
+            concat_along_dim(&[data0, data1], &[vec![2, 1], vec![2, 1]], 1, &full_shape).unwrap();
 
         assert_eq!(result, vec![1.0, 2.0, 3.0, 4.0]);
     }

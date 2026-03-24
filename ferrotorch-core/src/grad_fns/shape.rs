@@ -105,10 +105,7 @@ pub fn reshape<T: Float>(input: &Tensor<T>, new_shape: &[isize]) -> FerrotorchRe
     }
 
     // Grad path: zero-copy view with grad_fn attached (works on any device).
-    let grad_fn = Arc::new(ReshapeBackward::new(
-        input.clone(),
-        input.shape().to_vec(),
-    ));
+    let grad_fn = Arc::new(ReshapeBackward::new(input.clone(), input.shape().to_vec()));
     input.view_operation(resolved, grad_fn)
 }
 
@@ -155,10 +152,7 @@ pub fn flatten<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let numel = input.numel();
 
     if is_grad_enabled() && input.requires_grad() {
-        let grad_fn = Arc::new(FlattenBackward::new(
-            input.clone(),
-            input.shape().to_vec(),
-        ));
+        let grad_fn = Arc::new(FlattenBackward::new(input.clone(), input.shape().to_vec()));
         input.view_operation(vec![numel], grad_fn)
     } else {
         input.view_reshape(vec![numel])
@@ -442,8 +436,7 @@ impl<T: Float> GradFn<T> for ExpandBackward<T> {
         // If input had fewer dimensions, the leading dims were summed away.
         // Now reshape to the original input shape.
         let data = grad.data()?.to_vec();
-        let grad_input =
-            Tensor::from_storage(TensorStorage::cpu(data), in_shape.clone(), false)?;
+        let grad_input = Tensor::from_storage(TensorStorage::cpu(data), in_shape.clone(), false)?;
         Ok(vec![Some(restore_device(grad_input, device)?)])
     }
 
@@ -504,16 +497,14 @@ pub fn expand<T: Float>(input: &Tensor<T>, new_shape: &[usize]) -> FerrotorchRes
     if is_grad_enabled() && input.requires_grad() {
         // For GPU: transfer data first, THEN wrap with from_operation to preserve grad_fn.
         let storage = if device.is_cuda() {
-            let tmp = Tensor::from_storage(TensorStorage::cpu(out_data), new_shape.to_vec(), false)?;
+            let tmp =
+                Tensor::from_storage(TensorStorage::cpu(out_data), new_shape.to_vec(), false)?;
             let gpu_tmp = tmp.to(device)?;
             gpu_tmp.into_storage_and_shape()?.0
         } else {
             TensorStorage::cpu(out_data)
         };
-        let grad_fn = Arc::new(ExpandBackward::new(
-            input.clone(),
-            in_shape.to_vec(),
-        ));
+        let grad_fn = Arc::new(ExpandBackward::new(input.clone(), in_shape.to_vec()));
         Tensor::from_operation(storage, new_shape.to_vec(), grad_fn)
     } else {
         let result = Tensor::from_storage(TensorStorage::cpu(out_data), new_shape.to_vec(), false)?;
@@ -677,7 +668,12 @@ pub struct SplitBackward<T: Float> {
 
 impl<T: Float> SplitBackward<T> {
     pub fn new(input: Tensor<T>, dim: usize, offset: usize, chunk_size: usize) -> Self {
-        Self { input, dim, offset, chunk_size }
+        Self {
+            input,
+            dim,
+            offset,
+            chunk_size,
+        }
     }
 }
 
@@ -753,11 +749,8 @@ impl<T: Float> GradFn<T> for SplitBackward<T> {
                 .copy_from_slice(&grad_data[src_start..src_start + row_len]);
         }
 
-        let grad_tensor = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            orig_shape.to_vec(),
-            false,
-        )?;
+        let grad_tensor =
+            Tensor::from_storage(TensorStorage::cpu(result), orig_shape.to_vec(), false)?;
         Ok(vec![Some(restore_device(grad_tensor, device)?)])
     }
 
@@ -793,12 +786,7 @@ pub fn cat<T: Float>(tensors: &[Tensor<T>], axis: isize) -> FerrotorchResult<Ten
     for (i, t) in tensors.iter().enumerate().skip(1) {
         if t.ndim() != ndim {
             return Err(FerrotorchError::ShapeMismatch {
-                message: format!(
-                    "cat: tensor {} has {} dims, expected {}",
-                    i,
-                    t.ndim(),
-                    ndim
-                ),
+                message: format!("cat: tensor {} has {} dims, expected {}", i, t.ndim(), ndim),
             });
         }
         for d in 0..ndim {
@@ -861,11 +849,7 @@ pub fn cat<T: Float>(tensors: &[Tensor<T>], axis: isize) -> FerrotorchResult<Ten
             let storage = TensorStorage::gpu(out_handle);
 
             return if is_grad_enabled() && any_requires_grad {
-                let grad_fn = Arc::new(CatBackward::new(
-                    tensors.to_vec(),
-                    norm_axis,
-                    split_sizes,
-                ));
+                let grad_fn = Arc::new(CatBackward::new(tensors.to_vec(), norm_axis, split_sizes));
                 Tensor::from_operation(storage, out_shape, grad_fn)
             } else {
                 Tensor::from_storage(storage, out_shape, false)
@@ -875,7 +859,10 @@ pub fn cat<T: Float>(tensors: &[Tensor<T>], axis: isize) -> FerrotorchResult<Ten
 
     // CPU path (also serves as fallback for non-f32 or missing backend).
     let cpu_tensors: Vec<Tensor<T>> = if device.is_cuda() {
-        tensors.iter().map(|t| t.cpu()).collect::<FerrotorchResult<_>>()?
+        tensors
+            .iter()
+            .map(|t| t.cpu())
+            .collect::<FerrotorchResult<_>>()?
     } else {
         tensors.to_vec()
     };
@@ -915,11 +902,7 @@ pub fn cat<T: Float>(tensors: &[Tensor<T>], axis: isize) -> FerrotorchResult<Ten
         } else {
             TensorStorage::cpu(out_data)
         };
-        let grad_fn = Arc::new(CatBackward::new(
-            tensors.to_vec(),
-            norm_axis,
-            split_sizes,
-        ));
+        let grad_fn = Arc::new(CatBackward::new(tensors.to_vec(), norm_axis, split_sizes));
         Tensor::from_operation(storage, out_shape, grad_fn)
     } else {
         let result = Tensor::from_storage(TensorStorage::cpu(out_data), out_shape, false)?;
@@ -1021,8 +1004,12 @@ mod tests {
 
     /// Helper: create a leaf tensor.
     fn leaf(data: &[f32], shape: &[usize], requires_grad: bool) -> Tensor<f32> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), shape.to_vec(), requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            shape.to_vec(),
+            requires_grad,
+        )
+        .unwrap()
     }
 
     /// A trivial SumBackward for testing: broadcasts ones back to input shape.
@@ -1032,17 +1019,11 @@ mod tests {
     }
 
     impl<T: Float> GradFn<T> for SumBackward<T> {
-        fn backward(
-            &self,
-            _grad_output: &Tensor<T>,
-        ) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        fn backward(&self, _grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
             let n = self.input.numel();
             let ones = vec![<T as num_traits::One>::one(); n];
-            let g = Tensor::from_storage(
-                TensorStorage::cpu(ones),
-                self.input.shape().to_vec(),
-                false,
-            )?;
+            let g =
+                Tensor::from_storage(TensorStorage::cpu(ones), self.input.shape().to_vec(), false)?;
             Ok(vec![Some(g)])
         }
 
@@ -1351,7 +1332,10 @@ mod tests {
 
         backward(&loss).unwrap();
 
-        let grad = x.grad().unwrap().expect("squeeze must propagate gradients to leaf input");
+        let grad = x
+            .grad()
+            .unwrap()
+            .expect("squeeze must propagate gradients to leaf input");
         assert_eq!(grad.shape(), &[3, 1]);
         for &v in grad.data().unwrap() {
             assert!((v - 1.0).abs() < 1e-6, "expected gradient 1.0, got {v}");
@@ -1366,7 +1350,10 @@ mod tests {
 
         backward(&loss).unwrap();
 
-        let grad = x.grad().unwrap().expect("unsqueeze must propagate gradients to leaf input");
+        let grad = x
+            .grad()
+            .unwrap()
+            .expect("unsqueeze must propagate gradients to leaf input");
         assert_eq!(grad.shape(), &[3]);
         for &v in grad.data().unwrap() {
             assert!((v - 1.0).abs() < 1e-6, "expected gradient 1.0, got {v}");
@@ -1394,9 +1381,10 @@ mod tests {
         let loss = sum_to_scalar(&squeezed);
         backward(&loss).unwrap();
 
-        let grad = x.grad().unwrap().expect(
-            "backward through squeeze in a longer chain must reach leaf parameters"
-        );
+        let grad = x
+            .grad()
+            .unwrap()
+            .expect("backward through squeeze in a longer chain must reach leaf parameters");
         assert_eq!(grad.shape(), &[3, 2]);
         // d(loss)/d(x) = 2.0 * ones (from the scaling and sum).
         for &v in grad.data().unwrap() {
@@ -1415,15 +1403,24 @@ mod tests {
         assert_eq!(flat.data().unwrap(), x.data().unwrap());
         assert_eq!(flat.shape(), &[6]);
         // Pointer equality: must be the same Arc, not a copy.
-        assert!(flat.shares_storage(&x), "flatten should share storage with input (zero-copy)");
+        assert!(
+            flat.shares_storage(&x),
+            "flatten should share storage with input (zero-copy)"
+        );
 
         let orig = leaf(&[1.0, 2.0, 3.0], &[1, 3], true);
         let sq2 = squeeze(&orig, 0).unwrap();
-        assert!(sq2.shares_storage(&orig), "squeeze should share storage with input (zero-copy)");
+        assert!(
+            sq2.shares_storage(&orig),
+            "squeeze should share storage with input (zero-copy)"
+        );
 
         let orig3 = leaf(&[1.0, 2.0, 3.0], &[3], true);
         let us = unsqueeze(&orig3, 0).unwrap();
-        assert!(us.shares_storage(&orig3), "unsqueeze should share storage with input (zero-copy)");
+        assert!(
+            us.shares_storage(&orig3),
+            "unsqueeze should share storage with input (zero-copy)"
+        );
     }
 
     #[test]

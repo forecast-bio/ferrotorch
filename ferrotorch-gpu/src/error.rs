@@ -67,11 +67,17 @@ impl fmt::Display for GpuError {
             }
 
             GpuError::InvalidDevice { ordinal, count } => {
-                write!(f, "invalid device ordinal {ordinal} (only {count} devices available)")
+                write!(
+                    f,
+                    "invalid device ordinal {ordinal} (only {count} devices available)"
+                )
             }
 
             GpuError::DeviceMismatch { expected, got } => {
-                write!(f, "device mismatch: expected cuda:{expected}, got cuda:{got}")
+                write!(
+                    f,
+                    "device mismatch: expected cuda:{expected}, got cuda:{got}"
+                )
             }
 
             GpuError::OutOfMemory {
@@ -102,7 +108,10 @@ impl fmt::Display for GpuError {
             }
 
             GpuError::ShapeMismatch { op, expected, got } => {
-                write!(f, "{op}: shape mismatch, expected {expected:?}, got {got:?}")
+                write!(
+                    f,
+                    "{op}: shape mismatch, expected {expected:?}, got {got:?}"
+                )
             }
 
             #[cfg(feature = "cuda")]

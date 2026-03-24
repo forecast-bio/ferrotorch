@@ -26,7 +26,7 @@ use ferrotorch_core::grad_fns::activation::silu;
 use ferrotorch_core::grad_fns::arithmetic::{add, mul};
 use ferrotorch_core::grad_fns::shape::reshape;
 use ferrotorch_core::tensor::GradFn;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::attention::MultiheadAttention;
 use crate::dropout::Dropout;
@@ -146,7 +146,11 @@ impl<T: Float> GradFn<T> for RoPEBackward<T> {
                 self.input.shape().to_vec(),
                 false,
             )?;
-            Some(if self.input.is_cuda() { g.to(self.input.device())? } else { g })
+            Some(if self.input.is_cuda() {
+                g.to(self.input.device())?
+            } else {
+                g
+            })
         } else {
             None
         };
@@ -247,8 +251,8 @@ impl<T: Float> RotaryPositionEmbedding<T> {
         let mut sin_data = Vec::with_capacity(total);
 
         for pos in 0..max_seq_len {
-            for i in 0..half_dim {
-                let angle = pos as f64 * thetas[i];
+            for &theta in &thetas {
+                let angle = pos as f64 * theta;
                 cos_data.push(T::from(angle.cos()).unwrap());
                 sin_data.push(T::from(angle.sin()).unwrap());
             }
@@ -304,10 +308,7 @@ impl<T: Float> RotaryPositionEmbedding<T> {
         let last_dim = shape[ndim - 1];
         if last_dim != self.dim {
             return Err(FerrotorchError::ShapeMismatch {
-                message: format!(
-                    "RoPE: last dim of input ({last_dim}) != dim ({})",
-                    self.dim
-                ),
+                message: format!("RoPE: last dim of input ({last_dim}) != dim ({})", self.dim),
             });
         }
 
@@ -405,7 +406,11 @@ impl<T: Float> RotaryPositionEmbedding<T> {
         } else {
             Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?
         };
-        if device.is_cuda() { result.to(device) } else { Ok(result) }
+        if device.is_cuda() {
+            result.to(device)
+        } else {
+            Ok(result)
+        }
     }
 
     /// The embedding dimension.
@@ -476,11 +481,7 @@ impl<T: Float> SwiGLU<T> {
     /// - `hidden_features` - Hidden dimension of the gate/up projections.
     ///   A common choice is `(8/3) * in_features` rounded to a multiple of 256.
     /// - `bias` - Whether to include bias in the linear layers.
-    pub fn new(
-        in_features: usize,
-        hidden_features: usize,
-        bias: bool,
-    ) -> FerrotorchResult<Self> {
+    pub fn new(in_features: usize, hidden_features: usize, bias: bool) -> FerrotorchResult<Self> {
         let w1 = Linear::new(in_features, hidden_features, bias)?;
         let w2 = Linear::new(in_features, hidden_features, bias)?;
         let w3 = Linear::new(hidden_features, in_features, bias)?;
@@ -509,7 +510,10 @@ impl<T: Float> SwiGLU<T> {
 
         // Reshape back to [batch, seq_len, out_features] — differentiable.
         let out_features = output_flat.shape()[1];
-        reshape(&output_flat, &[batch as isize, seq_len as isize, out_features as isize])
+        reshape(
+            &output_flat,
+            &[batch as isize, seq_len as isize, out_features as isize],
+        )
     }
 
     /// Forward pass for 2-D input `[batch, in_features]`.
@@ -700,10 +704,7 @@ impl<T: Float> KVCache<T> {
 
     /// The current cached sequence length (0 if empty).
     pub fn seq_len(&self) -> usize {
-        self.key_cache
-            .as_ref()
-            .map(|k| k.shape()[2])
-            .unwrap_or(0)
+        self.key_cache.as_ref().map(|k| k.shape()[2]).unwrap_or(0)
     }
 
     /// Whether the cache is empty.
@@ -721,10 +722,7 @@ impl<T: Float> KVCache<T> {
 /// Concatenate two 4-D tensors along dimension 2 (the sequence axis).
 ///
 /// Shapes must match on dims 0, 1, 3.
-fn concat_along_dim2<T: Float>(
-    a: &Tensor<T>,
-    b: &Tensor<T>,
-) -> FerrotorchResult<Tensor<T>> {
+fn concat_along_dim2<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let sa = a.shape();
     let sb = b.shape();
 
@@ -763,7 +761,11 @@ fn concat_along_dim2<T: Float>(
         vec![batch, heads, seq_out, dim],
         false,
     )?;
-    if device.is_cuda() { result.to(device) } else { Ok(result) }
+    if device.is_cuda() {
+        result.to(device)
+    } else {
+        Ok(result)
+    }
 }
 
 // ===========================================================================
@@ -1021,17 +1023,17 @@ impl<T: Float> TransformerDecoderLayer<T> {
 
         // Pre-norm causal self-attention.
         let normed1 = self.norm1.forward(input)?;
-        let self_attn_out =
-            self.self_attn
-                .forward_qkv(&normed1, &normed1, &normed1, true)?;
+        let self_attn_out = self
+            .self_attn
+            .forward_qkv(&normed1, &normed1, &normed1, true)?;
         let self_attn_out = self.dropout.forward(&self_attn_out)?;
         let residual1 = add(input, &self_attn_out)?;
 
         // Pre-norm cross-attention.
         let normed2 = self.norm2.forward(&residual1)?;
-        let cross_attn_out =
-            self.cross_attn
-                .forward_qkv(&normed2, memory, memory, false)?;
+        let cross_attn_out = self
+            .cross_attn
+            .forward_qkv(&normed2, memory, memory, false)?;
         let cross_attn_out = self.dropout.forward(&cross_attn_out)?;
         let residual2 = add(&residual1, &cross_attn_out)?;
 
@@ -1247,16 +1249,24 @@ mod tests {
     #[test]
     fn test_rope_half_rotation_construction() {
         let rope = RotaryPositionEmbedding::<f32>::with_convention(
-            8, 128, 10000.0, RoPEConvention::HalfRotation,
-        ).unwrap();
+            8,
+            128,
+            10000.0,
+            RoPEConvention::HalfRotation,
+        )
+        .unwrap();
         assert_eq!(rope.convention(), RoPEConvention::HalfRotation);
     }
 
     #[test]
     fn test_rope_half_rotation_output_shape() {
         let rope = RotaryPositionEmbedding::<f32>::with_convention(
-            8, 128, 10000.0, RoPEConvention::HalfRotation,
-        ).unwrap();
+            8,
+            128,
+            10000.0,
+            RoPEConvention::HalfRotation,
+        )
+        .unwrap();
         let x = ferrotorch_core::zeros::<f32>(&[2, 4, 8]).unwrap();
         let y = rope.apply(&x, 0).unwrap();
         assert_eq!(y.shape(), &[2, 4, 8]);
@@ -1266,8 +1276,12 @@ mod tests {
     fn test_rope_half_rotation_position_zero_is_identity() {
         // At position 0, cos(0)=1, sin(0)=0 → identity regardless of convention.
         let rope = RotaryPositionEmbedding::<f64>::with_convention(
-            4, 64, 10000.0, RoPEConvention::HalfRotation,
-        ).unwrap();
+            4,
+            64,
+            10000.0,
+            RoPEConvention::HalfRotation,
+        )
+        .unwrap();
         let x = ferrotorch_core::from_slice(&[1.0, 2.0, 3.0, 4.0], &[1, 4]).unwrap();
         let y = rope.apply(&x, 0).unwrap();
         let x_data = x.data().unwrap();
@@ -1288,8 +1302,12 @@ mod tests {
         //   x_rot[2] = x[0]*sin0 + x[2]*cos0
         //   x_rot[3] = x[1]*sin1 + x[3]*cos1
         let rope = RotaryPositionEmbedding::<f64>::with_convention(
-            4, 64, 10000.0, RoPEConvention::HalfRotation,
-        ).unwrap();
+            4,
+            64,
+            10000.0,
+            RoPEConvention::HalfRotation,
+        )
+        .unwrap();
 
         // Use position 1 so sin != 0.
         let x = ferrotorch_core::from_slice(&[1.0, 2.0, 3.0, 4.0], &[1, 4]).unwrap();
@@ -1299,8 +1317,10 @@ mod tests {
         let cos_data = rope.cos_cache.data().unwrap();
         let sin_data = rope.sin_cache.data().unwrap();
         // Position 1 → row offset = 1 * half_dim = 2
-        let c0 = cos_data[2]; let c1 = cos_data[3];
-        let s0 = sin_data[2]; let s1 = sin_data[3];
+        let c0 = cos_data[2];
+        let c1 = cos_data[3];
+        let s0 = sin_data[2];
+        let s1 = sin_data[3];
 
         let expected = [
             1.0 * c0 - 3.0 * s0,
@@ -1322,11 +1342,19 @@ mod tests {
     fn test_rope_interleaved_vs_half_rotation_differ() {
         // Same input at position > 0 should produce different outputs.
         let rope_il = RotaryPositionEmbedding::<f64>::with_convention(
-            4, 64, 10000.0, RoPEConvention::Interleaved,
-        ).unwrap();
+            4,
+            64,
+            10000.0,
+            RoPEConvention::Interleaved,
+        )
+        .unwrap();
         let rope_hr = RotaryPositionEmbedding::<f64>::with_convention(
-            4, 64, 10000.0, RoPEConvention::HalfRotation,
-        ).unwrap();
+            4,
+            64,
+            10000.0,
+            RoPEConvention::HalfRotation,
+        )
+        .unwrap();
 
         let x = ferrotorch_core::from_slice(&[1.0, 2.0, 3.0, 4.0], &[1, 4]).unwrap();
         let y_il = rope_il.apply(&x, 1).unwrap();
@@ -1335,8 +1363,14 @@ mod tests {
         // They should differ (different pairing).
         let il_data = y_il.data().unwrap();
         let hr_data = y_hr.data().unwrap();
-        let any_differ = il_data.iter().zip(hr_data.iter()).any(|(&a, &b)| (a - b).abs() > 1e-10);
-        assert!(any_differ, "interleaved and half-rotation should produce different outputs at pos > 0");
+        let any_differ = il_data
+            .iter()
+            .zip(hr_data.iter())
+            .any(|(&a, &b)| (a - b).abs() > 1e-10);
+        assert!(
+            any_differ,
+            "interleaved and half-rotation should produce different outputs at pos > 0"
+        );
     }
 
     #[test]
@@ -1572,8 +1606,7 @@ mod tests {
 
     #[test]
     fn test_encoder_layer_train_eval() {
-        let mut layer =
-            TransformerEncoderLayer::<f32>::new(8, 2, 16, 0.1, 1e-5, false).unwrap();
+        let mut layer = TransformerEncoderLayer::<f32>::new(8, 2, 16, 0.1, 1e-5, false).unwrap();
         assert!(layer.is_training());
         layer.eval();
         assert!(!layer.is_training());
@@ -1655,8 +1688,7 @@ mod tests {
 
     #[test]
     fn test_decoder_layer_train_eval() {
-        let mut layer =
-            TransformerDecoderLayer::<f32>::new(8, 2, 16, 0.1, 1e-5, false).unwrap();
+        let mut layer = TransformerDecoderLayer::<f32>::new(8, 2, 16, 0.1, 1e-5, false).unwrap();
         assert!(layer.is_training());
         layer.eval();
         assert!(!layer.is_training());

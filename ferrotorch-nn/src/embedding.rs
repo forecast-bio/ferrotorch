@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
 use ferrotorch_core::device::Device;
-use ferrotorch_core::gpu_dispatch::{gpu_backend, GpuBufferHandle};
+use ferrotorch_core::gpu_dispatch::{GpuBufferHandle, gpu_backend};
 use ferrotorch_core::tensor::GradFn;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::init;
 use crate::module::Module;
@@ -30,9 +30,8 @@ fn is_f32<T: Float>() -> bool {
 /// Upload a CPU `&[f32]` slice to a GPU buffer on the given device ordinal.
 fn upload_f32_to_gpu(data: &[f32], ordinal: usize) -> FerrotorchResult<GpuBufferHandle> {
     let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-    let bytes: &[u8] = unsafe {
-        std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4)
-    };
+    let bytes: &[u8] =
+        unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4) };
     backend.cpu_to_gpu(bytes, 4, ordinal)
 }
 
@@ -87,12 +86,8 @@ impl<T: Float> GradFn<T> for EmbeddingBackward<T> {
             let go_handle = grad_output.gpu_handle()?;
 
             // Scatter-add rows on GPU: grad_weight[indices[i], :] += grad_output[i, :]
-            let mut gw_handle = backend.scatter_add_rows_f32(
-                go_handle,
-                &idx_handle,
-                self.num_embeddings,
-                dim,
-            )?;
+            let mut gw_handle =
+                backend.scatter_add_rows_f32(go_handle, &idx_handle, self.num_embeddings, dim)?;
 
             // If padding_idx is set, zero that row's gradient.
             // Upload a zero row and overwrite via the backend.
@@ -111,10 +106,7 @@ impl<T: Float> GradFn<T> for EmbeddingBackward<T> {
                     *v = 0.0;
                 }
                 let upload_bytes: &[u8] = unsafe {
-                    std::slice::from_raw_parts(
-                        gw_f32.as_ptr() as *const u8,
-                        gw_f32.len() * 4,
-                    )
+                    std::slice::from_raw_parts(gw_f32.as_ptr() as *const u8, gw_f32.len() * 4)
                 };
                 gw_handle = backend.cpu_to_gpu(upload_bytes, 4, ordinal)?;
             }
@@ -130,8 +122,7 @@ impl<T: Float> GradFn<T> for EmbeddingBackward<T> {
         let go_data = grad_output.data_vec()?;
 
         // Allocate a full-size gradient for the weight matrix, initialized to zero.
-        let mut grad_weight =
-            vec![<T as num_traits::Zero>::zero(); self.num_embeddings * dim];
+        let mut grad_weight = vec![<T as num_traits::Zero>::zero(); self.num_embeddings * dim];
 
         // Scatter-add: for each index position, accumulate the corresponding
         // grad_output row into the weight gradient at the accessed index.
@@ -315,10 +306,7 @@ impl<T: Float> Module<T> for Embedding<T> {
         // Validate input is 1-D.
         if input.ndim() != 1 {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "Embedding input must be 1-D, got shape {:?}",
-                    input.shape()
-                ),
+                message: format!("Embedding input must be 1-D, got shape {:?}", input.shape()),
             });
         }
 
@@ -367,12 +355,8 @@ impl<T: Float> Module<T> for Embedding<T> {
             let weight_handle = self.weight.tensor().gpu_handle()?;
 
             // Batch gather on GPU: output [N, D].
-            let output_handle = backend.embed_lookup_batch_f32(
-                &idx_handle,
-                weight_handle,
-                n,
-                dim,
-            )?;
+            let output_handle =
+                backend.embed_lookup_batch_f32(&idx_handle, weight_handle, n, dim)?;
 
             // Padding index: if set, zero the corresponding output rows on GPU.
             // For padding_idx, the weight row should already be zero, so output
@@ -399,7 +383,11 @@ impl<T: Float> Module<T> for Embedding<T> {
 
         // CPU path (or non-f32 GPU tensors): download weight and gather on CPU.
         let input_data = input.data_vec()?;
-        let cpu_weight = if self.weight.tensor().is_cuda() { self.weight.tensor().cpu()? } else { self.weight.tensor().clone() };
+        let cpu_weight = if self.weight.tensor().is_cuda() {
+            self.weight.tensor().cpu()?
+        } else {
+            self.weight.tensor().clone()
+        };
         let weight_data = cpu_weight.data()?;
         let n = input_data.len();
 
@@ -451,8 +439,7 @@ impl<T: Float> Module<T> for Embedding<T> {
         // Build storage on the target device first, then attach grad_fn.
         // This avoids to() stripping the grad_fn by creating a leaf tensor.
         let storage = if device.is_cuda() {
-            let backend = gpu_backend()
-                .ok_or(FerrotorchError::DeviceUnavailable)?;
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
             let ordinal = match device {
                 Device::Cuda(o) => o,
                 _ => unreachable!(),
@@ -542,12 +529,8 @@ mod tests {
     fn test_forward_correct_values() {
         // Build an embedding with known weights.
         let weight_data: Vec<f32> = (0..12).map(|i| i as f32).collect();
-        let weight = Tensor::from_storage(
-            TensorStorage::cpu(weight_data),
-            vec![4, 3],
-            true,
-        )
-        .unwrap();
+        let weight =
+            Tensor::from_storage(TensorStorage::cpu(weight_data), vec![4, 3], true).unwrap();
         let emb = Embedding::from_pretrained(weight, None).unwrap();
 
         // Look up rows 2 and 0.
@@ -611,12 +594,8 @@ mod tests {
             0.0, 0.0, // row 1 (padding — will be zeroed)
             5.0, 6.0, // row 2
         ];
-        let weight = Tensor::from_storage(
-            TensorStorage::cpu(weight_data),
-            vec![3, 2],
-            true,
-        )
-        .unwrap();
+        let weight =
+            Tensor::from_storage(TensorStorage::cpu(weight_data), vec![3, 2], true).unwrap();
         let emb = Embedding::from_pretrained(weight, Some(1)).unwrap();
 
         let indices = index_tensor(&[0.0, 1.0, 2.0]);
@@ -686,12 +665,8 @@ mod tests {
             30.0, 40.0, // row 1
             50.0, 60.0, // row 2
         ];
-        let weight = Tensor::from_storage(
-            TensorStorage::cpu(weight_data),
-            vec![3, 2],
-            true,
-        )
-        .unwrap();
+        let weight =
+            Tensor::from_storage(TensorStorage::cpu(weight_data), vec![3, 2], true).unwrap();
         let emb = Embedding::from_pretrained(weight, None).unwrap();
 
         let indices = index_tensor(&[0.0, 2.0]);
@@ -701,12 +676,8 @@ mod tests {
         assert_eq!(output.grad_fn().unwrap().name(), "EmbeddingBackward");
 
         // Manually call backward on the grad_fn.
-        let grad_output = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32; 4]),
-            vec![2, 2],
-            false,
-        )
-        .unwrap();
+        let grad_output =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0f32; 4]), vec![2, 2], false).unwrap();
 
         let grad_fn = output.grad_fn().unwrap();
         let grads = grad_fn.backward(&grad_output).unwrap();
@@ -742,12 +713,8 @@ mod tests {
             30.0, 40.0, // row 1
             50.0, 60.0, // row 2
         ];
-        let weight = Tensor::from_storage(
-            TensorStorage::cpu(weight_data),
-            vec![3, 2],
-            true,
-        )
-        .unwrap();
+        let weight =
+            Tensor::from_storage(TensorStorage::cpu(weight_data), vec![3, 2], true).unwrap();
         let emb = Embedding::from_pretrained(weight, None).unwrap();
 
         let indices = index_tensor(&[1.0, 1.0, 0.0, 1.0]);
@@ -793,23 +760,15 @@ mod tests {
             0.0, 0.0, // row 1 (padding)
             5.0, 6.0, // row 2
         ];
-        let weight = Tensor::from_storage(
-            TensorStorage::cpu(weight_data),
-            vec![3, 2],
-            true,
-        )
-        .unwrap();
+        let weight =
+            Tensor::from_storage(TensorStorage::cpu(weight_data), vec![3, 2], true).unwrap();
         let emb = Embedding::from_pretrained(weight, Some(1)).unwrap();
 
         let indices = index_tensor(&[0.0, 1.0, 2.0]);
         let output = emb.forward(&indices).unwrap();
 
-        let grad_output = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32; 6]),
-            vec![3, 2],
-            false,
-        )
-        .unwrap();
+        let grad_output =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0f32; 6]), vec![3, 2], false).unwrap();
 
         let grad_fn = output.grad_fn().unwrap();
         let grads = grad_fn.backward(&grad_output).unwrap();
@@ -837,12 +796,8 @@ mod tests {
             3.0, 4.0, // row 1
             5.0, 6.0, // row 2
         ];
-        let weight = Tensor::from_storage(
-            TensorStorage::cpu(weight_data),
-            vec![3, 2],
-            true,
-        )
-        .unwrap();
+        let weight =
+            Tensor::from_storage(TensorStorage::cpu(weight_data), vec![3, 2], true).unwrap();
         let emb = Embedding::from_pretrained(weight, None).unwrap();
 
         let indices = index_tensor(&[1.0, 0.0]);
@@ -944,12 +899,9 @@ mod tests {
     #[test]
     fn test_f64_embedding() {
         let emb = Embedding::<f64>::new(5, 3, None).unwrap();
-        let indices = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.0f64, 2.0, 4.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let indices =
+            Tensor::from_storage(TensorStorage::cpu(vec![0.0f64, 2.0, 4.0]), vec![3], false)
+                .unwrap();
         let output = emb.forward(&indices).unwrap();
         assert_eq!(output.shape(), &[3, 3]);
     }

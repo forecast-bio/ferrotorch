@@ -1,6 +1,6 @@
 // CL-332: Vision Transforms & Augmentation — RandomVerticalFlip
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 use super::rng::random_f64;
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
 
 /// Randomly flip a `[C, H, W]` tensor along the vertical axis (H dimension)
@@ -92,8 +92,7 @@ mod tests {
         //   3 4
         //   1 2
         let data = vec![1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![1, 3, 2], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 3, 2], false).unwrap();
         let flip = RandomVerticalFlip::<f64>::new(1.0);
         let out = flip.apply(t).unwrap();
         assert_eq!(out.shape(), &[1, 3, 2]);
@@ -104,8 +103,7 @@ mod tests {
     #[test]
     fn test_random_vertical_flip_never() {
         let data = vec![1.0_f64, 2.0, 3.0, 4.0];
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![1, 2, 2], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 2, 2], false).unwrap();
         let flip = RandomVerticalFlip::<f64>::new(0.0);
         let out = flip.apply(t).unwrap();
         assert_eq!(out.data().unwrap(), &[1.0, 2.0, 3.0, 4.0]);
@@ -117,8 +115,7 @@ mod tests {
         // Ch0: [1,2,3,4], Ch1: [5,6,7,8]
         // Flipped: Ch0: [3,4,1,2], Ch1: [7,8,5,6]
         let data = vec![1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![2, 2, 2], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 2, 2], false).unwrap();
         let flip = RandomVerticalFlip::<f64>::new(1.0);
         let out = flip.apply(t).unwrap();
         assert_eq!(
@@ -139,8 +136,7 @@ mod tests {
     fn test_random_vertical_flip_single_row() {
         // Single row: flip is a no-op.
         let data = vec![1.0_f64, 2.0, 3.0];
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![1, 1, 3], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 1, 3], false).unwrap();
         let flip = RandomVerticalFlip::<f64>::new(1.0);
         let out = flip.apply(t).unwrap();
         assert_eq!(out.data().unwrap(), &[1.0, 2.0, 3.0]);

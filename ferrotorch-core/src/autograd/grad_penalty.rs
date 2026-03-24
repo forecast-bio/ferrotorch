@@ -90,11 +90,8 @@ where
         .collect();
 
     // 2. Create x_interp with requires_grad=true so we can differentiate through it.
-    let x_interp = Tensor::from_storage(
-        TensorStorage::cpu(interp_data),
-        real.shape().to_vec(),
-        true,
-    )?;
+    let x_interp =
+        Tensor::from_storage(TensorStorage::cpu(interp_data), real.shape().to_vec(), true)?;
 
     // 3. Forward pass through discriminator.
     let d_interp = discriminator(&x_interp)?;
@@ -121,8 +118,7 @@ where
     let diff_sq = crate::grad_fns::arithmetic::pow(&diff, 2.0)?;
 
     let lambda_t = T::from(lambda).unwrap();
-    let lambda_tensor =
-        Tensor::from_storage(TensorStorage::cpu(vec![lambda_t]), vec![], false)?;
+    let lambda_tensor = Tensor::from_storage(TensorStorage::cpu(vec![lambda_t]), vec![], false)?;
     let penalty = crate::grad_fns::arithmetic::mul(&lambda_tensor, &diff_sq)?;
 
     Ok(penalty)
@@ -295,11 +291,7 @@ where
     }
 
     // Construct y_weighted = y * v using differentiable mul, then sum.
-    let v_tensor = Tensor::from_storage(
-        TensorStorage::cpu(v_data),
-        y.shape().to_vec(),
-        false,
-    )?;
+    let v_tensor = Tensor::from_storage(TensorStorage::cpu(v_data), y.shape().to_vec(), false)?;
     let weighted = crate::grad_fns::arithmetic::mul(&y, &v_tensor)?;
     let scalar = crate::grad_fns::reduction::sum(&weighted)?;
 
@@ -311,11 +303,7 @@ where
         None => {
             // f doesn't depend on input.
             let zero_data = vec![<T as num_traits::Zero>::zero(); input.numel()];
-            Tensor::from_storage(
-                TensorStorage::cpu(zero_data),
-                input.shape().to_vec(),
-                false,
-            )
+            Tensor::from_storage(TensorStorage::cpu(zero_data), input.shape().to_vec(), false)
         }
     }
 }
@@ -338,8 +326,12 @@ mod tests {
 
     /// Create a leaf 1-D tensor.
     fn leaf_vec(data: &[f32], requires_grad: bool) -> Tensor<f32> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            vec![data.len()],
+            requires_grad,
+        )
+        .unwrap()
     }
 
     /// Assert a scalar tensor is approximately equal to `expected`.
@@ -477,7 +469,12 @@ mod tests {
         let z = add(&x2, &y2).unwrap();
 
         let norm = grad_norm(&z, &[&x, &y]).unwrap();
-        assert_approx(norm.item().unwrap(), 10.0, 1e-3, "grad_norm across two inputs");
+        assert_approx(
+            norm.item().unwrap(),
+            10.0,
+            1e-3,
+            "grad_norm across two inputs",
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -493,12 +490,9 @@ mod tests {
         let result = vjp(
             |x| {
                 // Identity: multiply by 1 to get a tracked tensor.
-                let ones = Tensor::from_storage(
-                    TensorStorage::cpu(vec![1.0f32; 3]),
-                    vec![3],
-                    false,
-                )
-                .unwrap();
+                let ones =
+                    Tensor::from_storage(TensorStorage::cpu(vec![1.0f32; 3]), vec![3], false)
+                        .unwrap();
                 mul(x, &ones)
             },
             &input,
@@ -533,8 +527,8 @@ mod tests {
 
         let result = vjp(
             |x| {
-                let c = Tensor::from_storage(TensorStorage::cpu(vec![3.0f32]), vec![1], false)
-                    .unwrap();
+                let c =
+                    Tensor::from_storage(TensorStorage::cpu(vec![3.0f32]), vec![1], false).unwrap();
                 mul(x, &c)
             },
             &input,
@@ -566,7 +560,10 @@ mod tests {
         let v = leaf_vec(&[1.0, 2.0, 3.0], false);
 
         let result = vjp(|x| add(x, x), &input, &v);
-        assert!(result.is_err(), "vjp should error when v shape != f(input) shape");
+        assert!(
+            result.is_err(),
+            "vjp should error when v shape != f(input) shape"
+        );
     }
 
     // -----------------------------------------------------------------------

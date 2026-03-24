@@ -144,11 +144,7 @@ impl<T: Float> Module<T> for LayerNorm<T> {
                         eps: self.eps,
                         elementwise_affine: self.elementwise_affine,
                     });
-                    Tensor::from_operation(
-                        TensorStorage::gpu(handle),
-                        shape,
-                        grad_fn,
-                    )
+                    Tensor::from_operation(TensorStorage::gpu(handle), shape, grad_fn)
                 } else {
                     Tensor::from_storage(TensorStorage::gpu(handle), shape, false)
                 };
@@ -156,13 +152,25 @@ impl<T: Float> Module<T> for LayerNorm<T> {
         }
 
         // CPU path.
-        let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+        let cpu_input = if input.is_cuda() {
+            input.cpu()?
+        } else {
+            input.clone()
+        };
         let input_data = cpu_input.data()?;
         let eps_t = T::from(self.eps).unwrap();
         let n_t = T::from(norm_size).unwrap();
 
-        let cpu_weight = if self.weight.tensor().is_cuda() { self.weight.tensor().cpu()? } else { self.weight.tensor().clone() };
-        let cpu_bias = if self.bias.tensor().is_cuda() { self.bias.tensor().cpu()? } else { self.bias.tensor().clone() };
+        let cpu_weight = if self.weight.tensor().is_cuda() {
+            self.weight.tensor().cpu()?
+        } else {
+            self.weight.tensor().clone()
+        };
+        let cpu_bias = if self.bias.tensor().is_cuda() {
+            self.bias.tensor().cpu()?
+        } else {
+            self.bias.tensor().clone()
+        };
         let weight_data = cpu_weight.data()?;
         let bias_data = cpu_bias.data()?;
 
@@ -201,15 +209,19 @@ impl<T: Float> Module<T> for LayerNorm<T> {
                 eps: self.eps,
                 elementwise_affine: self.elementwise_affine,
             });
-            let out = Tensor::from_operation(
-                storage,
-                shape.to_vec(),
-                grad_fn,
-            )?;
-            if device.is_cuda() { out.to(device) } else { Ok(out) }
+            let out = Tensor::from_operation(storage, shape.to_vec(), grad_fn)?;
+            if device.is_cuda() {
+                out.to(device)
+            } else {
+                Ok(out)
+            }
         } else {
             let result = Tensor::from_storage(storage, shape.to_vec(), false)?;
-            if device.is_cuda() { result.to(device) } else { Ok(result) }
+            if device.is_cuda() {
+                result.to(device)
+            } else {
+                Ok(result)
+            }
         }
     }
 
@@ -322,7 +334,11 @@ impl<T: Float> GradFn<T> for LayerNormBackward<T> {
                     None
                 };
 
-                return Ok(vec![Some(grad_input_tensor), grad_weight_out, grad_bias_out]);
+                return Ok(vec![
+                    Some(grad_input_tensor),
+                    grad_weight_out,
+                    grad_bias_out,
+                ]);
             }
         }
 
@@ -330,9 +346,21 @@ impl<T: Float> GradFn<T> for LayerNormBackward<T> {
         let n_t = T::from(norm_size).unwrap();
         let eps_t = T::from(self.eps).unwrap();
 
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
-        let cpu_weight = if self.weight.is_cuda() { self.weight.cpu()? } else { self.weight.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
+        let cpu_weight = if self.weight.is_cuda() {
+            self.weight.cpu()?
+        } else {
+            self.weight.clone()
+        };
         let input_data = cpu_input.data()?;
         let go_data = cpu_go.data()?;
         let weight_data = cpu_weight.data()?;
@@ -349,14 +377,10 @@ impl<T: Float> GradFn<T> for LayerNormBackward<T> {
 
             // Recompute mean and inv_std.
             let mean = x_slice.iter().copied().fold(zero::<T>(), |a, x| a + x) / n_t;
-            let var = x_slice
-                .iter()
-                .copied()
-                .fold(zero::<T>(), |a, x| {
-                    let d = x - mean;
-                    a + d * d
-                })
-                / n_t;
+            let var = x_slice.iter().copied().fold(zero::<T>(), |a, x| {
+                let d = x - mean;
+                a + d * d
+            }) / n_t;
             let inv_std = (var + eps_t).sqrt().recip();
 
             // dl/dx_hat = go * weight (if affine) or go (if not).
@@ -372,12 +396,12 @@ impl<T: Float> GradFn<T> for LayerNormBackward<T> {
                     go_slice[i]
                 };
 
-                dl_dx_hat_sum = dl_dx_hat_sum + dl_dx_hat_i;
-                dl_dx_hat_x_hat_sum = dl_dx_hat_x_hat_sum + dl_dx_hat_i * x_hat_i;
+                dl_dx_hat_sum += dl_dx_hat_i;
+                dl_dx_hat_x_hat_sum += dl_dx_hat_i * x_hat_i;
 
                 if self.elementwise_affine {
-                    grad_weight[i] = grad_weight[i] + go_slice[i] * x_hat_i;
-                    grad_bias[i] = grad_bias[i] + go_slice[i];
+                    grad_weight[i] += go_slice[i] * x_hat_i;
+                    grad_bias[i] += go_slice[i];
                 }
             }
 
@@ -404,7 +428,11 @@ impl<T: Float> GradFn<T> for LayerNormBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
-        let grad_input_tensor = if device.is_cuda() { grad_input_tensor.to(device)? } else { grad_input_tensor };
+        let grad_input_tensor = if device.is_cuda() {
+            grad_input_tensor.to(device)?
+        } else {
+            grad_input_tensor
+        };
 
         let grad_weight_out = if self.elementwise_affine && self.weight.requires_grad() {
             let gw = Tensor::from_storage(
@@ -428,7 +456,11 @@ impl<T: Float> GradFn<T> for LayerNormBackward<T> {
             None
         };
 
-        Ok(vec![Some(grad_input_tensor), grad_weight_out, grad_bias_out])
+        Ok(vec![
+            Some(grad_input_tensor),
+            grad_weight_out,
+            grad_bias_out,
+        ])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -549,10 +581,22 @@ impl<T: Float> Module<T> for GroupNorm<T> {
         let group_size = channels_per_group * spatial;
 
         // Transfer to CPU for computation if on GPU.
-        let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+        let cpu_input = if input.is_cuda() {
+            input.cpu()?
+        } else {
+            input.clone()
+        };
         let input_data = cpu_input.data()?;
-        let cpu_weight = if self.weight.tensor().is_cuda() { self.weight.tensor().cpu()? } else { self.weight.tensor().clone() };
-        let cpu_bias = if self.bias.tensor().is_cuda() { self.bias.tensor().cpu()? } else { self.bias.tensor().clone() };
+        let cpu_weight = if self.weight.tensor().is_cuda() {
+            self.weight.tensor().cpu()?
+        } else {
+            self.weight.tensor().clone()
+        };
+        let cpu_bias = if self.bias.tensor().is_cuda() {
+            self.bias.tensor().cpu()?
+        } else {
+            self.bias.tensor().clone()
+        };
         let weight_data = cpu_weight.data()?;
         let bias_data = cpu_bias.data()?;
         let eps_t = T::from(self.eps).unwrap();
@@ -570,7 +614,7 @@ impl<T: Float> Module<T> for GroupNorm<T> {
                 for c in c_start..c_end {
                     for s in 0..spatial {
                         let idx = b * channels * spatial + c * spatial + s;
-                        sum = sum + input_data[idx];
+                        sum += input_data[idx];
                     }
                 }
                 let mean = sum / group_n;
@@ -581,7 +625,7 @@ impl<T: Float> Module<T> for GroupNorm<T> {
                     for s in 0..spatial {
                         let idx = b * channels * spatial + c * spatial + s;
                         let d = input_data[idx] - mean;
-                        var_sum = var_sum + d * d;
+                        var_sum += d * d;
                     }
                 }
                 let var = var_sum / group_n;
@@ -602,8 +646,7 @@ impl<T: Float> Module<T> for GroupNorm<T> {
             }
         }
 
-        let result =
-            Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
+        let result = Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
 
         if is_grad_enabled() && input.requires_grad() {
             let grad_fn = Arc::new(GroupNormBackward {
@@ -620,7 +663,11 @@ impl<T: Float> Module<T> for GroupNorm<T> {
                 result.shape().to_vec(),
                 grad_fn,
             )?;
-            if device.is_cuda() { out.to(device) } else { Ok(out) }
+            if device.is_cuda() {
+                out.to(device)
+            } else {
+                Ok(out)
+            }
         } else if device.is_cuda() {
             result.to(device)
         } else {
@@ -699,9 +746,21 @@ impl<T: Float> GradFn<T> for GroupNormBackward<T> {
         let group_n = T::from(group_size).unwrap();
         let eps_t = T::from(self.eps).unwrap();
 
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
-        let cpu_weight = if self.weight.is_cuda() { self.weight.cpu()? } else { self.weight.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
+        let cpu_weight = if self.weight.is_cuda() {
+            self.weight.cpu()?
+        } else {
+            self.weight.clone()
+        };
         let input_data = cpu_input.data()?;
         let go_data = cpu_go.data()?;
         let weight_data = cpu_weight.data()?;
@@ -720,7 +779,7 @@ impl<T: Float> GradFn<T> for GroupNormBackward<T> {
                 for c in c_start..c_end {
                     for s in 0..spatial {
                         let idx = b * channels * spatial + c * spatial + s;
-                        sum = sum + input_data[idx];
+                        sum += input_data[idx];
                     }
                 }
                 let mean = sum / group_n;
@@ -730,7 +789,7 @@ impl<T: Float> GradFn<T> for GroupNormBackward<T> {
                     for s in 0..spatial {
                         let idx = b * channels * spatial + c * spatial + s;
                         let d = input_data[idx] - mean;
-                        var_sum = var_sum + d * d;
+                        var_sum += d * d;
                     }
                 }
                 let var = var_sum / group_n;
@@ -749,12 +808,12 @@ impl<T: Float> GradFn<T> for GroupNormBackward<T> {
                         } else {
                             go_data[idx]
                         };
-                        dl_dx_hat_sum = dl_dx_hat_sum + dl_dx_hat;
-                        dl_dx_hat_x_hat_sum = dl_dx_hat_x_hat_sum + dl_dx_hat * x_hat;
+                        dl_dx_hat_sum += dl_dx_hat;
+                        dl_dx_hat_x_hat_sum += dl_dx_hat * x_hat;
 
                         if self.affine {
-                            grad_weight[c] = grad_weight[c] + go_data[idx] * x_hat;
-                            grad_bias[c] = grad_bias[c] + go_data[idx];
+                            grad_weight[c] += go_data[idx] * x_hat;
+                            grad_bias[c] += go_data[idx];
                         }
                     }
                 }
@@ -762,17 +821,18 @@ impl<T: Float> GradFn<T> for GroupNormBackward<T> {
                 let dl_dx_hat_mean = dl_dx_hat_sum / group_n;
                 let dl_dx_hat_x_hat_mean = dl_dx_hat_x_hat_sum / group_n;
 
-                for c in c_start..c_end {
+                for (ci, &wd) in weight_data[c_start..c_end].iter().enumerate() {
+                    let c = c_start + ci;
                     for s in 0..spatial {
                         let idx = b * channels * spatial + c * spatial + s;
                         let x_hat = (input_data[idx] - mean) * inv_std;
                         let dl_dx_hat = if self.affine {
-                            go_data[idx] * weight_data[c]
+                            go_data[idx] * wd
                         } else {
                             go_data[idx]
                         };
-                        grad_input[idx] = inv_std
-                            * (dl_dx_hat - dl_dx_hat_mean - x_hat * dl_dx_hat_x_hat_mean);
+                        grad_input[idx] =
+                            inv_std * (dl_dx_hat - dl_dx_hat_mean - x_hat * dl_dx_hat_x_hat_mean);
                     }
                 }
             }
@@ -813,7 +873,11 @@ impl<T: Float> GradFn<T> for GroupNormBackward<T> {
             None
         };
 
-        Ok(vec![Some(grad_input_tensor), grad_weight_out, grad_bias_out])
+        Ok(vec![
+            Some(grad_input_tensor),
+            grad_weight_out,
+            grad_bias_out,
+        ])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -909,9 +973,17 @@ impl<T: Float> Module<T> for RMSNorm<T> {
         let batch_size = input.numel() / norm_size;
 
         // Transfer to CPU for computation if on GPU.
-        let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+        let cpu_input = if input.is_cuda() {
+            input.cpu()?
+        } else {
+            input.clone()
+        };
         let input_data = cpu_input.data()?;
-        let cpu_weight = if self.weight.tensor().is_cuda() { self.weight.tensor().cpu()? } else { self.weight.tensor().clone() };
+        let cpu_weight = if self.weight.tensor().is_cuda() {
+            self.weight.tensor().cpu()?
+        } else {
+            self.weight.tensor().clone()
+        };
         let weight_data = cpu_weight.data()?;
         let eps_t = T::from(self.eps).unwrap();
         let n_t = T::from(norm_size).unwrap();
@@ -924,8 +996,7 @@ impl<T: Float> Module<T> for RMSNorm<T> {
             let slice = &input_data[start..end];
 
             // rms = sqrt(mean(x^2) + eps)
-            let mean_sq =
-                slice.iter().copied().fold(zero::<T>(), |a, x| a + x * x) / n_t;
+            let mean_sq = slice.iter().copied().fold(zero::<T>(), |a, x| a + x * x) / n_t;
             let rms = (mean_sq + eps_t).sqrt();
             let inv_rms = rms.recip();
 
@@ -934,8 +1005,7 @@ impl<T: Float> Module<T> for RMSNorm<T> {
             }
         }
 
-        let result =
-            Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
+        let result = Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
 
         if is_grad_enabled() && input.requires_grad() {
             let grad_fn = Arc::new(RMSNormBackward {
@@ -949,7 +1019,11 @@ impl<T: Float> Module<T> for RMSNorm<T> {
                 result.shape().to_vec(),
                 grad_fn,
             )?;
-            if device.is_cuda() { out.to(device) } else { Ok(out) }
+            if device.is_cuda() {
+                out.to(device)
+            } else {
+                Ok(out)
+            }
         } else if device.is_cuda() {
             result.to(device)
         } else {
@@ -1018,9 +1092,21 @@ impl<T: Float> GradFn<T> for RMSNormBackward<T> {
         let n_t = T::from(norm_size).unwrap();
         let eps_t = T::from(self.eps).unwrap();
 
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
-        let cpu_weight = if self.weight.is_cuda() { self.weight.cpu()? } else { self.weight.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
+        let cpu_weight = if self.weight.is_cuda() {
+            self.weight.cpu()?
+        } else {
+            self.weight.clone()
+        };
         let input_data = cpu_input.data()?;
         let go_data = cpu_go.data()?;
         let weight_data = cpu_weight.data()?;
@@ -1035,8 +1121,7 @@ impl<T: Float> GradFn<T> for RMSNormBackward<T> {
             let go_slice = &go_data[start..end];
 
             // Recompute rms.
-            let mean_sq =
-                x_slice.iter().copied().fold(zero::<T>(), |a, x| a + x * x) / n_t;
+            let mean_sq = x_slice.iter().copied().fold(zero::<T>(), |a, x| a + x * x) / n_t;
             let rms = (mean_sq + eps_t).sqrt();
             let inv_rms = rms.recip();
             let inv_rms_sq = inv_rms * inv_rms;
@@ -1052,11 +1137,10 @@ impl<T: Float> GradFn<T> for RMSNormBackward<T> {
             for i in 0..norm_size {
                 // grad_x_j = inv_rms * (go_j * w_j - x_j * inv_rms^2 * go_x_w_mean)
                 grad_input[start + i] = inv_rms
-                    * (go_slice[i] * weight_data[i]
-                        - x_slice[i] * inv_rms_sq * go_x_w_mean);
+                    * (go_slice[i] * weight_data[i] - x_slice[i] * inv_rms_sq * go_x_w_mean);
 
                 // grad_weight_i += go_i * x_i * inv_rms
-                grad_weight[i] = grad_weight[i] + go_slice[i] * x_slice[i] * inv_rms;
+                grad_weight[i] += go_slice[i] * x_slice[i] * inv_rms;
             }
         }
 
@@ -1251,15 +1335,27 @@ impl<T: Float> Module<T> for BatchNorm2d<T> {
         }
 
         // Transfer to CPU for computation if on GPU.
-        let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+        let cpu_input = if input.is_cuda() {
+            input.cpu()?
+        } else {
+            input.clone()
+        };
         let input_data = cpu_input.data()?;
         let eps_t = T::from(self.eps).unwrap();
 
         let cpu_weight = self.weight.as_ref().map(|w| {
-            if w.tensor().is_cuda() { w.tensor().cpu().unwrap() } else { w.tensor().clone() }
+            if w.tensor().is_cuda() {
+                w.tensor().cpu().unwrap()
+            } else {
+                w.tensor().clone()
+            }
         });
         let cpu_bias = self.bias.as_ref().map(|b| {
-            if b.tensor().is_cuda() { b.tensor().cpu().unwrap() } else { b.tensor().clone() }
+            if b.tensor().is_cuda() {
+                b.tensor().cpu().unwrap()
+            } else {
+                b.tensor().clone()
+            }
         });
         let weight_data = cpu_weight.as_ref().map(|w| w.data().unwrap());
         let bias_data = cpu_bias.as_ref().map(|b| b.data().unwrap());
@@ -1280,7 +1376,7 @@ impl<T: Float> Module<T> for BatchNorm2d<T> {
                 for b in 0..batch {
                     let base = b * channels * spatial + c * spatial;
                     for s in 0..spatial {
-                        sum = sum + input_data[base + s];
+                        sum += input_data[base + s];
                     }
                 }
                 chan_mean[c] = sum / count_t;
@@ -1290,7 +1386,7 @@ impl<T: Float> Module<T> for BatchNorm2d<T> {
                     let base = b * channels * spatial + c * spatial;
                     for s in 0..spatial {
                         let d = input_data[base + s] - chan_mean[c];
-                        var_sum = var_sum + d * d;
+                        var_sum += d * d;
                     }
                 }
                 // Biased variance (like PyTorch).
@@ -1371,8 +1467,7 @@ impl<T: Float> Module<T> for BatchNorm2d<T> {
             }
         }
 
-        let result =
-            Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
+        let result = Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
 
         if is_grad_enabled() && input.requires_grad() {
             let weight_tensor = self.weight.as_ref().map(|w| w.tensor().clone());
@@ -1380,11 +1475,7 @@ impl<T: Float> Module<T> for BatchNorm2d<T> {
 
             let grad_fn = Arc::new(BatchNorm2dBackward {
                 input: input.clone(),
-                x_hat: Tensor::from_storage(
-                    TensorStorage::cpu(x_hat_data),
-                    shape.to_vec(),
-                    false,
-                )?,
+                x_hat: Tensor::from_storage(TensorStorage::cpu(x_hat_data), shape.to_vec(), false)?,
                 weight: weight_tensor,
                 bias: bias_tensor,
                 chan_var: chan_var.iter().map(|v| v.to_f64().unwrap()).collect(),
@@ -1397,7 +1488,11 @@ impl<T: Float> Module<T> for BatchNorm2d<T> {
                 result.shape().to_vec(),
                 grad_fn,
             )?;
-            if device.is_cuda() { out.to(device) } else { Ok(out) }
+            if device.is_cuda() {
+                out.to(device)
+            } else {
+                Ok(out)
+            }
         } else if device.is_cuda() {
             result.to(device)
         } else {
@@ -1421,10 +1516,7 @@ impl<T: Float> Module<T> for BatchNorm2d<T> {
 
     fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
         match (&self.weight, &self.bias) {
-            (Some(w), Some(b)) => vec![
-                ("weight".to_string(), w),
-                ("bias".to_string(), b),
-            ],
+            (Some(w), Some(b)) => vec![("weight".to_string(), w), ("bias".to_string(), b)],
             _ => vec![],
         }
     }
@@ -1493,13 +1585,25 @@ impl<T: Float> GradFn<T> for BatchNorm2dBackward<T> {
         let count = batch * spatial;
         let count_t = T::from(count).unwrap();
 
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
-        let cpu_x_hat = if self.x_hat.is_cuda() { self.x_hat.cpu()? } else { self.x_hat.clone() };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
+        let cpu_x_hat = if self.x_hat.is_cuda() {
+            self.x_hat.cpu()?
+        } else {
+            self.x_hat.clone()
+        };
         let go_data = cpu_go.data()?;
         let x_hat_data = cpu_x_hat.data()?;
 
         let weight_data = self.weight.as_ref().map(|w| {
-            let cpu_w = if w.is_cuda() { w.cpu().unwrap() } else { w.clone() };
+            let cpu_w = if w.is_cuda() {
+                w.cpu().unwrap()
+            } else {
+                w.clone()
+            };
             cpu_w.data().unwrap().to_vec()
         });
 
@@ -1528,12 +1632,12 @@ impl<T: Float> GradFn<T> for BatchNorm2dBackward<T> {
                         go
                     };
 
-                    dl_dx_hat_sum = dl_dx_hat_sum + dl_dx_hat;
-                    dl_dx_hat_x_hat_sum = dl_dx_hat_x_hat_sum + dl_dx_hat * x_h;
+                    dl_dx_hat_sum += dl_dx_hat;
+                    dl_dx_hat_x_hat_sum += dl_dx_hat * x_h;
 
                     if self.affine {
-                        grad_weight[c] = grad_weight[c] + go * x_h;
-                        grad_bias[c] = grad_bias[c] + go;
+                        grad_weight[c] += go * x_h;
+                        grad_bias[c] += go;
                     }
                 }
             }
@@ -1603,7 +1707,11 @@ impl<T: Float> GradFn<T> for BatchNorm2dBackward<T> {
             None
         };
 
-        Ok(vec![Some(grad_input_tensor), grad_weight_out, grad_bias_out])
+        Ok(vec![
+            Some(grad_input_tensor),
+            grad_weight_out,
+            grad_bias_out,
+        ])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -1777,15 +1885,27 @@ impl<T: Float> Module<T> for BatchNorm1d<T> {
             return Ok(input.clone());
         }
 
-        let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+        let cpu_input = if input.is_cuda() {
+            input.cpu()?
+        } else {
+            input.clone()
+        };
         let input_data = cpu_input.data()?;
         let eps_t = T::from(self.eps).unwrap();
 
         let cpu_weight = self.weight.as_ref().map(|w| {
-            if w.tensor().is_cuda() { w.tensor().cpu().unwrap() } else { w.tensor().clone() }
+            if w.tensor().is_cuda() {
+                w.tensor().cpu().unwrap()
+            } else {
+                w.tensor().clone()
+            }
         });
         let cpu_bias = self.bias.as_ref().map(|b| {
-            if b.tensor().is_cuda() { b.tensor().cpu().unwrap() } else { b.tensor().clone() }
+            if b.tensor().is_cuda() {
+                b.tensor().cpu().unwrap()
+            } else {
+                b.tensor().clone()
+            }
         });
         let weight_data = cpu_weight.as_ref().map(|w| w.data().unwrap());
         let bias_data = cpu_bias.as_ref().map(|b| b.data().unwrap());
@@ -1804,7 +1924,7 @@ impl<T: Float> Module<T> for BatchNorm1d<T> {
                 for b in 0..batch {
                     let base = b * channels * length + c * length;
                     for l in 0..length {
-                        s = s + input_data[base + l];
+                        s += input_data[base + l];
                     }
                 }
                 chan_mean[c] = s / count_t;
@@ -1814,7 +1934,7 @@ impl<T: Float> Module<T> for BatchNorm1d<T> {
                     let base = b * channels * length + c * length;
                     for l in 0..length {
                         let d = input_data[base + l] - chan_mean[c];
-                        var_sum = var_sum + d * d;
+                        var_sum += d * d;
                     }
                 }
                 chan_var[c] = var_sum / count_t;
@@ -1888,8 +2008,7 @@ impl<T: Float> Module<T> for BatchNorm1d<T> {
             }
         }
 
-        let result =
-            Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
+        let result = Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
 
         if is_grad_enabled() && input.requires_grad() {
             let weight_tensor = self.weight.as_ref().map(|w| w.tensor().clone());
@@ -1897,11 +2016,7 @@ impl<T: Float> Module<T> for BatchNorm1d<T> {
 
             let grad_fn = Arc::new(BatchNorm1dBackward {
                 input: input.clone(),
-                x_hat: Tensor::from_storage(
-                    TensorStorage::cpu(x_hat_data),
-                    shape.to_vec(),
-                    false,
-                )?,
+                x_hat: Tensor::from_storage(TensorStorage::cpu(x_hat_data), shape.to_vec(), false)?,
                 weight: weight_tensor,
                 bias: bias_tensor,
                 chan_var: chan_var.iter().map(|v| v.to_f64().unwrap()).collect(),
@@ -1914,7 +2029,11 @@ impl<T: Float> Module<T> for BatchNorm1d<T> {
                 result.shape().to_vec(),
                 grad_fn,
             )?;
-            if device.is_cuda() { out.to(device) } else { Ok(out) }
+            if device.is_cuda() {
+                out.to(device)
+            } else {
+                Ok(out)
+            }
         } else if device.is_cuda() {
             result.to(device)
         } else {
@@ -1938,10 +2057,7 @@ impl<T: Float> Module<T> for BatchNorm1d<T> {
 
     fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
         match (&self.weight, &self.bias) {
-            (Some(w), Some(b)) => vec![
-                ("weight".to_string(), w),
-                ("bias".to_string(), b),
-            ],
+            (Some(w), Some(b)) => vec![("weight".to_string(), w), ("bias".to_string(), b)],
             _ => vec![],
         }
     }
@@ -1988,13 +2104,25 @@ impl<T: Float> GradFn<T> for BatchNorm1dBackward<T> {
         let count = batch * length;
         let count_t = T::from(count).unwrap();
 
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
-        let cpu_x_hat = if self.x_hat.is_cuda() { self.x_hat.cpu()? } else { self.x_hat.clone() };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
+        let cpu_x_hat = if self.x_hat.is_cuda() {
+            self.x_hat.cpu()?
+        } else {
+            self.x_hat.clone()
+        };
         let go_data = cpu_go.data()?;
         let x_hat_data = cpu_x_hat.data()?;
 
         let weight_data = self.weight.as_ref().map(|w| {
-            let cpu_w = if w.is_cuda() { w.cpu().unwrap() } else { w.clone() };
+            let cpu_w = if w.is_cuda() {
+                w.cpu().unwrap()
+            } else {
+                w.clone()
+            };
             cpu_w.data().unwrap().to_vec()
         });
 
@@ -2022,12 +2150,12 @@ impl<T: Float> GradFn<T> for BatchNorm1dBackward<T> {
                         go
                     };
 
-                    dl_dx_hat_sum = dl_dx_hat_sum + dl_dx_hat;
-                    dl_dx_hat_x_hat_sum = dl_dx_hat_x_hat_sum + dl_dx_hat * x_h;
+                    dl_dx_hat_sum += dl_dx_hat;
+                    dl_dx_hat_x_hat_sum += dl_dx_hat * x_h;
 
                     if self.affine {
-                        grad_weight[c] = grad_weight[c] + go * x_h;
-                        grad_bias[c] = grad_bias[c] + go;
+                        grad_weight[c] += go * x_h;
+                        grad_bias[c] += go;
                     }
                 }
             }
@@ -2096,7 +2224,11 @@ impl<T: Float> GradFn<T> for BatchNorm1dBackward<T> {
             None
         };
 
-        Ok(vec![Some(grad_input_tensor), grad_weight_out, grad_bias_out])
+        Ok(vec![
+            Some(grad_input_tensor),
+            grad_weight_out,
+            grad_bias_out,
+        ])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -2132,7 +2264,6 @@ impl<T: Float> GradFn<T> for BatchNorm1dBackward<T> {
 /// The generic `InstanceNorm<T>` is the shared engine; the public type
 /// aliases `InstanceNorm1d`, `InstanceNorm2d`, `InstanceNorm3d` simply
 /// validate that the input tensor has the expected number of dimensions.
-
 /// Internal engine shared by `InstanceNorm1d/2d/3d`.
 #[derive(Debug)]
 struct InstanceNormInner<T: Float> {
@@ -2172,11 +2303,7 @@ impl<T: Float> InstanceNormInner<T> {
 
     /// Forward for input of shape `[B, C, *spatial]`.
     /// `expected_ndim` is used only for error messages (3 = 1d, 4 = 2d, 5 = 3d).
-    fn forward_impl(
-        &self,
-        input: &Tensor<T>,
-        expected_ndim: usize,
-    ) -> FerrotorchResult<Tensor<T>> {
+    fn forward_impl(&self, input: &Tensor<T>, expected_ndim: usize) -> FerrotorchResult<Tensor<T>> {
         let label = match expected_ndim {
             3 => "InstanceNorm1d",
             4 => "InstanceNorm2d",
@@ -2187,10 +2314,7 @@ impl<T: Float> InstanceNormInner<T> {
 
         if shape.len() != expected_ndim {
             return Err(FerrotorchError::ShapeMismatch {
-                message: format!(
-                    "{label}: expected {expected_ndim}D input, got {:?}",
-                    shape
-                ),
+                message: format!("{label}: expected {expected_ndim}D input, got {:?}", shape),
             });
         }
 
@@ -2210,7 +2334,11 @@ impl<T: Float> InstanceNormInner<T> {
             return Ok(input.clone());
         }
 
-        let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+        let cpu_input = if input.is_cuda() {
+            input.cpu()?
+        } else {
+            input.clone()
+        };
         let input_data = cpu_input.data()?;
         let eps_t = T::from(self.eps).unwrap();
         let n_t = T::from(spatial).unwrap();
@@ -2237,14 +2365,10 @@ impl<T: Float> InstanceNormInner<T> {
 
                 // Compute mean and variance over spatial dims for this (b, c).
                 let mean = slice.iter().copied().fold(zero::<T>(), |a, x| a + x) / n_t;
-                let var = slice
-                    .iter()
-                    .copied()
-                    .fold(zero::<T>(), |a, x| {
-                        let d = x - mean;
-                        a + d * d
-                    })
-                    / n_t;
+                let var = slice.iter().copied().fold(zero::<T>(), |a, x| {
+                    let d = x - mean;
+                    a + d * d
+                }) / n_t;
                 let inv_std = (var + eps_t).sqrt().recip();
 
                 for s in 0..spatial {
@@ -2259,8 +2383,7 @@ impl<T: Float> InstanceNormInner<T> {
             }
         }
 
-        let result =
-            Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
+        let result = Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
 
         if is_grad_enabled() && input.requires_grad() {
             let grad_fn = Arc::new(InstanceNormBackward {
@@ -2276,7 +2399,11 @@ impl<T: Float> InstanceNormInner<T> {
                 result.shape().to_vec(),
                 grad_fn,
             )?;
-            if device.is_cuda() { out.to(device) } else { Ok(out) }
+            if device.is_cuda() {
+                out.to(device)
+            } else {
+                Ok(out)
+            }
         } else if device.is_cuda() {
             result.to(device)
         } else {
@@ -2312,9 +2439,21 @@ impl<T: Float> GradFn<T> for InstanceNormBackward<T> {
         let n_t = T::from(spatial).unwrap();
         let eps_t = T::from(self.eps).unwrap();
 
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
-        let cpu_weight = if self.weight.is_cuda() { self.weight.cpu()? } else { self.weight.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
+        let cpu_weight = if self.weight.is_cuda() {
+            self.weight.cpu()?
+        } else {
+            self.weight.clone()
+        };
         let input_data = cpu_input.data()?;
         let go_data = cpu_go.data()?;
         let weight_data = cpu_weight.data()?;
@@ -2331,14 +2470,10 @@ impl<T: Float> GradFn<T> for InstanceNormBackward<T> {
 
                 // Recompute mean and inv_std for this (b, c).
                 let mean = x_slice.iter().copied().fold(zero::<T>(), |a, x| a + x) / n_t;
-                let var = x_slice
-                    .iter()
-                    .copied()
-                    .fold(zero::<T>(), |a, x| {
-                        let d = x - mean;
-                        a + d * d
-                    })
-                    / n_t;
+                let var = x_slice.iter().copied().fold(zero::<T>(), |a, x| {
+                    let d = x - mean;
+                    a + d * d
+                }) / n_t;
                 let inv_std = (var + eps_t).sqrt().recip();
 
                 // Accumulate sums for the VJP.
@@ -2352,12 +2487,12 @@ impl<T: Float> GradFn<T> for InstanceNormBackward<T> {
                     } else {
                         go_slice[s]
                     };
-                    dl_dx_hat_sum = dl_dx_hat_sum + dl_dx_hat;
-                    dl_dx_hat_x_hat_sum = dl_dx_hat_x_hat_sum + dl_dx_hat * x_hat;
+                    dl_dx_hat_sum += dl_dx_hat;
+                    dl_dx_hat_x_hat_sum += dl_dx_hat * x_hat;
 
                     if self.affine {
-                        grad_weight[c] = grad_weight[c] + go_slice[s] * x_hat;
-                        grad_bias[c] = grad_bias[c] + go_slice[s];
+                        grad_weight[c] += go_slice[s] * x_hat;
+                        grad_bias[c] += go_slice[s];
                     }
                 }
 
@@ -2412,7 +2547,11 @@ impl<T: Float> GradFn<T> for InstanceNormBackward<T> {
             None
         };
 
-        Ok(vec![Some(grad_input_tensor), grad_weight_out, grad_bias_out])
+        Ok(vec![
+            Some(grad_input_tensor),
+            grad_weight_out,
+            grad_bias_out,
+        ])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -2660,8 +2799,12 @@ mod tests {
 
     /// Helper: create a leaf tensor with given data, shape, and requires_grad.
     fn leaf(data: &[f64], shape: &[usize], requires_grad: bool) -> Tensor<f64> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), shape.to_vec(), requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            shape.to_vec(),
+            requires_grad,
+        )
+        .unwrap()
     }
 
     // -----------------------------------------------------------------------
@@ -2691,8 +2834,7 @@ mod tests {
             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, // row 0
             -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, // row 1
         ];
-        let input =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![2, 8], false).unwrap();
+        let input = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 8], false).unwrap();
 
         let ln = LayerNorm::<f32>::new(vec![8], 1e-5, true).unwrap();
         let output = ln.forward(&input).unwrap();
@@ -2704,8 +2846,7 @@ mod tests {
             let row_data = &out_data[start..end];
 
             let mean: f32 = row_data.iter().sum::<f32>() / 8.0;
-            let var: f32 =
-                row_data.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / 8.0;
+            let var: f32 = row_data.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / 8.0;
 
             assert!(mean.abs() < 1e-5, "row {row} mean = {mean}, expected ~0");
             assert!(
@@ -2717,12 +2858,9 @@ mod tests {
 
     #[test]
     fn test_layer_norm_forward_shape_preserved() {
-        let input = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0; 24]),
-            vec![2, 3, 4],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0; 24]), vec![2, 3, 4], false)
+                .unwrap();
 
         let ln = LayerNorm::<f32>::new(vec![4], 1e-5, true).unwrap();
         let output = ln.forward(&input).unwrap();
@@ -2731,12 +2869,9 @@ mod tests {
 
     #[test]
     fn test_layer_norm_shape_mismatch() {
-        let input = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0; 12]),
-            vec![3, 4],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0; 12]), vec![3, 4], false)
+                .unwrap();
 
         let ln = LayerNorm::<f32>::new(vec![5], 1e-5, true).unwrap();
         assert!(ln.forward(&input).is_err());
@@ -2796,8 +2931,7 @@ mod tests {
         let sum_gf = Arc::new(SumBackwardHelper {
             input: output.clone(),
         });
-        let loss =
-            Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf)?;
+        let loss = Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf)?;
         loss.backward()?;
 
         let analytic_grad = input.grad().unwrap().unwrap();
@@ -2881,8 +3015,7 @@ mod tests {
             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
         ];
         // Shape: [1, 4, 2] (B=1, C=4, spatial=2)
-        let input =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![1, 4, 2], false).unwrap();
+        let input = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 4, 2], false).unwrap();
 
         let gn = GroupNorm::<f32>::new(2, 4, 1e-5, true).unwrap();
         let output = gn.forward(&input).unwrap();
@@ -2905,12 +3038,9 @@ mod tests {
 
     #[test]
     fn test_group_norm_forward_shape_preserved() {
-        let input = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0; 48]),
-            vec![2, 4, 6],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0; 48]), vec![2, 4, 6], false)
+                .unwrap();
 
         let gn = GroupNorm::<f32>::new(2, 4, 1e-5, true).unwrap();
         let output = gn.forward(&input).unwrap();
@@ -2919,12 +3049,9 @@ mod tests {
 
     #[test]
     fn test_group_norm_channel_mismatch() {
-        let input = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0; 24]),
-            vec![2, 3, 4],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0; 24]), vec![2, 3, 4], false)
+                .unwrap();
 
         let gn = GroupNorm::<f32>::new(2, 4, 1e-5, true).unwrap();
         assert!(gn.forward(&input).is_err());
@@ -2932,12 +3059,9 @@ mod tests {
 
     #[test]
     fn test_group_norm_has_grad_fn() {
-        let input = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0; 8]),
-            vec![1, 4, 2],
-            true,
-        )
-        .unwrap();
+        let input =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0; 8]), vec![1, 4, 2], true)
+                .unwrap();
 
         let gn = GroupNorm::<f32>::new(2, 4, 1e-5, true).unwrap();
         let output = gn.forward(&input).unwrap();
@@ -2960,8 +3084,7 @@ mod tests {
         let sum_gf = Arc::new(SumBackwardHelper {
             input: output.clone(),
         });
-        let loss =
-            Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf)?;
+        let loss = Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf)?;
         loss.backward()?;
 
         let analytic_grad = input.grad().unwrap().unwrap();
@@ -3019,8 +3142,7 @@ mod tests {
             1.0, 2.0, 3.0, 4.0, // row 0
             -1.0, 0.5, 2.0, -3.0, // row 1
         ];
-        let input =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![2, 4], false).unwrap();
+        let input = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 4], false).unwrap();
 
         let rn = RMSNorm::<f32>::new(vec![4], 1e-5).unwrap();
         let output = rn.forward(&input).unwrap();
@@ -3043,12 +3165,9 @@ mod tests {
 
     #[test]
     fn test_rms_norm_forward_shape_preserved() {
-        let input = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0; 24]),
-            vec![2, 3, 4],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0; 24]), vec![2, 3, 4], false)
+                .unwrap();
 
         let rn = RMSNorm::<f32>::new(vec![4], 1e-5).unwrap();
         let output = rn.forward(&input).unwrap();
@@ -3105,8 +3224,7 @@ mod tests {
         let sum_gf = Arc::new(SumBackwardHelper {
             input: output.clone(),
         });
-        let loss =
-            Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf)?;
+        let loss = Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf)?;
         loss.backward()?;
 
         let analytic_grad = input.grad().unwrap().unwrap();
@@ -3177,12 +3295,9 @@ mod tests {
     fn test_batch_norm_2d_rejects_non_4d() {
         let bn = BatchNorm2d::<f32>::new(4, 1e-5, 0.1, true).unwrap();
         // 3D input should fail.
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32; 24]),
-            vec![2, 4, 3],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0f32; 24]), vec![2, 4, 3], false)
+                .unwrap();
         assert!(bn.forward(&input).is_err());
     }
 
@@ -3222,12 +3337,8 @@ mod tests {
                 }
             }
         }
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(data),
-            vec![b, channels, h, w],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::from_storage(TensorStorage::cpu(data), vec![b, channels, h, w], false).unwrap();
 
         let bn = BatchNorm2d::<f32>::new(channels, 1e-5, 0.1, true).unwrap();
         let output = bn.forward(&input).unwrap();
@@ -3246,10 +3357,7 @@ mod tests {
             let mean: f32 = vals.iter().sum::<f32>() / n;
             let var: f32 = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / n;
 
-            assert!(
-                mean.abs() < 1e-4,
-                "channel {c}: mean = {mean}, expected ~0"
-            );
+            assert!(mean.abs() < 1e-4, "channel {c}: mean = {mean}, expected ~0");
             assert!(
                 (var - 1.0).abs() < 0.1,
                 "channel {c}: var = {var}, expected ~1"
@@ -3448,9 +3556,7 @@ mod tests {
         let numel = b * channels * spatial;
 
         // Build non-trivial input data.
-        let input_data: Vec<f64> = (0..numel)
-            .map(|i| (i as f64) * 0.3 - 1.0)
-            .collect();
+        let input_data: Vec<f64> = (0..numel).map(|i| (i as f64) * 0.3 - 1.0).collect();
 
         let bn = BatchNorm2d::<f64>::new(channels, 1e-5, 0.1, true)?;
 
@@ -3462,8 +3568,7 @@ mod tests {
         let sum_gf = Arc::new(SumBackwardHelper {
             input: output.clone(),
         });
-        let loss =
-            Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf)?;
+        let loss = Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf)?;
         loss.backward()?;
 
         let analytic_grad = input.grad().unwrap().unwrap();
@@ -3518,12 +3623,8 @@ mod tests {
             }
         }
 
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(data),
-            vec![b, channels, h, w],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::from_storage(TensorStorage::cpu(data), vec![b, channels, h, w], false).unwrap();
 
         let bn = BatchNorm2d::<f32>::new(channels, 1e-5, 0.1, false).unwrap();
         let output = bn.forward(&input).unwrap();
@@ -3541,10 +3642,7 @@ mod tests {
             let mean: f32 = vals.iter().sum::<f32>() / n;
             let var: f32 = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / n;
 
-            assert!(
-                mean.abs() < 1e-4,
-                "no-affine channel {c}: mean = {mean}"
-            );
+            assert!(mean.abs() < 1e-4, "no-affine channel {c}: mean = {mean}");
             assert!(
                 (var - 1.0).abs() < 0.1,
                 "no-affine channel {c}: var = {var}"
@@ -3596,10 +3694,7 @@ mod tests {
     }
 
     impl<T: Float> GradFn<T> for SumBackwardHelper<T> {
-        fn backward(
-            &self,
-            _grad_output: &Tensor<T>,
-        ) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        fn backward(&self, _grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
             let ones_data = vec![one::<T>(); self.input.numel()];
             let ones = Tensor::from_storage(
                 TensorStorage::cpu(ones_data),
@@ -3656,12 +3751,7 @@ mod tests {
         // Input: [N=2, C=3, L=4]
         let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
         let data: Vec<f32> = (0..24).map(|i| i as f32).collect();
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(data),
-            vec![2, 3, 4],
-            false,
-        )
-        .unwrap();
+        let input = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 3, 4], false).unwrap();
         let output = bn.forward(&input).unwrap();
         assert_eq!(output.shape(), &[2, 3, 4]);
     }
@@ -3696,12 +3786,8 @@ mod tests {
     #[test]
     fn test_batchnorm1d_channel_mismatch() {
         let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32; 8]),
-            vec![2, 4],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0f32; 8]), vec![2, 4], false).unwrap();
         assert!(bn.forward(&input).is_err());
     }
 
@@ -3713,11 +3799,7 @@ mod tests {
         let bn = BatchNorm1d::<f64>::new(channels, 1e-5, 0.1, true).unwrap();
 
         // Input [4, 2]: channel 0 = [1,3,5,7], channel 1 = [2,4,6,8]
-        let input = leaf(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-            &[4, 2],
-            false,
-        );
+        let input = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[4, 2], false);
         let output = bn.forward(&input).unwrap();
         let data = output.data().unwrap();
 
@@ -3742,11 +3824,7 @@ mod tests {
     #[test]
     fn test_batchnorm1d_running_stats_update() {
         let bn = BatchNorm1d::<f64>::new(2, 1e-5, 0.1, true).unwrap();
-        let input = leaf(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-            &[4, 2],
-            false,
-        );
+        let input = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[4, 2], false);
         let _ = bn.forward(&input).unwrap();
 
         assert_eq!(bn.num_batches_tracked(), 1);
@@ -3778,11 +3856,7 @@ mod tests {
         let bn = BatchNorm1d::<f64>::new(2, 1e-5, 0.1, true).unwrap();
 
         // Run training forward to populate running stats.
-        let input = leaf(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-            &[4, 2],
-            false,
-        );
+        let input = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[4, 2], false);
         let _ = bn.forward(&input).unwrap();
 
         // Switch to eval mode.
@@ -3796,11 +3870,7 @@ mod tests {
     #[test]
     fn test_batchnorm1d_no_affine_normalizes() {
         let bn = BatchNorm1d::<f64>::new(2, 1e-5, 0.1, false).unwrap();
-        let input = leaf(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-            &[4, 2],
-            false,
-        );
+        let input = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[4, 2], false);
         let output = bn.forward(&input).unwrap();
         assert_eq!(output.shape(), &[4, 2]);
     }
@@ -3820,8 +3890,14 @@ mod tests {
 
         // Channel 0 indices in [N, C, L] layout:
         // [0, 0, :] = indices 0,1,2; [1, 0, :] = indices 6,7,8
-        let ch0: Vec<f64> = vec![out_data[0], out_data[1], out_data[2],
-                                  out_data[6], out_data[7], out_data[8]];
+        let ch0: Vec<f64> = vec![
+            out_data[0],
+            out_data[1],
+            out_data[2],
+            out_data[6],
+            out_data[7],
+            out_data[8],
+        ];
         let ch0_mean: f64 = ch0.iter().sum::<f64>() / 6.0;
         assert!(
             ch0_mean.abs() < 1e-5,
@@ -3862,8 +3938,7 @@ mod tests {
         let sum_gf = Arc::new(SumBackwardHelper {
             input: output.clone(),
         });
-        let loss =
-            Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf).unwrap();
+        let loss = Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf).unwrap();
         backward(&loss).unwrap();
 
         let grad = input.grad().unwrap().unwrap();
@@ -3889,8 +3964,7 @@ mod tests {
         let sum_gf = Arc::new(SumBackwardHelper {
             input: output.clone(),
         });
-        let loss =
-            Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf).unwrap();
+        let loss = Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf).unwrap();
         backward(&loss).unwrap();
         let analytic_grad = input.grad().unwrap().unwrap().data_vec().unwrap();
 
@@ -3912,8 +3986,7 @@ mod tests {
             let out_minus = no_grad(|| bn_minus.forward(&input_minus)).unwrap();
             let sum_minus: f64 = out_minus.data().unwrap().iter().sum();
 
-            numerical_grad[i] =
-                (sum_plus - sum_minus) / (2.0 * h);
+            numerical_grad[i] = (sum_plus - sum_minus) / (2.0 * h);
         }
 
         for i in 0..input_data.len() {
@@ -3930,12 +4003,7 @@ mod tests {
     #[test]
     fn test_batchnorm1d_empty_batch() {
         let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(vec![]),
-            vec![0, 3],
-            false,
-        )
-        .unwrap();
+        let input = Tensor::from_storage(TensorStorage::cpu(vec![]), vec![0, 3], false).unwrap();
         let output = bn.forward(&input).unwrap();
         assert_eq!(output.shape(), &[0, 3]);
         assert_eq!(output.numel(), 0);
@@ -3955,12 +4023,9 @@ mod tests {
     fn test_instancenorm1d_output_shape() {
         let norm = InstanceNorm1d::<f32>::new(3, 1e-5, true).unwrap();
         // Input [B=2, C=3, L=8]
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32; 48]),
-            vec![2, 3, 8],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0f32; 48]), vec![2, 3, 8], false)
+                .unwrap();
         let out = norm.forward(&input).unwrap();
         assert_eq!(out.shape(), &[2, 3, 8]);
     }
@@ -3987,12 +4052,8 @@ mod tests {
             1.0, 2.0, 3.0, 4.0, // channel 0
             5.0, 6.0, 7.0, 8.0, // channel 1
         ];
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(data),
-            vec![1, 2, 2, 2],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::from_storage(TensorStorage::cpu(data), vec![1, 2, 2, 2], false).unwrap();
         let out = norm.forward(&input).unwrap();
         let d = out.data().unwrap();
 
@@ -4003,10 +4064,7 @@ mod tests {
             let slice = &d[start..end];
             let mean: f32 = slice.iter().sum::<f32>() / 4.0;
             let var: f32 = slice.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / 4.0;
-            assert!(
-                mean.abs() < 1e-5,
-                "channel {c} mean = {mean}, expected ~0"
-            );
+            assert!(mean.abs() < 1e-5, "channel {c} mean = {mean}, expected ~0");
             assert!(
                 (var - 1.0).abs() < 0.1,
                 "channel {c} var = {var}, expected ~1"
@@ -4018,12 +4076,9 @@ mod tests {
     fn test_instancenorm2d_rejects_wrong_ndim() {
         let norm = InstanceNorm2d::<f32>::new(3, 1e-5, true).unwrap();
         // 3D input should fail.
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32; 24]),
-            vec![2, 3, 4],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0f32; 24]), vec![2, 3, 4], false)
+                .unwrap();
         assert!(norm.forward(&input).is_err());
     }
 
@@ -4075,8 +4130,7 @@ mod tests {
         let sum_gf = Arc::new(SumBackwardHelper {
             input: output.clone(),
         });
-        let loss =
-            Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf).unwrap();
+        let loss = Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf).unwrap();
         loss.backward().unwrap();
 
         let analytic_grad = input.grad().unwrap().unwrap();

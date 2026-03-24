@@ -304,11 +304,7 @@ fn encode_shape_with_dynamic(dims: &[OnnxDimSpec]) -> Vec<u8> {
 }
 
 /// Encode a `ValueInfoProto` with support for dynamic dimensions.
-fn encode_value_info_dynamic(
-    name: &str,
-    elem_type: i32,
-    dims: &[OnnxDimSpec],
-) -> Vec<u8> {
+fn encode_value_info_dynamic(name: &str, elem_type: i32, dims: &[OnnxDimSpec]) -> Vec<u8> {
     let mut w = ProtobufWriter::new();
     w.write_string(VALUE_INFO_NAME, name);
 
@@ -672,9 +668,7 @@ fn map_ir_op(op: &IrOpKind, node_name: &str, elem_type: i32) -> FerrotorchResult
         // Gemm computes Y = alpha * A @ B + beta * C, with transB=1 for weight^T.
         IrOpKind::Linear => Ok(OnnxOpMapping {
             op_type: "Gemm",
-            attributes: vec![
-                encode_attr_int("transB", 1),
-            ],
+            attributes: vec![encode_attr_int("transB", 1)],
             aux_initializer: None,
         }),
 
@@ -1199,11 +1193,7 @@ mod tests {
     fn make_reshape_graph() -> IrGraph {
         let mut g = IrGraph::new();
         let x = g.add_input(vec![2, 3]);
-        let (_, outs) = g.add_node(
-            IrOpKind::Reshape { shape: vec![6] },
-            vec![x],
-            vec![vec![6]],
-        );
+        let (_, outs) = g.add_node(IrOpKind::Reshape { shape: vec![6] }, vec![x], vec![vec![6]]);
         g.set_outputs(vec![outs[0]]);
         g
     }
@@ -1252,7 +1242,10 @@ mod tests {
         // ONNX files are just protobuf. The first byte should be a valid
         // protobuf tag. Field 1 (ir_version) with wire type 0 (varint) = 0x08.
         assert!(!bytes.is_empty());
-        assert_eq!(bytes[0], 0x08, "first byte should be tag for field 1 varint");
+        assert_eq!(
+            bytes[0], 0x08,
+            "first byte should be tag for field 1 varint"
+        );
 
         // ir_version should be 8.
         assert_eq!(bytes[1], 0x08, "ir_version should be 8");
@@ -1658,126 +1651,125 @@ mod tests {
     // export_from_program tests disabled — ExportedProgram API was rewritten.
     // Re-enable when export_from_program is re-implemented.
     /*
-    #[test]
-    fn test_export_from_program_static() {
-        use ferrotorch_jit::export::{
-            DType, DimSpec, ExportMetadata, ExportedProgram, InputSpec, OutputSpec,
-        };
+        #[test]
+        fn test_export_from_program_static() {
+            use ferrotorch_jit::export::{
+                DType, DimSpec, ExportMetadata, ExportedProgram, InputSpec, OutputSpec,
+            };
 
-        // Build a simple program: y = a + b
-        let mut g = IrGraph::new();
-        let a = g.add_input(vec![2, 3]);
-        let b = g.add_input(vec![2, 3]);
-        let (_, outs) = g.add_node(IrOpKind::Add, vec![a, b], vec![vec![2, 3]]);
-        g.set_outputs(vec![outs[0]]);
+            // Build a simple program: y = a + b
+            let mut g = IrGraph::new();
+            let a = g.add_input(vec![2, 3]);
+            let b = g.add_input(vec![2, 3]);
+            let (_, outs) = g.add_node(IrOpKind::Add, vec![a, b], vec![vec![2, 3]]);
+            g.set_outputs(vec![outs[0]]);
 
-        let program = ExportedProgram::from_parts(
-            g,
-            vec![
-                InputSpec {
-                    name: "a".into(),
-                    shape: vec![DimSpec::Static(2), DimSpec::Static(3)],
+            let program = ExportedProgram::from_parts(
+                g,
+                vec![
+                    InputSpec {
+                        name: "a".into(),
+                        shape: vec![DimSpec::Static(2), DimSpec::Static(3)],
+                        dtype: DType::Float32,
+                    },
+                    InputSpec {
+                        name: "b".into(),
+                        shape: vec![DimSpec::Static(2), DimSpec::Static(3)],
+                        dtype: DType::Float32,
+                    },
+                ],
+                vec![OutputSpec {
+                    name: "out".into(),
+                    shape: vec![2, 3],
                     dtype: DType::Float32,
-                },
-                InputSpec {
-                    name: "b".into(),
-                    shape: vec![DimSpec::Static(2), DimSpec::Static(3)],
+                }],
+                std::collections::HashMap::new(),
+                Vec::new(),
+                ExportMetadata::default(),
+            );
+
+            let dir = std::env::temp_dir().join("ferrotorch_test_onnx_from_prog");
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("from_program.onnx");
+
+            export_from_program(&program, &path).unwrap();
+            assert!(path.exists());
+
+            let bytes = std::fs::read(&path).unwrap();
+            let as_str = String::from_utf8_lossy(&bytes);
+            assert!(as_str.contains("Add"), "should contain Add op");
+
+            std::fs::remove_dir_all(&dir).ok();
+        }
+
+        // -----------------------------------------------------------------------
+        // Test: export_from_program preserves dynamic dims as dim_param
+        // -----------------------------------------------------------------------
+
+        #[test]
+        fn test_export_from_program_dynamic_dims() {
+            use ferrotorch_jit::export::{
+                DType, DimSpec, ExportMetadata, ExportedProgram, InputSpec, OutputSpec,
+            };
+
+            let mut g = IrGraph::new();
+            let a = g.add_input(vec![4, 3]);
+            let b = g.add_input(vec![4, 3]);
+            let (_, outs) = g.add_node(IrOpKind::Add, vec![a, b], vec![vec![4, 3]]);
+            g.set_outputs(vec![outs[0]]);
+
+            let program = ExportedProgram::from_parts(
+                g,
+                vec![
+                    InputSpec {
+                        name: "a".into(),
+                        shape: vec![
+                            DimSpec::Dynamic {
+                                name: "batch".into(),
+                                min: 1,
+                                max: 64,
+                            },
+                            DimSpec::Static(3),
+                        ],
+                        dtype: DType::Float32,
+                    },
+                    InputSpec {
+                        name: "b".into(),
+                        shape: vec![
+                            DimSpec::Dynamic {
+                                name: "batch".into(),
+                                min: 1,
+                                max: 64,
+                            },
+                            DimSpec::Static(3),
+                        ],
+                        dtype: DType::Float32,
+                    },
+                ],
+                vec![OutputSpec {
+                    name: "out".into(),
+                    shape: vec![4, 3],
                     dtype: DType::Float32,
-                },
-            ],
-            vec![OutputSpec {
-                name: "out".into(),
-                shape: vec![2, 3],
-                dtype: DType::Float32,
-            }],
-            std::collections::HashMap::new(),
-            Vec::new(),
-            ExportMetadata::default(),
-        );
+                }],
+                std::collections::HashMap::new(),
+                Vec::new(),
+                ExportMetadata::default(),
+            );
 
-        let dir = std::env::temp_dir().join("ferrotorch_test_onnx_from_prog");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("from_program.onnx");
+            let dir = std::env::temp_dir().join("ferrotorch_test_onnx_from_prog_dyn");
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("dynamic.onnx");
 
-        export_from_program(&program, &path).unwrap();
-        assert!(path.exists());
+            export_from_program(&program, &path).unwrap();
 
-        let bytes = std::fs::read(&path).unwrap();
-        let as_str = String::from_utf8_lossy(&bytes);
-        assert!(as_str.contains("Add"), "should contain Add op");
+            let bytes = std::fs::read(&path).unwrap();
+            // The dynamic dim name "batch" should appear in the output.
+            assert!(
+                bytes.windows(5).any(|w| w == b"batch"),
+                "should contain dynamic dim name 'batch'"
+            );
 
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    // -----------------------------------------------------------------------
-    // Test: export_from_program preserves dynamic dims as dim_param
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_export_from_program_dynamic_dims() {
-        use ferrotorch_jit::export::{
-            DType, DimSpec, ExportMetadata, ExportedProgram, InputSpec, OutputSpec,
-        };
-
-        let mut g = IrGraph::new();
-        let a = g.add_input(vec![4, 3]);
-        let b = g.add_input(vec![4, 3]);
-        let (_, outs) = g.add_node(IrOpKind::Add, vec![a, b], vec![vec![4, 3]]);
-        g.set_outputs(vec![outs[0]]);
-
-        let program = ExportedProgram::from_parts(
-            g,
-            vec![
-                InputSpec {
-                    name: "a".into(),
-                    shape: vec![
-                        DimSpec::Dynamic {
-                            name: "batch".into(),
-                            min: 1,
-                            max: 64,
-                        },
-                        DimSpec::Static(3),
-                    ],
-                    dtype: DType::Float32,
-                },
-                InputSpec {
-                    name: "b".into(),
-                    shape: vec![
-                        DimSpec::Dynamic {
-                            name: "batch".into(),
-                            min: 1,
-                            max: 64,
-                        },
-                        DimSpec::Static(3),
-                    ],
-                    dtype: DType::Float32,
-                },
-            ],
-            vec![OutputSpec {
-                name: "out".into(),
-                shape: vec![4, 3],
-                dtype: DType::Float32,
-            }],
-            std::collections::HashMap::new(),
-            Vec::new(),
-            ExportMetadata::default(),
-        );
-
-        let dir = std::env::temp_dir().join("ferrotorch_test_onnx_from_prog_dyn");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("dynamic.onnx");
-
-        export_from_program(&program, &path).unwrap();
-
-        let bytes = std::fs::read(&path).unwrap();
-        // The dynamic dim name "batch" should appear in the output.
-        assert!(
-            bytes.windows(5).any(|w| w == b"batch"),
-            "should contain dynamic dim name 'batch'"
-        );
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-*/
+            std::fs::remove_dir_all(&dir).ok();
+        }
+    */
 }
-

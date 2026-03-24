@@ -1,6 +1,6 @@
 // CL-332: Vision Transforms & Augmentation — RandomApply / RandomChoice
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
 use super::rng::random_f64;
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_data::Transform;
 
 /// Apply a list of transforms sequentially with probability `p`.
@@ -129,8 +129,7 @@ mod tests {
 
         for _ in 0..200 {
             let data = vec![500.0_f64];
-            let t =
-                Tensor::from_storage(TensorStorage::cpu(data), vec![1, 1], false).unwrap();
+            let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 1], false).unwrap();
             let rc = RandomChoice::<f64>::new(vec![
                 Box::new(Normalize::<f64>::new(vec![1.0], vec![1.0])),
                 Box::new(Normalize::<f64>::new(vec![100.0], vec![1.0])),
@@ -153,10 +152,8 @@ mod tests {
     fn test_random_choice_single_transform() {
         let data = vec![10.0_f64];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 1], false).unwrap();
-        let rc = RandomChoice::<f64>::new(vec![Box::new(Normalize::<f64>::new(
-            vec![5.0],
-            vec![1.0],
-        ))]);
+        let rc =
+            RandomChoice::<f64>::new(vec![Box::new(Normalize::<f64>::new(vec![5.0], vec![1.0]))]);
         let out = rc.apply(t).unwrap();
         let d = out.data().unwrap();
         assert!((d[0] - 5.0).abs() < 1e-10);

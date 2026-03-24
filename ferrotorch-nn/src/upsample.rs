@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
 use ferrotorch_core::tensor::GradFn;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::module::Module;
 use crate::parameter::Parameter;
@@ -63,7 +63,10 @@ pub enum GridSampleMode {
 // ===========================================================================
 
 /// Validate that the input tensor has shape `[B, C, H, W]`.
-fn validate_4d<T: Float>(input: &Tensor<T>, fn_name: &str) -> FerrotorchResult<(usize, usize, usize, usize)> {
+fn validate_4d<T: Float>(
+    input: &Tensor<T>,
+    fn_name: &str,
+) -> FerrotorchResult<(usize, usize, usize, usize)> {
     let shape = input.shape();
     if shape.len() != 4 {
         return Err(FerrotorchError::InvalidArgument {
@@ -185,13 +188,42 @@ pub fn interpolate<T: Float>(
 
     match mode {
         InterpolateMode::Nearest => {
-            nearest_forward(&data, &mut output, batch, channels, h_in, w_in, h_out, w_out);
+            nearest_forward(
+                &data,
+                &mut output,
+                batch,
+                channels,
+                h_in,
+                w_in,
+                h_out,
+                w_out,
+            );
         }
         InterpolateMode::Bilinear => {
-            bilinear_forward(&data, &mut output, batch, channels, h_in, w_in, h_out, w_out, align_corners);
+            bilinear_forward(
+                &data,
+                &mut output,
+                batch,
+                channels,
+                h_in,
+                w_in,
+                h_out,
+                w_out,
+                align_corners,
+            );
         }
         InterpolateMode::Bicubic => {
-            bicubic_forward(&data, &mut output, batch, channels, h_in, w_in, h_out, w_out, align_corners);
+            bicubic_forward(
+                &data,
+                &mut output,
+                batch,
+                channels,
+                h_in,
+                w_in,
+                h_out,
+                w_out,
+                align_corners,
+            );
         }
     }
 
@@ -212,8 +244,7 @@ pub fn interpolate<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -221,6 +252,7 @@ pub fn interpolate<T: Float>(
 // Forward kernels
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn nearest_forward<T: Float>(
     data: &[T],
     output: &mut [T],
@@ -249,6 +281,7 @@ fn nearest_forward<T: Float>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn bilinear_forward<T: Float>(
     data: &[T],
     output: &mut [T],
@@ -310,6 +343,7 @@ fn bilinear_forward<T: Float>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn bicubic_forward<T: Float>(
     data: &[T],
     output: &mut [T],
@@ -366,7 +400,7 @@ fn bicubic_forward<T: Float>(
                         for dx in 0..4isize {
                             let ix = clamp_coord(w_floor - 1 + dx, w_in - 1);
                             let pixel = data[(base + iy) * w_in + ix];
-                            val = val + pixel * wh[dy as usize] * ww[dx as usize];
+                            val += pixel * wh[dy as usize] * ww[dx as usize];
                         }
                     }
 
@@ -407,13 +441,42 @@ impl<T: Float> GradFn<T> for InterpolateBackward<T> {
 
         match self.mode {
             InterpolateMode::Nearest => {
-                nearest_backward(&go_data, &mut grad_input, batch, channels, h_in, w_in, h_out, w_out);
+                nearest_backward(
+                    &go_data,
+                    &mut grad_input,
+                    batch,
+                    channels,
+                    h_in,
+                    w_in,
+                    h_out,
+                    w_out,
+                );
             }
             InterpolateMode::Bilinear => {
-                bilinear_backward(&go_data, &mut grad_input, batch, channels, h_in, w_in, h_out, w_out, self.align_corners);
+                bilinear_backward(
+                    &go_data,
+                    &mut grad_input,
+                    batch,
+                    channels,
+                    h_in,
+                    w_in,
+                    h_out,
+                    w_out,
+                    self.align_corners,
+                );
             }
             InterpolateMode::Bicubic => {
-                bicubic_backward(&go_data, &mut grad_input, batch, channels, h_in, w_in, h_out, w_out, self.align_corners);
+                bicubic_backward(
+                    &go_data,
+                    &mut grad_input,
+                    batch,
+                    channels,
+                    h_in,
+                    w_in,
+                    h_out,
+                    w_out,
+                    self.align_corners,
+                );
             }
         }
 
@@ -434,6 +497,7 @@ impl<T: Float> GradFn<T> for InterpolateBackward<T> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn nearest_backward<T: Float>(
     go: &[T],
     grad_input: &mut [T],
@@ -455,13 +519,14 @@ fn nearest_backward<T: Float>(
                     let iw = ((ow as f64 * w_scale).floor() as usize).min(w_in - 1);
                     let out_idx = ((b * channels + c) * h_out + oh) * w_out + ow;
                     let in_idx = ((b * channels + c) * h_in + ih) * w_in + iw;
-                    grad_input[in_idx] = grad_input[in_idx] + go[out_idx];
+                    grad_input[in_idx] += go[out_idx];
                 }
             }
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn bilinear_backward<T: Float>(
     go: &[T],
     grad_input: &mut [T],
@@ -509,16 +574,17 @@ fn bilinear_backward<T: Float>(
 
                     let base = (b * channels + c) * h_in;
 
-                    grad_input[(base + ch0) * w_in + cw0] = grad_input[(base + ch0) * w_in + cw0] + g * (one - th) * (one - tw);
-                    grad_input[(base + ch0) * w_in + cw1] = grad_input[(base + ch0) * w_in + cw1] + g * (one - th) * tw;
-                    grad_input[(base + ch1) * w_in + cw0] = grad_input[(base + ch1) * w_in + cw0] + g * th * (one - tw);
-                    grad_input[(base + ch1) * w_in + cw1] = grad_input[(base + ch1) * w_in + cw1] + g * th * tw;
+                    grad_input[(base + ch0) * w_in + cw0] += g * (one - th) * (one - tw);
+                    grad_input[(base + ch0) * w_in + cw1] += g * (one - th) * tw;
+                    grad_input[(base + ch1) * w_in + cw0] += g * th * (one - tw);
+                    grad_input[(base + ch1) * w_in + cw1] += g * th * tw;
                 }
             }
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn bicubic_backward<T: Float>(
     go: &[T],
     grad_input: &mut [T],
@@ -574,8 +640,8 @@ fn bicubic_backward<T: Float>(
                         let iy = clamp_coord(h_floor - 1 + dy, h_in - 1);
                         for dx in 0..4isize {
                             let ix = clamp_coord(w_floor - 1 + dx, w_in - 1);
-                            grad_input[(base + iy) * w_in + ix] =
-                                grad_input[(base + iy) * w_in + ix] + g * wh[dy as usize] * ww[dx as usize];
+                            grad_input[(base + iy) * w_in + ix] +=
+                                g * wh[dy as usize] * ww[dx as usize];
                         }
                     }
                 }
@@ -636,7 +702,13 @@ impl Upsample {
 
 impl<T: Float> Module<T> for Upsample {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        interpolate(input, self.size, self.scale_factor, self.mode, self.align_corners)
+        interpolate(
+            input,
+            self.size,
+            self.scale_factor,
+            self.mode,
+            self.align_corners,
+        )
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
@@ -712,7 +784,6 @@ pub fn grid_sample<T: Float>(
 
     let one = T::from(1.0).unwrap();
     let two = T::from(2.0).unwrap();
-    let half = T::from(0.5).unwrap();
     let zero = T::from(0.0).unwrap();
 
     for b in 0..batch {
@@ -744,7 +815,8 @@ pub fn grid_sample<T: Float>(
                             let (ix, iy) = apply_padding_mode(ix, iy, w_in, h_in, padding_mode);
 
                             if ix >= 0 && ix < w_in as isize && iy >= 0 && iy < h_in as isize {
-                                output[out_idx] = in_data[(in_base + iy as usize) * w_in + ix as usize];
+                                output[out_idx] =
+                                    in_data[(in_base + iy as usize) * w_in + ix as usize];
                             }
                             // else stays zero (for Zeros padding)
                         }
@@ -800,8 +872,7 @@ pub fn grid_sample<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -832,7 +903,7 @@ fn apply_padding_mode(
                 }
                 // Fold via period 2*(size-1)
                 let period = 2 * max;
-                v = v % period;
+                v %= period;
                 if v > max {
                     v = period - v;
                 }
@@ -914,11 +985,6 @@ impl<T: Float> GradFn<T> for GridSampleBackward<T> {
                             let tx = T::from(sx - x0 as f64).unwrap();
                             let ty = T::from(sy - y0 as f64).unwrap();
 
-                            let is_valid = |iy: isize, ix: isize| -> bool {
-                                let (ix, iy) = apply_padding_mode(ix, iy, w_in, h_in, self.padding_mode);
-                                ix >= 0 && ix < w_in as isize && iy >= 0 && iy < h_in as isize
-                            };
-
                             let get_clamped = |iy: isize, ix: isize| -> (isize, isize) {
                                 apply_padding_mode(ix, iy, w_in, h_in, self.padding_mode)
                             };
@@ -930,15 +996,22 @@ impl<T: Float> GradFn<T> for GridSampleBackward<T> {
 
                                 // Gradient w.r.t. input
                                 if grad_input_needed {
-                                    let coords = [(y0, x0, (one - ty) * (one - tx)),
-                                                   (y0, x1, (one - ty) * tx),
-                                                   (y1, x0, ty * (one - tx)),
-                                                   (y1, x1, ty * tx)];
+                                    let coords = [
+                                        (y0, x0, (one - ty) * (one - tx)),
+                                        (y0, x1, (one - ty) * tx),
+                                        (y1, x0, ty * (one - tx)),
+                                        (y1, x1, ty * tx),
+                                    ];
                                     for (iy, ix, w) in coords {
                                         let (ix, iy) = get_clamped(iy, ix);
-                                        if ix >= 0 && ix < w_in as isize && iy >= 0 && iy < h_in as isize {
-                                            grad_input[(in_base + iy as usize) * w_in + ix as usize] =
-                                                grad_input[(in_base + iy as usize) * w_in + ix as usize] + g * w;
+                                        if ix >= 0
+                                            && ix < w_in as isize
+                                            && iy >= 0
+                                            && iy < h_in as isize
+                                        {
+                                            grad_input
+                                                [(in_base + iy as usize) * w_in + ix as usize] +=
+                                                g * w;
                                         }
                                     }
                                 }
@@ -947,7 +1020,11 @@ impl<T: Float> GradFn<T> for GridSampleBackward<T> {
                                 if grad_grid_needed {
                                     let get_pixel = |iy: isize, ix: isize| -> T {
                                         let (ix, iy) = get_clamped(iy, ix);
-                                        if ix >= 0 && ix < w_in as isize && iy >= 0 && iy < h_in as isize {
+                                        if ix >= 0
+                                            && ix < w_in as isize
+                                            && iy >= 0
+                                            && iy < h_in as isize
+                                        {
                                             in_data[(in_base + iy as usize) * w_in + ix as usize]
                                         } else {
                                             zero
@@ -976,8 +1053,8 @@ impl<T: Float> GradFn<T> for GridSampleBackward<T> {
                                         T::from(h_in).unwrap() / two
                                     };
 
-                                    grad_grid[grid_base] = grad_grid[grid_base] + g * dout_dsx * dsx_dgx;
-                                    grad_grid[grid_base + 1] = grad_grid[grid_base + 1] + g * dout_dsy * dsy_dgy;
+                                    grad_grid[grid_base] += g * dout_dsx * dsx_dgx;
+                                    grad_grid[grid_base + 1] += g * dout_dsy * dsy_dgy;
                                 }
                             }
                         }
@@ -987,14 +1064,16 @@ impl<T: Float> GradFn<T> for GridSampleBackward<T> {
                             if grad_input_needed {
                                 let ix = src_x.to_f64().unwrap().round() as isize;
                                 let iy = src_y.to_f64().unwrap().round() as isize;
-                                let (ix, iy) = apply_padding_mode(ix, iy, w_in, h_in, self.padding_mode);
+                                let (ix, iy) =
+                                    apply_padding_mode(ix, iy, w_in, h_in, self.padding_mode);
 
                                 if ix >= 0 && ix < w_in as isize && iy >= 0 && iy < h_in as isize {
                                     for c in 0..channels {
-                                        let out_idx = ((b * channels + c) * h_out + oh) * w_out + ow;
+                                        let out_idx =
+                                            ((b * channels + c) * h_out + oh) * w_out + ow;
                                         let in_base = (b * channels + c) * h_in;
-                                        grad_input[(in_base + iy as usize) * w_in + ix as usize] =
-                                            grad_input[(in_base + iy as usize) * w_in + ix as usize] + go_data[out_idx];
+                                        grad_input[(in_base + iy as usize) * w_in + ix as usize] +=
+                                            go_data[out_idx];
                                     }
                                 }
                             }
@@ -1136,8 +1215,7 @@ pub fn affine_grid<T: Float>(
         )?
         .to(theta_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(theta_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(theta_device)
     }
 }
 
@@ -1167,14 +1245,22 @@ impl<T: Float> GradFn<T> for AffineGridBackward<T> {
         for b in 0..batch {
             for iy in 0..h {
                 let y_norm = if self.align_corners {
-                    if h <= 1 { zero } else { two * T::from(iy).unwrap() / T::from(h - 1).unwrap() - one }
+                    if h <= 1 {
+                        zero
+                    } else {
+                        two * T::from(iy).unwrap() / T::from(h - 1).unwrap() - one
+                    }
                 } else {
                     (two * T::from(iy).unwrap() + one) / T::from(h).unwrap() - one
                 };
 
                 for ix in 0..w {
                     let x_norm = if self.align_corners {
-                        if w <= 1 { zero } else { two * T::from(ix).unwrap() / T::from(w - 1).unwrap() - one }
+                        if w <= 1 {
+                            zero
+                        } else {
+                            two * T::from(ix).unwrap() / T::from(w - 1).unwrap() - one
+                        }
                     } else {
                         (two * T::from(ix).unwrap() + one) / T::from(w).unwrap() - one
                     };
@@ -1185,13 +1271,13 @@ impl<T: Float> GradFn<T> for AffineGridBackward<T> {
 
                     let t_base = b * 6;
                     // d(grid_x) / d(t00) = x_norm, d(grid_x) / d(t01) = y_norm, d(grid_x) / d(t02) = 1
-                    grad_theta[t_base] = grad_theta[t_base] + gx * x_norm;
-                    grad_theta[t_base + 1] = grad_theta[t_base + 1] + gx * y_norm;
-                    grad_theta[t_base + 2] = grad_theta[t_base + 2] + gx;
+                    grad_theta[t_base] += gx * x_norm;
+                    grad_theta[t_base + 1] += gx * y_norm;
+                    grad_theta[t_base + 2] += gx;
                     // d(grid_y) / d(t10) = x_norm, d(grid_y) / d(t11) = y_norm, d(grid_y) / d(t12) = 1
-                    grad_theta[t_base + 3] = grad_theta[t_base + 3] + gy * x_norm;
-                    grad_theta[t_base + 4] = grad_theta[t_base + 4] + gy * y_norm;
-                    grad_theta[t_base + 5] = grad_theta[t_base + 5] + gy;
+                    grad_theta[t_base + 3] += gy * x_norm;
+                    grad_theta[t_base + 4] += gy * y_norm;
+                    grad_theta[t_base + 5] += gy;
                 }
             }
         }
@@ -1240,12 +1326,20 @@ impl<T: Float> Module<T> for PixelShuffle {
         pixel_shuffle(input, self.upscale_factor)
     }
 
-    fn parameters(&self) -> Vec<&Parameter<T>> { vec![] }
-    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> { vec![] }
-    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> { vec![] }
+    fn parameters(&self) -> Vec<&Parameter<T>> {
+        vec![]
+    }
+    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+        vec![]
+    }
+    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+        vec![]
+    }
     fn train(&mut self) {}
     fn eval(&mut self) {}
-    fn is_training(&self) -> bool { false }
+    fn is_training(&self) -> bool {
+        false
+    }
 }
 
 /// Rearranges `[B, C, H*r, W*r]` to `[B, C*r*r, H, W]` (inverse sub-pixel convolution).
@@ -1268,12 +1362,20 @@ impl<T: Float> Module<T> for PixelUnshuffle {
         pixel_unshuffle(input, self.downscale_factor)
     }
 
-    fn parameters(&self) -> Vec<&Parameter<T>> { vec![] }
-    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> { vec![] }
-    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> { vec![] }
+    fn parameters(&self) -> Vec<&Parameter<T>> {
+        vec![]
+    }
+    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+        vec![]
+    }
+    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+        vec![]
+    }
     fn train(&mut self) {}
     fn eval(&mut self) {}
-    fn is_training(&self) -> bool { false }
+    fn is_training(&self) -> bool {
+        false
+    }
 }
 
 /// Functional pixel shuffle: `[B, C*r*r, H, W]` -> `[B, C, H*r, W*r]`.
@@ -1346,8 +1448,7 @@ pub fn pixel_shuffle<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -1419,8 +1520,7 @@ pub fn pixel_unshuffle<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -1511,15 +1611,29 @@ impl Unfold {
 
 impl<T: Float> Module<T> for Unfold {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        unfold(input, self.kernel_size, self.dilation, self.padding, self.stride)
+        unfold(
+            input,
+            self.kernel_size,
+            self.dilation,
+            self.padding,
+            self.stride,
+        )
     }
 
-    fn parameters(&self) -> Vec<&Parameter<T>> { vec![] }
-    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> { vec![] }
-    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> { vec![] }
+    fn parameters(&self) -> Vec<&Parameter<T>> {
+        vec![]
+    }
+    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+        vec![]
+    }
+    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+        vec![]
+    }
     fn train(&mut self) {}
     fn eval(&mut self) {}
-    fn is_training(&self) -> bool { false }
+    fn is_training(&self) -> bool {
+        false
+    }
 }
 
 /// Reconstructs a `[B, C, H, W]` tensor from sliding-window columns
@@ -1557,15 +1671,30 @@ impl Fold {
 
 impl<T: Float> Module<T> for Fold {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        fold(input, self.output_size, self.kernel_size, self.dilation, self.padding, self.stride)
+        fold(
+            input,
+            self.output_size,
+            self.kernel_size,
+            self.dilation,
+            self.padding,
+            self.stride,
+        )
     }
 
-    fn parameters(&self) -> Vec<&Parameter<T>> { vec![] }
-    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> { vec![] }
-    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> { vec![] }
+    fn parameters(&self) -> Vec<&Parameter<T>> {
+        vec![]
+    }
+    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+        vec![]
+    }
+    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+        vec![]
+    }
     fn train(&mut self) {}
     fn eval(&mut self) {}
-    fn is_training(&self) -> bool { false }
+    fn is_training(&self) -> bool {
+        false
+    }
 }
 
 /// Compute the output spatial dim for unfold given the parameters.
@@ -1592,7 +1721,13 @@ pub fn unfold<T: Float>(
 ) -> FerrotorchResult<Tensor<T>> {
     let (batch, channels, h, w) = validate_4d(input, "unfold")?;
 
-    if kernel_size[0] == 0 || kernel_size[1] == 0 || stride[0] == 0 || stride[1] == 0 || dilation[0] == 0 || dilation[1] == 0 {
+    if kernel_size[0] == 0
+        || kernel_size[1] == 0
+        || stride[0] == 0
+        || stride[1] == 0
+        || dilation[0] == 0
+        || dilation[1] == 0
+    {
         return Err(FerrotorchError::InvalidArgument {
             message: "unfold: kernel_size, stride, dilation must all be > 0".into(),
         });
@@ -1625,7 +1760,8 @@ pub fn unfold<T: Float>(
                             let out_idx = (b * k + k_idx) * l + l_idx;
 
                             if ih >= 0 && ih < h as isize && iw >= 0 && iw < w as isize {
-                                let in_idx = ((b * channels + c) * h + ih as usize) * w + iw as usize;
+                                let in_idx =
+                                    ((b * channels + c) * h + ih as usize) * w + iw as usize;
                                 output[out_idx] = data[in_idx];
                             }
                             // else stays zero (padded)
@@ -1653,8 +1789,7 @@ pub fn unfold<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -1672,11 +1807,20 @@ pub fn fold<T: Float>(
     let shape = input.shape();
     if shape.len() != 3 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("fold expects 3D input [B, C*kH*kW, L], got shape {:?}", shape),
+            message: format!(
+                "fold expects 3D input [B, C*kH*kW, L], got shape {:?}",
+                shape
+            ),
         });
     }
 
-    if kernel_size[0] == 0 || kernel_size[1] == 0 || stride[0] == 0 || stride[1] == 0 || dilation[0] == 0 || dilation[1] == 0 {
+    if kernel_size[0] == 0
+        || kernel_size[1] == 0
+        || stride[0] == 0
+        || stride[1] == 0
+        || dilation[0] == 0
+        || dilation[1] == 0
+    {
         return Err(FerrotorchError::InvalidArgument {
             message: "fold: kernel_size, stride, dilation must all be > 0".into(),
         });
@@ -1691,16 +1835,15 @@ pub fn fold<T: Float>(
 
     if k % k_area != 0 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "fold: dim 1 ({k}) must be divisible by kH*kW ({})",
-                k_area
-            ),
+            message: format!("fold: dim 1 ({k}) must be divisible by kH*kW ({})", k_area),
         });
     }
     let channels = k / k_area;
 
-    let expected_out_h = unfold_output_size(h_out, kernel_size[0], dilation[0], padding[0], stride[0]);
-    let expected_out_w = unfold_output_size(w_out, kernel_size[1], dilation[1], padding[1], stride[1]);
+    let expected_out_h =
+        unfold_output_size(h_out, kernel_size[0], dilation[0], padding[0], stride[0]);
+    let expected_out_w =
+        unfold_output_size(w_out, kernel_size[1], dilation[1], padding[1], stride[1]);
     let expected_l = expected_out_h * expected_out_w;
 
     if l != expected_l {
@@ -1732,8 +1875,9 @@ pub fn fold<T: Float>(
                             if ih >= 0 && ih < h_out as isize && iw >= 0 && iw < w_out as isize {
                                 let l_idx = oh * expected_out_w + ow;
                                 let in_idx = (b * k + k_idx) * l + l_idx;
-                                let out_idx = ((b * channels + c) * h_out + ih as usize) * w_out + iw as usize;
-                                output[out_idx] = output[out_idx] + data[in_idx];
+                                let out_idx = ((b * channels + c) * h_out + ih as usize) * w_out
+                                    + iw as usize;
+                                output[out_idx] += data[in_idx];
                             }
                         }
                     }
@@ -1751,7 +1895,6 @@ pub fn fold<T: Float>(
             out_shape,
             Arc::new(FoldBackward {
                 input: input.clone(),
-                output_size,
                 kernel_size,
                 dilation,
                 padding,
@@ -1760,8 +1903,7 @@ pub fn fold<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -1806,7 +1948,6 @@ impl<T: Float> GradFn<T> for UnfoldBackward<T> {
 #[derive(Debug)]
 struct FoldBackward<T: Float> {
     input: Tensor<T>,
-    output_size: [usize; 2],
     kernel_size: [usize; 2],
     dilation: [usize; 2],
     padding: [usize; 2],
@@ -1867,7 +2008,13 @@ mod tests {
     }
 
     fn assert_close(actual: &[f32], expected: &[f32], tol: f32) {
-        assert_eq!(actual.len(), expected.len(), "length mismatch: {} vs {}", actual.len(), expected.len());
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "length mismatch: {} vs {}",
+            actual.len(),
+            expected.len()
+        );
         for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
             assert!(
                 (a - e).abs() < tol,
@@ -1923,7 +2070,14 @@ mod tests {
     fn test_interpolate_nearest_scale_factor() {
         let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
         let input = leaf_4d(&data, [1, 1, 2, 2], false);
-        let out = interpolate(&input, None, Some([2.0, 2.0]), InterpolateMode::Nearest, false).unwrap();
+        let out = interpolate(
+            &input,
+            None,
+            Some([2.0, 2.0]),
+            InterpolateMode::Nearest,
+            false,
+        )
+        .unwrap();
         assert_eq!(out.shape(), &[1, 1, 4, 4]);
     }
 
@@ -1967,7 +2121,14 @@ mod tests {
     fn test_interpolate_bicubic_output_shape() {
         let data: Vec<f32> = vec![0.0; 64];
         let input = leaf_4d(&data, [1, 1, 8, 8], false);
-        let out = interpolate(&input, Some([16, 16]), None, InterpolateMode::Bicubic, false).unwrap();
+        let out = interpolate(
+            &input,
+            Some([16, 16]),
+            None,
+            InterpolateMode::Bicubic,
+            false,
+        )
+        .unwrap();
         assert_eq!(out.shape(), &[1, 1, 16, 16]);
     }
 
@@ -2025,7 +2186,16 @@ mod tests {
     #[test]
     fn test_interpolate_both_size_and_scale() {
         let input = leaf_4d(&[0.0; 4], [1, 1, 2, 2], false);
-        assert!(interpolate(&input, Some([4, 4]), Some([2.0, 2.0]), InterpolateMode::Nearest, false).is_err());
+        assert!(
+            interpolate(
+                &input,
+                Some([4, 4]),
+                Some([2.0, 2.0]),
+                InterpolateMode::Nearest,
+                false
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -2075,7 +2245,8 @@ mod tests {
     fn test_interpolate_bilinear_backward() {
         let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
         let input = leaf_4d(&data, [1, 1, 2, 2], true);
-        let out = interpolate(&input, Some([4, 4]), None, InterpolateMode::Bilinear, false).unwrap();
+        let out =
+            interpolate(&input, Some([4, 4]), None, InterpolateMode::Bilinear, false).unwrap();
 
         let out_data = out.data().unwrap().to_vec();
         let total: f32 = out_data.iter().sum();
@@ -2092,7 +2263,10 @@ mod tests {
         // Check gradient is non-zero and sums correctly.
         let grad_sum: f32 = g.iter().sum();
         // Sum of gradient = number of output elements (16).
-        assert!((grad_sum - 16.0).abs() < 1e-3, "grad sum = {grad_sum}, expected 16.0");
+        assert!(
+            (grad_sum - 16.0).abs() < 1e-3,
+            "grad sum = {grad_sum}, expected 16.0"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -2315,13 +2489,17 @@ mod tests {
 
         // Grid for 2x2 output:
         // (0,0) -> (-1,-1), (0,1) -> (1,-1), (1,0) -> (-1,1), (1,1) -> (1,1)
-        let grid_data: Vec<f32> = vec![
-            -1.0, -1.0, 1.0, -1.0,
-            -1.0, 1.0, 1.0, 1.0,
-        ];
+        let grid_data: Vec<f32> = vec![-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0];
         let grid = leaf(&grid_data, &[1, 2, 2, 2], false);
 
-        let out = grid_sample(&input, &grid, GridSampleMode::Bilinear, GridSamplePaddingMode::Zeros, true).unwrap();
+        let out = grid_sample(
+            &input,
+            &grid,
+            GridSampleMode::Bilinear,
+            GridSamplePaddingMode::Zeros,
+            true,
+        )
+        .unwrap();
         assert_eq!(out.shape(), &[1, 1, 2, 2]);
         assert_close(out.data().unwrap(), &data, 1e-5);
     }
@@ -2335,7 +2513,14 @@ mod tests {
         let grid_data: Vec<f32> = vec![-1.0, -1.0];
         let grid = leaf(&grid_data, &[1, 1, 1, 2], false);
 
-        let out = grid_sample(&input, &grid, GridSampleMode::Nearest, GridSamplePaddingMode::Zeros, true).unwrap();
+        let out = grid_sample(
+            &input,
+            &grid,
+            GridSampleMode::Nearest,
+            GridSamplePaddingMode::Zeros,
+            true,
+        )
+        .unwrap();
         assert_eq!(out.shape(), &[1, 1, 1, 1]);
         assert!((out.data().unwrap()[0] - 1.0).abs() < 1e-5);
     }
@@ -2344,14 +2529,32 @@ mod tests {
     fn test_grid_sample_batch_mismatch() {
         let input = leaf_4d(&[0.0; 8], [2, 1, 2, 2], false);
         let grid = leaf(&[0.0; 8], &[1, 2, 2, 2], false);
-        assert!(grid_sample(&input, &grid, GridSampleMode::Bilinear, GridSamplePaddingMode::Zeros, true).is_err());
+        assert!(
+            grid_sample(
+                &input,
+                &grid,
+                GridSampleMode::Bilinear,
+                GridSamplePaddingMode::Zeros,
+                true
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn test_grid_sample_wrong_grid_shape() {
         let input = leaf_4d(&[0.0; 4], [1, 1, 2, 2], false);
         let grid = leaf(&[0.0; 8], &[1, 2, 4], false);
-        assert!(grid_sample(&input, &grid, GridSampleMode::Bilinear, GridSamplePaddingMode::Zeros, true).is_err());
+        assert!(
+            grid_sample(
+                &input,
+                &grid,
+                GridSampleMode::Bilinear,
+                GridSamplePaddingMode::Zeros,
+                true
+            )
+            .is_err()
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -2521,7 +2724,10 @@ mod tests {
     }
 
     impl GradFn<f32> for TestSumBackward {
-        fn backward(&self, _grad_output: &Tensor<f32>) -> FerrotorchResult<Vec<Option<Tensor<f32>>>> {
+        fn backward(
+            &self,
+            _grad_output: &Tensor<f32>,
+        ) -> FerrotorchResult<Vec<Option<Tensor<f32>>>> {
             let ones_data = vec![1.0f32; self.input.numel()];
             let ones = Tensor::from_storage(
                 TensorStorage::cpu(ones_data),

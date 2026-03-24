@@ -55,9 +55,7 @@ impl<T: Float> MultivariateNormal<T> {
 
         if loc_shape.len() != 1 {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "MultivariateNormal: loc must be 1-D, got shape {loc_shape:?}"
-                ),
+                message: format!("MultivariateNormal: loc must be 1-D, got shape {loc_shape:?}"),
             });
         }
         let d = loc_shape[0];
@@ -81,9 +79,7 @@ impl<T: Float> MultivariateNormal<T> {
 
         if loc_shape.len() != 1 {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "MultivariateNormal: loc must be 1-D, got shape {loc_shape:?}"
-                ),
+                message: format!("MultivariateNormal: loc must be 1-D, got shape {loc_shape:?}"),
             });
         }
         let d = loc_shape[0];
@@ -108,9 +104,7 @@ impl<T: Float> MultivariateNormal<T> {
 
         if loc_shape.len() != 1 {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "MultivariateNormal: loc must be 1-D, got shape {loc_shape:?}"
-                ),
+                message: format!("MultivariateNormal: loc must be 1-D, got shape {loc_shape:?}"),
             });
         }
         let d = loc_shape[0];
@@ -162,7 +156,7 @@ impl<T: Float> Distribution<T> for MultivariateNormal<T> {
                 let mut val = loc_data[i];
                 // L is lower-triangular so L[i, j] = 0 for j > i
                 for j in 0..=i {
-                    val = val + l_data[i * d + j] * eps_data[s * d + j];
+                    val += l_data[i * d + j] * eps_data[s * d + j];
                 }
                 result.push(val);
             }
@@ -171,7 +165,11 @@ impl<T: Float> Distribution<T> for MultivariateNormal<T> {
         let mut out_shape = shape.to_vec();
         out_shape.push(d);
         let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
@@ -190,7 +188,7 @@ impl<T: Float> Distribution<T> for MultivariateNormal<T> {
             for i in 0..d {
                 let mut val = loc_data[i];
                 for j in 0..=i {
-                    val = val + l_data[i * d + j] * eps_data[s * d + j];
+                    val += l_data[i * d + j] * eps_data[s * d + j];
                 }
                 result.push(val);
             }
@@ -214,7 +212,11 @@ impl<T: Float> Distribution<T> for MultivariateNormal<T> {
         } else {
             Tensor::from_storage(storage, out_shape, false)?
         };
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
@@ -246,7 +248,7 @@ impl<T: Float> Distribution<T> for MultivariateNormal<T> {
         // half_log_det = sum(log(diag(L)))
         let mut half_log_det = <T as num_traits::Zero>::zero();
         for i in 0..d {
-            half_log_det = half_log_det + l_data[i * d + i].ln();
+            half_log_det += l_data[i * d + i].ln();
         }
 
         let mut result = Vec::with_capacity(n);
@@ -265,7 +267,9 @@ impl<T: Float> Distribution<T> for MultivariateNormal<T> {
             }
 
             // mahal^2 = ||y||^2
-            let mahal_sq: T = y.iter().fold(<T as num_traits::Zero>::zero(), |acc, &v| acc + v * v);
+            let mahal_sq: T = y
+                .iter()
+                .fold(<T as num_traits::Zero>::zero(), |acc, &v| acc + v * v);
 
             result.push(-half * (d_log_2pi + mahal_sq) - half_log_det);
         }
@@ -279,7 +283,11 @@ impl<T: Float> Distribution<T> for MultivariateNormal<T> {
         };
 
         let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
@@ -295,13 +303,17 @@ impl<T: Float> Distribution<T> for MultivariateNormal<T> {
 
         let mut half_log_det = <T as num_traits::Zero>::zero();
         for i in 0..d {
-            half_log_det = half_log_det + l_data[i * d + i].ln();
+            half_log_det += l_data[i * d + i].ln();
         }
 
         let h = half * d_t * (one + two_pi.ln()) + half_log_det;
 
         let out = Tensor::from_storage(TensorStorage::cpu(vec![h]), vec![], false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 }
 
@@ -319,7 +331,7 @@ fn cholesky_lower<T: Float>(matrix: &Tensor<T>, d: usize) -> FerrotorchResult<Te
         for j in 0..=i {
             let mut sum = <T as num_traits::Zero>::zero();
             for k in 0..j {
-                sum = sum + l[i * d + k] * l[j * d + k];
+                sum += l[i * d + k] * l[j * d + k];
             }
             if i == j {
                 let diag = a[i * d + i] - sum;
@@ -367,7 +379,7 @@ fn invert_symmetric_pd<T: Float>(a: &[T], d: usize) -> FerrotorchResult<Vec<T>> 
         for j in 0..=i {
             let mut sum = zero;
             for k in 0..j {
-                sum = sum + l[i * d + k] * l[j * d + k];
+                sum += l[i * d + k] * l[j * d + k];
             }
             if i == j {
                 let diag = a[i * d + i] - sum;
@@ -402,7 +414,7 @@ fn invert_symmetric_pd<T: Float>(a: &[T], d: usize) -> FerrotorchResult<Vec<T>> 
         for j in 0..=i {
             let mut val = zero;
             for k in i.max(j)..d {
-                val = val + l_inv[k * d + i] * l_inv[k * d + j];
+                val += l_inv[k * d + i] * l_inv[k * d + j];
             }
             result[i * d + j] = val;
             result[j * d + i] = val;
@@ -442,19 +454,26 @@ impl<T: Float> GradFn<T> for MvnRsampleBackward<T> {
         let mut grad_loc = vec![zero; d];
         for s in 0..n {
             for i in 0..d {
-                grad_loc[i] = grad_loc[i] + go[s * d + i];
+                grad_loc[i] += go[s * d + i];
             }
         }
-        let grad_loc_t =
-            Tensor::from_storage(TensorStorage::cpu(grad_loc), self.loc.shape().to_vec(), false)?;
-        let grad_loc_t = if device.is_cuda() { grad_loc_t.to(device)? } else { grad_loc_t };
+        let grad_loc_t = Tensor::from_storage(
+            TensorStorage::cpu(grad_loc),
+            self.loc.shape().to_vec(),
+            false,
+        )?;
+        let grad_loc_t = if device.is_cuda() {
+            grad_loc_t.to(device)?
+        } else {
+            grad_loc_t
+        };
 
         // grad_scale_tril[i, j] = sum_s grad_output[s, i] * eps[s, j]  (lower-tri only)
         let mut grad_l = vec![zero; d * d];
         for s in 0..n {
             for i in 0..d {
                 for j in 0..=i {
-                    grad_l[i * d + j] = grad_l[i * d + j] + go[s * d + i] * eps_data[s * d + j];
+                    grad_l[i * d + j] += go[s * d + i] * eps_data[s * d + j];
                 }
             }
         }
@@ -463,7 +482,11 @@ impl<T: Float> GradFn<T> for MvnRsampleBackward<T> {
             self.scale_tril.shape().to_vec(),
             false,
         )?;
-        let grad_l_t = if device.is_cuda() { grad_l_t.to(device)? } else { grad_l_t };
+        let grad_l_t = if device.is_cuda() {
+            grad_l_t.to(device)?
+        } else {
+            grad_l_t
+        };
 
         Ok(vec![
             if self.loc.requires_grad() {
@@ -626,9 +649,8 @@ mod tests {
         let dist = MultivariateNormal::from_scale_tril(loc, l).unwrap();
 
         let h = dist.entropy().unwrap();
-        let expected = 0.5 * 2.0 * (1.0 + (2.0f32 * std::f32::consts::PI).ln())
-            + 2.0f32.ln()
-            + 3.0f32.ln();
+        let expected =
+            0.5 * 2.0 * (1.0 + (2.0f32 * std::f32::consts::PI).ln()) + 2.0f32.ln() + 3.0f32.ln();
         assert!(
             (h.item().unwrap() - expected).abs() < 1e-4,
             "expected {expected}, got {}",
@@ -699,15 +721,7 @@ mod tests {
     fn test_mvn_3d() {
         // Test with d=3
         let loc = tensor(&[1.0f32, 2.0, 3.0]).unwrap();
-        let l = from_slice(
-            &[
-                2.0f32, 0.0, 0.0,
-                0.5, 1.5, 0.0,
-                0.3, 0.2, 1.0,
-            ],
-            &[3, 3],
-        )
-        .unwrap();
+        let l = from_slice(&[2.0f32, 0.0, 0.0, 0.5, 1.5, 0.0, 0.3, 0.2, 1.0], &[3, 3]).unwrap();
         let dist = MultivariateNormal::from_scale_tril(loc, l).unwrap();
         assert_eq!(dist.dim(), 3);
 

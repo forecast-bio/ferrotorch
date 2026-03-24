@@ -11,15 +11,15 @@ pub mod fft;
 pub mod flex_attention;
 pub mod gpu_dispatch;
 pub mod grad_fns;
-pub mod linalg;
-pub mod ops;
 mod inplace;
+pub mod linalg;
 mod methods;
+pub mod nested;
+pub mod ops;
 mod ops_trait;
+pub mod pruning;
 pub mod quantize;
 pub mod shape;
-pub mod nested;
-pub mod pruning;
 pub mod sparse;
 pub mod special;
 pub mod storage;
@@ -27,41 +27,52 @@ pub mod tensor;
 pub mod vmap;
 
 // Public re-exports for ergonomic use.
-pub use autograd::{autocast, autocast_dtype, autocast_guard, is_autocast_debug, is_autocast_enabled, set_autocast_debug, AutocastCategory, AutocastDtype, backward, backward_with_grad, cond, enable_grad, fixed_point, grad, grad_norm, gradient_penalty, hessian, jacobian, jvp, scan, validate_cond_branches, vjp, is_grad_enabled, no_grad, set_grad_enabled};
-pub use autograd::{jacfwd, jvp_exact, DualTensor, dual_add, dual_sub, dual_mul, dual_div, dual_neg, dual_matmul, dual_relu, dual_sigmoid, dual_tanh, dual_exp, dual_log, dual_sin, dual_cos};
-pub use flex_attention::flex_attention;
+pub use autograd::anomaly::{
+    AnomalyMode, ForwardBacktrace, check_gradient_anomaly, detect_anomaly,
+};
+pub use autograd::hooks::HookHandle;
+pub use autograd::{
+    AutocastCategory, AutocastDtype, autocast, autocast_dtype, autocast_guard, backward,
+    backward_with_grad, cond, enable_grad, fixed_point, grad, grad_norm, gradient_penalty, hessian,
+    is_autocast_debug, is_autocast_enabled, is_grad_enabled, jacobian, jvp, no_grad, scan,
+    set_autocast_debug, set_grad_enabled, validate_cond_branches, vjp,
+};
+pub use autograd::{
+    DualTensor, dual_add, dual_cos, dual_div, dual_exp, dual_log, dual_matmul, dual_mul, dual_neg,
+    dual_relu, dual_sigmoid, dual_sin, dual_sub, dual_tanh, jacfwd, jvp_exact,
+};
 pub use creation::{
-    arange, eye, from_slice, from_vec, full, full_like, linspace, ones, ones_like, rand,
-    rand_like, randn, randn_like, scalar, tensor, zeros, zeros_like,
+    arange, eye, from_slice, from_vec, full, full_like, linspace, ones, ones_like, rand, rand_like,
+    randn, randn_like, scalar, tensor, zeros, zeros_like,
 };
 pub use device::Device;
 pub use dtype::{DType, Element, Float};
-pub use error::{FerrotorchError, FerrotorchResult};
-pub use shape::{broadcast_shapes, normalize_axis};
-pub use quantize::{
-    dequantize, quantize, quantize_named_tensors, quantized_matmul, QuantDtype, QuantScheme,
-    QuantizedTensor, QParams, FakeQuantize, QatModel, QatLayer, prepare_qat,
-    Observer, MinMaxObserver, PerChannelMinMaxObserver, HistogramObserver,
-    cuda_rng,
-};
-pub use storage::{StorageBuffer, TensorStorage};
-pub use nested::{NestedTensor, nested_scaled_dot_product_attention};
-pub use pruning::{apply_2_4_mask, magnitude_prune, sparsity_ratio};
-pub use sparse::{CooTensor, CsrTensor, SparseTensor};
-pub use tensor::{GradFn, MemoryFormat, Tensor, TensorId};
-pub use einops::{rearrange, rearrange_with, repeat, reduce, EinopsReduction};
+pub use einops::{EinopsReduction, rearrange, rearrange_with, reduce, repeat};
 pub use einsum::{einsum, einsum_differentiable};
+pub use error::{FerrotorchError, FerrotorchResult};
 pub use fft::{fft, fft2, ifft, ifft2, irfft, rfft};
-pub use grad_fns::fft::{fft_differentiable, ifft_differentiable, irfft_differentiable, rfft_differentiable};
-pub use grad_fns::cumulative::{cumsum, cumprod, cummax, cummin, logcumsumexp};
-pub use ops::cumulative::CumExtremeResult;
-pub use grad_fns::reduction::{sum_dim, mean_dim};
+pub use flex_attention::flex_attention;
+pub use grad_fns::activation::{GeluApproximate, gelu, gelu_with, sigmoid, tanh};
+pub use grad_fns::cumulative::{cummax, cummin, cumprod, cumsum, logcumsumexp};
+pub use grad_fns::fft::{
+    fft_differentiable, ifft_differentiable, irfft_differentiable, rfft_differentiable,
+};
+pub use grad_fns::reduction::{mean_dim, sum_dim};
 pub use grad_fns::shape::cat;
-pub use methods::{permute_t, view_t, contiguous_t, chunk_t, split_t};
-pub use vmap::{select, stack, vmap, vmap2};
-pub use special::{digamma, erf, erfc, erfinv, expm1, lgamma, log1p, sinc, xlogy};
-pub use grad_fns::transcendental::{exp, log, sin, cos, clamp};
-pub use grad_fns::activation::{sigmoid, tanh, gelu, gelu_with, GeluApproximate};
-pub use autograd::anomaly::{AnomalyMode, ForwardBacktrace, check_gradient_anomaly, detect_anomaly};
-pub use autograd::hooks::HookHandle;
+pub use grad_fns::transcendental::{clamp, cos, exp, log, sin};
+pub use methods::{chunk_t, contiguous_t, permute_t, split_t, view_t};
+pub use nested::{NestedTensor, nested_scaled_dot_product_attention};
+pub use ops::cumulative::CumExtremeResult;
 pub use ops::indexing::{gather, scatter, scatter_add, where_cond};
+pub use pruning::{apply_2_4_mask, magnitude_prune, sparsity_ratio};
+pub use quantize::{
+    FakeQuantize, HistogramObserver, MinMaxObserver, Observer, PerChannelMinMaxObserver, QParams,
+    QatLayer, QatModel, QuantDtype, QuantScheme, QuantizedTensor, cuda_rng, dequantize,
+    prepare_qat, quantize, quantize_named_tensors, quantized_matmul,
+};
+pub use shape::{broadcast_shapes, normalize_axis};
+pub use sparse::{CooTensor, CsrTensor, SparseTensor};
+pub use special::{digamma, erf, erfc, erfinv, expm1, lgamma, log1p, sinc, xlogy};
+pub use storage::{StorageBuffer, TensorStorage};
+pub use tensor::{GradFn, MemoryFormat, Tensor, TensorId};
+pub use vmap::{select, stack, vmap, vmap2};

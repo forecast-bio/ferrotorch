@@ -102,10 +102,7 @@ fn main() -> FerrotorchResult<()> {
     let loss_fn = CrossEntropyLoss::new(Reduction::Mean, 0.0);
     bench("training step B=32", 3, 50, || {
         let x = rand::<f32>(&[32, 784]).unwrap();
-        let target = from_vec(
-            (0..32).map(|i| (i % 10) as f32).collect(),
-            &[32],
-        ).unwrap();
+        let target = from_vec((0..32).map(|i| (i % 10) as f32).collect(), &[32]).unwrap();
         optimizer.zero_grad().unwrap();
         let out = mlp.forward(&x).unwrap();
         let loss = loss_fn.forward(&out, &target).unwrap();
@@ -206,10 +203,7 @@ fn main() -> FerrotorchResult<()> {
     let loss_fn_large = CrossEntropyLoss::new(Reduction::Mean, 0.0);
     bench("training step B=128", 3, 30, || {
         let x = rand::<f32>(&[128, 784]).unwrap();
-        let target = from_vec(
-            (0..128).map(|i| (i % 10) as f32).collect(),
-            &[128],
-        ).unwrap();
+        let target = from_vec((0..128).map(|i| (i % 10) as f32).collect(), &[128]).unwrap();
         opt_large.zero_grad().unwrap();
         let out = mlp_large.forward(&x).unwrap();
         let loss = loss_fn_large.forward(&out, &target).unwrap();
