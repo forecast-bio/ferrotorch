@@ -1,0 +1,8 @@
+{
+  "uuid": "17b46b05-4179-44a6-b158-a03e537d3a1b",
+  "issue_uuid": "3007876e-82d5-48d3-a089-346f548858b5",
+  "author": "anon-a7c6025f",
+  "content": "Merge blocked: 40 uncommitted files on main from swarm agents that wrote to the main repo. Need to commit or stash these before merging branches. Modified: tensor.rs (+167), vmap.rs (+738), dataset.rs (+243), conv.rs (+1643), collective.rs (+1). Plus 34 untracked new files.",
+  "created_at": "2026-03-24T17:33:35.474911108Z",
+  "kind": "blocker"
+}
