@@ -1,4 +1,5 @@
 pub mod arithmetic;
+pub mod cumulative;
 pub mod reduction;
 pub mod linalg;
 pub mod activation;
