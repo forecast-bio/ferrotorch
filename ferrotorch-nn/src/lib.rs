@@ -32,8 +32,9 @@ pub mod upsample;
 pub mod utils;
 
 pub use activation::{
-    CELU, ELU, GELU, GLU, GeluApproximate, HardSigmoid, HardSwish, LeakyReLU, LogSoftmax, Mish,
-    PReLU, ReLU, SELU, SiLU, Sigmoid, Softmax, Softplus, Tanh,
+    CELU, ELU, GELU, GLU, GeluApproximate, HardSigmoid, HardSwish, Hardshrink, Hardtanh,
+    LeakyReLU, LogSigmoid, LogSoftmax, Mish, PReLU, RReLU, ReLU, ReLU6, SELU, SiLU, Sigmoid,
+    Softmax, Softmin, Softplus, Softshrink, Softsign, Tanh, Tanhshrink, Threshold,
 };
 pub use attention::MultiheadAttention;
 pub use flash_attention::{flash_attention, standard_attention};

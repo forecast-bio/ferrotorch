@@ -7,6 +7,7 @@
 
 use ferrotorch_core::grad_fns::activation as act;
 use ferrotorch_core::grad_fns::arithmetic;
+use ferrotorch_core::grad_fns::transcendental;
 use ferrotorch_core::ops::elementwise::unary_map;
 use ferrotorch_core::{normalize_axis, Float, FerrotorchError, FerrotorchResult, Tensor};
 
@@ -914,6 +915,504 @@ impl Default for GLU {
 impl_activation_module!(GLU);
 
 // ===========================================================================
+// ReLU6
+// ===========================================================================
+
+/// Applies `ReLU6(x) = min(max(0, x), 6)` elementwise.
+///
+/// A ReLU clamped to `[0, 6]`, commonly used in MobileNet architectures.
+///
+/// Differentiable: uses [`transcendental::clamp`] which tracks gradients.
+#[derive(Debug, Clone)]
+pub struct ReLU6 {
+    training: bool,
+}
+
+impl ReLU6 {
+    /// Create a new `ReLU6` module.
+    pub fn new() -> Self {
+        Self { training: true }
+    }
+
+    /// Forward pass.
+    pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let zero = <T as num_traits::Zero>::zero();
+        let six = T::from(6.0).unwrap();
+        transcendental::clamp(input, zero, six)
+    }
+}
+
+impl Default for ReLU6 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl_activation_module!(ReLU6);
+
+// ===========================================================================
+// Hardtanh
+// ===========================================================================
+
+/// Applies the hard tanh function elementwise:
+///
+/// ```text
+/// Hardtanh(x) = min_val  if x < min_val
+///             = max_val  if x > max_val
+///             = x        otherwise
+/// ```
+///
+/// Differentiable: uses [`transcendental::clamp`] which tracks gradients.
+#[derive(Debug, Clone)]
+pub struct Hardtanh {
+    /// Minimum value. Default: -1.0.
+    pub min_val: f64,
+    /// Maximum value. Default: 1.0.
+    pub max_val: f64,
+    training: bool,
+}
+
+impl Hardtanh {
+    /// Create a new `Hardtanh` module with the given min and max values.
+    pub fn new(min_val: f64, max_val: f64) -> Self {
+        Self {
+            min_val,
+            max_val,
+            training: true,
+        }
+    }
+
+    /// Forward pass.
+    pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let min = T::from(self.min_val).unwrap();
+        let max = T::from(self.max_val).unwrap();
+        transcendental::clamp(input, min, max)
+    }
+}
+
+impl Default for Hardtanh {
+    fn default() -> Self {
+        Self::new(-1.0, 1.0)
+    }
+}
+
+impl_activation_module!(Hardtanh);
+
+// ===========================================================================
+// LogSigmoid
+// ===========================================================================
+
+/// Applies `LogSigmoid(x) = log(sigmoid(x))` elementwise.
+///
+/// Numerically stable: implemented as `-softplus(-x)` to avoid overflow.
+///
+/// Differentiable: composes differentiable primitives (softplus, neg).
+#[derive(Debug, Clone)]
+pub struct LogSigmoid {
+    training: bool,
+}
+
+impl LogSigmoid {
+    /// Create a new `LogSigmoid` module.
+    pub fn new() -> Self {
+        Self { training: true }
+    }
+
+    /// Forward pass.
+    ///
+    /// Uses the identity `log(sigmoid(x)) = -softplus(-x)` for numerical
+    /// stability (avoids computing `exp(x)` for large positive `x`).
+    pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        // log(sigmoid(x)) = log(1/(1+exp(-x))) = -log(1+exp(-x)) = -softplus(-x)
+        let neg_input = arithmetic::neg(input)?;
+        let sp = act::softplus(&neg_input, 1.0, 20.0)?;
+        arithmetic::neg(&sp)
+    }
+}
+
+impl Default for LogSigmoid {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl_activation_module!(LogSigmoid);
+
+// ===========================================================================
+// Softmin
+// ===========================================================================
+
+/// Applies `Softmin(x) = Softmax(-x)` along a given dimension.
+///
+/// Reverses the ordering: the smallest input gets the largest probability.
+/// Currently only the last axis (`dim = -1`) is supported.
+#[derive(Debug, Clone)]
+pub struct Softmin {
+    /// The dimension along which to compute softmin.
+    pub dim: isize,
+    training: bool,
+}
+
+impl Softmin {
+    /// Create a new `Softmin` module operating along `dim`.
+    pub fn new(dim: isize) -> Self {
+        Self {
+            dim,
+            training: true,
+        }
+    }
+
+    /// Forward pass.
+    pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let ndim = input.ndim();
+        if ndim == 0 {
+            let neg_input = arithmetic::neg(input)?;
+            return act::softmax(&neg_input);
+        }
+
+        let axis = normalize_axis(self.dim, ndim)?;
+        if axis != ndim - 1 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "Softmin currently only supports dim=-1 (last axis), \
+                     but got dim={} (axis={}) for a {}-D tensor",
+                    self.dim, axis, ndim,
+                ),
+            });
+        }
+
+        let neg_input = arithmetic::neg(input)?;
+        act::softmax(&neg_input)
+    }
+}
+
+impl Default for Softmin {
+    fn default() -> Self {
+        Self::new(-1)
+    }
+}
+
+impl_activation_module!(Softmin);
+
+// ===========================================================================
+// Threshold
+// ===========================================================================
+
+/// Applies the threshold function:
+///
+/// ```text
+/// Threshold(x) = x      if x > threshold
+///              = value   otherwise
+/// ```
+///
+/// Matches PyTorch `nn.Threshold(threshold, value)`.
+#[derive(Debug, Clone)]
+pub struct Threshold {
+    /// Threshold value.
+    pub threshold: f64,
+    /// Replacement value for inputs at or below the threshold.
+    pub value: f64,
+    training: bool,
+}
+
+impl Threshold {
+    /// Create a new `Threshold` module.
+    pub fn new(threshold: f64, value: f64) -> Self {
+        Self {
+            threshold,
+            value,
+            training: true,
+        }
+    }
+
+    /// Forward pass.
+    pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let thresh = T::from(self.threshold).unwrap();
+        let val = T::from(self.value).unwrap();
+        unary_map(input, |x| if x > thresh { x } else { val })
+    }
+}
+
+impl_activation_module!(Threshold);
+
+// ===========================================================================
+// Softshrink
+// ===========================================================================
+
+/// Applies the soft shrinkage function elementwise:
+///
+/// ```text
+/// Softshrink(x) = x - lambda  if x > lambda
+///               = x + lambda  if x < -lambda
+///               = 0           otherwise
+/// ```
+///
+/// Default `lambda = 0.5`.
+#[derive(Debug, Clone)]
+pub struct Softshrink {
+    /// Shrinkage threshold. Default: 0.5.
+    pub lambda: f64,
+    training: bool,
+}
+
+impl Softshrink {
+    /// Create a new `Softshrink` module with the given lambda.
+    pub fn new(lambda: f64) -> Self {
+        Self {
+            lambda,
+            training: true,
+        }
+    }
+
+    /// Forward pass.
+    pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let lam = T::from(self.lambda).unwrap();
+        let neg_lam = T::from(-self.lambda).unwrap();
+        let zero = <T as num_traits::Zero>::zero();
+        unary_map(input, |x| {
+            if x > lam {
+                x - lam
+            } else if x < neg_lam {
+                x + lam
+            } else {
+                zero
+            }
+        })
+    }
+}
+
+impl Default for Softshrink {
+    fn default() -> Self {
+        Self::new(0.5)
+    }
+}
+
+impl_activation_module!(Softshrink);
+
+// ===========================================================================
+// Hardshrink
+// ===========================================================================
+
+/// Applies the hard shrinkage function elementwise:
+///
+/// ```text
+/// Hardshrink(x) = x  if x > lambda  or  x < -lambda
+///               = 0  otherwise
+/// ```
+///
+/// Default `lambda = 0.5`.
+#[derive(Debug, Clone)]
+pub struct Hardshrink {
+    /// Shrinkage threshold. Default: 0.5.
+    pub lambda: f64,
+    training: bool,
+}
+
+impl Hardshrink {
+    /// Create a new `Hardshrink` module with the given lambda.
+    pub fn new(lambda: f64) -> Self {
+        Self {
+            lambda,
+            training: true,
+        }
+    }
+
+    /// Forward pass.
+    pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let lam = T::from(self.lambda).unwrap();
+        let neg_lam = T::from(-self.lambda).unwrap();
+        let zero = <T as num_traits::Zero>::zero();
+        unary_map(input, |x| {
+            if x > lam || x < neg_lam {
+                x
+            } else {
+                zero
+            }
+        })
+    }
+}
+
+impl Default for Hardshrink {
+    fn default() -> Self {
+        Self::new(0.5)
+    }
+}
+
+impl_activation_module!(Hardshrink);
+
+// ===========================================================================
+// Tanhshrink
+// ===========================================================================
+
+/// Applies `Tanhshrink(x) = x - tanh(x)` elementwise.
+///
+/// Differentiable: composes differentiable primitives (tanh, sub).
+#[derive(Debug, Clone)]
+pub struct Tanhshrink {
+    training: bool,
+}
+
+impl Tanhshrink {
+    /// Create a new `Tanhshrink` module.
+    pub fn new() -> Self {
+        Self { training: true }
+    }
+
+    /// Forward pass.
+    pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let tanh_x = act::tanh(input)?;
+        arithmetic::sub(input, &tanh_x)
+    }
+}
+
+impl Default for Tanhshrink {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl_activation_module!(Tanhshrink);
+
+// ===========================================================================
+// Softsign
+// ===========================================================================
+
+/// Applies `Softsign(x) = x / (1 + |x|)` elementwise.
+///
+/// A smooth, bounded activation similar to tanh but with lighter tails.
+#[derive(Debug, Clone)]
+pub struct Softsign {
+    training: bool,
+}
+
+impl Softsign {
+    /// Create a new `Softsign` module.
+    pub fn new() -> Self {
+        Self { training: true }
+    }
+
+    /// Forward pass.
+    pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let one = <T as num_traits::One>::one();
+        unary_map(input, |x| x / (one + x.abs()))
+    }
+}
+
+impl Default for Softsign {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl_activation_module!(Softsign);
+
+// ===========================================================================
+// RReLU (Randomized Leaky ReLU)
+// ===========================================================================
+
+/// Applies the Randomized Leaky ReLU function:
+///
+/// ```text
+/// RReLU(x) = x                              if x >= 0
+///          = a * x  (a ~ Uniform[lower, upper])  if x < 0   (training)
+///          = ((lower + upper) / 2) * x       if x < 0       (eval)
+/// ```
+///
+/// In training mode, each negative element gets an independent random slope
+/// drawn from `Uniform(lower, upper)`. In eval mode, the deterministic mean
+/// slope `(lower + upper) / 2` is used.
+///
+/// Default: `lower = 1/8`, `upper = 1/3`, matching PyTorch.
+#[derive(Debug, Clone)]
+pub struct RReLU {
+    /// Lower bound for the random slope. Default: 1/8.
+    pub lower: f64,
+    /// Upper bound for the random slope. Default: 1/3.
+    pub upper: f64,
+    training: bool,
+}
+
+/// Seed a xorshift64 state from system time and thread id.
+fn rrelu_xorshift_seed() -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::time::SystemTime;
+
+    let mut hasher = DefaultHasher::new();
+    SystemTime::now().hash(&mut hasher);
+    std::thread::current().id().hash(&mut hasher);
+    let mut state = hasher.finish();
+    if state == 0 {
+        state = 0xdeadbeefcafe;
+    }
+    state
+}
+
+/// Advance xorshift64 state and return a uniform value in [0, 1).
+#[inline]
+fn rrelu_xorshift_next(state: &mut u64) -> f64 {
+    *state ^= *state << 13;
+    *state ^= *state >> 7;
+    *state ^= *state << 17;
+    (*state as f64) / (u64::MAX as f64)
+}
+
+impl RReLU {
+    /// Create a new `RReLU` module with the given lower and upper bounds.
+    pub fn new(lower: f64, upper: f64) -> Self {
+        Self {
+            lower,
+            upper,
+            training: true,
+        }
+    }
+
+    /// Forward pass.
+    pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let zero = <T as num_traits::Zero>::zero();
+
+        if self.training {
+            // Stochastic: per-element random slope in [lower, upper].
+            // Use Cell for interior mutability since unary_map requires Fn.
+            let rng_state = std::cell::Cell::new(rrelu_xorshift_seed());
+            let lower = self.lower;
+            let upper = self.upper;
+            let range = upper - lower;
+
+            unary_map(input, |x| {
+                if x >= zero {
+                    x
+                } else {
+                    let mut st = rng_state.get();
+                    let u = rrelu_xorshift_next(&mut st);
+                    rng_state.set(st);
+                    let slope = T::from(lower + u * range).unwrap();
+                    slope * x
+                }
+            })
+        } else {
+            // Deterministic: mean slope.
+            let mean_slope = T::from((self.lower + self.upper) / 2.0).unwrap();
+            unary_map(input, |x| {
+                if x >= zero {
+                    x
+                } else {
+                    mean_slope * x
+                }
+            })
+        }
+    }
+}
+
+impl Default for RReLU {
+    fn default() -> Self {
+        Self::new(1.0 / 8.0, 1.0 / 3.0)
+    }
+}
+
+impl_activation_module!(RReLU);
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 
@@ -1551,6 +2050,387 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // ReLU6
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_relu6_forward() {
+        let m = ReLU6::new();
+        let x = t(&[-2.0, 0.0, 3.0, 6.0, 10.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        assert!((d[0] - 0.0).abs() < 1e-7, "ReLU6(-2) = {}", d[0]);
+        assert!((d[1] - 0.0).abs() < 1e-7, "ReLU6(0) = {}", d[1]);
+        assert!((d[2] - 3.0).abs() < 1e-7, "ReLU6(3) = {}", d[2]);
+        assert!((d[3] - 6.0).abs() < 1e-7, "ReLU6(6) = {}", d[3]);
+        assert!((d[4] - 6.0).abs() < 1e-7, "ReLU6(10) = {}", d[4]);
+    }
+
+    #[test]
+    fn test_relu6_module_trait() {
+        let mut m = ReLU6::new();
+        assert_zero_param_module::<ReLU6, f64>(&mut m);
+    }
+
+    // -----------------------------------------------------------------------
+    // Hardtanh
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_hardtanh_forward_default() {
+        let m = Hardtanh::default();
+        // clamp(x, -1, 1)
+        let x = t(&[-5.0, -1.0, 0.0, 0.5, 1.0, 3.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        assert!((d[0] - (-1.0)).abs() < 1e-7, "Hardtanh(-5) = {}", d[0]);
+        assert!((d[1] - (-1.0)).abs() < 1e-7, "Hardtanh(-1) = {}", d[1]);
+        assert!((d[2] - 0.0).abs() < 1e-7, "Hardtanh(0) = {}", d[2]);
+        assert!((d[3] - 0.5).abs() < 1e-7, "Hardtanh(0.5) = {}", d[3]);
+        assert!((d[4] - 1.0).abs() < 1e-7, "Hardtanh(1) = {}", d[4]);
+        assert!((d[5] - 1.0).abs() < 1e-7, "Hardtanh(3) = {}", d[5]);
+    }
+
+    #[test]
+    fn test_hardtanh_custom_range() {
+        let m = Hardtanh::new(-2.0, 2.0);
+        let x = t(&[-5.0, -2.0, 0.0, 2.0, 5.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        assert!((d[0] - (-2.0)).abs() < 1e-7);
+        assert!((d[1] - (-2.0)).abs() < 1e-7);
+        assert!((d[2] - 0.0).abs() < 1e-7);
+        assert!((d[3] - 2.0).abs() < 1e-7);
+        assert!((d[4] - 2.0).abs() < 1e-7);
+    }
+
+    #[test]
+    fn test_hardtanh_module_trait() {
+        let mut m = Hardtanh::default();
+        assert_zero_param_module::<Hardtanh, f64>(&mut m);
+    }
+
+    // -----------------------------------------------------------------------
+    // LogSigmoid
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_log_sigmoid_forward() {
+        let m = LogSigmoid::new();
+        // log(sigmoid(0)) = log(0.5) = -ln(2)
+        let x = t(&[0.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        assert!(
+            (d[0] - (-2.0_f64.ln())).abs() < 1e-6,
+            "LogSigmoid(0) = {}, expected {}",
+            d[0],
+            -2.0_f64.ln()
+        );
+
+        // All outputs should be <= 0 (log of a probability).
+        let x = t(&[-10.0, -1.0, 0.0, 1.0, 10.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        assert!(d.iter().all(|&v| v <= 0.0), "All LogSigmoid values should be <= 0");
+
+        // For large positive x, log(sigmoid(x)) -> 0.
+        assert!(d[4].abs() < 1e-4, "LogSigmoid(10) should be ~0, got {}", d[4]);
+
+        // For large negative x, log(sigmoid(x)) -> x.
+        assert!(
+            (d[0] - (-10.0)).abs() < 0.1,
+            "LogSigmoid(-10) should be ~-10, got {}",
+            d[0]
+        );
+    }
+
+    #[test]
+    fn test_log_sigmoid_module_trait() {
+        let mut m = LogSigmoid::new();
+        assert_zero_param_module::<LogSigmoid, f64>(&mut m);
+    }
+
+    // -----------------------------------------------------------------------
+    // Softmin
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_softmin_forward_1d() {
+        let m = Softmin::new(-1);
+        let x = t(&[1.0, 2.0, 3.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+
+        // Sum should be 1.
+        let total: f64 = d.iter().sum();
+        assert!((total - 1.0).abs() < 1e-7, "Softmin sum = {}", total);
+
+        // Softmin reverses ordering: smallest input gets largest probability.
+        assert!(d[0] > d[1], "softmin(1) > softmin(2)");
+        assert!(d[1] > d[2], "softmin(2) > softmin(3)");
+    }
+
+    #[test]
+    fn test_softmin_wrong_dim() {
+        let m = Softmin::new(0);
+        let x = t2d(&[1.0, 2.0, 3.0, 4.0], 2, 2);
+        assert!(m.forward(&x).is_err());
+    }
+
+    #[test]
+    fn test_softmin_module_trait() {
+        let mut m = Softmin::new(-1);
+        assert_zero_param_module::<Softmin, f64>(&mut m);
+    }
+
+    // -----------------------------------------------------------------------
+    // Threshold
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_threshold_forward() {
+        let m = Threshold::new(0.5, -1.0);
+        let x = t(&[-1.0, 0.0, 0.5, 1.0, 2.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        // x <= threshold -> value
+        assert!((d[0] - (-1.0)).abs() < 1e-7, "Threshold(-1) = {}", d[0]);
+        assert!((d[1] - (-1.0)).abs() < 1e-7, "Threshold(0) = {}", d[1]);
+        assert!((d[2] - (-1.0)).abs() < 1e-7, "Threshold(0.5) = {}", d[2]);
+        // x > threshold -> x
+        assert!((d[3] - 1.0).abs() < 1e-7, "Threshold(1) = {}", d[3]);
+        assert!((d[4] - 2.0).abs() < 1e-7, "Threshold(2) = {}", d[4]);
+    }
+
+    #[test]
+    fn test_threshold_module_trait() {
+        let mut m = Threshold::new(0.5, -1.0);
+        assert_zero_param_module::<Threshold, f64>(&mut m);
+    }
+
+    // -----------------------------------------------------------------------
+    // Softshrink
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_softshrink_forward() {
+        let m = Softshrink::default(); // lambda = 0.5
+        let x = t(&[-2.0, -0.5, -0.3, 0.0, 0.3, 0.5, 2.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        // x > lambda: x - lambda
+        assert!((d[6] - 1.5).abs() < 1e-7, "Softshrink(2) = {}", d[6]);
+        // x < -lambda: x + lambda
+        assert!((d[0] - (-1.5)).abs() < 1e-7, "Softshrink(-2) = {}", d[0]);
+        // -lambda <= x <= lambda: 0
+        assert!((d[2] - 0.0).abs() < 1e-7, "Softshrink(-0.3) = {}", d[2]);
+        assert!((d[3] - 0.0).abs() < 1e-7, "Softshrink(0) = {}", d[3]);
+        assert!((d[4] - 0.0).abs() < 1e-7, "Softshrink(0.3) = {}", d[4]);
+        // Boundary: x == lambda or x == -lambda -> 0
+        assert!((d[1] - 0.0).abs() < 1e-7, "Softshrink(-0.5) = {}", d[1]);
+        assert!((d[5] - 0.0).abs() < 1e-7, "Softshrink(0.5) = {}", d[5]);
+    }
+
+    #[test]
+    fn test_softshrink_custom_lambda() {
+        let m = Softshrink::new(1.0);
+        let x = t(&[-2.0, -0.5, 0.5, 2.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        assert!((d[0] - (-1.0)).abs() < 1e-7);
+        assert!((d[1] - 0.0).abs() < 1e-7);
+        assert!((d[2] - 0.0).abs() < 1e-7);
+        assert!((d[3] - 1.0).abs() < 1e-7);
+    }
+
+    #[test]
+    fn test_softshrink_module_trait() {
+        let mut m = Softshrink::default();
+        assert_zero_param_module::<Softshrink, f64>(&mut m);
+    }
+
+    // -----------------------------------------------------------------------
+    // Hardshrink
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_hardshrink_forward() {
+        let m = Hardshrink::default(); // lambda = 0.5
+        let x = t(&[-2.0, -0.5, -0.3, 0.0, 0.3, 0.5, 2.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        // |x| > lambda: x
+        assert!((d[0] - (-2.0)).abs() < 1e-7, "Hardshrink(-2) = {}", d[0]);
+        assert!((d[6] - 2.0).abs() < 1e-7, "Hardshrink(2) = {}", d[6]);
+        // |x| <= lambda: 0
+        assert!((d[2] - 0.0).abs() < 1e-7, "Hardshrink(-0.3) = {}", d[2]);
+        assert!((d[3] - 0.0).abs() < 1e-7, "Hardshrink(0) = {}", d[3]);
+        assert!((d[4] - 0.0).abs() < 1e-7, "Hardshrink(0.3) = {}", d[4]);
+        // Boundary: x == lambda or x == -lambda -> 0
+        assert!((d[1] - 0.0).abs() < 1e-7, "Hardshrink(-0.5) = {}", d[1]);
+        assert!((d[5] - 0.0).abs() < 1e-7, "Hardshrink(0.5) = {}", d[5]);
+    }
+
+    #[test]
+    fn test_hardshrink_module_trait() {
+        let mut m = Hardshrink::default();
+        assert_zero_param_module::<Hardshrink, f64>(&mut m);
+    }
+
+    // -----------------------------------------------------------------------
+    // Tanhshrink
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_tanhshrink_forward() {
+        let m = Tanhshrink::new();
+        // tanhshrink(0) = 0 - tanh(0) = 0
+        let x = t(&[0.0]);
+        let y = m.forward(&x).unwrap();
+        assert!(y.data().unwrap()[0].abs() < 1e-7, "Tanhshrink(0) should be 0");
+
+        // For large |x|, tanh(x) -> sign(x), so tanhshrink(x) -> x - sign(x).
+        let x = t(&[10.0, -10.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        assert!(
+            (d[0] - 9.0).abs() < 0.01,
+            "Tanhshrink(10) should be ~9, got {}",
+            d[0]
+        );
+        assert!(
+            (d[1] - (-9.0)).abs() < 0.01,
+            "Tanhshrink(-10) should be ~-9, got {}",
+            d[1]
+        );
+
+        // Exact check: tanhshrink(1) = 1 - tanh(1)
+        let x = t(&[1.0]);
+        let y = m.forward(&x).unwrap();
+        let expected = 1.0 - 1.0_f64.tanh();
+        assert!(
+            (y.data().unwrap()[0] - expected).abs() < 1e-7,
+            "Tanhshrink(1) expected {}, got {}",
+            expected,
+            y.data().unwrap()[0]
+        );
+    }
+
+    #[test]
+    fn test_tanhshrink_module_trait() {
+        let mut m = Tanhshrink::new();
+        assert_zero_param_module::<Tanhshrink, f64>(&mut m);
+    }
+
+    // -----------------------------------------------------------------------
+    // Softsign
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_softsign_forward() {
+        let m = Softsign::new();
+        // softsign(0) = 0
+        let x = t(&[0.0]);
+        let y = m.forward(&x).unwrap();
+        assert!(y.data().unwrap()[0].abs() < 1e-7, "Softsign(0) should be 0");
+
+        // softsign(1) = 1/2 = 0.5
+        let x = t(&[1.0]);
+        let y = m.forward(&x).unwrap();
+        assert!(
+            (y.data().unwrap()[0] - 0.5).abs() < 1e-7,
+            "Softsign(1) should be 0.5"
+        );
+
+        // softsign(-1) = -1/2 = -0.5
+        let x = t(&[-1.0]);
+        let y = m.forward(&x).unwrap();
+        assert!(
+            (y.data().unwrap()[0] - (-0.5)).abs() < 1e-7,
+            "Softsign(-1) should be -0.5"
+        );
+
+        // Bounded in (-1, 1) for large values.
+        let x = t(&[100.0, -100.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        assert!(d[0] > 0.99 && d[0] < 1.0, "Softsign(100) should be ~1, got {}", d[0]);
+        assert!(d[1] < -0.99 && d[1] > -1.0, "Softsign(-100) should be ~-1, got {}", d[1]);
+    }
+
+    #[test]
+    fn test_softsign_module_trait() {
+        let mut m = Softsign::new();
+        assert_zero_param_module::<Softsign, f64>(&mut m);
+    }
+
+    // -----------------------------------------------------------------------
+    // RReLU
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_rrelu_eval_forward() {
+        // In eval mode, RReLU uses deterministic mean slope.
+        let mut m = RReLU::default(); // lower=1/8, upper=1/3
+        m.training = false;
+        let mean_slope = (1.0 / 8.0 + 1.0 / 3.0) / 2.0;
+
+        let x = t(&[-2.0, -1.0, 0.0, 1.0, 2.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+
+        assert!((d[0] - (-2.0 * mean_slope)).abs() < 1e-7, "RReLU(-2,eval) = {}", d[0]);
+        assert!((d[1] - (-mean_slope)).abs() < 1e-7, "RReLU(-1,eval) = {}", d[1]);
+        assert!((d[2] - 0.0).abs() < 1e-7, "RReLU(0,eval) = {}", d[2]);
+        assert!((d[3] - 1.0).abs() < 1e-7, "RReLU(1,eval) = {}", d[3]);
+        assert!((d[4] - 2.0).abs() < 1e-7, "RReLU(2,eval) = {}", d[4]);
+    }
+
+    #[test]
+    fn test_rrelu_training_positive_passthrough() {
+        // In training mode, positive values should pass through unchanged.
+        let m = RReLU::default();
+        let x = t(&[0.0, 1.0, 5.0, 100.0]);
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+        assert!((d[0] - 0.0).abs() < 1e-7);
+        assert!((d[1] - 1.0).abs() < 1e-7);
+        assert!((d[2] - 5.0).abs() < 1e-7);
+        assert!((d[3] - 100.0).abs() < 1e-7);
+    }
+
+    #[test]
+    fn test_rrelu_training_negative_bounded() {
+        // In training mode, negative outputs should be scaled by a slope in [lower, upper].
+        let m = RReLU::new(0.1, 0.5);
+        let x = t(&[-1.0; 100]); // 100 copies of -1
+        let y = m.forward(&x).unwrap();
+        let d = y.data().unwrap();
+
+        for (i, &val) in d.iter().enumerate() {
+            // slope * (-1) should be in [-0.5, -0.1]
+            assert!(
+                val >= -0.5 - 1e-7 && val <= -0.1 + 1e-7,
+                "RReLU(-1, train)[{}] = {} not in [-0.5, -0.1]",
+                i,
+                val
+            );
+        }
+
+        // With 100 samples, we should see some variance (not all the same).
+        let first = d[0];
+        let has_variance = d.iter().any(|&v| (v - first).abs() > 1e-10);
+        assert!(has_variance, "RReLU training should produce varying slopes");
+    }
+
+    #[test]
+    fn test_rrelu_module_trait() {
+        let mut m = RReLU::default();
+        assert_zero_param_module::<RReLU, f64>(&mut m);
+    }
+
+    // -----------------------------------------------------------------------
     // Default constructors
     // -----------------------------------------------------------------------
 
@@ -1583,6 +2463,29 @@ mod tests {
         assert!((softplus.beta - 1.0).abs() < f64::EPSILON);
 
         let _glu = GLU::default();
+
+        // New activations
+        let _relu6 = ReLU6::default();
+
+        let hardtanh = Hardtanh::default();
+        assert!((hardtanh.min_val - (-1.0)).abs() < f64::EPSILON);
+        assert!((hardtanh.max_val - 1.0).abs() < f64::EPSILON);
+
+        let _log_sigmoid = LogSigmoid::default();
+        let _softmin = Softmin::default();
+
+        let softshrink = Softshrink::default();
+        assert!((softshrink.lambda - 0.5).abs() < f64::EPSILON);
+
+        let hardshrink = Hardshrink::default();
+        assert!((hardshrink.lambda - 0.5).abs() < f64::EPSILON);
+
+        let _tanhshrink = Tanhshrink::default();
+        let _softsign = Softsign::default();
+
+        let rrelu = RReLU::default();
+        assert!((rrelu.lower - 1.0 / 8.0).abs() < f64::EPSILON);
+        assert!((rrelu.upper - 1.0 / 3.0).abs() < f64::EPSILON);
     }
 
     // -----------------------------------------------------------------------
@@ -1609,6 +2512,17 @@ mod tests {
         assert_send_sync::<HardSwish>();
         assert_send_sync::<Softplus>();
         assert_send_sync::<GLU>();
+        // New activations
+        assert_send_sync::<ReLU6>();
+        assert_send_sync::<Hardtanh>();
+        assert_send_sync::<LogSigmoid>();
+        assert_send_sync::<Softmin>();
+        assert_send_sync::<Threshold>();
+        assert_send_sync::<Softshrink>();
+        assert_send_sync::<Hardshrink>();
+        assert_send_sync::<Tanhshrink>();
+        assert_send_sync::<Softsign>();
+        assert_send_sync::<RReLU>();
     }
 
     // -----------------------------------------------------------------------
@@ -1864,6 +2778,109 @@ mod tests {
                 val,
                 expected,
                 grad_data[i]
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Backward (autograd) tests for new activations
+    // -----------------------------------------------------------------------
+
+    // -- ReLU6 backward --
+
+    #[test]
+    fn test_relu6_backward_matches_numerical() {
+        let relu6_fn = |v: f64| v.max(0.0).min(6.0);
+
+        for &val in &[-2.0, 0.5, 3.0, 5.5, 8.0] {
+            let x = t_scalar_grad(val);
+            let m = ReLU6::new();
+            let y = m.forward(&x).unwrap();
+            ferrotorch_core::backward(&y).unwrap();
+
+            let grad = x.grad().unwrap().unwrap();
+            let expected = numerical_grad(relu6_fn, val);
+            assert!(
+                (grad.item().unwrap() - expected).abs() < 1e-4,
+                "ReLU6 grad at x={}: expected {}, got {}",
+                val,
+                expected,
+                grad.item().unwrap()
+            );
+        }
+    }
+
+    // -- Hardtanh backward --
+
+    #[test]
+    fn test_hardtanh_backward_matches_numerical() {
+        let hardtanh_fn = |v: f64| v.max(-1.0).min(1.0);
+
+        for &val in &[-2.0, -0.5, 0.0, 0.5, 2.0] {
+            let x = t_scalar_grad(val);
+            let m = Hardtanh::default();
+            let y = m.forward(&x).unwrap();
+            ferrotorch_core::backward(&y).unwrap();
+
+            let grad = x.grad().unwrap().unwrap();
+            let expected = numerical_grad(hardtanh_fn, val);
+            assert!(
+                (grad.item().unwrap() - expected).abs() < 1e-4,
+                "Hardtanh grad at x={}: expected {}, got {}",
+                val,
+                expected,
+                grad.item().unwrap()
+            );
+        }
+    }
+
+    // -- LogSigmoid backward --
+
+    #[test]
+    fn test_log_sigmoid_backward_matches_numerical() {
+        let logsigmoid_fn = |v: f64| {
+            // log(sigmoid(v)) = -softplus(-v) = -ln(1+exp(-v))
+            -(1.0 + (-v).exp()).ln()
+        };
+
+        for &val in &[-3.0, -1.0, 0.0, 1.0, 3.0] {
+            let x = t_scalar_grad(val);
+            let m = LogSigmoid::new();
+            let y = m.forward(&x).unwrap();
+            ferrotorch_core::backward(&y).unwrap();
+
+            let grad = x.grad().unwrap().unwrap();
+            let expected = numerical_grad(logsigmoid_fn, val);
+            assert!(
+                (grad.item().unwrap() - expected).abs() < 1e-4,
+                "LogSigmoid grad at x={}: expected {}, got {}",
+                val,
+                expected,
+                grad.item().unwrap()
+            );
+        }
+    }
+
+    // -- Tanhshrink backward --
+
+    #[test]
+    fn test_tanhshrink_backward_matches_numerical() {
+        let tanhshrink_fn = |v: f64| v - v.tanh();
+
+        for &val in &[-2.0, -0.5, 0.0, 0.5, 2.0] {
+            let x = t_scalar_grad(val);
+            let m = Tanhshrink::new();
+            let y = m.forward(&x).unwrap();
+            ferrotorch_core::backward(&y).unwrap();
+
+            let grad = x.grad().unwrap().unwrap();
+            let expected = numerical_grad(tanhshrink_fn, val);
+            assert!(
+                (grad.item().unwrap() - expected).abs() < 1e-4,
+                "Tanhshrink grad at x={}: expected {}, got {}",
+                val,
+                expected,
+                grad.item().unwrap()
             );
         }
     }
