@@ -23,10 +23,7 @@ pub use codegen_gpu::GpuCodegen;
 pub use codegen_ir::{BinOpKind, Expr, LoopIR, UnaryOpKind};
 pub use dag_fusion::{FusionGroup, FusionGroupKind};
 pub use error::JitError;
-pub use export::{
-    ConstraintRelation, DType, DimSpec, DynamicShapeSpec, ExportError, ExportMetadata,
-    ExportedProgram, InputSpec, OutputSpec, ShapeConstraint, export, export_function,
-};
+pub use export::{ExportedProgram, ExportedProgramMetadata, export};
 pub use fusion::{
     apply_fused, estimate_matmul_dims, estimate_numel_for_inputs,
     generate_reduction_c, generate_reduction_ptx,

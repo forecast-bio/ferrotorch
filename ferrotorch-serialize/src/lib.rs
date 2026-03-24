@@ -20,7 +20,7 @@ pub use gguf::{
     load_gguf, load_gguf_state_dict, parse_gguf_bytes,
 };
 pub use onnx_export::{
-    OnnxExportConfig, export_from_program, export_ir_graph_to_onnx, export_onnx,
+    OnnxExportConfig, export_ir_graph_to_onnx, export_onnx,
     ir_graph_to_onnx,
 };
 pub use pytorch_import::{PickleValue, load_pytorch_state_dict, parse_pickle};
