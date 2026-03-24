@@ -606,7 +606,7 @@ mod tests {
             step: 5000,
         };
 
-        let dir = std::env::temp_dir().join("ferrotorch_test_ckpt");
+        let dir = std::env::temp_dir().join(format!("ferrotorch_test_ckpt_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("checkpoint.ftc");
 
@@ -648,7 +648,7 @@ mod tests {
             step: 0,
         };
 
-        let dir = std::env::temp_dir().join("ferrotorch_test_ckpt_empty_opt");
+        let dir = std::env::temp_dir().join(format!("ferrotorch_test_ckpt_empty_opt_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("checkpoint.ftc");
 

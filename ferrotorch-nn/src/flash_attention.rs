@@ -58,6 +58,16 @@ pub fn flash_attention<T: Float>(
     let n_k = key.shape()[1];
     let d_v = value.shape()[2];
 
+    // Early return for empty sequence lengths — produce a correctly shaped
+    // empty output rather than risking undefined behavior in the tiled kernel.
+    if n_q == 0 || n_k == 0 {
+        return Tensor::from_storage(
+            TensorStorage::cpu(vec![]),
+            vec![batch, n_q, d_v],
+            false,
+        );
+    }
+
     let scale = T::from(1.0 / (d as f64).sqrt()).unwrap();
 
     let device = query.device();
@@ -191,6 +201,9 @@ fn validate_inputs<T: Float>(
             ),
         });
     }
+
+    // n_q=0 or n_k=0 is allowed — the caller handles it by returning an
+    // empty output tensor with the correct shape.
 
     Ok(())
 }

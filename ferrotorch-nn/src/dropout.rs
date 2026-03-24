@@ -424,9 +424,8 @@ impl<T: Float> Module<T> for Dropout2d<T> {
 
         let batch = shape[0];
         let channels = shape[1];
+        // Product of empty slice is 1, so no special case needed for 2-D inputs.
         let spatial: usize = shape[2..].iter().product();
-        // If there are no spatial dims, spatial == 1 (product of empty iter).
-        let spatial = if shape.len() == 2 { 1 } else { spatial };
 
         let numel = input.numel();
         let scale = T::from(1.0 / (1.0 - self.p)).unwrap();
