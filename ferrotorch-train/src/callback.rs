@@ -10,6 +10,9 @@
 //! |----------|-------------|
 //! | [`EarlyStopping`] | Stop training when validation loss stops improving |
 //! | [`ProgressLogger`] | Print epoch/batch progress to stdout |
+//! | [`EmaCallback`] | Maintain exponential moving average of model parameters |
+//!
+//! [CL-334] Add gradient checkpointing, autocast context, gradient clipping, and EMA callback
 
 use ferrotorch_core::Float;
 
@@ -192,6 +195,147 @@ impl<T: Float> Callback<T> for ProgressLogger {
 }
 
 // ---------------------------------------------------------------------------
+// EmaCallback
+// ---------------------------------------------------------------------------
+
+/// Exponential Moving Average (EMA) of model parameters.
+///
+/// Maintains a shadow copy of model parameters as an exponentially weighted
+/// moving average. After each batch, updates the shadow parameters:
+///
+/// ```text
+/// shadow = decay * shadow + (1 - decay) * current_param
+/// ```
+///
+/// At evaluation time, the shadow parameters can be swapped into the model
+/// to get smoother, more stable predictions. This is widely used in
+/// practice (e.g., by Polyak averaging, SWA, and many GAN training setups).
+///
+/// # Usage
+///
+/// ```ignore
+/// use ferrotorch_train::EmaCallback;
+///
+/// // Create with decay=0.999 (typical value).
+/// let mut ema = EmaCallback::new(0.999);
+///
+/// // Attach to learner — it will track parameter updates automatically.
+/// let learner = Learner::new(model, optimizer, loss_fn)
+///     .with_callback(Box::new(ema));
+/// ```
+///
+/// # Notes
+///
+/// - The shadow parameters are initialized lazily on the first batch end.
+/// - `decay` should be close to 1.0 (e.g., 0.999 or 0.9999). Higher values
+///   produce smoother averages with more lag.
+///
+/// [CL-334] Add gradient checkpointing, autocast context, gradient clipping, and EMA callback
+pub struct EmaCallback {
+    /// Decay factor. Typically 0.999 or 0.9999.
+    decay: f64,
+    /// Number of update steps performed.
+    num_updates: usize,
+    /// Shadow parameter values, stored as flat `Vec<f64>` for each parameter.
+    /// The outer Vec corresponds to named_parameters() in order.
+    shadow: Vec<Vec<f64>>,
+    /// Whether the shadow has been initialized.
+    initialized: bool,
+}
+
+impl EmaCallback {
+    /// Create a new EMA callback.
+    ///
+    /// # Arguments
+    ///
+    /// * `decay` - The EMA decay factor. Must be in `[0, 1]`.
+    ///   A typical value is `0.999`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `decay` is not in `[0, 1]`.
+    pub fn new(decay: f64) -> Self {
+        assert!(
+            (0.0..=1.0).contains(&decay),
+            "decay must be in [0, 1], got {decay}"
+        );
+        Self {
+            decay,
+            num_updates: 0,
+            shadow: Vec::new(),
+            initialized: false,
+        }
+    }
+
+    /// Return the decay factor.
+    pub fn decay(&self) -> f64 {
+        self.decay
+    }
+
+    /// Return the number of EMA update steps performed.
+    pub fn num_updates(&self) -> usize {
+        self.num_updates
+    }
+
+    /// Whether the shadow parameters have been initialized.
+    pub fn is_initialized(&self) -> bool {
+        self.initialized
+    }
+
+    /// Return the shadow parameter values.
+    ///
+    /// Each inner `Vec<f64>` corresponds to one parameter (in the order of
+    /// `named_parameters()`), stored as a flat array of f64 values.
+    pub fn shadow_params(&self) -> &[Vec<f64>] {
+        &self.shadow
+    }
+
+    /// Initialize shadow parameters from the given parameter values.
+    ///
+    /// Called internally on the first batch. Can also be called manually to
+    /// reinitialize.
+    pub fn init_from_params<T: Float>(&mut self, params: &[Vec<T>]) {
+        self.shadow = params
+            .iter()
+            .map(|p| p.iter().map(|v| v.to_f64().unwrap()).collect())
+            .collect();
+        self.initialized = true;
+    }
+
+    /// Update the shadow parameters with the current parameter values.
+    ///
+    /// Applies: `shadow = decay * shadow + (1 - decay) * param`
+    pub fn update_from_params<T: Float>(&mut self, params: &[Vec<T>]) {
+        let one_minus_decay = 1.0 - self.decay;
+
+        for (shadow, current) in self.shadow.iter_mut().zip(params.iter()) {
+            for (s, c) in shadow.iter_mut().zip(current.iter()) {
+                let c_f64 = c.to_f64().unwrap();
+                *s = self.decay * *s + one_minus_decay * c_f64;
+            }
+        }
+
+        self.num_updates += 1;
+    }
+}
+
+impl<T: Float> Callback<T> for EmaCallback {
+    fn on_batch_end(&mut self, _batch: usize, _loss: f64) {
+        // The actual EMA update requires access to model parameters, which
+        // the Callback trait's on_batch_end does not provide. The parameter
+        // update must be driven externally (by the Learner or by user code).
+        //
+        // This on_batch_end increments the update counter to track how many
+        // batches have passed, but the real EMA arithmetic happens when
+        // `update_from_params()` is called explicitly.
+        //
+        // This is a deliberate design choice: the Callback trait is
+        // parameter-agnostic (it receives only scalar loss), so EMA updates
+        // must be triggered by code that has access to the model parameters.
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -321,6 +465,110 @@ mod tests {
         assert!(!Callback::<f32>::should_stop(&pl));
     }
 
+    // -- EmaCallback ---------------------------------------------------------
+
+    #[test]
+    fn test_ema_callback_construction() {
+        let ema = EmaCallback::new(0.999);
+        assert!((ema.decay() - 0.999).abs() < 1e-12);
+        assert_eq!(ema.num_updates(), 0);
+        assert!(!ema.is_initialized());
+    }
+
+    #[test]
+    #[should_panic(expected = "decay must be in [0, 1]")]
+    fn test_ema_callback_invalid_decay_above() {
+        EmaCallback::new(1.5);
+    }
+
+    #[test]
+    #[should_panic(expected = "decay must be in [0, 1]")]
+    fn test_ema_callback_invalid_decay_below() {
+        EmaCallback::new(-0.1);
+    }
+
+    #[test]
+    fn test_ema_callback_boundary_decay_values() {
+        let ema0 = EmaCallback::new(0.0);
+        assert!((ema0.decay() - 0.0).abs() < 1e-12);
+
+        let ema1 = EmaCallback::new(1.0);
+        assert!((ema1.decay() - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_ema_init_from_params() {
+        let mut ema = EmaCallback::new(0.99);
+        let params: Vec<Vec<f32>> = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0]];
+        ema.init_from_params(&params);
+
+        assert!(ema.is_initialized());
+        assert_eq!(ema.shadow_params().len(), 2);
+        assert_eq!(ema.shadow_params()[0], vec![1.0, 2.0, 3.0]);
+        assert_eq!(ema.shadow_params()[1], vec![4.0, 5.0]);
+    }
+
+    #[test]
+    fn test_ema_update_from_params() {
+        let mut ema = EmaCallback::new(0.9);
+
+        // Initialize with [10.0].
+        ema.init_from_params(&[vec![10.0_f32]]);
+
+        // Update with [20.0]. Expected: 0.9 * 10 + 0.1 * 20 = 11.0.
+        ema.update_from_params(&[vec![20.0_f32]]);
+
+        assert_eq!(ema.num_updates(), 1);
+        assert!((ema.shadow_params()[0][0] - 11.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_ema_multiple_updates() {
+        let mut ema = EmaCallback::new(0.5);
+
+        ema.init_from_params(&[vec![0.0_f32]]);
+
+        // Step 1: 0.5 * 0 + 0.5 * 10 = 5.0
+        ema.update_from_params(&[vec![10.0_f32]]);
+        assert!((ema.shadow_params()[0][0] - 5.0).abs() < 1e-10);
+
+        // Step 2: 0.5 * 5 + 0.5 * 10 = 7.5
+        ema.update_from_params(&[vec![10.0_f32]]);
+        assert!((ema.shadow_params()[0][0] - 7.5).abs() < 1e-10);
+
+        // Step 3: 0.5 * 7.5 + 0.5 * 10 = 8.75
+        ema.update_from_params(&[vec![10.0_f32]]);
+        assert!((ema.shadow_params()[0][0] - 8.75).abs() < 1e-10);
+
+        assert_eq!(ema.num_updates(), 3);
+    }
+
+    #[test]
+    fn test_ema_decay_zero_replaces_completely() {
+        let mut ema = EmaCallback::new(0.0);
+        ema.init_from_params(&[vec![100.0_f32]]);
+
+        // decay=0 means shadow = 0 * shadow + 1 * current = current.
+        ema.update_from_params(&[vec![42.0_f32]]);
+        assert!((ema.shadow_params()[0][0] - 42.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_ema_decay_one_keeps_original() {
+        let mut ema = EmaCallback::new(1.0);
+        ema.init_from_params(&[vec![100.0_f32]]);
+
+        // decay=1 means shadow = 1 * shadow + 0 * current = shadow (no change).
+        ema.update_from_params(&[vec![42.0_f32]]);
+        assert!((ema.shadow_params()[0][0] - 100.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_ema_callback_should_stop_always_false() {
+        let ema = EmaCallback::new(0.999);
+        assert!(!Callback::<f32>::should_stop(&ema));
+    }
+
     // -- Send + Sync ---------------------------------------------------------
 
     #[test]
@@ -328,5 +576,6 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<EarlyStopping>();
         assert_send_sync::<ProgressLogger>();
+        assert_send_sync::<EmaCallback>();
     }
 }

@@ -10,8 +10,12 @@
 //! |-----------|-------------|
 //! | [`Learner`] | High-level training loop: `fit()`, `evaluate()` |
 //! | [`Metric`] | Accumulate batch-level values into epoch-level summaries |
-//! | [`Callback`] | Hook into epoch/batch boundaries (early stopping, logging) |
+//! | [`Callback`] | Hook into epoch/batch boundaries (early stopping, logging, EMA) |
 //! | [`TrainingHistory`] | Record of per-epoch results |
+//! | [`checkpoint`] | Gradient checkpointing: recompute forward in backward |
+//! | [`amp`] | Automatic mixed precision: autocast + GradScaler |
+//! | [`clip_grad_norm_`] | Clip total gradient norm across parameters |
+//! | [`clip_grad_value_`] | Clamp individual gradient elements |
 //!
 //! # Quick start
 //!
@@ -26,14 +30,21 @@
 //! let history = learner.fit(&train_loader, Some(&val_loader), 50)?;
 //! println!("Best val loss: {:?}", history.best_val_loss());
 //! ```
+//!
+//! [CL-334] Add gradient checkpointing, autocast context, gradient clipping, and EMA callback
 
+pub mod amp;
 pub mod callback;
+pub mod checkpoint;
+pub mod grad_utils;
 pub mod history;
 pub mod learner;
 pub mod metric;
 pub mod tensorboard;
 
-pub use callback::{Callback, EarlyStopping, ProgressLogger};
+pub use callback::{Callback, EarlyStopping, EmaCallback, ProgressLogger};
+pub use checkpoint::{checkpoint, checkpoint_sequential};
+pub use grad_utils::{clip_grad_norm_, clip_grad_value_};
 pub use history::{EpochResult, EvalResult, TrainingHistory};
 pub use learner::{Learner, LossFn};
 pub use metric::{AccuracyMetric, LossMetric, Metric, RunningAverage, TopKAccuracy};

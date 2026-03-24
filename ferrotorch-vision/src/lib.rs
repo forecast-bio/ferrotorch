@@ -13,5 +13,7 @@ pub use models::{
     ModelConstructor, ModelRegistry,
 };
 pub use transforms::{
-    CenterCrop, Resize, VisionNormalize, VisionToTensor, IMAGENET_MEAN, IMAGENET_STD,
+    vision_manual_seed, CenterCrop, ColorJitter, RandomApply, RandomChoice, RandomGaussianBlur,
+    RandomResizedCrop, RandomRotation, RandomVerticalFlip, Resize, VisionNormalize,
+    VisionToTensor, IMAGENET_MEAN, IMAGENET_STD,
 };

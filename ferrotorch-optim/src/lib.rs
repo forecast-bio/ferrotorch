@@ -37,8 +37,10 @@ pub use radam::{RAdam, RAdamConfig};
 pub use rmsprop::{Rmsprop, RmspropConfig};
 pub use rprop::{Rprop, RpropConfig};
 pub use scheduler::{
-    CosineAnnealingLR, LrScheduler, LinearWarmup, MetricScheduler, PlateauMode,
-    ReduceLROnPlateau, SequentialLr, StepLR, cosine_warmup_scheduler,
+    AnnealStrategy, ConstantLR, CosineAnnealingLR, CosineAnnealingWarmRestarts, CyclicLR,
+    CyclicMode, ExponentialLR, LambdaLR, LinearLR, LinearWarmup, LrScheduler, MetricScheduler,
+    MultiStepLR, OneCycleLR, PlateauMode, PolynomialLR, ReduceLROnPlateau, SequentialLr, StepLR,
+    cosine_warmup_scheduler,
 };
 pub use sgd::{Sgd, SgdConfig};
-pub use swa::{AnnealStrategy, AveragedModel, AveragingStrategy, Swalr};
+pub use swa::{AveragedModel, AveragingStrategy, Swalr};

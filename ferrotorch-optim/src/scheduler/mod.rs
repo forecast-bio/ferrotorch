@@ -11,7 +11,16 @@
 //! | Scheduler | Strategy |
 //! |-----------|----------|
 //! | [`StepLR`] | Multiply LR by `gamma` every `step_size` steps |
+//! | [`MultiStepLR`] | Multiply LR by `gamma` at specific milestones |
+//! | [`ExponentialLR`] | Multiply LR by `gamma` every step |
 //! | [`CosineAnnealingLR`] | Cosine decay from `base_lr` to `eta_min` |
+//! | [`CosineAnnealingWarmRestarts`] | Cosine decay with periodic warm restarts (SGDR) |
+//! | [`CyclicLR`] | Cycle LR between boundaries (triangular/exp_range) |
+//! | [`OneCycleLR`] | Super-convergence one-cycle policy |
+//! | [`PolynomialLR`] | Polynomial decay over a fixed number of steps |
+//! | [`ConstantLR`] | Constant factor for a fixed number of steps |
+//! | [`LinearLR`] | Linear factor ramp between two endpoints |
+//! | [`LambdaLR`] | User-provided lambda function per step |
 //! | [`LinearWarmup`] | Linear ramp from 0 to `base_lr` |
 //! | [`ReduceLROnPlateau`] | Reduce LR when a metric stops improving |
 //! | [`SequentialLr`] | Chain multiple schedulers with milestone switches |
@@ -20,14 +29,34 @@
 //!
 //! [`cosine_warmup_scheduler`] returns a [`SequentialLr`] that combines
 //! [`LinearWarmup`] followed by [`CosineAnnealingLR`].
+//!
+//! [CL-320]
 
+pub mod constant_lr;
 pub mod cosine;
+pub mod cosine_warm_restarts;
+pub mod cyclic_lr;
+pub mod exponential_lr;
+pub mod lambda_lr;
+pub mod linear_lr;
+pub mod multi_step_lr;
+pub mod one_cycle_lr;
 pub mod plateau;
+pub mod polynomial_lr;
 pub mod step;
 pub mod warmup;
 
+pub use constant_lr::ConstantLR;
 pub use cosine::CosineAnnealingLR;
+pub use cosine_warm_restarts::CosineAnnealingWarmRestarts;
+pub use cyclic_lr::{CyclicLR, CyclicMode};
+pub use exponential_lr::ExponentialLR;
+pub use lambda_lr::LambdaLR;
+pub use linear_lr::LinearLR;
+pub use multi_step_lr::MultiStepLR;
+pub use one_cycle_lr::{AnnealStrategy, OneCycleLR};
 pub use plateau::{MetricScheduler, PlateauMode, ReduceLROnPlateau};
+pub use polynomial_lr::PolynomialLR;
 pub use step::StepLR;
 pub use warmup::LinearWarmup;
 

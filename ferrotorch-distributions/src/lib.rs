@@ -16,6 +16,10 @@
 //! | [`Uniform`] | `low`, `high` | Yes |
 //! | [`Bernoulli`] | `probs` | No (discrete) |
 //! | [`Categorical`] | `probs` | No (discrete) |
+//! | [`Beta`] | `concentration1`, `concentration0` | Yes |
+//! | [`Gamma`] | `concentration`, `rate` | Yes |
+//! | [`Exponential`] | `rate` | Yes |
+//! | [`Laplace`] | `loc`, `scale` | Yes |
 //! | [`MultivariateNormal`] | `loc`, `scale_tril` | Yes |
 //! | [`Dirichlet`] | `concentration` | Yes |
 //! | [`Multinomial`] | `total_count`, `probs` | No (discrete) |
@@ -29,19 +33,28 @@
 //!   bijective transforms to a base distribution
 
 mod bernoulli;
+mod beta;
 mod categorical;
 pub mod constraints;
 mod dirichlet;
+mod exponential;
+mod gamma;
 pub mod kl;
+mod laplace;
 mod multinomial;
 mod multivariate_normal;
 mod normal;
+pub(crate) mod special_fns;
 pub mod transforms;
 mod uniform;
 
 pub use bernoulli::Bernoulli;
+pub use beta::Beta;
 pub use categorical::Categorical;
 pub use dirichlet::Dirichlet;
+pub use exponential::Exponential;
+pub use gamma::Gamma;
+pub use laplace::Laplace;
 pub use multinomial::Multinomial;
 pub use multivariate_normal::MultivariateNormal;
 pub use normal::Normal;

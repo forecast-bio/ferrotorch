@@ -20,6 +20,7 @@ pub mod lora;
 pub mod loss;
 pub mod module;
 pub mod norm;
+pub mod padding;
 pub mod paged_attention;
 pub mod parameter;
 pub mod pooling;
@@ -27,6 +28,7 @@ pub mod qat;
 pub mod rnn;
 pub mod rnn_utils;
 pub mod transformer;
+pub mod upsample;
 pub mod utils;
 
 pub use activation::{
@@ -59,11 +61,22 @@ pub use module::{Module, Reduction, StateDict};
 // usable simultaneously: `use ferrotorch_nn::{Module, ...}` gives the trait,
 // and `#[derive(Module)]` resolves to the derive macro.
 pub use ferrotorch_nn_derive::Module;
-pub use norm::{BatchNorm1d, BatchNorm2d, GroupNorm, LayerNorm, RMSNorm};
+pub use norm::{
+    BatchNorm1d, BatchNorm2d, GroupNorm, InstanceNorm1d, InstanceNorm2d, InstanceNorm3d, LayerNorm,
+    RMSNorm,
+};
+pub use padding::{
+    ConstantPad1d, ConstantPad2d, ConstantPad3d, PaddingMode, ReflectionPad1d, ReflectionPad2d,
+    ReflectionPad3d, ReplicationPad1d, ReplicationPad2d, ReplicationPad3d, ZeroPad1d, ZeroPad2d,
+    ZeroPad3d,
+};
 pub use paged_attention::{KVPage, PagePool, PagedAttentionManager, PagedKVCache};
 pub use parameter::Parameter;
 pub use pooling::{
-    adaptive_avg_pool2d, avg_pool2d, max_pool2d, AdaptiveAvgPool2d, AvgPool2d, MaxPool2d,
+    adaptive_avg_pool1d, adaptive_avg_pool2d, adaptive_avg_pool3d, adaptive_max_pool2d,
+    avg_pool1d, avg_pool2d, avg_pool3d, max_pool1d, max_pool2d, max_pool3d, max_unpool2d,
+    AdaptiveAvgPool1d, AdaptiveAvgPool2d, AdaptiveAvgPool3d, AdaptiveMaxPool2d, AvgPool1d,
+    AvgPool2d, AvgPool3d, MaxPool1d, MaxPool2d, MaxPool3d, MaxUnpool2d,
 };
 pub use rnn::{GRU, LSTM};
 pub use rnn_utils::{PackedSequence, pack_padded_sequence, pad_packed_sequence};
@@ -72,4 +85,9 @@ pub use transformer::{
     TransformerEncoderLayer,
 };
 pub use qat::{prepare_qat, ObserverType, QatConfig, QatModel, QuantizedModel};
+pub use upsample::{
+    affine_grid, fold, grid_sample, interpolate, pixel_shuffle, pixel_unshuffle, unfold, Fold,
+    GridSampleMode, GridSamplePaddingMode, InterpolateMode, PixelShuffle, PixelUnshuffle, Unfold,
+    Upsample,
+};
 pub use utils::{clip_grad_norm_, clip_grad_value_};
