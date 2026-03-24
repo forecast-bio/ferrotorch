@@ -41,6 +41,19 @@ pub trait Backend: Send + Sync {
 
     /// Block until every rank has reached this barrier.
     fn barrier(&self) -> FerrotorchResult<()>;
+
+    /// Whether this backend supports direct communication between any
+    /// pair of ranks (full mesh topology).
+    ///
+    /// When `false`, only rank 0 can communicate with non-zero ranks
+    /// (star topology), and collective algorithms must route all traffic
+    /// through rank 0. When `true`, ring allreduce and other peer-to-peer
+    /// algorithms can be used.
+    ///
+    /// Defaults to `false` for backward compatibility.
+    fn supports_full_mesh(&self) -> bool {
+        false
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -343,6 +356,10 @@ impl Backend for SimulatedBackend {
 
     fn world_size(&self) -> usize {
         self.world_size
+    }
+
+    fn supports_full_mesh(&self) -> bool {
+        true
     }
 
     fn send(&self, data: &[u8], dst_rank: usize) -> FerrotorchResult<()> {

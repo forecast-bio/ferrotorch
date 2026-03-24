@@ -208,6 +208,18 @@ pub trait GpuBackend: Send + Sync {
     fn sum_axis_f32(&self, _a: &GpuBufferHandle, _shape: &[usize], _axis: usize) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument { message: "sum_axis_f32 GPU op not yet implemented".into() })
     }
+
+    /// Mixed-precision matmul: convert f32 inputs to f16, multiply via
+    /// `cublasGemmEx` with f32 accumulation (Tensor Cores on Volta+),
+    /// return f32 output.
+    ///
+    /// `a` is `[m, k]`, `b` is `[k, n]`, result is `[m, n]`.
+    ///
+    /// Default implementation returns "not implemented". The CUDA backend
+    /// provides the real implementation.
+    fn matmul_f16_f32(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle, _m: usize, _k: usize, _n: usize) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "matmul_f16_f32 GPU op not yet implemented".into() })
+    }
 }
 
 static GPU_BACKEND: OnceLock<Box<dyn GpuBackend>> = OnceLock::new();

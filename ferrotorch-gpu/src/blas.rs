@@ -430,6 +430,195 @@ pub fn gpu_bmm_f32_into(
     _c: &mut CudaBuffer<f32>, _device: &GpuDevice,
 ) -> GpuResult<()> { Err(GpuError::NoCudaFeature) }
 
+// ===========================================================================
+// fp16 matmul via cublasGemmEx -- Tensor Core acceleration on Volta+ GPUs
+// ===========================================================================
+
+/// Compute `C = A @ B` using mixed-precision fp16 matmul with f32 accumulation.
+///
+/// Takes f32 inputs, internally converts them to f16 on-GPU, runs
+/// [`cublasGemmEx`] with `CUDA_R_16F` for A/B and `CUDA_R_32F` for C and
+/// the compute type (`CUBLAS_COMPUTE_32F`). This yields f32 output with
+/// full f32 accumulation precision while leveraging Tensor Cores for 8-16x
+/// throughput on Volta/Turing/Ampere+ GPUs.
+///
+/// # Arguments
+///
+/// * `a` -- f32 buffer with `m * k` elements (matrix `[m, k]` in row-major).
+/// * `b` -- f32 buffer with `k * n` elements (matrix `[k, n]` in row-major).
+/// * `m`, `k`, `n` -- matrix dimensions.
+/// * `device` -- the CUDA device.
+///
+/// # Errors
+///
+/// - [`GpuError::ShapeMismatch`] if buffer lengths don't match dimensions,
+///   or if dimensions exceed `i32::MAX`.
+/// - [`GpuError::DeviceMismatch`] if buffers are on different devices.
+/// - [`GpuError::PtxCompileFailed`] if the f32-to-f16 conversion kernel
+///   cannot be compiled (GPU architecture does not support f16).
+/// - [`GpuError::Blas`] on cuBLAS runtime errors (including when the GPU
+///   does not support the requested mixed-precision compute mode).
+/// - [`GpuError::Driver`] on CUDA driver errors.
+///
+/// # Numerical considerations
+///
+/// The f32-to-f16 input conversion may lose precision for values outside
+/// the f16 representable range (~6e-8 to 65504). Values exceeding f16 max
+/// become infinity; small values may underflow to zero. The f32 accumulation
+/// ensures the dot products themselves do not lose additional precision.
+///
+/// Crosslink: #268
+#[cfg(feature = "cuda")]
+pub fn gpu_matmul_f16(
+    a: &CudaBuffer<f32>,
+    b: &CudaBuffer<f32>,
+    m: usize,
+    k: usize,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use core::ffi::c_void;
+    use cudarc::cublas::{result as cublas_result, sys as cublas_sys};
+    use cudarc::driver::{DevicePtr, DevicePtrMut};
+
+    // Validate buffer lengths match declared dimensions.
+    if a.len() != m * k {
+        return Err(GpuError::ShapeMismatch {
+            op: "matmul_f16",
+            expected: vec![m, k],
+            got: vec![a.len()],
+        });
+    }
+    if b.len() != k * n {
+        return Err(GpuError::ShapeMismatch {
+            op: "matmul_f16",
+            expected: vec![k, n],
+            got: vec![b.len()],
+        });
+    }
+
+    // Validate same device.
+    if a.device_ordinal() != device.ordinal() {
+        return Err(GpuError::DeviceMismatch {
+            expected: device.ordinal(),
+            got: a.device_ordinal(),
+        });
+    }
+    if b.device_ordinal() != device.ordinal() {
+        return Err(GpuError::DeviceMismatch {
+            expected: device.ordinal(),
+            got: b.device_ordinal(),
+        });
+    }
+
+    // Handle degenerate cases: any zero dimension produces a zero-element result.
+    if m == 0 || k == 0 || n == 0 {
+        return alloc_zeros_f32(m * n, device);
+    }
+
+    // Validate dimensions fit in i32 (cuBLAS uses i32 for matrix dimensions).
+    let m_i32 = i32::try_from(m).map_err(|_| GpuError::ShapeMismatch {
+        op: "matmul_f16",
+        expected: vec![i32::MAX as usize],
+        got: vec![m],
+    })?;
+    let k_i32 = i32::try_from(k).map_err(|_| GpuError::ShapeMismatch {
+        op: "matmul_f16",
+        expected: vec![i32::MAX as usize],
+        got: vec![k],
+    })?;
+    let n_i32 = i32::try_from(n).map_err(|_| GpuError::ShapeMismatch {
+        op: "matmul_f16",
+        expected: vec![i32::MAX as usize],
+        got: vec![n],
+    })?;
+
+    // Step 1: Convert f32 inputs to f16 on the GPU.
+    // The conversion kernel uses PTX `cvt.rn.f16.f32` (round-to-nearest-even).
+    // The f16 data is stored as CudaSlice<u16> since half::f16 is repr(transparent)
+    // over u16, and cudarc implements DeviceRepr for u16 but not for half::f16
+    // without the `f16` feature.
+    let a_f16 = crate::kernels::gpu_f32_to_f16(a, device)?;
+    let b_f16 = crate::kernels::gpu_f32_to_f16(b, device)?;
+
+    // Step 2: Allocate f32 output buffer.
+    let mut c = alloc_zeros_f32(m * n, device)?;
+
+    // Step 3: Call cublasGemmEx with mixed-precision types.
+    //
+    // Row-major trick (same as gpu_matmul_f32): cuBLAS is column-major, so we
+    // compute C_row = A_row @ B_row by calling gemm(N, N, n, m, k, ..., B, A, C)
+    // with swapped inputs and leading dimensions.
+    let alpha: f32 = 1.0;
+    let beta: f32 = 0.0;
+    let blas = device.blas();
+    let stream = device.stream();
+
+    // Scope the device pointer borrows so they are dropped before we return `c`.
+    // The SyncOnDrop guards record events on the stream when dropped, ensuring
+    // proper synchronization between the gemm_ex call and subsequent operations.
+    {
+        // SAFETY: We need the raw CUdeviceptr values to pass to gemm_ex. The
+        // DevicePtr::device_ptr method returns (CUdeviceptr, SyncOnDrop) where
+        // SyncOnDrop ensures stream synchronization when dropped. We hold all
+        // _record guards alive until after the gemm_ex call completes (they are
+        // dropped at the end of this block).
+        let (a_ptr, _record_a) = a_f16.device_ptr(stream);
+        let (b_ptr, _record_b) = b_f16.device_ptr(stream);
+        let (c_ptr, _record_c) = c.inner_mut().device_ptr_mut(stream);
+
+        // SAFETY: All device pointers are valid and correctly sized:
+        // - b_ptr points to k*n u16 values (f16 bit patterns) -- passed as A to
+        //   cuBLAS due to the row-major trick
+        // - a_ptr points to m*k u16 values (f16 bit patterns) -- passed as B to
+        //   cuBLAS
+        // - c_ptr points to m*n f32 values -- the output
+        // - alpha and beta are host f32 pointers (cuBLAS default pointer mode is
+        //   host)
+        // - Leading dimensions match the column-major interpretation:
+        //   lda=n (B's columns), ldb=k (A's columns), ldc=n (C's columns)
+        // - The handle is valid (created during GpuDevice::new)
+        unsafe {
+            cublas_result::gemm_ex(
+                *blas.handle(),
+                cublas_sys::cublasOperation_t::CUBLAS_OP_N,
+                cublas_sys::cublasOperation_t::CUBLAS_OP_N,
+                n_i32,                                                 // m (cuBLAS) = n (ours)
+                m_i32,                                                 // n (cuBLAS) = m (ours)
+                k_i32,                                                 // k
+                (&alpha) as *const f32 as *const c_void,               // alpha
+                b_ptr as *const c_void,                                // A (row-major trick: B)
+                cublas_sys::cudaDataType_t::CUDA_R_16F,                // A type = f16
+                n_i32,                                                 // lda = n
+                a_ptr as *const c_void,                                // B (row-major trick: A)
+                cublas_sys::cudaDataType_t::CUDA_R_16F,                // B type = f16
+                k_i32,                                                 // ldb = k
+                (&beta) as *const f32 as *const c_void,                // beta
+                c_ptr as *mut c_void,                                  // C
+                cublas_sys::cudaDataType_t::CUDA_R_32F,                // C type = f32
+                n_i32,                                                 // ldc = n
+                cublas_sys::cublasComputeType_t::CUBLAS_COMPUTE_32F,   // compute in f32
+                cublas_sys::cublasGemmAlgo_t::CUBLAS_GEMM_DEFAULT,     // let cuBLAS pick algo
+            )?;
+        }
+    }
+
+    Ok(c)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_matmul_f16(
+    _a: &CudaBuffer<f32>,
+    _b: &CudaBuffer<f32>,
+    _m: usize,
+    _k: usize,
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
 // ---------------------------------------------------------------------------
 // CPU fallback implementations
 // ---------------------------------------------------------------------------
@@ -705,6 +894,185 @@ mod tests {
             gpu_elapsed.as_secs_f64() * 1000.0,
             cpu_elapsed.as_secs_f64() * 1000.0,
             cpu_elapsed.as_secs_f64() / gpu_elapsed.as_secs_f64(),
+        );
+    }
+
+    // == fp16 matmul (cublasGemmEx) tests =====================================
+
+    // -- Basic correctness: 2x3 @ 3x2 = 2x2 (f16 path) ----------------------
+
+    #[test]
+    fn matmul_f16_basic() {
+        // A = [[1, 2, 3],
+        //      [4, 5, 6]]  (2x3)
+        // B = [[7, 8],
+        //      [9, 10],
+        //      [11, 12]]   (3x2)
+        // C = [[58, 64],
+        //      [139, 154]] (2x2)
+        let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let b_data: Vec<f32> = vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
+        let expected: Vec<f32> = vec![58.0, 64.0, 139.0, 154.0];
+
+        let (dev, a) = setup_f32(&a_data);
+        let b = cpu_to_gpu(&b_data, &dev).expect("cpu_to_gpu b");
+
+        let c = gpu_matmul_f16(&a, &b, 2, 3, 2, &dev).expect("gpu_matmul_f16");
+        assert_eq!(c.len(), 4);
+        // f16 accumulation with f32 compute -- exact for small integers
+        assert_buf_close_f32(&c, &dev, &expected, 1e-2);
+    }
+
+    // -- Identity matrix (f16 path) -------------------------------------------
+
+    #[test]
+    fn matmul_f16_identity() {
+        let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        let i_data: Vec<f32> = vec![1.0, 0.0, 0.0, 1.0];
+
+        let (dev, a) = setup_f32(&a_data);
+        let i_buf = cpu_to_gpu(&i_data, &dev).expect("cpu_to_gpu i");
+
+        let c = gpu_matmul_f16(&a, &i_buf, 2, 2, 2, &dev).expect("gpu_matmul_f16");
+        assert_buf_close_f32(&c, &dev, &a_data, 1e-3);
+    }
+
+    // -- Empty matrix (m=0) f16 path ------------------------------------------
+
+    #[test]
+    fn matmul_f16_empty() {
+        let dev = GpuDevice::new(0).expect("CUDA device 0");
+        let a = cpu_to_gpu::<f32>(&[], &dev).expect("cpu_to_gpu a");
+        let b = cpu_to_gpu::<f32>(&[], &dev).expect("cpu_to_gpu b");
+
+        let c = gpu_matmul_f16(&a, &b, 0, 0, 0, &dev).expect("gpu_matmul_f16 empty");
+        assert_eq!(c.len(), 0);
+    }
+
+    // -- Degenerate: k=0 (zero inner dimension) f16 path ----------------------
+
+    #[test]
+    fn matmul_f16_k_zero() {
+        let dev = GpuDevice::new(0).expect("CUDA device 0");
+        let a = cpu_to_gpu::<f32>(&[], &dev).expect("cpu_to_gpu a");
+        let b = cpu_to_gpu::<f32>(&[], &dev).expect("cpu_to_gpu b");
+
+        // 2x0 @ 0x3 = 2x3 (all zeros)
+        let c = gpu_matmul_f16(&a, &b, 2, 0, 3, &dev).expect("gpu_matmul_f16 k=0");
+        assert_eq!(c.len(), 6);
+        let host = gpu_to_cpu(&c, &dev).expect("gpu_to_cpu");
+        assert!(host.iter().all(|&x| x == 0.0));
+    }
+
+    // -- Shape validation: wrong A length (f16 path) --------------------------
+
+    #[test]
+    fn matmul_f16_wrong_a_length() {
+        let (dev, a) = setup_f32(&[1.0, 2.0, 3.0]); // 3 elements
+        let b = cpu_to_gpu(&[1.0, 2.0, 3.0, 4.0], &dev).expect("cpu_to_gpu b");
+
+        let err = gpu_matmul_f16(&a, &b, 2, 2, 2, &dev).unwrap_err();
+        match err {
+            GpuError::ShapeMismatch { op: "matmul_f16", .. } => {}
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    // -- Shape validation: wrong B length (f16 path) --------------------------
+
+    #[test]
+    fn matmul_f16_wrong_b_length() {
+        let (dev, a) = setup_f32(&[1.0, 2.0, 3.0, 4.0]);
+        let b = cpu_to_gpu(&[1.0, 2.0, 3.0], &dev).expect("cpu_to_gpu b");
+
+        let err = gpu_matmul_f16(&a, &b, 2, 2, 2, &dev).unwrap_err();
+        match err {
+            GpuError::ShapeMismatch { op: "matmul_f16", .. } => {}
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    // -- Numerical correctness: f16 vs f32 reference --------------------------
+
+    #[test]
+    fn matmul_f16_vs_f32_reference() {
+        let m = 64;
+        let k = 48;
+        let n = 32;
+
+        // Deterministic data with values in f16-safe range.
+        let a_data: Vec<f32> = (0..m * k)
+            .map(|i| ((i * 7 + 13) % 100) as f32 / 100.0)
+            .collect();
+        let b_data: Vec<f32> = (0..k * n)
+            .map(|i| ((i * 11 + 3) % 100) as f32 / 100.0)
+            .collect();
+
+        // f32 CPU reference.
+        let expected = cpu_matmul_naive(&a_data, &b_data, m, k, n);
+
+        let (dev, a) = setup_f32(&a_data);
+        let b = cpu_to_gpu(&b_data, &dev).expect("cpu_to_gpu b");
+
+        // f16 matmul on GPU.
+        let c = gpu_matmul_f16(&a, &b, m, k, n, &dev).expect("gpu_matmul_f16");
+        let host = gpu_to_cpu(&c, &dev).expect("gpu_to_cpu");
+
+        assert_eq!(host.len(), expected.len(), "output length mismatch");
+
+        // f16 inputs lose precision (~1e-3 relative error per element).
+        // With k=48 accumulations in f32, total error can be up to k * eps_f16 ~ 0.05.
+        // Use a generous tolerance.
+        let mut max_err: f32 = 0.0;
+        for (i, (&got, &exp)) in host.iter().zip(expected.iter()).enumerate() {
+            let abs_err = (got - exp).abs();
+            let rel_err = if exp.abs() > 1e-6 {
+                abs_err / exp.abs()
+            } else {
+                abs_err
+            };
+            max_err = max_err.max(abs_err);
+            assert!(
+                rel_err < 0.05 || abs_err < 0.1,
+                "element {i}: f16 got {got}, f32 ref {exp}, abs_err {abs_err}, rel_err {rel_err}",
+            );
+        }
+        eprintln!(
+            "matmul_f16_vs_f32: {m}x{k} @ {k}x{n}, max absolute error = {max_err:.6}",
+        );
+    }
+
+    // -- Performance: 1024x1024 f16 matmul (informational) --------------------
+
+    #[test]
+    fn matmul_f16_1024x1024_perf() {
+        let dim = 1024;
+
+        let a_data: Vec<f32> = (0..dim * dim)
+            .map(|i| ((i * 7 + 13) % 1000) as f32 / 1000.0)
+            .collect();
+        let b_data: Vec<f32> = (0..dim * dim)
+            .map(|i| ((i * 11 + 3) % 1000) as f32 / 1000.0)
+            .collect();
+
+        let (dev, a) = setup_f32(&a_data);
+        let b = cpu_to_gpu(&b_data, &dev).expect("cpu_to_gpu b");
+
+        // f32 GPU timing (baseline)
+        let f32_start = std::time::Instant::now();
+        let _c32 = gpu_matmul_f32(&a, &b, dim, dim, dim, &dev).expect("gpu_matmul_f32");
+        let f32_elapsed = f32_start.elapsed();
+
+        // f16 GPU timing
+        let f16_start = std::time::Instant::now();
+        let _c16 = gpu_matmul_f16(&a, &b, dim, dim, dim, &dev).expect("gpu_matmul_f16");
+        let f16_elapsed = f16_start.elapsed();
+
+        eprintln!(
+            "matmul {dim}x{dim}: f32 = {:.3}ms, f16 = {:.3}ms, f16 speedup = {:.1}x",
+            f32_elapsed.as_secs_f64() * 1000.0,
+            f16_elapsed.as_secs_f64() * 1000.0,
+            f32_elapsed.as_secs_f64() / f16_elapsed.as_secs_f64(),
         );
     }
 }

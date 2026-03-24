@@ -6,6 +6,7 @@
 use std::any::TypeId;
 use std::sync::Arc;
 
+use crate::autograd::autocast_ops::autocast_guard;
 use crate::autograd::no_grad::is_grad_enabled;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
@@ -595,7 +596,11 @@ fn broadcast_matmul_backward<T: Float>(
 
 /// Differentiable matrix-matrix multiply. If either input requires grad and
 /// grad is enabled, attaches `MmBackward`.
+///
+/// Participates in autocast: classified as `ReducedPrecision` (`"mm"`).
 pub fn mm_differentiable<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    autocast_guard("mm");
+
     if a.device() != b.device() {
         return Err(FerrotorchError::DeviceMismatch { expected: a.device(), got: b.device() });
     }
@@ -907,11 +912,15 @@ impl<T: Float> GradFn<T> for LinearFusedBackward<T> {
 
 /// Fused differentiable linear: output = input @ weight^T + bias.
 /// Creates a single tensor (instead of 3) with a combined backward.
+///
+/// Participates in autocast: classified as `ReducedPrecision` (`"linear"`).
 pub fn linear_fused<T: Float>(
     input: &Tensor<T>,
     weight: &Tensor<T>,
     bias: Option<&Tensor<T>>,
 ) -> FerrotorchResult<Tensor<T>> {
+    autocast_guard("linear");
+
     let m = input.shape()[0];
     let k = input.shape()[1];
     let n = weight.shape()[0];
@@ -1046,7 +1055,11 @@ pub fn dot_differentiable<T: Float>(
 ///
 /// Uses the GPU-aware `bmm()` for the forward pass (dispatches to cuBLAS on
 /// GPU, CPU loops otherwise), then attaches `BmmBackward` for autograd.
+///
+/// Participates in autocast: classified as `ReducedPrecision` (`"bmm"`).
 pub fn bmm_differentiable<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    autocast_guard("bmm");
+
     let result = bmm(a, b)?;
 
     if is_grad_enabled() && (a.requires_grad() || b.requires_grad()) {
@@ -1060,11 +1073,15 @@ pub fn bmm_differentiable<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchR
 
 /// Differentiable general matmul dispatcher. Attaches `MatmulBackward`
 /// when needed. Supports all rank combinations including batched broadcast
-/// matmul for ≥3D tensors.
+/// matmul for >=3D tensors.
+///
+/// Participates in autocast: classified as `ReducedPrecision` (`"matmul"`).
 pub fn matmul_differentiable<T: Float>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> FerrotorchResult<Tensor<T>> {
+    autocast_guard("matmul");
+
     if a.device() != b.device() {
         return Err(FerrotorchError::DeviceMismatch { expected: a.device(), got: b.device() });
     }
@@ -1801,6 +1818,116 @@ mod tests {
         // Grad shapes must match original shapes, not broadcast shapes.
         assert_eq!(a.grad().unwrap().unwrap().shape(), &[1, 2, 3]);
         assert_eq!(b.grad().unwrap().unwrap().shape(), &[2, 3, 2]);
+    }
+
+    // -------------------------------------------------------------------
+    // autocast_guard integration: forward ops fire the guard
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_mm_differentiable_fires_autocast_guard() {
+        use crate::autograd::autocast::{autocast, AutocastDtype};
+        use crate::autograd::autocast_ops::{drain_autocast_events, AutocastCategory};
+
+        let a = leaf(&[1.0, 2.0, 3.0, 4.0], &[2, 2]);
+        let b = leaf(&[5.0, 6.0, 7.0, 8.0], &[2, 2]);
+
+        // Outside autocast: no events.
+        drain_autocast_events();
+        let _ = mm_differentiable(&a, &b).unwrap();
+        let events = drain_autocast_events();
+        assert!(events.is_empty(), "mm_differentiable should not fire autocast guard when disabled");
+
+        // Inside autocast: should record "mm" as ReducedPrecision.
+        autocast(AutocastDtype::F16, || {
+            drain_autocast_events();
+            let _ = mm_differentiable(&a, &b).unwrap();
+            let events = drain_autocast_events();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].op_name, "mm");
+            assert_eq!(events[0].category, AutocastCategory::ReducedPrecision);
+        });
+    }
+
+    #[test]
+    fn test_bmm_differentiable_fires_autocast_guard() {
+        use crate::autograd::autocast::{autocast, AutocastDtype};
+        use crate::autograd::autocast_ops::{drain_autocast_events, AutocastCategory};
+
+        let a = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2]);
+        let b = leaf(&[1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0], &[2, 2, 2]);
+
+        // Outside autocast: no events.
+        drain_autocast_events();
+        let _ = bmm_differentiable(&a, &b).unwrap();
+        assert!(drain_autocast_events().is_empty());
+
+        // Inside autocast: should record "bmm".
+        autocast(AutocastDtype::BF16, || {
+            drain_autocast_events();
+            let _ = bmm_differentiable(&a, &b).unwrap();
+            let events = drain_autocast_events();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].op_name, "bmm");
+            assert_eq!(events[0].category, AutocastCategory::ReducedPrecision);
+        });
+    }
+
+    #[test]
+    fn test_matmul_differentiable_fires_autocast_guard() {
+        use crate::autograd::autocast::{autocast, AutocastDtype};
+        use crate::autograd::autocast_ops::{drain_autocast_events, AutocastCategory};
+
+        let a = leaf(&[1.0, 2.0, 3.0, 4.0], &[2, 2]);
+        let b = leaf(&[5.0, 6.0, 7.0, 8.0], &[2, 2]);
+
+        drain_autocast_events();
+        autocast(AutocastDtype::F16, || {
+            let _ = matmul_differentiable(&a, &b).unwrap();
+            let events = drain_autocast_events();
+            // matmul_differentiable fires "matmul" guard, then dispatches to
+            // mm_differentiable which fires "mm" guard. Both should appear.
+            assert!(events.len() >= 1);
+            assert_eq!(events[0].op_name, "matmul");
+            assert_eq!(events[0].category, AutocastCategory::ReducedPrecision);
+        });
+    }
+
+    #[test]
+    fn test_linear_fused_fires_autocast_guard() {
+        use crate::autograd::autocast::{autocast, AutocastDtype};
+        use crate::autograd::autocast_ops::{drain_autocast_events, AutocastCategory};
+
+        let input = leaf(&[1.0, 2.0, 3.0, 4.0], &[2, 2]);
+        let weight = leaf(&[0.5, 0.5, 0.5, 0.5], &[2, 2]);
+        let bias = leaf(&[0.1, 0.2], &[2]);
+
+        drain_autocast_events();
+        autocast(AutocastDtype::F16, || {
+            let _ = linear_fused(&input, &weight, Some(&bias)).unwrap();
+            let events = drain_autocast_events();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].op_name, "linear");
+            assert_eq!(events[0].category, AutocastCategory::ReducedPrecision);
+        });
+    }
+
+    #[test]
+    fn test_linear_fused_no_bias_fires_autocast_guard() {
+        use crate::autograd::autocast::{autocast, AutocastDtype};
+        use crate::autograd::autocast_ops::{drain_autocast_events, AutocastCategory};
+
+        let input = leaf(&[1.0, 2.0, 3.0, 4.0], &[2, 2]);
+        let weight = leaf(&[0.5, 0.5, 0.5, 0.5], &[2, 2]);
+
+        drain_autocast_events();
+        autocast(AutocastDtype::BF16, || {
+            let _ = linear_fused(&input, &weight, None).unwrap();
+            let events = drain_autocast_events();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].op_name, "linear");
+            assert_eq!(events[0].category, AutocastCategory::ReducedPrecision);
+        });
     }
 }
 

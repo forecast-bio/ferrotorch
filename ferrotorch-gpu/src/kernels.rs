@@ -449,6 +449,61 @@ DONE:\n\
 ";
 
 // ---------------------------------------------------------------------------
+// f32-to-f16 conversion PTX kernel: out_f16[i] = float2half(in_f32[i])
+// ---------------------------------------------------------------------------
+// Used by gpu_matmul_f16 to cast f32 inputs to f16 on-GPU before calling
+// cublasGemmEx. The output is stored as u16 (IEEE 754 half-precision bits).
+
+#[cfg(feature = "cuda")]
+pub(crate) const F32_TO_F16_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry f32_to_f16_kernel(
+    .param .u64 in_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %in, %out, %off_in, %off_out;
+    .reg .f32 %vf;
+    .reg .b16 %vh;
+    .reg .pred %p;
+
+    ld.param.u64 %in, [in_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    // Compute input offset: i * 4 (f32 = 4 bytes)
+    cvt.u64.u32 %off_in, %r_tid;
+    shl.b64 %off_in, %off_in, 2;
+    add.u64 %in, %in, %off_in;
+
+    // Compute output offset: i * 2 (f16 = 2 bytes)
+    cvt.u64.u32 %off_out, %r_tid;
+    shl.b64 %off_out, %off_out, 1;
+    add.u64 %out, %out, %off_out;
+
+    // Load f32, convert to f16 (round-to-nearest-even), store as u16
+    ld.global.f32 %vf, [%in];
+    cvt.rn.f16.f32 %vh, %vf;
+    st.global.b16 [%out], %vh;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
 // Small matmul PTX kernel: C = A @ B, one thread per output element
 // ---------------------------------------------------------------------------
 // For small matrices where cuBLAS JIT compilation overhead > compute time.
@@ -4586,6 +4641,75 @@ pub fn gpu_softmax_backward(
 pub fn gpu_sum_axis(
     _a: &CudaBuffer<f32>, _outer: usize, _axis_size: usize, _inner: usize, _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+// ---------------------------------------------------------------------------
+// f32-to-f16 GPU conversion
+// ---------------------------------------------------------------------------
+
+/// Convert an f32 GPU buffer to f16 (represented as `CudaSlice<u16>`).
+///
+/// Each element is converted using IEEE 754 round-to-nearest-even via the
+/// PTX `cvt.rn.f16.f32` instruction. The output is a `CudaSlice<u16>` where
+/// each `u16` holds the bit pattern of an IEEE 754 half-precision float.
+///
+/// # Errors
+///
+/// - [`GpuError::PtxCompileFailed`] if the conversion kernel cannot be compiled
+///   (e.g., GPU architecture too old to support f16 conversion instructions).
+/// - [`GpuError::Driver`] on CUDA launch errors.
+#[cfg(feature = "cuda")]
+pub(crate) fn gpu_f32_to_f16(
+    input: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<cudarc::driver::CudaSlice<u16>> {
+    use cudarc::driver::PushKernelArg;
+
+    let n = input.len();
+    if n == 0 {
+        let empty = device.stream().alloc_zeros::<u16>(0)?;
+        return Ok(empty);
+    }
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        F32_TO_F16_PTX,
+        "f32_to_f16_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "f32_to_f16_kernel",
+    })?;
+
+    let mut out = stream.alloc_zeros::<u16>(n)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+
+    // SAFETY: The kernel reads `n` f32 values from `input` and writes `n`
+    // u16 values (f16 bit patterns) to `out`. Both buffers are device-resident
+    // and correctly sized. The grid is configured to cover exactly `n` threads.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(&mut out)
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub(crate) fn gpu_f32_to_f16(
+    _input: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<()> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ---------------------------------------------------------------------------
 // Tests -- require a real CUDA GPU
