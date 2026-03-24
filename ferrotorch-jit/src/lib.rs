@@ -27,7 +27,11 @@ pub use export::{
     ConstraintRelation, DType, DimSpec, DynamicShapeSpec, ExportError, ExportMetadata,
     ExportedProgram, InputSpec, OutputSpec, ShapeConstraint, export, export_function,
 };
-pub use fusion::{apply_fused, is_fusion_enabled, with_fusion, FusedChain, FusedOp};
+pub use fusion::{
+    apply_fused, estimate_matmul_dims, estimate_numel_for_inputs,
+    generate_reduction_c, generate_reduction_ptx,
+    is_fusion_enabled, with_fusion, FusedChain, FusedOp, ReductionKind,
+};
 pub use graph_break::{GraphSegment, SegmentedModule, TraceResult, trace_with_breaks};
 pub use interpreter::interpret;
 pub use memory_plan::{plan_memory, MemoryPlan};

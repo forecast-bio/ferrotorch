@@ -170,6 +170,14 @@ pub struct NativeBackend;
 /// A single elementwise f64 operation that can be composed.
 type ElementwiseOp = Arc<dyn Fn(f64) -> f64 + Send + Sync>;
 
+/// An `AtomicUsize` counter used by multi-element constant binary ops.
+/// Collected so that counters can be reset to 0 at the start of each
+/// `execute` call, preventing drift across invocations.
+type CounterRef = Arc<std::sync::atomic::AtomicUsize>;
+
+/// A binary operation on two f64 values.
+type BinaryOp = Arc<dyn Fn(f64, f64) -> f64 + Send + Sync>;
+
 impl Codegen for NativeBackend {
     fn compile(&self, graph: &IrGraph) -> FerrotorchResult<CompiledGraph> {
         match try_compile_native(graph) {
@@ -225,9 +233,21 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
         /// Elementwise-transformed version of a single input, carrying the
         /// composed operation pipeline.
         Computed(Vec<ElementwiseOp>),
+        /// Binary operation on two different inputs, optionally followed
+        /// by a unary chain. Stores: (lhs_input_idx, rhs_input_idx, binary_op, unary_chain).
+        BinaryComputed {
+            lhs_input: usize,
+            rhs_input: usize,
+            binary: BinaryOp,
+            unary_chain: Vec<ElementwiseOp>,
+        },
     }
 
     let mut value_kinds: HashMap<IrValueId, ValueKind> = HashMap::new();
+
+    // Registry of AtomicUsize counters used by multi-element constant ops.
+    // These must be reset to 0 at the start of each `execute` call.
+    let mut counters: Vec<CounterRef> = Vec::new();
 
     for &nid in &topo {
         let node = node_map[&nid];
@@ -264,21 +284,39 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
             | IrOpKind::Tanh
             | IrOpKind::Gelu
             | IrOpKind::Silu
+            | IrOpKind::Exp
+            | IrOpKind::Log
             | IrOpKind::Pow { .. }) => {
                 let input_id = *node.inputs.first()?;
                 let input_kind = value_kinds.get(&input_id)?.clone();
 
                 let new_op = make_elementwise_op(op)?;
 
-                let mut ops = match input_kind {
-                    ValueKind::Input(_) => Vec::new(),
-                    ValueKind::Computed(ops) => ops,
+                match input_kind {
+                    ValueKind::Input(_) => {
+                        let ops = vec![new_op];
+                        for &out_id in &node.outputs {
+                            value_kinds.insert(out_id, ValueKind::Computed(ops.clone()));
+                        }
+                    }
+                    ValueKind::Computed(mut ops) => {
+                        ops.push(new_op);
+                        for &out_id in &node.outputs {
+                            value_kinds.insert(out_id, ValueKind::Computed(ops.clone()));
+                        }
+                    }
+                    ValueKind::BinaryComputed { lhs_input, rhs_input, binary, mut unary_chain } => {
+                        unary_chain.push(new_op);
+                        for &out_id in &node.outputs {
+                            value_kinds.insert(out_id, ValueKind::BinaryComputed {
+                                lhs_input,
+                                rhs_input,
+                                binary: binary.clone(),
+                                unary_chain: unary_chain.clone(),
+                            });
+                        }
+                    }
                     ValueKind::Constant(_) => return None, // constant -> op not handled natively
-                };
-                ops.push(new_op);
-
-                for &out_id in &node.outputs {
-                    value_kinds.insert(out_id, ValueKind::Computed(ops.clone()));
                 }
             }
 
@@ -287,18 +325,35 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
                 let input_id = *node.inputs.first()?;
                 let input_kind = value_kinds.get(&input_id)?.clone();
 
-                let mut pipeline = match input_kind {
-                    ValueKind::Input(_) => Vec::new(),
-                    ValueKind::Computed(existing) => existing,
-                    ValueKind::Constant(_) => return None,
-                };
-
+                let mut new_ops: Vec<ElementwiseOp> = Vec::new();
                 for op in ops {
-                    pipeline.push(make_elementwise_op(op)?);
+                    new_ops.push(make_elementwise_op(op)?);
                 }
 
-                for &out_id in &node.outputs {
-                    value_kinds.insert(out_id, ValueKind::Computed(pipeline.clone()));
+                match input_kind {
+                    ValueKind::BinaryComputed { lhs_input, rhs_input, binary, mut unary_chain } => {
+                        unary_chain.extend(new_ops);
+                        for &out_id in &node.outputs {
+                            value_kinds.insert(out_id, ValueKind::BinaryComputed {
+                                lhs_input,
+                                rhs_input,
+                                binary: binary.clone(),
+                                unary_chain: unary_chain.clone(),
+                            });
+                        }
+                    }
+                    ValueKind::Input(_) => {
+                        for &out_id in &node.outputs {
+                            value_kinds.insert(out_id, ValueKind::Computed(new_ops.clone()));
+                        }
+                    }
+                    ValueKind::Computed(mut existing) => {
+                        existing.extend(new_ops);
+                        for &out_id in &node.outputs {
+                            value_kinds.insert(out_id, ValueKind::Computed(existing.clone()));
+                        }
+                    }
+                    ValueKind::Constant(_) => return None,
                 }
             }
 
@@ -330,7 +385,10 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
                             ValueKind::Computed(o) => o,
                             _ => unreachable!(),
                         };
-                        let binary_op = make_binary_with_constant_op(op, &cdata, false)?;
+                        let (binary_op, counter) = make_binary_with_constant_op(op, &cdata, false)?;
+                        if let Some(c) = counter {
+                            counters.push(c);
+                        }
                         ops.push(binary_op);
                         for &out_id in &node.outputs {
                             value_kinds.insert(out_id, ValueKind::Computed(ops.clone()));
@@ -346,10 +404,29 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
                             ValueKind::Computed(o) => o,
                             _ => unreachable!(),
                         };
-                        let binary_op = make_binary_with_constant_op(op, &cdata, true)?;
+                        let (binary_op, counter) = make_binary_with_constant_op(op, &cdata, true)?;
+                        if let Some(c) = counter {
+                            counters.push(c);
+                        }
                         ops.push(binary_op);
                         for &out_id in &node.outputs {
                             value_kinds.insert(out_id, ValueKind::Computed(ops.clone()));
+                        }
+                    }
+
+                    // Two different inputs: Input(i) op Input(j) where i != j.
+                    (ValueKind::Input(li), ValueKind::Input(ri)) => {
+                        let binary = make_two_input_binary_op(op)?;
+                        for &out_id in &node.outputs {
+                            value_kinds.insert(
+                                out_id,
+                                ValueKind::BinaryComputed {
+                                    lhs_input: *li,
+                                    rhs_input: *ri,
+                                    binary: binary.clone(),
+                                    unary_chain: Vec::new(),
+                                },
+                            );
                         }
                     }
 
@@ -385,7 +462,13 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
         ValueKind::Computed(ops) => {
             // We have a pipeline of elementwise ops to apply.
             let ops = Arc::new(ops);
+            let counters = Arc::new(counters);
             let execute = move |inputs: &[Vec<f64>]| -> FerrotorchResult<Vec<f64>> {
+                // Reset all positional counters to 0 so that multi-element
+                // constant binary ops index correctly on each call.
+                for c in counters.iter() {
+                    c.store(0, std::sync::atomic::Ordering::Relaxed);
+                }
                 // Start from the first input's data.
                 let data = &inputs[0];
                 let result: Vec<f64> = data
@@ -401,6 +484,31 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
                 Ok(result)
             };
 
+            Some(CompiledGraph {
+                execute: Box::new(execute),
+                num_inputs,
+                output_shape,
+            })
+        }
+
+        ValueKind::BinaryComputed { lhs_input, rhs_input, binary, unary_chain } => {
+            // Binary op on two inputs, optionally followed by unary chain.
+            let unary_chain = Arc::new(unary_chain);
+            let execute = move |inputs: &[Vec<f64>]| -> FerrotorchResult<Vec<f64>> {
+                let lhs = &inputs[lhs_input];
+                let rhs = &inputs[rhs_input];
+                let len = lhs.len().min(rhs.len());
+                let result: Vec<f64> = (0..len)
+                    .map(|i| {
+                        let mut val = binary(lhs[i], rhs[i]);
+                        for op in unary_chain.iter() {
+                            val = op(val);
+                        }
+                        val
+                    })
+                    .collect();
+                Ok(result)
+            };
             Some(CompiledGraph {
                 execute: Box::new(execute),
                 num_inputs,
@@ -427,6 +535,18 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
 // ---------------------------------------------------------------------------
 
 /// Convert an `IrOpKind` into a scalar `f64 -> f64` closure.
+/// Create a `(f64, f64) -> f64` closure for a binary op on two inputs.
+fn make_two_input_binary_op(op: &IrOpKind) -> Option<BinaryOp> {
+    match op {
+        IrOpKind::Add => Some(Arc::new(|a: f64, b: f64| a + b)),
+        IrOpKind::Sub => Some(Arc::new(|a: f64, b: f64| a - b)),
+        IrOpKind::Mul => Some(Arc::new(|a: f64, b: f64| a * b)),
+        IrOpKind::Div => Some(Arc::new(|a: f64, b: f64| a / b)),
+        _ => None,
+    }
+}
+
+/// Convert an `IrOpKind` into a scalar `f64 -> f64` closure.
 fn make_elementwise_op(op: &IrOpKind) -> Option<ElementwiseOp> {
     match op {
         IrOpKind::Neg => Some(Arc::new(|x: f64| -x)),
@@ -445,6 +565,8 @@ fn make_elementwise_op(op: &IrOpKind) -> Option<ElementwiseOp> {
             x * 0.5 * (1.0 + (sqrt_2_over_pi * (x + 0.044715 * x.powi(3))).tanh())
         })),
         IrOpKind::Silu => Some(Arc::new(|x: f64| x / (1.0 + (-x).exp()))),
+        IrOpKind::Exp => Some(Arc::new(|x: f64| x.exp())),
+        IrOpKind::Log => Some(Arc::new(|x: f64| x.ln())),
         _ => None,
     }
 }
@@ -476,36 +598,33 @@ fn make_self_binary_op(op: &IrOpKind) -> Option<ElementwiseOp> {
 /// Actually, the easier approach: binary-with-constant ops produce a *vector*
 /// closure rather than an element closure. We handle this by returning an op
 /// that encodes the positional constant lookup.
+/// Returns `(op, optional_counter)`. The counter must be reset to 0 before
+/// each batch of element-level invocations to prevent drift across
+/// successive `execute` calls.
 fn make_binary_with_constant_op(
     op: &IrOpKind,
     constant: &[f64],
     constant_is_lhs: bool,
-) -> Option<ElementwiseOp> {
+) -> Option<(ElementwiseOp, Option<CounterRef>)> {
     // For a single-element constant (scalar), we can use a simple closure.
+    // No counter needed — the value is the same for every element.
     if constant.len() == 1 {
         let c = constant[0];
         return match (op, constant_is_lhs) {
-            (IrOpKind::Add, _) => Some(Arc::new(move |x: f64| x + c)),
-            (IrOpKind::Sub, false) => Some(Arc::new(move |x: f64| x - c)),
-            (IrOpKind::Sub, true) => Some(Arc::new(move |x: f64| c - x)),
-            (IrOpKind::Mul, _) => Some(Arc::new(move |x: f64| x * c)),
-            (IrOpKind::Div, false) => Some(Arc::new(move |x: f64| x / c)),
-            (IrOpKind::Div, true) => Some(Arc::new(move |x: f64| c / x)),
+            (IrOpKind::Add, _) => Some((Arc::new(move |x: f64| x + c), None)),
+            (IrOpKind::Sub, false) => Some((Arc::new(move |x: f64| x - c), None)),
+            (IrOpKind::Sub, true) => Some((Arc::new(move |x: f64| c - x), None)),
+            (IrOpKind::Mul, _) => Some((Arc::new(move |x: f64| x * c), None)),
+            (IrOpKind::Div, false) => Some((Arc::new(move |x: f64| x / c), None)),
+            (IrOpKind::Div, true) => Some((Arc::new(move |x: f64| c / x), None)),
             _ => None,
         };
     }
 
     // For multi-element constants we need positional indexing. We use an
     // AtomicUsize counter that wraps around the constant length. The counter
-    // is incremented on every call and reset is implicit (modulo).
-    //
-    // WRAPPING BEHAVIOR: AtomicUsize::fetch_add wraps on overflow (at
-    // usize::MAX).  Because we always reduce via `% clen`, this is
-    // harmless: for any `clen` that is a power-of-two the modulo result is
-    // the same regardless of how many times the counter has wrapped.  For
-    // non-power-of-two `clen` values there is a theoretical bias once the
-    // counter wraps, but usize::MAX wraps require ~18 quintillion calls on
-    // 64-bit targets, which is unreachable in practice.
+    // is reset to 0 at the start of each `execute` call (via the counter
+    // registry) so that element indexing is correct across invocations.
     //
     // SAFETY NOTE: This works correctly only when the closure is invoked
     // sequentially for elements 0..N within a single `execute` call. The
@@ -514,45 +633,46 @@ fn make_binary_with_constant_op(
 
     let cdata = Arc::new(constant.to_vec());
     let counter = Arc::new(AtomicUsize::new(0));
+    let counter_clone = Arc::clone(&counter);
 
     let clen = cdata.len();
 
     match (op, constant_is_lhs) {
         (IrOpKind::Add, _) => {
-            Some(Arc::new(move |x: f64| {
+            Some((Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 x + cdata[i]
-            }))
+            }), Some(counter_clone)))
         }
         (IrOpKind::Sub, false) => {
-            Some(Arc::new(move |x: f64| {
+            Some((Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 x - cdata[i]
-            }))
+            }), Some(counter_clone)))
         }
         (IrOpKind::Sub, true) => {
-            Some(Arc::new(move |x: f64| {
+            Some((Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 cdata[i] - x
-            }))
+            }), Some(counter_clone)))
         }
         (IrOpKind::Mul, _) => {
-            Some(Arc::new(move |x: f64| {
+            Some((Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 x * cdata[i]
-            }))
+            }), Some(counter_clone)))
         }
         (IrOpKind::Div, false) => {
-            Some(Arc::new(move |x: f64| {
+            Some((Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 x / cdata[i]
-            }))
+            }), Some(counter_clone)))
         }
         (IrOpKind::Div, true) => {
-            Some(Arc::new(move |x: f64| {
+            Some((Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 cdata[i] / x
-            }))
+            }), Some(counter_clone)))
         }
         _ => None,
     }
