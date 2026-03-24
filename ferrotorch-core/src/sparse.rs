@@ -1214,4 +1214,65 @@ mod tests {
         assert_eq!(coalesced.indices()[1], vec![0, 1]);
         assert_eq!(coalesced.indices()[2], vec![1, 0]);
     }
+
+    // --- 1-D, 3-D, and zero-dimension edge cases ---
+
+    #[test]
+    fn test_1d_sparse_tensor() {
+        let sp = SparseTensor::new(
+            vec![vec![1], vec![4]],
+            vec![10.0f32, 20.0],
+            vec![5],
+        )
+        .unwrap();
+
+        assert_eq!(sp.ndim(), 1);
+        assert_eq!(sp.nnz(), 2);
+        assert_eq!(sp.shape(), &[5]);
+
+        let dense = sp.to_dense().unwrap();
+        let d = dense.data().unwrap();
+        assert_eq!(d.len(), 5);
+        assert_eq!(d[0], 0.0);
+        assert_eq!(d[1], 10.0);
+        assert_eq!(d[2], 0.0);
+        assert_eq!(d[3], 0.0);
+        assert_eq!(d[4], 20.0);
+    }
+
+    #[test]
+    fn test_3d_sparse_tensor() {
+        let sp = SparseTensor::new(
+            vec![vec![0, 1, 2], vec![1, 0, 0]],
+            vec![5.0f64, 7.0],
+            vec![2, 2, 3],
+        )
+        .unwrap();
+
+        assert_eq!(sp.ndim(), 3);
+        assert_eq!(sp.nnz(), 2);
+        assert_eq!(sp.shape(), &[2, 2, 3]);
+
+        let dense = sp.to_dense().unwrap();
+        let d = dense.data().unwrap();
+        assert_eq!(d.len(), 12);
+        // [0,1,2] -> flat index = 0*6 + 1*3 + 2 = 5
+        assert!((d[5] - 5.0).abs() < 1e-10);
+        // [1,0,0] -> flat index = 1*6 + 0*3 + 0 = 6
+        assert!((d[6] - 7.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_zero_dimension_sparse_tensor() {
+        // Shape [0, 5]: zero rows, 5 columns. No elements possible.
+        let sp = SparseTensor::<f32>::new(vec![], vec![], vec![0, 5]).unwrap();
+
+        assert_eq!(sp.ndim(), 2);
+        assert_eq!(sp.nnz(), 0);
+        assert_eq!(sp.shape(), &[0, 5]);
+
+        let dense = sp.to_dense().unwrap();
+        assert_eq!(dense.numel(), 0);
+        assert!(dense.data().unwrap().is_empty());
+    }
 }

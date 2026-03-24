@@ -138,6 +138,10 @@ impl ProtobufWriter {
     }
 
     /// Write an `int32` field (wire type 0 — varint).
+    ///
+    /// The `value as u64` cast sign-extends negative i32 values, which is
+    /// correct per protobuf varint encoding for `int32` (not `sint32`).
+    /// Negative values produce 10-byte varints because all upper bits are set.
     fn write_int32(&mut self, field_number: u32, value: i32) {
         self.write_tag(field_number, 0);
         self.write_varint(value as u64);

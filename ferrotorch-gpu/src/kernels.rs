@@ -744,6 +744,8 @@ pub(crate) const CAUSAL_MASK_INDIRECT_PTX: &str = "\
     setp.lt.u32 %mask_p, %col, %tlen;
     @%mask_p bra WRITE_ZERO;
 
+    // 0fCE6E6B28 = -1.0e9 in IEEE 754 f32, used as a large negative mask value
+    // to effectively zero out masked positions after softmax.
     mov.f32 %val, 0fCE6E6B28;
     bra WRITE;
 
@@ -890,6 +892,11 @@ DONE:
 
 // ---------------------------------------------------------------------------
 // GELU PTX kernel: gelu(x) = x * sigmoid(1.702 * x)
+//
+// Uses `.approx` PTX instructions (`ex2.approx.f32`, `rcp.approx.f32`)
+// for performance. These have reduced precision (~2^-22 relative error)
+// compared to the full-precision variants, which is acceptable for neural
+// network training/inference where f32 precision is already limited.
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "cuda")]
@@ -1002,6 +1009,11 @@ DONE:
 /// `out[i] = grad[i] * (sig + 1.702 * x * sig * (1 - sig))`
 /// where `sig = sigmoid(1.702 * x)`.
 /// This is the exact derivative of `gelu(x) = x * sigmoid(1.702 * x)`.
+///
+/// Uses `.approx` PTX instructions (`ex2.approx.f32`, `rcp.approx.f32`)
+/// for performance. These have reduced precision (~2^-22 relative error)
+/// compared to the full-precision variants, which is acceptable for neural
+/// network training/inference where f32 precision is already limited.
 #[cfg(feature = "cuda")]
 pub(crate) const GELU_BACKWARD_PTX: &str = "\
 .version 7.0
@@ -1624,6 +1636,11 @@ DONE:
 
 // ---------------------------------------------------------------------------
 // LayerNorm PTX kernel (row-wise: mean, var, normalize+affine)
+//
+// Uses `.approx` PTX instructions (`div.approx.f32`, `sqrt.approx.f32`,
+// `rcp.approx.f32`) for performance. These have reduced precision (~2^-22
+// relative error) compared to the full-precision variants, which is
+// acceptable for neural network training/inference.
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "cuda")]
@@ -1809,6 +1826,11 @@ DONE:
 //   1. Finds the max in shared memory (for numerical stability)
 //   2. Computes exp(x - max) and sums in shared memory
 //   3. Normalizes by the sum
+//
+// Uses `.approx` PTX instructions (`ex2.approx.f32`, `rcp.approx.f32`)
+// for performance. These have reduced precision (~2^-22 relative error)
+// compared to the full-precision variants, which is acceptable for neural
+// network training/inference.
 //
 // Parameters:
 //   input_ptr  - pointer to input f32 buffer
