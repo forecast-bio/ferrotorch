@@ -17,6 +17,8 @@ mod methods;
 mod ops_trait;
 pub mod quantize;
 pub mod shape;
+pub mod nested;
+pub mod pruning;
 pub mod sparse;
 pub mod special;
 pub mod storage;
@@ -38,7 +40,9 @@ pub use quantize::{
     QuantizedTensor,
 };
 pub use storage::{StorageBuffer, TensorStorage};
-pub use sparse::SparseTensor;
+pub use nested::{NestedTensor, nested_scaled_dot_product_attention};
+pub use pruning::{apply_2_4_mask, magnitude_prune, sparsity_ratio};
+pub use sparse::{CooTensor, CsrTensor, SparseTensor};
 pub use tensor::{GradFn, Tensor, TensorId};
 pub use einops::{rearrange, rearrange_with, repeat, reduce, EinopsReduction};
 pub use einsum::{einsum, einsum_differentiable};
