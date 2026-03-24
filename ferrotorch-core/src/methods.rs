@@ -5,6 +5,7 @@
 
 use crate::dtype::Float;
 use crate::error::FerrotorchResult;
+use crate::storage::TensorStorage;
 use crate::tensor::Tensor;
 
 impl<T: Float> Tensor<T> {
@@ -254,10 +255,10 @@ impl<T: Float> Tensor<T> {
 
 /// Permute tensor dimensions. Like PyTorch's `tensor.permute(dims)`.
 ///
-/// `dims` must be a valid permutation of `0..ndim`. This is a zero-copy
-/// O(1) operation that creates a view with permuted strides.
+/// `dims` must be a valid permutation of `0..ndim`.
 pub fn permute_t<T: Float>(input: &Tensor<T>, dims: &[usize]) -> FerrotorchResult<Tensor<T>> {
     use crate::error::FerrotorchError;
+    use crate::storage::TensorStorage;
 
     let ndim = input.ndim();
     if dims.len() != ndim {
@@ -286,24 +287,48 @@ pub fn permute_t<T: Float>(input: &Tensor<T>, dims: &[usize]) -> FerrotorchResul
         seen[d] = true;
     }
 
-    // Zero-copy stride swap.
+    let in_shape = input.shape();
+    let device = input.device();
+    let in_data = input.data_vec()?;
+
+    // Compute output shape.
+    let out_shape: Vec<usize> = dims.iter().map(|&d| in_shape[d]).collect();
+    let out_numel: usize = out_shape.iter().product();
+    let mut out_data = vec![<T as num_traits::Zero>::zero(); out_numel];
+
+    // Compute input strides for coordinate decomposition.
+    let in_strides = crate::shape::c_contiguous_strides(in_shape);
+
+    for flat in 0..out_numel {
+        // Decompose flat index using output shape to get output coords.
+        let mut rem = flat;
+        let mut out_coords = vec![0usize; ndim];
+        for d in (0..ndim).rev() {
+            out_coords[d] = rem % out_shape[d];
+            rem /= out_shape[d];
+        }
+        // Map output coords back to input coords via inverse permutation.
+        let mut in_flat = 0usize;
+        for (out_d, &in_d) in dims.iter().enumerate() {
+            in_flat += out_coords[out_d] as usize * in_strides[in_d] as usize;
+        }
+        out_data[flat] = in_data[in_flat];
+    }
+
+    // Permute is differentiable: backward is the inverse permutation.
+    let storage = TensorStorage::on_device(out_data, device)?;
     if crate::autograd::no_grad::is_grad_enabled() && input.requires_grad() {
-        let new_shape: Vec<usize> = dims.iter().map(|&d| input.shape()[d]).collect();
-        let new_strides: Vec<isize> = dims.iter().map(|&d| input.strides()[d]).collect();
         let grad_fn = std::sync::Arc::new(PermuteBackward {
             input: input.clone(),
             dims: dims.to_vec(),
         });
-        input.view_operation_with_strides(new_shape, new_strides, grad_fn)
+        Tensor::from_operation(storage, out_shape, grad_fn)
     } else {
-        input.view_permute(dims)
+        Tensor::from_storage(storage, out_shape, false)
     }
 }
 
 /// Backward for permute: apply the inverse permutation to the gradient.
-///
-/// This is also a zero-copy stride swap — the inverse permutation simply
-/// reorders the strides back to the original layout.
 #[derive(Debug)]
 struct PermuteBackward<T: Float> {
     input: Tensor<T>,
@@ -312,7 +337,10 @@ struct PermuteBackward<T: Float> {
 
 impl<T: Float> crate::tensor::GradFn<T> for PermuteBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        // Compute inverse permutation and apply as a zero-copy stride swap.
+        if !self.input.requires_grad() {
+            return Ok(vec![None]);
+        }
+        // Compute inverse permutation.
         let mut inv_dims = vec![0usize; self.dims.len()];
         for (i, &d) in self.dims.iter().enumerate() {
             inv_dims[d] = i;
@@ -335,34 +363,32 @@ impl<T: Float> crate::tensor::GradFn<T> for PermuteBackward<T> {
 /// Exactly one dimension may be `-1`, in which case it is inferred.
 /// Requires the tensor to be contiguous (currently all tensors are).
 pub fn view_t<T: Float>(input: &Tensor<T>, shape: &[i64]) -> FerrotorchResult<Tensor<T>> {
-    // Auto-contiguify if needed (matches PyTorch's .reshape() behavior).
-    let input = if !input.is_contiguous() {
-        contiguous_t(input)?
-    } else {
-        input.clone()
-    };
+    use crate::error::FerrotorchError;
+
+    if !input.is_contiguous() {
+        return Err(FerrotorchError::InvalidArgument {
+            message: "view: tensor must be contiguous; call .contiguous() first".into(),
+        });
+    }
 
     // Convert i64 shape to isize for reshape (which handles -1 inference).
     let isize_shape: Vec<isize> = shape.iter().map(|&d| d as isize).collect();
-    crate::grad_fns::shape::reshape(&input, &isize_shape)
+    crate::grad_fns::shape::reshape(input, &isize_shape)
 }
 
 /// Make tensor contiguous (copy data if needed).
 ///
-/// If the tensor is already contiguous, returns a cheap clone. Otherwise
-/// materializes the data by reading elements in logical (stride-aware)
-/// order and creating a new contiguous storage.
+/// If the tensor is already contiguous this returns a cheap clone.
+/// Otherwise it gathers the data in C-order and creates a new
+/// contiguous tensor, preserving the original device.
 pub fn contiguous_t<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if input.is_contiguous() {
         return Ok(input.clone());
     }
-    // Materialize: data_vec() reads in logical order using strides.
+    let device = input.device();
     let data = input.data_vec()?;
-    Tensor::from_storage(
-        crate::storage::TensorStorage::cpu(data),
-        input.shape().to_vec(),
-        input.requires_grad(),
-    )
+    let storage = TensorStorage::on_device(data, device)?;
+    Tensor::from_storage(storage, input.shape().to_vec(), input.requires_grad())
 }
 
 /// Split tensor into `chunks` roughly equal pieces along `dim`.
@@ -579,14 +605,11 @@ mod tests {
 
     #[test]
     fn test_method_permute_2d() {
-        // Transpose via permute — zero-copy stride swap
+        // Transpose via permute
         let a = from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
         let b = a.permute(&[1, 0]).unwrap();
         assert_eq!(b.shape(), &[3, 2]);
-        // Non-contiguous view: use data_vec() to read in logical order
-        assert_eq!(b.data_vec().unwrap(), &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
-        // Verify it's a view (shares storage)
-        assert!(!b.is_contiguous());
+        assert_eq!(b.data().unwrap(), &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
     }
 
     #[test]
@@ -595,23 +618,10 @@ mod tests {
         let a = from_slice(&data, &[2, 3, 4]).unwrap();
         let b = a.permute(&[2, 0, 1]).unwrap();
         assert_eq!(b.shape(), &[4, 2, 3]);
-        let b_data = b.data_vec().unwrap();
-        // element [0,0,0] of output = element [0,0,0] of input = 1.0
-        assert_eq!(b_data[0], 1.0);
+        // Verify element [0,0,0] of output = element [0,0,0] of input = 1.0
+        assert_eq!(b.data().unwrap()[0], 1.0);
         // element [1,0,0] of output = input[0,0,1] = 2.0
-        assert_eq!(b_data[1 * 2 * 3], 2.0);
-    }
-
-    #[test]
-    fn test_permute_is_zero_copy() {
-        // Verify permute shares storage with the original tensor
-        let a = from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
-        let b = a.permute(&[1, 0]).unwrap();
-        assert!(!b.is_contiguous());
-        // Materialize via contiguous()
-        let c = b.contiguous().unwrap();
-        assert!(c.is_contiguous());
-        assert_eq!(c.data().unwrap(), &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+        assert_eq!(b.data().unwrap()[1 * 2 * 3], 2.0);
     }
 
     #[test]

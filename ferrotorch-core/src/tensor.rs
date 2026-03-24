@@ -115,7 +115,17 @@ impl<T: Float> Tensor<T> {
     /// same underlying storage. Zero-copy — no data movement.
     ///
     /// The new shape must have the same total number of elements.
+    /// Non-contiguous tensors are materialized first (requires a copy).
     pub fn view_reshape(&self, new_shape: Vec<usize>) -> FerrotorchResult<Self> {
+        // Non-contiguous tensors must be materialized first — a view over
+        // non-contiguous storage with new strides would read wrong elements.
+        if !self.is_contiguous() {
+            let data = self.data_vec()?;
+            let storage = TensorStorage::cpu(data);
+            let t = Tensor::from_storage(storage, self.shape().to_vec(), false)?;
+            return t.view_reshape(new_shape);
+        }
+
         let new_numel: usize = new_shape.iter().product();
         if new_numel != self.numel() {
             return Err(FerrotorchError::ShapeMismatch {
@@ -144,11 +154,23 @@ impl<T: Float> Tensor<T> {
     /// Create a zero-copy view with a grad_fn attached. Used for shape ops
     /// (squeeze, unsqueeze, reshape, etc.) that don't change data layout.
     /// Shares the underlying storage with the source tensor.
+    ///
+    /// Non-contiguous tensors are materialized first (requires a copy).
     pub fn view_operation(
         &self,
         new_shape: Vec<usize>,
         grad_fn: Arc<dyn GradFn<T>>,
     ) -> FerrotorchResult<Self> {
+        // Non-contiguous tensors must be materialized first — a view over
+        // non-contiguous storage with new strides would read wrong elements.
+        if !self.is_contiguous() {
+            let data = self.data_vec()?;
+            let storage = TensorStorage::cpu(data);
+            let contiguous =
+                Tensor::from_storage(storage, self.shape().to_vec(), self.requires_grad())?;
+            return contiguous.view_operation(new_shape, grad_fn);
+        }
+
         let new_numel: usize = new_shape.iter().product();
         if new_numel != self.numel() {
             return Err(FerrotorchError::ShapeMismatch {
@@ -170,53 +192,6 @@ impl<T: Float> Tensor<T> {
                 grad_fn: Some(grad_fn),
                 requires_grad: true,
                 is_leaf: false,
-            }),
-        })
-    }
-
-    /// Create a zero-copy view with custom strides and a grad_fn attached.
-    ///
-    /// Used for operations like permute and transpose that reorder dimensions
-    /// without copying data. The caller provides both shape and strides.
-    pub fn view_operation_with_strides(
-        &self,
-        new_shape: Vec<usize>,
-        new_strides: Vec<isize>,
-        grad_fn: Arc<dyn GradFn<T>>,
-    ) -> FerrotorchResult<Self> {
-        Ok(Self {
-            inner: Arc::new(TensorInner {
-                id: TensorId::next(),
-                storage: Arc::clone(&self.inner.storage),
-                shape: new_shape,
-                strides: new_strides,
-                offset: self.inner.offset,
-                grad: Mutex::new(None),
-                grad_fn: Some(grad_fn),
-                requires_grad: true,
-                is_leaf: false,
-            }),
-        })
-    }
-
-    /// Create a zero-copy view with permuted dimensions (no grad tracking).
-    ///
-    /// Reorders the tensor's dimensions by swapping shape and strides entries
-    /// according to the given permutation. No data is copied — O(1).
-    pub fn view_permute(&self, dims: &[usize]) -> FerrotorchResult<Self> {
-        let new_shape: Vec<usize> = dims.iter().map(|&d| self.shape()[d]).collect();
-        let new_strides: Vec<isize> = dims.iter().map(|&d| self.inner.strides[d]).collect();
-        Ok(Self {
-            inner: Arc::new(TensorInner {
-                id: TensorId::next(),
-                storage: Arc::clone(&self.inner.storage),
-                shape: new_shape,
-                strides: new_strides,
-                offset: self.inner.offset,
-                grad: Mutex::new(None),
-                grad_fn: None,
-                requires_grad: false,
-                is_leaf: true,
             }),
         })
     }
@@ -375,13 +350,7 @@ impl<T: Float> Tensor<T> {
 
     /// Accumulate a gradient additively (used by the backward engine).
     /// Handles GPU tensors by transferring to CPU for accumulation.
-    /// Accumulate a gradient additively (used by the backward engine).
-    /// When both the stored gradient and the incoming gradient are f32 tensors
-    /// on the same GPU, accumulation happens entirely on GPU via `backend.add_f32`.
-    /// Otherwise falls back to CPU. Handles non-contiguous gradients via `data_vec()`.
     pub(crate) fn accumulate_grad(&self, incoming: &Tensor<T>) -> FerrotorchResult<()> {
-        use std::any::TypeId;
-
         let mut guard =
             self.inner
                 .grad
@@ -391,63 +360,38 @@ impl<T: Float> Tensor<T> {
                 })?;
         match guard.as_mut() {
             None => {
-                // First gradient: store directly, keeping it on its device.
-                *guard = Some(Box::new(incoming.clone()));
+                // First gradient: clone the incoming gradient (on CPU).
+                let cpu_incoming = if incoming.is_cuda() { incoming.cpu()? } else { incoming.clone() };
+                let data = cpu_incoming.data()?.to_vec();
+                let storage = TensorStorage::cpu(data);
+                let tensor = Tensor::from_storage(storage, incoming.shape().to_vec(), false)?;
+                *guard = Some(Box::new(tensor));
             }
             Some(existing) => {
-                // GPU fast path: both on same GPU and f32.
-                if existing.is_cuda()
-                    && incoming.is_cuda()
-                    && existing.device() == incoming.device()
-                    && TypeId::of::<T>() == TypeId::of::<f32>()
-                {
-                    if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
-                        if let (Ok(e_h), Ok(i_h)) =
-                            (existing.gpu_handle(), incoming.gpu_handle())
-                        {
-                            if let Ok(sum_h) = backend.add_f32(e_h, i_h) {
-                                let sum_tensor = Tensor::from_storage(
-                                    TensorStorage::gpu(sum_h),
-                                    existing.shape().to_vec(),
-                                    false,
-                                )?;
-                                *guard = Some(Box::new(sum_tensor));
-                                return Ok(());
-                            }
-                        }
-                    }
+                // Accumulate: existing_grad += incoming_grad.
+                // Allocate new tensor instead of data_mut() to avoid UB
+                // from mutating potentially shared Arc<TensorStorage>.
+                let cpu_incoming = if incoming.is_cuda() { incoming.cpu()? } else { incoming.clone() };
+                let incoming_data = cpu_incoming.data()?;
+                let mut buf = existing.data_vec()?;
+                if buf.len() != incoming_data.len() {
+                    return Err(FerrotorchError::ShapeMismatch {
+                        message: format!(
+                            "gradient accumulation shape mismatch: {:?} vs {:?}",
+                            existing.shape(),
+                            incoming.shape()
+                        ),
+                    });
                 }
-
-                // CPU fallback (handles non-contiguous via data_vec).
-                let incoming_data = incoming.data_vec()?;
-                if existing.is_cuda() {
-                    let existing_cpu = existing.cpu()?;
-                    let device = existing.device();
-                    let mut buf = existing_cpu.data_vec()?;
-                    for (e, &n) in buf.iter_mut().zip(incoming_data.iter()) {
-                        *e = *e + n;
-                    }
-                    let combined = Tensor::from_storage(
-                        TensorStorage::cpu(buf),
-                        existing.shape().to_vec(),
-                        false,
-                    )?;
-                    *guard = Some(Box::new(combined.to(device)?));
-                } else {
-                    let existing_data = unsafe { existing.data_mut()? };
-                    if existing_data.len() != incoming_data.len() {
-                        return Err(FerrotorchError::ShapeMismatch {
-                            message: format!(
-                                "gradient accumulation shape mismatch: {:?} vs {:?}",
-                                existing.shape(),
-                                incoming.shape()
-                            ),
-                        });
-                    }
-                    for (e, &n) in existing_data.iter_mut().zip(incoming_data.iter()) {
-                        *e = *e + n;
-                    }
+                for (e, &n) in buf.iter_mut().zip(incoming_data.iter()) {
+                    *e = *e + n;
                 }
+                let combined = Tensor::from_storage(
+                    TensorStorage::cpu(buf),
+                    existing.shape().to_vec(),
+                    false,
+                )?;
+                *guard = Some(Box::new(combined));
             }
         }
         Ok(())
@@ -458,11 +402,17 @@ impl<T: Float> Tensor<T> {
     /// Returns `Err(GpuTensorNotAccessible)` if the tensor is on a GPU.
     /// Call `.cpu()` first to transfer it.
     ///
-    /// Returns an error if the tensor is on GPU — call `.cpu()` first.
-    /// For non-contiguous tensors, use `data_vec()` for stride-aware access.
+    /// Returns `Err` if the tensor is not contiguous — the raw storage
+    /// slice would not correspond to the logical element order. Use
+    /// [`data_vec()`](Self::data_vec) or call `.contiguous()` first.
     pub fn data(&self) -> FerrotorchResult<&[T]> {
         if self.inner.storage.is_gpu() {
             return Err(FerrotorchError::GpuTensorNotAccessible);
+        }
+        if !self.is_contiguous() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "tensor is not contiguous; call .contiguous() or use .data_vec()".into(),
+            });
         }
         let slice = self.inner.storage.as_slice();
         let end = self.inner.offset + self.numel();
@@ -488,42 +438,41 @@ impl<T: Float> Tensor<T> {
     }
 
     /// Get tensor data as an owned `Vec<T>`, transparently transferring from
-    /// GPU if needed.
+    /// GPU if needed and correctly handling non-contiguous tensors.
     ///
-    /// For CPU tensors this copies the slice. For GPU tensors it performs a
-    /// device-to-host transfer. For non-contiguous tensors this reads
-    /// elements in logical order using the stride layout, producing a
-    /// contiguous `Vec<T>`.
+    /// For contiguous CPU tensors this copies the slice. For non-contiguous
+    /// CPU tensors it gathers elements in logical (C-order) sequence. For
+    /// GPU tensors it performs a device-to-host transfer.
     pub fn data_vec(&self) -> FerrotorchResult<Vec<T>> {
         if self.is_cuda() {
             let cpu_tensor = self.cpu()?;
-            return cpu_tensor.data_vec();
-        }
-        if self.is_contiguous() {
+            Ok(cpu_tensor.data()?.to_vec())
+        } else if self.is_contiguous() {
             Ok(self.data()?.to_vec())
         } else {
-            // Non-contiguous: walk the logical index space using strides.
+            // Non-contiguous: gather elements by walking strides.
             let slice = self.inner.storage.as_slice();
-            let numel = self.numel();
-            let ndim = self.ndim();
             let shape = &self.inner.shape;
             let strides = &self.inner.strides;
             let offset = self.inner.offset;
+            let numel = self.numel();
+            let ndim = shape.len();
+
             let mut result = Vec::with_capacity(numel);
-            let mut coords = vec![0usize; ndim];
+            let mut indices = vec![0usize; ndim];
             for _ in 0..numel {
-                let mut physical = offset as isize;
+                let mut flat = offset as isize;
                 for d in 0..ndim {
-                    physical += coords[d] as isize * strides[d];
+                    flat += indices[d] as isize * strides[d];
                 }
-                result.push(slice[physical as usize]);
-                // Increment coords (rightmost dimension first).
+                result.push(slice[flat as usize]);
+                // Increment multi-index (rightmost first).
                 for d in (0..ndim).rev() {
-                    coords[d] += 1;
-                    if coords[d] < shape[d] {
+                    indices[d] += 1;
+                    if indices[d] < shape[d] {
                         break;
                     }
-                    coords[d] = 0;
+                    indices[d] = 0;
                 }
             }
             Ok(result)
@@ -536,6 +485,14 @@ impl<T: Float> Tensor<T> {
     /// is extracted without copying. Otherwise falls back to cloning.
     /// Used internally to avoid double-copies when rewrapping op results.
     pub fn into_storage_and_shape(self) -> FerrotorchResult<(TensorStorage<T>, Vec<usize>)> {
+        // Non-contiguous tensors must be materialized — the raw storage
+        // does not match the logical element order.
+        if !self.is_contiguous() {
+            let data = self.data_vec()?;
+            let shape = self.shape().to_vec();
+            return Ok((TensorStorage::cpu(data), shape));
+        }
+
         let shape = self.inner.shape.clone();
         // Try to unwrap the inner Arc to get ownership of TensorInner.
         match Arc::try_unwrap(self.inner) {
@@ -579,9 +536,15 @@ impl<T: Float> Tensor<T> {
 
         match (self.device(), device) {
             (Device::Cpu, Device::Cuda(ordinal)) => {
+                // Non-contiguous tensors must be materialized before GPU upload.
+                let contiguous_self = if !self.is_contiguous() {
+                    crate::methods::contiguous_t(self)?
+                } else {
+                    self.clone()
+                };
                 let backend = crate::gpu_dispatch::gpu_backend()
                     .ok_or(FerrotorchError::DeviceUnavailable)?;
-                let cpu_data = self.data()?;
+                let cpu_data = contiguous_self.data()?;
                 let bytes = unsafe {
                     std::slice::from_raw_parts(
                         cpu_data.as_ptr() as *const u8,
@@ -660,9 +623,6 @@ impl<T: Float> Tensor<T> {
 
     /// Borrow the underlying data as a mutable flat slice.
     ///
-    /// Returns an error if the tensor is not contiguous — call
-    /// `.contiguous()` first to materialize the view.
-    ///
     /// # Safety
     ///
     /// The caller must ensure exclusive access to this tensor's storage.
@@ -671,10 +631,11 @@ impl<T: Float> Tensor<T> {
     /// `no_grad()` (no graph is being built) and hold `&mut self` (exclusive
     /// access to the optimizer's parameter copies).
     pub unsafe fn data_mut(&self) -> FerrotorchResult<&mut [T]> {
-        // Non-contiguous tensors: data_mut on a strided view would give
-        // wrong results. But since this is unsafe and only called by
-        // optimizers inside no_grad, the tensor is always contiguous in
-        // practice (optimizer parameters are never views).
+        if !self.is_contiguous() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "data_mut requires a contiguous tensor".into(),
+            });
+        }
         let storage_ptr = Arc::as_ptr(&self.inner.storage) as *mut TensorStorage<T>;
         // SAFETY: Caller guarantees exclusive access (optimizer step inside no_grad).
         let storage = unsafe { &mut *storage_ptr };
@@ -742,45 +703,6 @@ impl<T: Float> Tensor<T> {
         Ok(())
     }
 
-    /// Replace this GPU tensor's buffer handle with a new one.
-    ///
-    /// This is the GPU-native alternative to `update_data()` for optimizer
-    /// steps: it swaps the buffer handle without any CPU↔GPU transfer.
-    ///
-    /// # Safety
-    ///
-    /// Same requirements as `update_data()` — caller must ensure exclusive
-    /// access. The new handle must have the same number of elements as the
-    /// tensor's `numel()`.
-    pub unsafe fn update_gpu_buffer(
-        &self,
-        new_handle: crate::gpu_dispatch::GpuBufferHandle,
-    ) -> FerrotorchResult<()> {
-        let numel = self.numel();
-        if new_handle.len() != numel {
-            return Err(FerrotorchError::ShapeMismatch {
-                message: format!(
-                    "update_gpu_buffer: new handle has {} elements but tensor has {}",
-                    new_handle.len(),
-                    numel,
-                ),
-            });
-        }
-
-        let storage_ptr = Arc::as_ptr(&self.inner.storage) as *mut TensorStorage<T>;
-        // SAFETY: Caller guarantees exclusive access (optimizer step inside no_grad).
-        let storage = unsafe { &mut *storage_ptr };
-
-        if !storage.is_gpu() {
-            return Err(FerrotorchError::InvalidArgument {
-                message: "update_gpu_buffer called on a CPU tensor".into(),
-            });
-        }
-
-        storage.data = crate::storage::StorageBuffer::Gpu(new_handle);
-        Ok(())
-    }
-
     /// Detach this tensor from the computation graph, returning a new
     /// tensor that shares storage but has no grad_fn.
     pub fn detach(&self) -> Self {
@@ -818,19 +740,24 @@ impl<T: Float> Tensor<T> {
     }
 
     /// Whether this tensor is contiguous in memory (C-order).
+    ///
+    /// Dimensions with size 1 can have any stride without affecting
+    /// contiguity, since they contribute no index offset.
     pub fn is_contiguous(&self) -> bool {
         if self.inner.shape.is_empty() {
             return true;
         }
         let mut expected_stride: isize = 1;
-        for i in (0..self.ndim()).rev() {
-            if self.inner.shape[i] == 0 {
+        for d in (0..self.ndim()).rev() {
+            if self.inner.shape[d] == 0 {
                 return true;
             }
-            if self.inner.strides[i] != expected_stride {
+            if self.inner.shape[d] != 1 && self.inner.strides[d] != expected_stride {
                 return false;
             }
-            expected_stride *= self.inner.shape[i] as isize;
+            if self.inner.shape[d] != 1 {
+                expected_stride *= self.inner.shape[d] as isize;
+            }
         }
         true
     }
