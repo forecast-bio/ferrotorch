@@ -61,6 +61,8 @@ fn is_simple_elementwise(op: &IrOpKind) -> bool {
             | IrOpKind::Relu
             | IrOpKind::Sigmoid
             | IrOpKind::Tanh
+            | IrOpKind::Exp
+            | IrOpKind::Log
     )
 }
 
@@ -80,6 +82,8 @@ fn is_fusable_elementwise(op: &IrOpKind) -> bool {
             | IrOpKind::Abs
             | IrOpKind::Gelu
             | IrOpKind::Silu
+            | IrOpKind::Exp
+            | IrOpKind::Log
             | IrOpKind::Pow { .. }
     )
 }
