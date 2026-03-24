@@ -1,0 +1,10 @@
+{
+  "uuid": "52421992-4c26-493e-81c2-786b10b61426",
+  "display_id": 353,
+  "title": "CUDA stream pool with thread-local current stream and events",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-24T19:53:42.471523736Z",
+  "updated_at": "2026-03-24T19:53:42.471523736Z"
+}
