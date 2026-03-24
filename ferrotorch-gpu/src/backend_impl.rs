@@ -722,6 +722,25 @@ impl GpuBackend for CudaBackendImpl {
         Ok(Self::wrap_buffer(result, grad.device_ordinal()))
     }
 
+    fn layernorm_backward_f32(
+        &self,
+        input: &GpuBufferHandle,
+        grad_output: &GpuBufferHandle,
+        weight: &GpuBufferHandle,
+        rows: usize,
+        cols: usize,
+        eps: f32,
+    ) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle, GpuBufferHandle)> {
+        let in_buf = Self::unwrap_buffer(input)?;
+        let go_buf = Self::unwrap_buffer(grad_output)?;
+        let w_buf = Self::unwrap_buffer(weight)?;
+        let dev = self.device(input.device_ordinal())?;
+        let (gi, gw, gb) = crate::kernels::gpu_layernorm_backward(in_buf, go_buf, w_buf, rows, cols, eps, dev)
+            .map_err(Self::map_gpu_err)?;
+        let ordinal = input.device_ordinal();
+        Ok((Self::wrap_buffer(gi, ordinal), Self::wrap_buffer(gw, ordinal), Self::wrap_buffer(gb, ordinal)))
+    }
+
     fn sum_axis_f32(
         &self,
         a: &GpuBufferHandle,

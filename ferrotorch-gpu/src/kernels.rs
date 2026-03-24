@@ -1819,6 +1819,335 @@ DONE:
 ";
 
 // ---------------------------------------------------------------------------
+// LayerNorm backward PTX kernel
+// ---------------------------------------------------------------------------
+//
+// One block per batch element (row). Each block:
+//   1. Recompute mean and variance from input
+//   2. Compute x_hat = (x - mean) * rsqrt(var + eps)
+//   3. Compute dl_dx_hat = grad_output * weight
+//   4. Reduce dl_dx_hat and dl_dx_hat * x_hat across the normalized dimension
+//   5. Compute grad_input = rsqrt(var+eps) * (dl_dx_hat - mean(dl_dx_hat) - x_hat * mean(dl_dx_hat * x_hat))
+//   6. Accumulate grad_weight (atomicAdd) and grad_bias (atomicAdd) across batch elements
+//
+// Uses shared memory for per-row reductions, 256 threads per block.
+// Parameters:
+//   in_ptr      - pointer to input f32 buffer [rows * cols]
+//   grad_out_ptr - pointer to grad_output f32 buffer [rows * cols]
+//   w_ptr       - pointer to weight f32 buffer [cols]
+//   grad_in_ptr - pointer to grad_input f32 output buffer [rows * cols]
+//   grad_w_ptr  - pointer to grad_weight f32 output buffer [cols] (atomicAdd)
+//   grad_b_ptr  - pointer to grad_bias f32 output buffer [cols] (atomicAdd)
+//   rows        - number of batch elements
+//   cols        - normalized dimension size
+//   eps         - epsilon for numerical stability
+
+#[cfg(feature = "cuda")]
+pub(crate) const LAYERNORM_BACKWARD_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.shared .align 4 .f32 sdata[256];
+
+.visible .entry layernorm_backward_kernel(
+    .param .u64 in_ptr,
+    .param .u64 grad_out_ptr,
+    .param .u64 w_ptr,
+    .param .u64 grad_in_ptr,
+    .param .u64 grad_w_ptr,
+    .param .u64 grad_b_ptr,
+    .param .u32 rows,
+    .param .u32 cols,
+    .param .f32 eps
+) {
+    .reg .u32 %r_tid, %r_bid, %r_bdim, %rows_reg, %cols_reg, %j, %half, %r_otid;
+    .reg .u64 %in, %go, %w, %gi, %gw, %gb, %row_off, %off, %sbase, %saddr, %addr;
+    .reg .f32 %val, %mean, %var, %diff, %eps_r, %inv_std, %x_hat, %wv, %gov;
+    .reg .f32 %dl_dx_hat, %sum1, %sum2, %other_val, %n_f, %mean1, %mean2, %result;
+    .reg .pred %p, %lp, %rp;
+
+    ld.param.u64 %in, [in_ptr];
+    ld.param.u64 %go, [grad_out_ptr];
+    ld.param.u64 %w, [w_ptr];
+    ld.param.u64 %gi, [grad_in_ptr];
+    ld.param.u64 %gw, [grad_w_ptr];
+    ld.param.u64 %gb, [grad_b_ptr];
+    ld.param.u32 %rows_reg, [rows];
+    ld.param.u32 %cols_reg, [cols];
+    ld.param.f32 %eps_r, [eps];
+
+    mov.u64 %sbase, sdata;
+
+    mov.u32 %r_bid, %ctaid.x;
+    mov.u32 %r_bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+
+    setp.ge.u32 %p, %r_bid, %rows_reg;
+    @%p bra LNB_DONE;
+
+    // row_off = bid * cols * 4 (byte offset for this row)
+    cvt.u64.u32 %row_off, %r_bid;
+    cvt.u64.u32 %off, %cols_reg;
+    mul.lo.u64 %row_off, %row_off, %off;
+    shl.b64 %row_off, %row_off, 2;
+    cvt.rn.f32.u32 %n_f, %cols_reg;
+
+    // ===== Phase 1: Compute mean =====
+    mov.f32 %mean, 0f00000000;
+    mov.u32 %j, %r_tid;
+LNB_SM:
+    setp.ge.u32 %lp, %j, %cols_reg;
+    @%lp bra LNB_SMD;
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    add.u64 %addr, %addr, %row_off;
+    ld.global.f32 %val, [%addr];
+    add.f32 %mean, %mean, %val;
+    add.u32 %j, %j, %r_bdim;
+    bra LNB_SM;
+LNB_SMD:
+    // Shared memory reduce for mean
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    st.shared.f32 [%saddr], %mean;
+    bar.sync 0;
+    mov.u32 %half, %r_bdim;
+LNB_MR:
+    shr.u32 %half, %half, 1;
+    setp.eq.u32 %rp, %half, 0;
+    @%rp bra LNB_MRD;
+    setp.ge.u32 %rp, %r_tid, %half;
+    @%rp bra LNB_MRS;
+    add.u32 %r_otid, %r_tid, %half;
+    cvt.u64.u32 %off, %r_otid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %other_val, [%saddr];
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %mean, [%saddr];
+    add.f32 %mean, %mean, %other_val;
+    st.shared.f32 [%saddr], %mean;
+LNB_MRS:
+    bar.sync 0;
+    bra LNB_MR;
+LNB_MRD:
+    ld.shared.f32 %mean, [%sbase];
+    div.approx.f32 %mean, %mean, %n_f;
+    bar.sync 0;
+
+    // ===== Phase 2: Compute variance =====
+    mov.f32 %var, 0f00000000;
+    mov.u32 %j, %r_tid;
+LNB_SV:
+    setp.ge.u32 %lp, %j, %cols_reg;
+    @%lp bra LNB_SVD;
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    add.u64 %addr, %addr, %row_off;
+    ld.global.f32 %val, [%addr];
+    sub.f32 %diff, %val, %mean;
+    fma.rn.f32 %var, %diff, %diff, %var;
+    add.u32 %j, %j, %r_bdim;
+    bra LNB_SV;
+LNB_SVD:
+    // Shared memory reduce for variance
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    st.shared.f32 [%saddr], %var;
+    bar.sync 0;
+    mov.u32 %half, %r_bdim;
+LNB_VR:
+    shr.u32 %half, %half, 1;
+    setp.eq.u32 %rp, %half, 0;
+    @%rp bra LNB_VRD;
+    setp.ge.u32 %rp, %r_tid, %half;
+    @%rp bra LNB_VRS;
+    add.u32 %r_otid, %r_tid, %half;
+    cvt.u64.u32 %off, %r_otid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %other_val, [%saddr];
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %var, [%saddr];
+    add.f32 %var, %var, %other_val;
+    st.shared.f32 [%saddr], %var;
+LNB_VRS:
+    bar.sync 0;
+    bra LNB_VR;
+LNB_VRD:
+    ld.shared.f32 %var, [%sbase];
+    div.approx.f32 %var, %var, %n_f;
+    add.f32 %var, %var, %eps_r;
+    sqrt.approx.f32 %inv_std, %var;
+    rcp.approx.f32 %inv_std, %inv_std;
+    bar.sync 0;
+
+    // ===== Phase 3: Compute sum1 = sum(dl_dx_hat), sum2 = sum(dl_dx_hat * x_hat) =====
+    // Also accumulate grad_weight and grad_bias via atomicAdd
+    mov.f32 %sum1, 0f00000000;
+    mov.f32 %sum2, 0f00000000;
+    mov.u32 %j, %r_tid;
+LNB_S12:
+    setp.ge.u32 %lp, %j, %cols_reg;
+    @%lp bra LNB_S12D;
+    // Load input[row, j]
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    add.u64 %addr, %addr, %row_off;
+    ld.global.f32 %val, [%addr];
+    // x_hat = (val - mean) * inv_std
+    sub.f32 %x_hat, %val, %mean;
+    mul.f32 %x_hat, %x_hat, %inv_std;
+    // Load grad_output[row, j]
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %go, %off;
+    add.u64 %addr, %addr, %row_off;
+    ld.global.f32 %gov, [%addr];
+    // Load weight[j]
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %w, %off;
+    ld.global.f32 %wv, [%addr];
+    // dl_dx_hat = grad_output * weight
+    mul.f32 %dl_dx_hat, %gov, %wv;
+    // Accumulate sums
+    add.f32 %sum1, %sum1, %dl_dx_hat;
+    fma.rn.f32 %sum2, %dl_dx_hat, %x_hat, %sum2;
+    // atomicAdd grad_weight[j] += grad_output * x_hat
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %gw, %off;
+    mul.f32 %result, %gov, %x_hat;
+    atom.global.add.f32 %result, [%addr], %result;
+    // atomicAdd grad_bias[j] += grad_output
+    add.u64 %addr, %gb, %off;
+    atom.global.add.f32 %result, [%addr], %gov;
+    add.u32 %j, %j, %r_bdim;
+    bra LNB_S12;
+LNB_S12D:
+    // Reduce sum1 in shared memory
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    st.shared.f32 [%saddr], %sum1;
+    bar.sync 0;
+    mov.u32 %half, %r_bdim;
+LNB_R1:
+    shr.u32 %half, %half, 1;
+    setp.eq.u32 %rp, %half, 0;
+    @%rp bra LNB_R1D;
+    setp.ge.u32 %rp, %r_tid, %half;
+    @%rp bra LNB_R1S;
+    add.u32 %r_otid, %r_tid, %half;
+    cvt.u64.u32 %off, %r_otid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %other_val, [%saddr];
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %sum1, [%saddr];
+    add.f32 %sum1, %sum1, %other_val;
+    st.shared.f32 [%saddr], %sum1;
+LNB_R1S:
+    bar.sync 0;
+    bra LNB_R1;
+LNB_R1D:
+    ld.shared.f32 %sum1, [%sbase];
+    // mean1 = sum1 / n
+    div.approx.f32 %mean1, %sum1, %n_f;
+    bar.sync 0;
+
+    // Reduce sum2 in shared memory
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    st.shared.f32 [%saddr], %sum2;
+    bar.sync 0;
+    mov.u32 %half, %r_bdim;
+LNB_R2:
+    shr.u32 %half, %half, 1;
+    setp.eq.u32 %rp, %half, 0;
+    @%rp bra LNB_R2D;
+    setp.ge.u32 %rp, %r_tid, %half;
+    @%rp bra LNB_R2S;
+    add.u32 %r_otid, %r_tid, %half;
+    cvt.u64.u32 %off, %r_otid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %other_val, [%saddr];
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %sum2, [%saddr];
+    add.f32 %sum2, %sum2, %other_val;
+    st.shared.f32 [%saddr], %sum2;
+LNB_R2S:
+    bar.sync 0;
+    bra LNB_R2;
+LNB_R2D:
+    ld.shared.f32 %sum2, [%sbase];
+    // mean2 = sum2 / n
+    div.approx.f32 %mean2, %sum2, %n_f;
+    bar.sync 0;
+
+    // ===== Phase 4: Compute grad_input =====
+    // grad_input[j] = inv_std * (dl_dx_hat[j] - mean1 - x_hat[j] * mean2)
+    mov.u32 %j, %r_tid;
+LNB_GI:
+    setp.ge.u32 %lp, %j, %cols_reg;
+    @%lp bra LNB_GID;
+    // Reload input to recompute x_hat
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    add.u64 %addr, %addr, %row_off;
+    ld.global.f32 %val, [%addr];
+    sub.f32 %x_hat, %val, %mean;
+    mul.f32 %x_hat, %x_hat, %inv_std;
+    // Reload grad_output and weight to recompute dl_dx_hat
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %go, %off;
+    add.u64 %addr, %addr, %row_off;
+    ld.global.f32 %gov, [%addr];
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %w, %off;
+    ld.global.f32 %wv, [%addr];
+    mul.f32 %dl_dx_hat, %gov, %wv;
+    // result = inv_std * (dl_dx_hat - mean1 - x_hat * mean2)
+    sub.f32 %result, %dl_dx_hat, %mean1;
+    mul.f32 %diff, %x_hat, %mean2;
+    sub.f32 %result, %result, %diff;
+    mul.f32 %result, %inv_std, %result;
+    // Store grad_input[row, j]
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %gi, %off;
+    add.u64 %addr, %addr, %row_off;
+    st.global.f32 [%addr], %result;
+    add.u32 %j, %j, %r_bdim;
+    bra LNB_GI;
+LNB_GID:
+
+LNB_DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
 // Softmax PTX kernel (row-wise, numerically stable)
 // ---------------------------------------------------------------------------
 //
@@ -4106,6 +4435,118 @@ pub fn gpu_layernorm(
 
     Ok(out)
 }
+
+// ---------------------------------------------------------------------------
+// Public API -- LayerNorm backward
+// ---------------------------------------------------------------------------
+
+/// LayerNorm backward pass on GPU.
+///
+/// Computes grad_input, grad_weight, and grad_bias entirely on GPU.
+/// One block per batch element (row), 256 threads per block.
+/// grad_weight and grad_bias are accumulated across batches via atomicAdd.
+///
+/// `input`: `[rows * cols]`, `grad_output`: `[rows * cols]`, `weight`: `[cols]`.
+/// Returns: `(grad_input [rows * cols], grad_weight [cols], grad_bias [cols])`.
+#[cfg(feature = "cuda")]
+pub fn gpu_layernorm_backward(
+    input: &CudaBuffer<f32>,
+    grad_output: &CudaBuffer<f32>,
+    weight: &CudaBuffer<f32>,
+    rows: usize,
+    cols: usize,
+    eps: f32,
+    device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>, CudaBuffer<f32>)> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(input, device)?;
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx, LAYERNORM_BACKWARD_PTX, "layernorm_backward_kernel", device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback
+            let h_in = gpu_to_cpu(input, device)?;
+            let h_go = gpu_to_cpu(grad_output, device)?;
+            let h_w = gpu_to_cpu(weight, device)?;
+            let mut grad_input = vec![0.0f32; rows * cols];
+            let mut grad_weight = vec![0.0f32; cols];
+            let mut grad_bias = vec![0.0f32; cols];
+            let n_f = cols as f32;
+            for r in 0..rows {
+                let base = r * cols;
+                let x_slice = &h_in[base..base + cols];
+                let go_slice = &h_go[base..base + cols];
+                let mean: f32 = x_slice.iter().sum::<f32>() / n_f;
+                let var: f32 = x_slice.iter().map(|&x| (x - mean) * (x - mean)).sum::<f32>() / n_f;
+                let inv_std = 1.0 / (var + eps).sqrt();
+                let mut sum1 = 0.0f32;
+                let mut sum2 = 0.0f32;
+                for c in 0..cols {
+                    let x_hat = (x_slice[c] - mean) * inv_std;
+                    let dl = go_slice[c] * h_w[c];
+                    sum1 += dl;
+                    sum2 += dl * x_hat;
+                    grad_weight[c] += go_slice[c] * x_hat;
+                    grad_bias[c] += go_slice[c];
+                }
+                let m1 = sum1 / n_f;
+                let m2 = sum2 / n_f;
+                for c in 0..cols {
+                    let x_hat = (x_slice[c] - mean) * inv_std;
+                    let dl = go_slice[c] * h_w[c];
+                    grad_input[base + c] = inv_std * (dl - m1 - x_hat * m2);
+                }
+            }
+            let gi = cpu_to_gpu(&grad_input, device)?;
+            let gw = cpu_to_gpu(&grad_weight, device)?;
+            let gb = cpu_to_gpu(&grad_bias, device)?;
+            return Ok((gi, gw, gb));
+        }
+    };
+
+    let mut grad_in = alloc_zeros_f32(rows * cols, device)?;
+    let mut grad_w = alloc_zeros_f32(cols, device)?;
+    let mut grad_b = alloc_zeros_f32(cols, device)?;
+    let rows_u32 = rows as u32;
+    let cols_u32 = cols as u32;
+
+    // One block per row, 256 threads per block.
+    let cfg = LaunchConfig {
+        grid_dim: ((rows as u32).max(1), 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 256 * 4,
+    };
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(grad_output.inner())
+            .arg(weight.inner())
+            .arg(grad_in.inner_mut())
+            .arg(grad_w.inner_mut())
+            .arg(grad_b.inner_mut())
+            .arg(&rows_u32)
+            .arg(&cols_u32)
+            .arg(&eps)
+            .launch(cfg)?;
+    }
+
+    Ok((grad_in, grad_w, grad_b))
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_layernorm_backward(
+    _input: &CudaBuffer<f32>, _grad_output: &CudaBuffer<f32>, _weight: &CudaBuffer<f32>,
+    _rows: usize, _cols: usize, _eps: f32, _device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>, CudaBuffer<f32>)> { Err(GpuError::NoCudaFeature) }
 
 // ===========================================================================
 // _into variants — write to pre-allocated output buffers (zero allocation)

@@ -265,6 +265,19 @@ pub trait GpuBackend: Send + Sync {
         Err(FerrotorchError::InvalidArgument { message: "softmax_backward_f32 GPU op not yet implemented".into() })
     }
 
+    // LayerNorm backward: computes grad_input, grad_weight, grad_bias on GPU
+    fn layernorm_backward_f32(
+        &self,
+        _input: &GpuBufferHandle,
+        _grad_output: &GpuBufferHandle,
+        _weight: &GpuBufferHandle,
+        _rows: usize,
+        _cols: usize,
+        _eps: f32,
+    ) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle, GpuBufferHandle)> {
+        Err(FerrotorchError::InvalidArgument { message: "layernorm_backward_f32 GPU op not yet implemented".into() })
+    }
+
     // Sum along one axis of a tensor
     fn sum_axis_f32(&self, _a: &GpuBufferHandle, _shape: &[usize], _axis: usize) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument { message: "sum_axis_f32 GPU op not yet implemented".into() })
