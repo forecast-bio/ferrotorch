@@ -52,6 +52,8 @@ pub use einops::{rearrange, rearrange_with, repeat, reduce, EinopsReduction};
 pub use einsum::{einsum, einsum_differentiable};
 pub use fft::{fft, fft2, ifft, ifft2, irfft, rfft};
 pub use grad_fns::fft::{fft_differentiable, ifft_differentiable, irfft_differentiable, rfft_differentiable};
+pub use grad_fns::cumulative::{cumsum, cumprod, cummax, cummin, logcumsumexp};
+pub use ops::cumulative::CumExtremeResult;
 pub use grad_fns::reduction::{sum_dim, mean_dim};
 pub use grad_fns::shape::cat;
 pub use methods::{permute_t, view_t, contiguous_t, chunk_t, split_t};
