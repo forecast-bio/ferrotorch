@@ -71,8 +71,8 @@ pub use collective::{
 pub use ddp::DDP;
 pub use error::DistributedError;
 pub use fsdp::FSDP;
-pub use pipeline::{Pipeline, PipelineActivations, PipelineSchedule, PipelineStage};
-pub use rpc::{RRef, RpcBackend, RpcContext, RpcError, RpcFuture, SimulatedRpcBackend, TcpRpcBackend};
+pub use pipeline::{Pipeline, PipelineSchedule};
+pub use rpc::{RpcAgent, RpcError, TcpRpcBackend};
 
 #[cfg(feature = "gpu")]
 pub use gpu_collective::{gpu_allreduce, gpu_broadcast};

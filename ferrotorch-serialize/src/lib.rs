@@ -14,7 +14,7 @@ pub mod pytorch_import;
 pub mod safetensors_io;
 pub mod state_dict;
 
-pub use checkpoint::{TrainingCheckpoint, load_checkpoint, save_checkpoint};
+pub use checkpoint::{AsyncCheckpointer, TrainingCheckpoint, load_checkpoint, save_checkpoint};
 pub use gguf::{
     GgmlType, GgufFile, GgufMetadata, GgufTensorInfo, GgufValue, dequantize_gguf_tensor,
     load_gguf, load_gguf_state_dict, parse_gguf_bytes,

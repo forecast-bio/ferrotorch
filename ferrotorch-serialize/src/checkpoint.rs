@@ -15,6 +15,12 @@
 //! [state dict binary bytes (same format as state_dict::save)]
 //! ```
 
+#[cfg(not(target_endian = "little"))]
+compile_error!(
+    "ferrotorch checkpoint serialization assumes little-endian byte order. \
+     Big-endian platforms are not supported."
+);
+
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -442,9 +448,19 @@ fn deserialize_state_dict_from_bytes<T: Float>(bytes: &[u8]) -> FerrotorchResult
         let data: Vec<T> = byte_slice
             .chunks_exact(elem_size)
             .map(|chunk| {
-                let mut buf = [0u8; 8];
-                buf[..elem_size].copy_from_slice(chunk);
-                unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const T) }
+                // Safe byte-to-float conversion using from_le_bytes instead of
+                // unsafe pointer reinterpretation.
+                match elem_size {
+                    4 => {
+                        let val = f32::from_le_bytes(chunk.try_into().unwrap());
+                        T::from(val).unwrap()
+                    }
+                    8 => {
+                        let val = f64::from_le_bytes(chunk.try_into().unwrap());
+                        T::from(val).unwrap()
+                    }
+                    _ => unreachable!("unsupported element size {}", elem_size),
+                }
             })
             .collect();
 
@@ -454,6 +470,105 @@ fn deserialize_state_dict_from_bytes<T: Float>(bytes: &[u8]) -> FerrotorchResult
     }
 
     Ok(state)
+}
+
+// ---------------------------------------------------------------------------
+// Async checkpointing
+// ---------------------------------------------------------------------------
+
+/// Asynchronous checkpoint saver that writes checkpoints on a background thread.
+///
+/// # Limitations
+///
+/// - **Only supports `f32` checkpoints.** The background thread serializes
+///   `TrainingCheckpoint<f32>`. Supporting generic `T: Float` would require
+///   boxing the checkpoint or a trait-object approach; for now f32 covers the
+///   dominant training dtype.
+///
+/// # Panic handling
+///
+/// If the background thread panics, the `in_flight` flag is reset via
+/// `catch_unwind` so subsequent saves are not blocked.
+pub struct AsyncCheckpointer {
+    /// Whether a save is currently in progress.
+    in_flight: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Join handle for the background thread.
+    handle: Option<std::thread::JoinHandle<FerrotorchResult<()>>>,
+}
+
+impl AsyncCheckpointer {
+    /// Create a new async checkpointer.
+    pub fn new() -> Self {
+        Self {
+            in_flight: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            handle: None,
+        }
+    }
+
+    /// Save a checkpoint asynchronously on a background thread.
+    ///
+    /// If a previous save is still in progress, this call blocks until it
+    /// finishes before starting the new save.
+    pub fn save(
+        &mut self,
+        checkpoint: TrainingCheckpoint<f32>,
+        path: impl AsRef<Path> + Send + 'static,
+    ) -> FerrotorchResult<()> {
+        // Wait for any previous save to finish.
+        self.wait()?;
+
+        let in_flight = self.in_flight.clone();
+        in_flight.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        let handle = std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                save_checkpoint(&checkpoint, path)
+            }));
+
+            // Always reset in_flight, even on panic.
+            in_flight.store(false, std::sync::atomic::Ordering::SeqCst);
+
+            match result {
+                Ok(inner) => inner,
+                Err(panic_payload) => {
+                    let msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                        (*s).to_string()
+                    } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "unknown panic in async checkpoint".to_string()
+                    };
+                    Err(FerrotorchError::InvalidArgument {
+                        message: format!("async checkpoint thread panicked: {msg}"),
+                    })
+                }
+            }
+        });
+
+        self.handle = Some(handle);
+        Ok(())
+    }
+
+    /// Block until the in-flight save completes (if any).
+    pub fn wait(&mut self) -> FerrotorchResult<()> {
+        if let Some(handle) = self.handle.take() {
+            handle.join().map_err(|_| FerrotorchError::InvalidArgument {
+                message: "async checkpoint thread panicked".into(),
+            })??;
+        }
+        Ok(())
+    }
+
+    /// Whether a save is currently in progress.
+    pub fn is_saving(&self) -> bool {
+        self.in_flight.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Default for AsyncCheckpointer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
