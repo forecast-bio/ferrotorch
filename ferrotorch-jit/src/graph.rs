@@ -1,5 +1,5 @@
 /// A unique identifier for IR values (edges in the graph).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IrValueId(pub usize);
 
 /// A unique identifier for IR nodes.
@@ -57,6 +57,14 @@ pub enum IrOpKind {
     Squeeze { axis: usize },
     Unsqueeze { axis: usize },
     Cat { axis: usize },
+
+    // Higher-order control flow (must be lowered before interpretation)
+    /// Conditional: selects between two sub-graphs based on a predicate.
+    /// Must be lowered/inlined before the interpreter can execute the graph.
+    Cond,
+    /// Sequential scan: applies a step function over a sequence.
+    /// Must be lowered/inlined before the interpreter can execute the graph.
+    Scan,
 
     // Fused (created by optimization)
     FusedElementwise { ops: Vec<IrOpKind> },

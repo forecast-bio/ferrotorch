@@ -328,6 +328,19 @@ pub fn interpret<T: Float>(graph: &IrGraph, inputs: &[Tensor<T>]) -> FerrotorchR
                 set_outputs(&mut values, &node.outputs, result);
             }
 
+            // ----- Higher-order control flow (must be lowered) -----
+            IrOpKind::Cond => {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: "Cond IR nodes must be lowered before interpretation".into(),
+                });
+            }
+
+            IrOpKind::Scan => {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: "Scan IR nodes must be lowered before interpretation".into(),
+                });
+            }
+
             // ----- Fused elementwise -----
             IrOpKind::FusedElementwise { ops } => {
                 // Start with the first input and apply each op sequentially.

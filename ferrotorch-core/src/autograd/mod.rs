@@ -1,6 +1,7 @@
 pub mod autocast;
 pub mod autocast_ops;
 pub mod checkpoint;
+pub mod cond_scan;
 pub mod fixed_point;
 pub mod grad_penalty;
 pub mod graph;
@@ -15,6 +16,7 @@ pub use autocast_ops::{
     autocast_category, autocast_guard, autocast_log, drain_autocast_events,
     should_cast_to_reduced, should_keep_full_precision, AutocastCategory, AutocastEvent,
 };
+pub use cond_scan::{cond, scan, validate_cond_branches};
 pub use fixed_point::fixed_point;
 pub use grad_penalty::{grad_norm, gradient_penalty, jvp, vjp};
 pub use graph::{backward, backward_with_grad};

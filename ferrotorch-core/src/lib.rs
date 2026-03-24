@@ -8,6 +8,7 @@ pub mod einops;
 pub mod einsum;
 pub mod error;
 pub mod fft;
+pub mod flex_attention;
 pub mod gpu_dispatch;
 pub mod grad_fns;
 pub mod linalg;
@@ -24,7 +25,8 @@ pub mod tensor;
 pub mod vmap;
 
 // Public re-exports for ergonomic use.
-pub use autograd::{autocast, autocast_dtype, autocast_guard, is_autocast_debug, is_autocast_enabled, set_autocast_debug, AutocastCategory, AutocastDtype, backward, backward_with_grad, enable_grad, fixed_point, grad, grad_norm, gradient_penalty, hessian, jacobian, jvp, vjp, is_grad_enabled, no_grad, set_grad_enabled};
+pub use autograd::{autocast, autocast_dtype, autocast_guard, is_autocast_debug, is_autocast_enabled, set_autocast_debug, AutocastCategory, AutocastDtype, backward, backward_with_grad, cond, enable_grad, fixed_point, grad, grad_norm, gradient_penalty, hessian, jacobian, jvp, scan, validate_cond_branches, vjp, is_grad_enabled, no_grad, set_grad_enabled};
+pub use flex_attention::flex_attention;
 pub use creation::{
     arange, eye, from_slice, from_vec, full, full_like, linspace, ones, ones_like, rand,
     rand_like, randn, randn_like, scalar, tensor, zeros, zeros_like,

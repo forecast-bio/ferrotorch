@@ -75,6 +75,9 @@ const TAG_CAT: u8 = 54;
 
 const TAG_FUSED_ELEMENTWISE: u8 = 60;
 
+const TAG_COND: u8 = 70;
+const TAG_SCAN: u8 = 71;
+
 // ---------------------------------------------------------------------------
 // Writer helpers
 // ---------------------------------------------------------------------------
@@ -259,6 +262,9 @@ fn write_op_kind(w: &mut Writer, op: &IrOpKind) {
             w.write_usize_as_u32(*axis);
         }
 
+        IrOpKind::Cond => w.write_u8(TAG_COND),
+        IrOpKind::Scan => w.write_u8(TAG_SCAN),
+
         IrOpKind::FusedElementwise { ops } => {
             w.write_u8(TAG_FUSED_ELEMENTWISE);
             w.write_usize_as_u32(ops.len());
@@ -345,6 +351,9 @@ fn read_op_kind(r: &mut Reader<'_>) -> FerrotorchResult<IrOpKind> {
             let axis = r.read_u32_as_usize()?;
             Ok(IrOpKind::Cat { axis })
         }
+
+        TAG_COND => Ok(IrOpKind::Cond),
+        TAG_SCAN => Ok(IrOpKind::Scan),
 
         TAG_FUSED_ELEMENTWISE => {
             let count = r.read_u32_as_usize()?;
