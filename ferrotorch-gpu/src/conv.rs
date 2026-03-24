@@ -555,19 +555,13 @@ pub fn gpu_conv2d_f32(
         let gemm_out = gpu_matmul_f32(weight, &col_buf, c_out, col_rows, col_cols, device)?;
 
         // --- D2D copy: gemm_out -> output_buf[b * out_elems_per_batch ..] ---
-        // Slice gemm_out to its logical length in case the underlying
-        // CudaSlice is larger due to pool block reuse (the pool allocator
-        // may return a block with alloc_len > len).
+        // Slice gemm_out to the logical length — the underlying CudaSlice may
+        // be larger due to pool rounding (alloc_zeros_f32 rounds up).
         let out_start = b * out_elems_per_batch;
         let out_end = out_start + out_elems_per_batch;
+        let gemm_view = gemm_out.inner().slice(0..out_elems_per_batch);
         let mut out_view = output_buf.inner_mut().slice_mut(out_start..out_end);
-        let gemm_inner = gemm_out.inner();
-        if gemm_inner.len() > gemm_out.len() {
-            let gemm_view = gemm_inner.slice(0..gemm_out.len());
-            stream.memcpy_dtod(&gemm_view, &mut out_view)?;
-        } else {
-            stream.memcpy_dtod(gemm_inner, &mut out_view)?;
-        }
+        stream.memcpy_dtod(&gemm_view, &mut out_view)?;
 
         // --- Bias add (if present, in-place on output_buf) ---
         if let (Some(bias_buf), Some(bias_func)) = (bias, &bias_fn) {

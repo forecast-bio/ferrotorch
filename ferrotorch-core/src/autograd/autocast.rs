@@ -3,6 +3,25 @@ use std::cell::Cell;
 thread_local! {
     static AUTOCAST_ENABLED: Cell<bool> = const { Cell::new(false) };
     static AUTOCAST_DTYPE: Cell<AutocastDtype> = const { Cell::new(AutocastDtype::F16) };
+    static AUTOCAST_DEBUG: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Enable or disable autocast event recording on this thread.
+///
+/// When enabled, [`autocast_guard`](super::autocast_ops::autocast_guard)
+/// appends entries to the per-thread event log, which is useful for tests
+/// and diagnostics. When disabled (the default), only the category is
+/// returned and no events are recorded.
+///
+/// This is a thread-local setting (like autocast itself) so enabling debug
+/// on one thread does not affect others.
+pub fn set_autocast_debug(enabled: bool) {
+    AUTOCAST_DEBUG.with(|d| d.set(enabled));
+}
+
+/// Returns `true` if autocast debug event recording is active on this thread.
+pub fn is_autocast_debug() -> bool {
+    AUTOCAST_DEBUG.with(|d| d.get())
 }
 
 /// The reduced-precision dtype used during autocast regions.
@@ -33,6 +52,9 @@ pub fn autocast_dtype() -> AutocastDtype {
 /// (reductions, norms) stay in f32. The actual casting is handled by
 /// individual ops that check [`is_autocast_enabled`].
 ///
+/// Uses an RAII guard so that the previous autocast state is restored even
+/// if `f` panics (unwinding safety).
+///
 /// Calls can be nested safely — the outermost `autocast` restores the
 /// previous state.
 ///
@@ -51,20 +73,26 @@ pub fn autocast<F, R>(dtype: AutocastDtype, f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    let prev_enabled = AUTOCAST_ENABLED.with(|e| {
-        let prev = e.get();
-        e.set(true);
-        prev
-    });
-    let prev_dtype = AUTOCAST_DTYPE.with(|d| {
-        let prev = d.get();
-        d.set(dtype);
-        prev
-    });
-    let result = f();
-    AUTOCAST_DTYPE.with(|d| d.set(prev_dtype));
-    AUTOCAST_ENABLED.with(|e| e.set(prev_enabled));
-    result
+    // RAII guard restores previous state on drop (including panic unwind).
+    struct AutocastGuard {
+        prev_enabled: bool,
+        prev_dtype: AutocastDtype,
+    }
+
+    impl Drop for AutocastGuard {
+        fn drop(&mut self) {
+            AUTOCAST_ENABLED.with(|e| e.set(self.prev_enabled));
+            AUTOCAST_DTYPE.with(|d| d.set(self.prev_dtype));
+        }
+    }
+
+    let _guard = AutocastGuard {
+        prev_enabled: is_autocast_enabled(),
+        prev_dtype: autocast_dtype(),
+    };
+    AUTOCAST_ENABLED.with(|e| e.set(true));
+    AUTOCAST_DTYPE.with(|d| d.set(dtype));
+    f()
 }
 
 #[cfg(test)]
@@ -119,5 +147,29 @@ mod tests {
     fn test_default_dtype_is_f16() {
         // Before any autocast call, the default dtype cell value is F16.
         assert_eq!(autocast_dtype(), AutocastDtype::F16);
+    }
+
+    #[test]
+    fn test_autocast_panic_safety() {
+        // Verify the RAII guard restores state after a panic.
+        let result = std::panic::catch_unwind(|| {
+            autocast(AutocastDtype::BF16, || {
+                assert!(is_autocast_enabled());
+                panic!("intentional panic inside autocast");
+            });
+        });
+        assert!(result.is_err());
+        // State must be restored even after the panic.
+        assert!(!is_autocast_enabled());
+    }
+
+    #[test]
+    fn test_autocast_debug_flag() {
+        // Default is off.
+        assert!(!is_autocast_debug());
+        set_autocast_debug(true);
+        assert!(is_autocast_debug());
+        set_autocast_debug(false);
+        assert!(!is_autocast_debug());
     }
 }

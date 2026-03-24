@@ -12,6 +12,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use ferrotorch_core::FerrotorchResult;
 
@@ -39,21 +40,23 @@ pub trait Backend: Send + Sync {
     /// with the correct length before calling.
     fn recv(&self, dst: &mut [u8], src_rank: usize) -> FerrotorchResult<()>;
 
+    /// Receive into `dst` from `src_rank` with a timeout.
+    ///
+    /// Returns [`DistributedError::Timeout`] if the receive does not
+    /// complete within `timeout`. The default implementation delegates
+    /// to [`recv`](Self::recv) (no timeout).
+    fn recv_timeout(
+        &self,
+        dst: &mut [u8],
+        src_rank: usize,
+        timeout: Duration,
+    ) -> FerrotorchResult<()> {
+        let _ = timeout;
+        self.recv(dst, src_rank)
+    }
+
     /// Block until every rank has reached this barrier.
     fn barrier(&self) -> FerrotorchResult<()>;
-
-    /// Whether this backend supports direct communication between any
-    /// pair of ranks (full mesh topology).
-    ///
-    /// When `false`, only rank 0 can communicate with non-zero ranks
-    /// (star topology), and collective algorithms must route all traffic
-    /// through rank 0. When `true`, ring allreduce and other peer-to-peer
-    /// algorithms can be used.
-    ///
-    /// Defaults to `false` for backward compatibility.
-    fn supports_full_mesh(&self) -> bool {
-        false
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -73,9 +76,11 @@ pub trait Backend: Send + Sync {
 pub struct TcpBackend {
     rank: usize,
     world_size: usize,
-    /// One `(send_stream, recv_stream)` per peer. Index by peer rank.
-    /// `connections[self.rank]` is unused (no self-loop).
-    connections: Vec<Mutex<TcpStream>>,
+    /// One TCP stream per peer, indexed by peer rank. `None` for the
+    /// self-slot (no self-loop) and for peers that are not directly
+    /// connected in the star topology (non-zero ranks only connect to
+    /// rank 0).
+    connections: Vec<Option<Mutex<TcpStream>>>,
 }
 
 impl TcpBackend {
@@ -144,31 +149,20 @@ impl TcpBackend {
 
         // Collect into the final connections vec. For the star topology,
         // non-zero ranks only have a connection to rank 0, and rank 0 has
-        // connections to all others.
-        let connections: Vec<Mutex<TcpStream>> = peer_streams
+        // connections to all others. The self-slot and unconnected peers
+        // are `None`.
+        let connections: Vec<Option<Mutex<TcpStream>>> = peer_streams
             .into_iter()
             .enumerate()
             .map(|(i, opt)| {
                 if i == rank {
-                    // Self-slot: placeholder (never used). Clone another
-                    // stream for the slot to satisfy the type.
-                    Mutex::new(
-                        opt.unwrap_or_else(|| {
-                            // Dummy: won't be used. We'll guard against self-send.
-                            TcpStream::connect("127.0.0.1:0").unwrap_or_else(|_| {
-                                panic!("cannot create placeholder stream")
-                            })
-                        }),
-                    )
-                } else if let Some(s) = opt {
-                    Mutex::new(s)
+                    // Self-slot: no self-loop needed.
+                    None
                 } else {
-                    // In star topology, non-zero ranks don't have direct
-                    // connections to other non-zero ranks. They relay via 0.
-                    // For now we panic; full mesh support is future work.
-                    panic!(
-                        "rank {rank} has no direct connection to rank {i} (star topology limitation)"
-                    );
+                    // Some(stream) for connected peers, None for unconnected
+                    // peers (non-zero ranks only connect to rank 0 in star
+                    // topology).
+                    opt.map(Mutex::new)
                 }
             })
             .collect();
@@ -202,7 +196,11 @@ impl Backend for TcpBackend {
             .into());
         }
 
-        let mut stream = self.connections[dst_rank]
+        let conn = self.connections[dst_rank]
+            .as_ref()
+            .ok_or(DistributedError::NoConnection { rank: dst_rank })?;
+
+        let mut stream = conn
             .lock()
             .map_err(|e| DistributedError::LockPoisoned {
                 message: format!("send to rank {dst_rank}: {e}"),
@@ -239,7 +237,11 @@ impl Backend for TcpBackend {
             .into());
         }
 
-        let mut stream = self.connections[src_rank]
+        let conn = self.connections[src_rank]
+            .as_ref()
+            .ok_or(DistributedError::NoConnection { rank: src_rank })?;
+
+        let mut stream = conn
             .lock()
             .map_err(|e| DistributedError::LockPoisoned {
                 message: format!("recv from rank {src_rank}: {e}"),
@@ -269,6 +271,85 @@ impl Backend for TcpBackend {
             })?;
 
         Ok(())
+    }
+
+    fn recv_timeout(
+        &self,
+        dst: &mut [u8],
+        src_rank: usize,
+        timeout: Duration,
+    ) -> FerrotorchResult<()> {
+        if src_rank == self.rank {
+            return Err(DistributedError::SelfSend { rank: self.rank }.into());
+        }
+        if src_rank >= self.world_size {
+            return Err(DistributedError::InvalidRank {
+                rank: src_rank,
+                world_size: self.world_size,
+            }
+            .into());
+        }
+
+        let conn = self.connections[src_rank]
+            .as_ref()
+            .ok_or(DistributedError::NoConnection { rank: src_rank })?;
+
+        let mut stream = conn
+            .lock()
+            .map_err(|e| DistributedError::LockPoisoned {
+                message: format!("recv_timeout from rank {src_rank}: {e}"),
+            })?;
+
+        // Set the read timeout for this operation.
+        stream
+            .set_read_timeout(Some(timeout))
+            .map_err(|e| DistributedError::Io {
+                message: format!("set_read_timeout for rank {src_rank}: {e}"),
+            })?;
+
+        // Read length prefix.
+        let mut len_bytes = [0u8; 8];
+        let result = (|| {
+            stream.read_exact(&mut len_bytes).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut
+                {
+                    DistributedError::Timeout {
+                        seconds: timeout.as_secs(),
+                    }
+                } else {
+                    DistributedError::Io {
+                        message: format!("recv_timeout len from rank {src_rank}: {e}"),
+                    }
+                }
+            })?;
+            let len = u64::from_le_bytes(len_bytes) as usize;
+            if len != dst.len() {
+                return Err(DistributedError::SizeMismatch {
+                    expected: dst.len(),
+                    got: len,
+                });
+            }
+            stream.read_exact(dst).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut
+                {
+                    DistributedError::Timeout {
+                        seconds: timeout.as_secs(),
+                    }
+                } else {
+                    DistributedError::Io {
+                        message: format!("recv_timeout data from rank {src_rank}: {e}"),
+                    }
+                }
+            })?;
+            Ok(())
+        })();
+
+        // Restore blocking mode (no timeout) regardless of outcome.
+        let _ = stream.set_read_timeout(None);
+
+        result.map_err(Into::into)
     }
 
     fn barrier(&self) -> FerrotorchResult<()> {
@@ -358,10 +439,6 @@ impl Backend for SimulatedBackend {
         self.world_size
     }
 
-    fn supports_full_mesh(&self) -> bool {
-        true
-    }
-
     fn send(&self, data: &[u8], dst_rank: usize) -> FerrotorchResult<()> {
         if dst_rank >= self.world_size {
             return Err(DistributedError::InvalidRank {
@@ -409,6 +486,51 @@ impl Backend for SimulatedBackend {
             .map_err(|e| DistributedError::ChannelClosed {
                 message: format!("recv rank {src_rank} -> {}: {e}", self.rank),
             })?;
+
+        if data.len() != dst.len() {
+            return Err(DistributedError::SizeMismatch {
+                expected: dst.len(),
+                got: data.len(),
+            }
+            .into());
+        }
+
+        dst.copy_from_slice(&data);
+        Ok(())
+    }
+
+    fn recv_timeout(
+        &self,
+        dst: &mut [u8],
+        src_rank: usize,
+        timeout: Duration,
+    ) -> FerrotorchResult<()> {
+        if src_rank >= self.world_size {
+            return Err(DistributedError::InvalidRank {
+                rank: src_rank,
+                world_size: self.world_size,
+            }
+            .into());
+        }
+
+        let rx = self.channels[src_rank][self.rank]
+            .1
+            .lock()
+            .map_err(|e| DistributedError::LockPoisoned {
+                message: format!(
+                    "recv_timeout channel lock rank {src_rank} -> {}: {e}",
+                    self.rank
+                ),
+            })?;
+
+        let data = rx.recv_timeout(timeout).map_err(|e| match e {
+            mpsc::RecvTimeoutError::Timeout => DistributedError::Timeout {
+                seconds: timeout.as_secs(),
+            },
+            mpsc::RecvTimeoutError::Disconnected => DistributedError::ChannelClosed {
+                message: format!("recv_timeout rank {src_rank} -> {}: disconnected", self.rank),
+            },
+        })?;
 
         if data.len() != dst.len() {
             return Err(DistributedError::SizeMismatch {

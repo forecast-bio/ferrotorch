@@ -11,7 +11,7 @@ use crate::storage::TensorStorage;
 static NEXT_TENSOR_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// A unique, monotonically increasing tensor identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TensorId(u64);
 
 impl TensorId {
@@ -346,15 +346,6 @@ impl<T: Float> Tensor<T> {
     /// training iteration to prevent gradient accumulation across steps.
     pub fn zero_grad(&self) -> FerrotorchResult<()> {
         self.set_grad(None)
-    }
-
-    /// Returns the `Arc` strong reference count for the tensor's inner storage.
-    ///
-    /// Used by the backward engine to determine whether in-place gradient
-    /// accumulation is safe (strong_count == 1 means we hold the only ref).
-    #[inline]
-    pub(crate) fn inner_refcount(&self) -> usize {
-        Arc::strong_count(&self.inner)
     }
 
     /// Accumulate a gradient additively (used by the backward engine).
@@ -794,6 +785,25 @@ impl<T: Float> Tensor<T> {
     /// Returns true if two tensors are the same object (same Arc).
     pub fn is_same(&self, other: &Self) -> bool {
         self.inner.id == other.inner.id
+    }
+
+    /// Number of strong references to the outer `Arc<TensorInner>`.
+    ///
+    /// Used by the backward engine to decide whether in-place gradient
+    /// accumulation is safe (refcount == 1 means exclusive ownership).
+    #[inline]
+    pub(crate) fn inner_refcount(&self) -> usize {
+        Arc::strong_count(&self.inner)
+    }
+
+    /// Number of strong references to the inner `Arc<TensorStorage>`.
+    ///
+    /// Even when `inner_refcount() == 1`, the storage may be shared
+    /// (e.g. via `view_reshape` or `detach`). Both must be 1 for
+    /// in-place mutation to be safe.
+    #[inline]
+    pub(crate) fn storage_refcount(&self) -> usize {
+        Arc::strong_count(&self.inner.storage)
     }
 
     /// Returns true if two tensors share the same underlying storage allocation.

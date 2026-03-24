@@ -47,116 +47,65 @@ where
             got: device.ordinal(),
         });
     }
-    // The underlying CudaSlice may be larger than `len` due to pool block
-    // reuse. Slice to the logical length to avoid copying padding elements.
-    let inner = buffer.inner();
-    if inner.len() > buffer.len() {
-        let view = inner.slice(0..buffer.len());
-        let vec = device.stream().clone_dtoh(&view)?;
-        Ok(vec)
-    } else {
-        let vec = device.stream().clone_dtoh(inner)?;
-        Ok(vec)
-    }
+    let mut vec = device.stream().clone_dtoh(buffer.inner())?;
+    // When the allocation is rounded up (pooled buffers), the CudaSlice
+    // contains more elements than the logical `len`. Truncate to the
+    // logical length so callers only see the meaningful data.
+    vec.truncate(buffer.len());
+    Ok(vec)
 }
 
 /// Allocate a zero-initialized [`CudaBuffer<f32>`] on the given device.
 ///
 /// Checks the global buffer pool first. On a pool hit, the existing
 /// `CudaSlice` (with its CUDA events) is reused and only `cuMemsetD8Async`
-/// is called. On a miss, a fresh allocation is made via cudarc with exactly
-/// `len` elements.
+/// is called. On a miss, a fresh allocation is made via cudarc with the
+/// rounded length so the buffer is findable in the pool on subsequent lookups.
 ///
-/// Pool key matching uses rounded sizes (see [`crate::pool::round_len`]),
-/// so near-miss sizes can still hit the cache. Pool-reused buffers may
-/// have more elements than `len` (the `alloc_len` in `CudaBuffer` tracks
-/// the actual allocation), but `CudaBuffer::len()` always returns the
-/// logical `len` requested.
-///
-/// On allocation failure, attempts OOM recovery by emptying the pool cache
-/// for this device and retrying once.
+/// `memset_zeros` is called on the full `alloc_len` (rounded) allocation,
+/// not just the logical `len`. This is intentional: it ensures no stale
+/// data from previous uses leaks into the padding region.
 #[cfg(feature = "cuda")]
 pub fn alloc_zeros_f32(len: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     use cudarc::driver::CudaSlice;
 
+    let rounded = crate::pool::round_len(len);
+
     // Pool hit: reuse a cached CudaSlice — no cuMemAllocAsync, no cuEventCreate.
-    if let Some(mut result) = crate::pool::pool_take::<CudaSlice<f32>>(device.ordinal(), len, 4) {
-        device.stream().memset_zeros(&mut result.value)?;
-        return Ok(CudaBuffer::<f32>::new_pooled(
-            result.value,
-            len,
-            result.alloc_len,
-            device.ordinal(),
-        ));
+    if let Some(mut slice) =
+        crate::pool::pool_take::<CudaSlice<f32>>(device.ordinal(), rounded, 4)
+    {
+        // Zero the full allocation to ensure no stale data (P10: intentional).
+        device.stream().memset_zeros(&mut slice)?;
+        return Ok(CudaBuffer::<f32>::new_pooled(slice, len, rounded, device.ordinal()));
     }
 
-    // Pool miss: fresh allocation from CUDA driver with exact size.
-    // The pool key uses rounded sizes for matching, so this buffer will
-    // be findable by near-miss requests when it is returned to the pool.
-    match device.stream().alloc_zeros::<f32>(len) {
-        Ok(slice) => Ok(CudaBuffer::<f32>::new_pooled(
-            slice,
-            len,
-            len,
-            device.ordinal(),
-        )),
-        Err(e) => {
-            // OOM recovery: empty cache and retry once.
-            let freed = crate::pool::empty_cache_for_oom(device.ordinal());
-            if freed > 0 {
-                let slice = device.stream().alloc_zeros::<f32>(len)?;
-                Ok(CudaBuffer::<f32>::new_pooled(
-                    slice,
-                    len,
-                    len,
-                    device.ordinal(),
-                ))
-            } else {
-                Err(e.into())
-            }
-        }
-    }
+    // Pool miss: fresh allocation from CUDA driver with rounded length
+    // so the pool key matches on return. Allocating `rounded` elements
+    // (not `len`) ensures the CudaSlice size matches what pool_take
+    // will look for later (B12 fix).
+    let slice = device.stream().alloc_zeros::<f32>(rounded)?;
+    Ok(CudaBuffer::<f32>::new_pooled(slice, len, rounded, device.ordinal()))
 }
 
 /// Allocate a zero-initialized [`CudaBuffer<f64>`] on the given device.
 ///
-/// Pool-aware variant for f64 buffers. Includes OOM recovery.
+/// Pool-aware variant for f64 buffers. See [`alloc_zeros_f32`] for details.
 #[cfg(feature = "cuda")]
 pub fn alloc_zeros_f64(len: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
     use cudarc::driver::CudaSlice;
 
-    if let Some(mut result) = crate::pool::pool_take::<CudaSlice<f64>>(device.ordinal(), len, 8) {
-        device.stream().memset_zeros(&mut result.value)?;
-        return Ok(CudaBuffer::<f64>::new_pooled(
-            result.value,
-            len,
-            result.alloc_len,
-            device.ordinal(),
-        ));
+    let rounded = crate::pool::round_len(len);
+
+    if let Some(mut slice) =
+        crate::pool::pool_take::<CudaSlice<f64>>(device.ordinal(), rounded, 8)
+    {
+        device.stream().memset_zeros(&mut slice)?;
+        return Ok(CudaBuffer::<f64>::new_pooled(slice, len, rounded, device.ordinal()));
     }
 
-    match device.stream().alloc_zeros::<f64>(len) {
-        Ok(slice) => Ok(CudaBuffer::<f64>::new_pooled(
-            slice,
-            len,
-            len,
-            device.ordinal(),
-        )),
-        Err(e) => {
-            let freed = crate::pool::empty_cache_for_oom(device.ordinal());
-            if freed > 0 {
-                let slice = device.stream().alloc_zeros::<f64>(len)?;
-                Ok(CudaBuffer::<f64>::new_pooled(
-                    slice,
-                    len,
-                    len,
-                    device.ordinal(),
-                ))
-            } else {
-                Err(e.into())
-            }
-        }
-    }
+    let slice = device.stream().alloc_zeros::<f64>(rounded)?;
+    Ok(CudaBuffer::<f64>::new_pooled(slice, len, rounded, device.ordinal()))
 }
 
 /// Generic alloc_zeros — kept for backward compatibility and non-f32/f64 types.

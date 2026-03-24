@@ -1924,10 +1924,11 @@ mod tests {
 
     #[test]
     fn test_mse_loss_fires_autocast_guard_when_enabled() {
-        use ferrotorch_core::autograd::autocast::{autocast, AutocastDtype};
+        use ferrotorch_core::autograd::autocast::{autocast, set_autocast_debug, AutocastDtype};
         use ferrotorch_core::autograd::autocast_ops::{
             drain_autocast_events, AutocastCategory,
         };
+        set_autocast_debug(true);
 
         let pred = leaf_vec(&[1.0, 2.0, 3.0]);
         let target = target_vec(&[1.5, 2.5, 3.5]);
@@ -1943,17 +1944,18 @@ mod tests {
             let _ = MSELoss::new(Reduction::Mean).forward(&pred, &target).unwrap();
             let events = drain_autocast_events();
             assert_eq!(events.len(), 1);
-            assert_eq!(events[0].op_name, "mse_loss");
+            assert_eq!(events[0].op, "mse_loss");
             assert_eq!(events[0].category, AutocastCategory::FullPrecision);
         });
     }
 
     #[test]
     fn test_cross_entropy_fires_autocast_guard_when_enabled() {
-        use ferrotorch_core::autograd::autocast::{autocast, AutocastDtype};
+        use ferrotorch_core::autograd::autocast::{autocast, set_autocast_debug, AutocastDtype};
         use ferrotorch_core::autograd::autocast_ops::{
             drain_autocast_events, AutocastCategory,
         };
+        set_autocast_debug(true);
 
         // 2 samples, 3 classes.
         let logits = leaf_2d(&[1.0, 2.0, 3.0, 1.0, 2.0, 3.0], &[2, 3]);
@@ -1974,17 +1976,18 @@ mod tests {
                 .unwrap();
             let events = drain_autocast_events();
             assert_eq!(events.len(), 1);
-            assert_eq!(events[0].op_name, "cross_entropy");
+            assert_eq!(events[0].op, "cross_entropy");
             assert_eq!(events[0].category, AutocastCategory::FullPrecision);
         });
     }
 
     #[test]
     fn test_bce_with_logits_fires_autocast_guard_when_enabled() {
-        use ferrotorch_core::autograd::autocast::{autocast, AutocastDtype};
+        use ferrotorch_core::autograd::autocast::{autocast, set_autocast_debug, AutocastDtype};
         use ferrotorch_core::autograd::autocast_ops::{
             drain_autocast_events, AutocastCategory,
         };
+        set_autocast_debug(true);
 
         let logits = leaf_vec(&[0.5, -0.5, 1.0]);
         let targets = target_vec(&[1.0, 0.0, 1.0]);
@@ -2004,7 +2007,7 @@ mod tests {
                 .unwrap();
             let events = drain_autocast_events();
             assert_eq!(events.len(), 1);
-            assert_eq!(events[0].op_name, "bce_with_logits");
+            assert_eq!(events[0].op, "bce_with_logits");
             assert_eq!(events[0].category, AutocastCategory::FullPrecision);
         });
     }

@@ -59,5 +59,5 @@ pub use memory_guard::{
     MemoryReservation, MemoryStats, MemoryWatchdog, OomPolicy, PressureLevel,
 };
 pub use tensor_bridge::{cuda, cuda_default, tensor_to_cpu, tensor_to_gpu, GpuFloat, GpuTensor};
-pub use pool::{empty_cache, empty_cache_all, empty_cache_for_oom, cached_bytes, cached_bytes_all, round_len};
+pub use pool::{empty_cache, empty_cache_all, cached_bytes, round_len};
 pub use transfer::{alloc_zeros, alloc_zeros_f32, alloc_zeros_f64, cpu_to_gpu, gpu_to_cpu};

@@ -14,19 +14,15 @@ use cudarc::driver::CudaSlice;
 type PoolReturnFn<T> = Option<fn(usize, usize, CudaSlice<T>)>;
 
 /// Return a `CudaSlice<f32>` to the global pool.
-///
-/// `alloc_len` is the actual allocated element count (rounded), not the
-/// logical length the user requested. This ensures the pool key matches
-/// the true CudaSlice capacity.
 #[cfg(feature = "cuda")]
-fn return_f32(device: usize, alloc_len: usize, slice: CudaSlice<f32>) {
-    crate::pool::pool_return::<CudaSlice<f32>>(device, alloc_len, 4, slice);
+fn return_f32(device: usize, len: usize, slice: CudaSlice<f32>) {
+    crate::pool::pool_return::<CudaSlice<f32>>(device, len, 4, slice);
 }
 
 /// Return a `CudaSlice<f64>` to the global pool.
 #[cfg(feature = "cuda")]
-fn return_f64(device: usize, alloc_len: usize, slice: CudaSlice<f64>) {
-    crate::pool::pool_return::<CudaSlice<f64>>(device, alloc_len, 8, slice);
+fn return_f64(device: usize, len: usize, slice: CudaSlice<f64>) {
+    crate::pool::pool_return::<CudaSlice<f64>>(device, len, 8, slice);
 }
 
 /// Owned GPU memory buffer holding `len` elements of type `T`.
@@ -34,18 +30,16 @@ fn return_f64(device: usize, alloc_len: usize, slice: CudaSlice<f64>) {
 /// When `pool_fn` is `Some`, dropping returns the inner `CudaSlice` to the
 /// global pool ([`crate::pool`]) instead of freeing GPU memory.
 ///
-/// `alloc_len` tracks the actual number of elements allocated in the
-/// underlying `CudaSlice`, which may be larger than `len` due to size
-/// rounding or block reuse. This value is passed to `pool_return` on drop
-/// so the pool can correctly key the returned buffer.
+/// `alloc_len` is the rounded allocation size used as the pool key.
+/// `len` is the logical element count visible to callers.
 #[cfg(feature = "cuda")]
 pub struct CudaBuffer<T> {
     /// The underlying CUDA device memory. Wrapped in `Option` so
     /// `Drop` can `take()` it without double-free.
     pub(crate) data: Option<CudaSlice<T>>,
-    /// Logical element count requested by the caller.
     pub(crate) len: usize,
-    /// Actual element count allocated in the CudaSlice (>= len, rounded).
+    /// Rounded allocation length — used as the pool key so that
+    /// buffers are always findable on pool lookup.
     pub(crate) alloc_len: usize,
     pub(crate) device_ordinal: usize,
     /// If `Some`, this function is called in Drop to return the slice
@@ -58,9 +52,8 @@ pub struct CudaBuffer<T> {
 impl CudaBuffer<f32> {
     /// Create a pooled f32 buffer that returns to the global pool on drop.
     ///
-    /// `len` is the logical element count (what the caller requested).
-    /// `alloc_len` is the actual element count in the CudaSlice (may be
-    /// larger due to rounding or block reuse).
+    /// `alloc_len` is the rounded allocation size used as the pool key.
+    /// `len` is the logical element count visible to callers.
     pub(crate) fn new_pooled(
         slice: CudaSlice<f32>,
         len: usize,
@@ -80,6 +73,9 @@ impl CudaBuffer<f32> {
 #[cfg(feature = "cuda")]
 impl CudaBuffer<f64> {
     /// Create a pooled f64 buffer that returns to the global pool on drop.
+    ///
+    /// `alloc_len` is the rounded allocation size used as the pool key.
+    /// `len` is the logical element count visible to callers.
     pub(crate) fn new_pooled(
         slice: CudaSlice<f64>,
         len: usize,
@@ -101,8 +97,8 @@ impl<T> Drop for CudaBuffer<T> {
     fn drop(&mut self) {
         if let Some(slice) = self.data.take() {
             if let Some(return_fn) = self.pool_fn {
-                // Pass alloc_len (the actual CudaSlice capacity) so the pool
-                // can correctly key and track this buffer's true size.
+                // Use alloc_len (rounded) as the pool key so the buffer
+                // is findable on the next pool_take with the same rounded len.
                 return_fn(self.device_ordinal, self.alloc_len, slice);
             }
             // else: CudaSlice::Drop fires naturally (cuMemFreeAsync)
@@ -112,10 +108,21 @@ impl<T> Drop for CudaBuffer<T> {
 
 #[cfg(feature = "cuda")]
 impl<T> CudaBuffer<T> {
-    /// Number of elements in this buffer.
+    /// Number of logical elements in this buffer.
     #[inline]
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    /// Rounded allocation length used as the pool key.
+    ///
+    /// For pooled buffers, this is `round_len(len)`. For non-pooled
+    /// buffers, this equals `len`. Stats (hits, misses, returns) use
+    /// `len` consistently within the allocator for user-facing reporting;
+    /// `alloc_len` is an internal detail for pool key stability.
+    #[inline]
+    pub fn alloc_len(&self) -> usize {
+        self.alloc_len
     }
 
     /// Whether the buffer is empty.
