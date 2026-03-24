@@ -59,6 +59,41 @@ pub fn c_contiguous_strides(shape: &[usize]) -> Vec<isize> {
     strides
 }
 
+/// Compute channels-last (NHWC) strides for a 4D shape `[N, C, H, W]`.
+///
+/// The physical memory order becomes `[N, H, W, C]`, so the strides for
+/// the logical NCHW dimensions are `[H*W*C, 1, W*C, C]`.
+///
+/// [CL-309] WU-05: channels-last memory format support
+pub fn channels_last_strides(shape: &[usize]) -> Vec<isize> {
+    debug_assert_eq!(shape.len(), 4, "channels_last_strides requires a 4D shape");
+    let [_n, c, h, w] = [shape[0], shape[1], shape[2], shape[3]];
+    vec![
+        (h * w * c) as isize, // N stride
+        1,                    // C stride (innermost in NHWC)
+        (w * c) as isize,     // H stride
+        c as isize,           // W stride
+    ]
+}
+
+/// Compute channels-last-3d (NDHWC) strides for a 5D shape `[N, C, D, H, W]`.
+///
+/// The physical memory order becomes `[N, D, H, W, C]`, so the strides for
+/// the logical NCDHW dimensions are `[D*H*W*C, 1, H*W*C, W*C, C]`.
+///
+/// [CL-309] WU-05: channels-last memory format support
+pub fn channels_last_3d_strides(shape: &[usize]) -> Vec<isize> {
+    debug_assert_eq!(shape.len(), 5, "channels_last_3d_strides requires a 5D shape");
+    let [_n, c, d, h, w] = [shape[0], shape[1], shape[2], shape[3], shape[4]];
+    vec![
+        (d * h * w * c) as isize, // N stride
+        1,                        // C stride (innermost in NDHWC)
+        (h * w * c) as isize,     // D stride
+        (w * c) as isize,         // H stride
+        c as isize,               // W stride
+    ]
+}
+
 /// Normalize a possibly-negative axis index to a positive one.
 ///
 /// For a tensor with `ndim` dimensions, axis `-1` maps to `ndim - 1`, etc.
@@ -141,5 +176,23 @@ mod tests {
         assert_eq!(numel(&[2, 3, 4]), 24);
         assert_eq!(numel(&[]), 1);
         assert_eq!(numel(&[0, 5]), 0);
+    }
+
+    #[test]
+    fn test_channels_last_strides() {
+        // [N=1, C=3, H=4, W=5] -> NHWC strides: [H*W*C, 1, W*C, C] = [60, 1, 15, 3]
+        assert_eq!(channels_last_strides(&[1, 3, 4, 5]), vec![60, 1, 15, 3]);
+        // [N=2, C=3, H=2, W=2] -> [12, 1, 6, 3]
+        assert_eq!(channels_last_strides(&[2, 3, 2, 2]), vec![12, 1, 6, 3]);
+    }
+
+    #[test]
+    fn test_channels_last_3d_strides() {
+        // [N=1, C=2, D=3, H=4, W=5] -> NDHWC: [D*H*W*C, 1, H*W*C, W*C, C]
+        //   = [120, 1, 40, 10, 2]
+        assert_eq!(
+            channels_last_3d_strides(&[1, 2, 3, 4, 5]),
+            vec![120, 1, 40, 10, 2]
+        );
     }
 }
