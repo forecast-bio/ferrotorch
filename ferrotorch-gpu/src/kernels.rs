@@ -3540,7 +3540,16 @@ pub fn gpu_softmax(
 ///
 /// `threshold` = `(p * u32::MAX as f64) as u32` — the RNG cutoff.
 /// `scale` = `1.0 / (1.0 - p)`.
-/// `seed` = random seed for the xorshift RNG.
+/// `seed` = random seed for the RNG.
+///
+/// **Known limitation**: This kernel uses a simple per-element hash
+/// (`tid * 2654435761 ^ seed` with xorshift mixing), not the full
+/// Philox 4x32-10 counter-based RNG that PyTorch uses. A proper Philox
+/// dropout kernel would generate the mask via `philox_uniform_kernel`
+/// and then threshold — producing higher-quality randomness and exact
+/// reproducibility across CPU/GPU. The current hash is sufficient for
+/// training but should be upgraded for research requiring strict
+/// statistical properties.
 #[cfg(feature = "cuda")]
 pub fn gpu_dropout(
     input: &CudaBuffer<f32>,
@@ -3564,11 +3573,12 @@ pub fn gpu_dropout(
         Err(_) => {
             // CPU fallback.
             let host = gpu_to_cpu(input, device)?;
-            let mut rng_state = seed;
+            // Stateless per-element hash matching the GPU kernel: each element
+            // independently computes its own pseudorandom value from (tid, seed)
+            // with no state carried between elements.
             let result: Vec<f32> = host.iter().enumerate().map(|(i, &x)| {
-                let mut r = (i as u32).wrapping_mul(2654435761) ^ rng_state;
+                let mut r = (i as u32).wrapping_mul(2654435761) ^ seed;
                 r ^= r << 13; r ^= r >> 17; r ^= r << 5;
-                rng_state = r;
                 if r < threshold { 0.0 } else { x * scale }
             }).collect();
             return cpu_to_gpu(&result, device);

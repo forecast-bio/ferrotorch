@@ -432,6 +432,83 @@ impl<T: Float> Module<T> for Dropout2d<T> {
         let scale = T::from(1.0 / (1.0 - self.p)).unwrap();
         let zero = <T as num_traits::Zero>::zero();
 
+        // GPU path: generate a per-channel mask on device using the existing
+        // gpu_dropout kernel on a smaller buffer (one element per channel),
+        // then broadcast the mask across spatial dimensions.
+        // TODO: A fully fused GPU kernel that generates the channel mask and
+        // broadcasts in a single launch would avoid the CPU round-trip below.
+        if input.is_cuda() {
+            if let Some(backend) = ferrotorch_core::gpu_dispatch::gpu_backend() {
+                let num_channels = batch * channels;
+                let threshold = (self.p * u32::MAX as f64) as u32;
+                let scale_f32 = 1.0f32 / (1.0 - self.p as f32);
+                let seed = xorshift_seed() as u32;
+
+                // Create a ones buffer of size num_channels on GPU and run
+                // dropout to get the channel mask.
+                let ones_cpu = vec![1.0f32; num_channels];
+                let ones_tensor = Tensor::<f32>::from_storage(
+                    TensorStorage::cpu(ones_cpu),
+                    vec![num_channels],
+                    false,
+                )?;
+                let ones_gpu = ones_tensor.to(device)?;
+                let channel_mask_handle = backend.dropout_f32(
+                    ones_gpu.gpu_handle()?,
+                    threshold,
+                    scale_f32,
+                    seed,
+                )?;
+
+                // Retrieve channel mask to CPU for broadcasting and backward.
+                let mask_tensor = Tensor::<f32>::from_storage(
+                    TensorStorage::gpu(channel_mask_handle),
+                    vec![num_channels],
+                    false,
+                )?;
+                let channel_mask_cpu = mask_tensor.data_vec()?;
+
+                // Expand channel mask to full element mask.
+                let scaled_mask: Vec<T> = {
+                    let mut mask = Vec::with_capacity(numel);
+                    for bc in 0..num_channels {
+                        let val = if channel_mask_cpu[bc] == 0.0 { zero } else { scale };
+                        for _ in 0..spatial {
+                            mask.push(val);
+                        }
+                    }
+                    mask
+                };
+
+                // Apply mask to input on CPU then move back to GPU.
+                let input_data = input.data_vec()?;
+                let output_data: Vec<T> = input_data
+                    .iter()
+                    .zip(scaled_mask.iter())
+                    .map(|(&x, &m)| x * m)
+                    .collect();
+
+                let result = if is_grad_enabled() && input.requires_grad() {
+                    Tensor::from_operation(
+                        TensorStorage::cpu(output_data),
+                        input.shape().to_vec(),
+                        Arc::new(Dropout2dBackward {
+                            input: input.clone(),
+                            scaled_mask,
+                        }),
+                    )?
+                } else {
+                    Tensor::from_storage(
+                        TensorStorage::cpu(output_data),
+                        input.shape().to_vec(),
+                        false,
+                    )?
+                };
+                return result.to(device);
+            }
+        }
+
+        // CPU path.
         // Generate per-channel keep/drop decisions.
         let mut state = xorshift_seed();
         let channel_mask: Vec<bool> = (0..batch * channels)
