@@ -442,6 +442,7 @@ pub fn split_t<T: Float>(
     split_sizes: &[usize],
     dim: usize,
 ) -> FerrotorchResult<Vec<Tensor<T>>> {
+    use std::any::TypeId;
     use std::sync::Arc;
     use crate::autograd::no_grad::is_grad_enabled;
     use crate::error::FerrotorchError;
@@ -471,8 +472,58 @@ pub fn split_t<T: Float>(
     }
 
     let device = input.device();
-    let in_data = input.data_vec()?;
     let needs_grad = is_grad_enabled() && input.requires_grad();
+
+    // GPU fast path: use strided_split to extract each chunk directly on GPU.
+    if device.is_cuda() && TypeId::of::<T>() == TypeId::of::<f32>() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let inner: usize = if dim + 1 < ndim {
+                shape[dim + 1..].iter().product()
+            } else {
+                1
+            };
+            let total_along_dim = shape[dim];
+            let in_handle = input.gpu_handle()?;
+
+            let mut results = Vec::with_capacity(split_sizes.len());
+            let mut offset_along_dim = 0usize;
+
+            for &split_size in split_sizes {
+                let mut chunk_shape = shape.to_vec();
+                chunk_shape[dim] = split_size;
+                let chunk_numel: usize = chunk_shape.iter().product();
+
+                let chunk_handle = backend.strided_split_f32(
+                    in_handle,
+                    total_along_dim,
+                    offset_along_dim,
+                    split_size,
+                    inner,
+                    chunk_numel,
+                )?;
+
+                let storage = TensorStorage::gpu(chunk_handle);
+                let t = if needs_grad {
+                    let grad_fn = Arc::new(SplitBackward::new(
+                        input.clone(),
+                        dim,
+                        offset_along_dim,
+                        split_size,
+                    ));
+                    Tensor::from_operation(storage, chunk_shape, grad_fn)?
+                } else {
+                    Tensor::from_storage(storage, chunk_shape, false)?
+                };
+                results.push(t);
+                offset_along_dim += split_size;
+            }
+
+            return Ok(results);
+        }
+    }
+
+    // CPU path (also serves as fallback for non-f32 or missing backend).
+    let in_data = input.data_vec()?;
 
     let outer: usize = shape[..dim].iter().product();
     let inner: usize = if dim + 1 < ndim {
