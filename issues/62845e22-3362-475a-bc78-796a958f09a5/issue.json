@@ -2,11 +2,12 @@
   "uuid": "62845e22-3362-475a-bc78-796a958f09a5",
   "display_id": 286,
   "title": "QA review: audit all Tier 3 changes for bugs, lazy shortcuts, and correctness issues",
-  "status": "open",
+  "status": "closed",
   "priority": "critical",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T03:07:59.361033790Z",
-  "updated_at": "2026-03-24T03:08:01.177207653Z",
+  "updated_at": "2026-03-24T03:29:15.873507950Z",
+  "closed_at": "2026-03-24T03:29:15.873507950Z",
   "labels": [
     "bug"
   ]
