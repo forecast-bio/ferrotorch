@@ -1,0 +1,10 @@
+{
+  "uuid": "eaf44946-26de-43c6-90eb-2773ff3aaee8",
+  "display_id": 388,
+  "title": "Optimizer foreach/fused kernel modes for batched parameter updates",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-24T19:56:29.243240833Z",
+  "updated_at": "2026-03-24T19:56:29.243240833Z"
+}
