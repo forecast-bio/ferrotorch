@@ -1,0 +1,501 @@
+//! RAdam optimizer — Rectified Adam.
+//!
+//! Implements the algorithm from Liu et al., "On the Variance of the Adaptive
+//! Learning Rate and Beyond" (ICLR 2020). RAdam automatically switches between
+//! an adaptive learning rate (like Adam) and a non-adaptive one (like SGD with
+//! momentum), based on the variance of the adaptive learning rate.
+//!
+//! When the approximated SMA length rho_t > 5, the variance is low enough to
+//! use the adaptive update with a rectification term. Otherwise, it falls back
+//! to a simple bias-corrected first-moment update.
+//!
+//! CL-319
+
+use std::collections::HashMap;
+
+use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_nn::Parameter;
+
+use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+/// Hyperparameters for the [`RAdam`] optimizer.
+#[derive(Debug, Clone, Copy)]
+pub struct RAdamConfig {
+    /// Learning rate (default: 0.001).
+    pub lr: f64,
+    /// Exponential decay rates for the first and second moment estimates
+    /// (default: `(0.9, 0.999)`).
+    pub betas: (f64, f64),
+    /// Term added to the denominator for numerical stability (default: 1e-8).
+    pub eps: f64,
+    /// Weight decay coefficient (default: 0.0).
+    pub weight_decay: f64,
+    /// Whether to apply decoupled weight decay (AdamW-style) instead of L2
+    /// regularization (default: false).
+    pub decoupled_weight_decay: bool,
+}
+
+impl Default for RAdamConfig {
+    fn default() -> Self {
+        Self {
+            lr: 1e-3,
+            betas: (0.9, 0.999),
+            eps: 1e-8,
+            weight_decay: 0.0,
+            decoupled_weight_decay: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-parameter state
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+struct RAdamParamState {
+    step_count: u64,
+    exp_avg: Vec<f64>,
+    exp_avg_sq: Vec<f64>,
+}
+
+// ---------------------------------------------------------------------------
+// RAdam
+// ---------------------------------------------------------------------------
+
+/// Rectified Adam optimizer.
+///
+/// Automatically applies variance rectification when the approximated SMA
+/// length rho_t exceeds 5, falling back to a simple momentum update otherwise.
+#[derive(Debug)]
+pub struct RAdam<T: Float> {
+    param_groups: Vec<ParamGroup<T>>,
+    config: RAdamConfig,
+    state: HashMap<String, RAdamParamState>,
+}
+
+impl<T: Float> RAdam<T> {
+    /// Create a new RAdam optimizer.
+    pub fn new(params: Vec<Parameter<T>>, config: RAdamConfig) -> Self {
+        let mut group = ParamGroup::new(params, config.lr);
+        group.weight_decay = config.weight_decay;
+        Self {
+            param_groups: vec![group],
+            config,
+            state: HashMap::new(),
+        }
+    }
+
+    #[inline]
+    fn param_key(group_idx: usize, param_idx: usize) -> String {
+        format!("g{group_idx}_p{param_idx}")
+    }
+}
+
+impl<T: Float> Optimizer<T> for RAdam<T> {
+    fn step(&mut self) -> FerrotorchResult<()> {
+        let config = self.config;
+        let (beta1, beta2) = config.betas;
+
+        // Maximum length of the approximated SMA.
+        let rho_inf = 2.0 / (1.0 - beta2) - 1.0;
+
+        for gi in 0..self.param_groups.len() {
+            let group_lr = self.param_groups[gi].lr;
+            let group_wd = self.param_groups[gi].weight_decay;
+
+            for pi in 0..self.param_groups[gi].params.len() {
+                let param = &self.param_groups[gi].params[pi];
+                let tensor = param.tensor();
+
+                let grad_tensor = match tensor.grad()? {
+                    Some(g) => g,
+                    None => continue,
+                };
+
+                let key = Self::param_key(gi, pi);
+
+                let param_data: Vec<f64> = tensor
+                    .data_vec()?
+                    .iter()
+                    .map(|&v| v.to_f64().unwrap())
+                    .collect();
+                let mut grad_data: Vec<f64> = grad_tensor
+                    .data_vec()?
+                    .iter()
+                    .map(|&v| v.to_f64().unwrap())
+                    .collect();
+
+                let numel = param_data.len();
+
+                // Decoupled weight decay: applied directly to parameters.
+                let decay_factor = if config.decoupled_weight_decay && group_wd > 0.0 {
+                    1.0 - group_lr * group_wd
+                } else {
+                    1.0
+                };
+
+                // L2 weight decay: added to gradient.
+                if !config.decoupled_weight_decay && group_wd > 0.0 {
+                    for (g, &p) in grad_data.iter_mut().zip(param_data.iter()) {
+                        *g += group_wd * p;
+                    }
+                }
+
+                let state = self.state.entry(key).or_insert_with(|| RAdamParamState {
+                    step_count: 0,
+                    exp_avg: vec![0.0; numel],
+                    exp_avg_sq: vec![0.0; numel],
+                });
+
+                state.step_count += 1;
+                let step = state.step_count;
+
+                // Update first moment: m_t = beta1 * m_{t-1} + (1 - beta1) * g_t
+                for (m, &g) in state.exp_avg.iter_mut().zip(grad_data.iter()) {
+                    *m = beta1 * *m + (1.0 - beta1) * g;
+                }
+
+                // Update second moment: v_t = beta2 * v_{t-1} + (1 - beta2) * g_t^2
+                for (v, &g) in state.exp_avg_sq.iter_mut().zip(grad_data.iter()) {
+                    *v = beta2 * *v + (1.0 - beta2) * g * g;
+                }
+
+                // Bias correction for first moment.
+                let bc1 = 1.0 - beta1.powi(step as i32);
+                let bc2 = 1.0 - beta2.powi(step as i32);
+
+                // Bias-corrected first moment.
+                // m_hat = m_t / (1 - beta1^t)
+
+                // Compute approximated SMA length.
+                // rho_t = rho_inf - 2 * t * beta2^t / (1 - beta2^t)
+                let rho_t = rho_inf - 2.0 * (step as f64) * beta2.powi(step as i32) / bc2;
+
+                let new_values: Vec<T> = if rho_t > 5.0 {
+                    // Variance is tractable: use adaptive learning rate with
+                    // rectification term.
+                    //
+                    // r_t = sqrt( (rho_t - 4)(rho_t - 2) * rho_inf /
+                    //             ((rho_inf - 4)(rho_inf - 2) * rho_t) )
+                    // l_t = sqrt(1 - beta2^t) / (sqrt(v_t) + eps)
+                    // theta_t = theta_t - lr * m_hat * r_t * l_t
+                    let rect = ((rho_t - 4.0) * (rho_t - 2.0) * rho_inf
+                        / ((rho_inf - 4.0) * (rho_inf - 2.0) * rho_t))
+                        .sqrt();
+
+                    (0..numel)
+                        .map(|i| {
+                            let m_hat = state.exp_avg[i] / bc1;
+                            let adaptive_lr =
+                                bc2.sqrt() / (state.exp_avg_sq[i].sqrt() + config.eps);
+                            let decayed = param_data[i] * decay_factor;
+                            let updated = decayed - group_lr * m_hat * rect * adaptive_lr;
+                            T::from(updated).unwrap()
+                        })
+                        .collect()
+                } else {
+                    // Variance is not tractable: fall back to un-adapted step.
+                    // theta_t = theta_t - lr * m_hat
+                    (0..numel)
+                        .map(|i| {
+                            let m_hat = state.exp_avg[i] / bc1;
+                            let decayed = param_data[i] * decay_factor;
+                            let updated = decayed - group_lr * m_hat;
+                            T::from(updated).unwrap()
+                        })
+                        .collect()
+                };
+
+                no_grad(|| unsafe { param.tensor().update_data(&new_values) })?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn zero_grad(&mut self) -> FerrotorchResult<()> {
+        for group in &self.param_groups {
+            for param in &group.params {
+                param.tensor().set_grad(None)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn lr(&self) -> f64 {
+        self.param_groups
+            .first()
+            .map(|g| g.lr)
+            .unwrap_or(self.config.lr)
+    }
+
+    fn set_lr(&mut self, lr: f64) {
+        for group in &mut self.param_groups {
+            group.lr = lr;
+        }
+    }
+
+    fn param_groups(&self) -> &[ParamGroup<T>] {
+        &self.param_groups
+    }
+
+    fn param_groups_mut(&mut self) -> &mut [ParamGroup<T>] {
+        &mut self.param_groups
+    }
+
+    fn add_param_group(&mut self, group: ParamGroup<T>) {
+        self.param_groups.push(group);
+    }
+
+    fn state_dict(&self) -> OptimizerState {
+        let mut out = OptimizerState::new();
+        for (key, ps) in &self.state {
+            let mut entry = HashMap::new();
+            entry.insert("step_count".to_string(), vec![ps.step_count as f64]);
+            entry.insert("exp_avg".to_string(), ps.exp_avg.clone());
+            entry.insert("exp_avg_sq".to_string(), ps.exp_avg_sq.clone());
+            out.insert(key.clone(), entry);
+        }
+        out
+    }
+
+    fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
+        for (key, entry) in state {
+            let step_count = entry
+                .get("step_count")
+                .and_then(|v| v.first())
+                .copied()
+                .unwrap_or(0.0) as u64;
+
+            let exp_avg = entry
+                .get("exp_avg")
+                .cloned()
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!("missing exp_avg in state for key {key}"),
+                })?;
+
+            let exp_avg_sq = entry
+                .get("exp_avg_sq")
+                .cloned()
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!("missing exp_avg_sq in state for key {key}"),
+                })?;
+
+            self.state.insert(
+                key.clone(),
+                RAdamParamState {
+                    step_count,
+                    exp_avg,
+                    exp_avg_sq,
+                },
+            );
+        }
+        Ok(())
+    }
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ferrotorch_core::grad_fns::arithmetic::{add, pow};
+    use ferrotorch_core::{Tensor, TensorStorage};
+
+    fn scalar_param(val: f64) -> Parameter<f64> {
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![val]), vec![], true).unwrap();
+        Parameter::new(t)
+    }
+
+    fn param_val(opt: &RAdam<f64>, group: usize, idx: usize) -> f64 {
+        opt.param_groups[group].params[idx]
+            .tensor()
+            .data()
+            .unwrap()[0]
+    }
+
+    #[test]
+    fn test_radam_convergence_quadratic() {
+        let p = scalar_param(5.0);
+        let mut opt = RAdam::new(
+            vec![p],
+            RAdamConfig {
+                lr: 0.01,
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..3000 {
+            opt.zero_grad().unwrap();
+            let t = opt.param_groups[0].params[0].tensor().clone();
+            let loss = pow(&t, 2.0).unwrap();
+            loss.backward().unwrap();
+            opt.step().unwrap();
+        }
+
+        let val = param_val(&opt, 0, 0);
+        assert!(val.abs() < 0.1, "expected near 0, got {val}");
+    }
+
+    #[test]
+    fn test_radam_convergence_two_params() {
+        let px = scalar_param(3.0);
+        let py = scalar_param(-2.0);
+
+        let mut opt = RAdam::new(
+            vec![px, py],
+            RAdamConfig {
+                lr: 0.01,
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..2000 {
+            opt.zero_grad().unwrap();
+            let x = opt.param_groups[0].params[0].tensor().clone();
+            let y = opt.param_groups[0].params[1].tensor().clone();
+            let loss = add(&pow(&x, 2.0).unwrap(), &pow(&y, 2.0).unwrap()).unwrap();
+            loss.backward().unwrap();
+            opt.step().unwrap();
+        }
+
+        let vx = param_val(&opt, 0, 0);
+        let vy = param_val(&opt, 0, 1);
+        assert!(vx.abs() < 0.1, "expected x near 0, got {vx}");
+        assert!(vy.abs() < 0.1, "expected y near 0, got {vy}");
+    }
+
+    #[test]
+    fn test_radam_zero_grad() {
+        let p = scalar_param(1.0);
+        let mut opt = RAdam::new(vec![p], RAdamConfig::default());
+
+        let grad =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
+        opt.param_groups[0].params[0]
+            .tensor()
+            .set_grad(Some(grad))
+            .unwrap();
+        assert!(opt.param_groups[0].params[0]
+            .tensor()
+            .grad()
+            .unwrap()
+            .is_some());
+
+        opt.zero_grad().unwrap();
+        assert!(opt.param_groups[0].params[0]
+            .tensor()
+            .grad()
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn test_radam_state_dict_roundtrip() {
+        let p = scalar_param(2.0);
+        let mut opt = RAdam::new(vec![p], RAdamConfig::default());
+
+        for _ in 0..3 {
+            let tensor = opt.param_groups[0].params[0].tensor().clone();
+            let loss = pow(&tensor, 2.0).unwrap();
+            loss.backward().unwrap();
+            opt.step().unwrap();
+            opt.zero_grad().unwrap();
+        }
+
+        let saved = opt.state_dict();
+        assert!(!saved.is_empty());
+
+        let key = RAdam::<f64>::param_key(0, 0);
+        assert_eq!(saved[&key]["step_count"][0] as u64, 3);
+
+        let p2 = scalar_param(2.0);
+        let mut opt2 = RAdam::new(vec![p2], RAdamConfig::default());
+        opt2.load_state_dict(&saved).unwrap();
+
+        let loaded = opt2.state_dict();
+        assert_eq!(loaded[&key]["step_count"], saved[&key]["step_count"]);
+        assert_eq!(loaded[&key]["exp_avg"], saved[&key]["exp_avg"]);
+    }
+
+    #[test]
+    fn test_radam_lr_accessors() {
+        let p = scalar_param(1.0);
+        let mut opt = RAdam::new(
+            vec![p],
+            RAdamConfig {
+                lr: 0.05,
+                ..Default::default()
+            },
+        );
+        assert!((opt.lr() - 0.05).abs() < 1e-12);
+        opt.set_lr(0.01);
+        assert!((opt.lr() - 0.01).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_radam_rectification_kicks_in() {
+        // After enough steps, rho_t should exceed 5 and the adaptive path
+        // should be used. We verify by checking the parameter actually moves.
+        let p = scalar_param(10.0);
+        let mut opt = RAdam::new(
+            vec![p],
+            RAdamConfig {
+                lr: 0.01,
+                ..Default::default()
+            },
+        );
+
+        let grad =
+            Tensor::from_storage(TensorStorage::cpu(vec![2.0_f64]), vec![], false).unwrap();
+        opt.param_groups[0].params[0]
+            .tensor()
+            .set_grad(Some(grad))
+            .unwrap();
+
+        // Step several times to build up enough history for rho_t > 5.
+        for _ in 0..10 {
+            opt.step().unwrap();
+            // Re-set gradient for next step.
+            let grad =
+                Tensor::from_storage(TensorStorage::cpu(vec![2.0_f64]), vec![], false).unwrap();
+            opt.param_groups[0].params[0]
+                .tensor()
+                .set_grad(Some(grad))
+                .unwrap();
+        }
+
+        let val = param_val(&opt, 0, 0);
+        assert!(val < 10.0, "param should have decreased, got {val}");
+    }
+
+    #[test]
+    fn test_radam_weight_decay() {
+        let p = scalar_param(5.0);
+        let mut opt = RAdam::new(
+            vec![p],
+            RAdamConfig {
+                lr: 0.01,
+                weight_decay: 0.1,
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..100 {
+            let tensor = opt.param_groups[0].params[0].tensor().clone();
+            let loss = pow(&tensor, 2.0).unwrap();
+            loss.backward().unwrap();
+            opt.step().unwrap();
+            opt.zero_grad().unwrap();
+        }
+
+        let val = param_val(&opt, 0, 0);
+        assert!(val.abs() < 5.0, "should have moved from 5.0, got {val}");
+    }
+}

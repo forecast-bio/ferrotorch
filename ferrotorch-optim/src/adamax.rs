@@ -1,0 +1,429 @@
+//! Adamax optimizer — Adam variant using L-infinity norm.
+//!
+//! Implements the Adamax algorithm from Kingma & Ba, "Adam: A Method for
+//! Stochastic Optimization" (ICLR 2015), Section 7. Instead of the L2 norm
+//! used by Adam's second moment, Adamax uses the L-infinity norm, which
+//! makes it more robust to sparse gradients and gradient outliers.
+//!
+//! CL-319
+
+use std::collections::HashMap;
+
+use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_nn::Parameter;
+
+use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+/// Hyperparameters for the [`Adamax`] optimizer.
+#[derive(Debug, Clone, Copy)]
+pub struct AdamaxConfig {
+    /// Learning rate (default: 0.002).
+    pub lr: f64,
+    /// Exponential decay rates for the first moment and infinity norm
+    /// (default: `(0.9, 0.999)`).
+    pub betas: (f64, f64),
+    /// Term added to the denominator for numerical stability (default: 1e-8).
+    pub eps: f64,
+    /// Weight decay coefficient (default: 0.0).
+    pub weight_decay: f64,
+}
+
+impl Default for AdamaxConfig {
+    fn default() -> Self {
+        Self {
+            lr: 2e-3,
+            betas: (0.9, 0.999),
+            eps: 1e-8,
+            weight_decay: 0.0,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-parameter state
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+struct AdamaxParamState {
+    step_count: u64,
+    /// First moment estimate (exponential moving average of gradients).
+    exp_avg: Vec<f64>,
+    /// Exponentially weighted infinity norm.
+    exp_inf: Vec<f64>,
+}
+
+// ---------------------------------------------------------------------------
+// Adamax
+// ---------------------------------------------------------------------------
+
+/// Adamax optimizer — Adam variant using the L-infinity norm.
+///
+/// # Algorithm
+///
+/// For each parameter `p` with gradient `g`:
+///
+/// 1. `m_t = beta1 * m_{t-1} + (1 - beta1) * g_t`
+/// 2. `u_t = max(beta2 * u_{t-1}, |g_t| + eps)`
+/// 3. `p_t = p_{t-1} - lr / (1 - beta1^t) * m_t / u_t`
+///
+/// The infinity norm `u_t` replaces Adam's second-moment estimate, eliminating
+/// the need for bias correction on the second moment.
+#[derive(Debug)]
+pub struct Adamax<T: Float> {
+    param_groups: Vec<ParamGroup<T>>,
+    config: AdamaxConfig,
+    state: HashMap<String, AdamaxParamState>,
+}
+
+impl<T: Float> Adamax<T> {
+    /// Create a new Adamax optimizer.
+    pub fn new(params: Vec<Parameter<T>>, config: AdamaxConfig) -> Self {
+        let mut group = ParamGroup::new(params, config.lr);
+        group.weight_decay = config.weight_decay;
+        Self {
+            param_groups: vec![group],
+            config,
+            state: HashMap::new(),
+        }
+    }
+
+    #[inline]
+    fn param_key(group_idx: usize, param_idx: usize) -> String {
+        format!("g{group_idx}_p{param_idx}")
+    }
+}
+
+impl<T: Float> Optimizer<T> for Adamax<T> {
+    fn step(&mut self) -> FerrotorchResult<()> {
+        let config = self.config;
+        let (beta1, beta2) = config.betas;
+
+        for gi in 0..self.param_groups.len() {
+            let group_lr = self.param_groups[gi].lr;
+            let group_wd = self.param_groups[gi].weight_decay;
+
+            for pi in 0..self.param_groups[gi].params.len() {
+                let param = &self.param_groups[gi].params[pi];
+                let tensor = param.tensor();
+
+                let grad_tensor = match tensor.grad()? {
+                    Some(g) => g,
+                    None => continue,
+                };
+
+                let key = Self::param_key(gi, pi);
+
+                let param_data: Vec<f64> = tensor
+                    .data_vec()?
+                    .iter()
+                    .map(|&v| v.to_f64().unwrap())
+                    .collect();
+                let mut grad_data: Vec<f64> = grad_tensor
+                    .data_vec()?
+                    .iter()
+                    .map(|&v| v.to_f64().unwrap())
+                    .collect();
+
+                let numel = param_data.len();
+
+                // L2 weight decay.
+                if group_wd > 0.0 {
+                    for (g, &p) in grad_data.iter_mut().zip(param_data.iter()) {
+                        *g += group_wd * p;
+                    }
+                }
+
+                let state = self.state.entry(key).or_insert_with(|| AdamaxParamState {
+                    step_count: 0,
+                    exp_avg: vec![0.0; numel],
+                    exp_inf: vec![0.0; numel],
+                });
+
+                state.step_count += 1;
+                let step = state.step_count;
+
+                // Update biased first moment estimate.
+                // m_t = beta1 * m_{t-1} + (1 - beta1) * g_t
+                for (m, &g) in state.exp_avg.iter_mut().zip(grad_data.iter()) {
+                    *m = beta1 * *m + (1.0 - beta1) * g;
+                }
+
+                // Update the exponentially weighted infinity norm.
+                // u_t = max(beta2 * u_{t-1}, |g_t| + eps)
+                for (u, &g) in state.exp_inf.iter_mut().zip(grad_data.iter()) {
+                    *u = f64::max(beta2 * *u, g.abs() + config.eps);
+                }
+
+                // Bias correction only for the first moment.
+                let bc1 = 1.0 - beta1.powi(step as i32);
+                let clr = group_lr / bc1;
+
+                // Update parameters.
+                // p_t = p_{t-1} - clr * m_t / u_t
+                let new_values: Vec<T> = (0..numel)
+                    .map(|i| {
+                        let updated = param_data[i] - clr * state.exp_avg[i] / state.exp_inf[i];
+                        T::from(updated).unwrap()
+                    })
+                    .collect();
+
+                no_grad(|| unsafe { param.tensor().update_data(&new_values) })?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn zero_grad(&mut self) -> FerrotorchResult<()> {
+        for group in &self.param_groups {
+            for param in &group.params {
+                param.tensor().set_grad(None)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn lr(&self) -> f64 {
+        self.param_groups
+            .first()
+            .map(|g| g.lr)
+            .unwrap_or(self.config.lr)
+    }
+
+    fn set_lr(&mut self, lr: f64) {
+        for group in &mut self.param_groups {
+            group.lr = lr;
+        }
+    }
+
+    fn param_groups(&self) -> &[ParamGroup<T>] {
+        &self.param_groups
+    }
+
+    fn param_groups_mut(&mut self) -> &mut [ParamGroup<T>] {
+        &mut self.param_groups
+    }
+
+    fn add_param_group(&mut self, group: ParamGroup<T>) {
+        self.param_groups.push(group);
+    }
+
+    fn state_dict(&self) -> OptimizerState {
+        let mut out = OptimizerState::new();
+        for (key, ps) in &self.state {
+            let mut entry = HashMap::new();
+            entry.insert("step_count".to_string(), vec![ps.step_count as f64]);
+            entry.insert("exp_avg".to_string(), ps.exp_avg.clone());
+            entry.insert("exp_inf".to_string(), ps.exp_inf.clone());
+            out.insert(key.clone(), entry);
+        }
+        out
+    }
+
+    fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
+        for (key, entry) in state {
+            let step_count = entry
+                .get("step_count")
+                .and_then(|v| v.first())
+                .copied()
+                .unwrap_or(0.0) as u64;
+
+            let exp_avg = entry
+                .get("exp_avg")
+                .cloned()
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!("missing exp_avg in state for key {key}"),
+                })?;
+
+            let exp_inf = entry
+                .get("exp_inf")
+                .cloned()
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!("missing exp_inf in state for key {key}"),
+                })?;
+
+            self.state.insert(
+                key.clone(),
+                AdamaxParamState {
+                    step_count,
+                    exp_avg,
+                    exp_inf,
+                },
+            );
+        }
+        Ok(())
+    }
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ferrotorch_core::grad_fns::arithmetic::{add, pow};
+    use ferrotorch_core::{Tensor, TensorStorage};
+
+    fn scalar_param(val: f64) -> Parameter<f64> {
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![val]), vec![], true).unwrap();
+        Parameter::new(t)
+    }
+
+    fn param_val(opt: &Adamax<f64>, group: usize, idx: usize) -> f64 {
+        opt.param_groups[group].params[idx]
+            .tensor()
+            .data()
+            .unwrap()[0]
+    }
+
+    #[test]
+    fn test_adamax_convergence_quadratic() {
+        let p = scalar_param(5.0);
+        let mut opt = Adamax::new(
+            vec![p],
+            AdamaxConfig {
+                lr: 0.01,
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..3000 {
+            opt.zero_grad().unwrap();
+            let t = opt.param_groups[0].params[0].tensor().clone();
+            let loss = pow(&t, 2.0).unwrap();
+            loss.backward().unwrap();
+            opt.step().unwrap();
+        }
+
+        let val = param_val(&opt, 0, 0);
+        assert!(val.abs() < 0.1, "expected near 0, got {val}");
+    }
+
+    #[test]
+    fn test_adamax_convergence_two_params() {
+        let px = scalar_param(3.0);
+        let py = scalar_param(-2.0);
+
+        let mut opt = Adamax::new(
+            vec![px, py],
+            AdamaxConfig {
+                lr: 0.01,
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..2000 {
+            opt.zero_grad().unwrap();
+            let x = opt.param_groups[0].params[0].tensor().clone();
+            let y = opt.param_groups[0].params[1].tensor().clone();
+            let loss = add(&pow(&x, 2.0).unwrap(), &pow(&y, 2.0).unwrap()).unwrap();
+            loss.backward().unwrap();
+            opt.step().unwrap();
+        }
+
+        let vx = param_val(&opt, 0, 0);
+        let vy = param_val(&opt, 0, 1);
+        assert!(vx.abs() < 0.1, "expected x near 0, got {vx}");
+        assert!(vy.abs() < 0.1, "expected y near 0, got {vy}");
+    }
+
+    #[test]
+    fn test_adamax_zero_grad() {
+        let p = scalar_param(1.0);
+        let mut opt = Adamax::new(vec![p], AdamaxConfig::default());
+
+        let grad =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
+        opt.param_groups[0].params[0]
+            .tensor()
+            .set_grad(Some(grad))
+            .unwrap();
+
+        opt.zero_grad().unwrap();
+        assert!(opt.param_groups[0].params[0]
+            .tensor()
+            .grad()
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn test_adamax_state_dict_roundtrip() {
+        let p = scalar_param(2.0);
+        let mut opt = Adamax::new(vec![p], AdamaxConfig::default());
+
+        for _ in 0..3 {
+            let tensor = opt.param_groups[0].params[0].tensor().clone();
+            let loss = pow(&tensor, 2.0).unwrap();
+            loss.backward().unwrap();
+            opt.step().unwrap();
+            opt.zero_grad().unwrap();
+        }
+
+        let saved = opt.state_dict();
+        let key = Adamax::<f64>::param_key(0, 0);
+        assert_eq!(saved[&key]["step_count"][0] as u64, 3);
+        assert!(saved[&key].contains_key("exp_inf"));
+
+        let p2 = scalar_param(2.0);
+        let mut opt2 = Adamax::new(vec![p2], AdamaxConfig::default());
+        opt2.load_state_dict(&saved).unwrap();
+
+        let loaded = opt2.state_dict();
+        assert_eq!(loaded[&key]["step_count"], saved[&key]["step_count"]);
+        assert_eq!(loaded[&key]["exp_inf"], saved[&key]["exp_inf"]);
+    }
+
+    #[test]
+    fn test_adamax_lr_accessors() {
+        let p = scalar_param(1.0);
+        let mut opt = Adamax::new(
+            vec![p],
+            AdamaxConfig {
+                lr: 0.05,
+                ..Default::default()
+            },
+        );
+        assert!((opt.lr() - 0.05).abs() < 1e-12);
+        opt.set_lr(0.01);
+        assert!((opt.lr() - 0.01).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_adamax_default_config() {
+        let config = AdamaxConfig::default();
+        assert_eq!(config.lr, 2e-3);
+        assert_eq!(config.betas, (0.9, 0.999));
+        assert_eq!(config.eps, 1e-8);
+        assert_eq!(config.weight_decay, 0.0);
+    }
+
+    #[test]
+    fn test_adamax_weight_decay() {
+        let p = scalar_param(5.0);
+        let mut opt = Adamax::new(
+            vec![p],
+            AdamaxConfig {
+                lr: 0.01,
+                weight_decay: 0.1,
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..100 {
+            let tensor = opt.param_groups[0].params[0].tensor().clone();
+            let loss = pow(&tensor, 2.0).unwrap();
+            loss.backward().unwrap();
+            opt.step().unwrap();
+            opt.zero_grad().unwrap();
+        }
+
+        let val = param_val(&opt, 0, 0);
+        assert!(val.abs() < 5.0, "should have moved from 5.0, got {val}");
+    }
+}
