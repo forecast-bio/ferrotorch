@@ -2362,6 +2362,167 @@ DONE:
 }
 ";
 
+/// PTX source for `strided_split_kernel`: extract a sub-tensor along a given axis.
+///
+/// Thread `i` computes:
+///   `outer_idx = i / (split_size * inner_size)`
+///   `within    = i % (split_size * inner_size)`
+///   `src_idx   = outer_idx * total_along_axis * inner_size + (split_offset * inner_size) + within`
+///   `out[i]    = in[src_idx]`
+#[cfg(feature = "cuda")]
+pub(crate) const STRIDED_SPLIT_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry strided_split_kernel(
+    .param .u64 input_ptr,
+    .param .u64 output_ptr,
+    .param .u32 total_along_axis,
+    .param .u32 split_offset,
+    .param .u32 split_size,
+    .param .u32 inner_size,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u32 %total_ax, %sp_off, %sp_sz, %inner_sz;
+    .reg .u32 %outer_idx, %within, %chunk_stride, %src_idx, %base_off, %tmp;
+    .reg .u64 %in, %out, %off;
+    .reg .f32 %val;
+    .reg .pred %p;
+
+    ld.param.u64 %in, [input_ptr];
+    ld.param.u64 %out, [output_ptr];
+    ld.param.u32 %total_ax, [total_along_axis];
+    ld.param.u32 %sp_off, [split_offset];
+    ld.param.u32 %sp_sz, [split_size];
+    ld.param.u32 %inner_sz, [inner_size];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    // chunk_stride = split_size * inner_size
+    mul.lo.u32 %chunk_stride, %sp_sz, %inner_sz;
+
+    // outer_idx = r_tid / chunk_stride
+    div.u32 %outer_idx, %r_tid, %chunk_stride;
+
+    // within = r_tid % chunk_stride
+    rem.u32 %within, %r_tid, %chunk_stride;
+
+    // base_off = split_offset * inner_size
+    mul.lo.u32 %base_off, %sp_off, %inner_sz;
+
+    // src_idx = outer_idx * total_along_axis * inner_size + base_off + within
+    mul.lo.u32 %src_idx, %outer_idx, %total_ax;
+    mul.lo.u32 %src_idx, %src_idx, %inner_sz;
+    add.u32 %src_idx, %src_idx, %base_off;
+    add.u32 %src_idx, %src_idx, %within;
+
+    // Load from in[src_idx]
+    cvt.u64.u32 %off, %src_idx;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %in, %off;
+    ld.global.f32 %val, [%off];
+
+    // Store to out[r_tid]
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %out, %off;
+    st.global.f32 [%off], %val;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `strided_cat_kernel`: write a sub-tensor into a larger tensor
+/// at an offset along an axis.
+///
+/// Thread `i` computes:
+///   `outer_idx = i / (part_size * inner_size)`
+///   `within    = i % (part_size * inner_size)`
+///   `dst_idx   = outer_idx * total_along_axis * inner_size + (cat_offset * inner_size) + within`
+///   `out[dst_idx] = in[i]`
+#[cfg(feature = "cuda")]
+pub(crate) const STRIDED_CAT_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry strided_cat_kernel(
+    .param .u64 input_ptr,
+    .param .u64 output_ptr,
+    .param .u32 total_along_axis,
+    .param .u32 cat_offset,
+    .param .u32 part_size,
+    .param .u32 inner_size,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u32 %total_ax, %cat_off, %part_sz, %inner_sz;
+    .reg .u32 %outer_idx, %within, %chunk_stride, %dst_idx, %base_off;
+    .reg .u64 %in, %out, %off;
+    .reg .f32 %val;
+    .reg .pred %p;
+
+    ld.param.u64 %in, [input_ptr];
+    ld.param.u64 %out, [output_ptr];
+    ld.param.u32 %total_ax, [total_along_axis];
+    ld.param.u32 %cat_off, [cat_offset];
+    ld.param.u32 %part_sz, [part_size];
+    ld.param.u32 %inner_sz, [inner_size];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    // chunk_stride = part_size * inner_size
+    mul.lo.u32 %chunk_stride, %part_sz, %inner_sz;
+
+    // outer_idx = r_tid / chunk_stride
+    div.u32 %outer_idx, %r_tid, %chunk_stride;
+
+    // within = r_tid % chunk_stride
+    rem.u32 %within, %r_tid, %chunk_stride;
+
+    // base_off = cat_offset * inner_size
+    mul.lo.u32 %base_off, %cat_off, %inner_sz;
+
+    // dst_idx = outer_idx * total_along_axis * inner_size + base_off + within
+    mul.lo.u32 %dst_idx, %outer_idx, %total_ax;
+    mul.lo.u32 %dst_idx, %dst_idx, %inner_sz;
+    add.u32 %dst_idx, %dst_idx, %base_off;
+    add.u32 %dst_idx, %dst_idx, %within;
+
+    // Load from in[r_tid]
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %in, %off;
+    ld.global.f32 %val, [%off];
+
+    // Store to out[dst_idx]
+    cvt.u64.u32 %off, %dst_idx;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %out, %off;
+    st.global.f32 [%off], %val;
+
+DONE:
+    ret;
+}
+";
+
 // ---------------------------------------------------------------------------
 // Launch configuration helper
 // ---------------------------------------------------------------------------
@@ -3433,6 +3594,171 @@ pub fn gpu_sum_axis(
     }
 
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Public API -- Strided split
+// ---------------------------------------------------------------------------
+
+/// Extract a sub-tensor along one axis entirely on GPU.
+///
+/// Given an input buffer representing a tensor with `total_along_axis` elements
+/// along the split axis, extracts the slice `[split_offset .. split_offset + split_size]`
+/// along that axis.
+///
+/// - `inner_size` = product of dimensions after the split axis.
+/// - `n` = total number of output elements (outer * split_size * inner_size).
+///
+/// # Errors
+///
+/// - [`GpuError::DeviceMismatch`] if `input` and `device` are on different devices.
+/// - [`GpuError::Driver`] on CUDA runtime errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_strided_split(
+    input: &CudaBuffer<f32>,
+    total_along_axis: usize,
+    split_offset: usize,
+    split_size: usize,
+    inner_size: usize,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(input, device)?;
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx, STRIDED_SPLIT_PTX, "strided_split_kernel", device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback
+            let host = gpu_to_cpu(input, device)?;
+            let outer = n / (split_size * inner_size);
+            let mut result = vec![0.0f32; n];
+            for i in 0..n {
+                let outer_idx = i / (split_size * inner_size);
+                let within = i % (split_size * inner_size);
+                let src_idx = outer_idx * total_along_axis * inner_size
+                    + split_offset * inner_size
+                    + within;
+                result[i] = host[src_idx];
+            }
+            let _ = outer;
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let total_ax_u32 = total_along_axis as u32;
+    let offset_u32 = split_offset as u32;
+    let split_sz_u32 = split_size as u32;
+    let inner_u32 = inner_size as u32;
+    let n_u32 = n as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(&total_ax_u32)
+            .arg(&offset_u32)
+            .arg(&split_sz_u32)
+            .arg(&inner_u32)
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Public API -- Strided cat
+// ---------------------------------------------------------------------------
+
+/// Write a sub-tensor into a larger output buffer at an offset along one axis,
+/// entirely on GPU.
+///
+/// Given an input buffer representing a chunk with `part_size` elements along
+/// the cat axis, writes it into `output` at position `cat_offset` along that axis.
+///
+/// - `inner_size` = product of dimensions after the cat axis.
+/// - `n` = total number of input elements (outer * part_size * inner_size).
+///
+/// # Safety
+///
+/// `output` must be large enough to hold the written region. The caller is
+/// responsible for ensuring non-overlapping writes when multiple chunks are
+/// written into the same output buffer.
+///
+/// # Errors
+///
+/// - [`GpuError::DeviceMismatch`] if buffers and `device` are on different devices.
+/// - [`GpuError::Driver`] on CUDA runtime errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_strided_cat(
+    input: &CudaBuffer<f32>,
+    output: &mut CudaBuffer<f32>,
+    total_along_axis: usize,
+    cat_offset: usize,
+    part_size: usize,
+    inner_size: usize,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<()> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(input, device)?;
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx, STRIDED_CAT_PTX, "strided_cat_kernel", device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback
+            let host_in = gpu_to_cpu(input, device)?;
+            let mut host_out = gpu_to_cpu(output, device)?;
+            for i in 0..n {
+                let outer_idx = i / (part_size * inner_size);
+                let within = i % (part_size * inner_size);
+                let dst_idx = outer_idx * total_along_axis * inner_size
+                    + cat_offset * inner_size
+                    + within;
+                host_out[dst_idx] = host_in[i];
+            }
+            *output = cpu_to_gpu(&host_out, device)?;
+            return Ok(());
+        }
+    };
+
+    let cfg = launch_cfg(n)?;
+    let total_ax_u32 = total_along_axis as u32;
+    let offset_u32 = cat_offset as u32;
+    let part_sz_u32 = part_size as u32;
+    let inner_u32 = inner_size as u32;
+    let n_u32 = n as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(output.inner_mut())
+            .arg(&total_ax_u32)
+            .arg(&offset_u32)
+            .arg(&part_sz_u32)
+            .arg(&inner_u32)
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(())
 }
 
 /// Scalar multiply: `out[i] = a[i] * scalar`.
@@ -4714,6 +5040,20 @@ pub fn gpu_softmax_backward(
 pub fn gpu_sum_axis(
     _a: &CudaBuffer<f32>, _outer: usize, _axis_size: usize, _inner: usize, _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_strided_split(
+    _input: &CudaBuffer<f32>, _total_along_axis: usize, _split_offset: usize,
+    _split_size: usize, _inner_size: usize, _n: usize, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_strided_cat(
+    _input: &CudaBuffer<f32>, _output: &mut CudaBuffer<f32>, _total_along_axis: usize,
+    _cat_offset: usize, _part_size: usize, _inner_size: usize, _n: usize, _device: &GpuDevice,
+) -> GpuResult<()> { Err(GpuError::NoCudaFeature) }
 
 // ---------------------------------------------------------------------------
 // f32-to-f16 GPU conversion

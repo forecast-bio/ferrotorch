@@ -785,6 +785,45 @@ impl GpuBackend for CudaBackendImpl {
         );
         Ok(())
     }
+
+    fn strided_split_f32(
+        &self,
+        input: &GpuBufferHandle,
+        total_along_axis: usize,
+        split_offset: usize,
+        split_size: usize,
+        inner_size: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let in_buf = Self::unwrap_buffer(input)?;
+        let dev = self.device(input.device_ordinal())?;
+        let result = crate::kernels::gpu_strided_split(
+            in_buf, total_along_axis, split_offset, split_size, inner_size, n, dev,
+        ).map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, input.device_ordinal()))
+    }
+
+    fn strided_cat_f32(
+        &self,
+        input: &GpuBufferHandle,
+        output: &mut GpuBufferHandle,
+        total_along_axis: usize,
+        cat_offset: usize,
+        part_size: usize,
+        inner_size: usize,
+        n: usize,
+    ) -> FerrotorchResult<()> {
+        let in_buf = Self::unwrap_buffer(input)?;
+        let dev = self.device(input.device_ordinal())?;
+        let out_buf = output.downcast_mut::<CudaBuffer<f32>>()
+            .ok_or(FerrotorchError::InvalidArgument {
+                message: "strided_cat_f32: output is not CudaBuffer<f32>".into(),
+            })?;
+        crate::kernels::gpu_strided_cat(
+            in_buf, out_buf, total_along_axis, cat_offset, part_size, inner_size, n, dev,
+        ).map_err(Self::map_gpu_err)?;
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
