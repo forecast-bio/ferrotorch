@@ -8,7 +8,8 @@ use crate::tensor::Tensor;
 impl<T: Float> fmt::Display for Tensor<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let shape = self.shape();
-        let data = match self.data() {
+        // Use data_vec() so non-contiguous and GPU tensors display correctly.
+        let data = match self.data_vec() {
             Ok(d) => d,
             Err(_) => return write!(f, "tensor(<inaccessible>, shape={shape:?})"),
         };

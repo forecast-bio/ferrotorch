@@ -1,15 +1,13 @@
 //! Custom PTX CUDA kernels for elementwise GPU operations.
 //!
-//! Each operation has three code paths, tried in order:
+//! Each operation has two code paths:
 //!
-//! 1. **Vec4 PTX kernel** -- processes 4 elements per thread using 128-bit
-//!    `ld.global.v4.f32` vectorized loads for ~4x memory throughput vs scalar.
-//!    Includes a scalar tail loop for elements where `n % 4 != 0`.
-//! 2. **Scalar PTX kernel** -- fallback 1-element-per-thread kernel, used if
-//!    the vec4 module fails to compile (e.g. architecture mismatch).
-//! 3. **CPU fallback** -- copies data to the host, performs the operation with
+//! 1. **PTX kernel** -- a hand-written PTX string that is loaded into the CUDA
+//!    driver at runtime via [`cudarc`]. This is the fast path and runs entirely
+//!    on the GPU.
+//! 2. **CPU fallback** -- copies data to the host, performs the operation with
 //!    standard Rust iterators, and copies the result back. Correct but slow;
-//!    used when no PTX module can be loaded.
+//!    used when the PTX module cannot be loaded (e.g. architecture mismatch).
 //!
 //! # Supported operations
 //!
@@ -34,9 +32,9 @@ use crate::transfer::{alloc_zeros_f32, cpu_to_gpu, gpu_to_cpu};
 // PTX kernel source strings
 // ---------------------------------------------------------------------------
 
-/// PTX source for scalar `add_kernel`: `out[i] = a[i] + b[i]` (1 element/thread).
+/// PTX source for `add_kernel`: `out[i] = a[i] + b[i]`.
 #[cfg(feature = "cuda")]
-pub(crate) const ADD_SCALAR_PTX: &str = "\
+pub(crate) const ADD_PTX: &str = "\
 .version 7.0
 .target sm_52
 .address_size 64
@@ -82,96 +80,9 @@ DONE:
 }
 ";
 
-/// PTX source for vectorized `add_vec4_kernel`: processes 4 elements per thread
-/// using 128-bit `ld.global.v4.f32` loads for ~4x memory throughput.
+/// PTX source for `sub_kernel`: `out[i] = a[i] - b[i]`.
 #[cfg(feature = "cuda")]
-pub(crate) const ADD_PTX: &str = "\
-.version 7.0
-.target sm_52
-.address_size 64
-
-.visible .entry add_vec4_kernel(
-    .param .u64 a_ptr,
-    .param .u64 b_ptr,
-    .param .u64 out_ptr,
-    .param .u32 n
-) {
-    .reg .u32 %tid, %bid, %bdim, %n_reg, %base, %tail_idx, %end;
-    .reg .u64 %a, %b, %out, %off, %a_base, %b_base, %out_base;
-    .reg .f32 %va0, %va1, %va2, %va3;
-    .reg .f32 %vb0, %vb1, %vb2, %vb3;
-    .reg .f32 %vr0, %vr1, %vr2, %vr3;
-    .reg .pred %p, %pt;
-
-    ld.param.u64 %a, [a_ptr];
-    ld.param.u64 %b, [b_ptr];
-    ld.param.u64 %out, [out_ptr];
-    ld.param.u32 %n_reg, [n];
-
-    // Each thread handles 4 elements: base = (bid * bdim + tid) * 4
-    mov.u32 %bid, %ctaid.x;
-    mov.u32 %bdim, %ntid.x;
-    mov.u32 %tid, %tid.x;
-    mad.lo.u32 %base, %bid, %bdim, %tid;
-    shl.b32 %base, %base, 2;
-
-    // If base >= n, nothing to do
-    setp.ge.u32 %p, %base, %n_reg;
-    @%p bra DONE;
-
-    // Check if we can do a full vec4 load (base+3 < n)
-    add.u32 %end, %base, 3;
-    setp.ge.u32 %pt, %end, %n_reg;
-    @%pt bra TAIL;
-
-    // Vectorized path: load 4 elements at once
-    cvt.u64.u32 %off, %base;
-    shl.b64 %off, %off, 2;
-
-    add.u64 %a_base, %a, %off;
-    add.u64 %b_base, %b, %off;
-    add.u64 %out_base, %out, %off;
-
-    ld.global.v4.f32 {%va0, %va1, %va2, %va3}, [%a_base];
-    ld.global.v4.f32 {%vb0, %vb1, %vb2, %vb3}, [%b_base];
-
-    add.f32 %vr0, %va0, %vb0;
-    add.f32 %vr1, %va1, %vb1;
-    add.f32 %vr2, %va2, %vb2;
-    add.f32 %vr3, %va3, %vb3;
-
-    st.global.v4.f32 [%out_base], {%vr0, %vr1, %vr2, %vr3};
-    bra DONE;
-
-TAIL:
-    // Scalar fallback for remaining 1-3 elements
-    mov.u32 %tail_idx, %base;
-TAIL_LOOP:
-    setp.ge.u32 %p, %tail_idx, %n_reg;
-    @%p bra DONE;
-
-    cvt.u64.u32 %off, %tail_idx;
-    shl.b64 %off, %off, 2;
-    add.u64 %a_base, %a, %off;
-    add.u64 %b_base, %b, %off;
-    add.u64 %out_base, %out, %off;
-
-    ld.global.f32 %va0, [%a_base];
-    ld.global.f32 %vb0, [%b_base];
-    add.f32 %vr0, %va0, %vb0;
-    st.global.f32 [%out_base], %vr0;
-
-    add.u32 %tail_idx, %tail_idx, 1;
-    bra TAIL_LOOP;
-
-DONE:
-    ret;
-}
-";
-
-/// PTX source for scalar `sub_kernel`: `out[i] = a[i] - b[i]` (1 element/thread).
-#[cfg(feature = "cuda")]
-pub(crate) const SUB_SCALAR_PTX: &str = "\
+pub(crate) const SUB_PTX: &str = "\
 .version 7.0
 .target sm_52
 .address_size 64
@@ -217,91 +128,9 @@ DONE:
 }
 ";
 
-/// PTX source for vectorized `sub_vec4_kernel`: processes 4 elements per thread
-/// using 128-bit `ld.global.v4.f32` loads for ~4x memory throughput.
+/// PTX source for `mul_kernel`: `out[i] = a[i] * b[i]`.
 #[cfg(feature = "cuda")]
-pub(crate) const SUB_PTX: &str = "\
-.version 7.0
-.target sm_52
-.address_size 64
-
-.visible .entry sub_vec4_kernel(
-    .param .u64 a_ptr,
-    .param .u64 b_ptr,
-    .param .u64 out_ptr,
-    .param .u32 n
-) {
-    .reg .u32 %tid, %bid, %bdim, %n_reg, %base, %tail_idx, %end;
-    .reg .u64 %a, %b, %out, %off, %a_base, %b_base, %out_base;
-    .reg .f32 %va0, %va1, %va2, %va3;
-    .reg .f32 %vb0, %vb1, %vb2, %vb3;
-    .reg .f32 %vr0, %vr1, %vr2, %vr3;
-    .reg .pred %p, %pt;
-
-    ld.param.u64 %a, [a_ptr];
-    ld.param.u64 %b, [b_ptr];
-    ld.param.u64 %out, [out_ptr];
-    ld.param.u32 %n_reg, [n];
-
-    mov.u32 %bid, %ctaid.x;
-    mov.u32 %bdim, %ntid.x;
-    mov.u32 %tid, %tid.x;
-    mad.lo.u32 %base, %bid, %bdim, %tid;
-    shl.b32 %base, %base, 2;
-
-    setp.ge.u32 %p, %base, %n_reg;
-    @%p bra DONE;
-
-    add.u32 %end, %base, 3;
-    setp.ge.u32 %pt, %end, %n_reg;
-    @%pt bra TAIL;
-
-    cvt.u64.u32 %off, %base;
-    shl.b64 %off, %off, 2;
-
-    add.u64 %a_base, %a, %off;
-    add.u64 %b_base, %b, %off;
-    add.u64 %out_base, %out, %off;
-
-    ld.global.v4.f32 {%va0, %va1, %va2, %va3}, [%a_base];
-    ld.global.v4.f32 {%vb0, %vb1, %vb2, %vb3}, [%b_base];
-
-    sub.f32 %vr0, %va0, %vb0;
-    sub.f32 %vr1, %va1, %vb1;
-    sub.f32 %vr2, %va2, %vb2;
-    sub.f32 %vr3, %va3, %vb3;
-
-    st.global.v4.f32 [%out_base], {%vr0, %vr1, %vr2, %vr3};
-    bra DONE;
-
-TAIL:
-    mov.u32 %tail_idx, %base;
-TAIL_LOOP:
-    setp.ge.u32 %p, %tail_idx, %n_reg;
-    @%p bra DONE;
-
-    cvt.u64.u32 %off, %tail_idx;
-    shl.b64 %off, %off, 2;
-    add.u64 %a_base, %a, %off;
-    add.u64 %b_base, %b, %off;
-    add.u64 %out_base, %out, %off;
-
-    ld.global.f32 %va0, [%a_base];
-    ld.global.f32 %vb0, [%b_base];
-    sub.f32 %vr0, %va0, %vb0;
-    st.global.f32 [%out_base], %vr0;
-
-    add.u32 %tail_idx, %tail_idx, 1;
-    bra TAIL_LOOP;
-
-DONE:
-    ret;
-}
-";
-
-/// PTX source for scalar `mul_kernel`: `out[i] = a[i] * b[i]` (1 element/thread).
-#[cfg(feature = "cuda")]
-pub(crate) const MUL_SCALAR_PTX: &str = "\
+pub(crate) const MUL_PTX: &str = "\
 .version 7.0
 .target sm_52
 .address_size 64
@@ -347,91 +176,9 @@ DONE:
 }
 ";
 
-/// PTX source for vectorized `mul_vec4_kernel`: processes 4 elements per thread
-/// using 128-bit `ld.global.v4.f32` loads for ~4x memory throughput.
+/// PTX source for `neg_kernel`: `out[i] = -a[i]`.
 #[cfg(feature = "cuda")]
-pub(crate) const MUL_PTX: &str = "\
-.version 7.0
-.target sm_52
-.address_size 64
-
-.visible .entry mul_vec4_kernel(
-    .param .u64 a_ptr,
-    .param .u64 b_ptr,
-    .param .u64 out_ptr,
-    .param .u32 n
-) {
-    .reg .u32 %tid, %bid, %bdim, %n_reg, %base, %tail_idx, %end;
-    .reg .u64 %a, %b, %out, %off, %a_base, %b_base, %out_base;
-    .reg .f32 %va0, %va1, %va2, %va3;
-    .reg .f32 %vb0, %vb1, %vb2, %vb3;
-    .reg .f32 %vr0, %vr1, %vr2, %vr3;
-    .reg .pred %p, %pt;
-
-    ld.param.u64 %a, [a_ptr];
-    ld.param.u64 %b, [b_ptr];
-    ld.param.u64 %out, [out_ptr];
-    ld.param.u32 %n_reg, [n];
-
-    mov.u32 %bid, %ctaid.x;
-    mov.u32 %bdim, %ntid.x;
-    mov.u32 %tid, %tid.x;
-    mad.lo.u32 %base, %bid, %bdim, %tid;
-    shl.b32 %base, %base, 2;
-
-    setp.ge.u32 %p, %base, %n_reg;
-    @%p bra DONE;
-
-    add.u32 %end, %base, 3;
-    setp.ge.u32 %pt, %end, %n_reg;
-    @%pt bra TAIL;
-
-    cvt.u64.u32 %off, %base;
-    shl.b64 %off, %off, 2;
-
-    add.u64 %a_base, %a, %off;
-    add.u64 %b_base, %b, %off;
-    add.u64 %out_base, %out, %off;
-
-    ld.global.v4.f32 {%va0, %va1, %va2, %va3}, [%a_base];
-    ld.global.v4.f32 {%vb0, %vb1, %vb2, %vb3}, [%b_base];
-
-    mul.f32 %vr0, %va0, %vb0;
-    mul.f32 %vr1, %va1, %vb1;
-    mul.f32 %vr2, %va2, %vb2;
-    mul.f32 %vr3, %va3, %vb3;
-
-    st.global.v4.f32 [%out_base], {%vr0, %vr1, %vr2, %vr3};
-    bra DONE;
-
-TAIL:
-    mov.u32 %tail_idx, %base;
-TAIL_LOOP:
-    setp.ge.u32 %p, %tail_idx, %n_reg;
-    @%p bra DONE;
-
-    cvt.u64.u32 %off, %tail_idx;
-    shl.b64 %off, %off, 2;
-    add.u64 %a_base, %a, %off;
-    add.u64 %b_base, %b, %off;
-    add.u64 %out_base, %out, %off;
-
-    ld.global.f32 %va0, [%a_base];
-    ld.global.f32 %vb0, [%b_base];
-    mul.f32 %vr0, %va0, %vb0;
-    st.global.f32 [%out_base], %vr0;
-
-    add.u32 %tail_idx, %tail_idx, 1;
-    bra TAIL_LOOP;
-
-DONE:
-    ret;
-}
-";
-
-/// PTX source for scalar `neg_kernel`: `out[i] = -a[i]` (1 element/thread).
-#[cfg(feature = "cuda")]
-pub(crate) const NEG_SCALAR_PTX: &str = "\
+pub(crate) const NEG_PTX: &str = "\
 .version 7.0
 .target sm_52
 .address_size 64
@@ -473,84 +220,9 @@ DONE:
 }
 ";
 
-/// PTX source for vectorized `neg_vec4_kernel`: processes 4 elements per thread
-/// using 128-bit `ld.global.v4.f32` loads for ~4x memory throughput.
+/// PTX source for `relu_kernel`: `out[i] = max(a[i], 0.0)`.
 #[cfg(feature = "cuda")]
-pub(crate) const NEG_PTX: &str = "\
-.version 7.0
-.target sm_52
-.address_size 64
-
-.visible .entry neg_vec4_kernel(
-    .param .u64 a_ptr,
-    .param .u64 out_ptr,
-    .param .u32 n
-) {
-    .reg .u32 %tid, %bid, %bdim, %n_reg, %base, %tail_idx, %end;
-    .reg .u64 %a, %out, %off, %a_base, %out_base;
-    .reg .f32 %va0, %va1, %va2, %va3;
-    .reg .f32 %vr0, %vr1, %vr2, %vr3;
-    .reg .pred %p, %pt;
-
-    ld.param.u64 %a, [a_ptr];
-    ld.param.u64 %out, [out_ptr];
-    ld.param.u32 %n_reg, [n];
-
-    mov.u32 %bid, %ctaid.x;
-    mov.u32 %bdim, %ntid.x;
-    mov.u32 %tid, %tid.x;
-    mad.lo.u32 %base, %bid, %bdim, %tid;
-    shl.b32 %base, %base, 2;
-
-    setp.ge.u32 %p, %base, %n_reg;
-    @%p bra DONE;
-
-    add.u32 %end, %base, 3;
-    setp.ge.u32 %pt, %end, %n_reg;
-    @%pt bra TAIL;
-
-    cvt.u64.u32 %off, %base;
-    shl.b64 %off, %off, 2;
-
-    add.u64 %a_base, %a, %off;
-    add.u64 %out_base, %out, %off;
-
-    ld.global.v4.f32 {%va0, %va1, %va2, %va3}, [%a_base];
-
-    neg.f32 %vr0, %va0;
-    neg.f32 %vr1, %va1;
-    neg.f32 %vr2, %va2;
-    neg.f32 %vr3, %va3;
-
-    st.global.v4.f32 [%out_base], {%vr0, %vr1, %vr2, %vr3};
-    bra DONE;
-
-TAIL:
-    mov.u32 %tail_idx, %base;
-TAIL_LOOP:
-    setp.ge.u32 %p, %tail_idx, %n_reg;
-    @%p bra DONE;
-
-    cvt.u64.u32 %off, %tail_idx;
-    shl.b64 %off, %off, 2;
-    add.u64 %a_base, %a, %off;
-    add.u64 %out_base, %out, %off;
-
-    ld.global.f32 %va0, [%a_base];
-    neg.f32 %vr0, %va0;
-    st.global.f32 [%out_base], %vr0;
-
-    add.u32 %tail_idx, %tail_idx, 1;
-    bra TAIL_LOOP;
-
-DONE:
-    ret;
-}
-";
-
-/// PTX source for scalar `relu_kernel`: `out[i] = max(a[i], 0.0)` (1 element/thread).
-#[cfg(feature = "cuda")]
-pub(crate) const RELU_SCALAR_PTX: &str = "\
+pub(crate) const RELU_PTX: &str = "\
 .version 7.0
 .target sm_52
 .address_size 64
@@ -587,84 +259,6 @@ pub(crate) const RELU_SCALAR_PTX: &str = "\
     mov.f32 %zero, 0f00000000;
     max.f32 %vr, %va, %zero;
     st.global.f32 [%out], %vr;
-
-DONE:
-    ret;
-}
-";
-
-/// PTX source for vectorized `relu_vec4_kernel`: processes 4 elements per thread
-/// using 128-bit `ld.global.v4.f32` loads for ~4x memory throughput.
-#[cfg(feature = "cuda")]
-pub(crate) const RELU_PTX: &str = "\
-.version 7.0
-.target sm_52
-.address_size 64
-
-.visible .entry relu_vec4_kernel(
-    .param .u64 a_ptr,
-    .param .u64 out_ptr,
-    .param .u32 n
-) {
-    .reg .u32 %tid, %bid, %bdim, %n_reg, %base, %tail_idx, %end;
-    .reg .u64 %a, %out, %off, %a_base, %out_base;
-    .reg .f32 %va0, %va1, %va2, %va3;
-    .reg .f32 %vr0, %vr1, %vr2, %vr3;
-    .reg .f32 %zero;
-    .reg .pred %p, %pt;
-
-    ld.param.u64 %a, [a_ptr];
-    ld.param.u64 %out, [out_ptr];
-    ld.param.u32 %n_reg, [n];
-
-    mov.f32 %zero, 0f00000000;
-
-    mov.u32 %bid, %ctaid.x;
-    mov.u32 %bdim, %ntid.x;
-    mov.u32 %tid, %tid.x;
-    mad.lo.u32 %base, %bid, %bdim, %tid;
-    shl.b32 %base, %base, 2;
-
-    setp.ge.u32 %p, %base, %n_reg;
-    @%p bra DONE;
-
-    add.u32 %end, %base, 3;
-    setp.ge.u32 %pt, %end, %n_reg;
-    @%pt bra TAIL;
-
-    cvt.u64.u32 %off, %base;
-    shl.b64 %off, %off, 2;
-
-    add.u64 %a_base, %a, %off;
-    add.u64 %out_base, %out, %off;
-
-    ld.global.v4.f32 {%va0, %va1, %va2, %va3}, [%a_base];
-
-    max.f32 %vr0, %va0, %zero;
-    max.f32 %vr1, %va1, %zero;
-    max.f32 %vr2, %va2, %zero;
-    max.f32 %vr3, %va3, %zero;
-
-    st.global.v4.f32 [%out_base], {%vr0, %vr1, %vr2, %vr3};
-    bra DONE;
-
-TAIL:
-    mov.u32 %tail_idx, %base;
-TAIL_LOOP:
-    setp.ge.u32 %p, %tail_idx, %n_reg;
-    @%p bra DONE;
-
-    cvt.u64.u32 %off, %tail_idx;
-    shl.b64 %off, %off, 2;
-    add.u64 %a_base, %a, %off;
-    add.u64 %out_base, %out, %off;
-
-    ld.global.f32 %va0, [%a_base];
-    max.f32 %vr0, %va0, %zero;
-    st.global.f32 [%out_base], %vr0;
-
-    add.u32 %tail_idx, %tail_idx, 1;
-    bra TAIL_LOOP;
 
 DONE:
     ret;
@@ -2722,34 +2316,6 @@ fn launch_cfg(n: usize) -> GpuResult<LaunchConfig> {
     })
 }
 
-/// Launch config for vec4 kernels where each thread processes 4 elements.
-///
-/// Grid size is `ceil(n / 4) / BLOCK`, since each of the 256 threads per
-/// block handles a 4-element chunk.
-///
-/// # Errors
-///
-/// Returns [`GpuError::ShapeMismatch`] if `n` exceeds `u32::MAX`.
-#[cfg(feature = "cuda")]
-fn launch_cfg_vec4(n: usize) -> GpuResult<LaunchConfig> {
-    if n > u32::MAX as usize {
-        return Err(GpuError::ShapeMismatch {
-            op: "kernel_launch_vec4",
-            expected: vec![u32::MAX as usize],
-            got: vec![n],
-        });
-    }
-    const BLOCK: u32 = 256;
-    // Each thread handles 4 elements, so we need ceil(n/4) threads total.
-    let threads = ((n as u32).saturating_add(3)) / 4;
-    let grid = threads.saturating_add(BLOCK - 1) / BLOCK;
-    Ok(LaunchConfig {
-        grid_dim: (grid.max(1), 1, 1),
-        block_dim: (BLOCK, 1, 1),
-        shared_mem_bytes: 0,
-    })
-}
-
 // ---------------------------------------------------------------------------
 // Validation helpers
 // ---------------------------------------------------------------------------
@@ -2882,89 +2448,6 @@ fn try_launch_unary(
     Ok(Some(out))
 }
 
-/// Try to launch a vec4 binary PTX kernel. Each thread processes 4 elements
-/// using 128-bit vectorized loads. Returns `Ok(Some(buf))` on success,
-/// `Ok(None)` if the PTX module failed to load.
-#[cfg(feature = "cuda")]
-fn try_launch_binary_vec4(
-    a: &CudaBuffer<f32>,
-    b: &CudaBuffer<f32>,
-    device: &GpuDevice,
-    ptx_src: &'static str,
-    kernel_name: &'static str,
-) -> GpuResult<Option<CudaBuffer<f32>>> {
-    use cudarc::driver::PushKernelArg;
-
-    let n = a.len();
-    let ctx = device.context();
-    let stream = device.stream();
-
-    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name, device.ordinal() as u32) {
-        Ok(f) => f,
-        Err(_) => return Ok(None),
-    };
-
-    let mut out = alloc_zeros_f32(n, device)?;
-    let cfg = launch_cfg_vec4(n)?;
-    let n_u32 = n as u32;
-
-    // SAFETY: The kernel reads `n` f32 values from `a` and `b`, writes `n`
-    // f32 values to `out`. All three buffers are device-resident and at
-    // least `n` elements long. The vec4 grid covers ceil(n/4) threads,
-    // each handling 4 elements with a bounds-checked tail.
-    unsafe {
-        stream
-            .launch_builder(&f)
-            .arg(a.inner())
-            .arg(b.inner())
-            .arg(out.inner_mut())
-            .arg(&n_u32)
-            .launch(cfg)?;
-    }
-
-    Ok(Some(out))
-}
-
-/// Try to launch a vec4 unary PTX kernel. Each thread processes 4 elements
-/// using 128-bit vectorized loads. Returns `Ok(Some(buf))` on success,
-/// `Ok(None)` if the PTX module failed to load.
-#[cfg(feature = "cuda")]
-fn try_launch_unary_vec4(
-    a: &CudaBuffer<f32>,
-    device: &GpuDevice,
-    ptx_src: &'static str,
-    kernel_name: &'static str,
-) -> GpuResult<Option<CudaBuffer<f32>>> {
-    use cudarc::driver::PushKernelArg;
-
-    let n = a.len();
-    let ctx = device.context();
-    let stream = device.stream();
-
-    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name, device.ordinal() as u32) {
-        Ok(f) => f,
-        Err(_) => return Ok(None),
-    };
-
-    let mut out = alloc_zeros_f32(n, device)?;
-    let cfg = launch_cfg_vec4(n)?;
-    let n_u32 = n as u32;
-
-    // SAFETY: The kernel reads `n` f32 values from `a` and writes `n` f32
-    // values to `out`. Both buffers are device-resident with length >= n.
-    // The vec4 grid covers ceil(n/4) threads with bounds-checked tail.
-    unsafe {
-        stream
-            .launch_builder(&f)
-            .arg(a.inner())
-            .arg(out.inner_mut())
-            .arg(&n_u32)
-            .launch(cfg)?;
-    }
-
-    Ok(Some(out))
-}
-
 // ---------------------------------------------------------------------------
 // _into helpers — write to pre-allocated output buffer (no allocation)
 // ---------------------------------------------------------------------------
@@ -3035,44 +2518,6 @@ fn try_launch_unary_into(
         stream
             .launch_builder(&f)
             .arg(a.inner())
-            .arg(out.inner_mut())
-            .arg(&n_u32)
-            .launch(cfg)?;
-    }
-
-    Ok(true)
-}
-
-/// Launch a vec4 binary PTX kernel into a pre-allocated output buffer.
-/// Returns `Ok(true)` on success, `Ok(false)` if the PTX module failed to load.
-#[cfg(feature = "cuda")]
-fn try_launch_binary_vec4_into(
-    a: &CudaBuffer<f32>,
-    b: &CudaBuffer<f32>,
-    out: &mut CudaBuffer<f32>,
-    device: &GpuDevice,
-    ptx_src: &'static str,
-    kernel_name: &'static str,
-) -> GpuResult<bool> {
-    use cudarc::driver::PushKernelArg;
-
-    let n = a.len();
-    let ctx = device.context();
-    let stream = device.stream();
-
-    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name, device.ordinal() as u32) {
-        Ok(f) => f,
-        Err(_) => return Ok(false),
-    };
-
-    let cfg = launch_cfg_vec4(n)?;
-    let n_u32 = n as u32;
-
-    unsafe {
-        stream
-            .launch_builder(&f)
-            .arg(a.inner())
-            .arg(b.inner())
             .arg(out.inner_mut())
             .arg(&n_u32)
             .launch(cfg)?;
@@ -3231,13 +2676,7 @@ pub fn gpu_add(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(a, b, device)?;
 
-    // Try vec4 kernel first (4 elements/thread, ~4x memory throughput).
-    if let Some(out) = try_launch_binary_vec4(a, b, device, ADD_PTX, "add_vec4_kernel")? {
-        return Ok(out);
-    }
-
-    // Fall back to scalar kernel.
-    if let Some(out) = try_launch_binary(a, b, device, ADD_SCALAR_PTX, "add_kernel")? {
+    if let Some(out) = try_launch_binary(a, b, device, ADD_PTX, "add_kernel")? {
         return Ok(out);
     }
 
@@ -3264,13 +2703,7 @@ pub fn gpu_sub(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(a, b, device)?;
 
-    // Try vec4 kernel first (4 elements/thread, ~4x memory throughput).
-    if let Some(out) = try_launch_binary_vec4(a, b, device, SUB_PTX, "sub_vec4_kernel")? {
-        return Ok(out);
-    }
-
-    // Fall back to scalar kernel.
-    if let Some(out) = try_launch_binary(a, b, device, SUB_SCALAR_PTX, "sub_kernel")? {
+    if let Some(out) = try_launch_binary(a, b, device, SUB_PTX, "sub_kernel")? {
         return Ok(out);
     }
 
@@ -3296,13 +2729,7 @@ pub fn gpu_mul(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(a, b, device)?;
 
-    // Try vec4 kernel first (4 elements/thread, ~4x memory throughput).
-    if let Some(out) = try_launch_binary_vec4(a, b, device, MUL_PTX, "mul_vec4_kernel")? {
-        return Ok(out);
-    }
-
-    // Fall back to scalar kernel.
-    if let Some(out) = try_launch_binary(a, b, device, MUL_SCALAR_PTX, "mul_kernel")? {
+    if let Some(out) = try_launch_binary(a, b, device, MUL_PTX, "mul_kernel")? {
         return Ok(out);
     }
 
@@ -3452,13 +2879,7 @@ pub fn gpu_neg(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
 
-    // Try vec4 kernel first (4 elements/thread, ~4x memory throughput).
-    if let Some(out) = try_launch_unary_vec4(a, device, NEG_PTX, "neg_vec4_kernel")? {
-        return Ok(out);
-    }
-
-    // Fall back to scalar kernel.
-    if let Some(out) = try_launch_unary(a, device, NEG_SCALAR_PTX, "neg_kernel")? {
+    if let Some(out) = try_launch_unary(a, device, NEG_PTX, "neg_kernel")? {
         return Ok(out);
     }
 
@@ -3482,13 +2903,7 @@ pub fn gpu_relu(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
 
-    // Try vec4 kernel first (4 elements/thread, ~4x memory throughput).
-    if let Some(out) = try_launch_unary_vec4(a, device, RELU_PTX, "relu_vec4_kernel")? {
-        return Ok(out);
-    }
-
-    // Fall back to scalar kernel.
-    if let Some(out) = try_launch_unary(a, device, RELU_SCALAR_PTX, "relu_kernel")? {
+    if let Some(out) = try_launch_unary(a, device, RELU_PTX, "relu_kernel")? {
         return Ok(out);
     }
 
@@ -4619,12 +4034,14 @@ pub fn gpu_add_into(
     a: &CudaBuffer<f32>, b: &CudaBuffer<f32>, out: &mut CudaBuffer<f32>, device: &GpuDevice,
 ) -> GpuResult<()> {
     validate_binary(a, b, device)?;
-    // Try vec4 kernel first.
-    if try_launch_binary_vec4_into(a, b, out, device, ADD_PTX, "add_vec4_kernel")? {
-        return Ok(());
+    if out.len() < a.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "add_into",
+            expected: vec![a.len()],
+            got: vec![out.len()],
+        });
     }
-    // Fall back to scalar kernel.
-    if try_launch_binary_into(a, b, out, device, ADD_SCALAR_PTX, "add_kernel")? {
+    if try_launch_binary_into(a, b, out, device, ADD_PTX, "add_kernel")? {
         return Ok(());
     }
     Err(GpuError::PtxCompileFailed { kernel: "add_kernel" })
@@ -4636,12 +4053,14 @@ pub fn gpu_mul_into(
     a: &CudaBuffer<f32>, b: &CudaBuffer<f32>, out: &mut CudaBuffer<f32>, device: &GpuDevice,
 ) -> GpuResult<()> {
     validate_binary(a, b, device)?;
-    // Try vec4 kernel first.
-    if try_launch_binary_vec4_into(a, b, out, device, MUL_PTX, "mul_vec4_kernel")? {
-        return Ok(());
+    if out.len() < a.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "mul_into",
+            expected: vec![a.len()],
+            got: vec![out.len()],
+        });
     }
-    // Fall back to scalar kernel.
-    if try_launch_binary_into(a, b, out, device, MUL_SCALAR_PTX, "mul_kernel")? {
+    if try_launch_binary_into(a, b, out, device, MUL_PTX, "mul_kernel")? {
         return Ok(());
     }
     Err(GpuError::PtxCompileFailed { kernel: "mul_kernel" })
@@ -4945,10 +4364,8 @@ pub fn precompile_decode_kernels(device: &GpuDevice) -> GpuResult<()> {
             .map(|_| ())
             .map_err(GpuError::Driver)
     };
-    compile(ADD_PTX, "add_vec4_kernel")?;
-    compile(ADD_SCALAR_PTX, "add_kernel")?;
-    compile(MUL_PTX, "mul_vec4_kernel")?;
-    compile(MUL_SCALAR_PTX, "mul_kernel")?;
+    compile(ADD_PTX, "add_kernel")?;
+    compile(MUL_PTX, "mul_kernel")?;
     compile(SCALE_PTX, "scale_kernel")?;
     compile(GELU_PTX, "gelu_kernel")?;
     compile(SOFTMAX_PTX, "softmax_kernel")?;
