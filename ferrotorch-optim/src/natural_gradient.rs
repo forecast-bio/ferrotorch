@@ -392,9 +392,8 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
                     // Step 1: temp = G^{-1} @ grad_W  [out_f, in_f]
                     let temp = matmul_f64(g_inv, &grad_data, out_f, out_f, in_f);
                     // Step 2: natural_grad = temp @ A^{-1}  [out_f, in_f]
-                    let natural_grad = matmul_f64(&temp, a_inv, out_f, in_f, in_f);
 
-                    natural_grad
+                    matmul_f64(&temp, a_inv, out_f, in_f, in_f)
                 } else {
                     // No Kronecker factors registered — fall back to vanilla
                     // gradient (behaves like SGD).

@@ -127,7 +127,7 @@ pub fn save_state_dict<T: Float>(
         // Convert the slice of T to raw bytes (little-endian on LE platforms,
         // which covers x86/ARM — production SafeTensors would enforce LE).
         let byte_slice = unsafe {
-            std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * elem_size)
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data))
         };
         file.write_all(byte_slice)
             .map_err(|e| FerrotorchError::InvalidArgument {
@@ -307,9 +307,7 @@ pub(crate) fn parse_meta_line(line: &str) -> FerrotorchResult<TensorMeta> {
             + pattern.len();
         // Find the end: next comma, closing brace, or end of string.
         let rest = &line[start..];
-        let end = rest
-            .find(|c: char| c == ',' || c == '}')
-            .unwrap_or(rest.len());
+        let end = rest.find([',', '}']).unwrap_or(rest.len());
         let value_str = rest[..end].trim();
         value_str
             .parse::<usize>()

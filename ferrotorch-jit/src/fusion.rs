@@ -362,7 +362,7 @@ impl FusedChain {
                     // Step 4: sqrt(2/pi) * (x + 0.044715 * x^3)
                     body_lines.push(format!(
                         "    mul.f32 %scratch, %scratch, 0f{:08X};",
-                        (0.7978845608028654_f32).to_bits()
+                        0.797_884_6_f32.to_bits()
                     ));
                     // Step 5: tanh via 2*sigmoid(2*arg) - 1
                     body_lines.push("    add.f32 %scratch, %scratch, %scratch;".into()); // 2*arg
@@ -989,7 +989,7 @@ fn apply_op_inplace<T: Float>(op: &FusedOp, data: &mut [T]) -> FerrotorchResult<
         FusedOp::ScalarAdd(s) => {
             let s_t = T::from(*s).unwrap();
             for x in data.iter_mut() {
-                *x = *x + s_t;
+                *x += s_t;
             }
         }
     }

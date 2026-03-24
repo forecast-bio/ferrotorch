@@ -12,7 +12,6 @@ use ferrotorch_core::tensor::Tensor;
 use ferrotorch_nn::module::Module;
 use ferrotorch_nn::parameter::Parameter;
 
-use crate::aot_autograd;
 use crate::graph::IrGraph;
 use crate::interpreter::interpret;
 use crate::optimize::{OptimizationConfig, optimize};
@@ -162,7 +161,7 @@ impl<T: Float> Module<T> for TracedModule<T> {
                 ),
             });
         }
-        interpret(&self.graph, &[input.clone()])
+        interpret(&self.graph, std::slice::from_ref(input))
     }
 
     /// Traced modules have no learnable parameters in this MVP.

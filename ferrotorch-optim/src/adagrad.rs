@@ -175,14 +175,14 @@ impl<T: Float> Optimizer<T> for Adagrad<T> {
                     if weight_decay > 0.0 {
                         let wd = T::from(weight_decay).unwrap();
                         for i in 0..numel {
-                            grad_buf[i] = grad_buf[i] + wd * param_vec[i];
+                            grad_buf[i] += wd * param_vec[i];
                         }
                     }
 
                     // Accumulate squared gradients: sum += grad^2.
                     let mut new_sum = sum_vec;
                     for i in 0..numel {
-                        new_sum[i] = new_sum[i] + grad_buf[i] * grad_buf[i];
+                        new_sum[i] += grad_buf[i] * grad_buf[i];
                     }
 
                     // Update parameters: param = param - clr * grad / (sqrt(sum) + eps).

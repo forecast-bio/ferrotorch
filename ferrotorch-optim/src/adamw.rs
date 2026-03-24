@@ -196,10 +196,13 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                 // exp_avg_sq_new = beta2 * exp_avg_sq + (1 - beta2) * grad^2
                 let mut exp_avg_new = Vec::with_capacity(numel);
                 let mut exp_avg_sq_new = Vec::with_capacity(numel);
-                for i in 0..numel {
-                    let g = grad_data[i];
-                    exp_avg_new.push(beta1 * state.exp_avg[i] + (1.0 - beta1) * g);
-                    exp_avg_sq_new.push(beta2 * state.exp_avg_sq[i] + (1.0 - beta2) * g * g);
+                for ((&g, &ea), &eas) in grad_data
+                    .iter()
+                    .zip(state.exp_avg.iter())
+                    .zip(state.exp_avg_sq.iter())
+                {
+                    exp_avg_new.push(beta1 * ea + (1.0 - beta1) * g);
+                    exp_avg_sq_new.push(beta2 * eas + (1.0 - beta2) * g * g);
                 }
 
                 // ----------------------------------------------------------

@@ -467,7 +467,7 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
                 let mut sum = <T as num_traits::Zero>::zero();
                 for t in 0..final_tokens {
                     let idx = b * final_tokens * self.final_dim + t * self.final_dim + c;
-                    sum = sum + x_data[idx];
+                    sum += x_data[idx];
                 }
                 pooled[b * self.final_dim + c] = sum * inv_tokens;
             }

@@ -74,7 +74,7 @@ where
     assert!(!modules.is_empty(), "modules must not be empty");
 
     let n = modules.len();
-    let seg_size = (n + segments - 1) / segments; // ceil division
+    let seg_size = n.div_ceil(segments); // ceil division
 
     let mut current = input.clone();
 
@@ -108,13 +108,13 @@ where
             // through a fresh checkpoint call, nesting checkpoints. This is
             // safe and correct (nested checkpoints work), though it creates
             // one recomputation boundary per module rather than per segment.
-            for idx in seg_start..seg_end {
-                current = modules[idx].forward(&current)?;
+            for module in &modules[seg_start..seg_end] {
+                current = module.forward(&current)?;
             }
         } else {
             // No grad needed — just run forward normally.
-            for idx in seg_start..seg_end {
-                current = modules[idx].forward(&current)?;
+            for module in &modules[seg_start..seg_end] {
+                current = module.forward(&current)?;
             }
         }
     }

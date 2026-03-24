@@ -340,6 +340,7 @@ impl<T: Float> VisionTransformer<T> {
     /// * `depth` -- number of transformer encoder blocks.
     /// * `num_heads` -- number of attention heads per block.
     /// * `mlp_ratio` -- ratio of MLP hidden dim to embed_dim.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         image_size: usize,
         patch_size: usize,
@@ -424,9 +425,8 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
         let mut pos_added = Vec::with_capacity(total);
 
         for b in 0..batch {
-            for i in 0..pos_size {
-                let src = b * pos_size + i;
-                pos_added.push(x_data[src] + pos_data[i]);
+            for (i, &pd) in pos_data.iter().enumerate().take(pos_size) {
+                pos_added.push(x_data[b * pos_size + i] + pd);
             }
         }
 

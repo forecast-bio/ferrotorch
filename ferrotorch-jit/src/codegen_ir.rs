@@ -199,12 +199,12 @@ impl Expr {
     }
 
     /// Create `lhs + rhs`.
-    pub fn add(lhs: Expr, rhs: Expr) -> Self {
+    pub fn sum(lhs: Expr, rhs: Expr) -> Self {
         Expr::bin(BinOpKind::Add, lhs, rhs)
     }
 
     /// Create `lhs * rhs`.
-    pub fn mul(lhs: Expr, rhs: Expr) -> Self {
+    pub fn prod(lhs: Expr, rhs: Expr) -> Self {
         Expr::bin(BinOpKind::Mul, lhs, rhs)
     }
 }
@@ -326,7 +326,7 @@ pub fn lower_to_loops(
     }
 
     // Multiple ops: try to fuse into a single loop if all are unary elementwise
-    let all_unary = ops.iter().all(|op| is_unary_elementwise(op));
+    let all_unary = ops.iter().all(is_unary_elementwise);
     if all_unary {
         return lower_fused_elementwise(ops, input_names, output_name, numel);
     }
@@ -635,15 +635,15 @@ pub fn lower_matmul(
                             BinOpKind::Mul,
                             Expr::index(
                                 in_a,
-                                Expr::add(
-                                    Expr::mul(Expr::var("i"), Expr::int(k as i64)),
+                                Expr::sum(
+                                    Expr::prod(Expr::var("i"), Expr::int(k as i64)),
                                     Expr::var("p"),
                                 ),
                             ),
                             Expr::index(
                                 in_b,
-                                Expr::add(
-                                    Expr::mul(Expr::var("p"), Expr::int(n as i64)),
+                                Expr::sum(
+                                    Expr::prod(Expr::var("p"), Expr::int(n as i64)),
                                     Expr::var("j"),
                                 ),
                             ),
@@ -652,8 +652,8 @@ pub fn lower_matmul(
                 },
                 LoopIR::Store {
                     buffer: out_name.into(),
-                    index: Expr::add(
-                        Expr::mul(Expr::var("i"), Expr::int(n as i64)),
+                    index: Expr::sum(
+                        Expr::prod(Expr::var("i"), Expr::int(n as i64)),
                         Expr::var("j"),
                     ),
                     value: Expr::var("acc"),
@@ -682,7 +682,7 @@ mod tests {
         let i = Expr::int(42);
         assert_eq!(i, Expr::IntConst(42));
 
-        let sum = Expr::add(Expr::var("a"), Expr::var("b"));
+        let sum = Expr::sum(Expr::var("a"), Expr::var("b"));
         assert_eq!(
             sum,
             Expr::BinOp {

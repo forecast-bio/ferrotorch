@@ -351,7 +351,7 @@ pub fn parse_gguf_bytes(data: &[u8]) -> FerrotorchResult<GgufFile> {
     }
 
     let version = r.read_u32()?;
-    if version < 2 || version > 3 {
+    if !(2..=3).contains(&version) {
         return Err(gguf_err(&format!(
             "unsupported GGUF version {version} (expected 2 or 3)"
         )));
@@ -525,9 +525,8 @@ fn dequantize_q4_1(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32
 /// Dequantize Q5_0 data to f32.
 ///
 /// Q5_0: block size 32, each block = 2 bytes (f16 scale) + 4 bytes (32 high bits)
-/// + 16 bytes (32 low nibbles).
-/// Each element is 5 bits: 4 low bits from nibble + 1 high bit from the bit field.
-/// `dequant(val5) = (val5 - 16) * scale`
+/// + 16 bytes (32 low nibbles). Each element is 5 bits: 4 low bits from nibble
+/// + 1 high bit from the bit field. `dequant(val5) = (val5 - 16) * scale`
 fn dequantize_q5_0(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32>> {
     const BLOCK_SIZE: usize = 32;
     const BLOCK_BYTES: usize = 22;
@@ -790,7 +789,7 @@ pub fn dequantize_gguf_tensor(file: &GgufFile, tensor_name: &str) -> FerrotorchR
     // Compute byte range within the data section.
     let block_size = info.ggml_type.block_size();
     let block_bytes = info.ggml_type.block_bytes();
-    let num_blocks = (num_elements + block_size - 1) / block_size;
+    let num_blocks = num_elements.div_ceil(block_size);
     let byte_len = num_blocks * block_bytes;
     let offset = info.offset as usize;
 

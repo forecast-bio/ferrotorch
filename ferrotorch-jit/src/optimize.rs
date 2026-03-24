@@ -415,11 +415,7 @@ fn try_fuse_one_chain(graph: &mut IrGraph) -> bool {
         let mut chain_ids: Vec<IrNodeId> = vec![start_id];
         let mut current_id = start_id;
 
-        loop {
-            let cur_idx = match node_index.get(&current_id) {
-                Some(&i) => i,
-                None => break,
-            };
+        while let Some(&cur_idx) = node_index.get(&current_id) {
             let cur_node = &graph.nodes[cur_idx];
 
             // The node must produce exactly one output.

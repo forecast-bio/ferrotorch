@@ -393,7 +393,8 @@ impl SimulatedBackend {
         }
 
         // Build the channel matrix: channels[src][dst].
-        let mut matrix: Vec<Vec<(Mutex<Sender<Vec<u8>>>, Mutex<Receiver<Vec<u8>>>)>> = Vec::new();
+        type ChannelPair = (Mutex<Sender<Vec<u8>>>, Mutex<Receiver<Vec<u8>>>);
+        let mut matrix: Vec<Vec<ChannelPair>> = Vec::new();
 
         for _src in 0..world_size {
             let mut row = Vec::new();

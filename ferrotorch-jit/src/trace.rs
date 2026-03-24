@@ -190,9 +190,7 @@ where
             child_shapes.push(child.shape().to_vec());
             child_is_leaf.push(child.grad_fn().is_none());
 
-            if !tensor_map.contains_key(&cid) {
-                tensor_map.insert(cid, (*child).clone());
-            }
+            tensor_map.entry(cid).or_insert_with(|| (*child).clone());
             if !visited.contains_key(&cid) {
                 queue.push_back(cid);
             }

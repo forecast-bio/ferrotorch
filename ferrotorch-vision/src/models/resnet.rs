@@ -565,7 +565,7 @@ fn forward_layer<T: Float>(
 }
 
 /// Collect immutable parameter references from a layer.
-fn collect_layer_params<'a, T: Float>(blocks: &'a [Box<dyn Module<T>>]) -> Vec<&'a Parameter<T>> {
+fn collect_layer_params<T: Float>(blocks: &[Box<dyn Module<T>>]) -> Vec<&Parameter<T>> {
     blocks.iter().flat_map(|b| b.parameters()).collect()
 }
 

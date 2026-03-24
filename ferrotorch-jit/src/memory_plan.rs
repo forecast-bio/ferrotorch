@@ -176,11 +176,12 @@ pub fn plan_memory(graph: &IrGraph) -> MemoryPlan {
         let mut best_slot_size: usize = usize::MAX;
 
         for (slot_idx, &occupant_last_use) in slot_occupancy.iter().enumerate() {
-            if occupant_last_use < interval.born && slot_sizes[slot_idx] >= size {
-                if slot_sizes[slot_idx] < best_slot_size {
-                    best_slot = Some(slot_idx);
-                    best_slot_size = slot_sizes[slot_idx];
-                }
+            if occupant_last_use < interval.born
+                && slot_sizes[slot_idx] >= size
+                && slot_sizes[slot_idx] < best_slot_size
+            {
+                best_slot = Some(slot_idx);
+                best_slot_size = slot_sizes[slot_idx];
             }
         }
 

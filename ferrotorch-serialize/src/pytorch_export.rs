@@ -104,10 +104,10 @@ impl PickleWriter {
 
     /// Emit an integer that fits the most compact encoding.
     fn emit_int(&mut self, value: i64) {
-        if value >= 0 && value < 256 {
+        if (0..256).contains(&value) {
             self.buf.push(BININT1);
             self.buf.push(value as u8);
-        } else if value >= 0 && value < 65536 {
+        } else if (0..65536).contains(&value) {
             self.buf.push(BININT2);
             self.buf.extend_from_slice(&(value as u16).to_le_bytes());
         } else {
@@ -266,8 +266,13 @@ pub fn save_pytorch<T: Float>(
     for (idx, key) in keys.iter().enumerate() {
         let tensor = &state[*key];
         let data = tensor.data()?;
+        debug_assert_eq!(
+            std::mem::size_of_val(data),
+            tensor.numel() * elem_size,
+            "tensor byte size mismatch for {key}"
+        );
         let byte_slice = unsafe {
-            std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * elem_size)
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, tensor.numel() * elem_size)
         };
 
         let entry_name = format!("archive/data/{idx}");
@@ -280,6 +285,17 @@ pub fn save_pytorch<T: Float>(
                 message: format!("ZIP write error: {e}"),
             })?;
     }
+
+    // Write dtype metadata file (matches PyTorch's archive/data_type_id).
+    let dtype_str = pytorch_dtype_str::<T>();
+    zip.start_file("archive/data_type_id", options)
+        .map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("ZIP write error: {e}"),
+        })?;
+    zip.write_all(dtype_str.as_bytes())
+        .map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("ZIP write error: {e}"),
+        })?;
 
     zip.finish().map_err(|e| FerrotorchError::InvalidArgument {
         message: format!("ZIP finalize error: {e}"),
@@ -368,12 +384,8 @@ fn build_state_dict_pickle<T: Float>(entries: &[TensorEntry<'_>]) -> FerrotorchR
         // arg 4: requires_grad = False (BININT1 0)
         pw.emit_int(0);
 
-        // arg 5: OrderedDict() (empty metadata)
-        pw.emit_global("collections", "OrderedDict");
-        pw.emit_binput();
-        pw.emit_empty_tuple();
-        pw.emit_reduce();
-        pw.emit_binput();
+        // arg 5: empty dict {} (tensor metadata — empty for standard tensors)
+        pw.emit_empty_dict();
 
         pw.emit_tuple(); // close the _rebuild_tensor_v2 args
         pw.emit_reduce(); // _rebuild_tensor_v2(...)

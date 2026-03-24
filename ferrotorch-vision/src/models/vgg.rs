@@ -210,11 +210,11 @@ fn make_features<T: Float>(cfg: Vec<VggCfg>) -> FerrotorchResult<Vec<Box<dyn Mod
 /// Linear(4096, num_classes)
 /// ```
 fn make_classifier<T: Float>(num_classes: usize) -> FerrotorchResult<Vec<Box<dyn Module<T>>>> {
-    let mut layers: Vec<Box<dyn Module<T>>> = Vec::new();
-
-    layers.push(Box::new(LinearReLUDropout::new(512 * 7 * 7, 4096, 0.5)?));
-    layers.push(Box::new(LinearReLUDropout::new(4096, 4096, 0.5)?));
-    layers.push(Box::new(Linear::new(4096, num_classes, true)?));
+    let layers: Vec<Box<dyn Module<T>>> = vec![
+        Box::new(LinearReLUDropout::new(512 * 7 * 7, 4096, 0.5)?),
+        Box::new(LinearReLUDropout::new(4096, 4096, 0.5)?),
+        Box::new(Linear::new(4096, num_classes, true)?),
+    ];
 
     Ok(layers)
 }

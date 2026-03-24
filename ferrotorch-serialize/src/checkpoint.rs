@@ -156,9 +156,7 @@ fn parse_metadata(s: &str) -> FerrotorchResult<(usize, usize)> {
             })?
             + pattern.len();
         let rest = &s[start..];
-        let end = rest
-            .find(|c: char| c == ',' || c == '}')
-            .unwrap_or(rest.len());
+        let end = rest.find([',', '}']).unwrap_or(rest.len());
         rest[..end]
             .trim()
             .parse::<usize>()
@@ -377,7 +375,7 @@ fn serialize_state_dict_to_bytes<T: Float>(state: &StateDict<T>) -> FerrotorchRe
         let tensor = &state[*key];
         let data = tensor.data()?;
         let byte_slice = unsafe {
-            std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * elem_size)
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data))
         };
         buf.extend_from_slice(byte_slice);
     }

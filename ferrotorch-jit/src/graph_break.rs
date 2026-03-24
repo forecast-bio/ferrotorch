@@ -79,11 +79,14 @@ fn is_known_op(name: &str) -> bool {
 /// A single segment of a graph-broken execution pipeline.
 ///
 /// Either a compiled IR subgraph or an eager-mode fallback closure.
+/// Type alias for an eager-mode fallback closure.
+type EagerFn<T> = Arc<dyn Fn(&Tensor<T>) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
+
 pub enum GraphSegment<T: Float> {
     /// A compiled IR subgraph.
     Compiled(TracedModule<T>),
     /// An eager-mode fallback closure.
-    Eager(Arc<dyn Fn(&Tensor<T>) -> FerrotorchResult<Tensor<T>> + Send + Sync>),
+    Eager(EagerFn<T>),
 }
 
 impl<T: Float> std::fmt::Debug for GraphSegment<T> {
@@ -299,9 +302,7 @@ where
             child_shapes.push(child.shape().to_vec());
             child_is_leaf.push(child.grad_fn().is_none());
 
-            if !tensor_map.contains_key(&cid) {
-                tensor_map.insert(cid, (*child).clone());
-            }
+            tensor_map.entry(cid).or_insert_with(|| (*child).clone());
             if !visited.contains_key(&cid) {
                 queue.push_back(cid);
             }

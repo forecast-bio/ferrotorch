@@ -168,7 +168,7 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
                 if wd > 0.0 {
                     let wd_t = T::from(wd).unwrap();
                     for (g, &p) in grad_data.iter_mut().zip(param_data.iter()) {
-                        *g = *g + wd_t * p;
+                        *g += wd_t * p;
                     }
                 }
 
@@ -199,7 +199,7 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
                         let mom_t = T::from(momentum).unwrap();
                         let mut nesterov_grad = grad_data.clone();
                         for (ng, &b) in nesterov_grad.iter_mut().zip(buf.iter()) {
-                            *ng = *ng + mom_t * b;
+                            *ng += mom_t * b;
                         }
                         nesterov_grad
                     } else {

@@ -181,7 +181,7 @@ impl<T: Float> Lbfgs<T> {
                     None => {
                         // No gradient: treat as zero.
                         let numel = tensor.numel();
-                        flat.extend(std::iter::repeat(0.0).take(numel));
+                        flat.extend(std::iter::repeat_n(0.0, numel));
                     }
                 }
             }
@@ -269,13 +269,22 @@ impl<T: Float> Lbfgs<T> {
         let mut r: Vec<f64> = q.iter().map(|&v| gamma * v).collect();
 
         // ---- second loop (forward through history) ----
-        for i in 0..m {
-            let y = &self.state.y_history[i];
-            let rho = self.state.rho_history[i];
+        for (i, (y, (&rho, s))) in self
+            .state
+            .y_history
+            .iter()
+            .zip(
+                self.state
+                    .rho_history
+                    .iter()
+                    .zip(self.state.s_history.iter()),
+            )
+            .take(m)
+            .enumerate()
+        {
             let beta = rho * dot(y, &r);
-            let s = &self.state.s_history[i];
-            for j in 0..n {
-                r[j] += s[j] * (alpha[i] - beta);
+            for (rj, &sj) in r.iter_mut().zip(s.iter()) {
+                *rj += sj * (alpha[i] - beta);
             }
         }
 
@@ -410,6 +419,7 @@ fn strong_wolfe_search(
 ///
 /// Bisects the interval `[alpha_lo, alpha_hi]` to find a step size
 /// satisfying both Wolfe conditions.
+#[allow(clippy::too_many_arguments)]
 fn zoom(
     mut alpha_lo: f64,
     mut alpha_hi: f64,

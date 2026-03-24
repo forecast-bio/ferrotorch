@@ -674,8 +674,8 @@ fn try_extract_tensor_info(name: &str, value: &PickleValue) -> Option<TensorInfo
     // Verify this is a tensor rebuild call.
     let is_rebuild = match callable {
         PickleValue::Global { module, name } => {
-            (module == "torch._utils" && name == "_rebuild_tensor_v2")
-                || (module == "torch._utils" && name == "_rebuild_tensor_v3")
+            (module == "torch._utils"
+                && (name == "_rebuild_tensor_v2" || name == "_rebuild_tensor_v3"))
                 || (module == "torch" && name == "_utils._rebuild_tensor_v2")
         }
         _ => false,

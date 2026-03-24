@@ -306,9 +306,7 @@ fn extract_json_usize(json: &str, key: &str) -> FerrotorchResult<usize> {
         })?
         + pattern.len();
     let rest = &json[start..];
-    let end = rest
-        .find(|c: char| c == ',' || c == '}' || c == ']')
-        .unwrap_or(rest.len());
+    let end = rest.find([',', '}', ']']).unwrap_or(rest.len());
     rest[..end]
         .trim()
         .parse::<usize>()

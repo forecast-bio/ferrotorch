@@ -173,8 +173,8 @@ impl<T: Float> Optimizer<T> for Asgd<T> {
                 // Update running average.
                 // ax = ax + mu * (p_new - ax)
                 if mu != 1.0 {
-                    for i in 0..numel {
-                        state.ax[i] += mu * (new_param_data[i] - state.ax[i]);
+                    for (ax, &np) in state.ax.iter_mut().zip(new_param_data.iter()) {
+                        *ax += mu * (np - *ax);
                     }
                 } else {
                     state.ax = new_param_data.clone();

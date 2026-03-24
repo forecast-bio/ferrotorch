@@ -126,8 +126,7 @@ fn st_dtype<T: Float>() -> Result<Dtype, DistCheckpointError> {
 
 /// Reinterpret a `&[T]` as a byte slice (little-endian platforms).
 fn as_le_bytes<T: Float>(data: &[T]) -> &[u8] {
-    let elem_size = std::mem::size_of::<T>();
-    unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * elem_size) }
+    unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data)) }
 }
 
 /// Build a shard file path for a given rank inside the checkpoint directory.
@@ -449,13 +448,10 @@ pub fn reshard<T: Float>(
         let mut shard_datas: Vec<Vec<T>> = Vec::with_capacity(old_world_size);
         let mut shard_shapes: Vec<Vec<usize>> = Vec::with_capacity(old_world_size);
 
-        for old_rank in 0..old_world_size {
-            let tensor =
-                old_shards[old_rank]
-                    .get(name)
-                    .ok_or_else(|| DistCheckpointError::Tensor {
-                        message: format!("tensor \"{name}\" missing from rank {old_rank} shard"),
-                    })?;
+        for (old_rank, shard) in old_shards.iter().enumerate().take(old_world_size) {
+            let tensor = shard.get(name).ok_or_else(|| DistCheckpointError::Tensor {
+                message: format!("tensor \"{name}\" missing from rank {old_rank} shard"),
+            })?;
             shard_datas.push(tensor.data_vec().map_err(|e| DistCheckpointError::Tensor {
                 message: format!("reading tensor \"{name}\" from rank {old_rank}: {e}"),
             })?);

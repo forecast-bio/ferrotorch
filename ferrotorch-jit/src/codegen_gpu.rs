@@ -515,7 +515,7 @@ impl GpuCodegen {
         out.push_str(&format!("    // recommended block size: {block_size}\n\n"));
 
         // Emit the kernel body
-        emit_ptx_body(&mut out, loops, num_inputs);
+        emit_ptx_body(&mut out, loops);
 
         // Store result
         out.push_str("\n    st.global.f32 [%out], %val;\n\n");
@@ -626,12 +626,12 @@ fn count_expr_regs(expr: &Expr, extra: &mut usize, needs_zero: &mut bool) {
 ///
 /// The outermost loop is already handled by the thread mapping.
 /// This function emits PTX for the operations inside that loop.
-fn emit_ptx_body(out: &mut String, stmts: &[LoopIR], num_inputs: usize) {
+fn emit_ptx_body(out: &mut String, stmts: &[LoopIR]) {
     for stmt in stmts {
         match stmt {
             LoopIR::Loop { body, .. } => {
                 // Outermost loop: thread-mapped, process the body directly
-                emit_ptx_body(out, body, num_inputs);
+                emit_ptx_body(out, body);
             }
             LoopIR::Let { var, value } => {
                 if var == "val" {
@@ -641,7 +641,7 @@ fn emit_ptx_body(out: &mut String, stmts: &[LoopIR], num_inputs: usize) {
                             // If loading from a non-primary input, emit the load
                             if buffer != "in0" {
                                 if let Some(idx) = buffer.strip_prefix("in") {
-                                    if let Ok(_) = idx.parse::<usize>() {
+                                    if idx.parse::<usize>().is_ok() {
                                         out.push_str(&format!(
                                             "    ld.global.f32 %val, [%{buffer}];\n"
                                         ));
@@ -737,8 +737,8 @@ fn emit_ptx_expr_to_reg(out: &mut String, expr: &Expr, dest: &str) {
                     // PTX doesn't have a direct fmod; approximate with
                     // a - floor(a/b) * b
                     out.push_str(&format!("    div.approx.f32 %t1, {dest}, %t0;\n"));
-                    out.push_str(&format!("    cvt.rzi.f32.f32 %t1, %t1;\n"));
-                    out.push_str(&format!("    mul.f32 %t1, %t1, %t0;\n"));
+                    out.push_str("    cvt.rzi.f32.f32 %t1, %t1;\n");
+                    out.push_str("    mul.f32 %t1, %t1, %t0;\n");
                     out.push_str(&format!("    sub.f32 {dest}, {dest}, %t1;\n"));
                     return;
                 }
@@ -755,7 +755,7 @@ fn emit_ptx_expr_to_reg(out: &mut String, expr: &Expr, dest: &str) {
                 emit_ptx_expr_to_reg(out, &args[0], dest);
                 emit_ptx_expr_to_reg(out, &args[1], "%t0");
                 out.push_str(&format!("    lg2.approx.f32 %t1, {dest};\n"));
-                out.push_str(&format!("    mul.f32 %t1, %t1, %t0;\n"));
+                out.push_str("    mul.f32 %t1, %t1, %t0;\n");
                 out.push_str(&format!("    ex2.approx.f32 {dest}, %t1;\n"));
             } else {
                 // Generic: just put the first arg in dest
@@ -933,20 +933,19 @@ fn find_accumulate_expr(stmts: &[LoopIR]) -> Option<Expr> {
 /// Check if the loops represent a mean reduction (divide by count).
 fn find_mean_divisor(stmts: &[LoopIR]) -> Option<f64> {
     for stmt in stmts {
-        match stmt {
-            LoopIR::Store { value, .. } => {
-                if let Expr::BinOp {
+        if let LoopIR::Store {
+            value:
+                Expr::BinOp {
                     op: BinOpKind::Div,
                     rhs,
                     ..
-                } = value
-                {
-                    if let Expr::Const(divisor) = rhs.as_ref() {
-                        return Some(*divisor);
-                    }
-                }
+                },
+            ..
+        } = stmt
+        {
+            if let Expr::Const(divisor) = rhs.as_ref() {
+                return Some(*divisor);
             }
-            _ => {}
         }
     }
     None

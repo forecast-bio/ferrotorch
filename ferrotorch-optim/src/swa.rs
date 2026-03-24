@@ -150,7 +150,7 @@ impl<T: Float> AveragedModel<T> {
             // First update: just copy the parameters.
             for (avg, param) in self.averaged_params.iter_mut().zip(params.iter()) {
                 let param_data = param.data()?;
-                avg.copy_from_slice(&param_data);
+                avg.copy_from_slice(param_data);
             }
         } else {
             match self.strategy {
@@ -298,9 +298,7 @@ impl<T: Float> LrScheduler<T> for Swalr {
             // Immediate switch.
             self.swa_lr
         } else {
-            let t = (self.current_step as f64 / self.anneal_epochs as f64)
-                .min(1.0)
-                .max(0.0);
+            let t = (self.current_step as f64 / self.anneal_epochs as f64).clamp(0.0, 1.0);
             let alpha = self.anneal_factor(t);
             // Interpolate: initial_lr * (1 - alpha) + swa_lr * alpha
             initial_lr * (1.0 - alpha) + self.swa_lr * alpha

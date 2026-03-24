@@ -77,7 +77,7 @@ fn crc32c(data: &[u8]) -> u32 {
 /// checksum can be verified without knowing the original length encoding.
 fn masked_crc32c(data: &[u8]) -> u32 {
     let crc = crc32c(data);
-    ((crc >> 15) | (crc << 17)).wrapping_add(0xa282_ead8)
+    crc.rotate_right(15).wrapping_add(0xa282_ead8)
 }
 
 // ===========================================================================

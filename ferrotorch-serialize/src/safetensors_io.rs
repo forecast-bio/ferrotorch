@@ -44,8 +44,7 @@ fn expected_dtype<T: Float>() -> FerrotorchResult<Dtype> {
 /// `f32` and `f64` on little-endian platforms (x86, ARM), which is the same
 /// assumption that the SafeTensors format makes.
 fn as_le_bytes<T: Float>(data: &[T]) -> &[u8] {
-    let elem_size = std::mem::size_of::<T>();
-    unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * elem_size) }
+    unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data)) }
 }
 
 /// Save a state dict using the SafeTensors format (HuggingFace standard).

@@ -106,8 +106,7 @@ impl<M: Module<T>, T: Float> DDP<M, T> {
                     flat_data.extend(data);
                 }
                 None => {
-                    flat_data
-                        .extend(std::iter::repeat(<T as num_traits::Zero>::zero()).take(numel));
+                    flat_data.extend(std::iter::repeat_n(<T as num_traits::Zero>::zero(), numel));
                 }
             }
         }

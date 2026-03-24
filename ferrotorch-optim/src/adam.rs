@@ -184,9 +184,9 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                 // Compute updated parameter values.
                 if config.amsgrad {
                     let max_sq = state.max_exp_avg_sq.as_mut().unwrap();
-                    for i in 0..numel {
-                        if state.exp_avg_sq[i] > max_sq[i] {
-                            max_sq[i] = state.exp_avg_sq[i];
+                    for (ms, &ea) in max_sq.iter_mut().zip(state.exp_avg_sq.iter()) {
+                        if ea > *ms {
+                            *ms = ea;
                         }
                     }
                 }

@@ -185,7 +185,7 @@ pub fn find_fusion_groups(graph: &IrGraph) -> Vec<FusionGroup> {
                 .flat_map(|&nid| {
                     node_map
                         .get(&nid)
-                        .map(|n| n.outputs.iter().copied().collect::<Vec<_>>())
+                        .map(|n| n.outputs.to_vec())
                         .unwrap_or_default()
                 })
                 .collect()

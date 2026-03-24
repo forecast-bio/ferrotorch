@@ -29,9 +29,12 @@ use crate::interpreter;
 /// The compilation step converts the IR graph into a boxed closure that
 /// takes flat `Vec<f64>` inputs and produces a flat `Vec<f64>` output,
 /// avoiding per-execution graph traversal overhead.
+/// Type alias for a compiled execution closure.
+type CompiledExecFn = Box<dyn Fn(&[Vec<f64>]) -> FerrotorchResult<Vec<f64>> + Send + Sync>;
+
 pub struct CompiledGraph {
     /// The compiled execution function.
-    execute: Box<dyn Fn(&[Vec<f64>]) -> FerrotorchResult<Vec<f64>> + Send + Sync>,
+    execute: CompiledExecFn,
     /// Number of expected inputs.
     num_inputs: usize,
     /// Shape of the output tensor.

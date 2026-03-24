@@ -45,6 +45,11 @@ pub struct OnnxExportConfig {
     pub opset_version: usize,
     /// Human-readable model name stored in the ONNX graph.
     pub model_name: String,
+    /// Dynamic axes: maps input index → list of (axis, name) pairs.
+    ///
+    /// Example: `vec![(0, vec![(0, "batch".into())])]` marks axis 0 of input 0
+    /// as dynamic with symbolic name "batch".
+    pub dynamic_axes: HashMap<usize, Vec<(usize, String)>>,
 }
 
 impl Default for OnnxExportConfig {
@@ -52,6 +57,7 @@ impl Default for OnnxExportConfig {
         Self {
             opset_version: 17,
             model_name: "ferrotorch_model".to_string(),
+            dynamic_axes: HashMap::new(),
         }
     }
 }
@@ -244,7 +250,8 @@ const SHAPE_DIM: u32 = 1;
 
 // TensorShapeProto.Dimension
 const DIM_VALUE: u32 = 1;
-const DIM_PARAM: u32 = 2;
+/// Protobuf field tag for symbolic dimension parameter names.
+pub const DIM_PARAM: u32 = 2;
 
 // ===========================================================================
 // ONNX message builders
@@ -278,20 +285,20 @@ fn encode_shape(dims: &[usize]) -> Vec<u8> {
 }
 
 /// Encode a `TensorShapeProto.Dimension` with a symbolic dim_param (string).
-fn encode_dim_param(param: &str) -> Vec<u8> {
+pub fn encode_dim_param(param: &str) -> Vec<u8> {
     let mut w = ProtobufWriter::new();
     w.write_string(DIM_PARAM, param);
     w.into_bytes()
 }
 
 /// Specification for a single ONNX dimension — either static or dynamic.
-enum OnnxDimSpec {
+pub enum OnnxDimSpec {
     Static(usize),
     Dynamic(String),
 }
 
 /// Encode a `TensorShapeProto` with a mix of static and dynamic dimensions.
-fn encode_shape_with_dynamic(dims: &[OnnxDimSpec]) -> Vec<u8> {
+pub fn encode_shape_with_dynamic(dims: &[OnnxDimSpec]) -> Vec<u8> {
     let mut w = ProtobufWriter::new();
     for dim in dims {
         let dim_bytes = match dim {
@@ -304,7 +311,7 @@ fn encode_shape_with_dynamic(dims: &[OnnxDimSpec]) -> Vec<u8> {
 }
 
 /// Encode a `ValueInfoProto` with support for dynamic dimensions.
-fn encode_value_info_dynamic(name: &str, elem_type: i32, dims: &[OnnxDimSpec]) -> Vec<u8> {
+pub fn encode_value_info_dynamic(name: &str, elem_type: i32, dims: &[OnnxDimSpec]) -> Vec<u8> {
     let mut w = ProtobufWriter::new();
     w.write_string(VALUE_INFO_NAME, name);
 
@@ -684,11 +691,11 @@ fn map_ir_op(op: &IrOpKind, node_name: &str, elem_type: i32) -> FerrotorchResult
             message: "fused elementwise ops must be un-fused before ONNX export".into(),
         }),
 
-        IrOpKind::Cond { .. } => Err(FerrotorchError::InvalidArgument {
+        IrOpKind::Cond => Err(FerrotorchError::InvalidArgument {
             message: "cond ops must be lowered before ONNX export".into(),
         }),
 
-        IrOpKind::Scan { .. } => Err(FerrotorchError::InvalidArgument {
+        IrOpKind::Scan => Err(FerrotorchError::InvalidArgument {
             message: "scan ops must be lowered before ONNX export".into(),
         }),
     }
@@ -729,6 +736,8 @@ pub fn ir_graph_to_onnx(
     // double-declaring initializers that are also inputs).
     let mut declared_inputs: Vec<String> = Vec::new();
 
+    let mut input_counter: usize = 0;
+
     for &nid in &topo {
         let node = node_map[&nid];
 
@@ -738,9 +747,28 @@ pub fn ir_graph_to_onnx(
                 let out_id = node.outputs[0];
                 let shape = &value_map[&out_id].shape;
                 let name = value_name(out_id);
-                let vi = encode_value_info(&name, elem_type, shape);
+
+                // Use dynamic dimension encoding if configured for this input.
+                let vi = if let Some(dyn_axes) = config.dynamic_axes.get(&input_counter) {
+                    let dims: Vec<OnnxDimSpec> = shape
+                        .iter()
+                        .enumerate()
+                        .map(|(axis, &size)| {
+                            if let Some((_, sym_name)) = dyn_axes.iter().find(|(a, _)| *a == axis) {
+                                OnnxDimSpec::Dynamic(sym_name.clone())
+                            } else {
+                                OnnxDimSpec::Static(size)
+                            }
+                        })
+                        .collect();
+                    encode_value_info_dynamic(&name, elem_type, &dims)
+                } else {
+                    encode_value_info(&name, elem_type, shape)
+                };
+
                 onnx_inputs.push(vi);
                 declared_inputs.push(name);
+                input_counter += 1;
             }
 
             IrOpKind::Constant { data, shape } => {
@@ -789,7 +817,7 @@ pub fn ir_graph_to_onnx(
                         "Reshape" | "Squeeze" | "Unsqueeze" => 7, // INT64
                         _ => elem_type,
                     };
-                    let tp = encode_tensor_proto(aux_name, aux_dtype, dims, &raw);
+                    let tp = encode_tensor_proto(aux_name, aux_dtype, dims, raw);
                     onnx_initializers.push(tp);
 
                     let vi = encode_value_info(aux_name, aux_dtype, dims);
@@ -1356,6 +1384,7 @@ mod tests {
         let config = OnnxExportConfig {
             opset_version: 13,
             model_name: "test".into(),
+            ..Default::default()
         };
 
         let dir = std::env::temp_dir().join("ferrotorch_test_onnx_opset");
@@ -1383,6 +1412,7 @@ mod tests {
         let config = OnnxExportConfig {
             opset_version: 17,
             model_name: "test".into(),
+            ..Default::default()
         };
 
         let dir = std::env::temp_dir().join("ferrotorch_test_onnx_opset17");
@@ -1410,6 +1440,7 @@ mod tests {
         let config = OnnxExportConfig {
             opset_version: 17,
             model_name: "roundtrip_test".into(),
+            ..Default::default()
         };
 
         let dir = std::env::temp_dir().join("ferrotorch_test_onnx_rt");
@@ -1585,6 +1616,7 @@ mod tests {
         let config = OnnxExportConfig {
             opset_version: 17,
             model_name: "file_test".into(),
+            ..Default::default()
         };
 
         let dir = std::env::temp_dir().join("ferrotorch_test_onnx_file");
@@ -1615,6 +1647,7 @@ mod tests {
         let config = OnnxExportConfig {
             opset_version: 17,
             model_name: "my_custom_model".into(),
+            ..Default::default()
         };
         let bytes = ir_graph_to_onnx(&graph, &config, ONNX_FLOAT).unwrap();
 
@@ -1636,6 +1669,7 @@ mod tests {
         let config = OnnxExportConfig {
             opset_version: 21,
             model_name: "test".into(),
+            ..Default::default()
         };
 
         let dir = std::env::temp_dir().join("ferrotorch_test_onnx_opset21");

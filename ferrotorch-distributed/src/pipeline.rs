@@ -71,6 +71,15 @@ pub struct Pipeline<M: Module<T>, T: Float> {
     _marker: std::marker::PhantomData<T>,
 }
 
+impl<M: Module<T>, T: Float> std::fmt::Debug for Pipeline<M, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pipeline")
+            .field("num_microbatches", &self.num_microbatches)
+            .field("schedule", &self.schedule)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<M: Module<T>, T: Float> Pipeline<M, T> {
     /// Create a new pipeline stage.
     ///

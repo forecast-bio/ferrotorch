@@ -96,7 +96,7 @@ pub fn allreduce_with_timeout<T: Float>(
             backend.recv_timeout(&mut recv_buf, src, timeout)?;
             let peer_data = bytes_to_floats::<T>(&recv_buf);
             for (a, &b) in accum.iter_mut().zip(peer_data.iter()) {
-                *a = *a + b;
+                *a += b;
             }
         }
 
@@ -348,8 +348,7 @@ pub fn reduce_scatter_with_timeout<T: Float>(
                     "reduce_scatter: dim 0 size {} is not divisible by world_size {}",
                     s[0], world_size,
                 ),
-            }
-            .into());
+            });
         }
         s[0] /= world_size;
         s
@@ -370,7 +369,7 @@ pub fn reduce_scatter_with_timeout<T: Float>(
             backend.recv_timeout(&mut recv_buf, src, timeout)?;
             let peer_data = bytes_to_floats::<T>(&recv_buf);
             for (a, &b) in accum.iter_mut().zip(peer_data.iter()) {
-                *a = *a + b;
+                *a += b;
             }
         }
 
@@ -424,7 +423,7 @@ pub fn barrier(backend: &dyn Backend) -> FerrotorchResult<()> {
 
 /// Reinterpret a float slice as raw bytes, copying into a new `Vec<u8>`.
 fn floats_to_bytes<T: Float>(data: &[T]) -> Vec<u8> {
-    let byte_len = data.len() * std::mem::size_of::<T>();
+    let byte_len = std::mem::size_of_val(data);
     let ptr = data.as_ptr() as *const u8;
     // SAFETY: T is f32 or f64, both are POD types with no padding.
     // The slice is valid for byte_len bytes.

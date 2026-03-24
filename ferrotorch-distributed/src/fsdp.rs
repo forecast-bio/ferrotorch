@@ -236,8 +236,7 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                     params.len(),
                     self.full_params.len(),
                 ),
-            }
-            .into());
+            });
         }
 
         for (i, param) in params.into_iter().enumerate() {
