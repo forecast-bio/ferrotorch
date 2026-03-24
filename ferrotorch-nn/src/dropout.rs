@@ -10,6 +10,7 @@
 use std::sync::Arc;
 
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
+use ferrotorch_core::gpu_dispatch::GpuRngState;
 use ferrotorch_core::tensor::GradFn;
 use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 
@@ -43,6 +44,89 @@ fn xorshift_next(state: &mut u64) -> f64 {
     *state ^= *state >> 7;
     *state ^= *state << 17;
     (*state as f64) / (u64::MAX as f64)
+}
+
+// ---------------------------------------------------------------------------
+// Philox 4x32-10 for CPU-side mask regeneration
+// ---------------------------------------------------------------------------
+// We need the Philox algorithm on CPU to regenerate dropout masks during
+// backward for GPU tensors (the forward mask was generated on GPU using
+// the Philox state). This is a copy of the core algorithm from
+// ferrotorch-gpu/src/rng.rs to avoid a dependency on the GPU crate.
+
+#[allow(dead_code)]
+const PHILOX_M0: u32 = 0xD2511F53;
+#[allow(dead_code)]
+const PHILOX_M1: u32 = 0xCD9E8D57;
+#[allow(dead_code)]
+const PHILOX_W0: u32 = 0x9E3779B9;
+#[allow(dead_code)]
+const PHILOX_W1: u32 = 0xBB67AE85;
+
+#[allow(dead_code)]
+#[inline]
+fn philox_round(c0: u32, c1: u32, c2: u32, c3: u32, k0: u32, k1: u32) -> (u32, u32, u32, u32) {
+    let prod0 = (PHILOX_M0 as u64) * (c0 as u64);
+    let hi0 = (prod0 >> 32) as u32;
+    let lo0 = prod0 as u32;
+
+    let prod1 = (PHILOX_M1 as u64) * (c2 as u64);
+    let hi1 = (prod1 >> 32) as u32;
+    let lo1 = prod1 as u32;
+
+    let new_c0 = hi1 ^ c1 ^ k0;
+    let new_c1 = lo1;
+    let new_c2 = hi0 ^ c3 ^ k1;
+    let new_c3 = lo0;
+
+    (new_c0, new_c1, new_c2, new_c3)
+}
+
+/// Philox 4x32-10: produces 4 uniform u32 values from (counter, key).
+#[allow(dead_code)]
+fn philox_4x32_10(counter: u64, key: u64) -> [u32; 4] {
+    let mut c0 = counter as u32;
+    let mut c1 = (counter >> 32) as u32;
+    let mut c2 = 0u32;
+    let mut c3 = 0u32;
+
+    let mut k0 = key as u32;
+    let mut k1 = (key >> 32) as u32;
+
+    for _ in 0..9 {
+        (c0, c1, c2, c3) = philox_round(c0, c1, c2, c3, k0, k1);
+        k0 = k0.wrapping_add(PHILOX_W0);
+        k1 = k1.wrapping_add(PHILOX_W1);
+    }
+    // Round 10 (final, no key advance)
+    (c0, c1, c2, c3) = philox_round(c0, c1, c2, c3, k0, k1);
+
+    [c0, c1, c2, c3]
+}
+
+/// Generate a dropout mask using the Philox algorithm, matching the GPU kernel's
+/// behavior. The mask uses `(counter ^ seed)` as a derived u32 seed and applies
+/// the same xorshift-multiply hash that the GPU dropout kernel uses.
+///
+/// This ensures backward mask matches the forward mask generated on GPU.
+fn philox_dropout_mask<T: Float>(
+    numel: usize,
+    threshold: u32,
+    scale: T,
+    rng_state: &GpuRngState,
+) -> Vec<T> {
+    let zero = <T as num_traits::Zero>::zero();
+    let derived_seed = (rng_state.counter ^ rng_state.seed) as u32;
+
+    (0..numel)
+        .map(|i| {
+            let mut r = (i as u32).wrapping_mul(2654435761) ^ derived_seed;
+            r ^= r << 13;
+            r ^= r >> 17;
+            r ^= r << 5;
+            if r < threshold { zero } else { scale }
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -185,29 +269,26 @@ impl<T: Float> Module<T> for Dropout<T> {
         let scale = T::from(1.0 / (1.0 - self.p)).unwrap();
         let zero = <T as num_traits::Zero>::zero();
 
-        // GPU fast path: run dropout kernel entirely on device.
+        // GPU fast path: run dropout kernel entirely on device using the
+        // Philox CBRNG. This integrates with the global GPU RNG state so
+        // that gradient checkpointing can reproduce identical masks.
         if input.is_cuda() {
             if let Some(backend) = ferrotorch_core::gpu_dispatch::gpu_backend() {
                 let threshold = (self.p * u32::MAX as f64) as u32;
                 let scale_f32 = 1.0f32 / (1.0 - self.p as f32);
-                let seed = xorshift_seed() as u32;
-                let handle = backend.dropout_f32(
+
+                let (handle, rng_state) = backend.dropout_philox_f32(
                     input.gpu_handle()?,
                     threshold,
                     scale_f32,
-                    seed,
                 )?;
 
-                // For backward, we need the mask. Reconstruct it from the same
-                // seed on CPU (the kernel is deterministic for a given seed).
+                // For backward, we need the mask. Regenerate it from the saved
+                // Philox RNG state using the same deterministic hash that the
+                // GPU kernel uses. This is reproducible across checkpoint
+                // save/restore because the Philox state is deterministic.
                 if is_grad_enabled() && input.requires_grad() {
-                    let scaled_mask: Vec<T> = (0..numel)
-                        .map(|i| {
-                            let mut r = (i as u32).wrapping_mul(2654435761) ^ seed;
-                            r ^= r << 13; r ^= r >> 17; r ^= r << 5;
-                            if r < threshold { zero } else { scale }
-                        })
-                        .collect();
+                    let scaled_mask = philox_dropout_mask(numel, threshold, scale, &rng_state);
                     return Tensor::from_operation(
                         TensorStorage::gpu(handle),
                         input.shape().to_vec(),

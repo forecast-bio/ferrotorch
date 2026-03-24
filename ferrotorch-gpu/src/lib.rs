@@ -35,6 +35,7 @@ pub mod kernels;
 pub mod module_cache;
 pub mod memory_guard;
 pub mod pool;
+pub mod rng;
 pub mod tensor_bridge;
 pub mod transfer;
 
@@ -60,4 +61,5 @@ pub use memory_guard::{
 };
 pub use tensor_bridge::{cuda, cuda_default, tensor_to_cpu, tensor_to_gpu, GpuFloat, GpuTensor};
 pub use pool::{empty_cache, empty_cache_all, cached_bytes, round_len};
+pub use rng::{PhiloxGenerator, PhiloxState, CudaRngManager, cuda_rng_manager, fork_rng, join_rng};
 pub use transfer::{alloc_zeros, alloc_zeros_f32, alloc_zeros_f64, cpu_to_gpu, gpu_to_cpu};
