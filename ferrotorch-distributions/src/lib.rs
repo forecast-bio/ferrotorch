@@ -16,15 +16,27 @@
 //! | [`Uniform`] | `low`, `high` | Yes |
 //! | [`Bernoulli`] | `probs` | No (discrete) |
 //! | [`Categorical`] | `probs` | No (discrete) |
+//!
+//! # Infrastructure
+//!
+//! - [`constraints`] — constraint objects for parameter and support validation
+//! - [`transforms`] — bijective transforms with log-det-Jacobian computation
+//! - [`kl`] — analytical KL divergence for same-family distribution pairs
+//! - [`TransformedDistribution`](transforms::TransformedDistribution) — apply
+//!   bijective transforms to a base distribution
 
 mod bernoulli;
 mod categorical;
+pub mod constraints;
+pub mod kl;
 mod normal;
+pub mod transforms;
 mod uniform;
 
 pub use bernoulli::Bernoulli;
 pub use categorical::Categorical;
 pub use normal::Normal;
+pub use transforms::TransformedDistribution;
 pub use uniform::Uniform;
 
 use ferrotorch_core::dtype::Float;
