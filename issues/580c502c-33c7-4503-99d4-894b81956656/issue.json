@@ -1,0 +1,10 @@
+{
+  "uuid": "580c502c-33c7-4503-99d4-894b81956656",
+  "display_id": 284,
+  "title": "T3.10: MultiheadAttention batched matmul — eliminate serial batch/head loops",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-24T02:44:52.180582331Z",
+  "updated_at": "2026-03-24T02:44:52.180582331Z"
+}
