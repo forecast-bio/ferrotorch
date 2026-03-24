@@ -74,7 +74,7 @@ impl<T: Float> Categorical<T> {
         let mut cdf = Vec::with_capacity(k);
         let mut cumsum = zero;
         for &p in probs_data.iter() {
-            cumsum = cumsum + p / total;
+            cumsum += p / total;
             cdf.push(cumsum);
         }
         // Ensure the last CDF entry is exactly 1 to avoid floating-point edge cases.
@@ -126,7 +126,11 @@ impl<T: Float> Distribution<T> for Categorical<T> {
         }
 
         let out = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn rsample(&self, _shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
@@ -161,12 +165,12 @@ impl<T: Float> Distribution<T> for Categorical<T> {
             })
             .collect();
 
-        let out = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            value.shape().to_vec(),
-            false,
-        )?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        let out = Tensor::from_storage(TensorStorage::cpu(result), value.shape().to_vec(), false)?;
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
@@ -183,7 +187,11 @@ impl<T: Float> Distribution<T> for Categorical<T> {
         });
 
         let out = Tensor::from_storage(TensorStorage::cpu(vec![h]), vec![], false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 }
 
@@ -220,10 +228,7 @@ mod tests {
         let data = samples.data().unwrap();
         for &x in data {
             let idx = x as usize;
-            assert!(
-                idx < 4,
-                "Categorical sample should be in [0, 3], got {idx}"
-            );
+            assert!(idx < 4, "Categorical sample should be in [0, 3], got {idx}");
         }
     }
 

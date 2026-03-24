@@ -11,7 +11,7 @@
 //! wired up the data stays on-device and the fallback disappears.
 
 use crate::runtime::CubeDevice;
-use ferrotorch_core::{Float, Tensor, FerrotorchResult};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 
 // ---------------------------------------------------------------------------
 // Elementwise arithmetic
@@ -138,14 +138,9 @@ mod tests {
         // A = [[1, 2, 3], [4, 5, 6]]  (2x3)
         // B = [[7, 8], [9, 10], [11, 12]]  (3x2)
         // C = [[58, 64], [139, 154]]  (2x2)
-        let a = ferrotorch_core::from_vec(
-            vec![1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0],
-            &[2, 3],
-        ).unwrap();
-        let b = ferrotorch_core::from_vec(
-            vec![7.0_f32, 8.0, 9.0, 10.0, 11.0, 12.0],
-            &[3, 2],
-        ).unwrap();
+        let a = ferrotorch_core::from_vec(vec![1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
+        let b =
+            ferrotorch_core::from_vec(vec![7.0_f32, 8.0, 9.0, 10.0, 11.0, 12.0], &[3, 2]).unwrap();
         let c = portable_matmul(&a, &b, &device()).unwrap();
         assert_eq!(c.shape(), &[2, 2]);
         let data: &[f32] = c.data().unwrap();

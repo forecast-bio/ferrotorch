@@ -150,9 +150,7 @@ mod tests {
 
     #[test]
     fn test_enable_grad_returns_value() {
-        let val = no_grad(|| {
-            enable_grad(|| 42)
-        });
+        let val = no_grad(|| enable_grad(|| 42));
         assert_eq!(val, 42);
     }
 

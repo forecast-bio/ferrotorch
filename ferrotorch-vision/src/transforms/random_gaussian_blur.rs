@@ -1,6 +1,6 @@
 // CL-332: Vision Transforms & Augmentation — RandomGaussianBlur
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 use super::rng::random_f64;
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
 use num_traits::NumCast;
 
@@ -155,8 +155,7 @@ mod tests {
     #[test]
     fn test_gaussian_blur_output_shape() {
         let data: Vec<f64> = vec![0.5; 48]; // 3x4x4
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![3, 4, 4], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 4, 4], false).unwrap();
         let blur = RandomGaussianBlur::<f64>::new(3, (0.1, 2.0));
         let out = blur.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);
@@ -168,8 +167,7 @@ mod tests {
         // Border pixels see zero-padding, so we only check interior pixels
         // that have full kernel support (kernel_size=3 => 1-pixel border).
         let data: Vec<f64> = vec![0.7; 75]; // 3x5x5
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![3, 5, 5], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 5, 5], false).unwrap();
         let blur = RandomGaussianBlur::<f64>::new(3, (1.0, 1.0));
         let out = blur.apply(t).unwrap();
         let d = out.data().unwrap();
@@ -192,8 +190,7 @@ mod tests {
         // A single bright pixel in the center should spread out.
         let mut data = vec![0.0_f64; 25]; // 1x5x5
         data[12] = 1.0; // center
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![1, 5, 5], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 5, 5], false).unwrap();
         let blur = RandomGaussianBlur::<f64>::new(5, (1.0, 1.0));
         let out = blur.apply(t).unwrap();
         let d = out.data().unwrap();
@@ -243,8 +240,7 @@ mod tests {
     #[test]
     fn test_gaussian_blur_f32() {
         let data: Vec<f32> = vec![0.5; 12]; // 3x2x2
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![3, 2, 2], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 2, 2], false).unwrap();
         let blur = RandomGaussianBlur::<f32>::new(3, (0.5, 1.5));
         let out = blur.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 2, 2]);

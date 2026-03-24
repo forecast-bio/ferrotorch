@@ -378,19 +378,13 @@ impl RpcAgent {
     where
         F: Fn(&[u8]) -> Result<Vec<u8>, String> + Send + Sync + 'static,
     {
-        let mut reg = self
-            .registry
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut reg = self.registry.lock().unwrap_or_else(|e| e.into_inner());
         reg.insert(name.to_string(), Arc::new(Box::new(handler)));
     }
 
     /// Look up a registered function by name.
     fn lookup(&self, name: &str) -> Option<Arc<RpcHandler>> {
-        let reg = self
-            .registry
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let reg = self.registry.lock().unwrap_or_else(|e| e.into_inner());
         reg.get(name).cloned()
     }
 
@@ -440,11 +434,7 @@ impl RpcAgent {
     /// Checks the buffer first. If the response is not buffered, receives
     /// messages until the matching one arrives, buffering any non-matching
     /// responses along the way.
-    fn recv_response(
-        &self,
-        src_rank: usize,
-        expected_id: u64,
-    ) -> FerrotorchResult<Vec<u8>> {
+    fn recv_response(&self, src_rank: usize, expected_id: u64) -> FerrotorchResult<Vec<u8>> {
         // Check buffer first.
         {
             let mut buf = self
@@ -549,11 +539,7 @@ impl RpcAgent {
 
     /// Handle an incoming RPC request: look up the function, call it, and
     /// send the response back.
-    pub fn handle_request(
-        &self,
-        src_rank: usize,
-        request_data: &[u8],
-    ) -> FerrotorchResult<()> {
+    pub fn handle_request(&self, src_rank: usize, request_data: &[u8]) -> FerrotorchResult<()> {
         let request = RpcRequest::deserialize(request_data).map_err(|e| {
             FerrotorchError::InvalidArgument {
                 message: format!("failed to deserialize RPC request: {e}"),

@@ -11,9 +11,9 @@ use ferrotorch_core::autograd::no_grad::is_grad_enabled;
 use ferrotorch_core::ops::linalg::{mm, transpose};
 use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::tensor::{GradFn, Tensor};
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float};
 
-use crate::init::{kaiming_uniform, zeros as zeros_init, NonLinearity};
+use crate::init::{NonLinearity, kaiming_uniform, zeros as zeros_init};
 use crate::module::Module;
 use crate::parameter::Parameter;
 
@@ -26,6 +26,7 @@ use crate::parameter::Parameter;
 /// Given a 4-D input `[B, C, H, W]`, produces a 3-D output
 /// `[B, C * kH * kW, H_out * W_out]` where each column is one
 /// flattened receptive-field patch.
+#[allow(clippy::too_many_arguments)]
 fn im2col<T: Float>(
     input: &[T],
     batch: usize,
@@ -90,6 +91,7 @@ fn im2col<T: Float>(
 ///
 /// Given columns of shape `[B, C * kH * kW, H_out * W_out]`, accumulates
 /// values back into a `[B, C, H, W]` tensor (with padding stripped).
+#[allow(clippy::too_many_arguments)]
 fn col2im<T: Float>(
     cols: &[T],
     batch: usize,
@@ -132,11 +134,8 @@ fn col2im<T: Float>(
                                 output[b * channels * height * width
                                     + c * height * width
                                     + real_h * width
-                                    + real_w] = output[b * channels * height * width
-                                    + c * height * width
-                                    + real_h * width
-                                    + real_w]
-                                    + cols[b * col_rows * col_cols + row * col_cols + col];
+                                    + real_w] +=
+                                    cols[b * col_rows * col_cols + row * col_cols + col];
                             }
                         }
                     }
@@ -213,8 +212,7 @@ impl<T: Float> Conv2d<T> {
         }
 
         let (kh, kw) = kernel_size;
-        let mut weight =
-            Parameter::zeros(&[out_channels, in_channels, kh, kw])?;
+        let mut weight = Parameter::zeros(&[out_channels, in_channels, kh, kw])?;
         kaiming_uniform(&mut weight, NonLinearity::ReLU)?;
 
         let bias_param = if bias {
@@ -340,9 +338,8 @@ impl<T: Float> Module<T> for Conv2d<T> {
                 for c in 0..self.out_channels {
                     let bval = bias_data[c];
                     for hw in 0..(h_out * w_out) {
-                        output[b * self.out_channels * h_out * w_out
-                            + c * h_out * w_out
-                            + hw] += bval;
+                        output[b * self.out_channels * h_out * w_out + c * h_out * w_out + hw] +=
+                            bval;
                     }
                 }
             }
@@ -504,12 +501,7 @@ impl<T: Float> GradFn<T> for Conv2dBackward<T> {
 
             Some(Tensor::from_storage(
                 TensorStorage::cpu(gw_accum),
-                vec![
-                    self.out_channels,
-                    self.in_channels,
-                    kh,
-                    kw,
-                ],
+                vec![self.out_channels, self.in_channels, kh, kw],
                 false,
             )?)
         } else {
@@ -526,9 +518,10 @@ impl<T: Float> GradFn<T> for Conv2dBackward<T> {
                 for batch_idx in 0..batch {
                     for c in 0..self.out_channels {
                         for hw in 0..(self.h_out * self.w_out) {
-                            gb[c] += go_data[batch_idx * self.out_channels * self.h_out * self.w_out
-                                + c * self.h_out * self.w_out
-                                + hw];
+                            gb[c] +=
+                                go_data[batch_idx * self.out_channels * self.h_out * self.w_out
+                                    + c * self.h_out * self.w_out
+                                    + hw];
                         }
                     }
                 }
@@ -684,8 +677,7 @@ impl<T: Float> Conv1d<T> {
             });
         }
 
-        let mut weight =
-            Parameter::zeros(&[out_channels, in_channels, kernel_size])?;
+        let mut weight = Parameter::zeros(&[out_channels, in_channels, kernel_size])?;
         kaiming_uniform(&mut weight, NonLinearity::ReLU)?;
 
         let bias_param = if bias {
@@ -797,8 +789,7 @@ impl<T: Float> Module<T> for Conv1d<T> {
             let out_b = mm(&weight_2d, &cols_b)?;
             let out_data = out_b.data()?;
             let out_start = b * self.out_channels * l_out;
-            output[out_start..out_start + self.out_channels * l_out]
-                .copy_from_slice(out_data);
+            output[out_start..out_start + self.out_channels * l_out].copy_from_slice(out_data);
         }
 
         // Add bias if present: broadcast [C_out] over [B, C_out, L_out].
@@ -968,9 +959,8 @@ impl<T: Float> GradFn<T> for Conv1dBackward<T> {
                 for batch_idx in 0..batch {
                     for c in 0..self.out_channels {
                         for l in 0..self.l_out {
-                            gb[c] += go_data[batch_idx * self.out_channels * self.l_out
-                                + c * self.l_out
-                                + l];
+                            gb[c] += go_data
+                                [batch_idx * self.out_channels * self.l_out + c * self.l_out + l];
                         }
                     }
                 }
@@ -1138,8 +1128,7 @@ impl<T: Float> ConvTranspose2d<T> {
 
         // Weight shape: [in_channels, out_channels, kH, kW]
         let (kh, kw) = kernel_size;
-        let mut weight =
-            Parameter::zeros(&[in_channels, out_channels, kh, kw])?;
+        let mut weight = Parameter::zeros(&[in_channels, out_channels, kh, kw])?;
         kaiming_uniform(&mut weight, NonLinearity::ReLU)?;
 
         let bias_param = if bias {
@@ -1211,13 +1200,7 @@ fn stride_insert_zeros<T: Float>(
 
 /// Flip a kernel along both spatial axes: `kernel[c_in, c_out, kh, kw]` ->
 /// `kernel[c_out, c_in, kH-1-kh, kW-1-kw]` (also transposes channel dims).
-fn flip_kernel<T: Float>(
-    kernel: &[T],
-    c_in: usize,
-    c_out: usize,
-    kh: usize,
-    kw: usize,
-) -> Vec<T> {
+fn flip_kernel<T: Float>(kernel: &[T], c_in: usize, c_out: usize, kh: usize, kw: usize) -> Vec<T> {
     let zero = <T as num_traits::Zero>::zero();
     let mut flipped = vec![zero; c_out * c_in * kh * kw];
 
@@ -1228,10 +1211,7 @@ fn flip_kernel<T: Float>(
                     // Source: [c_in, c_out, h, w]
                     let src = ci * c_out * kh * kw + co * kh * kw + h * kw + w;
                     // Dest: [c_out, c_in, kH-1-h, kW-1-w]
-                    let dst = co * c_in * kh * kw
-                        + ci * kh * kw
-                        + (kh - 1 - h) * kw
-                        + (kw - 1 - w);
+                    let dst = co * c_in * kh * kw + ci * kh * kw + (kh - 1 - h) * kw + (kw - 1 - w);
                     flipped[dst] = kernel[src];
                 }
             }
@@ -1280,8 +1260,7 @@ impl<T: Float> Module<T> for ConvTranspose2d<T> {
 
         // Step 1: Insert zeros between input elements (stride insertion).
         let input_data = input.data_vec()?;
-        let (upsampled, h_up, w_up) =
-            stride_insert_zeros(&input_data, batch, c_in, h, w, sh, sw);
+        let (upsampled, h_up, w_up) = stride_insert_zeros(&input_data, batch, c_in, h, w, sh, sw);
 
         // Step 2: Flip the kernel and transpose channel dimensions.
         // Weight: [in_channels, out_channels, kH, kW]
@@ -1361,9 +1340,8 @@ impl<T: Float> Module<T> for ConvTranspose2d<T> {
                 for c in 0..self.out_channels {
                     let bval = bias_data[c];
                     for hw in 0..(h_out * w_out) {
-                        output[b * self.out_channels * h_out * w_out
-                            + c * h_out * w_out
-                            + hw] += bval;
+                        output[b * self.out_channels * h_out * w_out + c * h_out * w_out + hw] +=
+                            bval;
                     }
                 }
             }
@@ -1528,8 +1506,7 @@ impl<T: Float> GradFn<T> for ConvTranspose2dBackward<T> {
 
                 let out_start = b * self.in_channels * h_in * w_in;
                 let copy_len = self.in_channels * h_in * w_in;
-                gi[out_start..out_start + copy_len]
-                    .copy_from_slice(&gi_data[..copy_len]);
+                gi[out_start..out_start + copy_len].copy_from_slice(&gi_data[..copy_len]);
             }
 
             Some(Tensor::from_storage(
@@ -1566,10 +1543,11 @@ impl<T: Float> GradFn<T> for ConvTranspose2dBackward<T> {
                                             && (oh - ph) < self.h_out
                                             && (ow - pw) < self.w_out
                                         {
-                                            let go_idx = b * self.out_channels * self.h_out * self.w_out
-                                                + co * self.h_out * self.w_out
-                                                + (oh - ph) * self.w_out
-                                                + (ow - pw);
+                                            let go_idx =
+                                                b * self.out_channels * self.h_out * self.w_out
+                                                    + co * self.h_out * self.w_out
+                                                    + (oh - ph) * self.w_out
+                                                    + (ow - pw);
                                             let in_idx = b * self.in_channels * h_in * w_in
                                                 + ci * h_in * w_in
                                                 + ih * w_in
@@ -1605,9 +1583,10 @@ impl<T: Float> GradFn<T> for ConvTranspose2dBackward<T> {
                 for batch_idx in 0..batch {
                     for c in 0..self.out_channels {
                         for hw in 0..(self.h_out * self.w_out) {
-                            gb[c] += go_data[batch_idx * self.out_channels * self.h_out * self.w_out
-                                + c * self.h_out * self.w_out
-                                + hw];
+                            gb[c] +=
+                                go_data[batch_idx * self.out_channels * self.h_out * self.w_out
+                                    + c * self.h_out * self.w_out
+                                    + hw];
                         }
                     }
                 }
@@ -1733,8 +1712,7 @@ mod tests {
         ];
 
         // Manually construct Conv2d with known weights.
-        let weight_param =
-            Parameter::from_slice(&weight_data, &[3, 2, 1, 1]).unwrap();
+        let weight_param = Parameter::from_slice(&weight_data, &[3, 2, 1, 1]).unwrap();
         let conv = Conv2d {
             weight: weight_param,
             bias: None,
@@ -2235,7 +2213,8 @@ mod tests {
     fn test_conv_transpose2d_output_shape_basic() {
         // Input: [1, 1, 3, 3], kernel 3x3, stride 1, padding 0, output_padding 0
         // H_out = (3 - 1) * 1 - 0 + 3 + 0 = 5
-        let conv = ConvTranspose2d::<f32>::new(1, 1, (3, 3), (1, 1), (0, 0), (0, 0), false).unwrap();
+        let conv =
+            ConvTranspose2d::<f32>::new(1, 1, (3, 3), (1, 1), (0, 0), (0, 0), false).unwrap();
         let input = t(&vec![0.0; 9], &[1, 1, 3, 3]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 1, 5, 5]);
@@ -2245,7 +2224,8 @@ mod tests {
     fn test_conv_transpose2d_output_shape_stride2() {
         // Input: [1, 1, 2, 2], kernel 3x3, stride 2, padding 0, output_padding 0
         // H_out = (2 - 1) * 2 - 0 + 3 + 0 = 5
-        let conv = ConvTranspose2d::<f32>::new(1, 1, (3, 3), (2, 2), (0, 0), (0, 0), false).unwrap();
+        let conv =
+            ConvTranspose2d::<f32>::new(1, 1, (3, 3), (2, 2), (0, 0), (0, 0), false).unwrap();
         let input = t(&vec![0.0; 4], &[1, 1, 2, 2]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 1, 5, 5]);
@@ -2255,7 +2235,8 @@ mod tests {
     fn test_conv_transpose2d_output_shape_with_padding() {
         // Input: [1, 1, 3, 3], kernel 3x3, stride 2, padding 1, output_padding 0
         // H_out = (3 - 1) * 2 - 2 + 3 + 0 = 5
-        let conv = ConvTranspose2d::<f32>::new(1, 1, (3, 3), (2, 2), (1, 1), (0, 0), false).unwrap();
+        let conv =
+            ConvTranspose2d::<f32>::new(1, 1, (3, 3), (2, 2), (1, 1), (0, 0), false).unwrap();
         let input = t(&vec![0.0; 9], &[1, 1, 3, 3]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 1, 5, 5]);
@@ -2265,7 +2246,8 @@ mod tests {
     fn test_conv_transpose2d_output_shape_with_output_padding() {
         // Input: [1, 1, 3, 3], kernel 3x3, stride 2, padding 1, output_padding 1
         // H_out = (3 - 1) * 2 - 2 + 3 + 1 = 6
-        let conv = ConvTranspose2d::<f32>::new(1, 1, (3, 3), (2, 2), (1, 1), (1, 1), false).unwrap();
+        let conv =
+            ConvTranspose2d::<f32>::new(1, 1, (3, 3), (2, 2), (1, 1), (1, 1), false).unwrap();
         let input = t(&vec![0.0; 9], &[1, 1, 3, 3]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 1, 6, 6]);
@@ -2280,7 +2262,8 @@ mod tests {
         // With stride=2, kernel=2x2, padding=0, output_padding=0:
         // H_out = (H - 1) * 2 + 2 = 2 * H
         // So a 4x4 input becomes 8x8 — doubling spatial dims.
-        let conv = ConvTranspose2d::<f32>::new(1, 1, (2, 2), (2, 2), (0, 0), (0, 0), false).unwrap();
+        let conv =
+            ConvTranspose2d::<f32>::new(1, 1, (2, 2), (2, 2), (0, 0), (0, 0), false).unwrap();
         let input = t(&vec![0.0; 1 * 1 * 4 * 4], &[1, 1, 4, 4]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 1, 8, 8]);
@@ -2289,7 +2272,8 @@ mod tests {
     #[test]
     fn test_conv_transpose2d_stride2_upsamples_multichannel() {
         // [2, 8, 4, 4] -> [2, 16, 8, 8] with stride=2, kernel=2x2
-        let conv = ConvTranspose2d::<f32>::new(8, 16, (2, 2), (2, 2), (0, 0), (0, 0), true).unwrap();
+        let conv =
+            ConvTranspose2d::<f32>::new(8, 16, (2, 2), (2, 2), (0, 0), (0, 0), true).unwrap();
         let input = t(&vec![0.0; 2 * 8 * 4 * 4], &[2, 8, 4, 4]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[2, 16, 8, 8]);
@@ -2440,14 +2424,16 @@ mod tests {
 
     #[test]
     fn test_conv_transpose2d_invalid_ndim() {
-        let conv = ConvTranspose2d::<f32>::new(1, 1, (3, 3), (1, 1), (0, 0), (0, 0), false).unwrap();
+        let conv =
+            ConvTranspose2d::<f32>::new(1, 1, (3, 3), (1, 1), (0, 0), (0, 0), false).unwrap();
         let input = t(&[1.0, 2.0, 3.0], &[1, 1, 3]);
         assert!(conv.forward(&input).is_err());
     }
 
     #[test]
     fn test_conv_transpose2d_channel_mismatch() {
-        let conv = ConvTranspose2d::<f32>::new(3, 1, (3, 3), (1, 1), (0, 0), (0, 0), false).unwrap();
+        let conv =
+            ConvTranspose2d::<f32>::new(3, 1, (3, 3), (1, 1), (0, 0), (0, 0), false).unwrap();
         let input = t(&vec![0.0; 1 * 1 * 5 * 5], &[1, 1, 5, 5]);
         assert!(conv.forward(&input).is_err());
     }
@@ -2466,7 +2452,8 @@ mod tests {
 
     #[test]
     fn test_conv_transpose2d_parameter_count() {
-        let conv = ConvTranspose2d::<f32>::new(8, 16, (3, 3), (2, 2), (1, 1), (0, 0), true).unwrap();
+        let conv =
+            ConvTranspose2d::<f32>::new(8, 16, (3, 3), (2, 2), (1, 1), (0, 0), true).unwrap();
         // weight: 8 * 16 * 3 * 3 = 1152, bias: 16, total: 1168
         assert_eq!(conv.num_parameters(), 1168);
         assert_eq!(conv.parameters().len(), 2);

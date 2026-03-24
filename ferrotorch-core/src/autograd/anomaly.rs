@@ -159,13 +159,13 @@ pub fn check_gradient_anomaly<T: crate::dtype::Float>(
 
         let bt_msg = match forward_bt {
             Some(bt) => format!("\n\n{bt}"),
-            None => String::from("\n\n(no forward backtrace available — was anomaly mode enabled during forward pass?)"),
+            None => String::from(
+                "\n\n(no forward backtrace available — was anomaly mode enabled during forward pass?)",
+            ),
         };
 
         return Err(crate::error::FerrotorchError::InvalidArgument {
-            message: format!(
-                "anomaly detected: {anomaly_kind} in gradient of {op_name}{bt_msg}"
-            ),
+            message: format!("anomaly detected: {anomaly_kind} in gradient of {op_name}{bt_msg}"),
         });
     }
 
@@ -251,12 +251,9 @@ mod tests {
         use crate::tensor::Tensor;
 
         AnomalyMode::enable();
-        let grad = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0, 2.0, 3.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let grad =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0, 2.0, 3.0]), vec![3], false)
+                .unwrap();
         let result = check_gradient_anomaly(&grad, "TestOp", None);
         AnomalyMode::disable();
         assert!(result.is_ok());
@@ -308,12 +305,8 @@ mod tests {
 
         AnomalyMode::enable();
         let bt = ForwardBacktrace::capture_if_enabled().unwrap();
-        let grad = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![f32::NAN]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let grad =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![f32::NAN]), vec![], false).unwrap();
         let result = check_gradient_anomaly(&grad, "BadOp", Some(&bt));
         AnomalyMode::disable();
         assert!(result.is_err());
@@ -328,12 +321,8 @@ mod tests {
 
         AnomalyMode::disable();
         // Even with NaN, should pass because anomaly mode is off.
-        let grad = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![f32::NAN]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let grad =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![f32::NAN]), vec![], false).unwrap();
         assert!(check_gradient_anomaly(&grad, "TestOp", None).is_ok());
     }
 }

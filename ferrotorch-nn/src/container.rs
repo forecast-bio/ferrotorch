@@ -4,7 +4,7 @@
 //! `nn.ModuleDict`. They hold sub-modules and propagate `parameters()`,
 //! `train()`/`eval()`, and `state_dict()` to all children.
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor};
 
 use crate::module::Module;
 use crate::parameter::Parameter;
@@ -233,10 +233,7 @@ impl<T: Float> Module<T> for ModuleList<T> {
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
-        self.modules
-            .iter()
-            .flat_map(|m| m.parameters())
-            .collect()
+        self.modules.iter().flat_map(|m| m.parameters()).collect()
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
@@ -633,9 +630,8 @@ mod tests {
 
     #[test]
     fn test_module_list_forward_errors() {
-        let list = ModuleList::<f32>::new(vec![
-            Box::new(IdentityWithParam::<f32>::new(4).unwrap()),
-        ]);
+        let list =
+            ModuleList::<f32>::new(vec![Box::new(IdentityWithParam::<f32>::new(4).unwrap())]);
         let input = ferrotorch_core::zeros::<f32>(&[1, 4]).unwrap();
         assert!(list.forward(&input).is_err());
     }
@@ -654,9 +650,8 @@ mod tests {
 
     #[test]
     fn test_module_list_get_mut() {
-        let mut list = ModuleList::<f32>::new(vec![
-            Box::new(IdentityWithParam::<f32>::new(3).unwrap()),
-        ]);
+        let mut list =
+            ModuleList::<f32>::new(vec![Box::new(IdentityWithParam::<f32>::new(3).unwrap())]);
 
         let m = list.get_mut(0).unwrap();
         m.eval();
@@ -739,14 +734,8 @@ mod tests {
     #[test]
     fn test_module_dict_insert_replaces() {
         let mut dict = ModuleDict::<f32>::new();
-        dict.insert(
-            "layer",
-            Box::new(IdentityWithParam::<f32>::new(3).unwrap()),
-        );
-        dict.insert(
-            "layer",
-            Box::new(IdentityWithParam::<f32>::new(7).unwrap()),
-        );
+        dict.insert("layer", Box::new(IdentityWithParam::<f32>::new(3).unwrap()));
+        dict.insert("layer", Box::new(IdentityWithParam::<f32>::new(7).unwrap()));
 
         // Should still have only 1 entry, with the new parameter size.
         assert_eq!(dict.len(), 1);
@@ -777,10 +766,7 @@ mod tests {
     #[test]
     fn test_module_dict_get_mut() {
         let mut dict = ModuleDict::<f32>::new();
-        dict.insert(
-            "layer",
-            Box::new(IdentityWithParam::<f32>::new(3).unwrap()),
-        );
+        dict.insert("layer", Box::new(IdentityWithParam::<f32>::new(3).unwrap()));
 
         let m = dict.get_mut("layer").unwrap();
         m.eval();

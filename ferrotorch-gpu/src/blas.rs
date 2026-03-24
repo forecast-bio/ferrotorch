@@ -287,13 +287,19 @@ pub fn gpu_bmm_f32(
     // only for the batch==1 case.
 
     let m_i32 = i32::try_from(m).map_err(|_| GpuError::ShapeMismatch {
-        op: "bmm", expected: vec![i32::MAX as usize], got: vec![m],
+        op: "bmm",
+        expected: vec![i32::MAX as usize],
+        got: vec![m],
     })?;
     let k_i32 = i32::try_from(k).map_err(|_| GpuError::ShapeMismatch {
-        op: "bmm", expected: vec![i32::MAX as usize], got: vec![k],
+        op: "bmm",
+        expected: vec![i32::MAX as usize],
+        got: vec![k],
     })?;
     let n_i32 = i32::try_from(n).map_err(|_| GpuError::ShapeMismatch {
-        op: "bmm", expected: vec![i32::MAX as usize], got: vec![n],
+        op: "bmm",
+        expected: vec![i32::MAX as usize],
+        got: vec![n],
     })?;
 
     let blas = device.blas();
@@ -328,10 +334,16 @@ pub fn gpu_bmm_f32(
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_bmm_f32(
-    _a: &CudaBuffer<f32>, _b: &CudaBuffer<f32>,
-    _batch: usize, _m: usize, _k: usize, _n: usize,
+    _a: &CudaBuffer<f32>,
+    _b: &CudaBuffer<f32>,
+    _batch: usize,
+    _m: usize,
+    _k: usize,
+    _n: usize,
     _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ===========================================================================
 // _into variants — write to pre-allocated output (zero allocation)
@@ -343,17 +355,29 @@ pub fn gpu_bmm_f32(
 pub fn gpu_matmul_f32_into(
     a: &CudaBuffer<f32>,
     b: &CudaBuffer<f32>,
-    m: usize, k: usize, n: usize,
+    m: usize,
+    k: usize,
+    n: usize,
     c: &mut CudaBuffer<f32>,
     device: &GpuDevice,
 ) -> GpuResult<()> {
     if a.len() != m * k {
-        return Err(GpuError::ShapeMismatch { op: "matmul_into", expected: vec![m, k], got: vec![a.len()] });
+        return Err(GpuError::ShapeMismatch {
+            op: "matmul_into",
+            expected: vec![m, k],
+            got: vec![a.len()],
+        });
     }
     if b.len() != k * n {
-        return Err(GpuError::ShapeMismatch { op: "matmul_into", expected: vec![k, n], got: vec![b.len()] });
+        return Err(GpuError::ShapeMismatch {
+            op: "matmul_into",
+            expected: vec![k, n],
+            got: vec![b.len()],
+        });
     }
-    if m == 0 || k == 0 || n == 0 { return Ok(()); }
+    if m == 0 || k == 0 || n == 0 {
+        return Ok(());
+    }
 
     let total_ops = m * k * n;
     if m <= 4 || total_ops < 500_000 {
@@ -368,29 +392,50 @@ pub fn gpu_matmul_f32_into(
     let cfg = GemmConfig {
         transa: sys::cublasOperation_t::CUBLAS_OP_N,
         transb: sys::cublasOperation_t::CUBLAS_OP_N,
-        m: n_i32, n: m_i32, k: k_i32,
-        alpha: 1.0f32, lda: n_i32, ldb: k_i32,
-        beta: 0.0f32, ldc: n_i32,
+        m: n_i32,
+        n: m_i32,
+        k: k_i32,
+        alpha: 1.0f32,
+        lda: n_i32,
+        ldb: k_i32,
+        beta: 0.0f32,
+        ldc: n_i32,
     };
-    unsafe { blas.gemm(cfg, b.inner(), a.inner(), c.inner_mut())?; }
+    unsafe {
+        blas.gemm(cfg, b.inner(), a.inner(), c.inner_mut())?;
+    }
     Ok(())
 }
 
 /// Batched `C[i] = A[i] @ B[i]` into pre-allocated output.
 #[cfg(feature = "cuda")]
+#[allow(clippy::too_many_arguments)]
 pub fn gpu_bmm_f32_into(
     a: &CudaBuffer<f32>,
     b: &CudaBuffer<f32>,
-    batch: usize, m: usize, k: usize, n: usize,
+    batch: usize,
+    m: usize,
+    k: usize,
+    n: usize,
     c: &mut CudaBuffer<f32>,
     device: &GpuDevice,
 ) -> GpuResult<()> {
-    if batch == 0 || m == 0 || k == 0 || n == 0 { return Ok(()); }
+    if batch == 0 || m == 0 || k == 0 || n == 0 {
+        return Ok(());
+    }
     if a.len() != batch * m * k {
-        return Err(GpuError::ShapeMismatch { op: "bmm_into", expected: vec![batch, m, k], got: vec![a.len()] });
+        return Err(GpuError::ShapeMismatch {
+            op: "bmm_into",
+            expected: vec![batch, m, k],
+            got: vec![a.len()],
+        });
     }
     if b.len() != batch * k * n {
-        return Err(GpuError::ShapeMismatch { op: "bmm_into", expected: vec![batch, k, n], got: vec![b.len()] });
+        return Err(GpuError::ShapeMismatch {
+            op: "bmm_into",
+            expected: vec![batch, k, n],
+            got: vec![b.len()],
+        });
     }
 
     let m_i32 = m as i32;
@@ -402,33 +447,53 @@ pub fn gpu_bmm_f32_into(
         gemm: GemmConfig {
             transa: sys::cublasOperation_t::CUBLAS_OP_N,
             transb: sys::cublasOperation_t::CUBLAS_OP_N,
-            m: n_i32, n: m_i32, k: k_i32,
-            alpha: 1.0f32, lda: n_i32, ldb: k_i32,
-            beta: 0.0f32, ldc: n_i32,
+            m: n_i32,
+            n: m_i32,
+            k: k_i32,
+            alpha: 1.0f32,
+            lda: n_i32,
+            ldb: k_i32,
+            beta: 0.0f32,
+            ldc: n_i32,
         },
         batch_size: batch as i32,
         stride_a: (k * n) as i64,
         stride_b: (m * k) as i64,
         stride_c: (m * n) as i64,
     };
-    unsafe { blas.gemm_strided_batched(cfg, b.inner(), a.inner(), c.inner_mut())?; }
+    unsafe {
+        blas.gemm_strided_batched(cfg, b.inner(), a.inner(), c.inner_mut())?;
+    }
     Ok(())
 }
 
 /// Stub -- _into variants unavailable without cuda.
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_matmul_f32_into(
-    _a: &CudaBuffer<f32>, _b: &CudaBuffer<f32>,
-    _m: usize, _k: usize, _n: usize,
-    _c: &mut CudaBuffer<f32>, _device: &GpuDevice,
-) -> GpuResult<()> { Err(GpuError::NoCudaFeature) }
+    _a: &CudaBuffer<f32>,
+    _b: &CudaBuffer<f32>,
+    _m: usize,
+    _k: usize,
+    _n: usize,
+    _c: &mut CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<()> {
+    Err(GpuError::NoCudaFeature)
+}
 
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_bmm_f32_into(
-    _a: &CudaBuffer<f32>, _b: &CudaBuffer<f32>,
-    _batch: usize, _m: usize, _k: usize, _n: usize,
-    _c: &mut CudaBuffer<f32>, _device: &GpuDevice,
-) -> GpuResult<()> { Err(GpuError::NoCudaFeature) }
+    _a: &CudaBuffer<f32>,
+    _b: &CudaBuffer<f32>,
+    _batch: usize,
+    _m: usize,
+    _k: usize,
+    _n: usize,
+    _c: &mut CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<()> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ===========================================================================
 // fp16 matmul via cublasGemmEx -- Tensor Core acceleration on Volta+ GPUs
@@ -583,22 +648,22 @@ pub fn gpu_matmul_f16(
                 *blas.handle(),
                 cublas_sys::cublasOperation_t::CUBLAS_OP_N,
                 cublas_sys::cublasOperation_t::CUBLAS_OP_N,
-                n_i32,                                                 // m (cuBLAS) = n (ours)
-                m_i32,                                                 // n (cuBLAS) = m (ours)
-                k_i32,                                                 // k
-                (&alpha) as *const f32 as *const c_void,               // alpha
-                b_ptr as *const c_void,                                // A (row-major trick: B)
-                cublas_sys::cudaDataType_t::CUDA_R_16F,                // A type = f16
-                n_i32,                                                 // lda = n
-                a_ptr as *const c_void,                                // B (row-major trick: A)
-                cublas_sys::cudaDataType_t::CUDA_R_16F,                // B type = f16
-                k_i32,                                                 // ldb = k
-                (&beta) as *const f32 as *const c_void,                // beta
-                c_ptr as *mut c_void,                                  // C
-                cublas_sys::cudaDataType_t::CUDA_R_32F,                // C type = f32
-                n_i32,                                                 // ldc = n
-                cublas_sys::cublasComputeType_t::CUBLAS_COMPUTE_32F,   // compute in f32
-                cublas_sys::cublasGemmAlgo_t::CUBLAS_GEMM_DEFAULT,     // let cuBLAS pick algo
+                n_i32,                                               // m (cuBLAS) = n (ours)
+                m_i32,                                               // n (cuBLAS) = m (ours)
+                k_i32,                                               // k
+                (&alpha) as *const f32 as *const c_void,             // alpha
+                b_ptr as *const c_void,                              // A (row-major trick: B)
+                cublas_sys::cudaDataType_t::CUDA_R_16F,              // A type = f16
+                n_i32,                                               // lda = n
+                a_ptr as *const c_void,                              // B (row-major trick: A)
+                cublas_sys::cudaDataType_t::CUDA_R_16F,              // B type = f16
+                k_i32,                                               // ldb = k
+                (&beta) as *const f32 as *const c_void,              // beta
+                c_ptr as *mut c_void,                                // C
+                cublas_sys::cudaDataType_t::CUDA_R_32F,              // C type = f32
+                n_i32,                                               // ldc = n
+                cublas_sys::cublasComputeType_t::CUBLAS_COMPUTE_32F, // compute in f32
+                cublas_sys::cublasGemmAlgo_t::CUBLAS_GEMM_DEFAULT,   // let cuBLAS pick algo
             )?;
         }
     }
@@ -683,8 +748,8 @@ pub fn gpu_matmul_f64(
 #[cfg(feature = "cuda")]
 mod tests {
     use super::*;
-    use crate::transfer::{cpu_to_gpu, gpu_to_cpu};
     use crate::device::GpuDevice;
+    use crate::transfer::{cpu_to_gpu, gpu_to_cpu};
 
     /// Helper: set up device + upload a slice as f32.
     fn setup_f32(data: &[f32]) -> (GpuDevice, CudaBuffer<f32>) {
@@ -973,7 +1038,9 @@ mod tests {
 
         let err = gpu_matmul_f16(&a, &b, 2, 2, 2, &dev).unwrap_err();
         match err {
-            GpuError::ShapeMismatch { op: "matmul_f16", .. } => {}
+            GpuError::ShapeMismatch {
+                op: "matmul_f16", ..
+            } => {}
             other => panic!("unexpected error: {other}"),
         }
     }
@@ -987,7 +1054,9 @@ mod tests {
 
         let err = gpu_matmul_f16(&a, &b, 2, 2, 2, &dev).unwrap_err();
         match err {
-            GpuError::ShapeMismatch { op: "matmul_f16", .. } => {}
+            GpuError::ShapeMismatch {
+                op: "matmul_f16", ..
+            } => {}
             other => panic!("unexpected error: {other}"),
         }
     }
@@ -1037,9 +1106,7 @@ mod tests {
                 "element {i}: f16 got {got}, f32 ref {exp}, abs_err {abs_err}, rel_err {rel_err}",
             );
         }
-        eprintln!(
-            "matmul_f16_vs_f32: {m}x{k} @ {k}x{n}, max absolute error = {max_err:.6}",
-        );
+        eprintln!("matmul_f16_vs_f32: {m}x{k} @ {k}x{n}, max absolute error = {max_err:.6}",);
     }
 
     // -- Performance: 1024x1024 f16 matmul (informational) --------------------

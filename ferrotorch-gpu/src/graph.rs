@@ -183,12 +183,14 @@ impl CapturePool {
 
     /// Seal the pool, preventing any further allocations.
     pub fn seal(&self) {
-        self.sealed.store(true, std::sync::atomic::Ordering::Release);
+        self.sealed
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
     /// Unseal the pool, allowing allocations again.
     pub fn unseal(&self) {
-        self.sealed.store(false, std::sync::atomic::Ordering::Release);
+        self.sealed
+            .store(false, std::sync::atomic::Ordering::Release);
     }
 
     /// Check whether the pool is sealed.
@@ -215,10 +217,7 @@ impl Default for CapturePool {
 /// Returns [`GpuError::InvalidArgument`](GpuError) if the pool is sealed.
 /// Returns a CUDA driver error if `begin_capture` fails.
 #[cfg(feature = "cuda")]
-pub fn begin_capture_with_pool(
-    pool: &CapturePool,
-    stream: &Arc<CudaStream>,
-) -> GpuResult<()> {
+pub fn begin_capture_with_pool(pool: &CapturePool, stream: &Arc<CudaStream>) -> GpuResult<()> {
     if pool.is_capture_pool_sealed() {
         return Err(GpuError::InvalidState {
             message: "cannot begin graph capture: capture pool is sealed".into(),

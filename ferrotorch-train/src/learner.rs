@@ -22,11 +22,11 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_nn::Module;
-use ferrotorch_optim::scheduler::LrScheduler;
 use ferrotorch_optim::Optimizer;
-use ferrotorch_serialize::{TrainingCheckpoint, save_checkpoint, load_checkpoint};
+use ferrotorch_optim::scheduler::LrScheduler;
+use ferrotorch_serialize::{TrainingCheckpoint, load_checkpoint, save_checkpoint};
 
 use crate::callback::Callback;
 use crate::history::{EpochResult, EvalResult, TrainingHistory};
@@ -40,7 +40,8 @@ use crate::metric::Metric;
 ///
 /// This is a simple function-pointer type alias rather than a trait object so
 /// that any closure or function with the right signature works.
-pub type LossFn<T> = Box<dyn Fn(&Tensor<T>, &Tensor<T>) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
+pub type LossFn<T> =
+    Box<dyn Fn(&Tensor<T>, &Tensor<T>) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
 
 // ---------------------------------------------------------------------------
 // Learner
@@ -72,11 +73,7 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
     /// * `model` - The neural network module to train.
     /// * `optimizer` - The optimizer that updates model parameters.
     /// * `loss_fn` - A function `(prediction, target) -> scalar_loss`.
-    pub fn new(
-        model: M,
-        optimizer: Box<dyn Optimizer<T>>,
-        loss_fn: LossFn<T>,
-    ) -> Self {
+    pub fn new(model: M, optimizer: Box<dyn Optimizer<T>>, loss_fn: LossFn<T>) -> Self {
         Self {
             model,
             optimizer,
@@ -323,10 +320,7 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
     ///
     /// Sets the model to eval mode, runs forward passes (no gradient),
     /// and returns an [`EvalResult`] with mean loss and metric values.
-    pub fn evaluate<V>(
-        &mut self,
-        val_data: &dyn Fn() -> V,
-    ) -> FerrotorchResult<EvalResult>
+    pub fn evaluate<V>(&mut self, val_data: &dyn Fn() -> V) -> FerrotorchResult<EvalResult>
     where
         V: Iterator<Item = FerrotorchResult<(Tensor<T>, Tensor<T>)>>,
     {
@@ -339,10 +333,7 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
     }
 
     /// Internal evaluation helper that does not reset metrics.
-    fn evaluate_iter<V>(
-        &mut self,
-        val_data: &dyn Fn() -> V,
-    ) -> FerrotorchResult<EvalResult>
+    fn evaluate_iter<V>(&mut self, val_data: &dyn Fn() -> V) -> FerrotorchResult<EvalResult>
     where
         V: Iterator<Item = FerrotorchResult<(Tensor<T>, Tensor<T>)>>,
     {

@@ -10,11 +10,14 @@ use ferrotorch_core::grad_fns::activation::{sigmoid, tanh};
 use ferrotorch_core::grad_fns::arithmetic::{add, mul, sub};
 use ferrotorch_core::grad_fns::shape::{cat, reshape};
 use ferrotorch_core::ops::linalg::mm;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::init;
 use crate::module::Module;
 use crate::parameter::Parameter;
+
+/// Output type for LSTM forward: `(output_sequence, (h_n, c_n))`.
+type LstmOutput<T> = (Tensor<T>, (Tensor<T>, Tensor<T>));
 
 // ---------------------------------------------------------------------------
 // Per-layer parameter set
@@ -79,11 +82,7 @@ impl<T: Float> LSTM<T> {
     ///
     /// All weights are initialized from `U(-k, k)` where `k = 1/sqrt(hidden_size)`.
     /// Biases are initialized to zero. This matches PyTorch's default.
-    pub fn new(
-        input_size: usize,
-        hidden_size: usize,
-        num_layers: usize,
-    ) -> FerrotorchResult<Self> {
+    pub fn new(input_size: usize, hidden_size: usize, num_layers: usize) -> FerrotorchResult<Self> {
         if num_layers == 0 {
             return Err(FerrotorchError::InvalidArgument {
                 message: "LSTM: num_layers must be >= 1".into(),
@@ -106,7 +105,11 @@ impl<T: Float> LSTM<T> {
         let mut layers = Vec::with_capacity(num_layers);
 
         for layer_idx in 0..num_layers {
-            let layer_input_size = if layer_idx == 0 { input_size } else { hidden_size };
+            let layer_input_size = if layer_idx == 0 {
+                input_size
+            } else {
+                hidden_size
+            };
 
             let mut weight_ih = Parameter::zeros(&[gate_size, layer_input_size])?;
             let mut weight_hh = Parameter::zeros(&[gate_size, hidden_size])?;
@@ -152,7 +155,7 @@ impl<T: Float> LSTM<T> {
         &self,
         input: &Tensor<T>,
         state: Option<(&Tensor<T>, &Tensor<T>)>,
-    ) -> FerrotorchResult<(Tensor<T>, (Tensor<T>, Tensor<T>))> {
+    ) -> FerrotorchResult<LstmOutput<T>> {
         // Validate input shape: [B, seq_len, input_size]
         if input.ndim() != 3 {
             return Err(FerrotorchError::InvalidArgument {
@@ -202,16 +205,8 @@ impl<T: Float> LSTM<T> {
                 (h0.clone(), c0.clone())
             }
             None => {
-                let h0 = ferrotorch_core::zeros::<T>(&[
-                    self.num_layers,
-                    batch,
-                    self.hidden_size,
-                ])?;
-                let c0 = ferrotorch_core::zeros::<T>(&[
-                    self.num_layers,
-                    batch,
-                    self.hidden_size,
-                ])?;
+                let h0 = ferrotorch_core::zeros::<T>(&[self.num_layers, batch, self.hidden_size])?;
+                let c0 = ferrotorch_core::zeros::<T>(&[self.num_layers, batch, self.hidden_size])?;
                 (h0, c0)
             }
         };
@@ -278,9 +273,7 @@ impl<T: Float> LSTM<T> {
             let mut c = layer_c[l].clone();
             let mut next_layer_outputs: Vec<Tensor<T>> = Vec::with_capacity(seq_len);
 
-            for t in 0..seq_len {
-                let x_t = &layer_outputs[t]; // [batch, layer_input_size]
-
+            for x_t in &layer_outputs {
                 // gates = x_t @ W_ih^T + bias_ih + h @ W_hh^T + bias_hh
                 //
                 // W_ih: [4*hs, layer_input_size], need x_t @ W_ih^T => [batch, 4*hs]
@@ -355,13 +348,19 @@ impl<T: Float> LSTM<T> {
             reshape(&final_h[0], &[1, batch as isize, hs as isize])?
         } else {
             let h_stacked = cat(&final_h, 0)?;
-            reshape(&h_stacked, &[self.num_layers as isize, batch as isize, hs as isize])?
+            reshape(
+                &h_stacked,
+                &[self.num_layers as isize, batch as isize, hs as isize],
+            )?
         };
         let c_n = if self.num_layers == 1 {
             reshape(&final_c[0], &[1, batch as isize, hs as isize])?
         } else {
             let c_stacked = cat(&final_c, 0)?;
-            reshape(&c_stacked, &[self.num_layers as isize, batch as isize, hs as isize])?
+            reshape(
+                &c_stacked,
+                &[self.num_layers as isize, batch as isize, hs as isize],
+            )?
         };
 
         Ok((output, (h_n, c_n)))
@@ -576,7 +575,11 @@ impl<T: Float> GRU<T> {
         let mut layers = Vec::with_capacity(num_layers);
 
         for layer_idx in 0..num_layers {
-            let layer_input_size = if layer_idx == 0 { input_size } else { hidden_size };
+            let layer_input_size = if layer_idx == 0 {
+                input_size
+            } else {
+                hidden_size
+            };
 
             let mut weight_ih = Parameter::zeros(&[gate_size, layer_input_size])?;
             let mut weight_hh = Parameter::zeros(&[gate_size, hidden_size])?;
@@ -661,13 +664,7 @@ impl<T: Float> GRU<T> {
                 }
                 h0.clone()
             }
-            None => {
-                ferrotorch_core::zeros::<T>(&[
-                    self.num_layers,
-                    batch,
-                    self.hidden_size,
-                ])?
-            }
+            None => ferrotorch_core::zeros::<T>(&[self.num_layers, batch, self.hidden_size])?,
         };
 
         // Extract per-timestep input slices.
@@ -713,21 +710,19 @@ impl<T: Float> GRU<T> {
             let mut h = layer_h[l].clone();
             let mut next_layer_outputs: Vec<Tensor<T>> = Vec::with_capacity(seq_len);
 
-            for t in 0..seq_len {
-                let x_t = &layer_outputs[t]; // [batch, layer_input_size]
-
+            for x_t in &layer_outputs {
                 // Compute input gates: x_t @ W_ih^T + bias_ih
                 let wih_t = transpose_2d(params.weight_ih.tensor())?;
                 let whh_t = transpose_2d(params.weight_hh.tensor())?;
 
                 let xw = mm(x_t, &wih_t)?; // [batch, 3*hs]
-                let hw = mm(&h, &whh_t)?;   // [batch, 3*hs]
+                let hw = mm(&h, &whh_t)?; // [batch, 3*hs]
 
                 let bias_ih_2d = broadcast_bias_to_batch(&params.bias_ih, batch)?;
                 let bias_hh_2d = broadcast_bias_to_batch(&params.bias_hh, batch)?;
 
                 let xw_b = add(&xw, &bias_ih_2d)?; // x_t @ W_ih^T + b_ih
-                let hw_b = add(&hw, &bias_hh_2d)?;  // h @ W_hh^T + b_hh
+                let hw_b = add(&hw, &bias_hh_2d)?; // h @ W_hh^T + b_hh
 
                 // Split xw_b into [r_x, z_x, n_x] and hw_b into [r_h, z_h, n_h],
                 // each [batch, hs].
@@ -790,8 +785,8 @@ impl<T: Float> GRU<T> {
         // Assemble output: [batch, seq_len, hidden_size] from the last layer.
         let mut output_data = Vec::with_capacity(batch * seq_len * hs);
         for b_idx in 0..batch {
-            for t in 0..seq_len {
-                let t_data = layer_outputs[t].data()?;
+            for lo in &layer_outputs {
+                let t_data = lo.data()?;
                 let offset = b_idx * hs;
                 output_data.extend_from_slice(&t_data[offset..offset + hs]);
             }
@@ -804,8 +799,8 @@ impl<T: Float> GRU<T> {
 
         // Assemble h_n: [num_layers, batch, hidden_size].
         let mut h_n_data = Vec::with_capacity(self.num_layers * batch * hs);
-        for l in 0..self.num_layers {
-            let h_l = final_h[l].data()?;
+        for h_l_tensor in &final_h {
+            let h_l = h_l_tensor.data()?;
             h_n_data.extend_from_slice(h_l);
         }
         let h_n = Tensor::from_storage(
@@ -1035,7 +1030,11 @@ mod tests {
         let input = ferrotorch_core::randn::<f32>(&[3, 10, 4]).unwrap();
 
         let result = lstm.forward_with_state(&input, None);
-        assert!(result.is_ok(), "forward should not error: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "forward should not error: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -1318,7 +1317,7 @@ mod tests {
         let (output, h_n) = gru.forward(&input, None).unwrap();
 
         assert_eq!(output.shape(), &[2, 5, 20]); // [B, T, hidden]
-        assert_eq!(h_n.shape(), &[1, 2, 20]);    // [layers, B, hidden]
+        assert_eq!(h_n.shape(), &[1, 2, 20]); // [layers, B, hidden]
     }
 
     #[test]
@@ -1351,7 +1350,11 @@ mod tests {
         let input = ferrotorch_core::randn::<f32>(&[3, 10, 4]).unwrap();
 
         let result = gru.forward(&input, None);
-        assert!(result.is_ok(), "forward should not error: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "forward should not error: {:?}",
+            result.err()
+        );
     }
 
     #[test]

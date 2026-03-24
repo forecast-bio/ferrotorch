@@ -9,7 +9,7 @@
 
 use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::tensor::Tensor;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float};
 
 use crate::module::Module;
 use crate::parameter::Parameter;
@@ -101,6 +101,7 @@ fn pad_2d_constant<T: Float>(
 }
 
 /// Pad the last 3 dimensions of a contiguous tensor with a constant value.
+#[allow(clippy::too_many_arguments)]
 fn pad_3d_constant<T: Float>(
     data: &[T],
     shape: &[usize],
@@ -238,8 +239,7 @@ fn pad_2d_reflect<T: Float>(
                     new_col - pad_left
                 };
 
-                out[dst_base + new_row * new_w + new_col] =
-                    data[src_base + src_row * w + src_col];
+                out[dst_base + new_row * new_w + new_col] = data[src_base + src_row * w + src_col];
             }
         }
     }
@@ -251,6 +251,7 @@ fn pad_2d_reflect<T: Float>(
 }
 
 /// Reflect-pad the last 3 dimensions.
+#[allow(clippy::too_many_arguments)]
 fn pad_3d_reflect<T: Float>(
     data: &[T],
     shape: &[usize],
@@ -265,7 +266,13 @@ fn pad_3d_reflect<T: Float>(
     let d = shape[ndim - 3];
     let h = shape[ndim - 2];
     let w = shape[ndim - 1];
-    if pad_left >= w || pad_right >= w || pad_top >= h || pad_bottom >= h || pad_front >= d || pad_back >= d {
+    if pad_left >= w
+        || pad_right >= w
+        || pad_top >= h
+        || pad_bottom >= h
+        || pad_front >= d
+        || pad_back >= d
+    {
         return Err(FerrotorchError::InvalidArgument {
             message: "Reflection padding must be less than corresponding input dimension".into(),
         });
@@ -341,7 +348,7 @@ fn pad_1d_replicate<T: Float>(
     for r in 0..rows {
         let src = &data[r * inner..(r + 1) * inner];
         let dst = &mut out[r * new_inner..(r + 1) * new_inner];
-        for i in 0..new_inner {
+        for (i, d) in dst.iter_mut().enumerate() {
             let src_idx = if i < pad_left {
                 0
             } else if i >= pad_left + inner {
@@ -349,7 +356,7 @@ fn pad_1d_replicate<T: Float>(
             } else {
                 i - pad_left
             };
-            dst[i] = src[src_idx];
+            *d = src[src_idx];
         }
     }
 
@@ -396,6 +403,7 @@ fn pad_2d_replicate<T: Float>(
 }
 
 /// Replicate-pad the last 3 dimensions.
+#[allow(clippy::too_many_arguments)]
 fn pad_3d_replicate<T: Float>(
     data: &[T],
     shape: &[usize],
@@ -462,10 +470,10 @@ fn pad_1d_circular<T: Float>(
     for r in 0..rows {
         let src = &data[r * inner..(r + 1) * inner];
         let dst = &mut out[r * new_inner..(r + 1) * new_inner];
-        for i in 0..new_inner {
+        for (i, d) in dst.iter_mut().enumerate() {
             // Map to source via modulo
             let src_idx = ((i as isize - pad_left as isize).rem_euclid(inner as isize)) as usize;
-            dst[i] = src[src_idx];
+            *d = src[src_idx];
         }
     }
 
@@ -512,6 +520,7 @@ fn pad_2d_circular<T: Float>(
 }
 
 /// Circular-pad the last 3 dimensions.
+#[allow(clippy::too_many_arguments)]
 fn pad_3d_circular<T: Float>(
     data: &[T],
     shape: &[usize],
@@ -575,7 +584,13 @@ pub fn functional_pad_1d<T: Float>(
     let data = input.data_vec()?;
     let shape = input.shape();
     let (out_data, new_shape) = match mode {
-        PaddingMode::Zeros => pad_1d_constant(&data, shape, pad_left, pad_right, <T as num_traits::Zero>::zero()),
+        PaddingMode::Zeros => pad_1d_constant(
+            &data,
+            shape,
+            pad_left,
+            pad_right,
+            <T as num_traits::Zero>::zero(),
+        ),
         PaddingMode::Reflect => pad_1d_reflect(&data, shape, pad_left, pad_right)?,
         PaddingMode::Replicate => pad_1d_replicate(&data, shape, pad_left, pad_right),
         PaddingMode::Circular => pad_1d_circular(&data, shape, pad_left, pad_right),
@@ -597,16 +612,31 @@ pub fn functional_pad_2d<T: Float>(
     let data = input.data_vec()?;
     let shape = input.shape();
     let (out_data, new_shape) = match mode {
-        PaddingMode::Zeros => pad_2d_constant(&data, shape, pad_left, pad_right, pad_top, pad_bottom, <T as num_traits::Zero>::zero()),
-        PaddingMode::Reflect => pad_2d_reflect(&data, shape, pad_left, pad_right, pad_top, pad_bottom)?,
-        PaddingMode::Replicate => pad_2d_replicate(&data, shape, pad_left, pad_right, pad_top, pad_bottom),
-        PaddingMode::Circular => pad_2d_circular(&data, shape, pad_left, pad_right, pad_top, pad_bottom),
+        PaddingMode::Zeros => pad_2d_constant(
+            &data,
+            shape,
+            pad_left,
+            pad_right,
+            pad_top,
+            pad_bottom,
+            <T as num_traits::Zero>::zero(),
+        ),
+        PaddingMode::Reflect => {
+            pad_2d_reflect(&data, shape, pad_left, pad_right, pad_top, pad_bottom)?
+        }
+        PaddingMode::Replicate => {
+            pad_2d_replicate(&data, shape, pad_left, pad_right, pad_top, pad_bottom)
+        }
+        PaddingMode::Circular => {
+            pad_2d_circular(&data, shape, pad_left, pad_right, pad_top, pad_bottom)
+        }
     };
     let _ = value;
     Tensor::from_storage(TensorStorage::cpu(out_data), new_shape, false)
 }
 
 /// Apply padding to the last 3 dimensions of a tensor using the given mode.
+#[allow(clippy::too_many_arguments)]
 pub fn functional_pad_3d<T: Float>(
     input: &Tensor<T>,
     pad_left: usize,
@@ -621,10 +651,26 @@ pub fn functional_pad_3d<T: Float>(
     let data = input.data_vec()?;
     let shape = input.shape();
     let (out_data, new_shape) = match mode {
-        PaddingMode::Zeros => pad_3d_constant(&data, shape, pad_left, pad_right, pad_top, pad_bottom, pad_front, pad_back, <T as num_traits::Zero>::zero()),
-        PaddingMode::Reflect => pad_3d_reflect(&data, shape, pad_left, pad_right, pad_top, pad_bottom, pad_front, pad_back)?,
-        PaddingMode::Replicate => pad_3d_replicate(&data, shape, pad_left, pad_right, pad_top, pad_bottom, pad_front, pad_back),
-        PaddingMode::Circular => pad_3d_circular(&data, shape, pad_left, pad_right, pad_top, pad_bottom, pad_front, pad_back),
+        PaddingMode::Zeros => pad_3d_constant(
+            &data,
+            shape,
+            pad_left,
+            pad_right,
+            pad_top,
+            pad_bottom,
+            pad_front,
+            pad_back,
+            <T as num_traits::Zero>::zero(),
+        ),
+        PaddingMode::Reflect => pad_3d_reflect(
+            &data, shape, pad_left, pad_right, pad_top, pad_bottom, pad_front, pad_back,
+        )?,
+        PaddingMode::Replicate => pad_3d_replicate(
+            &data, shape, pad_left, pad_right, pad_top, pad_bottom, pad_front, pad_back,
+        ),
+        PaddingMode::Circular => pad_3d_circular(
+            &data, shape, pad_left, pad_right, pad_top, pad_bottom, pad_front, pad_back,
+        ),
     };
     let _ = value;
     Tensor::from_storage(TensorStorage::cpu(out_data), new_shape, false)
@@ -697,8 +743,13 @@ impl<T: Float> ConstantPad1d<T> {
 
     fn pad(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let data = input.data_vec()?;
-        let (out, new_shape) =
-            pad_1d_constant(&data, input.shape(), self.padding.0, self.padding.1, self.value);
+        let (out, new_shape) = pad_1d_constant(
+            &data,
+            input.shape(),
+            self.padding.0,
+            self.padding.1,
+            self.value,
+        );
         Tensor::from_storage(TensorStorage::cpu(out), new_shape, false)
     }
 }
@@ -1167,7 +1218,13 @@ mod tests {
     }
 
     fn assert_close(actual: &[f32], expected: &[f32], tol: f32) {
-        assert_eq!(actual.len(), expected.len(), "length mismatch: {} vs {}", actual.len(), expected.len());
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "length mismatch: {} vs {}",
+            actual.len(),
+            expected.len()
+        );
         for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
             assert!((a - e).abs() < tol, "index {i}: actual={a} expected={e}");
         }

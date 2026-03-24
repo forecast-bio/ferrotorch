@@ -14,8 +14,8 @@ use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::tensor::{GradFn, Tensor};
 
-use crate::special_fns::{digamma_scalar, lgamma_scalar};
 use crate::Distribution;
+use crate::special_fns::{digamma_scalar, lgamma_scalar};
 
 /// Beta distribution parameterized by `concentration1` (alpha) and
 /// `concentration0` (beta).
@@ -84,7 +84,11 @@ impl<T: Float> Distribution<T> for Beta<T> {
             .zip(b_data.iter())
             .map(|(&a, &b)| {
                 let sum = a + b;
-                if sum == <T as num_traits::Zero>::zero() { T::from(0.5).unwrap() } else { a / sum }
+                if sum == <T as num_traits::Zero>::zero() {
+                    T::from(0.5).unwrap()
+                } else {
+                    a / sum
+                }
             })
             .collect();
 
@@ -161,11 +165,7 @@ impl<T: Float> Distribution<T> for Beta<T> {
             })
             .collect();
 
-        let out = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            value.shape().to_vec(),
-            false,
-        )?;
+        let out = Tensor::from_storage(TensorStorage::cpu(result), value.shape().to_vec(), false)?;
         if device.is_cuda() {
             out.to(device)
         } else {
@@ -256,8 +256,8 @@ impl<T: Float> GradFn<T> for BetaRsampleBackward<T> {
             let dga_dalpha = ga * (ga.ln() - digamma_scalar(alpha));
             let dgb_dbeta = gb * (gb.ln() - digamma_scalar(beta_p));
 
-            grad_conc1 = grad_conc1 + g * dout_dga * dga_dalpha;
-            grad_conc0 = grad_conc0 + g * dout_dgb * dgb_dbeta;
+            grad_conc1 += g * dout_dga * dga_dalpha;
+            grad_conc0 += g * dout_dgb * dgb_dbeta;
         }
 
         let grad_c1 = Tensor::from_storage(

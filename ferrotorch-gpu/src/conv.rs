@@ -492,7 +492,12 @@ pub fn gpu_conv2d_f32(
     let im2col_fn = crate::module_cache::get_or_compile(ctx, IM2COL_PTX, "im2col_kernel", ord)?;
 
     let bias_fn = if bias.is_some() {
-        Some(crate::module_cache::get_or_compile(ctx, BIAS_ADD_PTX, "bias_add_kernel", ord)?)
+        Some(crate::module_cache::get_or_compile(
+            ctx,
+            BIAS_ADD_PTX,
+            "bias_add_kernel",
+            ord,
+        )?)
     } else {
         None
     };
@@ -635,8 +640,9 @@ fn cpu_conv2d_reference(
     let col_rows = c_in * kh * kw;
     let col_cols = h_out * w_out;
 
-    let (cols, _, _) =
-        im2col_cpu(input, batch, c_in, h, w, kh, kw, stride.0, stride.1, padding.0, padding.1);
+    let (cols, _, _) = im2col_cpu(
+        input, batch, c_in, h, w, kh, kw, stride.0, stride.1, padding.0, padding.1,
+    );
 
     let mut output = Vec::with_capacity(batch * c_out * col_cols);
 
@@ -899,9 +905,7 @@ mod tests {
         let input_data: Vec<f32> = (0..input_len)
             .map(|i| i as f32 / input_len as f32)
             .collect();
-        let weight_data: Vec<f32> = (0..weight_len)
-            .map(|i| (i as f32 + 1.0) * 0.1)
-            .collect();
+        let weight_data: Vec<f32> = (0..weight_len).map(|i| (i as f32 + 1.0) * 0.1).collect();
         let bias_data: Vec<f32> = vec![0.5, -0.5];
 
         let (expected_output, expected_shape) = cpu_conv2d_reference(
@@ -997,8 +1001,8 @@ mod tests {
     fn conv2d_channel_mismatch() {
         let dev = GpuDevice::new(0).expect("CUDA device 0");
 
-        let input_data = vec![0.0f32; 1 * 3 * 4 * 4]; // C_in = 3
-        let weight_data = vec![0.0f32; 2 * 5 * 3 * 3]; // C_in_w = 5 (mismatch!)
+        let input_data = vec![0.0f32; 3 * 4 * 4]; // N=1, C_in=3
+        let weight_data = vec![0.0f32; 2 * 5 * 3 * 3]; // C_in_w=5 (mismatch!)
 
         let input = cpu_to_gpu(&input_data, &dev).expect("input to gpu");
         let weight = cpu_to_gpu(&weight_data, &dev).expect("weight to gpu");
@@ -1027,7 +1031,7 @@ mod tests {
 
         // Claim shape [1, 1, 4, 4] = 16 elements, but buffer has 10.
         let input_data = vec![0.0f32; 10];
-        let weight_data = vec![0.0f32; 1 * 1 * 3 * 3];
+        let weight_data = vec![0.0f32; 3 * 3]; // C_out=1, C_in=1
 
         let input = cpu_to_gpu(&input_data, &dev).expect("input to gpu");
         let weight = cpu_to_gpu(&weight_data, &dev).expect("weight to gpu");
@@ -1054,8 +1058,8 @@ mod tests {
     fn conv2d_wrong_bias_length() {
         let dev = GpuDevice::new(0).expect("CUDA device 0");
 
-        let input_data = vec![0.0f32; 1 * 1 * 5 * 5];
-        let weight_data = vec![0.0f32; 2 * 1 * 3 * 3]; // C_out = 2
+        let input_data = vec![0.0f32; 5 * 5]; // N=1, C_in=1
+        let weight_data = vec![0.0f32; 2 * 3 * 3]; // C_out=2, C_in=1
         let bias_data = vec![0.0f32; 5]; // should be 2, not 5
 
         let input = cpu_to_gpu(&input_data, &dev).expect("input to gpu");
@@ -1092,11 +1096,7 @@ mod tests {
         let padding = (0, 0);
 
         let input_data: Vec<f32> = (0..36).map(|i| i as f32).collect();
-        let weight_data: Vec<f32> = vec![
-            1.0, 0.0, -1.0,
-            2.0, 0.0, -2.0,
-            1.0, 0.0, -1.0,
-        ];
+        let weight_data: Vec<f32> = vec![1.0, 0.0, -1.0, 2.0, 0.0, -2.0, 1.0, 0.0, -1.0];
 
         let (expected_output, expected_shape) = cpu_conv2d_reference(
             &input_data,
@@ -1154,9 +1154,7 @@ mod tests {
         let weight_data: Vec<f32> = (0..weight_len)
             .map(|i| ((i * 11 + 3) % 128) as f32 / 128.0 - 0.5)
             .collect();
-        let bias_data: Vec<f32> = (0..32)
-            .map(|i| (i as f32 - 16.0) * 0.01)
-            .collect();
+        let bias_data: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0) * 0.01).collect();
 
         let (expected_output, expected_shape) = cpu_conv2d_reference(
             &input_data,

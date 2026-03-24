@@ -20,7 +20,7 @@
 
 use ferrotorch_core::grad_fns::arithmetic::add;
 use ferrotorch_core::grad_fns::shape::reshape;
-use ferrotorch_core::{Float, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage};
 
 use ferrotorch_nn::activation::GELU;
 use ferrotorch_nn::conv::Conv2d;
@@ -59,7 +59,8 @@ fn nhwc_from_nchw<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         TensorStorage::cpu(out),
         vec![b, h, w, c],
         input.requires_grad(),
-    )?.to(device)
+    )?
+    .to(device)
 }
 
 /// Permute a 4-D tensor from `[B, H, W, C]` to `[B, C, H, W]`.
@@ -87,7 +88,8 @@ fn nchw_from_nhwc<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         TensorStorage::cpu(out),
         vec![b, c, h, w],
         input.requires_grad(),
-    )?.to(device)
+    )?
+    .to(device)
 }
 
 /// Apply `LayerNorm` on the channel dimension of a `[B, C, H, W]` tensor.
@@ -234,7 +236,11 @@ impl<T: Float> Downsample<T> {
     fn new(in_channels: usize, out_channels: usize) -> FerrotorchResult<Self> {
         let norm = LayerNorm::new(vec![in_channels], 1e-6, true)?;
         let conv = Conv2d::new(in_channels, out_channels, (2, 2), (2, 2), (0, 0), false)?;
-        Ok(Self { norm, conv, training: true })
+        Ok(Self {
+            norm,
+            conv,
+            training: true,
+        })
     }
 }
 
@@ -322,11 +328,7 @@ impl<T: Float> ConvNeXt<T> {
     /// * `depths` -- number of blocks per stage, e.g., `[3, 3, 9, 3]`.
     /// * `dims` -- channel count per stage, e.g., `[96, 192, 384, 768]`.
     /// * `num_classes` -- number of output classes.
-    pub fn new(
-        depths: &[usize],
-        dims: &[usize],
-        num_classes: usize,
-    ) -> FerrotorchResult<Self> {
+    pub fn new(depths: &[usize], dims: &[usize], num_classes: usize) -> FerrotorchResult<Self> {
         assert_eq!(depths.len(), 4, "ConvNeXt expects 4 stages");
         assert_eq!(dims.len(), 4, "ConvNeXt expects 4 channel dimensions");
 
@@ -513,7 +515,7 @@ pub fn convnext_tiny<T: Float>(num_classes: usize) -> FerrotorchResult<ConvNeXt<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::{no_grad, TensorStorage};
+    use ferrotorch_core::{TensorStorage, no_grad};
 
     /// Create a 4-D tensor from flat data.
     fn leaf_4d(data: &[f32], shape: [usize; 4], requires_grad: bool) -> Tensor<f32> {
@@ -670,12 +672,7 @@ mod tests {
     #[test]
     fn test_small_convnext_forward() {
         // A tiny ConvNeXt for fast testing: small channels, few blocks.
-        let model = ConvNeXt::<f32>::new(
-            &[1, 1, 1, 1],
-            &[8, 16, 32, 64],
-            10,
-        )
-        .unwrap();
+        let model = ConvNeXt::<f32>::new(&[1, 1, 1, 1], &[8, 16, 32, 64], 10).unwrap();
 
         let input = leaf_4d(&vec![0.1; 2 * 3 * 32 * 32], [2, 3, 32, 32], false);
         let output = no_grad(|| model.forward(&input).unwrap());
@@ -694,12 +691,7 @@ mod tests {
 
     #[test]
     fn test_convnext_named_parameters_prefixes() {
-        let model = ConvNeXt::<f32>::new(
-            &[1, 1, 1, 1],
-            &[8, 16, 32, 64],
-            10,
-        )
-        .unwrap();
+        let model = ConvNeXt::<f32>::new(&[1, 1, 1, 1], &[8, 16, 32, 64], 10).unwrap();
         let named = model.named_parameters();
         assert!(!named.is_empty());
 
@@ -720,12 +712,7 @@ mod tests {
 
     #[test]
     fn test_convnext_train_eval() {
-        let mut model = ConvNeXt::<f32>::new(
-            &[1, 1, 1, 1],
-            &[8, 16, 32, 64],
-            10,
-        )
-        .unwrap();
+        let mut model = ConvNeXt::<f32>::new(&[1, 1, 1, 1], &[8, 16, 32, 64], 10).unwrap();
         assert!(model.is_training());
         model.eval();
         assert!(!model.is_training());

@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchResult};
+use ferrotorch_core::{FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -358,12 +358,8 @@ mod tests {
 
     /// Create a parameter from the given data.
     fn make_param(data: &[f32]) -> Parameter<f32> {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(data.to_vec()),
-            vec![data.len()],
-            true,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], true)
+            .unwrap();
         Parameter::new(t)
     }
 
@@ -410,10 +406,7 @@ mod tests {
 
         let final_vals = read_param(&p);
         for &v in &final_vals {
-            assert!(
-                v.abs() < 0.1,
-                "expected convergence near zero, got {v}"
-            );
+            assert!(v.abs() < 0.1, "expected convergence near zero, got {v}");
         }
     }
 
@@ -478,10 +471,7 @@ mod tests {
 
         let final_vals = read_param(&p);
         for &v in &final_vals {
-            assert!(
-                v.abs() < 0.1,
-                "expected convergence with momentum, got {v}"
-            );
+            assert!(v.abs() < 0.1, "expected convergence with momentum, got {v}");
         }
     }
 
@@ -595,10 +585,7 @@ mod tests {
                 let vals2 = entry2.get(field).expect("field should exist");
                 assert_eq!(vals.len(), vals2.len());
                 for (a, b) in vals.iter().zip(vals2.iter()) {
-                    assert!(
-                        (a - b).abs() < 1e-10,
-                        "state mismatch for {key}/{field}"
-                    );
+                    assert!((a - b).abs() < 1e-10, "state mismatch for {key}/{field}");
                 }
             }
         }

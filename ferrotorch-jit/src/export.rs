@@ -84,10 +84,7 @@ impl ExportedProgram {
                 )
             })
             .collect();
-        parts.push(format!(
-            "\"input_shapes\":[{}]",
-            shapes_str.join(",")
-        ));
+        parts.push(format!("\"input_shapes\":[{}]", shapes_str.join(",")));
 
         // Output shape
         parts.push(format!(
@@ -100,10 +97,7 @@ impl ExportedProgram {
         ));
 
         // Number of graph nodes (summary)
-        parts.push(format!(
-            "\"num_graph_nodes\":{}",
-            self.graph.nodes.len()
-        ));
+        parts.push(format!("\"num_graph_nodes\":{}", self.graph.nodes.len()));
 
         // State dict keys
         let mut keys: Vec<&String> = self.state_dict.keys().collect();
@@ -112,10 +106,7 @@ impl ExportedProgram {
             .iter()
             .map(|k| format!("\"{}\"", escape_json_string(k)))
             .collect();
-        parts.push(format!(
-            "\"state_dict_keys\":[{}]",
-            keys_str.join(",")
-        ));
+        parts.push(format!("\"state_dict_keys\":[{}]", keys_str.join(",")));
 
         format!("{{{}}}", parts.join(","))
     }
@@ -193,10 +184,7 @@ pub fn export<T: Float, M: Module<T>>(
         });
     }
 
-    let input_shapes: Vec<Vec<usize>> = example_inputs
-        .iter()
-        .map(|t| t.shape().to_vec())
-        .collect();
+    let input_shapes: Vec<Vec<usize>> = example_inputs.iter().map(|t| t.shape().to_vec()).collect();
 
     // Trace the module's forward function.
     let graph = trace(
@@ -339,9 +327,11 @@ fn extract_json_array(json: &str, key: &str) -> FerrotorchResult<Vec<usize>> {
         })?
         + pattern.len();
     let rest = &json[start..];
-    let end = rest.find(']').ok_or_else(|| FerrotorchError::InvalidArgument {
-        message: format!("unterminated array for key \"{key}\""),
-    })?;
+    let end = rest
+        .find(']')
+        .ok_or_else(|| FerrotorchError::InvalidArgument {
+            message: format!("unterminated array for key \"{key}\""),
+        })?;
     let inner = &rest[..end];
     if inner.trim().is_empty() {
         return Ok(Vec::new());
@@ -433,9 +423,11 @@ fn extract_json_string_array(json: &str, key: &str) -> FerrotorchResult<Vec<Stri
         })?
         + pattern.len();
     let rest = &json[start..];
-    let end = rest.find(']').ok_or_else(|| FerrotorchError::InvalidArgument {
-        message: format!("unterminated array for key \"{key}\""),
-    })?;
+    let end = rest
+        .find(']')
+        .ok_or_else(|| FerrotorchError::InvalidArgument {
+            message: format!("unterminated array for key \"{key}\""),
+        })?;
     let inner = &rest[..end];
     if inner.trim().is_empty() {
         return Ok(Vec::new());
@@ -453,7 +445,12 @@ fn extract_json_string_array(json: &str, key: &str) -> FerrotorchResult<Vec<Stri
             while i < chars.len() {
                 if chars[i] == '\\' {
                     i += 2; // skip escaped character
-                    end_pos += chars[i - 2].len_utf8() + if i - 1 < chars.len() { chars[i - 1].len_utf8() } else { 0 };
+                    end_pos += chars[i - 2].len_utf8()
+                        + if i - 1 < chars.len() {
+                            chars[i - 1].len_utf8()
+                        } else {
+                            0
+                        };
                     continue;
                 }
                 if chars[i] == '"' {
@@ -514,7 +511,10 @@ mod tests {
     #[test]
     fn test_extract_json_array() {
         let json = r#"{"output_shape":[2,3,4]}"#;
-        assert_eq!(extract_json_array(json, "output_shape").unwrap(), vec![2, 3, 4]);
+        assert_eq!(
+            extract_json_array(json, "output_shape").unwrap(),
+            vec![2, 3, 4]
+        );
     }
 
     #[test]

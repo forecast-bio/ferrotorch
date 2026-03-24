@@ -21,7 +21,7 @@
 use std::sync::Arc;
 
 use ferrotorch_core::storage::TensorStorage;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor};
 use ferrotorch_nn::Module;
 
 use crate::backend::Backend;
@@ -212,11 +212,7 @@ impl<M: Module<T>, T: Float> Pipeline<M, T> {
     }
 
     /// Extract micro-batch `mb_idx` from `input` by chunking dim 0.
-    fn get_microbatch(
-        &self,
-        input: &Tensor<T>,
-        mb_idx: usize,
-    ) -> FerrotorchResult<Tensor<T>> {
+    fn get_microbatch(&self, input: &Tensor<T>, mb_idx: usize) -> FerrotorchResult<Tensor<T>> {
         let shape = input.shape();
         if shape.is_empty() {
             return Err(FerrotorchError::InvalidArgument {
@@ -242,19 +238,14 @@ impl<M: Module<T>, T: Float> Pipeline<M, T> {
     }
 
     /// Send an activation tensor to `dst_rank`.
-    fn send_activation(
-        &self,
-        tensor: &Tensor<T>,
-        dst_rank: usize,
-    ) -> FerrotorchResult<()> {
+    fn send_activation(&self, tensor: &Tensor<T>, dst_rank: usize) -> FerrotorchResult<()> {
         let data = tensor.data_vec()?;
         let elem_size = std::mem::size_of::<T>();
         let byte_slice: Vec<u8> = data
             .iter()
             .flat_map(|v| {
-                let bytes = unsafe {
-                    std::slice::from_raw_parts(v as *const T as *const u8, elem_size)
-                };
+                let bytes =
+                    unsafe { std::slice::from_raw_parts(v as *const T as *const u8, elem_size) };
                 bytes.to_vec()
             })
             .collect();
@@ -344,12 +335,20 @@ mod tests {
             fn forward(&self, input: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
                 Ok(input.clone())
             }
-            fn parameters(&self) -> Vec<&Parameter<f32>> { vec![] }
-            fn parameters_mut(&mut self) -> Vec<&mut Parameter<f32>> { vec![] }
-            fn named_parameters(&self) -> Vec<(String, &Parameter<f32>)> { vec![] }
+            fn parameters(&self) -> Vec<&Parameter<f32>> {
+                vec![]
+            }
+            fn parameters_mut(&mut self) -> Vec<&mut Parameter<f32>> {
+                vec![]
+            }
+            fn named_parameters(&self) -> Vec<(String, &Parameter<f32>)> {
+                vec![]
+            }
             fn train(&mut self) {}
             fn eval(&mut self) {}
-            fn is_training(&self) -> bool { true }
+            fn is_training(&self) -> bool {
+                true
+            }
         }
 
         let group = SimulatedBackend::create_group(2).unwrap();
@@ -371,12 +370,20 @@ mod tests {
             fn forward(&self, input: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
                 Ok(input.clone())
             }
-            fn parameters(&self) -> Vec<&Parameter<f32>> { vec![] }
-            fn parameters_mut(&mut self) -> Vec<&mut Parameter<f32>> { vec![] }
-            fn named_parameters(&self) -> Vec<(String, &Parameter<f32>)> { vec![] }
+            fn parameters(&self) -> Vec<&Parameter<f32>> {
+                vec![]
+            }
+            fn parameters_mut(&mut self) -> Vec<&mut Parameter<f32>> {
+                vec![]
+            }
+            fn named_parameters(&self) -> Vec<(String, &Parameter<f32>)> {
+                vec![]
+            }
             fn train(&mut self) {}
             fn eval(&mut self) {}
-            fn is_training(&self) -> bool { true }
+            fn is_training(&self) -> bool {
+                true
+            }
         }
 
         let group = SimulatedBackend::create_group(1).unwrap();
@@ -398,12 +405,20 @@ mod tests {
             fn forward(&self, input: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
                 Ok(input.clone())
             }
-            fn parameters(&self) -> Vec<&Parameter<f32>> { vec![] }
-            fn parameters_mut(&mut self) -> Vec<&mut Parameter<f32>> { vec![] }
-            fn named_parameters(&self) -> Vec<(String, &Parameter<f32>)> { vec![] }
+            fn parameters(&self) -> Vec<&Parameter<f32>> {
+                vec![]
+            }
+            fn parameters_mut(&mut self) -> Vec<&mut Parameter<f32>> {
+                vec![]
+            }
+            fn named_parameters(&self) -> Vec<(String, &Parameter<f32>)> {
+                vec![]
+            }
             fn train(&mut self) {}
             fn eval(&mut self) {}
-            fn is_training(&self) -> bool { true }
+            fn is_training(&self) -> bool {
+                true
+            }
         }
 
         let group = SimulatedBackend::create_group(2).unwrap();

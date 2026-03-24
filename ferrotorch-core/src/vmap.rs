@@ -22,7 +22,11 @@ use crate::tensor::Tensor;
 ///
 /// For a tensor of shape `[B, M, N]`, `select(t, 0, i)` returns the
 /// `[M, N]` slice at batch index `i`.
-pub fn select<T: Float>(input: &Tensor<T>, dim: usize, index: usize) -> FerrotorchResult<Tensor<T>> {
+pub fn select<T: Float>(
+    input: &Tensor<T>,
+    dim: usize,
+    index: usize,
+) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape();
     let ndim = shape.len();
 
@@ -164,7 +168,11 @@ pub fn stack<T: Float>(tensors: &[Tensor<T>], dim: usize) -> FerrotorchResult<Te
 ///
 /// This is a loop-based MVP: each batch element is processed sequentially.
 /// A future version may trace `f` to produce a fused batched kernel.
-pub fn vmap<T, F>(f: F, in_dim: usize, out_dim: usize) -> impl Fn(&Tensor<T>) -> FerrotorchResult<Tensor<T>>
+pub fn vmap<T, F>(
+    f: F,
+    in_dim: usize,
+    out_dim: usize,
+) -> impl Fn(&Tensor<T>) -> FerrotorchResult<Tensor<T>>
 where
     T: Float,
     F: Fn(&Tensor<T>) -> FerrotorchResult<Tensor<T>>,
@@ -382,10 +390,7 @@ mod tests {
         let b = t(&[5.0, 6.0, 7.0, 8.0], &[2, 2]);
         let s = stack(&[a, b], 0).unwrap();
         assert_eq!(s.shape(), &[2, 2, 2]);
-        assert_eq!(
-            s.data().unwrap(),
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
-        );
+        assert_eq!(s.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
     }
 
     #[test]
@@ -417,9 +422,7 @@ mod tests {
         let input = t(&data, &[3, 4]);
 
         // Select each row, then stack them back.
-        let rows: Vec<Tensor<f32>> = (0..3)
-            .map(|i| select(&input, 0, i).unwrap())
-            .collect();
+        let rows: Vec<Tensor<f32>> = (0..3).map(|i| select(&input, 0, i).unwrap()).collect();
         let reconstructed = stack(&rows, 0).unwrap();
 
         assert_eq!(reconstructed.shape(), input.shape());
@@ -496,10 +499,7 @@ mod tests {
         let bmm_data = bmm_result.data().unwrap();
         let vmap_data = vmap_result.data().unwrap();
         for (bv, vv) in bmm_data.iter().zip(vmap_data.iter()) {
-            assert!(
-                (bv - vv).abs() < 1e-4,
-                "bmm={bv}, vmap={vv}"
-            );
+            assert!((bv - vv).abs() < 1e-4, "bmm={bv}, vmap={vv}");
         }
     }
 

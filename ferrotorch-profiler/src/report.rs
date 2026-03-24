@@ -37,6 +37,18 @@ pub struct OpSummary {
     pub max_us: u64,
 }
 
+/// Per-operation accumulator used internally by [`ProfileReport::top_ops`].
+#[derive(Default)]
+struct OpAccum {
+    count: usize,
+    cpu_count: usize,
+    cpu_total: u64,
+    cpu_max: u64,
+    gpu_count: usize,
+    gpu_total: u64,
+    gpu_max: u64,
+}
+
 /// The result of a profiling session.
 ///
 /// Provides human-readable tables, Chrome trace JSON export, and
@@ -63,69 +75,72 @@ impl ProfileReport {
 
     /// Whether any events were recorded with CUDA timing.
     pub fn has_gpu_events(&self) -> bool {
-        self.events.iter().any(|e| e.device_type == DeviceType::Cuda)
+        self.events
+            .iter()
+            .any(|e| e.device_type == DeviceType::Cuda)
     }
 
     /// Top operations sorted by cumulative time (descending).
     pub fn top_ops(&self, n: usize) -> Vec<OpSummary> {
-        // Per-op accumulator: (count, cpu_count, cpu_total, cpu_max, gpu_count, gpu_total, gpu_max)
-        let mut map: HashMap<&str, (usize, usize, u64, u64, usize, u64, u64)> = HashMap::new();
+        // Per-op accumulator.
+        let mut map: HashMap<&str, OpAccum> = HashMap::new();
         for event in &self.events {
-            let entry = map
-                .entry(event.name.as_str())
-                .or_insert((0, 0, 0, 0, 0, 0, 0));
-            entry.0 += 1; // total count
+            let entry = map.entry(event.name.as_str()).or_default();
+            entry.count += 1;
             match event.device_type {
                 DeviceType::Cpu => {
-                    entry.1 += 1; // cpu_count
-                    entry.2 += event.duration_us; // cpu_total
-                    entry.3 = entry.3.max(event.duration_us); // cpu_max
+                    entry.cpu_count += 1;
+                    entry.cpu_total += event.duration_us;
+                    entry.cpu_max = entry.cpu_max.max(event.duration_us);
                 }
                 DeviceType::Cuda => {
-                    entry.4 += 1; // gpu_count
-                    entry.5 += event.duration_us; // gpu_total
-                    entry.6 = entry.6.max(event.duration_us); // gpu_max
+                    entry.gpu_count += 1;
+                    entry.gpu_total += event.duration_us;
+                    entry.gpu_max = entry.gpu_max.max(event.duration_us);
                 }
             }
         }
         let mut summaries: Vec<OpSummary> = map
             .into_iter()
-            .map(
-                |(name, (count, cpu_count, cpu_total, cpu_max, gpu_count, gpu_total, gpu_max))| {
-                    let cpu_avg = if cpu_count > 0 {
-                        cpu_total / cpu_count as u64
-                    } else {
-                        0
-                    };
-                    let gpu_avg = if gpu_count > 0 {
-                        gpu_total / gpu_count as u64
-                    } else {
-                        0
-                    };
-                    let total = cpu_total + gpu_total;
-                    let avg = if count > 0 {
-                        total / count as u64
-                    } else {
-                        0
-                    };
-                    let max = cpu_max.max(gpu_max);
-                    OpSummary {
-                        name: name.to_owned(),
-                        count,
-                        cpu_total_us: cpu_total,
-                        cpu_avg_us: cpu_avg,
-                        cpu_max_us: cpu_max,
-                        cpu_count,
-                        gpu_total_us: gpu_total,
-                        gpu_avg_us: gpu_avg,
-                        gpu_max_us: gpu_max,
-                        gpu_count,
-                        total_us: total,
-                        avg_us: avg,
-                        max_us: max,
-                    }
-                },
-            )
+            .map(|(name, acc)| {
+                let OpAccum {
+                    count,
+                    cpu_count,
+                    cpu_total,
+                    cpu_max,
+                    gpu_count,
+                    gpu_total,
+                    gpu_max,
+                } = acc;
+                let cpu_avg = if cpu_count > 0 {
+                    cpu_total / cpu_count as u64
+                } else {
+                    0
+                };
+                let gpu_avg = if gpu_count > 0 {
+                    gpu_total / gpu_count as u64
+                } else {
+                    0
+                };
+                let total = cpu_total + gpu_total;
+                let avg = if count > 0 { total / count as u64 } else { 0 };
+                let max = cpu_max.max(gpu_max);
+                OpSummary {
+                    name: name.to_owned(),
+                    count,
+                    cpu_total_us: cpu_total,
+                    cpu_avg_us: cpu_avg,
+                    cpu_max_us: cpu_max,
+                    cpu_count,
+                    gpu_total_us: gpu_total,
+                    gpu_avg_us: gpu_avg,
+                    gpu_max_us: gpu_max,
+                    gpu_count,
+                    total_us: total,
+                    avg_us: avg,
+                    max_us: max,
+                }
+            })
             .collect();
         summaries.sort_by(|a, b| b.total_us.cmp(&a.total_us));
         summaries.truncate(n);

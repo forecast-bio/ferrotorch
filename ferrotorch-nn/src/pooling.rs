@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
 use ferrotorch_core::tensor::GradFn;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::module::Module;
 use crate::parameter::Parameter;
@@ -208,8 +208,7 @@ fn max_pool2d_forward<T: Float>(
         )?
         .to(input_device) // restore device
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device) // restore device
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device) // restore device
     }
 }
 
@@ -235,7 +234,7 @@ impl<T: Float> GradFn<T> for MaxPool2dBackward<T> {
         let mut grad_input = vec![<T as num_traits::Zero>::zero(); input_numel];
 
         for (out_idx, &in_idx) in self.indices.iter().enumerate() {
-            grad_input[in_idx] = grad_input[in_idx] + go_data[out_idx];
+            grad_input[in_idx] += go_data[out_idx];
         }
 
         let grad_tensor = Tensor::from_storage(
@@ -353,7 +352,7 @@ fn avg_pool2d_forward<T: Float>(
                                 let ih = ih as usize;
                                 let iw = iw as usize;
                                 let in_idx = ((b * channels + c) * h + ih) * w + iw;
-                                sum = sum + data[in_idx];
+                                sum += data[in_idx];
                             }
                             // Padded positions contribute 0, but we still divide
                             // by the full kernel area (count_include_pad = true).
@@ -382,8 +381,7 @@ fn avg_pool2d_forward<T: Float>(
         )?
         .to(input_device) // restore device
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device) // restore device
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device) // restore device
     }
 }
 
@@ -411,8 +409,7 @@ impl<T: Float> GradFn<T> for AvgPool2dBackward<T> {
         let out_h = pool_output_size(h, self.kernel_size[0], self.stride[0], self.padding[0]);
         let out_w = pool_output_size(w, self.kernel_size[1], self.stride[1], self.padding[1]);
 
-        let mut grad_input =
-            vec![<T as num_traits::Zero>::zero(); batch * channels * h * w];
+        let mut grad_input = vec![<T as num_traits::Zero>::zero(); batch * channels * h * w];
         let kernel_area = T::from(self.kernel_size[0] * self.kernel_size[1]).unwrap();
 
         for b in 0..batch {
@@ -424,16 +421,16 @@ impl<T: Float> GradFn<T> for AvgPool2dBackward<T> {
 
                         for kh in 0..self.kernel_size[0] {
                             for kw in 0..self.kernel_size[1] {
-                                let ih = (oh * self.stride[0] + kh) as isize
-                                    - self.padding[0] as isize;
-                                let iw = (ow * self.stride[1] + kw) as isize
-                                    - self.padding[1] as isize;
+                                let ih =
+                                    (oh * self.stride[0] + kh) as isize - self.padding[0] as isize;
+                                let iw =
+                                    (ow * self.stride[1] + kw) as isize - self.padding[1] as isize;
 
                                 if ih >= 0 && ih < h as isize && iw >= 0 && iw < w as isize {
                                     let ih = ih as usize;
                                     let iw = iw as usize;
                                     let in_idx = ((b * channels + c) * h + ih) * w + iw;
-                                    grad_input[in_idx] = grad_input[in_idx] + grad_val;
+                                    grad_input[in_idx] += grad_val;
                                 }
                             }
                         }
@@ -520,7 +517,7 @@ fn adaptive_start(idx: usize, input_size: usize, output_size: usize) -> usize {
 /// `end_i = ceil((i + 1) * input_size / output_size)`
 #[inline]
 fn adaptive_end(idx: usize, input_size: usize, output_size: usize) -> usize {
-    ((idx + 1) * input_size + output_size - 1) / output_size
+    ((idx + 1) * input_size).div_ceil(output_size)
 }
 
 /// Forward computation for adaptive average pooling.
@@ -560,7 +557,7 @@ fn adaptive_avg_pool2d_forward<T: Float>(
                     for ih in h_start..h_end {
                         for iw in w_start..w_end {
                             let in_idx = ((b * channels + c) * h + ih) * w + iw;
-                            sum = sum + data[in_idx];
+                            sum += data[in_idx];
                         }
                     }
 
@@ -585,8 +582,7 @@ fn adaptive_avg_pool2d_forward<T: Float>(
         )?
         .to(input_device) // restore device
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device) // restore device
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device) // restore device
     }
 }
 
@@ -611,8 +607,7 @@ impl<T: Float> GradFn<T> for AdaptiveAvgPool2dBackward<T> {
         let (batch, channels, h, w) = (in_shape[0], in_shape[1], in_shape[2], in_shape[3]);
         let (out_h, out_w) = self.output_size;
 
-        let mut grad_input =
-            vec![<T as num_traits::Zero>::zero(); batch * channels * h * w];
+        let mut grad_input = vec![<T as num_traits::Zero>::zero(); batch * channels * h * w];
 
         for b in 0..batch {
             for c in 0..channels {
@@ -631,7 +626,7 @@ impl<T: Float> GradFn<T> for AdaptiveAvgPool2dBackward<T> {
                         for ih in h_start..h_end {
                             for iw in w_start..w_end {
                                 let in_idx = ((b * channels + c) * h + ih) * w + iw;
-                                grad_input[in_idx] = grad_input[in_idx] + grad_val;
+                                grad_input[in_idx] += grad_val;
                             }
                         }
                     }
@@ -694,9 +689,7 @@ fn validate_pool_params_1d(
     let padded = l + 2 * padding;
     if padded < kernel_size {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "padded input ({padded}) smaller than kernel ({kernel_size})"
-            ),
+            message: format!("padded input ({padded}) smaller than kernel ({kernel_size})"),
         });
     }
     Ok(pool_output_size(l, kernel_size, stride, padding))
@@ -876,8 +869,7 @@ fn max_pool1d_forward<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -899,7 +891,7 @@ impl<T: Float> GradFn<T> for MaxPool1dBackward<T> {
         let mut grad_input = vec![<T as num_traits::Zero>::zero(); input_numel];
 
         for (out_idx, &in_idx) in self.indices.iter().enumerate() {
-            grad_input[in_idx] = grad_input[in_idx] + go_data[out_idx];
+            grad_input[in_idx] += go_data[out_idx];
         }
 
         let grad_tensor = Tensor::from_storage(
@@ -941,11 +933,7 @@ impl MaxPool3d {
     /// Create a new `MaxPool3d` layer.
     ///
     /// `stride` defaults to `kernel_size` when set to `[0, 0, 0]`.
-    pub fn new(
-        kernel_size: [usize; 3],
-        stride: [usize; 3],
-        padding: [usize; 3],
-    ) -> Self {
+    pub fn new(kernel_size: [usize; 3], stride: [usize; 3], padding: [usize; 3]) -> Self {
         let stride = if stride == [0, 0, 0] {
             kernel_size
         } else {
@@ -992,8 +980,7 @@ fn max_pool3d_forward<T: Float>(
     padding: [usize; 3],
 ) -> FerrotorchResult<Tensor<T>> {
     let (batch, channels, d, h, w) = validate_5d(input)?;
-    let (out_d, out_h, out_w) =
-        validate_pool_params_3d(d, h, w, kernel_size, stride, padding)?;
+    let (out_d, out_h, out_w) = validate_pool_params_3d(d, h, w, kernel_size, stride, padding)?;
 
     let input_device = input.device();
     let data = input.data_vec()?;
@@ -1007,9 +994,7 @@ fn max_pool3d_forward<T: Float>(
             for od in 0..out_d {
                 for oh in 0..out_h {
                     for ow in 0..out_w {
-                        let out_idx = (((b * channels + c) * out_d + od) * out_h + oh)
-                            * out_w
-                            + ow;
+                        let out_idx = (((b * channels + c) * out_d + od) * out_h + oh) * out_w + ow;
                         let mut max_val = neg_inf;
                         let mut max_idx = 0usize;
 
@@ -1020,22 +1005,18 @@ fn max_pool3d_forward<T: Float>(
                             }
                             let id = id as usize;
                             for kh in 0..kernel_size[1] {
-                                let ih =
-                                    (oh * stride[1] + kh) as isize - padding[1] as isize;
+                                let ih = (oh * stride[1] + kh) as isize - padding[1] as isize;
                                 if ih < 0 || ih >= h as isize {
                                     continue;
                                 }
                                 let ih = ih as usize;
                                 for kw in 0..kernel_size[2] {
-                                    let iw = (ow * stride[2] + kw) as isize
-                                        - padding[2] as isize;
+                                    let iw = (ow * stride[2] + kw) as isize - padding[2] as isize;
                                     if iw < 0 || iw >= w as isize {
                                         continue;
                                     }
                                     let iw = iw as usize;
-                                    let in_idx = (((b * channels + c) * d + id) * h + ih)
-                                        * w
-                                        + iw;
+                                    let in_idx = (((b * channels + c) * d + id) * h + ih) * w + iw;
                                     let val = data[in_idx];
                                     if val > max_val {
                                         max_val = val;
@@ -1067,8 +1048,7 @@ fn max_pool3d_forward<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -1090,7 +1070,7 @@ impl<T: Float> GradFn<T> for MaxPool3dBackward<T> {
         let mut grad_input = vec![<T as num_traits::Zero>::zero(); input_numel];
 
         for (out_idx, &in_idx) in self.indices.iter().enumerate() {
-            grad_input[in_idx] = grad_input[in_idx] + go_data[out_idx];
+            grad_input[in_idx] += go_data[out_idx];
         }
 
         let grad_tensor = Tensor::from_storage(
@@ -1191,7 +1171,7 @@ fn avg_pool1d_forward<T: Float>(
                     if il >= 0 && il < l as isize {
                         let il = il as usize;
                         let in_idx = (b * channels + c) * l + il;
-                        sum = sum + data[in_idx];
+                        sum += data[in_idx];
                     }
                 }
 
@@ -1216,8 +1196,7 @@ fn avg_pool1d_forward<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -1255,7 +1234,7 @@ impl<T: Float> GradFn<T> for AvgPool1dBackward<T> {
                         if il >= 0 && il < l as isize {
                             let il = il as usize;
                             let in_idx = (b * channels + c) * l + il;
-                            grad_input[in_idx] = grad_input[in_idx] + grad_val;
+                            grad_input[in_idx] += grad_val;
                         }
                     }
                 }
@@ -1298,11 +1277,7 @@ impl AvgPool3d {
     /// Create a new `AvgPool3d` layer.
     ///
     /// `stride` defaults to `kernel_size` when set to `[0, 0, 0]`.
-    pub fn new(
-        kernel_size: [usize; 3],
-        stride: [usize; 3],
-        padding: [usize; 3],
-    ) -> Self {
+    pub fn new(kernel_size: [usize; 3], stride: [usize; 3], padding: [usize; 3]) -> Self {
         let stride = if stride == [0, 0, 0] {
             kernel_size
         } else {
@@ -1349,8 +1324,7 @@ fn avg_pool3d_forward<T: Float>(
     padding: [usize; 3],
 ) -> FerrotorchResult<Tensor<T>> {
     let (batch, channels, d, h, w) = validate_5d(input)?;
-    let (out_d, out_h, out_w) =
-        validate_pool_params_3d(d, h, w, kernel_size, stride, padding)?;
+    let (out_d, out_h, out_w) = validate_pool_params_3d(d, h, w, kernel_size, stride, padding)?;
 
     let input_device = input.device();
     let data = input.data_vec()?;
@@ -1363,9 +1337,7 @@ fn avg_pool3d_forward<T: Float>(
             for od in 0..out_d {
                 for oh in 0..out_h {
                     for ow in 0..out_w {
-                        let out_idx = (((b * channels + c) * out_d + od) * out_h + oh)
-                            * out_w
-                            + ow;
+                        let out_idx = (((b * channels + c) * out_d + od) * out_h + oh) * out_w + ow;
                         let mut sum = <T as num_traits::Zero>::zero();
 
                         for kd in 0..kernel_size[0] {
@@ -1375,22 +1347,19 @@ fn avg_pool3d_forward<T: Float>(
                             }
                             let id = id as usize;
                             for kh in 0..kernel_size[1] {
-                                let ih =
-                                    (oh * stride[1] + kh) as isize - padding[1] as isize;
+                                let ih = (oh * stride[1] + kh) as isize - padding[1] as isize;
                                 if ih < 0 || ih >= h as isize {
                                     continue;
                                 }
                                 let ih = ih as usize;
                                 for kw in 0..kernel_size[2] {
-                                    let iw = (ow * stride[2] + kw) as isize
-                                        - padding[2] as isize;
+                                    let iw = (ow * stride[2] + kw) as isize - padding[2] as isize;
                                     if iw < 0 || iw >= w as isize {
                                         continue;
                                     }
                                     let iw = iw as usize;
-                                    let in_idx =
-                                        (((b * channels + c) * d + id) * h + ih) * w + iw;
-                                    sum = sum + data[in_idx];
+                                    let in_idx = (((b * channels + c) * d + id) * h + ih) * w + iw;
+                                    sum += data[in_idx];
                                 }
                             }
                         }
@@ -1418,8 +1387,7 @@ fn avg_pool3d_forward<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -1440,14 +1408,18 @@ impl<T: Float> GradFn<T> for AvgPool3dBackward<T> {
 
         let go_data = grad_output.data_vec()?;
         let in_shape = self.input.shape();
-        let (batch, channels, d, h, w) =
-            (in_shape[0], in_shape[1], in_shape[2], in_shape[3], in_shape[4]);
+        let (batch, channels, d, h, w) = (
+            in_shape[0],
+            in_shape[1],
+            in_shape[2],
+            in_shape[3],
+            in_shape[4],
+        );
         let out_d = pool_output_size(d, self.kernel_size[0], self.stride[0], self.padding[0]);
         let out_h = pool_output_size(h, self.kernel_size[1], self.stride[1], self.padding[1]);
         let out_w = pool_output_size(w, self.kernel_size[2], self.stride[2], self.padding[2]);
 
-        let mut grad_input =
-            vec![<T as num_traits::Zero>::zero(); batch * channels * d * h * w];
+        let mut grad_input = vec![<T as num_traits::Zero>::zero(); batch * channels * d * h * w];
         let kernel_vol =
             T::from(self.kernel_size[0] * self.kernel_size[1] * self.kernel_size[2]).unwrap();
 
@@ -1461,8 +1433,8 @@ impl<T: Float> GradFn<T> for AvgPool3dBackward<T> {
                             let grad_val = go_data[out_idx] / kernel_vol;
 
                             for kd in 0..self.kernel_size[0] {
-                                let id = (od * self.stride[0] + kd) as isize
-                                    - self.padding[0] as isize;
+                                let id =
+                                    (od * self.stride[0] + kd) as isize - self.padding[0] as isize;
                                 if id < 0 || id >= d as isize {
                                     continue;
                                 }
@@ -1483,7 +1455,7 @@ impl<T: Float> GradFn<T> for AvgPool3dBackward<T> {
                                         let iw = iw as usize;
                                         let in_idx =
                                             (((b * channels + c) * d + id) * h + ih) * w + iw;
-                                        grad_input[in_idx] = grad_input[in_idx] + grad_val;
+                                        grad_input[in_idx] += grad_val;
                                     }
                                 }
                             }
@@ -1626,8 +1598,7 @@ fn adaptive_max_pool2d_forward<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -1649,7 +1620,7 @@ impl<T: Float> GradFn<T> for AdaptiveMaxPool2dBackward<T> {
         let mut grad_input = vec![<T as num_traits::Zero>::zero(); input_numel];
 
         for (out_idx, &in_idx) in self.indices.iter().enumerate() {
-            grad_input[in_idx] = grad_input[in_idx] + go_data[out_idx];
+            grad_input[in_idx] += go_data[out_idx];
         }
 
         let grad_tensor = Tensor::from_storage(
@@ -1743,7 +1714,7 @@ fn adaptive_avg_pool1d_forward<T: Float>(
 
                 for il in l_start..l_end {
                     let in_idx = (b * channels + c) * l + il;
-                    sum = sum + data[in_idx];
+                    sum += data[in_idx];
                 }
 
                 let out_idx = (b * channels + c) * out_l + ol;
@@ -1766,8 +1737,7 @@ fn adaptive_avg_pool1d_forward<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -1802,7 +1772,7 @@ impl<T: Float> GradFn<T> for AdaptiveAvgPool1dBackward<T> {
 
                     for il in l_start..l_end {
                         let in_idx = (b * channels + c) * l + il;
-                        grad_input[in_idx] = grad_input[in_idx] + grad_val;
+                        grad_input[in_idx] += grad_val;
                     }
                 }
             }
@@ -1903,22 +1873,19 @@ fn adaptive_avg_pool3d_forward<T: Float>(
                         let w_start = adaptive_start(ow, w, out_w);
                         let w_end = adaptive_end(ow, w, out_w);
 
-                        let window_vol =
-                            (d_end - d_start) * (h_end - h_start) * (w_end - w_start);
+                        let window_vol = (d_end - d_start) * (h_end - h_start) * (w_end - w_start);
                         let mut sum = <T as num_traits::Zero>::zero();
 
                         for id in d_start..d_end {
                             for ih in h_start..h_end {
                                 for iw in w_start..w_end {
-                                    let in_idx =
-                                        (((b * channels + c) * d + id) * h + ih) * w + iw;
-                                    sum = sum + data[in_idx];
+                                    let in_idx = (((b * channels + c) * d + id) * h + ih) * w + iw;
+                                    sum += data[in_idx];
                                 }
                             }
                         }
 
-                        let out_idx =
-                            (((b * channels + c) * out_d + od) * out_h + oh) * out_w + ow;
+                        let out_idx = (((b * channels + c) * out_d + od) * out_h + oh) * out_w + ow;
                         output[out_idx] = sum / T::from(window_vol).unwrap();
                     }
                 }
@@ -1940,8 +1907,7 @@ fn adaptive_avg_pool3d_forward<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -1960,12 +1926,16 @@ impl<T: Float> GradFn<T> for AdaptiveAvgPool3dBackward<T> {
 
         let go_data = grad_output.data_vec()?;
         let in_shape = self.input.shape();
-        let (batch, channels, d, h, w) =
-            (in_shape[0], in_shape[1], in_shape[2], in_shape[3], in_shape[4]);
+        let (batch, channels, d, h, w) = (
+            in_shape[0],
+            in_shape[1],
+            in_shape[2],
+            in_shape[3],
+            in_shape[4],
+        );
         let (out_d, out_h, out_w) = self.output_size;
 
-        let mut grad_input =
-            vec![<T as num_traits::Zero>::zero(); batch * channels * d * h * w];
+        let mut grad_input = vec![<T as num_traits::Zero>::zero(); batch * channels * d * h * w];
 
         for b in 0..batch {
             for c in 0..channels {
@@ -1992,7 +1962,7 @@ impl<T: Float> GradFn<T> for AdaptiveAvgPool3dBackward<T> {
                                     for iw in w_start..w_end {
                                         let in_idx =
                                             (((b * channels + c) * d + id) * h + ih) * w + iw;
-                                        grad_input[in_idx] = grad_input[in_idx] + grad_val;
+                                        grad_input[in_idx] += grad_val;
                                     }
                                 }
                             }
@@ -2045,11 +2015,7 @@ impl MaxUnpool2d {
     /// Create a new `MaxUnpool2d` layer.
     ///
     /// `stride` defaults to `kernel_size` when set to `[0, 0]`.
-    pub fn new(
-        kernel_size: [usize; 2],
-        stride: [usize; 2],
-        padding: [usize; 2],
-    ) -> Self {
+    pub fn new(kernel_size: [usize; 2], stride: [usize; 2], padding: [usize; 2]) -> Self {
         let stride = if stride == [0, 0] {
             kernel_size
         } else {
@@ -2144,8 +2110,7 @@ fn max_unpool2d_forward<T: Float>(
         )?
         .to(input_device)
     } else {
-        Tensor::from_storage(storage, out_shape, false)?
-            .to(input_device)
+        Tensor::from_storage(storage, out_shape, false)?.to(input_device)
     }
 }
 
@@ -2631,12 +2596,9 @@ mod tests {
 
     #[test]
     fn test_pooling_rejects_3d_input() {
-        let input = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![0.0; 12]),
-            vec![2, 3, 2],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.0; 12]), vec![2, 3, 2], false)
+                .unwrap();
         assert!(max_pool2d(&input, [2, 2], [1, 1], [0, 0]).is_err());
         assert!(avg_pool2d(&input, [2, 2], [1, 1], [0, 0]).is_err());
         assert!(adaptive_avg_pool2d(&input, (1, 1)).is_err());

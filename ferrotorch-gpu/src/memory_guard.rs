@@ -51,9 +51,10 @@ use crate::error::{GpuError, GpuResult};
 // ---------------------------------------------------------------------------
 
 /// What to do when a GPU allocation fails with an out-of-memory error.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum OomPolicy {
     /// Crash immediately (PyTorch default behaviour).
+    #[default]
     Fail,
     /// Free the allocator cache and retry once.
     RetryAfterFree,
@@ -65,12 +66,6 @@ pub enum OomPolicy {
     },
     /// Invoke the registered emergency-checkpoint callback, then fail.
     CheckpointAndFail,
-}
-
-impl Default for OomPolicy {
-    fn default() -> Self {
-        Self::Fail
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -418,9 +413,7 @@ impl MemoryGuard {
     where
         T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits,
     {
-        let alloc_bytes = count
-            .checked_mul(std::mem::size_of::<T>())
-            .unwrap_or(usize::MAX);
+        let alloc_bytes = count.saturating_mul(std::mem::size_of::<T>());
 
         // Fast path: fits within budget.
         if self.check_budget(alloc_bytes).is_ok() {
@@ -497,14 +490,11 @@ impl MemoryGuard {
 
         let mut indices: Vec<usize> = (0..hooks.len()).collect();
         indices.sort_by(|&a, &b| {
-            hooks[a]
-                .priority
-                .cmp(&hooks[b].priority)
-                .then_with(|| {
-                    hooks[b]
-                        .estimated_free_bytes
-                        .cmp(&hooks[a].estimated_free_bytes)
-                })
+            hooks[a].priority.cmp(&hooks[b].priority).then_with(|| {
+                hooks[b]
+                    .estimated_free_bytes
+                    .cmp(&hooks[a].estimated_free_bytes)
+            })
         });
 
         let mut total_freed: usize = 0;
@@ -533,9 +523,11 @@ impl MemoryGuard {
         // Reflect freed memory in the atomic counter. Hooks freed memory
         // outside the guard's tracking, so we adjust used_bytes downward.
         if total_freed > 0 {
-            self.used_bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                Some(current.saturating_sub(total_freed))
-            }).ok();
+            self.used_bytes
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                    Some(current.saturating_sub(total_freed))
+                })
+                .ok();
         }
 
         total_freed
@@ -578,9 +570,7 @@ impl MemoryGuard {
     where
         T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits,
     {
-        let alloc_bytes = count
-            .checked_mul(std::mem::size_of::<T>())
-            .unwrap_or(usize::MAX);
+        let alloc_bytes = count.saturating_mul(std::mem::size_of::<T>());
 
         // --- Layer 1: budget check ---
         self.check_budget(alloc_bytes)?;
@@ -600,10 +590,7 @@ impl MemoryGuard {
     where
         T: cudarc::driver::DeviceRepr,
     {
-        let alloc_bytes = data
-            .len()
-            .checked_mul(std::mem::size_of::<T>())
-            .unwrap_or(usize::MAX);
+        let alloc_bytes = data.len().saturating_mul(std::mem::size_of::<T>());
 
         self.check_budget(alloc_bytes)?;
 
@@ -641,12 +628,16 @@ impl MemoryGuard {
             .len()
             .checked_mul(std::mem::size_of::<T>())
             .unwrap_or(0);
-        self.used_bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            Some(current.saturating_sub(bytes))
-        }).ok();
-        self.num_allocations.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            Some(current.saturating_sub(1))
-        }).ok();
+        self.used_bytes
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                Some(current.saturating_sub(bytes))
+            })
+            .ok();
+        self.num_allocations
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                Some(current.saturating_sub(1))
+            })
+            .ok();
         drop(buffer);
         self.notify_pressure_change();
     }
@@ -715,11 +706,7 @@ impl MemoryGuard {
 
     /// Low-level zero-init allocation with tracking.
     #[cfg(feature = "cuda")]
-    fn try_alloc_zeros<T>(
-        &self,
-        count: usize,
-        alloc_bytes: usize,
-    ) -> GpuResult<CudaBuffer<T>>
+    fn try_alloc_zeros<T>(&self, count: usize, alloc_bytes: usize) -> GpuResult<CudaBuffer<T>>
     where
         T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits,
     {
@@ -741,11 +728,7 @@ impl MemoryGuard {
 
     /// Low-level host-to-device copy allocation with tracking.
     #[cfg(feature = "cuda")]
-    fn try_alloc_copy<T>(
-        &self,
-        data: &[T],
-        alloc_bytes: usize,
-    ) -> GpuResult<CudaBuffer<T>>
+    fn try_alloc_copy<T>(&self, data: &[T], alloc_bytes: usize) -> GpuResult<CudaBuffer<T>>
     where
         T: cudarc::driver::DeviceRepr,
     {
@@ -965,10 +948,7 @@ impl MemoryGuardBuilder {
     #[cfg(feature = "cuda")]
     pub fn build(self) -> GpuResult<MemoryGuard> {
         let reservation = if self.reserve_bytes > 0 {
-            let slice = self
-                .device
-                .stream()
-                .alloc_zeros::<u8>(self.reserve_bytes)?;
+            let slice = self.device.stream().alloc_zeros::<u8>(self.reserve_bytes)?;
             Some(MemoryReservation {
                 _reservation: CudaBuffer {
                     data: Some(slice),
@@ -1171,10 +1151,7 @@ impl std::fmt::Debug for MemoryWatchdog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemoryWatchdog")
             .field("device_ordinal", &self.device.ordinal())
-            .field(
-                "pressure_threshold_bytes",
-                &self.pressure_threshold_bytes,
-            )
+            .field("pressure_threshold_bytes", &self.pressure_threshold_bytes)
             .field("check_interval", &self.check_interval)
             .field("paused", &self.paused.load(Ordering::Relaxed))
             .finish()
@@ -1359,21 +1336,54 @@ mod tests {
     fn compute_pressure_thresholds() {
         let budget = 1000;
         // >30% free => None
-        assert_eq!(MemoryGuard::compute_pressure(budget, 0), PressureLevel::None);
-        assert_eq!(MemoryGuard::compute_pressure(budget, 600), PressureLevel::None);
-        assert_eq!(MemoryGuard::compute_pressure(budget, 699), PressureLevel::None);
+        assert_eq!(
+            MemoryGuard::compute_pressure(budget, 0),
+            PressureLevel::None
+        );
+        assert_eq!(
+            MemoryGuard::compute_pressure(budget, 600),
+            PressureLevel::None
+        );
+        assert_eq!(
+            MemoryGuard::compute_pressure(budget, 699),
+            PressureLevel::None
+        );
         // 10-30% free => Low
-        assert_eq!(MemoryGuard::compute_pressure(budget, 750), PressureLevel::Low);
-        assert_eq!(MemoryGuard::compute_pressure(budget, 890), PressureLevel::Low);
+        assert_eq!(
+            MemoryGuard::compute_pressure(budget, 750),
+            PressureLevel::Low
+        );
+        assert_eq!(
+            MemoryGuard::compute_pressure(budget, 890),
+            PressureLevel::Low
+        );
         // 5-10% free => Medium
-        assert_eq!(MemoryGuard::compute_pressure(budget, 910), PressureLevel::Medium);
-        assert_eq!(MemoryGuard::compute_pressure(budget, 949), PressureLevel::Medium);
+        assert_eq!(
+            MemoryGuard::compute_pressure(budget, 910),
+            PressureLevel::Medium
+        );
+        assert_eq!(
+            MemoryGuard::compute_pressure(budget, 949),
+            PressureLevel::Medium
+        );
         // <5% free => High
-        assert_eq!(MemoryGuard::compute_pressure(budget, 960), PressureLevel::High);
-        assert_eq!(MemoryGuard::compute_pressure(budget, 999), PressureLevel::High);
+        assert_eq!(
+            MemoryGuard::compute_pressure(budget, 960),
+            PressureLevel::High
+        );
+        assert_eq!(
+            MemoryGuard::compute_pressure(budget, 999),
+            PressureLevel::High
+        );
         // At or over budget => Critical
-        assert_eq!(MemoryGuard::compute_pressure(budget, 1000), PressureLevel::Critical);
-        assert_eq!(MemoryGuard::compute_pressure(budget, 2000), PressureLevel::Critical);
+        assert_eq!(
+            MemoryGuard::compute_pressure(budget, 1000),
+            PressureLevel::Critical
+        );
+        assert_eq!(
+            MemoryGuard::compute_pressure(budget, 2000),
+            PressureLevel::Critical
+        );
     }
 
     #[test]
@@ -1595,11 +1605,7 @@ mod tests {
         fn watchdog_detects_no_pressure_when_plenty_free() {
             let device = make_device();
             // Threshold of 1 byte — should never trigger pressure.
-            let watchdog = Arc::new(MemoryWatchdog::new(
-                device,
-                1,
-                Duration::from_millis(50),
-            ));
+            let watchdog = Arc::new(MemoryWatchdog::new(device, 1, Duration::from_millis(50)));
 
             assert!(!watchdog.check_pressure());
             watchdog.wait_if_paused(); // should return immediately
@@ -1616,11 +1622,7 @@ mod tests {
         #[test]
         fn watchdog_debug_impl() {
             let device = make_device();
-            let watchdog = MemoryWatchdog::new(
-                device,
-                1024,
-                Duration::from_secs(1),
-            );
+            let watchdog = MemoryWatchdog::new(device, 1024, Duration::from_secs(1));
             let s = format!("{watchdog:?}");
             assert!(s.contains("MemoryWatchdog"));
             assert!(s.contains("1024"));
@@ -1765,7 +1767,9 @@ mod tests {
 
             // Request 256 f32 = 1024 bytes. 1536 + 1024 = 2560 > 2048.
             // Shortfall = 512. Hook frees 1024 (enough).
-            let buf = guard.safe_alloc_with_hooks::<f32>(256).expect("alloc after hook");
+            let buf = guard
+                .safe_alloc_with_hooks::<f32>(256)
+                .expect("alloc after hook");
             assert!(called.load(Ordering::SeqCst), "hook was not called");
 
             // used_bytes: was 1536, hook freed 1024 => 512, then alloc adds 1024 => 1536.
@@ -1802,7 +1806,10 @@ mod tests {
             // Request 1024 f32 = 4096 bytes >> 512 budget.
             // Hook frees 64, still not enough, falls through to OomPolicy::Fail.
             let result = guard.safe_alloc_with_hooks::<f32>(1024);
-            assert!(called.load(Ordering::SeqCst), "hook should have been called");
+            assert!(
+                called.load(Ordering::SeqCst),
+                "hook should have been called"
+            );
             assert!(result.is_err(), "allocation should have failed");
         }
 
@@ -1857,7 +1864,11 @@ mod tests {
             // All three hooks needed. Should fire: 5, 10, 20.
             let _result = guard.safe_alloc_with_hooks::<f32>(512);
             let call_order = order.lock().unwrap();
-            assert_eq!(&*call_order, &[5, 10, 20], "hooks should fire in priority order");
+            assert_eq!(
+                &*call_order,
+                &[5, 10, 20],
+                "hooks should fire in priority order"
+            );
         }
 
         #[test]
@@ -2113,7 +2124,11 @@ mod tests {
             guard.notify_pressure_change(); // High -> None
 
             let changes = listener.changes.lock().unwrap();
-            assert!(changes.len() >= 2, "should have at least 2 pressure changes, got {}", changes.len());
+            assert!(
+                changes.len() >= 2,
+                "should have at least 2 pressure changes, got {}",
+                changes.len()
+            );
             assert_eq!(changes[0], (PressureLevel::None, PressureLevel::High));
             assert_eq!(changes[1], (PressureLevel::High, PressureLevel::None));
         }

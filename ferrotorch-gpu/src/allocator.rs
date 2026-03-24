@@ -125,7 +125,13 @@ pub struct Block {
 
 impl Block {
     /// Create a new block with the given parameters.
-    pub fn new(device: usize, size: usize, ptr: usize, stream: StreamId, in_small_pool: bool) -> Self {
+    pub fn new(
+        device: usize,
+        size: usize,
+        ptr: usize,
+        stream: StreamId,
+        in_small_pool: bool,
+    ) -> Self {
         Self {
             id: NEXT_BLOCK_ID.fetch_add(1, Ordering::Relaxed),
             device,
@@ -155,7 +161,7 @@ impl Block {
 /// Ordered by `(stream, size, ptr, id)` so that `lower_bound` finds the
 /// smallest block >= requested size on the correct stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct BlockKey {
+pub(crate) struct BlockKey {
     stream: StreamId,
     size: usize,
     ptr: usize,
@@ -174,7 +180,12 @@ impl BlockKey {
 
     /// Create a search key: finds the smallest block >= `size` on `stream`.
     fn search(stream: StreamId, size: usize) -> Self {
-        Self { stream, size, ptr: 0, id: 0 }
+        Self {
+            stream,
+            size,
+            ptr: 0,
+            id: 0,
+        }
     }
 }
 
@@ -188,7 +199,7 @@ impl BlockKey {
 /// large blocks (>=1 MiB).
 ///
 /// # CL-323
-pub struct BlockPool {
+pub(crate) struct BlockPool {
     /// Free (non-allocated) blocks, ordered by [`BlockKey`].
     free_blocks: BTreeSet<(BlockKey, usize)>, // (key, block_index)
     /// Whether this is the small pool.
@@ -205,18 +216,15 @@ impl BlockPool {
     }
 
     /// Insert a block into the free set.
+    #[cfg(test)]
     pub fn insert(&mut self, block_idx: usize, block: &Block) {
-        self.free_blocks.insert((BlockKey::from_block(block), block_idx));
+        self.free_blocks
+            .insert((BlockKey::from_block(block), block_idx));
     }
 
     /// Insert a block into the free set using a precomputed key.
     pub fn insert_key(&mut self, block_idx: usize, key: BlockKey) {
         self.free_blocks.insert((key, block_idx));
-    }
-
-    /// Remove a block from the free set.
-    pub fn remove(&mut self, block_idx: usize, block: &Block) {
-        self.free_blocks.remove(&(BlockKey::from_block(block), block_idx));
     }
 
     /// Remove a block from the free set using a precomputed key.
@@ -227,13 +235,11 @@ impl BlockPool {
     /// Find the smallest free block >= `size` on `stream`.
     pub fn find_free_block(&self, stream: StreamId, size: usize) -> Option<usize> {
         let search = (BlockKey::search(stream, size), 0);
-        for &(key, idx) in self.free_blocks.range(search..) {
-            if key.stream != stream {
-                // Moved past all blocks on this stream — no match.
-                break;
+        if let Some(&(key, idx)) = self.free_blocks.range(search..).next() {
+            if key.stream == stream {
+                // Found a block on the same stream that is >= requested size.
+                return Some(idx);
             }
-            // Found a block on the same stream that is >= requested size.
-            return Some(idx);
         }
         None
     }
@@ -243,19 +249,9 @@ impl BlockPool {
         self.free_blocks.len()
     }
 
-    /// Whether the pool is empty.
-    pub fn is_empty(&self) -> bool {
-        self.free_blocks.is_empty()
-    }
-
     /// Clear all free blocks from the pool.
     pub fn clear(&mut self) {
         self.free_blocks.clear();
-    }
-
-    /// Iterate over all (key, block_index) pairs.
-    pub fn iter(&self) -> impl Iterator<Item = &(BlockKey, usize)> {
-        self.free_blocks.iter()
     }
 }
 
@@ -301,7 +297,13 @@ impl AllocatorState {
 
     /// Get the pool for a given size class.
     pub(crate) fn get_pool_mut(&mut self, is_small: bool) -> &mut BlockPool {
-        if is_small { &mut self.small_pool } else { &mut self.large_pool }
+        let pool = if is_small {
+            &mut self.small_pool
+        } else {
+            &mut self.large_pool
+        };
+        debug_assert_eq!(pool.is_small, is_small, "pool size-class mismatch");
+        pool
     }
 
     /// Allocate a new block index in the arena.
@@ -361,7 +363,9 @@ impl AllocatorState {
     /// Try to merge `block_idx` with an adjacent block `neighbor_idx`.
     /// Returns the size of the subsumed neighbor, or 0 if merge failed.
     pub(crate) fn try_merge(&mut self, block_idx: usize, neighbor_idx: Option<usize>) -> usize {
-        let Some(nbr_idx) = neighbor_idx else { return 0 };
+        let Some(nbr_idx) = neighbor_idx else {
+            return 0;
+        };
 
         // Cannot merge if neighbor is allocated or has pending stream uses.
         if self.blocks[nbr_idx].allocated || !self.blocks[nbr_idx].stream_uses.is_empty() {
@@ -516,12 +520,15 @@ impl CudaAllocator {
     where
         T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits,
     {
-        let bytes = count.checked_mul(std::mem::size_of::<T>()).unwrap_or(usize::MAX);
+        let bytes = count.saturating_mul(std::mem::size_of::<T>());
         let slice = self.device.stream().alloc_zeros::<T>(count)?;
 
         // Update statistics after the allocation succeeds.
-        let prev = self.allocated_bytes_atomic.fetch_add(bytes, Ordering::Relaxed);
-        self.peak_bytes_atomic.fetch_max(prev + bytes, Ordering::Relaxed);
+        let prev = self
+            .allocated_bytes_atomic
+            .fetch_add(bytes, Ordering::Relaxed);
+        self.peak_bytes_atomic
+            .fetch_max(prev + bytes, Ordering::Relaxed);
 
         Ok(CudaBuffer {
             data: Some(slice),
@@ -544,11 +551,14 @@ impl CudaAllocator {
     where
         T: cudarc::driver::DeviceRepr,
     {
-        let bytes = data.len().checked_mul(std::mem::size_of::<T>()).unwrap_or(usize::MAX);
+        let bytes = data.len().saturating_mul(std::mem::size_of::<T>());
         let slice = self.device.stream().clone_htod(data)?;
 
-        let prev = self.allocated_bytes_atomic.fetch_add(bytes, Ordering::Relaxed);
-        self.peak_bytes_atomic.fetch_max(prev + bytes, Ordering::Relaxed);
+        let prev = self
+            .allocated_bytes_atomic
+            .fetch_add(bytes, Ordering::Relaxed);
+        self.peak_bytes_atomic
+            .fetch_max(prev + bytes, Ordering::Relaxed);
 
         Ok(CudaBuffer {
             data: Some(slice),
@@ -565,8 +575,12 @@ impl CudaAllocator {
     /// This is preferred over simply dropping the buffer so that
     /// [`memory_allocated`](CudaAllocator::memory_allocated) stays accurate.
     pub fn free<T>(&self, buffer: CudaBuffer<T>) {
-        let bytes = buffer.len().checked_mul(std::mem::size_of::<T>()).unwrap_or(0);
-        self.allocated_bytes_atomic.fetch_sub(bytes, Ordering::Relaxed);
+        let bytes = buffer
+            .len()
+            .checked_mul(std::mem::size_of::<T>())
+            .unwrap_or(0);
+        self.allocated_bytes_atomic
+            .fetch_sub(bytes, Ordering::Relaxed);
         drop(buffer);
     }
 
@@ -606,7 +620,9 @@ impl CudaAllocator {
     ///
     /// # CL-323
     pub fn empty_cache(&self) {
-        let Ok(mut state) = self.state.lock() else { return };
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
         // Clear both free pools. The actual GPU memory is freed when the
         // pool.rs layer drops its CudaSlice holders.
         state.small_pool.clear();
@@ -633,7 +649,9 @@ impl CudaAllocator {
     ///
     /// # CL-323
     pub fn record_stream_on_block(&self, block_idx: usize, stream: StreamId) {
-        let Ok(mut state) = self.state.lock() else { return };
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
         if block_idx < state.blocks.len() {
             state.blocks[block_idx].stream_uses.insert(stream);
         }
@@ -646,14 +664,18 @@ impl CudaAllocator {
 
     /// Number of free blocks in both pools (for debugging/testing).
     pub fn free_block_count(&self) -> usize {
-        self.state.lock().map(|s| {
-            s.small_pool.len() + s.large_pool.len()
-        }).unwrap_or(0)
+        self.state
+            .lock()
+            .map(|s| s.small_pool.len() + s.large_pool.len())
+            .unwrap_or(0)
     }
 
     /// (hits, misses) cache statistics.
     pub fn cache_stats(&self) -> (usize, usize) {
-        self.state.lock().map(|s| (s.hits, s.misses)).unwrap_or((0, 0))
+        self.state
+            .lock()
+            .map(|s| (s.hits, s.misses))
+            .unwrap_or((0, 0))
     }
 
     /// Total cached (free, reusable) bytes.
@@ -672,15 +694,13 @@ impl CudaAllocator {
     /// If the block is significantly larger than needed, it is split.
     ///
     /// # CL-323
-    pub fn cache_find(
-        &self,
-        size: usize,
-        stream: StreamId,
-    ) -> Option<(usize, usize)> {
+    pub fn cache_find(&self, size: usize, stream: StreamId) -> Option<(usize, usize)> {
         let rounded = round_size(size);
         let is_small = rounded <= SMALL_SIZE;
 
-        let Ok(mut state) = self.state.lock() else { return None };
+        let Ok(mut state) = self.state.lock() else {
+            return None;
+        };
 
         let block_idx = {
             let pool = state.get_pool_mut(is_small);
@@ -767,7 +787,9 @@ impl CudaAllocator {
     ///
     /// # CL-323
     pub fn cache_free(&self, block_idx: usize) {
-        let Ok(mut state) = self.state.lock() else { return };
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
         if block_idx < state.blocks.len() && state.blocks[block_idx].allocated {
             state.free_block(block_idx);
         }
@@ -786,8 +808,14 @@ impl std::fmt::Debug for CudaAllocator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CudaAllocator")
             .field("device_ordinal", &self.device.ordinal())
-            .field("allocated_bytes", &self.allocated_bytes_atomic.load(Ordering::Relaxed))
-            .field("peak_bytes", &self.peak_bytes_atomic.load(Ordering::Relaxed))
+            .field(
+                "allocated_bytes",
+                &self.allocated_bytes_atomic.load(Ordering::Relaxed),
+            )
+            .field(
+                "peak_bytes",
+                &self.peak_bytes_atomic.load(Ordering::Relaxed),
+            )
             .field("cached_bytes", &self.cached_bytes())
             .finish()
     }
@@ -1135,7 +1163,10 @@ mod tests {
             let alloc = make_allocator();
             let buf = alloc.alloc_zeros::<f32>(256).expect("alloc_zeros");
             assert_eq!(alloc.memory_allocated(), 256 * std::mem::size_of::<f32>());
-            assert_eq!(alloc.max_memory_allocated(), 256 * std::mem::size_of::<f32>());
+            assert_eq!(
+                alloc.max_memory_allocated(),
+                256 * std::mem::size_of::<f32>()
+            );
             alloc.free(buf);
         }
 

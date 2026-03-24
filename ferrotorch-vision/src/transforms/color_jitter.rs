@@ -1,6 +1,6 @@
 // CL-332: Vision Transforms & Augmentation — ColorJitter
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 use super::rng::random_f64;
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
 use num_traits::NumCast;
 
@@ -97,7 +97,10 @@ impl<T: Float> Transform<T> for ColorJitter<T> {
         let spatial = h * w;
         let data = input.data_vec()?;
         // Work with per-channel slices as mutable f64 buffers for precision.
-        let mut r: Vec<f64> = data[..spatial].iter().map(|v| v.to_f64().unwrap()).collect();
+        let mut r: Vec<f64> = data[..spatial]
+            .iter()
+            .map(|v| v.to_f64().unwrap())
+            .collect();
         let mut g: Vec<f64> = data[spatial..2 * spatial]
             .iter()
             .map(|v| v.to_f64().unwrap())
@@ -232,8 +235,7 @@ mod tests {
     #[test]
     fn test_color_jitter_output_shape() {
         let data: Vec<f64> = vec![0.5; 48]; // 3x4x4
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![3, 4, 4], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 4, 4], false).unwrap();
         let jitter = ColorJitter::<f64>::new(0.2, 0.2, 0.2, 0.1);
         let out = jitter.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);
@@ -243,16 +245,13 @@ mod tests {
     fn test_color_jitter_zero_params() {
         // All parameters zero: output should equal input.
         let data: Vec<f64> = (0..12).map(|i| i as f64 / 12.0).collect();
-        let t = Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 2, 2], false)
-            .unwrap();
+        let t =
+            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 2, 2], false).unwrap();
         let jitter = ColorJitter::<f64>::new(0.0, 0.0, 0.0, 0.0);
         let out = jitter.apply(t).unwrap();
         let d = out.data().unwrap();
         for (a, b) in d.iter().zip(data.iter()) {
-            assert!(
-                (a - b).abs() < 1e-10,
-                "Expected {b}, got {a}"
-            );
+            assert!((a - b).abs() < 1e-10, "Expected {b}, got {a}");
         }
     }
 
@@ -260,15 +259,11 @@ mod tests {
     fn test_color_jitter_output_clamped() {
         // Even with extreme parameters, output should be in [0, 1].
         let data: Vec<f64> = vec![0.9; 12]; // 3x2x2
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![3, 2, 2], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 2, 2], false).unwrap();
         let jitter = ColorJitter::<f64>::new(0.9, 0.9, 0.9, 0.4);
         let out = jitter.apply(t).unwrap();
         for &val in out.data().unwrap() {
-            assert!(
-                val >= 0.0 && val <= 1.0,
-                "Output value {val} out of [0, 1]"
-            );
+            assert!(val >= 0.0 && val <= 1.0, "Output value {val} out of [0, 1]");
         }
     }
 
@@ -276,8 +271,7 @@ mod tests {
     fn test_color_jitter_rejects_non_rgb() {
         // 1-channel tensor should be rejected.
         let data = vec![0.5_f64; 4];
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![1, 2, 2], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 2, 2], false).unwrap();
         let jitter = ColorJitter::<f64>::new(0.2, 0.2, 0.2, 0.1);
         assert!(jitter.apply(t).is_err());
     }
@@ -324,8 +318,7 @@ mod tests {
     #[test]
     fn test_color_jitter_f32() {
         let data: Vec<f32> = vec![0.5; 12];
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![3, 2, 2], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 2, 2], false).unwrap();
         let jitter = ColorJitter::<f32>::new(0.2, 0.2, 0.2, 0.1);
         let out = jitter.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 2, 2]);

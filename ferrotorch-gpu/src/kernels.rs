@@ -3027,11 +3027,7 @@ fn launch_cfg(n: usize) -> GpuResult<LaunchConfig> {
 
 /// Validate that two buffers are on the same device and have the same length.
 #[cfg(feature = "cuda")]
-fn validate_binary(
-    a: &CudaBuffer<f32>,
-    b: &CudaBuffer<f32>,
-    device: &GpuDevice,
-) -> GpuResult<()> {
+fn validate_binary(a: &CudaBuffer<f32>, b: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<()> {
     if a.device_ordinal() != device.ordinal() {
         return Err(GpuError::DeviceMismatch {
             expected: a.device_ordinal(),
@@ -3089,7 +3085,12 @@ fn try_launch_binary(
     // Attempt to load the kernel (cached after first compilation).
     // If it fails (e.g. unsupported arch), return None so the caller
     // can use the CPU fallback.
-    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name, device.ordinal() as u32) {
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        ptx_src,
+        kernel_name,
+        device.ordinal() as u32,
+    ) {
         Ok(f) => f,
         Err(_) => return Ok(None),
     };
@@ -3130,7 +3131,12 @@ fn try_launch_unary(
     let stream = device.stream();
 
     // Attempt to load the kernel (cached after first compilation).
-    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name, device.ordinal() as u32) {
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        ptx_src,
+        kernel_name,
+        device.ordinal() as u32,
+    ) {
         Ok(f) => f,
         Err(_) => return Ok(None),
     };
@@ -3174,7 +3180,12 @@ fn try_launch_binary_into(
     let ctx = device.context();
     let stream = device.stream();
 
-    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name, device.ordinal() as u32) {
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        ptx_src,
+        kernel_name,
+        device.ordinal() as u32,
+    ) {
         Ok(f) => f,
         Err(_) => return Ok(false),
     };
@@ -3211,7 +3222,12 @@ fn try_launch_unary_into(
     let ctx = device.context();
     let stream = device.stream();
 
-    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name, device.ordinal() as u32) {
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        ptx_src,
+        kernel_name,
+        device.ordinal() as u32,
+    ) {
         Ok(f) => f,
         Err(_) => return Ok(false),
     };
@@ -3238,6 +3254,7 @@ fn try_launch_unary_into(
 /// `out_shape` is the broadcast-resolved output shape.
 /// All three arrays have length `ndim`.
 #[cfg(feature = "cuda")]
+#[allow(clippy::too_many_arguments)]
 fn try_launch_broadcast_binary(
     a: &CudaBuffer<f32>,
     b: &CudaBuffer<f32>,
@@ -3255,7 +3272,12 @@ fn try_launch_broadcast_binary(
     let ctx = device.context();
     let stream = device.stream();
 
-    let f = match crate::module_cache::get_or_compile(ctx, ptx_src, kernel_name, device.ordinal() as u32) {
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        ptx_src,
+        kernel_name,
+        device.ordinal() as u32,
+    ) {
         Ok(f) => f,
         Err(_) => return Ok(None),
     };
@@ -3468,8 +3490,15 @@ pub fn gpu_broadcast_add(
     let out_numel: usize = out_shape.iter().product();
 
     if let Some(out) = try_launch_broadcast_binary(
-        a, b, &a_str, &b_str, &shape_u32, out_numel,
-        device, BROADCAST_ADD_PTX, "broadcast_add_kernel",
+        a,
+        b,
+        &a_str,
+        &b_str,
+        &shape_u32,
+        out_numel,
+        device,
+        BROADCAST_ADD_PTX,
+        "broadcast_add_kernel",
     )? {
         return Ok(out);
     }
@@ -3494,8 +3523,15 @@ pub fn gpu_broadcast_sub(
     let out_numel: usize = out_shape.iter().product();
 
     if let Some(out) = try_launch_broadcast_binary(
-        a, b, &a_str, &b_str, &shape_u32, out_numel,
-        device, BROADCAST_SUB_PTX, "broadcast_sub_kernel",
+        a,
+        b,
+        &a_str,
+        &b_str,
+        &shape_u32,
+        out_numel,
+        device,
+        BROADCAST_SUB_PTX,
+        "broadcast_sub_kernel",
     )? {
         return Ok(out);
     }
@@ -3519,8 +3555,15 @@ pub fn gpu_broadcast_mul(
     let out_numel: usize = out_shape.iter().product();
 
     if let Some(out) = try_launch_broadcast_binary(
-        a, b, &a_str, &b_str, &shape_u32, out_numel,
-        device, BROADCAST_MUL_PTX, "broadcast_mul_kernel",
+        a,
+        b,
+        &a_str,
+        &b_str,
+        &shape_u32,
+        out_numel,
+        device,
+        BROADCAST_MUL_PTX,
+        "broadcast_mul_kernel",
     )? {
         return Ok(out);
     }
@@ -3578,10 +3621,7 @@ fn cpu_fallback_broadcast_binary(
 ///   CUDA devices.
 /// - [`GpuError::Driver`] on CUDA runtime errors.
 #[cfg(feature = "cuda")]
-pub fn gpu_neg(
-    a: &CudaBuffer<f32>,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_neg(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
 
     if let Some(out) = try_launch_unary(a, device, NEG_PTX, "neg_kernel")? {
@@ -3602,10 +3642,7 @@ pub fn gpu_neg(
 ///   CUDA devices.
 /// - [`GpuError::Driver`] on CUDA runtime errors.
 #[cfg(feature = "cuda")]
-pub fn gpu_relu(
-    a: &CudaBuffer<f32>,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_relu(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
 
     if let Some(out) = try_launch_unary(a, device, RELU_PTX, "relu_kernel")? {
@@ -3624,14 +3661,22 @@ pub fn gpu_relu_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, input, device)?;
 
-    if let Some(out) = try_launch_binary(grad, input, device, RELU_BACKWARD_PTX, "relu_backward_kernel")? {
+    if let Some(out) = try_launch_binary(
+        grad,
+        input,
+        device,
+        RELU_BACKWARD_PTX,
+        "relu_backward_kernel",
+    )? {
         return Ok(out);
     }
 
     // CPU fallback
     let grad_host = gpu_to_cpu(grad, device)?;
     let input_host = gpu_to_cpu(input, device)?;
-    let result: Vec<f32> = grad_host.iter().zip(input_host.iter())
+    let result: Vec<f32> = grad_host
+        .iter()
+        .zip(input_host.iter())
         .map(|(&g, &x)| if x > 0.0 { g } else { 0.0 })
         .collect();
     cpu_to_gpu(&result, device)
@@ -3647,14 +3692,22 @@ pub fn gpu_gelu_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, input, device)?;
 
-    if let Some(out) = try_launch_binary(grad, input, device, GELU_BACKWARD_PTX, "gelu_backward_kernel")? {
+    if let Some(out) = try_launch_binary(
+        grad,
+        input,
+        device,
+        GELU_BACKWARD_PTX,
+        "gelu_backward_kernel",
+    )? {
         return Ok(out);
     }
 
     // CPU fallback
     let grad_host = gpu_to_cpu(grad, device)?;
     let input_host = gpu_to_cpu(input, device)?;
-    let result: Vec<f32> = grad_host.iter().zip(input_host.iter())
+    let result: Vec<f32> = grad_host
+        .iter()
+        .zip(input_host.iter())
         .map(|(&g, &x)| {
             let k: f32 = 1.702;
             let sig = 1.0 / (1.0 + (-k * x).exp());
@@ -3687,14 +3740,18 @@ pub fn gpu_index_select_1d(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, INDEX_SELECT_1D_PTX, "index_select_1d_kernel", device.ordinal() as u32,
+        ctx,
+        INDEX_SELECT_1D_PTX,
+        "index_select_1d_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
             // CPU fallback.
             let input_host = gpu_to_cpu(input, device)?;
             let indices_host = gpu_to_cpu(indices, device)?;
-            let result: Vec<f32> = indices_host.iter()
+            let result: Vec<f32> = indices_host
+                .iter()
                 .map(|&idx_f| input_host[idx_f as usize])
                 .collect();
             return cpu_to_gpu(&result, device);
@@ -3745,7 +3802,10 @@ pub fn gpu_scatter_add_1d(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, SCATTER_ADD_1D_PTX, "scatter_add_1d_kernel", device.ordinal() as u32,
+        ctx,
+        SCATTER_ADD_1D_PTX,
+        "scatter_add_1d_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -3801,14 +3861,19 @@ pub fn gpu_masked_fill(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, MASKED_FILL_PTX, "masked_fill_kernel", device.ordinal() as u32,
+        ctx,
+        MASKED_FILL_PTX,
+        "masked_fill_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
             // CPU fallback.
             let input_host = gpu_to_cpu(input, device)?;
             let mask_host = gpu_to_cpu(mask, device)?;
-            let result: Vec<f32> = input_host.iter().zip(mask_host.iter())
+            let result: Vec<f32> = input_host
+                .iter()
+                .zip(mask_host.iter())
                 .map(|(&x, &m)| if m >= 0.5 { value } else { x })
                 .collect();
             return cpu_to_gpu(&result, device);
@@ -3849,14 +3914,17 @@ pub fn gpu_masked_zero(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, mask, device)?;
 
-    if let Some(out) = try_launch_binary(grad, mask, device, MASKED_ZERO_PTX, "masked_zero_kernel")? {
+    if let Some(out) = try_launch_binary(grad, mask, device, MASKED_ZERO_PTX, "masked_zero_kernel")?
+    {
         return Ok(out);
     }
 
     // CPU fallback.
     let grad_host = gpu_to_cpu(grad, device)?;
     let mask_host = gpu_to_cpu(mask, device)?;
-    let result: Vec<f32> = grad_host.iter().zip(mask_host.iter())
+    let result: Vec<f32> = grad_host
+        .iter()
+        .zip(mask_host.iter())
         .map(|(&g, &m)| if m >= 0.5 { 0.0 } else { g })
         .collect();
     cpu_to_gpu(&result, device)
@@ -3877,14 +3945,22 @@ pub fn gpu_sigmoid_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, output, device)?;
 
-    if let Some(out) = try_launch_binary(grad, output, device, SIGMOID_BACKWARD_PTX, "sigmoid_backward_kernel")? {
+    if let Some(out) = try_launch_binary(
+        grad,
+        output,
+        device,
+        SIGMOID_BACKWARD_PTX,
+        "sigmoid_backward_kernel",
+    )? {
         return Ok(out);
     }
 
     // CPU fallback
     let grad_host = gpu_to_cpu(grad, device)?;
     let output_host = gpu_to_cpu(output, device)?;
-    let result: Vec<f32> = grad_host.iter().zip(output_host.iter())
+    let result: Vec<f32> = grad_host
+        .iter()
+        .zip(output_host.iter())
         .map(|(&g, &o)| g * o * (1.0 - o))
         .collect();
     cpu_to_gpu(&result, device)
@@ -3905,14 +3981,22 @@ pub fn gpu_tanh_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, output, device)?;
 
-    if let Some(out) = try_launch_binary(grad, output, device, TANH_BACKWARD_PTX, "tanh_backward_kernel")? {
+    if let Some(out) = try_launch_binary(
+        grad,
+        output,
+        device,
+        TANH_BACKWARD_PTX,
+        "tanh_backward_kernel",
+    )? {
         return Ok(out);
     }
 
     // CPU fallback
     let grad_host = gpu_to_cpu(grad, device)?;
     let output_host = gpu_to_cpu(output, device)?;
-    let result: Vec<f32> = grad_host.iter().zip(output_host.iter())
+    let result: Vec<f32> = grad_host
+        .iter()
+        .zip(output_host.iter())
         .map(|(&g, &o)| g * (1.0 - o * o))
         .collect();
     cpu_to_gpu(&result, device)
@@ -3947,7 +4031,10 @@ pub fn gpu_softmax_backward(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, SOFTMAX_BACKWARD_PTX, "softmax_backward_kernel", device.ordinal() as u32,
+        ctx,
+        SOFTMAX_BACKWARD_PTX,
+        "softmax_backward_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -4021,21 +4108,24 @@ pub fn gpu_sum_axis(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, SUM_AXIS_PTX, "sum_axis_kernel", device.ordinal() as u32,
+        ctx,
+        SUM_AXIS_PTX,
+        "sum_axis_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
             // CPU fallback
             let host = gpu_to_cpu(a, device)?;
             let mut result = vec![0.0f32; total_output];
-            for i in 0..total_output {
+            for (i, out) in result.iter_mut().enumerate() {
                 let outer_idx = i / inner;
                 let inner_idx = i % inner;
                 let mut sum = 0.0f32;
                 for k in 0..axis_size {
                     sum += host[outer_idx * axis_size * inner + k * inner + inner_idx];
                 }
-                result[i] = sum;
+                *out = sum;
             }
             return cpu_to_gpu(&result, device);
         }
@@ -4098,7 +4188,10 @@ pub fn gpu_strided_split(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, STRIDED_SPLIT_PTX, "strided_split_kernel", device.ordinal() as u32,
+        ctx,
+        STRIDED_SPLIT_PTX,
+        "strided_split_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -4106,13 +4199,12 @@ pub fn gpu_strided_split(
             let host = gpu_to_cpu(input, device)?;
             let outer = n / (split_size * inner_size);
             let mut result = vec![0.0f32; n];
-            for i in 0..n {
+            for (i, out) in result.iter_mut().enumerate() {
                 let outer_idx = i / (split_size * inner_size);
                 let within = i % (split_size * inner_size);
-                let src_idx = outer_idx * total_along_axis * inner_size
-                    + split_offset * inner_size
-                    + within;
-                result[i] = host[src_idx];
+                let src_idx =
+                    outer_idx * total_along_axis * inner_size + split_offset * inner_size + within;
+                *out = host[src_idx];
             }
             let _ = outer;
             return cpu_to_gpu(&result, device);
@@ -4167,6 +4259,7 @@ pub fn gpu_strided_split(
 /// - [`GpuError::DeviceMismatch`] if buffers and `device` are on different devices.
 /// - [`GpuError::Driver`] on CUDA runtime errors.
 #[cfg(feature = "cuda")]
+#[allow(clippy::too_many_arguments)]
 pub fn gpu_strided_cat(
     input: &CudaBuffer<f32>,
     output: &mut CudaBuffer<f32>,
@@ -4185,20 +4278,22 @@ pub fn gpu_strided_cat(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, STRIDED_CAT_PTX, "strided_cat_kernel", device.ordinal() as u32,
+        ctx,
+        STRIDED_CAT_PTX,
+        "strided_cat_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
             // CPU fallback
             let host_in = gpu_to_cpu(input, device)?;
             let mut host_out = gpu_to_cpu(output, device)?;
-            for i in 0..n {
+            for (i, &val) in host_in.iter().enumerate().take(n) {
                 let outer_idx = i / (part_size * inner_size);
                 let within = i % (part_size * inner_size);
-                let dst_idx = outer_idx * total_along_axis * inner_size
-                    + cat_offset * inner_size
-                    + within;
-                host_out[dst_idx] = host_in[i];
+                let dst_idx =
+                    outer_idx * total_along_axis * inner_size + cat_offset * inner_size + within;
+                host_out[dst_idx] = val;
             }
             *output = cpu_to_gpu(&host_out, device)?;
             return Ok(());
@@ -4250,7 +4345,12 @@ pub fn gpu_scale(
     let ctx = device.context();
     let stream = device.stream();
 
-    let f = match crate::module_cache::get_or_compile(ctx, SCALE_PTX, "scale_kernel", device.ordinal() as u32) {
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        SCALE_PTX,
+        "scale_kernel",
+        device.ordinal() as u32,
+    ) {
         Ok(f) => f,
         Err(_) => {
             // CPU fallback
@@ -4299,7 +4399,10 @@ pub fn gpu_softmax(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, SOFTMAX_PTX, "softmax_kernel", device.ordinal() as u32,
+        ctx,
+        SOFTMAX_PTX,
+        "softmax_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -4309,7 +4412,9 @@ pub fn gpu_softmax(
             for r in 0..rows {
                 let base = r * cols;
                 let mut max_v = f32::NEG_INFINITY;
-                for c in 0..cols { max_v = max_v.max(host[base + c]); }
+                for c in 0..cols {
+                    max_v = max_v.max(host[base + c]);
+                }
                 let mut sum = 0.0f32;
                 for c in 0..cols {
                     let e = (host[base + c] - max_v).exp();
@@ -4317,7 +4422,9 @@ pub fn gpu_softmax(
                     sum += e;
                 }
                 let inv = 1.0 / sum;
-                for c in 0..cols { out[base + c] *= inv; }
+                for c in 0..cols {
+                    out[base + c] *= inv;
+                }
             }
             return cpu_to_gpu(&out, device);
         }
@@ -4382,7 +4489,10 @@ pub fn gpu_dropout(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, DROPOUT_PTX, "dropout_kernel", device.ordinal() as u32,
+        ctx,
+        DROPOUT_PTX,
+        "dropout_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -4391,11 +4501,17 @@ pub fn gpu_dropout(
             // Stateless per-element hash matching the GPU kernel: each element
             // independently computes its own pseudorandom value from (tid, seed)
             // with no state carried between elements.
-            let result: Vec<f32> = host.iter().enumerate().map(|(i, &x)| {
-                let mut r = (i as u32).wrapping_mul(2654435761) ^ seed;
-                r ^= r << 13; r ^= r >> 17; r ^= r << 5;
-                if r < threshold { 0.0 } else { x * scale }
-            }).collect();
+            let result: Vec<f32> = host
+                .iter()
+                .enumerate()
+                .map(|(i, &x)| {
+                    let mut r = (i as u32).wrapping_mul(2654435761) ^ seed;
+                    r ^= r << 13;
+                    r ^= r >> 17;
+                    r ^= r << 5;
+                    if r < threshold { 0.0 } else { x * scale }
+                })
+                .collect();
             return cpu_to_gpu(&result, device);
         }
     };
@@ -4440,7 +4556,10 @@ pub fn gpu_transpose_2d(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, TRANSPOSE_2D_PTX, "transpose_2d_kernel", device.ordinal() as u32,
+        ctx,
+        TRANSPOSE_2D_PTX,
+        "transpose_2d_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -4500,7 +4619,10 @@ pub fn gpu_permute_0213(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, PERMUTE_0213_PTX, "permute_0213_kernel", device.ordinal() as u32,
+        ctx,
+        PERMUTE_0213_PTX,
+        "permute_0213_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -4570,7 +4692,10 @@ pub fn gpu_small_matmul(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, SMALL_MATMUL_PTX, "small_matmul_kernel", device.ordinal() as u32,
+        ctx,
+        SMALL_MATMUL_PTX,
+        "small_matmul_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -4649,7 +4774,10 @@ pub fn gpu_embed_lookup(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, EMBED_LOOKUP_PTX, "embed_lookup_kernel", device.ordinal() as u32,
+        ctx,
+        EMBED_LOOKUP_PTX,
+        "embed_lookup_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -4703,7 +4831,10 @@ pub fn gpu_slice_write(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, SLICE_WRITE_PTX, "slice_write_kernel", device.ordinal() as u32,
+        ctx,
+        SLICE_WRITE_PTX,
+        "slice_write_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -4763,7 +4894,10 @@ pub fn gpu_slice_read(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, SLICE_READ_PTX, "slice_read_kernel", device.ordinal() as u32,
+        ctx,
+        SLICE_READ_PTX,
+        "slice_read_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -4808,10 +4942,7 @@ pub fn gpu_slice_read(
 
 /// Elementwise GELU activation on GPU: `gelu(x) = x * sigmoid(1.702 * x)`.
 #[cfg(feature = "cuda")]
-pub fn gpu_gelu(
-    input: &CudaBuffer<f32>,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_gelu(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(input, device)?;
     if let Some(out) = try_launch_unary(input, device, GELU_PTX, "gelu_kernel")? {
         return Ok(out);
@@ -4848,13 +4979,19 @@ pub fn gpu_layernorm(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, LAYERNORM_PTX, "layernorm_kernel", device.ordinal() as u32,
+        ctx,
+        LAYERNORM_PTX,
+        "layernorm_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(e) => {
             eprintln!("ferrotorch-gpu: LayerNorm PTX compilation failed ({e:?}), CPU fallback");
             std::fs::write("/tmp/layernorm_debug.ptx", LAYERNORM_PTX).ok();
-            eprintln!("ferrotorch-gpu: dumped PTX to /tmp/layernorm_debug.ptx ({} bytes)", LAYERNORM_PTX.len());
+            eprintln!(
+                "ferrotorch-gpu: dumped PTX to /tmp/layernorm_debug.ptx ({} bytes)",
+                LAYERNORM_PTX.len()
+            );
             let h_in = gpu_to_cpu(input, device)?;
             let h_w = gpu_to_cpu(weight, device)?;
             let h_b = gpu_to_cpu(bias, device)?;
@@ -4863,7 +5000,8 @@ pub fn gpu_layernorm(
                 let base = r * cols;
                 let slice = &h_in[base..base + cols];
                 let mean: f32 = slice.iter().sum::<f32>() / cols as f32;
-                let var: f32 = slice.iter().map(|&x| (x - mean) * (x - mean)).sum::<f32>() / cols as f32;
+                let var: f32 =
+                    slice.iter().map(|&x| (x - mean) * (x - mean)).sum::<f32>() / cols as f32;
                 let inv_std = 1.0 / (var + eps).sqrt();
                 for c in 0..cols {
                     let normed = (slice[c] - mean) * inv_std;
@@ -4930,7 +5068,10 @@ pub fn gpu_layernorm_backward(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, LAYERNORM_BACKWARD_PTX, "layernorm_backward_kernel", device.ordinal() as u32,
+        ctx,
+        LAYERNORM_BACKWARD_PTX,
+        "layernorm_backward_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -4947,7 +5088,11 @@ pub fn gpu_layernorm_backward(
                 let x_slice = &h_in[base..base + cols];
                 let go_slice = &h_go[base..base + cols];
                 let mean: f32 = x_slice.iter().sum::<f32>() / n_f;
-                let var: f32 = x_slice.iter().map(|&x| (x - mean) * (x - mean)).sum::<f32>() / n_f;
+                let var: f32 = x_slice
+                    .iter()
+                    .map(|&x| (x - mean) * (x - mean))
+                    .sum::<f32>()
+                    / n_f;
                 let inv_std = 1.0 / (var + eps).sqrt();
                 let mut sum1 = 0.0f32;
                 let mut sum2 = 0.0f32;
@@ -5008,9 +5153,16 @@ pub fn gpu_layernorm_backward(
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_layernorm_backward(
-    _input: &CudaBuffer<f32>, _grad_output: &CudaBuffer<f32>, _weight: &CudaBuffer<f32>,
-    _rows: usize, _cols: usize, _eps: f32, _device: &GpuDevice,
-) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>, CudaBuffer<f32>)> { Err(GpuError::NoCudaFeature) }
+    _input: &CudaBuffer<f32>,
+    _grad_output: &CudaBuffer<f32>,
+    _weight: &CudaBuffer<f32>,
+    _rows: usize,
+    _cols: usize,
+    _eps: f32,
+    _device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>, CudaBuffer<f32>)> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ===========================================================================
 // _into variants — write to pre-allocated output buffers (zero allocation)
@@ -5023,7 +5175,10 @@ pub fn gpu_layernorm_backward(
 /// Elementwise add into pre-allocated output: `out[i] = a[i] + b[i]`.
 #[cfg(feature = "cuda")]
 pub fn gpu_add_into(
-    a: &CudaBuffer<f32>, b: &CudaBuffer<f32>, out: &mut CudaBuffer<f32>, device: &GpuDevice,
+    a: &CudaBuffer<f32>,
+    b: &CudaBuffer<f32>,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
 ) -> GpuResult<()> {
     validate_binary(a, b, device)?;
     if out.len() < a.len() {
@@ -5036,13 +5191,18 @@ pub fn gpu_add_into(
     if try_launch_binary_into(a, b, out, device, ADD_PTX, "add_kernel")? {
         return Ok(());
     }
-    Err(GpuError::PtxCompileFailed { kernel: "add_kernel" })
+    Err(GpuError::PtxCompileFailed {
+        kernel: "add_kernel",
+    })
 }
 
 /// Elementwise mul into pre-allocated output: `out[i] = a[i] * b[i]`.
 #[cfg(feature = "cuda")]
 pub fn gpu_mul_into(
-    a: &CudaBuffer<f32>, b: &CudaBuffer<f32>, out: &mut CudaBuffer<f32>, device: &GpuDevice,
+    a: &CudaBuffer<f32>,
+    b: &CudaBuffer<f32>,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
 ) -> GpuResult<()> {
     validate_binary(a, b, device)?;
     if out.len() < a.len() {
@@ -5055,26 +5215,42 @@ pub fn gpu_mul_into(
     if try_launch_binary_into(a, b, out, device, MUL_PTX, "mul_kernel")? {
         return Ok(());
     }
-    Err(GpuError::PtxCompileFailed { kernel: "mul_kernel" })
+    Err(GpuError::PtxCompileFailed {
+        kernel: "mul_kernel",
+    })
 }
 
 /// Scalar multiply into pre-allocated output: `out[i] = a[i] * scalar`.
 #[cfg(feature = "cuda")]
 pub fn gpu_scale_into(
-    a: &CudaBuffer<f32>, scalar: f32, out: &mut CudaBuffer<f32>, device: &GpuDevice,
+    a: &CudaBuffer<f32>,
+    scalar: f32,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
 ) -> GpuResult<()> {
     use cudarc::driver::PushKernelArg;
     validate_unary(a, device)?;
     let n = a.len();
     let ctx = device.context();
     let stream = device.stream();
-    let f = crate::module_cache::get_or_compile(ctx, SCALE_PTX, "scale_kernel", device.ordinal() as u32)
-        .map_err(|_| GpuError::PtxCompileFailed { kernel: "scale_kernel" })?;
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        SCALE_PTX,
+        "scale_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "scale_kernel",
+    })?;
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
     unsafe {
-        stream.launch_builder(&f)
-            .arg(a.inner()).arg(out.inner_mut()).arg(&scalar).arg(&n_u32)
+        stream
+            .launch_builder(&f)
+            .arg(a.inner())
+            .arg(out.inner_mut())
+            .arg(&scalar)
+            .arg(&n_u32)
             .launch(cfg)?;
     }
     Ok(())
@@ -5097,10 +5273,7 @@ pub fn gpu_scale_into(
 /// - [`GpuError::DeviceMismatch`] if `a` and `device` refer to different CUDA devices.
 /// - [`GpuError::Driver`] on CUDA runtime errors.
 #[cfg(feature = "cuda")]
-pub fn gpu_has_inf_nan(
-    a: &CudaBuffer<f32>,
-    device: &GpuDevice,
-) -> GpuResult<bool> {
+pub fn gpu_has_inf_nan(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<bool> {
     let n = a.len();
     if n == 0 {
         return Ok(false);
@@ -5114,41 +5287,56 @@ pub fn gpu_has_inf_nan(
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_has_inf_nan(
-    _a: &CudaBuffer<f32>,
-    _device: &GpuDevice,
-) -> GpuResult<bool> {
+pub fn gpu_has_inf_nan(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<bool> {
     Err(GpuError::NoCudaFeature)
 }
 
 /// GELU into pre-allocated output.
 #[cfg(feature = "cuda")]
 pub fn gpu_gelu_into(
-    a: &CudaBuffer<f32>, out: &mut CudaBuffer<f32>, device: &GpuDevice,
+    a: &CudaBuffer<f32>,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
 ) -> GpuResult<()> {
     validate_unary(a, device)?;
     if try_launch_unary_into(a, out, device, GELU_PTX, "gelu_kernel")? {
         return Ok(());
     }
-    Err(GpuError::PtxCompileFailed { kernel: "gelu_kernel" })
+    Err(GpuError::PtxCompileFailed {
+        kernel: "gelu_kernel",
+    })
 }
 
 /// Embedding lookup into pre-allocated output.
 #[cfg(feature = "cuda")]
 pub fn gpu_embed_lookup_into(
-    idx: &CudaBuffer<f32>, weight: &CudaBuffer<f32>, d: usize,
-    out: &mut CudaBuffer<f32>, device: &GpuDevice,
+    idx: &CudaBuffer<f32>,
+    weight: &CudaBuffer<f32>,
+    d: usize,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
 ) -> GpuResult<()> {
     use cudarc::driver::PushKernelArg;
     let ctx = device.context();
     let stream = device.stream();
-    let f = crate::module_cache::get_or_compile(ctx, EMBED_LOOKUP_PTX, "embed_lookup_kernel", device.ordinal() as u32)
-        .map_err(|_| GpuError::PtxCompileFailed { kernel: "embed_lookup_kernel" })?;
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        EMBED_LOOKUP_PTX,
+        "embed_lookup_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "embed_lookup_kernel",
+    })?;
     let cfg = launch_cfg(d)?;
     let d_u32 = d as u32;
     unsafe {
-        stream.launch_builder(&f)
-            .arg(idx.inner()).arg(weight.inner()).arg(out.inner_mut()).arg(&d_u32)
+        stream
+            .launch_builder(&f)
+            .arg(idx.inner())
+            .arg(weight.inner())
+            .arg(out.inner_mut())
+            .arg(&d_u32)
             .launch(cfg)?;
     }
     Ok(())
@@ -5180,7 +5368,10 @@ pub fn gpu_embed_lookup_batch(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, EMBED_LOOKUP_BATCH_PTX, "embed_lookup_batch_kernel", device.ordinal() as u32,
+        ctx,
+        EMBED_LOOKUP_BATCH_PTX,
+        "embed_lookup_batch_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -5246,7 +5437,10 @@ pub fn gpu_scatter_add_rows(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, SCATTER_ADD_ROWS_PTX, "scatter_add_rows_kernel", device.ordinal() as u32,
+        ctx,
+        SCATTER_ADD_ROWS_PTX,
+        "scatter_add_rows_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -5286,23 +5480,37 @@ pub fn gpu_scatter_add_rows(
 /// 2D transpose into pre-allocated output.
 #[cfg(feature = "cuda")]
 pub fn gpu_transpose_2d_into(
-    a: &CudaBuffer<f32>, m: usize, n: usize,
-    out: &mut CudaBuffer<f32>, device: &GpuDevice,
+    a: &CudaBuffer<f32>,
+    m: usize,
+    n: usize,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
 ) -> GpuResult<()> {
     use cudarc::driver::PushKernelArg;
     let total = m * n;
     let ctx = device.context();
     let stream = device.stream();
-    let f = crate::module_cache::get_or_compile(ctx, TRANSPOSE_2D_PTX, "transpose_2d_kernel", device.ordinal() as u32)
-        .map_err(|_| GpuError::PtxCompileFailed { kernel: "transpose_2d_kernel" })?;
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        TRANSPOSE_2D_PTX,
+        "transpose_2d_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "transpose_2d_kernel",
+    })?;
     let cfg = launch_cfg(total)?;
     let m_u32 = m as u32;
     let n_u32 = n as u32;
     let total_u32 = total as u32;
     unsafe {
-        stream.launch_builder(&f)
-            .arg(a.inner()).arg(out.inner_mut())
-            .arg(&m_u32).arg(&n_u32).arg(&total_u32)
+        stream
+            .launch_builder(&f)
+            .arg(a.inner())
+            .arg(out.inner_mut())
+            .arg(&m_u32)
+            .arg(&n_u32)
+            .arg(&total_u32)
             .launch(cfg)?;
     }
     Ok(())
@@ -5311,21 +5519,39 @@ pub fn gpu_transpose_2d_into(
 /// Permute (0,2,1,3) into pre-allocated output.
 #[cfg(feature = "cuda")]
 pub fn gpu_permute_0213_into(
-    a: &CudaBuffer<f32>, d0: usize, d1: usize, d2: usize, d3: usize,
-    out: &mut CudaBuffer<f32>, device: &GpuDevice,
+    a: &CudaBuffer<f32>,
+    d0: usize,
+    d1: usize,
+    d2: usize,
+    d3: usize,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
 ) -> GpuResult<()> {
     use cudarc::driver::PushKernelArg;
     let total = d0 * d1 * d2 * d3;
     let ctx = device.context();
     let stream = device.stream();
-    let f = crate::module_cache::get_or_compile(ctx, PERMUTE_0213_PTX, "permute_0213_kernel", device.ordinal() as u32)
-        .map_err(|_| GpuError::PtxCompileFailed { kernel: "permute_0213_kernel" })?;
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        PERMUTE_0213_PTX,
+        "permute_0213_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "permute_0213_kernel",
+    })?;
     let cfg = launch_cfg(total)?;
     let (d0u, d1u, d2u, d3u, tu) = (d0 as u32, d1 as u32, d2 as u32, d3 as u32, total as u32);
     unsafe {
-        stream.launch_builder(&f)
-            .arg(a.inner()).arg(out.inner_mut())
-            .arg(&d0u).arg(&d1u).arg(&d2u).arg(&d3u).arg(&tu)
+        stream
+            .launch_builder(&f)
+            .arg(a.inner())
+            .arg(out.inner_mut())
+            .arg(&d0u)
+            .arg(&d1u)
+            .arg(&d2u)
+            .arg(&d3u)
+            .arg(&tu)
             .launch(cfg)?;
     }
     Ok(())
@@ -5334,14 +5560,24 @@ pub fn gpu_permute_0213_into(
 /// Softmax into pre-allocated output (row-wise).
 #[cfg(feature = "cuda")]
 pub fn gpu_softmax_into(
-    a: &CudaBuffer<f32>, rows: usize, cols: usize,
-    out: &mut CudaBuffer<f32>, device: &GpuDevice,
+    a: &CudaBuffer<f32>,
+    rows: usize,
+    cols: usize,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
 ) -> GpuResult<()> {
     use cudarc::driver::PushKernelArg;
     let ctx = device.context();
     let stream = device.stream();
-    let f = crate::module_cache::get_or_compile(ctx, SOFTMAX_PTX, "softmax_kernel", device.ordinal() as u32)
-        .map_err(|_| GpuError::PtxCompileFailed { kernel: "softmax_kernel" })?;
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        SOFTMAX_PTX,
+        "softmax_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "softmax_kernel",
+    })?;
     let block_size = 256u32;
     let grid_size = rows as u32;
     let cfg = LaunchConfig {
@@ -5352,9 +5588,12 @@ pub fn gpu_softmax_into(
     let rows_u32 = rows as u32;
     let cols_u32 = cols as u32;
     unsafe {
-        stream.launch_builder(&f)
-            .arg(a.inner()).arg(out.inner_mut())
-            .arg(&rows_u32).arg(&cols_u32)
+        stream
+            .launch_builder(&f)
+            .arg(a.inner())
+            .arg(out.inner_mut())
+            .arg(&rows_u32)
+            .arg(&cols_u32)
             .launch(cfg)?;
     }
     Ok(())
@@ -5362,16 +5601,29 @@ pub fn gpu_softmax_into(
 
 /// LayerNorm into pre-allocated output.
 #[cfg(feature = "cuda")]
+#[allow(clippy::too_many_arguments)]
 pub fn gpu_layernorm_into(
-    input: &CudaBuffer<f32>, weight: &CudaBuffer<f32>, bias: &CudaBuffer<f32>,
-    rows: usize, cols: usize, eps: f32,
-    out: &mut CudaBuffer<f32>, device: &GpuDevice,
+    input: &CudaBuffer<f32>,
+    weight: &CudaBuffer<f32>,
+    bias: &CudaBuffer<f32>,
+    rows: usize,
+    cols: usize,
+    eps: f32,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
 ) -> GpuResult<()> {
     use cudarc::driver::PushKernelArg;
     let ctx = device.context();
     let stream = device.stream();
-    let f = crate::module_cache::get_or_compile(ctx, LAYERNORM_PTX, "layernorm_kernel", device.ordinal() as u32)
-        .map_err(|_| GpuError::PtxCompileFailed { kernel: "layernorm_kernel" })?;
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        LAYERNORM_PTX,
+        "layernorm_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "layernorm_kernel",
+    })?;
     let block_size = 256u32;
     let grid_size = rows as u32;
     let cfg = LaunchConfig {
@@ -5382,10 +5634,15 @@ pub fn gpu_layernorm_into(
     let rows_u32 = rows as u32;
     let cols_u32 = cols as u32;
     unsafe {
-        stream.launch_builder(&f)
-            .arg(input.inner()).arg(out.inner_mut())
-            .arg(weight.inner()).arg(bias.inner())
-            .arg(&rows_u32).arg(&cols_u32).arg(&eps)
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(weight.inner())
+            .arg(bias.inner())
+            .arg(&rows_u32)
+            .arg(&cols_u32)
+            .arg(&eps)
             .launch(cfg)?;
     }
     Ok(())
@@ -5395,24 +5652,41 @@ pub fn gpu_layernorm_into(
 /// `[n_batch, max_len, d]` into out `[n_batch, len, d]`.
 #[cfg(feature = "cuda")]
 pub fn gpu_slice_read_into(
-    src: &CudaBuffer<f32>, n_batch: usize, d: usize, len: usize, max_len: usize,
-    out: &mut CudaBuffer<f32>, device: &GpuDevice,
+    src: &CudaBuffer<f32>,
+    n_batch: usize,
+    d: usize,
+    len: usize,
+    max_len: usize,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
 ) -> GpuResult<()> {
     use cudarc::driver::PushKernelArg;
     let total = n_batch * len * d;
     let ctx = device.context();
     let stream = device.stream();
-    let f = crate::module_cache::get_or_compile(ctx, SLICE_READ_PTX, "slice_read_kernel", device.ordinal() as u32)
-        .map_err(|_| GpuError::PtxCompileFailed { kernel: "slice_read_kernel" })?;
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        SLICE_READ_PTX,
+        "slice_read_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "slice_read_kernel",
+    })?;
     let cfg = launch_cfg(total)?;
     let total_u32 = total as u32;
     let d_u32 = d as u32;
     let len_u32 = len as u32;
     let max_len_u32 = max_len as u32;
     unsafe {
-        stream.launch_builder(&f)
-            .arg(src.inner()).arg(out.inner_mut())
-            .arg(&total_u32).arg(&d_u32).arg(&len_u32).arg(&max_len_u32)
+        stream
+            .launch_builder(&f)
+            .arg(src.inner())
+            .arg(out.inner_mut())
+            .arg(&total_u32)
+            .arg(&d_u32)
+            .arg(&len_u32)
+            .arg(&max_len_u32)
             .launch(cfg)?;
     }
     Ok(())
@@ -5421,22 +5695,39 @@ pub fn gpu_slice_read_into(
 /// Small matmul (PTX kernel) into pre-allocated output.
 #[cfg(feature = "cuda")]
 pub fn gpu_small_matmul_into(
-    a: &CudaBuffer<f32>, b: &CudaBuffer<f32>,
-    m: usize, k: usize, n: usize,
-    out: &mut CudaBuffer<f32>, device: &GpuDevice,
+    a: &CudaBuffer<f32>,
+    b: &CudaBuffer<f32>,
+    m: usize,
+    k: usize,
+    n: usize,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
 ) -> GpuResult<()> {
     use cudarc::driver::PushKernelArg;
     let total = m * n;
     let ctx = device.context();
     let stream = device.stream();
-    let f = crate::module_cache::get_or_compile(ctx, SMALL_MATMUL_PTX, "small_matmul_kernel", device.ordinal() as u32)
-        .map_err(|_| GpuError::PtxCompileFailed { kernel: "small_matmul_kernel" })?;
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        SMALL_MATMUL_PTX,
+        "small_matmul_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "small_matmul_kernel",
+    })?;
     let cfg = launch_cfg(total)?;
     let (m_u32, k_u32, n_u32, total_u32) = (m as u32, k as u32, n as u32, total as u32);
     unsafe {
-        stream.launch_builder(&f)
-            .arg(a.inner()).arg(b.inner()).arg(out.inner_mut())
-            .arg(&m_u32).arg(&k_u32).arg(&n_u32).arg(&total_u32)
+        stream
+            .launch_builder(&f)
+            .arg(a.inner())
+            .arg(b.inner())
+            .arg(out.inner_mut())
+            .arg(&m_u32)
+            .arg(&k_u32)
+            .arg(&n_u32)
+            .arg(&total_u32)
             .launch(cfg)?;
     }
     Ok(())
@@ -5463,16 +5754,26 @@ pub fn gpu_slice_write_indirect(
     let ctx = device.context();
     let stream = device.stream();
     let f = crate::module_cache::get_or_compile(
-        ctx, SLICE_WRITE_INDIRECT_PTX, "slice_write_indirect_kernel", device.ordinal() as u32,
-    ).map_err(|_| GpuError::PtxCompileFailed { kernel: "slice_write_indirect_kernel" })?;
+        ctx,
+        SLICE_WRITE_INDIRECT_PTX,
+        "slice_write_indirect_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "slice_write_indirect_kernel",
+    })?;
     let cfg = launch_cfg(total)?;
     let n_u32 = total as u32;
     let d_u32 = d as u32;
     let max_len_u32 = max_len as u32;
     unsafe {
-        stream.launch_builder(&f)
-            .arg(src.inner()).arg(dst.inner_mut())
-            .arg(&n_u32).arg(&d_u32).arg(&max_len_u32)
+        stream
+            .launch_builder(&f)
+            .arg(src.inner())
+            .arg(dst.inner_mut())
+            .arg(&n_u32)
+            .arg(&d_u32)
+            .arg(&max_len_u32)
             .arg(pos_ptr)
             .launch(cfg)?;
     }
@@ -5495,15 +5796,24 @@ pub fn gpu_causal_mask_indirect(
     let ctx = device.context();
     let stream = device.stream();
     let f = crate::module_cache::get_or_compile(
-        ctx, CAUSAL_MASK_INDIRECT_PTX, "causal_mask_indirect_kernel", device.ordinal() as u32,
-    ).map_err(|_| GpuError::PtxCompileFailed { kernel: "causal_mask_indirect_kernel" })?;
+        ctx,
+        CAUSAL_MASK_INDIRECT_PTX,
+        "causal_mask_indirect_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "causal_mask_indirect_kernel",
+    })?;
     let cfg = launch_cfg(total)?;
     let max_pos_u32 = max_pos as u32;
     let total_u32 = total as u32;
     unsafe {
-        stream.launch_builder(&f)
-            .arg(total_len_ptr).arg(out.inner_mut())
-            .arg(&max_pos_u32).arg(&total_u32)
+        stream
+            .launch_builder(&f)
+            .arg(total_len_ptr)
+            .arg(out.inner_mut())
+            .arg(&max_pos_u32)
+            .arg(&total_u32)
             .launch(cfg)?;
     }
     Ok(())
@@ -5557,22 +5867,34 @@ pub fn precompile_decode_kernels(_device: &GpuDevice) -> GpuResult<()> {
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_gelu(
-    _input: &CudaBuffer<f32>, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_gelu(_input: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_layernorm(
-    _input: &CudaBuffer<f32>, _weight: &CudaBuffer<f32>, _bias: &CudaBuffer<f32>,
-    _rows: usize, _cols: usize, _eps: f32, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _input: &CudaBuffer<f32>,
+    _weight: &CudaBuffer<f32>,
+    _bias: &CudaBuffer<f32>,
+    _rows: usize,
+    _cols: usize,
+    _eps: f32,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_transpose_2d(
-    _input: &CudaBuffer<f32>, _m: usize, _n: usize, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _input: &CudaBuffer<f32>,
+    _m: usize,
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
@@ -5606,19 +5928,13 @@ pub fn gpu_mul(
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_neg(
-    _a: &CudaBuffer<f32>,
-    _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_neg(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_relu(
-    _a: &CudaBuffer<f32>,
-    _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_relu(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
@@ -5628,154 +5944,280 @@ pub fn gpu_scale(
     _a: &CudaBuffer<f32>,
     _scalar: f32,
     _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_broadcast_add(
-    _a: &CudaBuffer<f32>, _b: &CudaBuffer<f32>,
-    _a_shape: &[usize], _b_shape: &[usize], _out_shape: &[usize],
+    _a: &CudaBuffer<f32>,
+    _b: &CudaBuffer<f32>,
+    _a_shape: &[usize],
+    _b_shape: &[usize],
+    _out_shape: &[usize],
     _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_broadcast_sub(
-    _a: &CudaBuffer<f32>, _b: &CudaBuffer<f32>,
-    _a_shape: &[usize], _b_shape: &[usize], _out_shape: &[usize],
+    _a: &CudaBuffer<f32>,
+    _b: &CudaBuffer<f32>,
+    _a_shape: &[usize],
+    _b_shape: &[usize],
+    _out_shape: &[usize],
     _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_broadcast_mul(
-    _a: &CudaBuffer<f32>, _b: &CudaBuffer<f32>,
-    _a_shape: &[usize], _b_shape: &[usize], _out_shape: &[usize],
+    _a: &CudaBuffer<f32>,
+    _b: &CudaBuffer<f32>,
+    _a_shape: &[usize],
+    _b_shape: &[usize],
+    _out_shape: &[usize],
     _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_softmax(
-    _input: &CudaBuffer<f32>, _rows: usize, _cols: usize, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _input: &CudaBuffer<f32>,
+    _rows: usize,
+    _cols: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_dropout(
-    _input: &CudaBuffer<f32>, _threshold: u32, _scale: f32, _seed: u32, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _input: &CudaBuffer<f32>,
+    _threshold: u32,
+    _scale: f32,
+    _seed: u32,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_permute_0213(
-    _input: &CudaBuffer<f32>, _d0: usize, _d1: usize, _d2: usize, _d3: usize, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _input: &CudaBuffer<f32>,
+    _d0: usize,
+    _d1: usize,
+    _d2: usize,
+    _d3: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_slice_write(
-    _src: &CudaBuffer<f32>, _dst: &mut CudaBuffer<f32>,
-    _n_batch: usize, _d: usize, _max_len: usize, _pos: usize, _device: &GpuDevice,
-) -> GpuResult<()> { Err(GpuError::NoCudaFeature) }
+    _src: &CudaBuffer<f32>,
+    _dst: &mut CudaBuffer<f32>,
+    _n_batch: usize,
+    _d: usize,
+    _max_len: usize,
+    _pos: usize,
+    _device: &GpuDevice,
+) -> GpuResult<()> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_slice_read(
-    _src: &CudaBuffer<f32>, _n_batch: usize, _d: usize, _len: usize, _max_len: usize, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _src: &CudaBuffer<f32>,
+    _n_batch: usize,
+    _d: usize,
+    _len: usize,
+    _max_len: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_embed_lookup(
-    _idx: &CudaBuffer<f32>, _weight: &CudaBuffer<f32>, _d: usize, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _idx: &CudaBuffer<f32>,
+    _weight: &CudaBuffer<f32>,
+    _d: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_embed_lookup_batch(
-    _indices: &CudaBuffer<f32>, _weight: &CudaBuffer<f32>, _n: usize, _d: usize, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _indices: &CudaBuffer<f32>,
+    _weight: &CudaBuffer<f32>,
+    _n: usize,
+    _d: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_scatter_add_rows(
-    _grad_output: &CudaBuffer<f32>, _indices: &CudaBuffer<f32>, _num_embeddings: usize, _d: usize, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _grad_output: &CudaBuffer<f32>,
+    _indices: &CudaBuffer<f32>,
+    _num_embeddings: usize,
+    _d: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_relu_backward(
-    _grad: &CudaBuffer<f32>, _input: &CudaBuffer<f32>, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _grad: &CudaBuffer<f32>,
+    _input: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_gelu_backward(
-    _grad: &CudaBuffer<f32>, _input: &CudaBuffer<f32>, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _grad: &CudaBuffer<f32>,
+    _input: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_index_select_1d(
-    _input: &CudaBuffer<f32>, _indices: &CudaBuffer<f32>, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _input: &CudaBuffer<f32>,
+    _indices: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_scatter_add_1d(
-    _grad_output: &CudaBuffer<f32>, _indices: &CudaBuffer<f32>, _input_len: usize, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _grad_output: &CudaBuffer<f32>,
+    _indices: &CudaBuffer<f32>,
+    _input_len: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_masked_fill(
-    _input: &CudaBuffer<f32>, _mask: &CudaBuffer<f32>, _value: f32, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _input: &CudaBuffer<f32>,
+    _mask: &CudaBuffer<f32>,
+    _value: f32,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_masked_zero(
-    _grad: &CudaBuffer<f32>, _mask: &CudaBuffer<f32>, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _grad: &CudaBuffer<f32>,
+    _mask: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_sigmoid_backward(
-    _grad: &CudaBuffer<f32>, _output: &CudaBuffer<f32>, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _grad: &CudaBuffer<f32>,
+    _output: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_tanh_backward(
-    _grad: &CudaBuffer<f32>, _output: &CudaBuffer<f32>, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _grad: &CudaBuffer<f32>,
+    _output: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_softmax_backward(
-    _grad: &CudaBuffer<f32>, _output: &CudaBuffer<f32>, _cols: usize, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _grad: &CudaBuffer<f32>,
+    _output: &CudaBuffer<f32>,
+    _cols: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_sum_axis(
-    _a: &CudaBuffer<f32>, _outer: usize, _axis_size: usize, _inner: usize, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _a: &CudaBuffer<f32>,
+    _outer: usize,
+    _axis_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_strided_split(
-    _input: &CudaBuffer<f32>, _total_along_axis: usize, _split_offset: usize,
-    _split_size: usize, _inner_size: usize, _n: usize, _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+    _input: &CudaBuffer<f32>,
+    _total_along_axis: usize,
+    _split_offset: usize,
+    _split_size: usize,
+    _inner_size: usize,
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_strided_cat(
-    _input: &CudaBuffer<f32>, _output: &mut CudaBuffer<f32>, _total_along_axis: usize,
-    _cat_offset: usize, _part_size: usize, _inner_size: usize, _n: usize, _device: &GpuDevice,
-) -> GpuResult<()> { Err(GpuError::NoCudaFeature) }
+    _input: &CudaBuffer<f32>,
+    _output: &mut CudaBuffer<f32>,
+    _total_along_axis: usize,
+    _cat_offset: usize,
+    _part_size: usize,
+    _inner_size: usize,
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<()> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ---------------------------------------------------------------------------
 // f32-to-f16 GPU conversion
@@ -5839,10 +6281,7 @@ pub(crate) fn gpu_f32_to_f16(
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
-pub(crate) fn gpu_f32_to_f16(
-    _input: &CudaBuffer<f32>,
-    _device: &GpuDevice,
-) -> GpuResult<()> {
+pub(crate) fn gpu_f32_to_f16(_input: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<()> {
     Err(GpuError::NoCudaFeature)
 }
 
@@ -6064,8 +6503,12 @@ mod tests {
         let n = 64;
 
         // Deterministic data.
-        let a_data: Vec<f32> = (0..m*k).map(|i| ((i * 7 + 3) % 100) as f32 / 100.0).collect();
-        let b_data: Vec<f32> = (0..k*n).map(|i| ((i * 11 + 5) % 100) as f32 / 100.0).collect();
+        let a_data: Vec<f32> = (0..m * k)
+            .map(|i| ((i * 7 + 3) % 100) as f32 / 100.0)
+            .collect();
+        let b_data: Vec<f32> = (0..k * n)
+            .map(|i| ((i * 11 + 5) % 100) as f32 / 100.0)
+            .collect();
 
         let a = cpu_to_gpu(&a_data, &dev).unwrap();
         let b = cpu_to_gpu(&b_data, &dev).unwrap();

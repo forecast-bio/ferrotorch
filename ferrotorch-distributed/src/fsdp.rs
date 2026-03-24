@@ -11,11 +11,11 @@
 use std::sync::Arc;
 
 use ferrotorch_core::storage::TensorStorage;
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_nn::{Module, Parameter};
 
 use crate::backend::Backend;
-use crate::collective::{all_gather, reduce_scatter, ReduceOp};
+use crate::collective::{ReduceOp, all_gather, reduce_scatter};
 
 /// Fully Sharded Data Parallel module wrapper.
 ///
@@ -100,11 +100,8 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                 let end = start + chunk_size;
                 let shard_data = data[start..end].to_vec();
 
-                let shard_tensor = Tensor::from_storage(
-                    TensorStorage::cpu(shard_data),
-                    vec![chunk_size],
-                    true,
-                )?;
+                let shard_tensor =
+                    Tensor::from_storage(TensorStorage::cpu(shard_data), vec![chunk_size], true)?;
                 // Shard params need requires_grad=true so the optimizer can
                 // update them.
                 *param = Parameter::new(shard_tensor);
@@ -200,11 +197,8 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
             let end = start + chunk_size;
             let shard_data = data[start..end].to_vec();
 
-            let shard_tensor = Tensor::from_storage(
-                TensorStorage::cpu(shard_data),
-                vec![chunk_size],
-                true,
-            )?;
+            let shard_tensor =
+                Tensor::from_storage(TensorStorage::cpu(shard_data), vec![chunk_size], true)?;
             *param = Parameter::new(shard_tensor);
 
             // Preserve the original shape metadata.
@@ -258,9 +252,7 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                 None => {
                     let numel = full_param.numel();
                     Tensor::from_storage(
-                        TensorStorage::cpu(
-                            vec![<T as num_traits::Zero>::zero(); numel],
-                        ),
+                        TensorStorage::cpu(vec![<T as num_traits::Zero>::zero(); numel]),
                         full_param.shape().to_vec(),
                         false,
                     )?
@@ -358,14 +350,13 @@ mod tests {
             // Simple forward: multiply input by weight sum (produces a scalar
             // that depends on all weight elements).
             let w_data = self.weight.tensor().data_vec()?;
-            let w_sum: T = w_data.iter().copied().fold(<T as num_traits::Zero>::zero(), |a, b| a + b);
+            let w_sum: T = w_data
+                .iter()
+                .copied()
+                .fold(<T as num_traits::Zero>::zero(), |a, b| a + b);
             let i_data = input.data_vec()?;
             let out: Vec<T> = i_data.iter().map(|&x| x * w_sum).collect();
-            Tensor::from_storage(
-                TensorStorage::cpu(out),
-                input.shape().to_vec(),
-                false,
-            )
+            Tensor::from_storage(TensorStorage::cpu(out), input.shape().to_vec(), false)
         }
 
         fn parameters(&self) -> Vec<&Parameter<T>> {
@@ -608,13 +599,29 @@ mod tests {
             if rank == 0 {
                 // Mean of [1,2] from both ranks = [1,2].
                 assert_eq!(data.len(), 2);
-                assert!((data[0] - 1.0).abs() < 1e-6, "rank 0: expected 1.0, got {}", data[0]);
-                assert!((data[1] - 2.0).abs() < 1e-6, "rank 0: expected 2.0, got {}", data[1]);
+                assert!(
+                    (data[0] - 1.0).abs() < 1e-6,
+                    "rank 0: expected 1.0, got {}",
+                    data[0]
+                );
+                assert!(
+                    (data[1] - 2.0).abs() < 1e-6,
+                    "rank 0: expected 2.0, got {}",
+                    data[1]
+                );
             } else {
                 // Mean of [3,4] from both ranks = [3,4].
                 assert_eq!(data.len(), 2);
-                assert!((data[0] - 3.0).abs() < 1e-6, "rank 1: expected 3.0, got {}", data[0]);
-                assert!((data[1] - 4.0).abs() < 1e-6, "rank 1: expected 4.0, got {}", data[1]);
+                assert!(
+                    (data[0] - 3.0).abs() < 1e-6,
+                    "rank 1: expected 3.0, got {}",
+                    data[0]
+                );
+                assert!(
+                    (data[1] - 4.0).abs() < 1e-6,
+                    "rank 1: expected 4.0, got {}",
+                    data[1]
+                );
             }
         }
     }

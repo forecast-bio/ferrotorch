@@ -21,7 +21,7 @@ compile_error!(
 use std::io::Write;
 use std::path::Path;
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float};
 use ferrotorch_nn::StateDict;
 
 // ---------------------------------------------------------------------------
@@ -112,8 +112,7 @@ impl PickleWriter {
             self.buf.extend_from_slice(&(value as u16).to_le_bytes());
         } else {
             self.buf.push(BININT);
-            self.buf
-                .extend_from_slice(&(value as i32).to_le_bytes());
+            self.buf.extend_from_slice(&(value as i32).to_le_bytes());
         }
     }
 
@@ -250,8 +249,8 @@ pub fn save_pytorch<T: Float>(
         message: format!("failed to create file {}: {e}", path.display()),
     })?;
     let mut zip = zip::ZipWriter::new(file);
-    let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
     // Write data.pkl
     zip.start_file("archive/data.pkl", options)
@@ -282,10 +281,9 @@ pub fn save_pytorch<T: Float>(
             })?;
     }
 
-    zip.finish()
-        .map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!("ZIP finalize error: {e}"),
-        })?;
+    zip.finish().map_err(|e| FerrotorchError::InvalidArgument {
+        message: format!("ZIP finalize error: {e}"),
+    })?;
 
     Ok(())
 }
@@ -302,9 +300,7 @@ pub fn save_pytorch<T: Float>(
 ///   ...
 /// ])
 /// ```
-fn build_state_dict_pickle<T: Float>(
-    entries: &[TensorEntry<'_>],
-) -> FerrotorchResult<Vec<u8>> {
+fn build_state_dict_pickle<T: Float>(entries: &[TensorEntry<'_>]) -> FerrotorchResult<Vec<u8>> {
     let storage_type = pytorch_storage_type::<T>();
     let mut pw = PickleWriter::new();
 
@@ -451,18 +447,16 @@ pub fn validate_checkpoint(path: impl AsRef<Path>) -> FerrotorchResult<()> {
         message: format!("failed to open checkpoint file {}: {e}", path.display()),
     })?;
 
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!("failed to read ZIP archive {}: {e}", path.display()),
-        })?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| FerrotorchError::InvalidArgument {
+        message: format!("failed to read ZIP archive {}: {e}", path.display()),
+    })?;
 
     for i in 0..archive.len() {
-        let mut entry =
-            archive
-                .by_index(i)
-                .map_err(|e| FerrotorchError::InvalidArgument {
-                    message: format!("failed to read ZIP entry {i}: {e}"),
-                })?;
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| FerrotorchError::InvalidArgument {
+                message: format!("failed to read ZIP entry {i}: {e}"),
+            })?;
 
         let entry_name = entry.name().to_string();
 
@@ -472,9 +466,7 @@ pub fn validate_checkpoint(path: impl AsRef<Path>) -> FerrotorchResult<()> {
         let mut buf = Vec::with_capacity(entry.size() as usize);
         std::io::Read::read_to_end(&mut entry, &mut buf).map_err(|e| {
             FerrotorchError::InvalidArgument {
-                message: format!(
-                    "CRC32 integrity check failed for entry \"{entry_name}\": {e}"
-                ),
+                message: format!("CRC32 integrity check failed for entry \"{entry_name}\": {e}"),
             }
         })?;
 
@@ -565,10 +557,8 @@ mod tests {
             make_tensor_f32(vec![0.5, -0.5], vec![2]),
         );
 
-        let dir = std::env::temp_dir().join(format!(
-            "ferrotorch_test_pt_struct_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ferrotorch_test_pt_struct_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("model.pt");
 
@@ -601,10 +591,8 @@ mod tests {
             make_tensor_f32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]),
         );
 
-        let dir = std::env::temp_dir().join(format!(
-            "ferrotorch_test_pt_pkl_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ferrotorch_test_pt_pkl_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("model.pt");
 
@@ -650,10 +638,8 @@ mod tests {
             make_tensor_f32(data.clone(), vec![2, 2]),
         );
 
-        let dir = std::env::temp_dir().join(format!(
-            "ferrotorch_test_pt_data_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ferrotorch_test_pt_data_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("model.pt");
 
@@ -687,10 +673,8 @@ mod tests {
             make_tensor_f64(vec![1.0, 2.0, 3.0], vec![3]),
         );
 
-        let dir = std::env::temp_dir().join(format!(
-            "ferrotorch_test_pt_f64_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ferrotorch_test_pt_f64_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("model.pt");
 
@@ -717,10 +701,8 @@ mod tests {
     fn test_save_pytorch_empty() {
         let state: StateDict<f32> = HashMap::new();
 
-        let dir = std::env::temp_dir().join(format!(
-            "ferrotorch_test_pt_empty_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ferrotorch_test_pt_empty_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("model.pt");
 
@@ -750,18 +732,15 @@ mod tests {
             make_tensor_f32(vec![0.1, 0.2], vec![2]),
         );
 
-        let dir = std::env::temp_dir().join(format!(
-            "ferrotorch_test_pt_rt_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ferrotorch_test_pt_rt_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("model.pt");
 
         save_pytorch(&state, &path).unwrap();
 
         // Load it back with our importer.
-        let loaded: StateDict<f32> =
-            crate::pytorch_import::load_pytorch_state_dict(&path).unwrap();
+        let loaded: StateDict<f32> = crate::pytorch_import::load_pytorch_state_dict(&path).unwrap();
 
         assert_eq!(loaded.len(), 2);
 
@@ -810,10 +789,7 @@ mod tests {
     #[test]
     fn test_validate_checkpoint_valid() {
         let mut state: StateDict<f32> = HashMap::new();
-        state.insert(
-            "x".to_string(),
-            make_tensor_f32(vec![1.0, 2.0], vec![2]),
-        );
+        state.insert("x".to_string(), make_tensor_f32(vec![1.0, 2.0], vec![2]));
 
         let dir = std::env::temp_dir().join(format!(
             "ferrotorch_test_pt_validate_{}",
@@ -846,10 +822,8 @@ mod tests {
 
     #[test]
     fn test_validate_checkpoint_corrupt() {
-        let dir = std::env::temp_dir().join(format!(
-            "ferrotorch_test_pt_corrupt_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ferrotorch_test_pt_corrupt_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("corrupt.pt");
 
@@ -873,10 +847,8 @@ mod tests {
         state.insert("a".to_string(), make_tensor_f32(vec![1.0], vec![1]));
         state.insert("m".to_string(), make_tensor_f32(vec![2.0], vec![1]));
 
-        let dir = std::env::temp_dir().join(format!(
-            "ferrotorch_test_pt_order_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ferrotorch_test_pt_order_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("model.pt");
 
@@ -890,9 +862,10 @@ mod tests {
         pkl_entry.read_to_end(&mut pkl_bytes).unwrap();
         let pkl_str = String::from_utf8_lossy(&pkl_bytes);
 
-        let pos_a = pkl_str.find("\"a\"").or_else(|| pkl_str.find("\x01a")).unwrap_or(
-            pkl_str.find("a").unwrap()
-        );
+        let pos_a = pkl_str
+            .find("\"a\"")
+            .or_else(|| pkl_str.find("\x01a"))
+            .unwrap_or(pkl_str.find("a").unwrap());
         let pos_m = pkl_str.rfind("m").unwrap();
         let pos_z = pkl_str.rfind("z").unwrap();
         // "a" should appear before "m" and "m" before "z" in pickle output

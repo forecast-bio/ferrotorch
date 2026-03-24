@@ -54,7 +54,11 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
             .map(|(&u_val, &p)| if u_val < p { one } else { zero })
             .collect();
         let out = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn rsample(&self, _shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
@@ -84,12 +88,12 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
             })
             .collect();
 
-        let out = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            value.shape().to_vec(),
-            false,
-        )?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        let out = Tensor::from_storage(TensorStorage::cpu(result), value.shape().to_vec(), false)?;
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
@@ -112,7 +116,11 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
             self.probs.shape().to_vec(),
             false,
         )?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 }
 

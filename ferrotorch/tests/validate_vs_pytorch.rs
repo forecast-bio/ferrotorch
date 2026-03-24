@@ -40,8 +40,7 @@ fn test_softmax_sums_to_one() {
 fn test_layernorm_statistics() {
     let ln = LayerNorm::new(vec![256], 1e-5, false).unwrap();
     // Input with non-zero mean and non-unit variance
-    let x = (&randn::<f32>(&[4, 32, 256]).unwrap() * &scalar::<f32>(5.0).unwrap())
-        .unwrap();
+    let x = (&randn::<f32>(&[4, 32, 256]).unwrap() * &scalar::<f32>(5.0).unwrap()).unwrap();
     let x = (&x + &scalar::<f32>(3.0).unwrap()).unwrap();
     let y = ln.forward(&x).unwrap();
     let y_data = y.data().unwrap();
@@ -53,7 +52,10 @@ fn test_layernorm_statistics() {
         let mean: f32 = slice.iter().sum::<f32>() / d as f32;
         let var: f32 = slice.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / d as f32;
         assert!(mean.abs() < 1e-4, "layernorm mean too large: {mean}");
-        assert!((var - 1.0).abs() < 1e-3, "layernorm var too far from 1: {var}");
+        assert!(
+            (var - 1.0).abs() < 1e-3,
+            "layernorm var too far from 1: {var}"
+        );
     }
     println!("PASS: layernorm produces zero mean, unit variance");
 }
@@ -211,7 +213,10 @@ fn test_mlp_training_converges() {
 
     let mut optimizer = Adam::new(
         model.parameters().into_iter().cloned().collect(),
-        AdamConfig { lr: 1e-3, ..Default::default() },
+        AdamConfig {
+            lr: 1e-3,
+            ..Default::default()
+        },
     );
 
     let ce = CrossEntropyLoss::new(Reduction::Mean, 0.0);
@@ -219,10 +224,7 @@ fn test_mlp_training_converges() {
 
     // Fixed data so loss reliably decreases (random data each step is noisy)
     let x_fixed = randn::<f32>(&[16, 20]).unwrap();
-    let target_fixed = from_vec(
-        (0..16).map(|i| (i % 5) as f32).collect(),
-        &[16],
-    ).unwrap();
+    let target_fixed = from_vec((0..16).map(|i| (i % 5) as f32).collect(), &[16]).unwrap();
 
     for step in 0..20 {
         let x = &x_fixed;
@@ -256,7 +258,10 @@ fn test_mlp_training_converges() {
         losses.first().unwrap(),
         losses.last().unwrap()
     );
-    println!("PASS: MLP training loss decreases ({:.4} -> {:.4})", losses[0], losses[19]);
+    println!(
+        "PASS: MLP training loss decreases ({:.4} -> {:.4})",
+        losses[0], losses[19]
+    );
 }
 
 // =====================================================================
@@ -279,7 +284,13 @@ fn test_autoencoder_reconstruction() {
     all_params.extend(encoder.parameters().into_iter().cloned());
     all_params.extend(decoder.parameters().into_iter().cloned());
 
-    let mut optimizer = Adam::new(all_params, AdamConfig { lr: 1e-3, ..Default::default() });
+    let mut optimizer = Adam::new(
+        all_params,
+        AdamConfig {
+            lr: 1e-3,
+            ..Default::default()
+        },
+    );
 
     let mut losses = Vec::new();
 
@@ -302,7 +313,8 @@ fn test_autoencoder_reconstruction() {
         // Sync grads
         let enc_params: Vec<&Parameter<f32>> = encoder.parameters();
         let dec_params: Vec<&Parameter<f32>> = decoder.parameters();
-        let all_model_params: Vec<&Parameter<f32>> = enc_params.into_iter().chain(dec_params).collect();
+        let all_model_params: Vec<&Parameter<f32>> =
+            enc_params.into_iter().chain(dec_params).collect();
         let opt_params = &optimizer.param_groups()[0].params;
         for (mp, op) in all_model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
@@ -322,7 +334,10 @@ fn test_autoencoder_reconstruction() {
         losses.first().unwrap(),
         losses.last().unwrap()
     );
-    println!("PASS: Autoencoder reconstruction loss decreases ({:.4} -> {:.4})", losses[0], losses[19]);
+    println!(
+        "PASS: Autoencoder reconstruction loss decreases ({:.4} -> {:.4})",
+        losses[0], losses[19]
+    );
 }
 
 // =====================================================================
@@ -345,7 +360,13 @@ fn test_transformer_block_training() {
     all_params.extend(out_proj.parameters().into_iter().cloned());
     all_params.extend(ln.parameters().into_iter().cloned());
 
-    let mut optimizer = AdamW::new(all_params, AdamWConfig { lr: 3e-3, ..Default::default() });
+    let mut optimizer = AdamW::new(
+        all_params,
+        AdamWConfig {
+            lr: 3e-3,
+            ..Default::default()
+        },
+    );
     let mut losses = Vec::new();
 
     // Use fixed input/target so loss can decrease (random data each step is harder)
@@ -362,9 +383,15 @@ fn test_transformer_block_training() {
         let qkv = qkv_proj.forward(&normed).unwrap();
         let qkv_chunks = chunk_t(&qkv, 3, 2).unwrap();
 
-        let q = qkv_chunks[0].view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64]).unwrap();
-        let k = qkv_chunks[1].view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64]).unwrap();
-        let v = qkv_chunks[2].view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64]).unwrap();
+        let q = qkv_chunks[0]
+            .view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64])
+            .unwrap();
+        let k = qkv_chunks[1]
+            .view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64])
+            .unwrap();
+        let v = qkv_chunks[2]
+            .view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64])
+            .unwrap();
 
         let k_t = permute_t(&k, &[0, 2, 1]).unwrap();
         let scores = grad_fns::linalg::bmm_differentiable(&q, &k_t).unwrap();
@@ -372,7 +399,9 @@ fn test_transformer_block_training() {
         let scores = grad_fns::arithmetic::div(&scores, &scale).unwrap();
         let attn = grad_fns::activation::softmax(&scores).unwrap();
         let attn_out = grad_fns::linalg::bmm_differentiable(&attn, &v).unwrap();
-        let attn_out = attn_out.view(&[batch as i64, seq as i64, d_model as i64]).unwrap();
+        let attn_out = attn_out
+            .view(&[batch as i64, seq as i64, d_model as i64])
+            .unwrap();
         let output = out_proj.forward(&attn_out).unwrap();
 
         // Residual
@@ -386,7 +415,9 @@ fn test_transformer_block_training() {
 
         loss.backward().unwrap();
 
-        let model_params: Vec<&Parameter<f32>> = qkv_proj.parameters().into_iter()
+        let model_params: Vec<&Parameter<f32>> = qkv_proj
+            .parameters()
+            .into_iter()
             .chain(out_proj.parameters())
             .chain(ln.parameters())
             .collect();
@@ -409,7 +440,10 @@ fn test_transformer_block_training() {
         losses.first().unwrap(),
         losses.last().unwrap()
     );
-    println!("PASS: Transformer block training loss decreases ({:.4} -> {:.4})", losses[0], losses[29]);
+    println!(
+        "PASS: Transformer block training loss decreases ({:.4} -> {:.4})",
+        losses[0], losses[29]
+    );
 }
 
 // =====================================================================
@@ -439,29 +473,47 @@ fn test_speed_comparison() {
     let b = rand::<f32>(&[1000, 1000]).unwrap();
 
     let run = |name: &str, iters: usize, f: &dyn Fn()| -> f64 {
-        for _ in 0..5 { f(); }
+        for _ in 0..5 {
+            f();
+        }
         let start = Instant::now();
-        for _ in 0..iters { f(); }
+        for _ in 0..iters {
+            f();
+        }
         let us = start.elapsed().as_secs_f64() / iters as f64 * 1e6;
         us
     };
 
-    let ft_add = run("add_1M", 100, &|| { let _ = (&a + &b).unwrap(); });
-    let ft_mul = run("mul_1M", 100, &|| { let _ = (&a * &b).unwrap(); });
-    let ft_relu = run("relu_1M", 100, &|| { let _ = a.relu().unwrap(); });
-    let ft_sig = run("sigmoid_1M", 100, &|| { let _ = a.sigmoid().unwrap(); });
+    let ft_add = run("add_1M", 100, &|| {
+        let _ = (&a + &b).unwrap();
+    });
+    let ft_mul = run("mul_1M", 100, &|| {
+        let _ = (&a * &b).unwrap();
+    });
+    let ft_relu = run("relu_1M", 100, &|| {
+        let _ = a.relu().unwrap();
+    });
+    let ft_sig = run("sigmoid_1M", 100, &|| {
+        let _ = a.sigmoid().unwrap();
+    });
 
     let a64 = rand::<f32>(&[64, 64]).unwrap();
     let b64 = rand::<f32>(&[64, 64]).unwrap();
-    let ft_mm64 = run("matmul_64", 100, &|| { let _ = a64.matmul(&b64).unwrap(); });
+    let ft_mm64 = run("matmul_64", 100, &|| {
+        let _ = a64.matmul(&b64).unwrap();
+    });
 
     let a256 = rand::<f32>(&[256, 256]).unwrap();
     let b256 = rand::<f32>(&[256, 256]).unwrap();
-    let ft_mm256 = run("matmul_256", 100, &|| { let _ = a256.matmul(&b256).unwrap(); });
+    let ft_mm256 = run("matmul_256", 100, &|| {
+        let _ = a256.matmul(&b256).unwrap();
+    });
 
     let a1024 = rand::<f32>(&[1024, 1024]).unwrap();
     let b1024 = rand::<f32>(&[1024, 1024]).unwrap();
-    let ft_mm1024 = run("matmul_1024", 20, &|| { let _ = a1024.matmul(&b1024).unwrap(); });
+    let ft_mm1024 = run("matmul_1024", 20, &|| {
+        let _ = a1024.matmul(&b1024).unwrap();
+    });
 
     let results = vec![
         ("add_1M", ft_add),
@@ -473,13 +525,25 @@ fn test_speed_comparison() {
         ("matmul_1024", ft_mm1024),
     ];
 
-    println!("\n{:<20} {:>12} {:>12} {:>8}", "Operation", "PyTorch(us)", "ferrotorch(us)", "Ratio");
+    println!(
+        "\n{:<20} {:>12} {:>12} {:>8}",
+        "Operation", "PyTorch(us)", "ferrotorch(us)", "Ratio"
+    );
     println!("{}", "-".repeat(56));
     for (name, ft_us) in &results {
         if let Some((_, pt_us)) = pytorch_ref.iter().find(|(n, _)| n == name) {
             let ratio = ft_us / pt_us;
-            let status = if ratio < 1.5 { "✓" } else if ratio < 5.0 { "~" } else { "✗" };
-            println!("{:<20} {:>12.1} {:>12.1} {:>7.1}x {status}", name, pt_us, ft_us, ratio);
+            let status = if ratio < 1.5 {
+                "✓"
+            } else if ratio < 5.0 {
+                "~"
+            } else {
+                "✗"
+            };
+            println!(
+                "{:<20} {:>12.1} {:>12.1} {:>7.1}x {status}",
+                name, pt_us, ft_us, ratio
+            );
         }
     }
 }

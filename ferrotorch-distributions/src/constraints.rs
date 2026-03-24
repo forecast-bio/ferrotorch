@@ -63,8 +63,8 @@ pub struct Real;
 
 impl Constraint for Real {
     fn check<T: Float>(&self, value: T) -> bool {
-        // Matches PyTorch: value == value (rejects NaN).
-        value == value
+        // Matches PyTorch: rejects NaN.
+        !value.is_nan()
     }
 
     fn name(&self) -> &'static str {
@@ -343,10 +343,7 @@ pub fn closed_interval<T: Float>(lower_bound: T, upper_bound: T) -> ClosedInterv
 }
 
 /// Half-open interval constraint `[lower_bound, upper_bound)`.
-pub fn half_open_interval<T: Float>(
-    lower_bound: T,
-    upper_bound: T,
-) -> HalfOpenInterval<T> {
+pub fn half_open_interval<T: Float>(lower_bound: T, upper_bound: T) -> HalfOpenInterval<T> {
     HalfOpenInterval {
         lower_bound,
         upper_bound,

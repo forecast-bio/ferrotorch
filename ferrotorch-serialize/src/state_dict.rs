@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_nn::StateDict;
 
 /// Magic separator between the JSON header and the binary body.
@@ -55,7 +55,10 @@ pub(crate) fn dtype_tag<T: Float>() -> &'static str {
 ///
 /// The tensors are sorted by name for deterministic output. Each tensor's
 /// data is written as raw little-endian bytes.
-pub fn save_state_dict<T: Float>(state: &StateDict<T>, path: impl AsRef<Path>) -> FerrotorchResult<()> {
+pub fn save_state_dict<T: Float>(
+    state: &StateDict<T>,
+    path: impl AsRef<Path>,
+) -> FerrotorchResult<()> {
     let path = path.as_ref();
 
     // Sort keys for deterministic output.
@@ -84,7 +87,11 @@ pub fn save_state_dict<T: Float>(state: &StateDict<T>, path: impl AsRef<Path>) -
         );
         let line = format!(
             r#"{{"name":"{}","shape":{},"dtype":"{}","byte_offset":{},"byte_length":{}}}"#,
-            key, shape_str, dtype_tag::<T>(), byte_offset, byte_length,
+            key,
+            shape_str,
+            dtype_tag::<T>(),
+            byte_offset,
+            byte_length,
         );
         header_lines.push(line);
         byte_offset += byte_length;
@@ -128,10 +135,9 @@ pub fn save_state_dict<T: Float>(state: &StateDict<T>, path: impl AsRef<Path>) -
             })?;
     }
 
-    file.flush()
-        .map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!("flush error: {e}"),
-        })?;
+    file.flush().map_err(|e| FerrotorchError::InvalidArgument {
+        message: format!("flush error: {e}"),
+    })?;
 
     Ok(())
 }
@@ -153,11 +159,12 @@ pub fn load_state_dict<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<Sta
 
     loop {
         let mut line = String::new();
-        let bytes_read = reader
-            .read_line(&mut line)
-            .map_err(|e| FerrotorchError::InvalidArgument {
-                message: format!("read error: {e}"),
-            })?;
+        let bytes_read =
+            reader
+                .read_line(&mut line)
+                .map_err(|e| FerrotorchError::InvalidArgument {
+                    message: format!("read error: {e}"),
+                })?;
 
         if bytes_read == 0 {
             return Err(FerrotorchError::InvalidArgument {
@@ -275,40 +282,57 @@ pub(crate) fn parse_meta_line(line: &str) -> FerrotorchResult<TensorMeta> {
     // Simple key-value extraction from JSON-like string.
     let extract_string = |key: &str| -> FerrotorchResult<String> {
         let pattern = format!(r#""{}":""#, key);
-        let start = line.find(&pattern).ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!("missing key \"{key}\" in header line: {line}"),
-        })? + pattern.len();
-        let end = line[start..].find('"').ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!("unterminated string for key \"{key}\" in: {line}"),
-        })? + start;
+        let start = line
+            .find(&pattern)
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("missing key \"{key}\" in header line: {line}"),
+            })?
+            + pattern.len();
+        let end = line[start..]
+            .find('"')
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("unterminated string for key \"{key}\" in: {line}"),
+            })?
+            + start;
         Ok(line[start..end].to_string())
     };
 
     let extract_usize = |key: &str| -> FerrotorchResult<usize> {
         let pattern = format!(r#""{}":"#, key);
-        let start = line.find(&pattern).ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!("missing key \"{key}\" in header line: {line}"),
-        })? + pattern.len();
+        let start = line
+            .find(&pattern)
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("missing key \"{key}\" in header line: {line}"),
+            })?
+            + pattern.len();
         // Find the end: next comma, closing brace, or end of string.
         let rest = &line[start..];
         let end = rest
             .find(|c: char| c == ',' || c == '}')
             .unwrap_or(rest.len());
         let value_str = rest[..end].trim();
-        value_str.parse::<usize>().map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!("failed to parse \"{key}\" as usize from \"{value_str}\": {e}"),
-        })
+        value_str
+            .parse::<usize>()
+            .map_err(|e| FerrotorchError::InvalidArgument {
+                message: format!("failed to parse \"{key}\" as usize from \"{value_str}\": {e}"),
+            })
     };
 
     let extract_shape = || -> FerrotorchResult<Vec<usize>> {
         let key = "shape";
         let pattern = format!(r#""{}":["#, key);
-        let start = line.find(&pattern).ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!("missing key \"{key}\" in header line: {line}"),
-        })? + pattern.len();
-        let end = line[start..].find(']').ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!("unterminated array for key \"{key}\" in: {line}"),
-        })? + start;
+        let start = line
+            .find(&pattern)
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("missing key \"{key}\" in header line: {line}"),
+            })?
+            + pattern.len();
+        let end = line[start..]
+            .find(']')
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("unterminated array for key \"{key}\" in: {line}"),
+            })?
+            + start;
         let inner = &line[start..end];
         if inner.trim().is_empty() {
             return Ok(Vec::new());
@@ -316,9 +340,11 @@ pub(crate) fn parse_meta_line(line: &str) -> FerrotorchResult<TensorMeta> {
         inner
             .split(',')
             .map(|s| {
-                s.trim().parse::<usize>().map_err(|e| FerrotorchError::InvalidArgument {
-                    message: format!("failed to parse shape element \"{s}\": {e}"),
-                })
+                s.trim()
+                    .parse::<usize>()
+                    .map_err(|e| FerrotorchError::InvalidArgument {
+                        message: format!("failed to parse shape element \"{s}\": {e}"),
+                    })
             })
             .collect()
     };
@@ -424,10 +450,7 @@ mod tests {
     #[test]
     fn test_shape_preservation_scalar() {
         let mut state: StateDict<f64> = HashMap::new();
-        state.insert(
-            "scalar".to_string(),
-            make_tensor_f64(vec![42.0], vec![]),
-        );
+        state.insert("scalar".to_string(), make_tensor_f64(vec![42.0], vec![]));
 
         let dir = std::env::temp_dir().join("ferrotorch_test_sd_scalar");
         std::fs::create_dir_all(&dir).unwrap();
@@ -488,10 +511,7 @@ mod tests {
     fn test_dtype_mismatch() {
         // Save as f32, try to load as f64.
         let mut state: StateDict<f32> = HashMap::new();
-        state.insert(
-            "x".to_string(),
-            make_tensor_f32(vec![1.0, 2.0], vec![2]),
-        );
+        state.insert("x".to_string(), make_tensor_f32(vec![1.0, 2.0], vec![2]));
 
         let dir = std::env::temp_dir().join("ferrotorch_test_sd_dtype");
         std::fs::create_dir_all(&dir).unwrap();
@@ -509,7 +529,8 @@ mod tests {
 
     #[test]
     fn test_parse_meta_line() {
-        let line = r#"{"name":"weight","shape":[2,3],"dtype":"f64","byte_offset":0,"byte_length":48}"#;
+        let line =
+            r#"{"name":"weight","shape":[2,3],"dtype":"f64","byte_offset":0,"byte_length":48}"#;
         let meta = parse_meta_line(line).unwrap();
         assert_eq!(meta.name, "weight");
         assert_eq!(meta.shape, vec![2, 3]);
@@ -542,7 +563,10 @@ mod tests {
 
         // Read raw bytes and extract the header portion (before the separator).
         let raw = std::fs::read(&path).unwrap();
-        let sep_pos = raw.windows(SEPARATOR.len()).position(|w| w == SEPARATOR).unwrap();
+        let sep_pos = raw
+            .windows(SEPARATOR.len())
+            .position(|w| w == SEPARATOR)
+            .unwrap();
         let header = std::str::from_utf8(&raw[..sep_pos]).unwrap();
         let a_pos = header.find("a_first").unwrap();
         let m_pos = header.find("m_middle").unwrap();

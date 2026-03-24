@@ -18,7 +18,10 @@ use crate::tensor::Tensor;
 ///
 /// A new tensor with the same shape and `requires_grad` as the input,
 /// with the smallest-magnitude elements zeroed.
-pub fn magnitude_prune<T: Float>(weights: &Tensor<T>, sparsity: f64) -> FerrotorchResult<Tensor<T>> {
+pub fn magnitude_prune<T: Float>(
+    weights: &Tensor<T>,
+    sparsity: f64,
+) -> FerrotorchResult<Tensor<T>> {
     if !(0.0..1.0).contains(&sparsity) {
         return Err(FerrotorchError::InvalidArgument {
             message: format!("sparsity must be in [0, 1), got {sparsity}"),
@@ -111,7 +114,10 @@ pub fn apply_2_4_mask<T: Float>(weights: &Tensor<T>) -> FerrotorchResult<Tensor<
 /// Compute the sparsity ratio of a tensor: fraction of exact zeros.
 pub fn sparsity_ratio<T: Float>(tensor: &Tensor<T>) -> FerrotorchResult<f64> {
     let data = tensor.data()?;
-    let zeros = data.iter().filter(|&&v| v == <T as num_traits::Zero>::zero()).count();
+    let zeros = data
+        .iter()
+        .filter(|&&v| v == <T as num_traits::Zero>::zero())
+        .count();
     Ok(zeros as f64 / data.len() as f64)
 }
 

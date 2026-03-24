@@ -25,7 +25,7 @@
 //!
 //! # CL-321
 
-use ferrotorch_core::{no_grad, Float, FerrotorchResult};
+use ferrotorch_core::{FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::Optimizer;
@@ -298,7 +298,9 @@ impl<T: Float> LrScheduler<T> for Swalr {
             // Immediate switch.
             self.swa_lr
         } else {
-            let t = (self.current_step as f64 / self.anneal_epochs as f64).min(1.0).max(0.0);
+            let t = (self.current_step as f64 / self.anneal_epochs as f64)
+                .min(1.0)
+                .max(0.0);
             let alpha = self.anneal_factor(t);
             // Interpolate: initial_lr * (1 - alpha) + swa_lr * alpha
             initial_lr * (1.0 - alpha) + self.swa_lr * alpha
@@ -359,10 +361,7 @@ mod tests {
         fn state_dict(&self) -> OptimizerState {
             Default::default()
         }
-        fn load_state_dict(
-            &mut self,
-            _state: &OptimizerState,
-        ) -> FerrotorchResult<()> {
+        fn load_state_dict(&mut self, _state: &OptimizerState) -> FerrotorchResult<()> {
             Ok(())
         }
     }

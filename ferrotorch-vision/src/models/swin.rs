@@ -18,7 +18,7 @@
 //! - Head: adaptive average pool -> `LayerNorm(768)` -> `Linear(768, num_classes)`
 
 use ferrotorch_core::grad_fns::arithmetic::add;
-use ferrotorch_core::{Float, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage};
 
 use ferrotorch_nn::activation::GELU;
 use ferrotorch_nn::attention::MultiheadAttention;
@@ -118,7 +118,8 @@ impl<T: Float> Module<T> for SwinBlock<T> {
                 TensorStorage::cpu(slice_data),
                 vec![seq_len, dim],
                 normed2.requires_grad(),
-            )?.to(device)?;
+            )?
+            .to(device)?;
             let mlp_result = self.mlp_forward(&slice_tensor)?;
             let result_data = mlp_result.data_vec()?;
             mlp_out_data.extend_from_slice(&result_data);
@@ -128,7 +129,8 @@ impl<T: Float> Module<T> for SwinBlock<T> {
             TensorStorage::cpu(mlp_out_data),
             vec![batch, seq_len, dim],
             normed2.requires_grad(),
-        )?.to(device)?;
+        )?
+        .to(device)?;
 
         add(&x, &mlp_out)
     }
@@ -285,7 +287,8 @@ impl<T: Float> SwinStage<T> {
                 TensorStorage::cpu(transposed),
                 vec![batch, dim, spatial_h, spatial_w],
                 x.requires_grad(),
-            )?.to(device)?;
+            )?
+            .to(device)?;
 
             // Conv2d downsample: [B, C, H, W] -> [B, 2*C, H/2, W/2]
             let ds_out = ds.forward(&x_4d)?;
@@ -313,7 +316,8 @@ impl<T: Float> SwinStage<T> {
                 TensorStorage::cpu(out),
                 vec![batch, new_tokens, new_dim],
                 x.requires_grad(),
-            )?.to(device)
+            )?
+            .to(device)
         } else {
             Ok(x)
         }
@@ -438,7 +442,8 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
             TensorStorage::cpu(seq_data),
             vec![batch, num_tokens, embed_dim],
             input.requires_grad(),
-        )?.to(device)?;
+        )?
+        .to(device)?;
 
         // 2. Process through stages.
         for stage in &self.stages {
@@ -472,7 +477,8 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
             TensorStorage::cpu(pooled),
             vec![batch, self.final_dim],
             input.requires_grad(),
-        )?.to(device)?;
+        )?
+        .to(device)?;
 
         // 4. LayerNorm on the pooled features.
         //    LayerNorm expects [*, normalized_shape], so [B, final_dim] works directly.
@@ -590,7 +596,7 @@ pub fn swin_tiny<T: Float>(num_classes: usize) -> FerrotorchResult<SwinTransform
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::{no_grad, TensorStorage};
+    use ferrotorch_core::{TensorStorage, no_grad};
 
     /// Create a 4-D tensor from flat data.
     fn leaf_4d(data: &[f32], shape: [usize; 4], requires_grad: bool) -> Tensor<f32> {

@@ -21,7 +21,7 @@
 //! assert!(s.label < 100);
 //! ```
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Dataset;
 
 use super::mnist::Split;
@@ -222,9 +222,8 @@ fn generate_synthetic<T: Float>(
             data.push(T::from(f).unwrap());
         }
         let storage = TensorStorage::cpu(data);
-        let tensor =
-            Tensor::from_storage(storage, vec![CHANNELS, HEIGHT, WIDTH], false)
-                .expect("synthetic CIFAR tensor creation should not fail");
+        let tensor = Tensor::from_storage(storage, vec![CHANNELS, HEIGHT, WIDTH], false)
+            .expect("synthetic CIFAR tensor creation should not fail");
         images.push(tensor);
 
         state = xorshift64(state);
@@ -363,11 +362,7 @@ mod tests {
         let ds = Cifar100::<f32>::synthetic(Split::Train, 500);
         for i in 0..500 {
             let sample = ds.get(i).unwrap();
-            assert!(
-                sample.label < 100,
-                "label out of range: {}",
-                sample.label
-            );
+            assert!(sample.label < 100, "label out of range: {}", sample.label);
         }
     }
 
@@ -384,7 +379,10 @@ mod tests {
         let c100 = Cifar100::<f32>::synthetic(Split::Train, 5);
         let d10 = c10.get(0).unwrap().image.data().unwrap().to_vec();
         let d100 = c100.get(0).unwrap().image.data().unwrap().to_vec();
-        assert_ne!(d10, d100, "CIFAR-10 and CIFAR-100 should use different seeds");
+        assert_ne!(
+            d10, d100,
+            "CIFAR-10 and CIFAR-100 should use different seeds"
+        );
     }
 
     #[test]

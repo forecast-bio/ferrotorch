@@ -26,12 +26,12 @@ use ferrotorch_core::grad_fns::activation::relu;
 use ferrotorch_core::grad_fns::shape::cat;
 use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::tensor::{GradFn, Tensor};
-use ferrotorch_core::{Float, FerrotorchResult};
+use ferrotorch_core::{FerrotorchResult, Float};
 
+use ferrotorch_nn::Conv2d;
 use ferrotorch_nn::module::Module;
 use ferrotorch_nn::parameter::Parameter;
 use ferrotorch_nn::pooling::MaxPool2d;
-use ferrotorch_nn::Conv2d;
 
 // ===========================================================================
 // Nearest-neighbor 2x upsample (differentiable)
@@ -90,8 +90,12 @@ impl<T: Float> GradFn<T> for UpsampleNearest2xBackward<T> {
             }
         }
 
-        let gi =
-            Tensor::from_storage(TensorStorage::cpu(grad_input), self.input_shape.clone(), false)?.to(device)?;
+        let gi = Tensor::from_storage(
+            TensorStorage::cpu(grad_input),
+            self.input_shape.clone(),
+            false,
+        )?
+        .to(device)?;
         Ok(vec![Some(gi)])
     }
 
@@ -516,7 +520,7 @@ pub fn unet<T: Float>(num_classes: usize) -> FerrotorchResult<UNet<T>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::{no_grad, TensorStorage};
+    use ferrotorch_core::{TensorStorage, no_grad};
 
     /// Create a 4-D tensor from flat data.
     fn leaf_4d(data: &[f32], shape: [usize; 4], requires_grad: bool) -> Tensor<f32> {
@@ -716,10 +720,7 @@ mod tests {
         // Each input element is replicated to a 2x2 block, so the gradient
         // of sum is 4.0 for each element.
         for &g in &grad_data {
-            assert!(
-                (g - 4.0).abs() < 1e-6,
-                "expected gradient 4.0, got {g}"
-            );
+            assert!((g - 4.0).abs() < 1e-6, "expected gradient 4.0, got {g}");
         }
     }
 }

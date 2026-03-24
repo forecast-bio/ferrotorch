@@ -1,7 +1,8 @@
 /// The device type that executed an operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum DeviceType {
     /// Operation executed on the CPU.
+    #[default]
     Cpu,
     /// Operation executed on a CUDA GPU (or timed by CPU as a fallback
     /// when GPU event timing is unavailable).
@@ -15,10 +16,6 @@ impl std::fmt::Display for DeviceType {
             DeviceType::Cuda => write!(f, "CUDA"),
         }
     }
-}
-
-impl Default for DeviceType {
-    fn default() -> Self { DeviceType::Cpu }
 }
 
 /// A single profiling event recorded during execution.

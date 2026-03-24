@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{Float, FerrotorchResult, no_grad};
+use ferrotorch_core::{FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -413,16 +413,8 @@ mod tests {
             "orth^T @ orth [1,1] = {}",
             otg[3]
         );
-        assert!(
-            otg[1].abs() < 1e-4,
-            "orth^T @ orth [0,1] = {}",
-            otg[1]
-        );
-        assert!(
-            otg[2].abs() < 1e-4,
-            "orth^T @ orth [1,0] = {}",
-            otg[2]
-        );
+        assert!(otg[1].abs() < 1e-4, "orth^T @ orth [0,1] = {}", otg[1]);
+        assert!(otg[2].abs() < 1e-4, "orth^T @ orth [1,0] = {}", otg[2]);
     }
 
     #[test]
@@ -465,7 +457,10 @@ mod tests {
         let grad = leaf(&[2.0, 0.5, 0.5, 2.0], &[2, 2], false);
         p.set_grad(Some(grad)).unwrap();
 
-        let config = MuonConfig::new(0.1).momentum(0.0).nesterov(false).ns_steps(10);
+        let config = MuonConfig::new(0.1)
+            .momentum(0.0)
+            .nesterov(false)
+            .ns_steps(10);
         let mut muon = Muon::new(vec![p], config);
         muon.step().unwrap();
 
@@ -518,7 +513,10 @@ mod tests {
         // Gradient = W. Muon should orthogonalize then apply momentum.
         let p = Parameter::from_slice(&[3.0_f64, 1.0, 1.0, 3.0], &[2, 2]).unwrap();
 
-        let config = MuonConfig::new(0.01).momentum(0.9).nesterov(true).ns_steps(5);
+        let config = MuonConfig::new(0.01)
+            .momentum(0.9)
+            .nesterov(true)
+            .ns_steps(5);
         let mut muon = Muon::new(vec![p], config);
 
         for _ in 0..300 {

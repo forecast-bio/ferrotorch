@@ -36,20 +36,11 @@ pub enum Expr {
         rhs: Box<Expr>,
     },
     /// Unary operation.
-    UnaryOp {
-        op: UnaryOpKind,
-        operand: Box<Expr>,
-    },
+    UnaryOp { op: UnaryOpKind, operand: Box<Expr> },
     /// Named function call (e.g. `expf`, `logf`).
-    FnCall {
-        name: String,
-        args: Vec<Expr>,
-    },
+    FnCall { name: String, args: Vec<Expr> },
     /// Indexed load: `buffer[index]`.
-    Index {
-        buffer: String,
-        index: Box<Expr>,
-    },
+    Index { buffer: String, index: Box<Expr> },
     /// Cast expression (used for index <-> float conversions).
     Cast {
         target_type: String,
@@ -106,20 +97,11 @@ pub enum LoopIR {
         value: Expr,
     },
     /// Declare and initialise a local variable: `let var = value`.
-    Let {
-        var: String,
-        value: Expr,
-    },
+    Let { var: String, value: Expr },
     /// Assign to an existing local: `var = value`.
-    Assign {
-        var: String,
-        value: Expr,
-    },
+    Assign { var: String, value: Expr },
     /// Accumulate: `var += value`.
-    Accumulate {
-        var: String,
-        value: Expr,
-    },
+    Accumulate { var: String, value: Expr },
     /// Conditional: `if condition { then_body } else { else_body }`.
     If {
         condition: Expr,
@@ -301,7 +283,9 @@ pub fn apply_op_expr(val: Expr, op: &IrOpKind) -> Option<Expr> {
         IrOpKind::Relu => Some(Expr::unary(UnaryOpKind::Relu, val)),
         IrOpKind::Gelu => Some(Expr::unary(UnaryOpKind::Gelu, val)),
         IrOpKind::Silu => Some(Expr::unary(UnaryOpKind::Silu, val)),
-        IrOpKind::Pow { exponent } => Some(Expr::call("powf", vec![val, Expr::constant(*exponent)])),
+        IrOpKind::Pow { exponent } => {
+            Some(Expr::call("powf", vec![val, Expr::constant(*exponent)]))
+        }
         _ => None,
     }
 }
@@ -455,7 +439,7 @@ fn lower_binary_elementwise(
             return vec![LoopIR::Comment(format!(
                 "failed to lower binary op: {:?}",
                 op
-            ))]
+            ))];
         }
     };
 
@@ -477,11 +461,7 @@ fn lower_binary_elementwise(
 }
 
 /// Lower a sum reduction: `acc = 0; for i in 0..n { acc += in[i]; } out[0] = acc;`
-fn lower_sum_reduction(
-    in_name: &str,
-    out_name: &str,
-    numel: usize,
-) -> Vec<LoopIR> {
+fn lower_sum_reduction(in_name: &str, out_name: &str, numel: usize) -> Vec<LoopIR> {
     vec![
         LoopIR::Let {
             var: "acc".into(),
@@ -505,11 +485,7 @@ fn lower_sum_reduction(
 }
 
 /// Lower a mean reduction: sum then divide by count.
-fn lower_mean_reduction(
-    in_name: &str,
-    out_name: &str,
-    numel: usize,
-) -> Vec<LoopIR> {
+fn lower_mean_reduction(in_name: &str, out_name: &str, numel: usize) -> Vec<LoopIR> {
     vec![
         LoopIR::Let {
             var: "acc".into(),
@@ -537,11 +513,7 @@ fn lower_mean_reduction(
 }
 
 /// Lower a prod reduction: `acc = 1; for i in 0..n { acc *= in[i]; } out[0] = acc;`
-fn lower_prod_reduction(
-    in_name: &str,
-    out_name: &str,
-    numel: usize,
-) -> Vec<LoopIR> {
+fn lower_prod_reduction(in_name: &str, out_name: &str, numel: usize) -> Vec<LoopIR> {
     vec![
         LoopIR::Let {
             var: "acc".into(),
@@ -551,16 +523,14 @@ fn lower_prod_reduction(
             var: "i".into(),
             start: Expr::int(0),
             end: Expr::int(numel as i64),
-            body: vec![
-                LoopIR::Assign {
-                    var: "acc".into(),
-                    value: Expr::bin(
-                        BinOpKind::Mul,
-                        Expr::var("acc"),
-                        Expr::index(in_name, Expr::var("i")),
-                    ),
-                },
-            ],
+            body: vec![LoopIR::Assign {
+                var: "acc".into(),
+                value: Expr::bin(
+                    BinOpKind::Mul,
+                    Expr::var("acc"),
+                    Expr::index(in_name, Expr::var("i")),
+                ),
+            }],
         },
         LoopIR::Store {
             buffer: out_name.into(),
@@ -727,7 +697,10 @@ mod tests {
     fn test_ir_op_to_unary_conversion() {
         assert_eq!(ir_op_to_unary(&IrOpKind::Neg), Some(UnaryOpKind::Neg));
         assert_eq!(ir_op_to_unary(&IrOpKind::Relu), Some(UnaryOpKind::Relu));
-        assert_eq!(ir_op_to_unary(&IrOpKind::Sigmoid), Some(UnaryOpKind::Sigmoid));
+        assert_eq!(
+            ir_op_to_unary(&IrOpKind::Sigmoid),
+            Some(UnaryOpKind::Sigmoid)
+        );
         assert_eq!(ir_op_to_unary(&IrOpKind::Add), None);
         assert_eq!(ir_op_to_unary(&IrOpKind::Sum), None);
     }
@@ -772,7 +745,12 @@ mod tests {
         let loops = lower_to_loops(&[IrOpKind::Neg], &["in0"], "out", 8);
         assert_eq!(loops.len(), 1);
         match &loops[0] {
-            LoopIR::Loop { var, start, end, body } => {
+            LoopIR::Loop {
+                var,
+                start,
+                end,
+                body,
+            } => {
                 assert_eq!(var, "i");
                 assert_eq!(*start, Expr::int(0));
                 assert_eq!(*end, Expr::int(8));
@@ -841,15 +819,13 @@ mod tests {
         assert_eq!(loops.len(), 3);
         // The final store should divide by 5
         match &loops[2] {
-            LoopIR::Store { value, .. } => {
-                match value {
-                    Expr::BinOp { op, rhs, .. } => {
-                        assert_eq!(*op, BinOpKind::Div);
-                        assert_eq!(**rhs, Expr::constant(5.0));
-                    }
-                    _ => panic!("expected BinOp Div for mean"),
+            LoopIR::Store { value, .. } => match value {
+                Expr::BinOp { op, rhs, .. } => {
+                    assert_eq!(*op, BinOpKind::Div);
+                    assert_eq!(**rhs, Expr::constant(5.0));
                 }
-            }
+                _ => panic!("expected BinOp Div for mean"),
+            },
             _ => panic!("expected Store"),
         }
     }

@@ -23,7 +23,7 @@ use ferrotorch_core::FerrotorchResult;
 use ferrotorch_gpu::{GpuFloat, GpuTensor, tensor_to_cpu, tensor_to_gpu};
 
 use crate::backend::Backend;
-use crate::collective::{allreduce, broadcast, ReduceOp};
+use crate::collective::{ReduceOp, allreduce, broadcast};
 
 // ---------------------------------------------------------------------------
 // GPU allreduce

@@ -4,7 +4,7 @@
 //! `torch.nn.utils.clip_grad_value_`, operating in-place on the
 //! gradients of a parameter slice.
 
-use ferrotorch_core::{Device, Float, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{Device, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::parameter::Parameter;
 
@@ -74,7 +74,11 @@ pub fn clip_grad_norm_<T: Float>(
                 let device = g.device();
                 let new_grad =
                     Tensor::from_storage(TensorStorage::cpu(scaled), g.shape().to_vec(), false)?;
-                let new_grad = if device != Device::Cpu { new_grad.to(device)? } else { new_grad };
+                let new_grad = if device != Device::Cpu {
+                    new_grad.to(device)?
+                } else {
+                    new_grad
+                };
                 param.set_grad(Some(new_grad))?;
             }
         }
@@ -117,7 +121,11 @@ pub fn clip_grad_value_<T: Float>(
             let device = g.device();
             let new_grad =
                 Tensor::from_storage(TensorStorage::cpu(clamped), g.shape().to_vec(), false)?;
-            let new_grad = if device != Device::Cpu { new_grad.to(device)? } else { new_grad };
+            let new_grad = if device != Device::Cpu {
+                new_grad.to(device)?
+            } else {
+                new_grad
+            };
             param.set_grad(Some(new_grad))?;
         }
     }

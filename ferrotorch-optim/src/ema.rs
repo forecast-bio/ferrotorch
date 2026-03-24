@@ -12,7 +12,7 @@
 //!
 //! # CL-321
 
-use ferrotorch_core::{no_grad, Float, FerrotorchResult};
+use ferrotorch_core::{FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 // ---------------------------------------------------------------------------

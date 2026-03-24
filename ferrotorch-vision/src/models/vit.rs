@@ -13,7 +13,7 @@
 //! autograd handles the backward pass automatically.
 
 use ferrotorch_core::grad_fns::arithmetic::add;
-use ferrotorch_core::{Float, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage};
 
 use ferrotorch_nn::activation::GELU;
 use ferrotorch_nn::attention::MultiheadAttention;
@@ -49,11 +49,7 @@ impl<T: Float> PatchEmbed<T> {
     /// * `in_channels` -- number of input channels (typically 3 for RGB).
     /// * `embed_dim` -- output embedding dimension per patch.
     /// * `patch_size` -- spatial size of each patch (both height and width).
-    pub fn new(
-        in_channels: usize,
-        embed_dim: usize,
-        patch_size: usize,
-    ) -> FerrotorchResult<Self> {
+    pub fn new(in_channels: usize, embed_dim: usize, patch_size: usize) -> FerrotorchResult<Self> {
         let proj = Conv2d::new(
             in_channels,
             embed_dim,
@@ -111,7 +107,8 @@ impl<T: Float> Module<T> for PatchEmbed<T> {
             TensorStorage::cpu(out),
             vec![batch, num_patches, self.embed_dim],
             input.requires_grad(),
-        )?.to(device)
+        )?
+        .to(device)
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
@@ -173,11 +170,7 @@ impl<T: Float> TransformerBlock<T> {
     /// * `embed_dim` -- hidden dimension / embedding dimension.
     /// * `num_heads` -- number of attention heads.
     /// * `mlp_dim` -- intermediate dimension of the MLP (typically `4 * embed_dim`).
-    pub fn new(
-        embed_dim: usize,
-        num_heads: usize,
-        mlp_dim: usize,
-    ) -> FerrotorchResult<Self> {
+    pub fn new(embed_dim: usize, num_heads: usize, mlp_dim: usize) -> FerrotorchResult<Self> {
         let norm1 = LayerNorm::new(vec![embed_dim], 1e-6, true)?;
         let attn = MultiheadAttention::new(embed_dim, num_heads, true)?;
         let norm2 = LayerNorm::new(vec![embed_dim], 1e-6, true)?;
@@ -238,7 +231,8 @@ impl<T: Float> Module<T> for TransformerBlock<T> {
                 TensorStorage::cpu(slice_data),
                 vec![seq_len, embed_dim],
                 normed2.requires_grad(),
-            )?.to(device)?;
+            )?
+            .to(device)?;
             let mlp_result = self.mlp_forward(&slice_tensor)?;
             let result_data = mlp_result.data_vec()?;
             mlp_out_data.extend_from_slice(&result_data);
@@ -248,7 +242,8 @@ impl<T: Float> Module<T> for TransformerBlock<T> {
             TensorStorage::cpu(mlp_out_data),
             vec![batch, seq_len, embed_dim],
             normed2.requires_grad(),
-        )?.to(device)?;
+        )?
+        .to(device)?;
 
         add(&x, &mlp_out)
     }
@@ -417,7 +412,8 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
             TensorStorage::cpu(prepended),
             vec![batch, seq_len, self.embed_dim],
             input.requires_grad(),
-        )?.to(device)?;
+        )?
+        .to(device)?;
 
         // 3. Add position embedding: [B, seq_len, embed_dim] + [1, seq_len, embed_dim]
         // Broadcast pos_embed across batch dimension.
@@ -438,7 +434,8 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
             TensorStorage::cpu(pos_added),
             vec![batch, seq_len, self.embed_dim],
             input.requires_grad(),
-        )?.to(device)?;
+        )?
+        .to(device)?;
 
         // 4. Transformer encoder blocks.
         for block in &self.blocks {
@@ -462,7 +459,8 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
             TensorStorage::cpu(cls_out),
             vec![batch, self.embed_dim],
             x.requires_grad(),
-        )?.to(device)?;
+        )?
+        .to(device)?;
 
         // 7. Classification head: Linear(embed_dim, num_classes)
         self.head.forward(&cls_features)
@@ -548,14 +546,14 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
 /// Total parameters: ~86M (for 1000 classes).
 pub fn vit_b_16<T: Float>(num_classes: usize) -> FerrotorchResult<VisionTransformer<T>> {
     VisionTransformer::new(
-        224,  // image_size
-        16,   // patch_size
-        3,    // in_channels
+        224, // image_size
+        16,  // patch_size
+        3,   // in_channels
         num_classes,
-        768,  // embed_dim
-        12,   // depth
-        12,   // num_heads
-        4,    // mlp_ratio
+        768, // embed_dim
+        12,  // depth
+        12,  // num_heads
+        4,   // mlp_ratio
     )
 }
 
@@ -566,7 +564,7 @@ pub fn vit_b_16<T: Float>(num_classes: usize) -> FerrotorchResult<VisionTransfor
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::{no_grad, TensorStorage};
+    use ferrotorch_core::{TensorStorage, no_grad};
 
     /// Create a 4-D tensor from flat data.
     fn leaf_4d(data: &[f32], shape: [usize; 4], requires_grad: bool) -> Tensor<f32> {
@@ -640,8 +638,7 @@ mod tests {
         // MLP: fc1 weight + bias + fc2 weight + bias
         //    = embed_dim * mlp_dim + mlp_dim + mlp_dim * embed_dim + embed_dim
         //    = 64*256 + 256 + 256*64 + 64 = 16384 + 256 + 16384 + 64 = 33088
-        let mlp_params =
-            embed_dim * mlp_dim + mlp_dim + mlp_dim * embed_dim + embed_dim;
+        let mlp_params = embed_dim * mlp_dim + mlp_dim + mlp_dim * embed_dim + embed_dim;
 
         let expected = ln_params + mha_params + mlp_params;
         assert_eq!(count, expected);
@@ -718,10 +715,7 @@ mod tests {
 
     #[test]
     fn test_vit_custom_classes() {
-        let model = VisionTransformer::<f32>::new(
-            224, 16, 3, 10, 768, 12, 12, 4,
-        )
-        .unwrap();
+        let model = VisionTransformer::<f32>::new(224, 16, 3, 10, 768, 12, 12, 4).unwrap();
         let input = leaf_4d(&vec![0.01; 1 * 3 * 224 * 224], [1, 3, 224, 224], false);
         let output = no_grad(|| model.forward(&input).unwrap());
         assert_eq!(output.shape(), &[1, 10]);
@@ -753,14 +747,14 @@ mod tests {
     fn test_small_vit_forward() {
         // A tiny ViT for fast testing.
         let model = VisionTransformer::<f32>::new(
-            32,  // image_size
-            16,  // patch_size -> 2x2 = 4 patches
-            3,   // in_channels
-            10,  // num_classes
-            64,  // embed_dim
-            2,   // depth (just 2 blocks)
-            4,   // num_heads
-            4,   // mlp_ratio -> mlp_dim = 256
+            32, // image_size
+            16, // patch_size -> 2x2 = 4 patches
+            3,  // in_channels
+            10, // num_classes
+            64, // embed_dim
+            2,  // depth (just 2 blocks)
+            4,  // num_heads
+            4,  // mlp_ratio -> mlp_dim = 256
         )
         .unwrap();
 

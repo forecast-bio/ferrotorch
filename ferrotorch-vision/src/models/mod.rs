@@ -9,15 +9,15 @@ pub mod vgg;
 pub mod vit;
 pub mod yolo;
 
-pub use convnext::{convnext_tiny, ConvNeXt, ConvNeXtBlock};
-pub use efficientnet::{efficientnet_b0, ConvBlock, EfficientNet};
-pub use feature_extractor::{create_feature_extractor, FeatureExtractor};
+pub use convnext::{ConvNeXt, ConvNeXtBlock, convnext_tiny};
+pub use efficientnet::{ConvBlock, EfficientNet, efficientnet_b0};
+pub use feature_extractor::{FeatureExtractor, create_feature_extractor};
 pub use registry::{
-    get_model, list_models, register_model, ModelConstructor, ModelRegistry, REGISTRY,
+    ModelConstructor, ModelRegistry, REGISTRY, get_model, list_models, register_model,
 };
-pub use resnet::{resnet18, resnet34, resnet50, BasicBlock, Bottleneck, ResNet};
-pub use swin::{swin_tiny, SwinBlock, SwinTransformer};
-pub use unet::{unet, UNet};
-pub use vgg::{vgg11, vgg16, VGG};
-pub use vit::{vit_b_16, PatchEmbed, TransformerBlock, VisionTransformer};
-pub use yolo::{yolo, Yolo};
+pub use resnet::{BasicBlock, Bottleneck, ResNet, resnet18, resnet34, resnet50};
+pub use swin::{SwinBlock, SwinTransformer, swin_tiny};
+pub use unet::{UNet, unet};
+pub use vgg::{VGG, vgg11, vgg16};
+pub use vit::{PatchEmbed, TransformerBlock, VisionTransformer, vit_b_16};
+pub use yolo::{Yolo, yolo};

@@ -83,7 +83,10 @@ mod tests {
     #[test]
     fn test_list_models_non_empty() {
         let models = list_models();
-        assert!(!models.is_empty(), "registry should contain at least one model");
+        assert!(
+            !models.is_empty(),
+            "registry should contain at least one model"
+        );
     }
 
     #[test]
@@ -131,15 +134,25 @@ mod tests {
     fn test_all_models_have_valid_fields() {
         for model in list_models() {
             assert!(!model.name.is_empty(), "model name must not be empty");
-            assert!(!model.description.is_empty(), "model description must not be empty");
-            assert!(!model.weights_url.is_empty(), "model weights_url must not be empty");
+            assert!(
+                !model.description.is_empty(),
+                "model description must not be empty"
+            );
+            assert!(
+                !model.weights_url.is_empty(),
+                "model weights_url must not be empty"
+            );
             assert_eq!(
                 model.weights_sha256.len(),
                 64,
                 "SHA-256 hex digest must be 64 characters for model '{}'",
                 model.name
             );
-            assert!(model.num_parameters > 0, "model '{}' must have >0 parameters", model.name);
+            assert!(
+                model.num_parameters > 0,
+                "model '{}' must have >0 parameters",
+                model.name
+            );
         }
     }
 }

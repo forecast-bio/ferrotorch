@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -144,14 +144,11 @@ impl<T: Float> Optimizer<T> for Adadelta<T> {
                     }
                 }
 
-                let state =
-                    self.state
-                        .entry(key)
-                        .or_insert_with(|| AdadeltaParamState {
-                            step_count: 0,
-                            square_avg: vec![0.0; numel],
-                            acc_delta: vec![0.0; numel],
-                        });
+                let state = self.state.entry(key).or_insert_with(|| AdadeltaParamState {
+                    step_count: 0,
+                    square_avg: vec![0.0; numel],
+                    acc_delta: vec![0.0; numel],
+                });
 
                 state.step_count += 1;
 
@@ -172,8 +169,7 @@ impl<T: Float> Optimizer<T> for Adadelta<T> {
 
                         // Update running average of squared deltas.
                         // u_t = rho * u_{t-1} + (1 - rho) * delta^2
-                        state.acc_delta[i] =
-                            rho * state.acc_delta[i] + (1.0 - rho) * delta * delta;
+                        state.acc_delta[i] = rho * state.acc_delta[i] + (1.0 - rho) * delta * delta;
 
                         // p_t = p_{t-1} - lr * delta
                         let updated = param_data[i] - group_lr * delta;
@@ -242,19 +238,17 @@ impl<T: Float> Optimizer<T> for Adadelta<T> {
                 .copied()
                 .unwrap_or(0.0) as u64;
 
-            let square_avg = entry
-                .get("square_avg")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
+            let square_avg = entry.get("square_avg").cloned().ok_or_else(|| {
+                FerrotorchError::InvalidArgument {
                     message: format!("missing square_avg in state for key {key}"),
-                })?;
+                }
+            })?;
 
-            let acc_delta = entry
-                .get("acc_delta")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
+            let acc_delta = entry.get("acc_delta").cloned().ok_or_else(|| {
+                FerrotorchError::InvalidArgument {
                     message: format!("missing acc_delta in state for key {key}"),
-                })?;
+                }
+            })?;
 
             self.state.insert(
                 key.clone(),
@@ -285,10 +279,7 @@ mod tests {
     }
 
     fn param_val(opt: &Adadelta<f64>, group: usize, idx: usize) -> f64 {
-        opt.param_groups[group].params[idx]
-            .tensor()
-            .data()
-            .unwrap()[0]
+        opt.param_groups[group].params[idx].tensor().data().unwrap()[0]
     }
 
     #[test]
@@ -335,19 +326,20 @@ mod tests {
         let p = scalar_param(1.0);
         let mut opt = Adadelta::new(vec![p], AdadeltaConfig::default());
 
-        let grad =
-            Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
+        let grad = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
         opt.param_groups[0].params[0]
             .tensor()
             .set_grad(Some(grad))
             .unwrap();
 
         opt.zero_grad().unwrap();
-        assert!(opt.param_groups[0].params[0]
-            .tensor()
-            .grad()
-            .unwrap()
-            .is_none());
+        assert!(
+            opt.param_groups[0].params[0]
+                .tensor()
+                .grad()
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -409,8 +401,7 @@ mod tests {
         let p = scalar_param(5.0);
         let mut opt = Adadelta::new(vec![p], AdadeltaConfig::default());
 
-        let grad =
-            Tensor::from_storage(TensorStorage::cpu(vec![2.0_f64]), vec![], false).unwrap();
+        let grad = Tensor::from_storage(TensorStorage::cpu(vec![2.0_f64]), vec![], false).unwrap();
         opt.param_groups[0].params[0]
             .tensor()
             .set_grad(Some(grad))
@@ -418,6 +409,9 @@ mod tests {
         opt.step().unwrap();
 
         let val = param_val(&opt, 0, 0);
-        assert!(val < 5.0, "param should decrease with positive gradient, got {val}");
+        assert!(
+            val < 5.0,
+            "param should decrease with positive gradient, got {val}"
+        );
     }
 }

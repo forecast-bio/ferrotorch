@@ -360,11 +360,7 @@ impl<T: Float> Transform<T> for ComposeTransform<T> {
             // Identity: zero log-det-Jacobian.
             let data = x.data_vec()?;
             let zeros = vec![T::from(0.0).unwrap(); data.len()];
-            return Tensor::from_storage(
-                TensorStorage::cpu(zeros),
-                x.shape().to_vec(),
-                false,
-            );
+            return Tensor::from_storage(TensorStorage::cpu(zeros), x.shape().to_vec(), false);
         }
 
         // Compute intermediates and accumulate log-det-Jacobian terms.
@@ -383,7 +379,7 @@ impl<T: Float> Transform<T> for ComposeTransform<T> {
             let ldj_data = ldj.data_vec()?;
             for (j, &v) in ldj_data.iter().enumerate() {
                 if j < total.len() {
-                    total[j] = total[j] + v;
+                    total[j] += v;
                 }
             }
         }
@@ -433,10 +429,7 @@ impl<T: Float> TransformedDistribution<T> {
     ///
     /// `base` is the base distribution. `transforms` are applied left-to-right
     /// in the forward (sampling) direction.
-    pub fn new(
-        base: Box<dyn Distribution<T>>,
-        transforms: Vec<Box<dyn Transform<T>>>,
-    ) -> Self {
+    pub fn new(base: Box<dyn Distribution<T>>, transforms: Vec<Box<dyn Transform<T>>>) -> Self {
         Self { base, transforms }
     }
 }
@@ -488,11 +481,7 @@ impl<T: Float> Distribution<T> for TransformedDistribution<T> {
             .map(|(&lp, &corr)| lp + corr)
             .collect();
 
-        Tensor::from_storage(
-            TensorStorage::cpu(result),
-            value.shape().to_vec(),
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(result), value.shape().to_vec(), false)
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
@@ -826,10 +815,7 @@ mod tests {
         let loc = scalar(0.0f32).unwrap();
         let scale = scalar(1.0f32).unwrap();
         let base = Normal::new(loc, scale).unwrap();
-        let td = TransformedDistribution::new(
-            Box::new(base),
-            vec![Box::new(ExpTransform)],
-        );
+        let td = TransformedDistribution::new(Box::new(base), vec![Box::new(ExpTransform)]);
         let samples = td.sample(&[100]).unwrap();
         assert_eq!(samples.shape(), &[100]);
         // All samples should be positive (exp maps R -> R+)
@@ -847,10 +833,7 @@ mod tests {
         let loc = scalar(0.0f32).unwrap();
         let scale = scalar(1.0f32).unwrap();
         let base = Normal::new(loc, scale).unwrap();
-        let td = TransformedDistribution::new(
-            Box::new(base),
-            vec![Box::new(ExpTransform)],
-        );
+        let td = TransformedDistribution::new(Box::new(base), vec![Box::new(ExpTransform)]);
 
         let y = scalar(1.0f32).unwrap(); // ln(1) = 0
         let lp = td.log_prob(&y).unwrap();
@@ -870,10 +853,7 @@ mod tests {
         let loc = scalar(0.0f32).unwrap();
         let scale = scalar(1.0f32).unwrap();
         let base = Normal::new(loc, scale).unwrap();
-        let td = TransformedDistribution::new(
-            Box::new(base),
-            vec![Box::new(ExpTransform)],
-        );
+        let td = TransformedDistribution::new(Box::new(base), vec![Box::new(ExpTransform)]);
 
         let e = std::f32::consts::E;
         let y = scalar(e).unwrap();
@@ -895,10 +875,7 @@ mod tests {
         let loc = scalar(0.0f32).unwrap();
         let scale = scalar(1.0f32).unwrap();
         let base = Normal::new(loc, scale).unwrap();
-        let td = TransformedDistribution::new(
-            Box::new(base),
-            vec![Box::new(ExpTransform)],
-        );
+        let td = TransformedDistribution::new(Box::new(base), vec![Box::new(ExpTransform)]);
         assert!(td.entropy().is_err());
     }
 

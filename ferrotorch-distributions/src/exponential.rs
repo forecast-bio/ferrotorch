@@ -111,11 +111,7 @@ impl<T: Float> Distribution<T> for Exponential<T> {
             .map(|(&x, &r)| r.ln() - r * x)
             .collect();
 
-        let out = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            value.shape().to_vec(),
-            false,
-        )?;
+        let out = Tensor::from_storage(TensorStorage::cpu(result), value.shape().to_vec(), false)?;
         if device.is_cuda() {
             out.to(device)
         } else {
@@ -238,10 +234,7 @@ mod tests {
         let samples = dist.sample(&[10000]).unwrap();
         let data = samples.data().unwrap();
         let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
-        assert!(
-            (mean - 0.5).abs() < 0.05,
-            "expected mean ~0.5, got {mean}"
-        );
+        assert!((mean - 0.5).abs() < 0.05, "expected mean ~0.5, got {mean}");
     }
 
     #[test]

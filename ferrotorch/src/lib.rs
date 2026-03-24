@@ -7,12 +7,12 @@ pub use ferrotorch_core::*;
 /// Prelude module — import everything commonly needed.
 pub mod prelude {
     pub use ferrotorch_core::*;
-    pub use ferrotorch_nn::{Module, Parameter, Linear, Conv2d, Sequential};
-    pub use ferrotorch_nn::{ReLU, GELU, SiLU, Sigmoid, Tanh, Softmax};
-    pub use ferrotorch_nn::{BatchNorm2d, LayerNorm, Dropout};
+    pub use ferrotorch_nn::{BatchNorm2d, Dropout, LayerNorm};
+    pub use ferrotorch_nn::{Conv2d, Linear, Module, Parameter, Sequential};
     pub use ferrotorch_nn::{CrossEntropyLoss, MSELoss};
-    pub use ferrotorch_nn::{LSTM, GRU};
-    pub use ferrotorch_optim::{Optimizer, Adam, AdamW, Sgd};
+    pub use ferrotorch_nn::{GELU, ReLU, SiLU, Sigmoid, Softmax, Tanh};
+    pub use ferrotorch_nn::{GRU, LSTM};
+    pub use ferrotorch_optim::{Adam, AdamW, Optimizer, Sgd};
 }
 
 /// Neural network modules and layers.

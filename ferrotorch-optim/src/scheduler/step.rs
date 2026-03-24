@@ -5,8 +5,8 @@
 
 use ferrotorch_core::Float;
 
-use crate::optimizer::Optimizer;
 use super::LrScheduler;
+use crate::optimizer::Optimizer;
 
 /// Decays the learning rate by `gamma` every `step_size` steps.
 ///

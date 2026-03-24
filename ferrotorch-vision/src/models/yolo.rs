@@ -28,12 +28,12 @@
 //! Batch normalization is omitted (not yet in `ferrotorch_nn`).
 
 use ferrotorch_core::grad_fns::activation::relu;
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 
+use ferrotorch_nn::Conv2d;
 use ferrotorch_nn::module::Module;
 use ferrotorch_nn::parameter::Parameter;
 use ferrotorch_nn::pooling::MaxPool2d;
-use ferrotorch_nn::Conv2d;
 
 // ===========================================================================
 // Backbone stage: Conv2d(3x3, pad=1) -> ReLU -> MaxPool(2x2)
@@ -274,7 +274,7 @@ pub fn yolo<T: Float>(num_classes: usize) -> FerrotorchResult<Yolo<T>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::{no_grad, TensorStorage};
+    use ferrotorch_core::{TensorStorage, no_grad};
 
     /// Create a 4-D tensor from flat data.
     fn leaf_4d(data: &[f32], shape: [usize; 4], requires_grad: bool) -> Tensor<f32> {

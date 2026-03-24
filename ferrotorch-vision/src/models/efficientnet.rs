@@ -17,7 +17,7 @@
 use ferrotorch_core::grad_fns::activation::relu;
 use ferrotorch_core::grad_fns::arithmetic::add;
 use ferrotorch_core::grad_fns::shape::reshape;
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 
 use ferrotorch_nn::module::Module;
 use ferrotorch_nn::parameter::Parameter;
@@ -158,13 +158,48 @@ struct StageConfig {
 /// |   6   | MBConv6   |   192    |   4    |   2    |   5    |
 /// |   7   | MBConv6   |   320    |   1    |   1    |   3    |
 const EFFICIENTNET_B0_STAGES: [StageConfig; 7] = [
-    StageConfig { num_blocks: 1, out_ch: 16,  stride: 1, kernel: 3 },
-    StageConfig { num_blocks: 2, out_ch: 24,  stride: 2, kernel: 3 },
-    StageConfig { num_blocks: 2, out_ch: 40,  stride: 2, kernel: 5 },
-    StageConfig { num_blocks: 3, out_ch: 80,  stride: 2, kernel: 3 },
-    StageConfig { num_blocks: 3, out_ch: 112, stride: 1, kernel: 5 },
-    StageConfig { num_blocks: 4, out_ch: 192, stride: 2, kernel: 5 },
-    StageConfig { num_blocks: 1, out_ch: 320, stride: 1, kernel: 3 },
+    StageConfig {
+        num_blocks: 1,
+        out_ch: 16,
+        stride: 1,
+        kernel: 3,
+    },
+    StageConfig {
+        num_blocks: 2,
+        out_ch: 24,
+        stride: 2,
+        kernel: 3,
+    },
+    StageConfig {
+        num_blocks: 2,
+        out_ch: 40,
+        stride: 2,
+        kernel: 5,
+    },
+    StageConfig {
+        num_blocks: 3,
+        out_ch: 80,
+        stride: 2,
+        kernel: 3,
+    },
+    StageConfig {
+        num_blocks: 3,
+        out_ch: 112,
+        stride: 1,
+        kernel: 5,
+    },
+    StageConfig {
+        num_blocks: 4,
+        out_ch: 192,
+        stride: 2,
+        kernel: 5,
+    },
+    StageConfig {
+        num_blocks: 1,
+        out_ch: 320,
+        stride: 1,
+        kernel: 3,
+    },
 ];
 
 // ===========================================================================
@@ -366,7 +401,7 @@ pub fn efficientnet_b0<T: Float>(num_classes: usize) -> FerrotorchResult<Efficie
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::{no_grad, TensorStorage};
+    use ferrotorch_core::{TensorStorage, no_grad};
 
     /// Create a 4-D tensor from flat data.
     fn leaf_4d(data: &[f32], shape: [usize; 4], requires_grad: bool) -> Tensor<f32> {
@@ -431,11 +466,7 @@ mod tests {
     #[test]
     fn test_efficientnet_b0_output_shape() {
         let model = efficientnet_b0::<f32>(1000).unwrap();
-        let input = leaf_4d(
-            &vec![0.01; 1 * 3 * 224 * 224],
-            [1, 3, 224, 224],
-            false,
-        );
+        let input = leaf_4d(&vec![0.01; 1 * 3 * 224 * 224], [1, 3, 224, 224], false);
         let output = no_grad(|| model.forward(&input).unwrap());
         assert_eq!(output.shape(), &[1, 1000]);
     }
@@ -492,11 +523,7 @@ mod tests {
     #[test]
     fn test_efficientnet_b0_custom_classes() {
         let model = efficientnet_b0::<f32>(10).unwrap();
-        let input = leaf_4d(
-            &vec![0.01; 2 * 3 * 224 * 224],
-            [2, 3, 224, 224],
-            false,
-        );
+        let input = leaf_4d(&vec![0.01; 2 * 3 * 224 * 224], [2, 3, 224, 224], false);
         let output = no_grad(|| model.forward(&input).unwrap());
         assert_eq!(output.shape(), &[2, 10]);
     }

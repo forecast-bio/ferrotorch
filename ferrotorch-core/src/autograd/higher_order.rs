@@ -508,7 +508,10 @@ impl<T: Float> crate::tensor::GradFn<T> for BroadcastScalarBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         // grad_scalar = sum of all elements of grad_output.
         let go_data = grad_output.data()?;
-        let total: T = go_data.iter().copied().fold(<T as num_traits::Zero>::zero(), |a, b| a + b);
+        let total: T = go_data
+            .iter()
+            .copied()
+            .fold(<T as num_traits::Zero>::zero(), |a, b| a + b);
         let grad_scalar = Tensor::from_storage(TensorStorage::cpu(vec![total]), vec![], false)?;
         Ok(vec![Some(grad_scalar)])
     }
@@ -559,8 +562,12 @@ mod tests {
 
     /// Create a leaf 1-D tensor.
     fn leaf_vec(data: &[f32], requires_grad: bool) -> Tensor<f32> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            vec![data.len()],
+            requires_grad,
+        )
+        .unwrap()
     }
 
     /// Assert a scalar tensor is approximately equal to `expected`.
@@ -911,10 +918,7 @@ mod tests {
     }
 
     impl<T: Float> crate::tensor::GradFn<T> for ConcatBackward2<T> {
-        fn backward(
-            &self,
-            grad_output: &Tensor<T>,
-        ) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
             let go = grad_output.data()?;
             let g0 = Tensor::from_storage(TensorStorage::cpu(vec![go[0]]), vec![], false)?;
             let g1 = Tensor::from_storage(TensorStorage::cpu(vec![go[1]]), vec![], false)?;

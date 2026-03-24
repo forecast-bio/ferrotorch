@@ -44,7 +44,7 @@
 //! Kwon et al., "Efficient Memory Management for Large Language Model Serving
 //! with PagedAttention" (SOSP 2023).
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 // ===========================================================================
 // KVPage
@@ -314,20 +314,24 @@ impl<T: Float> PagedKVCache<T> {
             if remaining_in_last > 0 {
                 let pid = *self.page_ids.last().unwrap();
                 let to_write = remaining_in_last.min(num_new_tokens - tokens_written);
-                pool.page_mut(pid).append(key, value, tokens_written, to_write);
+                pool.page_mut(pid)
+                    .append(key, value, tokens_written, to_write);
                 tokens_written += to_write;
             } else {
                 // Need a fresh page.
-                let pid = pool.alloc_page().ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "PagedKVCache::append: page pool exhausted \
+                let pid = pool
+                    .alloc_page()
+                    .ok_or_else(|| FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "PagedKVCache::append: page pool exhausted \
                          (needed tokens for {} more tokens, pool has 0 free pages)",
-                        num_new_tokens - tokens_written
-                    ),
-                })?;
+                            num_new_tokens - tokens_written
+                        ),
+                    })?;
                 self.page_ids.push(pid);
                 let to_write = pool.page_size.min(num_new_tokens - tokens_written);
-                pool.page_mut(pid).append(key, value, tokens_written, to_write);
+                pool.page_mut(pid)
+                    .append(key, value, tokens_written, to_write);
                 tokens_written += to_write;
             }
         }
@@ -464,12 +468,7 @@ impl<T: Float> PagedAttentionManager<T> {
     /// Append key/value data for new tokens to a sequence.
     ///
     /// `key` and `value` must have length `num_new_tokens * num_heads * head_dim`.
-    pub fn append_kv(
-        &mut self,
-        seq_id: usize,
-        key: &[T],
-        value: &[T],
-    ) -> FerrotorchResult<()> {
+    pub fn append_kv(&mut self, seq_id: usize, key: &[T], value: &[T]) -> FerrotorchResult<()> {
         let cache = self
             .sequences
             .get_mut(seq_id)
@@ -739,8 +738,7 @@ mod tests {
 
     #[test]
     fn manager_add_and_remove_sequences() {
-        let mut mgr: PagedAttentionManager<f32> =
-            PagedAttentionManager::new(16, 4, 2, 3);
+        let mut mgr: PagedAttentionManager<f32> = PagedAttentionManager::new(16, 4, 2, 3);
 
         let s0 = mgr.add_sequence();
         let s1 = mgr.add_sequence();
@@ -761,8 +759,7 @@ mod tests {
 
     #[test]
     fn manager_append_and_get_kv() {
-        let mut mgr: PagedAttentionManager<f32> =
-            PagedAttentionManager::new(8, 4, 1, 2);
+        let mut mgr: PagedAttentionManager<f32> = PagedAttentionManager::new(8, 4, 1, 2);
 
         let seq = mgr.add_sequence();
         let key = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 3 tokens
@@ -778,8 +775,7 @@ mod tests {
 
     #[test]
     fn manager_invalid_seq_id_returns_error() {
-        let mut mgr: PagedAttentionManager<f32> =
-            PagedAttentionManager::new(4, 4, 1, 1);
+        let mut mgr: PagedAttentionManager<f32> = PagedAttentionManager::new(4, 4, 1, 1);
 
         let result = mgr.append_kv(999, &[1.0], &[2.0]);
         assert!(result.is_err());
@@ -790,8 +786,7 @@ mod tests {
 
     #[test]
     fn manager_pool_utilization() {
-        let mut mgr: PagedAttentionManager<f32> =
-            PagedAttentionManager::new(10, 4, 1, 1);
+        let mut mgr: PagedAttentionManager<f32> = PagedAttentionManager::new(10, 4, 1, 1);
 
         assert_eq!(mgr.pool_utilization(), 0.0);
 
@@ -806,8 +801,7 @@ mod tests {
 
     #[test]
     fn manager_free_returns_pages() {
-        let mut mgr: PagedAttentionManager<f32> =
-            PagedAttentionManager::new(4, 2, 1, 1);
+        let mut mgr: PagedAttentionManager<f32> = PagedAttentionManager::new(4, 2, 1, 1);
 
         let s0 = mgr.add_sequence();
         let s1 = mgr.add_sequence();

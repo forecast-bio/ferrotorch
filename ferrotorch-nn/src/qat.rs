@@ -5,11 +5,10 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{
-    dequantize, FakeQuantize, FerrotorchError, FerrotorchResult,
-    QParams, QuantDtype, QuantizedTensor, Tensor,
-};
 pub use ferrotorch_core::quantize::{QatLayer, QatModel, prepare_qat as core_prepare_qat};
+use ferrotorch_core::{
+    FerrotorchError, FerrotorchResult, QParams, QuantDtype, QuantizedTensor, Tensor, dequantize,
+};
 
 use crate::module::Module;
 
@@ -128,9 +127,12 @@ impl QuantizedModel {
 
     /// Dequantize a specific weight back to float for inspection.
     pub fn dequantize_weight(&self, name: &str) -> FerrotorchResult<Tensor<f32>> {
-        let qt = self.weights.get(name).ok_or(FerrotorchError::InvalidArgument {
-            message: format!("quantized weight \"{name}\" not found"),
-        })?;
+        let qt = self
+            .weights
+            .get(name)
+            .ok_or(FerrotorchError::InvalidArgument {
+                message: format!("quantized weight \"{name}\" not found"),
+            })?;
         dequantize(qt)
     }
 
@@ -142,11 +144,7 @@ impl QuantizedModel {
     /// Compute compression ratio vs float32.
     pub fn compression_ratio(&self) -> f32 {
         let quantized_bytes = self.quantized_size_bytes();
-        let float_bytes: usize = self
-            .weights
-            .values()
-            .map(|qt| qt.numel() * 4)
-            .sum();
+        let float_bytes: usize = self.weights.values().map(|qt| qt.numel() * 4).sum();
         if quantized_bytes == 0 {
             return 1.0;
         }
@@ -169,10 +167,7 @@ impl QuantizedModel {
 /// FakeQuantize nodes for each parametric layer. Only parameters whose
 /// name contains "weight" get weight FakeQuantize; bias parameters are
 /// skipped.
-pub fn prepare_qat(
-    module: &dyn Module<f32>,
-    config: QatConfig,
-) -> QatModel {
+pub fn prepare_qat(module: &dyn Module<f32>, config: QatConfig) -> QatModel {
     let named = module.named_parameters();
     let param_names: Vec<&str> = named.iter().map(|(n, _)| n.as_str()).collect();
     core_prepare_qat(&param_names, config.weight_dtype)

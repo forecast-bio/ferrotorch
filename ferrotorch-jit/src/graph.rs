@@ -11,8 +11,13 @@ pub struct IrNodeId(pub usize);
 #[derive(Debug, Clone, PartialEq)]
 pub enum IrOpKind {
     // Inputs/outputs
-    Input { index: usize },
-    Constant { data: Vec<f64>, shape: Vec<usize> },
+    Input {
+        index: usize,
+    },
+    Constant {
+        data: Vec<f64>,
+        shape: Vec<usize>,
+    },
     Output,
 
     // Arithmetic
@@ -24,7 +29,9 @@ pub enum IrOpKind {
     /// Raise each element to a fixed exponent. Special-cased separately from
     /// other unary ops because it carries an `exponent` parameter that must be
     /// preserved through optimization passes and codegen.
-    Pow { exponent: f64 },
+    Pow {
+        exponent: f64,
+    },
     Sqrt,
     Abs,
     Exp,
@@ -55,11 +62,19 @@ pub enum IrOpKind {
     LogSoftmax,
 
     // Shape
-    Reshape { shape: Vec<isize> },
+    Reshape {
+        shape: Vec<isize>,
+    },
     Flatten,
-    Squeeze { axis: usize },
-    Unsqueeze { axis: usize },
-    Cat { axis: usize },
+    Squeeze {
+        axis: usize,
+    },
+    Unsqueeze {
+        axis: usize,
+    },
+    Cat {
+        axis: usize,
+    },
 
     // Higher-order control flow (must be lowered before interpretation)
     /// Conditional: selects between two sub-graphs based on a predicate.
@@ -70,7 +85,9 @@ pub enum IrOpKind {
     Scan,
 
     // Fused (created by optimization)
-    FusedElementwise { ops: Vec<IrOpKind> },
+    FusedElementwise {
+        ops: Vec<IrOpKind>,
+    },
 }
 
 /// An IR value — an edge in the graph carrying shape/dtype metadata.
@@ -241,10 +258,7 @@ impl IrGraph {
             for &input_val in &node.inputs {
                 if let Some(&producer_id) = value_producer.get(&input_val) {
                     *in_degree.entry(node.id).or_insert(0) += 1;
-                    dependents
-                        .entry(producer_id)
-                        .or_default()
-                        .push(node.id);
+                    dependents.entry(producer_id).or_default().push(node.id);
                 }
             }
         }
@@ -326,14 +340,11 @@ impl IrGraph {
         self.nodes.retain(|n| n.id != node_id);
 
         // Remove the values produced by this node.
-        self.values
-            .retain(|v| !output_value_ids.contains(&v.id));
+        self.values.retain(|v| !output_value_ids.contains(&v.id));
 
         // Clean up input_values and output_values lists.
-        self.input_values
-            .retain(|v| !output_value_ids.contains(v));
-        self.output_values
-            .retain(|v| !output_value_ids.contains(v));
+        self.input_values.retain(|v| !output_value_ids.contains(v));
+        self.output_values.retain(|v| !output_value_ids.contains(v));
     }
 }
 
@@ -383,8 +394,7 @@ mod tests {
         let x = g.add_input(vec![4]);
         let (_input_node_id, _) = (IrNodeId(0), ()); // Input node is id 0.
 
-        let (add_node_id, add_outs) =
-            g.add_node(IrOpKind::Add, vec![x, x], vec![vec![4]]);
+        let (add_node_id, add_outs) = g.add_node(IrOpKind::Add, vec![x, x], vec![vec![4]]);
         let (relu_node_id, relu_outs) =
             g.add_node(IrOpKind::Relu, vec![add_outs[0]], vec![vec![4]]);
         g.set_outputs(vec![relu_outs[0]]);
@@ -426,8 +436,7 @@ mod tests {
         assert_eq!(g.node_count(), 2);
         assert_eq!(g.value_count(), 2);
 
-        let (_add_id, _add_outs) =
-            g.add_node(IrOpKind::Add, vec![x, c], vec![vec![5]]);
+        let (_add_id, _add_outs) = g.add_node(IrOpKind::Add, vec![x, c], vec![vec![5]]);
         assert_eq!(g.node_count(), 3);
         assert_eq!(g.value_count(), 3);
     }
@@ -438,10 +447,8 @@ mod tests {
         let mut g = IrGraph::new();
 
         let x = g.add_input(vec![2]);
-        let (add_id, add_outs) =
-            g.add_node(IrOpKind::Add, vec![x, x], vec![vec![2]]);
-        let (relu_id, relu_outs) =
-            g.add_node(IrOpKind::Relu, vec![add_outs[0]], vec![vec![2]]);
+        let (add_id, add_outs) = g.add_node(IrOpKind::Add, vec![x, x], vec![vec![2]]);
+        let (relu_id, relu_outs) = g.add_node(IrOpKind::Relu, vec![add_outs[0]], vec![vec![2]]);
         g.set_outputs(vec![relu_outs[0]]);
 
         assert_eq!(g.node_count(), 3);

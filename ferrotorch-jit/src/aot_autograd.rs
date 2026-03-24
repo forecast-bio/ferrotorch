@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 
 use crate::error::JitError;
 use crate::graph::{IrGraph, IrNodeId, IrOpKind, IrValueId};
-use crate::optimize::{optimize, OptimizationConfig};
+use crate::optimize::{OptimizationConfig, optimize};
 
 use ferrotorch_core::error::FerrotorchResult;
 
@@ -204,7 +204,9 @@ pub fn compile_aot<T, F>(
 ) -> FerrotorchResult<AotGraphPair>
 where
     T: ferrotorch_core::dtype::Float,
-    F: Fn(&[ferrotorch_core::tensor::Tensor<T>]) -> FerrotorchResult<ferrotorch_core::tensor::Tensor<T>>,
+    F: Fn(
+        &[ferrotorch_core::tensor::Tensor<T>],
+    ) -> FerrotorchResult<ferrotorch_core::tensor::Tensor<T>>,
 {
     let mut graph = crate::trace::trace(f, example_inputs)?;
     let opt_config = config.unwrap_or_default();
@@ -283,14 +285,13 @@ mod tests {
         // not silently produce wrong gradients.
         let mut g = IrGraph::new();
         let a = g.add_input(vec![3]);
-        let (_, cat_outs) = g.add_node(
-            IrOpKind::Cat { axis: 0 },
-            vec![a],
-            vec![vec![3]],
-        );
+        let (_, cat_outs) = g.add_node(IrOpKind::Cat { axis: 0 }, vec![a], vec![vec![3]]);
         g.set_outputs(vec![cat_outs[0]]);
 
         let result = decompose_forward_backward(&g);
-        assert!(result.is_err(), "unsupported ops must error, not silently pass through");
+        assert!(
+            result.is_err(),
+            "unsupported ops must error, not silently pass through"
+        );
     }
 }

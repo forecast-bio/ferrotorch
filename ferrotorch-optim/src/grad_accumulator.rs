@@ -16,7 +16,7 @@
 //! ```
 
 use ferrotorch_core::grad_fns::arithmetic;
-use ferrotorch_core::{scalar, Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor, scalar};
 
 /// Manages gradient accumulation across multiple micro-batches.
 ///
@@ -126,11 +126,7 @@ mod tests {
         let scaled = acc.scale_loss(&loss).unwrap();
         let d = scaled.data().unwrap();
         // 8.0 / 4 = 2.0
-        assert!(
-            (d[0] - 2.0).abs() < 1e-10,
-            "expected 2.0, got {}",
-            d[0]
-        );
+        assert!((d[0] - 2.0).abs() < 1e-10, "expected 2.0, got {}", d[0]);
     }
 
     #[test]

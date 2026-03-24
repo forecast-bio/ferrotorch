@@ -46,15 +46,15 @@
 //! [CL-334] Add gradient checkpointing, autocast context, gradient clipping, and EMA callback
 
 // Re-export the core autocast primitives.
-pub use ferrotorch_core::autograd::autocast::{autocast, AutocastDtype};
-pub use ferrotorch_core::autograd::autocast::{is_autocast_enabled, autocast_dtype};
+pub use ferrotorch_core::autograd::autocast::{AutocastDtype, autocast};
+pub use ferrotorch_core::autograd::autocast::{autocast_dtype, is_autocast_enabled};
 pub use ferrotorch_core::autograd::autocast_ops::{
-    autocast_category, autocast_guard, should_cast_to_reduced,
-    should_keep_full_precision, AutocastCategory,
+    AutocastCategory, autocast_category, autocast_guard, should_cast_to_reduced,
+    should_keep_full_precision,
 };
 pub use ferrotorch_optim::{GradScaler, GradScalerConfig, GradScalerState};
 
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_optim::Optimizer;
 
 // ---------------------------------------------------------------------------
@@ -222,7 +222,10 @@ mod tests {
 
         let was_enabled = ctx.autocast_forward(|| is_autocast_enabled());
 
-        assert!(was_enabled, "autocast should be enabled inside autocast_forward");
+        assert!(
+            was_enabled,
+            "autocast should be enabled inside autocast_forward"
+        );
         assert!(!is_autocast_enabled(), "autocast should be disabled after");
     }
 

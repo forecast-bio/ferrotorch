@@ -40,10 +40,11 @@ impl CudaBackendImpl {
     /// Returns [`FerrotorchError::InvalidArgument`] if CUDA initialization fails
     /// (e.g. no GPU available, driver not loaded).
     pub fn new() -> FerrotorchResult<Self> {
-        let device =
-            Arc::new(GpuDevice::new(0).map_err(|e| FerrotorchError::InvalidArgument {
+        let device = Arc::new(
+            GpuDevice::new(0).map_err(|e| FerrotorchError::InvalidArgument {
                 message: format!("CUDA init failed: {e}"),
-            })?);
+            })?,
+        );
         Ok(Self {
             devices: vec![device],
         })
@@ -122,22 +123,18 @@ impl GpuBackend for CudaBackendImpl {
                 // SAFETY: The caller (ferrotorch-core) guarantees that `data`
                 // was originally an f32 slice serialised to bytes.
                 let count = data.len() / 4;
-                let f32_data: &[f32] = unsafe {
-                    std::slice::from_raw_parts(data.as_ptr() as *const f32, count)
-                };
-                let buf = crate::transfer::cpu_to_gpu(f32_data, dev)
-                    .map_err(Self::map_gpu_err)?;
+                let f32_data: &[f32] =
+                    unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, count) };
+                let buf = crate::transfer::cpu_to_gpu(f32_data, dev).map_err(Self::map_gpu_err)?;
                 Ok(Self::wrap_buffer(buf, device))
             }
             8 => {
                 // SAFETY: The caller (ferrotorch-core) guarantees that `data`
                 // was originally an f64 slice serialised to bytes.
                 let count = data.len() / 8;
-                let f64_data: &[f64] = unsafe {
-                    std::slice::from_raw_parts(data.as_ptr() as *const f64, count)
-                };
-                let buf = crate::transfer::cpu_to_gpu(f64_data, dev)
-                    .map_err(Self::map_gpu_err)?;
+                let f64_data: &[f64] =
+                    unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f64, count) };
+                let buf = crate::transfer::cpu_to_gpu(f64_data, dev).map_err(Self::map_gpu_err)?;
                 Ok(Self::wrap_buffer_f64(buf, device))
             }
             other => Err(FerrotorchError::InvalidArgument {
@@ -151,8 +148,7 @@ impl GpuBackend for CudaBackendImpl {
 
         // Try f32 first, then f64.
         if let Ok(buf) = Self::unwrap_buffer(handle) {
-            let f32_data =
-                crate::transfer::gpu_to_cpu(buf, dev).map_err(Self::map_gpu_err)?;
+            let f32_data = crate::transfer::gpu_to_cpu(buf, dev).map_err(Self::map_gpu_err)?;
 
             // Reinterpret Vec<f32> as Vec<u8> without copying.
             // SAFETY: f32 has alignment 4 and size 4. We adjust len and capacity
@@ -167,8 +163,7 @@ impl GpuBackend for CudaBackendImpl {
             };
             Ok(bytes)
         } else if let Ok(buf) = Self::unwrap_buffer_f64(handle) {
-            let f64_data =
-                crate::transfer::gpu_to_cpu(buf, dev).map_err(Self::map_gpu_err)?;
+            let f64_data = crate::transfer::gpu_to_cpu(buf, dev).map_err(Self::map_gpu_err)?;
 
             // Reinterpret Vec<f64> as Vec<u8> without copying.
             // SAFETY: f64 has alignment 8 and size 8. We adjust len and capacity
@@ -189,10 +184,7 @@ impl GpuBackend for CudaBackendImpl {
         }
     }
 
-    fn clone_buffer(
-        &self,
-        handle: &GpuBufferHandle,
-    ) -> FerrotorchResult<GpuBufferHandle> {
+    fn clone_buffer(&self, handle: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
         // Clone via GPU -> CPU -> GPU round-trip.
         // Correct but not optimal; a device-to-device memcpy would be better.
         let bytes = self.gpu_to_cpu(handle)?;
@@ -214,19 +206,15 @@ impl GpuBackend for CudaBackendImpl {
         let dev = self.device(device)?;
         match elem_size {
             4 => {
-                let buf = crate::transfer::alloc_zeros_f32(len, dev)
-                    .map_err(Self::map_gpu_err)?;
+                let buf = crate::transfer::alloc_zeros_f32(len, dev).map_err(Self::map_gpu_err)?;
                 Ok(Self::wrap_buffer(buf, device))
             }
             8 => {
-                let buf = crate::transfer::alloc_zeros_f64(len, dev)
-                    .map_err(Self::map_gpu_err)?;
+                let buf = crate::transfer::alloc_zeros_f64(len, dev).map_err(Self::map_gpu_err)?;
                 Ok(Self::wrap_buffer_f64(buf, device))
             }
             other => Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "alloc_zeros: unsupported elem_size {other} (expected 4 or 8)"
-                ),
+                message: format!("alloc_zeros: unsupported elem_size {other} (expected 4 or 8)"),
             }),
         }
     }
@@ -241,8 +229,7 @@ impl GpuBackend for CudaBackendImpl {
         let a_buf = Self::unwrap_buffer(a)?;
         let b_buf = Self::unwrap_buffer(b)?;
         let dev = self.device(a.device_ordinal())?;
-        let result =
-            crate::kernels::gpu_add(a_buf, b_buf, dev).map_err(Self::map_gpu_err)?;
+        let result = crate::kernels::gpu_add(a_buf, b_buf, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
@@ -254,8 +241,7 @@ impl GpuBackend for CudaBackendImpl {
         let a_buf = Self::unwrap_buffer(a)?;
         let b_buf = Self::unwrap_buffer(b)?;
         let dev = self.device(a.device_ordinal())?;
-        let result =
-            crate::kernels::gpu_sub(a_buf, b_buf, dev).map_err(Self::map_gpu_err)?;
+        let result = crate::kernels::gpu_sub(a_buf, b_buf, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
@@ -267,24 +253,21 @@ impl GpuBackend for CudaBackendImpl {
         let a_buf = Self::unwrap_buffer(a)?;
         let b_buf = Self::unwrap_buffer(b)?;
         let dev = self.device(a.device_ordinal())?;
-        let result =
-            crate::kernels::gpu_mul(a_buf, b_buf, dev).map_err(Self::map_gpu_err)?;
+        let result = crate::kernels::gpu_mul(a_buf, b_buf, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
     fn neg_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
         let a_buf = Self::unwrap_buffer(a)?;
         let dev = self.device(a.device_ordinal())?;
-        let result =
-            crate::kernels::gpu_neg(a_buf, dev).map_err(Self::map_gpu_err)?;
+        let result = crate::kernels::gpu_neg(a_buf, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
     fn relu_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
         let a_buf = Self::unwrap_buffer(a)?;
         let dev = self.device(a.device_ordinal())?;
-        let result =
-            crate::kernels::gpu_relu(a_buf, dev).map_err(Self::map_gpu_err)?;
+        let result = crate::kernels::gpu_relu(a_buf, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
@@ -301,28 +284,22 @@ impl GpuBackend for CudaBackendImpl {
         let a_buf = Self::unwrap_buffer(a)?;
         let b_buf = Self::unwrap_buffer(b)?;
         let dev = self.device(a.device_ordinal())?;
-        let result = crate::blas::gpu_matmul_f32(a_buf, b_buf, m, k, n, dev)
-            .map_err(Self::map_gpu_err)?;
+        let result =
+            crate::blas::gpu_matmul_f32(a_buf, b_buf, m, k, n, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
     // -- Reduction f32 --------------------------------------------------------
 
-    fn sum_f32(
-        &self,
-        a: &GpuBufferHandle,
-        _len: usize,
-    ) -> FerrotorchResult<GpuBufferHandle> {
+    fn sum_f32(&self, a: &GpuBufferHandle, _len: usize) -> FerrotorchResult<GpuBufferHandle> {
         // No dedicated GPU sum kernel yet. Fall back to GPU -> CPU -> sum -> GPU.
         let a_buf = Self::unwrap_buffer(a)?;
         let dev = self.device(a.device_ordinal())?;
-        let host_data =
-            crate::transfer::gpu_to_cpu(a_buf, dev).map_err(Self::map_gpu_err)?;
+        let host_data = crate::transfer::gpu_to_cpu(a_buf, dev).map_err(Self::map_gpu_err)?;
 
         let total: f32 = host_data.iter().sum();
 
-        let result_buf =
-            crate::transfer::cpu_to_gpu(&[total], dev).map_err(Self::map_gpu_err)?;
+        let result_buf = crate::transfer::cpu_to_gpu(&[total], dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result_buf, a.device_ordinal()))
     }
 
@@ -339,8 +316,8 @@ impl GpuBackend for CudaBackendImpl {
         let a_buf = Self::unwrap_buffer_f64(a)?;
         let b_buf = Self::unwrap_buffer_f64(b)?;
         let dev = self.device(a.device_ordinal())?;
-        let result = crate::blas::gpu_matmul_f64(a_buf, b_buf, m, k, n, dev)
-            .map_err(Self::map_gpu_err)?;
+        let result =
+            crate::blas::gpu_matmul_f64(a_buf, b_buf, m, k, n, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer_f64(result, a.device_ordinal()))
     }
 
@@ -357,8 +334,9 @@ impl GpuBackend for CudaBackendImpl {
         let a_buf = Self::unwrap_buffer(a)?;
         let b_buf = Self::unwrap_buffer(b)?;
         let dev = self.device(a.device_ordinal())?;
-        let result = crate::kernels::gpu_broadcast_add(a_buf, b_buf, a_shape, b_shape, out_shape, dev)
-            .map_err(Self::map_gpu_err)?;
+        let result =
+            crate::kernels::gpu_broadcast_add(a_buf, b_buf, a_shape, b_shape, out_shape, dev)
+                .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
@@ -373,8 +351,9 @@ impl GpuBackend for CudaBackendImpl {
         let a_buf = Self::unwrap_buffer(a)?;
         let b_buf = Self::unwrap_buffer(b)?;
         let dev = self.device(a.device_ordinal())?;
-        let result = crate::kernels::gpu_broadcast_sub(a_buf, b_buf, a_shape, b_shape, out_shape, dev)
-            .map_err(Self::map_gpu_err)?;
+        let result =
+            crate::kernels::gpu_broadcast_sub(a_buf, b_buf, a_shape, b_shape, out_shape, dev)
+                .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
@@ -389,8 +368,9 @@ impl GpuBackend for CudaBackendImpl {
         let a_buf = Self::unwrap_buffer(a)?;
         let b_buf = Self::unwrap_buffer(b)?;
         let dev = self.device(a.device_ordinal())?;
-        let result = crate::kernels::gpu_broadcast_mul(a_buf, b_buf, a_shape, b_shape, out_shape, dev)
-            .map_err(Self::map_gpu_err)?;
+        let result =
+            crate::kernels::gpu_broadcast_mul(a_buf, b_buf, a_shape, b_shape, out_shape, dev)
+                .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
@@ -402,8 +382,8 @@ impl GpuBackend for CudaBackendImpl {
     ) -> FerrotorchResult<GpuBufferHandle> {
         let a_buf = Self::unwrap_buffer(a)?;
         let dev = self.device(a.device_ordinal())?;
-        let result = crate::kernels::gpu_softmax(a_buf, rows, cols, dev)
-            .map_err(Self::map_gpu_err)?;
+        let result =
+            crate::kernels::gpu_softmax(a_buf, rows, cols, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
@@ -440,7 +420,7 @@ impl GpuBackend for CudaBackendImpl {
             let philox_gen = mgr.generator(device_ordinal);
             let state = philox_gen.get_state();
             // Advance by ceil(n/4) counters (each counter produces 4 u32 values)
-            let counters_needed = (n + 3) / 4;
+            let counters_needed = n.div_ceil(4);
             philox_gen.advance(counters_needed as u64);
             state
         };
@@ -479,8 +459,8 @@ impl GpuBackend for CudaBackendImpl {
     ) -> FerrotorchResult<GpuBufferHandle> {
         let a_buf = Self::unwrap_buffer(a)?;
         let dev = self.device(a.device_ordinal())?;
-        let result = crate::kernels::gpu_transpose_2d(a_buf, m, n, dev)
-            .map_err(Self::map_gpu_err)?;
+        let result =
+            crate::kernels::gpu_transpose_2d(a_buf, m, n, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
@@ -551,10 +531,11 @@ impl GpuBackend for CudaBackendImpl {
         pos: usize,
     ) -> FerrotorchResult<()> {
         let src_buf = Self::unwrap_buffer(src)?;
-        let dst_buf = dst.downcast_mut::<CudaBuffer<f32>>()
-            .ok_or(FerrotorchError::InvalidArgument {
-                message: "slice_write_f32: dst is not CudaBuffer<f32>".into(),
-            })?;
+        let dst_buf =
+            dst.downcast_mut::<CudaBuffer<f32>>()
+                .ok_or(FerrotorchError::InvalidArgument {
+                    message: "slice_write_f32: dst is not CudaBuffer<f32>".into(),
+                })?;
         let dev = self.device(src.device_ordinal())?;
         crate::kernels::gpu_slice_write(src_buf, dst_buf, n_batch, d, max_len, pos, dev)
             .map_err(Self::map_gpu_err)?;
@@ -585,8 +566,8 @@ impl GpuBackend for CudaBackendImpl {
         let idx_buf = Self::unwrap_buffer(idx)?;
         let w_buf = Self::unwrap_buffer(weight)?;
         let dev = self.device(idx.device_ordinal())?;
-        let result = crate::kernels::gpu_embed_lookup(idx_buf, w_buf, d, dev)
-            .map_err(Self::map_gpu_err)?;
+        let result =
+            crate::kernels::gpu_embed_lookup(idx_buf, w_buf, d, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, idx.device_ordinal()))
     }
 
@@ -620,15 +601,10 @@ impl GpuBackend for CudaBackendImpl {
         Ok(Self::wrap_buffer(result, grad_output.device_ordinal()))
     }
 
-    fn scale_f32(
-        &self,
-        a: &GpuBufferHandle,
-        scalar: f32,
-    ) -> FerrotorchResult<GpuBufferHandle> {
+    fn scale_f32(&self, a: &GpuBufferHandle, scalar: f32) -> FerrotorchResult<GpuBufferHandle> {
         let a_buf = Self::unwrap_buffer(a)?;
         let dev = self.device(a.device_ordinal())?;
-        let result = crate::kernels::gpu_scale(a_buf, scalar, dev)
-            .map_err(Self::map_gpu_err)?;
+        let result = crate::kernels::gpu_scale(a_buf, scalar, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
@@ -707,8 +683,8 @@ impl GpuBackend for CudaBackendImpl {
         let grad_buf = Self::unwrap_buffer(grad)?;
         let mask_buf = Self::unwrap_buffer(mask)?;
         let dev = self.device(grad.device_ordinal())?;
-        let result = crate::kernels::gpu_masked_zero(grad_buf, mask_buf, dev)
-            .map_err(Self::map_gpu_err)?;
+        let result =
+            crate::kernels::gpu_masked_zero(grad_buf, mask_buf, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, grad.device_ordinal()))
     }
 
@@ -765,10 +741,15 @@ impl GpuBackend for CudaBackendImpl {
         let go_buf = Self::unwrap_buffer(grad_output)?;
         let w_buf = Self::unwrap_buffer(weight)?;
         let dev = self.device(input.device_ordinal())?;
-        let (gi, gw, gb) = crate::kernels::gpu_layernorm_backward(in_buf, go_buf, w_buf, rows, cols, eps, dev)
-            .map_err(Self::map_gpu_err)?;
+        let (gi, gw, gb) =
+            crate::kernels::gpu_layernorm_backward(in_buf, go_buf, w_buf, rows, cols, eps, dev)
+                .map_err(Self::map_gpu_err)?;
         let ordinal = input.device_ordinal();
-        Ok((Self::wrap_buffer(gi, ordinal), Self::wrap_buffer(gw, ordinal), Self::wrap_buffer(gb, ordinal)))
+        Ok((
+            Self::wrap_buffer(gi, ordinal),
+            Self::wrap_buffer(gw, ordinal),
+            Self::wrap_buffer(gb, ordinal),
+        ))
     }
 
     fn sum_axis_f32(
@@ -781,7 +762,7 @@ impl GpuBackend for CudaBackendImpl {
         let dev = self.device(a.device_ordinal())?;
         let outer: usize = shape[..axis].iter().product();
         let axis_size = shape[axis];
-        let inner: usize = shape[axis+1..].iter().product::<usize>().max(1);
+        let inner: usize = shape[axis + 1..].iter().product::<usize>().max(1);
         let result = crate::kernels::gpu_sum_axis(a_buf, outer, axis_size, inner, dev)
             .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
@@ -798,8 +779,8 @@ impl GpuBackend for CudaBackendImpl {
         let a_buf = Self::unwrap_buffer(a)?;
         let b_buf = Self::unwrap_buffer(b)?;
         let dev = self.device(a.device_ordinal())?;
-        let result = crate::blas::gpu_matmul_f16(a_buf, b_buf, m, k, n, dev)
-            .map_err(Self::map_gpu_err)?;
+        let result =
+            crate::blas::gpu_matmul_f16(a_buf, b_buf, m, k, n, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
@@ -847,8 +828,15 @@ impl GpuBackend for CudaBackendImpl {
         let in_buf = Self::unwrap_buffer(input)?;
         let dev = self.device(input.device_ordinal())?;
         let result = crate::kernels::gpu_strided_split(
-            in_buf, total_along_axis, split_offset, split_size, inner_size, n, dev,
-        ).map_err(Self::map_gpu_err)?;
+            in_buf,
+            total_along_axis,
+            split_offset,
+            split_size,
+            inner_size,
+            n,
+            dev,
+        )
+        .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, input.device_ordinal()))
     }
 
@@ -864,13 +852,23 @@ impl GpuBackend for CudaBackendImpl {
     ) -> FerrotorchResult<()> {
         let in_buf = Self::unwrap_buffer(input)?;
         let dev = self.device(input.device_ordinal())?;
-        let out_buf = output.downcast_mut::<CudaBuffer<f32>>()
-            .ok_or(FerrotorchError::InvalidArgument {
-                message: "strided_cat_f32: output is not CudaBuffer<f32>".into(),
-            })?;
+        let out_buf =
+            output
+                .downcast_mut::<CudaBuffer<f32>>()
+                .ok_or(FerrotorchError::InvalidArgument {
+                    message: "strided_cat_f32: output is not CudaBuffer<f32>".into(),
+                })?;
         crate::kernels::gpu_strided_cat(
-            in_buf, out_buf, total_along_axis, cat_offset, part_size, inner_size, n, dev,
-        ).map_err(Self::map_gpu_err)?;
+            in_buf,
+            out_buf,
+            total_along_axis,
+            cat_offset,
+            part_size,
+            inner_size,
+            n,
+            dev,
+        )
+        .map_err(Self::map_gpu_err)?;
         Ok(())
     }
 }
@@ -886,15 +884,15 @@ impl GpuBackend for CudaBackendImpl {
 /// second `GpuDevice` via `GpuDevice::new(0)` would create a separate
 /// CUDA context with its own module cache, which is not interoperable.
 pub fn get_cuda_device() -> FerrotorchResult<Arc<GpuDevice>> {
-    let backend = ferrotorch_core::gpu_dispatch::gpu_backend()
-        .ok_or(FerrotorchError::DeviceUnavailable)?;
+    let backend =
+        ferrotorch_core::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
     // The global backend is a &dyn GpuBackend. We know it's CudaBackendImpl
     // because init_cuda_backend registered it. Downcast via Any.
-    let cuda_backend = backend.as_any()
-        .downcast_ref::<CudaBackendImpl>()
-        .ok_or(FerrotorchError::InvalidArgument {
+    let cuda_backend = backend.as_any().downcast_ref::<CudaBackendImpl>().ok_or(
+        FerrotorchError::InvalidArgument {
             message: "registered GPU backend is not CudaBackendImpl".into(),
-        })?;
+        },
+    )?;
     Ok(Arc::clone(cuda_backend.default_device()?))
 }
 
@@ -978,10 +976,7 @@ mod tests {
 
         let back_bytes = backend.gpu_to_cpu(&handle).expect("gpu_to_cpu");
         let back: &[f32] = unsafe {
-            std::slice::from_raw_parts(
-                back_bytes.as_ptr() as *const f32,
-                back_bytes.len() / 4,
-            )
+            std::slice::from_raw_parts(back_bytes.as_ptr() as *const f32, back_bytes.len() / 4)
         };
         assert_eq!(back, &host[..]);
     }
@@ -995,18 +990,10 @@ mod tests {
         let b_data: Vec<f32> = vec![10.0, 20.0, 30.0, 40.0];
         let expected: Vec<f32> = vec![11.0, 22.0, 33.0, 44.0];
 
-        let a_bytes: &[u8] = unsafe {
-            std::slice::from_raw_parts(
-                a_data.as_ptr() as *const u8,
-                a_data.len() * 4,
-            )
-        };
-        let b_bytes: &[u8] = unsafe {
-            std::slice::from_raw_parts(
-                b_data.as_ptr() as *const u8,
-                b_data.len() * 4,
-            )
-        };
+        let a_bytes: &[u8] =
+            unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const u8, a_data.len() * 4) };
+        let b_bytes: &[u8] =
+            unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const u8, b_data.len() * 4) };
 
         let a_handle = backend.cpu_to_gpu(a_bytes, 4, 0).expect("cpu_to_gpu a");
         let b_handle = backend.cpu_to_gpu(b_bytes, 4, 0).expect("cpu_to_gpu b");
@@ -1016,10 +1003,7 @@ mod tests {
 
         let result_bytes = backend.gpu_to_cpu(&result).expect("gpu_to_cpu");
         let result_f32: &[f32] = unsafe {
-            std::slice::from_raw_parts(
-                result_bytes.as_ptr() as *const f32,
-                result_bytes.len() / 4,
-            )
+            std::slice::from_raw_parts(result_bytes.as_ptr() as *const f32, result_bytes.len() / 4)
         };
 
         for (i, (&got, &exp)) in result_f32.iter().zip(expected.iter()).enumerate() {
@@ -1046,12 +1030,10 @@ mod tests {
         let b_data: Vec<f32> = vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
         let expected: Vec<f32> = vec![58.0, 64.0, 139.0, 154.0];
 
-        let a_bytes: &[u8] = unsafe {
-            std::slice::from_raw_parts(a_data.as_ptr() as *const u8, a_data.len() * 4)
-        };
-        let b_bytes: &[u8] = unsafe {
-            std::slice::from_raw_parts(b_data.as_ptr() as *const u8, b_data.len() * 4)
-        };
+        let a_bytes: &[u8] =
+            unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const u8, a_data.len() * 4) };
+        let b_bytes: &[u8] =
+            unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const u8, b_data.len() * 4) };
 
         let a_handle = backend.cpu_to_gpu(a_bytes, 4, 0).expect("cpu_to_gpu a");
         let b_handle = backend.cpu_to_gpu(b_bytes, 4, 0).expect("cpu_to_gpu b");
@@ -1063,10 +1045,7 @@ mod tests {
 
         let result_bytes = backend.gpu_to_cpu(&result).expect("gpu_to_cpu");
         let result_f32: &[f32] = unsafe {
-            std::slice::from_raw_parts(
-                result_bytes.as_ptr() as *const f32,
-                result_bytes.len() / 4,
-            )
+            std::slice::from_raw_parts(result_bytes.as_ptr() as *const f32, result_bytes.len() / 4)
         };
 
         for (i, (&got, &exp)) in result_f32.iter().zip(expected.iter()).enumerate() {

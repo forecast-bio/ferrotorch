@@ -10,7 +10,7 @@
 //!
 //! [CL-334] Add gradient checkpointing, autocast context, gradient clipping, and EMA callback
 
-use ferrotorch_core::{Float, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_nn::Parameter;
 
 /// Clip the total gradient norm of an iterable of parameters.
@@ -178,11 +178,8 @@ pub fn clip_grad_value_<T: Float>(
                     }
                 })
                 .collect();
-            let new_grad = Tensor::from_storage(
-                TensorStorage::cpu(clamped),
-                grad.shape().to_vec(),
-                false,
-            )?;
+            let new_grad =
+                Tensor::from_storage(TensorStorage::cpu(clamped), grad.shape().to_vec(), false)?;
             param.set_grad(Some(new_grad))?;
         }
     }
@@ -221,7 +218,10 @@ mod tests {
 
         let total_norm = clip_grad_norm_(&params, 2.5, 2.0).unwrap();
 
-        assert!((total_norm - 5.0).abs() < 1e-5, "total norm should be 5.0, got {total_norm}");
+        assert!(
+            (total_norm - 5.0).abs() < 1e-5,
+            "total norm should be 5.0, got {total_norm}"
+        );
 
         let grad = p.grad().unwrap().unwrap();
         let data = grad.data().unwrap();
@@ -354,9 +354,21 @@ mod tests {
 
         let grad = p.grad().unwrap().unwrap();
         let data = grad.data().unwrap();
-        assert!((data[0] - 1.0).abs() < 1e-6, "expected 1.0, got {}", data[0]);
-        assert!((data[1] - (-1.0)).abs() < 1e-6, "expected -1.0, got {}", data[1]);
-        assert!((data[2] - 0.5).abs() < 1e-6, "expected 0.5, got {}", data[2]);
+        assert!(
+            (data[0] - 1.0).abs() < 1e-6,
+            "expected 1.0, got {}",
+            data[0]
+        );
+        assert!(
+            (data[1] - (-1.0)).abs() < 1e-6,
+            "expected -1.0, got {}",
+            data[1]
+        );
+        assert!(
+            (data[2] - 0.5).abs() < 1e-6,
+            "expected 0.5, got {}",
+            data[2]
+        );
     }
 
     #[test]

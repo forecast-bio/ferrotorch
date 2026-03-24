@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -154,11 +154,9 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
 
                         // Adapt step size.
                         if sign_product > 0 {
-                            state.step_size[i] =
-                                (state.step_size[i] * eta_plus).min(step_max);
+                            state.step_size[i] = (state.step_size[i] * eta_plus).min(step_max);
                         } else if sign_product < 0 {
-                            state.step_size[i] =
-                                (state.step_size[i] * eta_minus).max(step_min);
+                            state.step_size[i] = (state.step_size[i] * eta_minus).max(step_min);
                         }
                         // sign_product == 0: step size unchanged.
 
@@ -245,19 +243,17 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
                 .copied()
                 .unwrap_or(0.0) as u64;
 
-            let prev_grad = entry
-                .get("prev_grad")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
+            let prev_grad = entry.get("prev_grad").cloned().ok_or_else(|| {
+                FerrotorchError::InvalidArgument {
                     message: format!("missing prev_grad in state for key {key}"),
-                })?;
+                }
+            })?;
 
-            let step_size = entry
-                .get("step_size")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
+            let step_size = entry.get("step_size").cloned().ok_or_else(|| {
+                FerrotorchError::InvalidArgument {
                     message: format!("missing step_size in state for key {key}"),
-                })?;
+                }
+            })?;
 
             self.state.insert(
                 key.clone(),
@@ -288,10 +284,7 @@ mod tests {
     }
 
     fn param_val(opt: &Rprop<f64>, group: usize, idx: usize) -> f64 {
-        opt.param_groups[group].params[idx]
-            .tensor()
-            .data()
-            .unwrap()[0]
+        opt.param_groups[group].params[idx].tensor().data().unwrap()[0]
     }
 
     fn set_grad_scalar(opt: &Rprop<f64>, group: usize, idx: usize, val: f64) {
@@ -389,19 +382,20 @@ mod tests {
         let p = scalar_param(1.0);
         let mut opt = Rprop::new(vec![p], RpropConfig::default());
 
-        let grad =
-            Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
+        let grad = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
         opt.param_groups[0].params[0]
             .tensor()
             .set_grad(Some(grad))
             .unwrap();
 
         opt.zero_grad().unwrap();
-        assert!(opt.param_groups[0].params[0]
-            .tensor()
-            .grad()
-            .unwrap()
-            .is_none());
+        assert!(
+            opt.param_groups[0].params[0]
+                .tensor()
+                .grad()
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

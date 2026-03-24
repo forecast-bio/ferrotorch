@@ -4,7 +4,7 @@
 //! `nn.init` module. Each layer's constructor applies the appropriate
 //! default initialization.
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::parameter::Parameter;
 
@@ -384,11 +384,7 @@ pub fn sparse_<T: Float>(
         }
     }
 
-    *param = Parameter::new(Tensor::from_storage(
-        TensorStorage::cpu(data),
-        shape,
-        true,
-    )?);
+    *param = Parameter::new(Tensor::from_storage(TensorStorage::cpu(data), shape, true)?);
     Ok(())
 }
 
@@ -449,11 +445,7 @@ pub fn dirac_<T: Float>(param: &mut Parameter<T>, groups: usize) -> FerrotorchRe
         }
     }
 
-    *param = Parameter::new(Tensor::from_storage(
-        TensorStorage::cpu(data),
-        shape,
-        true,
-    )?);
+    *param = Parameter::new(Tensor::from_storage(TensorStorage::cpu(data), shape, true)?);
     Ok(())
 }
 
@@ -478,11 +470,7 @@ pub fn eye_<T: Float>(param: &mut Parameter<T>) -> FerrotorchResult<()> {
         data[i * cols + i] = one;
     }
 
-    *param = Parameter::new(Tensor::from_storage(
-        TensorStorage::cpu(data),
-        shape,
-        true,
-    )?);
+    *param = Parameter::new(Tensor::from_storage(TensorStorage::cpu(data), shape, true)?);
     Ok(())
 }
 
@@ -890,10 +878,7 @@ mod tests {
             for in_ch in 0..4 {
                 let val = data[out_ch * 4 * 3 + in_ch * 3 + center];
                 if out_ch == in_ch {
-                    assert!(
-                        (val - 1.0).abs() < 1e-6,
-                        "diag [{out_ch},{in_ch}] = {val}"
-                    );
+                    assert!((val - 1.0).abs() < 1e-6, "diag [{out_ch},{in_ch}] = {val}");
                 } else {
                     assert!(val.abs() < 1e-6, "off-diag [{out_ch},{in_ch}] = {val}");
                 }

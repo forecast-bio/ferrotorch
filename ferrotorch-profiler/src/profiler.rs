@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use crate::event::{DeviceType, GpuTimingPair, ProfileEvent};
@@ -92,12 +92,7 @@ impl Profiler {
     }
 
     /// Record an operation whose duration is already known.
-    pub fn record_with_duration(
-        &self,
-        name: &str,
-        category: &str,
-        duration_us: u64,
-    ) {
+    pub fn record_with_duration(&self, name: &str, category: &str, duration_us: u64) {
         if !self.active.load(Ordering::Relaxed) {
             return;
         }
@@ -226,10 +221,7 @@ impl Profiler {
 
     /// Drain collected events into a [`ProfileReport`].
     fn into_report(self) -> ProfileReport {
-        let events = self
-            .events
-            .into_inner()
-            .unwrap_or_default();
+        let events = self.events.into_inner().unwrap_or_default();
         ProfileReport::new(events)
     }
 }
@@ -269,7 +261,10 @@ mod tests {
     #[test]
     fn test_push_gpu_event_returns_index() {
         let profiler = Profiler::new(ProfileConfig::default());
-        let timing = GpuTimingPair { start_us: 100, end_us: 200 };
+        let timing = GpuTimingPair {
+            start_us: 100,
+            end_us: 200,
+        };
 
         let idx = profiler.push_gpu_event("matmul", "cuda_kernel", timing);
         assert_eq!(idx, Some(0));
@@ -281,7 +276,10 @@ mod tests {
     #[test]
     fn test_push_gpu_event_sets_cuda_device_type() {
         let ((), report) = with_profiler(ProfileConfig::default(), |p| {
-            let timing = GpuTimingPair { start_us: 0, end_us: 50 };
+            let timing = GpuTimingPair {
+                start_us: 0,
+                end_us: 50,
+            };
             p.push_gpu_event("conv2d", "cuda_kernel", timing);
         });
         let events = report.events();
@@ -294,7 +292,10 @@ mod tests {
     fn test_push_gpu_event_inactive_returns_none() {
         let profiler = Profiler::new(ProfileConfig::default());
         profiler.stop();
-        let timing = GpuTimingPair { start_us: 0, end_us: 100 };
+        let timing = GpuTimingPair {
+            start_us: 0,
+            end_us: 100,
+        };
         assert_eq!(profiler.push_gpu_event("mm", "cuda_kernel", timing), None);
     }
 

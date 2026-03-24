@@ -15,7 +15,7 @@
 //! parameter is kept for API consistency — once f64 PTX kernels are added,
 //! the fallback disappears transparently.
 
-use ferrotorch_core::{Float, Tensor, TensorStorage, FerrotorchResult, FerrotorchError};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::blas::{gpu_matmul_f32, gpu_matmul_f64};
 use crate::buffer::CudaBuffer;
@@ -402,12 +402,7 @@ impl<T: GpuFloat> GpuTensor<T> {
             });
         }
 
-        let input_shape: [usize; 4] = [
-            self.shape[0],
-            self.shape[1],
-            self.shape[2],
-            self.shape[3],
-        ];
+        let input_shape: [usize; 4] = [self.shape[0], self.shape[1], self.shape[2], self.shape[3]];
         let weight_shape: [usize; 4] = [
             weight.shape[0],
             weight.shape[1],
@@ -454,7 +449,7 @@ impl<T: GpuFloat> GpuTensor<T> {
 /// Caller must have verified `size_of::<T>() == size_of::<U>()` and
 /// `align_of::<T>() == align_of::<U>()`.
 #[cfg(feature = "cuda")]
-unsafe fn transmute_buffer_ref<'a, T, U>(buf: &'a CudaBuffer<T>) -> &'a CudaBuffer<U> {
+unsafe fn transmute_buffer_ref<T, U>(buf: &CudaBuffer<T>) -> &CudaBuffer<U> {
     debug_assert_eq!(std::mem::size_of::<T>(), std::mem::size_of::<U>());
     debug_assert_eq!(std::mem::align_of::<T>(), std::mem::align_of::<U>());
     // CudaBuffer<T> and CudaBuffer<U> have identical layout when T and U
@@ -484,7 +479,7 @@ unsafe fn transmute_buffer<U, T>(buf: CudaBuffer<U>) -> CudaBuffer<T> {
 // to exist so the module compiles.
 
 #[cfg(not(feature = "cuda"))]
-unsafe fn transmute_buffer_ref<'a, T, U>(buf: &'a CudaBuffer<T>) -> &'a CudaBuffer<U> {
+unsafe fn transmute_buffer_ref<T, U>(buf: &CudaBuffer<T>) -> &CudaBuffer<U> {
     let _ = buf;
     unreachable!("transmute_buffer_ref called without cuda feature")
 }
@@ -521,10 +516,7 @@ fn binary_cpu_fallback<T: GpuFloat>(
 }
 
 /// Unary operation fallback: copy operand to CPU, apply `op`, copy back.
-fn unary_cpu_fallback<T: GpuFloat>(
-    a: &GpuTensor<T>,
-    op: fn(T) -> T,
-) -> GpuResult<GpuTensor<T>> {
+fn unary_cpu_fallback<T: GpuFloat>(a: &GpuTensor<T>, op: fn(T) -> T) -> GpuResult<GpuTensor<T>> {
     let a_cpu = gpu_to_cpu(&a.buffer, &a.device)?;
     let result: Vec<T> = a_cpu.iter().map(|&x| op(x)).collect();
     let out_buf = cpu_to_gpu(&result, &a.device)?;
@@ -548,7 +540,10 @@ fn unary_cpu_fallback<T: GpuFloat>(
 ///
 /// - Returns [`GpuError::Driver`] on CUDA allocation or copy failures.
 /// - Returns [`GpuError::LengthMismatch`] if the tensor is not contiguous.
-pub fn tensor_to_gpu<T: GpuFloat>(tensor: &Tensor<T>, device: &GpuDevice) -> GpuResult<GpuTensor<T>> {
+pub fn tensor_to_gpu<T: GpuFloat>(
+    tensor: &Tensor<T>,
+    device: &GpuDevice,
+) -> GpuResult<GpuTensor<T>> {
     // Ensure the tensor is contiguous so data() gives a proper flat slice.
     if !tensor.is_contiguous() {
         return Err(GpuError::LengthMismatch {

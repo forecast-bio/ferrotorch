@@ -164,9 +164,10 @@ pub fn backward_with_grad<T: Float>(
                         // Run gradient hooks (if any), which may modify the gradient.
                         let hooks = input.hooks();
                         let has_hooks = {
-                            let guard = hooks.lock().map_err(|e| FerrotorchError::LockPoisoned {
-                                message: format!("hook storage mutex: {e}"),
-                            })?;
+                            let guard =
+                                hooks.lock().map_err(|e| FerrotorchError::LockPoisoned {
+                                    message: format!("hook storage mutex: {e}"),
+                                })?;
                             (guard.has_grad_hooks(), guard.has_post_accumulate_hooks())
                         };
                         let grad = if has_hooks.0 {

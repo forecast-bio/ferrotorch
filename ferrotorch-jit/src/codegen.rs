@@ -123,11 +123,7 @@ impl Codegen for InterpreterBackend {
                 .iter()
                 .zip(input_shapes.iter())
                 .map(|(data, shape)| {
-                    Tensor::from_storage(
-                        TensorStorage::cpu(data.clone()),
-                        shape.clone(),
-                        false,
-                    )
+                    Tensor::from_storage(TensorStorage::cpu(data.clone()), shape.clone(), false)
                 })
                 .collect::<FerrotorchResult<Vec<_>>>()?;
 
@@ -305,15 +301,23 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
                             value_kinds.insert(out_id, ValueKind::Computed(ops.clone()));
                         }
                     }
-                    ValueKind::BinaryComputed { lhs_input, rhs_input, binary, mut unary_chain } => {
+                    ValueKind::BinaryComputed {
+                        lhs_input,
+                        rhs_input,
+                        binary,
+                        mut unary_chain,
+                    } => {
                         unary_chain.push(new_op);
                         for &out_id in &node.outputs {
-                            value_kinds.insert(out_id, ValueKind::BinaryComputed {
-                                lhs_input,
-                                rhs_input,
-                                binary: binary.clone(),
-                                unary_chain: unary_chain.clone(),
-                            });
+                            value_kinds.insert(
+                                out_id,
+                                ValueKind::BinaryComputed {
+                                    lhs_input,
+                                    rhs_input,
+                                    binary: binary.clone(),
+                                    unary_chain: unary_chain.clone(),
+                                },
+                            );
                         }
                     }
                     ValueKind::Constant(_) => return None, // constant -> op not handled natively
@@ -331,15 +335,23 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
                 }
 
                 match input_kind {
-                    ValueKind::BinaryComputed { lhs_input, rhs_input, binary, mut unary_chain } => {
+                    ValueKind::BinaryComputed {
+                        lhs_input,
+                        rhs_input,
+                        binary,
+                        mut unary_chain,
+                    } => {
                         unary_chain.extend(new_ops);
                         for &out_id in &node.outputs {
-                            value_kinds.insert(out_id, ValueKind::BinaryComputed {
-                                lhs_input,
-                                rhs_input,
-                                binary: binary.clone(),
-                                unary_chain: unary_chain.clone(),
-                            });
+                            value_kinds.insert(
+                                out_id,
+                                ValueKind::BinaryComputed {
+                                    lhs_input,
+                                    rhs_input,
+                                    binary: binary.clone(),
+                                    unary_chain: unary_chain.clone(),
+                                },
+                            );
                         }
                     }
                     ValueKind::Input(_) => {
@@ -372,7 +384,8 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
                     (ValueKind::Input(li), ValueKind::Input(ri)) if li == ri => {
                         let binary_op = make_self_binary_op(op)?;
                         for &out_id in &node.outputs {
-                            value_kinds.insert(out_id, ValueKind::Computed(vec![binary_op.clone()]));
+                            value_kinds
+                                .insert(out_id, ValueKind::Computed(vec![binary_op.clone()]));
                         }
                     }
 
@@ -449,9 +462,8 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
     match output_kind {
         ValueKind::Input(_) => {
             // Identity: output == input. Build a trivial passthrough.
-            let execute = move |inputs: &[Vec<f64>]| -> FerrotorchResult<Vec<f64>> {
-                Ok(inputs[0].clone())
-            };
+            let execute =
+                move |inputs: &[Vec<f64>]| -> FerrotorchResult<Vec<f64>> { Ok(inputs[0].clone()) };
             Some(CompiledGraph {
                 execute: Box::new(execute),
                 num_inputs,
@@ -491,7 +503,12 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
             })
         }
 
-        ValueKind::BinaryComputed { lhs_input, rhs_input, binary, unary_chain } => {
+        ValueKind::BinaryComputed {
+            lhs_input,
+            rhs_input,
+            binary,
+            unary_chain,
+        } => {
             // Binary op on two inputs, optionally followed by unary chain.
             let unary_chain = Arc::new(unary_chain);
             let execute = move |inputs: &[Vec<f64>]| -> FerrotorchResult<Vec<f64>> {
@@ -518,9 +535,8 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
 
         ValueKind::Constant(data) => {
             // Constant output — unusual but valid.
-            let execute = move |_inputs: &[Vec<f64>]| -> FerrotorchResult<Vec<f64>> {
-                Ok(data.clone())
-            };
+            let execute =
+                move |_inputs: &[Vec<f64>]| -> FerrotorchResult<Vec<f64>> { Ok(data.clone()) };
             Some(CompiledGraph {
                 execute: Box::new(execute),
                 num_inputs,
@@ -638,42 +654,48 @@ fn make_binary_with_constant_op(
     let clen = cdata.len();
 
     match (op, constant_is_lhs) {
-        (IrOpKind::Add, _) => {
-            Some((Arc::new(move |x: f64| {
+        (IrOpKind::Add, _) => Some((
+            Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 x + cdata[i]
-            }), Some(counter_clone)))
-        }
-        (IrOpKind::Sub, false) => {
-            Some((Arc::new(move |x: f64| {
+            }),
+            Some(counter_clone),
+        )),
+        (IrOpKind::Sub, false) => Some((
+            Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 x - cdata[i]
-            }), Some(counter_clone)))
-        }
-        (IrOpKind::Sub, true) => {
-            Some((Arc::new(move |x: f64| {
+            }),
+            Some(counter_clone),
+        )),
+        (IrOpKind::Sub, true) => Some((
+            Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 cdata[i] - x
-            }), Some(counter_clone)))
-        }
-        (IrOpKind::Mul, _) => {
-            Some((Arc::new(move |x: f64| {
+            }),
+            Some(counter_clone),
+        )),
+        (IrOpKind::Mul, _) => Some((
+            Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 x * cdata[i]
-            }), Some(counter_clone)))
-        }
-        (IrOpKind::Div, false) => {
-            Some((Arc::new(move |x: f64| {
+            }),
+            Some(counter_clone),
+        )),
+        (IrOpKind::Div, false) => Some((
+            Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 x / cdata[i]
-            }), Some(counter_clone)))
-        }
-        (IrOpKind::Div, true) => {
-            Some((Arc::new(move |x: f64| {
+            }),
+            Some(counter_clone),
+        )),
+        (IrOpKind::Div, true) => Some((
+            Arc::new(move |x: f64| {
                 let i = counter.fetch_add(1, Ordering::Relaxed) % clen;
                 cdata[i] / x
-            }), Some(counter_clone)))
-        }
+            }),
+            Some(counter_clone),
+        )),
         _ => None,
     }
 }
@@ -712,7 +734,10 @@ fn resolve_output_shape(graph: &IrGraph) -> FerrotorchResult<Vec<usize>> {
         .find(|v| v.id == output_id)
         .map(|v| v.shape.clone())
         .ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!("codegen: output value {:?} not found in graph values", output_id),
+            message: format!(
+                "codegen: output value {:?} not found in graph values",
+                output_id
+            ),
         })
 }
 
@@ -793,27 +818,17 @@ impl InductorBackend {
                     crate::codegen_cpu::CpuCodegen::generate_rust_source(loops, &fn_name)
                 }
                 InductorTarget::CpuC => {
-                    crate::codegen_cpu::CpuCodegen::generate_c_source(
-                        loops,
-                        &fn_name,
-                        num_inputs,
-                    )
+                    crate::codegen_cpu::CpuCodegen::generate_c_source(loops, &fn_name, num_inputs)
                 }
-                InductorTarget::GpuCuda => {
-                    crate::codegen_gpu::GpuCodegen::generate_cuda_source(
-                        loops,
-                        &fn_name,
-                        num_inputs,
-                    )
-                }
-                InductorTarget::GpuPtx => {
-                    crate::codegen_gpu::GpuCodegen::generate_ptx_source(
-                        loops,
-                        &fn_name,
-                        self.block_size,
-                        num_inputs,
-                    )
-                }
+                InductorTarget::GpuCuda => crate::codegen_gpu::GpuCodegen::generate_cuda_source(
+                    loops, &fn_name, num_inputs,
+                ),
+                InductorTarget::GpuPtx => crate::codegen_gpu::GpuCodegen::generate_ptx_source(
+                    loops,
+                    &fn_name,
+                    self.block_size,
+                    num_inputs,
+                ),
             };
 
             sources.push(source);
@@ -826,28 +841,22 @@ impl InductorBackend {
                 InductorTarget::CpuRust => {
                     crate::codegen_cpu::CpuCodegen::generate_rust_source(&[], "kernel_identity")
                 }
-                InductorTarget::CpuC => {
-                    crate::codegen_cpu::CpuCodegen::generate_c_source(
-                        &[],
-                        "kernel_identity",
-                        num_graph_inputs.max(1),
-                    )
-                }
-                InductorTarget::GpuCuda => {
-                    crate::codegen_gpu::GpuCodegen::generate_cuda_source(
-                        &[],
-                        "kernel_identity",
-                        num_graph_inputs.max(1),
-                    )
-                }
-                InductorTarget::GpuPtx => {
-                    crate::codegen_gpu::GpuCodegen::generate_ptx_source(
-                        &[],
-                        "kernel_identity",
-                        self.block_size,
-                        num_graph_inputs.max(1),
-                    )
-                }
+                InductorTarget::CpuC => crate::codegen_cpu::CpuCodegen::generate_c_source(
+                    &[],
+                    "kernel_identity",
+                    num_graph_inputs.max(1),
+                ),
+                InductorTarget::GpuCuda => crate::codegen_gpu::GpuCodegen::generate_cuda_source(
+                    &[],
+                    "kernel_identity",
+                    num_graph_inputs.max(1),
+                ),
+                InductorTarget::GpuPtx => crate::codegen_gpu::GpuCodegen::generate_ptx_source(
+                    &[],
+                    "kernel_identity",
+                    self.block_size,
+                    num_graph_inputs.max(1),
+                ),
             };
             sources.push(source);
         }
@@ -1043,11 +1052,7 @@ mod tests {
         // sqrt = [3, 4, 5]
         let mut g = IrGraph::new();
         let x = g.add_input(vec![3]);
-        let (_, pow_outs) = g.add_node(
-            IrOpKind::Pow { exponent: 2.0 },
-            vec![x],
-            vec![vec![3]],
-        );
+        let (_, pow_outs) = g.add_node(IrOpKind::Pow { exponent: 2.0 }, vec![x], vec![vec![3]]);
         let (_, sqrt_outs) = g.add_node(IrOpKind::Sqrt, vec![pow_outs[0]], vec![vec![3]]);
         g.set_outputs(vec![sqrt_outs[0]]);
 
@@ -1087,10 +1092,16 @@ mod tests {
 
         let input = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
 
-        let interp_result = InterpreterBackend.compile(&g).unwrap()
-            .execute(&[input.clone()]).unwrap();
-        let native_result = NativeBackend.compile(&g).unwrap()
-            .execute(&[input]).unwrap();
+        let interp_result = InterpreterBackend
+            .compile(&g)
+            .unwrap()
+            .execute(&[input.clone()])
+            .unwrap();
+        let native_result = NativeBackend
+            .compile(&g)
+            .unwrap()
+            .execute(&[input])
+            .unwrap();
 
         // The interpreter uses Tensor<f64> ops while the native backend uses
         // raw f64 math. Allow a small tolerance for floating-point differences.
@@ -1108,10 +1119,16 @@ mod tests {
 
         let input = vec![10.0, 20.0, 30.0];
 
-        let interp_result = InterpreterBackend.compile(&g).unwrap()
-            .execute(&[input.clone()]).unwrap();
-        let native_result = NativeBackend.compile(&g).unwrap()
-            .execute(&[input]).unwrap();
+        let interp_result = InterpreterBackend
+            .compile(&g)
+            .unwrap()
+            .execute(&[input.clone()])
+            .unwrap();
+        let native_result = NativeBackend
+            .compile(&g)
+            .unwrap()
+            .execute(&[input])
+            .unwrap();
 
         assert_close(&native_result, &interp_result, 1e-10);
     }
@@ -1201,10 +1218,22 @@ mod tests {
 
     #[test]
     fn test_inductor_backend_name() {
-        assert_eq!(InductorBackend::new(InductorTarget::CpuRust).name(), "inductor-cpu-rust");
-        assert_eq!(InductorBackend::new(InductorTarget::CpuC).name(), "inductor-cpu-c");
-        assert_eq!(InductorBackend::new(InductorTarget::GpuPtx).name(), "inductor-gpu-ptx");
-        assert_eq!(InductorBackend::new(InductorTarget::GpuCuda).name(), "inductor-gpu-cuda");
+        assert_eq!(
+            InductorBackend::new(InductorTarget::CpuRust).name(),
+            "inductor-cpu-rust"
+        );
+        assert_eq!(
+            InductorBackend::new(InductorTarget::CpuC).name(),
+            "inductor-cpu-c"
+        );
+        assert_eq!(
+            InductorBackend::new(InductorTarget::GpuPtx).name(),
+            "inductor-gpu-ptx"
+        );
+        assert_eq!(
+            InductorBackend::new(InductorTarget::GpuCuda).name(),
+            "inductor-gpu-cuda"
+        );
     }
 
     #[test]
@@ -1303,7 +1332,11 @@ mod tests {
         let backend = InductorBackend::new(InductorTarget::CpuRust);
         let sources = backend.generate(&g).unwrap();
 
-        assert!(sources.len() >= 2, "expected at least 2 fusion groups, got {}", sources.len());
+        assert!(
+            sources.len() >= 2,
+            "expected at least 2 fusion groups, got {}",
+            sources.len()
+        );
     }
 
     #[test]
@@ -1317,11 +1350,16 @@ mod tests {
 
         let input = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
 
-        let interp_result = InterpreterBackend.compile(&g).unwrap()
-            .execute(&[input.clone()]).unwrap();
+        let interp_result = InterpreterBackend
+            .compile(&g)
+            .unwrap()
+            .execute(&[input.clone()])
+            .unwrap();
         let inductor_result = InductorBackend::new(InductorTarget::CpuRust)
-            .compile(&g).unwrap()
-            .execute(&[input]).unwrap();
+            .compile(&g)
+            .unwrap()
+            .execute(&[input])
+            .unwrap();
 
         assert_close(&inductor_result, &interp_result, 1e-10);
     }
@@ -1358,16 +1396,8 @@ mod tests {
         ] {
             let backend = InductorBackend::new(target);
             let sources = backend.generate(&g).unwrap();
-            assert!(
-                !sources.is_empty(),
-                "no sources generated for {:?}",
-                target
-            );
-            assert!(
-                !sources[0].is_empty(),
-                "empty source for {:?}",
-                target
-            );
+            assert!(!sources.is_empty(), "no sources generated for {:?}", target);
+            assert!(!sources[0].is_empty(), "empty source for {:?}", target);
         }
     }
 }

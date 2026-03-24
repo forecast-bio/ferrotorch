@@ -14,7 +14,9 @@ pub enum JitError {
     #[error("tracing error: {message}")]
     TracingError { message: String },
 
-    #[error("data-dependent control flow detected at op '{op}': tracing requires static control flow")]
+    #[error(
+        "data-dependent control flow detected at op '{op}': tracing requires static control flow"
+    )]
     DataDependentControlFlow { op: String },
 
     #[error("unsupported operation during tracing: {op}")]
@@ -35,7 +37,9 @@ pub enum JitError {
     #[error("graph break at op '{op}': {reason}")]
     GraphBreak { op: String, reason: String },
 
-    #[error("export error at op '{op}': {reason} (export mode requires fullgraph — no graph breaks allowed)")]
+    #[error(
+        "export error at op '{op}': {reason} (export mode requires fullgraph — no graph breaks allowed)"
+    )]
     ExportError { op: String, reason: String },
 
     #[error("parameter error: {message}")]

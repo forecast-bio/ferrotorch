@@ -30,11 +30,7 @@ pub struct EpochResult {
 
 impl fmt::Display for EpochResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "epoch {}: train_loss={:.6}",
-            self.epoch, self.train_loss,
-        )?;
+        write!(f, "epoch {}: train_loss={:.6}", self.epoch, self.train_loss,)?;
         if let Some(vl) = self.val_loss {
             write!(f, ", val_loss={vl:.6}")?;
         }

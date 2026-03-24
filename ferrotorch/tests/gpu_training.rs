@@ -39,7 +39,9 @@ fn test_mlp_training_cpu() {
         let output = model.forward(&x).unwrap();
         let loss = ce_loss.forward(&output, &t).unwrap();
         let loss_val = loss.data_vec().unwrap()[0];
-        if step == 0 { first_loss = loss_val; }
+        if step == 0 {
+            first_loss = loss_val;
+        }
         last_loss = loss_val;
 
         loss.backward().unwrap();
@@ -54,7 +56,10 @@ fn test_mlp_training_cpu() {
         optimizer.step().unwrap();
     }
 
-    assert!(last_loss < first_loss, "MLP CPU: loss should decrease. first={first_loss}, last={last_loss}");
+    assert!(
+        last_loss < first_loss,
+        "MLP CPU: loss should decrease. first={first_loss}, last={last_loss}"
+    );
 }
 
 // =====================================================================
@@ -83,7 +88,13 @@ fn test_transformer_training_cpu() {
     all_params.extend(mlp_down.parameters().into_iter().cloned());
     all_params.extend(ln.parameters().into_iter().cloned());
 
-    let mut optimizer = AdamW::new(all_params, AdamWConfig { lr: 1e-3, ..Default::default() });
+    let mut optimizer = AdamW::new(
+        all_params,
+        AdamWConfig {
+            lr: 1e-3,
+            ..Default::default()
+        },
+    );
 
     let mut first_loss = 0.0f32;
     let mut last_loss = 0.0f32;
@@ -99,9 +110,15 @@ fn test_transformer_training_cpu() {
         let qkv_chunks = chunk_t(&qkv, 3, 2).unwrap();
 
         // Reshape to [batch*n_heads, seq, head_dim]
-        let q = qkv_chunks[0].view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64]).unwrap();
-        let k = qkv_chunks[1].view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64]).unwrap();
-        let v = qkv_chunks[2].view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64]).unwrap();
+        let q = qkv_chunks[0]
+            .view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64])
+            .unwrap();
+        let k = qkv_chunks[1]
+            .view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64])
+            .unwrap();
+        let v = qkv_chunks[2]
+            .view(&[batch as i64 * n_heads as i64, seq as i64, head_dim as i64])
+            .unwrap();
 
         // Attention: softmax(Q @ K^T / sqrt(d)) @ V
         let k_t = permute_t(&k, &[0, 2, 1]).unwrap();
@@ -112,7 +129,9 @@ fn test_transformer_training_cpu() {
         let attn_out = grad_fns::linalg::bmm_differentiable(&attn, &v).unwrap();
 
         // Reshape back + output projection
-        let attn_out = attn_out.view(&[batch as i64, seq as i64, d_model as i64]).unwrap();
+        let attn_out = attn_out
+            .view(&[batch as i64, seq as i64, d_model as i64])
+            .unwrap();
         let attn_out = out_proj.forward(&attn_out).unwrap();
 
         // Residual + LayerNorm + MLP
@@ -128,7 +147,9 @@ fn test_transformer_training_cpu() {
         let sq = grad_fns::arithmetic::mul(&diff, &diff).unwrap();
         let loss = grad_fns::reduction::mean(&sq).unwrap();
         let loss_val = loss.data_vec().unwrap()[0];
-        if step == 0 { first_loss = loss_val; }
+        if step == 0 {
+            first_loss = loss_val;
+        }
         last_loss = loss_val;
 
         loss.backward().unwrap();
@@ -151,7 +172,10 @@ fn test_transformer_training_cpu() {
         optimizer.step().unwrap();
     }
 
-    assert!(last_loss < first_loss, "Transformer CPU: loss should decrease. first={first_loss}, last={last_loss}");
+    assert!(
+        last_loss < first_loss,
+        "Transformer CPU: loss should decrease. first={first_loss}, last={last_loss}"
+    );
 }
 
 // =====================================================================
@@ -190,7 +214,9 @@ fn test_cnn_training_cpu() {
 
         let loss = ce_loss.forward(&output, &target).unwrap();
         let loss_val = loss.data_vec().unwrap()[0];
-        if step == 0 { first_loss = loss_val; }
+        if step == 0 {
+            first_loss = loss_val;
+        }
         last_loss = loss_val;
 
         loss.backward().unwrap();
@@ -210,7 +236,10 @@ fn test_cnn_training_cpu() {
         optimizer.step().unwrap();
     }
 
-    assert!(last_loss < first_loss, "CNN CPU: loss should decrease. first={first_loss}, last={last_loss}");
+    assert!(
+        last_loss < first_loss,
+        "CNN CPU: loss should decrease. first={first_loss}, last={last_loss}"
+    );
 }
 
 // =====================================================================
@@ -232,7 +261,13 @@ fn test_lstm_training_cpu() {
     all_params.extend(lstm.parameters().into_iter().cloned());
     all_params.extend(output_proj.parameters().into_iter().cloned());
 
-    let mut optimizer = Adam::new(all_params, AdamConfig { lr: 1e-3, ..Default::default() });
+    let mut optimizer = Adam::new(
+        all_params,
+        AdamConfig {
+            lr: 1e-3,
+            ..Default::default()
+        },
+    );
     let ce_loss = CrossEntropyLoss::new(Reduction::Mean, 0.0);
 
     let mut first_loss = 0.0f32;
@@ -252,7 +287,9 @@ fn test_lstm_training_cpu() {
             let emb = embedding.forward(&idx).unwrap();
             emb_data.extend(emb.data_vec().unwrap());
         }
-        let embedded = from_vec(emb_data, &[4, 8, embed_dim]).unwrap().requires_grad_(true);
+        let embedded = from_vec(emb_data, &[4, 8, embed_dim])
+            .unwrap()
+            .requires_grad_(true);
 
         // LSTM forward
         let (lstm_out, _state) = lstm.forward_with_state(&embedded, None).unwrap();
@@ -264,7 +301,9 @@ fn test_lstm_training_cpu() {
         let targets = from_vec(target_ids, &[32]).unwrap();
         let loss = ce_loss.forward(&logits, &targets).unwrap();
         let loss_val = loss.data_vec().unwrap()[0];
-        if step == 0 { first_loss = loss_val; }
+        if step == 0 {
+            first_loss = loss_val;
+        }
         last_loss = loss_val;
 
         loss.backward().unwrap();
@@ -285,7 +324,10 @@ fn test_lstm_training_cpu() {
         optimizer.step().unwrap();
     }
 
-    assert!(last_loss < first_loss, "LSTM CPU: loss should decrease. first={first_loss}, last={last_loss}");
+    assert!(
+        last_loss < first_loss,
+        "LSTM CPU: loss should decrease. first={first_loss}, last={last_loss}"
+    );
 }
 
 // =====================================================================
@@ -311,7 +353,13 @@ fn test_vae_training_cpu() {
     all_params.extend(dec_fc1.parameters().into_iter().cloned());
     all_params.extend(dec_fc2.parameters().into_iter().cloned());
 
-    let mut optimizer = Adam::new(all_params, AdamConfig { lr: 1e-3, ..Default::default() });
+    let mut optimizer = Adam::new(
+        all_params,
+        AdamConfig {
+            lr: 1e-3,
+            ..Default::default()
+        },
+    );
 
     let mut first_loss = 0.0f32;
     let mut last_loss = 0.0f32;
@@ -330,10 +378,8 @@ fn test_vae_training_cpu() {
         let half_logvar = grad_fns::arithmetic::mul(&logvar, &half).unwrap();
         let std = grad_fns::transcendental::exp(&half_logvar).unwrap();
         let eps = randn::<f32>(&[8, latent_dim]).unwrap();
-        let z = grad_fns::arithmetic::add(
-            &mu,
-            &grad_fns::arithmetic::mul(&eps, &std).unwrap(),
-        ).unwrap();
+        let z = grad_fns::arithmetic::add(&mu, &grad_fns::arithmetic::mul(&eps, &std).unwrap())
+            .unwrap();
 
         // Decode
         let h_dec = dec_fc1.forward(&z).unwrap().relu().unwrap();
@@ -342,29 +388,30 @@ fn test_vae_training_cpu() {
 
         // Reconstruction loss (MSE)
         let diff = grad_fns::arithmetic::sub(&recon, &input).unwrap();
-        let recon_loss = grad_fns::reduction::mean(
-            &grad_fns::arithmetic::mul(&diff, &diff).unwrap()
-        ).unwrap();
+        let recon_loss =
+            grad_fns::reduction::mean(&grad_fns::arithmetic::mul(&diff, &diff).unwrap()).unwrap();
 
         // KL divergence: -0.5 * mean(1 + logvar - mu^2 - exp(logvar))
         let one = scalar::<f32>(1.0).unwrap();
         let mu_sq = grad_fns::arithmetic::mul(&mu, &mu).unwrap();
         let exp_logvar = grad_fns::transcendental::exp(&logvar).unwrap();
         let kl_inner = grad_fns::arithmetic::sub(
-            &grad_fns::arithmetic::sub(
-                &grad_fns::arithmetic::add(&one, &logvar).unwrap(),
-                &mu_sq,
-            ).unwrap(),
+            &grad_fns::arithmetic::sub(&grad_fns::arithmetic::add(&one, &logvar).unwrap(), &mu_sq)
+                .unwrap(),
             &exp_logvar,
-        ).unwrap();
+        )
+        .unwrap();
         let kl_loss = grad_fns::arithmetic::mul(
             &grad_fns::reduction::mean(&kl_inner).unwrap(),
             &scalar::<f32>(-0.5).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let loss = grad_fns::arithmetic::add(&recon_loss, &kl_loss).unwrap();
         let loss_val = loss.data_vec().unwrap()[0];
-        if step == 0 { first_loss = loss_val; }
+        if step == 0 {
+            first_loss = loss_val;
+        }
         last_loss = loss_val;
 
         loss.backward().unwrap();
@@ -387,7 +434,10 @@ fn test_vae_training_cpu() {
         optimizer.step().unwrap();
     }
 
-    assert!(last_loss < first_loss, "VAE CPU: loss should decrease. first={first_loss}, last={last_loss}");
+    assert!(
+        last_loss < first_loss,
+        "VAE CPU: loss should decrease. first={first_loss}, last={last_loss}"
+    );
 }
 
 // =====================================================================
@@ -444,9 +494,21 @@ impl NeoXBlock {
         let v = &qkv_chunks[2];
 
         // Reshape to [batch*n_heads, seq, head_dim] for bmm
-        let q = q.view(&[batch as i64 * self.n_heads as i64, seq as i64, self.head_dim as i64])?;
-        let k = k.view(&[batch as i64 * self.n_heads as i64, seq as i64, self.head_dim as i64])?;
-        let v = v.view(&[batch as i64 * self.n_heads as i64, seq as i64, self.head_dim as i64])?;
+        let q = q.view(&[
+            batch as i64 * self.n_heads as i64,
+            seq as i64,
+            self.head_dim as i64,
+        ])?;
+        let k = k.view(&[
+            batch as i64 * self.n_heads as i64,
+            seq as i64,
+            self.head_dim as i64,
+        ])?;
+        let v = v.view(&[
+            batch as i64 * self.n_heads as i64,
+            seq as i64,
+            self.head_dim as i64,
+        ])?;
 
         // Apply RoPE to Q and K
         let q = self.rope.apply(&q, 0)?;
@@ -547,9 +609,7 @@ fn test_pythia_architecture_cpu() {
 
     for step in 0..10 {
         // Random token IDs: [batch, seq]
-        let token_ids: Vec<f32> = (0..batch * seq)
-            .map(|i| (i % vocab_size) as f32)
-            .collect();
+        let token_ids: Vec<f32> = (0..batch * seq).map(|i| (i % vocab_size) as f32).collect();
         // Target: next-token prediction (shift by 1)
         let target_ids: Vec<f32> = (0..batch * seq)
             .map(|i| ((i + 1) % vocab_size) as f32)
@@ -566,7 +626,8 @@ fn test_pythia_architecture_cpu() {
             let emb = token_emb.forward(&idx).unwrap(); // [1, d_model]
             emb_data.extend(emb.data_vec().unwrap());
         }
-        let mut h = from_vec(emb_data, &[batch, seq, d_model]).unwrap()
+        let mut h = from_vec(emb_data, &[batch, seq, d_model])
+            .unwrap()
             .requires_grad_(true);
 
         // Transformer blocks
@@ -579,7 +640,9 @@ fn test_pythia_architecture_cpu() {
         let logits = lm_head.forward(&h).unwrap(); // [batch, seq, vocab]
 
         // Reshape for loss: [batch*seq, vocab] vs [batch*seq]
-        let logits_flat = logits.view(&[(batch * seq) as i64, vocab_size as i64]).unwrap();
+        let logits_flat = logits
+            .view(&[(batch * seq) as i64, vocab_size as i64])
+            .unwrap();
         let targets = from_vec(target_ids, &[batch * seq]).unwrap();
 
         let loss = ce_loss.forward(&logits_flat, &targets).unwrap();

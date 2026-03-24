@@ -341,7 +341,14 @@ where
     // Practical segmentation: we identify contiguous runs of supported ops
     // and build an IrGraph for each run, and wrap unsupported ops in eager
     // closures.
-    let segments = build_segments(&ops, example_inputs, &input_ids, &output, config, &tensor_map)?;
+    let segments = build_segments(
+        &ops,
+        example_inputs,
+        &input_ids,
+        &output,
+        config,
+        &tensor_map,
+    )?;
 
     Ok(TraceResult::Segmented(SegmentedModule::new(segments)))
 }
@@ -390,10 +397,7 @@ fn build_ir_graph<T: Float>(
             .iter()
             .map(|cid| {
                 *tensor_to_ir.get(cid).unwrap_or_else(|| {
-                    panic!(
-                        "BUG: tensor {:?} not found in tensor_to_ir map",
-                        cid
-                    )
+                    panic!("BUG: tensor {:?} not found in tensor_to_ir map", cid)
                 })
             })
             .collect();
@@ -404,11 +408,12 @@ fn build_ir_graph<T: Float>(
     }
 
     // Mark output.
-    let output_ir = *tensor_to_ir.get(&output.id()).ok_or_else(|| {
-        FerrotorchError::InvalidArgument {
-            message: "traced output tensor not found in IR value map".into(),
-        }
-    })?;
+    let output_ir =
+        *tensor_to_ir
+            .get(&output.id())
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: "traced output tensor not found in IR value map".into(),
+            })?;
     graph.set_outputs(vec![output_ir]);
 
     Ok(graph)
@@ -440,12 +445,8 @@ fn build_segments<T: Float>(
         } else {
             // Flush the current compiled run if non-empty.
             if !compiled_run.is_empty() {
-                let graph = build_ir_graph_from_run(
-                    &compiled_run,
-                    example_inputs,
-                    input_ids,
-                    tensor_map,
-                )?;
+                let graph =
+                    build_ir_graph_from_run(&compiled_run, example_inputs, input_ids, tensor_map)?;
                 let mut optimized = graph;
                 let _memory_plan = optimize(&mut optimized, &config.optimization);
                 segments.push(GraphSegment::Compiled(TracedModule::new(optimized)));
@@ -482,12 +483,7 @@ fn build_segments<T: Float>(
 
     // Flush any remaining compiled run.
     if !compiled_run.is_empty() {
-        let graph = build_ir_graph_from_run(
-            &compiled_run,
-            example_inputs,
-            input_ids,
-            tensor_map,
-        )?;
+        let graph = build_ir_graph_from_run(&compiled_run, example_inputs, input_ids, tensor_map)?;
         let mut optimized = graph;
         let _memory_plan = optimize(&mut optimized, &config.optimization);
         segments.push(GraphSegment::Compiled(TracedModule::new(optimized)));
@@ -711,11 +707,8 @@ mod tests {
         // Eager segment: multiply each element by 10
         let eager_fn: Arc<dyn Fn(&Tensor<f32>) -> FerrotorchResult<Tensor<f32>> + Send + Sync> =
             Arc::new(|input: &Tensor<f32>| {
-                let ten = ferrotorch_core::from_vec(
-                    vec![10.0f32; input.numel()],
-                    input.shape(),
-                )
-                .unwrap();
+                let ten =
+                    ferrotorch_core::from_vec(vec![10.0f32; input.numel()], input.shape()).unwrap();
                 ferrotorch_core::grad_fns::arithmetic::mul(input, &ten)
             });
 
@@ -861,9 +854,7 @@ mod tests {
 
         // Segment 2 (eager): negate
         let eager_fn: Arc<dyn Fn(&Tensor<f32>) -> FerrotorchResult<Tensor<f32>> + Send + Sync> =
-            Arc::new(|input: &Tensor<f32>| {
-                ferrotorch_core::grad_fns::arithmetic::neg(input)
-            });
+            Arc::new(|input: &Tensor<f32>| ferrotorch_core::grad_fns::arithmetic::neg(input));
 
         // Segment 3 (compiled): y = relu(x)
         let mut g3 = IrGraph::new();
@@ -957,9 +948,8 @@ mod tests {
         let debug_str = format!("{:?}", compiled);
         assert!(debug_str.contains("Compiled"));
 
-        let eager: GraphSegment<f32> = GraphSegment::Eager(Arc::new(|input: &Tensor<f32>| {
-            Ok(input.clone())
-        }));
+        let eager: GraphSegment<f32> =
+            GraphSegment::Eager(Arc::new(|input: &Tensor<f32>| Ok(input.clone())));
         let debug_str = format!("{:?}", eager);
         assert!(debug_str.contains("Eager"));
     }

@@ -7,13 +7,13 @@
 
 use std::sync::Arc;
 
+use ferrotorch_core::Float;
 use ferrotorch_core::autograd::autocast_ops::autocast_guard;
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
 use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 use ferrotorch_core::ops::elementwise::{binary_map, mean, sum, unary_map};
 use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::tensor::{GradFn, Tensor};
-use ferrotorch_core::Float;
 use num_traits::{One, Zero};
 
 use crate::module::Reduction;
@@ -112,9 +112,21 @@ struct MSEBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for MSEBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_pred = if self.pred.is_cuda() { self.pred.cpu()? } else { self.pred.clone() };
-        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_pred = if self.pred.is_cuda() {
+            self.pred.cpu()?
+        } else {
+            self.pred.clone()
+        };
+        let cpu_target = if self.target.is_cuda() {
+            self.target.cpu()?
+        } else {
+            self.target.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let pred_data = cpu_pred.data()?;
         let target_data = cpu_target.data()?;
         let grad_data = cpu_go.data()?;
@@ -250,7 +262,7 @@ impl CrossEntropyLoss {
             for c in 0..classes {
                 let e = (logits_data[base + c] - max_val).exp();
                 softmax_out[base + c] = e;
-                sum_exp = sum_exp + e;
+                sum_exp += e;
             }
             let log_sum = sum_exp.ln();
             for c in 0..classes {
@@ -272,7 +284,7 @@ impl CrossEntropyLoss {
                 // Smooth component: -mean(log_probs along class dim)
                 let mut sum_lp = <T as Zero>::zero();
                 for c in 0..classes {
-                    sum_lp = sum_lp + log_probs[base + c];
+                    sum_lp += log_probs[base + c];
                 }
                 let smooth = -sum_lp / T::from(classes).unwrap();
                 losses[b] = (one - ls) * nll + ls * smooth;
@@ -281,19 +293,12 @@ impl CrossEntropyLoss {
             }
         }
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(losses),
-            vec![batch],
-            false,
-        )?;
+        let unreduced = Tensor::from_storage(TensorStorage::cpu(losses), vec![batch], false)?;
         let reduced = apply_reduction(&unreduced, self.reduction)?;
 
         if is_grad_enabled() && logits.requires_grad() {
-            let softmax_tensor = Tensor::from_storage(
-                TensorStorage::cpu(softmax_out),
-                vec![batch, classes],
-                false,
-            )?;
+            let softmax_tensor =
+                Tensor::from_storage(TensorStorage::cpu(softmax_out), vec![batch, classes], false)?;
             let grad_fn = Arc::new(CrossEntropyBackward {
                 logits: logits.clone(),
                 targets: targets.clone(),
@@ -341,9 +346,21 @@ impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
         let shape = self.logits.shape();
         let batch = shape[0];
         let classes = shape[1];
-        let cpu_sm = if self.softmax.is_cuda() { self.softmax.cpu()? } else { self.softmax.clone() };
-        let cpu_targets = if self.targets.is_cuda() { self.targets.cpu()? } else { self.targets.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_sm = if self.softmax.is_cuda() {
+            self.softmax.cpu()?
+        } else {
+            self.softmax.clone()
+        };
+        let cpu_targets = if self.targets.is_cuda() {
+            self.targets.cpu()?
+        } else {
+            self.targets.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let sm_data = cpu_sm.data()?;
         let targets_data = cpu_targets.data()?;
         let grad_data = cpu_go.data()?;
@@ -365,18 +382,18 @@ impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
 
             for c in 0..classes {
                 let sm = sm_data[base + c];
-                let one_hot = if c == target_class { one } else { <T as Zero>::zero() };
+                let one_hot = if c == target_class {
+                    one
+                } else {
+                    <T as Zero>::zero()
+                };
                 // grad = softmax - ((1 - ls) * one_hot + ls / C)
                 let target_dist = (one - ls) * one_hot + ls * inv_c;
                 result[base + c] = (sm - target_dist) * scale;
             }
         }
 
-        let grad_input = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            shape.to_vec(),
-            false,
-        )?;
+        let grad_input = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
         let grad_input = grad_input.to(self.logits.device())?;
         Ok(vec![Some(grad_input)])
     }
@@ -489,9 +506,21 @@ struct BCEWithLogitsBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for BCEWithLogitsBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_logits = if self.logits.is_cuda() { self.logits.cpu()? } else { self.logits.clone() };
-        let cpu_targets = if self.targets.is_cuda() { self.targets.cpu()? } else { self.targets.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_logits = if self.logits.is_cuda() {
+            self.logits.cpu()?
+        } else {
+            self.logits.clone()
+        };
+        let cpu_targets = if self.targets.is_cuda() {
+            self.targets.cpu()?
+        } else {
+            self.targets.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let logits_data = cpu_logits.data()?;
         let targets_data = cpu_targets.data()?;
         let grad_data = cpu_go.data()?;
@@ -605,11 +634,8 @@ impl HuberLoss {
             })
             .collect();
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(loss_data),
-            pred.shape().to_vec(),
-            false,
-        )?;
+        let unreduced =
+            Tensor::from_storage(TensorStorage::cpu(loss_data), pred.shape().to_vec(), false)?;
         let reduced = apply_reduction(&unreduced, self.reduction)?;
 
         if is_grad_enabled() && pred.requires_grad() {
@@ -652,9 +678,21 @@ struct HuberBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for HuberBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_pred = if self.pred.is_cuda() { self.pred.cpu()? } else { self.pred.clone() };
-        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_pred = if self.pred.is_cuda() {
+            self.pred.cpu()?
+        } else {
+            self.pred.clone()
+        };
+        let cpu_target = if self.target.is_cuda() {
+            self.target.cpu()?
+        } else {
+            self.target.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let pred_data = cpu_pred.data()?;
         let target_data = cpu_target.data()?;
         let grad_data = cpu_go.data()?;
@@ -791,11 +829,8 @@ impl KLDivLoss {
             })
             .collect();
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(loss_data),
-            input.shape().to_vec(),
-            false,
-        )?;
+        let unreduced =
+            Tensor::from_storage(TensorStorage::cpu(loss_data), input.shape().to_vec(), false)?;
         let reduced = apply_reduction(&unreduced, self.reduction)?;
 
         if is_grad_enabled() && input.requires_grad() {
@@ -833,8 +868,16 @@ struct KLDivBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for KLDivBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_target = if self.target.is_cuda() {
+            self.target.cpu()?
+        } else {
+            self.target.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let target_data = cpu_target.data()?;
         let grad_data = cpu_go.data()?;
         let n = T::from(target_data.len()).unwrap();
@@ -964,9 +1007,9 @@ impl CosineEmbeddingLoss {
             for f in 0..feat {
                 let a = x1_data[base + f];
                 let bv = x2_data[base + f];
-                dot = dot + a * bv;
-                norm1_sq = norm1_sq + a * a;
-                norm2_sq = norm2_sq + bv * bv;
+                dot += a * bv;
+                norm1_sq += a * a;
+                norm2_sq += bv * bv;
             }
             let denom = norm1_sq.sqrt() * norm2_sq.sqrt();
             let cos_sim = if denom > zero { dot / denom } else { zero };
@@ -981,11 +1024,7 @@ impl CosineEmbeddingLoss {
             }
         }
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(losses),
-            vec![batch],
-            false,
-        )?;
+        let unreduced = Tensor::from_storage(TensorStorage::cpu(losses), vec![batch], false)?;
         apply_reduction(&unreduced, self.reduction)
     }
 }
@@ -1082,9 +1121,21 @@ struct L1Backward<T: Float> {
 
 impl<T: Float> GradFn<T> for L1Backward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_pred = if self.pred.is_cuda() { self.pred.cpu()? } else { self.pred.clone() };
-        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_pred = if self.pred.is_cuda() {
+            self.pred.cpu()?
+        } else {
+            self.pred.clone()
+        };
+        let cpu_target = if self.target.is_cuda() {
+            self.target.cpu()?
+        } else {
+            self.target.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let pred_data = cpu_pred.data()?;
         let target_data = cpu_target.data()?;
         let grad_data = cpu_go.data()?;
@@ -1118,14 +1169,12 @@ impl<T: Float> GradFn<T> for L1Backward<T> {
                     .map(|(&p, &t)| sign(p - t) * go)
                     .collect()
             }
-            Reduction::None => {
-                pred_data
-                    .iter()
-                    .zip(target_data.iter())
-                    .zip(grad_data.iter())
-                    .map(|((&p, &t), &g)| sign(p - t) * g)
-                    .collect()
-            }
+            Reduction::None => pred_data
+                .iter()
+                .zip(target_data.iter())
+                .zip(grad_data.iter())
+                .map(|((&p, &t), &g)| sign(p - t) * g)
+                .collect(),
         };
 
         let grad_input = Tensor::from_storage(
@@ -1219,11 +1268,7 @@ impl NLLLoss {
         if batch == 0 {
             // Empty batch: return scalar zero for Mean/Sum, empty [0] for None.
             return match self.reduction {
-                Reduction::None => Tensor::from_storage(
-                    TensorStorage::cpu(vec![]),
-                    vec![0],
-                    false,
-                ),
+                Reduction::None => Tensor::from_storage(TensorStorage::cpu(vec![]), vec![0], false),
                 _ => Tensor::from_storage(
                     TensorStorage::cpu(vec![<T as Zero>::zero()]),
                     vec![],
@@ -1263,11 +1308,7 @@ impl NLLLoss {
             valid_count += 1;
         }
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(losses),
-            vec![batch],
-            false,
-        )?;
+        let unreduced = Tensor::from_storage(TensorStorage::cpu(losses), vec![batch], false)?;
 
         // Apply reduction, but for Mean we need to use valid_count instead of batch.
         let reduced = match self.reduction {
@@ -1285,11 +1326,7 @@ impl NLLLoss {
                     let s = sum(&unreduced)?;
                     let s_data = s.data_vec()?;
                     let mean_val = s_data[0] / T::from(valid_count).unwrap();
-                    Tensor::from_storage(
-                        TensorStorage::cpu(vec![mean_val]),
-                        vec![],
-                        false,
-                    )?
+                    Tensor::from_storage(TensorStorage::cpu(vec![mean_val]), vec![], false)?
                 }
             }
         };
@@ -1340,8 +1377,16 @@ impl<T: Float> GradFn<T> for NLLBackward<T> {
         let batch = shape[0];
         let classes = shape[1];
 
-        let cpu_targets = if self.targets.is_cuda() { self.targets.cpu()? } else { self.targets.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_targets = if self.targets.is_cuda() {
+            self.targets.cpu()?
+        } else {
+            self.targets.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let targets_data = cpu_targets.data()?;
         let grad_data = cpu_go.data()?;
 
@@ -1373,11 +1418,7 @@ impl<T: Float> GradFn<T> for NLLBackward<T> {
             result[b * classes + target_class] = -scale;
         }
 
-        let grad_input = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            shape.to_vec(),
-            false,
-        )?;
+        let grad_input = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
         let grad_input = grad_input.to(self.log_probs.device())?;
         Ok(vec![Some(grad_input)])
     }
@@ -1499,11 +1540,8 @@ impl BCELoss {
             })
             .collect();
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(loss_data),
-            input.shape().to_vec(),
-            false,
-        )?;
+        let unreduced =
+            Tensor::from_storage(TensorStorage::cpu(loss_data), input.shape().to_vec(), false)?;
         let reduced = apply_reduction(&unreduced, self.reduction)?;
 
         if is_grad_enabled() && input.requires_grad() {
@@ -1541,9 +1579,21 @@ struct BCEBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for BCEBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_target = if self.target.is_cuda() {
+            self.target.cpu()?
+        } else {
+            self.target.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let input_data = cpu_input.data()?;
         let target_data = cpu_target.data()?;
         let grad_data = cpu_go.data()?;
@@ -1559,7 +1609,13 @@ impl<T: Float> GradFn<T> for BCEBackward<T> {
                     .iter()
                     .zip(target_data.iter())
                     .map(|(&x, &y)| {
-                        let xc = if x < eps { eps } else if x > one_m_eps { one_m_eps } else { x };
+                        let xc = if x < eps {
+                            eps
+                        } else if x > one_m_eps {
+                            one_m_eps
+                        } else {
+                            x
+                        };
                         (-y / xc + (one - y) / (one - xc)) * go / n
                     })
                     .collect()
@@ -1570,7 +1626,13 @@ impl<T: Float> GradFn<T> for BCEBackward<T> {
                     .iter()
                     .zip(target_data.iter())
                     .map(|(&x, &y)| {
-                        let xc = if x < eps { eps } else if x > one_m_eps { one_m_eps } else { x };
+                        let xc = if x < eps {
+                            eps
+                        } else if x > one_m_eps {
+                            one_m_eps
+                        } else {
+                            x
+                        };
                         (-y / xc + (one - y) / (one - xc)) * go
                     })
                     .collect()
@@ -1580,7 +1642,13 @@ impl<T: Float> GradFn<T> for BCEBackward<T> {
                 .zip(target_data.iter())
                 .zip(grad_data.iter())
                 .map(|((&x, &y), &g)| {
-                    let xc = if x < eps { eps } else if x > one_m_eps { one_m_eps } else { x };
+                    let xc = if x < eps {
+                        eps
+                    } else if x > one_m_eps {
+                        one_m_eps
+                    } else {
+                        x
+                    };
                     (-y / xc + (one - y) / (one - xc)) * g
                 })
                 .collect(),
@@ -1677,28 +1745,24 @@ impl TripletMarginLoss {
 
         let mut losses = vec![zero; batch];
 
-        for b in 0..batch {
+        for (b, loss) in losses.iter_mut().enumerate() {
             let base = b * feat;
             let mut dist_pos = zero;
             let mut dist_neg = zero;
             for f in 0..feat {
                 let dp = (anchor_data[base + f] - positive_data[base + f]).abs();
                 let dn = (anchor_data[base + f] - negative_data[base + f]).abs();
-                dist_pos = dist_pos + dp.powf(p_val);
-                dist_neg = dist_neg + dn.powf(p_val);
+                dist_pos += dp.powf(p_val);
+                dist_neg += dn.powf(p_val);
             }
             dist_pos = dist_pos.powf(inv_p);
             dist_neg = dist_neg.powf(inv_p);
 
             let val = dist_pos - dist_neg + margin_t;
-            losses[b] = if val > zero { val } else { zero };
+            *loss = if val > zero { val } else { zero };
         }
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(losses),
-            vec![batch],
-            false,
-        )?;
+        let unreduced = Tensor::from_storage(TensorStorage::cpu(losses), vec![batch], false)?;
         let reduced = apply_reduction(&unreduced, self.reduction)?;
 
         if is_grad_enabled() && anchor.requires_grad() {
@@ -1751,10 +1815,26 @@ impl<T: Float> GradFn<T> for TripletMarginBackward<T> {
         let shape = self.anchor.shape();
         let batch = shape[0];
         let feat = shape[1];
-        let cpu_anchor = if self.anchor.is_cuda() { self.anchor.cpu()? } else { self.anchor.clone() };
-        let cpu_positive = if self.positive.is_cuda() { self.positive.cpu()? } else { self.positive.clone() };
-        let cpu_negative = if self.negative.is_cuda() { self.negative.cpu()? } else { self.negative.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_anchor = if self.anchor.is_cuda() {
+            self.anchor.cpu()?
+        } else {
+            self.anchor.clone()
+        };
+        let cpu_positive = if self.positive.is_cuda() {
+            self.positive.cpu()?
+        } else {
+            self.positive.clone()
+        };
+        let cpu_negative = if self.negative.is_cuda() {
+            self.negative.cpu()?
+        } else {
+            self.negative.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let anchor_data = cpu_anchor.data()?;
         let positive_data = cpu_positive.data()?;
         let negative_data = cpu_negative.data()?;
@@ -1777,8 +1857,8 @@ impl<T: Float> GradFn<T> for TripletMarginBackward<T> {
             for f in 0..feat {
                 let dp = (anchor_data[base + f] - positive_data[base + f]).abs();
                 let dn = (anchor_data[base + f] - negative_data[base + f]).abs();
-                dist_pos = dist_pos + dp.powf(p_val);
-                dist_neg = dist_neg + dn.powf(p_val);
+                dist_pos += dp.powf(p_val);
+                dist_neg += dn.powf(p_val);
             }
             dist_pos = dist_pos.powf(inv_p);
             dist_neg = dist_neg.powf(inv_p);
@@ -1817,11 +1897,7 @@ impl<T: Float> GradFn<T> for TripletMarginBackward<T> {
             }
         }
 
-        let grad_input = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            shape.to_vec(),
-            false,
-        )?;
+        let grad_input = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
         let grad_input = grad_input.to(self.anchor.device())?;
         Ok(vec![Some(grad_input)])
     }
@@ -1897,11 +1973,8 @@ impl MarginRankingLoss {
             })
             .collect();
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(loss_data),
-            x1.shape().to_vec(),
-            false,
-        )?;
+        let unreduced =
+            Tensor::from_storage(TensorStorage::cpu(loss_data), x1.shape().to_vec(), false)?;
         let reduced = apply_reduction(&unreduced, self.reduction)?;
 
         if is_grad_enabled() && x1.requires_grad() {
@@ -1944,10 +2017,26 @@ struct MarginRankingBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for MarginRankingBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_x1 = if self.x1.is_cuda() { self.x1.cpu()? } else { self.x1.clone() };
-        let cpu_x2 = if self.x2.is_cuda() { self.x2.cpu()? } else { self.x2.clone() };
-        let cpu_y = if self.y.is_cuda() { self.y.cpu()? } else { self.y.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_x1 = if self.x1.is_cuda() {
+            self.x1.cpu()?
+        } else {
+            self.x1.clone()
+        };
+        let cpu_x2 = if self.x2.is_cuda() {
+            self.x2.cpu()?
+        } else {
+            self.x2.clone()
+        };
+        let cpu_y = if self.y.is_cuda() {
+            self.y.cpu()?
+        } else {
+            self.y.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let x1_data = cpu_x1.data()?;
         let x2_data = cpu_x2.data()?;
         let y_data = cpu_y.data()?;
@@ -1993,11 +2082,8 @@ impl<T: Float> GradFn<T> for MarginRankingBackward<T> {
                 .collect(),
         };
 
-        let grad_input = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            self.x1.shape().to_vec(),
-            false,
-        )?;
+        let grad_input =
+            Tensor::from_storage(TensorStorage::cpu(result), self.x1.shape().to_vec(), false)?;
         let grad_input = grad_input.to(self.x1.device())?;
         Ok(vec![Some(grad_input)])
     }
@@ -2107,7 +2193,7 @@ impl CTCLoss {
                 let mut log_prob_blank = zero;
                 for t in 0..t_len {
                     let idx = t * batch * num_classes + b * num_classes + self.blank;
-                    log_prob_blank = log_prob_blank + lp_data[idx];
+                    log_prob_blank += lp_data[idx];
                 }
                 losses[b] = -log_prob_blank;
                 continue;
@@ -2124,24 +2210,22 @@ impl CTCLoss {
             let mut alpha = vec![vec![neg_inf; ext_len]; t_len];
 
             // t = 0
-            let lp_blank_0 = lp_data[0 * batch * num_classes + b * num_classes + ext_labels[0]];
+            let lp_blank_0 = lp_data[b * num_classes + ext_labels[0]];
             alpha[0][0] = lp_blank_0;
             if ext_len > 1 {
-                let lp_first = lp_data[0 * batch * num_classes + b * num_classes + ext_labels[1]];
+                let lp_first = lp_data[b * num_classes + ext_labels[1]];
                 alpha[0][1] = lp_first;
             }
 
             for t in 1..t_len {
                 for s in 0..ext_len {
-                    let lp_val =
-                        lp_data[t * batch * num_classes + b * num_classes + ext_labels[s]];
+                    let lp_val = lp_data[t * batch * num_classes + b * num_classes + ext_labels[s]];
 
                     let mut log_sum = alpha[t - 1][s];
                     if s >= 1 {
                         log_sum = log_add_exp(log_sum, alpha[t - 1][s - 1]);
                     }
-                    if s >= 2 && ext_labels[s] != self.blank && ext_labels[s] != ext_labels[s - 2]
-                    {
+                    if s >= 2 && ext_labels[s] != self.blank && ext_labels[s] != ext_labels[s - 2] {
                         log_sum = log_add_exp(log_sum, alpha[t - 1][s - 2]);
                     }
 
@@ -2150,25 +2234,19 @@ impl CTCLoss {
             }
 
             // Total log-probability: log_add_exp of the last two states.
-            let log_prob = log_add_exp(
-                alpha[t_len - 1][ext_len - 1],
-                alpha[t_len - 1][ext_len - 2],
-            );
+            let log_prob =
+                log_add_exp(alpha[t_len - 1][ext_len - 1], alpha[t_len - 1][ext_len - 2]);
 
             let loss_val = -log_prob;
 
-            if self.zero_infinity && (loss_val == T::infinity() || loss_val != loss_val) {
+            if self.zero_infinity && (loss_val == T::infinity() || loss_val.is_nan()) {
                 losses[b] = zero;
             } else {
                 losses[b] = loss_val;
             }
         }
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(losses),
-            vec![batch],
-            false,
-        )?;
+        let unreduced = Tensor::from_storage(TensorStorage::cpu(losses), vec![batch], false)?;
         apply_reduction(&unreduced, self.reduction)
     }
 }
@@ -2256,11 +2334,8 @@ impl PoissonNLLLoss {
             })
             .collect();
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(loss_data),
-            input.shape().to_vec(),
-            false,
-        )?;
+        let unreduced =
+            Tensor::from_storage(TensorStorage::cpu(loss_data), input.shape().to_vec(), false)?;
         let reduced = apply_reduction(&unreduced, self.reduction)?;
 
         if is_grad_enabled() && input.requires_grad() {
@@ -2305,9 +2380,21 @@ struct PoissonNLLBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for PoissonNLLBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_target = if self.target.is_cuda() {
+            self.target.cpu()?
+        } else {
+            self.target.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let input_data = cpu_input.data()?;
         let target_data = cpu_target.data()?;
         let grad_data = cpu_go.data()?;
@@ -2463,18 +2550,14 @@ impl MultiMarginLoss {
                 }
                 let val = margin_t - x_y + input_data[base + j];
                 if val > zero {
-                    sample_loss = sample_loss + if self.p == 2 { val * val } else { val };
+                    sample_loss += if self.p == 2 { val * val } else { val };
                 }
             }
 
             losses[b] = sample_loss * inv_c;
         }
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(losses),
-            vec![batch],
-            false,
-        )?;
+        let unreduced = Tensor::from_storage(TensorStorage::cpu(losses), vec![batch], false)?;
         let reduced = apply_reduction(&unreduced, self.reduction)?;
 
         if is_grad_enabled() && input.requires_grad() {
@@ -2518,9 +2601,21 @@ impl<T: Float> GradFn<T> for MultiMarginBackward<T> {
         let batch = shape[0];
         let classes = shape[1];
 
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_target = if self.target.is_cuda() {
+            self.target.cpu()?
+        } else {
+            self.target.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let input_data = cpu_input.data()?;
         let target_data = cpu_target.data()?;
         let grad_data = cpu_go.data()?;
@@ -2558,14 +2653,10 @@ impl<T: Float> GradFn<T> for MultiMarginBackward<T> {
                     grad_y = grad_y - g_j * inv_c * scale;
                 }
             }
-            result[base + y] = result[base + y] + grad_y;
+            result[base + y] += grad_y;
         }
 
-        let grad_input = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            shape.to_vec(),
-            false,
-        )?;
+        let grad_input = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
         let grad_input = grad_input.to(self.input.device())?;
         Ok(vec![Some(grad_input)])
     }
@@ -2645,7 +2736,7 @@ impl MultiLabelSoftMarginLoss {
         // Per-sample loss: mean over classes of BCE-with-logits.
         let mut losses = vec![zero; batch];
 
-        for b in 0..batch {
+        for (b, loss) in losses.iter_mut().enumerate() {
             let base = b * classes;
             let mut sample_loss = zero;
             for c in 0..classes {
@@ -2654,16 +2745,12 @@ impl MultiLabelSoftMarginLoss {
                 // BCE with logits: max(x,0) - x*y + log(1 + exp(-|x|))
                 let relu_x = if x > zero { x } else { zero };
                 let abs_x = if x > zero { x } else { -x };
-                sample_loss = sample_loss + relu_x - x * y + (one + (-abs_x).exp()).ln();
+                sample_loss += relu_x - x * y + (one + (-abs_x).exp()).ln();
             }
-            losses[b] = sample_loss * inv_c;
+            *loss = sample_loss * inv_c;
         }
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(losses),
-            vec![batch],
-            false,
-        )?;
+        let unreduced = Tensor::from_storage(TensorStorage::cpu(losses), vec![batch], false)?;
         let reduced = apply_reduction(&unreduced, self.reduction)?;
 
         if is_grad_enabled() && input.requires_grad() {
@@ -2705,9 +2792,21 @@ impl<T: Float> GradFn<T> for MultiLabelSoftMarginBackward<T> {
         let batch = shape[0];
         let classes = shape[1];
 
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_target = if self.target.is_cuda() {
+            self.target.cpu()?
+        } else {
+            self.target.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let input_data = cpu_input.data()?;
         let target_data = cpu_target.data()?;
         let grad_data = cpu_go.data()?;
@@ -2733,11 +2832,7 @@ impl<T: Float> GradFn<T> for MultiLabelSoftMarginBackward<T> {
             }
         }
 
-        let grad_input = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            shape.to_vec(),
-            false,
-        )?;
+        let grad_input = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
         let grad_input = grad_input.to(self.input.device())?;
         Ok(vec![Some(grad_input)])
     }
@@ -2814,11 +2909,8 @@ impl HingeEmbeddingLoss {
             })
             .collect();
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(loss_data),
-            input.shape().to_vec(),
-            false,
-        )?;
+        let unreduced =
+            Tensor::from_storage(TensorStorage::cpu(loss_data), input.shape().to_vec(), false)?;
         let reduced = apply_reduction(&unreduced, self.reduction)?;
 
         if is_grad_enabled() && input.requires_grad() {
@@ -2861,9 +2953,21 @@ struct HingeEmbeddingBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for HingeEmbeddingBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_y = if self.y.is_cuda() { self.y.cpu()? } else { self.y.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_y = if self.y.is_cuda() {
+            self.y.cpu()?
+        } else {
+            self.y.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let input_data = cpu_input.data()?;
         let y_data = cpu_y.data()?;
         let grad_data = cpu_go.data()?;
@@ -2948,32 +3052,17 @@ mod tests {
 
     /// Helper: 1-D leaf tensor with requires_grad.
     fn leaf_vec(vals: &[f64]) -> Tensor<f64> {
-        Tensor::from_storage(
-            TensorStorage::cpu(vals.to_vec()),
-            vec![vals.len()],
-            true,
-        )
-        .unwrap()
+        Tensor::from_storage(TensorStorage::cpu(vals.to_vec()), vec![vals.len()], true).unwrap()
     }
 
     /// Helper: 1-D tensor without grad (for targets).
     fn target_vec(vals: &[f64]) -> Tensor<f64> {
-        Tensor::from_storage(
-            TensorStorage::cpu(vals.to_vec()),
-            vec![vals.len()],
-            false,
-        )
-        .unwrap()
+        Tensor::from_storage(TensorStorage::cpu(vals.to_vec()), vec![vals.len()], false).unwrap()
     }
 
     /// Helper: 2-D leaf tensor with requires_grad.
     fn leaf_2d(vals: &[f64], shape: &[usize]) -> Tensor<f64> {
-        Tensor::from_storage(
-            TensorStorage::cpu(vals.to_vec()),
-            shape.to_vec(),
-            true,
-        )
-        .unwrap()
+        Tensor::from_storage(TensorStorage::cpu(vals.to_vec()), shape.to_vec(), true).unwrap()
     }
 
     // -----------------------------------------------------------------------
@@ -3098,7 +3187,11 @@ mod tests {
         let sum_exp = (-2.0_f64).exp() + (-1.0_f64).exp() + 1.0;
         let log_sum = sum_exp.ln();
         // log_softmax[c] = logits[c] - max - log_sum
-        let lsm = [1.0 - 3.0 - log_sum, 2.0 - 3.0 - log_sum, 3.0 - 3.0 - log_sum];
+        let lsm = [
+            1.0 - 3.0 - log_sum,
+            2.0 - 3.0 - log_sum,
+            3.0 - 3.0 - log_sum,
+        ];
         // nll for sample 0 (target=2): -lsm[2]
         // nll for sample 1 (target=0): -lsm[0]
         let expected = (-lsm[2] + (-lsm[0])) / 2.0;
@@ -3120,7 +3213,11 @@ mod tests {
 
         let sum_exp = (-2.0_f64).exp() + (-1.0_f64).exp() + 1.0;
         let log_sum = sum_exp.ln();
-        let lsm = [1.0 - 3.0 - log_sum, 2.0 - 3.0 - log_sum, 3.0 - 3.0 - log_sum];
+        let lsm = [
+            1.0 - 3.0 - log_sum,
+            2.0 - 3.0 - log_sum,
+            3.0 - 3.0 - log_sum,
+        ];
         let expected = -lsm[2] + (-lsm[0]);
 
         assert!(
@@ -3143,7 +3240,11 @@ mod tests {
 
         let sum_exp = (-2.0_f64).exp() + (-1.0_f64).exp() + 1.0;
         let log_sum = sum_exp.ln();
-        let lsm = [1.0 - 3.0 - log_sum, 2.0 - 3.0 - log_sum, 3.0 - 3.0 - log_sum];
+        let lsm = [
+            1.0 - 3.0 - log_sum,
+            2.0 - 3.0 - log_sum,
+            3.0 - 3.0 - log_sum,
+        ];
 
         assert!((d[0] - (-lsm[2])).abs() < 1e-6);
         assert!((d[1] - (-lsm[0])).abs() < 1e-6);
@@ -3163,7 +3264,11 @@ mod tests {
 
         // softmax([1,2,3])
         let sum_exp = 1.0_f64.exp() + 2.0_f64.exp() + 3.0_f64.exp();
-        let sm = [1.0_f64.exp() / sum_exp, 2.0_f64.exp() / sum_exp, 3.0_f64.exp() / sum_exp];
+        let sm = [
+            1.0_f64.exp() / sum_exp,
+            2.0_f64.exp() / sum_exp,
+            3.0_f64.exp() / sum_exp,
+        ];
         // grad = (softmax - one_hot) / batch_size, target=1
         // batch_size = 1
         let expected = [sm[0] - 0.0, sm[1] - 1.0, sm[2] - 0.0];
@@ -3216,7 +3321,11 @@ mod tests {
         let loss = CrossEntropyLoss::default();
         let out = loss.forward(&logits, &targets).unwrap();
         let val = out.item().unwrap();
-        assert!(val.is_finite(), "CE with large logits produced non-finite: {}", val);
+        assert!(
+            val.is_finite(),
+            "CE with large logits produced non-finite: {}",
+            val
+        );
 
         // The correct answer: softmax([1000,1001,999]) ~= [e^(-1), e^0, e^(-2)] / Z
         // log_softmax([1000,1001,999]) = [1000-1001-log(Z), 0-log(Z), 999-1001-log(Z)]
@@ -3238,7 +3347,11 @@ mod tests {
         let loss = CrossEntropyLoss::default();
         let out = loss.forward(&logits, &targets).unwrap();
         let val = out.item().unwrap();
-        assert!(val.is_finite(), "CE with large negative logits produced non-finite: {}", val);
+        assert!(
+            val.is_finite(),
+            "CE with large negative logits produced non-finite: {}",
+            val
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -3326,9 +3439,17 @@ mod tests {
         let loss = BCEWithLogitsLoss::new(Reduction::Mean);
         let out = loss.forward(&logits, &targets).unwrap();
         let val = out.item().unwrap();
-        assert!(val.is_finite(), "BCE large positive logit: non-finite {}", val);
+        assert!(
+            val.is_finite(),
+            "BCE large positive logit: non-finite {}",
+            val
+        );
         // loss = max(100,0) - 100*1 + log(1+exp(-100)) ~ 0 + ~0 = ~0
-        assert!(val < 1e-10, "BCE large positive logit: expected ~0, got {}", val);
+        assert!(
+            val < 1e-10,
+            "BCE large positive logit: expected ~0, got {}",
+            val
+        );
     }
 
     #[test]
@@ -3338,9 +3459,17 @@ mod tests {
         let loss = BCEWithLogitsLoss::new(Reduction::Mean);
         let out = loss.forward(&logits, &targets).unwrap();
         let val = out.item().unwrap();
-        assert!(val.is_finite(), "BCE large negative logit: non-finite {}", val);
+        assert!(
+            val.is_finite(),
+            "BCE large negative logit: non-finite {}",
+            val
+        );
         // loss = max(-100,0) - (-100)*0 + log(1+exp(-100)) ~ 0 + 0 + ~0
-        assert!(val < 1e-10, "BCE large negative logit: expected ~0, got {}", val);
+        assert!(
+            val < 1e-10,
+            "BCE large negative logit: expected ~0, got {}",
+            val
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -3610,8 +3739,8 @@ mod tests {
         let loss = KLDivLoss::new(Reduction::Sum);
         let out = loss.forward(&input, &target).unwrap();
 
-        let expected = 0.25 * (0.25_f64.ln() - 0.5_f64.ln())
-            + 0.75 * (0.75_f64.ln() - 0.5_f64.ln());
+        let expected =
+            0.25 * (0.25_f64.ln() - 0.5_f64.ln()) + 0.75 * (0.75_f64.ln() - 0.5_f64.ln());
         assert!(
             (out.item().unwrap() - expected).abs() < 1e-7,
             "KL sum: expected {}, got {}",
@@ -3825,10 +3954,8 @@ mod tests {
 
     #[test]
     fn test_mse_loss_fires_autocast_guard_when_enabled() {
-        use ferrotorch_core::autograd::autocast::{autocast, set_autocast_debug, AutocastDtype};
-        use ferrotorch_core::autograd::autocast_ops::{
-            drain_autocast_events, AutocastCategory,
-        };
+        use ferrotorch_core::autograd::autocast::{AutocastDtype, autocast, set_autocast_debug};
+        use ferrotorch_core::autograd::autocast_ops::{AutocastCategory, drain_autocast_events};
         set_autocast_debug(true);
 
         let pred = leaf_vec(&[1.0, 2.0, 3.0]);
@@ -3836,13 +3963,17 @@ mod tests {
 
         // Outside autocast: no events.
         drain_autocast_events();
-        let _ = MSELoss::new(Reduction::Mean).forward(&pred, &target).unwrap();
+        let _ = MSELoss::new(Reduction::Mean)
+            .forward(&pred, &target)
+            .unwrap();
         assert!(drain_autocast_events().is_empty());
 
         // Inside autocast: records "mse_loss" as FullPrecision.
         autocast(AutocastDtype::F16, || {
             drain_autocast_events();
-            let _ = MSELoss::new(Reduction::Mean).forward(&pred, &target).unwrap();
+            let _ = MSELoss::new(Reduction::Mean)
+                .forward(&pred, &target)
+                .unwrap();
             let events = drain_autocast_events();
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].op, "mse_loss");
@@ -3852,10 +3983,8 @@ mod tests {
 
     #[test]
     fn test_cross_entropy_fires_autocast_guard_when_enabled() {
-        use ferrotorch_core::autograd::autocast::{autocast, set_autocast_debug, AutocastDtype};
-        use ferrotorch_core::autograd::autocast_ops::{
-            drain_autocast_events, AutocastCategory,
-        };
+        use ferrotorch_core::autograd::autocast::{AutocastDtype, autocast, set_autocast_debug};
+        use ferrotorch_core::autograd::autocast_ops::{AutocastCategory, drain_autocast_events};
         set_autocast_debug(true);
 
         // 2 samples, 3 classes.
@@ -3884,10 +4013,8 @@ mod tests {
 
     #[test]
     fn test_bce_with_logits_fires_autocast_guard_when_enabled() {
-        use ferrotorch_core::autograd::autocast::{autocast, set_autocast_debug, AutocastDtype};
-        use ferrotorch_core::autograd::autocast_ops::{
-            drain_autocast_events, AutocastCategory,
-        };
+        use ferrotorch_core::autograd::autocast::{AutocastDtype, autocast, set_autocast_debug};
+        use ferrotorch_core::autograd::autocast_ops::{AutocastCategory, drain_autocast_events};
         set_autocast_debug(true);
 
         let logits = leaf_vec(&[0.5, -0.5, 1.0]);
@@ -4061,10 +4188,7 @@ mod tests {
     fn test_nll_forward_mean() {
         // log_probs: [2, 3], targets: [2]
         // Manually compute: sample 0 target=1, sample 1 target=0
-        let log_probs = leaf_2d(
-            &[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0],
-            &[2, 3],
-        );
+        let log_probs = leaf_2d(&[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0], &[2, 3]);
         let targets = target_vec(&[1.0, 0.0]);
         let loss = NLLLoss::default();
         let out = loss.forward(&log_probs, &targets).unwrap();
@@ -4079,10 +4203,7 @@ mod tests {
 
     #[test]
     fn test_nll_forward_sum() {
-        let log_probs = leaf_2d(
-            &[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0],
-            &[2, 3],
-        );
+        let log_probs = leaf_2d(&[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0], &[2, 3]);
         let targets = target_vec(&[1.0, 0.0]);
         let loss = NLLLoss::new(Reduction::Sum, None);
         let out = loss.forward(&log_probs, &targets).unwrap();
@@ -4096,25 +4217,27 @@ mod tests {
 
     #[test]
     fn test_nll_forward_none() {
-        let log_probs = leaf_2d(
-            &[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0],
-            &[2, 3],
-        );
+        let log_probs = leaf_2d(&[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0], &[2, 3]);
         let targets = target_vec(&[1.0, 0.0]);
         let loss = NLLLoss::new(Reduction::None, None);
         let out = loss.forward(&log_probs, &targets).unwrap();
         assert_eq!(out.shape(), &[2]);
         let d = out.data().unwrap();
-        assert!((d[0] - 0.5).abs() < 1e-7, "NLL none[0]: expected 0.5, got {}", d[0]);
-        assert!((d[1] - 0.8).abs() < 1e-7, "NLL none[1]: expected 0.8, got {}", d[1]);
+        assert!(
+            (d[0] - 0.5).abs() < 1e-7,
+            "NLL none[0]: expected 0.5, got {}",
+            d[0]
+        );
+        assert!(
+            (d[1] - 0.8).abs() < 1e-7,
+            "NLL none[1]: expected 0.8, got {}",
+            d[1]
+        );
     }
 
     #[test]
     fn test_nll_backward_mean() {
-        let log_probs = leaf_2d(
-            &[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0],
-            &[2, 3],
-        );
+        let log_probs = leaf_2d(&[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0], &[2, 3]);
         let targets = target_vec(&[1.0, 0.0]);
         let loss = NLLLoss::default();
         let out = loss.forward(&log_probs, &targets).unwrap();
@@ -4137,10 +4260,7 @@ mod tests {
 
     #[test]
     fn test_nll_ignore_index() {
-        let log_probs = leaf_2d(
-            &[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0],
-            &[2, 3],
-        );
+        let log_probs = leaf_2d(&[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0], &[2, 3]);
         let targets = target_vec(&[1.0, 0.0]);
         // Ignore class 0 — only sample 0 (target=1) contributes.
         let loss = NLLLoss::new(Reduction::Mean, Some(0));
@@ -4155,10 +4275,7 @@ mod tests {
 
     #[test]
     fn test_nll_ignore_index_all_ignored() {
-        let log_probs = leaf_2d(
-            &[-1.5, -0.5, -0.8, -1.2],
-            &[2, 2],
-        );
+        let log_probs = leaf_2d(&[-1.5, -0.5, -0.8, -1.2], &[2, 2]);
         let targets = target_vec(&[0.0, 0.0]);
         let loss = NLLLoss::new(Reduction::Mean, Some(0));
         let out = loss.forward(&log_probs, &targets).unwrap();
@@ -4356,18 +4473,10 @@ mod tests {
         // d_pos = 1.0, d_neg = 3.0, margin=1.0
         // loss = max(0, 1 - 3 + 1) = max(0, -1) = 0
         let anchor = leaf_2d(&[0.0, 0.0], &[1, 2]);
-        let positive = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0, 0.0]),
-            vec![1, 2],
-            false,
-        )
-        .unwrap();
-        let negative = Tensor::from_storage(
-            TensorStorage::cpu(vec![3.0, 0.0]),
-            vec![1, 2],
-            false,
-        )
-        .unwrap();
+        let positive =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 0.0]), vec![1, 2], false).unwrap();
+        let negative =
+            Tensor::from_storage(TensorStorage::cpu(vec![3.0, 0.0]), vec![1, 2], false).unwrap();
         let loss = TripletMarginLoss::default();
         let out = loss.forward(&anchor, &positive, &negative).unwrap();
         assert!(
@@ -4383,18 +4492,10 @@ mod tests {
         // d_pos = 2.0, d_neg = 1.0, margin=1.0
         // loss = max(0, 2 - 1 + 1) = 2.0
         let anchor = leaf_2d(&[0.0, 0.0], &[1, 2]);
-        let positive = Tensor::from_storage(
-            TensorStorage::cpu(vec![2.0, 0.0]),
-            vec![1, 2],
-            false,
-        )
-        .unwrap();
-        let negative = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0, 0.0]),
-            vec![1, 2],
-            false,
-        )
-        .unwrap();
+        let positive =
+            Tensor::from_storage(TensorStorage::cpu(vec![2.0, 0.0]), vec![1, 2], false).unwrap();
+        let negative =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 0.0]), vec![1, 2], false).unwrap();
         let loss = TripletMarginLoss::default();
         let out = loss.forward(&anchor, &positive, &negative).unwrap();
         assert!(
@@ -4435,18 +4536,11 @@ mod tests {
     #[test]
     fn test_triplet_margin_shape_mismatch() {
         let anchor = leaf_2d(&[0.0, 0.0], &[1, 2]);
-        let positive = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0, 0.0, 0.0]),
-            vec![1, 3],
-            false,
-        )
-        .unwrap();
-        let negative = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0, 0.0]),
-            vec![1, 2],
-            false,
-        )
-        .unwrap();
+        let positive =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 0.0, 0.0]), vec![1, 3], false)
+                .unwrap();
+        let negative =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 0.0]), vec![1, 2], false).unwrap();
         let loss = TripletMarginLoss::default();
         assert!(loss.forward(&anchor, &positive, &negative).is_err());
     }
@@ -4546,17 +4640,10 @@ mod tests {
         lp[2 * 1 * 3 + 0 * 3 + 1] = -10.0;
         lp[2 * 1 * 3 + 0 * 3 + 2] = -0.1;
 
-        let log_probs = Tensor::from_storage(
-            TensorStorage::cpu(lp),
-            vec![3, 1, 3],
-            false,
-        )
-        .unwrap();
+        let log_probs = Tensor::from_storage(TensorStorage::cpu(lp), vec![3, 1, 3], false).unwrap();
         let targets = target_vec(&[1.0, 2.0]);
         let loss = CTCLoss::default();
-        let out = loss
-            .forward(&log_probs, &targets, &[3], &[2])
-            .unwrap();
+        let out = loss.forward(&log_probs, &targets, &[3], &[2]).unwrap();
         // Loss should be close to 0.3 (sum of -(-0.1)*3 paths, dominated by direct path)
         assert!(
             out.item().unwrap() < 1.0,
@@ -4574,17 +4661,10 @@ mod tests {
     fn test_ctc_empty_target() {
         // Empty target: loss = -sum(log_prob_blank over time)
         let lp = vec![-0.5_f64, -10.0, -10.0, -0.3, -10.0, -10.0]; // [T=2, B=1, C=3]
-        let log_probs = Tensor::from_storage(
-            TensorStorage::cpu(lp),
-            vec![2, 1, 3],
-            false,
-        )
-        .unwrap();
+        let log_probs = Tensor::from_storage(TensorStorage::cpu(lp), vec![2, 1, 3], false).unwrap();
         let targets = target_vec(&[]);
         let loss = CTCLoss::new(Reduction::Mean, 0, false);
-        let out = loss
-            .forward(&log_probs, &targets, &[2], &[0])
-            .unwrap();
+        let out = loss.forward(&log_probs, &targets, &[2], &[0]).unwrap();
         // loss = -(-0.5 + -0.3) = 0.8
         assert!(
             (out.item().unwrap() - 0.8).abs() < 1e-7,
@@ -4782,12 +4862,8 @@ mod tests {
         //   c=1: max(0,0) - (-1)*0 + log(1+exp(-1)) = log(1+exp(-1))
         // loss = (bce0 + bce1) / C = (bce0 + bce1) / 2
         let input = leaf_2d(&[2.0, -1.0], &[1, 2]);
-        let target = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0, 0.0]),
-            vec![1, 2],
-            false,
-        )
-        .unwrap();
+        let target =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 0.0]), vec![1, 2], false).unwrap();
         let loss = MultiLabelSoftMarginLoss::default();
         let out = loss.forward(&input, &target).unwrap();
         let bce0 = (1.0 + (-2.0_f64).exp()).ln();
@@ -4804,12 +4880,8 @@ mod tests {
     #[test]
     fn test_multi_label_soft_margin_backward() {
         let input = leaf_2d(&[0.0, 0.0], &[1, 2]);
-        let target = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0, 0.0]),
-            vec![1, 2],
-            false,
-        )
-        .unwrap();
+        let target =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 0.0]), vec![1, 2], false).unwrap();
         let loss = MultiLabelSoftMarginLoss::new(Reduction::Sum);
         let out = loss.forward(&input, &target).unwrap();
         backward(&out).unwrap();
@@ -4834,12 +4906,9 @@ mod tests {
     #[test]
     fn test_multi_label_soft_margin_shape_mismatch() {
         let input = leaf_2d(&[1.0, 2.0], &[1, 2]);
-        let target = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0, 0.0, 0.0]),
-            vec![1, 3],
-            false,
-        )
-        .unwrap();
+        let target =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 0.0, 0.0]), vec![1, 3], false)
+                .unwrap();
         let loss = MultiLabelSoftMarginLoss::default();
         assert!(loss.forward(&input, &target).is_err());
     }

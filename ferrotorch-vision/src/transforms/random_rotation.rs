@@ -1,6 +1,6 @@
 // CL-332: Vision Transforms & Augmentation — RandomRotation
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 use super::rng::random_f64;
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
 use num_traits::NumCast;
 
@@ -130,8 +130,7 @@ mod tests {
     #[test]
     fn test_random_rotation_output_shape() {
         let data: Vec<f64> = (0..75).map(|i| i as f64).collect();
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![3, 5, 5], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 5, 5], false).unwrap();
         let rot = RandomRotation::<f64>::new(30.0);
         let out = rot.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 5, 5]);
@@ -142,8 +141,7 @@ mod tests {
         // Zero degrees should return input unchanged.
         let data: Vec<f64> = (0..12).map(|i| i as f64).collect();
         let t =
-            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![1, 3, 4], false)
-                .unwrap();
+            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![1, 3, 4], false).unwrap();
         let rot = RandomRotation::<f64>::new(0.0);
         let out = rot.apply(t).unwrap();
         assert_eq!(out.data().unwrap(), &data);
@@ -155,8 +153,7 @@ mod tests {
         // Use a 5x5 image with a distinctive center value.
         let mut data = vec![0.0_f64; 25];
         data[12] = 100.0; // center of 5x5
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(data), vec![1, 5, 5], false).unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 5, 5], false).unwrap();
         let rot = RandomRotation::<f64>::new(45.0);
         let out = rot.apply(t).unwrap();
         let d = out.data().unwrap();

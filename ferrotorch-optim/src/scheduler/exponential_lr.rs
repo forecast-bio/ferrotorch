@@ -7,8 +7,8 @@
 
 use ferrotorch_core::Float;
 
-use crate::optimizer::Optimizer;
 use super::LrScheduler;
+use crate::optimizer::Optimizer;
 
 /// Decays the learning rate by `gamma` every step.
 ///
@@ -167,11 +167,7 @@ mod tests {
         for _ in 0..50 {
             sched.step(&mut opt);
         }
-        assert!(
-            (opt.lr - 0.5).abs() < 1e-12,
-            "expected 0.5, got {}",
-            opt.lr
-        );
+        assert!((opt.lr - 0.5).abs() < 1e-12, "expected 0.5, got {}", opt.lr);
     }
 
     #[test]

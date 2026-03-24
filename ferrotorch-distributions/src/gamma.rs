@@ -14,8 +14,8 @@ use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::tensor::{GradFn, Tensor};
 
-use crate::special_fns::{digamma_scalar, lgamma_scalar};
 use crate::Distribution;
+use crate::special_fns::{digamma_scalar, lgamma_scalar};
 
 /// Gamma distribution parameterized by `concentration` (shape, alpha) and
 /// `rate` (inverse scale, beta).
@@ -196,11 +196,8 @@ impl<T: Float> Distribution<T> for Gamma<T> {
         let out = if (self.concentration.requires_grad() || self.rate.requires_grad())
             && ferrotorch_core::is_grad_enabled()
         {
-            let standard_gamma = Tensor::from_storage(
-                TensorStorage::cpu(gamma_samples),
-                shape.to_vec(),
-                false,
-            )?;
+            let standard_gamma =
+                Tensor::from_storage(TensorStorage::cpu(gamma_samples), shape.to_vec(), false)?;
             let grad_fn = Arc::new(GammaRsampleBackward {
                 concentration: self.concentration.clone(),
                 rate: self.rate.clone(),
@@ -235,11 +232,7 @@ impl<T: Float> Distribution<T> for Gamma<T> {
             })
             .collect();
 
-        let out = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            value.shape().to_vec(),
-            false,
-        )?;
+        let out = Tensor::from_storage(TensorStorage::cpu(result), value.shape().to_vec(), false)?;
         if device.is_cuda() {
             out.to(device)
         } else {
@@ -259,8 +252,7 @@ impl<T: Float> Distribution<T> for Gamma<T> {
             .iter()
             .zip(rate_data.iter())
             .map(|(&alpha, &beta)| {
-                alpha - beta.ln() + lgamma_scalar(alpha)
-                    + (one - alpha) * digamma_scalar(alpha)
+                alpha - beta.ln() + lgamma_scalar(alpha) + (one - alpha) * digamma_scalar(alpha)
             })
             .collect();
 
@@ -405,10 +397,7 @@ mod tests {
         let samples = dist.sample(&[10000]).unwrap();
         let data = samples.data().unwrap();
         let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
-        assert!(
-            (mean - 1.5).abs() < 0.15,
-            "expected mean ~1.5, got {mean}"
-        );
+        assert!((mean - 1.5).abs() < 0.15, "expected mean ~1.5, got {mean}");
     }
 
     #[test]

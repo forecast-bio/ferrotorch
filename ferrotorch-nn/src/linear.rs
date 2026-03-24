@@ -16,9 +16,9 @@
 
 use ferrotorch_core::grad_fns::linalg::linear_fused;
 use ferrotorch_core::grad_fns::shape::reshape;
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor};
 
-use crate::init::{kaiming_uniform, NonLinearity};
+use crate::init::{NonLinearity, kaiming_uniform};
 use crate::module::Module;
 use crate::parameter::Parameter;
 
@@ -244,7 +244,7 @@ impl<T: Float> std::fmt::Display for Linear<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::{TensorStorage, Tensor};
+    use ferrotorch_core::{Tensor, TensorStorage};
 
     /// Create a leaf tensor with given data and shape, optionally with grad.
     fn leaf(data: &[f32], shape: &[usize], requires_grad: bool) -> Tensor<f32> {
@@ -343,11 +343,7 @@ mod tests {
     fn test_forward_1d_input_accepted() {
         // PyTorch accepts 1D input: (in_features,) -> (out_features,).
         let mut layer = Linear::<f32>::new(3, 2, false).unwrap();
-        layer.weight = Parameter::from_slice(
-            &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-            &[2, 3],
-        )
-        .unwrap();
+        layer.weight = Parameter::from_slice(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0], &[2, 3]).unwrap();
         let input = leaf(&[1.0, 2.0, 3.0], &[3], false);
         let output = layer.forward(&input).unwrap();
         assert_eq!(output.shape(), &[2]);
@@ -380,14 +376,12 @@ mod tests {
     fn test_forward_3d_correctness() {
         // Verify 3D gives same results as manually flattening to 2D.
         let mut layer = Linear::<f32>::new(3, 2, false).unwrap();
-        layer.weight = Parameter::from_slice(
-            &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-            &[2, 3],
-        )
-        .unwrap();
+        layer.weight = Parameter::from_slice(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0], &[2, 3]).unwrap();
 
         // 3D input: (2, 2, 3)
-        let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
+        let data = [
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+        ];
         let input_3d = leaf(&data, &[2, 2, 3], false);
         let out_3d = layer.forward(&input_3d).unwrap();
         assert_eq!(out_3d.shape(), &[2, 2, 2]);
@@ -412,11 +406,7 @@ mod tests {
 
         // weight = [[1, 0, 0], [0, 1, 0]]  (2x3)
         // This selects the first two features.
-        layer.weight = Parameter::from_slice(
-            &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-            &[2, 3],
-        )
-        .unwrap();
+        layer.weight = Parameter::from_slice(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0], &[2, 3]).unwrap();
 
         // input = [[1, 2, 3], [4, 5, 6]]  (2x3)
         let input = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], false);
@@ -435,8 +425,7 @@ mod tests {
         // weight = [[1, 0], [0, 1]]  (identity)
         layer.weight = Parameter::from_slice(&[1.0, 0.0, 0.0, 1.0], &[2, 2]).unwrap();
         // bias = [10, 20]
-        *layer.bias.as_mut().unwrap() =
-            Parameter::from_slice(&[10.0, 20.0], &[2]).unwrap();
+        *layer.bias.as_mut().unwrap() = Parameter::from_slice(&[10.0, 20.0], &[2]).unwrap();
 
         let input = leaf(&[1.0, 2.0, 3.0, 4.0], &[2, 2], false);
         let output = layer.forward(&input).unwrap();
@@ -506,7 +495,11 @@ mod tests {
         // Since W^T was created via transpose(W), the gradient accumulates on
         // the original W parameter through the transpose operation.
         // The transpose of [[2,2],[3,3]] is [[2,3],[2,3]], matching W's shape.
-        let w_grad = layer.weight.grad().unwrap().expect("weight should have grad");
+        let w_grad = layer
+            .weight
+            .grad()
+            .unwrap()
+            .expect("weight should have grad");
         assert_eq!(w_grad.shape(), &[2, 2]);
         assert_close(w_grad.data().unwrap(), &[2.0, 3.0, 2.0, 3.0], 1e-5);
     }
@@ -717,18 +710,29 @@ mod tests {
     fn test_to_device_cpu_preserves_weights() {
         let mut layer = Linear::<f32>::new(4, 3, true).unwrap();
         layer.weight = Parameter::from_slice(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            &[
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+            ],
             &[3, 4],
         )
         .unwrap();
-        *layer.bias.as_mut().unwrap() =
-            Parameter::from_slice(&[0.1, 0.2, 0.3], &[3]).unwrap();
+        *layer.bias.as_mut().unwrap() = Parameter::from_slice(&[0.1, 0.2, 0.3], &[3]).unwrap();
 
         layer.to_device(ferrotorch_core::Device::Cpu).unwrap();
 
         assert_eq!(layer.weight.shape(), &[3, 4]);
-        assert_close(layer.weight.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0], 1e-7);
-        assert_close(layer.bias.as_ref().unwrap().data().unwrap(), &[0.1, 0.2, 0.3], 1e-7);
+        assert_close(
+            layer.weight.data().unwrap(),
+            &[
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+            ],
+            1e-7,
+        );
+        assert_close(
+            layer.bias.as_ref().unwrap().data().unwrap(),
+            &[0.1, 0.2, 0.3],
+            1e-7,
+        );
         assert!(layer.weight.requires_grad());
         assert!(layer.bias.as_ref().unwrap().requires_grad());
     }

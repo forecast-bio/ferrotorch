@@ -88,11 +88,8 @@ pub fn plan_memory(graph: &IrGraph) -> MemoryPlan {
     }
 
     // Map from node id to its topological index.
-    let topo_index: HashMap<IrNodeId, usize> = topo
-        .iter()
-        .enumerate()
-        .map(|(i, &nid)| (nid, i))
-        .collect();
+    let topo_index: HashMap<IrNodeId, usize> =
+        topo.iter().enumerate().map(|(i, &nid)| (nid, i)).collect();
 
     // -----------------------------------------------------------------------
     // Step 1: Compute liveness intervals.
@@ -252,8 +249,7 @@ mod tests {
 
         let x = g.add_input(vec![100]);
         let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![100]]);
-        let (_, sig_outs) =
-            g.add_node(IrOpKind::Sigmoid, vec![relu_outs[0]], vec![vec![100]]);
+        let (_, sig_outs) = g.add_node(IrOpKind::Sigmoid, vec![relu_outs[0]], vec![vec![100]]);
         g.set_outputs(vec![sig_outs[0]]);
 
         let plan = plan_memory(&g);
@@ -389,9 +385,7 @@ mod tests {
 
         // Reshape to [10] — smaller output.
         let (_, reshape_outs) = g.add_node(
-            IrOpKind::Reshape {
-                shape: vec![10],
-            },
+            IrOpKind::Reshape { shape: vec![10] },
             vec![relu_outs[0]],
             vec![vec![10]],
         );
@@ -438,8 +432,7 @@ mod tests {
         let x = g.add_input(vec![8]);
         let y = g.add_input(vec![8]);
         let (_, add_outs) = g.add_node(IrOpKind::Add, vec![x, y], vec![vec![8]]);
-        let (_, relu_outs) =
-            g.add_node(IrOpKind::Relu, vec![add_outs[0]], vec![vec![8]]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![add_outs[0]], vec![vec![8]]);
         g.set_outputs(vec![relu_outs[0]]);
 
         let plan = plan_memory(&g);

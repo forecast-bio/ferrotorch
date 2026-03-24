@@ -160,9 +160,9 @@ pub fn pool_take_stream<T: Any + Send + Sync>(
 
     // Search from the back (LIFO) for a buffer on the same stream with
     // no pending cross-stream uses.
-    let pos = bucket.iter().rposition(|entry| {
-        entry.alloc_stream == stream && entry.stream_uses.is_empty()
-    })?;
+    let pos = bucket
+        .iter()
+        .rposition(|entry| entry.alloc_stream == stream && entry.stream_uses.is_empty())?;
 
     let entry = bucket.swap_remove(pos);
     if bucket.is_empty() {
@@ -290,10 +290,7 @@ pub fn empty_cache_all() {
 
 /// Total bytes currently cached (available for reuse).
 pub fn cached_bytes(_device_ordinal: usize) -> usize {
-    POOL.lock()
-        .ok()
-        .map(|p| p.cached_bytes)
-        .unwrap_or(0)
+    POOL.lock().ok().map(|p| p.cached_bytes).unwrap_or(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +337,7 @@ mod tests {
     #[test]
     fn pool_stats_tracking() {
         reset_pool_stats();
-        let (h, m, r) = pool_stats();
+        let (h, _m, r) = pool_stats();
         assert_eq!(h, 0);
         assert_eq!(r, 0);
 

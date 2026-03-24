@@ -1,4 +1,4 @@
-use ferrotorch_profiler::{with_profiler, ProfileConfig};
+use ferrotorch_profiler::{ProfileConfig, with_profiler};
 
 // ---------------------------------------------------------------------------
 // Record events, verify count

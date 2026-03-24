@@ -12,8 +12,8 @@
 
 use ferrotorch_core::Float;
 
-use crate::optimizer::Optimizer;
 use super::LrScheduler;
+use crate::optimizer::Optimizer;
 
 /// Annealing strategy for the one-cycle policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,7 +256,15 @@ mod tests {
     fn test_one_cycle_initial_lr() {
         let max_lr = 0.01;
         let div_factor = 25.0;
-        let sched = OneCycleLR::new(max_lr, 100, 0.3, AnnealStrategy::Cos, div_factor, 1e4, false);
+        let sched = OneCycleLR::new(
+            max_lr,
+            100,
+            0.3,
+            AnnealStrategy::Cos,
+            div_factor,
+            1e4,
+            false,
+        );
         let expected_initial = max_lr / div_factor;
         assert!(
             (sched.get_lr() - expected_initial).abs() < 1e-12,
@@ -270,8 +278,15 @@ mod tests {
         let max_lr = 0.1;
         let total_steps = 100;
         let pct_start = 0.3;
-        let mut sched =
-            OneCycleLR::new(max_lr, total_steps, pct_start, AnnealStrategy::Cos, 25.0, 1e4, false);
+        let mut sched = OneCycleLR::new(
+            max_lr,
+            total_steps,
+            pct_start,
+            AnnealStrategy::Cos,
+            25.0,
+            1e4,
+            false,
+        );
         let mut opt = MockOptimizer::new(0.004);
 
         // Step to the end of phase 1.
@@ -386,8 +401,7 @@ mod tests {
 
     #[test]
     fn test_one_cycle_lr_never_negative() {
-        let mut sched =
-            OneCycleLR::new(0.01, 200, 0.3, AnnealStrategy::Cos, 25.0, 1e4, false);
+        let mut sched = OneCycleLR::new(0.01, 200, 0.3, AnnealStrategy::Cos, 25.0, 1e4, false);
         let mut opt = MockOptimizer::new(0.0004);
 
         for step in 0..200 {

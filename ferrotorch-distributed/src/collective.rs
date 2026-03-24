@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use ferrotorch_core::storage::TensorStorage;
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 
 use crate::backend::Backend;
 use crate::error::DistributedError;
@@ -494,10 +494,7 @@ mod tests {
             let data = result.data().unwrap();
             assert_eq!(data.len(), 3);
             for &v in data {
-                assert!(
-                    (v - 6.0).abs() < 1e-6,
-                    "expected 6.0, got {v}"
-                );
+                assert!((v - 6.0).abs() < 1e-6, "expected 6.0, got {v}");
             }
         }
     }
@@ -526,10 +523,7 @@ mod tests {
             let result = h.join().unwrap();
             let data = result.data().unwrap();
             for &v in data {
-                assert!(
-                    (v - 1.5).abs() < 1e-6,
-                    "expected 1.5, got {v}"
-                );
+                assert!((v - 1.5).abs() < 1e-6, "expected 1.5, got {v}");
             }
         }
     }
@@ -558,10 +552,7 @@ mod tests {
             let data = result.data().unwrap();
             assert_eq!(data.len(), 2);
             for &v in data {
-                assert!(
-                    (v - 42.0).abs() < 1e-6,
-                    "expected 42.0, got {v}"
-                );
+                assert!((v - 42.0).abs() < 1e-6, "expected 42.0, got {v}");
             }
         }
     }
@@ -647,10 +638,7 @@ mod tests {
             assert_eq!(result.shape(), &[8]);
             let data = result.data().unwrap();
             for (got, &exp) in data.iter().zip(expected.iter()) {
-                assert!(
-                    (*got - exp).abs() < 1e-6,
-                    "expected {exp}, got {got}"
-                );
+                assert!((*got - exp).abs() < 1e-6, "expected {exp}, got {got}");
             }
         }
     }
@@ -666,11 +654,9 @@ mod tests {
             .cloned()
             .map(|b| {
                 thread::spawn(move || {
-                    let t = ferrotorch_core::from_slice(
-                        &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
-                        &[2, 3],
-                    )
-                    .unwrap();
+                    let t =
+                        ferrotorch_core::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])
+                            .unwrap();
                     all_gather(&t, b.as_ref()).unwrap()
                 })
             })
@@ -779,10 +765,7 @@ mod tests {
             assert_eq!(result.shape(), &[2]);
             let data = result.data().unwrap();
             for &v in data {
-                assert!(
-                    (v - 0.5).abs() < 1e-6,
-                    "expected 0.5, got {v}"
-                );
+                assert!((v - 0.5).abs() < 1e-6, "expected 0.5, got {v}");
             }
         }
     }

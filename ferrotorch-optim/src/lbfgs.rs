@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -191,11 +191,7 @@ impl<T: Float> Lbfgs<T> {
 
     /// Scatter a flat `f64` vector back into the parameter tensors (inside
     /// `no_grad`).
-    fn scatter_params(
-        &mut self,
-        flat: &[f64],
-        shapes: &[Vec<usize>],
-    ) -> FerrotorchResult<()> {
+    fn scatter_params(&mut self, flat: &[f64], shapes: &[Vec<usize>]) -> FerrotorchResult<()> {
         let mut offset = 0usize;
         let mut shape_idx = 0usize;
 
@@ -372,8 +368,14 @@ fn strong_wolfe_search(
         // Armijo violation or non-monotone: bracket found.
         if fi > f0 + WOLFE_C1 * alpha * g0_dot_d || (i > 0 && fi >= f_prev) {
             return zoom(
-                alpha_prev, alpha, f0, g0_dot_d, f_prev, fi,
-                max_evals.saturating_sub(evals), &mut eval_fn,
+                alpha_prev,
+                alpha,
+                f0,
+                g0_dot_d,
+                f_prev,
+                fi,
+                max_evals.saturating_sub(evals),
+                &mut eval_fn,
             );
         }
 
@@ -385,8 +387,14 @@ fn strong_wolfe_search(
         // Positive slope: bracket found in the opposite direction.
         if gi_dot_d >= 0.0 {
             return zoom(
-                alpha, alpha_prev, f0, g0_dot_d, fi, f_prev,
-                max_evals.saturating_sub(evals), &mut eval_fn,
+                alpha,
+                alpha_prev,
+                f0,
+                g0_dot_d,
+                fi,
+                f_prev,
+                max_evals.saturating_sub(evals),
+                &mut eval_fn,
             );
         }
 
@@ -464,7 +472,11 @@ impl<T: Float> Lbfgs<T> {
         &mut self,
         mut closure: impl FnMut() -> FerrotorchResult<f64>,
     ) -> FerrotorchResult<f64> {
-        let lr = self.param_groups.first().map(|g| g.lr).unwrap_or(self.config.lr);
+        let lr = self
+            .param_groups
+            .first()
+            .map(|g| g.lr)
+            .unwrap_or(self.config.lr);
 
         // Evaluate closure at current point to get initial loss & gradient.
         self.zero_grad()?;
@@ -553,7 +565,11 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
             });
         }
 
-        let lr = self.param_groups.first().map(|g| g.lr).unwrap_or(self.config.lr);
+        let lr = self
+            .param_groups
+            .first()
+            .map(|g| g.lr)
+            .unwrap_or(self.config.lr);
 
         let (flat_params, shapes) = self.gather_params()?;
         let flat_grad = self.gather_grads()?;
@@ -669,9 +685,11 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
         // Load metadata.
-        let meta = state.get("meta").ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: "missing 'meta' in L-BFGS state dict".to_string(),
-        })?;
+        let meta = state
+            .get("meta")
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: "missing 'meta' in L-BFGS state dict".to_string(),
+            })?;
 
         self.state.n_iter = meta
             .get("n_iter")
@@ -692,20 +710,24 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
 
         for i in 0..history_len {
             let key = format!("curvature_{i}");
-            let entry = state.get(&key).ok_or_else(|| FerrotorchError::InvalidArgument {
-                message: format!("missing '{key}' in L-BFGS state dict"),
-            })?;
+            let entry = state
+                .get(&key)
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!("missing '{key}' in L-BFGS state dict"),
+                })?;
 
-            let s = entry.get("s").cloned().ok_or_else(|| {
-                FerrotorchError::InvalidArgument {
+            let s = entry
+                .get("s")
+                .cloned()
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
                     message: format!("missing 's' in {key}"),
-                }
-            })?;
-            let y = entry.get("y").cloned().ok_or_else(|| {
-                FerrotorchError::InvalidArgument {
+                })?;
+            let y = entry
+                .get("y")
+                .cloned()
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
                     message: format!("missing 'y' in {key}"),
-                }
-            })?;
+                })?;
             let rho = entry
                 .get("rho")
                 .and_then(|v| v.first())
@@ -738,8 +760,8 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::{Tensor, TensorStorage};
     use ferrotorch_core::grad_fns::arithmetic::{add, mul, pow, sub};
+    use ferrotorch_core::{Tensor, TensorStorage};
 
     /// Create a scalar parameter from a single f64 value.
     fn scalar_param(val: f64) -> Parameter<f64> {
@@ -749,10 +771,7 @@ mod tests {
 
     /// Read a scalar parameter's current value.
     fn param_val(opt: &Lbfgs<f64>, group: usize, idx: usize) -> f64 {
-        opt.param_groups[group].params[idx]
-            .tensor()
-            .data()
-            .unwrap()[0]
+        opt.param_groups[group].params[idx].tensor().data().unwrap()[0]
     }
 
     // -----------------------------------------------------------------------
@@ -781,10 +800,7 @@ mod tests {
         }
 
         let val = param_val(&opt, 0, 0);
-        assert!(
-            val.abs() < 1e-3,
-            "expected x near 0.0, got {val}"
-        );
+        assert!(val.abs() < 1e-3, "expected x near 0.0, got {val}");
     }
 
     // -----------------------------------------------------------------------
@@ -819,14 +835,8 @@ mod tests {
 
         let va = param_val(&opt, 0, 0);
         let vb = param_val(&opt, 0, 1);
-        assert!(
-            va.abs() < 1e-3,
-            "expected a near 0.0, got {va}"
-        );
-        assert!(
-            vb.abs() < 1e-3,
-            "expected b near 0.0, got {vb}"
-        );
+        assert!(va.abs() < 1e-3, "expected a near 0.0, got {va}");
+        assert!(vb.abs() < 1e-3, "expected b near 0.0, got {vb}");
     }
 
     // -----------------------------------------------------------------------
@@ -898,26 +908,29 @@ mod tests {
         let mut opt = Lbfgs::new(vec![p], LbfgsConfig::default());
 
         // Manually set a gradient.
-        let grad =
-            Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
+        let grad = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
         opt.param_groups[0].params[0]
             .tensor()
             .set_grad(Some(grad))
             .unwrap();
 
-        assert!(opt.param_groups[0].params[0]
-            .tensor()
-            .grad()
-            .unwrap()
-            .is_some());
+        assert!(
+            opt.param_groups[0].params[0]
+                .tensor()
+                .grad()
+                .unwrap()
+                .is_some()
+        );
 
         opt.zero_grad().unwrap();
 
-        assert!(opt.param_groups[0].params[0]
-            .tensor()
-            .grad()
-            .unwrap()
-            .is_none());
+        assert!(
+            opt.param_groups[0].params[0]
+                .tensor()
+                .grad()
+                .unwrap()
+                .is_none()
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -965,7 +978,10 @@ mod tests {
 
         // Save state.
         let saved = opt.state_dict();
-        assert!(!saved.is_empty(), "state dict should be non-empty after steps");
+        assert!(
+            !saved.is_empty(),
+            "state dict should be non-empty after steps"
+        );
         assert!(saved.contains_key("meta"));
 
         let meta = &saved["meta"];
@@ -1084,8 +1100,7 @@ mod tests {
             },
         );
 
-        let grad =
-            Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
+        let grad = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
         opt.param_groups[0].params[0]
             .tensor()
             .set_grad(Some(grad))
@@ -1181,8 +1196,7 @@ mod tests {
                 let y = unsafe { &*py_ptr }.tensor().clone();
 
                 let one =
-                    Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false)
-                        .unwrap();
+                    Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();
                 let hundred =
                     Tensor::from_storage(TensorStorage::cpu(vec![100.0_f64]), vec![], false)
                         .unwrap();

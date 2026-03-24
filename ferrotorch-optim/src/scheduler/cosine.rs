@@ -5,8 +5,8 @@
 
 use ferrotorch_core::Float;
 
-use crate::optimizer::Optimizer;
 use super::LrScheduler;
+use crate::optimizer::Optimizer;
 
 /// Cosine annealing learning rate scheduler.
 ///

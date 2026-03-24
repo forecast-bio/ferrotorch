@@ -12,13 +12,13 @@
 use ferrotorch_core::grad_fns::activation::relu;
 use ferrotorch_core::grad_fns::arithmetic::add;
 use ferrotorch_core::grad_fns::shape::reshape;
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 
+use ferrotorch_nn::Conv2d;
+use ferrotorch_nn::Linear;
 use ferrotorch_nn::module::Module;
 use ferrotorch_nn::parameter::Parameter;
 use ferrotorch_nn::pooling::{AdaptiveAvgPool2d, MaxPool2d};
-use ferrotorch_nn::Conv2d;
-use ferrotorch_nn::Linear;
 
 // ===========================================================================
 // Helpers
@@ -30,7 +30,14 @@ fn conv3x3<T: Float>(
     out_planes: usize,
     stride: usize,
 ) -> FerrotorchResult<Conv2d<T>> {
-    Conv2d::new(in_planes, out_planes, (3, 3), (stride, stride), (1, 1), false)
+    Conv2d::new(
+        in_planes,
+        out_planes,
+        (3, 3),
+        (stride, stride),
+        (1, 1),
+        false,
+    )
 }
 
 /// Create a 1x1 conv with given stride and no padding.
@@ -39,7 +46,14 @@ fn conv1x1<T: Float>(
     out_planes: usize,
     stride: usize,
 ) -> FerrotorchResult<Conv2d<T>> {
-    Conv2d::new(in_planes, out_planes, (1, 1), (stride, stride), (0, 0), false)
+    Conv2d::new(
+        in_planes,
+        out_planes,
+        (1, 1),
+        (stride, stride),
+        (0, 0),
+        false,
+    )
 }
 
 // ===========================================================================
@@ -499,18 +513,34 @@ impl<T: Float> Module<T> for ResNet<T> {
 
     fn train(&mut self) {
         self.training = true;
-        for block in &mut self.layer1 { block.train(); }
-        for block in &mut self.layer2 { block.train(); }
-        for block in &mut self.layer3 { block.train(); }
-        for block in &mut self.layer4 { block.train(); }
+        for block in &mut self.layer1 {
+            block.train();
+        }
+        for block in &mut self.layer2 {
+            block.train();
+        }
+        for block in &mut self.layer3 {
+            block.train();
+        }
+        for block in &mut self.layer4 {
+            block.train();
+        }
     }
 
     fn eval(&mut self) {
         self.training = false;
-        for block in &mut self.layer1 { block.eval(); }
-        for block in &mut self.layer2 { block.eval(); }
-        for block in &mut self.layer3 { block.eval(); }
-        for block in &mut self.layer4 { block.eval(); }
+        for block in &mut self.layer1 {
+            block.eval();
+        }
+        for block in &mut self.layer2 {
+            block.eval();
+        }
+        for block in &mut self.layer3 {
+            block.eval();
+        }
+        for block in &mut self.layer4 {
+            block.eval();
+        }
     }
 
     fn is_training(&self) -> bool {
@@ -535,16 +565,12 @@ fn forward_layer<T: Float>(
 }
 
 /// Collect immutable parameter references from a layer.
-fn collect_layer_params<'a, T: Float>(
-    blocks: &'a [Box<dyn Module<T>>],
-) -> Vec<&'a Parameter<T>> {
+fn collect_layer_params<'a, T: Float>(blocks: &'a [Box<dyn Module<T>>]) -> Vec<&'a Parameter<T>> {
     blocks.iter().flat_map(|b| b.parameters()).collect()
 }
 
 /// Collect mutable parameter references from a layer.
-fn collect_layer_params_mut<T: Float>(
-    blocks: &mut [Box<dyn Module<T>>],
-) -> Vec<&mut Parameter<T>> {
+fn collect_layer_params_mut<T: Float>(blocks: &mut [Box<dyn Module<T>>]) -> Vec<&mut Parameter<T>> {
     blocks.iter_mut().flat_map(|b| b.parameters_mut()).collect()
 }
 
@@ -593,7 +619,7 @@ pub fn resnet50<T: Float>(num_classes: usize) -> FerrotorchResult<ResNet<T>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::{no_grad, TensorStorage};
+    use ferrotorch_core::{TensorStorage, no_grad};
 
     /// Create a 4-D tensor from flat data.
     fn leaf_4d(data: &[f32], shape: [usize; 4], requires_grad: bool) -> Tensor<f32> {
@@ -647,7 +673,7 @@ mod tests {
         let count: usize = block.parameters().iter().map(|p| p.numel()).sum();
         let expected = 64 * 128 * 3 * 3     // conv1: 64->128
                      + 128 * 128 * 3 * 3    // conv2: 128->128
-                     + 64 * 128 * 1 * 1;    // downsample: 64->128
+                     + 64 * 128 * 1 * 1; // downsample: 64->128
         assert_eq!(count, expected);
     }
 

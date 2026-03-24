@@ -93,8 +93,7 @@ pub fn find_fusion_groups(graph: &IrGraph) -> Vec<FusionGroup> {
     let topo = graph.topological_order();
 
     // Node lookup
-    let node_map: HashMap<IrNodeId, &IrNode> =
-        graph.nodes.iter().map(|n| (n.id, n)).collect();
+    let node_map: HashMap<IrNodeId, &IrNode> = graph.nodes.iter().map(|n| (n.id, n)).collect();
 
     // Value -> producer node
     let value_producer: HashMap<IrValueId, IrNodeId> = graph
@@ -223,9 +222,9 @@ pub fn find_fusion_groups(graph: &IrGraph) -> Vec<FusionGroup> {
                     let consumed_outside = value_consumers
                         .get(&v)
                         .map(|consumers| {
-                            consumers.iter().any(|&cid| {
-                                node_to_group.get(&cid) != Some(&gidx)
-                            })
+                            consumers
+                                .iter()
+                                .any(|&cid| node_to_group.get(&cid) != Some(&gidx))
                         })
                         .unwrap_or(false);
 
@@ -283,9 +282,7 @@ fn classify_op(op: &IrOpKind) -> FusionGroupKind {
         IrOpKind::Sum | IrOpKind::Mean | IrOpKind::Prod => FusionGroupKind::Reduction,
 
         // Linear algebra
-        IrOpKind::Matmul | IrOpKind::Mm | IrOpKind::Mv | IrOpKind::Dot => {
-            FusionGroupKind::MatMul
-        }
+        IrOpKind::Matmul | IrOpKind::Mm | IrOpKind::Mv | IrOpKind::Dot => FusionGroupKind::MatMul,
 
         IrOpKind::Linear => FusionGroupKind::Linear,
 
@@ -339,9 +336,8 @@ fn find_mergeable_group(
             Some(c) => {
                 // All consumers must either be in the same group or be the
                 // current node
-                c.iter().all(|&cid| {
-                    cid == node.id || node_to_group.get(&cid) == Some(&gidx)
-                })
+                c.iter()
+                    .all(|&cid| cid == node.id || node_to_group.get(&cid) == Some(&gidx))
             }
             None => true,
         };
@@ -352,8 +348,7 @@ fn find_mergeable_group(
         if safe_to_fuse || graph_output_set.contains(&input_val) {
             // Verify there are no cycles: the current node must not be
             // a producer of any node already in the group.
-            let group_node_set: HashSet<IrNodeId> =
-                groups[gidx].node_ids.iter().copied().collect();
+            let group_node_set: HashSet<IrNodeId> = groups[gidx].node_ids.iter().copied().collect();
             let would_create_cycle = node.outputs.iter().any(|&out_val| {
                 value_consumers
                     .get(&out_val)
@@ -387,8 +382,7 @@ fn find_mergeable_group(
 /// * `groups` - The fusion groups to lower.
 /// * `graph` - The original IR graph (needed for shape information).
 pub fn fuse_dag(groups: &[FusionGroup], graph: &IrGraph) -> Vec<Vec<LoopIR>> {
-    let node_map: HashMap<IrNodeId, &IrNode> =
-        graph.nodes.iter().map(|n| (n.id, n)).collect();
+    let node_map: HashMap<IrNodeId, &IrNode> = graph.nodes.iter().map(|n| (n.id, n)).collect();
 
     let mut result = Vec::with_capacity(groups.len());
 
@@ -465,9 +459,7 @@ fn estimate_numel_for_inputs(inputs: &[IrValueId], graph: &IrGraph) -> usize {
 fn estimate_matmul_dims(inputs: &[IrValueId], graph: &IrGraph) -> (usize, usize, usize) {
     let shapes: Vec<&Vec<usize>> = inputs
         .iter()
-        .filter_map(|&vid| {
-            graph.values.iter().find(|v| v.id == vid).map(|v| &v.shape)
-        })
+        .filter_map(|&vid| graph.values.iter().find(|v| v.id == vid).map(|v| &v.shape))
         .collect();
 
     if shapes.len() >= 2 && shapes[0].len() == 2 && shapes[1].len() == 2 {
@@ -506,9 +498,15 @@ mod tests {
         assert_eq!(classify_op(&IrOpKind::Div), FusionGroupKind::Elementwise);
         assert_eq!(classify_op(&IrOpKind::Neg), FusionGroupKind::Elementwise);
         assert_eq!(classify_op(&IrOpKind::Relu), FusionGroupKind::Elementwise);
-        assert_eq!(classify_op(&IrOpKind::Sigmoid), FusionGroupKind::Elementwise);
+        assert_eq!(
+            classify_op(&IrOpKind::Sigmoid),
+            FusionGroupKind::Elementwise
+        );
         assert_eq!(classify_op(&IrOpKind::Exp), FusionGroupKind::Elementwise);
-        assert_eq!(classify_op(&IrOpKind::Pow { exponent: 2.0 }), FusionGroupKind::Elementwise);
+        assert_eq!(
+            classify_op(&IrOpKind::Pow { exponent: 2.0 }),
+            FusionGroupKind::Elementwise
+        );
     }
 
     #[test]

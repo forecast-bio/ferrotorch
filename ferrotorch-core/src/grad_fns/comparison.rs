@@ -43,19 +43,16 @@ impl<T: Float> GradFn<T> for WhereBackward<T> {
             .map(|(&g, &c)| if c { zero } else { g })
             .collect();
 
-        let grad_x_tensor = Tensor::from_storage(
-            TensorStorage::cpu(grad_x),
-            self.x.shape().to_vec(),
-            false,
-        )?;
-        let grad_y_tensor = Tensor::from_storage(
-            TensorStorage::cpu(grad_y),
-            self.y.shape().to_vec(),
-            false,
-        )?;
+        let grad_x_tensor =
+            Tensor::from_storage(TensorStorage::cpu(grad_x), self.x.shape().to_vec(), false)?;
+        let grad_y_tensor =
+            Tensor::from_storage(TensorStorage::cpu(grad_y), self.y.shape().to_vec(), false)?;
 
         if device.is_cuda() {
-            Ok(vec![Some(grad_x_tensor.to(device)?), Some(grad_y_tensor.to(device)?)])
+            Ok(vec![
+                Some(grad_x_tensor.to(device)?),
+                Some(grad_y_tensor.to(device)?),
+            ])
         } else {
             Ok(vec![Some(grad_x_tensor), Some(grad_y_tensor)])
         }
@@ -119,8 +116,12 @@ mod tests {
 
     /// Helper to make a leaf tensor from a slice.
     fn leaf(data: &[f32], shape: &[usize], requires_grad: bool) -> Tensor<f32> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), shape.to_vec(), requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            shape.to_vec(),
+            requires_grad,
+        )
+        .unwrap()
     }
 
     #[test]

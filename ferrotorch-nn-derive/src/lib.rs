@@ -37,9 +37,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use quote::quote;
-use syn::{
-    parse_macro_input, Data, DeriveInput, Fields, GenericParam, Generics, TypeParam,
-};
+use syn::{Data, DeriveInput, Fields, GenericParam, Generics, TypeParam, parse_macro_input};
 
 /// Derive the `Module<T>` trait for a struct.
 ///
@@ -297,7 +295,12 @@ fn find_float_param(generics: &Generics) -> syn::Result<Ident> {
         if let GenericParam::Type(TypeParam { ident, bounds, .. }) = param {
             for bound in bounds {
                 if let syn::TypeParamBound::Trait(tb) = bound {
-                    if tb.path.segments.last().is_some_and(|seg| seg.ident == "Float") {
+                    if tb
+                        .path
+                        .segments
+                        .last()
+                        .is_some_and(|seg| seg.ident == "Float")
+                    {
                         return Ok(ident.clone());
                     }
                 }
@@ -311,7 +314,12 @@ fn find_float_param(generics: &Generics) -> syn::Result<Ident> {
             if let syn::WherePredicate::Type(pt) = predicate {
                 for bound in &pt.bounds {
                     if let syn::TypeParamBound::Trait(tb) = bound {
-                        if tb.path.segments.last().is_some_and(|seg| seg.ident == "Float") {
+                        if tb
+                            .path
+                            .segments
+                            .last()
+                            .is_some_and(|seg| seg.ident == "Float")
+                        {
                             // Extract the type parameter ident from the bounded type.
                             if let syn::Type::Path(tp) = &pt.bounded_ty {
                                 if let Some(seg) = tp.path.segments.first() {

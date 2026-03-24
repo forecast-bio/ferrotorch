@@ -21,7 +21,7 @@
 
 use std::path::Path;
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Dataset;
 
 /// A single MNIST sample: a 1x28x28 grayscale image and its digit label.
@@ -150,16 +150,14 @@ impl<T: Float> Mnist<T> {
             });
         }
 
-        let img_bytes = std::fs::read(&images_path).map_err(|e| {
-            FerrotorchError::InvalidArgument {
+        let img_bytes =
+            std::fs::read(&images_path).map_err(|e| FerrotorchError::InvalidArgument {
                 message: format!("failed to read '{}': {e}", images_path.display()),
-            }
-        })?;
-        let lbl_bytes = std::fs::read(&labels_path).map_err(|e| {
-            FerrotorchError::InvalidArgument {
+            })?;
+        let lbl_bytes =
+            std::fs::read(&labels_path).map_err(|e| FerrotorchError::InvalidArgument {
                 message: format!("failed to read '{}': {e}", labels_path.display()),
-            }
-        })?;
+            })?;
 
         // --- Parse image IDX3 file ---
         if img_bytes.len() < 16 {
@@ -253,11 +251,7 @@ impl<T: Float> Mnist<T> {
                 .collect();
 
             let storage = TensorStorage::cpu(data);
-            let tensor = Tensor::from_storage(
-                storage,
-                vec![Self::CHANNELS, rows, cols],
-                false,
-            )?;
+            let tensor = Tensor::from_storage(storage, vec![Self::CHANNELS, rows, cols], false)?;
             images.push(tensor);
 
             let label = lbl_bytes[8 + i];

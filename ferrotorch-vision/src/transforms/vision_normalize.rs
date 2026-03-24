@@ -1,4 +1,4 @@
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_data::{Normalize, Transform};
 
 use super::{IMAGENET_MEAN, IMAGENET_STD};

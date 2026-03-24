@@ -18,7 +18,7 @@
 use ferrotorch_core::grad_fns::arithmetic::{add, mul};
 use ferrotorch_core::grad_fns::linalg::mm_differentiable;
 use ferrotorch_core::grad_fns::shape::transpose_2d;
-use ferrotorch_core::{scalar, Float, FerrotorchError, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, scalar};
 
 use crate::dropout::Dropout;
 use crate::init;
@@ -93,12 +93,7 @@ impl<T: Float> LoRALinear<T> {
     ///
     /// Returns an error if `rank` is zero, if `dropout_p` is invalid, or if
     /// parameter allocation fails.
-    pub fn new(
-        base: Linear<T>,
-        rank: usize,
-        alpha: f64,
-        dropout_p: f64,
-    ) -> FerrotorchResult<Self> {
+    pub fn new(base: Linear<T>, rank: usize, alpha: f64, dropout_p: f64) -> FerrotorchResult<Self> {
         if rank == 0 {
             return Err(FerrotorchError::InvalidArgument {
                 message: "LoRALinear: rank must be > 0".into(),
@@ -156,7 +151,7 @@ impl<T: Float> LoRALinear<T> {
             for j in 0..in_features {
                 let mut sum = zero;
                 for k in 0..r {
-                    sum = sum + b_data[i * r + k] * a_data[k * in_features + j];
+                    sum += b_data[i * r + k] * a_data[k * in_features + j];
                 }
                 ba[i * in_features + j] = sum;
             }
@@ -319,8 +314,12 @@ mod tests {
 
     /// Create a leaf tensor with given data and shape.
     fn leaf(data: &[f32], shape: &[usize], requires_grad: bool) -> Tensor<f32> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), shape.to_vec(), requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            shape.to_vec(),
+            requires_grad,
+        )
+        .unwrap()
     }
 
     /// Assert two float slices are element-wise close.
@@ -431,10 +430,8 @@ mod tests {
         // Since B is initialized to zeros, the LoRA contribution is zero.
         // The LoRA output should exactly match the base Linear output.
         let mut base = Linear::<f32>::new(3, 2, true).unwrap();
-        base.weight =
-            Parameter::from_slice(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0], &[2, 3]).unwrap();
-        *base.bias.as_mut().unwrap() =
-            Parameter::from_slice(&[10.0, 20.0], &[2]).unwrap();
+        base.weight = Parameter::from_slice(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0], &[2, 3]).unwrap();
+        *base.bias.as_mut().unwrap() = Parameter::from_slice(&[10.0, 20.0], &[2]).unwrap();
 
         // Compute base output for reference.
         let input = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], false);
@@ -499,26 +496,20 @@ mod tests {
         // Create a base layer with known weights.
         let mut base = Linear::<f32>::new(4, 3, true).unwrap();
         base.weight = Parameter::from_slice(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            &[
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+            ],
             &[3, 4],
         )
         .unwrap();
-        *base.bias.as_mut().unwrap() =
-            Parameter::from_slice(&[0.1, 0.2, 0.3], &[3]).unwrap();
+        *base.bias.as_mut().unwrap() = Parameter::from_slice(&[0.1, 0.2, 0.3], &[3]).unwrap();
 
         let mut lora = LoRALinear::new(base, 2, 1.0, 0.0).unwrap();
 
         // Set known LoRA weights so the contribution is non-zero.
-        lora.lora_a = Parameter::from_slice(
-            &[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
-            &[2, 4],
-        )
-        .unwrap();
-        lora.lora_b = Parameter::from_slice(
-            &[1.0, 0.0, 0.0, 1.0, 0.5, 0.5],
-            &[3, 2],
-        )
-        .unwrap();
+        lora.lora_a =
+            Parameter::from_slice(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], &[2, 4]).unwrap();
+        lora.lora_b = Parameter::from_slice(&[1.0, 0.0, 0.0, 1.0, 0.5, 0.5], &[3, 2]).unwrap();
 
         // Compute output before merge.
         let input = leaf(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0], &[2, 4], false);
@@ -543,8 +534,7 @@ mod tests {
         // base: W = [[1, 0], [0, 1]], bias = [0, 0]  (identity, 2->2)
         let mut base = Linear::<f32>::new(2, 2, true).unwrap();
         base.weight = Parameter::from_slice(&[1.0, 0.0, 0.0, 1.0], &[2, 2]).unwrap();
-        *base.bias.as_mut().unwrap() =
-            Parameter::from_slice(&[0.0, 0.0], &[2]).unwrap();
+        *base.bias.as_mut().unwrap() = Parameter::from_slice(&[0.0, 0.0], &[2]).unwrap();
 
         let mut lora = LoRALinear::new(base, 1, 2.0, 0.0).unwrap();
 

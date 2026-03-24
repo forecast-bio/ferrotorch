@@ -72,12 +72,16 @@ pub fn alloc_zeros_f32(len: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<f
     let rounded = crate::pool::round_len(len);
 
     // Pool hit: reuse a cached CudaSlice — no cuMemAllocAsync, no cuEventCreate.
-    if let Some(mut slice) =
-        crate::pool::pool_take::<CudaSlice<f32>>(device.ordinal(), rounded, 4)
+    if let Some(mut slice) = crate::pool::pool_take::<CudaSlice<f32>>(device.ordinal(), rounded, 4)
     {
         // Zero the full allocation to ensure no stale data (P10: intentional).
         device.stream().memset_zeros(&mut slice)?;
-        return Ok(CudaBuffer::<f32>::new_pooled(slice, len, rounded, device.ordinal()));
+        return Ok(CudaBuffer::<f32>::new_pooled(
+            slice,
+            len,
+            rounded,
+            device.ordinal(),
+        ));
     }
 
     // Pool miss: fresh allocation from CUDA driver with rounded length
@@ -85,7 +89,12 @@ pub fn alloc_zeros_f32(len: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<f
     // (not `len`) ensures the CudaSlice size matches what pool_take
     // will look for later (B12 fix).
     let slice = device.stream().alloc_zeros::<f32>(rounded)?;
-    Ok(CudaBuffer::<f32>::new_pooled(slice, len, rounded, device.ordinal()))
+    Ok(CudaBuffer::<f32>::new_pooled(
+        slice,
+        len,
+        rounded,
+        device.ordinal(),
+    ))
 }
 
 /// Allocate a zero-initialized [`CudaBuffer<f64>`] on the given device.
@@ -97,15 +106,24 @@ pub fn alloc_zeros_f64(len: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<f
 
     let rounded = crate::pool::round_len(len);
 
-    if let Some(mut slice) =
-        crate::pool::pool_take::<CudaSlice<f64>>(device.ordinal(), rounded, 8)
+    if let Some(mut slice) = crate::pool::pool_take::<CudaSlice<f64>>(device.ordinal(), rounded, 8)
     {
         device.stream().memset_zeros(&mut slice)?;
-        return Ok(CudaBuffer::<f64>::new_pooled(slice, len, rounded, device.ordinal()));
+        return Ok(CudaBuffer::<f64>::new_pooled(
+            slice,
+            len,
+            rounded,
+            device.ordinal(),
+        ));
     }
 
     let slice = device.stream().alloc_zeros::<f64>(rounded)?;
-    Ok(CudaBuffer::<f64>::new_pooled(slice, len, rounded, device.ordinal()))
+    Ok(CudaBuffer::<f64>::new_pooled(
+        slice,
+        len,
+        rounded,
+        device.ordinal(),
+    ))
 }
 
 /// Generic alloc_zeros — kept for backward compatibility and non-f32/f64 types.
@@ -220,7 +238,10 @@ mod tests {
         assert!(buf2.pool_fn.is_some());
 
         let host = gpu_to_cpu(&buf2, &device).expect("gpu_to_cpu");
-        assert!(host.iter().all(|&x| x == 0.0), "pooled buffer must be zeroed");
+        assert!(
+            host.iter().all(|&x| x == 0.0),
+            "pooled buffer must be zeroed"
+        );
     }
 
     #[test]
@@ -279,7 +300,10 @@ mod tests {
 
         let err = gpu_to_cpu(&buf, &device).unwrap_err();
         match err {
-            GpuError::DeviceMismatch { expected: 99, got: 0 } => {}
+            GpuError::DeviceMismatch {
+                expected: 99,
+                got: 0,
+            } => {}
             other => panic!("unexpected error: {other}"),
         }
     }

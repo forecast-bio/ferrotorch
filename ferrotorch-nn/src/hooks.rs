@@ -22,7 +22,7 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 
 use crate::module::{Module, StateDict};
 use crate::parameter::Parameter;
@@ -264,10 +264,10 @@ impl<M: Module<T>, T: Float> Module<T> for HookedModule<M, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
 
-    use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+    use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 
     use crate::module::Module;
     use crate::parameter::Parameter;

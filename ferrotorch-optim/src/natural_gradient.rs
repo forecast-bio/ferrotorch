@@ -29,7 +29,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{no_grad, Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -302,7 +302,8 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
     fn step(&mut self) -> FerrotorchResult<()> {
         let config = self.config;
         self.step_count += 1;
-        let should_update_inv = self.step_count % config.update_freq == 1 || config.update_freq <= 1;
+        let should_update_inv =
+            self.step_count % config.update_freq == 1 || config.update_freq <= 1;
 
         // Precompute inverses if needed.
         if should_update_inv {
@@ -371,18 +372,10 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
                 // access, then released before the immutable borrow below).
                 if let Some(f) = self.factors.get_mut(&key) {
                     if f.a_inv.is_none() {
-                        f.a_inv = Some(invert_damped(
-                            &f.a_factor,
-                            f.a_size,
-                            config.damping,
-                        )?);
+                        f.a_inv = Some(invert_damped(&f.a_factor, f.a_size, config.damping)?);
                     }
                     if f.g_inv.is_none() {
-                        f.g_inv = Some(invert_damped(
-                            &f.g_factor,
-                            f.g_size,
-                            config.damping,
-                        )?);
+                        f.g_inv = Some(invert_damped(&f.g_factor, f.g_size, config.damping)?);
                     }
                 }
 
@@ -450,11 +443,7 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
                 // Write updated parameter data inside no_grad.
                 let shape_clone = shape.clone();
                 let new_tensor = no_grad(|| {
-                    Tensor::from_storage(
-                        TensorStorage::cpu(new_param_data),
-                        shape_clone,
-                        true,
-                    )
+                    Tensor::from_storage(TensorStorage::cpu(new_param_data), shape_clone, true)
                 })?;
 
                 self.param_groups[gi].params[pi] = Parameter::new(new_tensor);
@@ -555,19 +544,21 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
                     message: format!("missing g_size in state for key {name}"),
                 })? as usize;
 
-            let a_factor = entry
-                .get("a_factor")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!("missing a_factor in state for key {name}"),
-                })?;
+            let a_factor =
+                entry
+                    .get("a_factor")
+                    .cloned()
+                    .ok_or_else(|| FerrotorchError::InvalidArgument {
+                        message: format!("missing a_factor in state for key {name}"),
+                    })?;
 
-            let g_factor = entry
-                .get("g_factor")
-                .cloned()
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!("missing g_factor in state for key {name}"),
-                })?;
+            let g_factor =
+                entry
+                    .get("g_factor")
+                    .cloned()
+                    .ok_or_else(|| FerrotorchError::InvalidArgument {
+                        message: format!("missing g_factor in state for key {name}"),
+                    })?;
 
             let momentum_buf = entry.get("momentum_buf").cloned();
 
@@ -611,10 +602,7 @@ mod tests {
 
     /// Read a scalar parameter's current value.
     fn param_val(opt: &Kfac<f64>, group: usize, idx: usize) -> f64 {
-        opt.param_groups[group].params[idx]
-            .tensor()
-            .data()
-            .unwrap()[0]
+        opt.param_groups[group].params[idx].tensor().data().unwrap()[0]
     }
 
     // -----------------------------------------------------------------------
@@ -684,7 +672,8 @@ mod tests {
         )
         .unwrap();
 
-        kfac.update_factors("g0_p0", &activation, &gradient).unwrap();
+        kfac.update_factors("g0_p0", &activation, &gradient)
+            .unwrap();
 
         let factors = kfac.factors.get("g0_p0").unwrap();
 
@@ -766,12 +755,8 @@ mod tests {
         let p = param_from(&data, &[2, 3]);
 
         // Set gradient manually.
-        let grad_t = Tensor::from_storage(
-            TensorStorage::cpu(grad_data.clone()),
-            vec![2, 3],
-            false,
-        )
-        .unwrap();
+        let grad_t =
+            Tensor::from_storage(TensorStorage::cpu(grad_data.clone()), vec![2, 3], false).unwrap();
         p.tensor().set_grad(Some(grad_t)).unwrap();
 
         let config = KfacConfig {
@@ -886,12 +871,9 @@ mod tests {
 
             // Manual gradient: grad = W (gradient of 0.5 * ||W||^2)
             let w_data = tensor.data().unwrap().to_vec();
-            let grad_t = Tensor::from_storage(
-                TensorStorage::cpu(w_data.clone()),
-                vec![1, 2],
-                false,
-            )
-            .unwrap();
+            let grad_t =
+                Tensor::from_storage(TensorStorage::cpu(w_data.clone()), vec![1, 2], false)
+                    .unwrap();
             tensor.set_grad(Some(grad_t)).unwrap();
 
             // Update Kronecker factors with well-conditioned activations.
@@ -903,12 +885,9 @@ mod tests {
             )
             .unwrap();
             // Output gradient: batch of 2, out_features=1 => G = scalar.
-            let grad_out = Tensor::from_storage(
-                TensorStorage::cpu(vec![1.0, 1.0]),
-                vec![2, 1],
-                false,
-            )
-            .unwrap();
+            let grad_out =
+                Tensor::from_storage(TensorStorage::cpu(vec![1.0, 1.0]), vec![2, 1], false)
+                    .unwrap();
 
             kfac.update_factors(&key, &act, &grad_out).unwrap();
 
@@ -995,14 +974,8 @@ mod tests {
         assert!(kfac2.factors.contains_key(&key));
 
         let loaded = kfac2.state_dict();
-        assert_eq!(
-            loaded[&key]["a_factor"],
-            saved[&key]["a_factor"]
-        );
-        assert_eq!(
-            loaded[&key]["g_factor"],
-            saved[&key]["g_factor"]
-        );
+        assert_eq!(loaded[&key]["a_factor"], saved[&key]["a_factor"]);
+        assert_eq!(loaded[&key]["g_factor"], saved[&key]["g_factor"]);
     }
 
     // -----------------------------------------------------------------------
@@ -1067,7 +1040,8 @@ mod tests {
         let mut kfac = Kfac::new(vec![p], KfacConfig::default());
 
         let act = Tensor::from_storage(TensorStorage::cpu(vec![1.0, 2.0]), vec![2], false).unwrap();
-        let grad = Tensor::from_storage(TensorStorage::cpu(vec![1.0, 2.0]), vec![2], false).unwrap();
+        let grad =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 2.0]), vec![2], false).unwrap();
 
         let result = kfac.update_factors("test", &act, &grad);
         assert!(result.is_err());
@@ -1084,12 +1058,8 @@ mod tests {
             false,
         )
         .unwrap();
-        let grad = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0, 2.0, 3.0]),
-            vec![3, 1],
-            false,
-        )
-        .unwrap();
+        let grad = Tensor::from_storage(TensorStorage::cpu(vec![1.0, 2.0, 3.0]), vec![3, 1], false)
+            .unwrap();
 
         let result = kfac.update_factors("test", &act, &grad);
         assert!(result.is_err());

@@ -7,7 +7,7 @@
 //! These mirror `torch.nn.utils.rnn.pack_padded_sequence` and
 //! `torch.nn.utils.rnn.pad_packed_sequence`.
 
-use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 // ---------------------------------------------------------------------------
 // PackedSequence
@@ -138,12 +138,8 @@ pub fn pack_padded_sequence<T: Float>(
     let input_data = input.data()?;
     let mut packed_data: Vec<T> = Vec::with_capacity(total_elements * features);
 
-    for t in 0..max_len {
-        let bs = batch_sizes[t];
-        for s in 0..bs {
-            // s-th sequence in *sorted* order.
-            let orig_batch_idx = sorted_indices[s];
-
+    for (t, &bs) in batch_sizes.iter().enumerate() {
+        for &orig_batch_idx in &sorted_indices[..bs] {
             // Compute offset into the flat input data.
             let offset = if batch_first {
                 // input[orig_batch_idx, t, :] — layout [batch, max_seq_len, features]
@@ -226,8 +222,8 @@ pub fn pad_packed_sequence<T: Float>(
     // sorted_lengths[s] = number of timesteps t where batch_sizes[t] > s.
     let mut sorted_lengths = vec![0usize; batch];
     for &bs in &packed.batch_sizes {
-        for s in 0..bs {
-            sorted_lengths[s] += 1;
+        for sl in sorted_lengths[..bs].iter_mut() {
+            *sl += 1;
         }
     }
 
@@ -402,10 +398,7 @@ mod tests {
                 for f in 0..feat {
                     let idx = t * batch * feat + b * feat + f;
                     if t < lengths[b] {
-                        assert_eq!(
-                            output_data[idx], data[idx],
-                            "mismatch at t={t} b={b} f={f}"
-                        );
+                        assert_eq!(output_data[idx], data[idx], "mismatch at t={t} b={b} f={f}");
                     } else {
                         assert_eq!(
                             output_data[idx], -1.0,
@@ -503,12 +496,7 @@ mod tests {
         // 2 sequences, lengths [3, 2], features=1, batch_first=true
         // input[0] = [10, 20, 30], input[1] = [40, 50, PAD]
         let data = vec![10.0f32, 20.0, 30.0, 40.0, 50.0, 0.0];
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(data),
-            vec![2, 3, 1],
-            false,
-        )
-        .unwrap();
+        let input = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 3, 1], false).unwrap();
 
         let packed = pack_padded_sequence(&input, &[3, 2], true, true).unwrap();
 
@@ -614,12 +602,7 @@ mod tests {
     #[test]
     fn test_f64_pack_unpack() {
         let data = vec![1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(data),
-            vec![2, 3, 1],
-            false,
-        )
-        .unwrap();
+        let input = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 3, 1], false).unwrap();
 
         let packed = pack_padded_sequence(&input, &[3, 2], true, true).unwrap();
         let (output, lens) = pad_packed_sequence(&packed, true, 0.0f64).unwrap();

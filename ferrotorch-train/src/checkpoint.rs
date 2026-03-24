@@ -36,7 +36,7 @@
 
 pub use ferrotorch_core::autograd::checkpoint::checkpoint;
 
-use ferrotorch_core::{Float, FerrotorchResult, Tensor};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_nn::Module;
 
 /// Apply gradient checkpointing to a sequence of modules in segments.
@@ -135,7 +135,10 @@ mod tests {
         // Verify the re-export exists. The actual checkpoint logic is tested
         // exhaustively in ferrotorch-core. Here we just confirm the symbol
         // is accessible.
-        let _f: fn(fn(&Tensor<f32>) -> FerrotorchResult<Tensor<f32>>, &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> = checkpoint;
+        let _f: fn(
+            fn(&Tensor<f32>) -> FerrotorchResult<Tensor<f32>>,
+            &Tensor<f32>,
+        ) -> FerrotorchResult<Tensor<f32>> = checkpoint;
     }
 
     // -- checkpoint_sequential -----------------------------------------------
@@ -173,10 +176,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_sequential_single_segment() {
-        let modules = vec![
-            ScaleModule { factor: 2.0 },
-            ScaleModule { factor: 3.0 },
-        ];
+        let modules = vec![ScaleModule { factor: 2.0 }, ScaleModule { factor: 3.0 }];
 
         let input = ferrotorch_core::scalar(1.0_f32).unwrap();
         let output = checkpoint_sequential(&modules, 1, &input).unwrap();
@@ -202,10 +202,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_sequential_more_segments_than_modules() {
-        let modules = vec![
-            ScaleModule { factor: 5.0 },
-            ScaleModule { factor: 2.0 },
-        ];
+        let modules = vec![ScaleModule { factor: 5.0 }, ScaleModule { factor: 2.0 }];
 
         let input = ferrotorch_core::scalar(1.0_f32).unwrap();
         // 10 segments for 2 modules — each module is its own segment.

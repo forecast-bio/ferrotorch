@@ -177,7 +177,9 @@ impl<T: Float> GradFn<T> for CumprodBackward<T> {
                             for kk in 0..=j {
                                 if kk != i {
                                     #[allow(clippy::assign_op_pattern)]
-                            { partial = partial * in_data[base + kk * inner]; }
+                                    {
+                                        partial = partial * in_data[base + kk * inner];
+                                    }
                                 }
                             }
                             acc += go_data[base + j * inner] * partial;

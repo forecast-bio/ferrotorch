@@ -100,16 +100,13 @@ pub fn interpret<T: Float>(graph: &IrGraph, inputs: &[Tensor<T>]) -> FerrotorchR
                 }
             }
 
-            IrOpKind::Constant { data, shape: cshape } => {
-                let converted: Vec<T> = data
-                    .iter()
-                    .map(|&v| T::from(v).unwrap())
-                    .collect();
-                let tensor = Tensor::from_storage(
-                    TensorStorage::cpu(converted),
-                    cshape.clone(),
-                    false,
-                )?;
+            IrOpKind::Constant {
+                data,
+                shape: cshape,
+            } => {
+                let converted: Vec<T> = data.iter().map(|&v| T::from(v).unwrap()).collect();
+                let tensor =
+                    Tensor::from_storage(TensorStorage::cpu(converted), cshape.clone(), false)?;
                 for &out_id in &node.outputs {
                     values.insert(out_id, tensor.clone());
                 }
@@ -355,12 +352,14 @@ pub fn interpret<T: Float>(graph: &IrGraph, inputs: &[Tensor<T>]) -> FerrotorchR
 
     // 6. Return the single graph output.
     let output_id = graph.output_values[0];
-    values.remove(&output_id).ok_or_else(|| FerrotorchError::InvalidArgument {
-        message: format!(
-            "interpret: output value {:?} was not produced during execution",
-            output_id
-        ),
-    })
+    values
+        .remove(&output_id)
+        .ok_or_else(|| FerrotorchError::InvalidArgument {
+            message: format!(
+                "interpret: output value {:?} was not produced during execution",
+                output_id
+            ),
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -372,9 +371,11 @@ fn get_value<T: Float>(
     values: &HashMap<IrValueId, Tensor<T>>,
     id: IrValueId,
 ) -> FerrotorchResult<&Tensor<T>> {
-    values.get(&id).ok_or_else(|| FerrotorchError::InvalidArgument {
-        message: format!("interpret: value {:?} not found", id),
-    })
+    values
+        .get(&id)
+        .ok_or_else(|| FerrotorchError::InvalidArgument {
+            message: format!("interpret: value {:?} not found", id),
+        })
 }
 
 /// Get the single input tensor for a unary operation.
@@ -418,10 +419,7 @@ fn set_outputs<T: Float>(
 }
 
 /// Apply a single elementwise operation (used by `FusedElementwise`).
-fn apply_elementwise_op<T: Float>(
-    input: &Tensor<T>,
-    op: &IrOpKind,
-) -> FerrotorchResult<Tensor<T>> {
+fn apply_elementwise_op<T: Float>(input: &Tensor<T>, op: &IrOpKind) -> FerrotorchResult<Tensor<T>> {
     match op {
         IrOpKind::Neg => arithmetic::neg(input),
         IrOpKind::Sqrt => arithmetic::sqrt(input),
@@ -435,10 +433,7 @@ fn apply_elementwise_op<T: Float>(
         IrOpKind::Exp => transcendental::exp(input),
         IrOpKind::Log => transcendental::log(input),
         _ => Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "interpret: unsupported op in FusedElementwise: {:?}",
-                op
-            ),
+            message: format!("interpret: unsupported op in FusedElementwise: {:?}", op),
         }),
     }
 }

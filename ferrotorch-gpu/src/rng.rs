@@ -343,7 +343,10 @@ impl CudaRngManager {
 
     /// Set the seed for a specific device, resetting its counter and offset.
     pub fn manual_seed(&mut self, device: usize, seed: u64) {
-        let rng_gen = self.generators.entry(device).or_insert_with(|| PhiloxGenerator::new(seed));
+        let rng_gen = self
+            .generators
+            .entry(device)
+            .or_insert_with(|| PhiloxGenerator::new(seed));
         rng_gen.set_seed(seed);
     }
 
@@ -370,7 +373,8 @@ impl CudaRngManager {
 
     /// Set the RNG state for a specific device from a snapshot.
     pub fn set_rng_state(&mut self, device: usize, state: PhiloxState) {
-        let rng_gen = self.generators
+        let rng_gen = self
+            .generators
             .entry(device)
             .or_insert_with(|| PhiloxGenerator::new(state.seed));
         rng_gen.set_state(state);
@@ -1172,7 +1176,7 @@ pub fn gpu_philox_uniform(n: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<
         let rng_gen = mgr.generator(device.ordinal());
         let state = rng_gen.get_state();
         // Advance the generator by ceil(n/4) counters (each counter produces 4 values)
-        let counters_needed = (n + 3) / 4;
+        let counters_needed = n.div_ceil(4);
         rng_gen.advance(counters_needed as u64);
         state
     };
@@ -1241,7 +1245,7 @@ pub fn gpu_philox_normal(n: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<f
         let mut mgr = CUDA_RNG_MANAGER.lock().unwrap();
         let rng_gen = mgr.generator(device.ordinal());
         let state = rng_gen.get_state();
-        let counters_needed = (n + 1) / 2;
+        let counters_needed = n.div_ceil(2);
         rng_gen.advance(counters_needed as u64);
         state
     };
@@ -1267,7 +1271,7 @@ pub fn gpu_philox_normal(n: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<f
 
     let mut out = alloc_zeros_f32(n, device)?;
     // Each thread handles 2 elements, so we need ceil(n/2) threads.
-    let num_threads = (n + 1) / 2;
+    let num_threads = n.div_ceil(2);
     let cfg = rng_launch_cfg(num_threads)?;
     let n_u32 = n as u32;
     let seed_lo = state.seed as u32;
@@ -1344,7 +1348,10 @@ mod tests {
     fn philox_outputs_nonzero() {
         // With high probability, at least some outputs are non-zero.
         let out = philox_4x32_10(1, 1);
-        assert!(out.iter().any(|&x| x != 0), "all Philox outputs are zero — very unlikely");
+        assert!(
+            out.iter().any(|&x| x != 0),
+            "all Philox outputs are zero — very unlikely"
+        );
     }
 
     #[test]
@@ -1471,7 +1478,7 @@ mod tests {
         let mut rng_gen = PhiloxGenerator::new(42);
         for _ in 0..10000 {
             let v = rng_gen.next_f32();
-            assert!(v >= 0.0 && v < 1.0, "f32 value {v} outside [0, 1)");
+            assert!((0.0..1.0).contains(&v), "f32 value {v} outside [0, 1)");
         }
     }
 
@@ -1502,7 +1509,7 @@ mod tests {
         let mut rng_gen = PhiloxGenerator::new(42);
         let vals = rng_gen.generate_uniform(10000);
         for &v in &vals {
-            assert!(v >= 0.0 && v < 1.0, "uniform value {v} outside [0, 1)");
+            assert!((0.0..1.0).contains(&v), "uniform value {v} outside [0, 1)");
         }
     }
 
@@ -1536,16 +1543,17 @@ mod tests {
 
         let n = vals.len() as f64;
         let mean: f64 = vals.iter().map(|&v| v as f64).sum::<f64>() / n;
-        let var: f64 = vals.iter().map(|&v| {
-            let d = v as f64 - mean;
-            d * d
-        }).sum::<f64>() / n;
+        let var: f64 = vals
+            .iter()
+            .map(|&v| {
+                let d = v as f64 - mean;
+                d * d
+            })
+            .sum::<f64>()
+            / n;
         let std = var.sqrt();
 
-        assert!(
-            mean.abs() < 0.02,
-            "normal mean = {mean}, expected ~0.0"
-        );
+        assert!(mean.abs() < 0.02, "normal mean = {mean}, expected ~0.0");
         assert!(
             (std - 1.0).abs() < 0.02,
             "normal std = {std}, expected ~1.0"
@@ -1670,7 +1678,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "devices.len()")]
     fn fork_join_length_mismatch_panics() {
-        let states = vec![PhiloxState { counter: 0, seed: 0, offset: 0 }];
+        let states = vec![PhiloxState {
+            counter: 0,
+            seed: 0,
+            offset: 0,
+        }];
         join_rng(&[0, 1], states);
     }
 
