@@ -2,11 +2,12 @@
   "uuid": "981392f4-b67a-4650-9a8f-1b74572c8459",
   "display_id": 337,
   "title": "Fix all clippy warnings, format code, wire unused functions, and publish v0.1.7",
-  "status": "open",
+  "status": "closed",
   "priority": "critical",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T18:20:40.867145091Z",
-  "updated_at": "2026-03-24T18:20:43.026789298Z",
+  "updated_at": "2026-03-24T19:38:38.884510341Z",
+  "closed_at": "2026-03-24T19:38:38.884510341Z",
   "labels": [
     "fix"
   ]
