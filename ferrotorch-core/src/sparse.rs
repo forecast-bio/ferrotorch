@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use num_traits::Zero;
+
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::storage::TensorStorage;
@@ -380,6 +382,1028 @@ impl<T: Float> fmt::Debug for SparseTensor<T> {
             .field("shape", &self.shape)
             .field("nnz", &self.nnz)
             .field("ndim", &self.shape.len())
+            .finish()
+    }
+}
+
+// =========================================================================
+// CSR (Compressed Sparse Row) format
+// =========================================================================
+
+/// A 2-D sparse tensor in Compressed Sparse Row (CSR) format.
+///
+/// CSR stores non-zero values in three arrays:
+/// - `values`: the non-zero entries, row by row
+/// - `col_indices`: the column index for each entry in `values`
+/// - `row_ptrs`: offsets into `values` for each row; length = nrows + 1.
+///   Row `i` spans `values[row_ptrs[i]..row_ptrs[i+1]]`.
+///
+/// This format is optimal for row-slicing, sparse matrix-vector multiply (SpMV),
+/// and sparse-dense matrix multiply (SpMM).
+pub struct CsrTensor<T: Float> {
+    values: Vec<T>,
+    col_indices: Vec<usize>,
+    row_ptrs: Vec<usize>,
+    shape: [usize; 2],
+}
+
+impl<T: Float> CsrTensor<T> {
+    /// Create a CSR tensor from raw components.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - `values.len() != col_indices.len()`
+    /// - `row_ptrs.len() != shape[0] + 1`
+    /// - `row_ptrs` is not non-decreasing
+    /// - `row_ptrs[shape[0]] != values.len()`
+    /// - Any `col_indices[i] >= shape[1]`
+    pub fn new(
+        values: Vec<T>,
+        col_indices: Vec<usize>,
+        row_ptrs: Vec<usize>,
+        shape: [usize; 2],
+    ) -> FerrotorchResult<Self> {
+        let nrows = shape[0];
+        let ncols = shape[1];
+
+        if values.len() != col_indices.len() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "CsrTensor: values length ({}) must equal col_indices length ({})",
+                    values.len(),
+                    col_indices.len()
+                ),
+            });
+        }
+
+        if row_ptrs.len() != nrows + 1 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "CsrTensor: row_ptrs length ({}) must equal nrows + 1 ({})",
+                    row_ptrs.len(),
+                    nrows + 1
+                ),
+            });
+        }
+
+        // row_ptrs must be non-decreasing.
+        for i in 0..nrows {
+            if row_ptrs[i] > row_ptrs[i + 1] {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "CsrTensor: row_ptrs must be non-decreasing, but row_ptrs[{}]={} > row_ptrs[{}]={}",
+                        i, row_ptrs[i], i + 1, row_ptrs[i + 1]
+                    ),
+                });
+            }
+        }
+
+        if row_ptrs[nrows] != values.len() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "CsrTensor: row_ptrs[{}]={} must equal values length ({})",
+                    nrows, row_ptrs[nrows], values.len()
+                ),
+            });
+        }
+
+        for &c in &col_indices {
+            if c >= ncols {
+                return Err(FerrotorchError::IndexOutOfBounds {
+                    index: c,
+                    axis: 1,
+                    size: ncols,
+                });
+            }
+        }
+
+        Ok(Self {
+            values,
+            col_indices,
+            row_ptrs,
+            shape,
+        })
+    }
+
+    /// Build a CSR tensor from a dense 2-D `Tensor`.
+    ///
+    /// Elements that are exactly zero are not stored. For threshold-based
+    /// sparsification, use `SparseTensor::from_dense` or the pruning utilities.
+    pub fn from_dense(tensor: &Tensor<T>) -> FerrotorchResult<Self> {
+        if tensor.ndim() != 2 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "CsrTensor::from_dense requires a 2-D tensor, got {}-D",
+                    tensor.ndim()
+                ),
+            });
+        }
+
+        let data = tensor.data()?;
+        let nrows = tensor.shape()[0];
+        let ncols = tensor.shape()[1];
+
+        let mut values = Vec::new();
+        let mut col_indices = Vec::new();
+        let mut row_ptrs = Vec::with_capacity(nrows + 1);
+        row_ptrs.push(0);
+
+        for i in 0..nrows {
+            for j in 0..ncols {
+                let val = data[i * ncols + j];
+                if !<T as Zero>::is_zero(&val) {
+                    values.push(val);
+                    col_indices.push(j);
+                }
+            }
+            row_ptrs.push(values.len());
+        }
+
+        Ok(Self {
+            values,
+            col_indices,
+            row_ptrs,
+            shape: [nrows, ncols],
+        })
+    }
+
+    /// Convert to a dense 2-D `Tensor`.
+    pub fn to_dense(&self) -> FerrotorchResult<Tensor<T>> {
+        let nrows = self.shape[0];
+        let ncols = self.shape[1];
+        let mut data = vec![<T as Zero>::zero(); nrows * ncols];
+
+        for i in 0..nrows {
+            for idx in self.row_ptrs[i]..self.row_ptrs[i + 1] {
+                let j = self.col_indices[idx];
+                data[i * ncols + j] = data[i * ncols + j] + self.values[idx];
+            }
+        }
+
+        Tensor::from_storage(TensorStorage::cpu(data), vec![nrows, ncols], false)
+    }
+
+    /// Build a CSR tensor from a COO tensor.
+    ///
+    /// Duplicate entries are summed (the COO tensor does not need to be coalesced).
+    pub fn from_coo(coo: &CooTensor<T>) -> FerrotorchResult<Self> {
+        let nrows = coo.shape[0];
+        let ncols = coo.shape[1];
+
+        // Count entries per row.
+        let mut row_counts = vec![0usize; nrows];
+        for &r in &coo.row_indices {
+            row_counts[r] += 1;
+        }
+
+        // Build row_ptrs from counts.
+        let mut row_ptrs = Vec::with_capacity(nrows + 1);
+        row_ptrs.push(0);
+        for &count in &row_counts {
+            row_ptrs.push(row_ptrs.last().unwrap() + count);
+        }
+
+        // Place entries into CSR arrays, using a running offset per row.
+        let nnz = coo.values.len();
+        let mut values = vec![<T as Zero>::zero(); nnz];
+        let mut col_indices = vec![0usize; nnz];
+        let mut row_offset = vec![0usize; nrows];
+
+        for k in 0..nnz {
+            let r = coo.row_indices[k];
+            let dest = row_ptrs[r] + row_offset[r];
+            values[dest] = coo.values[k];
+            col_indices[dest] = coo.col_indices[k];
+            row_offset[r] += 1;
+        }
+
+        // If the COO had duplicates, coalesce by accumulating into a dense
+        // row-buffer and re-building. This is correct even if not coalesced.
+        // For efficiency we only do the expensive path if there are duplicates.
+        let mut has_duplicates = false;
+        'outer: for i in 0..nrows {
+            let start = row_ptrs[i];
+            let end = row_ptrs[i + 1];
+            for a in start..end {
+                for b in (a + 1)..end {
+                    if col_indices[a] == col_indices[b] {
+                        has_duplicates = true;
+                        break 'outer;
+                    }
+                }
+            }
+        }
+
+        if has_duplicates {
+            // Accumulate into a dense scratch row.
+            let mut out_values = Vec::new();
+            let mut out_col_indices = Vec::new();
+            let mut out_row_ptrs = Vec::with_capacity(nrows + 1);
+            out_row_ptrs.push(0);
+
+            let mut scratch = vec![<T as Zero>::zero(); ncols];
+
+            for i in 0..nrows {
+                // Zero the scratch buffer.
+                for v in scratch.iter_mut() {
+                    *v = <T as Zero>::zero();
+                }
+
+                let start = row_ptrs[i];
+                let end = row_ptrs[i + 1];
+                for idx in start..end {
+                    let c = col_indices[idx];
+                    scratch[c] = scratch[c] + values[idx];
+                }
+
+                for (c, &v) in scratch.iter().enumerate() {
+                    if !<T as Zero>::is_zero(&v) {
+                        out_values.push(v);
+                        out_col_indices.push(c);
+                    }
+                }
+                out_row_ptrs.push(out_values.len());
+            }
+
+            Ok(Self {
+                values: out_values,
+                col_indices: out_col_indices,
+                row_ptrs: out_row_ptrs,
+                shape: [nrows, ncols],
+            })
+        } else {
+            Ok(Self {
+                values,
+                col_indices,
+                row_ptrs,
+                shape: [nrows, ncols],
+            })
+        }
+    }
+
+    /// Build a CSR tensor from the general-purpose `SparseTensor` (must be 2-D).
+    pub fn from_sparse(sp: &SparseTensor<T>) -> FerrotorchResult<Self> {
+        if sp.ndim() != 2 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "CsrTensor::from_sparse requires a 2-D SparseTensor, got {}-D",
+                    sp.ndim()
+                ),
+            });
+        }
+
+        let row_indices: Vec<usize> = sp.indices().iter().map(|idx| idx[0]).collect();
+        let col_indices: Vec<usize> = sp.indices().iter().map(|idx| idx[1]).collect();
+        let coo = CooTensor {
+            values: sp.values().to_vec(),
+            row_indices,
+            col_indices,
+            shape: [sp.shape()[0], sp.shape()[1]],
+            is_coalesced: false,
+        };
+        Self::from_coo(&coo)
+    }
+
+    /// Sparse matrix-vector multiply: `y = A * x`.
+    ///
+    /// `self` is `[M, K]`, `x` has length `K`, returns a vector of length `M`.
+    pub fn spmv(&self, x: &[T]) -> FerrotorchResult<Vec<T>> {
+        let nrows = self.shape[0];
+        let ncols = self.shape[1];
+
+        if x.len() != ncols {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "CsrTensor::spmv: vector length ({}) must equal ncols ({})",
+                    x.len(),
+                    ncols
+                ),
+            });
+        }
+
+        let mut y = vec![<T as Zero>::zero(); nrows];
+
+        for i in 0..nrows {
+            let mut sum = <T as Zero>::zero();
+            for idx in self.row_ptrs[i]..self.row_ptrs[i + 1] {
+                sum = sum + self.values[idx] * x[self.col_indices[idx]];
+            }
+            y[i] = sum;
+        }
+
+        Ok(y)
+    }
+
+    /// Sparse-dense matrix multiply: `C = A @ B`.
+    ///
+    /// `self` (A) is `[M, K]` in CSR format, `B` is `[K, N]` dense.
+    /// Returns a dense `[M, N]` tensor.
+    pub fn spmm(&self, dense: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        if dense.ndim() != 2 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "CsrTensor::spmm requires 2-D dense tensor, got {}-D",
+                    dense.ndim()
+                ),
+            });
+        }
+
+        let m = self.shape[0];
+        let k = self.shape[1];
+        let dense_shape = dense.shape();
+        let k_dense = dense_shape[0];
+        let n = dense_shape[1];
+
+        if k != k_dense {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "CsrTensor::spmm inner dimension mismatch: CSR [{}, {}] @ dense [{}, {}]",
+                    m, k, k_dense, n
+                ),
+            });
+        }
+
+        let dense_data = dense.data()?;
+        let mut output = vec![<T as Zero>::zero(); m * n];
+
+        for i in 0..m {
+            for idx in self.row_ptrs[i]..self.row_ptrs[i + 1] {
+                let j = self.col_indices[idx];
+                let v = self.values[idx];
+                let out_row = i * n;
+                let dense_row = j * n;
+                for col in 0..n {
+                    output[out_row + col] = output[out_row + col] + v * dense_data[dense_row + col];
+                }
+            }
+        }
+
+        Tensor::from_storage(TensorStorage::cpu(output), vec![m, n], false)
+    }
+
+    /// Number of stored non-zero elements.
+    #[inline]
+    pub fn nnz(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Shape `[nrows, ncols]`.
+    #[inline]
+    pub fn shape(&self) -> [usize; 2] {
+        self.shape
+    }
+
+    /// The stored non-zero values (row-major order).
+    #[inline]
+    pub fn values(&self) -> &[T] {
+        &self.values
+    }
+
+    /// Column indices for each stored value.
+    #[inline]
+    pub fn col_indices(&self) -> &[usize] {
+        &self.col_indices
+    }
+
+    /// Row pointers: `row_ptrs[i]..row_ptrs[i+1]` spans row `i`.
+    #[inline]
+    pub fn row_ptrs(&self) -> &[usize] {
+        &self.row_ptrs
+    }
+}
+
+impl<T: Float> Clone for CsrTensor<T> {
+    fn clone(&self) -> Self {
+        Self {
+            values: self.values.clone(),
+            col_indices: self.col_indices.clone(),
+            row_ptrs: self.row_ptrs.clone(),
+            shape: self.shape,
+        }
+    }
+}
+
+impl<T: Float> fmt::Debug for CsrTensor<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CsrTensor")
+            .field("shape", &self.shape)
+            .field("nnz", &self.values.len())
+            .finish()
+    }
+}
+
+// =========================================================================
+// COO (Coordinate) format — 2-D optimized
+// =========================================================================
+
+/// A 2-D sparse tensor in COO (Coordinate List) format.
+///
+/// Unlike the general-purpose [`SparseTensor`] which supports arbitrary
+/// dimensionality via `Vec<Vec<usize>>` indices, `CooTensor` is restricted to
+/// 2-D matrices and stores row and column indices in separate flat `Vec<usize>`
+/// arrays. This avoids per-entry heap allocation and is more cache-friendly.
+///
+/// Duplicate `(row, col)` pairs are permitted. Call [`coalesce`](Self::coalesce)
+/// to merge them by summation.
+pub struct CooTensor<T: Float> {
+    values: Vec<T>,
+    row_indices: Vec<usize>,
+    col_indices: Vec<usize>,
+    shape: [usize; 2],
+    is_coalesced: bool,
+}
+
+impl<T: Float> CooTensor<T> {
+    /// Create a COO tensor from raw components.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the three vectors have different lengths, or any
+    /// index is out of bounds.
+    pub fn new(
+        values: Vec<T>,
+        row_indices: Vec<usize>,
+        col_indices: Vec<usize>,
+        shape: [usize; 2],
+    ) -> FerrotorchResult<Self> {
+        let nnz = values.len();
+        if row_indices.len() != nnz || col_indices.len() != nnz {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "CooTensor: values ({}), row_indices ({}), col_indices ({}) must have equal length",
+                    nnz, row_indices.len(), col_indices.len()
+                ),
+            });
+        }
+
+        let nrows = shape[0];
+        let ncols = shape[1];
+
+        for i in 0..nnz {
+            if row_indices[i] >= nrows {
+                return Err(FerrotorchError::IndexOutOfBounds {
+                    index: row_indices[i],
+                    axis: 0,
+                    size: nrows,
+                });
+            }
+            if col_indices[i] >= ncols {
+                return Err(FerrotorchError::IndexOutOfBounds {
+                    index: col_indices[i],
+                    axis: 1,
+                    size: ncols,
+                });
+            }
+        }
+
+        Ok(Self {
+            values,
+            row_indices,
+            col_indices,
+            shape,
+            is_coalesced: false,
+        })
+    }
+
+    /// Build a COO tensor from a dense 2-D `Tensor`.
+    ///
+    /// All non-zero elements are stored. The result is coalesced (no duplicates).
+    pub fn from_dense(tensor: &Tensor<T>) -> FerrotorchResult<Self> {
+        if tensor.ndim() != 2 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "CooTensor::from_dense requires a 2-D tensor, got {}-D",
+                    tensor.ndim()
+                ),
+            });
+        }
+
+        let data = tensor.data()?;
+        let nrows = tensor.shape()[0];
+        let ncols = tensor.shape()[1];
+
+        let mut values = Vec::new();
+        let mut row_indices = Vec::new();
+        let mut col_indices = Vec::new();
+
+        for i in 0..nrows {
+            for j in 0..ncols {
+                let val = data[i * ncols + j];
+                if !<T as Zero>::is_zero(&val) {
+                    values.push(val);
+                    row_indices.push(i);
+                    col_indices.push(j);
+                }
+            }
+        }
+
+        Ok(Self {
+            values,
+            row_indices,
+            col_indices,
+            shape: [nrows, ncols],
+            is_coalesced: true,
+        })
+    }
+
+    /// Convert to a dense 2-D `Tensor`.
+    ///
+    /// Duplicate entries are summed.
+    pub fn to_dense(&self) -> FerrotorchResult<Tensor<T>> {
+        let nrows = self.shape[0];
+        let ncols = self.shape[1];
+        let mut data = vec![<T as Zero>::zero(); nrows * ncols];
+
+        for k in 0..self.values.len() {
+            let i = self.row_indices[k];
+            let j = self.col_indices[k];
+            data[i * ncols + j] = data[i * ncols + j] + self.values[k];
+        }
+
+        Tensor::from_storage(TensorStorage::cpu(data), vec![nrows, ncols], false)
+    }
+
+    /// Merge duplicate `(row, col)` entries by summing their values.
+    ///
+    /// After this call, `is_coalesced()` returns `true`. Zero-sum entries are
+    /// removed.
+    pub fn coalesce(&mut self) {
+        if self.is_coalesced {
+            return;
+        }
+
+        let nnz = self.values.len();
+        let ncols = self.shape[1];
+
+        // Build a map from (row, col) -> accumulated value.
+        let mut map: HashMap<usize, T> = HashMap::new();
+        for k in 0..nnz {
+            let key = self.row_indices[k] * ncols + self.col_indices[k];
+            let entry = map.entry(key).or_insert_with(<T as Zero>::zero);
+            *entry = *entry + self.values[k];
+        }
+
+        // Rebuild sorted arrays. Sort by flat index for deterministic order.
+        let mut entries: Vec<(usize, T)> = map
+            .into_iter()
+            .filter(|(_, v)| !<T as Zero>::is_zero(v))
+            .collect();
+        entries.sort_by_key(|(key, _)| *key);
+
+        self.values.clear();
+        self.row_indices.clear();
+        self.col_indices.clear();
+
+        for (key, val) in entries {
+            self.row_indices.push(key / ncols);
+            self.col_indices.push(key % ncols);
+            self.values.push(val);
+        }
+
+        self.is_coalesced = true;
+    }
+
+    /// Build a COO tensor from a CSR tensor.
+    pub fn from_csr(csr: &CsrTensor<T>) -> Self {
+        let nrows = csr.shape[0];
+        let mut values = Vec::with_capacity(csr.values.len());
+        let mut row_indices = Vec::with_capacity(csr.values.len());
+        let mut col_indices = Vec::with_capacity(csr.values.len());
+
+        for i in 0..nrows {
+            for idx in csr.row_ptrs[i]..csr.row_ptrs[i + 1] {
+                row_indices.push(i);
+                col_indices.push(csr.col_indices[idx]);
+                values.push(csr.values[idx]);
+            }
+        }
+
+        Self {
+            values,
+            row_indices,
+            col_indices,
+            shape: csr.shape,
+            is_coalesced: true,
+        }
+    }
+
+    /// Sparse-dense matrix multiply: `C = A @ B`.
+    ///
+    /// `self` (A) is `[M, K]` in COO format, `B` is `[K, N]` dense.
+    /// Returns a dense `[M, N]` tensor.
+    pub fn spmm(&self, dense: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        if dense.ndim() != 2 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "CooTensor::spmm requires 2-D dense tensor, got {}-D",
+                    dense.ndim()
+                ),
+            });
+        }
+
+        let m = self.shape[0];
+        let k = self.shape[1];
+        let dense_shape = dense.shape();
+        let k_dense = dense_shape[0];
+        let n = dense_shape[1];
+
+        if k != k_dense {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "CooTensor::spmm inner dimension mismatch: COO [{}, {}] @ dense [{}, {}]",
+                    m, k, k_dense, n
+                ),
+            });
+        }
+
+        let dense_data = dense.data()?;
+        let mut output = vec![<T as Zero>::zero(); m * n];
+
+        for entry_idx in 0..self.values.len() {
+            let i = self.row_indices[entry_idx];
+            let j = self.col_indices[entry_idx];
+            let v = self.values[entry_idx];
+            let out_row = i * n;
+            let dense_row = j * n;
+            for col in 0..n {
+                output[out_row + col] = output[out_row + col] + v * dense_data[dense_row + col];
+            }
+        }
+
+        Tensor::from_storage(TensorStorage::cpu(output), vec![m, n], false)
+    }
+
+    /// Number of stored entries (including duplicates if not coalesced).
+    #[inline]
+    pub fn nnz(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Shape `[nrows, ncols]`.
+    #[inline]
+    pub fn shape(&self) -> [usize; 2] {
+        self.shape
+    }
+
+    /// Whether duplicates have been merged.
+    #[inline]
+    pub fn is_coalesced(&self) -> bool {
+        self.is_coalesced
+    }
+
+    /// The stored values.
+    #[inline]
+    pub fn values(&self) -> &[T] {
+        &self.values
+    }
+
+    /// Row indices for each stored entry.
+    #[inline]
+    pub fn row_indices(&self) -> &[usize] {
+        &self.row_indices
+    }
+
+    /// Column indices for each stored entry.
+    #[inline]
+    pub fn col_indices(&self) -> &[usize] {
+        &self.col_indices
+    }
+}
+
+impl<T: Float> Clone for CooTensor<T> {
+    fn clone(&self) -> Self {
+        Self {
+            values: self.values.clone(),
+            row_indices: self.row_indices.clone(),
+            col_indices: self.col_indices.clone(),
+            shape: self.shape,
+            is_coalesced: self.is_coalesced,
+        }
+    }
+}
+
+impl<T: Float> fmt::Debug for CooTensor<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CooTensor")
+            .field("shape", &self.shape)
+            .field("nnz", &self.values.len())
+            .field("is_coalesced", &self.is_coalesced)
+            .finish()
+    }
+}
+
+// =========================================================================
+// Semi-Structured 2:4 Sparsity
+// =========================================================================
+
+/// A 2-D tensor with NVIDIA Ampere-style 2:4 semi-structured sparsity.
+///
+/// In this format, every group of 4 consecutive elements along the column
+/// dimension contains exactly 2 non-zero values. This 50% structured sparsity
+/// pattern is accelerated by NVIDIA Tensor Cores on Ampere+ GPUs (A100, H100).
+///
+/// # Storage
+///
+/// - `values`: the 2 non-zero values per group, stored consecutively.
+///   Total length = `nrows * (ncols / 4) * 2 = nrows * ncols / 2`.
+/// - `metadata`: one byte per group of 4, encoding which 2 of the 4 positions
+///   are non-zero. The two 2-bit indices are packed as `(idx1 << 2) | idx0`.
+///   There are `C(4,2) = 6` valid patterns.
+/// - `shape`: `[nrows, ncols]` where `ncols` must be a multiple of 4.
+///
+/// # Pruning
+///
+/// When converting from a dense tensor, the 2 elements with the smallest
+/// absolute magnitude in each group of 4 are pruned (set to zero). Ties are
+/// broken by position (lower index kept).
+pub struct SemiStructuredTensor<T: Float> {
+    /// Compressed values: 2 non-zero values per group of 4.
+    /// Length = nrows * (ncols / 2).
+    values: Vec<T>,
+    /// Metadata encoding which 2 of 4 positions are nonzero.
+    /// One byte per group: `(idx1 << 2) | idx0` where idx0 < idx1.
+    /// Length = nrows * (ncols / 4).
+    metadata: Vec<u8>,
+    /// Shape of the dense tensor this represents.
+    shape: [usize; 2],
+}
+
+impl<T: Float> SemiStructuredTensor<T> {
+    /// Create a `SemiStructuredTensor` from raw components.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if dimensions are inconsistent or `ncols` is not
+    /// a multiple of 4.
+    pub fn new(
+        values: Vec<T>,
+        metadata: Vec<u8>,
+        shape: [usize; 2],
+    ) -> FerrotorchResult<Self> {
+        let nrows = shape[0];
+        let ncols = shape[1];
+
+        if ncols % 4 != 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "SemiStructuredTensor: ncols ({}) must be a multiple of 4",
+                    ncols
+                ),
+            });
+        }
+
+        let groups = nrows * (ncols / 4);
+        let expected_values = groups * 2;
+
+        if values.len() != expected_values {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "SemiStructuredTensor: expected {} values ({}*{}*2/4), got {}",
+                    expected_values, nrows, ncols, values.len()
+                ),
+            });
+        }
+
+        if metadata.len() != groups {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "SemiStructuredTensor: expected {} metadata bytes, got {}",
+                    groups, metadata.len()
+                ),
+            });
+        }
+
+        // Validate metadata: both indices must be in [0,3] and idx0 < idx1.
+        for (g, &m) in metadata.iter().enumerate() {
+            let idx0 = (m & 0x03) as usize;
+            let idx1 = ((m >> 2) & 0x03) as usize;
+            if idx0 >= idx1 {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "SemiStructuredTensor: metadata[{}]=0x{:02x} invalid: idx0={} must be < idx1={}",
+                        g, m, idx0, idx1
+                    ),
+                });
+            }
+        }
+
+        Ok(Self {
+            values,
+            metadata,
+            shape,
+        })
+    }
+
+    /// Build a `SemiStructuredTensor` from a dense 2-D tensor by pruning the
+    /// 2 smallest-magnitude elements in each group of 4 along the column axis.
+    ///
+    /// When magnitudes are tied, lower-index elements are kept preferentially.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the tensor is not 2-D or `ncols` is not a multiple of 4.
+    pub fn from_dense(tensor: &Tensor<T>) -> FerrotorchResult<Self> {
+        if tensor.ndim() != 2 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "SemiStructuredTensor::from_dense requires a 2-D tensor, got {}-D",
+                    tensor.ndim()
+                ),
+            });
+        }
+
+        let data = tensor.data()?;
+        let nrows = tensor.shape()[0];
+        let ncols = tensor.shape()[1];
+
+        if ncols % 4 != 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "SemiStructuredTensor::from_dense: ncols ({}) must be a multiple of 4",
+                    ncols
+                ),
+            });
+        }
+
+        let groups_per_row = ncols / 4;
+        let total_groups = nrows * groups_per_row;
+        let mut values = Vec::with_capacity(total_groups * 2);
+        let mut metadata = Vec::with_capacity(total_groups);
+
+        for i in 0..nrows {
+            for g in 0..groups_per_row {
+                let base = i * ncols + g * 4;
+                let group = [data[base], data[base + 1], data[base + 2], data[base + 3]];
+
+                // Find the 2 largest-magnitude elements. We sort indices by
+                // magnitude descending, breaking ties by position ascending
+                // (lower index wins).
+                let mut order: [usize; 4] = [0, 1, 2, 3];
+                order.sort_by(|&a, &b| {
+                    let mag_a = group[a].abs();
+                    let mag_b = group[b].abs();
+                    // Descending by magnitude, ascending by index on tie.
+                    mag_b.partial_cmp(&mag_a).unwrap().then(a.cmp(&b))
+                });
+
+                // The top-2 indices, sorted ascending for canonical metadata.
+                let mut keep = [order[0], order[1]];
+                keep.sort();
+
+                let idx0 = keep[0];
+                let idx1 = keep[1];
+                values.push(group[idx0]);
+                values.push(group[idx1]);
+                metadata.push(((idx1 as u8) << 2) | (idx0 as u8));
+            }
+        }
+
+        Ok(Self {
+            values,
+            metadata,
+            shape: [nrows, ncols],
+        })
+    }
+
+    /// Convert back to a dense 2-D tensor, placing values at their original
+    /// positions and zeros elsewhere.
+    pub fn to_dense(&self) -> FerrotorchResult<Tensor<T>> {
+        let nrows = self.shape[0];
+        let ncols = self.shape[1];
+        let mut data = vec![<T as Zero>::zero(); nrows * ncols];
+
+        let groups_per_row = ncols / 4;
+
+        for i in 0..nrows {
+            for g in 0..groups_per_row {
+                let group_idx = i * groups_per_row + g;
+                let m = self.metadata[group_idx];
+                let idx0 = (m & 0x03) as usize;
+                let idx1 = ((m >> 2) & 0x03) as usize;
+
+                let val_base = group_idx * 2;
+                let base = i * ncols + g * 4;
+                data[base + idx0] = self.values[val_base];
+                data[base + idx1] = self.values[val_base + 1];
+            }
+        }
+
+        Tensor::from_storage(TensorStorage::cpu(data), vec![nrows, ncols], false)
+    }
+
+    /// Semi-structured sparse-dense matrix multiply: `C = A @ B`.
+    ///
+    /// `self` (A) is `[M, K]` in 2:4 format, `B` is `[K, N]` dense.
+    /// Returns a dense `[M, N]` tensor.
+    ///
+    /// On CPU this decompresses row-by-row and does the multiply. On NVIDIA
+    /// Ampere+ GPUs the Tensor Core hardware performs this directly on the
+    /// compressed representation (not yet implemented; this is the CPU reference
+    /// kernel).
+    pub fn matmul(&self, dense: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        if dense.ndim() != 2 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "SemiStructuredTensor::matmul requires 2-D dense tensor, got {}-D",
+                    dense.ndim()
+                ),
+            });
+        }
+
+        let m = self.shape[0];
+        let k = self.shape[1];
+        let dense_shape = dense.shape();
+        let k_dense = dense_shape[0];
+        let n = dense_shape[1];
+
+        if k != k_dense {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "SemiStructuredTensor::matmul inner dimension mismatch: sparse [{}, {}] @ dense [{}, {}]",
+                    m, k, k_dense, n
+                ),
+            });
+        }
+
+        let dense_data = dense.data()?;
+        let groups_per_row = k / 4;
+        let mut output = vec![<T as Zero>::zero(); m * n];
+
+        for i in 0..m {
+            for g in 0..groups_per_row {
+                let group_idx = i * groups_per_row + g;
+                let meta = self.metadata[group_idx];
+                let idx0 = (meta & 0x03) as usize;
+                let idx1 = ((meta >> 2) & 0x03) as usize;
+
+                let val_base = group_idx * 2;
+                let v0 = self.values[val_base];
+                let v1 = self.values[val_base + 1];
+
+                // The absolute column indices in the original matrix.
+                let col0 = g * 4 + idx0;
+                let col1 = g * 4 + idx1;
+
+                let out_row = i * n;
+                for col in 0..n {
+                    output[out_row + col] = output[out_row + col]
+                        + v0 * dense_data[col0 * n + col]
+                        + v1 * dense_data[col1 * n + col];
+                }
+            }
+        }
+
+        Tensor::from_storage(TensorStorage::cpu(output), vec![m, n], false)
+    }
+
+    /// Shape `[nrows, ncols]`.
+    #[inline]
+    pub fn shape(&self) -> [usize; 2] {
+        self.shape
+    }
+
+    /// Number of stored (non-zero) values = nrows * ncols / 2.
+    #[inline]
+    pub fn nnz(&self) -> usize {
+        self.values.len()
+    }
+
+    /// The compressed non-zero values (2 per group of 4).
+    #[inline]
+    pub fn values(&self) -> &[T] {
+        &self.values
+    }
+
+    /// Metadata bytes (one per group of 4 columns).
+    #[inline]
+    pub fn metadata(&self) -> &[u8] {
+        &self.metadata
+    }
+
+    /// Sparsity ratio — always 0.5 for valid 2:4 patterns.
+    #[inline]
+    pub fn sparsity(&self) -> f64 {
+        0.5
+    }
+}
+
+impl<T: Float> Clone for SemiStructuredTensor<T> {
+    fn clone(&self) -> Self {
+        Self {
+            values: self.values.clone(),
+            metadata: self.metadata.clone(),
+            shape: self.shape,
+        }
+    }
+}
+
+impl<T: Float> fmt::Debug for SemiStructuredTensor<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SemiStructuredTensor")
+            .field("shape", &self.shape)
+            .field("nnz", &self.values.len())
+            .field("sparsity", &0.5)
             .finish()
     }
 }
@@ -782,5 +1806,768 @@ mod tests {
         assert_eq!(sp2.values(), &[42.0]);
         assert_eq!(sp2.indices(), &[vec![0, 1]]);
         assert_eq!(sp2.shape(), &[2, 2]);
+    }
+
+    // =====================================================================
+    // CSR tests
+    // =====================================================================
+
+    #[test]
+    fn test_csr_from_dense_round_trip() {
+        // 3x4 matrix with some zeros.
+        #[rustfmt::skip]
+        let data = vec![
+            1.0f32, 0.0, 0.0, 2.0,
+            0.0, 3.0, 0.0, 0.0,
+            4.0, 0.0, 5.0, 0.0,
+        ];
+        let tensor = Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 4], false).unwrap();
+
+        let csr = CsrTensor::from_dense(&tensor).unwrap();
+        assert_eq!(csr.shape(), [3, 4]);
+        assert_eq!(csr.nnz(), 5);
+        assert_eq!(csr.row_ptrs(), &[0, 2, 3, 5]);
+        assert_eq!(csr.col_indices(), &[0, 3, 1, 0, 2]);
+        assert_eq!(csr.values(), &[1.0, 2.0, 3.0, 4.0, 5.0]);
+
+        let reconstructed = csr.to_dense().unwrap();
+        let r = reconstructed.data().unwrap();
+        for (a, b) in data.iter().zip(r.iter()) {
+            assert!((a - b).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_csr_empty_rows() {
+        // Row 1 is entirely zero.
+        #[rustfmt::skip]
+        let data = vec![
+            1.0f32, 0.0,
+            0.0,    0.0,
+            0.0,    2.0,
+        ];
+        let tensor = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 2], false).unwrap();
+        let csr = CsrTensor::from_dense(&tensor).unwrap();
+
+        assert_eq!(csr.nnz(), 2);
+        assert_eq!(csr.row_ptrs(), &[0, 1, 1, 2]);
+    }
+
+    #[test]
+    fn test_csr_spmv() {
+        // CSR for [[1, 0, 2], [0, 3, 0], [4, 0, 5]]
+        let csr = CsrTensor::new(
+            vec![1.0f32, 2.0, 3.0, 4.0, 5.0],
+            vec![0, 2, 1, 0, 2],
+            vec![0, 2, 3, 5],
+            [3, 3],
+        )
+        .unwrap();
+
+        let x = vec![1.0f32, 2.0, 3.0];
+        let y = csr.spmv(&x).unwrap();
+
+        // Row 0: 1*1 + 2*3 = 7
+        // Row 1: 3*2 = 6
+        // Row 2: 4*1 + 5*3 = 19
+        assert!((y[0] - 7.0).abs() < 1e-6);
+        assert!((y[1] - 6.0).abs() < 1e-6);
+        assert!((y[2] - 19.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_csr_spmv_length_mismatch() {
+        let csr = CsrTensor::new(
+            vec![1.0f32],
+            vec![0],
+            vec![0, 1],
+            [1, 3],
+        )
+        .unwrap();
+
+        assert!(csr.spmv(&[1.0, 2.0]).is_err()); // length 2 != 3
+    }
+
+    #[test]
+    fn test_csr_spmm() {
+        // CSR for [[1, 0, 2], [0, 3, 0]]
+        let csr = CsrTensor::new(
+            vec![1.0f32, 2.0, 3.0],
+            vec![0, 2, 1],
+            vec![0, 2, 3],
+            [2, 3],
+        )
+        .unwrap();
+
+        // Dense 3x2: [[1, 4], [2, 5], [3, 6]]
+        let dense = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32, 4.0, 2.0, 5.0, 3.0, 6.0]),
+            vec![3, 2],
+            false,
+        )
+        .unwrap();
+
+        let result = csr.spmm(&dense).unwrap();
+        let d = result.data().unwrap();
+        assert_eq!(result.shape(), &[2, 2]);
+        assert!((d[0] - 7.0).abs() < 1e-6);  // 1*1 + 2*3
+        assert!((d[1] - 16.0).abs() < 1e-6); // 1*4 + 2*6
+        assert!((d[2] - 6.0).abs() < 1e-6);  // 3*2
+        assert!((d[3] - 15.0).abs() < 1e-6); // 3*5
+    }
+
+    #[test]
+    fn test_csr_spmm_inner_dim_mismatch() {
+        let csr = CsrTensor::new(vec![1.0f32], vec![0], vec![0, 1], [1, 3]).unwrap();
+        let dense = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32; 4]),
+            vec![2, 2],
+            false,
+        )
+        .unwrap();
+        assert!(csr.spmm(&dense).is_err());
+    }
+
+    #[test]
+    fn test_csr_from_coo() {
+        let coo = CooTensor::new(
+            vec![1.0f32, 2.0, 3.0],
+            vec![0, 0, 1],
+            vec![0, 2, 1],
+            [2, 3],
+        )
+        .unwrap();
+
+        let csr = CsrTensor::from_coo(&coo).unwrap();
+        assert_eq!(csr.shape(), [2, 3]);
+        assert_eq!(csr.nnz(), 3);
+
+        // Verify via round-trip.
+        let dense = csr.to_dense().unwrap();
+        let d = dense.data().unwrap();
+        assert!((d[0] - 1.0).abs() < 1e-6); // [0,0]
+        assert!((d[2] - 2.0).abs() < 1e-6); // [0,2]
+        assert!((d[4] - 3.0).abs() < 1e-6); // [1,1]
+    }
+
+    #[test]
+    fn test_csr_from_coo_with_duplicates() {
+        // Two entries at (0, 1): 3.0 + 4.0 = 7.0
+        let coo = CooTensor::new(
+            vec![3.0f32, 4.0, 1.0],
+            vec![0, 0, 1],
+            vec![1, 1, 0],
+            [2, 2],
+        )
+        .unwrap();
+
+        let csr = CsrTensor::from_coo(&coo).unwrap();
+        let dense = csr.to_dense().unwrap();
+        let d = dense.data().unwrap();
+        assert!((d[1] - 7.0).abs() < 1e-6); // [0,1] = 3 + 4
+        assert!((d[2] - 1.0).abs() < 1e-6); // [1,0]
+    }
+
+    #[test]
+    fn test_csr_from_sparse_tensor() {
+        let sp = SparseTensor::new(
+            vec![vec![0, 1], vec![1, 0]],
+            vec![5.0f32, 3.0],
+            vec![2, 2],
+        )
+        .unwrap();
+
+        let csr = CsrTensor::from_sparse(&sp).unwrap();
+        assert_eq!(csr.shape(), [2, 2]);
+        assert_eq!(csr.nnz(), 2);
+
+        let dense = csr.to_dense().unwrap();
+        let d = dense.data().unwrap();
+        assert!((d[1] - 5.0).abs() < 1e-6); // [0,1]
+        assert!((d[2] - 3.0).abs() < 1e-6); // [1,0]
+    }
+
+    #[test]
+    fn test_csr_validation_errors() {
+        // values/col_indices length mismatch.
+        assert!(CsrTensor::new(
+            vec![1.0f32, 2.0],
+            vec![0],
+            vec![0, 2],
+            [1, 3],
+        )
+        .is_err());
+
+        // row_ptrs wrong length.
+        assert!(CsrTensor::new(
+            vec![1.0f32],
+            vec![0],
+            vec![0, 1, 1], // length 3, but nrows=1 so should be 2
+            [1, 3],
+        )
+        .is_err());
+
+        // row_ptrs not non-decreasing.
+        assert!(CsrTensor::new(
+            vec![1.0f32, 2.0],
+            vec![0, 1],
+            vec![0, 2, 1], // decreasing
+            [2, 3],
+        )
+        .is_err());
+
+        // row_ptrs[last] != values.len().
+        assert!(CsrTensor::new(
+            vec![1.0f32],
+            vec![0],
+            vec![0, 0], // row_ptrs[1] = 0 but values has 1 element
+            [1, 3],
+        )
+        .is_err());
+
+        // col index out of bounds.
+        assert!(CsrTensor::new(
+            vec![1.0f32],
+            vec![5], // 5 >= ncols=3
+            vec![0, 1],
+            [1, 3],
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_csr_debug_clone() {
+        let csr = CsrTensor::new(
+            vec![1.0f32],
+            vec![0],
+            vec![0, 1],
+            [1, 2],
+        )
+        .unwrap();
+
+        let debug = format!("{csr:?}");
+        assert!(debug.contains("CsrTensor"));
+
+        let cloned = csr.clone();
+        assert_eq!(cloned.values(), csr.values());
+        assert_eq!(cloned.col_indices(), csr.col_indices());
+        assert_eq!(cloned.row_ptrs(), csr.row_ptrs());
+        assert_eq!(cloned.shape(), csr.shape());
+    }
+
+    #[test]
+    fn test_csr_identity_spmm() {
+        // 3x3 identity in CSR.
+        let csr = CsrTensor::new(
+            vec![1.0f32, 1.0, 1.0],
+            vec![0, 1, 2],
+            vec![0, 1, 2, 3],
+            [3, 3],
+        )
+        .unwrap();
+
+        let dense = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]),
+            vec![3, 2],
+            false,
+        )
+        .unwrap();
+
+        let result = csr.spmm(&dense).unwrap();
+        let d = result.data().unwrap();
+        let expected = dense.data().unwrap();
+        for (a, b) in d.iter().zip(expected.iter()) {
+            assert!((a - b).abs() < 1e-6);
+        }
+    }
+
+    // =====================================================================
+    // COO (2-D optimized) tests
+    // =====================================================================
+
+    #[test]
+    fn test_coo_from_dense_round_trip() {
+        #[rustfmt::skip]
+        let data = vec![
+            0.0f32, 1.0, 0.0,
+            2.0,    0.0, 3.0,
+        ];
+        let tensor = Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![2, 3], false).unwrap();
+
+        let coo = CooTensor::from_dense(&tensor).unwrap();
+        assert_eq!(coo.shape(), [2, 3]);
+        assert_eq!(coo.nnz(), 3);
+        assert!(coo.is_coalesced());
+
+        let reconstructed = coo.to_dense().unwrap();
+        let r = reconstructed.data().unwrap();
+        for (a, b) in data.iter().zip(r.iter()) {
+            assert!((a - b).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_coo_coalesce() {
+        // Duplicates at (0, 1): 3.0 + 4.0 = 7.0
+        let mut coo = CooTensor::new(
+            vec![3.0f32, 4.0, 1.0],
+            vec![0, 0, 1],
+            vec![1, 1, 0],
+            [2, 2],
+        )
+        .unwrap();
+
+        assert!(!coo.is_coalesced());
+        coo.coalesce();
+        assert!(coo.is_coalesced());
+
+        let dense = coo.to_dense().unwrap();
+        let d = dense.data().unwrap();
+        assert!((d[1] - 7.0).abs() < 1e-6); // [0,1]
+        assert!((d[2] - 1.0).abs() < 1e-6); // [1,0]
+    }
+
+    #[test]
+    fn test_coo_coalesce_removes_zeros() {
+        // (0, 0): 5.0 + (-5.0) = 0.0 should be removed.
+        let mut coo = CooTensor::new(
+            vec![5.0f32, -5.0],
+            vec![0, 0],
+            vec![0, 0],
+            [1, 1],
+        )
+        .unwrap();
+
+        coo.coalesce();
+        assert_eq!(coo.nnz(), 0);
+    }
+
+    #[test]
+    fn test_coo_coalesce_idempotent() {
+        let mut coo = CooTensor::from_dense(
+            &Tensor::from_storage(TensorStorage::cpu(vec![1.0f32, 0.0, 0.0, 2.0]), vec![2, 2], false).unwrap(),
+        )
+        .unwrap();
+
+        coo.coalesce(); // already coalesced
+        assert!(coo.is_coalesced());
+        assert_eq!(coo.nnz(), 2);
+    }
+
+    #[test]
+    fn test_coo_spmm() {
+        // COO for [[1, 0, 2], [0, 3, 0]]
+        let coo = CooTensor::new(
+            vec![1.0f32, 2.0, 3.0],
+            vec![0, 0, 1],
+            vec![0, 2, 1],
+            [2, 3],
+        )
+        .unwrap();
+
+        // Dense 3x2: [[1, 4], [2, 5], [3, 6]]
+        let dense = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32, 4.0, 2.0, 5.0, 3.0, 6.0]),
+            vec![3, 2],
+            false,
+        )
+        .unwrap();
+
+        let result = coo.spmm(&dense).unwrap();
+        let d = result.data().unwrap();
+        assert_eq!(result.shape(), &[2, 2]);
+        assert!((d[0] - 7.0).abs() < 1e-6);
+        assert!((d[1] - 16.0).abs() < 1e-6);
+        assert!((d[2] - 6.0).abs() < 1e-6);
+        assert!((d[3] - 15.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_coo_from_csr_round_trip() {
+        let csr = CsrTensor::new(
+            vec![1.0f32, 2.0, 3.0],
+            vec![0, 2, 1],
+            vec![0, 2, 3],
+            [2, 3],
+        )
+        .unwrap();
+
+        let coo = CooTensor::from_csr(&csr);
+        assert_eq!(coo.nnz(), 3);
+        assert!(coo.is_coalesced());
+
+        // Round-trip back to CSR.
+        let csr2 = CsrTensor::from_coo(&coo).unwrap();
+        assert_eq!(csr2.values(), csr.values());
+        assert_eq!(csr2.col_indices(), csr.col_indices());
+        assert_eq!(csr2.row_ptrs(), csr.row_ptrs());
+    }
+
+    #[test]
+    fn test_coo_validation_errors() {
+        // Length mismatch.
+        assert!(CooTensor::new(
+            vec![1.0f32, 2.0],
+            vec![0],
+            vec![0, 1],
+            [2, 2],
+        )
+        .is_err());
+
+        // Row index out of bounds.
+        assert!(CooTensor::new(
+            vec![1.0f32],
+            vec![5], // 5 >= 2
+            vec![0],
+            [2, 2],
+        )
+        .is_err());
+
+        // Col index out of bounds.
+        assert!(CooTensor::new(
+            vec![1.0f32],
+            vec![0],
+            vec![5], // 5 >= 2
+            [2, 2],
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_coo_debug_clone() {
+        let coo = CooTensor::new(
+            vec![1.0f32],
+            vec![0],
+            vec![1],
+            [2, 2],
+        )
+        .unwrap();
+
+        let debug = format!("{coo:?}");
+        assert!(debug.contains("CooTensor"));
+
+        let cloned = coo.clone();
+        assert_eq!(cloned.values(), coo.values());
+        assert_eq!(cloned.row_indices(), coo.row_indices());
+        assert_eq!(cloned.col_indices(), coo.col_indices());
+        assert_eq!(cloned.shape(), coo.shape());
+    }
+
+    #[test]
+    fn test_coo_spmm_dim_mismatch() {
+        let coo = CooTensor::new(vec![1.0f32], vec![0], vec![0], [1, 3]).unwrap();
+        let dense = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32; 4]),
+            vec![2, 2],
+            false,
+        )
+        .unwrap();
+        assert!(coo.spmm(&dense).is_err());
+    }
+
+    #[test]
+    fn test_coo_from_dense_not_2d() {
+        let tensor = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32; 8]),
+            vec![2, 2, 2],
+            false,
+        )
+        .unwrap();
+        assert!(CooTensor::from_dense(&tensor).is_err());
+    }
+
+    // =====================================================================
+    // Semi-Structured 2:4 tests
+    // =====================================================================
+
+    #[test]
+    fn test_semi_structured_from_dense_basic() {
+        // 1x4: [1.0, 3.0, 0.5, 2.0]
+        // Top-2 by magnitude: indices 1 (3.0) and 3 (2.0).
+        let data = vec![1.0f32, 3.0, 0.5, 2.0];
+        let tensor = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 4], false).unwrap();
+
+        let ss = SemiStructuredTensor::from_dense(&tensor).unwrap();
+        assert_eq!(ss.shape(), [1, 4]);
+        assert_eq!(ss.nnz(), 2);
+        assert_eq!(ss.sparsity(), 0.5);
+        assert_eq!(ss.values(), &[3.0, 2.0]);
+        // idx0=1, idx1=3 => metadata = (3 << 2) | 1 = 13
+        assert_eq!(ss.metadata(), &[13]);
+    }
+
+    #[test]
+    fn test_semi_structured_round_trip() {
+        // 2x8 matrix. Each group of 4 will have its 2 smallest pruned.
+        #[rustfmt::skip]
+        let data = vec![
+            10.0f32, 1.0, 2.0, 9.0,   3.0, 8.0, 7.0, 4.0,
+             5.0,    6.0, 1.0, 2.0,   9.0, 1.0, 2.0, 8.0,
+        ];
+        let tensor = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 8], false).unwrap();
+
+        let ss = SemiStructuredTensor::from_dense(&tensor).unwrap();
+        assert_eq!(ss.shape(), [2, 8]);
+        assert_eq!(ss.nnz(), 8); // 2 * 8 / 2
+
+        let dense = ss.to_dense().unwrap();
+        let d = dense.data().unwrap();
+
+        // Row 0, group 0: [10, 1, 2, 9] -> keep 10, 9 at indices 0, 3
+        assert!((d[0] - 10.0).abs() < 1e-6);
+        assert!((d[1] - 0.0).abs() < 1e-6);
+        assert!((d[2] - 0.0).abs() < 1e-6);
+        assert!((d[3] - 9.0).abs() < 1e-6);
+
+        // Row 0, group 1: [3, 8, 7, 4] -> keep 8, 7 at indices 1, 2 (offset +4)
+        assert!((d[4] - 0.0).abs() < 1e-6);
+        assert!((d[5] - 8.0).abs() < 1e-6);
+        assert!((d[6] - 7.0).abs() < 1e-6);
+        assert!((d[7] - 0.0).abs() < 1e-6);
+
+        // Row 1, group 0: [5, 6, 1, 2] -> keep 5, 6 at indices 0, 1
+        assert!((d[8] - 5.0).abs() < 1e-6);
+        assert!((d[9] - 6.0).abs() < 1e-6);
+        assert!((d[10] - 0.0).abs() < 1e-6);
+        assert!((d[11] - 0.0).abs() < 1e-6);
+
+        // Row 1, group 1: [9, 1, 2, 8] -> keep 9, 8 at indices 0, 3
+        assert!((d[12] - 9.0).abs() < 1e-6);
+        assert!((d[13] - 0.0).abs() < 1e-6);
+        assert!((d[14] - 0.0).abs() < 1e-6);
+        assert!((d[15] - 8.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_semi_structured_tie_breaking() {
+        // All same magnitude: [1.0, 1.0, 1.0, 1.0]
+        // Tie-break by position: keep indices 0 and 1 (lowest).
+        let data = vec![1.0f32, 1.0, 1.0, 1.0];
+        let tensor = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 4], false).unwrap();
+
+        let ss = SemiStructuredTensor::from_dense(&tensor).unwrap();
+        assert_eq!(ss.values(), &[1.0, 1.0]);
+        // idx0=0, idx1=1 => (1 << 2) | 0 = 4
+        assert_eq!(ss.metadata(), &[4]);
+    }
+
+    #[test]
+    fn test_semi_structured_matmul() {
+        // Sparse 2x4 (2:4 pruned), Dense 4x2.
+        // Dense input before pruning: [[10, 1, 2, 9], [5, 6, 1, 2]]
+        // After pruning:              [[10, 0, 0, 9], [5, 6, 0, 0]]
+        #[rustfmt::skip]
+        let sparse_data = vec![
+            10.0f32, 1.0, 2.0, 9.0,
+             5.0,    6.0, 1.0, 2.0,
+        ];
+        let sparse_tensor =
+            Tensor::from_storage(TensorStorage::cpu(sparse_data), vec![2, 4], false).unwrap();
+        let ss = SemiStructuredTensor::from_dense(&sparse_tensor).unwrap();
+
+        // Dense B: [[1, 2], [3, 4], [5, 6], [7, 8]]
+        let dense = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
+            vec![4, 2],
+            false,
+        )
+        .unwrap();
+
+        let result = ss.matmul(&dense).unwrap();
+        let d = result.data().unwrap();
+        assert_eq!(result.shape(), &[2, 2]);
+
+        // Row 0: [10, 0, 0, 9] @ B = 10*[1,2] + 9*[7,8] = [10+63, 20+72] = [73, 92]
+        assert!((d[0] - 73.0).abs() < 1e-6);
+        assert!((d[1] - 92.0).abs() < 1e-6);
+
+        // Row 1: [5, 6, 0, 0] @ B = 5*[1,2] + 6*[3,4] = [5+18, 10+24] = [23, 34]
+        assert!((d[2] - 23.0).abs() < 1e-6);
+        assert!((d[3] - 34.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_semi_structured_matmul_matches_pruned_dense() {
+        // Verify that SemiStructured matmul matches: (pruned_dense) @ B.
+        #[rustfmt::skip]
+        let data = vec![
+            4.0f32, 1.0, 3.0, 2.0,
+            1.0,    5.0, 6.0, 2.0,
+            7.0,    3.0, 1.0, 8.0,
+        ];
+        let tensor =
+            Tensor::from_storage(TensorStorage::cpu(data), vec![3, 4], false).unwrap();
+        let ss = SemiStructuredTensor::from_dense(&tensor).unwrap();
+        let pruned_dense = ss.to_dense().unwrap();
+
+        // B: 4x3
+        let b_data = vec![
+            1.0f32, 2.0, 3.0,
+            4.0,    5.0, 6.0,
+            7.0,    8.0, 9.0,
+            10.0,   11.0, 12.0,
+        ];
+        let b = Tensor::from_storage(TensorStorage::cpu(b_data), vec![4, 3], false).unwrap();
+
+        let result_sparse = ss.matmul(&b).unwrap();
+        let ds = result_sparse.data().unwrap();
+
+        // Compute reference: pruned_dense @ b
+        let pd = pruned_dense.data().unwrap();
+        let bd = b.data().unwrap();
+        for i in 0..3 {
+            for j in 0..3 {
+                let mut sum = 0.0f32;
+                for k in 0..4 {
+                    sum += pd[i * 4 + k] * bd[k * 3 + j];
+                }
+                assert!(
+                    (ds[i * 3 + j] - sum).abs() < 1e-4,
+                    "mismatch at [{}, {}]: {} vs {}",
+                    i,
+                    j,
+                    ds[i * 3 + j],
+                    sum
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_semi_structured_matmul_inner_dim_mismatch() {
+        let ss = SemiStructuredTensor::new(
+            vec![1.0f32, 2.0],
+            vec![(1 << 2) | 0], // idx0=0, idx1=1
+            [1, 4],
+        )
+        .unwrap();
+
+        let dense = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32; 6]),
+            vec![3, 2],
+            false,
+        )
+        .unwrap();
+
+        assert!(ss.matmul(&dense).is_err()); // K=4 != 3
+    }
+
+    #[test]
+    fn test_semi_structured_not_multiple_of_4() {
+        let data = vec![1.0f32; 6]; // 2x3, ncols=3 not divisible by 4
+        let tensor = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 3], false).unwrap();
+        assert!(SemiStructuredTensor::from_dense(&tensor).is_err());
+    }
+
+    #[test]
+    fn test_semi_structured_validation_errors() {
+        // Wrong number of values.
+        assert!(SemiStructuredTensor::new(
+            vec![1.0f32],
+            vec![(1 << 2) | 0],
+            [1, 4],
+        )
+        .is_err());
+
+        // Wrong number of metadata.
+        assert!(SemiStructuredTensor::new(
+            vec![1.0f32, 2.0],
+            vec![], // should be 1
+            [1, 4],
+        )
+        .is_err());
+
+        // ncols not multiple of 4.
+        assert!(SemiStructuredTensor::new(
+            vec![1.0f32, 2.0],
+            vec![(1 << 2) | 0],
+            [1, 3],
+        )
+        .is_err());
+
+        // Invalid metadata: idx0 >= idx1.
+        assert!(SemiStructuredTensor::new(
+            vec![1.0f32, 2.0],
+            vec![(0 << 2) | 1], // idx0=1, idx1=0 => invalid
+            [1, 4],
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_semi_structured_debug_clone() {
+        let ss = SemiStructuredTensor::new(
+            vec![1.0f32, 2.0],
+            vec![(1 << 2) | 0],
+            [1, 4],
+        )
+        .unwrap();
+
+        let debug = format!("{ss:?}");
+        assert!(debug.contains("SemiStructuredTensor"));
+
+        let cloned = ss.clone();
+        assert_eq!(cloned.values(), ss.values());
+        assert_eq!(cloned.metadata(), ss.metadata());
+        assert_eq!(cloned.shape(), ss.shape());
+    }
+
+    #[test]
+    fn test_semi_structured_negative_values() {
+        // [-10, 1, -2, 9]: top-2 magnitudes are -10 (10) and 9 at indices 0, 3.
+        let data = vec![-10.0f32, 1.0, -2.0, 9.0];
+        let tensor = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 4], false).unwrap();
+
+        let ss = SemiStructuredTensor::from_dense(&tensor).unwrap();
+        assert_eq!(ss.values(), &[-10.0, 9.0]);
+
+        let dense = ss.to_dense().unwrap();
+        let d = dense.data().unwrap();
+        assert!((d[0] - (-10.0)).abs() < 1e-6);
+        assert!((d[1] - 0.0).abs() < 1e-6);
+        assert!((d[2] - 0.0).abs() < 1e-6);
+        assert!((d[3] - 9.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_semi_structured_f64() {
+        let data = vec![1.0f64, 3.0, 0.5, 2.0];
+        let tensor = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 4], false).unwrap();
+
+        let ss = SemiStructuredTensor::from_dense(&tensor).unwrap();
+        assert_eq!(ss.values(), &[3.0f64, 2.0]);
+
+        let dense = ss.to_dense().unwrap();
+        let d = dense.data().unwrap();
+        assert!((d[0] - 0.0).abs() < 1e-10);
+        assert!((d[1] - 3.0).abs() < 1e-10);
+        assert!((d[2] - 0.0).abs() < 1e-10);
+        assert!((d[3] - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_csr_f64_round_trip() {
+        let data = vec![1.0f64, 0.0, 0.0, 2.0];
+        let tensor = Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![2, 2], false).unwrap();
+
+        let csr = CsrTensor::from_dense(&tensor).unwrap();
+        let reconstructed = csr.to_dense().unwrap();
+        let r = reconstructed.data().unwrap();
+        for (a, b) in data.iter().zip(r.iter()) {
+            assert!((*a - *b).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_coo_f64_round_trip() {
+        let data = vec![0.0f64, 3.0, 4.0, 0.0];
+        let tensor = Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![2, 2], false).unwrap();
+
+        let coo = CooTensor::from_dense(&tensor).unwrap();
+        let reconstructed = coo.to_dense().unwrap();
+        let r = reconstructed.data().unwrap();
+        for (a, b) in data.iter().zip(r.iter()) {
+            assert!((*a - *b).abs() < 1e-10);
+        }
     }
 }
