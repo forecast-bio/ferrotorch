@@ -5,6 +5,7 @@
 //! Their VJPs either reinterpret the gradient buffer under the original
 //! shape, transpose it, or split/sum along axes.
 
+use std::any::TypeId;
 use std::sync::Arc;
 
 use crate::autograd::no_grad::is_grad_enabled;
@@ -13,6 +14,12 @@ use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
+
+/// Returns `true` if `T` is `f32`.
+#[inline]
+fn is_f32<T: Float>() -> bool {
+    TypeId::of::<T>() == TypeId::of::<f32>()
+}
 
 // ---------------------------------------------------------------------------
 // GPU-aware helper
@@ -542,6 +549,54 @@ impl<T: Float> CatBackward<T> {
 
 impl<T: Float> GradFn<T> for CatBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        // GPU fast path: use strided_split to extract each chunk directly on GPU.
+        if grad_output.is_cuda() && is_f32::<T>() {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                let go_shape = grad_output.shape();
+                let ndim = go_shape.len();
+                let axis = self.axis;
+                let total_along_axis = go_shape[axis];
+                let inner: usize = if axis + 1 < ndim {
+                    go_shape[axis + 1..].iter().product()
+                } else {
+                    1
+                };
+                let go_handle = grad_output.gpu_handle()?;
+
+                let mut result = Vec::with_capacity(self.inputs.len());
+                let mut offset = 0usize;
+
+                for (i, &split_size) in self.split_sizes.iter().enumerate() {
+                    if !self.inputs[i].requires_grad() {
+                        result.push(None);
+                        offset += split_size;
+                        continue;
+                    }
+
+                    let chunk_numel = self.inputs[i].numel();
+                    let chunk_handle = backend.strided_split_f32(
+                        go_handle,
+                        total_along_axis,
+                        offset,
+                        split_size,
+                        inner,
+                        chunk_numel,
+                    )?;
+
+                    let grad_tensor = Tensor::from_storage(
+                        TensorStorage::gpu(chunk_handle),
+                        self.inputs[i].shape().to_vec(),
+                        false,
+                    )?;
+                    result.push(Some(grad_tensor));
+                    offset += split_size;
+                }
+
+                return Ok(result);
+            }
+        }
+
+        // CPU path (also serves as fallback for non-f32 or missing backend).
         let (cpu_go, device) = ensure_cpu(grad_output)?;
         let grad_data = cpu_go.data()?;
         let out_shape = cpu_go.shape();
@@ -632,6 +687,46 @@ impl<T: Float> GradFn<T> for SplitBackward<T> {
             return Ok(vec![None]);
         }
 
+        // GPU fast path: allocate zeros on GPU, strided_cat the gradient into it.
+        if grad_output.is_cuda() && is_f32::<T>() {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                let orig_shape = self.input.shape();
+                let ndim = orig_shape.len();
+                let inner: usize = if self.dim + 1 < ndim {
+                    orig_shape[self.dim + 1..].iter().product()
+                } else {
+                    1
+                };
+                let total_along_dim = orig_shape[self.dim];
+                let orig_numel: usize = orig_shape.iter().product();
+                let device_ord = grad_output.gpu_handle()?.device_ordinal();
+
+                // Allocate a zero buffer on GPU with the original tensor's shape.
+                let mut zeros_handle = backend.alloc_zeros(orig_numel, 4, device_ord)?;
+
+                // Write the gradient chunk into the correct slice of the zeros buffer.
+                let go_handle = grad_output.gpu_handle()?;
+                let chunk_numel = grad_output.numel();
+                backend.strided_cat_f32(
+                    go_handle,
+                    &mut zeros_handle,
+                    total_along_dim,
+                    self.offset,
+                    self.chunk_size,
+                    inner,
+                    chunk_numel,
+                )?;
+
+                let grad_tensor = Tensor::from_storage(
+                    TensorStorage::gpu(zeros_handle),
+                    orig_shape.to_vec(),
+                    false,
+                )?;
+                return Ok(vec![Some(grad_tensor)]);
+            }
+        }
+
+        // CPU path (also serves as fallback for non-f32 or missing backend).
         let (cpu_go, device) = ensure_cpu(grad_output)?;
         let grad_data = cpu_go.data()?;
         let orig_shape = self.input.shape();
@@ -727,8 +822,58 @@ pub fn cat<T: Float>(tensors: &[Tensor<T>], axis: isize) -> FerrotorchResult<Ten
     let total_along_axis: usize = split_sizes.iter().sum();
     out_shape[norm_axis] = total_along_axis;
 
-    // Determine the original device from the first tensor and transfer all to CPU.
     let device = tensors[0].device();
+
+    // GPU fast path: allocate output on GPU, then strided_cat each input — no CPU
+    // download needed.
+    if device.is_cuda() && is_f32::<T>() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let inner: usize = if norm_axis + 1 < ndim {
+                out_shape[norm_axis + 1..].iter().product()
+            } else {
+                1
+            };
+            let out_numel: usize = out_shape.iter().product();
+            let device_ord = tensors[0].gpu_handle()?.device_ordinal();
+
+            // Allocate zeroed output buffer on GPU.
+            let mut out_handle = backend.alloc_zeros(out_numel, 4, device_ord)?;
+
+            // Write each input tensor's data into the correct slice of the output.
+            let mut offset = 0usize;
+            for t in tensors {
+                let t_axis_size = t.shape()[norm_axis];
+                let t_numel = t.numel();
+                let t_handle = t.gpu_handle()?;
+                backend.strided_cat_f32(
+                    t_handle,
+                    &mut out_handle,
+                    total_along_axis,
+                    offset,
+                    t_axis_size,
+                    inner,
+                    t_numel,
+                )?;
+                offset += t_axis_size;
+            }
+
+            let any_requires_grad = tensors.iter().any(|t| t.requires_grad());
+            let storage = TensorStorage::gpu(out_handle);
+
+            return if is_grad_enabled() && any_requires_grad {
+                let grad_fn = Arc::new(CatBackward::new(
+                    tensors.to_vec(),
+                    norm_axis,
+                    split_sizes,
+                ));
+                Tensor::from_operation(storage, out_shape, grad_fn)
+            } else {
+                Tensor::from_storage(storage, out_shape, false)
+            };
+        }
+    }
+
+    // CPU path (also serves as fallback for non-f32 or missing backend).
     let cpu_tensors: Vec<Tensor<T>> = if device.is_cuda() {
         tensors.iter().map(|t| t.cpu()).collect::<FerrotorchResult<_>>()?
     } else {
