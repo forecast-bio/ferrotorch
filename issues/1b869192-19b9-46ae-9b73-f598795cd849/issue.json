@@ -1,0 +1,10 @@
+{
+  "uuid": "1b869192-19b9-46ae-9b73-f598795cd849",
+  "display_id": 356,
+  "title": "Inference mode — faster than no_grad, no view tracking overhead",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-24T19:54:01.406623489Z",
+  "updated_at": "2026-03-24T19:54:01.406623489Z"
+}
