@@ -23,6 +23,7 @@ pub mod norm;
 pub mod paged_attention;
 pub mod parameter;
 pub mod pooling;
+pub mod qat;
 pub mod rnn;
 pub mod rnn_utils;
 pub mod transformer;
@@ -68,4 +69,5 @@ pub use transformer::{
     KVCache, RoPEConvention, RotaryPositionEmbedding, SwiGLU, TransformerDecoderLayer,
     TransformerEncoderLayer,
 };
+pub use qat::{prepare_qat, ObserverType, QatConfig, QatModel, QuantizedModel};
 pub use utils::{clip_grad_norm_, clip_grad_value_};

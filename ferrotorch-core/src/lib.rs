@@ -36,8 +36,9 @@ pub use dtype::{DType, Element, Float};
 pub use error::{FerrotorchError, FerrotorchResult};
 pub use shape::{broadcast_shapes, normalize_axis};
 pub use quantize::{
-    dequantize, quantize, quantize_named_tensors, quantized_matmul, QuantDtype, QuantScheme,
-    QuantizedTensor,
+    dequantize, quantize, quantize_named_tensors, quantize_per_tensor, quantized_matmul,
+    FakeQuantize, HistogramObserver, MinMaxObserver, MovingAverageMinMaxObserver, Observer,
+    PerChannelMinMaxObserver, QParams, QuantDtype, QuantScheme, QuantizedTensor,
 };
 pub use storage::{StorageBuffer, TensorStorage};
 pub use nested::{NestedTensor, nested_scaled_dot_product_attention};
