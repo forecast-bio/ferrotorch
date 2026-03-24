@@ -631,6 +631,115 @@ impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
 }
 
 // ===========================================================================
+// Interpolation / Vision ops (CL-317)
+// ===========================================================================
+
+// Re-export types for convenience.
+pub use crate::upsample::{
+    GridSampleMode, GridSamplePaddingMode, InterpolateMode,
+};
+
+/// Spatially resize a `[B, C, H, W]` tensor using the specified interpolation mode.
+///
+/// Exactly one of `size` or `scale_factor` must be provided.
+///
+/// See [`crate::upsample::interpolate`] for full documentation.
+///
+/// CL-317
+pub fn interpolate<T: Float>(
+    input: &Tensor<T>,
+    size: Option<[usize; 2]>,
+    scale_factor: Option<[f64; 2]>,
+    mode: InterpolateMode,
+    align_corners: bool,
+) -> FerrotorchResult<Tensor<T>> {
+    crate::upsample::interpolate(input, size, scale_factor, mode, align_corners)
+}
+
+/// Sample `input` at spatial locations specified by `grid` (spatial transformer).
+///
+/// See [`crate::upsample::grid_sample`] for full documentation.
+///
+/// CL-317
+pub fn grid_sample<T: Float>(
+    input: &Tensor<T>,
+    grid: &Tensor<T>,
+    mode: GridSampleMode,
+    padding_mode: GridSamplePaddingMode,
+    align_corners: bool,
+) -> FerrotorchResult<Tensor<T>> {
+    crate::upsample::grid_sample(input, grid, mode, padding_mode, align_corners)
+}
+
+/// Generate a 2D affine sampling grid for use with [`grid_sample`].
+///
+/// See [`crate::upsample::affine_grid`] for full documentation.
+///
+/// CL-317
+pub fn affine_grid<T: Float>(
+    theta: &Tensor<T>,
+    size: [usize; 4],
+    align_corners: bool,
+) -> FerrotorchResult<Tensor<T>> {
+    crate::upsample::affine_grid(theta, size, align_corners)
+}
+
+/// Pixel shuffle: `[B, C*r*r, H, W]` -> `[B, C, H*r, W*r]`.
+///
+/// See [`crate::upsample::pixel_shuffle`] for full documentation.
+///
+/// CL-317
+pub fn pixel_shuffle<T: Float>(
+    input: &Tensor<T>,
+    upscale_factor: usize,
+) -> FerrotorchResult<Tensor<T>> {
+    crate::upsample::pixel_shuffle(input, upscale_factor)
+}
+
+/// Pixel unshuffle: `[B, C, H*r, W*r]` -> `[B, C*r*r, H, W]`.
+///
+/// See [`crate::upsample::pixel_unshuffle`] for full documentation.
+///
+/// CL-317
+pub fn pixel_unshuffle<T: Float>(
+    input: &Tensor<T>,
+    downscale_factor: usize,
+) -> FerrotorchResult<Tensor<T>> {
+    crate::upsample::pixel_unshuffle(input, downscale_factor)
+}
+
+/// Unfold (im2col): `[B, C, H, W]` -> `[B, C*kH*kW, L]`.
+///
+/// See [`crate::upsample::unfold`] for full documentation.
+///
+/// CL-317
+pub fn unfold<T: Float>(
+    input: &Tensor<T>,
+    kernel_size: [usize; 2],
+    dilation: [usize; 2],
+    padding: [usize; 2],
+    stride: [usize; 2],
+) -> FerrotorchResult<Tensor<T>> {
+    crate::upsample::unfold(input, kernel_size, dilation, padding, stride)
+}
+
+/// Fold (col2im): `[B, C*kH*kW, L]` -> `[B, C, H, W]`.
+///
+/// See [`crate::upsample::fold`] for full documentation.
+///
+/// CL-317
+pub fn fold<T: Float>(
+    input: &Tensor<T>,
+    output_size: [usize; 2],
+    kernel_size: [usize; 2],
+    dilation: [usize; 2],
+    padding: [usize; 2],
+    stride: [usize; 2],
+) -> FerrotorchResult<Tensor<T>> {
+    crate::upsample::fold(input, output_size, kernel_size, dilation, padding, stride)
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 
