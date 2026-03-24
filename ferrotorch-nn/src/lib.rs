@@ -47,8 +47,10 @@ pub use init::NonLinearity;
 pub use linear::Linear;
 pub use lora::LoRALinear;
 pub use loss::{
-    BCEWithLogitsLoss, CosineEmbeddingLoss, CrossEntropyLoss, HuberLoss, KLDivLoss, L1Loss,
-    MSELoss, NLLLoss, SmoothL1Loss,
+    BCELoss, BCEWithLogitsLoss, CTCLoss, CosineEmbeddingLoss, CrossEntropyLoss,
+    HingeEmbeddingLoss, HuberLoss, KLDivLoss, L1Loss, MSELoss, MarginRankingLoss,
+    MultiLabelSoftMarginLoss, MultiMarginLoss, NLLLoss, PoissonNLLLoss, SmoothL1Loss,
+    TripletMarginLoss,
 };
 pub use hooks::{BackwardHook, ForwardHook, ForwardPreHook, HookHandle, HookedModule};
 pub use module::{Module, Reduction, StateDict};
