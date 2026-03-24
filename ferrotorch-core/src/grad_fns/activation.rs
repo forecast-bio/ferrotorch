@@ -106,6 +106,22 @@ impl<T: Float> SigmoidBackward<T> {
 
 impl<T: Float> GradFn<T> for SigmoidBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        // GPU-native path for f32
+        if grad_output.is_cuda() && is_f32::<T>() {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let result_h = backend.sigmoid_backward_f32(
+                grad_output.gpu_handle()?,
+                self.output.gpu_handle()?,
+            )?;
+            let grad_input = Tensor::from_storage(
+                TensorStorage::gpu(result_h),
+                self.input.shape().to_vec(),
+                false,
+            )?;
+            return Ok(vec![Some(grad_input)]);
+        }
+
+        // CPU fallback
         let cpu_output = if self.output.is_cuda() { self.output.cpu()? } else { self.output.clone() };
         let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
         let s_data = cpu_output.data()?;
@@ -157,6 +173,22 @@ impl<T: Float> TanhBackward<T> {
 
 impl<T: Float> GradFn<T> for TanhBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        // GPU-native path for f32
+        if grad_output.is_cuda() && is_f32::<T>() {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let result_h = backend.tanh_backward_f32(
+                grad_output.gpu_handle()?,
+                self.output.gpu_handle()?,
+            )?;
+            let grad_input = Tensor::from_storage(
+                TensorStorage::gpu(result_h),
+                self.input.shape().to_vec(),
+                false,
+            )?;
+            return Ok(vec![Some(grad_input)]);
+        }
+
+        // CPU fallback
         let cpu_output = if self.output.is_cuda() { self.output.cpu()? } else { self.output.clone() };
         let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
         let t_data = cpu_output.data()?;
@@ -419,6 +451,24 @@ impl<T: Float> SoftmaxBackward<T> {
 
 impl<T: Float> GradFn<T> for SoftmaxBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        // GPU-native path for f32
+        if grad_output.is_cuda() && is_f32::<T>() {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let cols = *self.output.shape().last().unwrap_or(&1);
+            let result_h = backend.softmax_backward_f32(
+                grad_output.gpu_handle()?,
+                self.output.gpu_handle()?,
+                cols,
+            )?;
+            let grad_input = Tensor::from_storage(
+                TensorStorage::gpu(result_h),
+                self.input.shape().to_vec(),
+                false,
+            )?;
+            return Ok(vec![Some(grad_input)]);
+        }
+
+        // CPU fallback
         let cpu_output = if self.output.is_cuda() { self.output.cpu()? } else { self.output.clone() };
         let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
         let s_data = cpu_output.data()?;
@@ -908,6 +958,22 @@ impl<T: Float> SoftplusBackward<T> {
 
 impl<T: Float> GradFn<T> for SoftplusBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        // GPU-native path for f32: grad * sigmoid(beta * x)
+        if grad_output.is_cuda() && is_f32::<T>() {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let x_h = self.input.gpu_handle()?;
+            let beta_x = backend.scale_f32(x_h, self.beta as f32)?;
+            let sig = backend.sigmoid_f32(&beta_x)?;
+            let result_h = backend.mul_f32(grad_output.gpu_handle()?, &sig)?;
+            let grad_input = Tensor::from_storage(
+                TensorStorage::gpu(result_h),
+                self.input.shape().to_vec(),
+                false,
+            )?;
+            return Ok(vec![Some(grad_input)]);
+        }
+
+        // CPU fallback
         let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
         let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
         let input_data = cpu_input.data()?;

@@ -834,22 +834,15 @@ impl<T: Float> GradFn<T> for LinearFusedBackward<T> {
             } else { None };
 
             // grad_bias = sum(grad_C, dim=0) -> (N,)
-            // No row-wise sum kernel; pull grad_C to CPU for this small op.
+            // Use GPU sum_axis_f32 to reduce along axis 0, staying on-device.
             let grad_bias = if self.has_bias {
                 if let Some(ref b) = self.bias {
                     if b.requires_grad() {
-                        let cpu_go = grad_output.cpu()?;
-                        let gc_data = cpu_go.data()?;
-                        let zero = <T as num_traits::Zero>::zero();
-                        let mut gb = vec![zero; n];
-                        for i in 0..m {
-                            let row = i * n;
-                            for j in 0..n {
-                                gb[j] = gb[j] + gc_data[row + j];
-                            }
-                        }
-                        let t = Tensor::from_storage(TensorStorage::cpu(gb), vec![n], false)?;
-                        Some(t.to(device)?)
+                        let go_shape = &[m, n];
+                        let summed = backend.sum_axis_f32(go_h, go_shape, 0)?;
+                        Some(Tensor::from_storage(
+                            TensorStorage::gpu(summed), vec![n], false,
+                        )?)
                     } else { None }
                 } else { None }
             } else { None };

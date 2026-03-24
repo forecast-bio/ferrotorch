@@ -57,9 +57,9 @@ fn needs_grad_unary<T: Float>(a: &Tensor<T>) -> bool {
 ///    sum over that dimension.
 /// 4. Reshape to `target_shape`.
 ///
-/// For GPU tensors the grad is transferred to CPU first, reduced, then moved
-/// back. This is correct (though not optimal — a GPU reduction kernel would
-/// be better).
+/// For f32 GPU tensors, reduction is performed entirely on GPU via
+/// `sum_axis_f32` — no CPU roundtrip.  Other dtypes fall back to a
+/// CPU reduction loop and re-upload.
 fn reduce_grad_to_shape<T: Float>(
     grad: &Tensor<T>,
     target_shape: &[usize],
@@ -77,7 +77,40 @@ fn reduce_grad_to_shape<T: Float>(
         return crate::grad_fns::reduction::sum(grad);
     }
 
-    // Transfer GPU grad to CPU for the reduction, then move back.
+    // GPU fast path for f32: reduce each broadcast axis on-device.
+    if grad.is_cuda() && is_f32::<T>() {
+        let backend = crate::gpu_dispatch::gpu_backend()
+            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let mut handle = backend.clone_buffer(grad.gpu_handle()?)?;
+        let mut current_shape = grad.shape().to_vec();
+
+        let target_ndim = target_shape.len();
+
+        // First reduce leading dimensions that don't exist in target.
+        while current_shape.len() > target_ndim {
+            handle = backend.sum_axis_f32(&handle, &current_shape, 0)?;
+            current_shape.remove(0);
+        }
+
+        // Then reduce dimensions where target has size 1 but grad has size > 1.
+        for axis in 0..current_shape.len() {
+            if axis < target_shape.len()
+                && target_shape[axis] == 1
+                && current_shape[axis] > 1
+            {
+                handle = backend.sum_axis_f32(&handle, &current_shape, axis)?;
+                current_shape[axis] = 1;
+            }
+        }
+
+        return Tensor::from_storage(
+            TensorStorage::gpu(handle),
+            target_shape.to_vec(),
+            false,
+        );
+    }
+
+    // CPU path (also handles non-f32 GPU tensors via download/re-upload).
     let device = grad.device();
     let cpu_grad = if grad.is_cuda() {
         grad.cpu()?
