@@ -11,6 +11,7 @@ pub mod fft;
 pub mod gpu_dispatch;
 pub mod grad_fns;
 pub mod linalg;
+pub mod nested;
 pub mod ops;
 mod inplace;
 mod methods;
@@ -38,6 +39,7 @@ pub use quantize::{
     QuantizedTensor,
 };
 pub use storage::{StorageBuffer, TensorStorage};
+pub use nested::{NestedTensor, nested_scaled_dot_product_attention};
 pub use sparse::SparseTensor;
 pub use tensor::{GradFn, Tensor, TensorId};
 pub use einops::{rearrange, rearrange_with, repeat, reduce, EinopsReduction};
