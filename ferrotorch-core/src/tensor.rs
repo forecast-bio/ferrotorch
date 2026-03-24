@@ -446,8 +446,14 @@ impl<T: Float> Tensor<T> {
     }
 
     /// Accumulate a gradient additively (used by the backward engine).
-    /// Handles GPU tensors by transferring to CPU for accumulation.
+    ///
+    /// Keeps gradients on their original device to avoid GPU↔CPU round-trips.
+    /// When both the existing gradient and the incoming gradient are on GPU
+    /// (and the element type is f32), accumulation uses `backend.add_f32()`
+    /// entirely on-device.
     pub(crate) fn accumulate_grad(&self, incoming: &Tensor<T>) -> FerrotorchResult<()> {
+        use std::any::TypeId;
+
         let mut guard = self
             .inner
             .grad
@@ -457,46 +463,65 @@ impl<T: Float> Tensor<T> {
             })?;
         match guard.as_mut() {
             None => {
-                // First gradient: clone the incoming gradient (on CPU).
-                let cpu_incoming = if incoming.is_cuda() {
-                    incoming.cpu()?
-                } else {
-                    incoming.clone()
-                };
-                let data = cpu_incoming.data()?.to_vec();
-                let storage = TensorStorage::cpu(data);
-                let tensor = Tensor::from_storage(storage, incoming.shape().to_vec(), false)?;
+                // First gradient: store a detached copy on the same device.
+                let (storage, shape) = incoming.clone().into_storage_and_shape()?;
+                let tensor = Tensor::from_storage(storage, shape, false)?;
                 *guard = Some(Box::new(tensor));
             }
             Some(existing) => {
                 // Accumulate: existing_grad += incoming_grad.
-                // Allocate new tensor instead of data_mut() to avoid UB
-                // from mutating potentially shared Arc<TensorStorage>.
-                let cpu_incoming = if incoming.is_cuda() {
-                    incoming.cpu()?
+                let is_f32 = TypeId::of::<T>() == TypeId::of::<f32>();
+
+                // GPU-native path: both on GPU and f32.
+                if is_f32 && existing.is_cuda() && incoming.is_cuda() {
+                    let backend = crate::gpu_dispatch::gpu_backend()
+                        .ok_or(FerrotorchError::DeviceUnavailable)?;
+                    if existing.numel() != incoming.numel() {
+                        return Err(FerrotorchError::ShapeMismatch {
+                            message: format!(
+                                "gradient accumulation shape mismatch: {:?} vs {:?}",
+                                existing.shape(),
+                                incoming.shape()
+                            ),
+                        });
+                    }
+                    let sum_handle = backend.add_f32(
+                        existing.gpu_handle()?,
+                        incoming.gpu_handle()?,
+                    )?;
+                    let storage = TensorStorage::gpu(sum_handle);
+                    let combined = Tensor::from_storage(
+                        storage,
+                        existing.shape().to_vec(),
+                        false,
+                    )?;
+                    *guard = Some(Box::new(combined));
                 } else {
-                    incoming.clone()
-                };
-                let incoming_data = cpu_incoming.data()?;
-                let mut buf = existing.data_vec()?;
-                if buf.len() != incoming_data.len() {
-                    return Err(FerrotorchError::ShapeMismatch {
-                        message: format!(
-                            "gradient accumulation shape mismatch: {:?} vs {:?}",
-                            existing.shape(),
-                            incoming.shape()
-                        ),
-                    });
+                    // CPU path (or mixed-device): download if needed and
+                    // accumulate on the host.
+                    let incoming_data = incoming.data_vec()?;
+                    let mut buf = existing.data_vec()?;
+                    if buf.len() != incoming_data.len() {
+                        return Err(FerrotorchError::ShapeMismatch {
+                            message: format!(
+                                "gradient accumulation shape mismatch: {:?} vs {:?}",
+                                existing.shape(),
+                                incoming.shape()
+                            ),
+                        });
+                    }
+                    for (e, &n) in buf.iter_mut().zip(incoming_data.iter()) {
+                        *e += n;
+                    }
+                    // Store on the parameter's device.
+                    let device = existing.device();
+                    let combined = Tensor::from_storage(
+                        TensorStorage::on_device(buf, device)?,
+                        existing.shape().to_vec(),
+                        false,
+                    )?;
+                    *guard = Some(Box::new(combined));
                 }
-                for (e, &n) in buf.iter_mut().zip(incoming_data.iter()) {
-                    *e += n;
-                }
-                let combined = Tensor::from_storage(
-                    TensorStorage::cpu(buf),
-                    existing.shape().to_vec(),
-                    false,
-                )?;
-                *guard = Some(Box::new(combined));
             }
         }
         Ok(())
