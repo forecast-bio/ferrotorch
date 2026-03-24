@@ -590,6 +590,36 @@ impl GpuBackend for CudaBackendImpl {
         Ok(Self::wrap_buffer(result, idx.device_ordinal()))
     }
 
+    fn embed_lookup_batch_f32(
+        &self,
+        indices: &GpuBufferHandle,
+        weight: &GpuBufferHandle,
+        n: usize,
+        d: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let idx_buf = Self::unwrap_buffer(indices)?;
+        let w_buf = Self::unwrap_buffer(weight)?;
+        let dev = self.device(indices.device_ordinal())?;
+        let result = crate::kernels::gpu_embed_lookup_batch(idx_buf, w_buf, n, d, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, indices.device_ordinal()))
+    }
+
+    fn scatter_add_rows_f32(
+        &self,
+        grad_output: &GpuBufferHandle,
+        indices: &GpuBufferHandle,
+        num_embeddings: usize,
+        d: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let go_buf = Self::unwrap_buffer(grad_output)?;
+        let idx_buf = Self::unwrap_buffer(indices)?;
+        let dev = self.device(grad_output.device_ordinal())?;
+        let result = crate::kernels::gpu_scatter_add_rows(go_buf, idx_buf, num_embeddings, d, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, grad_output.device_ordinal()))
+    }
+
     fn scale_f32(
         &self,
         a: &GpuBufferHandle,
