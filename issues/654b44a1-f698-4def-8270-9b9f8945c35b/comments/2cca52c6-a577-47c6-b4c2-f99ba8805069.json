@@ -1,0 +1,8 @@
+{
+  "uuid": "2cca52c6-a577-47c6-b4c2-f99ba8805069",
+  "issue_uuid": "654b44a1-f698-4def-8270-9b9f8945c35b",
+  "author": "anon-a7c6025f",
+  "content": "Implementing gather, scatter, scatter_add, and where_cond in ops/indexing.rs (forward) and grad_fns/indexing.rs (backward). Pattern: N-D ops with dim parameter, CPU-only for now. Backward: gather->scatter_add, scatter->gather, scatter_add->gather, where_cond->mask.",
+  "created_at": "2026-03-24T12:02:43.064053626Z",
+  "kind": "plan"
+}
