@@ -43,6 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- Perf Phase 5B: Wire backward GPU kernels — eliminate all CPU roundtrips in backward passes (#255)
 - Perf Phase 3C: Fused SIMD sigmoid, sin, cos kernels — eliminate intermediate allocations (#254)
 - Perf Phase 3B: Wire fast_sigmoid and fast_tanh into activation forward paths (#253)
 - Perf Phase 5: Wire GPU kernels into grad_fns to eliminate CPU roundtrips (#252)

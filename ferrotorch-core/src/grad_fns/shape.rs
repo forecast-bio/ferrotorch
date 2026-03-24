@@ -11,7 +11,6 @@ use crate::autograd::no_grad::is_grad_enabled;
 use crate::device::Device;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
-use crate::ops::linalg::transpose;
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
 
@@ -330,7 +329,8 @@ impl<T: Float> GradFn<T> for TransposeBackward<T> {
         if !self.input.requires_grad() {
             return Ok(vec![None]);
         }
-        let grad_input = transpose(grad_output)?;
+        // Zero-copy stride swap: transpose is its own inverse.
+        let grad_input = crate::methods::permute_t(grad_output, &[1, 0])?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -345,7 +345,8 @@ impl<T: Float> GradFn<T> for TransposeBackward<T> {
 
 /// Transpose a 2-D tensor, preserving the computation graph.
 ///
-/// Delegates the actual data transposition to [`crate::ops::linalg::transpose`].
+/// CPU path: zero-copy O(1) stride swap — shares storage with the input.
+/// GPU path: runs a transpose kernel (data copy on device).
 pub fn transpose_2d<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if input.ndim() != 2 {
         return Err(FerrotorchError::InvalidArgument {
@@ -370,16 +371,8 @@ pub fn transpose_2d<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
         }
     }
 
-    // CPU path.
-    let transposed = transpose(input)?;
-
-    if is_grad_enabled() && input.requires_grad() {
-        let (storage, _shape) = transposed.into_storage_and_shape()?;
-        let grad_fn = Arc::new(TransposeBackward::new(input.clone()));
-        Tensor::from_operation(storage, out_shape, grad_fn)
-    } else {
-        Ok(transposed)
-    }
+    // CPU path: zero-copy stride swap via permute [1, 0].
+    crate::methods::permute_t(input, &[1, 0])
 }
 
 // ---------------------------------------------------------------------------
@@ -1033,7 +1026,8 @@ mod tests {
         let x = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], false);
         let y = transpose_2d(&x).unwrap();
         assert_eq!(y.shape(), &[3, 2]);
-        assert_eq!(y.data().unwrap(), &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+        // Transpose is now a zero-copy stride swap; use data_vec for logical order.
+        assert_eq!(y.data_vec().unwrap(), &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
     }
 
     // -- cat --

@@ -1,9 +1,49 @@
+use std::any::TypeId;
 use std::collections::VecDeque;
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
+use crate::storage::TensorStorage;
 use crate::tensor::{Tensor, TensorId};
+
+/// Add two tensors element-wise, preferring GPU-native addition when both
+/// tensors reside on the same CUDA device and are f32. Falls back to a CPU
+/// roundtrip for mixed-device or non-f32 cases.
+fn gpu_add_or_cpu_fallback<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    // Fast path: both on the same GPU and dtype is f32.
+    if a.is_cuda()
+        && b.is_cuda()
+        && a.device() == b.device()
+        && TypeId::of::<T>() == TypeId::of::<f32>()
+    {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            if let (Ok(a_h), Ok(b_h)) = (a.gpu_handle(), b.gpu_handle()) {
+                if let Ok(sum_h) = backend.add_f32(a_h, b_h) {
+                    let sum_tensor = Tensor::from_storage(
+                        TensorStorage::gpu(sum_h),
+                        a.shape().to_vec(),
+                        false,
+                    )?;
+                    return Ok(sum_tensor);
+                }
+            }
+        }
+    }
+
+    // Fallback: download to CPU, add, re-upload.
+    let device = a.device();
+    let a_cpu = if a.is_cuda() { a.cpu()? } else { a.clone() };
+    let b_cpu = if b.is_cuda() { b.cpu()? } else { b.clone() };
+    let mut a_data = a_cpu.data()?.to_vec();
+    let b_data = b_cpu.data()?;
+    for (e, &g) in a_data.iter_mut().zip(b_data.iter()) {
+        *e = *e + g;
+    }
+    let storage = TensorStorage::cpu(a_data);
+    let combined = Tensor::from_storage(storage, a_cpu.shape().to_vec(), false)?;
+    combined.to(device)
+}
 
 /// Compute gradients of all leaf tensors that contribute to `root`.
 ///
@@ -133,6 +173,14 @@ pub fn backward_with_grad<T: Float>(
         };
 
         if let Some(grad_fn) = node.grad_fn() {
+            // Materialize non-contiguous CPU gradients (e.g. from zero-copy
+            // permute/transpose stride swaps) before passing to backward
+            // functions that expect contiguous data via .data().
+            let grad_output = if !grad_output.is_contiguous() && !grad_output.is_cuda() {
+                crate::methods::contiguous_t(&grad_output)?
+            } else {
+                grad_output
+            };
             let input_grads = grad_fn.backward(&grad_output)?;
             let inputs = grad_fn.inputs();
 
@@ -145,22 +193,10 @@ pub fn backward_with_grad<T: Float>(
                         } else {
                             // Non-leaf: accumulate into the grads map for the next iteration.
                             if let Some(existing) = grads.remove(&input.id()) {
-                                // GPU-aware in-place addition.
-                                let device = existing.device();
-                                let existing_cpu = if existing.is_cuda() { existing.cpu()? } else { existing };
-                                let grad_cpu = if grad.is_cuda() { grad.cpu()? } else { grad };
-                                let mut existing_data = existing_cpu.data()?.to_vec();
-                                let grad_data = grad_cpu.data()?;
-                                for (e, &g) in existing_data.iter_mut().zip(grad_data.iter()) {
-                                    *e = *e + g;
-                                }
-                                let storage = crate::storage::TensorStorage::cpu(existing_data);
-                                let combined = Tensor::from_storage(
-                                    storage,
-                                    existing_cpu.shape().to_vec(),
-                                    false,
-                                )?;
-                                grads.insert(input.id(), combined.to(device)?);
+                                // GPU-aware gradient accumulation: avoid CPU roundtrip
+                                // when both tensors are on the same GPU device.
+                                let combined = gpu_add_or_cpu_fallback(&existing, &grad)?;
+                                grads.insert(input.id(), combined);
                             } else {
                                 grads.insert(input.id(), grad);
                             }
