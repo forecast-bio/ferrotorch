@@ -817,6 +817,144 @@ DONE:
 ";
 
 // ---------------------------------------------------------------------------
+// Batch embedding lookup PTX kernel
+// ---------------------------------------------------------------------------
+// Given N f32 indices and a weight matrix [V, D], gather N rows into [N, D].
+// Thread `tid` computes one element: row = tid / D, col = tid % D.
+// out[tid] = weight[indices[row] * D + col]
+
+#[cfg(feature = "cuda")]
+pub(crate) const EMBED_LOOKUP_BATCH_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry embed_lookup_batch_kernel(
+    .param .u64 idx_ptr,
+    .param .u64 weight_ptr,
+    .param .u64 out_ptr,
+    .param .u32 D,
+    .param .u32 total
+) {
+    .reg .u32 %tid, %bid, %bdim, %D_reg, %total_reg;
+    .reg .u32 %row, %col, %src_idx;
+    .reg .u64 %idx_addr, %w, %out, %off;
+    .reg .f32 %idx_f, %val;
+    .reg .pred %p;
+
+    ld.param.u64 %idx_addr, [idx_ptr];
+    ld.param.u64 %w, [weight_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %D_reg, [D];
+    ld.param.u32 %total_reg, [total];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %tid, %tid.x;
+    mad.lo.u32 %tid, %bid, %bdim, %tid;
+
+    setp.ge.u32 %p, %tid, %total_reg;
+    @%p bra DONE;
+
+    // row = tid / D, col = tid % D
+    div.u32 %row, %tid, %D_reg;
+    rem.u32 %col, %tid, %D_reg;
+
+    // Read indices[row] (f32 -> u32)
+    cvt.u64.u32 %off, %row;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %idx_addr, %off;
+    ld.global.f32 %idx_f, [%off];
+    cvt.rzi.u32.f32 %src_idx, %idx_f;
+
+    // src_idx = indices[row] * D + col
+    mad.lo.u32 %src_idx, %src_idx, %D_reg, %col;
+    cvt.u64.u32 %off, %src_idx;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %w, %off;
+    ld.global.f32 %val, [%off];
+
+    // Write to out[tid]
+    cvt.u64.u32 %off, %tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %out, %off;
+    st.global.f32 [%off], %val;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
+// Scatter-add rows PTX kernel (for embedding backward)
+// ---------------------------------------------------------------------------
+// Given grad_output [N, D] and indices [N] (f32), atomically accumulate:
+//   grad_weight[indices[row], col] += grad_output[row * D + col]
+// Thread `tid` handles one element: row = tid / D, col = tid % D.
+
+#[cfg(feature = "cuda")]
+pub(crate) const SCATTER_ADD_ROWS_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry scatter_add_rows_kernel(
+    .param .u64 grad_output_ptr,
+    .param .u64 indices_ptr,
+    .param .u64 grad_weight_ptr,
+    .param .u32 D,
+    .param .u32 total
+) {
+    .reg .u32 %tid, %bid, %bdim, %D_reg, %total_reg;
+    .reg .u32 %row, %col, %dst_idx;
+    .reg .u64 %go, %idx_addr, %gw, %off;
+    .reg .f32 %idx_f, %grad_val, %dummy;
+    .reg .pred %p;
+
+    ld.param.u64 %go, [grad_output_ptr];
+    ld.param.u64 %idx_addr, [indices_ptr];
+    ld.param.u64 %gw, [grad_weight_ptr];
+    ld.param.u32 %D_reg, [D];
+    ld.param.u32 %total_reg, [total];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %tid, %tid.x;
+    mad.lo.u32 %tid, %bid, %bdim, %tid;
+
+    setp.ge.u32 %p, %tid, %total_reg;
+    @%p bra DONE;
+
+    // row = tid / D, col = tid % D
+    div.u32 %row, %tid, %D_reg;
+    rem.u32 %col, %tid, %D_reg;
+
+    // Read grad_output[tid]
+    cvt.u64.u32 %off, %tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %go, %off;
+    ld.global.f32 %grad_val, [%off];
+
+    // Read indices[row] (f32 -> u32)
+    cvt.u64.u32 %off, %row;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %idx_addr, %off;
+    ld.global.f32 %idx_f, [%off];
+    cvt.rzi.u32.f32 %dst_idx, %idx_f;
+
+    // dst_idx = indices[row] * D + col
+    mad.lo.u32 %dst_idx, %dst_idx, %D_reg, %col;
+    cvt.u64.u32 %off, %dst_idx;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %gw, %off;
+    atom.global.add.f32 %dummy, [%off], %grad_val;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
 // Slice-read PTX kernel: read first `len` rows from [N, max_len, D]
 // ---------------------------------------------------------------------------
 // Thread i writes: dst[i] = src[batch_idx * max_len * D + (i % (len*D))]
@@ -4249,6 +4387,135 @@ pub fn gpu_embed_lookup_into(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Public API -- Batch embedding lookup (GPU-native)
+// ---------------------------------------------------------------------------
+
+/// GPU batch embedding lookup: given `indices` (N f32 values on GPU) and
+/// `weight` `[V, D]`, gather N rows to produce output `[N, D]`.
+/// Entire operation stays on GPU -- no CPU roundtrip.
+#[cfg(feature = "cuda")]
+pub fn gpu_embed_lookup_batch(
+    indices: &CudaBuffer<f32>,
+    weight: &CudaBuffer<f32>,
+    n: usize,
+    d: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    let total = n * d;
+    if total == 0 {
+        return alloc_zeros_f32(0, device);
+    }
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx, EMBED_LOOKUP_BATCH_PTX, "embed_lookup_batch_kernel", device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback.
+            let idx_host = gpu_to_cpu(indices, device)?;
+            let weight_host = gpu_to_cpu(weight, device)?;
+            let mut out = Vec::with_capacity(total);
+            for &idx_f in &idx_host {
+                let row = idx_f as usize;
+                let start = row * d;
+                out.extend_from_slice(&weight_host[start..start + d]);
+            }
+            return cpu_to_gpu(&out, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(total, device)?;
+    let cfg = launch_cfg(total)?;
+    let d_u32 = d as u32;
+    let total_u32 = total as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(indices.inner())
+            .arg(weight.inner())
+            .arg(out.inner_mut())
+            .arg(&d_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Public API -- Scatter-add rows (for embedding backward, GPU-native)
+// ---------------------------------------------------------------------------
+
+/// GPU scatter-add rows: given `grad_output` `[N, D]` and `indices` `[N]` (f32),
+/// atomically accumulate into `grad_weight` `[V, D]` (pre-zeroed):
+///   `grad_weight[indices[i], :] += grad_output[i, :]`
+///
+/// Duplicate indices accumulate correctly via atomic adds.
+#[cfg(feature = "cuda")]
+pub fn gpu_scatter_add_rows(
+    grad_output: &CudaBuffer<f32>,
+    indices: &CudaBuffer<f32>,
+    num_embeddings: usize,
+    d: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    let n = indices.len();
+    let total = n * d;
+
+    if total == 0 {
+        return alloc_zeros_f32(num_embeddings * d, device);
+    }
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx, SCATTER_ADD_ROWS_PTX, "scatter_add_rows_kernel", device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback.
+            let go_host = gpu_to_cpu(grad_output, device)?;
+            let idx_host = gpu_to_cpu(indices, device)?;
+            let mut result = vec![0.0f32; num_embeddings * d];
+            for (i, &idx_f) in idx_host.iter().enumerate() {
+                let row = idx_f as usize;
+                for j in 0..d {
+                    result[row * d + j] += go_host[i * d + j];
+                }
+            }
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(num_embeddings * d, device)?;
+    let cfg = launch_cfg(total)?;
+    let d_u32 = d as u32;
+    let total_u32 = total as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(grad_output.inner())
+            .arg(indices.inner())
+            .arg(out.inner_mut())
+            .arg(&d_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
 /// 2D transpose into pre-allocated output.
 #[cfg(feature = "cuda")]
 pub fn gpu_transpose_2d_into(
@@ -4500,6 +4767,8 @@ pub fn precompile_decode_kernels(device: &GpuDevice) -> GpuResult<()> {
     compile(LAYERNORM_PTX, "layernorm_kernel")?;
     compile(PERMUTE_0213_PTX, "permute_0213_kernel")?;
     compile(EMBED_LOOKUP_PTX, "embed_lookup_kernel")?;
+    compile(EMBED_LOOKUP_BATCH_PTX, "embed_lookup_batch_kernel")?;
+    compile(SCATTER_ADD_ROWS_PTX, "scatter_add_rows_kernel")?;
     compile(SMALL_MATMUL_PTX, "small_matmul_kernel")?;
     compile(SLICE_WRITE_INDIRECT_PTX, "slice_write_indirect_kernel")?;
     compile(CAUSAL_MASK_INDIRECT_PTX, "causal_mask_indirect_kernel")?;
@@ -4653,6 +4922,18 @@ pub fn gpu_slice_read(
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_embed_lookup(
     _idx: &CudaBuffer<f32>, _weight: &CudaBuffer<f32>, _d: usize, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_embed_lookup_batch(
+    _indices: &CudaBuffer<f32>, _weight: &CudaBuffer<f32>, _n: usize, _d: usize, _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_scatter_add_rows(
+    _grad_output: &CudaBuffer<f32>, _indices: &CudaBuffer<f32>, _num_embeddings: usize, _d: usize, _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].

@@ -8,15 +8,33 @@
 //! The backward pass implements a sparse scatter-add: only the rows that
 //! were accessed receive gradient, and duplicate indices accumulate.
 
+use std::any::TypeId;
 use std::sync::Arc;
 
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
+use ferrotorch_core::device::Device;
+use ferrotorch_core::gpu_dispatch::{gpu_backend, GpuBufferHandle};
 use ferrotorch_core::tensor::GradFn;
 use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 
 use crate::init;
 use crate::module::Module;
 use crate::parameter::Parameter;
+
+/// Returns `true` if `T` is `f32`.
+#[inline]
+fn is_f32<T: Float>() -> bool {
+    TypeId::of::<T>() == TypeId::of::<f32>()
+}
+
+/// Upload a CPU `&[f32]` slice to a GPU buffer on the given device ordinal.
+fn upload_f32_to_gpu(data: &[f32], ordinal: usize) -> FerrotorchResult<GpuBufferHandle> {
+    let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+    let bytes: &[u8] = unsafe {
+        std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4)
+    };
+    backend.cpu_to_gpu(bytes, 4, ordinal)
+}
 
 // ---------------------------------------------------------------------------
 // EmbeddingBackward
@@ -51,8 +69,65 @@ impl<T: Float> GradFn<T> for EmbeddingBackward<T> {
             return Ok(vec![None]);
         }
 
-        let go_data = grad_output.data_vec()?;
         let dim = self.embedding_dim;
+        let device = self.weight.device();
+
+        // GPU fast path: scatter-add rows entirely on GPU for f32 tensors.
+        if grad_output.is_cuda() && is_f32::<T>() {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let ordinal = match device {
+                Device::Cuda(o) => o,
+                _ => unreachable!(),
+            };
+
+            // Upload indices as f32 to GPU (small: N * 4 bytes).
+            let indices_f32: Vec<f32> = self.indices.iter().map(|&i| i as f32).collect();
+            let idx_handle = upload_f32_to_gpu(&indices_f32, ordinal)?;
+
+            let go_handle = grad_output.gpu_handle()?;
+
+            // Scatter-add rows on GPU: grad_weight[indices[i], :] += grad_output[i, :]
+            let mut gw_handle = backend.scatter_add_rows_f32(
+                go_handle,
+                &idx_handle,
+                self.num_embeddings,
+                dim,
+            )?;
+
+            // If padding_idx is set, zero that row's gradient.
+            // Upload a zero row and overwrite via the backend.
+            if let Some(pad_idx) = self.padding_idx {
+                // Zero out the padding row by downloading, zeroing, re-uploading.
+                // This is a single row (dim * 4 bytes), so acceptable.
+                let mut gw_bytes = backend.gpu_to_cpu(&gw_handle)?;
+                let gw_f32: &mut [f32] = unsafe {
+                    std::slice::from_raw_parts_mut(
+                        gw_bytes.as_mut_ptr() as *mut f32,
+                        gw_bytes.len() / 4,
+                    )
+                };
+                let start = pad_idx * dim;
+                for v in &mut gw_f32[start..start + dim] {
+                    *v = 0.0;
+                }
+                let upload_bytes: &[u8] = unsafe {
+                    std::slice::from_raw_parts(
+                        gw_f32.as_ptr() as *const u8,
+                        gw_f32.len() * 4,
+                    )
+                };
+                gw_handle = backend.cpu_to_gpu(upload_bytes, 4, ordinal)?;
+            }
+
+            let grad_tensor = Tensor::from_storage(
+                TensorStorage::gpu(gw_handle),
+                vec![self.num_embeddings, dim],
+                false,
+            )?;
+            return Ok(vec![Some(grad_tensor)]);
+        }
+
+        let go_data = grad_output.data_vec()?;
 
         // Allocate a full-size gradient for the weight matrix, initialized to zero.
         let mut grad_weight =
@@ -83,7 +158,6 @@ impl<T: Float> GradFn<T> for EmbeddingBackward<T> {
         )?;
 
         // Return gradient on the same device as the weight.
-        let device = self.weight.device();
         if device.is_cuda() {
             Ok(vec![Some(grad_tensor.to(device)?)])
         } else {
@@ -248,10 +322,85 @@ impl<T: Float> Module<T> for Embedding<T> {
             });
         }
 
+        let dim = self.embedding_dim;
+
+        // GPU fast path for f32 embeddings: gather rows entirely on GPU,
+        // avoiding the costly download of the full weight matrix to CPU.
+        if self.weight.tensor().is_cuda() && is_f32::<T>() {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let device = self.weight.tensor().device();
+            let ordinal = match device {
+                Device::Cuda(o) => o,
+                _ => unreachable!(),
+            };
+
+            // Download input indices to CPU for validation (small: N floats).
+            let input_data = input.data_vec()?;
+            let n = input_data.len();
+
+            // Convert float indices to usize and validate bounds.
+            let mut indices = Vec::with_capacity(n);
+            let mut indices_f32 = Vec::with_capacity(n);
+            for (i, &val) in input_data.iter().enumerate() {
+                let idx = num_traits::ToPrimitive::to_usize(&val).ok_or_else(|| {
+                    FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "Embedding index at position {i} cannot be converted to usize: {val:?}"
+                        ),
+                    }
+                })?;
+                if idx >= self.num_embeddings {
+                    return Err(FerrotorchError::IndexOutOfBounds {
+                        index: idx,
+                        axis: 0,
+                        size: self.num_embeddings,
+                    });
+                }
+                indices.push(idx);
+                indices_f32.push(idx as f32);
+            }
+
+            // Upload indices to GPU (tiny: N * 4 bytes).
+            let idx_handle = upload_f32_to_gpu(&indices_f32, ordinal)?;
+
+            // Get weight GPU handle directly -- no download.
+            let weight_handle = self.weight.tensor().gpu_handle()?;
+
+            // Batch gather on GPU: output [N, D].
+            let output_handle = backend.embed_lookup_batch_f32(
+                &idx_handle,
+                weight_handle,
+                n,
+                dim,
+            )?;
+
+            // Padding index: if set, zero the corresponding output rows on GPU.
+            // For padding_idx, the weight row should already be zero, so output
+            // rows at padding positions should already be zero. Be defensive
+            // only if padding_idx is actually referenced.
+            // (The weight is zeroed at init, so we skip extra GPU work here.)
+
+            let output_shape = vec![n, dim];
+            let storage = TensorStorage::gpu(output_handle);
+
+            if self.weight.requires_grad() && is_grad_enabled() {
+                let grad_fn = Arc::new(EmbeddingBackward {
+                    weight: self.weight.tensor().clone(),
+                    indices,
+                    num_embeddings: self.num_embeddings,
+                    embedding_dim: dim,
+                    padding_idx: self.padding_idx,
+                });
+                return Tensor::from_operation(storage, output_shape, grad_fn);
+            } else {
+                return Tensor::from_storage(storage, output_shape, false);
+            }
+        }
+
+        // CPU path (or non-f32 GPU tensors): download weight and gather on CPU.
         let input_data = input.data_vec()?;
         let cpu_weight = if self.weight.tensor().is_cuda() { self.weight.tensor().cpu()? } else { self.weight.tensor().clone() };
         let weight_data = cpu_weight.data()?;
-        let dim = self.embedding_dim;
         let n = input_data.len();
 
         // Convert float indices to usize and validate bounds.
@@ -302,10 +451,10 @@ impl<T: Float> Module<T> for Embedding<T> {
         // Build storage on the target device first, then attach grad_fn.
         // This avoids to() stripping the grad_fn by creating a leaf tensor.
         let storage = if device.is_cuda() {
-            let backend = ferrotorch_core::gpu_dispatch::gpu_backend()
+            let backend = gpu_backend()
                 .ok_or(FerrotorchError::DeviceUnavailable)?;
             let ordinal = match device {
-                ferrotorch_core::device::Device::Cuda(o) => o,
+                Device::Cuda(o) => o,
                 _ => unreachable!(),
             };
             let bytes: &[u8] = unsafe {

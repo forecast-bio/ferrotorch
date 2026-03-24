@@ -205,6 +205,14 @@ pub trait GpuBackend: Send + Sync {
     // Embedding lookup: gather row `idx` from weight [V, D] → [D]
     fn embed_lookup_f32(&self, idx: &GpuBufferHandle, weight: &GpuBufferHandle, d: usize) -> FerrotorchResult<GpuBufferHandle>;
 
+    // Batch embedding lookup: gather N rows from weight [V, D] → [N, D]
+    // `indices` contains N f32 values encoding integer row indices.
+    fn embed_lookup_batch_f32(&self, indices: &GpuBufferHandle, weight: &GpuBufferHandle, n: usize, d: usize) -> FerrotorchResult<GpuBufferHandle>;
+
+    // Scatter-add rows: grad_weight[indices[i], :] += grad_output[i, :] for embedding backward
+    // `indices` contains N f32 values, grad_output is [N, D], output is [num_embeddings, D]
+    fn scatter_add_rows_f32(&self, grad_output: &GpuBufferHandle, indices: &GpuBufferHandle, num_embeddings: usize, d: usize) -> FerrotorchResult<GpuBufferHandle>;
+
     // Scalar multiply: out[i] = a[i] * scalar
     fn scale_f32(&self, a: &GpuBufferHandle, scalar: f32) -> FerrotorchResult<GpuBufferHandle>;
 
