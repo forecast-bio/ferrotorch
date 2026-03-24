@@ -28,6 +28,7 @@ pub mod vmap;
 
 // Public re-exports for ergonomic use.
 pub use autograd::{autocast, autocast_dtype, autocast_guard, is_autocast_debug, is_autocast_enabled, set_autocast_debug, AutocastCategory, AutocastDtype, backward, backward_with_grad, cond, enable_grad, fixed_point, grad, grad_norm, gradient_penalty, hessian, jacobian, jvp, scan, validate_cond_branches, vjp, is_grad_enabled, no_grad, set_grad_enabled};
+pub use autograd::{jacfwd, jvp_exact, DualTensor, dual_add, dual_sub, dual_mul, dual_div, dual_neg, dual_matmul, dual_relu, dual_sigmoid, dual_tanh, dual_exp, dual_log, dual_sin, dual_cos};
 pub use flex_attention::flex_attention;
 pub use creation::{
     arange, eye, from_slice, from_vec, full, full_like, linspace, ones, ones_like, rand,

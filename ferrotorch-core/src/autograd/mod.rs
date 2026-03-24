@@ -3,6 +3,7 @@ pub mod autocast_ops;
 pub mod checkpoint;
 pub mod cond_scan;
 pub mod fixed_point;
+pub mod forward_ad;
 pub mod grad_penalty;
 pub mod graph;
 pub mod higher_order;
@@ -18,6 +19,13 @@ pub use autocast_ops::{
 };
 pub use cond_scan::{cond, scan, validate_cond_branches};
 pub use fixed_point::fixed_point;
+pub use forward_ad::{
+    jacfwd, jvp_exact, DualTensor,
+    dual_add, dual_sub, dual_mul, dual_div, dual_neg,
+    dual_matmul,
+    dual_relu, dual_sigmoid, dual_tanh,
+    dual_exp, dual_log, dual_sin, dual_cos,
+};
 pub use grad_penalty::{grad_norm, gradient_penalty, jvp, vjp};
 pub use graph::{backward, backward_with_grad};
 pub use higher_order::{grad, hessian, jacobian};
