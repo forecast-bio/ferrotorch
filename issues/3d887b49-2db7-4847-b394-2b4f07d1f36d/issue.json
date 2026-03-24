@@ -1,0 +1,10 @@
+{
+  "uuid": "3d887b49-2db7-4847-b394-2b4f07d1f36d",
+  "display_id": 311,
+  "title": "Add tensor gradient hooks and anomaly detection mode",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-24T12:00:17.374397983Z",
+  "updated_at": "2026-03-24T12:00:17.374397983Z"
+}
