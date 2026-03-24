@@ -1,0 +1,8 @@
+{
+  "uuid": "73728c4c-f596-429c-a6dc-c2ec8e81fc1a",
+  "issue_uuid": "196b7e13-464f-4de7-b9f2-ba6d5238bd8d",
+  "author": "anon-a7c6025f",
+  "content": "Plan: Build 5 end-to-end training experiments as integration tests. Each one does forward+backward+optimizer step on both CPU and GPU (when available), verifying loss decreases over 10 iterations. Tests: (1) MLP/MNIST, (2) Small Transformer, (3) CNN/CIFAR, (4) LSTM LM, (5) VAE with distributions.",
+  "created_at": "2026-03-23T22:22:01.039509448Z",
+  "kind": "plan"
+}

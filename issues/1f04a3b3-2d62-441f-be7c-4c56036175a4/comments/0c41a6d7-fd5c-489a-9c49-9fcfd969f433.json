@@ -1,0 +1,8 @@
+{
+  "uuid": "0c41a6d7-fd5c-489a-9c49-9fcfd969f433",
+  "issue_uuid": "1f04a3b3-2d62-441f-be7c-4c56036175a4",
+  "author": "anon-a7c6025f",
+  "content": "Step 1 of Phase 1. Implementing foundation types per .design/phase-1-autograd-engine.md Architecture section. Files: Cargo.toml (workspace root), ferrotorch-core/Cargo.toml, ferrotorch-core/src/lib.rs, tensor.rs, storage.rs, device.rs, dtype.rs, error.rs. Key decisions: dynamic shapes (Vec<usize>), own-the-buffer storage, Mutex for grad field, Device enum with Cpu+Cuda variants.",
+  "created_at": "2026-03-15T01:27:23.605164453Z",
+  "kind": "plan"
+}

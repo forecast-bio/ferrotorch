@@ -1,0 +1,8 @@
+{
+  "uuid": "cbc31e15-845e-4aad-8f0b-c7476fe6dbfb",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "Session ending. Current state: 50 tokens in 60s (1.2s/tok), ~10x improvement from start. KV cache with pre-allocated GPU buffers working. GPU kernels: matmul (cuBLAS), bmm (strided batch SGEMM), softmax, layernorm, gelu, transpose_2d, permute_0213, broadcast add/sub/mul, slice_write, slice_read, dropout. Zero-copy reshape via view_reshape. Next session must implement: (1) Fused flash attention PTX kernel (single kernel for QK^T→scale→mask→softmax→@V), (2) CUDA graph capture for decode step, (3) Fuse LayerNorm+Linear, (4) Cache position embeddings and scale tensors across decode steps. Target: 109 t/s parity with PyTorch.",
+  "created_at": "2026-03-17T06:30:40.665018311Z",
+  "kind": "result"
+}

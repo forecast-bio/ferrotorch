@@ -1,0 +1,8 @@
+{
+  "uuid": "058d81a2-1fab-4eb4-9ed6-11e10655f5d3",
+  "issue_uuid": "829b76e5-51e7-4a16-8e86-e24250c713c7",
+  "author": "anon-a7c6025f",
+  "content": "Creating a Claude skill that provides a comprehensive API cheat sheet for ferrotorch — tensor creation, autograd, nn modules, optimizers, data loading, GPU, and common patterns. This helps Claude write correct code without re-exploring the codebase each session.",
+  "created_at": "2026-03-17T01:37:24.042488617Z",
+  "kind": "plan"
+}

@@ -1,0 +1,13 @@
+{
+  "uuid": "72c79f16-a74d-462e-9222-24f749655457",
+  "display_id": 150,
+  "title": "Create ferrotorch-profiler crate for operation profiling",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T20:08:53.095954575Z",
+  "updated_at": "2026-03-15T20:08:54.840412654Z",
+  "labels": [
+    "feature"
+  ]
+}

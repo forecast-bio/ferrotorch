@@ -1,0 +1,8 @@
+{
+  "uuid": "17887d34-f27f-4f94-bfc3-ba8301376d78",
+  "issue_uuid": "823128c7-da9e-4e35-8c76-35260173c4a3",
+  "author": "anon-a7c6025f",
+  "content": "Created 18 issues (#110-#127). Dispatching in waves by file independence. Wave 1: 10 parallel agents for items that each touch unique files. Wave 2: items needing wave 1 output.",
+  "created_at": "2026-03-15T16:54:33.372255477Z",
+  "kind": "plan"
+}

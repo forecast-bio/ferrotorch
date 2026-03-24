@@ -1,0 +1,8 @@
+{
+  "uuid": "e07930f9-a124-44e2-aab0-9c868f77c6fc",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "KV cache is the single biggest remaining win. Currently recomputing all S positions every token — with KV cache we only compute 1 new position per token, ~50x reduction in compute. Also need to: (1) fuse scale+mask into softmax kernel, (2) eliminate per-token CPU Vec allocations for mask/scale, (3) kernel fusion for LN+linear. Starting with KV cache since it's the 50x win.",
+  "created_at": "2026-03-17T06:04:59.618703773Z",
+  "kind": "plan"
+}

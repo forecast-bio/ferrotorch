@@ -1,0 +1,8 @@
+{
+  "uuid": "13542e21-f440-4bad-b419-def574fd0b1b",
+  "issue_uuid": "3dfec68a-49b2-4c71-823a-0561b94dbc02",
+  "author": "anon-a7c6025f",
+  "content": "Root cause: reshape() at shape.rs:107-108 has a GPU early-return that calls view_reshape() even when requires_grad is true. view_reshape() always creates a tensor with requires_grad=false, grad_fn=None. The correct path (view_operation with ReshapeBackward) is only used for CPU tensors. Second issue: ReshapeBackward itself uses ensure_cpu/restore_device — GPU→CPU→reshape→CPU→GPU roundtrip for what is purely a shape metadata change. Same lazy pattern as the indexing fix in CL-210. Both the forward and backward need fixing.",
+  "created_at": "2026-03-23T18:20:24.073241887Z",
+  "kind": "observation"
+}

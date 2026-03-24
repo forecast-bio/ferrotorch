@@ -1,0 +1,8 @@
+{
+  "uuid": "06b67601-2b62-4868-a2fe-021af746eb8f",
+  "issue_uuid": "010cb17c-1d20-436d-96ce-1997869faffa",
+  "author": "anon-a7c6025f",
+  "content": "Building Rust benchmarks for core operations, then running equivalent PyTorch benchmarks via Python for comparison. Operations: tensor creation, elementwise ops, matmul (various sizes), forward pass (MLP, ResNet block), backward pass, full training step. Both CPU and GPU.",
+  "created_at": "2026-03-15T18:55:27.990860698Z",
+  "kind": "plan"
+}

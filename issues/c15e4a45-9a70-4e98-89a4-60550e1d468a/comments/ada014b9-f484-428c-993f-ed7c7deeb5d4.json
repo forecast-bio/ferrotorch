@@ -1,0 +1,8 @@
+{
+  "uuid": "ada014b9-f484-428c-993f-ed7c7deeb5d4",
+  "issue_uuid": "c15e4a45-9a70-4e98-89a4-60550e1d468a",
+  "author": "anon-a7c6025f",
+  "content": "Per-token decode analysis: ~599 CUDA operations per token. Each has kernel launch overhead (~10-50us) + cudaMemAlloc (~10us) = ~600ms total overhead alone. The compute itself is trivially fast on a 3090. The path forward: (1) Operator fusion is THE bottleneck — fused flash attention would cut 38 ops/block to 1, saving ~420 ops/token. (2) GPU memory pool to eliminate 538 allocations/token. (3) Pre-computed position embeddings to eliminate 5 CPU transfers. Without fusion, we cannot break 1 tok/s because the overhead floor is ~600 × 1ms = 600ms.",
+  "created_at": "2026-03-17T08:02:29.097549862Z",
+  "kind": "observation"
+}

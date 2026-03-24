@@ -1,0 +1,15 @@
+{
+  "uuid": "7a687ef4-91cf-45f1-9851-80acd6aa5b2b",
+  "display_id": 201,
+  "title": "Update nn::Linear to accept arbitrary-rank inputs",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "025ce69b-990b-4d0f-bb9a-2d779ff7715c",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-22T21:28:18.484611231Z",
+  "updated_at": "2026-03-22T21:38:49.754995072Z",
+  "closed_at": "2026-03-22T21:38:49.754995072Z",
+  "labels": [
+    "feature"
+  ]
+}

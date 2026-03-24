@@ -1,0 +1,8 @@
+{
+  "uuid": "aaac0ac9-78f3-40f1-8277-d7560fb7dc03",
+  "issue_uuid": "dcb8a355-848a-422f-89fa-e282fcdd334f",
+  "author": "anon-a7c6025f",
+  "content": "Phase 7 MVP: TCP-based backend for CPU distributed training. ProcessGroup, collectives (allreduce, broadcast, barrier), and DistributedDataParallel wrapper. Test with std::process::Command spawning multiple processes on localhost. No NCCL (needs multi-GPU) — TCP backend only.",
+  "created_at": "2026-03-15T16:11:44.040577117Z",
+  "kind": "plan"
+}

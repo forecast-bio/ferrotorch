@@ -1,0 +1,19 @@
+{
+  "uuid": "f79f3cb7-a18e-48d8-ba84-fe1492e49c75",
+  "display_id": 14,
+  "title": "Add GradFn: comparison (where_)",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "fbfbd525-d49e-4e47-97c8-6d4d853a207b",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T01:25:43.840597927Z",
+  "updated_at": "2026-03-15T01:53:32.540983735Z",
+  "closed_at": "2026-03-15T01:53:32.540983735Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "fe8f0f97-b744-4858-9087-2776190f2dde",
+    "176e49d8-d6e6-4731-97f2-0755114055a9"
+  ]
+}

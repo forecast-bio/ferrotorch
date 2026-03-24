@@ -1,0 +1,8 @@
+{
+  "uuid": "528134aa-efe2-4290-9b92-aa9410ac0ea5",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "Implementing native GPU softmax and dropout PTX kernels to eliminate the remaining ensure_cpu/restore_device roundtrips in the attention hot path.",
+  "created_at": "2026-03-17T04:18:38.355066423Z",
+  "kind": "plan"
+}

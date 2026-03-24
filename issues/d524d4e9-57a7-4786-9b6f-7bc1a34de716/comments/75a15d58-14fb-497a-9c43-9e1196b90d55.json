@@ -1,0 +1,8 @@
+{
+  "uuid": "75a15d58-14fb-497a-9c43-9e1196b90d55",
+  "issue_uuid": "d524d4e9-57a7-4786-9b6f-7bc1a34de716",
+  "author": "anon-a7c6025f",
+  "content": "Root cause: from_operation(TensorStorage::cpu(data)).to(device) injects ToDeviceBackward which moves gradients to CPU during backward. Upstream grad_fns have GPU saved tensors → device mismatch crash. Fix: upload data to GPU storage BEFORE wrapping with from_operation, same pattern as Embedding CL-213. Only affects forward-path from_operation calls, not backward .to(device) on gradient leaves.",
+  "created_at": "2026-03-23T22:13:53.957410334Z",
+  "kind": "plan"
+}

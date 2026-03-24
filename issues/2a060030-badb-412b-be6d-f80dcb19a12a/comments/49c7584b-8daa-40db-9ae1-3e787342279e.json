@@ -1,0 +1,8 @@
+{
+  "uuid": "49c7584b-8daa-40db-9ae1-3e787342279e",
+  "issue_uuid": "2a060030-badb-412b-be6d-f80dcb19a12a",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Memory planning with liveness analysis + greedy first-fit allocation. MemoryPlan with savings_percent(). 7 tests.",
+  "created_at": "2026-03-15T17:26:04.047550089Z",
+  "kind": "result"
+}

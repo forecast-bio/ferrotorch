@@ -1,0 +1,8 @@
+{
+  "uuid": "57ef9bfd-df5e-48c5-866d-7578bb9056e5",
+  "issue_uuid": "c723dde9-be45-4615-9165-f3311dc11636",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: ferrotorch-gpu crate with GpuDevice (cudarc 0.19.3), CudaBuffer<T>, GpuError, cpu_to_gpu/gpu_to_cpu/alloc_zeros transfers, cuda feature gate. 6 GPU tests passing on RTX 3090. CUDA toolkit 12.8 installing in background for cuBLAS.",
+  "created_at": "2026-03-15T15:44:51.763016653Z",
+  "kind": "result"
+}

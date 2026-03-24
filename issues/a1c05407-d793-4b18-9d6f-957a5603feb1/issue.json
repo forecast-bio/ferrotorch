@@ -1,0 +1,14 @@
+{
+  "uuid": "a1c05407-d793-4b18-9d6f-957a5603feb1",
+  "display_id": 120,
+  "title": "Add YOLO detection model architecture",
+  "status": "closed",
+  "priority": "low",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:53:48.361123295Z",
+  "updated_at": "2026-03-15T17:21:59.656987451Z",
+  "closed_at": "2026-03-15T17:21:59.656987451Z",
+  "labels": [
+    "feature"
+  ]
+}

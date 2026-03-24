@@ -1,0 +1,8 @@
+{
+  "uuid": "befa6173-cfff-4e62-b493-8caed1ecaee5",
+  "issue_uuid": "f0467f1f-1169-4b82-8a87-25a1938c0898",
+  "author": "anon-a7c6025f",
+  "content": "Plan: 1) Add all missing sub-crate deps to umbrella Cargo.toml (some as optional features). 2) Add re-export submodules in lib.rs for data, vision, train, serialize, distributed, jit, gpu, hub, profiler, distributions. 3) Expand prelude with new wave 1-5 types. 4) Update umbrella README with full crate list.",
+  "created_at": "2026-03-16T04:00:33.900640494Z",
+  "kind": "plan"
+}

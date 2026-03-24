@@ -1,0 +1,14 @@
+{
+  "uuid": "fc8bdbb5-e14c-4ac7-9c68-0dbd76682387",
+  "display_id": 221,
+  "title": "Fix Conv2d, Conv1d, and all pooling layers to work on GPU",
+  "status": "closed",
+  "priority": "critical",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T18:59:53.354676459Z",
+  "updated_at": "2026-03-23T19:12:06.969905157Z",
+  "closed_at": "2026-03-23T19:12:06.969905157Z",
+  "labels": [
+    "bug"
+  ]
+}

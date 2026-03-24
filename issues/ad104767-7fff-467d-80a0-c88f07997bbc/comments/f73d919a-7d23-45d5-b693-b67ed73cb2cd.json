@@ -1,0 +1,8 @@
+{
+  "uuid": "f73d919a-7d23-45d5-b693-b67ed73cb2cd",
+  "issue_uuid": "ad104767-7fff-467d-80a0-c88f07997bbc",
+  "author": "anon-a7c6025f",
+  "content": "Implemented rayon parallelism + SIMD transcendentals in elementwise.rs:\n\n1. Added PARALLEL_THRESHOLD (32,768 elements / 128 KiB) constant.\n2. fast_add: rayon par_chunks_mut with per-chunk SIMD add for f32 and f64.\n3. fast_mul: same rayon parallelism pattern.\n4. fast_exp: rayon parallelism + fixed transmute (was using slow iter().map() instead of zero-cost transmute_vec_f32_to_t).\n5. fast_sigmoid: new function — negate + SIMD exp + reciprocal fused in single rayon pass for f32.\n6. fast_tanh: new function — 2x + SIMD exp + ratio fused in single rayon pass for f32.\n7. Replaced broadcast_index() with precompute_broadcast_strides() — eliminates per-element modulo/divide pair, precomputes (a_stride, b_stride, out_dim) once.\n\nAll 583 lib tests pass (18 in elementwise module, including new parallel+SIMD tests). Benchmark add/sigmoid times reflect full pipeline overhead (allocation, RwLock, tensor construction) outside elementwise.rs; the kernel-level computation benefits from rayon for large tensors.",
+  "created_at": "2026-03-23T21:57:52.869572535Z",
+  "kind": "note"
+}

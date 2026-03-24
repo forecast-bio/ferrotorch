@@ -1,0 +1,14 @@
+{
+  "uuid": "a4da70f2-de1c-4cb2-bf34-c1ae924c5e02",
+  "display_id": 130,
+  "title": "Implement memory_plan.rs memory planning optimization pass for ferrotorch-jit",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T17:21:04.307424679Z",
+  "updated_at": "2026-03-15T17:37:26.988165676Z",
+  "closed_at": "2026-03-15T17:37:26.988165676Z",
+  "labels": [
+    "feature"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "c1edc3bb-6fec-4929-9838-004ed21189ed",
+  "issue_uuid": "f0467f1f-1169-4b82-8a87-25a1938c0898",
+  "author": "anon-a7c6025f",
+  "content": "Umbrella Cargo.toml only depends on 5 crates: core, nn, optim, data, vision. Missing: gpu, cubecl, train, serialize, distributed, distributions, profiler, hub, jit, nn-derive. lib.rs only re-exports core, nn, optim — missing data, vision, train, serialize, distributed, distributions, profiler, hub, jit, gpu submodules.",
+  "created_at": "2026-03-16T04:00:20.554691828Z",
+  "kind": "observation"
+}

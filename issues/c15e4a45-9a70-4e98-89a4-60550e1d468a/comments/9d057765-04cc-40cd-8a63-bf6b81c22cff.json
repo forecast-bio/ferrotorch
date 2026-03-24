@@ -1,0 +1,8 @@
+{
+  "uuid": "9d057765-04cc-40cd-8a63-bf6b81c22cff",
+  "issue_uuid": "c15e4a45-9a70-4e98-89a4-60550e1d468a",
+  "author": "anon-a7c6025f",
+  "content": "Current state after cuBLAS handle caching: 0.93s/tok (21.6s for 20 tokens including ~3s load). Small matmul PTX kernel had a bug (wrong results), disabled. The cuBLAS JIT is still the main bottleneck. Remaining transfers: position embedding + scale tensor uploads per token, data_vec for logit sampling. The path to 100 t/s requires (1) correct small matmul kernel or cuBLAS warm-up, (2) flash attention, (3) CUDA graphs. For now let me focus on what we CAN fix: eliminate the remaining CPU transfers.",
+  "created_at": "2026-03-17T07:48:12.473767233Z",
+  "kind": "result"
+}

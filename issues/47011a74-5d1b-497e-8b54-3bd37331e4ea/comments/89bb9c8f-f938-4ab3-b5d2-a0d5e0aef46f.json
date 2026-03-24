@@ -1,0 +1,8 @@
+{
+  "uuid": "89bb9c8f-f938-4ab3-b5d2-a0d5e0aef46f",
+  "issue_uuid": "47011a74-5d1b-497e-8b54-3bd37331e4ea",
+  "author": "anon-a7c6025f",
+  "content": "Plan: Replace CPU path raw zip with the same op-level div/mul/neg approach used by the GPU path. This handles broadcasting correctly. The GPU path already works — just remove the CPU-specific branch and use the op-level path for both.",
+  "created_at": "2026-03-22T23:38:10.583009090Z",
+  "kind": "plan"
+}

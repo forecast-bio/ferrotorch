@@ -1,0 +1,8 @@
+{
+  "uuid": "fc5f9eaf-38b4-4297-8b73-24117d9b7e9c",
+  "issue_uuid": "d524d4e9-57a7-4786-9b6f-7bc1a34de716",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Added TensorStorage::on_device() helper that uploads CPU data to the target device before wrapping with from_operation — avoids injecting ToDeviceBackward into the autograd graph. Fixed 11 forward-path instances across: methods.rs (permute_t, split_t), activation.rs (sigmoid, tanh, silu, softplus), fft.rs (fft/ifft/rfft/irfft differentiable), comparison.rs (where_), linalg.rs (batch_transpose), einsum.rs (einsum_differentiable), checkpoint.rs. All 587 tests pass.",
+  "created_at": "2026-03-23T22:20:22.932912138Z",
+  "kind": "result"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "1247198a-b6d8-44b5-8e4e-04714a104f91",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "Zero-copy reshape via view_reshape (Arc-shared storage) eliminated 144 clone_buffer roundtrips per token. 50 tokens now in 64s (1.3s/tok). Total speedup from original: ~10x. Remaining overhead: (1) softmax ensure_cpu/restore_device (2) scale/mask tensor creation per forward call (could cache), (3) permute_0213 kernel launches, (4) LayerNorm ensure_cpu/restore_device.",
+  "created_at": "2026-03-17T05:02:21.057990034Z",
+  "kind": "result"
+}

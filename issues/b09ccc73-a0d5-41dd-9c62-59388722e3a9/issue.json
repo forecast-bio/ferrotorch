@@ -1,0 +1,14 @@
+{
+  "uuid": "b09ccc73-a0d5-41dd-9c62-59388722e3a9",
+  "display_id": 86,
+  "title": "Implement IR graph binary serialization in ferrotorch-jit/src/serialize.rs",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T14:12:07.023931117Z",
+  "updated_at": "2026-03-15T15:22:51.690674026Z",
+  "closed_at": "2026-03-15T15:22:51.690674026Z",
+  "labels": [
+    "jit"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "uuid": "df64d22f-cb3f-4739-bc16-bb551dea52e6",
+  "display_id": 53,
+  "title": "Add AdamW optimizer",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "62bf35be-d6f4-4b2c-a4c8-afaf5c3ffb88",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T03:17:54.197158352Z",
+  "updated_at": "2026-03-15T03:30:59.708558764Z",
+  "closed_at": "2026-03-15T03:30:59.708558764Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "4679ae4b-d4d4-402d-96a5-31c4f312c051"
+  ]
+}

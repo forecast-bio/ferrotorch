@@ -1,0 +1,14 @@
+{
+  "uuid": "010cb17c-1d20-436d-96ce-1997869faffa",
+  "display_id": 139,
+  "title": "Add performance benchmarks vs PyTorch",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T18:55:12.493613013Z",
+  "updated_at": "2026-03-15T19:01:26.330494722Z",
+  "closed_at": "2026-03-15T19:01:26.330494722Z",
+  "labels": [
+    "feature"
+  ]
+}

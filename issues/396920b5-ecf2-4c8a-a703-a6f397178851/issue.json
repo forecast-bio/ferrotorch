@@ -1,0 +1,14 @@
+{
+  "uuid": "396920b5-ecf2-4c8a-a703-a6f397178851",
+  "display_id": 110,
+  "title": "Add real MNIST and CIFAR-10 file parsing (IDX and binary formats)",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:53:18.880437832Z",
+  "updated_at": "2026-03-15T17:17:18.208686953Z",
+  "closed_at": "2026-03-15T17:17:18.208686953Z",
+  "labels": [
+    "feature"
+  ]
+}

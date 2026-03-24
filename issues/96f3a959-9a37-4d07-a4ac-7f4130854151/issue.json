@@ -1,0 +1,14 @@
+{
+  "uuid": "96f3a959-9a37-4d07-a4ac-7f4130854151",
+  "display_id": 123,
+  "title": "Add Cranelift JIT codegen backend",
+  "status": "closed",
+  "priority": "low",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:53:57.960094305Z",
+  "updated_at": "2026-03-15T17:25:41.799708186Z",
+  "closed_at": "2026-03-15T17:25:41.799708186Z",
+  "labels": [
+    "feature"
+  ]
+}

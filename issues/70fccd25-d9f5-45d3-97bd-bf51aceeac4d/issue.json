@@ -1,0 +1,18 @@
+{
+  "uuid": "70fccd25-d9f5-45d3-97bd-bf51aceeac4d",
+  "display_id": 81,
+  "title": "Add IR interpreter for TracedModule execution",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "0448b5ba-fdb6-494c-b52d-5f602ffbe8e9",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T13:59:36.294795446Z",
+  "updated_at": "2026-03-15T14:15:31.849895226Z",
+  "closed_at": "2026-03-15T14:15:31.849895226Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "d43b57e4-5130-4a6b-ad29-b6cb1590f0b4"
+  ]
+}

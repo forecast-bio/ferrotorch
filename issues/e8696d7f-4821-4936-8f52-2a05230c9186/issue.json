@@ -1,0 +1,13 @@
+{
+  "uuid": "e8696d7f-4821-4936-8f52-2a05230c9186",
+  "display_id": 133,
+  "title": "Add GPU-accelerated Conv2d to ferrotorch-gpu using im2col + cuBLAS GEMM",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T17:47:50.928365236Z",
+  "updated_at": "2026-03-15T17:47:52.578099514Z",
+  "labels": [
+    "gpu"
+  ]
+}

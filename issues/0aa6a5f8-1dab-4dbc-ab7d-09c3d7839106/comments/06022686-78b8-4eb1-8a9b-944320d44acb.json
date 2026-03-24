@@ -1,0 +1,8 @@
+{
+  "uuid": "06022686-78b8-4eb1-8a9b-944320d44acb",
+  "issue_uuid": "0aa6a5f8-1dab-4dbc-ab7d-09c3d7839106",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Thread-local CPU buffer pool with size-exact matching, 8-per-bucket limit, 64MiB total cap. Integrated into elementwise hot paths (fast_add/mul/exp/sigmoid/tanh) and TensorStorage::Drop auto-returns buffers. add: 253→197us, mul: 263→205us. 587 tests pass.",
+  "created_at": "2026-03-23T22:10:15.076645110Z",
+  "kind": "result"
+}

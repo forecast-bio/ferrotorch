@@ -1,0 +1,8 @@
+{
+  "uuid": "ab846e1c-0cbf-4240-aa09-20282ca081db",
+  "issue_uuid": "4d268b8f-7243-47c7-9cc3-4110b316c74a",
+  "author": "anon-a7c6025f",
+  "content": "All 5 open questions resolved. Phase 0: orchestrator as skill, hybrid parallelism. Phase 1: extend ferray-linalg for f32 (prereq), Mutex for gradients, math ops in core / layer ops in nn. Documents and knowledge pages updated.",
+  "created_at": "2026-03-14T19:54:15.853966729Z",
+  "kind": "decision"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "f2cab68d-2597-4b73-a15f-1b06dad2b9d2",
+  "issue_uuid": "f0467f1f-1169-4b82-8a87-25a1938c0898",
+  "author": "anon-a7c6025f",
+  "content": "Decision: gpu, cubecl, distributed as optional features (not everyone has CUDA). All others as default deps. nn-derive is a proc-macro pulled transitively via ferrotorch-nn so no direct dep needed.",
+  "created_at": "2026-03-16T04:00:43.065096362Z",
+  "kind": "decision"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "a14e8e91-3e68-461a-a7ca-eb4b9798fb8d",
+  "issue_uuid": "1138845a-f05b-41fa-acbe-fe578b0a3c8a",
+  "author": "anon-a7c6025f",
+  "content": "Added 8 missing elementwise GPU kernels: div, exp, log, sqrt, pow, abs, sigmoid, tanh. Modified exactly 3 files: gpu_dispatch.rs (trait methods with default impls), kernels.rs (PTX constants + Rust wrappers with CPU fallbacks + non-cuda stubs), backend_impl.rs (CudaBackendImpl trait impls). All 616 ferrotorch-core tests pass, cargo check clean.",
+  "created_at": "2026-03-23T22:45:34.870838372Z",
+  "kind": "result"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "6ad1d507-9004-4f8f-b3f3-a81f009ba798",
+  "issue_uuid": "59d0f2f6-3536-44cc-80c6-c7dbeb0b3d6d",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: GpuTensor<T> with shape metadata, tensor_to_gpu/tensor_to_cpu transfers, GPU arithmetic (add/sub/mul/neg/relu) dispatching to PTX kernels for f32 with CPU fallback for f64, cuda()/cuda_default() convenience. 11 new tests, 40 total GPU tests on RTX 3090.",
+  "created_at": "2026-03-15T16:02:00.878492513Z",
+  "kind": "result"
+}

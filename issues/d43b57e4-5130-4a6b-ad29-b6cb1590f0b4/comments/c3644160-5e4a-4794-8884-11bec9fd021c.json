@@ -1,0 +1,8 @@
+{
+  "uuid": "c3644160-5e4a-4794-8884-11bec9fd021c",
+  "issue_uuid": "d43b57e4-5130-4a6b-ad29-b6cb1590f0b4",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: trace() function that BFS-walks autograd graph, maps 27 GradFn names to IrOpKind, builds IrGraph in forward order. 6 tests.",
+  "created_at": "2026-03-15T14:09:22.831262556Z",
+  "kind": "result"
+}

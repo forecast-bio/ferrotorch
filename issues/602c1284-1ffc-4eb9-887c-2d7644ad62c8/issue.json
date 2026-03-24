@@ -1,0 +1,14 @@
+{
+  "uuid": "602c1284-1ffc-4eb9-887c-2d7644ad62c8",
+  "display_id": 154,
+  "title": "Phase 10 Wave 2: linalg, vmap, pack_padded_seq, special functions, TensorBoard",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T20:26:37.661621170Z",
+  "updated_at": "2026-03-15T20:35:04.068405209Z",
+  "closed_at": "2026-03-15T20:35:04.068405209Z",
+  "labels": [
+    "feature"
+  ]
+}

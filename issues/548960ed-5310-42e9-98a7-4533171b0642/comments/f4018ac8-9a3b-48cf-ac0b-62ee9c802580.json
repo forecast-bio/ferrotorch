@@ -1,0 +1,8 @@
+{
+  "uuid": "f4018ac8-9a3b-48cf-ac0b-62ee9c802580",
+  "issue_uuid": "548960ed-5310-42e9-98a7-4533171b0642",
+  "author": "anon-a7c6025f",
+  "content": "Adding cuBLAS-backed gpu_matmul to ferrotorch-gpu. CUDA 12.8 toolkit installed at /usr/local/cuda-12.8 with libcublas.so. cudarc 0.19 has cuBLAS bindings via the cublas feature. Will add cublas feature to cudarc dep, implement gpu_matmul using cudarc's cublas::CudaBlas, and add to GpuTensor.",
+  "created_at": "2026-03-15T16:05:42.322374873Z",
+  "kind": "plan"
+}

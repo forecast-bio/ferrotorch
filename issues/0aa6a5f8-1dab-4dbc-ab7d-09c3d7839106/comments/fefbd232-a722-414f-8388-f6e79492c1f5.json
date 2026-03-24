@@ -1,0 +1,8 @@
+{
+  "uuid": "fefbd232-a722-414f-8388-f6e79492c1f5",
+  "issue_uuid": "0aa6a5f8-1dab-4dbc-ab7d-09c3d7839106",
+  "author": "anon-a7c6025f",
+  "content": "Plan: Add a thread-local CPU buffer pool to ferrotorch-core. When creating output tensors in elementwise ops, check the pool for a Vec of the right capacity first. When tensors are dropped, return the buffer to the pool instead of deallocating. This mirrors PyTorch's CachingAllocator and the existing GPU buffer pool in ferrotorch-gpu/src/pool.rs.",
+  "created_at": "2026-03-23T22:06:02.799716657Z",
+  "kind": "plan"
+}

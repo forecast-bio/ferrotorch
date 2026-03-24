@@ -1,0 +1,8 @@
+{
+  "uuid": "fbbf39d2-c4b8-4351-96e5-b73ea48838c0",
+  "issue_uuid": "4d186127-cf34-45d5-978f-8a9048a684c2",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: 5 LR schedulers (StepLR, CosineAnnealingLR, LinearWarmup, ReduceLROnPlateau, SequentialLr) + cosine_warmup_scheduler convenience. 28 tests.",
+  "created_at": "2026-03-15T03:36:51.112376879Z",
+  "kind": "result"
+}

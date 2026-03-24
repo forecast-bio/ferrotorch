@@ -1,0 +1,15 @@
+{
+  "uuid": "0a49c067-028b-40f9-95cf-2b86c79d3074",
+  "display_id": 200,
+  "title": "Add batched broadcast matmul for arbitrary-rank tensors",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "025ce69b-990b-4d0f-bb9a-2d779ff7715c",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-22T21:28:15.469008557Z",
+  "updated_at": "2026-03-22T21:38:48.302644233Z",
+  "closed_at": "2026-03-22T21:38:48.302644233Z",
+  "labels": [
+    "feature"
+  ]
+}

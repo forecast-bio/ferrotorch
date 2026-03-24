@@ -1,0 +1,14 @@
+{
+  "uuid": "94d48d34-2bd5-46be-b579-1f19d574627e",
+  "display_id": 128,
+  "title": "Add Conv1d and ConvTranspose2d to ferrotorch-nn conv module",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:55:33.859829532Z",
+  "updated_at": "2026-03-15T17:18:37.128817555Z",
+  "closed_at": "2026-03-15T17:18:37.128817555Z",
+  "labels": [
+    "enhancement"
+  ]
+}

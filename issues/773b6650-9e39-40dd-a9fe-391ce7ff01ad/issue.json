@@ -1,0 +1,13 @@
+{
+  "uuid": "773b6650-9e39-40dd-a9fe-391ce7ff01ad",
+  "display_id": 164,
+  "title": "Rewrite conv.rs im2col to GPU PTX kernel, eliminate CPU roundtrips",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T21:00:33.946601880Z",
+  "updated_at": "2026-03-15T21:00:35.598253483Z",
+  "labels": [
+    "gpu"
+  ]
+}

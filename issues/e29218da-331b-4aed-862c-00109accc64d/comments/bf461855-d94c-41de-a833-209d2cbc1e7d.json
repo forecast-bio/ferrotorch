@@ -1,0 +1,8 @@
+{
+  "uuid": "bf461855-d94c-41de-a833-209d2cbc1e7d",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "KV cache with cat is SLOWER (70s) because cat does GPU→CPU→GPU per call × 12 layers × 2 tensors × 49 decode steps = 1176 roundtrips. Fix: pre-allocate full [B*H, max_len, D_h] cache, use GPU slice-write kernel to insert new K/V at position index. Zero allocation after prefill.",
+  "created_at": "2026-03-17T06:14:32.618836530Z",
+  "kind": "observation"
+}

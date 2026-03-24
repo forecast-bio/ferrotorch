@@ -1,0 +1,19 @@
+{
+  "uuid": "20c3ec28-46c5-4059-bc86-b68614fca609",
+  "display_id": 32,
+  "title": "Add Linear layer",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "ca772274-6f17-4e85-b908-7e56cc89257f",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T02:34:38.560465327Z",
+  "updated_at": "2026-03-15T02:52:38.334020634Z",
+  "closed_at": "2026-03-15T02:52:38.334020634Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "f53c64ba-e605-4486-b608-dfb31366c141",
+    "8150cb3b-ef06-42dd-affa-644431a8958e"
+  ]
+}

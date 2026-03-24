@@ -1,0 +1,13 @@
+{
+  "uuid": "6fcb69e1-fc92-4b0a-90dd-7ec080290553",
+  "display_id": 188,
+  "title": "Expand benchmarks suite for new wave 1-5 features",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-16T00:34:19.890061307Z",
+  "updated_at": "2026-03-16T00:34:26.578938593Z",
+  "labels": [
+    "enhancement"
+  ]
+}

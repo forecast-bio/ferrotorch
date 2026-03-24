@@ -1,0 +1,13 @@
+{
+  "uuid": "7e6b9c58-14e8-46fa-af9d-97b2093deeb4",
+  "display_id": 151,
+  "title": "Create ferrotorch-distributions crate with probability distributions (Normal, Uniform, Bernoulli, Categorical)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T20:08:58.923923927Z",
+  "updated_at": "2026-03-15T20:09:00.795407872Z",
+  "labels": [
+    "feature"
+  ]
+}

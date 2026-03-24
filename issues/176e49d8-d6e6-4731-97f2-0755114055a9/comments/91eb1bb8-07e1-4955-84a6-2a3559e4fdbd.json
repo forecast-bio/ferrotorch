@@ -1,0 +1,8 @@
+{
+  "uuid": "91eb1bb8-07e1-4955-84a6-2a3559e4fdbd",
+  "issue_uuid": "176e49d8-d6e6-4731-97f2-0755114055a9",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: ops/linalg.rs with matmul (dispatch), dot, mm, mv, vm, transpose. 6 tests passing. Uses naive triple-loop matmul — will be replaced with ferray-linalg call via ArrayView bridge for BLAS performance.",
+  "created_at": "2026-03-15T01:45:17.348517033Z",
+  "kind": "result"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "449a3a5b-ac2d-4f46-a89c-1b4eaf671eb4",
+  "issue_uuid": "a261ce0c-6507-4dc2-aa44-217cc84baa5a",
+  "author": "anon-a7c6025f",
+  "content": "Root cause: mem_get_info() requires CUDA context bound on calling thread. Watchdog's background thread had no context → returned 0 free bytes → triggered false pressure. Fix: bind_to_thread() before query + wait_for_first_check() replaces timing-dependent sleep. 85/85 GPU tests passing, 0 ignored.",
+  "created_at": "2026-03-15T19:40:57.889118817Z",
+  "kind": "result"
+}

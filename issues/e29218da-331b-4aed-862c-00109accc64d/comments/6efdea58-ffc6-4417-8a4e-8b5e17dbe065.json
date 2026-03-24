@@ -1,0 +1,8 @@
+{
+  "uuid": "6efdea58-ffc6-4417-8a4e-8b5e17dbe065",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "Root cause: Embedding::forward, LayerNorm::forward, and reshape all extract data to CPU and create CPU output tensors even when parameters are on GPU. The add() between CPU embedding output and GPU pos_emb hits DeviceMismatch. Fix: patch the core modules in ferrotorch to preserve device — output goes on same device as input/weight.",
+  "created_at": "2026-03-17T03:29:19.628567158Z",
+  "kind": "observation"
+}

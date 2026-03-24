@@ -1,0 +1,8 @@
+{
+  "uuid": "eb266188-6a35-4a21-8bf9-9bc8ff06bde0",
+  "issue_uuid": "c15e4a45-9a70-4e98-89a4-60550e1d468a",
+  "author": "anon-a7c6025f",
+  "content": "Plan: (1) Profile with nsys to identify the actual bottleneck — is it kernel launches, data transfers, or compute? (2) Implement fused flash attention PTX kernel. (3) Cache position embeddings and scale constants. (4) Implement CUDA graph capture for decode step. (5) Fuse LayerNorm+Linear. Target: 100+ t/s on RTX 3090.",
+  "created_at": "2026-03-17T06:49:31.250939781Z",
+  "kind": "plan"
+}

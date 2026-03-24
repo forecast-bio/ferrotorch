@@ -1,0 +1,8 @@
+{
+  "uuid": "2a2eb3e6-eb6b-4499-996f-b09b9659d9e6",
+  "issue_uuid": "f6d9a578-7a2b-4028-afee-52c8875962c7",
+  "author": "anon-a7c6025f",
+  "content": "Committed. Updated comparison vs PyTorch:\n\n| Operation         | PyTorch  | Before   | After    | vs PyTorch |\n|-------------------|----------|----------|----------|------------|\n| matmul [1024]     | 2,860us  | 2.1M us  | 33,011us | 11.5x      |\n| MLP forward B=32  | 51us     | 3,320us  | 1,102us  | 21.5x      |\n| MLP backward B=32 | 393us    | 8,348us  | 2,436us  | 6.2x       |\n| Training step B=32| 535us    | 6,978us  | 2,770us  | 5.2x       |\n\nRemaining gap is PyTorch's MKL matmul and fused ATen kernels. Pure Rust within 5-12x of heavily optimized C++/Fortran is strong.",
+  "created_at": "2026-03-15T19:20:20.901014710Z",
+  "kind": "result"
+}

@@ -1,0 +1,14 @@
+{
+  "uuid": "9a17ffef-017a-40da-b49b-e6fcc06c0c79",
+  "display_id": 101,
+  "title": "Implement tensor_bridge.rs: GpuTensor wrapper and CPU<->GPU transfer functions",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T15:57:08.557343402Z",
+  "updated_at": "2026-03-15T17:18:33.161925178Z",
+  "closed_at": "2026-03-15T17:18:33.161925178Z",
+  "labels": [
+    "gpu"
+  ]
+}

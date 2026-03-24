@@ -1,0 +1,14 @@
+{
+  "uuid": "70d60aa7-2b58-4265-aeb5-4c1b0ba8efec",
+  "display_id": 243,
+  "title": "Perf Phase 7: Switch global allocator to mimalloc",
+  "status": "closed",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T21:32:16.371324919Z",
+  "updated_at": "2026-03-23T21:34:44.943678635Z",
+  "closed_at": "2026-03-23T21:34:44.943678635Z",
+  "labels": [
+    "enhancement"
+  ]
+}

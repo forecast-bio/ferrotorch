@@ -1,0 +1,14 @@
+{
+  "uuid": "532ead35-1bbd-46f4-8d2a-d771289c7d96",
+  "display_id": 160,
+  "title": "Phase 10 Wave 3: higher-order grads, FlashAttention, autocast wiring, model hub",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T20:37:47.761730194Z",
+  "updated_at": "2026-03-15T20:48:09.114897878Z",
+  "closed_at": "2026-03-15T20:48:09.114897878Z",
+  "labels": [
+    "feature"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "uuid": "33118b42-0800-4b08-bc80-04f86a554ab2",
+  "display_id": 216,
+  "title": "Fix into_storage_and_shape panic on shared GPU tensors",
+  "status": "open",
+  "priority": "critical",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T18:59:32.145529521Z",
+  "updated_at": "2026-03-23T18:59:33.797339255Z",
+  "labels": [
+    "bug"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "uuid": "c74b84e0-3c93-45a7-a405-4b9ac938fc97",
+  "display_id": 234,
+  "title": "Fix all probability distributions crash on GPU tensors",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T19:01:16.065489344Z",
+  "updated_at": "2026-03-23T19:09:41.227189297Z",
+  "closed_at": "2026-03-23T19:09:41.227189297Z",
+  "labels": [
+    "bug"
+  ]
+}

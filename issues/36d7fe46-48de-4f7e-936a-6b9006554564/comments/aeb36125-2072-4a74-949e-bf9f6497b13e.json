@@ -1,0 +1,8 @@
+{
+  "uuid": "aeb36125-2072-4a74-949e-bf9f6497b13e",
+  "issue_uuid": "36d7fe46-48de-4f7e-936a-6b9006554564",
+  "author": "anon-a7c6025f",
+  "content": "Wave 1 complete: 19 critical bug fixes across 21 files. All tests pass. SGD/Muon requires_grad, backward GPU-aware, broadcast grad reduction, checkpoint backward, data_mut unsafe, derive macro, optimizer weight decay, Adam AMSGrad, scheduler per-epoch, memory guard, module cache, cuBLAS overflow, FlashAttention validation, grid overflow, ResNet train/eval.",
+  "created_at": "2026-03-15T23:24:04.328192721Z",
+  "kind": "handoff"
+}

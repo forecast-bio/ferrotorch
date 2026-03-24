@@ -1,0 +1,8 @@
+{
+  "uuid": "cc9eea56-796e-436c-804c-7a03ff72c974",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "Plan: add ferrotorch-gpu dep with cuda feature, call init_cuda_backend() at startup, move model to GPU with model.to_device(Device::Cuda(0)), move input tensors to GPU before forward pass. GPU-accelerated ops: matmul (cuBLAS), add/sub/mul/neg/relu elementwise. Important: data() panics on GPU tensors — need .cpu() before reading logits for sampling.",
+  "created_at": "2026-03-17T03:16:18.813588205Z",
+  "kind": "plan"
+}

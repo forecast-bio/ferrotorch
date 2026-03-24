@@ -1,0 +1,18 @@
+{
+  "uuid": "81d89cc3-a7ad-4d7e-abf2-28204122edc0",
+  "display_id": 5,
+  "title": "Add autograd engine: computation graph, GradFn trait, no_grad, checkpoint",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "fbfbd525-d49e-4e47-97c8-6d4d853a207b",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T01:25:05.926137932Z",
+  "updated_at": "2026-03-15T01:41:41.431801744Z",
+  "closed_at": "2026-03-15T01:41:41.431801744Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "6702b100-88af-4a21-b31b-3740d60b2676"
+  ]
+}

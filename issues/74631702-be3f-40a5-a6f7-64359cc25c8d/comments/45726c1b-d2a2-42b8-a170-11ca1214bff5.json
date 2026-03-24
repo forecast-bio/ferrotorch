@@ -1,0 +1,8 @@
+{
+  "uuid": "45726c1b-d2a2-42b8-a170-11ca1214bff5",
+  "issue_uuid": "74631702-be3f-40a5-a6f7-64359cc25c8d",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: #[derive(Module)] proc macro with #[param], #[submodule], #[skip] attributes. Auto-generates parameters/named_parameters/train/eval/state_dict. 15 integration tests.",
+  "created_at": "2026-03-15T16:36:03.090440078Z",
+  "kind": "result"
+}

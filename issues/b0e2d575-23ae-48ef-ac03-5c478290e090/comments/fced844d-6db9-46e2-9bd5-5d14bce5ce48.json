@@ -1,0 +1,8 @@
+{
+  "uuid": "fced844d-6db9-46e2-9bd5-5d14bce5ce48",
+  "issue_uuid": "b0e2d575-23ae-48ef-ac03-5c478290e090",
+  "author": "anon-a7c6025f",
+  "content": "Step 1: Create ferrotorch-vision crate with model registry (list_models, get_model, register_model), FeatureExtractor wrapper, ImageNet constants, and crate skeleton for models/, datasets/, transforms/, io/.",
+  "created_at": "2026-03-15T13:33:17.028383810Z",
+  "kind": "plan"
+}

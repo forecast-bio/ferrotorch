@@ -1,0 +1,8 @@
+{
+  "uuid": "53a00135-c9cd-4d0c-877f-11cc5c4d017f",
+  "issue_uuid": "7a687ef4-91cf-45f1-9851-80acd6aa5b2b",
+  "author": "anon-a7c6025f",
+  "content": "Plan: Flatten input (*batch, in_features) to (N, in_features), apply existing 2D mm+bias, reshape output back to (*batch, out_features). This preserves all existing autograd graph construction — reshape is differentiable so gradients flow through correctly.",
+  "created_at": "2026-03-22T21:34:58.571159397Z",
+  "kind": "plan"
+}

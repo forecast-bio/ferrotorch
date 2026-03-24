@@ -1,0 +1,8 @@
+{
+  "uuid": "0e7f793e-fdf1-4087-bb66-1dcd0dc95431",
+  "issue_uuid": "0f44b2d4-7f1a-45ef-9b60-10a089374f23",
+  "author": "anon-a7c6025f",
+  "content": "Phase 4 epic. ferrotorch-data: Dataset trait, DataLoader with batching/shuffling/parallel prefetch, samplers, transforms, collate. Design doc: .design/phase-4-data-loading.md (10 REQ, 16 AC).",
+  "created_at": "2026-03-15T04:30:26.913165186Z",
+  "kind": "plan"
+}

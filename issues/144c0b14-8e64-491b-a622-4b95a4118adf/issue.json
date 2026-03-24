@@ -1,0 +1,14 @@
+{
+  "uuid": "144c0b14-8e64-491b-a622-4b95a4118adf",
+  "display_id": 244,
+  "title": "Perf Phase 8: Add .cargo/config.toml with target-cpu=native",
+  "status": "closed",
+  "priority": "low",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T21:32:19.142899034Z",
+  "updated_at": "2026-03-23T21:35:40.229091235Z",
+  "closed_at": "2026-03-23T21:35:40.229091235Z",
+  "labels": [
+    "enhancement"
+  ]
+}

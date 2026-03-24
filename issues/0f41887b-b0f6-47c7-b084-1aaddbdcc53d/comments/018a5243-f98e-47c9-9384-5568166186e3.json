@@ -1,0 +1,8 @@
+{
+  "uuid": "018a5243-f98e-47c9-9384-5568166186e3",
+  "issue_uuid": "0f41887b-b0f6-47c7-b084-1aaddbdcc53d",
+  "author": "anon-a7c6025f",
+  "content": "Added data_ref() zero-copy CPU alias to Tensor<T>. Fixed unary_map to use borrowed data() on CPU path instead of data_vec(). Fixed 3 data_vec() calls in linalg.rs grad_fns (batch_transpose, swap_last_two, reduce_to_shape) to use the cpu-then-borrow pattern — avoids the redundant .to_vec() copy on CPU tensors. All 603 tests pass.",
+  "created_at": "2026-03-23T21:37:54.841601183Z",
+  "kind": "result"
+}

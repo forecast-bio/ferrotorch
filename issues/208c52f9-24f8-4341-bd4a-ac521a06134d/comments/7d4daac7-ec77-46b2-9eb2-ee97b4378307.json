@@ -1,0 +1,8 @@
+{
+  "uuid": "7d4daac7-ec77-46b2-9eb2-ee97b4378307",
+  "issue_uuid": "208c52f9-24f8-4341-bd4a-ac521a06134d",
+  "author": "anon-a7c6025f",
+  "content": "Plan: Fix 8 unsafe .data() calls on potentially-GPU tensors. (1) transcendental.rs: exp/sin/cos/clamp forward paths call .data() on GPU output when constructing grad node storage — add .cpu()? before .data(). (2) indexing.rs: IndexSelectBackward and MaskedIndexBackward backward + their forward functions need GPU guard. Audit already confirmed autograd engine, shape ops, linalg, arithmetic, activation, and reduction backward paths are all safe.",
+  "created_at": "2026-03-23T03:44:40.446425792Z",
+  "kind": "plan"
+}

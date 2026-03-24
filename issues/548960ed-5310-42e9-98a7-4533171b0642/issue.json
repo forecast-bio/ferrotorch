@@ -1,0 +1,14 @@
+{
+  "uuid": "548960ed-5310-42e9-98a7-4533171b0642",
+  "display_id": 102,
+  "title": "Add cuBLAS GPU matmul via CUDA toolkit",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:05:29.876645830Z",
+  "updated_at": "2026-03-15T16:11:19.399816092Z",
+  "closed_at": "2026-03-15T16:11:19.399816092Z",
+  "labels": [
+    "feature"
+  ]
+}

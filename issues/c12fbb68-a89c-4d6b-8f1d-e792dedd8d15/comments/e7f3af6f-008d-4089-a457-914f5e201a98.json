@@ -1,0 +1,8 @@
+{
+  "uuid": "e7f3af6f-008d-4089-a457-914f5e201a98",
+  "issue_uuid": "c12fbb68-a89c-4d6b-8f1d-e792dedd8d15",
+  "author": "anon-a7c6025f",
+  "content": "Blocker: Embedding::forward does token→index→gather on CPU. For CUDA graph capture, the entire decode step must stay on GPU. Need a GPU embedding lookup kernel: given a token ID (f32 on GPU) and weight matrix [V, D] on GPU, produce [1, D] output on GPU. This is a simple gather kernel: output[d] = weight[token_id * D + d].",
+  "created_at": "2026-03-17T13:03:33.888417557Z",
+  "kind": "blocker"
+}

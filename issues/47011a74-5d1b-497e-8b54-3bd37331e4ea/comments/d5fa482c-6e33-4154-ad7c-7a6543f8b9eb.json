@@ -1,0 +1,8 @@
+{
+  "uuid": "d5fa482c-6e33-4154-ad7c-7a6543f8b9eb",
+  "issue_uuid": "47011a74-5d1b-497e-8b54-3bd37331e4ea",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Replaced CPU path raw zip with op-level div/mul/neg that handle broadcasting. Added test for exact reproducer from issue. 574 core tests passing.",
+  "created_at": "2026-03-22T23:40:13.501550855Z",
+  "kind": "result"
+}

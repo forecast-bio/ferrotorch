@@ -1,0 +1,8 @@
+{
+  "uuid": "98bee19c-25ba-469b-b020-262629b03829",
+  "issue_uuid": "93f1e04b-5fa2-4d39-afcb-d7687af691fb",
+  "author": "anon-a7c6025f",
+  "content": "Dispatching 6 parallel agents. All independent — touch different crates/files. einsum (core), hooks (nn), distributions (new crate), profiler (new crate), sparse (core), FFT (core).",
+  "created_at": "2026-03-15T20:07:10.748590291Z",
+  "kind": "plan"
+}

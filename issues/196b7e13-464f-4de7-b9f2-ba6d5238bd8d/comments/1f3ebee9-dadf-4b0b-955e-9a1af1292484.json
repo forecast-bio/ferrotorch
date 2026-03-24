@@ -1,0 +1,8 @@
+{
+  "uuid": "1f3ebee9-dadf-4b0b-955e-9a1af1292484",
+  "issue_uuid": "196b7e13-464f-4de7-b9f2-ba6d5238bd8d",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: 5 end-to-end training experiments all passing on CPU: (1) MLP with CrossEntropy+Adam, (2) Transformer with attention+LayerNorm+MLP+AdamW, (3) CNN with Conv2d+AvgPool+Adam, (4) LSTM language model with Embedding+LSTM+Adam, (5) VAE with reparameterization trick+sigmoid+KL divergence+Adam. All verify loss decreases over 10 training steps.",
+  "created_at": "2026-03-23T22:29:02.807523415Z",
+  "kind": "result"
+}

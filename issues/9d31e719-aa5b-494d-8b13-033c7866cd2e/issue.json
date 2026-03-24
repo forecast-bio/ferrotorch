@@ -1,0 +1,13 @@
+{
+  "uuid": "9d31e719-aa5b-494d-8b13-033c7866cd2e",
+  "display_id": 175,
+  "title": "Implement LoRA (Low-Rank Adaptation) module in ferrotorch-nn",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T22:21:54.182077662Z",
+  "updated_at": "2026-03-15T22:21:55.753100078Z",
+  "labels": [
+    "feature"
+  ]
+}

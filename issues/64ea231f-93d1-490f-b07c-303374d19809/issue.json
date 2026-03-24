@@ -1,0 +1,14 @@
+{
+  "uuid": "64ea231f-93d1-490f-b07c-303374d19809",
+  "display_id": 114,
+  "title": "Add image I/O (PNG/JPEG read/write via image crate)",
+  "status": "closed",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:53:29.845491537Z",
+  "updated_at": "2026-03-15T17:17:29.553467682Z",
+  "closed_at": "2026-03-15T17:17:29.553467682Z",
+  "labels": [
+    "feature"
+  ]
+}

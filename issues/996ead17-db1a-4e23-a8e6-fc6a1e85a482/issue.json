@@ -1,0 +1,13 @@
+{
+  "uuid": "996ead17-db1a-4e23-a8e6-fc6a1e85a482",
+  "display_id": 295,
+  "title": "T4.8 RPC and pipeline parallelism",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-24T03:55:02.890584633Z",
+  "updated_at": "2026-03-24T03:55:04.241398871Z",
+  "labels": [
+    "feature"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "uuid": "79f43253-e55b-4ec7-bd19-77878e1dc47e",
+  "display_id": 168,
+  "title": "Fix FlashAttention GPU PTX register name collision",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T21:25:43.097874948Z",
+  "updated_at": "2026-03-15T21:41:43.924515535Z",
+  "closed_at": "2026-03-15T21:41:43.924515535Z",
+  "labels": [
+    "fix"
+  ]
+}

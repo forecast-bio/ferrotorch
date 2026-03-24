@@ -1,0 +1,8 @@
+{
+  "uuid": "dee0a38b-6d93-44e8-a55f-f2c9f40ab11c",
+  "issue_uuid": "5a714aca-d0b1-493c-9aa6-90586fec673d",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Embedding with sparse scatter-add backward, padding_idx, 18 tests.",
+  "created_at": "2026-03-15T02:53:00.715070337Z",
+  "kind": "result"
+}

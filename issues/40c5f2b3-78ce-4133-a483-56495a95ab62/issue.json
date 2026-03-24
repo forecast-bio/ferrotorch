@@ -1,0 +1,14 @@
+{
+  "uuid": "40c5f2b3-78ce-4133-a483-56495a95ab62",
+  "display_id": 113,
+  "title": "Add mixed-precision autocast context manager",
+  "status": "closed",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:53:27.161049654Z",
+  "updated_at": "2026-03-15T17:17:26.803959527Z",
+  "closed_at": "2026-03-15T17:17:26.803959527Z",
+  "labels": [
+    "feature"
+  ]
+}

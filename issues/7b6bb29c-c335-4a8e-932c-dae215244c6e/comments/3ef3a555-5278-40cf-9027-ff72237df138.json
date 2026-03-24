@@ -1,0 +1,8 @@
+{
+  "uuid": "3ef3a555-5278-40cf-9027-ff72237df138",
+  "issue_uuid": "7b6bb29c-c335-4a8e-932c-dae215244c6e",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Method-style API on Tensor — 23 methods covering arithmetic (add_t, sub_t, mul_t, div_t, neg_t, pow_t, sqrt_t, abs_t), activations (relu, sigmoid, tanh_t, gelu, silu, softmax, log_softmax), reductions (sum_all, mean_all, prod_all), linalg (matmul, mm, mv_t, dot_t, t), shape (reshape_t, flatten_t, squeeze_t, unsqueeze_t), and utility (print). 8 new tests. 776 total workspace tests.",
+  "created_at": "2026-03-15T14:37:30.082798237Z",
+  "kind": "result"
+}

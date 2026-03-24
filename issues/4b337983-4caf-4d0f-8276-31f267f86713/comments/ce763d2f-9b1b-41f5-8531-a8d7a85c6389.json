@@ -1,0 +1,8 @@
+{
+  "uuid": "ce763d2f-9b1b-41f5-8531-a8d7a85c6389",
+  "issue_uuid": "4b337983-4caf-4d0f-8276-31f267f86713",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: SGD with momentum/Nesterov/weight_decay, XOR convergence test (marked flaky). 10 tests.",
+  "created_at": "2026-03-15T03:30:51.524934822Z",
+  "kind": "result"
+}

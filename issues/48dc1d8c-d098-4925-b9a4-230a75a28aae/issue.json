@@ -1,0 +1,13 @@
+{
+  "uuid": "48dc1d8c-d098-4925-b9a4-230a75a28aae",
+  "display_id": 264,
+  "title": "T1.6: Lower CPU parallel threshold from 2M to 32K elements",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-24T01:00:56.283265102Z",
+  "updated_at": "2026-03-24T01:00:58.412646818Z",
+  "labels": [
+    "enhancement"
+  ]
+}

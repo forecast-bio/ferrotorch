@@ -1,0 +1,8 @@
+{
+  "uuid": "4ca54ebb-acb9-464c-8441-b3776ff26395",
+  "issue_uuid": "ec6d912f-391a-4ce4-a64d-2fdd64e01edb",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: MultiheadAttention with Q/K/V projections, causal mask, 15 tests.",
+  "created_at": "2026-03-15T02:53:06.083256644Z",
+  "kind": "result"
+}

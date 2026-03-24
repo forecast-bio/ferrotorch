@@ -1,0 +1,8 @@
+{
+  "uuid": "5e9cb96c-30f0-43de-8ab5-750896f99f17",
+  "issue_uuid": "010cb17c-1d20-436d-96ce-1997869faffa",
+  "author": "anon-a7c6025f",
+  "content": "Benchmarks complete. Key findings: tensor creation at parity, GPU cuBLAS matmul comparable to PyTorch, CPU matmul 736x slower (naive triple-loop vs MKL — fix: wire up ferray-linalg faer), CPU elementwise 2-9x slower (scalar vs SIMD — fix: ferray-ufunc). Architecture is sound, gap is kernel optimization.",
+  "created_at": "2026-03-15T19:01:23.738362627Z",
+  "kind": "result"
+}

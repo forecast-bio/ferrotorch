@@ -1,0 +1,8 @@
+{
+  "uuid": "46a13c1f-c1a4-4fa9-ad78-0037d10c6be9",
+  "issue_uuid": "84004859-f7d6-4cf2-85e0-f0c2b9cbd163",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Dataset trait (map-style), IterableDataset trait (streaming), VecDataset, MappedDataset, WorkerInfo, SequentialSampler, RandomSampler (seeded Fisher-Yates). 9 tests, 0 warnings.",
+  "created_at": "2026-03-15T04:33:26.169977956Z",
+  "kind": "result"
+}

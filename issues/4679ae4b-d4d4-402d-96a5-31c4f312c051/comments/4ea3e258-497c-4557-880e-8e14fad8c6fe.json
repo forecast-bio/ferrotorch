@@ -1,0 +1,8 @@
+{
+  "uuid": "4ea3e258-497c-4557-880e-8e14fad8c6fe",
+  "issue_uuid": "4679ae4b-d4d4-402d-96a5-31c4f312c051",
+  "author": "anon-a7c6025f",
+  "content": "Step 1: Optimizer trait, ParamGroup, OptimizerState, crate skeleton. Foundation for all optimizers.",
+  "created_at": "2026-03-15T03:19:05.556504175Z",
+  "kind": "plan"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "242aedc5-55a8-4740-ad6b-542fecac9863",
+  "issue_uuid": "0a49c067-028b-40f9-95cf-2b86c79d3074",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: broadcast_matmul implemented in ops/linalg.rs with full NumPy-style broadcast over leading dimensions. Handles all torch.matmul cases: 1D promotion (prepend/append + squeeze), 2D-6D+ with broadcast batch dims. 9 new tests covering shape correctness, value correctness, broadcast 1-vs-N, 4D, 1D+3D mixes, and error cases.",
+  "created_at": "2026-03-22T21:38:38.494304251Z",
+  "kind": "result"
+}

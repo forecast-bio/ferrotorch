@@ -1,0 +1,18 @@
+{
+  "uuid": "6702b100-88af-4a21-b31b-3740d60b2676",
+  "display_id": 4,
+  "title": "Add shape utilities and tensor creation functions",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "fbfbd525-d49e-4e47-97c8-6d4d853a207b",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T01:25:03.197359200Z",
+  "updated_at": "2026-03-15T01:36:37.944617076Z",
+  "closed_at": "2026-03-15T01:36:37.944617076Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "1f04a3b3-2d62-441f-be7c-4c56036175a4"
+  ]
+}

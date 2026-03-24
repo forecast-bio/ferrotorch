@@ -1,0 +1,19 @@
+{
+  "uuid": "5a714aca-d0b1-493c-9aa6-90586fec673d",
+  "display_id": 38,
+  "title": "Add Embedding layer with grad_fn",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "ca772274-6f17-4e85-b908-7e56cc89257f",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T02:34:55.755181784Z",
+  "updated_at": "2026-03-15T02:53:01.999485915Z",
+  "closed_at": "2026-03-15T02:53:01.999485915Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "f53c64ba-e605-4486-b608-dfb31366c141",
+    "8150cb3b-ef06-42dd-affa-644431a8958e"
+  ]
+}

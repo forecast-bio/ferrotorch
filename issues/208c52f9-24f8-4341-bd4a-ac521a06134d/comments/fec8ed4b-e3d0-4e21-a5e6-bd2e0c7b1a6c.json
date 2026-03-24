@@ -1,0 +1,8 @@
+{
+  "uuid": "fec8ed4b-e3d0-4e21-a5e6-bd2e0c7b1a6c",
+  "issue_uuid": "208c52f9-24f8-4341-bd4a-ac521a06134d",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Fixed 8 unsafe .data() calls on GPU tensors. Transcendental ops (exp/sin/cos/clamp) now use into_storage_and_shape() to preserve GPU storage instead of calling .data().to_vec(). Indexing ops (IndexSelectBackward, MaskedFillBackward, index_select_1d, masked_fill) now transfer to CPU before .data(). Full audit confirmed autograd engine, shape ops, linalg, arithmetic, activation, and reduction backward paths were already safe.",
+  "created_at": "2026-03-23T03:49:41.121044578Z",
+  "kind": "result"
+}

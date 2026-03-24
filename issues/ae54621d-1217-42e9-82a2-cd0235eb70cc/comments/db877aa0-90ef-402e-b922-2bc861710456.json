@@ -1,0 +1,8 @@
+{
+  "uuid": "db877aa0-90ef-402e-b922-2bc861710456",
+  "issue_uuid": "ae54621d-1217-42e9-82a2-cd0235eb70cc",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Wired fast_sigmoid and fast_tanh into activation forward paths. tanh: 2976→1784us (1.7x faster). sigmoid unchanged (already had inline SIMD, fast_sigmoid adds pool alloc). 587 tests pass.",
+  "created_at": "2026-03-23T23:02:43.307661926Z",
+  "kind": "result"
+}

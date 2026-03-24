@@ -1,0 +1,8 @@
+{
+  "uuid": "2e210398-0dc1-48ca-b684-79c707dbc3a4",
+  "issue_uuid": "4eca2a05-a75b-44d1-8960-25721a0ed34d",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Fixed forward to build storage on the target device first, then attach EmbeddingBackward — avoids to() stripping the grad_fn. Fixed backward to use data_vec() (transparent on any device) and return the gradient on the same device as the weight via to(). All 23 embedding tests pass.",
+  "created_at": "2026-03-23T18:35:37.697827681Z",
+  "kind": "result"
+}

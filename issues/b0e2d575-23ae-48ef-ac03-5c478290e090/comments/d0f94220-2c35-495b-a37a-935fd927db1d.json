@@ -1,0 +1,8 @@
+{
+  "uuid": "d0f94220-2c35-495b-a37a-935fd927db1d",
+  "issue_uuid": "b0e2d575-23ae-48ef-ac03-5c478290e090",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Vision crate skeleton with model registry (list_models, get_model, register_model with global LazyLock registry), FeatureExtractor wrapper, IMAGENET_MEAN/STD constants. 5 tests.",
+  "created_at": "2026-03-15T13:36:33.814294384Z",
+  "kind": "result"
+}

@@ -1,0 +1,18 @@
+{
+  "uuid": "c3efb070-e28d-4d65-9b10-32d4a32c793c",
+  "display_id": 65,
+  "title": "Add DataLoader with batching, shuffling, and parallel prefetch",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "0f44b2d4-7f1a-45ef-9b60-10a089374f23",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T04:30:45.479924073Z",
+  "updated_at": "2026-03-15T13:17:57.406325858Z",
+  "closed_at": "2026-03-15T13:17:57.406325858Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "84004859-f7d6-4cf2-85e0-f0c2b9cbd163"
+  ]
+}

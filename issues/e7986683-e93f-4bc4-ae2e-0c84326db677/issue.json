@@ -1,0 +1,19 @@
+{
+  "uuid": "e7986683-e93f-4bc4-ae2e-0c84326db677",
+  "display_id": 11,
+  "title": "Add GradFn: activation (relu, sigmoid, tanh, gelu, silu, softmax, log_softmax)",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "fbfbd525-d49e-4e47-97c8-6d4d853a207b",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T01:25:35.459114951Z",
+  "updated_at": "2026-03-15T01:53:01.599914249Z",
+  "closed_at": "2026-03-15T01:53:01.599914249Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "fe8f0f97-b744-4858-9087-2776190f2dde",
+    "176e49d8-d6e6-4731-97f2-0755114055a9"
+  ]
+}

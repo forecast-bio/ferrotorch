@@ -1,0 +1,8 @@
+{
+  "uuid": "c57551ad-a46b-4ac0-bf38-c2c0eca2291c",
+  "issue_uuid": "3dc26cad-8389-4533-ba2b-c12627db5d3b",
+  "author": "anon-a7c6025f",
+  "content": "Wave 3: All remaining items in pure Rust, no external C FFI. 1) PyTorch .pt import via custom pickle parser + zip crate. 2) GPU conv2d via im2col + cuBLAS GEMM (no cuDNN). 3) GPU allreduce via CUDA IPC or TCP (no NCCL). Dispatching 3 parallel agents.",
+  "created_at": "2026-03-15T17:43:56.830209107Z",
+  "kind": "plan"
+}

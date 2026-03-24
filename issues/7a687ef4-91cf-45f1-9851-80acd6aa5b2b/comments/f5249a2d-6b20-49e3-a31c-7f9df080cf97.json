@@ -1,0 +1,8 @@
+{
+  "uuid": "f5249a2d-6b20-49e3-a31c-7f9df080cf97",
+  "issue_uuid": "7a687ef4-91cf-45f1-9851-80acd6aa5b2b",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: nn::Linear now accepts (*batch, in_features) inputs of any rank. Flattens to 2D internally, applies mm+bias, reshapes back. Autograd works via differentiable reshape. 4 new tests: 1D accepted, 3D shape, 4D shape, 3D-vs-2D correctness equivalence.",
+  "created_at": "2026-03-22T21:38:40.186997989Z",
+  "kind": "result"
+}

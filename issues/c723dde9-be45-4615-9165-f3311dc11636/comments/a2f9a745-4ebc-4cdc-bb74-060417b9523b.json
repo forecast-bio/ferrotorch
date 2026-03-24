@@ -1,0 +1,8 @@
+{
+  "uuid": "a2f9a745-4ebc-4cdc-bb74-060417b9523b",
+  "issue_uuid": "c723dde9-be45-4615-9165-f3311dc11636",
+  "author": "anon-a7c6025f",
+  "content": "Step 1: Create ferrotorch-gpu crate. CudaDevice wrapper around cudarc, CudaBuffer<T> for GPU memory, extend StorageBuffer with Cuda variant, implement tensor.to(device)/tensor.cuda()/tensor.cpu() transfers.",
+  "created_at": "2026-03-15T15:38:38.285553573Z",
+  "kind": "plan"
+}

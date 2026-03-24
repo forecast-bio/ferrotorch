@@ -1,0 +1,8 @@
+{
+  "uuid": "15e2f7f9-cce1-4930-b658-bab5f18fcbc3",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "Root cause of GPU slowness: attention does 144+ PCIe roundtrips per token (data_vec to CPU for head splitting, causal masking, scale, and result extraction — per head × per layer × per token). Fix: (1) precompute causal mask and scale tensors on GPU once, reuse them, (2) pull Q/K/V once and push head slices to GPU once, (3) keep matmul/softmax/dropout/mask on GPU via tensor ops, (4) pull results once at the end.",
+  "created_at": "2026-03-17T03:59:46.847381227Z",
+  "kind": "decision"
+}

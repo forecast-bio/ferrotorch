@@ -1,0 +1,8 @@
+{
+  "uuid": "91670e25-1350-48b8-9a73-b76c3268ae76",
+  "issue_uuid": "8ce7d968-1960-401f-8d16-ae64f8b89c28",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: LSTM with composable autograd gates, multi-layer, 24 tests.",
+  "created_at": "2026-03-15T02:53:03.341282652Z",
+  "kind": "result"
+}

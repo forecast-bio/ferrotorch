@@ -1,0 +1,8 @@
+{
+  "uuid": "3667e58a-8358-495b-8751-bfc849fedee5",
+  "issue_uuid": "21690d01-9f2d-43cb-910d-4cffe65c037a",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: LayerNorm, GroupNorm, RMSNorm with analytic VJPs, 35 tests.",
+  "created_at": "2026-03-15T02:52:49.572070669Z",
+  "kind": "result"
+}

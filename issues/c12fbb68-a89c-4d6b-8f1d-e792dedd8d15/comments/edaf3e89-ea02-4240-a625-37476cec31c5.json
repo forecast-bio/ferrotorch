@@ -1,0 +1,8 @@
+{
+  "uuid": "edaf3e89-ea02-4240-a625-37476cec31c5",
+  "issue_uuid": "c12fbb68-a89c-4d6b-8f1d-e792dedd8d15",
+  "author": "anon-a7c6025f",
+  "content": "Resolved embedding blocker: wrote gpu_embed_lookup PTX kernel that reads token ID from GPU memory and gathers the row from the weight matrix entirely on GPU. No CPU involvement. Now building the CUDA graph decode path.",
+  "created_at": "2026-03-17T13:08:24.828007382Z",
+  "kind": "resolution"
+}

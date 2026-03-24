@@ -1,0 +1,8 @@
+{
+  "uuid": "1f846b5b-14f1-4e98-aa6b-4203e1adc6fe",
+  "issue_uuid": "5f3ca850-4316-45c4-a9b4-a680b7c94d2f",
+  "author": "anon-a7c6025f",
+  "content": "QA found 34 issues: 4 CRITICAL, 9 HIGH, 11 MEDIUM, 10 LOW. Fixing all 24 CRITICAL+HIGH+MEDIUM issues now. Root causes: (1) stride views added without updating data() consumers, (2) polynomial math missing edge case guards, (3) AdamW state corruption on partial failure, (4) Arc mutation unsoundness.",
+  "created_at": "2026-03-24T01:28:40.111164125Z",
+  "kind": "observation"
+}

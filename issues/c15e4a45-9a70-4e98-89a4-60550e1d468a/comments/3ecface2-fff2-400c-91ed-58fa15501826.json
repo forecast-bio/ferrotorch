@@ -1,0 +1,8 @@
+{
+  "uuid": "3ecface2-fff2-400c-91ed-58fa15501826",
+  "issue_uuid": "c15e4a45-9a70-4e98-89a4-60550e1d468a",
+  "author": "anon-a7c6025f",
+  "content": "After fixing small matmul infinite recursion bug and enabling for decode-step Linear layers: 52s for 50 tokens (1.04s/tok decode). The 1,417 cuModuleLoadData calls are all from the PREFILL phase (cuBLAS JIT for large matrices) — they're a one-time startup cost, not per-token. The per-token decode is 1.0s. Remaining per-token breakdown: ~100 kernel launches for GPU ops + GPU memory alloc/free + some remaining CPU transfers. The path to faster decode: (1) fused flash attention to cut attention from 6 kernels to 1, (2) GPU memory pool to eliminate cudaMalloc/Free, (3) pre-cached position embeddings.",
+  "created_at": "2026-03-17T08:01:02.770089635Z",
+  "kind": "result"
+}

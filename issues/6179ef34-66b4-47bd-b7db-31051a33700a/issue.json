@@ -1,0 +1,13 @@
+{
+  "uuid": "6179ef34-66b4-47bd-b7db-31051a33700a",
+  "display_id": 179,
+  "title": "Make Softplus, ELU, and Mish activations differentiable with autograd backward support",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T22:38:29.886021682Z",
+  "updated_at": "2026-03-15T22:38:31.527370724Z",
+  "labels": [
+    "bug-fix"
+  ]
+}

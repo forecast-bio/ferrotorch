@@ -1,0 +1,8 @@
+{
+  "uuid": "7559bdeb-f5de-4f1f-920d-0225a8f4898f",
+  "issue_uuid": "154cb97b-788b-4b8a-a19d-00fc1a9defa6",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: examples/train_mnist.rs — full training loop with Sequential MLP, synthetic MNIST via DataLoader, Adam optimizer, CrossEntropyLoss. Loss decreases 2.39→2.21 over 5 epochs, confirming autograd pipeline works.",
+  "created_at": "2026-03-15T16:22:22.369341080Z",
+  "kind": "result"
+}

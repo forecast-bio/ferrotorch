@@ -1,0 +1,8 @@
+{
+  "uuid": "17b022a5-85e6-4610-9a20-216d1ab190f4",
+  "issue_uuid": "91fc523c-7099-4311-82a6-a61cf9e05817",
+  "author": "anon-a7c6025f",
+  "content": "Committed: 14 per-crate READMEs + Cargo.toml readme path fixes. 28 files, 538 insertions. Each crate has focused README with types, usage example, and workspace link. Ready for crates.io.",
+  "created_at": "2026-03-15T20:25:20.968314826Z",
+  "kind": "result"
+}

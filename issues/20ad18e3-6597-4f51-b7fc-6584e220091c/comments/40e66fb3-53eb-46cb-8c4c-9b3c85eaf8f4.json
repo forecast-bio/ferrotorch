@@ -1,0 +1,8 @@
+{
+  "uuid": "40e66fb3-53eb-46cb-8c4c-9b3c85eaf8f4",
+  "issue_uuid": "20ad18e3-6597-4f51-b7fc-6584e220091c",
+  "author": "anon-a7c6025f",
+  "content": "Real Pythia-70M validation: 70.4M params, batch=1, seq=32. Training step 658ms vs PyTorch 155ms (4.2x slower). Loss 11.63→0.99 over 5 steps — correct convergence. Bottlenecks: sequential embedding lookup, unfused attention, data-copying shape ops. The model architecture is structurally correct.",
+  "created_at": "2026-03-23T22:39:19.595669908Z",
+  "kind": "result"
+}

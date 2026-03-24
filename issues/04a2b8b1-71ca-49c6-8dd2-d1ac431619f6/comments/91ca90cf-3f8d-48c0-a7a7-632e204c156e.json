@@ -1,0 +1,8 @@
+{
+  "uuid": "91ca90cf-3f8d-48c0-a7a7-632e204c156e",
+  "issue_uuid": "04a2b8b1-71ca-49c6-8dd2-d1ac431619f6",
+  "author": "anon-a7c6025f",
+  "content": "Three warnings: unused Tensor/TensorStorage in adamw.rs, unused FerrotorchError in optimizer.rs, dead code effective_max_eval in lbfgs.rs.",
+  "created_at": "2026-03-17T02:49:26.578111717Z",
+  "kind": "plan"
+}

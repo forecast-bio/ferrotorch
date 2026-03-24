@@ -1,0 +1,8 @@
+{
+  "uuid": "59a31636-7ed5-4525-b373-28b586c58ad4",
+  "issue_uuid": "b31a1672-6b3e-4ac1-8fa8-8b53d90a3759",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Three-layer GPU memory safety (MemoryReservation, MemoryGuard with 4 OOM policies, MemoryWatchdog with pressure pause). 1,295 new lines, 84 GPU tests. Solves the 'Steam kills your training' problem via VRAM reservation + budget enforcement + graceful OOM recovery with emergency checkpoint callback.",
+  "created_at": "2026-03-15T19:36:08.382102960Z",
+  "kind": "result"
+}

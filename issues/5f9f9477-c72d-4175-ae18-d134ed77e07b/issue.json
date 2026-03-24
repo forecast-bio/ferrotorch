@@ -1,0 +1,13 @@
+{
+  "uuid": "5f9f9477-c72d-4175-ae18-d134ed77e07b",
+  "display_id": 157,
+  "title": "Add pack_padded_sequence and pad_packed_sequence to ferrotorch-nn rnn_utils",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T20:29:49.139545841Z",
+  "updated_at": "2026-03-15T20:29:55.657004410Z",
+  "labels": [
+    "feature"
+  ]
+}

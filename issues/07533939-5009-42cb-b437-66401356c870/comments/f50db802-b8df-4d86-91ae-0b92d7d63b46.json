@@ -1,0 +1,8 @@
+{
+  "uuid": "f50db802-b8df-4d86-91ae-0b92d7d63b46",
+  "issue_uuid": "07533939-5009-42cb-b437-66401356c870",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: GeluApproximate enum with three modes (None=exact erf, Tanh=PyTorch tanh, Sigmoid=fast 1.702x). Updated gelu/gelu_with in core, nn::GELU with_approximate constructor, functional gelu_with, Tensor::gelu_with. Default changed to exact erf matching PyTorch. Fixed upstream rebase bugs: bmm dispatch for broadcast 3D matmul, JIT tracer support for LinearFusedBackward (new IrOpKind::Linear + interpreter/serialization/ONNX export). 8 GELU tests, all 1964+ workspace tests passing.",
+  "created_at": "2026-03-22T22:34:48.348406249Z",
+  "kind": "result"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "ccd1ab65-6717-4130-8dc8-daf6288e93f9",
+  "issue_uuid": "294c3033-206a-4c29-a790-45ebc6624ff1",
+  "author": "anon-a7c6025f",
+  "content": "Both bugs fixed: 1) PTX module cache with LazyLock HashMap — compile once, nanosecond lookups forever. All 8 kernel sites updated (kernels.rs, conv.rs, flash_attention.rs). 2) Softplus/ELU/Mish now differentiable with proper GradFn backward. 118 GPU tests, all passing. Numerical gradient checks verify correctness.",
+  "created_at": "2026-03-15T22:47:56.117018132Z",
+  "kind": "result"
+}

@@ -1,0 +1,14 @@
+{
+  "uuid": "c1f9bcda-1637-446d-87f9-4683ae9b4928",
+  "display_id": 148,
+  "title": "Design document for remaining PyTorch feature parity",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T20:01:14.740409952Z",
+  "updated_at": "2026-03-15T20:05:43.428337823Z",
+  "closed_at": "2026-03-15T20:05:43.428337823Z",
+  "labels": [
+    "feature"
+  ]
+}

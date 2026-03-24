@@ -1,0 +1,8 @@
+{
+  "uuid": "8c2b97fc-4335-4b37-bc0d-06b0c2dc2d14",
+  "issue_uuid": "db6bb157-a7fc-49b7-a1fc-2ec52abf2d06",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: IrGraph, IrNode, IrValue, IrValueId, IrNodeId, IrOpKind (20+ op variants), topological sort, add/remove nodes, constant detection. 5 tests.",
+  "created_at": "2026-03-15T14:03:41.435422594Z",
+  "kind": "result"
+}

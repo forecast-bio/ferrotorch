@@ -1,0 +1,8 @@
+{
+  "uuid": "3aff96aa-2576-4015-a91f-399f1c3692e6",
+  "issue_uuid": "28c7498e-2f95-40a1-a1c6-2e608263f35d",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: RoPEConvention enum (Interleaved/HalfRotation) with with_convention() constructor. Default stays Interleaved for backward compat. HalfRotation pairs (x[i], x[i+d/2]) for LLaMA/GPT-NeoX/Pythia. 6 new tests including correctness check, cross-convention difference, and identity at position 0. All 18 RoPE tests passing.",
+  "created_at": "2026-03-22T22:49:51.101638841Z",
+  "kind": "result"
+}

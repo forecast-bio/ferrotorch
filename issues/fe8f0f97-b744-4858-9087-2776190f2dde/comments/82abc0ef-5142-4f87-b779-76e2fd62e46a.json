@@ -1,0 +1,8 @@
+{
+  "uuid": "82abc0ef-5142-4f87-b779-76e2fd62e46a",
+  "issue_uuid": "fe8f0f97-b744-4858-9087-2776190f2dde",
+  "author": "anon-a7c6025f",
+  "content": "Step 4a. Building the elementwise ops bridge: Tensor method wrappers that call ferray-ufunc for exp, log, sin, cos etc. and record grad_fns for the backward pass. Also ops/mod.rs shared with linalg.",
+  "created_at": "2026-03-15T01:42:10.404869137Z",
+  "kind": "plan"
+}

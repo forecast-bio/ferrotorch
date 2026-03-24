@@ -1,0 +1,14 @@
+{
+  "uuid": "592e710f-5f1e-48bb-91cc-c8107c28566c",
+  "display_id": 94,
+  "title": "Implement BatchNorm2d for ferrotorch-nn normalization layers",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T15:24:54.638632393Z",
+  "updated_at": "2026-03-15T17:18:30.477992992Z",
+  "closed_at": "2026-03-15T17:18:30.477992992Z",
+  "labels": [
+    "feature"
+  ]
+}

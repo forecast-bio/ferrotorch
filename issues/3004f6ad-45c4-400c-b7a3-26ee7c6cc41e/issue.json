@@ -1,0 +1,14 @@
+{
+  "uuid": "3004f6ad-45c4-400c-b7a3-26ee7c6cc41e",
+  "display_id": 119,
+  "title": "Add U-Net model architecture",
+  "status": "closed",
+  "priority": "low",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:53:45.599882366Z",
+  "updated_at": "2026-03-15T17:17:58.172465506Z",
+  "closed_at": "2026-03-15T17:17:58.172465506Z",
+  "labels": [
+    "feature"
+  ]
+}

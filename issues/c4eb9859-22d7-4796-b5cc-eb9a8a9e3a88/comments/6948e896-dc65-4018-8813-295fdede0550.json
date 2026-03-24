@@ -1,0 +1,8 @@
+{
+  "uuid": "6948e896-dc65-4018-8813-295fdede0550",
+  "issue_uuid": "c4eb9859-22d7-4796-b5cc-eb9a8a9e3a88",
+  "author": "anon-a7c6025f",
+  "content": "Committed: README updated with 5 new features, 16-crate table, unified device model section, comparison table rows. Created READMEs for ferrotorch-hub and ferrotorch umbrella. All Cargo.toml files verified — all have required publishing fields.",
+  "created_at": "2026-03-15T22:33:47.790780640Z",
+  "kind": "result"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "6fe42be2-9ef3-422c-af24-a71e1bd7b02d",
+  "issue_uuid": "8150cb3b-ef06-42dd-affa-644431a8958e",
+  "author": "anon-a7c6025f",
+  "content": "Step 3: weight init functions. Skipping step 2 (derive macro) since manual Module impls work — derive is ergonomic sugar, not a blocker. Init is needed by layer constructors.",
+  "created_at": "2026-03-15T02:40:21.450219830Z",
+  "kind": "plan"
+}

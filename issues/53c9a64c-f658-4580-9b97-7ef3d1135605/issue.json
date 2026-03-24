@@ -1,0 +1,13 @@
+{
+  "uuid": "53c9a64c-f658-4580-9b97-7ef3d1135605",
+  "display_id": 298,
+  "title": "QA fix: Tier 4 — all HIGH and MEDIUM issues across 10 modules",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-24T04:43:20.935933440Z",
+  "updated_at": "2026-03-24T04:43:31.485209609Z",
+  "labels": [
+    "bugfix"
+  ]
+}

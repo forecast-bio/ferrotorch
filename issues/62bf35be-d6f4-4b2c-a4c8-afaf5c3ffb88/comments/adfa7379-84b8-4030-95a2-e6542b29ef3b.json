@@ -1,0 +1,8 @@
+{
+  "uuid": "adfa7379-84b8-4030-95a2-e6542b29ef3b",
+  "issue_uuid": "62bf35be-d6f4-4b2c-a4c8-afaf5c3ffb88",
+  "author": "anon-a7c6025f",
+  "content": "Phase 3 epic. Two crates: ferrotorch-optim (Optimizer trait, SGD, Adam, AdamW, RMSprop, Adagrad, LR schedulers) and ferrotorch-serialize (state dict save/load, SafeTensors, training checkpoints). Design doc: .design/phase-3-optim-serialize.md (11 REQ, 13 AC). Depends on Phase 1+2 (both complete).",
+  "created_at": "2026-03-15T03:17:20.388352085Z",
+  "kind": "plan"
+}

@@ -1,0 +1,14 @@
+{
+  "uuid": "0926bc7f-7f11-4fcb-b20f-aa26870aa1d0",
+  "display_id": 136,
+  "title": "Phase 9: CubeCL + AMD GPU + Training + LLM + Quantization",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T18:18:36.386512837Z",
+  "updated_at": "2026-03-15T18:28:04.379425583Z",
+  "closed_at": "2026-03-15T18:28:04.379425583Z",
+  "labels": [
+    "feature"
+  ]
+}

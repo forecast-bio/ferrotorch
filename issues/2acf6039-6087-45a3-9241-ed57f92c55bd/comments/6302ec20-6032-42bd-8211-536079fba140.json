@@ -1,0 +1,8 @@
+{
+  "uuid": "6302ec20-6032-42bd-8211-536079fba140",
+  "issue_uuid": "2acf6039-6087-45a3-9241-ed57f92c55bd",
+  "author": "anon-a7c6025f",
+  "content": "Design decisions: (1) Manual Module impls for all structs — derive macro can't handle 3D→2D reshape for Linear/Embedding or residual connections. (2) Minimal BPE tokenizer reading GPT-2's encoder.json/vocab.bpe — avoids heavy tokenizers crate dep. (3) Weight loading handles HF's fused c_attn→split q/k/v + transpose conv1d weights. (4) Embedding.forward takes 1-D input, so batch embedding needs flatten→embed→reshape helper.",
+  "created_at": "2026-03-17T02:17:45.883684582Z",
+  "kind": "decision"
+}

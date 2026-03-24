@@ -1,0 +1,8 @@
+{
+  "uuid": "83ad164e-5319-4d96-a55b-8c93394e4036",
+  "issue_uuid": "07533939-5009-42cb-b437-66401356c870",
+  "author": "anon-a7c6025f",
+  "content": "Found pre-existing bug from upstream rebase: matmul_differentiable routes all 3D×3D to bmm_differentiable, which doesn't support broadcast. Fixing by only routing to bmm when batch dims match.",
+  "created_at": "2026-03-22T22:24:16.291919373Z",
+  "kind": "observation"
+}

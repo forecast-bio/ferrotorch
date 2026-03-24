@@ -1,0 +1,13 @@
+{
+  "uuid": "9bb018a2-a341-49e7-a4c9-3dbd659a5f46",
+  "display_id": 184,
+  "title": "Audit Wave 2: Usability + completeness fixes",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T23:27:11.531855218Z",
+  "updated_at": "2026-03-15T23:27:12.971687820Z",
+  "labels": [
+    "enhancement"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "7af47c98-e1d6-418f-b548-62e0958acd44",
+  "issue_uuid": "63f20a15-17a3-496b-907f-359d4736fbff",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: JIT graph break handling with SegmentedModule (compiled+eager segments), trace_with_breaks(), fullgraph rejection, JitError types. 12 tests.",
+  "created_at": "2026-03-15T17:25:04.831635262Z",
+  "kind": "result"
+}

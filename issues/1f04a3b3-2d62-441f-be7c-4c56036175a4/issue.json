@@ -1,0 +1,15 @@
+{
+  "uuid": "1f04a3b3-2d62-441f-be7c-4c56036175a4",
+  "display_id": 3,
+  "title": "Add core types: Tensor, TensorStorage, Device, DType, FerrotorchError",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "fbfbd525-d49e-4e47-97c8-6d4d853a207b",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T01:25:00.314437577Z",
+  "updated_at": "2026-03-15T01:33:27.812730252Z",
+  "closed_at": "2026-03-15T01:33:27.812730252Z",
+  "labels": [
+    "feature"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "4ee73f5b-78a6-4de4-bcc6-cdb973b06fd9",
+  "issue_uuid": "12976fbb-31d3-4d98-8f02-5cb8a9ff4a38",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Fused single-pass sigmoid/tanh kernels eliminate 2 intermediate buffer allocations per call. sigmoid: 3154→1413us (2.2x faster). tanh: 1784→1500us (1.2x). Also added fast_sin/fast_cos with pool allocator + rayon parallelism (no speedup vs scalar — needs SLEEF polynomials for vectorization). 587 tests pass.",
+  "created_at": "2026-03-23T23:09:08.054083256Z",
+  "kind": "result"
+}

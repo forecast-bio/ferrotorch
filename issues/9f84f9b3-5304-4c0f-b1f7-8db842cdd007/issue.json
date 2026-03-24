@@ -1,0 +1,14 @@
+{
+  "uuid": "9f84f9b3-5304-4c0f-b1f7-8db842cdd007",
+  "display_id": 230,
+  "title": "Fix FFT operations crash on GPU tensors",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T19:01:03.779931143Z",
+  "updated_at": "2026-03-23T19:08:06.672395139Z",
+  "closed_at": "2026-03-23T19:08:06.672395139Z",
+  "labels": [
+    "bug"
+  ]
+}

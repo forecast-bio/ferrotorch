@@ -1,0 +1,8 @@
+{
+  "uuid": "168d429f-ae5d-4ece-9089-3e3d90bd0d3b",
+  "issue_uuid": "f9c3845b-164e-4ae8-91d9-a63784d32a3e",
+  "author": "anon-a7c6025f",
+  "content": "Deferring full training checkpoint to post-Phase 3. Core training loop works: forward -> backward -> optimizer.step(). Serialization is ergonomic, not blocking.",
+  "created_at": "2026-03-15T03:37:16.471947541Z",
+  "kind": "decision"
+}

@@ -1,0 +1,19 @@
+{
+  "uuid": "2019de8c-ab60-4e37-a1e7-9b3fe5411368",
+  "display_id": 35,
+  "title": "Add activation wrapper modules",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "ca772274-6f17-4e85-b908-7e56cc89257f",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T02:34:47.414281167Z",
+  "updated_at": "2026-03-15T02:52:53.969445970Z",
+  "closed_at": "2026-03-15T02:52:53.969445970Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "f53c64ba-e605-4486-b608-dfb31366c141",
+    "8150cb3b-ef06-42dd-affa-644431a8958e"
+  ]
+}

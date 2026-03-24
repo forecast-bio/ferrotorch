@@ -1,0 +1,8 @@
+{
+  "uuid": "70523e5e-1f9e-44a6-90ed-66e121197e0b",
+  "issue_uuid": "2bc31950-1e8f-453c-b954-173918a1175a",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: ferray-linalg matmul wired up — 62x speedup for 1024x1024 (2.1s -> 34ms). All workspace deps now have version numbers for crates.io. 10/10 linalg tests passing.",
+  "created_at": "2026-03-15T19:07:51.414673884Z",
+  "kind": "result"
+}

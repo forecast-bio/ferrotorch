@@ -1,0 +1,19 @@
+{
+  "uuid": "c893b799-b4b9-45b9-9a67-59e86a213871",
+  "display_id": 37,
+  "title": "Add pooling layers (MaxPool2d, AvgPool2d, AdaptiveAvgPool2d) with grad_fns",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "ca772274-6f17-4e85-b908-7e56cc89257f",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T02:34:52.860755630Z",
+  "updated_at": "2026-03-15T02:52:59.304335425Z",
+  "closed_at": "2026-03-15T02:52:59.304335425Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "f53c64ba-e605-4486-b608-dfb31366c141",
+    "8150cb3b-ef06-42dd-affa-644431a8958e"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "2c202750-e579-43e1-9a46-bccb787712fc",
+  "issue_uuid": "4d268b8f-7243-47c7-9cc3-4110b316c74a",
+  "author": "anon-a7c6025f",
+  "content": "Creating two design documents from the ferrotorch-design.md braindump: Phase 0 (orchestrator agent) and Phase 1 (autograd engine / ferrotorch-core). User decisions: dynamic-only shapes, own-the-buffer storage, bf16 via ferray-core extension, one doc per phase. ferray-linalg is f64-only — f32 matmul path is an open question.",
+  "created_at": "2026-03-14T19:38:03.785346594Z",
+  "kind": "plan"
+}

@@ -1,0 +1,14 @@
+{
+  "uuid": "dda48f10-f7bb-4888-8d32-97be7be11df3",
+  "display_id": 69,
+  "title": "Add ferrotorch-vision model architectures and datasets (Phase 5 epic)",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T13:31:48.350991798Z",
+  "updated_at": "2026-03-15T13:44:44.912769043Z",
+  "closed_at": "2026-03-15T13:44:44.912769043Z",
+  "labels": [
+    "feature"
+  ]
+}

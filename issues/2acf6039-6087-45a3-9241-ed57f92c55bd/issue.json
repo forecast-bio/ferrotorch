@@ -1,0 +1,13 @@
+{
+  "uuid": "2acf6039-6087-45a3-9241-ed57f92c55bd",
+  "display_id": 193,
+  "title": "Add ferrotorch-gpt2 standalone project — GPT-2 124M implementation",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-17T02:12:32.625336183Z",
+  "updated_at": "2026-03-17T02:12:39.855056837Z",
+  "labels": [
+    "feature"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "uuid": "0828cfa5-1875-430d-a0d5-75b5053f7360",
+  "display_id": 240,
+  "title": "Fix Dropout2d and functional dropout crash on GPU",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T19:01:34.862759999Z",
+  "updated_at": "2026-03-23T19:08:56.244771709Z",
+  "closed_at": "2026-03-23T19:08:56.244771709Z",
+  "labels": [
+    "bug"
+  ]
+}

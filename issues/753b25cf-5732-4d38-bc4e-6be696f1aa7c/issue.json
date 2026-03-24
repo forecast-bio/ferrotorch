@@ -1,0 +1,14 @@
+{
+  "uuid": "753b25cf-5732-4d38-bc4e-6be696f1aa7c",
+  "display_id": 236,
+  "title": "Fix distributed collective ops and DDP crash on GPU tensors",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T19:01:21.402029348Z",
+  "updated_at": "2026-03-23T19:07:56.770402042Z",
+  "closed_at": "2026-03-23T19:07:56.770402042Z",
+  "labels": [
+    "bug"
+  ]
+}

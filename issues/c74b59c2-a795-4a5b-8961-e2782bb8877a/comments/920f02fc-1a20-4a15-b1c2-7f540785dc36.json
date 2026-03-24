@@ -1,0 +1,8 @@
+{
+  "uuid": "920f02fc-1a20-4a15-b1c2-7f540785dc36",
+  "issue_uuid": "c74b59c2-a795-4a5b-8961-e2782bb8877a",
+  "author": "anon-a7c6025f",
+  "content": "Observation: generation appears to hang — it buffers all output until complete. Need to stream tokens as they're generated so user sees progress. Also each forward pass through 12 layers on CPU is slow; should print each token immediately.",
+  "created_at": "2026-03-17T03:11:24.963673829Z",
+  "kind": "observation"
+}

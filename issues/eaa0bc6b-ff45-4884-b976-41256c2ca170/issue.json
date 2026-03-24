@@ -1,0 +1,19 @@
+{
+  "uuid": "eaa0bc6b-ff45-4884-b976-41256c2ca170",
+  "display_id": 58,
+  "title": "Add ferrotorch-serialize with SafeTensors state dict save/load",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "62bf35be-d6f4-4b2c-a4c8-afaf5c3ffb88",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T03:18:10.751555762Z",
+  "updated_at": "2026-03-15T03:37:17.839493220Z",
+  "closed_at": "2026-03-15T03:37:17.839493220Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "4d186127-cf34-45d5-978f-8a9048a684c2",
+    "5ded4147-eec3-44a2-ab25-9b1a40e0bed1"
+  ]
+}

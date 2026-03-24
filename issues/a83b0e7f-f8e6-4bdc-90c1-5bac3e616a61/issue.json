@@ -1,0 +1,18 @@
+{
+  "uuid": "a83b0e7f-f8e6-4bdc-90c1-5bac3e616a61",
+  "display_id": 98,
+  "title": "Add caching CUDA memory allocator",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "d00794af-9f1e-43ea-9b1a-a5d088acbd26",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T15:38:07.585609442Z",
+  "updated_at": "2026-03-15T15:48:41.635948044Z",
+  "closed_at": "2026-03-15T15:48:41.635948044Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "c723dde9-be45-4615-9165-f3311dc11636"
+  ]
+}

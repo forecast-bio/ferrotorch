@@ -1,0 +1,8 @@
+{
+  "uuid": "bee8ef63-f50e-4cfc-9528-d5e573ee33bc",
+  "issue_uuid": "3004f6ad-45c4-400c-b7a3-26ee7c6cc41e",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: U-Net with encoder-decoder, skip connections, differentiable nearest-neighbor upsample. 12 tests, 28.9M params.",
+  "created_at": "2026-03-15T17:20:30.888675108Z",
+  "kind": "result"
+}

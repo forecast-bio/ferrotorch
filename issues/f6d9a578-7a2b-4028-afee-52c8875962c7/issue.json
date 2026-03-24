@@ -1,0 +1,14 @@
+{
+  "uuid": "f6d9a578-7a2b-4028-afee-52c8875962c7",
+  "display_id": 141,
+  "title": "Wire up ferray-ufunc SIMD kernels for elementwise ops",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T19:11:50.154141547Z",
+  "updated_at": "2026-03-15T19:20:22.502847078Z",
+  "closed_at": "2026-03-15T19:20:22.502847078Z",
+  "labels": [
+    "fix"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "uuid": "6bae1f96-9eec-45d0-9562-4495d8ab38f1",
+  "display_id": 54,
+  "title": "Add RMSprop optimizer",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "62bf35be-d6f4-4b2c-a4c8-afaf5c3ffb88",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T03:17:59.343356883Z",
+  "updated_at": "2026-03-15T03:31:02.301760237Z",
+  "closed_at": "2026-03-15T03:31:02.301760237Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "4679ae4b-d4d4-402d-96a5-31c4f312c051"
+  ]
+}

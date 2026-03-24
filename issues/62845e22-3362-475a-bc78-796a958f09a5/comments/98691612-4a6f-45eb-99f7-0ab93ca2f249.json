@@ -1,0 +1,8 @@
+{
+  "uuid": "98691612-4a6f-45eb-99f7-0ab93ca2f249",
+  "issue_uuid": "62845e22-3362-475a-bc78-796a958f09a5",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Fixed all 41 QA issues. FSDP gradient flow restored (full_params stored for backward, reduce-scatter). JIT fusion restricted to unary chains (diamond reverted). no_grad/enable_grad panic-safe. DataLoader prefetch thread panic propagation. Profiler push_gpu_event returns Option. All loss outputs on correct device. NLLLoss negative target validation. MHA bias gradients differentiable. 1,608 tests pass.",
+  "created_at": "2026-03-24T03:29:14.146267702Z",
+  "kind": "result"
+}

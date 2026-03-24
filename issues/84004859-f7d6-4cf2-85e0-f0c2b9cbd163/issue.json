@@ -1,0 +1,15 @@
+{
+  "uuid": "84004859-f7d6-4cf2-85e0-f0c2b9cbd163",
+  "display_id": 64,
+  "title": "Add Dataset trait, samplers, and ferrotorch-data crate skeleton",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "0f44b2d4-7f1a-45ef-9b60-10a089374f23",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T04:30:42.872412037Z",
+  "updated_at": "2026-03-15T04:33:27.614124033Z",
+  "closed_at": "2026-03-15T04:33:27.614124033Z",
+  "labels": [
+    "feature"
+  ]
+}

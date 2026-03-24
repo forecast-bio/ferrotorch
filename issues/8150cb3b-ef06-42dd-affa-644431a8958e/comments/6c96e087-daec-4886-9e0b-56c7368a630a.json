@@ -1,0 +1,8 @@
+{
+  "uuid": "6c96e087-daec-4886-9e0b-56c7368a630a",
+  "issue_uuid": "8150cb3b-ef06-42dd-affa-644431a8958e",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: 9 init functions (zeros, ones, constant, uniform, normal, xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal), NonLinearity enum with gain(), compute_fans for 1D/2D/4D tensors. 13 tests, 0 warnings.",
+  "created_at": "2026-03-15T02:42:17.008651464Z",
+  "kind": "result"
+}

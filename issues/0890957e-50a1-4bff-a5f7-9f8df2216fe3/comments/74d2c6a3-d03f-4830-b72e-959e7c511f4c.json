@@ -1,0 +1,8 @@
+{
+  "uuid": "74d2c6a3-d03f-4830-b72e-959e7c511f4c",
+  "issue_uuid": "0890957e-50a1-4bff-a5f7-9f8df2216fe3",
+  "author": "anon-a7c6025f",
+  "content": "Implementing 4 deferred features in parallel: nn::functional API, SafeTensors state dict, in-place tensor ops, BatchNorm2d. These close the biggest gaps for real-world usage.",
+  "created_at": "2026-03-15T15:23:07.740862254Z",
+  "kind": "plan"
+}

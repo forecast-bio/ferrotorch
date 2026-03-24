@@ -1,0 +1,13 @@
+{
+  "uuid": "1d2938af-94d1-46ae-bc32-fbf8b8295979",
+  "display_id": 291,
+  "title": "T4.4 Nested/jagged tensors (variable-length sequences)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-24T03:54:29.561450730Z",
+  "updated_at": "2026-03-24T03:54:31.044168918Z",
+  "labels": [
+    "feature"
+  ]
+}

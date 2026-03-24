@@ -1,0 +1,8 @@
+{
+  "uuid": "d185e90e-4a0a-41ec-ae17-1b0a29fbb6fe",
+  "issue_uuid": "4168bc78-376c-4a7d-9c36-4b4234496d14",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: 7 shape grad_fns (reshape, flatten, squeeze, unsqueeze, transpose_2d, expand, cat) with 23 tests. reshape supports -1 dim inference.",
+  "created_at": "2026-03-15T01:53:09.961047279Z",
+  "kind": "result"
+}

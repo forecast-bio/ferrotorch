@@ -1,0 +1,15 @@
+{
+  "uuid": "c723dde9-be45-4615-9165-f3311dc11636",
+  "display_id": 97,
+  "title": "Add ferrotorch-gpu crate with CudaBuffer, device transfers, and StorageBuffer::Cuda",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "d00794af-9f1e-43ea-9b1a-a5d088acbd26",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T15:38:04.735079636Z",
+  "updated_at": "2026-03-15T15:44:53.554893115Z",
+  "closed_at": "2026-03-15T15:44:53.554893115Z",
+  "labels": [
+    "feature"
+  ]
+}

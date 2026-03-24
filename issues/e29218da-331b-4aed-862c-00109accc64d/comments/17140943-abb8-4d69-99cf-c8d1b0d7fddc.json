@@ -1,0 +1,8 @@
+{
+  "uuid": "17140943-abb8-4d69-99cf-c8d1b0d7fddc",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "bmm + permute_0213 rewrite results: 50 tokens in 73s (1.5s/tok), down from 123s (2.5s/tok). Attention forward is now fully GPU-resident — zero data_vec calls. Remaining transfers are from: (1) reshape clone_buffer (~12 per layer — reshape clones GPU buffer handles which might involve driver calls), (2) softmax CPU→GPU→CPU if kernel fails to load, (3) scale/mask tensor uploads (once per forward call). Next optimization: check if reshape clone_buffer is actually doing a memcpy.",
+  "created_at": "2026-03-17T04:57:11.102692716Z",
+  "kind": "result"
+}

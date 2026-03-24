@@ -1,0 +1,8 @@
+{
+  "uuid": "f2459bee-1ff1-40a3-a517-1273a22d448f",
+  "issue_uuid": "4eca2a05-a75b-44d1-8960-25721a0ed34d",
+  "author": "anon-a7c6025f",
+  "content": "Root cause: Embedding::forward creates the output tensor with EmbeddingBackward grad_fn on CPU (line 305), then calls result.to(device) to move it to GPU (line 310). But Tensor::to() uses from_storage which creates a leaf tensor — the grad_fn is silently dropped. The weight gradient is never computed because the graph is disconnected at the to() call. Fix: the forward should produce output directly on the correct device, or attach the grad_fn after the device transfer.",
+  "created_at": "2026-03-23T18:34:46.150536401Z",
+  "kind": "observation"
+}

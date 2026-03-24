@@ -1,0 +1,8 @@
+{
+  "uuid": "a28e2b57-0745-444f-87cb-08c534efae13",
+  "issue_uuid": "84004859-f7d6-4cf2-85e0-f0c2b9cbd163",
+  "author": "anon-a7c6025f",
+  "content": "Step 1: Dataset trait, IterableDataset trait, samplers (Sequential, Random), crate skeleton.",
+  "created_at": "2026-03-15T04:31:11.917559472Z",
+  "kind": "plan"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "ce4055f9-812e-43e8-94f6-66a57b864580",
+  "issue_uuid": "bc72f0a9-0ba7-4e52-9421-0a90a852989f",
+  "author": "anon-a7c6025f",
+  "content": "Designing the unified Tensor<T> architecture where GPU and CPU tensors are the same type, ops dispatch based on device, and Module/autograd work on GPU without changes. This is the PyTorch approach and the correct fix for the reported architectural issue.",
+  "created_at": "2026-03-15T21:47:46.360060383Z",
+  "kind": "plan"
+}

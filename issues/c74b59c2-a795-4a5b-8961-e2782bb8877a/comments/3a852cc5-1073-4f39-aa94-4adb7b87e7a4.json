@@ -1,0 +1,8 @@
+{
+  "uuid": "3a852cc5-1073-4f39-aa94-4adb7b87e7a4",
+  "issue_uuid": "c74b59c2-a795-4a5b-8961-e2782bb8877a",
+  "author": "anon-a7c6025f",
+  "content": "Plan: (1) Add ureq for HTTP downloads. (2) Create download.rs that auto-fetches vocab.json, merges.txt, model.safetensors from HuggingFace into ~/.cache/ferrotorch-gpt2/ on first run with progress bars. (3) Rewrite main.rs so the default action is generate — 'cargo run --release -- \"Hello world\"' just works. (4) Positional args, sensible defaults, no mandatory flags.",
+  "created_at": "2026-03-17T03:01:55.858225276Z",
+  "kind": "plan"
+}

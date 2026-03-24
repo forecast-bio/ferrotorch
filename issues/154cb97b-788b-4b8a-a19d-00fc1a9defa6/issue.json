@@ -1,0 +1,14 @@
+{
+  "uuid": "154cb97b-788b-4b8a-a19d-00fc1a9defa6",
+  "display_id": 106,
+  "title": "Add end-to-end MNIST training example",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:18:11.497340652Z",
+  "updated_at": "2026-03-15T16:22:23.642370728Z",
+  "closed_at": "2026-03-15T16:22:23.642370728Z",
+  "labels": [
+    "feature"
+  ]
+}

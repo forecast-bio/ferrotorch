@@ -1,0 +1,8 @@
+{
+  "uuid": "2cfe88ca-05d6-4930-b87b-317fec919216",
+  "issue_uuid": "f0467f1f-1169-4b82-8a87-25a1938c0898",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: All 15 sub-crates now wired into umbrella. 5 always-on, 6 default features, 3 opt-in (gpu/cubecl/distributed). Full submodule re-exports and updated README.",
+  "created_at": "2026-03-16T04:05:27.032548223Z",
+  "kind": "result"
+}

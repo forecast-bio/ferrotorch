@@ -1,0 +1,13 @@
+{
+  "uuid": "4cf43a73-c471-451c-aa20-86b84ef17d27",
+  "display_id": 167,
+  "title": "Add PagedAttention for efficient LLM serving to ferrotorch-nn",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T21:19:25.687486174Z",
+  "updated_at": "2026-03-15T21:19:27.243058285Z",
+  "labels": [
+    "feature"
+  ]
+}

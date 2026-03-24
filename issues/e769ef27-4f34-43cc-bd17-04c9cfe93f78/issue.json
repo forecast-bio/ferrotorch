@@ -1,0 +1,14 @@
+{
+  "uuid": "e769ef27-4f34-43cc-bd17-04c9cfe93f78",
+  "display_id": 116,
+  "title": "Add EfficientNet model architecture",
+  "status": "closed",
+  "priority": "low",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:53:35.749742508Z",
+  "updated_at": "2026-03-15T17:17:34.943714845Z",
+  "closed_at": "2026-03-15T17:17:34.943714845Z",
+  "labels": [
+    "feature"
+  ]
+}

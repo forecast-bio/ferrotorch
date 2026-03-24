@@ -1,0 +1,13 @@
+{
+  "uuid": "93351617-1051-4e1c-8101-555f699e04ca",
+  "display_id": 132,
+  "title": "Implement PyTorch .pt/.pth checkpoint import in pure Rust",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T17:45:24.422466363Z",
+  "updated_at": "2026-03-15T17:45:26.204497758Z",
+  "labels": [
+    "feature"
+  ]
+}

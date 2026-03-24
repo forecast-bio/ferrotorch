@@ -1,0 +1,8 @@
+{
+  "uuid": "6f047554-7b58-4e74-b38b-d11a3078d34d",
+  "issue_uuid": "f6d9a578-7a2b-4028-afee-52c8875962c7",
+  "author": "anon-a7c6025f",
+  "content": "Wiring ferray-ufunc SIMD kernels into elementwise ops (add, mul, relu, sigmoid, exp, log) and replacing scalar loops. ferray-ufunc has hand-tuned SIMD f32/f64 paths + CORE-MATH transcendentals.",
+  "created_at": "2026-03-15T19:12:04.630128853Z",
+  "kind": "plan"
+}

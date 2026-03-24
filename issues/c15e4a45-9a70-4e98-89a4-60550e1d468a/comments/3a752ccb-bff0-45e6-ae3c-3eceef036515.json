@@ -1,0 +1,8 @@
+{
+  "uuid": "3a752ccb-bff0-45e6-ae3c-3eceef036515",
+  "issue_uuid": "c15e4a45-9a70-4e98-89a4-60550e1d468a",
+  "author": "anon-a7c6025f",
+  "content": "Performance summary after this session: 0.93s/tok (previous was 1.2s/tok). Improvements: cached cuBLAS handle eliminates per-op handle creation. Remaining bottlenecks identified via nsys: (1) cuBLAS JIT compilation for unique matrix shapes (54% of GPU API time), (2) GPU↔CPU memcpy (25%), (3) cudaMalloc/Free per operation. The small matmul PTX kernel had a bug and was disabled. Next steps to reach target: fix the small matmul kernel (verify with ptxas), implement flash attention, pre-compute all position embeddings, implement GPU memory pool.",
+  "created_at": "2026-03-17T07:49:12.734463932Z",
+  "kind": "result"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "868fb570-9a33-49c3-b61e-8b6dd08acf89",
+  "issue_uuid": "20ad18e3-6597-4f51-b7fc-6584e220091c",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Pythia-70M architecture test (Experiment 6) with GPT-NeoX parallel attention+MLP blocks, RoPE, causal masking, untied embedding/unembedding, AdamW with beta2=0.95. 132K params, loss 6.73→1.50 over 10 steps. Exercises: Embedding, RoPE apply, chunk (QKV split), view (head reshape), permute (K transpose), bmm (attention), softmax, div (scaling), add (residual+causal mask), LayerNorm, Linear, CrossEntropy, AdamW.",
+  "created_at": "2026-03-23T22:32:18.113432633Z",
+  "kind": "result"
+}

@@ -1,0 +1,20 @@
+{
+  "uuid": "ea7369c3-0403-421a-8e20-4cde8adc1e6d",
+  "display_id": 74,
+  "title": "Add ferrotorch-vision integration tests",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "dda48f10-f7bb-4888-8d32-97be7be11df3",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T13:32:51.055304280Z",
+  "updated_at": "2026-03-15T13:44:31.750791152Z",
+  "closed_at": "2026-03-15T13:44:31.750791152Z",
+  "labels": [
+    "feature"
+  ],
+  "blockers": [
+    "2b6bfe68-eaab-4cbd-92c4-591a09e4e3d7",
+    "0b13bd51-2e15-4e3d-94ae-d51955605ca5",
+    "c20b2ebf-726e-4b5b-aee5-5a6a698b62a0"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "127b276e-9a59-4ca6-b291-85e9675481c4",
+  "issue_uuid": "c12fbb68-a89c-4d6b-8f1d-e792dedd8d15",
+  "author": "anon-a7c6025f",
+  "content": "Blocker: CUDA graph capture requires that the ENTIRE decode step is CPU-free — no Tensor construction, no data_vec, no CPU-side control flow. Our current decode path still creates Tensors (which involves CPU-side Arc allocation, shape computation, etc.) and calls data_vec to read logits. Full CUDA graph capture requires rewriting the decode path to operate ENTIRELY on raw GpuBufferHandles with no Rust heap allocations during the captured region. This is a fundamental architectural change — the Tensor abstraction layer must be bypassed completely for the graph-captured region. Pausing CUDA graph implementation — it requires more architectural work than is feasible in this session.",
+  "created_at": "2026-03-17T13:14:14.543270575Z",
+  "kind": "blocker"
+}

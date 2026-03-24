@@ -1,0 +1,13 @@
+{
+  "uuid": "6bd1884d-9157-4951-928c-02e5a1bc617e",
+  "display_id": 166,
+  "title": "Add gradient penalty utilities (gradient_penalty, grad_norm, jvp, vjp) to ferrotorch-core autograd",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T21:19:09.332184552Z",
+  "updated_at": "2026-03-15T21:19:15.352969574Z",
+  "labels": [
+    "enhancement"
+  ]
+}

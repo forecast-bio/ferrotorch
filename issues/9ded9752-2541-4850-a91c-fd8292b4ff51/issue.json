@@ -1,0 +1,13 @@
+{
+  "uuid": "9ded9752-2541-4850-a91c-fd8292b4ff51",
+  "display_id": 143,
+  "title": "Implement GPU memory safety system for ferrotorch-gpu (MemoryGuard, MemoryWatchdog, OomPolicy, MemoryReservation)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T19:26:34.933386862Z",
+  "updated_at": "2026-03-15T19:26:36.734211709Z",
+  "labels": [
+    "gpu,memory,safety"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "uuid": "c9022fbd-b9fe-4168-b0b7-840c09b424b2",
+  "display_id": 47,
+  "title": "Implement container.rs: Sequential, ModuleList, ModuleDict for ferrotorch-nn",
+  "status": "closed",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T02:55:30.570764585Z",
+  "updated_at": "2026-03-15T13:32:00.115723968Z",
+  "closed_at": "2026-03-15T13:32:00.115723968Z",
+  "labels": [
+    "feature"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "uuid": "2c6ccb9c-de99-429b-a47e-ae7b2f5ecdd1",
+  "display_id": 115,
+  "title": "Add L-BFGS optimizer",
+  "status": "closed",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:53:32.786782119Z",
+  "updated_at": "2026-03-15T17:17:32.287347933Z",
+  "closed_at": "2026-03-15T17:17:32.287347933Z",
+  "labels": [
+    "feature"
+  ]
+}

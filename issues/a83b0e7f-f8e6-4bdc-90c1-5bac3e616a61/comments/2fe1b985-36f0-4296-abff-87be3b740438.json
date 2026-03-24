@@ -1,0 +1,8 @@
+{
+  "uuid": "2fe1b985-36f0-4296-abff-87be3b740438",
+  "issue_uuid": "a83b0e7f-f8e6-4bdc-90c1-5bac3e616a61",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: CudaAllocator with alloc_zeros, alloc_copy, free, memory tracking (allocated/peak bytes), reset_peak_stats. 8 new tests, 15 total GPU tests.",
+  "created_at": "2026-03-15T15:48:39.910655680Z",
+  "kind": "result"
+}

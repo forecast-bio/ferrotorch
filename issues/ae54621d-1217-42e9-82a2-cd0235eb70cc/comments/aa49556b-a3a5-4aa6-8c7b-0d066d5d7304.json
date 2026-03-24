@@ -1,0 +1,8 @@
+{
+  "uuid": "aa49556b-a3a5-4aa6-8c7b-0d066d5d7304",
+  "issue_uuid": "ae54621d-1217-42e9-82a2-cd0235eb70cc",
+  "author": "anon-a7c6025f",
+  "content": "Plan: Replace sigmoid's inline SIMD code and tanh's scalar unary_map with calls to fast_sigmoid/fast_tanh from elementwise.rs. These already have rayon parallelism + pool allocator + SIMD exp. Also need to check if the Pythia benchmark uses sigmoid or tanh anywhere.",
+  "created_at": "2026-03-23T23:00:32.188297278Z",
+  "kind": "plan"
+}

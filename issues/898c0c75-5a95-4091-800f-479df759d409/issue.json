@@ -1,0 +1,14 @@
+{
+  "uuid": "898c0c75-5a95-4091-800f-479df759d409",
+  "display_id": 107,
+  "title": "Add VGG and ViT model architectures",
+  "status": "closed",
+  "priority": "medium",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:22:33.631106538Z",
+  "updated_at": "2026-03-15T16:36:01.443215834Z",
+  "closed_at": "2026-03-15T16:36:01.443215834Z",
+  "labels": [
+    "feature"
+  ]
+}

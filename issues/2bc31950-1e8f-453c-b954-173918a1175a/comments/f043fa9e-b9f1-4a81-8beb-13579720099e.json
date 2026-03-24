@@ -1,0 +1,8 @@
+{
+  "uuid": "f043fa9e-b9f1-4a81-8beb-13579720099e",
+  "issue_uuid": "2bc31950-1e8f-453c-b954-173918a1175a",
+  "author": "anon-a7c6025f",
+  "content": "Two fixes: 1) Replace naive triple-loop matmul with ferray-linalg (faer backend) for 100x+ CPU speedup. 2) Change all ferray path deps to version+path deps for crates.io publishing.",
+  "created_at": "2026-03-15T19:02:47.149526094Z",
+  "kind": "plan"
+}

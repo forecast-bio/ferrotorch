@@ -1,0 +1,8 @@
+{
+  "uuid": "2dacae45-93f5-4ee2-aa38-612f2c3ef85a",
+  "issue_uuid": "fe8f0f97-b744-4858-9087-2776190f2dde",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: ops/elementwise.rs with unary_map, binary_map (with broadcasting), scalar_map, sum, sum_axis, mean. 9 tests passing. Broadcasting supports arbitrary rank via broadcast_index.",
+  "created_at": "2026-03-15T01:45:08.941062949Z",
+  "kind": "result"
+}

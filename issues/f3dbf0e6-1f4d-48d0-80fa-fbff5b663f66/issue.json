@@ -1,0 +1,14 @@
+{
+  "uuid": "f3dbf0e6-1f4d-48d0-80fa-fbff5b663f66",
+  "display_id": 232,
+  "title": "Fix KFAC optimizer and GradScaler GPU crashes",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T19:01:10.069010369Z",
+  "updated_at": "2026-03-23T19:07:34.379430395Z",
+  "closed_at": "2026-03-23T19:07:34.379430395Z",
+  "labels": [
+    "bug"
+  ]
+}

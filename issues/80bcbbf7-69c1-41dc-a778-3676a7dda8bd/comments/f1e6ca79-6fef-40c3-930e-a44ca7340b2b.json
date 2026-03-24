@@ -1,0 +1,8 @@
+{
+  "uuid": "f1e6ca79-6fef-40c3-930e-a44ca7340b2b",
+  "issue_uuid": "80bcbbf7-69c1-41dc-a778-3676a7dda8bd",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: 4 linalg grad_fns (mm, mv, dot, matmul dispatch) with 9 tests. mm backward uses A^T @ grad and grad @ B^T.",
+  "created_at": "2026-03-15T01:52:49.307019127Z",
+  "kind": "result"
+}

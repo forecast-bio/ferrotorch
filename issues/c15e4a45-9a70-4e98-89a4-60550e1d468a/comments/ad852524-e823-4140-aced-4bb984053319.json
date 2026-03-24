@@ -1,0 +1,8 @@
+{
+  "uuid": "ad852524-e823-4140-aced-4bb984053319",
+  "issue_uuid": "c15e4a45-9a70-4e98-89a4-60550e1d468a",
+  "author": "anon-a7c6025f",
+  "content": "Cached position embeddings: 0.99s/tok decode (marginal improvement from 1.0s). The bottleneck is definitively the ~600 individual CUDA API calls per token. Each call has driver overhead regardless of compute size. Reaching 100+ tok/s requires reducing the number of CUDA API calls per token from 600 to <10. The only ways to do that: (1) CUDA graphs (single graph launch replaces all 600 calls), (2) massive kernel fusion (flash attention + fused MLP + fused LN+Linear). CUDA graphs are the most impactful single change.",
+  "created_at": "2026-03-17T08:15:28.094196934Z",
+  "kind": "result"
+}

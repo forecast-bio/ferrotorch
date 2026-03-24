@@ -1,0 +1,14 @@
+{
+  "uuid": "3dfec68a-49b2-4c71-823a-0561b94dbc02",
+  "display_id": 211,
+  "title": "Fix view/reshape on GPU tensors dropping requires_grad and breaking autograd graph",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T18:19:39.207245623Z",
+  "updated_at": "2026-03-23T18:22:39.966676249Z",
+  "closed_at": "2026-03-23T18:22:39.966676249Z",
+  "labels": [
+    "bug"
+  ]
+}

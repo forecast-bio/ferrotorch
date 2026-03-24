@@ -1,0 +1,8 @@
+{
+  "uuid": "61d8372b-0dd0-4048-a58f-5330f298e91d",
+  "issue_uuid": "e29218da-331b-4aed-862c-00109accc64d",
+  "author": "anon-a7c6025f",
+  "content": "KV cache with pre-allocated GPU buffers + slice_write/read: 50 tokens in 60s (1.2s/tok). Cache eliminates redundant K/V recomputation. Remaining bottleneck: ~100+ CUDA kernel launches per token from individual ops (each permute, reshape view, bmm, softmax, layernorm, gelu, add, mul is a separate launch). Each launch has ~10-20us overhead. 100 launches × 15us = 1.5ms overhead alone, but the actual ops + data transfers dominate. The scale tensor and position embedding still do CPU→GPU per token. Next: (1) cache position embeddings, (2) cache the scale tensor, (3) profile to find the actual bottleneck.",
+  "created_at": "2026-03-17T06:27:49.798391915Z",
+  "kind": "result"
+}

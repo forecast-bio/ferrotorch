@@ -1,0 +1,11 @@
+{
+  "uuid": "9ff45bbc-a73d-41f5-af8d-8ad8550d8ecb",
+  "display_id": 25,
+  "title": "Update phase-5-vision.md with pretrained weights, feature extraction, model registry, ConvNeXt/Swin, augmentations, image I/O, and benchmark requirement",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T02:21:46.384927124Z",
+  "updated_at": "2026-03-15T02:23:49.276500132Z",
+  "closed_at": "2026-03-15T02:23:49.276500132Z"
+}

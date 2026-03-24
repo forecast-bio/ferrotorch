@@ -1,0 +1,8 @@
+{
+  "uuid": "973533d5-b729-42c6-b9d8-f66b42edfec1",
+  "issue_uuid": "2acf6039-6087-45a3-9241-ed57f92c55bd",
+  "author": "anon-a7c6025f",
+  "content": "Plan: standalone ~/ferrotorch-gpt2 crate with GPT-2 124M. Files: model.rs (GPT2Config, MLP, GPT2Block, GPT2Model with derive(Module)), tokenizer.rs (wrap HF tokenizers crate), data.rs (TextDataset impl), generate.rs (autoregressive sampling with top-k/top-p), main.rs (CLI for train/generate). Will use path dep to ../ferrotorch/ferrotorch. Need to verify exact API signatures from ferrotorch source before writing.",
+  "created_at": "2026-03-17T02:12:57.785422372Z",
+  "kind": "plan"
+}

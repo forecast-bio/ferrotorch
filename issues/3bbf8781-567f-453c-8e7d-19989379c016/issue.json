@@ -1,0 +1,14 @@
+{
+  "uuid": "3bbf8781-567f-453c-8e7d-19989379c016",
+  "display_id": 127,
+  "title": "Add PyTorch .pt/.pth checkpoint import",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:54:10.282656049Z",
+  "updated_at": "2026-03-15T17:44:01.764481152Z",
+  "closed_at": "2026-03-15T17:44:01.764481152Z",
+  "labels": [
+    "feature"
+  ]
+}

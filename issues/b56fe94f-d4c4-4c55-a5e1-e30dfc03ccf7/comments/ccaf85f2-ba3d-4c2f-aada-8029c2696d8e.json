@@ -1,0 +1,8 @@
+{
+  "uuid": "ccaf85f2-ba3d-4c2f-aada-8029c2696d8e",
+  "issue_uuid": "b56fe94f-d4c4-4c55-a5e1-e30dfc03ccf7",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: index_select (1D with sparse scatter-add backward) and masked_fill with 13 tests. gather/scatter_add stubbed with errors.",
+  "created_at": "2026-03-15T01:53:19.630398434Z",
+  "kind": "result"
+}

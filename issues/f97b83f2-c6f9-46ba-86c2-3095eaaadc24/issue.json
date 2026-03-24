@@ -1,0 +1,14 @@
+{
+  "uuid": "f97b83f2-c6f9-46ba-86c2-3095eaaadc24",
+  "display_id": 207,
+  "title": "Add autograd support for chunk and split operations",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-22T22:55:05.413070332Z",
+  "updated_at": "2026-03-22T23:01:52.155974672Z",
+  "closed_at": "2026-03-22T23:01:52.155974672Z",
+  "labels": [
+    "bug"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "0a69f731-1157-4cd3-955a-11a2192921ae",
+  "issue_uuid": "59d0f2f6-3536-44cc-80c6-c7dbeb0b3d6d",
+  "author": "anon-a7c6025f",
+  "content": "Step 4: GPU autograd integration. Extend ferrotorch-core's StorageBuffer with a Cuda variant, implement tensor.to(device)/tensor.cuda()/tensor.cpu(), make GPU ops participate in the autograd graph.",
+  "created_at": "2026-03-15T15:54:29.920741477Z",
+  "kind": "plan"
+}

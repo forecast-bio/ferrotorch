@@ -1,0 +1,14 @@
+{
+  "uuid": "e1ca0d0b-b6a9-4372-aa33-d7b05b2fc64e",
+  "display_id": 228,
+  "title": "Fix batched matmul and broadcast matmul backward crash on GPU",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-23T19:00:56.524545497Z",
+  "updated_at": "2026-03-23T19:10:38.875536560Z",
+  "closed_at": "2026-03-23T19:10:38.875536560Z",
+  "labels": [
+    "bug"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "uuid": "c12fbb68-a89c-4d6b-8f1d-e792dedd8d15",
+  "display_id": 198,
+  "title": "Add GPU memory pool and CUDA graph capture for 100x decode speedup",
+  "status": "open",
+  "priority": "critical",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-17T13:01:18.689648269Z",
+  "updated_at": "2026-03-17T13:01:25.975155382Z",
+  "labels": [
+    "enhancement"
+  ]
+}

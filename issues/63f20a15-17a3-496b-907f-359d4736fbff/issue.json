@@ -1,0 +1,14 @@
+{
+  "uuid": "63f20a15-17a3-496b-907f-359d4736fbff",
+  "display_id": 124,
+  "title": "Add JIT graph break handling and segmented execution",
+  "status": "closed",
+  "priority": "low",
+  "created_by": "anon-a7c6025f",
+  "created_at": "2026-03-15T16:54:00.761866192Z",
+  "updated_at": "2026-03-15T17:25:06.318062490Z",
+  "closed_at": "2026-03-15T17:25:06.318062490Z",
+  "labels": [
+    "feature"
+  ]
+}
