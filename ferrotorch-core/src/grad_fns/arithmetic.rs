@@ -514,6 +514,9 @@ impl<T: Float> GradFn<T> for DivBackward<T> {
 }
 
 /// Elementwise division: `c = a / b`.
+///
+/// Division by zero follows IEEE 754 semantics: `x / 0.0` produces `+inf`
+/// or `-inf` depending on the sign of `x`, and `0.0 / 0.0` produces `NaN`.
 pub fn div<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.is_cuda() && is_f32::<T>() {
         let backend = crate::gpu_dispatch::gpu_backend()

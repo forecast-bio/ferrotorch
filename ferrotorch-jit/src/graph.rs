@@ -21,6 +21,9 @@ pub enum IrOpKind {
     Mul,
     Div,
     Neg,
+    /// Raise each element to a fixed exponent. Special-cased separately from
+    /// other unary ops because it carries an `exponent` parameter that must be
+    /// preserved through optimization passes and codegen.
     Pow { exponent: f64 },
     Sqrt,
     Abs,

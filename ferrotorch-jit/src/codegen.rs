@@ -436,7 +436,7 @@ fn make_elementwise_op(op: &IrOpKind) -> Option<ElementwiseOp> {
             let exp = *exponent;
             Some(Arc::new(move |x: f64| x.powf(exp)))
         }
-        IrOpKind::Relu => Some(Arc::new(|x: f64| if x > 0.0 { x } else { 0.0 })),
+        IrOpKind::Relu => Some(Arc::new(|x: f64| x.max(0.0))),
         IrOpKind::Sigmoid => Some(Arc::new(|x: f64| 1.0 / (1.0 + (-x).exp()))),
         IrOpKind::Tanh => Some(Arc::new(|x: f64| x.tanh())),
         IrOpKind::Gelu => Some(Arc::new(|x: f64| {
@@ -868,6 +868,36 @@ mod tests {
         let compiled = NativeBackend.compile(&g).unwrap();
         let result = compiled.execute(&[vec![42.0, 43.0, 44.0]]).unwrap();
         assert_close(&result, &[42.0, 43.0, 44.0], 1e-10);
+    }
+
+    // -----------------------------------------------------------------------
+    // Zero-element tensor tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_interpreter_backend_zero_element_tensor() {
+        // Graph: y = neg(x) with shape [0]
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![0]);
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![0]]);
+        g.set_outputs(vec![neg_outs[0]]);
+
+        let compiled = InterpreterBackend.compile(&g).unwrap();
+        let result = compiled.execute(&[vec![]]).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_native_backend_zero_element_tensor() {
+        // Graph: y = relu(x) with shape [0]
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![0]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![0]]);
+        g.set_outputs(vec![relu_outs[0]]);
+
+        let compiled = NativeBackend.compile(&g).unwrap();
+        let result = compiled.execute(&[vec![]]).unwrap();
+        assert!(result.is_empty());
     }
 
     #[test]
