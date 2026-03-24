@@ -16,6 +16,9 @@
 //! | [`Uniform`] | `low`, `high` | Yes |
 //! | [`Bernoulli`] | `probs` | No (discrete) |
 //! | [`Categorical`] | `probs` | No (discrete) |
+//! | [`MultivariateNormal`] | `loc`, `scale_tril` | Yes |
+//! | [`Dirichlet`] | `concentration` | Yes |
+//! | [`Multinomial`] | `total_count`, `probs` | No (discrete) |
 //!
 //! # Infrastructure
 //!
@@ -28,13 +31,19 @@
 mod bernoulli;
 mod categorical;
 pub mod constraints;
+mod dirichlet;
 pub mod kl;
+mod multinomial;
+mod multivariate_normal;
 mod normal;
 pub mod transforms;
 mod uniform;
 
 pub use bernoulli::Bernoulli;
 pub use categorical::Categorical;
+pub use dirichlet::Dirichlet;
+pub use multinomial::Multinomial;
+pub use multivariate_normal::MultivariateNormal;
 pub use normal::Normal;
 pub use transforms::TransformedDistribution;
 pub use uniform::Uniform;
