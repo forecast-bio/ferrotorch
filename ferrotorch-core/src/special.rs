@@ -38,14 +38,14 @@ const ERF_P: f64 = 0.3275911;
 // Lanczos approximation coefficients (g = 7, n = 9).
 const LANCZOS_G: f64 = 7.0;
 const LANCZOS_COEFFICIENTS: [f64; 9] = [
-    0.99999999999980993,
+    0.999_999_999_999_809_9,
     676.5203681218851,
     -1259.1392167224028,
-    771.32342877765313,
-    -176.61502916214059,
+    771.323_428_777_653_1,
+    -176.615_029_162_140_6,
     12.507343278686905,
     -0.13857109526572012,
-    9.9843695780195716e-6,
+    9.984_369_578_019_572e-6,
     1.5056327351493116e-7,
 ];
 
@@ -134,8 +134,8 @@ fn lgamma_scalar<T: Float>(x: T) -> T {
 
     let z = x - one;
     let mut sum = T::from(LANCZOS_COEFFICIENTS[0]).unwrap();
-    for i in 1..LANCZOS_COEFFICIENTS.len() {
-        sum = sum + T::from(LANCZOS_COEFFICIENTS[i]).unwrap() / (z + T::from(i as f64).unwrap());
+    for (i, &coeff) in LANCZOS_COEFFICIENTS.iter().enumerate().skip(1) {
+        sum += T::from(coeff).unwrap() / (z + T::from(i as f64).unwrap());
     }
 
     let t = z + g + half;
@@ -164,8 +164,10 @@ fn digamma_scalar<T: Float>(x: T) -> T {
     let mut z = x;
     let six = T::from(6.0).unwrap();
     while z < six {
-        result = result - one / z;
-        z = z + one;
+        #[allow(clippy::assign_op_pattern)]
+        { result = result - one / z; }
+        #[allow(clippy::assign_op_pattern)]
+        { z = z + one; }
     }
 
     // Asymptotic expansion for large z:
@@ -174,10 +176,10 @@ fn digamma_scalar<T: Float>(x: T) -> T {
     let z4 = z2 * z2;
     let z6 = z4 * z2;
 
-    result = result + z.ln() - one / (T::from(2.0).unwrap() * z)
-        - one / (T::from(12.0).unwrap() * z2)
-        + one / (T::from(120.0).unwrap() * z4)
-        - one / (T::from(252.0).unwrap() * z6);
+    result =
+        result + z.ln() - one / (T::from(2.0).unwrap() * z) - one / (T::from(12.0).unwrap() * z2)
+            + one / (T::from(120.0).unwrap() * z4)
+            - one / (T::from(252.0).unwrap() * z6);
 
     result
 }
@@ -389,7 +391,10 @@ mod tests {
         let result = erfinv(&input).unwrap();
         let d = result.data().unwrap();
         assert!(d[0].is_infinite() && d[0] > 0.0, "erfinv(1) should be +inf");
-        assert!(d[1].is_infinite() && d[1] < 0.0, "erfinv(-1) should be -inf");
+        assert!(
+            d[1].is_infinite() && d[1] < 0.0,
+            "erfinv(-1) should be -inf"
+        );
     }
 
     // --- lgamma ---
@@ -494,9 +499,7 @@ mod tests {
         // log1p(1.0) = ln(2) ≈ 0.693147...
         let input = t(&[1.0], &[1]);
         let result = log1p(&input).unwrap();
-        assert!(
-            (result.data().unwrap()[0] - std::f64::consts::LN_2).abs() < 1e-15,
-        );
+        assert!((result.data().unwrap()[0] - std::f64::consts::LN_2).abs() < 1e-15,);
     }
 
     // --- expm1 ---
@@ -527,9 +530,7 @@ mod tests {
         let input = t(&[1.0], &[1]);
         let result = expm1(&input).unwrap();
         let expected = std::f64::consts::E - 1.0;
-        assert!(
-            (result.data().unwrap()[0] - expected).abs() < 1e-14,
-        );
+        assert!((result.data().unwrap()[0] - expected).abs() < 1e-14,);
     }
 
     // --- sinc ---
@@ -622,12 +623,9 @@ mod tests {
 
     #[test]
     fn erf_f32() {
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.0f32, 1.0, -1.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::from_storage(TensorStorage::cpu(vec![0.0f32, 1.0, -1.0]), vec![3], false)
+                .unwrap();
         let result = erf(&input).unwrap();
         let d = result.data().unwrap();
         assert!(d[0].abs() < 1e-6);

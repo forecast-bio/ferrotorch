@@ -42,8 +42,16 @@ fn broadcast_batch_shapes(a: &[usize], b: &[usize]) -> FerrotorchResult<Vec<usiz
     let max_len = a.len().max(b.len());
     let mut result = Vec::with_capacity(max_len);
     for i in 0..max_len {
-        let da = if i < max_len - a.len() { 1 } else { a[i - (max_len - a.len())] };
-        let db = if i < max_len - b.len() { 1 } else { b[i - (max_len - b.len())] };
+        let da = if i < max_len - a.len() {
+            1
+        } else {
+            a[i - (max_len - a.len())]
+        };
+        let db = if i < max_len - b.len() {
+            1
+        } else {
+            b[i - (max_len - b.len())]
+        };
         if da == db {
             result.push(da);
         } else if da == 1 {
@@ -138,7 +146,7 @@ fn broadcast_matmul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<
             for j in 0..n {
                 let mut acc = <T as num_traits::Zero>::zero();
                 for p in 0..k {
-                    acc = acc + a_data[a_off + i * k + p] * b_data[b_off + p * n + j];
+                    acc += a_data[a_off + i * k + p] * b_data[b_off + p * n + j];
                 }
                 result[c_off + i * n + j] = acc;
             }
@@ -177,17 +185,17 @@ fn broadcast_strides(src: &[usize], broadcast: &[usize]) -> Vec<usize> {
             src_strides[i] = src_strides[i + 1] * src[i + 1];
         }
 
-        for i in 0..broadcast.len() {
+        for (i, stride) in strides.iter_mut().enumerate() {
             if i < offset {
                 // Dimension doesn't exist in source — broadcast (stride 0).
-                strides[i] = 0;
+                *stride = 0;
             } else {
                 let si = i - offset;
                 if src[si] == 1 {
                     // Size-1 dimension — broadcast (stride 0).
-                    strides[i] = 0;
+                    *stride = 0;
                 } else {
-                    strides[i] = src_strides[si];
+                    *stride = src_strides[si];
                 }
             }
         }
@@ -213,7 +221,11 @@ fn batch_linear_index(flat: usize, strides: &[usize], shape: &[usize]) -> usize 
 pub fn dot<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.ndim() != 1 || b.ndim() != 1 {
         return Err(FerrotorchError::ShapeMismatch {
-            message: format!("dot requires 1-D tensors, got {:?} and {:?}", a.shape(), b.shape()),
+            message: format!(
+                "dot requires 1-D tensors, got {:?} and {:?}",
+                a.shape(),
+                b.shape()
+            ),
         });
     }
     if a.shape()[0] != b.shape()[0] {
@@ -272,7 +284,7 @@ pub fn mm_raw<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize
                     let b_row = p * n;
                     for j in 0..n {
                         let r = result.get_unchecked_mut(r_row + j);
-                        *r = *r + a_ip * *b_data.get_unchecked(b_row + j);
+                        *r += a_ip * *b_data.get_unchecked(b_row + j);
                     }
                 }
             }
@@ -290,7 +302,14 @@ pub fn mm_raw<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize
             let b_mat = faer::mat::MatRef::from_row_major_slice(b_f32, k, n);
             let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f32, m, n);
             let par = faer_par(m, k, n);
-            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f32, par);
+            faer::linalg::matmul::matmul(
+                &mut c_mat,
+                faer::Accum::Replace,
+                &a_mat,
+                &b_mat,
+                1.0f32,
+                par,
+            );
         } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
             let a_f64 = unsafe { &*(a_data as *const [T] as *const [f64]) };
             let b_f64 = unsafe { &*(b_data as *const [T] as *const [f64]) };
@@ -299,7 +318,14 @@ pub fn mm_raw<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize
             let b_mat = faer::mat::MatRef::from_row_major_slice(b_f64, k, n);
             let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f64, m, n);
             let par = faer_par(m, k, n);
-            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
+            faer::linalg::matmul::matmul(
+                &mut c_mat,
+                faer::Accum::Replace,
+                &a_mat,
+                &b_mat,
+                1.0f64,
+                par,
+            );
         } else {
             // Fallback for f16/bf16: upcast to f64, run faer, downcast.
             let a_f64: Vec<f64> = a_data.iter().map(|&v| v.to_f64().unwrap()).collect();
@@ -309,7 +335,14 @@ pub fn mm_raw<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize
             let b_mat = faer::mat::MatRef::from_row_major_slice(&b_f64, k, n);
             let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(&mut r_f64, m, n);
             let par = faer_par(m, k, n);
-            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
+            faer::linalg::matmul::matmul(
+                &mut c_mat,
+                faer::Accum::Replace,
+                &a_mat,
+                &b_mat,
+                1.0f64,
+                par,
+            );
             for (r, &v) in result.iter_mut().zip(r_f64.iter()) {
                 *r = T::from(v).unwrap();
             }
@@ -339,7 +372,8 @@ pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
                     let b_row = j * k;
                     let mut acc = zero;
                     for p in 0..k {
-                        acc = acc + *a_data.get_unchecked(a_row + p) * *b_data.get_unchecked(b_row + p);
+                        acc +=
+                            *a_data.get_unchecked(a_row + p) * *b_data.get_unchecked(b_row + p);
                     }
                     *result.get_unchecked_mut(r_row + j) = acc;
                 }
@@ -359,7 +393,14 @@ pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
             let b_mat = faer::mat::MatRef::from_row_major_slice(b_f32, n, k).transpose();
             let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f32, m, n);
             let par = faer_par(m, k, n);
-            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f32, par);
+            faer::linalg::matmul::matmul(
+                &mut c_mat,
+                faer::Accum::Replace,
+                &a_mat,
+                &b_mat,
+                1.0f32,
+                par,
+            );
         } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
             let a_f64 = unsafe { &*(a_data as *const [T] as *const [f64]) };
             let b_f64 = unsafe { &*(b_data as *const [T] as *const [f64]) };
@@ -368,7 +409,14 @@ pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
             let b_mat = faer::mat::MatRef::from_row_major_slice(b_f64, n, k).transpose();
             let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f64, m, n);
             let par = faer_par(m, k, n);
-            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
+            faer::linalg::matmul::matmul(
+                &mut c_mat,
+                faer::Accum::Replace,
+                &a_mat,
+                &b_mat,
+                1.0f64,
+                par,
+            );
         } else {
             let a_f64: Vec<f64> = a_data.iter().map(|&v| v.to_f64().unwrap()).collect();
             let b_f64: Vec<f64> = b_data.iter().map(|&v| v.to_f64().unwrap()).collect();
@@ -377,7 +425,14 @@ pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
             let b_mat = faer::mat::MatRef::from_row_major_slice(&b_f64, n, k).transpose();
             let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(&mut r_f64, m, n);
             let par = faer_par(m, k, n);
-            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
+            faer::linalg::matmul::matmul(
+                &mut c_mat,
+                faer::Accum::Replace,
+                &a_mat,
+                &b_mat,
+                1.0f64,
+                par,
+            );
             for (r, &v) in result.iter_mut().zip(r_f64.iter()) {
                 *r = T::from(v).unwrap();
             }
@@ -406,7 +461,7 @@ pub fn mm_raw_at<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
                     let r_row = i * n;
                     for j in 0..n {
                         let r = result.get_unchecked_mut(r_row + j);
-                        *r = *r + a_val * *b_data.get_unchecked(b_row + j);
+                        *r += a_val * *b_data.get_unchecked(b_row + j);
                     }
                 }
             }
@@ -425,7 +480,14 @@ pub fn mm_raw_at<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
             let b_mat = faer::mat::MatRef::from_row_major_slice(b_f32, k, n);
             let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f32, m, n);
             let par = faer_par(m, k, n);
-            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f32, par);
+            faer::linalg::matmul::matmul(
+                &mut c_mat,
+                faer::Accum::Replace,
+                &a_mat,
+                &b_mat,
+                1.0f32,
+                par,
+            );
         } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
             let a_f64 = unsafe { &*(a_data as *const [T] as *const [f64]) };
             let b_f64 = unsafe { &*(b_data as *const [T] as *const [f64]) };
@@ -434,7 +496,14 @@ pub fn mm_raw_at<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
             let b_mat = faer::mat::MatRef::from_row_major_slice(b_f64, k, n);
             let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(c_f64, m, n);
             let par = faer_par(m, k, n);
-            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
+            faer::linalg::matmul::matmul(
+                &mut c_mat,
+                faer::Accum::Replace,
+                &a_mat,
+                &b_mat,
+                1.0f64,
+                par,
+            );
         } else {
             let a_f64: Vec<f64> = a_data.iter().map(|&v| v.to_f64().unwrap()).collect();
             let b_f64: Vec<f64> = b_data.iter().map(|&v| v.to_f64().unwrap()).collect();
@@ -443,7 +512,14 @@ pub fn mm_raw_at<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
             let b_mat = faer::mat::MatRef::from_row_major_slice(&b_f64, k, n);
             let mut c_mat = faer::mat::MatMut::from_row_major_slice_mut(&mut r_f64, m, n);
             let par = faer_par(m, k, n);
-            faer::linalg::matmul::matmul(&mut c_mat, faer::Accum::Replace, &a_mat, &b_mat, 1.0f64, par);
+            faer::linalg::matmul::matmul(
+                &mut c_mat,
+                faer::Accum::Replace,
+                &a_mat,
+                &b_mat,
+                1.0f64,
+                par,
+            );
             for (r, &v) in result.iter_mut().zip(r_f64.iter()) {
                 *r = T::from(v).unwrap();
             }
@@ -456,7 +532,11 @@ pub fn mm_raw_at<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
 pub fn mm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.ndim() != 2 || b.ndim() != 2 {
         return Err(FerrotorchError::ShapeMismatch {
-            message: format!("mm requires 2-D tensors, got {:?} and {:?}", a.shape(), b.shape()),
+            message: format!(
+                "mm requires 2-D tensors, got {:?} and {:?}",
+                a.shape(),
+                b.shape()
+            ),
         });
     }
 
@@ -468,7 +548,10 @@ pub fn mm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>>
         return Err(FerrotorchError::ShapeMismatch {
             message: format!(
                 "mm: inner dimensions mismatch: ({},{}) @ ({},{})",
-                m, k, b.shape()[0], n
+                m,
+                k,
+                b.shape()[0],
+                n
             ),
         });
     }
@@ -484,7 +567,11 @@ pub fn mm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>>
 pub fn mv<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.ndim() != 2 || b.ndim() != 1 {
         return Err(FerrotorchError::ShapeMismatch {
-            message: format!("mv requires (2-D, 1-D), got {:?} and {:?}", a.shape(), b.shape()),
+            message: format!(
+                "mv requires (2-D, 1-D), got {:?} and {:?}",
+                a.shape(),
+                b.shape()
+            ),
         });
     }
 
@@ -493,7 +580,12 @@ pub fn mv<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>>
 
     if k != b.shape()[0] {
         return Err(FerrotorchError::ShapeMismatch {
-            message: format!("mv: dimension mismatch: ({},{}) @ ({},)", m, k, b.shape()[0]),
+            message: format!(
+                "mv: dimension mismatch: ({},{}) @ ({},)",
+                m,
+                k,
+                b.shape()[0]
+            ),
         });
     }
 
@@ -504,7 +596,7 @@ pub fn mv<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>>
     for i in 0..m {
         let mut acc = <T as num_traits::Zero>::zero();
         for p in 0..k {
-            acc = acc + a_data[i * k + p] * b_data[p];
+            acc += a_data[i * k + p] * b_data[p];
         }
         result[i] = acc;
     }
@@ -519,7 +611,12 @@ fn vm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
     if k != b.shape()[0] {
         return Err(FerrotorchError::ShapeMismatch {
-            message: format!("vm: dimension mismatch: ({},) @ ({},{})", k, b.shape()[0], n),
+            message: format!(
+                "vm: dimension mismatch: ({},) @ ({},{})",
+                k,
+                b.shape()[0],
+                n
+            ),
         });
     }
 
@@ -530,7 +627,7 @@ fn vm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     for j in 0..n {
         let mut acc = <T as num_traits::Zero>::zero();
         for p in 0..k {
-            acc = acc + a_data[p] * b_data[p * n + j];
+            acc += a_data[p] * b_data[p * n + j];
         }
         result[j] = acc;
     }
@@ -570,7 +667,12 @@ pub fn bmm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
         return Err(FerrotorchError::ShapeMismatch {
             message: format!(
                 "bmm: inner dimensions mismatch: ({},{},{}) @ ({},{},{})",
-                batch, m, k, b.shape()[0], b.shape()[1], n
+                batch,
+                m,
+                k,
+                b.shape()[0],
+                b.shape()[1],
+                n
             ),
         });
     }
@@ -590,7 +692,7 @@ pub fn bmm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
             for j in 0..n {
                 let mut acc = <T as num_traits::Zero>::zero();
                 for p in 0..k {
-                    acc = acc + a_data[a_off + i * k + p] * b_data[b_off + p * n + j];
+                    acc += a_data[a_off + i * k + p] * b_data[b_off + p * n + j];
                 }
                 result[c_off + i * n + j] = acc;
             }

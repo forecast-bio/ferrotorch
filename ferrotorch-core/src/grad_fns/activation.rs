@@ -10,7 +10,7 @@ use crate::autograd::no_grad::is_grad_enabled;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::gpu_dispatch::gpu_backend;
-use crate::ops::elementwise::{unary_map, fast_sigmoid, fast_tanh};
+use crate::ops::elementwise::{fast_sigmoid, fast_tanh, unary_map};
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
 
@@ -42,10 +42,8 @@ impl<T: Float> GradFn<T> for ReluBackward<T> {
         // GPU-native path for f32
         if grad_output.is_cuda() && is_f32::<T>() {
             let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-            let result_h = backend.relu_backward_f32(
-                grad_output.gpu_handle()?,
-                self.input.gpu_handle()?,
-            )?;
+            let result_h =
+                backend.relu_backward_f32(grad_output.gpu_handle()?, self.input.gpu_handle()?)?;
             let grad_input = Tensor::from_storage(
                 TensorStorage::gpu(result_h),
                 self.input.shape().to_vec(),
@@ -55,8 +53,16 @@ impl<T: Float> GradFn<T> for ReluBackward<T> {
         }
 
         // CPU fallback
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let input_data = cpu_input.data()?;
         let grad_data = cpu_go.data()?;
         let zero = <T as num_traits::Zero>::zero();
@@ -72,7 +78,11 @@ impl<T: Float> GradFn<T> for ReluBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
-        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
+        let grad_input = if self.input.is_cuda() {
+            grad_input.to(self.input.device())?
+        } else {
+            grad_input
+        };
         Ok(vec![Some(grad_input)])
     }
 
@@ -109,10 +119,8 @@ impl<T: Float> GradFn<T> for SigmoidBackward<T> {
         // GPU-native path for f32
         if grad_output.is_cuda() && is_f32::<T>() {
             let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-            let result_h = backend.sigmoid_backward_f32(
-                grad_output.gpu_handle()?,
-                self.output.gpu_handle()?,
-            )?;
+            let result_h = backend
+                .sigmoid_backward_f32(grad_output.gpu_handle()?, self.output.gpu_handle()?)?;
             let grad_input = Tensor::from_storage(
                 TensorStorage::gpu(result_h),
                 self.input.shape().to_vec(),
@@ -122,8 +130,16 @@ impl<T: Float> GradFn<T> for SigmoidBackward<T> {
         }
 
         // CPU fallback
-        let cpu_output = if self.output.is_cuda() { self.output.cpu()? } else { self.output.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_output = if self.output.is_cuda() {
+            self.output.cpu()?
+        } else {
+            self.output.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let s_data = cpu_output.data()?;
         let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
@@ -139,7 +155,11 @@ impl<T: Float> GradFn<T> for SigmoidBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
-        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
+        let grad_input = if self.input.is_cuda() {
+            grad_input.to(self.input.device())?
+        } else {
+            grad_input
+        };
         Ok(vec![Some(grad_input)])
     }
 
@@ -176,10 +196,8 @@ impl<T: Float> GradFn<T> for TanhBackward<T> {
         // GPU-native path for f32
         if grad_output.is_cuda() && is_f32::<T>() {
             let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-            let result_h = backend.tanh_backward_f32(
-                grad_output.gpu_handle()?,
-                self.output.gpu_handle()?,
-            )?;
+            let result_h =
+                backend.tanh_backward_f32(grad_output.gpu_handle()?, self.output.gpu_handle()?)?;
             let grad_input = Tensor::from_storage(
                 TensorStorage::gpu(result_h),
                 self.input.shape().to_vec(),
@@ -189,8 +207,16 @@ impl<T: Float> GradFn<T> for TanhBackward<T> {
         }
 
         // CPU fallback
-        let cpu_output = if self.output.is_cuda() { self.output.cpu()? } else { self.output.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_output = if self.output.is_cuda() {
+            self.output.cpu()?
+        } else {
+            self.output.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let t_data = cpu_output.data()?;
         let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
@@ -206,7 +232,11 @@ impl<T: Float> GradFn<T> for TanhBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
-        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
+        let grad_input = if self.input.is_cuda() {
+            grad_input.to(self.input.device())?
+        } else {
+            grad_input
+        };
         Ok(vec![Some(grad_input)])
     }
 
@@ -271,15 +301,10 @@ impl<T: Float> GeluBackward<T> {
 impl<T: Float> GradFn<T> for GeluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         // GPU-native path for sigmoid mode only (the only mode with a PTX kernel).
-        if self.approximate == GeluApproximate::Sigmoid
-            && grad_output.is_cuda()
-            && is_f32::<T>()
-        {
+        if self.approximate == GeluApproximate::Sigmoid && grad_output.is_cuda() && is_f32::<T>() {
             let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-            let result_h = backend.gelu_backward_f32(
-                grad_output.gpu_handle()?,
-                self.input.gpu_handle()?,
-            )?;
+            let result_h =
+                backend.gelu_backward_f32(grad_output.gpu_handle()?, self.input.gpu_handle()?)?;
             let grad_input = Tensor::from_storage(
                 TensorStorage::gpu(result_h),
                 self.input.shape().to_vec(),
@@ -289,8 +314,16 @@ impl<T: Float> GradFn<T> for GeluBackward<T> {
         }
 
         // CPU path (all modes).
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let input_data = cpu_input.data()?;
         let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
@@ -302,11 +335,15 @@ impl<T: Float> GradFn<T> for GeluBackward<T> {
                 let sqrt_2 = T::from(std::f64::consts::SQRT_2).unwrap();
                 let inv_sqrt_2pi = T::from(1.0 / (2.0 * std::f64::consts::PI).sqrt()).unwrap();
                 let half = T::from(0.5).unwrap();
-                input_data.iter().zip(grad_data.iter()).map(|(&x, &g)| {
-                    let cdf = half * (one + erf_approx(x / sqrt_2));
-                    let pdf = inv_sqrt_2pi * (-(x * x) / (one + one)).exp();
-                    g * (cdf + x * pdf)
-                }).collect()
+                input_data
+                    .iter()
+                    .zip(grad_data.iter())
+                    .map(|(&x, &g)| {
+                        let cdf = half * (one + erf_approx(x / sqrt_2));
+                        let pdf = inv_sqrt_2pi * (-(x * x) / (one + one)).exp();
+                        g * (cdf + x * pdf)
+                    })
+                    .collect()
             }
             GeluApproximate::Tanh => {
                 // Tanh approx: gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))
@@ -316,21 +353,29 @@ impl<T: Float> GradFn<T> for GeluBackward<T> {
                 let sqrt_2_over_pi = T::from((2.0 / std::f64::consts::PI).sqrt()).unwrap();
                 let c = T::from(0.044715).unwrap();
                 let c3 = T::from(3.0 * 0.044715).unwrap(); // 0.134145
-                input_data.iter().zip(grad_data.iter()).map(|(&x, &g)| {
-                    let x3 = x * x * x;
-                    let inner = sqrt_2_over_pi * (x + c * x3);
-                    let tanh_inner = inner.tanh();
-                    let dtanh = one - tanh_inner * tanh_inner;
-                    let d_inner = sqrt_2_over_pi * (one + c3 * x * x);
-                    g * (half * (one + tanh_inner) + half * x * dtanh * d_inner)
-                }).collect()
+                input_data
+                    .iter()
+                    .zip(grad_data.iter())
+                    .map(|(&x, &g)| {
+                        let x3 = x * x * x;
+                        let inner = sqrt_2_over_pi * (x + c * x3);
+                        let tanh_inner = inner.tanh();
+                        let dtanh = one - tanh_inner * tanh_inner;
+                        let d_inner = sqrt_2_over_pi * (one + c3 * x * x);
+                        g * (half * (one + tanh_inner) + half * x * dtanh * d_inner)
+                    })
+                    .collect()
             }
             GeluApproximate::Sigmoid => {
                 let k = T::from(1.702).unwrap();
-                input_data.iter().zip(grad_data.iter()).map(|(&x, &g)| {
-                    let s = one / (one + (-k * x).exp());
-                    g * (s + k * x * s * (one - s))
-                }).collect()
+                input_data
+                    .iter()
+                    .zip(grad_data.iter())
+                    .map(|(&x, &g)| {
+                        let s = one / (one + (-k * x).exp());
+                        g * (s + k * x * s * (one - s))
+                    })
+                    .collect()
             }
         };
 
@@ -339,7 +384,11 @@ impl<T: Float> GradFn<T> for GeluBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
-        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
+        let grad_input = if self.input.is_cuda() {
+            grad_input.to(self.input.device())?
+        } else {
+            grad_input
+        };
         Ok(vec![Some(grad_input)])
     }
 
@@ -395,8 +444,16 @@ impl<T: Float> SiluBackward<T> {
 
 impl<T: Float> GradFn<T> for SiluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let input_data = cpu_input.data()?;
         let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
@@ -415,7 +472,11 @@ impl<T: Float> GradFn<T> for SiluBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
-        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
+        let grad_input = if self.input.is_cuda() {
+            grad_input.to(self.input.device())?
+        } else {
+            grad_input
+        };
         Ok(vec![Some(grad_input)])
     }
 
@@ -469,8 +530,16 @@ impl<T: Float> GradFn<T> for SoftmaxBackward<T> {
         }
 
         // CPU fallback
-        let cpu_output = if self.output.is_cuda() { self.output.cpu()? } else { self.output.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_output = if self.output.is_cuda() {
+            self.output.cpu()?
+        } else {
+            self.output.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let s_data = cpu_output.data()?;
         let grad_data = cpu_go.data()?;
         let shape = self.output.shape();
@@ -478,8 +547,7 @@ impl<T: Float> GradFn<T> for SoftmaxBackward<T> {
         if shape.is_empty() {
             // Scalar softmax: derivative is 0 (softmax of scalar is always 1).
             let zero = <T as num_traits::Zero>::zero();
-            let grad_input =
-                Tensor::from_storage(TensorStorage::cpu(vec![zero]), vec![], false)?;
+            let grad_input = Tensor::from_storage(TensorStorage::cpu(vec![zero]), vec![], false)?;
             return Ok(vec![Some(grad_input)]);
         }
 
@@ -492,7 +560,7 @@ impl<T: Float> GradFn<T> for SoftmaxBackward<T> {
             // Compute dot = sum(grad * softmax) along this last-axis slice.
             let mut dot = <T as num_traits::Zero>::zero();
             for j in 0..last_dim {
-                dot = dot + grad_data[base + j] * s_data[base + j];
+                dot += grad_data[base + j] * s_data[base + j];
             }
             // grad_input = softmax * (grad - dot)
             for j in 0..last_dim {
@@ -505,7 +573,11 @@ impl<T: Float> GradFn<T> for SoftmaxBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
-        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
+        let grad_input = if self.input.is_cuda() {
+            grad_input.to(self.input.device())?
+        } else {
+            grad_input
+        };
         Ok(vec![Some(grad_input)])
     }
 
@@ -545,8 +617,16 @@ impl<T: Float> LogSoftmaxBackward<T> {
 
 impl<T: Float> GradFn<T> for LogSoftmaxBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_sm = if self.softmax_output.is_cuda() { self.softmax_output.cpu()? } else { self.softmax_output.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_sm = if self.softmax_output.is_cuda() {
+            self.softmax_output.cpu()?
+        } else {
+            self.softmax_output.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let sm_data = cpu_sm.data()?;
         let grad_data = cpu_go.data()?;
         let shape = self.input.shape();
@@ -554,8 +634,7 @@ impl<T: Float> GradFn<T> for LogSoftmaxBackward<T> {
         if shape.is_empty() {
             // Scalar: log_softmax(x) = 0 always, derivative is 0.
             let zero = <T as num_traits::Zero>::zero();
-            let grad_input =
-                Tensor::from_storage(TensorStorage::cpu(vec![zero]), vec![], false)?;
+            let grad_input = Tensor::from_storage(TensorStorage::cpu(vec![zero]), vec![], false)?;
             return Ok(vec![Some(grad_input)]);
         }
 
@@ -568,7 +647,7 @@ impl<T: Float> GradFn<T> for LogSoftmaxBackward<T> {
             // sum_grad = sum(grad) along this last-axis slice.
             let mut sum_grad = <T as num_traits::Zero>::zero();
             for j in 0..last_dim {
-                sum_grad = sum_grad + grad_data[base + j];
+                sum_grad += grad_data[base + j];
             }
             // grad_input = grad - softmax * sum_grad
             for j in 0..last_dim {
@@ -581,7 +660,11 @@ impl<T: Float> GradFn<T> for LogSoftmaxBackward<T> {
             self.input.shape().to_vec(),
             false,
         )?;
-        let grad_input = if self.input.is_cuda() { grad_input.to(self.input.device())? } else { grad_input };
+        let grad_input = if self.input.is_cuda() {
+            grad_input.to(self.input.device())?
+        } else {
+            grad_input
+        };
         Ok(vec![Some(grad_input)])
     }
 
@@ -601,8 +684,8 @@ impl<T: Float> GradFn<T> for LogSoftmaxBackward<T> {
 /// Compute `relu(x)`, attaching a backward node when gradients are enabled.
 pub fn relu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if input.is_cuda() {
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let handle = backend.relu_f32(input.gpu_handle()?)?;
         let storage = TensorStorage::gpu(handle);
         let shape = input.shape().to_vec();
@@ -656,8 +739,10 @@ pub fn sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 output.shape().to_vec(),
                 Arc::new(SigmoidBackward::new(input.clone(), output.clone())),
             )
+        } else if device.is_cuda() {
+            output.to(device)
         } else {
-            if device.is_cuda() { output.to(device) } else { Ok(output) }
+            Ok(output)
         }
     }
 }
@@ -691,8 +776,10 @@ pub fn tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 output.shape().to_vec(),
                 Arc::new(TanhBackward::new(input.clone(), output.clone())),
             )
+        } else if device.is_cuda() {
+            output.to(device)
         } else {
-            if device.is_cuda() { output.to(device) } else { Ok(output) }
+            Ok(output)
         }
     }
 }
@@ -728,9 +815,7 @@ pub fn gelu_with<T: Float>(
             // Exact: gelu(x) = x * 0.5 * (1 + erf(x / sqrt(2)))
             let sqrt_2 = T::from(std::f64::consts::SQRT_2).unwrap();
             let half = T::from(0.5).unwrap();
-            unary_map(input, |x| {
-                x * half * (one + erf_approx(x / sqrt_2))
-            })?
+            unary_map(input, |x| x * half * (one + erf_approx(x / sqrt_2)))?
         }
         GeluApproximate::Tanh => {
             // Tanh approx: gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))
@@ -788,8 +873,10 @@ pub fn silu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
             output.shape().to_vec(),
             Arc::new(SiluBackward::new(input.clone())),
         )
+    } else if device.is_cuda() {
+        output.to(device)
     } else {
-        if device.is_cuda() { output.to(device) } else { Ok(output) }
+        Ok(output)
     }
 }
 
@@ -808,11 +895,8 @@ pub fn softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
             return if is_grad_enabled() && input.requires_grad() {
                 // Clone the result buffer so backward can reference the output.
                 let cache_handle = backend.clone_buffer(&handle)?;
-                let output_cache = Tensor::from_storage(
-                    TensorStorage::gpu(cache_handle),
-                    shape.clone(),
-                    false,
-                )?;
+                let output_cache =
+                    Tensor::from_storage(TensorStorage::gpu(cache_handle), shape.clone(), false)?;
                 Tensor::from_operation(
                     TensorStorage::gpu(handle),
                     shape,
@@ -846,8 +930,9 @@ pub fn softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
             for j in 0..last_dim {
                 let e = (data[base + j] - max_val).exp();
                 out[base + j] = e;
-                sum_exp = sum_exp + e;
+                sum_exp += e;
             }
+            #[allow(clippy::assign_op_pattern)]
             for j in 0..last_dim {
                 out[base + j] = out[base + j] / sum_exp;
             }
@@ -855,8 +940,7 @@ pub fn softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         out
     };
 
-    let output =
-        Tensor::from_storage(TensorStorage::cpu(result), shape, false)?;
+    let output = Tensor::from_storage(TensorStorage::cpu(result), shape, false)?;
 
     if is_grad_enabled() && input.requires_grad() {
         Tensor::from_operation(
@@ -872,7 +956,11 @@ pub fn softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// Compute `log_softmax(x)` along the last axis, attaching a backward node
 /// when gradients are enabled.
 pub fn log_softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let cpu_input = if input.is_cuda() {
+        input.cpu()?
+    } else {
+        input.clone()
+    };
     let data = cpu_input.data()?;
     let shape = input.shape();
 
@@ -901,9 +989,10 @@ pub fn log_softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
             for j in 0..last_dim {
                 let e = (data[base + j] - max_val).exp();
                 sm[base + j] = e;
-                sum_exp = sum_exp + e;
+                sum_exp += e;
             }
             let log_sum = sum_exp.ln();
+            #[allow(clippy::assign_op_pattern)]
             for j in 0..last_dim {
                 sm[base + j] = sm[base + j] / sum_exp;
                 lsm[base + j] = data[base + j] - max_val - log_sum;
@@ -912,11 +1001,9 @@ pub fn log_softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         (sm, lsm)
     };
 
-    let softmax_tensor =
-        Tensor::from_storage(TensorStorage::cpu(sm_vec), shape.to_vec(), false)?;
+    let softmax_tensor = Tensor::from_storage(TensorStorage::cpu(sm_vec), shape.to_vec(), false)?;
 
-    let output =
-        Tensor::from_storage(TensorStorage::cpu(lsm_vec), shape.to_vec(), false)?;
+    let output = Tensor::from_storage(TensorStorage::cpu(lsm_vec), shape.to_vec(), false)?;
 
     if is_grad_enabled() && input.requires_grad() {
         Tensor::from_operation(
@@ -974,8 +1061,16 @@ impl<T: Float> GradFn<T> for SoftplusBackward<T> {
         }
 
         // CPU fallback
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let input_data = cpu_input.data()?;
         let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
@@ -1054,8 +1149,10 @@ pub fn softplus<T: Float>(
             output.shape().to_vec(),
             Arc::new(SoftplusBackward::new(input.clone(), beta, threshold)),
         )
+    } else if device.is_cuda() {
+        output.to(device)
     } else {
-        if device.is_cuda() { output.to(device) } else { Ok(output) }
+        Ok(output)
     }
 }
 
@@ -1082,8 +1179,16 @@ impl<T: Float> EluBackward<T> {
 
 impl<T: Float> GradFn<T> for EluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let input_data = cpu_input.data()?;
         let grad_data = cpu_go.data()?;
         let zero = <T as num_traits::Zero>::zero();
@@ -1178,8 +1283,16 @@ impl<T: Float> MishBackward<T> {
 
 impl<T: Float> GradFn<T> for MishBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
-        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_input = if self.input.is_cuda() {
+            self.input.cpu()?
+        } else {
+            self.input.clone()
+        };
+        let cpu_go = if grad_output.is_cuda() {
+            grad_output.cpu()?
+        } else {
+            grad_output.clone()
+        };
         let input_data = cpu_input.data()?;
         let grad_data = cpu_go.data()?;
         let one = <T as num_traits::One>::one();
@@ -1252,12 +1365,7 @@ mod tests {
 
     /// Helper: create a 1-D leaf tensor with `requires_grad = true`.
     fn leaf_vec(vals: &[f64]) -> Tensor<f64> {
-        Tensor::from_storage(
-            TensorStorage::cpu(vals.to_vec()),
-            vec![vals.len()],
-            true,
-        )
-        .unwrap()
+        Tensor::from_storage(TensorStorage::cpu(vals.to_vec()), vec![vals.len()], true).unwrap()
     }
 
     /// Numerical gradient via central difference: (f(x+h) - f(x-h)) / (2h).
@@ -1421,10 +1529,17 @@ mod tests {
     #[test]
     fn test_gelu_forward_zero() {
         // gelu(0) = 0 for all modes.
-        for mode in [GeluApproximate::None, GeluApproximate::Tanh, GeluApproximate::Sigmoid] {
+        for mode in [
+            GeluApproximate::None,
+            GeluApproximate::Tanh,
+            GeluApproximate::Sigmoid,
+        ] {
             let x = leaf_scalar(0.0);
             let y = gelu_with(&x, mode).unwrap();
-            assert!(y.item().unwrap().abs() < 1e-7, "gelu({mode}) at 0 should be 0");
+            assert!(
+                y.item().unwrap().abs() < 1e-7,
+                "gelu({mode}) at 0 should be 0"
+            );
         }
     }
 
@@ -1623,12 +1738,8 @@ mod tests {
         let y_data = y.data().unwrap().to_vec();
 
         // Use grad_output = [1, 0, 0] to probe d(softmax_0)/d(x_j).
-        let grad_output = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0, 0.0, 0.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let grad_output =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 0.0, 0.0]), vec![3], false).unwrap();
 
         let bwd = SoftmaxBackward::new(x.clone(), y.clone());
         let grads = bwd.backward(&grad_output).unwrap();
@@ -1676,21 +1787,13 @@ mod tests {
 
         // Compute softmax for reference (on a non-grad tensor to avoid
         // entangling computation graphs).
-        let x_nograd = Tensor::from_storage(
-            TensorStorage::cpu(vals.to_vec()),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let x_nograd =
+            Tensor::from_storage(TensorStorage::cpu(vals.to_vec()), vec![3], false).unwrap();
         let sm = softmax(&x_nograd).unwrap();
         let sm_data = sm.data().unwrap().to_vec();
 
-        let grad_output = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0, 0.0, 0.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let grad_output =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 0.0, 0.0]), vec![3], false).unwrap();
 
         let bwd = LogSoftmaxBackward::new(x.clone(), sm);
         let grads = bwd.backward(&grad_output).unwrap();
@@ -1925,7 +2028,8 @@ mod tests {
         backward(&y).unwrap();
 
         let grad = x.grad().unwrap().unwrap();
-        let expected = numerical_grad_scalar(|v| if v > 0.0 { v } else { alpha * (v.exp() - 1.0) }, val);
+        let expected =
+            numerical_grad_scalar(|v| if v > 0.0 { v } else { alpha * (v.exp() - 1.0) }, val);
         assert!(
             (grad.item().unwrap() - expected).abs() < 1e-4,
             "elu grad at x={}: expected {}, got {}",

@@ -2,9 +2,10 @@
 ///
 /// Defined in Phase 1 with only `Cpu` functional. `Cuda` is present
 /// from day one so the type is baked into every API before GPU work begins.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Device {
     /// CPU main memory.
+    #[default]
     Cpu,
     /// CUDA GPU with the given device index.
     Cuda(usize),
@@ -33,8 +34,3 @@ impl core::fmt::Display for Device {
     }
 }
 
-impl Default for Device {
-    fn default() -> Self {
-        Device::Cpu
-    }
-}

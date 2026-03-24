@@ -73,6 +73,8 @@ struct TensorInner<T: Float> {
     grad_fn: Option<Arc<dyn GradFn<T>>>,
     requires_grad: bool,
     is_leaf: bool,
+    /// Hook storage for gradient hooks and post-accumulate-grad hooks.
+    hooks: Mutex<crate::autograd::hooks::HookStorage<T>>,
 }
 
 /// The central type. A dynamically-shaped tensor with gradient tracking
@@ -125,6 +127,7 @@ impl<T: Float> Tensor<T> {
                 grad_fn: None,
                 requires_grad,
                 is_leaf: true,
+                hooks: Mutex::new(crate::autograd::hooks::HookStorage::new()),
             }),
         })
     }
@@ -149,7 +152,10 @@ impl<T: Float> Tensor<T> {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
                     "view_reshape: new shape {:?} ({} elements) vs old {:?} ({} elements)",
-                    new_shape, new_numel, self.shape(), self.numel()
+                    new_shape,
+                    new_numel,
+                    self.shape(),
+                    self.numel()
                 ),
             });
         }
@@ -165,6 +171,7 @@ impl<T: Float> Tensor<T> {
                 grad_fn: None,
                 requires_grad: false,
                 is_leaf: true,
+                hooks: Mutex::new(crate::autograd::hooks::HookStorage::new()),
             }),
         })
     }
@@ -194,7 +201,10 @@ impl<T: Float> Tensor<T> {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
                     "view_operation: new shape {:?} ({} elements) vs {:?} ({} elements)",
-                    new_shape, new_numel, self.shape(), self.numel()
+                    new_shape,
+                    new_numel,
+                    self.shape(),
+                    self.numel()
                 ),
             });
         }
@@ -210,6 +220,7 @@ impl<T: Float> Tensor<T> {
                 grad_fn: Some(grad_fn),
                 requires_grad: true,
                 is_leaf: false,
+                hooks: Mutex::new(crate::autograd::hooks::HookStorage::new()),
             }),
         })
     }
@@ -249,6 +260,7 @@ impl<T: Float> Tensor<T> {
                 grad_fn: Some(grad_fn),
                 requires_grad: true,
                 is_leaf: false,
+                hooks: Mutex::new(crate::autograd::hooks::HookStorage::new()),
             }),
         })
     }
@@ -332,6 +344,61 @@ impl<T: Float> Tensor<T> {
         self.inner.grad_fn.as_ref()
     }
 
+    /// Access the hook storage for this tensor.
+    pub(crate) fn hooks(&self) -> &Mutex<crate::autograd::hooks::HookStorage<T>> {
+        &self.inner.hooks
+    }
+
+    /// Register a gradient hook on this tensor.
+    ///
+    /// The hook is called during backward whenever a gradient is computed for
+    /// this tensor. It receives the gradient and may return `Some(new_grad)` to
+    /// replace it, or `None` to keep the original.
+    ///
+    /// Returns a [`HookHandle`](crate::autograd::hooks::HookHandle) that can
+    /// be used to remove the hook later via [`remove_hook`](Self::remove_hook).
+    pub fn register_hook<F>(&self, func: F) -> FerrotorchResult<crate::autograd::hooks::HookHandle>
+    where
+        F: Fn(&Tensor<T>) -> Option<Tensor<T>> + Send + Sync + 'static,
+    {
+        let mut guard = self.inner.hooks.lock().map_err(|e| FerrotorchError::LockPoisoned {
+            message: format!("hook storage mutex: {e}"),
+        })?;
+        Ok(guard.add_grad_hook(func))
+    }
+
+    /// Register a post-accumulate-grad hook on this tensor.
+    ///
+    /// The hook is called after gradient accumulation completes on a leaf
+    /// tensor. It receives a reference to the tensor itself (so the hook can
+    /// read `.grad()`). Cannot modify the gradient — use
+    /// [`register_hook`](Self::register_hook) for that.
+    pub fn register_post_accumulate_grad_hook<F>(
+        &self,
+        func: F,
+    ) -> FerrotorchResult<crate::autograd::hooks::HookHandle>
+    where
+        F: Fn(&Tensor<T>) + Send + Sync + 'static,
+    {
+        let mut guard = self.inner.hooks.lock().map_err(|e| FerrotorchError::LockPoisoned {
+            message: format!("hook storage mutex: {e}"),
+        })?;
+        Ok(guard.add_post_accumulate_hook(func))
+    }
+
+    /// Remove a previously registered hook by its handle.
+    ///
+    /// Returns `true` if the hook was found and removed.
+    pub fn remove_hook(
+        &self,
+        handle: crate::autograd::hooks::HookHandle,
+    ) -> FerrotorchResult<bool> {
+        let mut guard = self.inner.hooks.lock().map_err(|e| FerrotorchError::LockPoisoned {
+            message: format!("hook storage mutex: {e}"),
+        })?;
+        Ok(guard.remove(handle))
+    }
+
     /// Read the accumulated gradient. Returns `None` if no gradient has
     /// been computed yet.
     pub fn grad(&self) -> FerrotorchResult<Option<Tensor<T>>> {
@@ -347,13 +414,13 @@ impl<T: Float> Tensor<T> {
 
     /// Set or replace the accumulated gradient.
     pub fn set_grad(&self, grad: Option<Tensor<T>>) -> FerrotorchResult<()> {
-        let mut guard =
-            self.inner
-                .grad
-                .lock()
-                .map_err(|e| FerrotorchError::LockPoisoned {
-                    message: format!("grad mutex: {e}"),
-                })?;
+        let mut guard = self
+            .inner
+            .grad
+            .lock()
+            .map_err(|e| FerrotorchError::LockPoisoned {
+                message: format!("grad mutex: {e}"),
+            })?;
         *guard = grad.map(Box::new);
         Ok(())
     }
@@ -369,17 +436,21 @@ impl<T: Float> Tensor<T> {
     /// Accumulate a gradient additively (used by the backward engine).
     /// Handles GPU tensors by transferring to CPU for accumulation.
     pub(crate) fn accumulate_grad(&self, incoming: &Tensor<T>) -> FerrotorchResult<()> {
-        let mut guard =
-            self.inner
-                .grad
-                .lock()
-                .map_err(|e| FerrotorchError::LockPoisoned {
-                    message: format!("grad mutex: {e}"),
-                })?;
+        let mut guard = self
+            .inner
+            .grad
+            .lock()
+            .map_err(|e| FerrotorchError::LockPoisoned {
+                message: format!("grad mutex: {e}"),
+            })?;
         match guard.as_mut() {
             None => {
                 // First gradient: clone the incoming gradient (on CPU).
-                let cpu_incoming = if incoming.is_cuda() { incoming.cpu()? } else { incoming.clone() };
+                let cpu_incoming = if incoming.is_cuda() {
+                    incoming.cpu()?
+                } else {
+                    incoming.clone()
+                };
                 let data = cpu_incoming.data()?.to_vec();
                 let storage = TensorStorage::cpu(data);
                 let tensor = Tensor::from_storage(storage, incoming.shape().to_vec(), false)?;
@@ -389,7 +460,11 @@ impl<T: Float> Tensor<T> {
                 // Accumulate: existing_grad += incoming_grad.
                 // Allocate new tensor instead of data_mut() to avoid UB
                 // from mutating potentially shared Arc<TensorStorage>.
-                let cpu_incoming = if incoming.is_cuda() { incoming.cpu()? } else { incoming.clone() };
+                let cpu_incoming = if incoming.is_cuda() {
+                    incoming.cpu()?
+                } else {
+                    incoming.clone()
+                };
                 let incoming_data = cpu_incoming.data()?;
                 let mut buf = existing.data_vec()?;
                 if buf.len() != incoming_data.len() {
@@ -402,7 +477,7 @@ impl<T: Float> Tensor<T> {
                     });
                 }
                 for (e, &n) in buf.iter_mut().zip(incoming_data.iter()) {
-                    *e = *e + n;
+                    *e += n;
                 }
                 let combined = Tensor::from_storage(
                     TensorStorage::cpu(buf),
@@ -533,7 +608,10 @@ impl<T: Float> Tensor<T> {
                 } else {
                     let data = arc_inner.storage.as_slice();
                     let end = arc_inner.offset + shape.iter().product::<usize>();
-                    Ok((TensorStorage::cpu(data[arc_inner.offset..end].to_vec()), shape))
+                    Ok((
+                        TensorStorage::cpu(data[arc_inner.offset..end].to_vec()),
+                        shape,
+                    ))
                 }
             }
         }
@@ -548,9 +626,8 @@ impl<T: Float> Tensor<T> {
             return Ok(self.clone());
         }
 
-        let needs_grad_fn = self.requires_grad()
-            && !self.is_leaf()
-            && crate::autograd::no_grad::is_grad_enabled();
+        let needs_grad_fn =
+            self.requires_grad() && !self.is_leaf() && crate::autograd::no_grad::is_grad_enabled();
 
         match (self.device(), device) {
             (Device::Cpu, Device::Cuda(ordinal)) => {
@@ -560,13 +637,13 @@ impl<T: Float> Tensor<T> {
                 } else {
                     self.clone()
                 };
-                let backend = crate::gpu_dispatch::gpu_backend()
-                    .ok_or(FerrotorchError::DeviceUnavailable)?;
+                let backend =
+                    crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
                 let cpu_data = contiguous_self.data()?;
                 let bytes = unsafe {
                     std::slice::from_raw_parts(
                         cpu_data.as_ptr() as *const u8,
-                        cpu_data.len() * std::mem::size_of::<T>(),
+                        std::mem::size_of_val(cpu_data),
                     )
                 };
                 let handle = backend.cpu_to_gpu(bytes, std::mem::size_of::<T>(), ordinal)?;
@@ -581,8 +658,8 @@ impl<T: Float> Tensor<T> {
                 }
             }
             (Device::Cuda(_), Device::Cpu) => {
-                let backend = crate::gpu_dispatch::gpu_backend()
-                    .ok_or(FerrotorchError::DeviceUnavailable)?;
+                let backend =
+                    crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
                 let handle = self.gpu_handle()?;
                 let bytes = backend.gpu_to_cpu(handle)?;
                 let data: Vec<T> = unsafe {
@@ -634,9 +711,12 @@ impl<T: Float> Tensor<T> {
 
     /// Get the GPU buffer handle. Returns `Err` for CPU tensors.
     pub fn gpu_handle(&self) -> FerrotorchResult<&crate::gpu_dispatch::GpuBufferHandle> {
-        self.inner.storage.gpu_handle().ok_or(FerrotorchError::InvalidArgument {
-            message: "tensor is on CPU, not GPU".into(),
-        })
+        self.inner
+            .storage
+            .gpu_handle()
+            .ok_or(FerrotorchError::InvalidArgument {
+                message: "tensor is on CPU, not GPU".into(),
+            })
     }
 
     /// Borrow the underlying data as a mutable flat slice.
@@ -648,6 +728,7 @@ impl<T: Float> Tensor<T> {
     /// Optimizer `step()` methods satisfy this requirement: they run inside
     /// `no_grad()` (no graph is being built) and hold `&mut self` (exclusive
     /// access to the optimizer's parameter copies).
+    #[allow(clippy::mut_from_ref)]
     pub unsafe fn data_mut(&self) -> FerrotorchResult<&mut [T]> {
         if !self.is_contiguous() {
             return Err(FerrotorchError::InvalidArgument {
@@ -698,8 +779,8 @@ impl<T: Float> Tensor<T> {
         let storage = unsafe { &mut *storage_ptr };
 
         if storage.is_gpu() {
-            let backend = crate::gpu_dispatch::gpu_backend()
-                .ok_or(FerrotorchError::DeviceUnavailable)?;
+            let backend =
+                crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
             let ordinal = match storage.device() {
                 Device::Cuda(o) => o,
                 _ => unreachable!(),
@@ -707,7 +788,7 @@ impl<T: Float> Tensor<T> {
             let bytes: &[u8] = unsafe {
                 std::slice::from_raw_parts(
                     new_data.as_ptr() as *const u8,
-                    new_data.len() * std::mem::size_of::<T>(),
+                    std::mem::size_of_val(new_data),
                 )
             };
             let new_handle = backend.cpu_to_gpu(bytes, std::mem::size_of::<T>(), ordinal)?;
@@ -735,6 +816,7 @@ impl<T: Float> Tensor<T> {
                 grad_fn: None,
                 requires_grad: false,
                 is_leaf: true,
+                hooks: Mutex::new(crate::autograd::hooks::HookStorage::new()),
             }),
         }
     }
@@ -753,6 +835,7 @@ impl<T: Float> Tensor<T> {
                 grad_fn: self.inner.grad_fn.clone(),
                 requires_grad,
                 is_leaf: self.inner.is_leaf,
+                hooks: Mutex::new(crate::autograd::hooks::HookStorage::new()),
             }),
         }
     }
@@ -916,6 +999,7 @@ impl<T: Float> Tensor<T> {
                 grad_fn: None,
                 requires_grad: self.inner.requires_grad,
                 is_leaf: true,
+                hooks: Mutex::new(crate::autograd::hooks::HookStorage::new()),
             }),
         })
     }
@@ -1013,10 +1097,7 @@ impl<T: Float> fmt::Debug for Tensor<T> {
             .field("device", &self.device())
             .field("requires_grad", &self.inner.requires_grad)
             .field("is_leaf", &self.inner.is_leaf)
-            .field(
-                "grad_fn",
-                &self.inner.grad_fn.as_ref().map(|gf| gf.name()),
-            )
+            .field("grad_fn", &self.inner.grad_fn.as_ref().map(|gf| gf.name()))
             .finish()
     }
 }
@@ -1100,7 +1181,10 @@ mod tests {
         let grad_fn = Arc::new(FlattenBackward::new(t.clone(), t.shape().to_vec()));
         let view = t.view_operation(vec![6], grad_fn).unwrap();
         assert!(t.shares_storage(&view), "view_operation must share storage");
-        assert!(!t.is_same(&view), "view_operation creates new tensor identity");
+        assert!(
+            !t.is_same(&view),
+            "view_operation creates new tensor identity"
+        );
     }
 
     #[test]
@@ -1110,8 +1194,8 @@ mod tests {
         let t2 = t.clone();
 
         // Accumulate grad via one clone.
-        let g = Tensor::from_storage(TensorStorage::cpu(vec![0.1, 0.2, 0.3]), vec![3], false)
-            .unwrap();
+        let g =
+            Tensor::from_storage(TensorStorage::cpu(vec![0.1, 0.2, 0.3]), vec![3], false).unwrap();
         t.accumulate_grad(&g).unwrap();
 
         // Visible from the other clone.
@@ -1127,16 +1211,16 @@ mod tests {
 
         assert!(t.grad().unwrap().is_none());
 
-        let g1 = Tensor::from_storage(TensorStorage::cpu(vec![0.1, 0.2, 0.3]), vec![3], false)
-            .unwrap();
+        let g1 =
+            Tensor::from_storage(TensorStorage::cpu(vec![0.1, 0.2, 0.3]), vec![3], false).unwrap();
         t.accumulate_grad(&g1).unwrap();
 
         let grad = t.grad().unwrap().unwrap();
         let data = grad.data().unwrap();
         assert!((data[0] - 0.1).abs() < 1e-7);
 
-        let g2 = Tensor::from_storage(TensorStorage::cpu(vec![1.0, 1.0, 1.0]), vec![3], false)
-            .unwrap();
+        let g2 =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 1.0, 1.0]), vec![3], false).unwrap();
         t.accumulate_grad(&g2).unwrap();
 
         let grad = t.grad().unwrap().unwrap();

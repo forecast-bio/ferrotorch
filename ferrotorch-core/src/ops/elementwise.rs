@@ -121,8 +121,10 @@ pub fn fast_add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
         let b_data = b.data()?;
         let n = a_data.len();
         if std::mem::size_of::<T>() == 4 {
-            let a_f32: &[f32] = unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
-            let b_f32: &[f32] = unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
+            let a_f32: &[f32] =
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+            let b_f32: &[f32] =
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
             let mut out = pool_alloc_cpu_uninit_f32(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -143,8 +145,10 @@ pub fn fast_add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             let result = unsafe { transmute_vec_f32_to_t(out) };
             return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
         } else if std::mem::size_of::<T>() == 8 {
-            let a_f64: &[f64] = unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
-            let b_f64: &[f64] = unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
+            let a_f64: &[f64] =
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+            let b_f64: &[f64] =
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
             let mut out = pool_alloc_cpu_uninit_f64(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -176,8 +180,10 @@ pub fn fast_mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
         let b_data = b.data()?;
         let n = a_data.len();
         if std::mem::size_of::<T>() == 4 {
-            let a_f32: &[f32] = unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
-            let b_f32: &[f32] = unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
+            let a_f32: &[f32] =
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+            let b_f32: &[f32] =
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
             let mut out = pool_alloc_cpu_uninit_f32(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -198,8 +204,10 @@ pub fn fast_mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             let result = unsafe { transmute_vec_f32_to_t(out) };
             return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
         } else if std::mem::size_of::<T>() == 8 {
-            let a_f64: &[f64] = unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
-            let b_f64: &[f64] = unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
+            let a_f64: &[f64] =
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+            let b_f64: &[f64] =
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
             let mut out = pool_alloc_cpu_uninit_f64(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -238,10 +246,7 @@ pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 .for_each(|(ci, chunk)| {
                     let offset = ci * chunk_size;
                     let len = chunk.len();
-                    ferray_ufunc::kernels::simd_f32::exp_f32(
-                        &inp[offset..offset + len],
-                        chunk,
-                    );
+                    ferray_ufunc::kernels::simd_f32::exp_f32(&inp[offset..offset + len], chunk);
                 });
         } else {
             ferray_ufunc::kernels::simd_f32::exp_f32(inp, &mut out);
@@ -258,10 +263,7 @@ pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 .for_each(|(ci, chunk)| {
                     let offset = ci * chunk_size;
                     let len = chunk.len();
-                    ferray_ufunc::kernels::simd_f64::exp_f64(
-                        &inp[offset..offset + len],
-                        chunk,
-                    );
+                    ferray_ufunc::kernels::simd_f64::exp_f64(&inp[offset..offset + len], chunk);
                 });
         } else {
             ferray_ufunc::kernels::simd_f64::exp_f64(inp, &mut out);
@@ -282,10 +284,16 @@ pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// overflow that would produce garbage at n=128.
 #[inline(always)]
 fn fast_exp_f32(x: f32) -> f32 {
-    // Guard special values BEFORE clamping (auto-vectorizes via != self)
-    if x != x { return f32::NAN; }         // NaN passthrough
-    if x > 88.72284 { return f32::INFINITY; } // overflow → +inf
-    if x < -87.33654 { return 0.0; }        // underflow → 0
+    // Guard special values BEFORE clamping (auto-vectorizes via is_nan)
+    if x.is_nan() {
+        return f32::NAN;
+    } // NaN passthrough
+    if x > 88.72284 {
+        return f32::INFINITY;
+    } // overflow → +inf
+    if x < -87.33654 {
+        return 0.0;
+    } // underflow → 0
     // Clamp to keep internal integer exponent n <= 127 (avoids n=128 UB)
     let x_clamped = x.min(88.0);
     x_clamped.exp()
@@ -300,10 +308,18 @@ fn fast_exp_f32(x: f32) -> f32 {
 #[allow(dead_code)] // used by fused ops (log-softmax) and edge-case tests
 fn fast_log_f32(x: f32) -> f32 {
     if x <= 0.0 {
-        return if x == 0.0 { f32::NEG_INFINITY } else { f32::NAN };
+        return if x == 0.0 {
+            f32::NEG_INFINITY
+        } else {
+            f32::NAN
+        };
     }
-    if x != x { return f32::NAN; }           // NaN passthrough
-    if x == f32::INFINITY { return f32::INFINITY; } // +inf passthrough
+    if x.is_nan() {
+        return f32::NAN;
+    } // NaN passthrough
+    if x == f32::INFINITY {
+        return f32::INFINITY;
+    } // +inf passthrough
     x.ln()
 }
 
@@ -358,14 +374,14 @@ pub fn fast_tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                     let offset = ci * chunk_size;
                     let slice = &inp[offset..offset + chunk.len()];
                     for i in 0..chunk.len() {
-                        let x_clamped = slice[i].max(-9.0).min(9.0); // tanh(9) ≈ 1 - 1.6e-8
+                        let x_clamped = slice[i].clamp(-9.0, 9.0); // tanh(9) ≈ 1 - 1.6e-8
                         let e2x = fast_exp_f32(2.0 * x_clamped);
                         chunk[i] = (e2x - 1.0) / (e2x + 1.0);
                     }
                 });
         } else {
             for i in 0..n {
-                let x_clamped = inp[i].max(-9.0).min(9.0); // tanh(9) ≈ 1 - 1.6e-8
+                let x_clamped = inp[i].clamp(-9.0, 9.0); // tanh(9) ≈ 1 - 1.6e-8
                 let e2x = fast_exp_f32(2.0 * x_clamped);
                 out[i] = (e2x - 1.0) / (e2x + 1.0);
             }
@@ -523,7 +539,11 @@ pub fn scalar_map<T: Float>(
     let data = cpu_input.data()?;
     let result: Vec<T> = data.iter().map(|&x| f(x, scalar)).collect();
     let out = Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false)?;
-    if device.is_cuda() { out.to(device) } else { Ok(out) }
+    if device.is_cuda() {
+        out.to(device)
+    } else {
+        Ok(out)
+    }
 }
 
 /// Precompute per-dimension `(a_stride, b_stride, out_dim)` triples for a
@@ -550,8 +570,16 @@ fn precompute_broadcast_strides(
     for i in 0..ndim {
         let out_dim = out_shape[ndim - 1 - i];
 
-        let a_dim = if i < a_ndim { a_shape[a_ndim - 1 - i] } else { 1 };
-        let b_dim = if i < b_ndim { b_shape[b_ndim - 1 - i] } else { 1 };
+        let a_dim = if i < a_ndim {
+            a_shape[a_ndim - 1 - i]
+        } else {
+            1
+        };
+        let b_dim = if i < b_ndim {
+            b_shape[b_ndim - 1 - i]
+        } else {
+            1
+        };
 
         let a_s = if a_dim == 1 { 0 } else { a_stride };
         let b_s = if b_dim == 1 { 0 } else { b_stride };
@@ -571,7 +599,10 @@ fn precompute_broadcast_strides(
 /// Sum all elements of a tensor, returning a scalar tensor.
 pub fn sum<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
-    let total = data.iter().copied().fold(<T as num_traits::Zero>::zero(), |a, b| a + b);
+    let total = data
+        .iter()
+        .copied()
+        .fold(<T as num_traits::Zero>::zero(), |a, b| a + b);
     Tensor::from_storage(TensorStorage::cpu(vec![total]), vec![], false)
 }
 
@@ -580,7 +611,11 @@ pub fn sum_axis<T: Float>(input: &Tensor<T>, axis: usize) -> FerrotorchResult<Te
     let shape = input.shape();
     if axis >= shape.len() {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("axis {} out of bounds for tensor with {} dims", axis, shape.len()),
+            message: format!(
+                "axis {} out of bounds for tensor with {} dims",
+                axis,
+                shape.len()
+            ),
         });
     }
 
@@ -592,7 +627,7 @@ pub fn sum_axis<T: Float>(input: &Tensor<T>, axis: usize) -> FerrotorchResult<Te
     let out_numel: usize = out_shape.iter().product();
     let mut result = vec![<T as num_traits::Zero>::zero(); out_numel.max(1)];
 
-    for i in 0..input.numel() {
+    for (i, &val) in data.iter().enumerate() {
         // Decompose flat index into per-axis coordinates.
         let mut coords = vec![0usize; shape.len()];
         let mut rem = i;
@@ -609,7 +644,7 @@ pub fn sum_axis<T: Float>(input: &Tensor<T>, axis: usize) -> FerrotorchResult<Te
                 os *= shape[d];
             }
         }
-        result[oi] = result[oi] + data[i];
+        result[oi] += val;
     }
 
     if out_shape.is_empty() {
@@ -630,9 +665,16 @@ pub fn mean<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     };
     let data = cpu_input.data()?;
     let n = T::from(data.len()).unwrap();
-    let total = data.iter().copied().fold(<T as num_traits::Zero>::zero(), |a, b| a + b);
+    let total = data
+        .iter()
+        .copied()
+        .fold(<T as num_traits::Zero>::zero(), |a, b| a + b);
     let out = Tensor::from_storage(TensorStorage::cpu(vec![total / n]), vec![], false)?;
-    if device.is_cuda() { out.to(device) } else { Ok(out) }
+    if device.is_cuda() {
+        out.to(device)
+    } else {
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
@@ -755,7 +797,9 @@ mod tests {
             assert!(
                 (d[i] - expected).abs() < 1e-4,
                 "sigmoid({}) = {}, expected {}",
-                x, d[i], expected,
+                x,
+                d[i],
+                expected,
             );
         }
     }
@@ -767,9 +811,17 @@ mod tests {
         let d = s.data().unwrap();
         assert!((d[0] - 0.0).abs() < 1e-5, "tanh(0) = {}", d[0]);
         assert!((d[1] - 1.0f32.tanh()).abs() < 1e-5, "tanh(1) = {}", d[1]);
-        assert!((d[2] - (-1.0f32).tanh()).abs() < 1e-5, "tanh(-1) = {}", d[2]);
+        assert!(
+            (d[2] - (-1.0f32).tanh()).abs() < 1e-5,
+            "tanh(-1) = {}",
+            d[2]
+        );
         assert!((d[3] - 3.0f32.tanh()).abs() < 1e-5, "tanh(3) = {}", d[3]);
-        assert!((d[4] - (-3.0f32).tanh()).abs() < 1e-5, "tanh(-3) = {}", d[4]);
+        assert!(
+            (d[4] - (-3.0f32).tanh()).abs() < 1e-5,
+            "tanh(-3) = {}",
+            d[4]
+        );
     }
 
     #[test]
@@ -784,7 +836,9 @@ mod tests {
             assert!(
                 (d[i] - expected).abs() < 1e-4,
                 "tanh({}) = {}, expected {}",
-                x, d[i], expected,
+                x,
+                d[i],
+                expected,
             );
         }
     }
@@ -832,7 +886,9 @@ mod tests {
             assert!(
                 (d[i] - expected).abs() / expected.max(1e-10) < 1e-4,
                 "exp({}) = {}, expected {}",
-                data[i], d[i], expected,
+                data[i],
+                d[i],
+                expected,
             );
         }
     }
@@ -859,8 +915,9 @@ mod tests {
         // row 1 + 10: [14, 15, 16], row 1 + 100: [104, 105, 106]
         assert_eq!(
             d,
-            &[11.0, 12.0, 13.0, 101.0, 102.0, 103.0,
-              14.0, 15.0, 16.0, 104.0, 105.0, 106.0],
+            &[
+                11.0, 12.0, 13.0, 101.0, 102.0, 103.0, 14.0, 15.0, 16.0, 104.0, 105.0, 106.0
+            ],
         );
     }
 
@@ -869,27 +926,37 @@ mod tests {
     #[test]
     fn test_fast_exp_f32_nan() {
         let result = fast_exp_f32(f32::NAN);
-        assert!(result.is_nan(), "fast_exp_f32(NaN) should be NaN, got {result}");
+        assert!(
+            result.is_nan(),
+            "fast_exp_f32(NaN) should be NaN, got {result}"
+        );
     }
 
     #[test]
     fn test_fast_exp_f32_pos_inf() {
         let result = fast_exp_f32(f32::INFINITY);
-        assert!(result.is_infinite() && result > 0.0,
-            "fast_exp_f32(+inf) should be +inf, got {result}");
+        assert!(
+            result.is_infinite() && result > 0.0,
+            "fast_exp_f32(+inf) should be +inf, got {result}"
+        );
     }
 
     #[test]
     fn test_fast_exp_f32_neg_inf() {
         let result = fast_exp_f32(f32::NEG_INFINITY);
-        assert_eq!(result, 0.0, "fast_exp_f32(-inf) should be 0.0, got {result}");
+        assert_eq!(
+            result, 0.0,
+            "fast_exp_f32(-inf) should be 0.0, got {result}"
+        );
     }
 
     #[test]
     fn test_fast_exp_f32_zero() {
         let result = fast_exp_f32(0.0);
-        assert!((result - 1.0).abs() < 1e-7,
-            "fast_exp_f32(0.0) should be 1.0, got {result}");
+        assert!(
+            (result - 1.0).abs() < 1e-7,
+            "fast_exp_f32(0.0) should be 1.0, got {result}"
+        );
     }
 
     // --- Edge-case tests for fast_log_f32 ---
@@ -897,27 +964,37 @@ mod tests {
     #[test]
     fn test_fast_log_f32_zero() {
         let result = fast_log_f32(0.0);
-        assert!(result == f32::NEG_INFINITY,
-            "fast_log_f32(0.0) should be -inf, got {result}");
+        assert!(
+            result == f32::NEG_INFINITY,
+            "fast_log_f32(0.0) should be -inf, got {result}"
+        );
     }
 
     #[test]
     fn test_fast_log_f32_negative() {
         let result = fast_log_f32(-1.0);
-        assert!(result.is_nan(), "fast_log_f32(-1.0) should be NaN, got {result}");
+        assert!(
+            result.is_nan(),
+            "fast_log_f32(-1.0) should be NaN, got {result}"
+        );
     }
 
     #[test]
     fn test_fast_log_f32_nan() {
         let result = fast_log_f32(f32::NAN);
-        assert!(result.is_nan(), "fast_log_f32(NaN) should be NaN, got {result}");
+        assert!(
+            result.is_nan(),
+            "fast_log_f32(NaN) should be NaN, got {result}"
+        );
     }
 
     #[test]
     fn test_fast_log_f32_pos_inf() {
         let result = fast_log_f32(f32::INFINITY);
-        assert!(result.is_infinite() && result > 0.0,
-            "fast_log_f32(+inf) should be +inf, got {result}");
+        assert!(
+            result.is_infinite() && result > 0.0,
+            "fast_log_f32(+inf) should be +inf, got {result}"
+        );
     }
 
     // --- Edge-case tests for fast_sigmoid ---
@@ -927,8 +1004,11 @@ mod tests {
         let a = t(&[-100.0], &[1]);
         let s = fast_sigmoid(&a).unwrap();
         let d = s.data().unwrap();
-        assert!((d[0] - 0.0).abs() < 1e-6,
-            "sigmoid(-100) should be ~0.0, got {}", d[0]);
+        assert!(
+            (d[0] - 0.0).abs() < 1e-6,
+            "sigmoid(-100) should be ~0.0, got {}",
+            d[0]
+        );
     }
 
     #[test]
@@ -936,8 +1016,11 @@ mod tests {
         let a = t(&[100.0], &[1]);
         let s = fast_sigmoid(&a).unwrap();
         let d = s.data().unwrap();
-        assert!((d[0] - 1.0).abs() < 1e-6,
-            "sigmoid(100) should be ~1.0, got {}", d[0]);
+        assert!(
+            (d[0] - 1.0).abs() < 1e-6,
+            "sigmoid(100) should be ~1.0, got {}",
+            d[0]
+        );
     }
 
     // --- Edge-case tests for fast_tanh ---
@@ -947,8 +1030,11 @@ mod tests {
         let a = t(&[-50.0], &[1]);
         let s = fast_tanh(&a).unwrap();
         let d = s.data().unwrap();
-        assert!((d[0] - (-1.0)).abs() < 1e-6,
-            "tanh(-50) should be ~-1.0, got {}", d[0]);
+        assert!(
+            (d[0] - (-1.0)).abs() < 1e-6,
+            "tanh(-50) should be ~-1.0, got {}",
+            d[0]
+        );
     }
 
     #[test]
@@ -956,7 +1042,10 @@ mod tests {
         let a = t(&[50.0], &[1]);
         let s = fast_tanh(&a).unwrap();
         let d = s.data().unwrap();
-        assert!((d[0] - 1.0).abs() < 1e-6,
-            "tanh(50) should be ~1.0, got {}", d[0]);
+        assert!(
+            (d[0] - 1.0).abs() < 1e-6,
+            "tanh(50) should be ~1.0, got {}",
+            d[0]
+        );
     }
 }

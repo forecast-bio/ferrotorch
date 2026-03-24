@@ -19,11 +19,13 @@ use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
 
 /// Upload a CPU `&[f32]` slice to a GPU buffer on the given device ordinal.
-fn upload_f32_to_gpu(data: &[f32], ordinal: usize) -> FerrotorchResult<crate::gpu_dispatch::GpuBufferHandle> {
+fn upload_f32_to_gpu(
+    data: &[f32],
+    ordinal: usize,
+) -> FerrotorchResult<crate::gpu_dispatch::GpuBufferHandle> {
     let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-    let bytes: &[u8] = unsafe {
-        std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4)
-    };
+    let bytes: &[u8] =
+        unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4) };
     backend.cpu_to_gpu(bytes, 4, ordinal)
 }
 
@@ -93,11 +95,8 @@ impl<T: Float> GradFn<T> for IndexSelectBackward<T> {
             };
             let indices_f32: Vec<f32> = self.indices.iter().map(|&i| i as f32).collect();
             let idx_handle = upload_f32_to_gpu(&indices_f32, ordinal)?;
-            let result_handle = backend.scatter_add_1d_f32(
-                grad_output.gpu_handle()?,
-                &idx_handle,
-                input_len,
-            )?;
+            let result_handle =
+                backend.scatter_add_1d_f32(grad_output.gpu_handle()?, &idx_handle, input_len)?;
             let grad_tensor = Tensor::from_storage(
                 TensorStorage::gpu(result_handle),
                 self.input.shape().to_vec(),
@@ -172,10 +171,7 @@ pub fn index_select_1d<T: Float>(
         };
         let indices_f32: Vec<f32> = indices.iter().map(|&i| i as f32).collect();
         let idx_handle = upload_f32_to_gpu(&indices_f32, ordinal)?;
-        let result_handle = backend.index_select_1d_f32(
-            input.gpu_handle()?,
-            &idx_handle,
-        )?;
+        let result_handle = backend.index_select_1d_f32(input.gpu_handle()?, &idx_handle)?;
         let storage = TensorStorage::gpu(result_handle);
 
         if input.requires_grad() && is_grad_enabled() {
@@ -239,12 +235,13 @@ impl<T: Float> GradFn<T> for MaskedFillBackward<T> {
                 Device::Cuda(o) => o,
                 _ => unreachable!(),
             };
-            let mask_f32: Vec<f32> = self.mask.iter().map(|&m| if m { 1.0 } else { 0.0 }).collect();
+            let mask_f32: Vec<f32> = self
+                .mask
+                .iter()
+                .map(|&m| if m { 1.0 } else { 0.0 })
+                .collect();
             let mask_handle = upload_f32_to_gpu(&mask_f32, ordinal)?;
-            let result_handle = backend.masked_zero_f32(
-                grad_output.gpu_handle()?,
-                &mask_handle,
-            )?;
+            let result_handle = backend.masked_zero_f32(grad_output.gpu_handle()?, &mask_handle)?;
             let grad_tensor = Tensor::from_storage(
                 TensorStorage::gpu(result_handle),
                 self.input.shape().to_vec(),
@@ -315,11 +312,8 @@ pub fn masked_fill<T: Float>(
         let mask_handle = upload_f32_to_gpu(&mask_f32, ordinal)?;
         // value must be f32 for the GPU kernel.
         let value_f32: f32 = num_traits::ToPrimitive::to_f32(&value).unwrap_or(0.0);
-        let result_handle = backend.masked_fill_f32(
-            input.gpu_handle()?,
-            &mask_handle,
-            value_f32,
-        )?;
+        let result_handle =
+            backend.masked_fill_f32(input.gpu_handle()?, &mask_handle, value_f32)?;
         let storage = TensorStorage::gpu(result_handle);
 
         if input.requires_grad() && is_grad_enabled() {
@@ -390,23 +384,20 @@ impl<T: Float> GradFn<T> for GatherBackward<T> {
 
         // Scatter-add grad_output into grad_input using the saved index and dim.
         let mut coords = vec![0usize; ndim];
-        for i in 0..index_numel {
+        for (i, &go_val) in go_data.iter().enumerate().take(index_numel) {
             let idx_val = self.index[i];
             let mut dst_coords = coords.clone();
             dst_coords[self.dim] = idx_val;
             let dst_flat = flat_index(&dst_coords, input_shape);
-            grad_input[dst_flat] += go_data[i];
+            grad_input[dst_flat] += go_val;
 
             if i + 1 < index_numel {
                 increment_coords(&mut coords, &self.index_shape);
             }
         }
 
-        let grad_tensor = Tensor::from_storage(
-            TensorStorage::cpu(grad_input),
-            input_shape.to_vec(),
-            false,
-        )?;
+        let grad_tensor =
+            Tensor::from_storage(TensorStorage::cpu(grad_input), input_shape.to_vec(), false)?;
         Ok(vec![Some(grad_tensor)])
     }
 
@@ -471,11 +462,7 @@ impl<T: Float> GradFn<T> for ScatterBackward<T> {
                     increment_coords(&mut coords, &self.index_shape);
                 }
             }
-            let t = Tensor::from_storage(
-                TensorStorage::cpu(gi),
-                input_shape.to_vec(),
-                false,
-            )?;
+            let t = Tensor::from_storage(TensorStorage::cpu(gi), input_shape.to_vec(), false)?;
             Some(t)
         } else {
             None
@@ -485,22 +472,18 @@ impl<T: Float> GradFn<T> for ScatterBackward<T> {
         let grad_src = if self.src.requires_grad() {
             let mut gs = vec![<T as num_traits::Zero>::zero(); index_numel];
             let mut coords = vec![0usize; ndim];
-            for i in 0..index_numel {
+            for (i, gs_elem) in gs.iter_mut().enumerate() {
                 let idx_val = self.index[i];
                 let mut src_coords = coords.clone();
                 src_coords[self.dim] = idx_val;
                 let src_flat = flat_index(&src_coords, input_shape);
-                gs[i] = go_data[src_flat];
+                *gs_elem = go_data[src_flat];
 
                 if i + 1 < index_numel {
                     increment_coords(&mut coords, &self.index_shape);
                 }
             }
-            let t = Tensor::from_storage(
-                TensorStorage::cpu(gs),
-                self.index_shape.clone(),
-                false,
-            )?;
+            let t = Tensor::from_storage(TensorStorage::cpu(gs), self.index_shape.clone(), false)?;
             Some(t)
         } else {
             None
@@ -571,22 +554,18 @@ impl<T: Float> GradFn<T> for ScatterAddBackward<T> {
         let grad_src = if self.src.requires_grad() {
             let mut gs = vec![<T as num_traits::Zero>::zero(); index_numel];
             let mut coords = vec![0usize; ndim];
-            for i in 0..index_numel {
+            for (i, gs_elem) in gs.iter_mut().enumerate() {
                 let idx_val = self.index[i];
                 let mut src_coords = coords.clone();
                 src_coords[self.dim] = idx_val;
                 let src_flat = flat_index(&src_coords, input_shape);
-                gs[i] = go_data[src_flat];
+                *gs_elem = go_data[src_flat];
 
                 if i + 1 < index_numel {
                     increment_coords(&mut coords, &self.index_shape);
                 }
             }
-            let t = Tensor::from_storage(
-                TensorStorage::cpu(gs),
-                self.index_shape.clone(),
-                false,
-            )?;
+            let t = Tensor::from_storage(TensorStorage::cpu(gs), self.index_shape.clone(), false)?;
             Some(t)
         } else {
             None
@@ -634,30 +613,26 @@ impl<T: Float> GradFn<T> for WhereCondBackward<T> {
         let zero = <T as num_traits::Zero>::zero();
 
         let grad_x = if self.x.requires_grad() {
-            let gx: Vec<T> = self.condition.iter()
+            let gx: Vec<T> = self
+                .condition
+                .iter()
                 .zip(go_data.iter())
                 .map(|(&c, &g)| if c { g } else { zero })
                 .collect();
-            let t = Tensor::from_storage(
-                TensorStorage::cpu(gx),
-                self.x.shape().to_vec(),
-                false,
-            )?;
+            let t = Tensor::from_storage(TensorStorage::cpu(gx), self.x.shape().to_vec(), false)?;
             Some(t)
         } else {
             None
         };
 
         let grad_y = if self.y.requires_grad() {
-            let gy: Vec<T> = self.condition.iter()
+            let gy: Vec<T> = self
+                .condition
+                .iter()
                 .zip(go_data.iter())
                 .map(|(&c, &g)| if c { zero } else { g })
                 .collect();
-            let t = Tensor::from_storage(
-                TensorStorage::cpu(gy),
-                self.y.shape().to_vec(),
-                false,
-            )?;
+            let t = Tensor::from_storage(TensorStorage::cpu(gy), self.y.shape().to_vec(), false)?;
             Some(t)
         } else {
             None
@@ -820,12 +795,8 @@ mod tests {
 
         // Manually invoke the backward of IndexSelectBackward with a
         // uniform grad_output of ones.
-        let grad_output = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0; 5]),
-            vec![5],
-            false,
-        )
-        .unwrap();
+        let grad_output =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0; 5]), vec![5], false).unwrap();
 
         let grad_fn = selected.grad_fn().unwrap();
         let grads = grad_fn.backward(&grad_output).unwrap();
@@ -834,9 +805,21 @@ mod tests {
         let gd = grad_input.data().unwrap();
 
         assert_eq!(gd.len(), 3);
-        assert!((gd[0] - 1.0).abs() < 1e-6, "grad[0] = {}, expected 1", gd[0]);
-        assert!((gd[1] - 3.0).abs() < 1e-6, "grad[1] = {}, expected 3", gd[1]);
-        assert!((gd[2] - 1.0).abs() < 1e-6, "grad[2] = {}, expected 1", gd[2]);
+        assert!(
+            (gd[0] - 1.0).abs() < 1e-6,
+            "grad[0] = {}, expected 1",
+            gd[0]
+        );
+        assert!(
+            (gd[1] - 3.0).abs() < 1e-6,
+            "grad[1] = {}, expected 3",
+            gd[1]
+        );
+        assert!(
+            (gd[2] - 1.0).abs() < 1e-6,
+            "grad[2] = {}, expected 1",
+            gd[2]
+        );
     }
 
     #[test]
@@ -851,12 +834,8 @@ mod tests {
         let input = leaf_1d(&[100.0, 200.0, 300.0], true);
         let selected = index_select_1d(&input, &[2, 0]).unwrap();
 
-        let grad_output = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.5, 2.0]),
-            vec![2],
-            false,
-        )
-        .unwrap();
+        let grad_output =
+            Tensor::from_storage(TensorStorage::cpu(vec![0.5, 2.0]), vec![2], false).unwrap();
 
         let grad_fn = selected.grad_fn().unwrap();
         let grads = grad_fn.backward(&grad_output).unwrap();
@@ -864,9 +843,21 @@ mod tests {
         let grad_input = grads[0].as_ref().unwrap();
         let gd = grad_input.data().unwrap();
 
-        assert!((gd[0] - 2.0).abs() < 1e-6, "grad[0] = {}, expected 2.0", gd[0]);
-        assert!((gd[1] - 0.0).abs() < 1e-6, "grad[1] = {}, expected 0.0", gd[1]);
-        assert!((gd[2] - 0.5).abs() < 1e-6, "grad[2] = {}, expected 0.5", gd[2]);
+        assert!(
+            (gd[0] - 2.0).abs() < 1e-6,
+            "grad[0] = {}, expected 2.0",
+            gd[0]
+        );
+        assert!(
+            (gd[1] - 0.0).abs() < 1e-6,
+            "grad[1] = {}, expected 0.0",
+            gd[1]
+        );
+        assert!(
+            (gd[2] - 0.5).abs() < 1e-6,
+            "grad[2] = {}, expected 0.5",
+            gd[2]
+        );
     }
 
     // --- index_select_1d: no grad when grad disabled ---
@@ -903,12 +894,8 @@ mod tests {
 
         // grad_output = [1, 1, 1, 1]
         // grad_input  = [1, 0, 1, 0]  (zeroed where mask is true)
-        let grad_output = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0; 4]),
-            vec![4],
-            false,
-        )
-        .unwrap();
+        let grad_output =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0; 4]), vec![4], false).unwrap();
 
         let grad_fn = filled.grad_fn().unwrap();
         let grads = grad_fn.backward(&grad_output).unwrap();
@@ -941,7 +928,8 @@ mod tests {
             index: vec![0, 1],
             index_shape: vec![2],
         };
-        let grad_output = Tensor::from_storage(TensorStorage::cpu(vec![1.0, 1.0]), vec![2], false).unwrap();
+        let grad_output =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 1.0]), vec![2], false).unwrap();
         // Should now succeed rather than error.
         let result = gf.backward(&grad_output);
         assert!(result.is_ok());
@@ -958,7 +946,8 @@ mod tests {
             index: vec![0],
             index_shape: vec![1],
         };
-        let grad_output = Tensor::from_storage(TensorStorage::cpu(vec![1.0, 1.0]), vec![2], false).unwrap();
+        let grad_output =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 1.0]), vec![2], false).unwrap();
         let result = gf.backward(&grad_output);
         assert!(result.is_ok());
     }

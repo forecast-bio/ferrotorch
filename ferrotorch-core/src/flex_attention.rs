@@ -149,7 +149,7 @@ where
                 for j in 0..n_k {
                     let mut dot = <T as num_traits::Zero>::zero();
                     for dd in 0..d {
-                        dot = dot + q_data[q_offset + i * d + dd] * k_data[k_offset + j * d + dd];
+                        dot += q_data[q_offset + i * d + dd] * k_data[k_offset + j * d + dd];
                     }
                     scores[i * n_k + j] = dot * scale;
                 }
@@ -157,11 +157,8 @@ where
 
             // Apply score_mod as a batched operation on the full [n_q, n_k] matrix.
             let scores_after_mod = if let Some(ref sm) = score_mod {
-                let scores_tensor = Tensor::from_storage(
-                    TensorStorage::cpu(scores),
-                    vec![n_q, n_k],
-                    false,
-                )?;
+                let scores_tensor =
+                    Tensor::from_storage(TensorStorage::cpu(scores), vec![n_q, n_k], false)?;
                 let modified = sm(&scores_tensor, b, h)?;
                 modified.data_vec()?
             } else {
@@ -176,13 +173,17 @@ where
                 let row = &scores_after_mod[row_start..row_end];
 
                 // Numerically stable softmax.
-                let max_val = row.iter().copied().fold(T::neg_infinity(), |a, b| if a > b { a } else { b });
+                let max_val = row
+                    .iter()
+                    .copied()
+                    .fold(T::neg_infinity(), |a, b| if a > b { a } else { b });
                 let mut sum_exp = <T as num_traits::Zero>::zero();
                 for &val in row {
-                    sum_exp = sum_exp + (val - max_val).exp();
+                    sum_exp += (val - max_val).exp();
                 }
                 for j in 0..n_k {
-                    weights[row_start + j] = (scores_after_mod[row_start + j] - max_val).exp() / sum_exp;
+                    weights[row_start + j] =
+                        (scores_after_mod[row_start + j] - max_val).exp() / sum_exp;
                 }
             }
 
@@ -192,7 +193,7 @@ where
                 for j in 0..d_v {
                     let mut val = <T as num_traits::Zero>::zero();
                     for kk in 0..n_k {
-                        val = val + weights[i * n_k + kk] * v_data[v_offset + kk * d_v + j];
+                        val += weights[i * n_k + kk] * v_data[v_offset + kk * d_v + j];
                     }
                     output_data[o_offset + i * d_v + j] = val;
                 }
@@ -301,9 +302,10 @@ mod tests {
         let k = make_tensor(vec![1.0, 0.0, 0.0, 1.0], vec![1, 1, 2, 2]);
         let v = make_tensor(vec![1.0, 2.0, 3.0, 4.0], vec![1, 1, 2, 2]);
 
-        let output = flex_attention::<f32, fn(&Tensor<f32>, usize, usize) -> FerrotorchResult<Tensor<f32>>>(
-            &q, &k, &v, None,
-        )
+        let output = flex_attention::<
+            f32,
+            fn(&Tensor<f32>, usize, usize) -> FerrotorchResult<Tensor<f32>>,
+        >(&q, &k, &v, None)
         .unwrap();
 
         assert_eq!(output.shape(), &[1, 1, 2, 2]);
@@ -320,9 +322,7 @@ mod tests {
             &q,
             &k,
             &v,
-            Some(|scores: &Tensor<f32>, _b: usize, _h: usize| {
-                Ok(scores.clone())
-            }),
+            Some(|scores: &Tensor<f32>, _b: usize, _h: usize| Ok(scores.clone())),
         )
         .unwrap();
 
@@ -336,9 +336,10 @@ mod tests {
         let k = make_tensor(vec![1.0, 2.0], vec![2]);
         let v = make_tensor(vec![1.0, 2.0], vec![2]);
 
-        let result = flex_attention::<f32, fn(&Tensor<f32>, usize, usize) -> FerrotorchResult<Tensor<f32>>>(
-            &q, &k, &v, None,
-        );
+        let result = flex_attention::<
+            f32,
+            fn(&Tensor<f32>, usize, usize) -> FerrotorchResult<Tensor<f32>>,
+        >(&q, &k, &v, None);
         assert!(result.is_err());
     }
 
@@ -349,9 +350,10 @@ mod tests {
         let k = make_tensor(vec![], vec![1, 1, 2, 0]);
         let v = make_tensor(vec![], vec![1, 1, 2, 0]);
 
-        let result = flex_attention::<f32, fn(&Tensor<f32>, usize, usize) -> FerrotorchResult<Tensor<f32>>>(
-            &q, &k, &v, None,
-        );
+        let result = flex_attention::<
+            f32,
+            fn(&Tensor<f32>, usize, usize) -> FerrotorchResult<Tensor<f32>>,
+        >(&q, &k, &v, None);
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
         assert!(msg.contains("d must be > 0"));
@@ -363,9 +365,10 @@ mod tests {
         let k = make_tensor_grad(vec![1.0, 0.0, 0.0, 1.0], vec![1, 1, 2, 2]);
         let v = make_tensor_grad(vec![1.0, 2.0, 3.0, 4.0], vec![1, 1, 2, 2]);
 
-        let output = flex_attention::<f32, fn(&Tensor<f32>, usize, usize) -> FerrotorchResult<Tensor<f32>>>(
-            &q, &k, &v, None,
-        )
+        let output = flex_attention::<
+            f32,
+            fn(&Tensor<f32>, usize, usize) -> FerrotorchResult<Tensor<f32>>,
+        >(&q, &k, &v, None)
         .unwrap();
 
         assert!(output.grad_fn().is_some());

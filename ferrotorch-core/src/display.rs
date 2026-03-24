@@ -42,18 +42,18 @@ impl<T: Float> fmt::Display for Tensor<T> {
                     write!(f, "{v:.4}")?;
                 }
             } else {
-                for i in 0..3 {
+                for (i, val) in data.iter().enumerate().take(3) {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{:.4}", data[i])?;
+                    write!(f, "{val:.4}")?;
                 }
                 write!(f, ", ..., ")?;
-                for i in (len - 3)..len {
+                for (i, val) in data.iter().enumerate().skip(len - 3) {
                     if i > len - 3 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{:.4}", data[i])?;
+                    write!(f, "{val:.4}")?;
                 }
             }
             write!(f, "]")?;

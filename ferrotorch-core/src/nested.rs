@@ -188,7 +188,7 @@ impl<T: Float> NestedTensor<T> {
             }
 
             let t_numel: usize = t_shape.iter().product();
-            for flat in 0..t_numel {
+            for (flat, &val) in t_data.iter().enumerate().take(t_numel) {
                 // Convert flat index to multi-dim coords in the component.
                 let mut remaining = flat;
                 let mut out_flat = b * out_strides[0];
@@ -197,7 +197,7 @@ impl<T: Float> NestedTensor<T> {
                     remaining %= t_strides[d];
                     out_flat += coord * out_strides[d + 1];
                 }
-                data[out_flat] = t_data[flat];
+                data[out_flat] = val;
             }
         }
 
@@ -262,13 +262,13 @@ impl<T: Float> NestedTensor<T> {
         }
 
         let mut tensors = Vec::with_capacity(batch);
-        for b in 0..batch {
+        for (b, &len_b) in lengths.iter().enumerate().take(batch) {
             // Build component shape: same as full_shape[1..] but with
-            // ragged_dim replaced by lengths[b].
+            // ragged_dim replaced by len_b.
             let mut comp_shape = Vec::with_capacity(comp_ndim);
             for d in 0..comp_ndim {
                 if d == ragged_dim {
-                    comp_shape.push(lengths[b]);
+                    comp_shape.push(len_b);
                 } else {
                     comp_shape.push(full_shape[d + 1]);
                 }
@@ -333,7 +333,9 @@ fn softmax_rows_inplace<T: Float>(data: &mut [T], rows: usize, cols: usize) {
         let max_val = row
             .iter()
             .copied()
-            .fold(<T as num_traits::Float>::neg_infinity(), |a, b| if b > a { b } else { a });
+            .fold(<T as num_traits::Float>::neg_infinity(), |a, b| {
+                if b > a { b } else { a }
+            });
 
         let mut sum = <T as num_traits::Zero>::zero();
         for val in row.iter_mut() {
@@ -420,10 +422,7 @@ pub fn nested_scaled_dot_product_attention<T: Float>(
 
         if d_k != d_k2 {
             return Err(FerrotorchError::ShapeMismatch {
-                message: format!(
-                    "component {}: query d_k={} but key d_k={}",
-                    i, d_k, d_k2
-                ),
+                message: format!("component {}: query d_k={} but key d_k={}", i, d_k, d_k2),
             });
         }
         if seq_k != seq_k2 {
@@ -550,14 +549,8 @@ mod tests {
     fn test_from_padded_round_trip_ragged_dim_1() {
         // Component tensors: shape [2, L_i] where dim 1 is ragged.
         // t1: [2, 3], t2: [2, 2]
-        let t1 = make_tensor(
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-            vec![2, 3],
-        );
-        let t2 = make_tensor(
-            vec![7.0, 8.0, 9.0, 10.0],
-            vec![2, 2],
-        );
+        let t1 = make_tensor(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let t2 = make_tensor(vec![7.0, 8.0, 9.0, 10.0], vec![2, 2]);
 
         let nt = NestedTensor::new(vec![t1, t2], 1).unwrap();
 
@@ -658,7 +651,10 @@ mod tests {
         softmax_rows_inplace(&mut data, 1, 3);
 
         let sum: f32 = data.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-6, "softmax should sum to 1, got {sum}");
+        assert!(
+            (sum - 1.0).abs() < 1e-6,
+            "softmax should sum to 1, got {sum}"
+        );
         assert!(data[0] < data[1]);
         assert!(data[1] < data[2]);
     }

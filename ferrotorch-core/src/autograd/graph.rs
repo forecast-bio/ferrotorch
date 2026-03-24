@@ -1,6 +1,7 @@
-use std::collections::VecDeque;
 use rustc_hash::FxHashMap as HashMap;
+use std::collections::VecDeque;
 
+use crate::autograd::hooks::{run_grad_hooks, run_post_accumulate_hooks};
 use crate::device::Device;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
@@ -76,8 +77,8 @@ pub fn backward_with_grad<T: Float>(
                 let input_id = input.id();
                 let count = in_degree.entry(input_id).or_insert(0);
                 *count += 1;
-                if !node_map.contains_key(&input_id) {
-                    node_map.insert(input_id, input);
+                if let std::collections::hash_map::Entry::Vacant(e) = node_map.entry(input_id) {
+                    e.insert(input);
                     queue.push_back(input);
                 }
             }
@@ -160,9 +161,27 @@ pub fn backward_with_grad<T: Float>(
             for (input, maybe_grad) in inputs.iter().zip(input_grads.into_iter()) {
                 if let Some(grad) = maybe_grad {
                     if input.requires_grad() {
+                        // Run gradient hooks (if any), which may modify the gradient.
+                        let hooks = input.hooks();
+                        let has_hooks = {
+                            let guard = hooks.lock().map_err(|e| FerrotorchError::LockPoisoned {
+                                message: format!("hook storage mutex: {e}"),
+                            })?;
+                            (guard.has_grad_hooks(), guard.has_post_accumulate_hooks())
+                        };
+                        let grad = if has_hooks.0 {
+                            run_grad_hooks(hooks, grad)?
+                        } else {
+                            grad
+                        };
+
                         if input.is_leaf() {
                             // Leaf tensor: accumulate gradient on the tensor itself.
                             input.accumulate_grad(&grad)?;
+                            // Run post-accumulate-grad hooks on the leaf (if any).
+                            if has_hooks.1 {
+                                run_post_accumulate_hooks(hooks, input)?;
+                            }
                         } else {
                             // Non-leaf: accumulate into the grads map for the next iteration.
                             accumulate_non_leaf_grad(&mut grads, input, grad)?;
@@ -224,11 +243,7 @@ fn accumulate_non_leaf_grad<T: Float>(
                     backend.add_f64(a_handle, b_handle)?
                 };
                 let storage = crate::storage::TensorStorage::gpu(result_handle);
-                let combined = Tensor::from_storage(
-                    storage,
-                    existing.shape().to_vec(),
-                    false,
-                )?;
+                let combined = Tensor::from_storage(storage, existing.shape().to_vec(), false)?;
                 grads.insert(input.id(), combined);
                 return Ok(());
             }
@@ -259,7 +274,7 @@ fn accumulate_non_leaf_grad<T: Float>(
             });
         }
         for (e, &g) in existing_slice.iter_mut().zip(grad_data.iter()) {
-            *e = *e + g;
+            *e += g;
         }
         grads.insert(input.id(), existing);
         return Ok(());
@@ -267,7 +282,11 @@ fn accumulate_non_leaf_grad<T: Float>(
 
     // Fallback: allocate a new tensor for the sum (CPU path).
     let device = existing.device();
-    let existing_cpu = if existing.is_cuda() { existing.cpu()? } else { existing };
+    let existing_cpu = if existing.is_cuda() {
+        existing.cpu()?
+    } else {
+        existing
+    };
     let grad_cpu = if grad.is_cuda() { grad.cpu()? } else { grad };
     let mut existing_data = existing_cpu.data()?.to_vec();
     let grad_data = grad_cpu.data()?;
@@ -281,14 +300,10 @@ fn accumulate_non_leaf_grad<T: Float>(
         });
     }
     for (e, &g) in existing_data.iter_mut().zip(grad_data.iter()) {
-        *e = *e + g;
+        *e += g;
     }
     let storage = crate::storage::TensorStorage::cpu(existing_data);
-    let combined = Tensor::from_storage(
-        storage,
-        existing_cpu.shape().to_vec(),
-        false,
-    )?;
+    let combined = Tensor::from_storage(storage, existing_cpu.shape().to_vec(), false)?;
     grads.insert(input.id(), combined.to(device)?);
     Ok(())
 }
@@ -358,16 +373,10 @@ mod tests {
             let grad_a: Vec<T> = go.iter().zip(b_data.iter()).map(|(&g, &b)| g * b).collect();
             let grad_b: Vec<T> = go.iter().zip(a_data.iter()).map(|(&g, &a)| g * a).collect();
 
-            let ta = Tensor::from_storage(
-                TensorStorage::cpu(grad_a),
-                self.a.shape().to_vec(),
-                false,
-            )?;
-            let tb = Tensor::from_storage(
-                TensorStorage::cpu(grad_b),
-                self.b.shape().to_vec(),
-                false,
-            )?;
+            let ta =
+                Tensor::from_storage(TensorStorage::cpu(grad_a), self.a.shape().to_vec(), false)?;
+            let tb =
+                Tensor::from_storage(TensorStorage::cpu(grad_b), self.b.shape().to_vec(), false)?;
             Ok(vec![Some(ta), Some(tb)])
         }
         fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -508,12 +517,9 @@ mod tests {
 
     #[test]
     fn test_backward_non_scalar_error() {
-        let t = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0, 2.0, 3.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let t =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0, 2.0, 3.0]), vec![3], false)
+                .unwrap();
         assert!(t.backward().is_err());
     }
 }

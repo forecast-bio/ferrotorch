@@ -34,6 +34,9 @@ use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::storage::TensorStorage;
 use crate::tensor::{GradFn, Tensor};
 
+/// Type alias for the fixed-point function f(x, params) -> x.
+type FixedPointFn<T> = Arc<dyn Fn(&Tensor<T>, &[&Tensor<T>]) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
+
 /// Find a fixed point of `f` starting from `x0`, then compute its derivative
 /// w.r.t. `params` using the implicit function theorem.
 ///
@@ -142,7 +145,7 @@ where
 /// Then distributes `v` through `df/dp` to produce gradients for each parameter.
 struct FixedPointBackward<T: Float> {
     /// The function f(x, params) whose fixed point was found.
-    f_closure: Arc<dyn Fn(&Tensor<T>, &[&Tensor<T>]) -> FerrotorchResult<Tensor<T>> + Send + Sync>,
+    f_closure: FixedPointFn<T>,
     /// The fixed point x*.
     x_star: Tensor<T>,
     /// The parameters to differentiate w.r.t.
@@ -212,11 +215,8 @@ impl<T: Float> GradFn<T> for FixedPointBackward<T> {
             // Compute VJP: J_x^T @ v via grad(y, x, grad_output=v).
             // We need to make y scalar to use grad(), so we use a dot product:
             // L = sum(y * v), then grad(L, x) = J_x^T @ v.
-            let v_tensor = Tensor::from_storage(
-                TensorStorage::cpu(v_data.clone()),
-                go_shape.clone(),
-                false,
-            )?;
+            let v_tensor =
+                Tensor::from_storage(TensorStorage::cpu(v_data.clone()), go_shape.clone(), false)?;
             let yv = elementwise_mul_sum(&y, &v_tensor)?;
 
             let grads = grad(&yv, &[&x_fresh], false, false)?;
@@ -230,8 +230,8 @@ impl<T: Float> GradFn<T> for FixedPointBackward<T> {
             let mut v_new = Vec::with_capacity(n);
             let mut diff_norm: f64 = 0.0;
             for i in 0..n {
-                let val = T::from(go_data[i].to_f64().unwrap() + jt_v[i].to_f64().unwrap())
-                    .unwrap();
+                let val =
+                    T::from(go_data[i].to_f64().unwrap() + jt_v[i].to_f64().unwrap()).unwrap();
                 diff_norm += (val.to_f64().unwrap() - v_data[i].to_f64().unwrap()).abs();
                 v_new.push(val);
             }
@@ -276,11 +276,7 @@ impl<T: Float> GradFn<T> for FixedPointBackward<T> {
         let y = (self.f_closure)(&x_detached, &params_ref)?;
 
         // L = sum(y * v)
-        let v_tensor = Tensor::from_storage(
-            TensorStorage::cpu(v_data),
-            go_shape,
-            false,
-        )?;
+        let v_tensor = Tensor::from_storage(TensorStorage::cpu(v_data), go_shape, false)?;
         let loss = elementwise_mul_sum(&y, &v_tensor)?;
 
         // Compute grad(L, params).
@@ -369,16 +365,8 @@ mod tests {
         let x_star = fixed_point(
             |x, _params| {
                 // f(x) = 0.5 * x + 1
-                let half = Tensor::from_storage(
-                    TensorStorage::cpu(vec![0.5f32]),
-                    vec![],
-                    false,
-                )?;
-                let one = Tensor::from_storage(
-                    TensorStorage::cpu(vec![1.0f32]),
-                    vec![],
-                    false,
-                )?;
+                let half = Tensor::from_storage(TensorStorage::cpu(vec![0.5f32]), vec![], false)?;
+                let one = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32]), vec![], false)?;
                 let half_x = crate::grad_fns::arithmetic::mul(x, &half)?;
                 crate::grad_fns::arithmetic::add(&half_x, &one)
             },
@@ -420,16 +408,8 @@ mod tests {
 
         let x_star = fixed_point(
             |x, _params| {
-                let half = Tensor::from_storage(
-                    TensorStorage::cpu(vec![0.5f32]),
-                    vec![],
-                    false,
-                )?;
-                let one = Tensor::from_storage(
-                    TensorStorage::cpu(vec![1.0f32]),
-                    vec![],
-                    false,
-                )?;
+                let half = Tensor::from_storage(TensorStorage::cpu(vec![0.5f32]), vec![], false)?;
+                let one = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32]), vec![], false)?;
                 let half_x = crate::grad_fns::arithmetic::mul(x, &half)?;
                 crate::grad_fns::arithmetic::add(&half_x, &one)
             },
@@ -457,16 +437,8 @@ mod tests {
 
         let x_star = fixed_point(
             |x, _params| {
-                let scale = Tensor::from_storage(
-                    TensorStorage::cpu(vec![0.99f32]),
-                    vec![],
-                    false,
-                )?;
-                let bias = Tensor::from_storage(
-                    TensorStorage::cpu(vec![0.01f32]),
-                    vec![],
-                    false,
-                )?;
+                let scale = Tensor::from_storage(TensorStorage::cpu(vec![0.99f32]), vec![], false)?;
+                let bias = Tensor::from_storage(TensorStorage::cpu(vec![0.01f32]), vec![], false)?;
                 let sx = crate::grad_fns::arithmetic::mul(x, &scale)?;
                 crate::grad_fns::arithmetic::add(&sx, &bias)
             },
@@ -502,11 +474,7 @@ mod tests {
 
         let x_star = fixed_point(
             |x, params| {
-                let half = Tensor::from_storage(
-                    TensorStorage::cpu(vec![0.5f32]),
-                    vec![],
-                    false,
-                )?;
+                let half = Tensor::from_storage(TensorStorage::cpu(vec![0.5f32]), vec![], false)?;
                 let half_x = crate::grad_fns::arithmetic::mul(x, &half)?;
                 crate::grad_fns::arithmetic::add(&half_x, params[0])
             },
@@ -560,11 +528,7 @@ mod tests {
 
         let x_star = fixed_point(
             |x, params| {
-                let half = Tensor::from_storage(
-                    TensorStorage::cpu(vec![0.5f32]),
-                    vec![],
-                    false,
-                )?;
+                let half = Tensor::from_storage(TensorStorage::cpu(vec![0.5f32]), vec![], false)?;
                 let half_x = crate::grad_fns::arithmetic::mul(x, &half)?;
                 crate::grad_fns::arithmetic::add(&half_x, params[0])
             },

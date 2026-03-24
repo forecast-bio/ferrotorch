@@ -61,12 +61,12 @@ pub fn arange<T: Float>(start: T, end: T, step: T) -> FerrotorchResult<Tensor<T>
     if step > <T as num_traits::Zero>::zero() {
         while val < end {
             data.push(val);
-            val = val + step;
+            val += step;
         }
     } else if step < <T as num_traits::Zero>::zero() {
         while val > end {
             data.push(val);
-            val = val + step;
+            val += step;
         }
     } else {
         return Err(crate::error::FerrotorchError::InvalidArgument {

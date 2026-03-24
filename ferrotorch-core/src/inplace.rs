@@ -71,7 +71,7 @@ impl<T: Float> Tensor<T> {
 
         let mut data = self.data_vec()?;
         for x in data.iter_mut() {
-            *x = *x + value;
+            *x += value;
         }
         // SAFETY: check_inplace_allowed ensures this tensor is not part of the
         // computation graph and does not require grad, so no concurrent access.
@@ -142,9 +142,7 @@ impl<T: Float> Tensor<T> {
     pub fn clamp_(&self, min: T, max: T) -> FerrotorchResult<&Self> {
         if min > max {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "clamp_ requires min <= max, got min={min:?}, max={max:?}",
-                ),
+                message: format!("clamp_ requires min <= max, got min={min:?}, max={max:?}",),
             });
         }
 
@@ -177,12 +175,8 @@ mod tests {
 
     #[test]
     fn test_add_scalar_basic() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32, 2.0, 3.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32, 2.0, 3.0]), vec![3], false)
+            .unwrap();
 
         t.add_scalar_(10.0).unwrap();
 
@@ -192,12 +186,8 @@ mod tests {
 
     #[test]
     fn test_add_scalar_negative() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![5.0f64, 10.0]),
-            vec![2],
-            false,
-        )
-        .unwrap();
+        let t =
+            Tensor::from_storage(TensorStorage::cpu(vec![5.0f64, 10.0]), vec![2], false).unwrap();
 
         t.add_scalar_(-3.0).unwrap();
 
@@ -208,12 +198,8 @@ mod tests {
 
     #[test]
     fn test_add_scalar_chaining() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.0f32; 4]),
-            vec![2, 2],
-            false,
-        )
-        .unwrap();
+        let t =
+            Tensor::from_storage(TensorStorage::cpu(vec![0.0f32; 4]), vec![2, 2], false).unwrap();
 
         t.add_scalar_(1.0).unwrap().add_scalar_(2.0).unwrap();
 
@@ -223,12 +209,8 @@ mod tests {
 
     #[test]
     fn test_add_scalar_rejects_requires_grad_leaf() {
-        let t = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0, 2.0]),
-            vec![2],
-            true,
-        )
-        .unwrap();
+        let t =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0, 2.0]), vec![2], true).unwrap();
 
         let err = t.add_scalar_(1.0).unwrap_err();
         let msg = format!("{err}");
@@ -241,12 +223,8 @@ mod tests {
 
     #[test]
     fn test_mul_scalar_basic() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![2.0f32, 3.0, 4.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![2.0f32, 3.0, 4.0]), vec![3], false)
+            .unwrap();
 
         t.mul_scalar_(0.5).unwrap();
 
@@ -271,12 +249,7 @@ mod tests {
 
     #[test]
     fn test_mul_scalar_rejects_requires_grad_leaf() {
-        let t = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0]),
-            vec![1],
-            true,
-        )
-        .unwrap();
+        let t = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0]), vec![1], true).unwrap();
 
         assert!(t.mul_scalar_(2.0).is_err());
     }
@@ -302,12 +275,7 @@ mod tests {
 
     #[test]
     fn test_fill_scalar_tensor() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.0f32]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![0.0f32]), vec![], false).unwrap();
 
         t.fill_(42.0).unwrap();
 
@@ -316,12 +284,8 @@ mod tests {
 
     #[test]
     fn test_fill_rejects_requires_grad_leaf() {
-        let t = Tensor::<f64>::from_storage(
-            TensorStorage::cpu(vec![1.0, 2.0]),
-            vec![2],
-            true,
-        )
-        .unwrap();
+        let t =
+            Tensor::<f64>::from_storage(TensorStorage::cpu(vec![1.0, 2.0]), vec![2], true).unwrap();
 
         assert!(t.fill_(0.0).is_err());
     }
@@ -332,12 +296,8 @@ mod tests {
 
     #[test]
     fn test_zero_basic() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32, 2.0, 3.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32, 2.0, 3.0]), vec![3], false)
+            .unwrap();
 
         t.zero_().unwrap();
 
@@ -347,12 +307,8 @@ mod tests {
 
     #[test]
     fn test_zero_empty_tensor() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(Vec::<f32>::new()),
-            vec![0],
-            false,
-        )
-        .unwrap();
+        let t =
+            Tensor::from_storage(TensorStorage::cpu(Vec::<f32>::new()), vec![0], false).unwrap();
 
         t.zero_().unwrap();
 
@@ -361,12 +317,7 @@ mod tests {
 
     #[test]
     fn test_zero_rejects_requires_grad_leaf() {
-        let t = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0]),
-            vec![1],
-            true,
-        )
-        .unwrap();
+        let t = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0]), vec![1], true).unwrap();
 
         assert!(t.zero_().is_err());
     }
@@ -392,12 +343,8 @@ mod tests {
 
     #[test]
     fn test_clamp_all_within_range() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f64, 2.0, 3.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![1.0f64, 2.0, 3.0]), vec![3], false)
+            .unwrap();
 
         t.clamp_(0.0, 10.0).unwrap();
 
@@ -422,12 +369,8 @@ mod tests {
 
     #[test]
     fn test_clamp_invalid_range() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32, 2.0]),
-            vec![2],
-            false,
-        )
-        .unwrap();
+        let t =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0f32, 2.0]), vec![2], false).unwrap();
 
         let err = t.clamp_(10.0, 0.0).unwrap_err();
         let msg = format!("{err}");
@@ -436,12 +379,8 @@ mod tests {
 
     #[test]
     fn test_clamp_rejects_requires_grad_leaf() {
-        let t = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0, 2.0]),
-            vec![2],
-            true,
-        )
-        .unwrap();
+        let t =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0, 2.0]), vec![2], true).unwrap();
 
         assert!(t.clamp_(0.0, 1.0).is_err());
     }
@@ -452,12 +391,8 @@ mod tests {
 
     #[test]
     fn test_detached_tensor_allows_inplace() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32, 2.0, 3.0]),
-            vec![3],
-            true,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32, 2.0, 3.0]), vec![3], true)
+            .unwrap();
 
         // Detach drops requires_grad and grad_fn.
         let d = t.detach();
@@ -502,12 +437,8 @@ mod tests {
 
     #[test]
     fn test_inplace_ops_f64() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f64, 2.0, 3.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![1.0f64, 2.0, 3.0]), vec![3], false)
+            .unwrap();
 
         t.add_scalar_(100.0).unwrap();
         t.mul_scalar_(0.1).unwrap();

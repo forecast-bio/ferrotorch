@@ -109,7 +109,7 @@ pub struct AutocastEvent {
 
 thread_local! {
     static AUTOCAST_EVENTS: std::cell::RefCell<Vec<AutocastEvent>> =
-        std::cell::RefCell::new(Vec::new());
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Drain and return all recorded autocast events on this thread.
@@ -123,7 +123,7 @@ pub fn drain_autocast_events() -> Vec<AutocastEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::autograd::autocast::{autocast, AutocastDtype};
+    use crate::autograd::autocast::{AutocastDtype, autocast};
 
     // -------------------------------------------------------------------
     // Category classification
@@ -131,10 +131,7 @@ mod tests {
 
     #[test]
     fn test_mm_is_reduced_precision() {
-        assert_eq!(
-            autocast_category("mm"),
-            AutocastCategory::ReducedPrecision
-        );
+        assert_eq!(autocast_category("mm"), AutocastCategory::ReducedPrecision);
     }
 
     #[test]
@@ -147,10 +144,7 @@ mod tests {
 
     #[test]
     fn test_bmm_is_reduced_precision() {
-        assert_eq!(
-            autocast_category("bmm"),
-            AutocastCategory::ReducedPrecision
-        );
+        assert_eq!(autocast_category("bmm"), AutocastCategory::ReducedPrecision);
     }
 
     #[test]
@@ -219,18 +213,12 @@ mod tests {
 
     #[test]
     fn test_sum_is_full_precision() {
-        assert_eq!(
-            autocast_category("sum"),
-            AutocastCategory::FullPrecision
-        );
+        assert_eq!(autocast_category("sum"), AutocastCategory::FullPrecision);
     }
 
     #[test]
     fn test_mean_is_full_precision() {
-        assert_eq!(
-            autocast_category("mean"),
-            AutocastCategory::FullPrecision
-        );
+        assert_eq!(autocast_category("mean"), AutocastCategory::FullPrecision);
     }
 
     #[test]
@@ -397,8 +385,14 @@ mod tests {
     #[test]
     fn test_autocast_guard_returns_category() {
         autocast(AutocastDtype::F16, || {
-            assert_eq!(autocast_guard("mm"), Some(AutocastCategory::ReducedPrecision));
-            assert_eq!(autocast_guard("softmax"), Some(AutocastCategory::FullPrecision));
+            assert_eq!(
+                autocast_guard("mm"),
+                Some(AutocastCategory::ReducedPrecision)
+            );
+            assert_eq!(
+                autocast_guard("softmax"),
+                Some(AutocastCategory::FullPrecision)
+            );
             assert_eq!(autocast_guard("add"), Some(AutocastCategory::Passthrough));
         });
     }
@@ -441,7 +435,10 @@ mod tests {
             autocast_guard("linear");
         });
         let events = drain_autocast_events();
-        assert!(events.is_empty(), "no events should be recorded when debug is off");
+        assert!(
+            events.is_empty(),
+            "no events should be recorded when debug is off"
+        );
     }
 
     // -------------------------------------------------------------------

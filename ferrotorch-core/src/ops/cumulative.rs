@@ -53,7 +53,11 @@ fn validate_dim(ndim: usize, dim: i64, op_name: &str) -> FerrotorchResult<usize>
 /// `dim` equals `sum(input[..., 0..=i, ...])`.
 pub fn cumsum_forward<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResult<Tensor<T>> {
     let norm_dim = validate_dim(input.ndim(), dim, "cumsum")?;
-    let input_cpu = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let input_cpu = if input.is_cuda() {
+        input.cpu()?
+    } else {
+        input.clone()
+    };
     let in_data = input_cpu.data()?;
     let shape = input_cpu.shape();
 
@@ -66,7 +70,7 @@ pub fn cumsum_forward<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResult
             let mut acc = <T as num_traits::Zero>::zero();
             for i in 0..dim_size {
                 let idx = base + i * inner;
-                acc = acc + in_data[idx];
+                acc += in_data[idx];
                 out[idx] = acc;
             }
         }
@@ -89,7 +93,7 @@ pub fn reverse_cumsum<T: Float>(data: &[T], shape: &[usize], dim: usize) -> Vec<
             let mut acc = <T as num_traits::Zero>::zero();
             for i in (0..dim_size).rev() {
                 let idx = base + i * inner;
-                acc = acc + data[idx];
+                acc += data[idx];
                 out[idx] = acc;
             }
         }
@@ -107,7 +111,11 @@ pub fn reverse_cumsum<T: Float>(data: &[T], shape: &[usize], dim: usize) -> Vec<
 /// `dim` equals `prod(input[..., 0..=i, ...])`.
 pub fn cumprod_forward<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResult<Tensor<T>> {
     let norm_dim = validate_dim(input.ndim(), dim, "cumprod")?;
-    let input_cpu = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let input_cpu = if input.is_cuda() {
+        input.cpu()?
+    } else {
+        input.clone()
+    };
     let in_data = input_cpu.data()?;
     let shape = input_cpu.shape();
 
@@ -150,7 +158,11 @@ pub fn cummax_forward<T: Float>(
     dim: i64,
 ) -> FerrotorchResult<CumExtremeResult<T>> {
     let norm_dim = validate_dim(input.ndim(), dim, "cummax")?;
-    let input_cpu = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let input_cpu = if input.is_cuda() {
+        input.cpu()?
+    } else {
+        input.clone()
+    };
     let in_data = input_cpu.data()?;
     let shape = input_cpu.shape();
 
@@ -197,7 +209,11 @@ pub fn cummin_forward<T: Float>(
     dim: i64,
 ) -> FerrotorchResult<CumExtremeResult<T>> {
     let norm_dim = validate_dim(input.ndim(), dim, "cummin")?;
-    let input_cpu = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let input_cpu = if input.is_cuda() {
+        input.cpu()?
+    } else {
+        input.clone()
+    };
     let in_data = input_cpu.data()?;
     let shape = input_cpu.shape();
 
@@ -240,12 +256,13 @@ pub fn cummin_forward<T: Float>(
 /// `output[..., i, ...] = log(sum(exp(input[..., 0..=i, ...])))`
 ///
 /// Numerically stable: uses the running-max trick to avoid overflow.
-pub fn logcumsumexp_forward<T: Float>(
-    input: &Tensor<T>,
-    dim: i64,
-) -> FerrotorchResult<Tensor<T>> {
+pub fn logcumsumexp_forward<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResult<Tensor<T>> {
     let norm_dim = validate_dim(input.ndim(), dim, "logcumsumexp")?;
-    let input_cpu = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let input_cpu = if input.is_cuda() {
+        input.cpu()?
+    } else {
+        input.clone()
+    };
     let in_data = input_cpu.data()?;
     let shape = input_cpu.shape();
 
@@ -271,15 +288,15 @@ pub fn logcumsumexp_forward<T: Float>(
             // Second pass: accumulate exp(x_i - running_max) and take log.
             let mut acc = <T as num_traits::Zero>::zero();
             let mut prev_max = neg_inf;
-            for i in 0..dim_size {
+            for (i, &m) in maxes.iter().enumerate().take(dim_size) {
                 let idx = base + i * inner;
-                let m = maxes[i];
 
                 // When the running max changes, rescale the accumulator.
                 if m > prev_max && prev_max != neg_inf {
-                    acc = acc * (prev_max - m).exp();
+                    #[allow(clippy::assign_op_pattern)]
+                    { acc = acc * (prev_max - m).exp(); }
                 }
-                acc = acc + (in_data[idx] - m).exp();
+                acc += (in_data[idx] - m).exp();
                 out[idx] = m + acc.ln();
                 prev_max = m;
             }

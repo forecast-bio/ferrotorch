@@ -251,9 +251,7 @@ pub fn quantize<T: Float>(
 
             let qdata: Vec<i8> = data
                 .iter()
-                .map(|&v| {
-                    quantize_val(v.to_f32().unwrap(), scale, zp, qmin, qmax, is_unsigned)
-                })
+                .map(|&v| quantize_val(v.to_f32().unwrap(), scale, zp, qmin, qmax, is_unsigned))
                 .collect();
 
             Ok(QuantizedTensor {
@@ -639,11 +637,7 @@ impl PerChannelMinMaxObserver {
     /// Observe a tensor's data with the given shape.
     ///
     /// Returns `Err` if the channel count along `self.axis` doesn't match.
-    pub fn observe_with_shape(
-        &mut self,
-        data: &[f32],
-        shape: &[usize],
-    ) -> FerrotorchResult<()> {
+    pub fn observe_with_shape(&mut self, data: &[f32], shape: &[usize]) -> FerrotorchResult<()> {
         if self.axis >= shape.len() {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
@@ -786,8 +780,8 @@ impl HistogramObserver {
         let old_bin_width = old_range / n as f32;
         let new_bin_width = new_range / n as f32;
 
-        for old_idx in 0..n {
-            if old_bins[old_idx] == 0 {
+        for (old_idx, &old_count) in old_bins.iter().enumerate().take(n) {
+            if old_count == 0 {
                 continue;
             }
             // Center of the old bin in value space.
@@ -795,7 +789,7 @@ impl HistogramObserver {
             // Map to new bin index.
             let new_frac = (old_center - new_min) / new_bin_width;
             let new_idx = (new_frac as usize).min(n - 1);
-            self.bins[new_idx] += old_bins[old_idx];
+            self.bins[new_idx] += old_count;
         }
 
         self.min_val = new_min;
@@ -925,8 +919,8 @@ impl FakeQuantize {
 
         // Calculate or use cached qparams.
         // When observer is disabled and we have cached params, skip recalculation.
-        let qparams = if !self.observer_enabled && self.qparams.is_some() {
-            self.qparams.as_ref().unwrap().clone()
+        let qparams = if let Some(cached) = self.qparams.as_ref().filter(|_| !self.observer_enabled) {
+            cached.clone()
         } else {
             let qp = self.observer.calculate_qparams(self.dtype);
             self.qparams = Some(qp.clone());
@@ -937,14 +931,9 @@ impl FakeQuantize {
         let zp = qparams.zero_point[0];
         let qmin = self.dtype.qmin();
         let qmax = self.dtype.qmax();
-        let is_unsigned = self.dtype == QuantDtype::Uint8;
 
         // Compute the dequantized range boundaries for clipped STE.
-        let range_min = if is_unsigned {
-            (qmin as f32 - zp as f32) * scale
-        } else {
-            (qmin as f32 - zp as f32) * scale
-        };
+        let range_min = (qmin as f32 - zp as f32) * scale;
         let range_max = (qmax as f32 - zp as f32) * scale;
 
         let mut output = Vec::with_capacity(data.len());
@@ -952,7 +941,9 @@ impl FakeQuantize {
 
         for &x in data {
             // Fake quantize: quantize then dequantize.
-            let q = (x / scale + zp as f32).round().clamp(qmin as f32, qmax as f32);
+            let q = (x / scale + zp as f32)
+                .round()
+                .clamp(qmin as f32, qmax as f32);
             let dq = (q - zp as f32) * scale;
             output.push(dq);
 
@@ -1024,11 +1015,12 @@ impl QatModel {
         layer_name: &str,
         weights: &[f32],
     ) -> FerrotorchResult<(Vec<f32>, Vec<f32>)> {
-        let layer = self.layers.get_mut(layer_name).ok_or_else(|| {
-            FerrotorchError::InvalidArgument {
-                message: format!("layer '{layer_name}' not registered for QAT"),
-            }
-        })?;
+        let layer =
+            self.layers
+                .get_mut(layer_name)
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!("layer '{layer_name}' not registered for QAT"),
+                })?;
 
         // Save original weights.
         let originals = weights.to_vec();
@@ -1047,11 +1039,12 @@ impl QatModel {
         layer_name: &str,
         activations: &[f32],
     ) -> FerrotorchResult<(Vec<f32>, Vec<f32>)> {
-        let layer = self.layers.get_mut(layer_name).ok_or_else(|| {
-            FerrotorchError::InvalidArgument {
-                message: format!("layer '{layer_name}' not registered for QAT"),
-            }
-        })?;
+        let layer =
+            self.layers
+                .get_mut(layer_name)
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!("layer '{layer_name}' not registered for QAT"),
+                })?;
 
         let (fq_activations, grad_mask) = layer.activation_fq.forward(activations);
         Ok((fq_activations, grad_mask))
@@ -1062,10 +1055,7 @@ impl QatModel {
 ///
 /// Creates a `QatModel` and registers layers. Only parameters whose name
 /// contains "weight" get weight FakeQuantize; bias parameters are skipped.
-pub fn prepare_qat(
-    param_names: &[&str],
-    dtype: QuantDtype,
-) -> QatModel {
+pub fn prepare_qat(param_names: &[&str], dtype: QuantDtype) -> QatModel {
     let mut model = QatModel::new(dtype);
 
     for &name in param_names {
@@ -1108,17 +1098,13 @@ pub mod cuda_rng {
 
     /// Get the current RNG state, recovering gracefully from mutex poisoning.
     pub fn get_state() -> u64 {
-        let guard = RNG_STATE
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let guard = RNG_STATE.lock().unwrap_or_else(|e| e.into_inner());
         *guard
     }
 
     /// Set the RNG state.
     pub fn set_state(state: u64) {
-        let mut guard = RNG_STATE
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut guard = RNG_STATE.lock().unwrap_or_else(|e| e.into_inner());
         *guard = state;
     }
 
@@ -1128,16 +1114,12 @@ pub mod cuda_rng {
     /// gracefully instead of panicking.
     pub fn fork_rng(new_seed: u64) {
         let current = {
-            let guard = RNG_STATE
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let guard = RNG_STATE.lock().unwrap_or_else(|e| e.into_inner());
             *guard
         };
 
         {
-            let mut stack = RNG_STACK
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut stack = RNG_STACK.lock().unwrap_or_else(|e| e.into_inner());
             stack.push(current);
         }
 
@@ -1150,9 +1132,7 @@ pub mod cuda_rng {
     /// gracefully instead of panicking.
     pub fn join_rng() {
         let saved = {
-            let mut stack = RNG_STACK
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut stack = RNG_STACK.lock().unwrap_or_else(|e| e.into_inner());
             stack.pop()
         };
 
@@ -1163,9 +1143,7 @@ pub mod cuda_rng {
 
     /// Advance the RNG state and return the new value.
     pub fn next_seed() -> u64 {
-        let mut guard = RNG_STATE
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut guard = RNG_STATE.lock().unwrap_or_else(|e| e.into_inner());
         // Simple splitmix64 step.
         *guard = guard.wrapping_add(0x9e3779b97f4a7c15);
         let mut z = *guard;
@@ -1340,10 +1318,7 @@ mod tests {
             let err = (e - g).abs();
             // Quantization introduces some error; for small integers in INT8
             // the error should be small relative to the values.
-            assert!(
-                err < 3.0,
-                "element {i}: expected={e}, got={g}, error={err}"
-            );
+            assert!(err < 3.0, "element {i}: expected={e}, got={g}, error={err}");
         }
     }
 
@@ -1381,8 +1356,7 @@ mod tests {
             ("layer2.weight".to_string(), w2),
         ];
 
-        let qmap =
-            quantize_named_tensors(named, QuantScheme::PerTensor, QuantDtype::Int8).unwrap();
+        let qmap = quantize_named_tensors(named, QuantScheme::PerTensor, QuantDtype::Int8).unwrap();
 
         assert_eq!(qmap.len(), 2);
         assert!(qmap.contains_key("layer.weight"));
@@ -1526,7 +1500,8 @@ mod tests {
     fn test_per_channel_observer_with_shape() {
         let mut obs = PerChannelMinMaxObserver::new(2, 0);
         // Shape [2, 3]: channel 0 = [0, 1, 2], channel 1 = [10, 20, 30]
-        obs.observe_with_shape(&[0.0, 1.0, 2.0, 10.0, 20.0, 30.0], &[2, 3]).unwrap();
+        obs.observe_with_shape(&[0.0, 1.0, 2.0, 10.0, 20.0, 30.0], &[2, 3])
+            .unwrap();
         let qp = obs.calculate_qparams(QuantDtype::Int8);
         assert_eq!(qp.scale.len(), 2);
         assert_eq!(qp.zero_point.len(), 2);
@@ -1544,7 +1519,8 @@ mod tests {
     fn test_per_channel_observer_axis() {
         let mut obs = PerChannelMinMaxObserver::new(3, 1);
         // Shape [2, 3]: axis 1 has 3 channels.
-        obs.observe_with_shape(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
+        obs.observe_with_shape(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])
+            .unwrap();
         let qp = obs.calculate_qparams(QuantDtype::Int8);
         assert_eq!(qp.scale.len(), 3);
     }
@@ -1552,10 +1528,8 @@ mod tests {
     #[test]
     fn test_per_channel_observer_filters_nan_inf() {
         let mut obs = PerChannelMinMaxObserver::new(2, 0);
-        obs.observe_with_shape(
-            &[f32::NAN, 1.0, 2.0, 10.0, f32::INFINITY, 30.0],
-            &[2, 3],
-        ).unwrap();
+        obs.observe_with_shape(&[f32::NAN, 1.0, 2.0, 10.0, f32::INFINITY, 30.0], &[2, 3])
+            .unwrap();
         // Channel 0 should only see [1, 2], channel 1 should only see [10, 30].
         let qp = obs.calculate_qparams(QuantDtype::Int8);
         assert_eq!(qp.scale.len(), 2);
@@ -1608,10 +1582,7 @@ mod tests {
 
         // Output should be close to input (quantize then dequantize).
         for (i, (&o, &d)) in output.iter().zip(data.iter()).enumerate() {
-            assert!(
-                (o - d).abs() < 0.1,
-                "element {i}: output={o}, data={d}"
-            );
+            assert!((o - d).abs() < 0.1, "element {i}: output={o}, data={d}");
         }
     }
 
@@ -1677,10 +1648,7 @@ mod tests {
         assert_eq!(originals, weights);
         // Fake-quantized weights should be close to originals.
         for (i, (&fq, &orig)) in fq_weights.iter().zip(weights.iter()).enumerate() {
-            assert!(
-                (fq - orig).abs() < 0.1,
-                "weight {i}: fq={fq}, orig={orig}"
-            );
+            assert!((fq - orig).abs() < 0.1, "weight {i}: fq={fq}, orig={orig}");
         }
     }
 
@@ -1691,8 +1659,12 @@ mod tests {
         model.register_layer("layer2");
 
         // Both layers should have independent activation FakeQuantize.
-        let (act1, _) = model.fake_quantize_activations("layer1", &[1.0, 2.0]).unwrap();
-        let (act2, _) = model.fake_quantize_activations("layer2", &[10.0, 20.0]).unwrap();
+        let (act1, _) = model
+            .fake_quantize_activations("layer1", &[1.0, 2.0])
+            .unwrap();
+        let (act2, _) = model
+            .fake_quantize_activations("layer2", &[10.0, 20.0])
+            .unwrap();
         assert_eq!(act1.len(), 2);
         assert_eq!(act2.len(), 2);
     }

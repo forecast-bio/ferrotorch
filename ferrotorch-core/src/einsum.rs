@@ -109,7 +109,12 @@ fn build_dim_map<T: Float>(
 ) -> FerrotorchResult<BTreeMap<char, usize>> {
     let mut dim_map: BTreeMap<char, usize> = BTreeMap::new();
 
-    for (i, (subs, tensor)) in parsed.input_subscripts.iter().zip(inputs.iter()).enumerate() {
+    for (i, (subs, tensor)) in parsed
+        .input_subscripts
+        .iter()
+        .zip(inputs.iter())
+        .enumerate()
+    {
         if subs.len() != tensor.ndim() {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
@@ -212,7 +217,7 @@ fn einsum_single<T: Float>(
     let mut result = vec![<T as num_traits::Zero>::zero(); out_numel];
 
     // For each output element...
-    for out_idx in 0..out_numel {
+    for (out_idx, result_elem) in result.iter_mut().enumerate() {
         // Decode output multi-index.
         let mut out_multi = vec![0usize; out_subs.len()];
         {
@@ -247,7 +252,7 @@ fn einsum_single<T: Float>(
             // corresponding axis values must match.
             // For repeated input indices, enforce equality.
             let mut first_occurrence: BTreeMap<char, Option<usize>> = BTreeMap::new();
-            for (_axis, &c) in in_subs.iter().enumerate() {
+            for &c in in_subs.iter() {
                 let val = idx_vals[&c];
                 match first_occurrence.get(&c) {
                     Some(Some(prev_val)) => {
@@ -272,10 +277,10 @@ fn einsum_single<T: Float>(
                 flat_idx += idx_vals[&c] * in_strides[axis];
             }
 
-            acc = acc + data[flat_idx];
+            acc += data[flat_idx];
         }
 
-        result[out_idx] = acc;
+        *result_elem = acc;
     }
 
     Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)
@@ -334,12 +339,11 @@ fn einsum_two<T: Float>(
         }
     }
     for &c in &b_unique {
-        if !a_unique.contains(&c) {
-            if out_subs.contains(&c) {
+        if !a_unique.contains(&c)
+            && out_subs.contains(&c) {
                 free_b_chars.push(c);
-            }
-            // If not in output either, it's summed over in B only.
         }
+        // If not in output either, it's summed over in B only.
     }
 
     // Compute sizes.
@@ -404,6 +408,7 @@ fn einsum_two<T: Float>(
 
     // Compute A flat index from (batch_vals, free_a_vals, contract_vals).
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn compute_a_flat(
         batch_chars: &[char],
         batch_vals: &[usize],
@@ -440,6 +445,7 @@ fn einsum_two<T: Float>(
     }
 
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn compute_b_flat(
         batch_chars: &[char],
         batch_vals: &[usize],
@@ -509,7 +515,7 @@ fn einsum_two<T: Float>(
                         &b_char_to_axis,
                         &b_strides,
                     );
-                    acc = acc + a_data[a_flat] * b_data[b_flat];
+                    acc += a_data[a_flat] * b_data[b_flat];
                 }
                 gemm_result[bi * (free_a_total * free_b_total) + fa * free_b_total + fb] = acc;
             }
@@ -560,7 +566,7 @@ fn einsum_two<T: Float>(
     let inter_strides = row_major_strides(&intermediate_sizes);
 
     let mut result = vec![<T as num_traits::Zero>::zero(); out_numel];
-    for out_flat in 0..out_numel {
+    for (out_flat, result_elem) in result.iter_mut().enumerate() {
         // Decode output multi-index.
         let out_multi = decode_multi(out_flat, &out_shape);
         // Map to intermediate multi-index.
@@ -568,7 +574,7 @@ fn einsum_two<T: Float>(
         for (out_axis, &inter_axis) in perm.iter().enumerate() {
             inter_flat += out_multi[out_axis] * inter_strides[inter_axis];
         }
-        result[out_flat] = gemm_result[inter_flat];
+        *result_elem = gemm_result[inter_flat];
     }
 
     Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)
@@ -732,7 +738,7 @@ impl<T: Float> GradFn<T> for EinsumBackwardSingle<T> {
             // only where repeated indices are equal.
             let out_strides = row_major_strides(grad_output.shape());
 
-            for flat in 0..in_numel {
+            for (flat, grad_elem) in grad_data.iter_mut().enumerate().take(in_numel) {
                 // Decode flat to multi-index for input.
                 let mut multi = vec![0usize; in_subs.len()];
                 {
@@ -768,7 +774,7 @@ impl<T: Float> GradFn<T> for EinsumBackwardSingle<T> {
                     out_flat += char_val[&oc] * out_strides[oi];
                 }
 
-                grad_data[flat] = if out_subs.is_empty() {
+                *grad_elem = if out_subs.is_empty() {
                     // Scalar output — the gradient is just the scalar value.
                     grad_out_data[0]
                 } else {
@@ -776,8 +782,7 @@ impl<T: Float> GradFn<T> for EinsumBackwardSingle<T> {
                 };
             }
 
-            let grad_tensor =
-                Tensor::from_storage(TensorStorage::cpu(grad_data), in_shape, false)?;
+            let grad_tensor = Tensor::from_storage(TensorStorage::cpu(grad_data), in_shape, false)?;
             return Ok(vec![Some(grad_tensor)]);
         }
 
@@ -995,11 +1000,7 @@ mod tests {
         let c = einsum("i,j->ij", &[&a, &b]).unwrap();
         assert_eq!(c.shape(), &[3, 2]);
         // [[1*4, 1*5], [2*4, 2*5], [3*4, 3*5]]
-        assert_close(
-            c.data().unwrap(),
-            &[4.0, 5.0, 8.0, 10.0, 12.0, 15.0],
-            1e-6,
-        );
+        assert_close(c.data().unwrap(), &[4.0, 5.0, 8.0, 10.0, 12.0, 15.0], 1e-6);
     }
 
     // -----------------------------------------------------------------------
@@ -1180,7 +1181,9 @@ mod tests {
         // (2,3) @ (3,4) -> (2,4)
         let a = t(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]);
         let b = t(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            &[
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+            ],
             &[3, 4],
         );
         let c = einsum("ij,jk->ik", &[&a, &b]).unwrap();
@@ -1202,8 +1205,8 @@ mod tests {
 
     #[test]
     fn test_einsum_differentiable_fires_autocast_guard() {
-        use crate::autograd::autocast::{autocast, set_autocast_debug, AutocastDtype};
-        use crate::autograd::autocast_ops::{drain_autocast_events, AutocastCategory};
+        use crate::autograd::autocast::{AutocastDtype, autocast, set_autocast_debug};
+        use crate::autograd::autocast_ops::{AutocastCategory, drain_autocast_events};
 
         set_autocast_debug(true);
         let a = t(&[1.0, 2.0, 3.0, 4.0], &[2, 2]);

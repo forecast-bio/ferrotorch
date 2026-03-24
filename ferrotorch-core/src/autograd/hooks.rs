@@ -5,12 +5,19 @@
 // on leaf tensors). Each registration returns a `HookHandle` that can be used
 // to remove the hook later.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::tensor::Tensor;
+
+/// Type alias for a gradient hook function: receives a gradient tensor and
+/// optionally returns a replacement.
+pub(crate) type GradHookFn<T> = Box<dyn Fn(&Tensor<T>) -> Option<Tensor<T>> + Send + Sync>;
+
+/// Type alias for a post-accumulate-grad hook function.
+pub(crate) type PostAccumulateHookFn<T> = Box<dyn Fn(&Tensor<T>) + Send + Sync>;
 
 /// Monotonically increasing handle counter for hook identification.
 static NEXT_HOOK_ID: AtomicU64 = AtomicU64::new(0);
@@ -35,7 +42,7 @@ impl HookHandle {
 /// and optionally modify the gradient flowing through the backward pass.
 pub(crate) struct GradHook<T: Float> {
     pub handle: HookHandle,
-    pub func: Box<dyn Fn(&Tensor<T>) -> Option<Tensor<T>> + Send + Sync>,
+    pub func: GradHookFn<T>,
 }
 
 /// A post-accumulate-grad hook: called after gradient has been accumulated
@@ -44,7 +51,7 @@ pub(crate) struct GradHook<T: Float> {
 /// for that.
 pub(crate) struct PostAccumulateGradHook<T: Float> {
     pub handle: HookHandle,
-    pub func: Box<dyn Fn(&Tensor<T>) + Send + Sync>,
+    pub func: PostAccumulateHookFn<T>,
 }
 
 /// Storage for hooks attached to a tensor.

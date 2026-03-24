@@ -141,7 +141,9 @@ fn parse_side(s: &str) -> FerrotorchResult<Vec<AxisSpec>> {
 }
 
 /// Read an axis name: a run of alphanumeric / underscore characters.
-fn read_axis_name(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> FerrotorchResult<String> {
+fn read_axis_name(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) -> FerrotorchResult<String> {
     let mut name = String::new();
     while let Some(&c) = chars.peek() {
         if c.is_ascii_alphanumeric() || c == '_' {
@@ -157,11 +159,12 @@ fn read_axis_name(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Ferro
 /// Parse a full pattern like `"b c h w -> b (c h) w"`.
 fn parse_pattern(pattern: &str) -> FerrotorchResult<ParsedPattern> {
     let pattern = pattern.trim();
-    let (left_str, right_str) = pattern.split_once("->").ok_or_else(|| {
-        FerrotorchError::InvalidArgument {
-            message: format!("einops: pattern must contain '->', got: \"{pattern}\""),
-        }
-    })?;
+    let (left_str, right_str) =
+        pattern
+            .split_once("->")
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("einops: pattern must contain '->', got: \"{pattern}\""),
+            })?;
 
     let left = parse_side(left_str)?;
     let right = parse_side(right_str)?;
@@ -269,7 +272,9 @@ fn resolve_sizes(
                             message: format!(
                                 "einops: dimension {} (size {}) is not divisible by \
                                  known product {} for split '({})'",
-                                dim_idx, dim_size, known_product,
+                                dim_idx,
+                                dim_size,
+                                known_product,
                                 names.join(" ")
                             ),
                         });
@@ -281,7 +286,10 @@ fn resolve_sizes(
                         return Err(FerrotorchError::ShapeMismatch {
                             message: format!(
                                 "einops: split '({})' product {} does not match dimension {} size {}",
-                                names.join(" "), known_product, dim_idx, dim_size
+                                names.join(" "),
+                                known_product,
+                                dim_idx,
+                                dim_size
                             ),
                         });
                     }
@@ -412,14 +420,14 @@ fn rearrange_impl<T: Float>(
     let elem_numel: usize = left_elem_shape.iter().product();
     let mut transposed = vec![<T as num_traits::Zero>::zero(); elem_numel];
 
-    for src_flat in 0..elem_numel {
+    for (src_flat, &val) in data.iter().enumerate().take(elem_numel) {
         let src_coords = flat_to_coords(src_flat, &left_elem_shape);
         let mut dst_coords = vec![0usize; right_elem_shape.len()];
         for (dst_dim, &src_dim) in perm.iter().enumerate() {
             dst_coords[dst_dim] = src_coords[src_dim];
         }
         let dst_flat = coords_to_flat(&dst_coords, &right_elem_shape);
-        transposed[dst_flat] = data[src_flat];
+        transposed[dst_flat] = val;
     }
 
     // Step 3: The transposed buffer now has right_elem_shape layout.
@@ -644,7 +652,7 @@ pub fn reduce<T: Float>(
     };
     let mut accum = vec![init_val; out_numel];
 
-    for src_flat in 0..in_numel {
+    for (src_flat, &val) in data.iter().enumerate().take(in_numel) {
         let src_coords = flat_to_coords(src_flat, &left_elem_shape);
         // Map to output coordinates: keep only the axes that survive.
         let mut dst_coords = Vec::with_capacity(right_elem_shape.len());
@@ -655,10 +663,9 @@ pub fn reduce<T: Float>(
         }
         let dst_flat = coords_to_flat(&dst_coords, &right_elem_shape);
 
-        let val = data[src_flat];
         match reduction {
             EinopsReduction::Sum | EinopsReduction::Mean => {
-                accum[dst_flat] = accum[dst_flat] + val;
+                accum[dst_flat] += val;
             }
             EinopsReduction::Max => {
                 if val > accum[dst_flat] {
@@ -743,12 +750,12 @@ mod tests {
         // Output[0,1,0,0] = Input[0,0,0,1] = 1
         // etc.
         let out = r.data().unwrap();
-        assert_eq!(out[0], 0.0);  // [0,0,0,0]
-        assert_eq!(out[1], 3.0);  // [0,0,0,1]
-        assert_eq!(out[2], 6.0);  // [0,0,1,0]
-        assert_eq!(out[3], 9.0);  // [0,0,1,1]
-        assert_eq!(out[4], 1.0);  // [0,1,0,0]
-        assert_eq!(out[5], 4.0);  // [0,1,0,1]
+        assert_eq!(out[0], 0.0); // [0,0,0,0]
+        assert_eq!(out[1], 3.0); // [0,0,0,1]
+        assert_eq!(out[2], 6.0); // [0,0,1,0]
+        assert_eq!(out[3], 9.0); // [0,0,1,1]
+        assert_eq!(out[4], 1.0); // [0,1,0,0]
+        assert_eq!(out[5], 4.0); // [0,1,0,1]
     }
 
     #[test]

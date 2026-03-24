@@ -14,8 +14,8 @@ use crate::autograd::no_grad::is_grad_enabled;
 use crate::dtype::Float;
 use crate::error::FerrotorchResult;
 use crate::ops::cumulative::{
-    cummax_forward, cummin_forward, cumprod_forward, cumsum_forward, logcumsumexp_forward,
-    reverse_cumsum, CumExtremeResult,
+    CumExtremeResult, cummax_forward, cummin_forward, cumprod_forward, cumsum_forward,
+    logcumsumexp_forward, reverse_cumsum,
 };
 use crate::shape::normalize_axis;
 use crate::storage::TensorStorage;
@@ -49,8 +49,7 @@ impl<T: Float> GradFn<T> for CumsumBackward<T> {
 
         let grad_data = reverse_cumsum(go_data, shape, self.dim);
 
-        let grad_cpu =
-            Tensor::from_storage(TensorStorage::cpu(grad_data), shape.to_vec(), false)?;
+        let grad_cpu = Tensor::from_storage(TensorStorage::cpu(grad_data), shape.to_vec(), false)?;
         let grad_input = grad_cpu.to(self.input.device())?;
         Ok(vec![Some(grad_input)])
     }
@@ -139,7 +138,8 @@ impl<T: Float> GradFn<T> for CumprodBackward<T> {
                 let base = o * dim_size * inner + k;
 
                 // Check if any element along this scan line is zero.
-                let has_zero = (0..dim_size).any(|i| in_data[base + i * inner] == <T as num_traits::Zero>::zero());
+                let has_zero = (0..dim_size)
+                    .any(|i| in_data[base + i * inner] == <T as num_traits::Zero>::zero());
 
                 if !has_zero {
                     // Fast path: no zeros, safe to use output / input.
@@ -148,15 +148,15 @@ impl<T: Float> GradFn<T> for CumprodBackward<T> {
                     // We compute `product = go * out` then reverse-cumsum it,
                     // then divide each element by input[i].
                     let mut product = vec![<T as num_traits::Zero>::zero(); dim_size];
-                    for i in 0..dim_size {
+                    for (i, prod_elem) in product.iter_mut().enumerate().take(dim_size) {
                         let idx = base + i * inner;
-                        product[i] = go_data[idx] * out_data[idx];
+                        *prod_elem = go_data[idx] * out_data[idx];
                     }
                     // Reverse cumsum of product.
                     let mut rev_acc = <T as num_traits::Zero>::zero();
                     for i in (0..dim_size).rev() {
                         let idx = base + i * inner;
-                        rev_acc = rev_acc + product[i];
+                        rev_acc += product[i];
                         grad_input[idx] = rev_acc / in_data[idx];
                     }
                 } else {
@@ -176,10 +176,11 @@ impl<T: Float> GradFn<T> for CumprodBackward<T> {
                             let mut partial = <T as num_traits::One>::one();
                             for kk in 0..=j {
                                 if kk != i {
-                                    partial = partial * in_data[base + kk * inner];
+                                    #[allow(clippy::assign_op_pattern)]
+                            { partial = partial * in_data[base + kk * inner]; }
                                 }
                             }
-                            acc = acc + go_data[base + j * inner] * partial;
+                            acc += go_data[base + j * inner] * partial;
                         }
                         grad_input[base + i * inner] = acc;
                     }
@@ -187,8 +188,7 @@ impl<T: Float> GradFn<T> for CumprodBackward<T> {
             }
         }
 
-        let grad_cpu =
-            Tensor::from_storage(TensorStorage::cpu(grad_input), shape.to_vec(), false)?;
+        let grad_cpu = Tensor::from_storage(TensorStorage::cpu(grad_input), shape.to_vec(), false)?;
         let result = grad_cpu.to(self.input.device())?;
         Ok(vec![Some(result)])
     }
@@ -236,10 +236,7 @@ pub fn cumprod<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResult<Tensor
 ///
 /// This operation is **not differentiable** — the returned values tensor does
 /// not carry a gradient function.
-pub fn cummax<T: Float>(
-    input: &Tensor<T>,
-    dim: i64,
-) -> FerrotorchResult<CumExtremeResult<T>> {
+pub fn cummax<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResult<CumExtremeResult<T>> {
     cummax_forward(input, dim)
 }
 
@@ -249,10 +246,7 @@ pub fn cummax<T: Float>(
 /// running minimum.
 ///
 /// This operation is **not differentiable**.
-pub fn cummin<T: Float>(
-    input: &Tensor<T>,
-    dim: i64,
-) -> FerrotorchResult<CumExtremeResult<T>> {
+pub fn cummin<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResult<CumExtremeResult<T>> {
     cummin_forward(input, dim)
 }
 
@@ -322,8 +316,7 @@ impl<T: Float> GradFn<T> for LogcumsumexpBackward<T> {
             .map(|(&x, &r)| x.exp() * r)
             .collect();
 
-        let grad_cpu =
-            Tensor::from_storage(TensorStorage::cpu(grad_data), shape.to_vec(), false)?;
+        let grad_cpu = Tensor::from_storage(TensorStorage::cpu(grad_data), shape.to_vec(), false)?;
         let grad_input = grad_cpu.to(self.input.device())?;
         Ok(vec![Some(grad_input)])
     }
@@ -387,8 +380,12 @@ mod tests {
 
     /// Helper: create a leaf tensor.
     fn leaf(data: &[f64], shape: &[usize], requires_grad: bool) -> Tensor<f64> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), shape.to_vec(), requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            shape.to_vec(),
+            requires_grad,
+        )
+        .unwrap()
     }
 
     // =======================================================================

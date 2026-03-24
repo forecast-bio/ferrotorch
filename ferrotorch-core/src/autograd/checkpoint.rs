@@ -5,6 +5,9 @@ use crate::error::FerrotorchResult;
 use crate::gpu_dispatch::GpuRngState;
 use crate::tensor::Tensor;
 
+/// Type alias for a checkpointable function: takes an input tensor and produces an output tensor.
+type CheckpointFn<T> = Arc<dyn Fn(&Tensor<T>) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
+
 /// Run a function with gradient checkpointing.
 ///
 /// During the forward pass, intermediate activations are **not** saved.
@@ -124,7 +127,7 @@ impl Drop for GpuRngGuard {
 /// reassigned on clone, gradients computed during recomputation would be
 /// written to a different identity and the user would never see them.
 struct CheckpointBackward<T: Float> {
-    func: Arc<dyn Fn(&Tensor<T>) -> FerrotorchResult<Tensor<T>> + Send + Sync>,
+    func: CheckpointFn<T>,
     input: Tensor<T>,
     output_shape: Vec<usize>,
     /// GPU RNG state saved before the forward pass. Restored during backward
@@ -172,7 +175,10 @@ impl<T: Float> crate::tensor::GradFn<T> for CheckpointBackward<T> {
         // This correctly propagates grad_output through the chain rule.
         use crate::grad_fns::arithmetic::mul;
         use crate::grad_fns::reduction::sum;
-        let weighted = mul(&recomputed, &grad_output.clone().requires_grad_(false).detach())?;
+        let weighted = mul(
+            &recomputed,
+            &grad_output.clone().requires_grad_(false).detach(),
+        )?;
         let scalar = sum(&weighted)?;
         scalar.backward()?;
 

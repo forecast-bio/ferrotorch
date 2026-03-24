@@ -44,17 +44,27 @@ pub struct GpuBufferHandle {
 
 impl GpuBufferHandle {
     pub fn new(inner: Box<dyn Any + Send + Sync>, device_ordinal: usize, len: usize) -> Self {
-        Self { inner, device_ordinal, len }
+        Self {
+            inner,
+            device_ordinal,
+            len,
+        }
     }
 
     #[inline]
-    pub fn device_ordinal(&self) -> usize { self.device_ordinal }
+    pub fn device_ordinal(&self) -> usize {
+        self.device_ordinal
+    }
 
     #[inline]
-    pub fn len(&self) -> usize { self.len }
+    pub fn len(&self) -> usize {
+        self.len
+    }
 
     #[inline]
-    pub fn is_empty(&self) -> bool { self.len == 0 }
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         self.inner.downcast_ref()
@@ -86,20 +96,49 @@ pub trait GpuBackend: Send + Sync {
     /// Downcast to `&dyn Any` for backend-specific access (e.g., getting the
     /// underlying `GpuDevice` for CUDA graph capture).
     fn as_any(&self) -> &dyn std::any::Any;
-    fn cpu_to_gpu(&self, data: &[u8], elem_size: usize, device: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn cpu_to_gpu(
+        &self,
+        data: &[u8],
+        elem_size: usize,
+        device: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
     fn gpu_to_cpu(&self, handle: &GpuBufferHandle) -> FerrotorchResult<Vec<u8>>;
     fn clone_buffer(&self, handle: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
-    fn alloc_zeros(&self, len: usize, elem_size: usize, device: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn alloc_zeros(
+        &self,
+        len: usize,
+        elem_size: usize,
+        device: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // Elementwise f32
-    fn add_f32(&self, a: &GpuBufferHandle, b: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
-    fn sub_f32(&self, a: &GpuBufferHandle, b: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
-    fn mul_f32(&self, a: &GpuBufferHandle, b: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
+    fn add_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle>;
+    fn sub_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle>;
+    fn mul_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle>;
     fn neg_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
     fn relu_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
 
     // Linalg f32
-    fn matmul_f32(&self, a: &GpuBufferHandle, b: &GpuBufferHandle, m: usize, k: usize, n: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn matmul_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     /// Mixed-precision matmul: cast f32 inputs to f16, multiply, accumulate
     /// back to f32. Used by autocast when the category is `ReducedPrecision`.
@@ -113,7 +152,14 @@ pub trait GpuBackend: Send + Sync {
     /// outside that range will overflow to inf or underflow to zero when cast.
     /// Callers relying on autocast should ensure their model weights stay
     /// within f16-representable bounds (which is normal for trained networks).
-    fn matmul_f16_f32(&self, a: &GpuBufferHandle, b: &GpuBufferHandle, m: usize, k: usize, n: usize) -> FerrotorchResult<GpuBufferHandle> {
+    fn matmul_f16_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
         // Fallback: no f16 kernel available, use full-precision f32.
         self.matmul_f32(a, b, m, k, n)
     }
@@ -122,42 +168,107 @@ pub trait GpuBackend: Send + Sync {
     fn sum_f32(&self, a: &GpuBufferHandle, len: usize) -> FerrotorchResult<GpuBufferHandle>;
 
     // Elementwise f64 (default impls return "not yet implemented" errors)
-    fn add_f64(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+    fn add_f64(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "f64 GPU ops not yet implemented".into(),
+        })
     }
-    fn sub_f64(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+    fn sub_f64(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "f64 GPU ops not yet implemented".into(),
+        })
     }
-    fn mul_f64(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+    fn mul_f64(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "f64 GPU ops not yet implemented".into(),
+        })
     }
     fn neg_f64(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "f64 GPU ops not yet implemented".into(),
+        })
     }
     fn relu_f64(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "f64 GPU ops not yet implemented".into(),
+        })
     }
 
     // Linalg f64
-    fn matmul_f64(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle, _m: usize, _k: usize, _n: usize) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+    fn matmul_f64(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+        _m: usize,
+        _k: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "f64 GPU ops not yet implemented".into(),
+        })
     }
 
     // Reduction f64
     fn sum_f64(&self, _a: &GpuBufferHandle, _numel: usize) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "f64 GPU ops not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "f64 GPU ops not yet implemented".into(),
+        })
     }
 
     // Broadcast binary f32
-    fn broadcast_add_f32(&self, a: &GpuBufferHandle, b: &GpuBufferHandle, a_shape: &[usize], b_shape: &[usize], out_shape: &[usize]) -> FerrotorchResult<GpuBufferHandle>;
-    fn broadcast_sub_f32(&self, a: &GpuBufferHandle, b: &GpuBufferHandle, a_shape: &[usize], b_shape: &[usize], out_shape: &[usize]) -> FerrotorchResult<GpuBufferHandle>;
-    fn broadcast_mul_f32(&self, a: &GpuBufferHandle, b: &GpuBufferHandle, a_shape: &[usize], b_shape: &[usize], out_shape: &[usize]) -> FerrotorchResult<GpuBufferHandle>;
+    fn broadcast_add_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        a_shape: &[usize],
+        b_shape: &[usize],
+        out_shape: &[usize],
+    ) -> FerrotorchResult<GpuBufferHandle>;
+    fn broadcast_sub_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        a_shape: &[usize],
+        b_shape: &[usize],
+        out_shape: &[usize],
+    ) -> FerrotorchResult<GpuBufferHandle>;
+    fn broadcast_mul_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        a_shape: &[usize],
+        b_shape: &[usize],
+        out_shape: &[usize],
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // Softmax f32 (row-wise over last dim)
-    fn softmax_f32(&self, a: &GpuBufferHandle, rows: usize, cols: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn softmax_f32(
+        &self,
+        a: &GpuBufferHandle,
+        rows: usize,
+        cols: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // Dropout f32 (inverted dropout)
-    fn dropout_f32(&self, a: &GpuBufferHandle, threshold: u32, scale: f32, seed: u32) -> FerrotorchResult<GpuBufferHandle>;
+    fn dropout_f32(
+        &self,
+        a: &GpuBufferHandle,
+        threshold: u32,
+        scale: f32,
+        seed: u32,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     /// Dropout using the Philox CBRNG for deterministic, reproducible mask generation.
     ///
@@ -178,99 +289,232 @@ pub trait GpuBackend: Send + Sync {
         // Default: fall back to the non-Philox version with a dummy seed.
         // The returned state has device=0 as a placeholder.
         let result = self.dropout_f32(a, threshold, scale, 0)?;
-        Ok((result, GpuRngState { counter: 0, seed: 0, offset: 0, device: 0 }))
+        Ok((
+            result,
+            GpuRngState {
+                counter: 0,
+                seed: 0,
+                offset: 0,
+                device: 0,
+            },
+        ))
     }
 
     // 2D transpose f32
-    fn transpose_2d_f32(&self, a: &GpuBufferHandle, m: usize, n: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn transpose_2d_f32(
+        &self,
+        a: &GpuBufferHandle,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // 4D permute (0,2,1,3) f32 — swap dims 1 and 2
-    fn permute_0213_f32(&self, a: &GpuBufferHandle, d0: usize, d1: usize, d2: usize, d3: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn permute_0213_f32(
+        &self,
+        a: &GpuBufferHandle,
+        d0: usize,
+        d1: usize,
+        d2: usize,
+        d3: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // Batched matmul f32: C[i] = A[i] @ B[i] for i in 0..batch
-    fn bmm_f32(&self, a: &GpuBufferHandle, b: &GpuBufferHandle, batch: usize, m: usize, k: usize, n: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn bmm_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        batch: usize,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // GELU activation f32
     fn gelu_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
 
     // LayerNorm f32 (row-wise, with affine)
-    fn layernorm_f32(&self, input: &GpuBufferHandle, weight: &GpuBufferHandle, bias: &GpuBufferHandle, rows: usize, cols: usize, eps: f32) -> FerrotorchResult<GpuBufferHandle>;
+    fn layernorm_f32(
+        &self,
+        input: &GpuBufferHandle,
+        weight: &GpuBufferHandle,
+        bias: &GpuBufferHandle,
+        rows: usize,
+        cols: usize,
+        eps: f32,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // Slice write: write [N, D] into row `pos` of [N, max_len, D] (in-place)
-    fn slice_write_f32(&self, src: &GpuBufferHandle, dst: &mut GpuBufferHandle, n_batch: usize, d: usize, max_len: usize, pos: usize) -> FerrotorchResult<()>;
+    fn slice_write_f32(
+        &self,
+        src: &GpuBufferHandle,
+        dst: &mut GpuBufferHandle,
+        n_batch: usize,
+        d: usize,
+        max_len: usize,
+        pos: usize,
+    ) -> FerrotorchResult<()>;
 
     // Slice read: read first `len` rows from [N, max_len, D] → [N, len, D]
-    fn slice_read_f32(&self, src: &GpuBufferHandle, n_batch: usize, d: usize, len: usize, max_len: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn slice_read_f32(
+        &self,
+        src: &GpuBufferHandle,
+        n_batch: usize,
+        d: usize,
+        len: usize,
+        max_len: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // Embedding lookup: gather row `idx` from weight [V, D] → [D]
-    fn embed_lookup_f32(&self, idx: &GpuBufferHandle, weight: &GpuBufferHandle, d: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn embed_lookup_f32(
+        &self,
+        idx: &GpuBufferHandle,
+        weight: &GpuBufferHandle,
+        d: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // Batch embedding lookup: gather N rows from weight [V, D] → [N, D]
     // `indices` contains N f32 values encoding integer row indices.
-    fn embed_lookup_batch_f32(&self, indices: &GpuBufferHandle, weight: &GpuBufferHandle, n: usize, d: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn embed_lookup_batch_f32(
+        &self,
+        indices: &GpuBufferHandle,
+        weight: &GpuBufferHandle,
+        n: usize,
+        d: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // Scatter-add rows: grad_weight[indices[i], :] += grad_output[i, :] for embedding backward
     // `indices` contains N f32 values, grad_output is [N, D], output is [num_embeddings, D]
-    fn scatter_add_rows_f32(&self, grad_output: &GpuBufferHandle, indices: &GpuBufferHandle, num_embeddings: usize, d: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn scatter_add_rows_f32(
+        &self,
+        grad_output: &GpuBufferHandle,
+        indices: &GpuBufferHandle,
+        num_embeddings: usize,
+        d: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // Scalar multiply: out[i] = a[i] * scalar
     fn scale_f32(&self, a: &GpuBufferHandle, scalar: f32) -> FerrotorchResult<GpuBufferHandle>;
 
     // Backward activation kernels
     // relu_backward: out[i] = (input[i] > 0) ? grad[i] : 0
-    fn relu_backward_f32(&self, grad: &GpuBufferHandle, input: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
+    fn relu_backward_f32(
+        &self,
+        grad: &GpuBufferHandle,
+        input: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle>;
     // gelu_backward: out[i] = grad[i] * (sig + 1.702*x*sig*(1-sig)) where sig = sigmoid(1.702*x)
-    fn gelu_backward_f32(&self, grad: &GpuBufferHandle, input: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
+    fn gelu_backward_f32(
+        &self,
+        grad: &GpuBufferHandle,
+        input: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // Indexing operations
     // index_select_1d: out[i] = input[indices[i]]  (indices stored as f32)
-    fn index_select_1d_f32(&self, input: &GpuBufferHandle, indices: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
+    fn index_select_1d_f32(
+        &self,
+        input: &GpuBufferHandle,
+        indices: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle>;
     // scatter_add_1d: out = zeros(input_len); for i: out[indices[i]] += grad_output[i]  (atomic)
-    fn scatter_add_1d_f32(&self, grad_output: &GpuBufferHandle, indices: &GpuBufferHandle, input_len: usize) -> FerrotorchResult<GpuBufferHandle>;
+    fn scatter_add_1d_f32(
+        &self,
+        grad_output: &GpuBufferHandle,
+        indices: &GpuBufferHandle,
+        input_len: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
     // masked_fill: out[i] = mask[i] ? value : input[i]  (mask stored as f32, 1.0/0.0)
-    fn masked_fill_f32(&self, input: &GpuBufferHandle, mask: &GpuBufferHandle, value: f32) -> FerrotorchResult<GpuBufferHandle>;
+    fn masked_fill_f32(
+        &self,
+        input: &GpuBufferHandle,
+        mask: &GpuBufferHandle,
+        value: f32,
+    ) -> FerrotorchResult<GpuBufferHandle>;
     // masked_zero: out[i] = mask[i] ? 0.0 : grad[i]  (backward of masked_fill)
-    fn masked_zero_f32(&self, grad: &GpuBufferHandle, mask: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
+    fn masked_zero_f32(
+        &self,
+        grad: &GpuBufferHandle,
+        mask: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle>;
 
     // Elementwise unary/binary f32 (default impls for forward ops)
-    fn div_f32(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "div_f32 GPU op not yet implemented".into() })
+    fn div_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "div_f32 GPU op not yet implemented".into(),
+        })
     }
     fn exp_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "exp_f32 GPU op not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "exp_f32 GPU op not yet implemented".into(),
+        })
     }
     fn log_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "log_f32 GPU op not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "log_f32 GPU op not yet implemented".into(),
+        })
     }
     fn sqrt_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "sqrt_f32 GPU op not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "sqrt_f32 GPU op not yet implemented".into(),
+        })
     }
     fn pow_f32(&self, _a: &GpuBufferHandle, _exponent: f32) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "pow_f32 GPU op not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "pow_f32 GPU op not yet implemented".into(),
+        })
     }
     fn abs_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "abs_f32 GPU op not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "abs_f32 GPU op not yet implemented".into(),
+        })
     }
     fn sigmoid_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "sigmoid_f32 GPU op not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "sigmoid_f32 GPU op not yet implemented".into(),
+        })
     }
     fn tanh_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "tanh_f32 GPU op not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "tanh_f32 GPU op not yet implemented".into(),
+        })
     }
 
     // Sigmoid backward: out[i] = grad[i] * output[i] * (1 - output[i])
-    fn sigmoid_backward_f32(&self, _grad: &GpuBufferHandle, _output: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "sigmoid_backward_f32 GPU op not yet implemented".into() })
+    fn sigmoid_backward_f32(
+        &self,
+        _grad: &GpuBufferHandle,
+        _output: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "sigmoid_backward_f32 GPU op not yet implemented".into(),
+        })
     }
 
     // Tanh backward: out[i] = grad[i] * (1 - output[i]^2)
-    fn tanh_backward_f32(&self, _grad: &GpuBufferHandle, _output: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "tanh_backward_f32 GPU op not yet implemented".into() })
+    fn tanh_backward_f32(
+        &self,
+        _grad: &GpuBufferHandle,
+        _output: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "tanh_backward_f32 GPU op not yet implemented".into(),
+        })
     }
 
     // Softmax backward: out[i] = output[i] * (grad[i] - dot(grad_row, output_row))
-    fn softmax_backward_f32(&self, _grad: &GpuBufferHandle, _output: &GpuBufferHandle, _cols: usize) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "softmax_backward_f32 GPU op not yet implemented".into() })
+    fn softmax_backward_f32(
+        &self,
+        _grad: &GpuBufferHandle,
+        _output: &GpuBufferHandle,
+        _cols: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "softmax_backward_f32 GPU op not yet implemented".into(),
+        })
     }
 
     // LayerNorm backward: computes grad_input, grad_weight, grad_bias on GPU
@@ -283,12 +527,21 @@ pub trait GpuBackend: Send + Sync {
         _cols: usize,
         _eps: f32,
     ) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle, GpuBufferHandle)> {
-        Err(FerrotorchError::InvalidArgument { message: "layernorm_backward_f32 GPU op not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "layernorm_backward_f32 GPU op not yet implemented".into(),
+        })
     }
 
     // Sum along one axis of a tensor
-    fn sum_axis_f32(&self, _a: &GpuBufferHandle, _shape: &[usize], _axis: usize) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "sum_axis_f32 GPU op not yet implemented".into() })
+    fn sum_axis_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _shape: &[usize],
+        _axis: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "sum_axis_f32 GPU op not yet implemented".into(),
+        })
     }
 
     // Strided split: extract a sub-tensor along one axis entirely on GPU.
@@ -301,10 +554,13 @@ pub trait GpuBackend: Send + Sync {
         _inner_size: usize,
         _n: usize,
     ) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "strided_split_f32 GPU op not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "strided_split_f32 GPU op not yet implemented".into(),
+        })
     }
 
     // Strided cat: write a sub-tensor into a larger buffer at an offset along one axis on GPU.
+    #[allow(clippy::too_many_arguments)]
     fn strided_cat_f32(
         &self,
         _input: &GpuBufferHandle,
@@ -315,16 +571,17 @@ pub trait GpuBackend: Send + Sync {
         _inner_size: usize,
         _n: usize,
     ) -> FerrotorchResult<()> {
-        Err(FerrotorchError::InvalidArgument { message: "strided_cat_f32 GPU op not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "strided_cat_f32 GPU op not yet implemented".into(),
+        })
     }
 
     /// Check if a GPU buffer contains any inf or NaN values.
     fn has_inf_nan_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<bool> {
         // Default: download to CPU and scan
         let bytes = self.gpu_to_cpu(a)?;
-        let floats: &[f32] = unsafe {
-            std::slice::from_raw_parts(bytes.as_ptr() as *const f32, bytes.len() / 4)
-        };
+        let floats: &[f32] =
+            unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const f32, bytes.len() / 4) };
         Ok(floats.iter().any(|v| !v.is_finite()))
     }
 
@@ -346,17 +603,41 @@ pub trait GpuBackend: Send + Sync {
     }
 
     // GPU linear algebra via cuSOLVER
-    fn svd_f32(&self, _a: &GpuBufferHandle, _m: usize, _n: usize) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle, GpuBufferHandle)> {
-        Err(FerrotorchError::InvalidArgument { message: "svd_f32 GPU op not yet implemented".into() })
+    fn svd_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle, GpuBufferHandle)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "svd_f32 GPU op not yet implemented".into(),
+        })
     }
     fn cholesky_f32(&self, _a: &GpuBufferHandle, _n: usize) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "cholesky_f32 GPU op not yet implemented".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "cholesky_f32 GPU op not yet implemented".into(),
+        })
     }
-    fn solve_f32(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle, _n: usize, _nrhs: usize) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "solve_f32 GPU op not yet implemented".into() })
+    fn solve_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+        _n: usize,
+        _nrhs: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "solve_f32 GPU op not yet implemented".into(),
+        })
     }
-    fn qr_f32(&self, _a: &GpuBufferHandle, _m: usize, _n: usize) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle)> {
-        Err(FerrotorchError::InvalidArgument { message: "qr_f32 GPU op not yet implemented".into() })
+    fn qr_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "qr_f32 GPU op not yet implemented".into(),
+        })
     }
 }
 

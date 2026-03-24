@@ -148,7 +148,7 @@ impl<T: Float> SparseTensor<T> {
                 flat += idx[d] * stride;
                 stride *= self.shape[d];
             }
-            data[flat] = data[flat] + val;
+            data[flat] += val;
         }
 
         Tensor::from_storage(TensorStorage::cpu(data), self.shape.clone(), false)
@@ -202,18 +202,12 @@ impl<T: Float> SparseTensor<T> {
     pub fn spmm(&self, dense: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         if self.ndim() != 2 {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "spmm requires 2-D sparse tensor, got {}-D",
-                    self.ndim()
-                ),
+                message: format!("spmm requires 2-D sparse tensor, got {}-D", self.ndim()),
             });
         }
         if dense.ndim() != 2 {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "spmm requires 2-D dense tensor, got {}-D",
-                    dense.ndim()
-                ),
+                message: format!("spmm requires 2-D dense tensor, got {}-D", dense.ndim()),
             });
         }
 
@@ -240,7 +234,7 @@ impl<T: Float> SparseTensor<T> {
             let i = idx[0];
             let j = idx[1];
             for col in 0..n {
-                output[i * n + col] = output[i * n + col] + v * dense_data[j * n + col];
+                output[i * n + col] += v * dense_data[j * n + col];
             }
         }
 
@@ -304,8 +298,10 @@ impl<T: Float> SparseTensor<T> {
         let mut map: HashMap<Vec<usize>, T> = HashMap::new();
 
         for (idx, &val) in self.indices.iter().zip(self.values.iter()) {
-            let entry = map.entry(idx.clone()).or_insert_with(<T as num_traits::Zero>::zero);
-            *entry = *entry + val;
+            let entry = map
+                .entry(idx.clone())
+                .or_insert_with(<T as num_traits::Zero>::zero);
+            *entry += val;
         }
 
         // Remove entries that sum to zero, collect into pairs.
@@ -508,7 +504,7 @@ impl<T: Float> CooTensor<T> {
         for i in 0..self.values.len() {
             let key = (self.row_indices[i], self.col_indices[i]);
             let entry = map.entry(key).or_insert_with(<T as num_traits::Zero>::zero);
-            *entry = *entry + self.values[i];
+            *entry += self.values[i];
         }
 
         let mut pairs: Vec<((usize, usize), T)> = map
@@ -543,7 +539,7 @@ impl<T: Float> CooTensor<T> {
         let mut data = vec![<T as num_traits::Zero>::zero(); self.nrows * self.ncols];
         for i in 0..self.values.len() {
             let flat = self.row_indices[i] * self.ncols + self.col_indices[i];
-            data[flat] = data[flat] + self.values[i];
+            data[flat] += self.values[i];
         }
         Tensor::from_storage(
             TensorStorage::cpu(data),
@@ -658,7 +654,7 @@ impl<T: Float> CsrTensor<T> {
             let entry = row_entries[r]
                 .entry(c)
                 .or_insert_with(<T as num_traits::Zero>::zero);
-            *entry = *entry + coo.values[i];
+            *entry += coo.values[i];
         }
 
         // Build CSR arrays.
@@ -667,8 +663,8 @@ impl<T: Float> CsrTensor<T> {
         let mut values = Vec::new();
 
         row_ptrs.push(0);
-        for r in 0..nrows {
-            let mut cols: Vec<(usize, T)> = row_entries[r]
+        for entry in row_entries.iter_mut().take(nrows) {
+            let mut cols: Vec<(usize, T)> = entry
                 .drain()
                 .filter(|(_, v)| !<T as num_traits::Zero>::is_zero(v))
                 .collect();
@@ -723,7 +719,7 @@ impl<T: Float> CsrTensor<T> {
             let end = self.row_ptrs[row + 1];
             for j in start..end {
                 let flat = row * self.ncols + self.col_indices[j];
-                data[flat] = data[flat] + self.values[j];
+                data[flat] += self.values[j];
             }
         }
         Tensor::from_storage(
@@ -760,11 +756,7 @@ mod tests {
     #[test]
     fn test_from_dense_with_threshold() {
         // Dense 3x3 matrix with some near-zero values.
-        let data = vec![
-            0.0f32, 0.0, 5.0,
-            0.0, 0.0, 0.0,
-            3.0, 0.0, 0.0,
-        ];
+        let data = vec![0.0f32, 0.0, 5.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0];
         let tensor = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 3], false).unwrap();
 
         let sp = SparseTensor::from_dense(&tensor, 0.0).unwrap();
@@ -790,22 +782,19 @@ mod tests {
         assert_eq!(sp.nnz(), 2);
         let dense = sp.to_dense().unwrap();
         let d = dense.data().unwrap();
-        assert_eq!(d[0], 0.0);   // 0.5 <= 1.0, filtered
-        assert_eq!(d[1], 1.5);   // 1.5 > 1.0, kept
-        assert_eq!(d[2], 0.0);   // 0.1 <= 1.0, filtered
-        assert_eq!(d[3], 2.0);   // 2.0 > 1.0, kept
+        assert_eq!(d[0], 0.0); // 0.5 <= 1.0, filtered
+        assert_eq!(d[1], 1.5); // 1.5 > 1.0, kept
+        assert_eq!(d[2], 0.0); // 0.1 <= 1.0, filtered
+        assert_eq!(d[3], 2.0); // 2.0 > 1.0, kept
     }
 
     // --- to_dense round-trip ---
 
     #[test]
     fn test_to_dense_round_trip() {
-        let data = vec![
-            1.0f64, 0.0, 0.0,
-            0.0, 2.0, 0.0,
-            0.0, 0.0, 3.0,
-        ];
-        let original = Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 3], false).unwrap();
+        let data = vec![1.0f64, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0];
+        let original =
+            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 3], false).unwrap();
 
         let sp = SparseTensor::from_dense(&original, 0.0).unwrap();
         let reconstructed = sp.to_dense().unwrap();
@@ -913,12 +902,8 @@ mod tests {
     #[test]
     fn test_coalesce_removes_zero_sum() {
         // Two entries at [0, 0] that cancel out.
-        let sp = SparseTensor::new(
-            vec![vec![0, 0], vec![0, 0]],
-            vec![5.0f32, -5.0],
-            vec![1, 1],
-        )
-        .unwrap();
+        let sp = SparseTensor::new(vec![vec![0, 0], vec![0, 0]], vec![5.0f32, -5.0], vec![1, 1])
+            .unwrap();
 
         let coalesced = sp.coalesce();
         assert_eq!(coalesced.nnz(), 0);
@@ -928,12 +913,8 @@ mod tests {
 
     #[test]
     fn test_transpose() {
-        let sp = SparseTensor::new(
-            vec![vec![0, 1], vec![2, 0]],
-            vec![5.0f32, 3.0],
-            vec![3, 4],
-        )
-        .unwrap();
+        let sp =
+            SparseTensor::new(vec![vec![0, 1], vec![2, 0]], vec![5.0f32, 3.0], vec![3, 4]).unwrap();
 
         let transposed = sp.t().unwrap();
 
@@ -946,12 +927,7 @@ mod tests {
 
     #[test]
     fn test_transpose_not_2d() {
-        let sp = SparseTensor::new(
-            vec![vec![0, 1, 2]],
-            vec![1.0f32],
-            vec![3, 3, 3],
-        )
-        .unwrap();
+        let sp = SparseTensor::new(vec![vec![0, 1, 2]], vec![1.0f32], vec![3, 3, 3]).unwrap();
 
         assert!(sp.t().is_err());
     }
@@ -960,12 +936,8 @@ mod tests {
 
     #[test]
     fn test_mul_scalar() {
-        let sp = SparseTensor::new(
-            vec![vec![0, 0], vec![1, 1]],
-            vec![2.0f64, 3.0],
-            vec![2, 2],
-        )
-        .unwrap();
+        let sp =
+            SparseTensor::new(vec![vec![0, 0], vec![1, 1]], vec![2.0f64, 3.0], vec![2, 2]).unwrap();
 
         let scaled = sp.mul_scalar(10.0);
 
@@ -980,20 +952,12 @@ mod tests {
     #[test]
     fn test_add_sparse_tensors() {
         // a: [0,0] -> 1.0, [0,1] -> 2.0
-        let a = SparseTensor::new(
-            vec![vec![0, 0], vec![0, 1]],
-            vec![1.0f32, 2.0],
-            vec![2, 2],
-        )
-        .unwrap();
+        let a =
+            SparseTensor::new(vec![vec![0, 0], vec![0, 1]], vec![1.0f32, 2.0], vec![2, 2]).unwrap();
 
         // b: [0,1] -> 3.0, [1,0] -> 4.0
-        let b = SparseTensor::new(
-            vec![vec![0, 1], vec![1, 0]],
-            vec![3.0, 4.0],
-            vec![2, 2],
-        )
-        .unwrap();
+        let b =
+            SparseTensor::new(vec![vec![0, 1], vec![1, 0]], vec![3.0, 4.0], vec![2, 2]).unwrap();
 
         let sum = a.add(&b).unwrap();
 
@@ -1087,32 +1051,18 @@ mod tests {
 
     #[test]
     fn test_spmm_dimension_mismatch() {
-        let sp = SparseTensor::new(
-            vec![vec![0, 0]],
-            vec![1.0f32],
-            vec![2, 3],
-        )
-        .unwrap();
+        let sp = SparseTensor::new(vec![vec![0, 0]], vec![1.0f32], vec![2, 3]).unwrap();
 
         // Dense is 4x2, but sparse inner dim is 3.
-        let dense = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32; 8]),
-            vec![4, 2],
-            false,
-        )
-        .unwrap();
+        let dense =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0f32; 8]), vec![4, 2], false).unwrap();
 
         assert!(sp.spmm(&dense).is_err());
     }
 
     #[test]
     fn test_debug_format() {
-        let sp = SparseTensor::new(
-            vec![vec![0, 0]],
-            vec![1.0f32],
-            vec![3, 3],
-        )
-        .unwrap();
+        let sp = SparseTensor::new(vec![vec![0, 0]], vec![1.0f32], vec![3, 3]).unwrap();
 
         let debug = format!("{sp:?}");
         assert!(debug.contains("SparseTensor"));
@@ -1121,12 +1071,7 @@ mod tests {
 
     #[test]
     fn test_clone() {
-        let sp = SparseTensor::new(
-            vec![vec![0, 1]],
-            vec![42.0f32],
-            vec![2, 2],
-        )
-        .unwrap();
+        let sp = SparseTensor::new(vec![vec![0, 1]], vec![42.0f32], vec![2, 2]).unwrap();
 
         let sp2 = sp.clone();
         assert_eq!(sp2.values(), &[42.0]);
@@ -1139,14 +1084,8 @@ mod tests {
     #[test]
     fn test_coo_coalesce_uses_tuple_key() {
         // Duplicate (0, 1) entries.
-        let coo = CooTensor::new(
-            vec![0, 0, 1],
-            vec![1, 1, 0],
-            vec![3.0f32, 4.0, 5.0],
-            2,
-            2,
-        )
-        .unwrap();
+        let coo =
+            CooTensor::new(vec![0, 0, 1], vec![1, 1, 0], vec![3.0f32, 4.0, 5.0], 2, 2).unwrap();
 
         let coalesced = coo.coalesce();
         assert!(coalesced.is_coalesced());
@@ -1160,14 +1099,7 @@ mod tests {
 
     #[test]
     fn test_coo_from_csr_not_coalesced() {
-        let csr = CsrTensor::new(
-            vec![0, 1, 2],
-            vec![0, 1],
-            vec![1.0f32, 2.0],
-            2,
-            2,
-        )
-        .unwrap();
+        let csr = CsrTensor::new(vec![0, 1, 2], vec![0, 1], vec![1.0f32, 2.0], 2, 2).unwrap();
 
         let coo = CooTensor::from_csr(&csr);
         // Should be conservatively marked as not coalesced.
@@ -1180,14 +1112,8 @@ mod tests {
     #[test]
     fn test_csr_from_coo_with_duplicates() {
         // COO with duplicate (0,0).
-        let coo = CooTensor::new(
-            vec![0, 0, 1],
-            vec![0, 0, 1],
-            vec![1.0f32, 2.0, 3.0],
-            2,
-            2,
-        )
-        .unwrap();
+        let coo =
+            CooTensor::new(vec![0, 0, 1], vec![0, 0, 1], vec![1.0f32, 2.0, 3.0], 2, 2).unwrap();
 
         let csr = CsrTensor::from_coo(&coo).unwrap();
         assert_eq!(csr.nnz(), 2); // (0,0)->3, (1,1)->3
@@ -1219,12 +1145,7 @@ mod tests {
 
     #[test]
     fn test_1d_sparse_tensor() {
-        let sp = SparseTensor::new(
-            vec![vec![1], vec![4]],
-            vec![10.0f32, 20.0],
-            vec![5],
-        )
-        .unwrap();
+        let sp = SparseTensor::new(vec![vec![1], vec![4]], vec![10.0f32, 20.0], vec![5]).unwrap();
 
         assert_eq!(sp.ndim(), 1);
         assert_eq!(sp.nnz(), 2);

@@ -59,8 +59,8 @@ impl<T: Float> GradFn<T> for SumBackward<T> {
 /// tensor carries a [`SumBackward`] node.
 pub fn sum<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if input.is_cuda() {
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let handle = backend.sum_f32(input.gpu_handle()?, input.numel())?;
         let storage = TensorStorage::gpu(handle);
         let shape = vec![];
@@ -222,7 +222,11 @@ impl<T: Float> GradFn<T> for ProdBackward<T> {
 /// When gradient tracking is enabled and the input requires grad, the returned
 /// tensor carries a [`ProdBackward`] node.
 pub fn prod<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let cpu_input = if input.is_cuda() {
+        input.cpu()?
+    } else {
+        input.clone()
+    };
     let data = cpu_input.data()?;
     let total = data
         .iter()
@@ -351,7 +355,11 @@ pub fn sum_dim<T: Float>(
         });
     }
 
-    let input_cpu = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let input_cpu = if input.is_cuda() {
+        input.cpu()?
+    } else {
+        input.clone()
+    };
     let in_data = input_cpu.data()?;
     let in_shape = input_cpu.shape();
 
@@ -369,7 +377,7 @@ pub fn sum_dim<T: Float>(
     let accum_numel: usize = accum_shape.iter().product();
     let mut accum = vec![<T as num_traits::Zero>::zero(); accum_numel];
 
-    for flat in 0..input.numel() {
+    for (flat, &val) in in_data.iter().enumerate().take(input.numel()) {
         // Decompose flat index into per-axis coordinates.
         let mut rem = flat;
         let mut coords = vec![0usize; in_shape.len()];
@@ -385,7 +393,7 @@ pub fn sum_dim<T: Float>(
             oi += c * os;
             os *= accum_shape[d];
         }
-        accum[oi] = accum[oi] + in_data[flat];
+        accum[oi] += val;
     }
 
     if is_grad_enabled() && input.requires_grad() {
@@ -511,7 +519,11 @@ pub fn mean_dim<T: Float>(
         });
     }
 
-    let input_cpu = if input.is_cuda() { input.cpu()? } else { input.clone() };
+    let input_cpu = if input.is_cuda() {
+        input.cpu()?
+    } else {
+        input.clone()
+    };
     let in_data = input_cpu.data()?;
     let in_shape = input_cpu.shape();
     let dim_size = in_shape[norm_dim];
@@ -531,7 +543,7 @@ pub fn mean_dim<T: Float>(
     let accum_numel: usize = accum_shape.iter().product();
     let mut accum = vec![<T as num_traits::Zero>::zero(); accum_numel];
 
-    for flat in 0..input.numel() {
+    for (flat, &val) in in_data.iter().enumerate().take(input.numel()) {
         let mut rem = flat;
         let mut coords = vec![0usize; in_shape.len()];
         for d in (0..in_shape.len()).rev() {
@@ -545,7 +557,7 @@ pub fn mean_dim<T: Float>(
             oi += c * os;
             os *= accum_shape[d];
         }
-        accum[oi] = accum[oi] + in_data[flat];
+        accum[oi] += val;
     }
 
     // Divide by dim size to get mean.
@@ -579,8 +591,12 @@ mod tests {
 
     /// Helper: create a leaf tensor with given data, shape, and requires_grad.
     fn leaf(data: &[f64], shape: &[usize], requires_grad: bool) -> Tensor<f64> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), shape.to_vec(), requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            shape.to_vec(),
+            requires_grad,
+        )
+        .unwrap()
     }
 
     /// Helper: create a leaf scalar.
@@ -735,7 +751,11 @@ mod tests {
 
         let g = x.grad().unwrap().unwrap();
         let gd = g.data().unwrap();
-        assert!((gd[0] - 12.0).abs() < 1e-12, "d/da = 3*4 = 12, got {}", gd[0]);
+        assert!(
+            (gd[0] - 12.0).abs() < 1e-12,
+            "d/da = 3*4 = 12, got {}",
+            gd[0]
+        );
         assert!((gd[1] - 8.0).abs() < 1e-12, "d/db = 2*4 = 8, got {}", gd[1]);
         assert!((gd[2] - 6.0).abs() < 1e-12, "d/dc = 2*3 = 6, got {}", gd[2]);
     }
