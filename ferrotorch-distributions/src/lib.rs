@@ -16,14 +16,23 @@
 //! | [`Uniform`] | `low`, `high` | Yes |
 //! | [`Bernoulli`] | `probs` | No (discrete) |
 //! | [`Categorical`] | `probs` | No (discrete) |
+//! | [`MultivariateNormal`] | `loc`, `scale_tril` | Yes |
+//! | [`Dirichlet`] | `concentration` | Yes |
+//! | [`Multinomial`] | `total_count`, `probs` | No (discrete) |
 
 mod bernoulli;
 mod categorical;
+mod dirichlet;
+mod multinomial;
+mod multivariate_normal;
 mod normal;
 mod uniform;
 
 pub use bernoulli::Bernoulli;
 pub use categorical::Categorical;
+pub use dirichlet::Dirichlet;
+pub use multinomial::Multinomial;
+pub use multivariate_normal::MultivariateNormal;
 pub use normal::Normal;
 pub use uniform::Uniform;
 
