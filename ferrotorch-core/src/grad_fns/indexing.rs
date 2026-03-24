@@ -3,8 +3,10 @@
 //! Implements `GradFn` for:
 //! - `index_select` (1D) — selects elements along an axis by integer indices
 //! - `masked_fill` — fills elements where a boolean mask is true
-//!
-//! Stubs for `gather` and `scatter_add` return errors until implemented.
+//! - `gather` — gathers elements along an axis (N-D)
+//! - `scatter` — scatters src values into input along an axis
+//! - `scatter_add` — scatter with addition
+//! - `where_cond` — ternary selection
 
 use std::sync::Arc;
 
@@ -23,6 +25,36 @@ fn upload_f32_to_gpu(data: &[f32], ordinal: usize) -> FerrotorchResult<crate::gp
         std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4)
     };
     backend.cpu_to_gpu(bytes, 4, ordinal)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for N-D backward (shared by gather/scatter/scatter_add)
+// ---------------------------------------------------------------------------
+
+/// Compute the flat index into a C-contiguous buffer from per-axis coordinates.
+#[inline]
+fn flat_index(coords: &[usize], shape: &[usize]) -> usize {
+    let mut idx = 0;
+    let mut stride = 1;
+    for d in (0..shape.len()).rev() {
+        idx += coords[d] * stride;
+        stride *= shape[d];
+    }
+    idx
+}
+
+/// Increment a multi-dimensional coordinate vector in C-order (last axis
+/// fastest). Returns `false` when the coordinate wraps past the last element.
+#[inline]
+fn increment_coords(coords: &mut [usize], shape: &[usize]) -> bool {
+    for d in (0..shape.len()).rev() {
+        coords[d] += 1;
+        if coords[d] < shape[d] {
+            return true;
+        }
+        coords[d] = 0;
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -321,20 +353,61 @@ pub fn masked_fill<T: Float>(
 }
 
 // ---------------------------------------------------------------------------
-// gather — stub
+// gather
 // ---------------------------------------------------------------------------
 
-/// Backward for `gather`. Not yet implemented.
+/// Backward function for N-D `gather`.
+///
+/// Forward: `output[coords] = input[coords with dim replaced by index[coords]]`
+///
+/// VJP: scatter-add `grad_output` back into zeros of input shape along `dim`
+/// using the same `index`.
 #[derive(Debug)]
 pub struct GatherBackward<T: Float> {
+    /// The original input tensor (saved for shape).
     pub input: Tensor<T>,
+    /// The dimension along which gathering was performed.
+    pub dim: usize,
+    /// The flat index data used during the forward pass.
+    pub index: Vec<usize>,
+    /// The shape of the index tensor.
+    pub index_shape: Vec<usize>,
 }
 
 impl<T: Float> GradFn<T> for GatherBackward<T> {
-    fn backward(&self, _grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        Err(FerrotorchError::InvalidArgument {
-            message: "GatherBackward is not yet implemented".into(),
-        })
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        if !is_grad_enabled() {
+            return Ok(vec![None]);
+        }
+
+        let input_shape = self.input.shape();
+        let input_numel: usize = input_shape.iter().product();
+        let go_data = grad_output.data_vec()?;
+        let ndim = input_shape.len();
+        let index_numel: usize = self.index_shape.iter().product();
+
+        let mut grad_input = vec![<T as num_traits::Zero>::zero(); input_numel];
+
+        // Scatter-add grad_output into grad_input using the saved index and dim.
+        let mut coords = vec![0usize; ndim];
+        for i in 0..index_numel {
+            let idx_val = self.index[i];
+            let mut dst_coords = coords.clone();
+            dst_coords[self.dim] = idx_val;
+            let dst_flat = flat_index(&dst_coords, input_shape);
+            grad_input[dst_flat] += go_data[i];
+
+            if i + 1 < index_numel {
+                increment_coords(&mut coords, &self.index_shape);
+            }
+        }
+
+        let grad_tensor = Tensor::from_storage(
+            TensorStorage::cpu(grad_input),
+            input_shape.to_vec(),
+            false,
+        )?;
+        Ok(vec![Some(grad_tensor)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -347,28 +420,258 @@ impl<T: Float> GradFn<T> for GatherBackward<T> {
 }
 
 // ---------------------------------------------------------------------------
-// scatter_add — stub
+// scatter
 // ---------------------------------------------------------------------------
 
-/// Backward for `scatter_add`. Not yet implemented.
+/// Backward function for N-D `scatter`.
+///
+/// Forward: `output = input.clone(); output[index-mapped coords] = src[coords]`
+///
+/// VJP for input: `grad_input = grad_output` with scattered positions zeroed out
+/// (those positions came from src, not input).
+///
+/// VJP for src: `grad_src[coords] = grad_output[index-mapped coords]` (gather).
 #[derive(Debug)]
-pub struct ScatterAddBackward<T: Float> {
+pub struct ScatterBackward<T: Float> {
+    /// The original input tensor.
     pub input: Tensor<T>,
+    /// The source tensor scattered into input.
+    pub src: Tensor<T>,
+    /// The dimension along which scattering was performed.
+    pub dim: usize,
+    /// The flat index data.
+    pub index: Vec<usize>,
+    /// The shape of the index tensor.
+    pub index_shape: Vec<usize>,
 }
 
-impl<T: Float> GradFn<T> for ScatterAddBackward<T> {
-    fn backward(&self, _grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        Err(FerrotorchError::InvalidArgument {
-            message: "ScatterAddBackward is not yet implemented".into(),
-        })
+impl<T: Float> GradFn<T> for ScatterBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        if !is_grad_enabled() {
+            return Ok(vec![None, None]);
+        }
+
+        let input_shape = self.input.shape();
+        let ndim = input_shape.len();
+        let index_numel: usize = self.index_shape.iter().product();
+        let go_data = grad_output.data_vec()?;
+
+        // grad for input: grad_output with scattered positions zeroed.
+        let grad_input = if self.input.requires_grad() {
+            let mut gi = go_data.clone();
+            let mut coords = vec![0usize; ndim];
+            for i in 0..index_numel {
+                let idx_val = self.index[i];
+                let mut dst_coords = coords.clone();
+                dst_coords[self.dim] = idx_val;
+                let dst_flat = flat_index(&dst_coords, input_shape);
+                gi[dst_flat] = <T as num_traits::Zero>::zero();
+
+                if i + 1 < index_numel {
+                    increment_coords(&mut coords, &self.index_shape);
+                }
+            }
+            let t = Tensor::from_storage(
+                TensorStorage::cpu(gi),
+                input_shape.to_vec(),
+                false,
+            )?;
+            Some(t)
+        } else {
+            None
+        };
+
+        // grad for src: gather from grad_output at index positions.
+        let grad_src = if self.src.requires_grad() {
+            let mut gs = vec![<T as num_traits::Zero>::zero(); index_numel];
+            let mut coords = vec![0usize; ndim];
+            for i in 0..index_numel {
+                let idx_val = self.index[i];
+                let mut src_coords = coords.clone();
+                src_coords[self.dim] = idx_val;
+                let src_flat = flat_index(&src_coords, input_shape);
+                gs[i] = go_data[src_flat];
+
+                if i + 1 < index_numel {
+                    increment_coords(&mut coords, &self.index_shape);
+                }
+            }
+            let t = Tensor::from_storage(
+                TensorStorage::cpu(gs),
+                self.index_shape.clone(),
+                false,
+            )?;
+            Some(t)
+        } else {
+            None
+        };
+
+        Ok(vec![grad_input, grad_src])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
-        vec![&self.input]
+        vec![&self.input, &self.src]
+    }
+
+    fn name(&self) -> &'static str {
+        "ScatterBackward"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// scatter_add
+// ---------------------------------------------------------------------------
+
+/// Backward function for N-D `scatter_add`.
+///
+/// Forward: `output = input.clone(); output[index-mapped coords] += src[coords]`
+///
+/// VJP for input: `grad_input = grad_output` (identity — addition passes
+/// gradient through unchanged).
+///
+/// VJP for src: `grad_src[coords] = grad_output[index-mapped coords]` (gather).
+#[derive(Debug)]
+pub struct ScatterAddBackward<T: Float> {
+    /// The original input tensor.
+    pub input: Tensor<T>,
+    /// The source tensor that was scatter-added.
+    pub src: Tensor<T>,
+    /// The dimension along which scatter_add was performed.
+    pub dim: usize,
+    /// The flat index data.
+    pub index: Vec<usize>,
+    /// The shape of the index tensor.
+    pub index_shape: Vec<usize>,
+}
+
+impl<T: Float> GradFn<T> for ScatterAddBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        if !is_grad_enabled() {
+            return Ok(vec![None, None]);
+        }
+
+        let input_shape = self.input.shape();
+        let ndim = input_shape.len();
+        let index_numel: usize = self.index_shape.iter().product();
+        let go_data = grad_output.data_vec()?;
+
+        // grad for input: identity (pass grad_output through).
+        let grad_input = if self.input.requires_grad() {
+            let t = Tensor::from_storage(
+                TensorStorage::cpu(go_data.clone()),
+                input_shape.to_vec(),
+                false,
+            )?;
+            Some(t)
+        } else {
+            None
+        };
+
+        // grad for src: gather from grad_output at index positions.
+        let grad_src = if self.src.requires_grad() {
+            let mut gs = vec![<T as num_traits::Zero>::zero(); index_numel];
+            let mut coords = vec![0usize; ndim];
+            for i in 0..index_numel {
+                let idx_val = self.index[i];
+                let mut src_coords = coords.clone();
+                src_coords[self.dim] = idx_val;
+                let src_flat = flat_index(&src_coords, input_shape);
+                gs[i] = go_data[src_flat];
+
+                if i + 1 < index_numel {
+                    increment_coords(&mut coords, &self.index_shape);
+                }
+            }
+            let t = Tensor::from_storage(
+                TensorStorage::cpu(gs),
+                self.index_shape.clone(),
+                false,
+            )?;
+            Some(t)
+        } else {
+            None
+        };
+
+        Ok(vec![grad_input, grad_src])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.input, &self.src]
     }
 
     fn name(&self) -> &'static str {
         "ScatterAddBackward"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// where_cond
+// ---------------------------------------------------------------------------
+
+/// Backward function for `where_cond`.
+///
+/// Forward: `output[i] = condition[i] ? x[i] : y[i]`
+///
+/// VJP for x: `grad_x[i] = condition[i] ? grad_output[i] : 0`
+/// VJP for y: `grad_y[i] = condition[i] ? 0 : grad_output[i]`
+#[derive(Debug)]
+pub struct WhereCondBackward<T: Float> {
+    /// The x tensor from the forward pass.
+    pub x: Tensor<T>,
+    /// The y tensor from the forward pass.
+    pub y: Tensor<T>,
+    /// The condition mask from the forward pass.
+    pub condition: Vec<bool>,
+}
+
+impl<T: Float> GradFn<T> for WhereCondBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        if !is_grad_enabled() {
+            return Ok(vec![None, None]);
+        }
+
+        let go_data = grad_output.data_vec()?;
+        let zero = <T as num_traits::Zero>::zero();
+
+        let grad_x = if self.x.requires_grad() {
+            let gx: Vec<T> = self.condition.iter()
+                .zip(go_data.iter())
+                .map(|(&c, &g)| if c { g } else { zero })
+                .collect();
+            let t = Tensor::from_storage(
+                TensorStorage::cpu(gx),
+                self.x.shape().to_vec(),
+                false,
+            )?;
+            Some(t)
+        } else {
+            None
+        };
+
+        let grad_y = if self.y.requires_grad() {
+            let gy: Vec<T> = self.condition.iter()
+                .zip(go_data.iter())
+                .map(|(&c, &g)| if c { zero } else { g })
+                .collect();
+            let t = Tensor::from_storage(
+                TensorStorage::cpu(gy),
+                self.y.shape().to_vec(),
+                false,
+            )?;
+            Some(t)
+        } else {
+            None
+        };
+
+        Ok(vec![grad_x, grad_y])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.x, &self.y]
+    }
+
+    fn name(&self) -> &'static str {
+        "WhereCondBackward"
     }
 }
 
@@ -627,21 +930,36 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // --- stub errors ---
+    // --- gather backward ---
 
     #[test]
-    fn test_gather_backward_not_implemented() {
-        let input = leaf_1d(&[1.0, 2.0], false);
-        let gf = GatherBackward { input };
-        let dummy = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32]), vec![1], false).unwrap();
-        assert!(gf.backward(&dummy).is_err());
+    fn test_gather_backward_stub() {
+        let input = leaf_1d(&[1.0, 2.0], true);
+        let gf = GatherBackward {
+            input,
+            dim: 0,
+            index: vec![0, 1],
+            index_shape: vec![2],
+        };
+        let grad_output = Tensor::from_storage(TensorStorage::cpu(vec![1.0, 1.0]), vec![2], false).unwrap();
+        // Should now succeed rather than error.
+        let result = gf.backward(&grad_output);
+        assert!(result.is_ok());
     }
 
     #[test]
-    fn test_scatter_add_backward_not_implemented() {
-        let input = leaf_1d(&[1.0, 2.0], false);
-        let gf = ScatterAddBackward { input };
-        let dummy = Tensor::from_storage(TensorStorage::cpu(vec![1.0f32]), vec![1], false).unwrap();
-        assert!(gf.backward(&dummy).is_err());
+    fn test_scatter_add_backward_stub() {
+        let input = leaf_1d(&[1.0, 2.0], true);
+        let src = leaf_1d(&[3.0], false);
+        let gf = ScatterAddBackward {
+            input,
+            src,
+            dim: 0,
+            index: vec![0],
+            index_shape: vec![1],
+        };
+        let grad_output = Tensor::from_storage(TensorStorage::cpu(vec![1.0, 1.0]), vec![2], false).unwrap();
+        let result = gf.backward(&grad_output);
+        assert!(result.is_ok());
     }
 }
