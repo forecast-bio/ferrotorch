@@ -4,8 +4,26 @@ use std::sync::{Arc, Mutex};
 use crate::device::Device;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
-use crate::shape::c_contiguous_strides;
+use crate::shape::{c_contiguous_strides, channels_last_3d_strides, channels_last_strides};
 use crate::storage::TensorStorage;
+
+/// Describes the physical memory layout of a tensor.
+///
+/// The *shape* (logical dimension order) never changes — only the strides are
+/// rearranged so that the underlying data is stored in a different order.
+///
+/// [CL-309] WU-05: channels-last memory format support
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MemoryFormat {
+    /// Standard C-contiguous / row-major layout (NCHW for 4D tensors).
+    Contiguous,
+    /// Channels-last layout for 4D tensors: physical order is NHWC.
+    /// The shape remains `[N, C, H, W]`, but strides are `[H*W*C, 1, W*C, C]`.
+    ChannelsLast,
+    /// Channels-last layout for 5D tensors: physical order is NDHWC.
+    /// The shape remains `[N, C, D, H, W]`, but strides are `[D*H*W*C, 1, H*W*C, W*C, C]`.
+    ChannelsLast3d,
+}
 
 /// Unique identifier for a tensor, used for gradient accumulation.
 static NEXT_TENSOR_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -762,6 +780,146 @@ impl<T: Float> Tensor<T> {
         true
     }
 
+    /// Check whether this tensor is contiguous in a specific memory format.
+    ///
+    /// - `MemoryFormat::Contiguous` — standard C-order (NCHW for 4D).
+    /// - `MemoryFormat::ChannelsLast` — NHWC stride pattern for 4D tensors.
+    /// - `MemoryFormat::ChannelsLast3d` — NDHWC stride pattern for 5D tensors.
+    ///
+    /// Dimensions of size 1 are treated as matching any stride, consistent
+    /// with PyTorch behaviour.
+    ///
+    /// [CL-309] WU-05: channels-last memory format support
+    pub fn is_contiguous_for(&self, format: MemoryFormat) -> bool {
+        match format {
+            MemoryFormat::Contiguous => self.is_contiguous(),
+            MemoryFormat::ChannelsLast => {
+                if self.ndim() != 4 {
+                    return false;
+                }
+                let expected = channels_last_strides(&self.inner.shape);
+                strides_match_with_size1(&self.inner.shape, &self.inner.strides, &expected)
+            }
+            MemoryFormat::ChannelsLast3d => {
+                if self.ndim() != 5 {
+                    return false;
+                }
+                let expected = channels_last_3d_strides(&self.inner.shape);
+                strides_match_with_size1(&self.inner.shape, &self.inner.strides, &expected)
+            }
+        }
+    }
+
+    /// Rearrange this tensor to the target memory format.
+    ///
+    /// If the tensor is already contiguous in the target format, returns a
+    /// cheap clone (shared storage). Otherwise, physically rearranges the
+    /// data and returns a new tensor with the correct strides.
+    ///
+    /// The *shape* is never changed — only the strides (and possibly the
+    /// underlying data order) are altered.
+    ///
+    /// [CL-309] WU-05: channels-last memory format support
+    pub fn to_memory_format(&self, format: MemoryFormat) -> FerrotorchResult<Self> {
+        if self.is_contiguous_for(format) {
+            return Ok(self.clone());
+        }
+        self.materialize_format(format)
+    }
+
+    /// Return a tensor that is contiguous in the given memory format,
+    /// materializing (copying) the data if necessary.
+    ///
+    /// Equivalent to `.to_memory_format(format)` — both names are provided
+    /// for API familiarity: `contiguous()` is the PyTorch-style entry point
+    /// while `to_memory_format()` is the explicit variant.
+    ///
+    /// [CL-309] WU-05: channels-last memory format support
+    pub fn contiguous_in(&self, format: MemoryFormat) -> FerrotorchResult<Self> {
+        self.to_memory_format(format)
+    }
+
+    /// Physically rearrange data into the target memory format.
+    ///
+    /// Called when the tensor is NOT already contiguous in `format`.
+    /// Gathers elements in the physical order dictated by the target strides
+    /// and writes them into a fresh, contiguous-in-format buffer.
+    ///
+    /// [CL-309] WU-05: channels-last memory format support
+    fn materialize_format(&self, format: MemoryFormat) -> FerrotorchResult<Self> {
+        let shape = &self.inner.shape;
+        let ndim = shape.len();
+
+        match format {
+            MemoryFormat::ChannelsLast if ndim != 4 => {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!("ChannelsLast requires a 4D tensor, got {ndim}D"),
+                });
+            }
+            MemoryFormat::ChannelsLast3d if ndim != 5 => {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!("ChannelsLast3d requires a 5D tensor, got {ndim}D"),
+                });
+            }
+            _ => {}
+        }
+
+        let target_strides = match format {
+            MemoryFormat::Contiguous => c_contiguous_strides(shape),
+            MemoryFormat::ChannelsLast => channels_last_strides(shape),
+            MemoryFormat::ChannelsLast3d => channels_last_3d_strides(shape),
+        };
+
+        let numel = self.numel();
+        let src_strides = &self.inner.strides;
+        let offset = self.inner.offset;
+
+        let device = self.device();
+        let src_owned: Vec<T>;
+        let src_ref: &[T] = if self.is_cuda() {
+            src_owned = self.data_vec()?;
+            &src_owned
+        } else {
+            self.inner.storage.as_slice()
+        };
+
+        let mut dst = vec![<T as num_traits::Zero>::zero(); numel];
+
+        let mut indices = vec![0usize; ndim];
+        for _ in 0..numel {
+            let mut src_flat = offset as isize;
+            let mut dst_flat: isize = 0;
+            for d in 0..ndim {
+                src_flat += indices[d] as isize * src_strides[d];
+                dst_flat += indices[d] as isize * target_strides[d];
+            }
+            dst[dst_flat as usize] = src_ref[src_flat as usize];
+
+            for d in (0..ndim).rev() {
+                indices[d] += 1;
+                if indices[d] < shape[d] {
+                    break;
+                }
+                indices[d] = 0;
+            }
+        }
+
+        let storage = TensorStorage::on_device(dst, device)?;
+        Ok(Self {
+            inner: Arc::new(TensorInner {
+                id: TensorId::next(),
+                storage: Arc::new(storage),
+                shape: shape.to_vec(),
+                strides: target_strides,
+                offset: 0,
+                grad: Mutex::new(None),
+                grad_fn: None,
+                requires_grad: self.inner.requires_grad,
+                is_leaf: true,
+            }),
+        })
+    }
+
     /// Returns `true` if this is a scalar (0-dimensional) tensor.
     #[inline]
     pub fn is_scalar(&self) -> bool {
@@ -814,6 +972,25 @@ impl<T: Float> Tensor<T> {
     pub(crate) fn shares_storage(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner.storage, &other.inner.storage)
     }
+}
+
+/// Compare actual strides against expected strides, treating dimensions
+/// of size 1 as wildcards (any stride is acceptable for size-1 dims).
+///
+/// This matches PyTorch's contiguity semantics where a size-1 dimension
+/// does not constrain the stride because it only ever indexes at 0.
+///
+/// [CL-309] WU-05: channels-last memory format support
+fn strides_match_with_size1(shape: &[usize], actual: &[isize], expected: &[isize]) -> bool {
+    if actual.len() != expected.len() {
+        return false;
+    }
+    for i in 0..shape.len() {
+        if shape[i] != 1 && actual[i] != expected[i] {
+            return false;
+        }
+    }
+    true
 }
 
 // --- Trait impls ---

@@ -47,7 +47,7 @@ pub use storage::{StorageBuffer, TensorStorage};
 pub use nested::{NestedTensor, nested_scaled_dot_product_attention};
 pub use pruning::{apply_2_4_mask, magnitude_prune, sparsity_ratio};
 pub use sparse::{CooTensor, CsrTensor, SparseTensor};
-pub use tensor::{GradFn, Tensor, TensorId};
+pub use tensor::{GradFn, MemoryFormat, Tensor, TensorId};
 pub use einops::{rearrange, rearrange_with, repeat, reduce, EinopsReduction};
 pub use einsum::{einsum, einsum_differentiable};
 pub use fft::{fft, fft2, ifft, ifft2, irfft, rfft};
