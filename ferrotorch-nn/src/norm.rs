@@ -2064,6 +2064,540 @@ impl<T: Float> GradFn<T> for BatchNorm1dBackward<T> {
 }
 
 // ===========================================================================
+// InstanceNorm — CL-315
+// ===========================================================================
+
+/// Instance normalization: normalizes each **(batch, channel)** slice
+/// independently, i.e. statistics are computed over the spatial dimensions
+/// only — never across the batch or across channels.
+///
+/// This is equivalent to `GroupNorm` with `num_groups == num_channels`, but
+/// semantically emphasised as a per-instance, per-channel operation.
+///
+/// Unlike `BatchNorm`, `InstanceNorm` does **not** maintain running
+/// statistics, so its behaviour is identical in train and eval modes.
+///
+/// The generic `InstanceNorm<T>` is the shared engine; the public type
+/// aliases `InstanceNorm1d`, `InstanceNorm2d`, `InstanceNorm3d` simply
+/// validate that the input tensor has the expected number of dimensions.
+
+/// Internal engine shared by `InstanceNorm1d/2d/3d`.
+#[derive(Debug)]
+struct InstanceNormInner<T: Float> {
+    /// Number of channels (features) `C`.
+    num_features: usize,
+    /// Small constant for numerical stability.
+    eps: f64,
+    /// Whether to apply learnable affine parameters.
+    affine: bool,
+    /// Learnable scale (gamma), shape `[C]`.
+    weight: Parameter<T>,
+    /// Learnable shift (beta), shape `[C]`.
+    bias: Parameter<T>,
+    training: bool,
+}
+
+impl<T: Float> InstanceNormInner<T> {
+    fn new(num_features: usize, eps: f64, affine: bool) -> FerrotorchResult<Self> {
+        if num_features == 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "InstanceNorm: num_features must be positive".into(),
+            });
+        }
+
+        let weight = Parameter::ones(&[num_features])?;
+        let bias = Parameter::zeros(&[num_features])?;
+
+        Ok(Self {
+            num_features,
+            eps,
+            affine,
+            weight,
+            bias,
+            training: true,
+        })
+    }
+
+    /// Forward for input of shape `[B, C, *spatial]`.
+    /// `expected_ndim` is used only for error messages (3 = 1d, 4 = 2d, 5 = 3d).
+    fn forward_impl(
+        &self,
+        input: &Tensor<T>,
+        expected_ndim: usize,
+    ) -> FerrotorchResult<Tensor<T>> {
+        let label = match expected_ndim {
+            3 => "InstanceNorm1d",
+            4 => "InstanceNorm2d",
+            _ => "InstanceNorm3d",
+        };
+        let device = input.device();
+        let shape = input.shape().to_vec();
+
+        if shape.len() != expected_ndim {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "{label}: expected {expected_ndim}D input, got {:?}",
+                    shape
+                ),
+            });
+        }
+
+        let batch = shape[0];
+        let channels = shape[1];
+        if channels != self.num_features {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "{label}: expected {} channels, got {}",
+                    self.num_features, channels
+                ),
+            });
+        }
+
+        let spatial: usize = shape[2..].iter().product();
+        if spatial == 0 {
+            return Ok(input.clone());
+        }
+
+        let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+        let input_data = cpu_input.data()?;
+        let eps_t = T::from(self.eps).unwrap();
+        let n_t = T::from(spatial).unwrap();
+
+        let cpu_weight = if self.weight.tensor().is_cuda() {
+            self.weight.tensor().cpu()?
+        } else {
+            self.weight.tensor().clone()
+        };
+        let cpu_bias = if self.bias.tensor().is_cuda() {
+            self.bias.tensor().cpu()?
+        } else {
+            self.bias.tensor().clone()
+        };
+        let weight_data = cpu_weight.data()?;
+        let bias_data = cpu_bias.data()?;
+
+        let mut output = vec![zero::<T>(); input.numel()];
+
+        for b in 0..batch {
+            for c in 0..channels {
+                let base = b * channels * spatial + c * spatial;
+                let slice = &input_data[base..base + spatial];
+
+                // Compute mean and variance over spatial dims for this (b, c).
+                let mean = slice.iter().copied().fold(zero::<T>(), |a, x| a + x) / n_t;
+                let var = slice
+                    .iter()
+                    .copied()
+                    .fold(zero::<T>(), |a, x| {
+                        let d = x - mean;
+                        a + d * d
+                    })
+                    / n_t;
+                let inv_std = (var + eps_t).sqrt().recip();
+
+                for s in 0..spatial {
+                    let idx = base + s;
+                    let normed = (input_data[idx] - mean) * inv_std;
+                    if self.affine {
+                        output[idx] = normed * weight_data[c] + bias_data[c];
+                    } else {
+                        output[idx] = normed;
+                    }
+                }
+            }
+        }
+
+        let result =
+            Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
+
+        if is_grad_enabled() && input.requires_grad() {
+            let grad_fn = Arc::new(InstanceNormBackward {
+                input: input.clone(),
+                weight: self.weight.tensor().clone(),
+                bias: self.bias.tensor().clone(),
+                num_features: self.num_features,
+                eps: self.eps,
+                affine: self.affine,
+            });
+            let out = Tensor::from_operation(
+                TensorStorage::cpu(result.data()?.to_vec()),
+                result.shape().to_vec(),
+                grad_fn,
+            )?;
+            if device.is_cuda() { out.to(device) } else { Ok(out) }
+        } else if device.is_cuda() {
+            result.to(device)
+        } else {
+            Ok(result)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// InstanceNormBackward
+// ---------------------------------------------------------------------------
+
+/// Backward node for InstanceNorm.
+///
+/// Same VJP as GroupNorm / LayerNorm, but the normalization group is
+/// a single **(batch, channel)** slice over spatial dims.
+#[derive(Debug)]
+struct InstanceNormBackward<T: Float> {
+    input: Tensor<T>,
+    weight: Tensor<T>,
+    bias: Tensor<T>,
+    num_features: usize,
+    eps: f64,
+    affine: bool,
+}
+
+impl<T: Float> GradFn<T> for InstanceNormBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let shape = self.input.shape();
+        let batch = shape[0];
+        let channels = shape[1];
+        let spatial: usize = shape[2..].iter().product();
+        let n_t = T::from(spatial).unwrap();
+        let eps_t = T::from(self.eps).unwrap();
+
+        let cpu_input = if self.input.is_cuda() { self.input.cpu()? } else { self.input.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_weight = if self.weight.is_cuda() { self.weight.cpu()? } else { self.weight.clone() };
+        let input_data = cpu_input.data()?;
+        let go_data = cpu_go.data()?;
+        let weight_data = cpu_weight.data()?;
+
+        let mut grad_input = vec![zero::<T>(); self.input.numel()];
+        let mut grad_weight = vec![zero::<T>(); self.num_features];
+        let mut grad_bias = vec![zero::<T>(); self.num_features];
+
+        for b in 0..batch {
+            for c in 0..channels {
+                let base = b * channels * spatial + c * spatial;
+                let x_slice = &input_data[base..base + spatial];
+                let go_slice = &go_data[base..base + spatial];
+
+                // Recompute mean and inv_std for this (b, c).
+                let mean = x_slice.iter().copied().fold(zero::<T>(), |a, x| a + x) / n_t;
+                let var = x_slice
+                    .iter()
+                    .copied()
+                    .fold(zero::<T>(), |a, x| {
+                        let d = x - mean;
+                        a + d * d
+                    })
+                    / n_t;
+                let inv_std = (var + eps_t).sqrt().recip();
+
+                // Accumulate sums for the VJP.
+                let mut dl_dx_hat_sum = zero::<T>();
+                let mut dl_dx_hat_x_hat_sum = zero::<T>();
+
+                for s in 0..spatial {
+                    let x_hat = (x_slice[s] - mean) * inv_std;
+                    let dl_dx_hat = if self.affine {
+                        go_slice[s] * weight_data[c]
+                    } else {
+                        go_slice[s]
+                    };
+                    dl_dx_hat_sum = dl_dx_hat_sum + dl_dx_hat;
+                    dl_dx_hat_x_hat_sum = dl_dx_hat_x_hat_sum + dl_dx_hat * x_hat;
+
+                    if self.affine {
+                        grad_weight[c] = grad_weight[c] + go_slice[s] * x_hat;
+                        grad_bias[c] = grad_bias[c] + go_slice[s];
+                    }
+                }
+
+                let dl_dx_hat_mean = dl_dx_hat_sum / n_t;
+                let dl_dx_hat_x_hat_mean = dl_dx_hat_x_hat_sum / n_t;
+
+                for s in 0..spatial {
+                    let x_hat = (x_slice[s] - mean) * inv_std;
+                    let dl_dx_hat = if self.affine {
+                        go_slice[s] * weight_data[c]
+                    } else {
+                        go_slice[s]
+                    };
+                    grad_input[base + s] =
+                        inv_std * (dl_dx_hat - dl_dx_hat_mean - x_hat * dl_dx_hat_x_hat_mean);
+                }
+            }
+        }
+
+        let device = self.input.device();
+
+        let grad_input_tensor = Tensor::from_storage(
+            TensorStorage::cpu(grad_input),
+            self.input.shape().to_vec(),
+            false,
+        )?;
+        let grad_input_tensor = if device.is_cuda() {
+            grad_input_tensor.to(device)?
+        } else {
+            grad_input_tensor
+        };
+
+        let grad_weight_out = if self.affine && self.weight.requires_grad() {
+            let t = Tensor::from_storage(
+                TensorStorage::cpu(grad_weight),
+                vec![self.num_features],
+                false,
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
+        } else {
+            None
+        };
+
+        let grad_bias_out = if self.affine && self.bias.requires_grad() {
+            let t = Tensor::from_storage(
+                TensorStorage::cpu(grad_bias),
+                vec![self.num_features],
+                false,
+            )?;
+            Some(if device.is_cuda() { t.to(device)? } else { t })
+        } else {
+            None
+        };
+
+        Ok(vec![Some(grad_input_tensor), grad_weight_out, grad_bias_out])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.input, &self.weight, &self.bias]
+    }
+
+    fn name(&self) -> &'static str {
+        "InstanceNormBackward"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// InstanceNorm1d — CL-315
+// ---------------------------------------------------------------------------
+
+/// Instance normalization for 3D input `[N, C, L]`.
+///
+/// Normalizes each `(n, c)` slice independently over the `L` dimension.
+/// No running statistics are maintained.
+///
+/// Matches `torch.nn.InstanceNorm1d`.
+#[derive(Debug)]
+pub struct InstanceNorm1d<T: Float> {
+    inner: InstanceNormInner<T>,
+}
+
+impl<T: Float> InstanceNorm1d<T> {
+    /// Create a new `InstanceNorm1d` layer.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_features` - Number of channels `C`.
+    /// * `eps` - Numerical stability constant (default: `1e-5`).
+    /// * `affine` - Whether to include learnable weight and bias.
+    pub fn new(num_features: usize, eps: f64, affine: bool) -> FerrotorchResult<Self> {
+        Ok(Self {
+            inner: InstanceNormInner::new(num_features, eps, affine)?,
+        })
+    }
+}
+
+impl<T: Float> Module<T> for InstanceNorm1d<T> {
+    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        self.inner.forward_impl(input, 3)
+    }
+
+    fn parameters(&self) -> Vec<&Parameter<T>> {
+        if self.inner.affine {
+            vec![&self.inner.weight, &self.inner.bias]
+        } else {
+            vec![]
+        }
+    }
+
+    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+        if self.inner.affine {
+            vec![&mut self.inner.weight, &mut self.inner.bias]
+        } else {
+            vec![]
+        }
+    }
+
+    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+        if self.inner.affine {
+            vec![
+                ("weight".to_string(), &self.inner.weight),
+                ("bias".to_string(), &self.inner.bias),
+            ]
+        } else {
+            vec![]
+        }
+    }
+
+    fn train(&mut self) {
+        self.inner.training = true;
+    }
+
+    fn eval(&mut self) {
+        self.inner.training = false;
+    }
+
+    fn is_training(&self) -> bool {
+        self.inner.training
+    }
+}
+
+// ---------------------------------------------------------------------------
+// InstanceNorm2d — CL-315
+// ---------------------------------------------------------------------------
+
+/// Instance normalization for 4D input `[N, C, H, W]`.
+///
+/// Normalizes each `(n, c)` slice independently over the `(H, W)` dimensions.
+/// No running statistics are maintained.
+///
+/// Matches `torch.nn.InstanceNorm2d`.
+#[derive(Debug)]
+pub struct InstanceNorm2d<T: Float> {
+    inner: InstanceNormInner<T>,
+}
+
+impl<T: Float> InstanceNorm2d<T> {
+    /// Create a new `InstanceNorm2d` layer.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_features` - Number of channels `C`.
+    /// * `eps` - Numerical stability constant (default: `1e-5`).
+    /// * `affine` - Whether to include learnable weight and bias.
+    pub fn new(num_features: usize, eps: f64, affine: bool) -> FerrotorchResult<Self> {
+        Ok(Self {
+            inner: InstanceNormInner::new(num_features, eps, affine)?,
+        })
+    }
+}
+
+impl<T: Float> Module<T> for InstanceNorm2d<T> {
+    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        self.inner.forward_impl(input, 4)
+    }
+
+    fn parameters(&self) -> Vec<&Parameter<T>> {
+        if self.inner.affine {
+            vec![&self.inner.weight, &self.inner.bias]
+        } else {
+            vec![]
+        }
+    }
+
+    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+        if self.inner.affine {
+            vec![&mut self.inner.weight, &mut self.inner.bias]
+        } else {
+            vec![]
+        }
+    }
+
+    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+        if self.inner.affine {
+            vec![
+                ("weight".to_string(), &self.inner.weight),
+                ("bias".to_string(), &self.inner.bias),
+            ]
+        } else {
+            vec![]
+        }
+    }
+
+    fn train(&mut self) {
+        self.inner.training = true;
+    }
+
+    fn eval(&mut self) {
+        self.inner.training = false;
+    }
+
+    fn is_training(&self) -> bool {
+        self.inner.training
+    }
+}
+
+// ---------------------------------------------------------------------------
+// InstanceNorm3d — CL-315
+// ---------------------------------------------------------------------------
+
+/// Instance normalization for 5D input `[N, C, D, H, W]`.
+///
+/// Normalizes each `(n, c)` slice independently over the `(D, H, W)` dims.
+/// No running statistics are maintained.
+///
+/// Matches `torch.nn.InstanceNorm3d`.
+#[derive(Debug)]
+pub struct InstanceNorm3d<T: Float> {
+    inner: InstanceNormInner<T>,
+}
+
+impl<T: Float> InstanceNorm3d<T> {
+    /// Create a new `InstanceNorm3d` layer.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_features` - Number of channels `C`.
+    /// * `eps` - Numerical stability constant (default: `1e-5`).
+    /// * `affine` - Whether to include learnable weight and bias.
+    pub fn new(num_features: usize, eps: f64, affine: bool) -> FerrotorchResult<Self> {
+        Ok(Self {
+            inner: InstanceNormInner::new(num_features, eps, affine)?,
+        })
+    }
+}
+
+impl<T: Float> Module<T> for InstanceNorm3d<T> {
+    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        self.inner.forward_impl(input, 5)
+    }
+
+    fn parameters(&self) -> Vec<&Parameter<T>> {
+        if self.inner.affine {
+            vec![&self.inner.weight, &self.inner.bias]
+        } else {
+            vec![]
+        }
+    }
+
+    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+        if self.inner.affine {
+            vec![&mut self.inner.weight, &mut self.inner.bias]
+        } else {
+            vec![]
+        }
+    }
+
+    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+        if self.inner.affine {
+            vec![
+                ("weight".to_string(), &self.inner.weight),
+                ("bias".to_string(), &self.inner.bias),
+            ]
+        } else {
+            vec![]
+        }
+    }
+
+    fn train(&mut self) {
+        self.inner.training = true;
+    }
+
+    fn eval(&mut self) {
+        self.inner.training = false;
+    }
+
+    fn is_training(&self) -> bool {
+        self.inner.training
+    }
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 
@@ -3359,5 +3893,170 @@ mod tests {
     fn test_batchnorm1d_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<BatchNorm1d<f32>>();
+    }
+
+    // -----------------------------------------------------------------------
+    // InstanceNorm tests — CL-315
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_instancenorm1d_output_shape() {
+        let norm = InstanceNorm1d::<f32>::new(3, 1e-5, true).unwrap();
+        // Input [B=2, C=3, L=8]
+        let input = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32; 48]),
+            vec![2, 3, 8],
+            false,
+        )
+        .unwrap();
+        let out = norm.forward(&input).unwrap();
+        assert_eq!(out.shape(), &[2, 3, 8]);
+    }
+
+    #[test]
+    fn test_instancenorm1d_rejects_wrong_ndim() {
+        let norm = InstanceNorm1d::<f32>::new(3, 1e-5, true).unwrap();
+        // 4D input should fail.
+        let input = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32; 48]),
+            vec![2, 3, 4, 2],
+            false,
+        )
+        .unwrap();
+        assert!(norm.forward(&input).is_err());
+    }
+
+    #[test]
+    fn test_instancenorm2d_normalizes_per_instance_channel() {
+        // Each (b, c) spatial plane should have ~zero mean, ~unit var after norm.
+        let norm = InstanceNorm2d::<f32>::new(2, 1e-5, true).unwrap();
+        // [B=1, C=2, H=2, W=2]
+        let data: Vec<f32> = vec![
+            1.0, 2.0, 3.0, 4.0, // channel 0
+            5.0, 6.0, 7.0, 8.0, // channel 1
+        ];
+        let input = Tensor::from_storage(
+            TensorStorage::cpu(data),
+            vec![1, 2, 2, 2],
+            false,
+        )
+        .unwrap();
+        let out = norm.forward(&input).unwrap();
+        let d = out.data().unwrap();
+
+        // Check each channel independently.
+        for c in 0..2 {
+            let start = c * 4;
+            let end = start + 4;
+            let slice = &d[start..end];
+            let mean: f32 = slice.iter().sum::<f32>() / 4.0;
+            let var: f32 = slice.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / 4.0;
+            assert!(
+                mean.abs() < 1e-5,
+                "channel {c} mean = {mean}, expected ~0"
+            );
+            assert!(
+                (var - 1.0).abs() < 0.1,
+                "channel {c} var = {var}, expected ~1"
+            );
+        }
+    }
+
+    #[test]
+    fn test_instancenorm2d_rejects_wrong_ndim() {
+        let norm = InstanceNorm2d::<f32>::new(3, 1e-5, true).unwrap();
+        // 3D input should fail.
+        let input = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32; 24]),
+            vec![2, 3, 4],
+            false,
+        )
+        .unwrap();
+        assert!(norm.forward(&input).is_err());
+    }
+
+    #[test]
+    fn test_instancenorm3d_output_shape() {
+        let norm = InstanceNorm3d::<f32>::new(2, 1e-5, false).unwrap();
+        // [B=1, C=2, D=2, H=2, W=2]
+        let input = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32; 16]),
+            vec![1, 2, 2, 2, 2],
+            false,
+        )
+        .unwrap();
+        let out = norm.forward(&input).unwrap();
+        assert_eq!(out.shape(), &[1, 2, 2, 2, 2]);
+    }
+
+    #[test]
+    fn test_instancenorm2d_no_affine_no_params() {
+        let norm = InstanceNorm2d::<f32>::new(4, 1e-5, false).unwrap();
+        assert!(Module::<f32>::parameters(&norm).is_empty());
+    }
+
+    #[test]
+    fn test_instancenorm2d_has_affine_params() {
+        let norm = InstanceNorm2d::<f32>::new(4, 1e-5, true).unwrap();
+        let params = Module::<f32>::parameters(&norm);
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].shape(), &[4]); // weight
+        assert_eq!(params[1].shape(), &[4]); // bias
+    }
+
+    #[test]
+    fn test_instancenorm2d_backward_gradient_check() {
+        let h = 1e-7;
+        let num_features = 2;
+        // Input [1, 2, 2, 2]
+        let input_data: Vec<f64> = vec![1.0, -0.5, 2.0, 0.3, 0.7, -1.2, 0.4, 1.5];
+        let shape = vec![1usize, 2, 2, 2];
+
+        let norm = InstanceNorm2d::<f64>::new(num_features, 1e-5, true).unwrap();
+
+        // Forward + backward.
+        let input = leaf(&input_data, &shape, true);
+        let output = norm.forward(&input).unwrap();
+        let out_data = output.data().unwrap().to_vec();
+        let total: f64 = out_data.iter().sum();
+
+        let sum_gf = Arc::new(SumBackwardHelper {
+            input: output.clone(),
+        });
+        let loss =
+            Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf).unwrap();
+        loss.backward().unwrap();
+
+        let analytic_grad = input.grad().unwrap().unwrap();
+        let analytic = analytic_grad.data().unwrap().to_vec();
+
+        // Numerical gradient.
+        for i in 0..input_data.len() {
+            let mut data_plus = input_data.clone();
+            data_plus[i] += h;
+            let inp_plus = leaf(&data_plus, &shape, false);
+            let out_plus = no_grad(|| norm.forward(&inp_plus)).unwrap();
+            let sum_plus: f64 = out_plus.data().unwrap().iter().sum();
+
+            let mut data_minus = input_data.clone();
+            data_minus[i] -= h;
+            let inp_minus = leaf(&data_minus, &shape, false);
+            let out_minus = no_grad(|| norm.forward(&inp_minus)).unwrap();
+            let sum_minus: f64 = out_minus.data().unwrap().iter().sum();
+
+            let numerical = (sum_plus - sum_minus) / (2.0 * h);
+            assert!(
+                (numerical - analytic[i]).abs() < 1e-4,
+                "InstanceNorm2d grad[{i}]: numerical={numerical}, analytic={}",
+                analytic[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_instancenorm_zero_features_rejected() {
+        assert!(InstanceNorm1d::<f32>::new(0, 1e-5, true).is_err());
+        assert!(InstanceNorm2d::<f32>::new(0, 1e-5, true).is_err());
+        assert!(InstanceNorm3d::<f32>::new(0, 1e-5, true).is_err());
     }
 }
