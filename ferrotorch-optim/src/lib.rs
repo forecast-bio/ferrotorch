@@ -22,7 +22,9 @@ pub use natural_gradient::{Kfac, KfacConfig};
 pub use optimizer::{Optimizer, OptimizerState, ParamGroup};
 pub use rmsprop::{Rmsprop, RmspropConfig};
 pub use scheduler::{
-    CosineAnnealingLR, LrScheduler, LinearWarmup, MetricScheduler, PlateauMode,
-    ReduceLROnPlateau, SequentialLr, StepLR, cosine_warmup_scheduler,
+    AnnealStrategy, ConstantLR, CosineAnnealingLR, CosineAnnealingWarmRestarts, CyclicLR,
+    CyclicMode, ExponentialLR, LambdaLR, LinearLR, LinearWarmup, LrScheduler, MetricScheduler,
+    MultiStepLR, OneCycleLR, PlateauMode, PolynomialLR, ReduceLROnPlateau, SequentialLr, StepLR,
+    cosine_warmup_scheduler,
 };
 pub use sgd::{Sgd, SgdConfig};
