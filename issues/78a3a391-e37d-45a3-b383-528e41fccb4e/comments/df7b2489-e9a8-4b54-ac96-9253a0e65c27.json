@@ -1,0 +1,8 @@
+{
+  "uuid": "df7b2489-e9a8-4b54-ac96-9253a0e65c27",
+  "issue_uuid": "78a3a391-e37d-45a3-b383-528e41fccb4e",
+  "author": "anon-a7c6025f",
+  "content": "QA found 28 issues (7 HIGH, 10 MEDIUM, 11 LOW). Fixing all 28. Root causes: (1) autocast is decorative — guard returns nothing, no op dispatches to f16, (2) allocator memory leak from unrounded alloc_len, (3) backward refcount checks wrong Arc, (4) DDP has no timeouts and mismatched buffers, (5) TcpBackend panics for world_size>=3.",
+  "created_at": "2026-03-24T02:13:53.079646100Z",
+  "kind": "observation"
+}
