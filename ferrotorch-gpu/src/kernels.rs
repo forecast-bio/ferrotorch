@@ -2990,6 +2990,393 @@ DONE:
 }
 ";
 
+/// PTX source for `div_kernel`: `out[i] = a[i] / b[i]`.
+#[cfg(feature = "cuda")]
+pub(crate) const DIV_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry div_kernel(
+    .param .u64 a_ptr,
+    .param .u64 b_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %a, %b, %out, %off;
+    .reg .f32 %va, %vb, %vr;
+    .reg .pred %p;
+
+    ld.param.u64 %a, [a_ptr];
+    ld.param.u64 %b, [b_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %a, %a, %off;
+    add.u64 %b, %b, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %va, [%a];
+    ld.global.f32 %vb, [%b];
+    div.rn.f32 %vr, %va, %vb;
+    st.global.f32 [%out], %vr;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `exp_kernel`: `out[i] = exp(a[i])`.
+#[cfg(feature = "cuda")]
+pub(crate) const EXP_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry exp_kernel(
+    .param .u64 a_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %a, %out, %off;
+    .reg .f32 %va, %vr;
+    .reg .pred %p;
+
+    ld.param.u64 %a, [a_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %a, %a, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %va, [%a];
+    // PTX ex2.approx computes 2^x; use the identity exp(x) = 2^(x * log2(e))
+    // log2(e) = 1.4426950408889634
+    mul.f32 %va, %va, 0f3FB8AA3B;
+    ex2.approx.f32 %vr, %va;
+    st.global.f32 [%out], %vr;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `log_kernel`: `out[i] = ln(a[i])`.
+#[cfg(feature = "cuda")]
+pub(crate) const LOG_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry log_kernel(
+    .param .u64 a_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %a, %out, %off;
+    .reg .f32 %va, %vr;
+    .reg .pred %p;
+
+    ld.param.u64 %a, [a_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %a, %a, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %va, [%a];
+    // PTX lg2.approx computes log2(x); use the identity ln(x) = log2(x) / log2(e)
+    // 1/log2(e) = ln(2) = 0.6931471805599453
+    lg2.approx.f32 %vr, %va;
+    mul.f32 %vr, %vr, 0f3F317218;
+    st.global.f32 [%out], %vr;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `sqrt_kernel`: `out[i] = sqrt(a[i])`.
+#[cfg(feature = "cuda")]
+pub(crate) const SQRT_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry sqrt_kernel(
+    .param .u64 a_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %a, %out, %off;
+    .reg .f32 %va, %vr;
+    .reg .pred %p;
+
+    ld.param.u64 %a, [a_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %a, %a, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %va, [%a];
+    sqrt.rn.f32 %vr, %va;
+    st.global.f32 [%out], %vr;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `pow_kernel`: `out[i] = a[i] ^ exponent`.
+/// Uses the identity: x^e = 2^(e * log2(x)).
+#[cfg(feature = "cuda")]
+pub(crate) const POW_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry pow_kernel(
+    .param .u64 a_ptr,
+    .param .u64 out_ptr,
+    .param .f32 exponent,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %a, %out, %off;
+    .reg .f32 %va, %vr, %exp, %lg;
+    .reg .pred %p;
+
+    ld.param.u64 %a, [a_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.f32 %exp, [exponent];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %a, %a, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %va, [%a];
+    // x^e = 2^(e * log2(x))
+    lg2.approx.f32 %lg, %va;
+    mul.f32 %lg, %lg, %exp;
+    ex2.approx.f32 %vr, %lg;
+    st.global.f32 [%out], %vr;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `abs_kernel`: `out[i] = |a[i]|`.
+#[cfg(feature = "cuda")]
+pub(crate) const ABS_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry abs_kernel(
+    .param .u64 a_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %a, %out, %off;
+    .reg .f32 %va, %vr;
+    .reg .pred %p;
+
+    ld.param.u64 %a, [a_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %a, %a, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %va, [%a];
+    abs.f32 %vr, %va;
+    st.global.f32 [%out], %vr;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `sigmoid_kernel`: `out[i] = 1 / (1 + exp(-a[i]))`.
+#[cfg(feature = "cuda")]
+pub(crate) const SIGMOID_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry sigmoid_kernel(
+    .param .u64 a_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %a, %out, %off;
+    .reg .f32 %va, %vr, %neg, %e, %denom, %one, %lg2e;
+    .reg .pred %p;
+
+    ld.param.u64 %a, [a_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %a, %a, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %va, [%a];
+    // sigmoid(x) = 1 / (1 + exp(-x))
+    neg.f32 %neg, %va;
+    mov.f32 %lg2e, 0f3FB8AA3B;
+    mul.f32 %neg, %neg, %lg2e;
+    ex2.approx.f32 %e, %neg;
+    mov.f32 %one, 0f3F800000;
+    add.f32 %denom, %one, %e;
+    div.rn.f32 %vr, %one, %denom;
+    st.global.f32 [%out], %vr;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `tanh_kernel`: `out[i] = tanh(a[i])`.
+/// Uses the identity: tanh(x) = 2*sigmoid(2x) - 1.
+#[cfg(feature = "cuda")]
+pub(crate) const TANH_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry tanh_kernel(
+    .param .u64 a_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %a, %out, %off;
+    .reg .f32 %va, %vr, %neg2x, %e, %denom, %sig, %one, %two, %lg2e;
+    .reg .pred %p;
+
+    ld.param.u64 %a, [a_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %a, %a, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %va, [%a];
+    // tanh(x) = 2*sigmoid(2x) - 1
+    mov.f32 %two, 0f40000000;
+    mul.f32 %neg2x, %va, %two;
+    neg.f32 %neg2x, %neg2x;
+    mov.f32 %lg2e, 0f3FB8AA3B;
+    mul.f32 %neg2x, %neg2x, %lg2e;
+    ex2.approx.f32 %e, %neg2x;
+    mov.f32 %one, 0f3F800000;
+    add.f32 %denom, %one, %e;
+    div.rn.f32 %sig, %one, %denom;
+    mul.f32 %vr, %two, %sig;
+    sub.f32 %vr, %vr, %one;
+    st.global.f32 [%out], %vr;
+
+DONE:
+    ret;
+}
+";
+
 // ---------------------------------------------------------------------------
 // Launch configuration helper
 // ---------------------------------------------------------------------------
@@ -4954,6 +5341,140 @@ pub fn gpu_gelu(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBu
 }
 
 // ---------------------------------------------------------------------------
+// Public API -- elementwise transcendentals & math ops
+// ---------------------------------------------------------------------------
+
+/// Elementwise division: `out[i] = a[i] / b[i]`.
+#[cfg(feature = "cuda")]
+pub fn gpu_div(
+    a: &CudaBuffer<f32>,
+    b: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    validate_binary(a, b, device)?;
+
+    if let Some(out) = try_launch_binary(a, b, device, DIV_PTX, "div_kernel")? {
+        return Ok(out);
+    }
+
+    // CPU fallback
+    let a_host = gpu_to_cpu(a, device)?;
+    let b_host = gpu_to_cpu(b, device)?;
+    let result: Vec<f32> = a_host
+        .iter()
+        .zip(b_host.iter())
+        .map(|(&x, &y)| x / y)
+        .collect();
+    cpu_to_gpu(&result, device)
+}
+
+/// Elementwise exponential: `out[i] = exp(a[i])`.
+#[cfg(feature = "cuda")]
+pub fn gpu_exp(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    validate_unary(a, device)?;
+    if let Some(out) = try_launch_unary(a, device, EXP_PTX, "exp_kernel")? {
+        return Ok(out);
+    }
+    cpu_fallback_unary(a, device, |x| x.exp())
+}
+
+/// Elementwise natural log: `out[i] = ln(a[i])`.
+#[cfg(feature = "cuda")]
+pub fn gpu_log(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    validate_unary(a, device)?;
+    if let Some(out) = try_launch_unary(a, device, LOG_PTX, "log_kernel")? {
+        return Ok(out);
+    }
+    cpu_fallback_unary(a, device, |x| x.ln())
+}
+
+/// Elementwise square root: `out[i] = sqrt(a[i])`.
+#[cfg(feature = "cuda")]
+pub fn gpu_sqrt(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    validate_unary(a, device)?;
+    if let Some(out) = try_launch_unary(a, device, SQRT_PTX, "sqrt_kernel")? {
+        return Ok(out);
+    }
+    cpu_fallback_unary(a, device, |x| x.sqrt())
+}
+
+/// Elementwise power: `out[i] = a[i] ^ exponent`.
+#[cfg(feature = "cuda")]
+pub fn gpu_pow(
+    a: &CudaBuffer<f32>,
+    exponent: f32,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(a, device)?;
+
+    let n = a.len();
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        POW_PTX,
+        "pow_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            let host = gpu_to_cpu(a, device)?;
+            let result: Vec<f32> = host.iter().map(|&x| x.powf(exponent)).collect();
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a.inner())
+            .arg(out.inner_mut())
+            .arg(&exponent)
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+/// Elementwise absolute value: `out[i] = |a[i]|`.
+#[cfg(feature = "cuda")]
+pub fn gpu_abs(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    validate_unary(a, device)?;
+    if let Some(out) = try_launch_unary(a, device, ABS_PTX, "abs_kernel")? {
+        return Ok(out);
+    }
+    cpu_fallback_unary(a, device, |x| x.abs())
+}
+
+/// Elementwise sigmoid: `out[i] = 1 / (1 + exp(-a[i]))`.
+#[cfg(feature = "cuda")]
+pub fn gpu_sigmoid(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    validate_unary(a, device)?;
+    if let Some(out) = try_launch_unary(a, device, SIGMOID_PTX, "sigmoid_kernel")? {
+        return Ok(out);
+    }
+    cpu_fallback_unary(a, device, |x| 1.0 / (1.0 + (-x).exp()))
+}
+
+/// Elementwise tanh: `out[i] = tanh(a[i])`.
+#[cfg(feature = "cuda")]
+pub fn gpu_tanh(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    validate_unary(a, device)?;
+    if let Some(out) = try_launch_unary(a, device, TANH_PTX, "tanh_kernel")? {
+        return Ok(out);
+    }
+    cpu_fallback_unary(a, device, |x| x.tanh())
+}
+
+// ---------------------------------------------------------------------------
 // Public API -- LayerNorm
 // ---------------------------------------------------------------------------
 
@@ -5868,6 +6389,62 @@ pub fn precompile_decode_kernels(_device: &GpuDevice) -> GpuResult<()> {
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_gelu(_input: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_div(
+    _a: &CudaBuffer<f32>,
+    _b: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_exp(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_log(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_sqrt(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_pow(
+    _a: &CudaBuffer<f32>,
+    _exponent: f32,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_abs(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_sigmoid(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_tanh(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
