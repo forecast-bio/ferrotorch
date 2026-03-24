@@ -32,6 +32,9 @@ pub struct RmspropConfig {
     /// If `true`, compute the centered RMSprop, normalizing the gradient by
     /// an estimate of its variance (default: false).
     pub centered: bool,
+    /// When `true`, maximize the objective by negating the gradient (default:
+    /// false). CL-321
+    pub maximize: bool,
 }
 
 impl Default for RmspropConfig {
@@ -43,6 +46,7 @@ impl Default for RmspropConfig {
             weight_decay: 0.0,
             momentum: 0.0,
             centered: false,
+            maximize: false,
         }
     }
 }
@@ -149,8 +153,17 @@ impl<T: Float> Optimizer<T> for Rmsprop<T> {
                     };
 
                     let param_data = param.data_vec()?;
-                    let grad_data = grad_tensor.data_vec()?;
+                    let mut grad_data = grad_tensor.data_vec()?;
                     let n = param_data.len();
+
+                    // Maximize: negate gradient. CL-321
+                    let maximize = self.config.maximize;
+                    if maximize {
+                        let neg = T::from(-1.0).unwrap();
+                        for g in grad_data.iter_mut() {
+                            *g = *g * neg;
+                        }
+                    }
 
                     // Materialise gradient (applying weight decay if needed).
                     let grad: Vec<T> = if wd_t > zero {

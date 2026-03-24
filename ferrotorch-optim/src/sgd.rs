@@ -36,6 +36,9 @@ pub struct SgdConfig {
     pub weight_decay: f64,
     /// Whether to use Nesterov momentum (default: false).
     pub nesterov: bool,
+    /// When `true`, maximize the objective by negating the gradient (default:
+    /// false). CL-321
+    pub maximize: bool,
 }
 
 impl SgdConfig {
@@ -53,6 +56,7 @@ impl SgdConfig {
             dampening: 0.0,
             weight_decay: 0.0,
             nesterov: false,
+            maximize: false,
         }
     }
 
@@ -151,6 +155,13 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
 
                 let param_data = param.data_vec()?;
                 let mut grad_data = grad_tensor.data_vec()?;
+
+                // Maximize: negate gradient. CL-321
+                if self.config.maximize {
+                    for g in grad_data.iter_mut() {
+                        *g = T::from(0.0).unwrap() - *g;
+                    }
+                }
 
                 // Weight decay: grad = grad + weight_decay * param
                 let wd = group_wd;

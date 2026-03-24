@@ -54,6 +54,9 @@ pub struct KfacConfig {
     pub update_freq: usize,
     /// Weight decay coefficient for L2 regularization (default: 0.0).
     pub weight_decay: f64,
+    /// When `true`, maximize the objective by negating the gradient (default:
+    /// false). CL-321
+    pub maximize: bool,
 }
 
 impl Default for KfacConfig {
@@ -64,6 +67,7 @@ impl Default for KfacConfig {
             momentum: 0.9,
             update_freq: 10,
             weight_decay: 0.0,
+            maximize: false,
         }
     }
 }
@@ -348,6 +352,13 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
                     .map(|&v| v.to_f64().unwrap())
                     .collect();
                 let shape = tensor.shape().to_vec();
+
+                // Maximize: negate gradient. CL-321
+                if self.config.maximize {
+                    for g in grad_data.iter_mut() {
+                        *g = -*g;
+                    }
+                }
 
                 // L2 weight decay: grad = grad + weight_decay * param.
                 if group_wd > 0.0 {
@@ -769,6 +780,7 @@ mod tests {
             momentum: 0.0,
             update_freq: 1,
             weight_decay: 0.0,
+            maximize: false,
         };
         let mut kfac = Kfac::new(vec![p], config);
 
@@ -820,6 +832,7 @@ mod tests {
             momentum: 0.0,
             update_freq: 1,
             weight_decay: 0.0,
+            maximize: false,
         };
         let mut kfac = Kfac::new(vec![p], config);
 
@@ -860,6 +873,7 @@ mod tests {
             momentum: 0.0,
             update_freq: 1,
             weight_decay: 0.0,
+            maximize: false,
         };
         let mut kfac = Kfac::new(vec![p], config);
 

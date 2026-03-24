@@ -54,6 +54,9 @@ pub struct LbfgsConfig {
     pub history_size: usize,
     /// Line search function (default: `None` -- fixed step with `lr`).
     pub line_search_fn: Option<LineSearchFn>,
+    /// When `true`, maximize the objective by negating the gradient (default:
+    /// false). CL-321
+    pub maximize: bool,
 }
 
 impl Default for LbfgsConfig {
@@ -66,6 +69,7 @@ impl Default for LbfgsConfig {
             tolerance_change: 1e-9,
             history_size: 10,
             line_search_fn: None,
+            maximize: false,
         }
     }
 }
@@ -157,7 +161,10 @@ impl<T: Float> Lbfgs<T> {
     }
 
     /// Flatten all parameter gradients into a single `f64` vector.
+    ///
+    /// When `config.maximize` is set, the gradient is negated. CL-321
     fn gather_grads(&self) -> FerrotorchResult<Vec<f64>> {
+        let negate = self.config.maximize;
         let mut flat = Vec::new();
         for group in &self.param_groups {
             for param in &group.params {
@@ -165,7 +172,11 @@ impl<T: Float> Lbfgs<T> {
                 match tensor.grad()? {
                     Some(g) => {
                         let g_data = g.data_vec()?;
-                        flat.extend(g_data.iter().map(|&v| v.to_f64().unwrap()));
+                        if negate {
+                            flat.extend(g_data.iter().map(|&v| -v.to_f64().unwrap()));
+                        } else {
+                            flat.extend(g_data.iter().map(|&v| v.to_f64().unwrap()));
+                        }
                     }
                     None => {
                         // No gradient: treat as zero.

@@ -4,6 +4,7 @@ pub mod adam;
 pub mod adamax;
 pub mod adamw;
 pub mod asgd;
+pub mod ema;
 pub mod grad_accumulator;
 pub mod grad_scaler;
 pub mod lbfgs;
@@ -16,6 +17,7 @@ pub mod rmsprop;
 pub mod rprop;
 pub mod scheduler;
 pub mod sgd;
+pub mod swa;
 
 pub use adadelta::{Adadelta, AdadeltaConfig};
 pub use adagrad::{Adagrad, AdagradConfig};
@@ -23,6 +25,7 @@ pub use adam::{Adam, AdamConfig};
 pub use adamax::{Adamax, AdamaxConfig};
 pub use adamw::{AdamW, AdamWConfig};
 pub use asgd::{Asgd, AsgdConfig};
+pub use ema::ExponentialMovingAverage;
 pub use grad_accumulator::GradientAccumulator;
 pub use grad_scaler::{GradScaler, GradScalerConfig, GradScalerState};
 pub use lbfgs::{Lbfgs, LbfgsConfig, LineSearchFn};
@@ -38,3 +41,4 @@ pub use scheduler::{
     ReduceLROnPlateau, SequentialLr, StepLR, cosine_warmup_scheduler,
 };
 pub use sgd::{Sgd, SgdConfig};
+pub use swa::{AnnealStrategy, AveragedModel, AveragingStrategy, Swalr};

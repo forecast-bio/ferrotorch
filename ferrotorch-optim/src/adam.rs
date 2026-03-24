@@ -31,6 +31,9 @@ pub struct AdamConfig {
     pub weight_decay: f64,
     /// Whether to use the AMSGrad variant (default: false).
     pub amsgrad: bool,
+    /// When `true`, maximize the objective by negating the gradient (default:
+    /// false). CL-321
+    pub maximize: bool,
 }
 
 impl Default for AdamConfig {
@@ -41,6 +44,7 @@ impl Default for AdamConfig {
             eps: 1e-8,
             weight_decay: 0.0,
             amsgrad: false,
+            maximize: false,
         }
     }
 }
@@ -132,6 +136,13 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                     .iter()
                     .map(|&v| v.to_f64().unwrap())
                     .collect();
+
+                // Maximize: negate gradient. CL-321
+                if config.maximize {
+                    for g in grad_data.iter_mut() {
+                        *g = -*g;
+                    }
+                }
 
                 // L2 weight decay: grad = grad + weight_decay * param.
                 if group_wd > 0.0 {

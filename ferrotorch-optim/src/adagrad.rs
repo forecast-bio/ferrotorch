@@ -26,6 +26,9 @@ pub struct AdagradConfig {
     pub initial_accumulator_value: f64,
     /// Small constant for numerical stability. Default: `1e-10`.
     pub eps: f64,
+    /// When `true`, maximize the objective by negating the gradient (default:
+    /// false). CL-321
+    pub maximize: bool,
 }
 
 impl Default for AdagradConfig {
@@ -36,6 +39,7 @@ impl Default for AdagradConfig {
             weight_decay: 0.0,
             initial_accumulator_value: 0.0,
             eps: 1e-10,
+            maximize: false,
         }
     }
 }
@@ -147,9 +151,17 @@ impl<T: Float> Optimizer<T> for Adagrad<T> {
                     Some(g) => g,
                     None => continue,
                 };
-                let grad_vec: Vec<T> = grad_tensor.data_vec()?;
+                let mut grad_vec: Vec<T> = grad_tensor.data_vec()?;
                 let param_vec: Vec<T> = self.param_groups[group_idx].params[param_idx]
                     .data_vec()?;
+
+                // Maximize: negate gradient. CL-321
+                if self.config.maximize {
+                    let neg = T::from(-1.0).unwrap();
+                    for g in grad_vec.iter_mut() {
+                        *g = *g * neg;
+                    }
+                }
 
                 self.ensure_state(group_idx, param_idx, &shape)?;
 

@@ -35,6 +35,9 @@ pub struct AdamWConfig {
     /// Note: this default is higher than Adam's typical `0.0` because
     /// decoupled weight decay is the whole point of AdamW.
     pub weight_decay: f64,
+    /// When `true`, maximize the objective by negating the gradient (default:
+    /// false). CL-321
+    pub maximize: bool,
 }
 
 impl Default for AdamWConfig {
@@ -44,6 +47,7 @@ impl Default for AdamWConfig {
             betas: (0.9, 0.999),
             eps: 1e-8,
             weight_decay: 0.01,
+            maximize: false,
         }
     }
 }
@@ -148,11 +152,18 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                     .iter()
                     .map(|&v| v.to_f64().unwrap())
                     .collect();
-                let grad_data: Vec<f64> = grad_tensor
+                let mut grad_data: Vec<f64> = grad_tensor
                     .data_vec()?
                     .iter()
                     .map(|&v| v.to_f64().unwrap())
                     .collect();
+
+                // Maximize: negate gradient. CL-321
+                if config.maximize {
+                    for g in grad_data.iter_mut() {
+                        *g = -*g;
+                    }
+                }
 
                 let numel = param_data.len();
 
