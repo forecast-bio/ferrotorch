@@ -676,6 +676,14 @@ fn map_ir_op(op: &IrOpKind, node_name: &str, elem_type: i32) -> FerrotorchResult
         IrOpKind::FusedElementwise { .. } => Err(FerrotorchError::InvalidArgument {
             message: "fused elementwise ops must be un-fused before ONNX export".into(),
         }),
+
+        IrOpKind::Cond { .. } => Err(FerrotorchError::InvalidArgument {
+            message: "cond ops must be lowered before ONNX export".into(),
+        }),
+
+        IrOpKind::Scan { .. } => Err(FerrotorchError::InvalidArgument {
+            message: "scan ops must be lowered before ONNX export".into(),
+        }),
     }
 }
 
