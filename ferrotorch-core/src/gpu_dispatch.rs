@@ -270,6 +270,33 @@ pub trait GpuBackend: Send + Sync {
         Err(FerrotorchError::InvalidArgument { message: "sum_axis_f32 GPU op not yet implemented".into() })
     }
 
+    // Strided split: extract a sub-tensor along one axis entirely on GPU.
+    fn strided_split_f32(
+        &self,
+        _input: &GpuBufferHandle,
+        _total_along_axis: usize,
+        _split_offset: usize,
+        _split_size: usize,
+        _inner_size: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "strided_split_f32 GPU op not yet implemented".into() })
+    }
+
+    // Strided cat: write a sub-tensor into a larger buffer at an offset along one axis on GPU.
+    fn strided_cat_f32(
+        &self,
+        _input: &GpuBufferHandle,
+        _output: &mut GpuBufferHandle,
+        _total_along_axis: usize,
+        _cat_offset: usize,
+        _part_size: usize,
+        _inner_size: usize,
+        _n: usize,
+    ) -> FerrotorchResult<()> {
+        Err(FerrotorchError::InvalidArgument { message: "strided_cat_f32 GPU op not yet implemented".into() })
+    }
+
     /// Check if a GPU buffer contains any inf or NaN values.
     fn has_inf_nan_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<bool> {
         // Default: download to CPU and scan
