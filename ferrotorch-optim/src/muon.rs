@@ -30,6 +30,9 @@ pub struct MuonConfig {
     pub ns_steps: usize,
     /// Weight decay (L2 penalty) applied to parameters (default: 0.0).
     pub weight_decay: f64,
+    /// When `true`, maximize the objective by negating the gradient (default:
+    /// false). CL-321
+    pub maximize: bool,
 }
 
 impl MuonConfig {
@@ -41,6 +44,7 @@ impl MuonConfig {
             nesterov: true,
             ns_steps: 5,
             weight_decay: 0.0,
+            maximize: false,
         }
     }
 
@@ -224,6 +228,13 @@ impl<T: Float> Optimizer<T> for Muon<T> {
                     .map(|&v| v.to_f64().unwrap())
                     .collect();
                 let shape = param.shape().to_vec();
+
+                // Maximize: negate gradient. CL-321
+                if self.config.maximize {
+                    for g in grad_data.iter_mut() {
+                        *g = -*g;
+                    }
+                }
 
                 // Weight decay: grad = grad + wd * param
                 let wd = group_wd;
