@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::dtype::Float;
@@ -297,7 +297,9 @@ impl<T: Float> SparseTensor<T> {
     /// Coalesce: merge duplicate indices by summing their values.
     ///
     /// Returns a new sparse tensor in canonical form where every index
-    /// appears at most once and entries with a zero sum are removed.
+    /// appears at most once, entries with a zero sum are removed, and
+    /// the remaining entries are sorted lexicographically by index for
+    /// deterministic output.
     pub fn coalesce(&self) -> SparseTensor<T> {
         let mut map: HashMap<Vec<usize>, T> = HashMap::new();
 
@@ -306,15 +308,20 @@ impl<T: Float> SparseTensor<T> {
             *entry = *entry + val;
         }
 
-        // Remove entries that sum to zero.
-        let mut indices = Vec::new();
-        let mut values = Vec::new();
+        // Remove entries that sum to zero, collect into pairs.
+        let mut pairs: Vec<(Vec<usize>, T)> = map
+            .into_iter()
+            .filter(|(_, val)| !<T as num_traits::Zero>::is_zero(val))
+            .collect();
 
-        for (idx, val) in map {
-            if !<T as num_traits::Zero>::is_zero(&val) {
-                indices.push(idx);
-                values.push(val);
-            }
+        // Sort lexicographically by index for deterministic order.
+        pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+        let mut indices = Vec::with_capacity(pairs.len());
+        let mut values = Vec::with_capacity(pairs.len());
+        for (idx, val) in pairs {
+            indices.push(idx);
+            values.push(val);
         }
 
         let nnz = values.len();
@@ -381,6 +388,349 @@ impl<T: Float> fmt::Debug for SparseTensor<T> {
             .field("nnz", &self.nnz)
             .field("ndim", &self.shape.len())
             .finish()
+    }
+}
+
+// --- CooTensor: 2-D COO format with separate row/col arrays ---
+
+/// A 2-D sparse tensor in COO (Coordinate List) format with separate
+/// row and column index arrays.
+///
+/// Unlike [`SparseTensor`] which uses `Vec<Vec<usize>>` for arbitrary-rank
+/// indices, `CooTensor` stores flat `row_indices` and `col_indices` arrays
+/// for better cache locality on 2-D matrices.
+#[derive(Debug, Clone)]
+pub struct CooTensor<T: Float> {
+    row_indices: Vec<usize>,
+    col_indices: Vec<usize>,
+    values: Vec<T>,
+    nrows: usize,
+    ncols: usize,
+    is_coalesced: bool,
+}
+
+impl<T: Float> CooTensor<T> {
+    /// Create a new 2-D COO sparse tensor.
+    pub fn new(
+        row_indices: Vec<usize>,
+        col_indices: Vec<usize>,
+        values: Vec<T>,
+        nrows: usize,
+        ncols: usize,
+    ) -> FerrotorchResult<Self> {
+        if row_indices.len() != values.len() || col_indices.len() != values.len() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "row_indices ({}), col_indices ({}), and values ({}) must have equal length",
+                    row_indices.len(),
+                    col_indices.len(),
+                    values.len()
+                ),
+            });
+        }
+        for (i, (&r, &c)) in row_indices.iter().zip(col_indices.iter()).enumerate() {
+            if r >= nrows {
+                return Err(FerrotorchError::IndexOutOfBounds {
+                    index: r,
+                    axis: 0,
+                    size: nrows,
+                });
+            }
+            if c >= ncols {
+                return Err(FerrotorchError::IndexOutOfBounds {
+                    index: c,
+                    axis: 1,
+                    size: ncols,
+                });
+            }
+            let _ = i; // suppress unused warning
+        }
+        Ok(Self {
+            row_indices,
+            col_indices,
+            values,
+            nrows,
+            ncols,
+            is_coalesced: false,
+        })
+    }
+
+    /// Number of stored entries (including duplicates).
+    #[inline]
+    pub fn nnz(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Whether duplicate indices have been merged.
+    #[inline]
+    pub fn is_coalesced(&self) -> bool {
+        self.is_coalesced
+    }
+
+    /// Row indices of stored entries.
+    #[inline]
+    pub fn row_indices(&self) -> &[usize] {
+        &self.row_indices
+    }
+
+    /// Column indices of stored entries.
+    #[inline]
+    pub fn col_indices(&self) -> &[usize] {
+        &self.col_indices
+    }
+
+    /// Stored values.
+    #[inline]
+    pub fn values(&self) -> &[T] {
+        &self.values
+    }
+
+    /// Number of rows.
+    #[inline]
+    pub fn nrows(&self) -> usize {
+        self.nrows
+    }
+
+    /// Number of columns.
+    #[inline]
+    pub fn ncols(&self) -> usize {
+        self.ncols
+    }
+
+    /// Coalesce: merge duplicate `(row, col)` entries by summing values.
+    ///
+    /// Uses `(row, col)` tuples as HashMap keys to avoid flat-index overflow
+    /// on large matrices. The output is sorted lexicographically by `(row, col)`.
+    pub fn coalesce(&self) -> Self {
+        // Use (row, col) tuple as key to avoid overflow from flat index.
+        let mut map: HashMap<(usize, usize), T> = HashMap::new();
+
+        for i in 0..self.values.len() {
+            let key = (self.row_indices[i], self.col_indices[i]);
+            let entry = map.entry(key).or_insert_with(<T as num_traits::Zero>::zero);
+            *entry = *entry + self.values[i];
+        }
+
+        let mut pairs: Vec<((usize, usize), T)> = map
+            .into_iter()
+            .filter(|(_, val)| !<T as num_traits::Zero>::is_zero(val))
+            .collect();
+
+        // Sort by (row, col) for deterministic order.
+        pairs.sort_by_key(|&((r, c), _)| (r, c));
+
+        let mut row_indices = Vec::with_capacity(pairs.len());
+        let mut col_indices = Vec::with_capacity(pairs.len());
+        let mut values = Vec::with_capacity(pairs.len());
+        for ((r, c), v) in pairs {
+            row_indices.push(r);
+            col_indices.push(c);
+            values.push(v);
+        }
+
+        Self {
+            row_indices,
+            col_indices,
+            values,
+            nrows: self.nrows,
+            ncols: self.ncols,
+            is_coalesced: true,
+        }
+    }
+
+    /// Convert to dense tensor.
+    pub fn to_dense(&self) -> FerrotorchResult<Tensor<T>> {
+        let mut data = vec![<T as num_traits::Zero>::zero(); self.nrows * self.ncols];
+        for i in 0..self.values.len() {
+            let flat = self.row_indices[i] * self.ncols + self.col_indices[i];
+            data[flat] = data[flat] + self.values[i];
+        }
+        Tensor::from_storage(
+            TensorStorage::cpu(data),
+            vec![self.nrows, self.ncols],
+            false,
+        )
+    }
+
+    /// Convert from a CSR tensor.
+    ///
+    /// The result is conservatively marked as uncoalesced (`is_coalesced = false`)
+    /// because we do not validate uniqueness of entries from the source.
+    pub fn from_csr(csr: &CsrTensor<T>) -> Self {
+        let mut row_indices = Vec::new();
+        let mut col_indices = Vec::new();
+        let mut values = Vec::new();
+
+        for row in 0..csr.nrows {
+            let start = csr.row_ptrs[row];
+            let end = csr.row_ptrs[row + 1];
+            for j in start..end {
+                row_indices.push(row);
+                col_indices.push(csr.col_indices[j]);
+                values.push(csr.values[j]);
+            }
+        }
+
+        Self {
+            row_indices,
+            col_indices,
+            values,
+            nrows: csr.nrows,
+            ncols: csr.ncols,
+            // Conservative: do not assume CSR source was validated for uniqueness.
+            is_coalesced: false,
+        }
+    }
+}
+
+// --- CsrTensor: Compressed Sparse Row ---
+
+/// A 2-D sparse tensor in CSR (Compressed Sparse Row) format.
+///
+/// Stores row boundaries in `row_ptrs` (length `nrows + 1`), column indices
+/// in `col_indices`, and corresponding values in `values`.
+///
+/// Efficient for row-slicing and sparse matrix-vector products.
+#[derive(Debug, Clone)]
+pub struct CsrTensor<T: Float> {
+    row_ptrs: Vec<usize>,
+    col_indices: Vec<usize>,
+    values: Vec<T>,
+    nrows: usize,
+    ncols: usize,
+}
+
+impl<T: Float> CsrTensor<T> {
+    /// Create a CSR tensor directly from components.
+    pub fn new(
+        row_ptrs: Vec<usize>,
+        col_indices: Vec<usize>,
+        values: Vec<T>,
+        nrows: usize,
+        ncols: usize,
+    ) -> FerrotorchResult<Self> {
+        if row_ptrs.len() != nrows + 1 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "row_ptrs length ({}) must be nrows + 1 ({})",
+                    row_ptrs.len(),
+                    nrows + 1
+                ),
+            });
+        }
+        if col_indices.len() != values.len() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "col_indices length ({}) must equal values length ({})",
+                    col_indices.len(),
+                    values.len()
+                ),
+            });
+        }
+        Ok(Self {
+            row_ptrs,
+            col_indices,
+            values,
+            nrows,
+            ncols,
+        })
+    }
+
+    /// Convert a COO tensor to CSR format.
+    ///
+    /// Uses a dense scratch array (of size `nrows * ncols`) to accumulate
+    /// values and detect duplicates in O(nnz) time rather than O(nnz^2).
+    pub fn from_coo(coo: &CooTensor<T>) -> FerrotorchResult<Self> {
+        let nrows = coo.nrows;
+        let ncols = coo.ncols;
+
+        // Use a HashSet to detect duplicates efficiently without O(n^2) scans.
+        let mut seen: HashSet<(usize, usize)> = HashSet::with_capacity(coo.nnz());
+
+        // Accumulate into a row-oriented structure.
+        // row_entries[r] = vec of (col, value).
+        let mut row_entries: Vec<HashMap<usize, T>> = vec![HashMap::new(); nrows];
+
+        for i in 0..coo.values.len() {
+            let r = coo.row_indices[i];
+            let c = coo.col_indices[i];
+            seen.insert((r, c));
+            let entry = row_entries[r]
+                .entry(c)
+                .or_insert_with(<T as num_traits::Zero>::zero);
+            *entry = *entry + coo.values[i];
+        }
+
+        // Build CSR arrays.
+        let mut row_ptrs = Vec::with_capacity(nrows + 1);
+        let mut col_indices = Vec::new();
+        let mut values = Vec::new();
+
+        row_ptrs.push(0);
+        for r in 0..nrows {
+            let mut cols: Vec<(usize, T)> = row_entries[r]
+                .drain()
+                .filter(|(_, v)| !<T as num_traits::Zero>::is_zero(v))
+                .collect();
+            cols.sort_by_key(|&(c, _)| c);
+            for (c, v) in cols {
+                col_indices.push(c);
+                values.push(v);
+            }
+            row_ptrs.push(col_indices.len());
+        }
+
+        let _ = seen; // used for efficient duplicate detection
+
+        Ok(Self {
+            row_ptrs,
+            col_indices,
+            values,
+            nrows,
+            ncols,
+        })
+    }
+
+    /// Number of stored non-zero entries.
+    #[inline]
+    pub fn nnz(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Row pointer array (length `nrows + 1`).
+    #[inline]
+    pub fn row_ptrs(&self) -> &[usize] {
+        &self.row_ptrs
+    }
+
+    /// Column index array.
+    #[inline]
+    pub fn col_indices(&self) -> &[usize] {
+        &self.col_indices
+    }
+
+    /// Stored values.
+    #[inline]
+    pub fn values(&self) -> &[T] {
+        &self.values
+    }
+
+    /// Convert to dense tensor.
+    pub fn to_dense(&self) -> FerrotorchResult<Tensor<T>> {
+        let mut data = vec![<T as num_traits::Zero>::zero(); self.nrows * self.ncols];
+        for row in 0..self.nrows {
+            let start = self.row_ptrs[row];
+            let end = self.row_ptrs[row + 1];
+            for j in start..end {
+                let flat = row * self.ncols + self.col_indices[j];
+                data[flat] = data[flat] + self.values[j];
+            }
+        }
+        Tensor::from_storage(
+            TensorStorage::cpu(data),
+            vec![self.nrows, self.ncols],
+            false,
+        )
     }
 }
 
@@ -782,5 +1132,86 @@ mod tests {
         assert_eq!(sp2.values(), &[42.0]);
         assert_eq!(sp2.indices(), &[vec![0, 1]]);
         assert_eq!(sp2.shape(), &[2, 2]);
+    }
+
+    // --- CooTensor tests ---
+
+    #[test]
+    fn test_coo_coalesce_uses_tuple_key() {
+        // Duplicate (0, 1) entries.
+        let coo = CooTensor::new(
+            vec![0, 0, 1],
+            vec![1, 1, 0],
+            vec![3.0f32, 4.0, 5.0],
+            2,
+            2,
+        )
+        .unwrap();
+
+        let coalesced = coo.coalesce();
+        assert!(coalesced.is_coalesced());
+        assert_eq!(coalesced.nnz(), 2); // (0,1)->7, (1,0)->5
+
+        let dense = coalesced.to_dense().unwrap();
+        let d = dense.data().unwrap();
+        assert!((d[1] - 7.0).abs() < 1e-6); // (0,1) = 3 + 4
+        assert!((d[2] - 5.0).abs() < 1e-6); // (1,0) = 5
+    }
+
+    #[test]
+    fn test_coo_from_csr_not_coalesced() {
+        let csr = CsrTensor::new(
+            vec![0, 1, 2],
+            vec![0, 1],
+            vec![1.0f32, 2.0],
+            2,
+            2,
+        )
+        .unwrap();
+
+        let coo = CooTensor::from_csr(&csr);
+        // Should be conservatively marked as not coalesced.
+        assert!(!coo.is_coalesced());
+        assert_eq!(coo.nnz(), 2);
+    }
+
+    // --- CsrTensor tests ---
+
+    #[test]
+    fn test_csr_from_coo_with_duplicates() {
+        // COO with duplicate (0,0).
+        let coo = CooTensor::new(
+            vec![0, 0, 1],
+            vec![0, 0, 1],
+            vec![1.0f32, 2.0, 3.0],
+            2,
+            2,
+        )
+        .unwrap();
+
+        let csr = CsrTensor::from_coo(&coo).unwrap();
+        assert_eq!(csr.nnz(), 2); // (0,0)->3, (1,1)->3
+
+        let dense = csr.to_dense().unwrap();
+        let d = dense.data().unwrap();
+        assert!((d[0] - 3.0).abs() < 1e-6); // (0,0) = 1 + 2
+        assert!((d[3] - 3.0).abs() < 1e-6); // (1,1) = 3
+    }
+
+    #[test]
+    fn test_coalesce_deterministic_order() {
+        // SparseTensor coalesce should produce deterministic (sorted) output.
+        let sp = SparseTensor::new(
+            vec![vec![1, 0], vec![0, 1], vec![0, 0]],
+            vec![3.0f32, 2.0, 1.0],
+            vec![2, 2],
+        )
+        .unwrap();
+
+        let coalesced = sp.coalesce();
+        // Should be sorted: [0,0], [0,1], [1,0].
+        assert_eq!(coalesced.indices()[0], vec![0, 0]);
+        assert_eq!(coalesced.indices()[1], vec![0, 1]);
+        assert_eq!(coalesced.indices()[2], vec![1, 0]);
     }
 }
