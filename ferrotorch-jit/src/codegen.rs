@@ -597,6 +597,169 @@ fn resolve_output_shape(graph: &IrGraph) -> FerrotorchResult<Vec<usize>> {
 }
 
 // ---------------------------------------------------------------------------
+// InductorBackend
+// ---------------------------------------------------------------------------
+
+/// The target for the inductor-style code generator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InductorTarget {
+    /// Emit Rust source code with SIMD-friendly patterns.
+    CpuRust,
+    /// Emit C source code with OpenMP SIMD/parallel pragmas.
+    CpuC,
+    /// Emit PTX assembly targeting sm_52.
+    GpuPtx,
+    /// Emit CUDA C source code.
+    GpuCuda,
+}
+
+/// Inductor-style codegen backend that performs DAG-level fusion and
+/// emits optimized native code.
+///
+/// Unlike the [`NativeBackend`] which composes Rust closures for simple
+/// elementwise chains, the inductor backend:
+///
+/// 1. Discovers fusion groups across the entire DAG (via [`dag_fusion`]).
+/// 2. Lowers each group to loop-level IR ([`codegen_ir::LoopIR`]).
+/// 3. Emits target-specific source code (Rust, C, CUDA, or PTX).
+///
+/// For `CpuRust` targets, the generated source is returned as a string
+/// inside a `CompiledGraph` whose `execute` falls back to the interpreter
+/// (the generated source serves as an optimization artifact). For all
+/// other targets, `execute` also falls back to the interpreter while the
+/// generated source is available via the [`InductorBackend::generate`]
+/// method.
+///
+/// [`dag_fusion`]: crate::dag_fusion
+/// [`codegen_ir::LoopIR`]: crate::codegen_ir::LoopIR
+pub struct InductorBackend {
+    /// The target to generate code for.
+    pub target: InductorTarget,
+    /// Thread block size for GPU targets (ignored for CPU).
+    pub block_size: usize,
+}
+
+impl InductorBackend {
+    /// Create a new inductor backend for the given target.
+    pub fn new(target: InductorTarget) -> Self {
+        Self {
+            target,
+            block_size: 256,
+        }
+    }
+
+    /// Create a new inductor backend with a custom GPU block size.
+    pub fn with_block_size(target: InductorTarget, block_size: usize) -> Self {
+        Self { target, block_size }
+    }
+
+    /// Generate source code for the given IR graph without compiling it.
+    ///
+    /// Returns a vector of generated source strings, one per fusion group.
+    pub fn generate(&self, graph: &IrGraph) -> FerrotorchResult<Vec<String>> {
+        let groups = crate::dag_fusion::find_fusion_groups(graph);
+        let loops_per_group = crate::dag_fusion::fuse_dag(&groups, graph);
+
+        let num_graph_inputs = graph.input_values.len();
+
+        let mut sources = Vec::with_capacity(groups.len());
+
+        for (i, (group, loops)) in groups.iter().zip(loops_per_group.iter()).enumerate() {
+            let fn_name = format!("kernel_{i}");
+            let num_inputs = group.external_inputs.len().max(1);
+
+            let source = match self.target {
+                InductorTarget::CpuRust => {
+                    crate::codegen_cpu::CpuCodegen::generate_rust_source(loops, &fn_name)
+                }
+                InductorTarget::CpuC => {
+                    crate::codegen_cpu::CpuCodegen::generate_c_source(
+                        loops,
+                        &fn_name,
+                        num_inputs,
+                    )
+                }
+                InductorTarget::GpuCuda => {
+                    crate::codegen_gpu::GpuCodegen::generate_cuda_source(
+                        loops,
+                        &fn_name,
+                        num_inputs,
+                    )
+                }
+                InductorTarget::GpuPtx => {
+                    crate::codegen_gpu::GpuCodegen::generate_ptx_source(
+                        loops,
+                        &fn_name,
+                        self.block_size,
+                        num_inputs,
+                    )
+                }
+            };
+
+            sources.push(source);
+        }
+
+        // If no groups were found (e.g., identity graph), produce an
+        // empty-body kernel for completeness.
+        if sources.is_empty() {
+            let source = match self.target {
+                InductorTarget::CpuRust => {
+                    crate::codegen_cpu::CpuCodegen::generate_rust_source(&[], "kernel_identity")
+                }
+                InductorTarget::CpuC => {
+                    crate::codegen_cpu::CpuCodegen::generate_c_source(
+                        &[],
+                        "kernel_identity",
+                        num_graph_inputs.max(1),
+                    )
+                }
+                InductorTarget::GpuCuda => {
+                    crate::codegen_gpu::GpuCodegen::generate_cuda_source(
+                        &[],
+                        "kernel_identity",
+                        num_graph_inputs.max(1),
+                    )
+                }
+                InductorTarget::GpuPtx => {
+                    crate::codegen_gpu::GpuCodegen::generate_ptx_source(
+                        &[],
+                        "kernel_identity",
+                        self.block_size,
+                        num_graph_inputs.max(1),
+                    )
+                }
+            };
+            sources.push(source);
+        }
+
+        Ok(sources)
+    }
+}
+
+impl Codegen for InductorBackend {
+    fn compile(&self, graph: &IrGraph) -> FerrotorchResult<CompiledGraph> {
+        // Generate source code (for inspection / future JIT compilation).
+        let _sources = self.generate(graph)?;
+
+        // For execution, we currently fall back to the interpreter.
+        // In a production system the generated source would be compiled
+        // (via rustc / nvcc / ptxas) and dynamically loaded.  For now the
+        // value proposition is the *generated source* which can be fed to
+        // an external compiler pipeline.
+        InterpreterBackend.compile(graph)
+    }
+
+    fn name(&self) -> &str {
+        match self.target {
+            InductorTarget::CpuRust => "inductor-cpu-rust",
+            InductorTarget::CpuC => "inductor-cpu-c",
+            InductorTarget::GpuPtx => "inductor-gpu-ptx",
+            InductorTarget::GpuCuda => "inductor-gpu-cuda",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -880,5 +1043,181 @@ mod tests {
         let debug_str = format!("{:?}", compiled);
         assert!(debug_str.contains("CompiledGraph"));
         assert!(debug_str.contains("num_inputs: 1"));
+    }
+
+    // -----------------------------------------------------------------------
+    // InductorBackend tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_inductor_backend_name() {
+        assert_eq!(InductorBackend::new(InductorTarget::CpuRust).name(), "inductor-cpu-rust");
+        assert_eq!(InductorBackend::new(InductorTarget::CpuC).name(), "inductor-cpu-c");
+        assert_eq!(InductorBackend::new(InductorTarget::GpuPtx).name(), "inductor-gpu-ptx");
+        assert_eq!(InductorBackend::new(InductorTarget::GpuCuda).name(), "inductor-gpu-cuda");
+    }
+
+    #[test]
+    fn test_inductor_compile_runs_interpreter_fallback() {
+        // Graph: y = x + x
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![3]);
+        let (_, add_outs) = g.add_node(IrOpKind::Add, vec![x, x], vec![vec![3]]);
+        g.set_outputs(vec![add_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::CpuRust);
+        let compiled = backend.compile(&g).unwrap();
+        let result = compiled.execute(&[vec![1.0, 2.0, 3.0]]).unwrap();
+        assert_close(&result, &[2.0, 4.0, 6.0], 1e-10);
+    }
+
+    #[test]
+    fn test_inductor_generate_rust() {
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4]);
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![4]]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![neg_outs[0]], vec![vec![4]]);
+        g.set_outputs(vec![relu_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::CpuRust);
+        let sources = backend.generate(&g).unwrap();
+
+        assert!(!sources.is_empty());
+        let src = &sources[0];
+        assert!(src.contains("pub unsafe fn"));
+        assert!(src.contains("for "));
+    }
+
+    #[test]
+    fn test_inductor_generate_c() {
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![4]]);
+        g.set_outputs(vec![relu_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::CpuC);
+        let sources = backend.generate(&g).unwrap();
+
+        assert!(!sources.is_empty());
+        let src = &sources[0];
+        assert!(src.contains("#include <math.h>"));
+        assert!(src.contains("void kernel_0"));
+        assert!(src.contains("restrict"));
+    }
+
+    #[test]
+    fn test_inductor_generate_cuda() {
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![1024]);
+        let (_, sigmoid_outs) = g.add_node(IrOpKind::Sigmoid, vec![x], vec![vec![1024]]);
+        g.set_outputs(vec![sigmoid_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::GpuCuda);
+        let sources = backend.generate(&g).unwrap();
+
+        assert!(!sources.is_empty());
+        let src = &sources[0];
+        assert!(src.contains("__global__"));
+        assert!(src.contains("blockIdx"));
+        assert!(src.contains("threadIdx"));
+    }
+
+    #[test]
+    fn test_inductor_generate_ptx() {
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![1024]);
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![1024]]);
+        g.set_outputs(vec![neg_outs[0]]);
+
+        let backend = InductorBackend::with_block_size(InductorTarget::GpuPtx, 512);
+        let sources = backend.generate(&g).unwrap();
+
+        assert!(!sources.is_empty());
+        let src = &sources[0];
+        assert!(src.contains(".version 7.0"));
+        assert!(src.contains(".target sm_52"));
+        assert!(src.contains("neg.f32"));
+        assert!(src.contains("recommended block size: 512"));
+    }
+
+    #[test]
+    fn test_inductor_multiple_groups() {
+        // Graph: x -> relu -> sum -> output
+        // This should produce two fusion groups: elementwise (relu) and reduction (sum)
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![8]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![8]]);
+        let (_, sum_outs) = g.add_node(IrOpKind::Sum, vec![relu_outs[0]], vec![vec![1]]);
+        g.set_outputs(vec![sum_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::CpuRust);
+        let sources = backend.generate(&g).unwrap();
+
+        assert!(sources.len() >= 2, "expected at least 2 fusion groups, got {}", sources.len());
+    }
+
+    #[test]
+    fn test_inductor_matches_interpreter() {
+        // Graph: y = relu(neg(x))
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![5]);
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![5]]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![neg_outs[0]], vec![vec![5]]);
+        g.set_outputs(vec![relu_outs[0]]);
+
+        let input = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
+
+        let interp_result = InterpreterBackend.compile(&g).unwrap()
+            .execute(&[input.clone()]).unwrap();
+        let inductor_result = InductorBackend::new(InductorTarget::CpuRust)
+            .compile(&g).unwrap()
+            .execute(&[input]).unwrap();
+
+        assert_close(&inductor_result, &interp_result, 1e-10);
+    }
+
+    #[test]
+    fn test_inductor_identity_graph() {
+        // Identity graph should produce at least one source
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![3]);
+        g.set_outputs(vec![x]);
+
+        let backend = InductorBackend::new(InductorTarget::CpuRust);
+        let sources = backend.generate(&g).unwrap();
+        assert!(!sources.is_empty());
+    }
+
+    #[test]
+    fn test_inductor_fused_chain_codegen() {
+        // x -> neg -> relu -> sigmoid -> output
+        // All should fuse into one kernel
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4]);
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![4]]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![neg_outs[0]], vec![vec![4]]);
+        let (_, sig_outs) = g.add_node(IrOpKind::Sigmoid, vec![relu_outs[0]], vec![vec![4]]);
+        g.set_outputs(vec![sig_outs[0]]);
+
+        // Test all four targets
+        for target in [
+            InductorTarget::CpuRust,
+            InductorTarget::CpuC,
+            InductorTarget::GpuCuda,
+            InductorTarget::GpuPtx,
+        ] {
+            let backend = InductorBackend::new(target);
+            let sources = backend.generate(&g).unwrap();
+            assert!(
+                !sources.is_empty(),
+                "no sources generated for {:?}",
+                target
+            );
+            assert!(
+                !sources[0].is_empty(),
+                "empty source for {:?}",
+                target
+            );
+        }
     }
 }

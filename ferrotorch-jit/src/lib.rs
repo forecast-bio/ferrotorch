@@ -1,4 +1,8 @@
 pub mod codegen;
+pub mod codegen_cpu;
+pub mod codegen_gpu;
+pub mod codegen_ir;
+pub mod dag_fusion;
 pub mod error;
 pub mod fusion;
 pub mod graph;
@@ -10,7 +14,11 @@ pub mod optimize;
 pub mod serialize;
 pub mod trace;
 
-pub use codegen::{Codegen, CompiledGraph, InterpreterBackend, NativeBackend};
+pub use codegen::{Codegen, CompiledGraph, InductorBackend, InductorTarget, InterpreterBackend, NativeBackend};
+pub use codegen_cpu::CpuCodegen;
+pub use codegen_gpu::GpuCodegen;
+pub use codegen_ir::{BinOpKind, Expr, LoopIR, UnaryOpKind};
+pub use dag_fusion::{FusionGroup, FusionGroupKind};
 pub use error::JitError;
 pub use fusion::{apply_fused, is_fusion_enabled, with_fusion, FusedChain, FusedOp};
 pub use graph_break::{GraphSegment, SegmentedModule, TraceResult, trace_with_breaks};
