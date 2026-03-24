@@ -9,6 +9,28 @@ use std::sync::OnceLock;
 
 use crate::error::{FerrotorchError, FerrotorchResult};
 
+// ---------------------------------------------------------------------------
+// GpuRngState — serializable GPU RNG state for checkpoint save/restore
+// ---------------------------------------------------------------------------
+
+/// Serializable snapshot of a GPU device's RNG state.
+///
+/// This is defined in `ferrotorch-core` (not `ferrotorch-gpu`) so that the
+/// checkpoint module can save/restore GPU RNG state without depending on the
+/// GPU crate directly. The GPU backend implementation is responsible for
+/// converting this to/from its internal representation (e.g., `PhiloxState`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GpuRngState {
+    /// RNG counter value.
+    pub counter: u64,
+    /// RNG seed.
+    pub seed: u64,
+    /// Offset within the current random number group.
+    pub offset: u64,
+    /// Device ordinal this state belongs to.
+    pub device: usize,
+}
+
 /// Opaque handle to GPU memory.
 ///
 /// ferrotorch-core doesn't know what's inside -- the GPU backend provides
@@ -137,6 +159,28 @@ pub trait GpuBackend: Send + Sync {
     // Dropout f32 (inverted dropout)
     fn dropout_f32(&self, a: &GpuBufferHandle, threshold: u32, scale: f32, seed: u32) -> FerrotorchResult<GpuBufferHandle>;
 
+    /// Dropout using the Philox CBRNG for deterministic, reproducible mask generation.
+    ///
+    /// Instead of a simple u32 seed, this takes a `GpuRngState` that specifies the
+    /// exact Philox counter and key to use. This enables gradient checkpointing to
+    /// reproduce identical dropout masks by restoring the RNG state.
+    ///
+    /// The method also advances the global GPU RNG state by `ceil(n/4)` counters.
+    ///
+    /// Returns the dropped-out buffer and the Philox state that was used (for
+    /// backward mask regeneration).
+    fn dropout_philox_f32(
+        &self,
+        a: &GpuBufferHandle,
+        threshold: u32,
+        scale: f32,
+    ) -> FerrotorchResult<(GpuBufferHandle, GpuRngState)> {
+        // Default: fall back to the non-Philox version with a dummy seed.
+        // The returned state has device=0 as a placeholder.
+        let result = self.dropout_f32(a, threshold, scale, 0)?;
+        Ok((result, GpuRngState { counter: 0, seed: 0, offset: 0, device: 0 }))
+    }
+
     // 2D transpose f32
     fn transpose_2d_f32(&self, a: &GpuBufferHandle, m: usize, n: usize) -> FerrotorchResult<GpuBufferHandle>;
 
@@ -234,6 +278,23 @@ pub trait GpuBackend: Send + Sync {
             std::slice::from_raw_parts(bytes.as_ptr() as *const f32, bytes.len() / 4)
         };
         Ok(floats.iter().any(|v| !v.is_finite()))
+    }
+
+    // GPU RNG state management (for gradient checkpointing)
+    /// Save the current GPU RNG state for a device. Used by checkpoint to
+    /// ensure dropout masks are identical on recomputation.
+    fn save_rng_state(&self, device: usize) -> FerrotorchResult<GpuRngState> {
+        Err(FerrotorchError::InvalidArgument {
+            message: format!("save_rng_state not implemented for device {device}"),
+        })
+    }
+
+    /// Restore a previously saved GPU RNG state for a device.
+    fn restore_rng_state(&self, state: GpuRngState) -> FerrotorchResult<()> {
+        let _ = state;
+        Err(FerrotorchError::InvalidArgument {
+            message: "restore_rng_state not implemented".into(),
+        })
     }
 
     // GPU linear algebra via cuSOLVER

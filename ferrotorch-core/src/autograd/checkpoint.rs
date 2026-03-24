@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::dtype::Float;
 use crate::error::FerrotorchResult;
+use crate::gpu_dispatch::GpuRngState;
 use crate::tensor::Tensor;
 
 /// Run a function with gradient checkpointing.
@@ -33,11 +34,16 @@ use crate::tensor::Tensor;
 ///
 /// # RNG reproducibility
 ///
-/// **Warning:** This implementation does not currently save or restore RNG
-/// state. If `f` uses stochastic operations (e.g., dropout), the backward
-/// recomputation will produce different random values than the forward pass,
-/// leading to incorrect gradients. Deterministic checkpoint functions (no
-/// dropout, no random sampling) are unaffected.
+/// If the input is on a CUDA device and a GPU backend is registered, the
+/// checkpoint saves the GPU RNG state before the forward pass and restores
+/// it during backward recomputation. This ensures stochastic operations
+/// like dropout produce identical masks during forward and recomputation,
+/// yielding correct gradients.
+///
+/// If no GPU backend is registered (CPU-only), GPU RNG state is not saved.
+/// CPU RNG state for dropout is not currently managed by this checkpoint
+/// (the CPU dropout path uses a time-seeded xorshift that is not deterministic
+/// across calls).
 ///
 /// # Thread-local state and rayon
 ///
@@ -56,6 +62,10 @@ where
     use crate::autograd::no_grad::no_grad;
     use crate::storage::TensorStorage;
 
+    // Save GPU RNG state before the forward pass so we can restore it during
+    // backward recomputation. This ensures dropout masks are identical.
+    let saved_gpu_rng = save_gpu_rng_state(input);
+
     // Forward pass without recording the graph (saves memory).
     let output = no_grad(|| f(input))?;
 
@@ -68,11 +78,38 @@ where
         func: Arc::new(f),
         input: input.clone(),
         output_shape: output.shape().to_vec(),
+        saved_gpu_rng,
     });
 
     let device = output.device();
     let storage = TensorStorage::on_device(output.data_vec()?, device)?;
     Tensor::from_operation(storage, output.shape().to_vec(), checkpoint_fn)
+}
+
+/// Save the GPU RNG state for the device the tensor lives on.
+///
+/// Returns `None` if no GPU backend is registered or the tensor is on CPU.
+fn save_gpu_rng_state<T: Float>(tensor: &Tensor<T>) -> Option<GpuRngState> {
+    let device_ordinal = match tensor.device() {
+        crate::device::Device::Cuda(id) => id,
+        crate::device::Device::Cpu => return None,
+    };
+    let backend = crate::gpu_dispatch::gpu_backend()?;
+    backend.save_rng_state(device_ordinal).ok()
+}
+
+/// RAII guard that restores GPU RNG state on drop, ensuring cleanup happens
+/// on both success and panic paths.
+struct GpuRngGuard {
+    previous: GpuRngState,
+}
+
+impl Drop for GpuRngGuard {
+    fn drop(&mut self) {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let _ = backend.restore_rng_state(self.previous);
+        }
+    }
 }
 
 /// Internal backward node for gradient checkpointing.
@@ -90,6 +127,9 @@ struct CheckpointBackward<T: Float> {
     func: Arc<dyn Fn(&Tensor<T>) -> FerrotorchResult<Tensor<T>> + Send + Sync>,
     input: Tensor<T>,
     output_shape: Vec<usize>,
+    /// GPU RNG state saved before the forward pass. Restored during backward
+    /// recomputation so that stochastic ops (dropout) produce identical masks.
+    saved_gpu_rng: Option<GpuRngState>,
 }
 
 impl<T: Float> std::fmt::Debug for CheckpointBackward<T> {
@@ -97,6 +137,7 @@ impl<T: Float> std::fmt::Debug for CheckpointBackward<T> {
         f.debug_struct("CheckpointBackward")
             .field("input_shape", &self.input.shape())
             .field("output_shape", &self.output_shape)
+            .field("has_gpu_rng_state", &self.saved_gpu_rng.is_some())
             .finish()
     }
 }
@@ -105,19 +146,22 @@ impl<T: Float> crate::tensor::GradFn<T> for CheckpointBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         // Re-run the forward function WITH gradient tracking to build the graph.
         //
-        // TODO(RNG): When a proper seeded RNG state system is added (manual_seed +
-        // thread-local generator), save the RNG state before forward and restore it
-        // here with an RAII guard so that stochastic ops (dropout) produce identical
-        // values during recomputation. The guard must use Drop to handle both success
-        // and failure paths:
-        //
-        //   struct RngGuard { prev: RngState }
-        //   impl Drop for RngGuard {
-        //       fn drop(&mut self) { restore_rng_state(self.prev); }
-        //   }
-        //   let _rng_guard = RngGuard { prev: save_rng_state() };
-        //   set_rng_state(self.saved_rng_state);
-        //
+        // If we saved GPU RNG state during the forward pass, restore it now so
+        // that stochastic ops (dropout) produce identical masks. The RAII guard
+        // saves the current state and restores it when dropped, ensuring the
+        // global RNG is not permanently rewound.
+        let _rng_guard = if let Some(saved_state) = self.saved_gpu_rng {
+            // Save current state to restore after recomputation.
+            let current_state = save_gpu_rng_state(&self.input);
+            // Restore the state from the forward pass.
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                let _ = backend.restore_rng_state(saved_state);
+            }
+            current_state.map(|prev| GpuRngGuard { previous: prev })
+        } else {
+            None
+        };
+
         let input_with_grad = self.input.clone().requires_grad_(true);
         let recomputed = (self.func)(&input_with_grad)?;
 
