@@ -324,6 +324,113 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
 
         Ok(())
     }
+
+    /// Export the module's current sharded state as a state dict.
+    ///
+    /// Returns the named parameters of the inner module. Because FSDP stores
+    /// only shard parameters (1/`world_size` of each full parameter), the
+    /// returned tensors are the local shards — not the full parameters.
+    ///
+    /// This is designed to work with [`save_distributed`](crate::checkpoint::save_distributed)
+    /// which saves per-rank shards to separate files.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let state = fsdp.state_dict()?;
+    /// save_distributed(&state, &dir, rank, world_size, &metadata)?;
+    /// ```
+    pub fn state_dict(&self) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let named = self.module.named_parameters();
+        let mut result = std::collections::HashMap::with_capacity(named.len());
+        for (name, param) in named {
+            result.insert(name, param.tensor().clone());
+        }
+        Ok(result)
+    }
+
+    /// Load sharded state into the module's parameters.
+    ///
+    /// The `state_dict` must contain tensors that match this rank's shard
+    /// sizes (not full parameter sizes). Each key in the state dict is matched
+    /// to a named parameter by name. Missing or unexpected keys are reported
+    /// as errors.
+    ///
+    /// This is designed to work with [`load_distributed`](crate::checkpoint::load_distributed)
+    /// which loads (and optionally reshards) per-rank shard files.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let state = load_distributed(&dir, rank, world_size)?;
+    /// fsdp.load_state_dict(&state)?;
+    /// ```
+    pub fn load_state_dict(
+        &mut self,
+        state_dict: &std::collections::HashMap<String, Tensor<T>>,
+    ) -> FerrotorchResult<()> {
+        // Collect the parameter names in order so we can match them with
+        // parameters_mut().
+        let param_names: Vec<String> = self
+            .module
+            .named_parameters()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+
+        // Validate: check that all expected keys are present.
+        for name in &param_names {
+            if !state_dict.contains_key(name) {
+                return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                    message: format!("FSDP load_state_dict: missing key \"{name}\""),
+                }
+                .into());
+            }
+        }
+
+        // Validate: check for unexpected keys.
+        let known: std::collections::HashSet<&str> =
+            param_names.iter().map(|s| s.as_str()).collect();
+        for key in state_dict.keys() {
+            if !known.contains(key.as_str()) {
+                return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                    message: format!("FSDP load_state_dict: unexpected key \"{key}\""),
+                }
+                .into());
+            }
+        }
+
+        // Replace each parameter's data with the corresponding state dict tensor.
+        let params = self.module.parameters_mut();
+        for (name, param) in param_names.iter().zip(params.into_iter()) {
+            let tensor = &state_dict[name];
+
+            // Validate shape match: the state dict tensor must have the same
+            // number of elements as the current shard parameter.
+            if param.tensor().numel() != tensor.numel() {
+                return Err(ferrotorch_core::FerrotorchError::ShapeMismatch {
+                    message: format!(
+                        "FSDP load_state_dict: parameter \"{name}\" has {} elements \
+                         but state_dict tensor has {}",
+                        param.tensor().numel(),
+                        tensor.numel()
+                    ),
+                }
+                .into());
+            }
+
+            // Build a new parameter from the loaded data, preserving shard shape.
+            let data = tensor.data_vec()?;
+            let shard_tensor = Tensor::from_storage(
+                TensorStorage::cpu(data),
+                param.tensor().shape().to_vec(),
+                true,
+            )?;
+            *param = Parameter::new(shard_tensor);
+        }
+
+        Ok(())
+    }
 }
 
 // FSDP does NOT implement Module<T> because forward() requires &mut self
