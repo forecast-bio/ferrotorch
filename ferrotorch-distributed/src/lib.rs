@@ -38,6 +38,8 @@ pub mod collective;
 pub mod ddp;
 pub mod error;
 pub mod fsdp;
+pub mod pipeline;
+pub mod rpc;
 
 #[cfg(feature = "gpu")]
 pub mod gpu_collective;
@@ -51,6 +53,8 @@ pub use collective::{
 pub use ddp::DDP;
 pub use error::DistributedError;
 pub use fsdp::FSDP;
+pub use pipeline::{Pipeline, PipelineSchedule};
+pub use rpc::{RpcAgent, RpcError, TcpRpcBackend};
 
 #[cfg(feature = "gpu")]
 pub use gpu_collective::{gpu_allreduce, gpu_broadcast};

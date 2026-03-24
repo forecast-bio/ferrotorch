@@ -1,5 +1,6 @@
 pub mod codegen;
 pub mod error;
+pub mod export;
 pub mod fusion;
 pub mod graph;
 pub mod graph_break;
@@ -11,6 +12,7 @@ pub mod serialize;
 pub mod trace;
 
 pub use codegen::{Codegen, CompiledGraph, InterpreterBackend, NativeBackend};
+pub use export::{ExportedProgram, ExportedProgramMetadata, export};
 pub use error::JitError;
 pub use fusion::{apply_fused, is_fusion_enabled, with_fusion, FusedChain, FusedOp};
 pub use graph_break::{GraphSegment, SegmentedModule, TraceResult, trace_with_breaks};

@@ -14,6 +14,12 @@
 //! little-endian bytes for each tensor, concatenated in the order of the header
 //! lines. The separator `\n---\n` divides header from body.
 
+#[cfg(not(target_endian = "little"))]
+compile_error!(
+    "ferrotorch state dict serialization assumes little-endian byte order. \
+     Big-endian platforms are not supported."
+);
+
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
@@ -237,11 +243,19 @@ pub fn load_state_dict<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<Sta
         let data: Vec<T> = byte_slice
             .chunks_exact(elem_size)
             .map(|chunk| {
-                // Read raw bytes into T. This assumes the platform uses the
-                // same endianness as the writer (LE on x86/ARM).
-                let mut bytes = [0u8; 8];
-                bytes[..elem_size].copy_from_slice(chunk);
-                unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const T) }
+                // Safe byte-to-float conversion using from_le_bytes instead of
+                // unsafe pointer reinterpretation.
+                match elem_size {
+                    4 => {
+                        let val = f32::from_le_bytes(chunk.try_into().unwrap());
+                        T::from(val).unwrap()
+                    }
+                    8 => {
+                        let val = f64::from_le_bytes(chunk.try_into().unwrap());
+                        T::from(val).unwrap()
+                    }
+                    _ => unreachable!("unsupported element size {}", elem_size),
+                }
             })
             .collect();
 

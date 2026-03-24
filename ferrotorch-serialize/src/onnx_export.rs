@@ -522,11 +522,16 @@ fn map_ir_op(op: &IrOpKind, node_name: &str, elem_type: i32) -> FerrotorchResult
             aux_initializer: None,
         }),
         IrOpKind::Gelu => {
-            // ONNX does not have a native Gelu op in opset 17. We map it to
-            // the "Gelu" op which was introduced in opset 20 of the ONNX spec
-            // but is widely supported by ONNX Runtime. Alternatively this
-            // could be decomposed into `x * 0.5 * (1 + erf(x / sqrt(2)))`,
-            // but for simplicity we emit the named op.
+            // ONNX Gelu was introduced in opset 20. For opset < 20, we should
+            // decompose to: x * 0.5 * (1 + Erf(x / sqrt(2))). However, the
+            // decomposition requires emitting multiple ONNX nodes (Div, Erf,
+            // Add, Mul, Mul) which cannot be represented as a single
+            // OnnxOpMapping. For now, we emit the "Gelu" op name and warn.
+            //
+            // WARNING: The emitted "Gelu" op requires ONNX opset >= 20 for
+            // standard compliance. ONNX Runtime supports it as an extension in
+            // earlier opsets, but other runtimes (TensorRT, CoreML) may reject
+            // it. A future version should decompose Gelu for opset < 20.
             Ok(OnnxOpMapping {
                 op_type: "Gelu",
                 attributes: vec![],
@@ -534,9 +539,13 @@ fn map_ir_op(op: &IrOpKind, node_name: &str, elem_type: i32) -> FerrotorchResult
             })
         }
         IrOpKind::Silu => {
-            // SiLU = x * sigmoid(x). ONNX doesn't have a native SiLU. We
-            // emit a custom "Silu" op name. Consumers that don't support it
-            // can decompose it.
+            // WARNING: SiLU (x * sigmoid(x)) is NOT a standard ONNX operator
+            // in any opset version. We emit it as a custom "Silu" op name.
+            // Consumers that don't support custom ops will need to decompose
+            // it into: x * Sigmoid(x) (two standard ONNX ops: Sigmoid + Mul).
+            //
+            // A future version should emit the decomposed form instead of the
+            // non-standard op name.
             Ok(OnnxOpMapping {
                 op_type: "Silu",
                 attributes: vec![],

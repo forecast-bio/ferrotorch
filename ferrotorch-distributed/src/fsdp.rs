@@ -69,10 +69,10 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
     /// keeps only its shard (the `rank`-th chunk). The original parameter
     /// shapes are recorded for reconstruction during forward.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if any parameter's element count is not evenly divisible by
-    /// `world_size`.
+    /// Returns an error if any parameter's element count is not evenly
+    /// divisible by `world_size`.
     pub fn new(mut module: M, backend: Arc<dyn Backend>) -> FerrotorchResult<Self> {
         let rank = backend.rank();
         let world_size = backend.world_size();
@@ -85,12 +85,15 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                 let shape = tensor.shape().to_vec();
                 let numel = tensor.numel();
 
-                assert!(
-                    numel % world_size == 0,
-                    "FSDP: parameter with {} elements is not evenly divisible by world_size {}",
-                    numel,
-                    world_size,
-                );
+                if numel % world_size != 0 {
+                    return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "FSDP: parameter with {} elements is not evenly divisible by world_size {}",
+                            numel,
+                            world_size,
+                        ),
+                    }.into());
+                }
 
                 original_shapes.push(shape);
 
@@ -163,8 +166,11 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                 };
 
                 // Reshape to the original parameter shape and enable grad.
+                // Preserve device placement: if the original shard was on GPU,
+                // keep the reconstructed tensor on the same device.
+                let device = full.device();
                 let full = Tensor::from_storage(
-                    TensorStorage::cpu(full.data_vec()?),
+                    TensorStorage::on_device(full.data_vec()?, device)?,
                     orig_shape.clone(),
                     true,
                 )?;
@@ -191,7 +197,7 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
         let world_size = self.backend.world_size();
 
         let params = self.module.parameters_mut();
-        for (i, param) in params.into_iter().enumerate() {
+        for param in params {
             let tensor = param.tensor();
             let data = tensor.data_vec()?;
             let numel = data.len();
@@ -206,9 +212,6 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                 true,
             )?;
             *param = Parameter::new(shard_tensor);
-
-            // Preserve the original shape metadata.
-            let _ = &self.original_shapes[i];
         }
 
         Ok(())
@@ -302,12 +305,15 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
         let params = self.module.parameters_mut();
         let total_shard_numel: usize = params.iter().map(|p| p.tensor().numel()).sum();
 
-        assert!(
-            flat_data.len() == total_shard_numel,
-            "FSDP update_shards: expected {} elements but got {}",
-            total_shard_numel,
-            flat_data.len(),
-        );
+        if flat_data.len() != total_shard_numel {
+            return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                message: format!(
+                    "FSDP update_shards: expected {} elements but got {}",
+                    total_shard_numel,
+                    flat_data.len(),
+                ),
+            }.into());
+        }
 
         let mut offset = 0;
         for param in params {
@@ -523,15 +529,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "expected 4 elements but got 2")]
     fn test_fsdp_update_shards_size_validation() {
         let group = SimulatedBackend::create_group(1).unwrap();
         let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
         let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
         let mut fsdp = FSDP::new(model, b).unwrap();
 
-        // Wrong size: should panic.
-        fsdp.update_shards(&[10.0, 20.0]).unwrap();
+        // Wrong size: should return an error.
+        let result = fsdp.update_shards(&[10.0, 20.0]);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("expected 4 elements but got 2"));
     }
 
     #[test]
