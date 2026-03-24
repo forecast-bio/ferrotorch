@@ -125,6 +125,64 @@ impl<T: Element> TensorStorage<T> {
             StorageBuffer::Cpu(_) => None,
         }
     }
+
+    /// Fallible clone — same as `Clone::clone` but returns `Result` instead
+    /// of panicking when the GPU backend is missing or a CUDA call fails.
+    pub fn try_clone(&self) -> crate::error::FerrotorchResult<Self> {
+        match &self.data {
+            StorageBuffer::Cpu(v) => Ok(Self {
+                data: StorageBuffer::Cpu(v.clone()),
+                device: self.device,
+            }),
+            StorageBuffer::Gpu(h) => {
+                let backend = crate::gpu_dispatch::gpu_backend()
+                    .ok_or(crate::error::FerrotorchError::DeviceUnavailable)?;
+                let cloned = backend.clone_buffer(h)?;
+                Ok(Self {
+                    data: StorageBuffer::Gpu(cloned),
+                    device: self.device,
+                })
+            }
+        }
+    }
+
+    /// Clone a contiguous sub-region `[offset..offset+numel]` of this storage.
+    ///
+    /// For CPU, slices the `Vec` directly. For GPU, round-trips through the
+    /// host to extract the sub-region (correct, not yet optimized with D2D
+    /// memcpy). Returns an error instead of panicking on GPU failures.
+    pub fn try_clone_subregion(
+        &self,
+        offset: usize,
+        numel: usize,
+    ) -> crate::error::FerrotorchResult<Self> {
+        if offset == 0 && numel == self.len() {
+            return self.try_clone();
+        }
+        match &self.data {
+            StorageBuffer::Cpu(v) => {
+                let slice = &v[offset..offset + numel];
+                Ok(Self {
+                    data: StorageBuffer::Cpu(slice.to_vec()),
+                    device: self.device,
+                })
+            }
+            StorageBuffer::Gpu(h) => {
+                let backend = crate::gpu_dispatch::gpu_backend()
+                    .ok_or(crate::error::FerrotorchError::DeviceUnavailable)?;
+                let bytes = backend.gpu_to_cpu(h)?;
+                let elem_size = std::mem::size_of::<T>();
+                let start = offset * elem_size;
+                let end = (offset + numel) * elem_size;
+                let handle =
+                    backend.cpu_to_gpu(&bytes[start..end], elem_size, h.device_ordinal())?;
+                Ok(Self {
+                    data: StorageBuffer::Gpu(handle),
+                    device: self.device,
+                })
+            }
+        }
+    }
 }
 
 impl<T: Element> Clone for TensorStorage<T> {

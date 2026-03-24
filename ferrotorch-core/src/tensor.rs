@@ -595,36 +595,43 @@ impl<T: Float> Tensor<T> {
         if !self.is_contiguous() {
             let data = self.data_vec()?;
             let shape = self.shape().to_vec();
-            return Ok((TensorStorage::cpu(data), shape));
+            let device = self.device();
+            return Ok((TensorStorage::on_device(data, device)?, shape));
         }
 
         let shape = self.inner.shape.clone();
+        let offset = self.inner.offset;
+        let numel: usize = shape.iter().product();
+
         // Try to unwrap the inner Arc to get ownership of TensorInner.
         match Arc::try_unwrap(self.inner) {
             Ok(inner) => {
                 // We own the inner. Try to unwrap the storage Arc.
                 match Arc::try_unwrap(inner.storage) {
-                    Ok(storage) => Ok((storage, shape)),
+                    Ok(storage) if offset == 0 && storage.len() == numel => {
+                        // Fast path: sole owner, no offset — zero-copy return.
+                        Ok((storage, shape))
+                    }
+                    Ok(storage) => {
+                        // Sole owner but offset or extra elements — extract
+                        // the subregion. For CPU we can slice the owned Vec
+                        // directly; for GPU we round-trip through the host.
+                        let sub = storage.try_clone_subregion(offset, numel)?;
+                        Ok((sub, shape))
+                    }
                     Err(arc_storage) => {
-                        // Storage is shared — must clone.
-                        Ok(((*arc_storage).clone(), shape))
+                        // Storage is shared — clone the relevant subregion.
+                        let sub = arc_storage.try_clone_subregion(offset, numel)?;
+                        Ok((sub, shape))
                     }
                 }
             }
             Err(arc_inner) => {
-                // Inner is shared — must clone data.
-                if arc_inner.storage.is_gpu() {
-                    // GPU storage cannot be sliced on the host; clone the
-                    // entire buffer via the backend's clone_buffer().
-                    Ok(((*arc_inner.storage).clone(), shape))
-                } else {
-                    let data = arc_inner.storage.as_slice();
-                    let end = arc_inner.offset + shape.iter().product::<usize>();
-                    Ok((
-                        TensorStorage::cpu(data[arc_inner.offset..end].to_vec()),
-                        shape,
-                    ))
-                }
+                // Inner is shared — clone the relevant subregion.
+                let sub = arc_inner
+                    .storage
+                    .try_clone_subregion(arc_inner.offset, numel)?;
+                Ok((sub, shape))
             }
         }
     }
