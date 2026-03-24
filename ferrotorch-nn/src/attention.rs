@@ -7,9 +7,9 @@
 
 use ferrotorch_core::grad_fns::activation::softmax;
 use ferrotorch_core::grad_fns::arithmetic::{add, mul};
-use ferrotorch_core::grad_fns::linalg::{bmm_differentiable, mm_differentiable};
-use ferrotorch_core::grad_fns::shape::transpose_2d;
-use ferrotorch_core::{permute_t, Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
+use ferrotorch_core::grad_fns::linalg::mm_differentiable;
+use ferrotorch_core::grad_fns::shape::{expand, transpose_2d};
+use ferrotorch_core::{Float, FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 
 use crate::init::{xavier_uniform, zeros};
 use crate::module::Module;
@@ -241,21 +241,7 @@ impl<T: Float> MultiheadAttention<T> {
             return output.reshape_t(&[batch as isize, 1, self.embed_dim as isize]);
         }
 
-        // ─── General path: batched multi-head attention ──────────────
-        //
-        // Instead of serial loops over batch and head dimensions, we flatten
-        // [batch, seq, embed_dim] to [batch*seq, embed_dim], project once,
-        // then reshape to [batch*num_heads, seq, head_dim] and use
-        // bmm_differentiable for the two attention matmuls.
-
-        // Edge case: seq_len=0 produces an empty tensor immediately.
-        if seq_q == 0 {
-            return Tensor::from_storage(
-                TensorStorage::cpu(vec![]),
-                vec![batch, 0, self.embed_dim],
-                false,
-            );
-        }
+        // ─── General path: full multi-head attention ────────────────
 
         // Transpose projection weights once: W_Q.T, W_K.T, W_V.T, W_O.T
         let wq_t = transpose_2d(self.q_proj.tensor())?;
@@ -263,97 +249,103 @@ impl<T: Float> MultiheadAttention<T> {
         let wv_t = transpose_2d(self.v_proj.tensor())?;
         let wo_t = transpose_2d(self.out_proj.tensor())?;
 
-        let bh = batch * self.num_heads;
-        let embed = self.embed_dim;
-        let hd = self.head_dim;
-        let nh = self.num_heads;
+        // Scale factor: 1 / sqrt(head_dim) as a scalar tensor for broadcasting.
+        let scale_val = T::from(1.0 / (self.head_dim as f64).sqrt()).unwrap();
+        let scale = Tensor::from_storage(
+            TensorStorage::cpu(vec![scale_val]),
+            vec![1],
+            false,
+        )?;
 
-        // 1. Flatten [batch, seq, embed_dim] -> [batch*seq, embed_dim] and project.
-        let q_flat = query.reshape_t(&[(batch * seq_q) as isize, embed as isize])?;
-        let k_flat = key.reshape_t(&[(batch * seq_k) as isize, embed as isize])?;
-        let v_flat = value.reshape_t(&[(batch * seq_k) as isize, embed as isize])?;
+        // Process each batch element independently (no batched matmul yet).
+        let total_elements = batch * seq_q * self.embed_dim;
+        let mut result_data: Vec<T> = Vec::with_capacity(total_elements);
 
-        let mut q_proj = mm_differentiable(&q_flat, &wq_t)?; // [B*Sq, E]
-        let mut k_proj = mm_differentiable(&k_flat, &wk_t)?; // [B*Sk, E]
-        let mut v_proj = mm_differentiable(&v_flat, &wv_t)?; // [B*Sk, E]
+        for b in 0..batch {
+            // Extract batch slices: [seq, embed_dim] as 2D tensors.
+            let q_slice = extract_batch_slice(query, b)?;
+            let k_slice = extract_batch_slice(key, b)?;
+            let v_slice = extract_batch_slice(value, b)?;
 
-        // Add biases (broadcast over the rows dimension).
-        if let Some(ref qb) = self.q_bias {
-            let bias_exp = expand_bias_to_2d(qb.tensor(), batch * seq_q)?;
-            q_proj = add(&q_proj, &bias_exp)?;
+            // Project: Q_proj = q_slice @ W_Q.T  -> [seq_q, embed_dim]
+            let mut q_proj = mm_differentiable(&q_slice, &wq_t)?;
+            let mut k_proj = mm_differentiable(&k_slice, &wk_t)?;
+            let mut v_proj = mm_differentiable(&v_slice, &wv_t)?;
+
+            // Add biases if present.
+            if let Some(ref qb) = self.q_bias {
+                let bias_expanded = expand_bias_to_2d(qb.tensor(), seq_q)?;
+                q_proj = add(&q_proj, &bias_expanded)?;
+            }
+            if let Some(ref kb) = self.k_bias {
+                let bias_expanded = expand_bias_to_2d(kb.tensor(), seq_k)?;
+                k_proj = add(&k_proj, &bias_expanded)?;
+            }
+            if let Some(ref vb) = self.v_bias {
+                let bias_expanded = expand_bias_to_2d(vb.tensor(), seq_k)?;
+                v_proj = add(&v_proj, &bias_expanded)?;
+            }
+
+            // Reshape to [num_heads, seq, head_dim].
+            // q_proj is [seq_q, embed_dim] -> [seq_q, num_heads, head_dim] -> [num_heads, seq_q, head_dim]
+            let q_heads = reshape_to_heads(&q_proj, self.num_heads, seq_q, self.head_dim)?;
+            let k_heads = reshape_to_heads(&k_proj, self.num_heads, seq_k, self.head_dim)?;
+            let v_heads = reshape_to_heads(&v_proj, self.num_heads, seq_k, self.head_dim)?;
+
+            // Per-head attention (loop over heads since we lack batched matmul).
+            let mut head_outputs: Vec<Tensor<T>> = Vec::with_capacity(self.num_heads);
+
+            for h in 0..self.num_heads {
+                // Extract head slice: [seq, head_dim]
+                let q_h = extract_batch_slice(&q_heads, h)?;
+                let k_h = extract_batch_slice(&k_heads, h)?;
+                let v_h = extract_batch_slice(&v_heads, h)?;
+
+                // scores = Q_h @ K_h.T -> [seq_q, seq_k]
+                let k_h_t = transpose_2d(&k_h)?;
+                let scores = mm_differentiable(&q_h, &k_h_t)?;
+
+                // Scale: scores / sqrt(head_dim)
+                let scale_expanded = expand_scalar_to_2d(&scale, seq_q, seq_k)?;
+                let scaled_scores = mul(&scores, &scale_expanded)?;
+
+                // Apply causal mask if requested.
+                let masked_scores = if causal_mask {
+                    apply_causal_mask(&scaled_scores, seq_q)?
+                } else {
+                    scaled_scores
+                };
+
+                // Softmax along last dim (each row).
+                let weights = softmax(&masked_scores)?;
+
+                // context = weights @ V_h -> [seq_q, head_dim]
+                let context_h = mm_differentiable(&weights, &v_h)?;
+
+                head_outputs.push(context_h);
+            }
+
+            // Concatenate heads: each is [seq_q, head_dim] -> combine to [seq_q, embed_dim].
+            let context = concat_heads(&head_outputs, seq_q, self.num_heads, self.head_dim)?;
+
+            // Output projection: context @ W_O.T -> [seq_q, embed_dim]
+            let mut output = mm_differentiable(&context, &wo_t)?;
+
+            if let Some(ref ob) = self.out_bias {
+                let bias_expanded = expand_bias_to_2d(ob.tensor(), seq_q)?;
+                output = add(&output, &bias_expanded)?;
+            }
+
+            // Collect output data for this batch element.
+            let out_data = output.data()?;
+            result_data.extend_from_slice(&out_data);
         }
-        if let Some(ref kb) = self.k_bias {
-            let bias_exp = expand_bias_to_2d(kb.tensor(), batch * seq_k)?;
-            k_proj = add(&k_proj, &bias_exp)?;
-        }
-        if let Some(ref vb) = self.v_bias {
-            let bias_exp = expand_bias_to_2d(vb.tensor(), batch * seq_k)?;
-            v_proj = add(&v_proj, &bias_exp)?;
-        }
 
-        // 2. Reshape projected Q/K/V to [batch, seq, num_heads, head_dim],
-        //    permute to [batch, num_heads, seq, head_dim],
-        //    then flatten to [batch*num_heads, seq, head_dim].
-        let q_4d = q_proj.reshape_t(&[
-            batch as isize, seq_q as isize, nh as isize, hd as isize,
-        ])?;
-        let q_perm = permute_t(&q_4d, &[0, 2, 1, 3])?; // [B, H, Sq, D]
-        let q_3d = q_perm.reshape_t(&[bh as isize, seq_q as isize, hd as isize])?;
-
-        let k_4d = k_proj.reshape_t(&[
-            batch as isize, seq_k as isize, nh as isize, hd as isize,
-        ])?;
-        let k_perm = permute_t(&k_4d, &[0, 2, 1, 3])?; // [B, H, Sk, D]
-        let k_3d = k_perm.reshape_t(&[bh as isize, seq_k as isize, hd as isize])?;
-
-        let v_4d = v_proj.reshape_t(&[
-            batch as isize, seq_k as isize, nh as isize, hd as isize,
-        ])?;
-        let v_perm = permute_t(&v_4d, &[0, 2, 1, 3])?; // [B, H, Sk, D]
-        let v_3d = v_perm.reshape_t(&[bh as isize, seq_k as isize, hd as isize])?;
-
-        // 3. Attention scores: Q @ K^T -> [BH, Sq, Sk]
-        let k_3d_t = permute_t(&k_3d, &[0, 2, 1])?; // [BH, D, Sk]
-        let scores = bmm_differentiable(&q_3d, &k_3d_t)?;
-
-        // 4. Scale by 1/sqrt(head_dim).
-        let scale_val = T::from(1.0 / (hd as f64).sqrt()).unwrap();
-        let scale = expand_scalar_to_3d::<T>(scale_val, bh, seq_q, seq_k)?;
-        let scaled_scores = mul(&scores, &scale)?;
-
-        // 5. Apply causal mask if requested.
-        let masked_scores = if causal_mask {
-            apply_causal_mask_batched(&scaled_scores, bh, seq_q)?
-        } else {
-            scaled_scores
-        };
-
-        // 6. Softmax along last dim (works on any shape — operates per row).
-        let weights = softmax(&masked_scores)?;
-
-        // 7. Attention output: attn @ V -> [BH, Sq, D]
-        let context_3d = bmm_differentiable(&weights, &v_3d)?;
-
-        // 8. Reshape back: [BH, Sq, D] -> [B, H, Sq, D] -> [B, Sq, H, D] -> [B, Sq, E]
-        let ctx_4d = context_3d.reshape_t(&[
-            batch as isize, nh as isize, seq_q as isize, hd as isize,
-        ])?;
-        let ctx_perm = permute_t(&ctx_4d, &[0, 2, 1, 3])?; // [B, Sq, H, D]
-        let ctx_2d = ctx_perm.reshape_t(&[
-            (batch * seq_q) as isize,
-            embed as isize,
-        ])?;
-
-        // 9. Output projection: [B*Sq, E] @ W_O.T -> [B*Sq, E]
-        let mut output = mm_differentiable(&ctx_2d, &wo_t)?;
-
-        if let Some(ref ob) = self.out_bias {
-            let bias_exp = expand_bias_to_2d(ob.tensor(), batch * seq_q)?;
-            output = add(&output, &bias_exp)?;
-        }
-
-        // 10. Reshape to [B, Sq, E]
-        output.reshape_t(&[batch as isize, seq_q as isize, embed as isize])
+        Tensor::from_storage(
+            TensorStorage::cpu(result_data),
+            vec![batch, seq_q, self.embed_dim],
+            false,
+        )
     }
 
     /// The embedding dimension.
@@ -480,7 +472,6 @@ impl<T: Float> Module<T> for MultiheadAttention<T> {
 /// Extract a 2-D slice `[seq, dim]` from a 3-D tensor at batch index `b`.
 ///
 /// This creates a new tensor (copies data) since we don't have strided views.
-#[cfg(test)]
 fn extract_batch_slice<T: Float>(
     tensor: &Tensor<T>,
     b: usize,
@@ -501,21 +492,17 @@ fn extract_batch_slice<T: Float>(
 }
 
 /// Expand a 1-D bias `[dim]` to `[rows, dim]` by repeating it along rows.
+///
+/// Uses the differentiable `expand` primitive so that gradients flow back
+/// to the original bias parameter through `ExpandBackward`.
 fn expand_bias_to_2d<T: Float>(
     bias: &Tensor<T>,
     rows: usize,
 ) -> FerrotorchResult<Tensor<T>> {
-    let bias_vec = bias.data()?;
-    let dim = bias_vec.len();
-    let mut expanded = Vec::with_capacity(rows * dim);
-    for _ in 0..rows {
-        expanded.extend_from_slice(&bias_vec);
-    }
-    Tensor::from_storage(
-        TensorStorage::cpu(expanded),
-        vec![rows, dim],
-        bias.requires_grad(),
-    )
+    let dim = bias.shape()[0];
+    // Reshape [dim] -> [1, dim], then expand to [rows, dim].
+    let bias_2d = bias.reshape_t(&[1, dim as isize])?;
+    expand(&bias_2d, &[rows, dim])
 }
 
 /// Reshape `[seq, embed_dim]` to `[num_heads, seq, head_dim]`.
@@ -524,7 +511,6 @@ fn expand_bias_to_2d<T: Float>(
 /// -> transpose(0,1) -> `[num_heads, seq, head_dim]`.
 ///
 /// Since we lack a general N-D transpose, we do this with explicit data shuffling.
-#[cfg(test)]
 fn reshape_to_heads<T: Float>(
     tensor: &Tensor<T>,
     num_heads: usize,
@@ -554,7 +540,6 @@ fn reshape_to_heads<T: Float>(
 }
 
 /// Expand a scalar-ish tensor `[1]` to `[rows, cols]` for elementwise multiply.
-#[cfg(test)]
 fn expand_scalar_to_2d<T: Float>(
     scalar: &Tensor<T>,
     rows: usize,
@@ -569,26 +554,10 @@ fn expand_scalar_to_2d<T: Float>(
     )
 }
 
-/// Expand a scalar value to a 3-D tensor `[batch, rows, cols]` for elementwise multiply.
-fn expand_scalar_to_3d<T: Float>(
-    val: T,
-    batch: usize,
-    rows: usize,
-    cols: usize,
-) -> FerrotorchResult<Tensor<T>> {
-    let data = vec![val; batch * rows * cols];
-    Tensor::from_storage(
-        TensorStorage::cpu(data),
-        vec![batch, rows, cols],
-        false,
-    )
-}
-
-/// Apply a causal (lower-triangular) mask to 2-D attention scores `[seq, seq]`.
+/// Apply a causal (lower-triangular) mask to attention scores.
 ///
 /// Sets positions where `col > row` to a very large negative value (-1e9)
 /// so that softmax drives them to zero.
-#[cfg(test)]
 fn apply_causal_mask<T: Float>(
     scores: &Tensor<T>,
     seq_len: usize,
@@ -609,40 +578,10 @@ fn apply_causal_mask<T: Float>(
     )
 }
 
-/// Apply a causal mask to batched 3-D attention scores `[batch, seq, seq]`.
-///
-/// Same semantics as `apply_causal_mask` but applied identically to every
-/// batch slice, avoiding a per-batch loop.
-fn apply_causal_mask_batched<T: Float>(
-    scores: &Tensor<T>,
-    batch: usize,
-    seq_len: usize,
-) -> FerrotorchResult<Tensor<T>> {
-    let neg_inf = T::from(-1e9).unwrap();
-    let mut masked = scores.data()?.to_vec();
-    let sq = seq_len * seq_len;
-
-    for b in 0..batch {
-        let base = b * sq;
-        for i in 0..seq_len {
-            for j in (i + 1)..seq_len {
-                masked[base + i * seq_len + j] = neg_inf;
-            }
-        }
-    }
-
-    Tensor::from_storage(
-        TensorStorage::cpu(masked),
-        scores.shape().to_vec(),
-        scores.requires_grad(),
-    )
-}
-
 /// Concatenate per-head outputs `[seq, head_dim]` back to `[seq, embed_dim]`.
 ///
 /// Inverse of `reshape_to_heads`: gathers head outputs into
 /// `[seq, num_heads * head_dim]` = `[seq, embed_dim]`.
-#[cfg(test)]
 fn concat_heads<T: Float>(
     heads: &[Tensor<T>],
     seq_len: usize,
@@ -666,116 +605,6 @@ fn concat_heads<T: Float>(
     Tensor::from_storage(
         TensorStorage::cpu(result),
         vec![seq_len, embed_dim],
-        false,
-    )
-}
-
-// ---------------------------------------------------------------------------
-// Serial reference implementation (used by tests for numerical comparison)
-// ---------------------------------------------------------------------------
-
-/// Serial per-batch, per-head attention — the original O(B*H) loop approach.
-/// Kept for numerical equivalence tests against the batched implementation.
-#[cfg(test)]
-fn forward_qkv_serial<T: Float>(
-    mha: &MultiheadAttention<T>,
-    query: &Tensor<T>,
-    key: &Tensor<T>,
-    value: &Tensor<T>,
-    causal_mask: bool,
-) -> FerrotorchResult<Tensor<T>> {
-    let batch = query.shape()[0];
-    let seq_q = query.shape()[1];
-    let seq_k = key.shape()[1];
-
-    if seq_q == 0 {
-        return Tensor::from_storage(
-            TensorStorage::cpu(vec![]),
-            vec![batch, 0, mha.embed_dim],
-            false,
-        );
-    }
-
-    let wq_t = transpose_2d(mha.q_proj.tensor())?;
-    let wk_t = transpose_2d(mha.k_proj.tensor())?;
-    let wv_t = transpose_2d(mha.v_proj.tensor())?;
-    let wo_t = transpose_2d(mha.out_proj.tensor())?;
-
-    let scale_val = T::from(1.0 / (mha.head_dim as f64).sqrt()).unwrap();
-    let scale = Tensor::from_storage(
-        TensorStorage::cpu(vec![scale_val]),
-        vec![1],
-        false,
-    )?;
-
-    let total_elements = batch * seq_q * mha.embed_dim;
-    let mut result_data: Vec<T> = Vec::with_capacity(total_elements);
-
-    for b in 0..batch {
-        let q_slice = extract_batch_slice(query, b)?;
-        let k_slice = extract_batch_slice(key, b)?;
-        let v_slice = extract_batch_slice(value, b)?;
-
-        let mut q_proj = mm_differentiable(&q_slice, &wq_t)?;
-        let mut k_proj = mm_differentiable(&k_slice, &wk_t)?;
-        let mut v_proj = mm_differentiable(&v_slice, &wv_t)?;
-
-        if let Some(ref qb) = mha.q_bias {
-            let bias_expanded = expand_bias_to_2d(qb.tensor(), seq_q)?;
-            q_proj = add(&q_proj, &bias_expanded)?;
-        }
-        if let Some(ref kb) = mha.k_bias {
-            let bias_expanded = expand_bias_to_2d(kb.tensor(), seq_k)?;
-            k_proj = add(&k_proj, &bias_expanded)?;
-        }
-        if let Some(ref vb) = mha.v_bias {
-            let bias_expanded = expand_bias_to_2d(vb.tensor(), seq_k)?;
-            v_proj = add(&v_proj, &bias_expanded)?;
-        }
-
-        let q_heads = reshape_to_heads(&q_proj, mha.num_heads, seq_q, mha.head_dim)?;
-        let k_heads = reshape_to_heads(&k_proj, mha.num_heads, seq_k, mha.head_dim)?;
-        let v_heads = reshape_to_heads(&v_proj, mha.num_heads, seq_k, mha.head_dim)?;
-
-        let mut head_outputs: Vec<Tensor<T>> = Vec::with_capacity(mha.num_heads);
-
-        for h in 0..mha.num_heads {
-            let q_h = extract_batch_slice(&q_heads, h)?;
-            let k_h = extract_batch_slice(&k_heads, h)?;
-            let v_h = extract_batch_slice(&v_heads, h)?;
-
-            let k_h_t = transpose_2d(&k_h)?;
-            let scores = mm_differentiable(&q_h, &k_h_t)?;
-
-            let scale_expanded = expand_scalar_to_2d(&scale, seq_q, seq_k)?;
-            let scaled_scores = mul(&scores, &scale_expanded)?;
-
-            let masked_scores = if causal_mask {
-                apply_causal_mask(&scaled_scores, seq_q)?
-            } else {
-                scaled_scores
-            };
-
-            let weights = softmax(&masked_scores)?;
-            let context_h = mm_differentiable(&weights, &v_h)?;
-            head_outputs.push(context_h);
-        }
-
-        let context = concat_heads(&head_outputs, seq_q, mha.num_heads, mha.head_dim)?;
-
-        let mut output = mm_differentiable(&context, &wo_t)?;
-        if let Some(ref ob) = mha.out_bias {
-            let bias_expanded = expand_bias_to_2d(ob.tensor(), seq_q)?;
-            output = add(&output, &bias_expanded)?;
-        }
-
-        let out_data = output.data()?;
-        result_data.extend_from_slice(&out_data);
-    }
-
-    Tensor::from_storage(
-        TensorStorage::cpu(result_data),
-        vec![batch, seq_q, mha.embed_dim],
         false,
     )
 }
@@ -934,178 +763,5 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<MultiheadAttention<f32>>();
         assert_send_sync::<MultiheadAttention<f64>>();
-    }
-
-    // -----------------------------------------------------------------------
-    // Batched vs serial numerical equivalence tests
-    // -----------------------------------------------------------------------
-
-    /// Assert two tensors are elementwise equal within the given tolerance.
-    fn assert_tensors_close(
-        a: &Tensor<f64>,
-        b: &Tensor<f64>,
-        tol: f64,
-        label: &str,
-    ) {
-        assert_eq!(a.shape(), b.shape(), "{label}: shape mismatch");
-        let a_data = a.data().unwrap();
-        let b_data = b.data().unwrap();
-        for (i, (&va, &vb)) in a_data.iter().zip(b_data.iter()).enumerate() {
-            let diff = (va - vb).abs();
-            assert!(
-                diff <= tol,
-                "{label}[{i}]: batched={va}, serial={vb}, diff={diff} > tol={tol}"
-            );
-        }
-    }
-
-    fn assert_tensors_close_f32(
-        a: &Tensor<f32>,
-        b: &Tensor<f32>,
-        tol: f32,
-        label: &str,
-    ) {
-        assert_eq!(a.shape(), b.shape(), "{label}: shape mismatch");
-        let a_data = a.data().unwrap();
-        let b_data = b.data().unwrap();
-        for (i, (&va, &vb)) in a_data.iter().zip(b_data.iter()).enumerate() {
-            let diff = (va - vb).abs();
-            assert!(
-                diff <= tol,
-                "{label}[{i}]: batched={va}, serial={vb}, diff={diff} > tol={tol}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_batched_vs_serial_self_attn_no_bias() {
-        let mha = MultiheadAttention::<f64>::new(8, 2, false).unwrap();
-        let input = ferrotorch_core::randn::<f64>(&[2, 4, 8]).unwrap();
-
-        let batched = mha.forward_qkv(&input, &input, &input, false).unwrap();
-        let serial = forward_qkv_serial(&mha, &input, &input, &input, false).unwrap();
-
-        assert_tensors_close(&batched, &serial, 1e-10, "self_attn_no_bias");
-    }
-
-    #[test]
-    fn test_batched_vs_serial_self_attn_with_bias() {
-        let mha = MultiheadAttention::<f64>::new(8, 2, true).unwrap();
-        let input = ferrotorch_core::randn::<f64>(&[2, 4, 8]).unwrap();
-
-        let batched = mha.forward_qkv(&input, &input, &input, false).unwrap();
-        let serial = forward_qkv_serial(&mha, &input, &input, &input, false).unwrap();
-
-        assert_tensors_close(&batched, &serial, 1e-10, "self_attn_with_bias");
-    }
-
-    #[test]
-    fn test_batched_vs_serial_cross_attn() {
-        let mha = MultiheadAttention::<f64>::new(8, 2, true).unwrap();
-        let query = ferrotorch_core::randn::<f64>(&[2, 3, 8]).unwrap();
-        let kv = ferrotorch_core::randn::<f64>(&[2, 5, 8]).unwrap();
-
-        let batched = mha.forward_qkv(&query, &kv, &kv, false).unwrap();
-        let serial = forward_qkv_serial(&mha, &query, &kv, &kv, false).unwrap();
-
-        assert_tensors_close(&batched, &serial, 1e-10, "cross_attn");
-    }
-
-    #[test]
-    fn test_batched_vs_serial_causal_mask() {
-        let mha = MultiheadAttention::<f64>::new(8, 2, true).unwrap();
-        let input = ferrotorch_core::randn::<f64>(&[2, 4, 8]).unwrap();
-
-        let batched = mha.forward_qkv(&input, &input, &input, true).unwrap();
-        let serial = forward_qkv_serial(&mha, &input, &input, &input, true).unwrap();
-
-        assert_tensors_close(&batched, &serial, 1e-10, "causal_mask");
-    }
-
-    #[test]
-    fn test_batched_vs_serial_batch_1_head_1() {
-        let mha = MultiheadAttention::<f64>::new(4, 1, true).unwrap();
-        let input = ferrotorch_core::randn::<f64>(&[1, 3, 4]).unwrap();
-
-        let batched = mha.forward_qkv(&input, &input, &input, false).unwrap();
-        let serial = forward_qkv_serial(&mha, &input, &input, &input, false).unwrap();
-
-        assert_tensors_close(&batched, &serial, 1e-10, "batch1_head1");
-    }
-
-    #[test]
-    fn test_batched_vs_serial_batch_1_head_1_causal() {
-        let mha = MultiheadAttention::<f64>::new(4, 1, true).unwrap();
-        let input = ferrotorch_core::randn::<f64>(&[1, 5, 4]).unwrap();
-
-        let batched = mha.forward_qkv(&input, &input, &input, true).unwrap();
-        let serial = forward_qkv_serial(&mha, &input, &input, &input, true).unwrap();
-
-        assert_tensors_close(&batched, &serial, 1e-10, "batch1_head1_causal");
-    }
-
-    #[test]
-    fn test_batched_vs_serial_larger_model() {
-        let mha = MultiheadAttention::<f64>::new(16, 4, true).unwrap();
-        let input = ferrotorch_core::randn::<f64>(&[3, 6, 16]).unwrap();
-
-        let batched = mha.forward_qkv(&input, &input, &input, false).unwrap();
-        let serial = forward_qkv_serial(&mha, &input, &input, &input, false).unwrap();
-
-        assert_tensors_close(&batched, &serial, 1e-9, "larger_model");
-    }
-
-    #[test]
-    fn test_batched_vs_serial_f32() {
-        let mha = MultiheadAttention::<f32>::new(8, 2, true).unwrap();
-        let input = ferrotorch_core::randn::<f32>(&[2, 4, 8]).unwrap();
-
-        let batched = mha.forward_qkv(&input, &input, &input, false).unwrap();
-        let serial = forward_qkv_serial(&mha, &input, &input, &input, false).unwrap();
-
-        assert_tensors_close_f32(&batched, &serial, 1e-5, "f32_self_attn");
-    }
-
-    #[test]
-    fn test_batched_seq_len_0() {
-        let mha = MultiheadAttention::<f32>::new(8, 2, true).unwrap();
-        let input = ferrotorch_core::zeros::<f32>(&[2, 0, 8]).unwrap();
-        let output = mha.forward_qkv(&input, &input, &input, false).unwrap();
-        assert_eq!(output.shape(), &[2, 0, 8]);
-        assert_eq!(output.numel(), 0);
-    }
-
-    #[test]
-    fn test_batched_vs_serial_no_bias_causal() {
-        let mha = MultiheadAttention::<f64>::new(8, 4, false).unwrap();
-        let input = ferrotorch_core::randn::<f64>(&[2, 4, 8]).unwrap();
-
-        let batched = mha.forward_qkv(&input, &input, &input, true).unwrap();
-        let serial = forward_qkv_serial(&mha, &input, &input, &input, true).unwrap();
-
-        assert_tensors_close(&batched, &serial, 1e-10, "no_bias_causal");
-    }
-
-    #[test]
-    fn test_batched_vs_serial_many_heads() {
-        // 8 heads with head_dim=1 — edge case for very small per-head dimension.
-        let mha = MultiheadAttention::<f64>::new(8, 8, true).unwrap();
-        let input = ferrotorch_core::randn::<f64>(&[2, 3, 8]).unwrap();
-
-        let batched = mha.forward_qkv(&input, &input, &input, false).unwrap();
-        let serial = forward_qkv_serial(&mha, &input, &input, &input, false).unwrap();
-
-        assert_tensors_close(&batched, &serial, 1e-10, "many_heads");
-    }
-
-    #[test]
-    fn test_batched_output_finite() {
-        let mha = MultiheadAttention::<f64>::new(8, 2, true).unwrap();
-        let input = ferrotorch_core::randn::<f64>(&[2, 4, 8]).unwrap();
-        let output = mha.forward(&input).unwrap();
-
-        for &v in output.data().unwrap().iter() {
-            assert!(v.is_finite(), "output contains non-finite value: {v}");
-        }
     }
 }

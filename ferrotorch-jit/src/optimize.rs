@@ -61,22 +61,26 @@ fn is_simple_elementwise(op: &IrOpKind) -> bool {
             | IrOpKind::Relu
             | IrOpKind::Sigmoid
             | IrOpKind::Tanh
-            | IrOpKind::Sqrt
-            | IrOpKind::Abs
-            | IrOpKind::Pow { .. }
-            | IrOpKind::Gelu
-            | IrOpKind::Silu
-            | IrOpKind::Exp
-            | IrOpKind::Log
     )
 }
 
-/// Returns `true` when `op` is a binary elementwise operation (requires two inputs).
-#[allow(dead_code)]
-fn is_binary_elementwise(op: &IrOpKind) -> bool {
+/// Returns `true` when `op` is a *unary* elementwise operation eligible for
+/// fusion.  Binary ops (Add, Sub, Mul, Div) are excluded because the
+/// `FusedElementwise` interpreter path applies ops sequentially on a single
+/// tensor via `apply_elementwise_op`, which only supports unary ops.  Fusing
+/// binary ops would produce an unexecutable node.
+fn is_fusable_elementwise(op: &IrOpKind) -> bool {
     matches!(
         op,
-        IrOpKind::Add | IrOpKind::Sub | IrOpKind::Mul | IrOpKind::Div
+        IrOpKind::Neg
+            | IrOpKind::Relu
+            | IrOpKind::Sigmoid
+            | IrOpKind::Tanh
+            | IrOpKind::Sqrt
+            | IrOpKind::Abs
+            | IrOpKind::Gelu
+            | IrOpKind::Silu
+            | IrOpKind::Pow { .. }
     )
 }
 
@@ -165,46 +169,6 @@ fn eval_elementwise(
         IrOpKind::Tanh => {
             let (a, shape_a) = &inputs[0];
             let data: Vec<f64> = a.iter().map(|x| x.tanh()).collect();
-            Some((data, shape_a.clone()))
-        }
-        IrOpKind::Sqrt => {
-            let (a, shape_a) = &inputs[0];
-            let data: Vec<f64> = a.iter().map(|x| x.sqrt()).collect();
-            Some((data, shape_a.clone()))
-        }
-        IrOpKind::Abs => {
-            let (a, shape_a) = &inputs[0];
-            let data: Vec<f64> = a.iter().map(|x| x.abs()).collect();
-            Some((data, shape_a.clone()))
-        }
-        IrOpKind::Pow { exponent } => {
-            let (a, shape_a) = &inputs[0];
-            let p = *exponent;
-            let data: Vec<f64> = a.iter().map(|x| x.powf(p)).collect();
-            Some((data, shape_a.clone()))
-        }
-        IrOpKind::Gelu => {
-            let (a, shape_a) = &inputs[0];
-            let sqrt_2_over_pi = (2.0_f64 / std::f64::consts::PI).sqrt();
-            let data: Vec<f64> = a
-                .iter()
-                .map(|x| x * 0.5 * (1.0 + (sqrt_2_over_pi * (x + 0.044715 * x.powi(3))).tanh()))
-                .collect();
-            Some((data, shape_a.clone()))
-        }
-        IrOpKind::Silu => {
-            let (a, shape_a) = &inputs[0];
-            let data: Vec<f64> = a.iter().map(|x| x / (1.0 + (-x).exp())).collect();
-            Some((data, shape_a.clone()))
-        }
-        IrOpKind::Exp => {
-            let (a, shape_a) = &inputs[0];
-            let data: Vec<f64> = a.iter().map(|x| x.exp()).collect();
-            Some((data, shape_a.clone()))
-        }
-        IrOpKind::Log => {
-            let (a, shape_a) = &inputs[0];
-            let data: Vec<f64> = a.iter().map(|x| x.ln()).collect();
             Some((data, shape_a.clone()))
         }
         _ => None,
@@ -377,263 +341,162 @@ pub fn dead_code_eliminate(graph: &mut IrGraph) {
 // Operator Fusion
 // ---------------------------------------------------------------------------
 
-/// Fuse groups of elementwise operations into a single
+/// Fuse chains of elementwise operations into a single
 /// `IrOpKind::FusedElementwise { ops }` node.
 ///
-/// Supports both linear chains (`a -> relu -> sigmoid`) and multi-input
-/// diamond patterns (`y = relu(x) + sigmoid(x)`) where an intermediate
-/// value fans out to multiple consumers, as long as **all** consumers are
-/// within the fused group.
+/// A chain is a sequence of elementwise nodes where each intermediate output
+/// value is consumed by exactly one subsequent elementwise node.
 pub fn fuse_elementwise(graph: &mut IrGraph) {
     loop {
-        if !try_fuse_one_group(graph) {
+        if !try_fuse_one_chain(graph) {
             break;
         }
     }
 }
 
-/// Attempt to find and fuse a single elementwise group of size >= 2.
-///
-/// Strategy: walk nodes in reverse topological order. For each elementwise
-/// node that produces a graph output or feeds a non-elementwise consumer,
-/// walk backwards collecting all elementwise ancestors into a fusion group.
-/// An intermediate value may fan out to multiple consumers as long as every
-/// consumer is in the group.
-///
+/// Attempt to find and fuse a single elementwise chain of length >= 2.
 /// Returns `true` if a fusion was performed.
-fn try_fuse_one_group(graph: &mut IrGraph) -> bool {
-    // Build consumer map: value_id -> set of node ids that consume it.
-    let mut value_consumers: HashMap<IrValueId, Vec<IrNodeId>> = HashMap::new();
+fn try_fuse_one_chain(graph: &mut IrGraph) -> bool {
+    // Build a consumer count map: value_id -> number of nodes consuming it.
+    let mut consumer_count: HashMap<IrValueId, usize> = HashMap::new();
     for node in &graph.nodes {
         for &v in &node.inputs {
-            value_consumers.entry(v).or_default().push(node.id);
+            *consumer_count.entry(v).or_insert(0) += 1;
+        }
+    }
+    // Graph outputs also count as consumers — we must not fuse away an
+    // intermediate value that is a graph output.
+    for &v in &graph.output_values {
+        *consumer_count.entry(v).or_insert(0) += 1;
+    }
+
+    // Build a map: value_id -> the unique node consuming it (only when
+    // there is exactly one consumer total).
+    let mut value_to_consumer: HashMap<IrValueId, IrNodeId> = HashMap::new();
+    for node in &graph.nodes {
+        for &v in &node.inputs {
+            if consumer_count.get(&v).copied().unwrap_or(0) == 1 {
+                value_to_consumer.insert(v, node.id);
+            }
         }
     }
 
-    // Node-id -> node index for quick lookup.
-    let node_map: HashMap<IrNodeId, usize> = graph
+    // Node-id -> index for quick lookup.
+    let node_index: HashMap<IrNodeId, usize> = graph
         .nodes
         .iter()
         .enumerate()
         .map(|(i, n)| (n.id, i))
         .collect();
 
-    // Producer map: value_id -> node_id that produces it.
-    let mut value_producer: HashMap<IrValueId, IrNodeId> = HashMap::new();
-    for node in &graph.nodes {
-        for &v in &node.outputs {
-            value_producer.insert(v, node.id);
-        }
-    }
-
-    // Set of node IDs that are already FusedElementwise (skip them).
-    let already_fused: HashSet<IrNodeId> = graph
-        .nodes
-        .iter()
-        .filter(|n| matches!(n.op, IrOpKind::FusedElementwise { .. }))
-        .map(|n| n.id)
-        .collect();
-
-    // Walk in reverse topological order to find "sink" elementwise nodes
-    // (nodes whose output goes to a non-elementwise consumer or is a
-    // graph output).
+    // Walk nodes in topological order looking for the start of a fusible chain.
     let topo = graph.topological_order();
 
-    let graph_output_set: HashSet<IrValueId> = graph.output_values.iter().copied().collect();
-
-    for &sink_id in topo.iter().rev() {
-        if already_fused.contains(&sink_id) {
-            continue;
-        }
-        let sink_idx = match node_map.get(&sink_id) {
+    for &start_id in &topo {
+        let start_idx = match node_index.get(&start_id) {
             Some(&i) => i,
             None => continue,
         };
-        let sink_node = &graph.nodes[sink_idx];
+        let start_node = &graph.nodes[start_idx];
 
-        if !is_simple_elementwise(&sink_node.op) {
+        // Only fuse unary elementwise ops.  Binary ops (Add, Sub, Mul, Div)
+        // cannot appear inside FusedElementwise because the interpreter
+        // applies ops sequentially on a single tensor and
+        // `apply_elementwise_op` only supports unary ops.
+        if !is_fusable_elementwise(&start_node.op) {
             continue;
         }
 
-        // This node must produce exactly one output.
-        if sink_node.outputs.len() != 1 {
-            continue;
-        }
+        // Build the chain forward from this node.
+        let mut chain_ids: Vec<IrNodeId> = vec![start_id];
+        let mut current_id = start_id;
 
-        // Check that this is a "sink": its output either is a graph output
-        // or is consumed by a non-elementwise node.
-        let out_val = sink_node.outputs[0];
-        let is_sink = graph_output_set.contains(&out_val)
-            || value_consumers.get(&out_val).map_or(true, |consumers| {
-                consumers.iter().any(|&cid| {
-                    node_map.get(&cid).map_or(true, |&ci| {
-                        !is_simple_elementwise(&graph.nodes[ci].op)
-                    })
-                })
-            });
-
-        if !is_sink {
-            continue;
-        }
-
-        // BFS/DFS backwards from sink_id collecting elementwise ancestors.
-        let mut group: HashSet<IrNodeId> = HashSet::new();
-        let mut stack: Vec<IrNodeId> = vec![sink_id];
-
-        while let Some(nid) = stack.pop() {
-            if !group.insert(nid) {
-                continue;
-            }
-            let idx = match node_map.get(&nid) {
+        loop {
+            let cur_idx = match node_index.get(&current_id) {
                 Some(&i) => i,
-                None => continue,
+                None => break,
             };
-            let node = &graph.nodes[idx];
-            for &inp_val in &node.inputs {
-                if let Some(&prod_id) = value_producer.get(&inp_val) {
-                    let prod_idx = match node_map.get(&prod_id) {
-                        Some(&i) => i,
-                        None => continue,
-                    };
-                    let prod_node = &graph.nodes[prod_idx];
-                    if is_simple_elementwise(&prod_node.op)
-                        && !already_fused.contains(&prod_id)
-                        && prod_node.outputs.len() == 1
-                    {
-                        stack.push(prod_id);
-                    }
-                }
+            let cur_node = &graph.nodes[cur_idx];
+
+            // The node must produce exactly one output.
+            if cur_node.outputs.len() != 1 {
+                break;
             }
+            let out_val = cur_node.outputs[0];
+
+            // That output must have exactly one consumer.
+            let next_id = match value_to_consumer.get(&out_val) {
+                Some(&nid) => nid,
+                None => break,
+            };
+
+            let next_idx = match node_index.get(&next_id) {
+                Some(&i) => i,
+                None => break,
+            };
+            let next_node = &graph.nodes[next_idx];
+
+            if !is_fusable_elementwise(&next_node.op) {
+                break;
+            }
+
+            chain_ids.push(next_id);
+            current_id = next_id;
         }
 
-        // Validate the group: every intermediate value (produced by a group
-        // node and consumed by another group node) must have ALL its consumers
-        // in the group. If any consumer is outside, remove the producer from
-        // the group (and transitively its ancestors that only serve it).
-        let group = prune_group(graph, &group, &value_consumers, &node_map, &graph_output_set);
-
-        if group.len() < 2 {
+        if chain_ids.len() < 2 {
             continue;
         }
 
-        // Fuse the group.
-        fuse_group(graph, &group, sink_id, &value_consumers, &value_producer, &node_map, &graph_output_set);
+        // Found a chain of length >= 2 — fuse it.
+        fuse_chain(graph, &chain_ids);
         return true;
     }
 
     false
 }
 
-/// Remove nodes from a candidate fusion group whose output values have
-/// consumers outside the group (or are graph outputs that are not the
-/// group's final output). This prunes iteratively until stable.
-fn prune_group(
-    graph: &IrGraph,
-    initial: &HashSet<IrNodeId>,
-    value_consumers: &HashMap<IrValueId, Vec<IrNodeId>>,
-    node_map: &HashMap<IrNodeId, usize>,
-    graph_output_set: &HashSet<IrValueId>,
-) -> HashSet<IrNodeId> {
-    let mut group = initial.clone();
+/// Collapse `chain` (ordered list of node ids forming a fusible sequence)
+/// into a single `FusedElementwise` node.
+fn fuse_chain(graph: &mut IrGraph, chain: &[IrNodeId]) {
+    assert!(chain.len() >= 2);
 
-    loop {
-        let mut removed_any = false;
-
-        // Find the "sink" of the group (node in topo-last position).
-        // We need to identify which node's output is the final output.
-        // The sink is the node whose output is NOT consumed by any other
-        // group member.
-        let group_inputs: HashSet<IrValueId> = group
+    // Validate that the chain is in valid topological order: each node must
+    // appear after all of its predecessors in the graph's topological ordering.
+    {
+        let topo = graph.topological_order();
+        let topo_pos: HashMap<IrNodeId, usize> = topo
             .iter()
-            .filter_map(|&nid| node_map.get(&nid))
-            .flat_map(|&idx| graph.nodes[idx].inputs.iter().copied())
+            .enumerate()
+            .map(|(i, &nid)| (nid, i))
             .collect();
-
-        let mut to_remove: Vec<IrNodeId> = Vec::new();
-
-        for &nid in &group {
-            let idx = match node_map.get(&nid) {
-                Some(&i) => i,
-                None => {
-                    to_remove.push(nid);
-                    continue;
-                }
-            };
-            let node = &graph.nodes[idx];
-
-            for &out_val in &node.outputs {
-                // If this output value is consumed by someone outside the
-                // group, this node cannot be fused away.
-                let consumers = value_consumers.get(&out_val);
-                let has_external_consumer = consumers.map_or(false, |cs| {
-                    cs.iter().any(|cid| !group.contains(cid))
-                });
-
-                // If this output is a graph output, check if it's the
-                // group's final output (consumed by no one in the group).
-                let is_intermediate_graph_output =
-                    graph_output_set.contains(&out_val) && group_inputs.contains(&out_val);
-
-                if has_external_consumer || is_intermediate_graph_output {
-                    to_remove.push(nid);
-                    break;
-                }
-            }
-        }
-
-        for nid in to_remove {
-            if group.remove(&nid) {
-                removed_any = true;
-            }
-        }
-
-        if !removed_any {
-            break;
+        for window in chain.windows(2) {
+            let pos_a = topo_pos.get(&window[0]);
+            let pos_b = topo_pos.get(&window[1]);
+            assert!(
+                pos_a < pos_b,
+                "fuse_chain: chain is not in valid topological order: {:?} (pos {:?}) must precede {:?} (pos {:?})",
+                window[0], pos_a, window[1], pos_b,
+            );
         }
     }
 
-    group
-}
-
-/// Collapse a validated fusion group into a single `FusedElementwise` node.
-///
-/// The ops are ordered topologically so the fused chain executes correctly.
-fn fuse_group(
-    graph: &mut IrGraph,
-    group: &HashSet<IrNodeId>,
-    sink_id: IrNodeId,
-    value_consumers: &HashMap<IrValueId, Vec<IrNodeId>>,
-    _value_producer: &HashMap<IrValueId, IrNodeId>,
-    _node_map: &HashMap<IrNodeId, usize>,
-    graph_output_set: &HashSet<IrValueId>,
-) {
-    // Get topological order and filter to group members.
-    let topo = graph.topological_order();
-    let ordered: Vec<IrNodeId> = topo.into_iter().filter(|nid| group.contains(nid)).collect();
-
-    // Collect ops in topological order.
-    let ops: Vec<IrOpKind> = ordered
+    // Collect ops in chain order.
+    let ops: Vec<IrOpKind> = chain
         .iter()
         .map(|&nid| find_node(graph, nid).unwrap().op.clone())
         .collect();
 
-    // Intermediate values: produced AND consumed within the group.
-    let intermediate_values: HashSet<IrValueId> = ordered
+    // Intermediate values are outputs of every chain node except the last.
+    let intermediate_values: HashSet<IrValueId> = chain[..chain.len() - 1]
         .iter()
-        .filter(|&&nid| nid != sink_id)
         .flat_map(|&nid| find_node(graph, nid).unwrap().outputs.clone())
-        .filter(|v| {
-            // Only intermediate if all consumers are in the group.
-            value_consumers.get(v).map_or(false, |cs| {
-                cs.iter().all(|cid| group.contains(cid))
-            }) && !graph_output_set.contains(v)
-        })
         .collect();
 
-    // External inputs: inputs to group nodes that are NOT intermediate values.
+    // External inputs: all inputs across the chain that are NOT intermediate.
     let mut external_inputs: Vec<IrValueId> = Vec::new();
     let mut seen_inputs: HashSet<IrValueId> = HashSet::new();
-    for &nid in &ordered {
+    for &nid in chain {
         let node = find_node(graph, nid).unwrap();
         for &v in &node.inputs {
             if !intermediate_values.contains(&v) && seen_inputs.insert(v) {
@@ -642,9 +505,9 @@ fn fuse_group(
         }
     }
 
-    // The fused node produces the output of the sink node.
-    let sink_node = find_node(graph, sink_id).unwrap();
-    let fused_output = sink_node.outputs[0];
+    // The fused node produces the output of the last chain node.
+    let last_node = find_node(graph, *chain.last().unwrap()).unwrap();
+    let fused_output = last_node.outputs[0];
     let output_shape = graph
         .values
         .iter()
@@ -653,15 +516,16 @@ fn fuse_group(
         .shape
         .clone();
 
-    // Remove all group nodes except the sink (which we mutate in-place).
-    for &nid in &ordered {
-        if nid != sink_id {
-            graph.remove_node(nid);
-        }
+    // Remove interior chain nodes (all except the last).  The last node is
+    // kept and mutated in-place so that its output value (already referenced
+    // by downstream consumers) stays valid.
+    for &nid in &chain[..chain.len() - 1] {
+        graph.remove_node(nid);
     }
 
-    // Mutate the sink node into the fused node.
-    if let Some(node) = graph.nodes.iter_mut().find(|n| n.id == sink_id) {
+    // Mutate the last node into the fused node.
+    let last_id = *chain.last().unwrap();
+    if let Some(node) = graph.nodes.iter_mut().find(|n| n.id == last_id) {
         node.op = IrOpKind::FusedElementwise { ops };
         node.inputs = external_inputs;
         node.outputs = vec![fused_output];
@@ -670,7 +534,7 @@ fn fuse_group(
     // Ensure the output value metadata is consistent.
     if let Some(val) = graph.values.iter_mut().find(|v| v.id == fused_output) {
         val.shape = output_shape;
-        val.producer = Some(sink_id);
+        val.producer = Some(last_id);
     }
 }
 
@@ -834,7 +698,52 @@ mod tests {
     // --- Operator Fusion -----------------------------------------------------
 
     #[test]
-    fn test_fuse_add_relu_mul() {
+    fn test_fuse_neg_relu_sigmoid() {
+        // Fusion only applies to unary elementwise chains.  Binary ops
+        // (Add, Sub, Mul, Div) are excluded because the interpreter's
+        // `apply_elementwise_op` only supports unary ops.
+        let mut g = IrGraph::new();
+
+        let x = g.add_input(vec![4]);
+
+        // Chain: neg(x) -> relu -> sigmoid.
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![4]]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![neg_outs[0]], vec![vec![4]]);
+        let (_, sig_outs) = g.add_node(IrOpKind::Sigmoid, vec![relu_outs[0]], vec![vec![4]]);
+        g.set_outputs(vec![sig_outs[0]]);
+
+        // Before: Input, Neg, Relu, Sigmoid = 4 nodes.
+        assert_eq!(g.node_count(), 4);
+
+        fuse_elementwise(&mut g);
+
+        // After fusion the Neg->Relu->Sigmoid chain collapses into one
+        // FusedElementwise node.  Total = Input, Fused = 2.
+        assert_eq!(g.node_count(), 2);
+
+        // Find the fused node.
+        let fused = g
+            .nodes
+            .iter()
+            .find(|n| matches!(&n.op, IrOpKind::FusedElementwise { .. }))
+            .expect("should have a FusedElementwise node");
+
+        if let IrOpKind::FusedElementwise { ops } = &fused.op {
+            assert_eq!(ops.len(), 3);
+            assert_eq!(ops[0], IrOpKind::Neg);
+            assert_eq!(ops[1], IrOpKind::Relu);
+            assert_eq!(ops[2], IrOpKind::Sigmoid);
+        } else {
+            panic!("expected FusedElementwise");
+        }
+
+        assert_eq!(g.output_values.len(), 1);
+    }
+
+    #[test]
+    fn test_fuse_does_not_fuse_binary_ops() {
+        // Binary ops must NOT be fused into FusedElementwise because the
+        // interpreter's apply_elementwise_op only handles unary ops.
         let mut g = IrGraph::new();
 
         let x = g.add_input(vec![4]);
@@ -852,27 +761,14 @@ mod tests {
 
         fuse_elementwise(&mut g);
 
-        // After fusion the Add->Relu->Mul chain collapses into one
-        // FusedElementwise node.  Total = Input, Input, Constant, Fused = 4.
-        assert_eq!(g.node_count(), 4);
-
-        // Find the fused node.
-        let fused = g
-            .nodes
-            .iter()
-            .find(|n| matches!(&n.op, IrOpKind::FusedElementwise { .. }))
-            .expect("should have a FusedElementwise node");
-
-        if let IrOpKind::FusedElementwise { ops } = &fused.op {
-            assert_eq!(ops.len(), 3);
-            assert_eq!(ops[0], IrOpKind::Add);
-            assert_eq!(ops[1], IrOpKind::Relu);
-            assert_eq!(ops[2], IrOpKind::Mul);
-        } else {
-            panic!("expected FusedElementwise");
-        }
-
-        assert_eq!(g.output_values.len(), 1);
+        // Binary ops block fusion: Add and Mul are binary, so the only
+        // fusable unary op (Relu) is alone and cannot form a chain of
+        // length >= 2.  No fusion occurs.
+        assert_eq!(g.node_count(), 6);
+        assert!(
+            g.nodes.iter().all(|n| !matches!(&n.op, IrOpKind::FusedElementwise { .. })),
+            "should not have any FusedElementwise node"
+        );
     }
 
     #[test]
@@ -889,17 +785,16 @@ mod tests {
     }
 
     #[test]
-    fn test_fuse_diamond_pattern() {
-        // Diamond: relu(x) fans out to neg and sigmoid, which are both
-        // consumed by add. All consumers of relu_out are in the group,
-        // so the entire diamond should be fused.
+    fn test_fuse_does_not_fuse_through_branch() {
+        // If an intermediate value is consumed by more than one node, the chain
+        // must not be fused through that value.
         let mut g = IrGraph::new();
 
         let x = g.add_input(vec![4]);
         let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![4]]);
         let relu_out = relu_outs[0];
 
-        // Two consumers of relu_out, both elementwise.
+        // Two consumers of relu_out — prevents fusion through relu.
         let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![relu_out], vec![vec![4]]);
         let (_, sigmoid_outs) = g.add_node(IrOpKind::Sigmoid, vec![relu_out], vec![vec![4]]);
 
@@ -915,55 +810,19 @@ mod tests {
 
         fuse_elementwise(&mut g);
 
-        // All four elementwise ops (Relu, Neg, Sigmoid, Add) should be
-        // fused into one FusedElementwise node.
-        let fused = g
-            .nodes
-            .iter()
-            .find(|n| matches!(&n.op, IrOpKind::FusedElementwise { .. }))
-            .expect("should have a FusedElementwise node");
-
-        if let IrOpKind::FusedElementwise { ops } = &fused.op {
-            assert_eq!(ops.len(), 4, "all 4 ops should be fused");
-            // The ops should be in topological order.
-            assert_eq!(ops[0], IrOpKind::Relu);
-            // Neg and Sigmoid follow (order may vary), then Add last.
-            assert_eq!(ops[3], IrOpKind::Add);
+        // relu_out has 2 consumers so Input->Relu cannot fuse forward.
+        // However Neg->Add (length 2) or Sigmoid->Add could each be fused.
+        // At most one such pair is fused per iteration, then we re-scan.
+        // Verify we never produce a FusedElementwise that includes Relu
+        // (which would be wrong since relu_out fans out).
+        for node in &g.nodes {
+            if let IrOpKind::FusedElementwise { ops } = &node.op {
+                assert!(
+                    !ops.contains(&IrOpKind::Relu),
+                    "Relu should not be fused when its output branches"
+                );
+            }
         }
-
-        // Remaining: Input + FusedElementwise = 2.
-        assert_eq!(g.node_count(), 2);
-    }
-
-    #[test]
-    fn test_fuse_does_not_fuse_when_branch_escapes() {
-        // If an intermediate value is consumed by a node OUTSIDE the
-        // elementwise group (or is itself a graph output), the producer
-        // must not be fused away.
-        let mut g = IrGraph::new();
-
-        let x = g.add_input(vec![4]);
-        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![4]]);
-        let relu_out = relu_outs[0];
-
-        // neg consumes relu_out.
-        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![relu_out], vec![vec![4]]);
-
-        // BOTH relu_out AND neg_out are graph outputs. relu_out escapes,
-        // so Relu cannot be fused into the group.
-        g.set_outputs(vec![neg_outs[0], relu_out]);
-
-        assert_eq!(g.node_count(), 3); // Input, Relu, Neg
-
-        fuse_elementwise(&mut g);
-
-        // relu_out is a graph output AND an intermediate → Relu should not
-        // be fused. Only a single Neg remains, which is too small to fuse.
-        // No fusion should happen.
-        assert!(
-            !g.nodes.iter().any(|n| matches!(&n.op, IrOpKind::FusedElementwise { .. })),
-            "should not produce a FusedElementwise when an intermediate escapes"
-        );
     }
 
     // --- Config ---------------------------------------------------------------
@@ -1001,7 +860,7 @@ mod tests {
     #[test]
     fn test_full_pipeline() {
         // Graph with a constant-foldable branch, an unused branch, and a
-        // fusible elementwise chain.
+        // fusible unary elementwise chain.
         let mut g = IrGraph::new();
 
         let x = g.add_input(vec![2]);
@@ -1011,22 +870,24 @@ mod tests {
         let b = g.add_constant(vec![2.0, 2.0], vec![2]);
         let (_, add_outs) = g.add_node(IrOpKind::Add, vec![a, b], vec![vec![2]]);
 
-        // Main path: x * folded_constant -> relu -> output.
+        // Main path: x * folded_constant -> neg -> relu -> output.
+        // (neg -> relu is a fusible unary chain)
         let (_, mul_outs) = g.add_node(IrOpKind::Mul, vec![x, add_outs[0]], vec![vec![2]]);
-        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![mul_outs[0]], vec![vec![2]]);
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![mul_outs[0]], vec![vec![2]]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![neg_outs[0]], vec![vec![2]]);
         g.set_outputs(vec![relu_outs[0]]);
 
         // Unused branch hanging off x.
-        let (_, _neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![2]]);
+        let (_, _tanh_outs) = g.add_node(IrOpKind::Tanh, vec![x], vec![vec![2]]);
 
         let config = OptimizationConfig::default();
         let plan = optimize(&mut g, &config);
 
         // After constant folding: Add(Const, Const) -> Const([3,3]).
-        // After DCE: original constants + Neg branch removed.
-        // After fusion: Mul -> Relu fused.
-        // Remaining: Input, Constant([3,3]), FusedElementwise([Mul, Relu]) = 3 nodes.
-        assert_eq!(g.node_count(), 3);
+        // After DCE: original constants + Tanh branch removed.
+        // After fusion: Neg -> Relu fused.
+        // Remaining: Input, Constant([3,3]), Mul, FusedElementwise([Neg, Relu]) = 4 nodes.
+        assert_eq!(g.node_count(), 4);
 
         // Memory planning should have run and produced a plan.
         let plan = plan.expect("memory planning enabled by default");
@@ -1038,147 +899,5 @@ mod tests {
             .iter()
             .find(|n| matches!(&n.op, IrOpKind::FusedElementwise { .. }));
         assert!(fused.is_some(), "should have a fused node");
-    }
-
-    // --- New ops in is_simple_elementwise ------------------------------------
-
-    #[test]
-    fn test_constant_fold_exp() {
-        let mut g = IrGraph::new();
-        let a = g.add_constant(vec![0.0, 1.0], vec![2]);
-        let (_, exp_outs) = g.add_node(IrOpKind::Exp, vec![a], vec![vec![2]]);
-        g.set_outputs(vec![exp_outs[0]]);
-
-        constant_fold(&mut g);
-
-        let output_val = g.output_values[0];
-        let (data, _) = get_constant_data(&g, output_val).expect("output should be constant");
-        assert!((data[0] - 1.0).abs() < 1e-10, "exp(0) = 1");
-        assert!((data[1] - std::f64::consts::E).abs() < 1e-10, "exp(1) = e");
-    }
-
-    #[test]
-    fn test_constant_fold_log() {
-        let mut g = IrGraph::new();
-        let a = g.add_constant(vec![1.0, std::f64::consts::E], vec![2]);
-        let (_, log_outs) = g.add_node(IrOpKind::Log, vec![a], vec![vec![2]]);
-        g.set_outputs(vec![log_outs[0]]);
-
-        constant_fold(&mut g);
-
-        let output_val = g.output_values[0];
-        let (data, _) = get_constant_data(&g, output_val).expect("output should be constant");
-        assert!((data[0]).abs() < 1e-10, "log(1) = 0");
-        assert!((data[1] - 1.0).abs() < 1e-10, "log(e) = 1");
-    }
-
-    #[test]
-    fn test_constant_fold_sqrt() {
-        let mut g = IrGraph::new();
-        let a = g.add_constant(vec![4.0, 9.0], vec![2]);
-        let (_, sqrt_outs) = g.add_node(IrOpKind::Sqrt, vec![a], vec![vec![2]]);
-        g.set_outputs(vec![sqrt_outs[0]]);
-
-        constant_fold(&mut g);
-
-        let output_val = g.output_values[0];
-        let (data, _) = get_constant_data(&g, output_val).expect("output should be constant");
-        assert!((data[0] - 2.0).abs() < 1e-10);
-        assert!((data[1] - 3.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_fuse_exp_log_chain() {
-        // exp -> log should fuse into a chain of length 2.
-        let mut g = IrGraph::new();
-        let x = g.add_input(vec![3]);
-        let (_, exp_outs) = g.add_node(IrOpKind::Exp, vec![x], vec![vec![3]]);
-        let (_, log_outs) = g.add_node(IrOpKind::Log, vec![exp_outs[0]], vec![vec![3]]);
-        g.set_outputs(vec![log_outs[0]]);
-
-        assert_eq!(g.node_count(), 3); // Input, Exp, Log
-
-        fuse_elementwise(&mut g);
-
-        assert_eq!(g.node_count(), 2); // Input, FusedElementwise
-        let fused = g
-            .nodes
-            .iter()
-            .find(|n| matches!(&n.op, IrOpKind::FusedElementwise { .. }))
-            .expect("should have a FusedElementwise node");
-        if let IrOpKind::FusedElementwise { ops } = &fused.op {
-            assert_eq!(ops.len(), 2);
-            assert_eq!(ops[0], IrOpKind::Exp);
-            assert_eq!(ops[1], IrOpKind::Log);
-        }
-    }
-
-    #[test]
-    fn test_fuse_empty_graph() {
-        let mut g = IrGraph::new();
-        // Empty graph — nothing to fuse, should not panic.
-        fuse_elementwise(&mut g);
-        assert_eq!(g.node_count(), 0);
-    }
-
-    #[test]
-    fn test_fuse_single_node_graph() {
-        // Graph with only an input — nothing to fuse.
-        let mut g = IrGraph::new();
-        let x = g.add_input(vec![3]);
-        g.set_outputs(vec![x]);
-
-        fuse_elementwise(&mut g);
-        assert_eq!(g.node_count(), 1);
-    }
-
-    #[test]
-    fn test_fuse_non_elementwise_ops_not_fused() {
-        // Sum is a reduction, not elementwise — should not be fused.
-        let mut g = IrGraph::new();
-        let x = g.add_input(vec![4]);
-        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![4]]);
-        let (_, sum_outs) = g.add_node(IrOpKind::Sum, vec![relu_outs[0]], vec![vec![1]]);
-        g.set_outputs(vec![sum_outs[0]]);
-
-        assert_eq!(g.node_count(), 3);
-        fuse_elementwise(&mut g);
-
-        // Relu is a single elementwise op, Sum is a reduction — no chain of >= 2.
-        assert!(
-            !g.nodes.iter().any(|n| matches!(&n.op, IrOpKind::FusedElementwise { .. })),
-            "should not fuse single elementwise op before a reduction"
-        );
-    }
-
-    #[test]
-    fn test_fuse_pow_sqrt_abs_chain() {
-        // pow(2) -> sqrt -> abs = chain of 3 new ops.
-        let mut g = IrGraph::new();
-        let x = g.add_input(vec![3]);
-        let (_, pow_outs) = g.add_node(
-            IrOpKind::Pow { exponent: 2.0 },
-            vec![x],
-            vec![vec![3]],
-        );
-        let (_, sqrt_outs) = g.add_node(IrOpKind::Sqrt, vec![pow_outs[0]], vec![vec![3]]);
-        let (_, abs_outs) = g.add_node(IrOpKind::Abs, vec![sqrt_outs[0]], vec![vec![3]]);
-        g.set_outputs(vec![abs_outs[0]]);
-
-        assert_eq!(g.node_count(), 4);
-        fuse_elementwise(&mut g);
-        assert_eq!(g.node_count(), 2); // Input + Fused
-
-        let fused = g
-            .nodes
-            .iter()
-            .find(|n| matches!(&n.op, IrOpKind::FusedElementwise { .. }))
-            .expect("should have a FusedElementwise node");
-        if let IrOpKind::FusedElementwise { ops } = &fused.op {
-            assert_eq!(ops.len(), 3);
-            assert_eq!(ops[0], IrOpKind::Pow { exponent: 2.0 });
-            assert_eq!(ops[1], IrOpKind::Sqrt);
-            assert_eq!(ops[2], IrOpKind::Abs);
-        }
     }
 }

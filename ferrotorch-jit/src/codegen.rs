@@ -264,8 +264,6 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
             | IrOpKind::Tanh
             | IrOpKind::Gelu
             | IrOpKind::Silu
-            | IrOpKind::Exp
-            | IrOpKind::Log
             | IrOpKind::Pow { .. }) => {
                 let input_id = *node.inputs.first()?;
                 let input_kind = value_kinds.get(&input_id)?.clone();
@@ -447,8 +445,6 @@ fn make_elementwise_op(op: &IrOpKind) -> Option<ElementwiseOp> {
             x * 0.5 * (1.0 + (sqrt_2_over_pi * (x + 0.044715 * x.powi(3))).tanh())
         })),
         IrOpKind::Silu => Some(Arc::new(|x: f64| x / (1.0 + (-x).exp()))),
-        IrOpKind::Exp => Some(Arc::new(|x: f64| x.exp())),
-        IrOpKind::Log => Some(Arc::new(|x: f64| x.ln())),
         _ => None,
     }
 }
@@ -502,6 +498,14 @@ fn make_binary_with_constant_op(
     // For multi-element constants we need positional indexing. We use an
     // AtomicUsize counter that wraps around the constant length. The counter
     // is incremented on every call and reset is implicit (modulo).
+    //
+    // WRAPPING BEHAVIOR: AtomicUsize::fetch_add wraps on overflow (at
+    // usize::MAX).  Because we always reduce via `% clen`, this is
+    // harmless: for any `clen` that is a power-of-two the modulo result is
+    // the same regardless of how many times the counter has wrapped.  For
+    // non-power-of-two `clen` values there is a theoretical bias once the
+    // counter wraps, but usize::MAX wraps require ~18 quintillion calls on
+    // 64-bit targets, which is unreachable in practice.
     //
     // SAFETY NOTE: This works correctly only when the closure is invoked
     // sequentially for elements 0..N within a single `execute` call. The

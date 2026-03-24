@@ -19,6 +19,11 @@ pub fn is_grad_enabled() -> bool {
 /// Calls can be nested safely — the outermost `no_grad` restores the
 /// previous state.
 ///
+/// # Panic safety
+///
+/// The previous gradient-enabled state is restored via an RAII drop guard,
+/// so it is correctly restored even if `f` panics.
+///
 /// # Example
 ///
 /// ```
@@ -32,20 +37,30 @@ pub fn no_grad<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    let prev = GRAD_ENABLED.with(|g| {
-        let prev = g.get();
-        g.set(false);
-        prev
-    });
-    let result = f();
-    GRAD_ENABLED.with(|g| g.set(prev));
-    result
+    struct NoGradGuard {
+        prev: bool,
+    }
+    impl Drop for NoGradGuard {
+        fn drop(&mut self) {
+            GRAD_ENABLED.with(|g| g.set(self.prev));
+        }
+    }
+    let _guard = NoGradGuard {
+        prev: is_grad_enabled(),
+    };
+    GRAD_ENABLED.with(|g| g.set(false));
+    f()
 }
 
 /// Re-enable gradient computation inside a `no_grad` block.
 ///
 /// This is useful for gradient checkpointing where you need to
 /// re-enable gradients for recomputation inside a `no_grad` context.
+///
+/// # Panic safety
+///
+/// The previous gradient-enabled state is restored via an RAII drop guard,
+/// so it is correctly restored even if `f` panics.
 ///
 /// # Example
 ///
@@ -64,13 +79,19 @@ pub fn enable_grad<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    GRAD_ENABLED.with(|cell| {
-        let prev = cell.get();
-        cell.set(true);
-        let result = f();
-        cell.set(prev);
-        result
-    })
+    struct EnableGradGuard {
+        prev: bool,
+    }
+    impl Drop for EnableGradGuard {
+        fn drop(&mut self) {
+            GRAD_ENABLED.with(|g| g.set(self.prev));
+        }
+    }
+    let _guard = EnableGradGuard {
+        prev: is_grad_enabled(),
+    };
+    GRAD_ENABLED.with(|g| g.set(true));
+    f()
 }
 
 /// Programmatically set whether gradients are enabled.
@@ -165,6 +186,37 @@ mod tests {
             assert!(!is_grad_enabled());
         });
         // no_grad restores the previous state (true).
+        assert!(is_grad_enabled());
+    }
+
+    #[test]
+    fn test_no_grad_panic_safety() {
+        assert!(is_grad_enabled());
+        let result = std::panic::catch_unwind(|| {
+            no_grad(|| {
+                assert!(!is_grad_enabled());
+                panic!("intentional panic inside no_grad");
+            });
+        });
+        assert!(result.is_err());
+        // RAII guard must have restored grad_enabled to true.
+        assert!(is_grad_enabled());
+    }
+
+    #[test]
+    fn test_enable_grad_panic_safety() {
+        no_grad(|| {
+            assert!(!is_grad_enabled());
+            let result = std::panic::catch_unwind(|| {
+                enable_grad(|| {
+                    assert!(is_grad_enabled());
+                    panic!("intentional panic inside enable_grad");
+                });
+            });
+            assert!(result.is_err());
+            // RAII guard must have restored grad_enabled to false.
+            assert!(!is_grad_enabled());
+        });
         assert!(is_grad_enabled());
     }
 }

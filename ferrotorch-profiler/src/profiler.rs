@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
-use crate::event::{DeviceType, ProfileEvent};
+use crate::event::{DeviceType, GpuTimingPair, ProfileEvent};
 use crate::report::ProfileReport;
 
 /// Controls what the profiler records.
@@ -26,38 +26,29 @@ impl Default for ProfileConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// GpuTimingPair — deferred CUDA event pair for lazy elapsed-time resolution
-// ---------------------------------------------------------------------------
-
-/// A pair of CUDA events recorded before and after a GPU operation.
-///
-/// GPU timing is asynchronous: the events are *recorded* into the stream
-/// immediately, but the elapsed time between them can only be queried after
-/// both events have completed on the GPU. We store these pairs and resolve
-/// them lazily when the profiling report is generated, at which point we
-/// synchronize and call `CudaEvent::elapsed_ms`.
-#[cfg(feature = "cuda")]
-struct GpuTimingPair {
-    start_event: cudarc::driver::CudaEvent,
-    end_event: cudarc::driver::CudaEvent,
-    /// Index into `Profiler::events` where the corresponding `ProfileEvent`
-    /// lives. We patch `duration_us` on that event during resolution.
-    event_index: usize,
-}
-
 /// Thread-safe operation profiler.
 ///
 /// Create one via [`with_profiler`] and pass it into the closure that
 /// contains the work you want to measure.
+///
+/// # Lock ordering
+///
+/// The profiler contains a single `Mutex<Vec<ProfileEvent>>` (`events`).
+/// There is no other mutex in this struct, so there is no lock-ordering
+/// concern *within* the profiler. However, callers must not hold external
+/// locks that could be acquired by the profiler's methods (currently none)
+/// while calling `record*` or `push_gpu_event`, to avoid deadlocks.
+///
+/// If a future version adds additional mutexes (e.g., for GPU timing
+/// pairs), the ordering must be: `gpu_timings` before `events`.
 pub struct Profiler {
     events: Mutex<Vec<ProfileEvent>>,
     start_time: Instant,
     config: ProfileConfig,
     active: AtomicBool,
-    /// Deferred GPU event pairs awaiting elapsed-time resolution.
-    #[cfg(feature = "cuda")]
-    gpu_pairs: Mutex<Vec<GpuTimingPair>>,
+    /// Set to `true` after the first poisoned-lock warning is logged.
+    /// Prevents flooding stderr with repeated warnings.
+    poison_warned: AtomicBool,
 }
 
 impl Profiler {
@@ -68,12 +59,11 @@ impl Profiler {
             start_time: Instant::now(),
             config,
             active: AtomicBool::new(true),
-            #[cfg(feature = "cuda")]
-            gpu_pairs: Mutex::new(Vec::new()),
+            poison_warned: AtomicBool::new(false),
         }
     }
 
-    /// Record a completed operation.
+    /// Record a completed CPU operation.
     ///
     /// The event's `start_us` is set to "now" and `duration_us` to zero.
     /// Use [`record_with_duration`](Self::record_with_duration) when you
@@ -98,9 +88,7 @@ impl Profiler {
             thread_id: current_thread_id(),
             device_type: DeviceType::Cpu,
         };
-        if let Ok(mut events) = self.events.lock() {
-            events.push(event);
-        }
+        self.push_event(event);
     }
 
     /// Record an operation whose duration is already known.
@@ -124,9 +112,7 @@ impl Profiler {
             thread_id: current_thread_id(),
             device_type: DeviceType::Cpu,
         };
-        if let Ok(mut events) = self.events.lock() {
-            events.push(event);
-        }
+        self.push_event(event);
     }
 
     /// Record a memory allocation or free event.
@@ -144,145 +130,42 @@ impl Profiler {
             thread_id: current_thread_id(),
             device_type: DeviceType::Cpu,
         };
-        if let Ok(mut events) = self.events.lock() {
-            events.push(event);
-        }
+        self.push_event(event);
     }
 
-    /// Record a GPU operation, timing it with CUDA events.
+    /// Record a GPU operation event and return its index in the event list.
     ///
-    /// CUDA events are recorded into `stream` before and after calling `f()`.
-    /// The elapsed time is resolved lazily when the profiling report is
-    /// generated (via [`into_report`](Self::into_report)), because the GPU
-    /// operation may still be in-flight when `record_gpu` returns.
+    /// Returns `Some(index)` on success, or `None` if the events mutex is
+    /// poisoned. When `None` is returned, the caller should skip storing
+    /// any associated `GpuTimingPair` — the event was not recorded, so
+    /// there is nothing to correlate.
     ///
-    /// # Arguments
-    ///
-    /// * `name` — Operation name (e.g. `"matmul"`, `"conv2d"`).
-    /// * `category` — Category tag (e.g. `"cuda_kernel"`).
-    /// * `stream` — The CUDA stream the operation will be submitted to.
-    /// * `ctx` — The CUDA context (needed to create timing events).
-    /// * `f` — The closure that performs the GPU work.
-    ///
-    /// # Errors
-    ///
-    /// If event creation or recording fails, the closure is still executed
-    /// and the event is recorded as a CPU-timed fallback with a warning
-    /// category suffix. This ensures profiling never silently drops operations.
-    #[cfg(feature = "cuda")]
-    pub fn record_gpu<F, R>(
+    /// The `device_type` is always set to [`DeviceType::Cuda`], even when
+    /// the timing was measured by CPU-side `Instant` as a fallback (e.g.,
+    /// when CUDA event timing is unavailable). This correctly reflects
+    /// that the *operation* ran on the GPU, regardless of how its duration
+    /// was measured.
+    pub fn push_gpu_event(
         &self,
         name: &str,
         category: &str,
-        stream: &std::sync::Arc<cudarc::driver::CudaStream>,
-        ctx: &std::sync::Arc<cudarc::driver::CudaContext>,
-        f: F,
-    ) -> R
-    where
-        F: FnOnce() -> R,
-    {
+        timing: GpuTimingPair,
+    ) -> Option<usize> {
         if !self.active.load(Ordering::Relaxed) {
-            return f();
+            return None;
         }
-
-        let start_us = self.elapsed_us();
-
-        // Create timing-enabled events. If this fails, fall back to CPU timing.
-        let timing_flags = cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
-        let start_event = match ctx.new_event(Some(timing_flags)) {
-            Ok(e) => e,
-            Err(_) => return self.record_gpu_cpu_fallback(name, category, f),
-        };
-        let end_event = match ctx.new_event(Some(timing_flags)) {
-            Ok(e) => e,
-            Err(_) => return self.record_gpu_cpu_fallback(name, category, f),
-        };
-
-        // Record start event into the stream.
-        if start_event.record(stream).is_err() {
-            return self.record_gpu_cpu_fallback(name, category, f);
-        }
-
-        let result = f();
-
-        // Record end event into the stream.
-        if end_event.record(stream).is_err() {
-            // The operation ran but we can't time it. Record a zero-duration
-            // GPU event so it still appears in the report.
-            self.push_gpu_event(name, category, start_us, 0);
-            return result;
-        }
-
-        // Push a placeholder event (duration_us = 0, will be patched later).
-        let event_index = self.push_gpu_event(name, category, start_us, 0);
-
-        // Store the event pair for deferred resolution.
-        if let Ok(mut pairs) = self.gpu_pairs.lock() {
-            pairs.push(GpuTimingPair {
-                start_event,
-                end_event,
-                event_index,
-            });
-        }
-
-        result
-    }
-
-    /// Fallback: time a GPU operation with CPU wall clock when CUDA event
-    /// creation or recording fails. The category is suffixed with
-    /// `"[cpu_fallback]"` so the user can see that GPU timing was not available.
-    #[cfg(feature = "cuda")]
-    fn record_gpu_cpu_fallback<F, R>(&self, name: &str, category: &str, f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        let cpu_start = Instant::now();
-        let result = f();
-        let duration_us = cpu_start.elapsed().as_micros() as u64;
-        let start_us = self.elapsed_us().saturating_sub(duration_us);
-        let fallback_category = format!("{category}[cpu_fallback]");
-        let event = ProfileEvent {
-            name: name.to_owned(),
-            category: fallback_category,
-            start_us,
-            duration_us,
-            input_shapes: Vec::new(),
-            memory_bytes: None,
-            thread_id: current_thread_id(),
-            device_type: DeviceType::Cpu,
-        };
-        if let Ok(mut events) = self.events.lock() {
-            events.push(event);
-        }
-        result
-    }
-
-    /// Push a GPU event and return its index in the events vec.
-    #[cfg(feature = "cuda")]
-    fn push_gpu_event(
-        &self,
-        name: &str,
-        category: &str,
-        start_us: u64,
-        duration_us: u64,
-    ) -> usize {
         let event = ProfileEvent {
             name: name.to_owned(),
             category: category.to_owned(),
-            start_us,
-            duration_us,
+            start_us: timing.start_us,
+            duration_us: timing.end_us.saturating_sub(timing.start_us),
             input_shapes: Vec::new(),
             memory_bytes: None,
             thread_id: current_thread_id(),
+            // BUG-17 fix: always Cuda for GPU ops, even when timed by CPU fallback.
             device_type: DeviceType::Cuda,
         };
-        if let Ok(mut events) = self.events.lock() {
-            let idx = events.len();
-            events.push(event);
-            idx
-        } else {
-            0
-        }
+        self.push_event_returning_index(event)
     }
 
     /// Whether the profiler is currently active.
@@ -300,55 +183,49 @@ impl Profiler {
         self.start_time.elapsed().as_micros() as u64
     }
 
-    /// Resolve all deferred GPU event pairs by synchronizing and querying
-    /// `CudaEvent::elapsed_ms`. Patches `duration_us` on the corresponding
-    /// `ProfileEvent` entries.
-    #[cfg(feature = "cuda")]
-    fn resolve_gpu_timings(&self) {
-        let pairs = match self.gpu_pairs.lock() {
-            Ok(mut guard) => std::mem::take(&mut *guard),
-            Err(_) => return,
-        };
-
-        if pairs.is_empty() {
-            return;
-        }
-
-        let mut events = match self.events.lock() {
-            Ok(guard) => guard,
-            Err(_) => return,
-        };
-
-        for pair in &pairs {
-            // elapsed_ms synchronizes both events internally, then queries
-            // the GPU-side elapsed time. Returns milliseconds as f32.
-            match pair.start_event.elapsed_ms(&pair.end_event) {
-                Ok(ms) => {
-                    // Convert milliseconds to microseconds (our canonical unit).
-                    let us = (ms * 1000.0) as u64;
-                    if pair.event_index < events.len() {
-                        events[pair.event_index].duration_us = us;
-                    }
-                }
-                Err(_) => {
-                    // GPU timing resolution failed. Leave duration_us as 0
-                    // and mark the event so the user knows.
-                    if pair.event_index < events.len() {
-                        events[pair.event_index].category.push_str("[timing_failed]");
-                    }
-                }
+    /// Push an event into the event list, logging a warning on the first
+    /// poisoned mutex encounter.
+    fn push_event(&self, event: ProfileEvent) {
+        match self.events.lock() {
+            Ok(mut events) => {
+                events.push(event);
+            }
+            Err(_) => {
+                self.warn_poisoned();
             }
         }
     }
 
-    /// Drain collected events into a [`ProfileReport`].
-    ///
-    /// On the `cuda` feature, this first resolves all deferred GPU event
-    /// pairs (synchronizing the GPU and querying elapsed times).
-    fn into_report(self) -> ProfileReport {
-        #[cfg(feature = "cuda")]
-        self.resolve_gpu_timings();
+    /// Push an event and return its index, or `None` on lock failure.
+    fn push_event_returning_index(&self, event: ProfileEvent) -> Option<usize> {
+        match self.events.lock() {
+            Ok(mut events) => {
+                let idx = events.len();
+                events.push(event);
+                Some(idx)
+            }
+            Err(_) => {
+                self.warn_poisoned();
+                None
+            }
+        }
+    }
 
+    /// Log a warning the first time a poisoned mutex is encountered.
+    ///
+    /// Subsequent calls are no-ops to avoid flooding stderr.
+    fn warn_poisoned(&self) {
+        if !self.poison_warned.swap(true, Ordering::Relaxed) {
+            eprintln!(
+                "ferrotorch-profiler: events mutex is poisoned — \
+                 profiling events are being silently dropped. \
+                 This typically means a thread panicked while holding the lock."
+            );
+        }
+    }
+
+    /// Drain collected events into a [`ProfileReport`].
+    fn into_report(self) -> ProfileReport {
         let events = self
             .events
             .into_inner()
@@ -383,4 +260,51 @@ fn current_thread_id() -> u64 {
         .trim_end_matches(')')
         .parse::<u64>()
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_push_gpu_event_returns_index() {
+        let profiler = Profiler::new(ProfileConfig::default());
+        let timing = GpuTimingPair { start_us: 100, end_us: 200 };
+
+        let idx = profiler.push_gpu_event("matmul", "cuda_kernel", timing);
+        assert_eq!(idx, Some(0));
+
+        let idx = profiler.push_gpu_event("relu", "cuda_kernel", timing);
+        assert_eq!(idx, Some(1));
+    }
+
+    #[test]
+    fn test_push_gpu_event_sets_cuda_device_type() {
+        let ((), report) = with_profiler(ProfileConfig::default(), |p| {
+            let timing = GpuTimingPair { start_us: 0, end_us: 50 };
+            p.push_gpu_event("conv2d", "cuda_kernel", timing);
+        });
+        let events = report.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].device_type, DeviceType::Cuda);
+        assert_eq!(events[0].duration_us, 50);
+    }
+
+    #[test]
+    fn test_push_gpu_event_inactive_returns_none() {
+        let profiler = Profiler::new(ProfileConfig::default());
+        profiler.stop();
+        let timing = GpuTimingPair { start_us: 0, end_us: 100 };
+        assert_eq!(profiler.push_gpu_event("mm", "cuda_kernel", timing), None);
+    }
+
+    #[test]
+    fn test_record_sets_cpu_device_type() {
+        let ((), report) = with_profiler(ProfileConfig::default(), |p| {
+            p.record("add", "tensor_op", &[&[3, 4]]);
+        });
+        let events = report.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].device_type, DeviceType::Cpu);
+    }
 }

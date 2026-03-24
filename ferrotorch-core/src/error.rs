@@ -38,6 +38,9 @@ pub enum FerrotorchError {
     #[error("cannot access GPU tensor data as CPU slice -- call .cpu() first")]
     GpuTensorNotAccessible,
 
+    #[error("data loading worker panicked: {message}")]
+    WorkerPanic { message: String },
+
     #[error(transparent)]
     Ferray(#[from] ferray_core::FerrayError),
 }

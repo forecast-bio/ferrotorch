@@ -7,10 +7,16 @@
 //!   [`SimulatedBackend`](backend::SimulatedBackend) for in-process testing.
 //!
 //! - **Collectives** ([`collective`]) — [`allreduce`](collective::allreduce),
+//!   [`all_gather`](collective::all_gather),
+//!   [`reduce_scatter`](collective::reduce_scatter),
 //!   [`broadcast`](collective::broadcast), and [`barrier`](collective::barrier).
 //!
 //! - **DDP** ([`ddp`]) — [`DDP`](ddp::DDP) wraps a `Module` and
 //!   synchronizes gradients across ranks after each backward pass.
+//!
+//! - **FSDP** ([`fsdp`]) — [`FSDP`](fsdp::FSDP) wraps a `Module` and
+//!   shards parameters across ranks, all-gathering during forward and
+//!   reduce-scattering gradients during backward.
 //!
 //! - **GPU collectives** ([`gpu_collective`], requires `gpu` feature) —
 //!   [`gpu_allreduce`](gpu_collective::gpu_allreduce) and
@@ -24,21 +30,27 @@
 //! use ferrotorch_distributed::backend::SimulatedBackend;
 //! use ferrotorch_distributed::collective::{allreduce, ReduceOp};
 //! use ferrotorch_distributed::ddp::DDP;
+//! use ferrotorch_distributed::fsdp::FSDP;
 //! ```
 
 pub mod backend;
 pub mod collective;
 pub mod ddp;
 pub mod error;
+pub mod fsdp;
 
 #[cfg(feature = "gpu")]
 pub mod gpu_collective;
 
 // Re-export key types at crate root for convenience.
 pub use backend::{Backend, SimulatedBackend, TcpBackend};
-pub use collective::{allreduce, allreduce_with_timeout, barrier, broadcast, ReduceOp, DEFAULT_COLLECTIVE_TIMEOUT};
+pub use collective::{
+    all_gather, all_gather_with_timeout, allreduce, allreduce_with_timeout, barrier, broadcast,
+    reduce_scatter, reduce_scatter_with_timeout, ReduceOp, DEFAULT_COLLECTIVE_TIMEOUT,
+};
 pub use ddp::DDP;
 pub use error::DistributedError;
+pub use fsdp::FSDP;
 
 #[cfg(feature = "gpu")]
 pub use gpu_collective::{gpu_allreduce, gpu_broadcast};

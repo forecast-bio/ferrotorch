@@ -1,29 +1,12 @@
 //! Fully Sharded Data Parallel (FSDP) wrapper.
 //!
-//! [`FSDP`] wraps a [`Module`] and shards its parameters across all ranks.
-//! Each rank stores only its local chunk of each parameter (FULL_SHARD
-//! strategy). Before the forward pass, parameters are reconstructed via
-//! all-gather. After backward, gradients are reduce-scattered so each rank
-//! receives only the gradient slice corresponding to its local shard.
+//! [`FSDP`] wraps a [`Module`] and shards its parameters across ranks.
+//! During forward, parameters are all-gathered to form the full tensors.
+//! During gradient synchronization, full-parameter gradients are
+//! reduce-scattered so each rank only stores its shard's gradient.
 //!
-//! This dramatically reduces per-rank memory compared to DDP (which
-//! replicates all parameters on every rank).
-//!
-//! # Usage
-//!
-//! ```ignore
-//! let mut fsdp = FSDP::new(model, backend.clone(), world_size, rank)?;
-//!
-//! loop {
-//!     let output = fsdp.forward(&input)?;
-//!     let loss = criterion.forward(&output, &target)?;
-//!     ferrotorch_core::backward(&loss)?;
-//!     fsdp.sync_gradients()?;
-//!     // Optimizer steps on sharded parameters (only local shard).
-//!     optimizer.step()?;
-//!     optimizer.zero_grad()?;
-//! }
-//! ```
+//! This reduces per-rank memory from O(params) to O(params / world_size)
+//! at the cost of additional communication during forward and backward.
 
 use std::sync::Arc;
 
@@ -32,148 +15,122 @@ use ferrotorch_core::{Float, FerrotorchResult, Tensor};
 use ferrotorch_nn::{Module, Parameter};
 
 use crate::backend::Backend;
-use crate::collective::{all_gather, ReduceOp};
-use crate::error::DistributedError;
+use crate::collective::{all_gather, reduce_scatter, ReduceOp};
 
-/// Metadata about one sharded parameter: its original shape and shard layout.
-#[derive(Debug, Clone)]
-struct ShardInfo {
-    /// Original shape of the full (unsharded) parameter.
-    original_shape: Vec<usize>,
-    /// Total number of elements in the full parameter.
-    original_numel: usize,
-    /// Number of elements in each rank's shard. The last rank may store
-    /// fewer real elements when `original_numel` is not evenly divisible
-    /// by `world_size`, but the shard is still padded to this size for
-    /// uniform communication.
-    shard_numel: usize,
-    /// Number of padding elements appended to the last rank's shard
-    /// (zero when evenly divisible).
-    padding: usize,
-}
-
-/// Fully Sharded Data Parallel module wrapper (FULL_SHARD strategy).
+/// Fully Sharded Data Parallel module wrapper.
 ///
-/// Wraps an inner [`Module`] and distributes parameter storage across ranks.
-/// Each rank holds only `ceil(numel / world_size)` elements per parameter.
+/// Wraps an inner [`Module`] and shards each parameter across ranks so that
+/// each rank only stores `1 / world_size` of the full parameter tensor.
 ///
-/// # Design
+/// # Forward pass
 ///
-/// - **`new()`**: Flattens each parameter, pads to a multiple of
-///   `world_size`, and stores only the local shard (chunk `rank`).
-/// - **`forward()`**: All-gathers every parameter, replaces the module's
-///   parameters with the full tensors, runs the inner module's forward,
-///   then re-shards (frees full parameters, restores local shards).
-/// - **`sync_gradients()`**: After backward, each parameter has a full
-///   gradient. Reduce-scatter these so each rank retains only its shard's
-///   gradient.
+/// Before calling the inner module's `forward()`, FSDP all-gathers each
+/// shard to reconstruct the full parameter tensor and installs it into the
+/// module. The full-parameter tensors are stored in [`full_params`] so
+/// that backward can accumulate gradients on them.
+///
+/// # Gradient synchronization
+///
+/// After `backward()`, call [`sync_gradients`] to:
+/// 1. Read gradients from the full-parameter tensors stored during forward.
+/// 2. Reduce-scatter the full gradients so each rank gets only its shard
+///    portion of the gradient.
+/// 3. Set each shard parameter's gradient from the reduce-scattered result.
+///
+/// # Example
+///
+/// ```ignore
+/// let mut fsdp = FSDP::new(model, backend)?;
+///
+/// loop {
+///     let output = fsdp.forward(&input)?;
+///     let loss = criterion.forward(&output, &target)?;
+///     ferrotorch_core::backward(&loss)?;
+///     fsdp.sync_gradients()?;
+///     optimizer.step()?;
+///     optimizer.zero_grad()?;
+/// }
+/// ```
 pub struct FSDP<M: Module<T>, T: Float> {
     module: M,
     backend: Arc<dyn Backend>,
-    world_size: usize,
-    rank: usize,
-    /// Per-parameter shard metadata, in the same order as
-    /// `module.parameters()`.
-    shard_infos: Vec<ShardInfo>,
-    /// The local shard data for each parameter (flat Vec<T>).
-    local_shards: Vec<Vec<T>>,
+    /// Original full-parameter shapes before sharding.
+    original_shapes: Vec<Vec<usize>>,
+    /// Full-param tensors from the last forward pass, kept alive so
+    /// backward can accumulate gradients on them.
+    full_params: Vec<Tensor<T>>,
     _marker: std::marker::PhantomData<T>,
 }
 
 impl<M: Module<T>, T: Float> FSDP<M, T> {
-    /// Wrap a module for fully sharded data-parallel training.
+    /// Wrap a module for fully-sharded data-parallel training.
     ///
-    /// All ranks must hold the same initial model weights before calling
-    /// this constructor (e.g., loaded from a checkpoint or broadcast from
-    /// rank 0). The constructor shards each parameter and replaces the
-    /// module's parameters with the local shard.
+    /// Each parameter is split evenly across `world_size` ranks. This rank
+    /// keeps only its shard (the `rank`-th chunk). The original parameter
+    /// shapes are recorded for reconstruction during forward.
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// Returns an error if `world_size < 1`, `rank >= world_size`, or
-    /// tensor data extraction fails.
-    pub fn new(
-        mut module: M,
-        backend: Arc<dyn Backend>,
-        world_size: usize,
-        rank: usize,
-    ) -> FerrotorchResult<Self> {
-        if world_size == 0 {
-            return Err(DistributedError::InvalidWorldSize { world_size }.into());
-        }
-        if rank >= world_size {
-            return Err(DistributedError::InvalidRank { rank, world_size }.into());
-        }
+    /// Panics if any parameter's element count is not evenly divisible by
+    /// `world_size`.
+    pub fn new(mut module: M, backend: Arc<dyn Backend>) -> FerrotorchResult<Self> {
+        let rank = backend.rank();
+        let world_size = backend.world_size();
+        let mut original_shapes = Vec::new();
 
-        let mut shard_infos = Vec::new();
-        let mut local_shards = Vec::new();
+        {
+            let params = module.parameters_mut();
+            for param in params {
+                let tensor = param.tensor();
+                let shape = tensor.shape().to_vec();
+                let numel = tensor.numel();
 
-        // Shard each parameter and replace with local chunk.
-        let params = module.parameters_mut();
-        for param in params {
-            let tensor = param.tensor();
-            let original_shape = tensor.shape().to_vec();
-            let original_numel = tensor.numel();
-            let data = tensor.data_vec()?;
+                assert!(
+                    numel % world_size == 0,
+                    "FSDP: parameter with {} elements is not evenly divisible by world_size {}",
+                    numel,
+                    world_size,
+                );
 
-            // Compute shard size: ceil(original_numel / world_size).
-            let shard_numel = (original_numel + world_size - 1) / world_size;
-            let padded_total = shard_numel * world_size;
-            let padding = padded_total - original_numel;
+                original_shapes.push(shape);
 
-            // Pad with zeros if needed, then extract our shard.
-            let mut padded_data = data;
-            padded_data.resize(padded_total, <T as num_traits::Zero>::zero());
+                let data = tensor.data_vec()?;
+                let chunk_size = numel / world_size;
+                let start = rank * chunk_size;
+                let end = start + chunk_size;
+                let shard_data = data[start..end].to_vec();
 
-            let shard_start = rank * shard_numel;
-            let shard_end = shard_start + shard_numel;
-            let local_shard = padded_data[shard_start..shard_end].to_vec();
-
-            shard_infos.push(ShardInfo {
-                original_shape,
-                original_numel,
-                shard_numel,
-                padding,
-            });
-
-            local_shards.push(local_shard.clone());
-
-            // Replace the parameter with the local shard tensor.
-            let shard_tensor = Tensor::from_storage(
-                TensorStorage::cpu(local_shard),
-                vec![shard_numel],
-                false,
-            )?;
-            *param = Parameter::new(shard_tensor);
+                let shard_tensor = Tensor::from_storage(
+                    TensorStorage::cpu(shard_data),
+                    vec![chunk_size],
+                    true,
+                )?;
+                // Shard params need requires_grad=true so the optimizer can
+                // update them.
+                *param = Parameter::new(shard_tensor);
+            }
         }
 
         Ok(Self {
             module,
             backend,
-            world_size,
-            rank,
-            shard_infos,
-            local_shards,
+            original_shapes,
+            full_params: Vec::new(),
             _marker: std::marker::PhantomData,
         })
     }
 
     /// Immutable access to the inner module.
-    ///
-    /// **Warning**: The module's parameters are in sharded form (flat
-    /// vectors, not original shapes). Use this for inspecting module
-    /// metadata, not for running forward.
     pub fn module(&self) -> &M {
         &self.module
     }
 
-    /// Mutable access to the inner module (for train/eval mode, etc.).
+    /// Mutable access to the inner module.
     pub fn module_mut(&mut self) -> &mut M {
         &mut self.module
     }
 
-    /// Consume the FSDP wrapper and return the inner module (with sharded
-    /// parameters).
+    /// Consume the wrapper and return the inner module.
     pub fn into_inner(self) -> M {
         self.module
     }
@@ -183,227 +140,194 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
         &self.backend
     }
 
-    /// This rank's index.
-    pub fn rank(&self) -> usize {
-        self.rank
-    }
-
-    /// Total number of ranks.
-    pub fn world_size(&self) -> usize {
-        self.world_size
-    }
-
-    /// Number of elements stored locally per parameter shard.
-    pub fn shard_sizes(&self) -> Vec<usize> {
-        self.shard_infos.iter().map(|s| s.shard_numel).collect()
-    }
-
-    /// Number of padding elements per parameter (zero when evenly
-    /// divisible by `world_size`).
-    pub fn shard_padding(&self) -> Vec<usize> {
-        self.shard_infos.iter().map(|s| s.padding).collect()
-    }
-
-    /// Total number of locally stored parameter elements across all
-    /// parameters.
-    pub fn local_numel(&self) -> usize {
-        self.local_shards.iter().map(|s| s.len()).sum()
-    }
-
-    /// Forward pass with all-gather / free semantics.
+    /// Reconstruct full parameters from shards across all ranks and run
+    /// the inner module's forward pass.
     ///
-    /// 1. All-gather each parameter's shard to reconstruct the full
-    ///    parameter on every rank.
-    /// 2. Replace module parameters with the full tensors.
-    /// 3. Run `module.forward(input)`.
-    /// 4. Re-shard: replace module parameters back with local shards.
-    ///
-    /// The full parameters are dropped after this call. Only the local
-    /// shards remain in memory.
+    /// The all-gathered full-parameter tensors are stored in `self.full_params`
+    /// so their gradients can be read after backward.
     pub fn forward(&mut self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        // Phase 1: all-gather every parameter.
-        let params = self.module.parameters();
-        let mut full_params: Vec<Tensor<T>> = Vec::with_capacity(params.len());
-        for (param, info) in params.iter().zip(self.shard_infos.iter()) {
-            let shard_tensor = param.tensor();
-            let gathered = all_gather(shard_tensor, self.backend.as_ref())?;
+        let world_size = self.backend.world_size();
+        self.full_params.clear();
 
-            // Trim padding and reshape to original.
-            let gathered_data = gathered.data_vec()?;
-            let trimmed: Vec<T> = gathered_data[..info.original_numel].to_vec();
-            let full_tensor = Tensor::from_storage(
-                TensorStorage::cpu(trimmed),
-                info.original_shape.clone(),
-                true, // requires_grad for backward
-            )?;
-            full_params.push(full_tensor);
-        }
-
-        // Phase 2: replace module parameters with full tensors.
         {
-            let params_mut = self.module.parameters_mut();
-            for (param, full) in params_mut.into_iter().zip(full_params.into_iter()) {
+            let params = self.module.parameters_mut();
+            for (i, param) in params.into_iter().enumerate() {
+                let shard = param.tensor().clone();
+                let orig_shape = &self.original_shapes[i];
+
+                // All-gather the shard to get the full parameter.
+                let full = if world_size == 1 {
+                    shard
+                } else {
+                    all_gather(&shard, self.backend.as_ref())?
+                };
+
+                // Reshape to the original parameter shape and enable grad.
+                let full = Tensor::from_storage(
+                    TensorStorage::cpu(full.data_vec()?),
+                    orig_shape.clone(),
+                    true,
+                )?;
+
+                self.full_params.push(full.clone());
+
+                // Install the full parameter into the module for this forward pass.
                 *param = Parameter::new(full);
             }
         }
 
-        // Phase 3: run forward.
         let output = self.module.forward(input)?;
 
-        // Phase 4: re-shard — restore local shard parameters.
-        // We save the current (full) parameter data into local_shards
-        // in case the full params were updated, then restore shards.
-        // Actually, forward doesn't update params, so we just restore
-        // the cached shards.
+        // After forward, restore shard parameters so the module holds only
+        // shards at rest (saves memory).
         self.restore_shards()?;
 
         Ok(output)
     }
 
-    /// Reduce-scatter gradients after backward.
+    /// Replace full parameters with their local shards to free memory.
+    fn restore_shards(&mut self) -> FerrotorchResult<()> {
+        let rank = self.backend.rank();
+        let world_size = self.backend.world_size();
+
+        let params = self.module.parameters_mut();
+        for (i, param) in params.into_iter().enumerate() {
+            let tensor = param.tensor();
+            let data = tensor.data_vec()?;
+            let numel = data.len();
+            let chunk_size = numel / world_size;
+            let start = rank * chunk_size;
+            let end = start + chunk_size;
+            let shard_data = data[start..end].to_vec();
+
+            let shard_tensor = Tensor::from_storage(
+                TensorStorage::cpu(shard_data),
+                vec![chunk_size],
+                true,
+            )?;
+            *param = Parameter::new(shard_tensor);
+
+            // Preserve the original shape metadata.
+            let _ = &self.original_shapes[i];
+        }
+
+        Ok(())
+    }
+
+    /// Reduce-scatter gradients from the full-parameter tensors stored
+    /// during forward, then set each shard parameter's gradient.
     ///
-    /// After `backward()` has been called on the loss, each parameter in
-    /// the module holds a gradient of shape `[shard_numel]` (because that
-    /// is the parameter shape after `restore_shards`). However, the
-    /// autograd graph computed gradients with respect to the full
-    /// parameters that were present during forward. The gradient on the
-    /// sharded parameter tensor is the gradient for the local shard only
-    /// (autograd tracks tensor identity, not shape).
+    /// Call this after `backward()` and before `optimizer.step()`.
     ///
-    /// In the FSDP pattern, we need to:
-    /// 1. All-gather the full parameters again (so backward can flow
-    ///    through them), OR
-    /// 2. Handle gradients at the full-parameter level.
+    /// # How it works
     ///
-    /// Since our forward already ran with full parameters and then
-    /// restored shards, the autograd graph references the full-parameter
-    /// tensors (which still exist in the graph). When `backward()` is
-    /// called, gradients accumulate on those full-parameter tensors.
+    /// 1. For each parameter, read the gradient from the full-param tensor
+    ///    that was used during forward (stored in `self.full_params`).
+    /// 2. Reduce-scatter the full gradient across ranks (mean reduction) so
+    ///    each rank gets only its shard portion.
+    /// 3. Set the shard parameter's `.grad()` to the reduce-scattered result.
     ///
-    /// This method retrieves the full gradients from the current module
-    /// parameters, reduce-scatters them so each rank gets only its
-    /// shard's gradient, and sets that as the parameter's gradient.
-    ///
-    /// **Alternative simpler approach**: Since the module parameters were
-    /// replaced with full tensors during forward (and autograd captured
-    /// those), but then restored to shards, the gradient actually lives
-    /// on the *shard* parameters (the current ones). In this MVP, each
-    /// rank has the full gradient (set by backward on the shard
-    /// parameter), and we reduce-scatter to keep only the shard portion.
-    ///
-    /// In practice, the gradients are set on whichever `Parameter` objects
-    /// are currently in the module. We all-gather them to form a
-    /// consistent full gradient, then reduce-scatter.
+    /// Using reduce-scatter (not allreduce) is correct for FSDP because each
+    /// rank only needs its own shard of the gradient to update its shard of
+    /// the parameter.
     pub fn sync_gradients(&mut self) -> FerrotorchResult<()> {
-        let params = self.module.parameters();
+        let world_size = self.backend.world_size();
+        let params = self.module.parameters_mut();
 
-        for (i, param) in params.iter().enumerate() {
-            let info = &self.shard_infos[i];
-            let grad_opt = param.tensor().grad()?;
+        if self.full_params.len() != params.len() {
+            return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                message: format!(
+                    "FSDP sync_gradients: expected {} full_params but have {}. \
+                     Was forward() called before backward()?",
+                    params.len(),
+                    self.full_params.len(),
+                ),
+            }
+            .into());
+        }
 
-            let grad_data: Vec<T> = match grad_opt {
-                Some(g) => g.data_vec()?,
+        for (i, param) in params.into_iter().enumerate() {
+            let full_param = &self.full_params[i];
+
+            // Read the gradient from the full-parameter tensor. If no
+            // gradient was computed (e.g., parameter was unused in forward),
+            // use zeros so all ranks exchange buffers of the same size.
+            let grad = full_param.grad()?;
+            let full_grad = match grad {
+                Some(g) => g,
                 None => {
-                    // No gradient — use zeros matching shard size.
-                    vec![<T as num_traits::Zero>::zero(); info.shard_numel]
+                    let numel = full_param.numel();
+                    Tensor::from_storage(
+                        TensorStorage::cpu(
+                            vec![<T as num_traits::Zero>::zero(); numel],
+                        ),
+                        full_param.shape().to_vec(),
+                        false,
+                    )?
                 }
             };
 
-            // The gradient is on the shard parameter (shape = [shard_numel]).
-            // All-gather to get all ranks' shard gradients, then each rank
-            // keeps only its own portion (which is what it already has, but
-            // now summed/meaned across ranks).
-            //
-            // Actually, in FSDP the correct operation is:
-            // - During forward, full params were constructed and used.
-            // - Backward produces full gradients on those full param tensors.
-            // - But we re-sharded, so gradients land on shard params.
-            // - Each rank's shard gradient corresponds to the full gradient
-            //   for elements [rank*shard_numel .. (rank+1)*shard_numel].
-            //
-            // For data-parallel (multiple ranks processing different
-            // mini-batches), we need to AVERAGE the gradients across ranks.
-            // Each rank has the gradient for the full parameter (from its own
-            // mini-batch). We need to:
-            // 1. Build the full gradient (pad the shard gradient to full size).
-            // 2. Allreduce (mean) the full gradients.
-            // 3. Keep only our shard's portion.
-            //
-            // This is equivalent to reduce-scatter on the full gradient.
-            //
-            // However, since each rank currently has only a shard-sized
-            // gradient, we need to construct the full gradient first. In the
-            // simplest FSDP implementation:
-            // - All-gather the shard gradients to form the full gradient.
-            // - Mean-reduce across ranks (but all-gather already collects
-            //   all ranks' shard gradients, which are different parts of the
-            //   same full gradient, not duplicates to be averaged).
-            //
-            // In the FULL_SHARD case with data parallelism, the correct
-            // approach:
-            // - Each rank has a gradient for its shard (different elements).
-            // - These are already the correct shard gradients (each rank
-            //   computed its batch's gradient for the full param, but only
-            //   has the shard slice).
-            // - We need to allreduce (mean) each shard gradient across ranks
-            //   so that all ranks' contributions are averaged.
-
-            let shard_grad_tensor = Tensor::from_storage(
+            // Flatten for reduce-scatter.
+            let grad_data = full_grad.data_vec()?;
+            let flat_grad = Tensor::from_storage(
                 TensorStorage::cpu(grad_data),
-                vec![info.shard_numel],
+                vec![full_grad.numel()],
                 false,
             )?;
 
-            // Allreduce the shard gradients (mean) so data-parallel
-            // training gets averaged gradients.
-            let synced = crate::collective::allreduce(
-                &shard_grad_tensor,
-                self.backend.as_ref(),
-                ReduceOp::Mean,
-            )?;
+            // Reduce-scatter: each rank gets its shard of the averaged gradient.
+            let shard_grad = if world_size == 1 {
+                flat_grad
+            } else {
+                reduce_scatter(&flat_grad, self.backend.as_ref(), ReduceOp::Mean)?
+            };
 
-            param.tensor().set_grad(Some(synced))?;
+            // Set the shard parameter's gradient.
+            // Interior mutability: set_grad works on &self via Mutex.
+            param.tensor().set_grad(Some(shard_grad))?;
         }
+
+        // Clear full_params to free memory now that gradients have been read.
+        self.full_params.clear();
 
         Ok(())
     }
 
-    /// Restore local shards into the module parameters.
-    fn restore_shards(&mut self) -> FerrotorchResult<()> {
-        let params_mut = self.module.parameters_mut();
-        for (param, shard) in params_mut.into_iter().zip(self.local_shards.iter()) {
+    /// Update shard parameters from a flat data slice.
+    ///
+    /// This is used by optimizers that produce a flat parameter buffer.
+    /// The slice must have exactly the number of elements expected for
+    /// this rank's shards.
+    pub fn update_shards(&mut self, flat_data: &[T]) -> FerrotorchResult<()> {
+        let params = self.module.parameters_mut();
+        let total_shard_numel: usize = params.iter().map(|p| p.tensor().numel()).sum();
+
+        assert!(
+            flat_data.len() == total_shard_numel,
+            "FSDP update_shards: expected {} elements but got {}",
+            total_shard_numel,
+            flat_data.len(),
+        );
+
+        let mut offset = 0;
+        for param in params {
+            let numel = param.tensor().numel();
+            let shard_data = flat_data[offset..offset + numel].to_vec();
             let shard_tensor = Tensor::from_storage(
-                TensorStorage::cpu(shard.clone()),
-                vec![shard.len()],
-                false,
+                TensorStorage::cpu(shard_data),
+                param.tensor().shape().to_vec(),
+                true,
             )?;
             *param = Parameter::new(shard_tensor);
+            offset += numel;
         }
-        Ok(())
-    }
 
-    /// Update the cached local shards from the current module parameters.
-    ///
-    /// Call this after `optimizer.step()` to persist the updated shard
-    /// values so that subsequent `forward()` calls use the new weights.
-    pub fn update_shards(&mut self) -> FerrotorchResult<()> {
-        let params = self.module.parameters();
-        for (shard, param) in self.local_shards.iter_mut().zip(params.iter()) {
-            let data = param.tensor().data_vec()?;
-            *shard = data;
-        }
         Ok(())
     }
 }
 
-// ---------------------------------------------------------------------------
-// Module trait delegation
-// ---------------------------------------------------------------------------
-
-// We intentionally do NOT implement Module<T> for FSDP directly because
-// the forward pass requires `&mut self` (to all-gather and re-shard).
-// Users should call `fsdp.forward(&input)` directly rather than going
-// through the Module trait.
+// FSDP does NOT implement Module<T> because forward() requires &mut self
+// (to store full_params). Callers must use fsdp.forward() directly.
 
 #[cfg(test)]
 mod tests {
@@ -412,36 +336,31 @@ mod tests {
     use ferrotorch_core::storage::TensorStorage;
     use ferrotorch_core::{FerrotorchResult, Tensor};
     use ferrotorch_nn::Parameter;
-    use std::sync::Arc;
     use std::thread;
 
-    // -----------------------------------------------------------------------
-    // Test module
-    // -----------------------------------------------------------------------
-
-    /// Simple module with one parameter for testing FSDP.
-    struct LinearTestModule<T: Float> {
+    /// Minimal module with one parameter for testing FSDP.
+    struct TestModule<T: Float> {
         weight: Parameter<T>,
         training: bool,
     }
 
-    impl<T: Float> LinearTestModule<T> {
-        fn new(data: &[T], shape: &[usize]) -> FerrotorchResult<Self> {
+    impl<T: Float> TestModule<T> {
+        fn new(data: &[T]) -> FerrotorchResult<Self> {
             Ok(Self {
-                weight: Parameter::from_slice(data, shape)?,
+                weight: Parameter::from_slice(data, &[data.len()])?,
                 training: true,
             })
         }
     }
 
-    impl<T: Float> Module<T> for LinearTestModule<T> {
+    impl<T: Float> Module<T> for TestModule<T> {
         fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-            // Simple: return input * weight[0] (scalar multiply by first element).
-            // This is just to verify the forward works with full params.
+            // Simple forward: multiply input by weight sum (produces a scalar
+            // that depends on all weight elements).
             let w_data = self.weight.tensor().data_vec()?;
-            let scale = w_data[0];
-            let in_data = input.data_vec()?;
-            let out: Vec<T> = in_data.iter().map(|&x| x * scale).collect();
+            let w_sum: T = w_data.iter().copied().fold(<T as num_traits::Zero>::zero(), |a, b| a + b);
+            let i_data = input.data_vec()?;
+            let out: Vec<T> = i_data.iter().map(|&x| x * w_sum).collect();
             Tensor::from_storage(
                 TensorStorage::cpu(out),
                 input.shape().to_vec(),
@@ -474,107 +393,10 @@ mod tests {
         }
     }
 
-    /// Module with two parameters for testing multi-parameter sharding.
-    struct TwoParamModule<T: Float> {
-        weight: Parameter<T>,
-        bias: Parameter<T>,
-        training: bool,
-    }
-
-    impl<T: Float> TwoParamModule<T> {
-        fn new(w: &[T], b: &[T]) -> FerrotorchResult<Self> {
-            Ok(Self {
-                weight: Parameter::from_slice(w, &[w.len()])?,
-                bias: Parameter::from_slice(b, &[b.len()])?,
-                training: true,
-            })
-        }
-    }
-
-    impl<T: Float> Module<T> for TwoParamModule<T> {
-        fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-            Ok(input.clone())
-        }
-
-        fn parameters(&self) -> Vec<&Parameter<T>> {
-            vec![&self.weight, &self.bias]
-        }
-
-        fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-            vec![&mut self.weight, &mut self.bias]
-        }
-
-        fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-            vec![
-                ("weight".into(), &self.weight),
-                ("bias".into(), &self.bias),
-            ]
-        }
-
-        fn train(&mut self) {
-            self.training = true;
-        }
-
-        fn eval(&mut self) {
-            self.training = false;
-        }
-
-        fn is_training(&self) -> bool {
-            self.training
-        }
-    }
-
-    /// Module with no parameters (edge case).
-    struct EmptyModule {
-        training: bool,
-    }
-
-    impl EmptyModule {
-        fn new() -> Self {
-            Self { training: true }
-        }
-    }
-
-    impl<T: Float> Module<T> for EmptyModule {
-        fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-            Ok(input.clone())
-        }
-
-        fn parameters(&self) -> Vec<&Parameter<T>> {
-            vec![]
-        }
-
-        fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-            vec![]
-        }
-
-        fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-            vec![]
-        }
-
-        fn train(&mut self) {
-            self.training = true;
-        }
-
-        fn eval(&mut self) {
-            self.training = false;
-        }
-
-        fn is_training(&self) -> bool {
-            self.training
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Tests
-    // -----------------------------------------------------------------------
-
     #[test]
-    fn test_fsdp_2_rank_sharding() {
-        // Parameter has 6 elements. With 2 ranks, each stores 3.
-        // Full param: [1, 2, 3, 4, 5, 6]
-        // Rank 0 shard: [1, 2, 3]
-        // Rank 1 shard: [4, 5, 6]
+    fn test_fsdp_sharding() {
+        // 2 ranks, parameter [10, 20, 30, 40].
+        // Rank 0 gets [10, 20], Rank 1 gets [30, 40].
         let group = SimulatedBackend::create_group(2).unwrap();
         let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
 
@@ -582,41 +404,30 @@ mod tests {
             .iter()
             .cloned()
             .map(|b| {
-                thread::spawn(move || -> FerrotorchResult<(usize, Vec<f32>)> {
+                thread::spawn(move || {
                     let rank = b.rank();
-                    let model = LinearTestModule::<f32>::new(
-                        &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-                        &[6],
-                    )?;
-                    let fsdp = FSDP::new(model, b as Arc<dyn Backend>, 2, rank)?;
+                    let model = TestModule::<f32>::new(&[10.0, 20.0, 30.0, 40.0]).unwrap();
+                    let fsdp = FSDP::new(model, b).unwrap();
 
-                    let shard_data = fsdp
-                        .module()
-                        .parameters()[0]
-                        .tensor()
-                        .data_vec()?;
-                    Ok((rank, shard_data))
+                    let shard = fsdp.module().weight.tensor().data_vec().unwrap();
+                    (rank, shard)
                 })
             })
             .collect();
 
         for h in handles {
-            let (rank, shard_data) = h.join().unwrap().unwrap();
-            assert_eq!(shard_data.len(), 3, "rank {rank} should have 3 elements");
+            let (rank, shard) = h.join().unwrap();
             if rank == 0 {
-                assert_eq!(shard_data, &[1.0, 2.0, 3.0]);
+                assert_eq!(shard, &[10.0, 20.0]);
             } else {
-                assert_eq!(shard_data, &[4.0, 5.0, 6.0]);
+                assert_eq!(shard, &[30.0, 40.0]);
             }
         }
     }
 
     #[test]
-    fn test_fsdp_uneven_sharding() {
-        // Parameter has 5 elements, 2 ranks.
-        // shard_numel = ceil(5/2) = 3.
-        // Padded total = 6 (1 padding zero).
-        // Rank 0: [1, 2, 3], Rank 1: [4, 5, 0(pad)]
+    fn test_fsdp_shard_requires_grad() {
+        // Shard parameters must have requires_grad=true.
         let group = SimulatedBackend::create_group(2).unwrap();
         let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
 
@@ -624,79 +435,22 @@ mod tests {
             .iter()
             .cloned()
             .map(|b| {
-                thread::spawn(move || -> FerrotorchResult<(usize, Vec<f32>)> {
-                    let rank = b.rank();
-                    let model = LinearTestModule::<f32>::new(
-                        &[1.0, 2.0, 3.0, 4.0, 5.0],
-                        &[5],
-                    )?;
-                    let fsdp = FSDP::new(model, b as Arc<dyn Backend>, 2, rank)?;
-
-                    let shard_data = fsdp
-                        .module()
-                        .parameters()[0]
-                        .tensor()
-                        .data_vec()?;
-                    Ok((rank, shard_data))
+                thread::spawn(move || {
+                    let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
+                    let fsdp = FSDP::new(model, b).unwrap();
+                    fsdp.module().weight.tensor().requires_grad()
                 })
             })
             .collect();
 
         for h in handles {
-            let (rank, shard_data) = h.join().unwrap().unwrap();
-            assert_eq!(shard_data.len(), 3, "rank {rank} should have 3 elements");
-            if rank == 0 {
-                assert_eq!(shard_data, &[1.0, 2.0, 3.0]);
-            } else {
-                // Last element is padding zero.
-                assert_eq!(shard_data, &[4.0, 5.0, 0.0]);
-            }
-        }
-    }
-
-    #[test]
-    fn test_fsdp_forward_produces_correct_output() {
-        // LinearTestModule multiplies input by weight[0].
-        // Full weight: [3.0, 6.0, 9.0, 12.0] (4 elements, 2 ranks).
-        // Rank 0 shard: [3.0, 6.0], Rank 1 shard: [9.0, 12.0].
-        // After all-gather, full weight = [3.0, 6.0, 9.0, 12.0], weight[0] = 3.0.
-        // Input [2.0] -> output [6.0].
-        let group = SimulatedBackend::create_group(2).unwrap();
-        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
-
-        let handles: Vec<_> = arcs
-            .iter()
-            .cloned()
-            .map(|b| {
-                thread::spawn(move || -> FerrotorchResult<Vec<f32>> {
-                    let rank = b.rank();
-                    let model = LinearTestModule::<f32>::new(
-                        &[3.0, 6.0, 9.0, 12.0],
-                        &[4],
-                    )?;
-                    let mut fsdp = FSDP::new(model, b as Arc<dyn Backend>, 2, rank)?;
-
-                    let input = ferrotorch_core::from_slice(&[2.0f32], &[1])?;
-                    let output = fsdp.forward(&input)?;
-                    output.data_vec()
-                })
-            })
-            .collect();
-
-        for h in handles {
-            let output = h.join().unwrap().unwrap();
-            assert_eq!(output.len(), 1);
-            assert!(
-                (output[0] - 6.0).abs() < 1e-6,
-                "expected 6.0, got {}",
-                output[0]
-            );
+            assert!(h.join().unwrap(), "shard must have requires_grad=true");
         }
     }
 
     #[test]
     fn test_fsdp_forward_restores_shards() {
-        // After forward, parameters should be back in sharded form.
+        // After forward(), parameters should be back to shard size.
         let group = SimulatedBackend::create_group(2).unwrap();
         let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
 
@@ -704,72 +458,30 @@ mod tests {
             .iter()
             .cloned()
             .map(|b| {
-                thread::spawn(move || -> FerrotorchResult<(usize, Vec<f32>)> {
-                    let rank = b.rank();
-                    let model = LinearTestModule::<f32>::new(
-                        &[10.0, 20.0, 30.0, 40.0],
-                        &[4],
-                    )?;
-                    let mut fsdp = FSDP::new(model, b as Arc<dyn Backend>, 2, rank)?;
+                thread::spawn(move || {
+                    let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
+                    let mut fsdp = FSDP::new(model, b).unwrap();
 
-                    let input = ferrotorch_core::from_slice(&[1.0f32], &[1])?;
-                    let _ = fsdp.forward(&input)?;
+                    let input = ferrotorch_core::from_slice(&[1.0f32], &[1]).unwrap();
+                    let _output = fsdp.forward(&input).unwrap();
 
-                    // Parameters should be back to shard form.
-                    let shard_data = fsdp
-                        .module()
-                        .parameters()[0]
-                        .tensor()
-                        .data_vec()?;
-                    Ok((rank, shard_data))
+                    // After forward, shard should be size 2 (4 / 2 ranks).
+                    let shard = fsdp.module().weight.tensor();
+                    assert_eq!(shard.numel(), 2);
+                    assert!(shard.requires_grad());
                 })
             })
             .collect();
 
         for h in handles {
-            let (rank, shard_data) = h.join().unwrap().unwrap();
-            assert_eq!(shard_data.len(), 2);
-            if rank == 0 {
-                assert_eq!(shard_data, &[10.0, 20.0]);
-            } else {
-                assert_eq!(shard_data, &[30.0, 40.0]);
-            }
+            h.join().unwrap();
         }
     }
 
     #[test]
-    fn test_fsdp_parameter_count_sharded() {
-        // 6-element parameter, 3 ranks -> each rank has 2 elements.
-        let group = SimulatedBackend::create_group(3).unwrap();
-        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
-
-        let handles: Vec<_> = arcs
-            .iter()
-            .cloned()
-            .map(|b| {
-                thread::spawn(move || -> FerrotorchResult<usize> {
-                    let rank = b.rank();
-                    let model = LinearTestModule::<f32>::new(
-                        &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-                        &[6],
-                    )?;
-                    let fsdp = FSDP::new(model, b as Arc<dyn Backend>, 3, rank)?;
-                    Ok(fsdp.local_numel())
-                })
-            })
-            .collect();
-
-        for h in handles {
-            let local_numel = h.join().unwrap().unwrap();
-            assert_eq!(local_numel, 2, "each rank should store 2 elements");
-        }
-    }
-
-    #[test]
-    fn test_fsdp_multi_param_sharding() {
-        // Two parameters: weight=[1,2,3,4], bias=[10,20].
-        // 2 ranks.
-        // weight shard_numel = 2, bias shard_numel = 1.
+    fn test_fsdp_forward_produces_correct_output() {
+        // 2 ranks, param [1, 2, 3, 4], weight_sum = 10.
+        // Input [2.0] -> output should be [20.0] on all ranks.
         let group = SimulatedBackend::create_group(2).unwrap();
         let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
 
@@ -777,295 +489,133 @@ mod tests {
             .iter()
             .cloned()
             .map(|b| {
-                thread::spawn(move || -> FerrotorchResult<(usize, Vec<Vec<f32>>)> {
-                    let rank = b.rank();
-                    let model = TwoParamModule::<f32>::new(
-                        &[1.0, 2.0, 3.0, 4.0],
-                        &[10.0, 20.0],
-                    )?;
-                    let fsdp = FSDP::new(model, b as Arc<dyn Backend>, 2, rank)?;
+                thread::spawn(move || {
+                    let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
+                    let mut fsdp = FSDP::new(model, b).unwrap();
 
-                    let params = fsdp.module().parameters();
-                    let shards: Vec<Vec<f32>> = params
-                        .iter()
-                        .map(|p| p.tensor().data_vec().unwrap())
-                        .collect();
-                    Ok((rank, shards))
+                    let input = ferrotorch_core::from_slice(&[2.0f32], &[1]).unwrap();
+                    let output = fsdp.forward(&input).unwrap();
+                    let data = output.data_vec().unwrap();
+                    assert!(
+                        (data[0] - 20.0).abs() < 1e-6,
+                        "expected 20.0, got {}",
+                        data[0]
+                    );
                 })
             })
             .collect();
 
         for h in handles {
-            let (rank, shards) = h.join().unwrap().unwrap();
-            assert_eq!(shards.len(), 2);
-
-            if rank == 0 {
-                assert_eq!(shards[0], &[1.0, 2.0]); // weight shard 0
-                assert_eq!(shards[1], &[10.0]);      // bias shard 0
-            } else {
-                assert_eq!(shards[0], &[3.0, 4.0]); // weight shard 1
-                assert_eq!(shards[1], &[20.0]);      // bias shard 1
-            }
+            h.join().unwrap();
         }
-    }
-
-    #[test]
-    fn test_fsdp_single_rank() {
-        // Single rank: the entire parameter stays as-is (no sharding needed).
-        let group = SimulatedBackend::create_group(1).unwrap();
-        let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
-
-        let model = LinearTestModule::<f32>::new(&[5.0, 10.0, 15.0], &[3]).unwrap();
-        let mut fsdp = FSDP::new(model, b, 1, 0).unwrap();
-
-        // Shard should be the entire parameter.
-        let shard = fsdp.module().parameters()[0].tensor().data_vec().unwrap();
-        assert_eq!(shard, &[5.0, 10.0, 15.0]);
-        assert_eq!(fsdp.local_numel(), 3);
-
-        // Forward should work fine.
-        let input = ferrotorch_core::from_slice(&[2.0f32], &[1]).unwrap();
-        let output = fsdp.forward(&input).unwrap();
-        let out_data = output.data_vec().unwrap();
-        assert!((out_data[0] - 10.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_fsdp_empty_module() {
-        // Module with no parameters should not crash.
-        let group = SimulatedBackend::create_group(2).unwrap();
-        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
-
-        let handles: Vec<_> = arcs
-            .iter()
-            .cloned()
-            .map(|b| {
-                thread::spawn(move || -> FerrotorchResult<Vec<f32>> {
-                    let rank = b.rank();
-                    let model = EmptyModule::new();
-                    let mut fsdp = FSDP::<EmptyModule, f32>::new(
-                        model,
-                        b as Arc<dyn Backend>,
-                        2,
-                        rank,
-                    )?;
-
-                    assert_eq!(fsdp.local_numel(), 0);
-
-                    let input = ferrotorch_core::from_slice(&[42.0f32], &[1])?;
-                    let output = fsdp.forward(&input)?;
-                    output.data_vec()
-                })
-            })
-            .collect();
-
-        for h in handles {
-            let data = h.join().unwrap().unwrap();
-            assert_eq!(data, &[42.0]);
-        }
-    }
-
-    #[test]
-    fn test_fsdp_invalid_rank() {
-        let group = SimulatedBackend::create_group(2).unwrap();
-        let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
-        let model = LinearTestModule::<f32>::new(&[1.0], &[1]).unwrap();
-
-        // rank >= world_size should fail.
-        let result = FSDP::new(model, b, 2, 5);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_fsdp_invalid_world_size() {
-        let group = SimulatedBackend::create_group(1).unwrap();
-        let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
-        let model = LinearTestModule::<f32>::new(&[1.0], &[1]).unwrap();
-
-        // world_size = 0 should fail.
-        let result = FSDP::new(model, b, 0, 0);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_fsdp_gradients_sharded() {
-        // 2 ranks, parameter [1,2,3,4].
-        // Each rank has shard of size 2.
-        // Set gradient to [10, 20] on rank 0, [30, 40] on rank 1.
-        // After sync_gradients (mean), rank 0 should have mean([10,20], [30,40])
-        // = [20, 30], rank 1 should have mean([30,40], [10,20]) = [20, 30].
-        //
-        // Wait — allreduce(mean) of the shard gradients:
-        // Rank 0 grad = [10, 20], Rank 1 grad = [30, 40].
-        // Mean = [(10+30)/2, (20+40)/2] = [20, 30].
-        // Both ranks get [20, 30].
-        let group = SimulatedBackend::create_group(2).unwrap();
-        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
-
-        let handles: Vec<_> = arcs
-            .iter()
-            .cloned()
-            .map(|b| {
-                thread::spawn(move || -> FerrotorchResult<(usize, Vec<f32>)> {
-                    let rank = b.rank();
-                    let model = LinearTestModule::<f32>::new(
-                        &[1.0, 2.0, 3.0, 4.0],
-                        &[4],
-                    )?;
-                    let mut fsdp = FSDP::new(model, b as Arc<dyn Backend>, 2, rank)?;
-
-                    // Set a gradient on the shard parameter.
-                    let grad_vals: Vec<f32> = if rank == 0 {
-                        vec![10.0, 20.0]
-                    } else {
-                        vec![30.0, 40.0]
-                    };
-                    let grad = Tensor::from_storage(
-                        TensorStorage::cpu(grad_vals),
-                        vec![2],
-                        false,
-                    )?;
-                    fsdp.module()
-                        .parameters()[0]
-                        .tensor()
-                        .set_grad(Some(grad))?;
-
-                    fsdp.sync_gradients()?;
-
-                    let synced_grad = fsdp
-                        .module()
-                        .parameters()[0]
-                        .tensor()
-                        .grad()?
-                        .unwrap();
-                    let data = synced_grad.data_vec()?;
-                    Ok((rank, data))
-                })
-            })
-            .collect();
-
-        for h in handles {
-            let (rank, grad_data) = h.join().unwrap().unwrap();
-            assert_eq!(grad_data.len(), 2, "rank {rank}");
-            assert!(
-                (grad_data[0] - 20.0).abs() < 1e-5,
-                "rank {rank}: expected 20.0, got {}",
-                grad_data[0]
-            );
-            assert!(
-                (grad_data[1] - 30.0).abs() < 1e-5,
-                "rank {rank}: expected 30.0, got {}",
-                grad_data[1]
-            );
-        }
-    }
-
-    #[test]
-    fn test_fsdp_gradients_no_grad_uses_zeros() {
-        // If a parameter has no gradient, sync_gradients should use zeros.
-        // 2 ranks, parameter [1,2,3,4], shard_numel=2.
-        // Rank 0: grad=[5,10], Rank 1: no grad -> [0,0].
-        // Mean = [(5+0)/2, (10+0)/2] = [2.5, 5.0].
-        let group = SimulatedBackend::create_group(2).unwrap();
-        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
-
-        let handles: Vec<_> = arcs
-            .iter()
-            .cloned()
-            .map(|b| {
-                thread::spawn(move || -> FerrotorchResult<(usize, Vec<f32>)> {
-                    let rank = b.rank();
-                    let model = LinearTestModule::<f32>::new(
-                        &[1.0, 2.0, 3.0, 4.0],
-                        &[4],
-                    )?;
-                    let mut fsdp = FSDP::new(model, b as Arc<dyn Backend>, 2, rank)?;
-
-                    // Only rank 0 sets a gradient.
-                    if rank == 0 {
-                        let grad = Tensor::from_storage(
-                            TensorStorage::cpu(vec![5.0f32, 10.0]),
-                            vec![2],
-                            false,
-                        )?;
-                        fsdp.module()
-                            .parameters()[0]
-                            .tensor()
-                            .set_grad(Some(grad))?;
-                    }
-
-                    fsdp.sync_gradients()?;
-
-                    let synced_grad = fsdp
-                        .module()
-                        .parameters()[0]
-                        .tensor()
-                        .grad()?
-                        .unwrap();
-                    let data = synced_grad.data_vec()?;
-                    Ok((rank, data))
-                })
-            })
-            .collect();
-
-        for h in handles {
-            let (rank, grad_data) = h.join().unwrap().unwrap();
-            assert_eq!(grad_data.len(), 2, "rank {rank}");
-            assert!(
-                (grad_data[0] - 2.5).abs() < 1e-5,
-                "rank {rank}: expected 2.5, got {}",
-                grad_data[0]
-            );
-            assert!(
-                (grad_data[1] - 5.0).abs() < 1e-5,
-                "rank {rank}: expected 5.0, got {}",
-                grad_data[1]
-            );
-        }
-    }
-
-    #[test]
-    fn test_fsdp_shard_sizes() {
-        let group = SimulatedBackend::create_group(1).unwrap();
-        let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
-
-        let model = TwoParamModule::<f32>::new(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-            &[10.0, 20.0, 30.0],
-        )
-        .unwrap();
-
-        let fsdp = FSDP::new(model, b, 1, 0).unwrap();
-        let sizes = fsdp.shard_sizes();
-        assert_eq!(sizes, &[6, 3]);
-        assert_eq!(fsdp.local_numel(), 9);
     }
 
     #[test]
     fn test_fsdp_update_shards() {
-        // Verify that update_shards captures new parameter values.
         let group = SimulatedBackend::create_group(1).unwrap();
         let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
+        let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
+        let mut fsdp = FSDP::new(model, b).unwrap();
 
-        let model = LinearTestModule::<f32>::new(&[2.0, 4.0], &[2]).unwrap();
-        let mut fsdp = FSDP::new(model, b, 1, 0).unwrap();
+        fsdp.update_shards(&[10.0, 20.0, 30.0, 40.0]).unwrap();
+        let data = fsdp.module().weight.tensor().data_vec().unwrap();
+        assert_eq!(data, &[10.0, 20.0, 30.0, 40.0]);
+    }
 
-        // Manually change the parameter data.
-        let new_data = Tensor::from_storage(
-            TensorStorage::cpu(vec![99.0f32, 100.0]),
-            vec![2],
+    #[test]
+    #[should_panic(expected = "expected 4 elements but got 2")]
+    fn test_fsdp_update_shards_size_validation() {
+        let group = SimulatedBackend::create_group(1).unwrap();
+        let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
+        let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
+        let mut fsdp = FSDP::new(model, b).unwrap();
+
+        // Wrong size: should panic.
+        fsdp.update_shards(&[10.0, 20.0]).unwrap();
+    }
+
+    #[test]
+    fn test_fsdp_sync_gradients_single_rank() {
+        // Single rank: sync_gradients should pass through the gradient
+        // from the full param to the shard param.
+        let group = SimulatedBackend::create_group(1).unwrap();
+        let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
+        let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
+        let mut fsdp = FSDP::new(model, b).unwrap();
+
+        // Run forward to populate full_params.
+        let input = ferrotorch_core::from_slice(&[1.0f32], &[1]).unwrap();
+        let _output = fsdp.forward(&input).unwrap();
+
+        // Manually set gradient on full_params (simulating backward).
+        let grad = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.1f32, 0.2, 0.3, 0.4]),
+            vec![4],
             false,
         )
         .unwrap();
-        fsdp.module_mut().parameters_mut()[0].set_data(new_data);
+        fsdp.full_params[0].set_grad(Some(grad)).unwrap();
 
-        // Update cached shards.
-        fsdp.update_shards().unwrap();
+        fsdp.sync_gradients().unwrap();
 
-        // Forward should now use the new data (weight[0] = 99.0).
-        let input = ferrotorch_core::from_slice(&[1.0f32], &[1]).unwrap();
-        let output = fsdp.forward(&input).unwrap();
-        let out_data = output.data_vec().unwrap();
-        assert!((out_data[0] - 99.0).abs() < 1e-5);
+        // Shard param should now have the full gradient (single rank = no scatter).
+        let shard_grad = fsdp.module().weight.tensor().grad().unwrap().unwrap();
+        let data = shard_grad.data_vec().unwrap();
+        assert_eq!(data, &[0.1, 0.2, 0.3, 0.4]);
+    }
+
+    #[test]
+    fn test_fsdp_sync_gradients_multi_rank() {
+        // 2 ranks, param size 4 -> shard size 2.
+        // Both ranks set identical gradients on full_params: [1, 2, 3, 4].
+        // reduce_scatter(mean) on [1,2,3,4] -> rank 0 gets [1,2], rank 1 gets [3,4].
+        let group = SimulatedBackend::create_group(2).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let rank = b.rank();
+                    let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
+                    let mut fsdp = FSDP::new(model, b).unwrap();
+
+                    // Run forward.
+                    let input = ferrotorch_core::from_slice(&[1.0f32], &[1]).unwrap();
+                    let _output = fsdp.forward(&input).unwrap();
+
+                    // Set gradient on full_params.
+                    let grad = Tensor::from_storage(
+                        TensorStorage::cpu(vec![1.0f32, 2.0, 3.0, 4.0]),
+                        vec![4],
+                        false,
+                    )
+                    .unwrap();
+                    fsdp.full_params[0].set_grad(Some(grad)).unwrap();
+
+                    fsdp.sync_gradients().unwrap();
+
+                    let shard_grad = fsdp.module().weight.tensor().grad().unwrap().unwrap();
+                    let data = shard_grad.data_vec().unwrap();
+                    (rank, data)
+                })
+            })
+            .collect();
+
+        for h in handles {
+            let (rank, data) = h.join().unwrap();
+            if rank == 0 {
+                // Mean of [1,2] from both ranks = [1,2].
+                assert_eq!(data.len(), 2);
+                assert!((data[0] - 1.0).abs() < 1e-6, "rank 0: expected 1.0, got {}", data[0]);
+                assert!((data[1] - 2.0).abs() < 1e-6, "rank 0: expected 2.0, got {}", data[1]);
+            } else {
+                // Mean of [3,4] from both ranks = [3,4].
+                assert_eq!(data.len(), 2);
+                assert!((data[0] - 3.0).abs() < 1e-6, "rank 1: expected 3.0, got {}", data[0]);
+                assert!((data[1] - 4.0).abs() < 1e-6, "rank 1: expected 4.0, got {}", data[1]);
+            }
+        }
     }
 }
