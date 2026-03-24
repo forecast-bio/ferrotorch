@@ -18,6 +18,16 @@
 //!   shards parameters across ranks, all-gathering during forward and
 //!   reduce-scattering gradients during backward.
 //!
+//! - **RPC** ([`rpc`]) — Remote Procedure Call framework with
+//!   [`RpcContext`](rpc::RpcContext) for invoking functions on remote ranks,
+//!   and [`RRef`](rpc::RRef) for holding references to remote data.
+//!
+//! - **Pipeline parallelism** ([`pipeline`]) —
+//!   [`Pipeline`](pipeline::Pipeline) splits a model into sequential stages
+//!   and processes microbatches through them. Supports
+//!   [`GPipe`](pipeline::PipelineSchedule::GPipe) and
+//!   [`Interleaved1F1B`](pipeline::PipelineSchedule::Interleaved1F1B) schedules.
+//!
 //! - **GPU collectives** ([`gpu_collective`], requires `gpu` feature) —
 //!   [`gpu_allreduce`](gpu_collective::gpu_allreduce) and
 //!   [`gpu_broadcast`](gpu_collective::gpu_broadcast) transfer GPU tensors
@@ -31,6 +41,8 @@
 //! use ferrotorch_distributed::collective::{allreduce, ReduceOp};
 //! use ferrotorch_distributed::ddp::DDP;
 //! use ferrotorch_distributed::fsdp::FSDP;
+//! use ferrotorch_distributed::rpc::{RpcContext, SimulatedRpcBackend};
+//! use ferrotorch_distributed::pipeline::{Pipeline, PipelineStage, PipelineSchedule};
 //! ```
 
 pub mod backend;
@@ -38,6 +50,8 @@ pub mod collective;
 pub mod ddp;
 pub mod error;
 pub mod fsdp;
+pub mod pipeline;
+pub mod rpc;
 
 #[cfg(feature = "gpu")]
 pub mod gpu_collective;
@@ -51,6 +65,8 @@ pub use collective::{
 pub use ddp::DDP;
 pub use error::DistributedError;
 pub use fsdp::FSDP;
+pub use pipeline::{Pipeline, PipelineActivations, PipelineSchedule, PipelineStage};
+pub use rpc::{RRef, RpcBackend, RpcContext, RpcError, RpcFuture, SimulatedRpcBackend, TcpRpcBackend};
 
 #[cfg(feature = "gpu")]
 pub use gpu_collective::{gpu_allreduce, gpu_broadcast};
