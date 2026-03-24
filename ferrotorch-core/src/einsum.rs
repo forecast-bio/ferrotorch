@@ -1202,9 +1202,10 @@ mod tests {
 
     #[test]
     fn test_einsum_differentiable_fires_autocast_guard() {
-        use crate::autograd::autocast::{autocast, AutocastDtype};
+        use crate::autograd::autocast::{autocast, set_autocast_debug, AutocastDtype};
         use crate::autograd::autocast_ops::{drain_autocast_events, AutocastCategory};
 
+        set_autocast_debug(true);
         let a = t(&[1.0, 2.0, 3.0, 4.0], &[2, 2]);
         let b = t(&[5.0, 6.0, 7.0, 8.0], &[2, 2]);
 
@@ -1219,7 +1220,7 @@ mod tests {
             let _ = einsum_differentiable("ij,jk->ik", &[&a, &b]).unwrap();
             let events = drain_autocast_events();
             assert_eq!(events.len(), 1);
-            assert_eq!(events[0].op_name, "einsum");
+            assert_eq!(events[0].op, "einsum");
             assert_eq!(events[0].category, AutocastCategory::ReducedPrecision);
         });
     }

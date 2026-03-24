@@ -29,6 +29,12 @@ pub enum DistributedError {
 
     #[error("unsupported reduce operation: {message}")]
     UnsupportedOp { message: String },
+
+    #[error("operation timed out after {seconds}s")]
+    Timeout { seconds: u64 },
+
+    #[error("no connection to rank {rank} (star topology: non-zero ranks only connect to rank 0)")]
+    NoConnection { rank: usize },
 }
 
 impl From<DistributedError> for FerrotorchError {

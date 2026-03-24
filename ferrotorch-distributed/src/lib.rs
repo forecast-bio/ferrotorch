@@ -36,7 +36,7 @@ pub mod gpu_collective;
 
 // Re-export key types at crate root for convenience.
 pub use backend::{Backend, SimulatedBackend, TcpBackend};
-pub use collective::{allreduce, barrier, broadcast, ReduceOp};
+pub use collective::{allreduce, allreduce_with_timeout, barrier, broadcast, ReduceOp, DEFAULT_COLLECTIVE_TIMEOUT};
 pub use ddp::DDP;
 pub use error::DistributedError;
 

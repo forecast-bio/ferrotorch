@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use ferrotorch_core::autograd::autocast_ops::autocast_guard;
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
 use ferrotorch_core::ops::linalg::{mm, transpose};
 use ferrotorch_core::storage::TensorStorage;
@@ -250,6 +251,9 @@ impl<T: Float> Conv2d<T> {
 
 impl<T: Float> Module<T> for Conv2d<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        // Record autocast decision for conv2d.
+        let _autocast_cat = autocast_guard("conv2d");
+
         // Validate input shape: [B, C_in, H, W].
         if input.ndim() != 4 {
             return Err(FerrotorchError::InvalidArgument {
@@ -718,6 +722,9 @@ impl<T: Float> Conv1d<T> {
 
 impl<T: Float> Module<T> for Conv1d<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        // Record autocast decision for conv1d.
+        let _autocast_cat = autocast_guard("conv1d");
+
         // Validate input shape: [B, C_in, L].
         if input.ndim() != 3 {
             return Err(FerrotorchError::InvalidArgument {
@@ -1236,6 +1243,9 @@ fn flip_kernel<T: Float>(
 
 impl<T: Float> Module<T> for ConvTranspose2d<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        // Record autocast decision for conv_transpose2d.
+        let _autocast_cat = autocast_guard("conv_transpose2d");
+
         // Validate input shape: [B, C_in, H, W].
         if input.ndim() != 4 {
             return Err(FerrotorchError::InvalidArgument {

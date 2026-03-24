@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.3] - 2026-03-17
 
 ### Fixed
+- QA review: audit all Tier 2 changes for bugs, lazy shortcuts, and correctness issues (#274)
 - QA review: audit all Tier 1 changes for lazy shortcuts, bugs, and correctness issues (#266)
 - Fix shape ops breaking GPU autograd — upload to device before from_operation, not after (#247)
 - Fix Conv2d, Conv1d, and all pooling layers to work on GPU (#221)

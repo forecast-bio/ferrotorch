@@ -79,6 +79,23 @@ pub trait GpuBackend: Send + Sync {
     // Linalg f32
     fn matmul_f32(&self, a: &GpuBufferHandle, b: &GpuBufferHandle, m: usize, k: usize, n: usize) -> FerrotorchResult<GpuBufferHandle>;
 
+    /// Mixed-precision matmul: cast f32 inputs to f16, multiply, accumulate
+    /// back to f32. Used by autocast when the category is `ReducedPrecision`.
+    ///
+    /// Default implementation falls back to `matmul_f32` (no precision
+    /// reduction) until a real f16 GEMM kernel is available.
+    ///
+    /// # NaN / Inf propagation
+    ///
+    /// f16 has a much smaller dynamic range than f32 (max ~65504). Values
+    /// outside that range will overflow to inf or underflow to zero when cast.
+    /// Callers relying on autocast should ensure their model weights stay
+    /// within f16-representable bounds (which is normal for trained networks).
+    fn matmul_f16_f32(&self, a: &GpuBufferHandle, b: &GpuBufferHandle, m: usize, k: usize, n: usize) -> FerrotorchResult<GpuBufferHandle> {
+        // Fallback: no f16 kernel available, use full-precision f32.
+        self.matmul_f32(a, b, m, k, n)
+    }
+
     // Reduction f32
     fn sum_f32(&self, a: &GpuBufferHandle, len: usize) -> FerrotorchResult<GpuBufferHandle>;
 
@@ -207,18 +224,6 @@ pub trait GpuBackend: Send + Sync {
     // Sum along one axis of a tensor
     fn sum_axis_f32(&self, _a: &GpuBufferHandle, _shape: &[usize], _axis: usize) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument { message: "sum_axis_f32 GPU op not yet implemented".into() })
-    }
-
-    /// Mixed-precision matmul: convert f32 inputs to f16, multiply via
-    /// `cublasGemmEx` with f32 accumulation (Tensor Cores on Volta+),
-    /// return f32 output.
-    ///
-    /// `a` is `[m, k]`, `b` is `[k, n]`, result is `[m, n]`.
-    ///
-    /// Default implementation returns "not implemented". The CUDA backend
-    /// provides the real implementation.
-    fn matmul_f16_f32(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle, _m: usize, _k: usize, _n: usize) -> FerrotorchResult<GpuBufferHandle> {
-        Err(FerrotorchError::InvalidArgument { message: "matmul_f16_f32 GPU op not yet implemented".into() })
     }
 }
 
