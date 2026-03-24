@@ -9,8 +9,8 @@ pub mod no_grad;
 
 pub use autocast::{autocast, autocast_dtype, is_autocast_enabled, AutocastDtype};
 pub use autocast_ops::{
-    autocast_category, autocast_log, should_cast_to_reduced, should_keep_full_precision,
-    AutocastCategory,
+    autocast_category, autocast_guard, autocast_log, drain_autocast_events,
+    should_cast_to_reduced, should_keep_full_precision, AutocastCategory, AutocastEvent,
 };
 pub use fixed_point::fixed_point;
 pub use grad_penalty::{grad_norm, gradient_penalty, jvp, vjp};

@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 
+use ferrotorch_core::autograd::autocast_ops::autocast_guard;
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
 use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 use ferrotorch_core::ops::elementwise::{binary_map, mean, sum, unary_map};
@@ -50,11 +51,16 @@ impl MSELoss {
         Self { reduction }
     }
 
+    /// Compute MSE loss.
+    ///
+    /// Participates in autocast: classified as `FullPrecision` (`"mse_loss"`).
     pub fn forward<T: Float>(
         &self,
         pred: &Tensor<T>,
         target: &Tensor<T>,
     ) -> FerrotorchResult<Tensor<T>> {
+        autocast_guard("mse_loss");
+
         if pred.shape() != target.shape() {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
@@ -190,11 +196,16 @@ impl CrossEntropyLoss {
         }
     }
 
+    /// Compute cross-entropy loss.
+    ///
+    /// Participates in autocast: classified as `FullPrecision` (`"cross_entropy"`).
     pub fn forward<T: Float>(
         &self,
         logits: &Tensor<T>,
         targets: &Tensor<T>,
     ) -> FerrotorchResult<Tensor<T>> {
+        autocast_guard("cross_entropy");
+
         let shape = logits.shape();
         if shape.len() != 2 {
             return Err(FerrotorchError::InvalidArgument {
@@ -400,11 +411,16 @@ impl BCEWithLogitsLoss {
         Self { reduction }
     }
 
+    /// Compute BCE with logits loss.
+    ///
+    /// Participates in autocast: classified as `FullPrecision` (`"bce_with_logits"`).
     pub fn forward<T: Float>(
         &self,
         logits: &Tensor<T>,
         targets: &Tensor<T>,
     ) -> FerrotorchResult<Tensor<T>> {
+        autocast_guard("bce_with_logits");
+
         if logits.shape() != targets.shape() {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
@@ -1900,5 +1916,96 @@ mod tests {
         let loss = SmoothL1Loss::default();
         let out = loss.forward(&pred, &target).unwrap();
         assert!(out.item().unwrap().abs() < 1e-10);
+    }
+
+    // -------------------------------------------------------------------
+    // autocast_guard integration: loss forwards fire the guard
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_mse_loss_fires_autocast_guard_when_enabled() {
+        use ferrotorch_core::autograd::autocast::{autocast, AutocastDtype};
+        use ferrotorch_core::autograd::autocast_ops::{
+            drain_autocast_events, AutocastCategory,
+        };
+
+        let pred = leaf_vec(&[1.0, 2.0, 3.0]);
+        let target = target_vec(&[1.5, 2.5, 3.5]);
+
+        // Outside autocast: no events.
+        drain_autocast_events();
+        let _ = MSELoss::new(Reduction::Mean).forward(&pred, &target).unwrap();
+        assert!(drain_autocast_events().is_empty());
+
+        // Inside autocast: records "mse_loss" as FullPrecision.
+        autocast(AutocastDtype::F16, || {
+            drain_autocast_events();
+            let _ = MSELoss::new(Reduction::Mean).forward(&pred, &target).unwrap();
+            let events = drain_autocast_events();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].op_name, "mse_loss");
+            assert_eq!(events[0].category, AutocastCategory::FullPrecision);
+        });
+    }
+
+    #[test]
+    fn test_cross_entropy_fires_autocast_guard_when_enabled() {
+        use ferrotorch_core::autograd::autocast::{autocast, AutocastDtype};
+        use ferrotorch_core::autograd::autocast_ops::{
+            drain_autocast_events, AutocastCategory,
+        };
+
+        // 2 samples, 3 classes.
+        let logits = leaf_2d(&[1.0, 2.0, 3.0, 1.0, 2.0, 3.0], &[2, 3]);
+        let targets = target_vec(&[2.0, 0.0]); // class indices
+
+        // Outside autocast: no events.
+        drain_autocast_events();
+        let _ = CrossEntropyLoss::new(Reduction::Mean, 0.0)
+            .forward(&logits, &targets)
+            .unwrap();
+        assert!(drain_autocast_events().is_empty());
+
+        // Inside autocast: records "cross_entropy" as FullPrecision.
+        autocast(AutocastDtype::BF16, || {
+            drain_autocast_events();
+            let _ = CrossEntropyLoss::new(Reduction::Mean, 0.0)
+                .forward(&logits, &targets)
+                .unwrap();
+            let events = drain_autocast_events();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].op_name, "cross_entropy");
+            assert_eq!(events[0].category, AutocastCategory::FullPrecision);
+        });
+    }
+
+    #[test]
+    fn test_bce_with_logits_fires_autocast_guard_when_enabled() {
+        use ferrotorch_core::autograd::autocast::{autocast, AutocastDtype};
+        use ferrotorch_core::autograd::autocast_ops::{
+            drain_autocast_events, AutocastCategory,
+        };
+
+        let logits = leaf_vec(&[0.5, -0.5, 1.0]);
+        let targets = target_vec(&[1.0, 0.0, 1.0]);
+
+        // Outside autocast: no events.
+        drain_autocast_events();
+        let _ = BCEWithLogitsLoss::new(Reduction::Mean)
+            .forward(&logits, &targets)
+            .unwrap();
+        assert!(drain_autocast_events().is_empty());
+
+        // Inside autocast: records "bce_with_logits" as FullPrecision.
+        autocast(AutocastDtype::F16, || {
+            drain_autocast_events();
+            let _ = BCEWithLogitsLoss::new(Reduction::Mean)
+                .forward(&logits, &targets)
+                .unwrap();
+            let events = drain_autocast_events();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].op_name, "bce_with_logits");
+            assert_eq!(events[0].category, AutocastCategory::FullPrecision);
+        });
     }
 }

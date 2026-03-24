@@ -733,6 +733,7 @@ impl MemoryGuard {
         Ok(CudaBuffer {
             data: Some(slice),
             len: count,
+            alloc_len: count,
             device_ordinal: self.device.ordinal(),
             pool_fn: None,
         })
@@ -758,6 +759,7 @@ impl MemoryGuard {
         Ok(CudaBuffer {
             data: Some(slice),
             len: data.len(),
+            alloc_len: data.len(),
             device_ordinal: self.device.ordinal(),
             pool_fn: None,
         })
@@ -971,6 +973,7 @@ impl MemoryGuardBuilder {
                 _reservation: CudaBuffer {
                     data: Some(slice),
                     len: self.reserve_bytes,
+                    alloc_len: self.reserve_bytes,
                     device_ordinal: self.device.ordinal(),
                     pool_fn: None,
                 },

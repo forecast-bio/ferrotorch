@@ -11,7 +11,7 @@ use crate::storage::TensorStorage;
 static NEXT_TENSOR_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// A unique, monotonically increasing tensor identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TensorId(u64);
 
 impl TensorId {
@@ -346,6 +346,15 @@ impl<T: Float> Tensor<T> {
     /// training iteration to prevent gradient accumulation across steps.
     pub fn zero_grad(&self) -> FerrotorchResult<()> {
         self.set_grad(None)
+    }
+
+    /// Returns the `Arc` strong reference count for the tensor's inner storage.
+    ///
+    /// Used by the backward engine to determine whether in-place gradient
+    /// accumulation is safe (strong_count == 1 means we hold the only ref).
+    #[inline]
+    pub(crate) fn inner_refcount(&self) -> usize {
+        Arc::strong_count(&self.inner)
     }
 
     /// Accumulate a gradient additively (used by the backward engine).

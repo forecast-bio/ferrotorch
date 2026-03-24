@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crate::autograd::autocast_ops::autocast_guard;
 use crate::autograd::no_grad::is_grad_enabled;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
@@ -636,10 +637,14 @@ pub fn einsum<T: Float>(equation: &str, inputs: &[&Tensor<T>]) -> FerrotorchResu
 
 /// Differentiable Einstein summation. If any input requires grad and grad
 /// is enabled, attaches [`EinsumBackward`].
+///
+/// Participates in autocast: classified as `ReducedPrecision` (`"einsum"`).
 pub fn einsum_differentiable<T: Float>(
     equation: &str,
     inputs: &[&Tensor<T>],
 ) -> FerrotorchResult<Tensor<T>> {
+    autocast_guard("einsum");
+
     let result = einsum(equation, inputs)?;
 
     let any_requires_grad = inputs.iter().any(|t| t.requires_grad());
@@ -1189,5 +1194,33 @@ mod tests {
             &[38.0, 44.0, 50.0, 56.0, 83.0, 98.0, 113.0, 128.0],
             1e-5,
         );
+    }
+
+    // -------------------------------------------------------------------
+    // autocast_guard integration
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_einsum_differentiable_fires_autocast_guard() {
+        use crate::autograd::autocast::{autocast, AutocastDtype};
+        use crate::autograd::autocast_ops::{drain_autocast_events, AutocastCategory};
+
+        let a = t(&[1.0, 2.0, 3.0, 4.0], &[2, 2]);
+        let b = t(&[5.0, 6.0, 7.0, 8.0], &[2, 2]);
+
+        // Outside autocast: no events.
+        drain_autocast_events();
+        let _ = einsum_differentiable("ij,jk->ik", &[&a, &b]).unwrap();
+        assert!(drain_autocast_events().is_empty());
+
+        // Inside autocast: records "einsum" as ReducedPrecision.
+        autocast(AutocastDtype::F16, || {
+            drain_autocast_events();
+            let _ = einsum_differentiable("ij,jk->ik", &[&a, &b]).unwrap();
+            let events = drain_autocast_events();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].op_name, "einsum");
+            assert_eq!(events[0].category, AutocastCategory::ReducedPrecision);
+        });
     }
 }

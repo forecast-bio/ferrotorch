@@ -77,6 +77,7 @@ impl CudaAllocator {
         Ok(CudaBuffer {
             data: Some(slice),
             len: count,
+            alloc_len: count,
             device_ordinal: self.device.ordinal(),
             pool_fn: None,
         })
@@ -103,6 +104,7 @@ impl CudaAllocator {
         Ok(CudaBuffer {
             data: Some(slice),
             len: data.len(),
+            alloc_len: data.len(),
             device_ordinal: self.device.ordinal(),
             pool_fn: None,
         })
