@@ -1571,6 +1571,499 @@ impl<T: Float> GradFn<T> for BatchNorm2dBackward<T> {
 }
 
 // ===========================================================================
+// BatchNorm1d
+// ===========================================================================
+
+/// Batch normalization for 2D input `[N, C]` or 3D input `[N, C, L]`.
+///
+/// Applies per-channel normalization:
+///
+/// ```text
+/// y = (x - mean) / sqrt(var + eps) * weight + bias
+/// ```
+///
+/// During **training**, `mean` and `var` are computed from the current
+/// mini-batch over the `(N,)` or `(N, L)` dimensions, and exponential
+/// moving averages are maintained in `running_mean` and `running_var`.
+///
+/// During **evaluation**, the accumulated `running_mean` and `running_var`
+/// are used instead of batch statistics.
+///
+/// Matches `torch.nn.BatchNorm1d`.
+pub struct BatchNorm1d<T: Float> {
+    /// Number of channels (features) `C`.
+    pub num_features: usize,
+    /// Small constant for numerical stability.
+    pub eps: f64,
+    /// Momentum for the running mean / variance update
+    /// (`running = (1 - momentum) * running + momentum * batch`).
+    pub momentum: f64,
+    /// Whether to apply a learnable affine transform.
+    pub affine: bool,
+    /// Learnable scale (gamma), shape `[C]`. `None` when `affine == false`.
+    pub weight: Option<Parameter<T>>,
+    /// Learnable shift (beta), shape `[C]`. `None` when `affine == false`.
+    pub bias: Option<Parameter<T>>,
+    /// Exponential moving average of per-channel means.
+    running_mean: Mutex<Vec<f64>>,
+    /// Exponential moving average of per-channel variances.
+    running_var: Mutex<Vec<f64>>,
+    /// Number of forward calls in training mode.
+    num_batches_tracked: Mutex<usize>,
+    /// Whether the layer is in training mode.
+    training: Mutex<bool>,
+}
+
+impl<T: Float> std::fmt::Debug for BatchNorm1d<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BatchNorm1d")
+            .field("num_features", &self.num_features)
+            .field("eps", &self.eps)
+            .field("momentum", &self.momentum)
+            .field("affine", &self.affine)
+            .field("weight", &self.weight)
+            .field("bias", &self.bias)
+            .field("training", &self.training)
+            .finish()
+    }
+}
+
+impl<T: Float> BatchNorm1d<T> {
+    /// Create a new `BatchNorm1d` layer.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_features` - Number of channels `C`.
+    /// * `eps` - Numerical stability constant (default: `1e-5`).
+    /// * `momentum` - Running-statistics momentum (default: `0.1`).
+    /// * `affine` - Whether to include learnable weight and bias.
+    pub fn new(
+        num_features: usize,
+        eps: f64,
+        momentum: f64,
+        affine: bool,
+    ) -> FerrotorchResult<Self> {
+        if num_features == 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "BatchNorm1d: num_features must be positive".into(),
+            });
+        }
+
+        let weight = if affine {
+            Some(Parameter::ones(&[num_features])?)
+        } else {
+            None
+        };
+
+        let bias = if affine {
+            Some(Parameter::zeros(&[num_features])?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            num_features,
+            eps,
+            momentum,
+            affine,
+            weight,
+            bias,
+            running_mean: Mutex::new(vec![0.0; num_features]),
+            running_var: Mutex::new(vec![1.0; num_features]),
+            num_batches_tracked: Mutex::new(0),
+            training: Mutex::new(true),
+        })
+    }
+
+    /// Access the current running mean (snapshot copy).
+    pub fn running_mean(&self) -> Vec<f64> {
+        self.running_mean.lock().unwrap().clone()
+    }
+
+    /// Access the current running variance (snapshot copy).
+    pub fn running_var(&self) -> Vec<f64> {
+        self.running_var.lock().unwrap().clone()
+    }
+
+    /// Number of training batches tracked so far.
+    pub fn num_batches_tracked(&self) -> usize {
+        *self.num_batches_tracked.lock().unwrap()
+    }
+}
+
+impl<T: Float> Module<T> for BatchNorm1d<T> {
+    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let device = input.device();
+        let shape = input.shape().to_vec();
+        let ndim = shape.len();
+
+        // Accept 2D [N, C] or 3D [N, C, L].
+        if ndim != 2 && ndim != 3 {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "BatchNorm1d: expected 2D [N, C] or 3D [N, C, L] input, got {:?}",
+                    shape
+                ),
+            });
+        }
+
+        let batch = shape[0];
+        let channels = shape[1];
+        let length = if ndim == 3 { shape[2] } else { 1 };
+
+        if channels != self.num_features {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "BatchNorm1d: expected {} channels, got {}",
+                    self.num_features, channels
+                ),
+            });
+        }
+
+        // Edge case: batch size 0.
+        if batch == 0 {
+            return Ok(input.clone());
+        }
+
+        let cpu_input = if input.is_cuda() { input.cpu()? } else { input.clone() };
+        let input_data = cpu_input.data()?;
+        let eps_t = T::from(self.eps).unwrap();
+
+        let cpu_weight = self.weight.as_ref().map(|w| {
+            if w.tensor().is_cuda() { w.tensor().cpu().unwrap() } else { w.tensor().clone() }
+        });
+        let cpu_bias = self.bias.as_ref().map(|b| {
+            if b.tensor().is_cuda() { b.tensor().cpu().unwrap() } else { b.tensor().clone() }
+        });
+        let weight_data = cpu_weight.as_ref().map(|w| w.data().unwrap());
+        let bias_data = cpu_bias.as_ref().map(|b| b.data().unwrap());
+
+        let is_training = *self.training.lock().unwrap();
+
+        let mut chan_mean = vec![zero::<T>(); channels];
+        let mut chan_var = vec![zero::<T>(); channels];
+
+        if is_training {
+            let count = batch * length;
+            let count_t = T::from(count).unwrap();
+
+            for c in 0..channels {
+                let mut s = zero::<T>();
+                for b in 0..batch {
+                    let base = b * channels * length + c * length;
+                    for l in 0..length {
+                        s = s + input_data[base + l];
+                    }
+                }
+                chan_mean[c] = s / count_t;
+
+                let mut var_sum = zero::<T>();
+                for b in 0..batch {
+                    let base = b * channels * length + c * length;
+                    for l in 0..length {
+                        let d = input_data[base + l] - chan_mean[c];
+                        var_sum = var_sum + d * d;
+                    }
+                }
+                chan_var[c] = var_sum / count_t;
+            }
+
+            // Update running statistics.
+            {
+                let mut rm = self.running_mean.lock().unwrap();
+                let mut rv = self.running_var.lock().unwrap();
+                let mut nbt = self.num_batches_tracked.lock().unwrap();
+                *nbt += 1;
+
+                let mom = self.momentum;
+                let bessel = if count > 1 {
+                    count as f64 / (count as f64 - 1.0)
+                } else {
+                    1.0
+                };
+
+                for c in 0..channels {
+                    let batch_mean_f64 = chan_mean[c].to_f64().unwrap();
+                    let batch_var_f64 = chan_var[c].to_f64().unwrap();
+
+                    rm[c] = (1.0 - mom) * rm[c] + mom * batch_mean_f64;
+                    rv[c] = (1.0 - mom) * rv[c] + mom * batch_var_f64 * bessel;
+                }
+            }
+        } else {
+            let rm = self.running_mean.lock().unwrap();
+            let rv = self.running_var.lock().unwrap();
+
+            for c in 0..channels {
+                chan_mean[c] = T::from(rm[c]).unwrap();
+                chan_var[c] = T::from(rv[c]).unwrap();
+            }
+        }
+
+        let mut output = vec![zero::<T>(); input.numel()];
+
+        let mut inv_std = vec![zero::<T>(); channels];
+        let need_x_hat = is_grad_enabled() && input.requires_grad();
+        let mut x_hat_data = if need_x_hat {
+            Vec::with_capacity(input.numel())
+        } else {
+            Vec::new()
+        };
+
+        for c in 0..channels {
+            inv_std[c] = (chan_var[c] + eps_t).sqrt().recip();
+        }
+
+        for b in 0..batch {
+            for c in 0..channels {
+                let base = b * channels * length + c * length;
+                for l in 0..length {
+                    let idx = base + l;
+                    let normed = (input_data[idx] - chan_mean[c]) * inv_std[c];
+
+                    if need_x_hat {
+                        x_hat_data.push(normed);
+                    }
+
+                    if self.affine {
+                        let w = weight_data.as_ref().unwrap();
+                        let bi = bias_data.as_ref().unwrap();
+                        output[idx] = normed * w[c] + bi[c];
+                    } else {
+                        output[idx] = normed;
+                    }
+                }
+            }
+        }
+
+        let result =
+            Tensor::from_storage(TensorStorage::cpu(output), shape.to_vec(), false)?;
+
+        if is_grad_enabled() && input.requires_grad() {
+            let weight_tensor = self.weight.as_ref().map(|w| w.tensor().clone());
+            let bias_tensor = self.bias.as_ref().map(|b| b.tensor().clone());
+
+            let grad_fn = Arc::new(BatchNorm1dBackward {
+                input: input.clone(),
+                x_hat: Tensor::from_storage(
+                    TensorStorage::cpu(x_hat_data),
+                    shape.to_vec(),
+                    false,
+                )?,
+                weight: weight_tensor,
+                bias: bias_tensor,
+                chan_var: chan_var.iter().map(|v| v.to_f64().unwrap()).collect(),
+                eps: self.eps,
+                affine: self.affine,
+            });
+
+            let out = Tensor::from_operation(
+                TensorStorage::cpu(result.data()?.to_vec()),
+                result.shape().to_vec(),
+                grad_fn,
+            )?;
+            if device.is_cuda() { out.to(device) } else { Ok(out) }
+        } else if device.is_cuda() {
+            result.to(device)
+        } else {
+            Ok(result)
+        }
+    }
+
+    fn parameters(&self) -> Vec<&Parameter<T>> {
+        match (&self.weight, &self.bias) {
+            (Some(w), Some(b)) => vec![w, b],
+            _ => vec![],
+        }
+    }
+
+    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+        match (&mut self.weight, &mut self.bias) {
+            (Some(w), Some(b)) => vec![w, b],
+            _ => vec![],
+        }
+    }
+
+    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+        match (&self.weight, &self.bias) {
+            (Some(w), Some(b)) => vec![
+                ("weight".to_string(), w),
+                ("bias".to_string(), b),
+            ],
+            _ => vec![],
+        }
+    }
+
+    fn train(&mut self) {
+        *self.training.lock().unwrap() = true;
+    }
+
+    fn eval(&mut self) {
+        *self.training.lock().unwrap() = false;
+    }
+
+    fn is_training(&self) -> bool {
+        *self.training.lock().unwrap()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BatchNorm1dBackward
+// ---------------------------------------------------------------------------
+
+/// Backward node for `BatchNorm1d`.
+///
+/// Same math as `BatchNorm2dBackward` but over `(N,)` or `(N, L)` spatial dims
+/// instead of `(N, H, W)`.
+#[derive(Debug)]
+struct BatchNorm1dBackward<T: Float> {
+    input: Tensor<T>,
+    x_hat: Tensor<T>,
+    weight: Option<Tensor<T>>,
+    bias: Option<Tensor<T>>,
+    chan_var: Vec<f64>,
+    eps: f64,
+    affine: bool,
+}
+
+impl<T: Float> GradFn<T> for BatchNorm1dBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let shape = self.input.shape();
+        let ndim = shape.len();
+        let batch = shape[0];
+        let channels = shape[1];
+        let length = if ndim == 3 { shape[2] } else { 1 };
+        let count = batch * length;
+        let count_t = T::from(count).unwrap();
+
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let cpu_x_hat = if self.x_hat.is_cuda() { self.x_hat.cpu()? } else { self.x_hat.clone() };
+        let go_data = cpu_go.data()?;
+        let x_hat_data = cpu_x_hat.data()?;
+
+        let weight_data = self.weight.as_ref().map(|w| {
+            let cpu_w = if w.is_cuda() { w.cpu().unwrap() } else { w.clone() };
+            cpu_w.data().unwrap().to_vec()
+        });
+
+        let mut grad_input = vec![zero::<T>(); self.input.numel()];
+        let mut grad_weight = vec![zero::<T>(); channels];
+        let mut grad_bias = vec![zero::<T>(); channels];
+
+        for c in 0..channels {
+            let var_f64 = self.chan_var[c];
+            let inv_std = T::from(1.0 / (var_f64 + self.eps).sqrt()).unwrap();
+
+            let mut dl_dx_hat_sum = zero::<T>();
+            let mut dl_dx_hat_x_hat_sum = zero::<T>();
+
+            for b in 0..batch {
+                let base = b * channels * length + c * length;
+                for l in 0..length {
+                    let idx = base + l;
+                    let x_h = x_hat_data[idx];
+                    let go = go_data[idx];
+
+                    let dl_dx_hat = if self.affine {
+                        go * weight_data.as_ref().unwrap()[c]
+                    } else {
+                        go
+                    };
+
+                    dl_dx_hat_sum = dl_dx_hat_sum + dl_dx_hat;
+                    dl_dx_hat_x_hat_sum = dl_dx_hat_x_hat_sum + dl_dx_hat * x_h;
+
+                    if self.affine {
+                        grad_weight[c] = grad_weight[c] + go * x_h;
+                        grad_bias[c] = grad_bias[c] + go;
+                    }
+                }
+            }
+
+            let dl_dx_hat_mean = dl_dx_hat_sum / count_t;
+            let dl_dx_hat_x_hat_mean = dl_dx_hat_x_hat_sum / count_t;
+
+            for b in 0..batch {
+                let base = b * channels * length + c * length;
+                for l in 0..length {
+                    let idx = base + l;
+                    let x_h = x_hat_data[idx];
+                    let go = go_data[idx];
+
+                    let dl_dx_hat = if self.affine {
+                        go * weight_data.as_ref().unwrap()[c]
+                    } else {
+                        go
+                    };
+
+                    grad_input[idx] =
+                        inv_std * (dl_dx_hat - dl_dx_hat_mean - x_h * dl_dx_hat_x_hat_mean);
+                }
+            }
+        }
+
+        let grad_input_tensor = Tensor::from_storage(
+            TensorStorage::cpu(grad_input),
+            self.input.shape().to_vec(),
+            false,
+        )?;
+
+        let grad_weight_out = if self.affine {
+            if let Some(ref w) = self.weight {
+                if w.requires_grad() {
+                    Some(Tensor::from_storage(
+                        TensorStorage::cpu(grad_weight),
+                        vec![channels],
+                        false,
+                    )?)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let grad_bias_out = if self.affine {
+            if let Some(ref b) = self.bias {
+                if b.requires_grad() {
+                    Some(Tensor::from_storage(
+                        TensorStorage::cpu(grad_bias),
+                        vec![channels],
+                        false,
+                    )?)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok(vec![Some(grad_input_tensor), grad_weight_out, grad_bias_out])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        let mut v: Vec<&Tensor<T>> = vec![&self.input];
+        if let Some(ref w) = self.weight {
+            v.push(w);
+        }
+        if let Some(ref b) = self.bias {
+            v.push(b);
+        }
+        v
+    }
+
+    fn name(&self) -> &'static str {
+        "BatchNorm1dBackward"
+    }
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 
@@ -2537,5 +3030,334 @@ mod tests {
         fn name(&self) -> &'static str {
             "SumBackwardHelper"
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // BatchNorm1d tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_batchnorm1d_parameter_shapes() {
+        let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
+        let params = bn.parameters();
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].shape(), &[3]); // weight
+        assert_eq!(params[1].shape(), &[3]); // bias
+    }
+
+    #[test]
+    fn test_batchnorm1d_no_affine() {
+        let bn = BatchNorm1d::<f32>::new(4, 1e-5, 0.1, false).unwrap();
+        assert!(bn.parameters().is_empty());
+    }
+
+    #[test]
+    fn test_batchnorm1d_2d_input() {
+        // Input: [N=4, C=2]
+        let bn = BatchNorm1d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        let input = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
+            vec![4, 2],
+            false,
+        )
+        .unwrap();
+        let output = bn.forward(&input).unwrap();
+        assert_eq!(output.shape(), &[4, 2]);
+    }
+
+    #[test]
+    fn test_batchnorm1d_3d_input() {
+        // Input: [N=2, C=3, L=4]
+        let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
+        let data: Vec<f32> = (0..24).map(|i| i as f32).collect();
+        let input = Tensor::from_storage(
+            TensorStorage::cpu(data),
+            vec![2, 3, 4],
+            false,
+        )
+        .unwrap();
+        let output = bn.forward(&input).unwrap();
+        assert_eq!(output.shape(), &[2, 3, 4]);
+    }
+
+    #[test]
+    fn test_batchnorm1d_wrong_dims() {
+        // 1D, 4D, 5D should fail.
+        let bn = BatchNorm1d::<f32>::new(4, 1e-5, 0.1, true).unwrap();
+
+        let input_1d = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32, 2.0, 3.0, 4.0]),
+            vec![4],
+            false,
+        )
+        .unwrap();
+        assert!(bn.forward(&input_1d).is_err());
+
+        let input_4d = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.0f32; 32]),
+            vec![2, 4, 2, 2],
+            false,
+        )
+        .unwrap();
+        assert!(bn.forward(&input_4d).is_err());
+    }
+
+    #[test]
+    fn test_batchnorm1d_zero_features() {
+        assert!(BatchNorm1d::<f32>::new(0, 1e-5, 0.1, true).is_err());
+    }
+
+    #[test]
+    fn test_batchnorm1d_channel_mismatch() {
+        let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
+        let input = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32; 8]),
+            vec![2, 4],
+            false,
+        )
+        .unwrap();
+        assert!(bn.forward(&input).is_err());
+    }
+
+    #[test]
+    fn test_batchnorm1d_training_normalizes() {
+        // After training-mode BatchNorm1d (weight=1, bias=0), each channel
+        // should have approximately zero mean and unit variance.
+        let channels = 2;
+        let bn = BatchNorm1d::<f64>::new(channels, 1e-5, 0.1, true).unwrap();
+
+        // Input [4, 2]: channel 0 = [1,3,5,7], channel 1 = [2,4,6,8]
+        let input = leaf(
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            &[4, 2],
+            false,
+        );
+        let output = bn.forward(&input).unwrap();
+        let data = output.data().unwrap();
+
+        // Check channel 0 mean ~ 0
+        let ch0: Vec<f64> = (0..4).map(|b| data[b * 2]).collect();
+        let ch0_mean: f64 = ch0.iter().sum::<f64>() / 4.0;
+        assert!(
+            ch0_mean.abs() < 1e-5,
+            "BatchNorm1d channel 0 mean should be ~0, got {}",
+            ch0_mean
+        );
+
+        // Check channel 0 variance ~ 1
+        let ch0_var: f64 = ch0.iter().map(|&x| (x - ch0_mean).powi(2)).sum::<f64>() / 4.0;
+        assert!(
+            (ch0_var - 1.0).abs() < 0.1,
+            "BatchNorm1d channel 0 var should be ~1, got {}",
+            ch0_var
+        );
+    }
+
+    #[test]
+    fn test_batchnorm1d_running_stats_update() {
+        let bn = BatchNorm1d::<f64>::new(2, 1e-5, 0.1, true).unwrap();
+        let input = leaf(
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            &[4, 2],
+            false,
+        );
+        let _ = bn.forward(&input).unwrap();
+
+        assert_eq!(bn.num_batches_tracked(), 1);
+        let rm = bn.running_mean();
+        let rv = bn.running_var();
+        // Channel 0 mean = (1+3+5+7)/4 = 4.0
+        // Channel 1 mean = (2+4+6+8)/4 = 5.0
+        // running_mean = 0.9 * 0 + 0.1 * batch_mean
+        assert!(
+            (rm[0] - 0.1 * 4.0).abs() < 1e-7,
+            "running_mean[0]: expected {}, got {}",
+            0.1 * 4.0,
+            rm[0]
+        );
+        assert!(
+            (rm[1] - 0.1 * 5.0).abs() < 1e-7,
+            "running_mean[1]: expected {}, got {}",
+            0.1 * 5.0,
+            rm[1]
+        );
+
+        // running_var uses Bessel-corrected variance
+        assert!(rv[0] > 0.0);
+        assert!(rv[1] > 0.0);
+    }
+
+    #[test]
+    fn test_batchnorm1d_eval_mode() {
+        let bn = BatchNorm1d::<f64>::new(2, 1e-5, 0.1, true).unwrap();
+
+        // Run training forward to populate running stats.
+        let input = leaf(
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            &[4, 2],
+            false,
+        );
+        let _ = bn.forward(&input).unwrap();
+
+        // Switch to eval mode.
+        // We need a mutable reference for eval, so use a workaround.
+        *bn.training.lock().unwrap() = false;
+
+        let eval_out = bn.forward(&input).unwrap();
+        assert_eq!(eval_out.shape(), &[4, 2]);
+    }
+
+    #[test]
+    fn test_batchnorm1d_no_affine_normalizes() {
+        let bn = BatchNorm1d::<f64>::new(2, 1e-5, 0.1, false).unwrap();
+        let input = leaf(
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            &[4, 2],
+            false,
+        );
+        let output = bn.forward(&input).unwrap();
+        assert_eq!(output.shape(), &[4, 2]);
+    }
+
+    #[test]
+    fn test_batchnorm1d_3d_normalizes() {
+        // [N=2, C=2, L=3]
+        let channels = 2;
+        let bn = BatchNorm1d::<f64>::new(channels, 1e-5, 0.1, true).unwrap();
+        let data: Vec<f64> = (0..12).map(|i| i as f64).collect();
+        let input = leaf(&data, &[2, 2, 3], false);
+        let output = bn.forward(&input).unwrap();
+        assert_eq!(output.shape(), &[2, 2, 3]);
+
+        // Each channel normalized over (N, L) = 6 elements.
+        let out_data = output.data().unwrap();
+
+        // Channel 0 indices in [N, C, L] layout:
+        // [0, 0, :] = indices 0,1,2; [1, 0, :] = indices 6,7,8
+        let ch0: Vec<f64> = vec![out_data[0], out_data[1], out_data[2],
+                                  out_data[6], out_data[7], out_data[8]];
+        let ch0_mean: f64 = ch0.iter().sum::<f64>() / 6.0;
+        assert!(
+            ch0_mean.abs() < 1e-5,
+            "BatchNorm1d 3D channel 0 mean should be ~0, got {}",
+            ch0_mean
+        );
+    }
+
+    #[test]
+    fn test_batchnorm1d_train_eval_toggle() {
+        let bn = BatchNorm1d::<f32>::new(4, 1e-5, 0.1, true).unwrap();
+        assert!(bn.is_training());
+        *bn.training.lock().unwrap() = false;
+        assert!(!bn.is_training());
+        *bn.training.lock().unwrap() = true;
+        assert!(bn.is_training());
+    }
+
+    #[test]
+    fn test_batchnorm1d_grad_fn_name() {
+        let bn = BatchNorm1d::<f64>::new(2, 1e-5, 0.1, true).unwrap();
+        let input = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[4, 2], true);
+        let output = bn.forward(&input).unwrap();
+        assert_eq!(output.grad_fn().unwrap().name(), "BatchNorm1dBackward");
+    }
+
+    #[test]
+    fn test_batchnorm1d_backward_grad_shapes() {
+        use ferrotorch_core::autograd::graph::backward;
+
+        let bn = BatchNorm1d::<f64>::new(2, 1e-5, 0.1, true).unwrap();
+        let input = leaf(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[4, 2], true);
+        let output = bn.forward(&input).unwrap();
+
+        // Create a differentiable sum via SumBackwardHelper.
+        let out_data = output.data().unwrap().to_vec();
+        let total: f64 = out_data.iter().sum();
+        let sum_gf = Arc::new(SumBackwardHelper {
+            input: output.clone(),
+        });
+        let loss =
+            Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf).unwrap();
+        backward(&loss).unwrap();
+
+        let grad = input.grad().unwrap().unwrap();
+        assert_eq!(grad.shape(), &[4, 2]);
+    }
+
+    #[test]
+    fn test_batchnorm1d_backward_numerical() {
+        use ferrotorch_core::autograd::graph::backward;
+
+        // Numerical gradient check for BatchNorm1d.
+        let channels = 2;
+        let eps_val = 1e-5;
+        let input_data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let shape = [4usize, 2];
+
+        // Analytic gradient.
+        let bn = BatchNorm1d::<f64>::new(channels, eps_val, 0.1, true).unwrap();
+        let input = leaf(&input_data, &shape, true);
+        let output = bn.forward(&input).unwrap();
+        let out_data = output.data().unwrap().to_vec();
+        let total: f64 = out_data.iter().sum();
+        let sum_gf = Arc::new(SumBackwardHelper {
+            input: output.clone(),
+        });
+        let loss =
+            Tensor::from_operation(TensorStorage::cpu(vec![total]), vec![], sum_gf).unwrap();
+        backward(&loss).unwrap();
+        let analytic_grad = input.grad().unwrap().unwrap().data_vec().unwrap();
+
+        // Numerical gradient.
+        let h = 1e-5;
+        let mut numerical_grad = vec![0.0f64; input_data.len()];
+        for i in 0..input_data.len() {
+            let mut data_plus = input_data.clone();
+            data_plus[i] += h;
+            let bn_plus = BatchNorm1d::<f64>::new(channels, eps_val, 0.1, true).unwrap();
+            let input_plus = leaf(&data_plus, &shape, false);
+            let out_plus = no_grad(|| bn_plus.forward(&input_plus)).unwrap();
+            let sum_plus: f64 = out_plus.data().unwrap().iter().sum();
+
+            let mut data_minus = input_data.clone();
+            data_minus[i] -= h;
+            let bn_minus = BatchNorm1d::<f64>::new(channels, eps_val, 0.1, true).unwrap();
+            let input_minus = leaf(&data_minus, &shape, false);
+            let out_minus = no_grad(|| bn_minus.forward(&input_minus)).unwrap();
+            let sum_minus: f64 = out_minus.data().unwrap().iter().sum();
+
+            numerical_grad[i] =
+                (sum_plus - sum_minus) / (2.0 * h);
+        }
+
+        for i in 0..input_data.len() {
+            assert!(
+                (analytic_grad[i] - numerical_grad[i]).abs() < 1e-3,
+                "BatchNorm1d grad[{}]: numerical={}, analytic={}",
+                i,
+                numerical_grad[i],
+                analytic_grad[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_batchnorm1d_empty_batch() {
+        let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
+        let input = Tensor::from_storage(
+            TensorStorage::cpu(vec![]),
+            vec![0, 3],
+            false,
+        )
+        .unwrap();
+        let output = bn.forward(&input).unwrap();
+        assert_eq!(output.shape(), &[0, 3]);
+        assert_eq!(output.numel(), 0);
+    }
+
+    #[test]
+    fn test_batchnorm1d_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<BatchNorm1d<f32>>();
     }
 }

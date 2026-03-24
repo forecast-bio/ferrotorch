@@ -12,7 +12,8 @@
 //! This mirrors the behaviour of `torch.cuda.amp.GradScaler`.
 
 use ferrotorch_core::grad_fns::arithmetic::mul;
-use ferrotorch_core::{scalar, Float, FerrotorchResult, Tensor};
+use ferrotorch_core::gpu_dispatch;
+use ferrotorch_core::{scalar, Float, FerrotorchResult, Tensor, TensorStorage};
 
 use crate::optimizer::Optimizer;
 
@@ -146,40 +147,102 @@ impl<T: Float> GradScaler<T> {
     ///
     /// This method is idempotent within a single step — calling it twice is
     /// safe (the second call is a no-op).
+    ///
+    /// # GPU-native path
+    ///
+    /// When a gradient tensor resides on a GPU device, the unscaling and
+    /// inf/NaN check execute entirely on the GPU via
+    /// [`GpuBackend::scale_f32`](ferrotorch_core::gpu_dispatch::GpuBackend::scale_f32)
+    /// and
+    /// [`GpuBackend::has_inf_nan_f32`](ferrotorch_core::gpu_dispatch::GpuBackend::has_inf_nan_f32).
+    /// No per-element CPU loop or full tensor download is needed.
     pub fn unscale_(&mut self, optimizer: &mut dyn Optimizer<T>) -> FerrotorchResult<()> {
         if !self.config.enabled || self.already_unscaled {
             return Ok(());
         }
 
         self.found_inf = false;
+        let inv_scale_f32 = (1.0 / self.scale_factor) as f32;
         let inv_scale = T::from(1.0 / self.scale_factor).unwrap();
 
         for group in optimizer.param_groups() {
             for param in &group.params {
                 let grad_opt = param.grad()?;
                 if let Some(grad) = grad_opt {
-                    let grad_data = grad.data()?;
-                    let mut new_data = Vec::with_capacity(grad_data.len());
-
-                    for &val in grad_data.iter() {
-                        let unscaled = val * inv_scale;
-                        if !unscaled.is_finite() {
-                            self.found_inf = true;
-                        }
-                        new_data.push(unscaled);
+                    if grad.is_cuda() {
+                        // --- GPU path: scale + inf-check on device ---
+                        self.unscale_gpu_grad(param, &grad, inv_scale_f32)?;
+                    } else {
+                        // --- CPU path ---
+                        self.unscale_cpu_grad(param, &grad, inv_scale)?;
                     }
-
-                    let new_grad = Tensor::from_storage(
-                        ferrotorch_core::TensorStorage::cpu(new_data),
-                        grad.shape().to_vec(),
-                        false,
-                    )?;
-                    param.set_grad(Some(new_grad))?;
                 }
             }
         }
 
         self.already_unscaled = true;
+        Ok(())
+    }
+
+    /// GPU-native unscale: uses a single `scale_f32` kernel call followed
+    /// by a `has_inf_nan_f32` reduction. The result is written back as a
+    /// new gradient tensor on the same device — no data touches the CPU.
+    fn unscale_gpu_grad(
+        &mut self,
+        param: &ferrotorch_nn::Parameter<T>,
+        grad: &Tensor<T>,
+        inv_scale: f32,
+    ) -> FerrotorchResult<()> {
+        let backend = gpu_dispatch::gpu_backend()
+            .ok_or(ferrotorch_core::FerrotorchError::DeviceUnavailable)?;
+
+        let grad_handle = grad.gpu_handle()?;
+
+        // Scale in one GPU kernel: out[i] = grad[i] * inv_scale.
+        let scaled_handle = backend.scale_f32(grad_handle, inv_scale)?;
+
+        // Inf/NaN check — runs a GPU reduction, downloads a single bool.
+        if backend.has_inf_nan_f32(&scaled_handle)? {
+            self.found_inf = true;
+        }
+
+        // Write the unscaled result back as the parameter's gradient.
+        let new_grad = Tensor::from_storage(
+            TensorStorage::gpu(scaled_handle),
+            grad.shape().to_vec(),
+            false,
+        )?;
+        param.set_grad(Some(new_grad))?;
+
+        Ok(())
+    }
+
+    /// CPU unscale: element-wise multiply by `inv_scale`, checking for
+    /// inf/NaN along the way.
+    fn unscale_cpu_grad(
+        &mut self,
+        param: &ferrotorch_nn::Parameter<T>,
+        grad: &Tensor<T>,
+        inv_scale: T,
+    ) -> FerrotorchResult<()> {
+        let grad_data = grad.data()?;
+        let mut new_data = Vec::with_capacity(grad_data.len());
+
+        for &val in grad_data.iter() {
+            let unscaled = val * inv_scale;
+            if !unscaled.is_finite() {
+                self.found_inf = true;
+            }
+            new_data.push(unscaled);
+        }
+
+        let new_grad = Tensor::from_storage(
+            TensorStorage::cpu(new_data),
+            grad.shape().to_vec(),
+            false,
+        )?;
+        param.set_grad(Some(new_grad))?;
+
         Ok(())
     }
 
@@ -678,6 +741,484 @@ mod tests {
             (val2 - 2.0).abs() < 1e-5,
             "second unscale_ should be a no-op, got {}",
             val2
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // unscale_ with no gradients is a no-op
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_unscale_no_gradients() {
+        let config = GradScalerConfig {
+            init_scale: 256.0,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        // Parameter with no gradient set.
+        let p = make_param(&[1.0, 2.0], &[2]);
+        let mut opt = MockOptimizer::new(vec![p]);
+
+        scaler.unscale_(&mut opt).unwrap();
+        assert!(!scaler.found_inf, "no gradients means no inf");
+
+        // Gradient should still be None.
+        let grad = opt.param_groups[0].params[0].grad().unwrap();
+        assert!(grad.is_none(), "no gradient should remain None");
+    }
+
+    // -----------------------------------------------------------------------
+    // unscale_ with multiple param groups, some without gradients
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_unscale_multiple_groups_mixed() {
+        let config = GradScalerConfig {
+            init_scale: 100.0,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        // Group 1: parameter with gradient.
+        let p1 = make_param(&[1.0], &[1]);
+        let grad1 = leaf(&[500.0], &[1]);
+        p1.set_grad(Some(grad1)).unwrap();
+
+        // Group 2: parameter without gradient.
+        let p2 = make_param(&[2.0], &[1]);
+
+        let mut opt = MockOptimizer::new(vec![p1]);
+        opt.add_param_group(ParamGroup::new(vec![p2], 0.001));
+
+        scaler.unscale_(&mut opt).unwrap();
+
+        // Group 1: 500 / 100 = 5.
+        let val = opt.param_groups[0].params[0]
+            .grad()
+            .unwrap()
+            .unwrap()
+            .data()
+            .unwrap()[0];
+        assert!(
+            (val - 5.0).abs() < 1e-5,
+            "expected 500/100 = 5.0, got {val}"
+        );
+
+        // Group 2: no gradient, should remain None.
+        let grad2 = opt.param_groups[1].params[0].grad().unwrap();
+        assert!(grad2.is_none());
+        assert!(!scaler.found_inf);
+    }
+
+    // -----------------------------------------------------------------------
+    // CPU unscale produces correct multi-element values
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_cpu_unscale_multi_element() {
+        let config = GradScalerConfig {
+            init_scale: 50.0,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        let p = make_param(&[1.0, 2.0, 3.0, 4.0], &[4]);
+        let grad = leaf(&[100.0, 200.0, -150.0, 0.0], &[4]);
+        p.set_grad(Some(grad)).unwrap();
+
+        let mut opt = MockOptimizer::new(vec![p]);
+        scaler.unscale_(&mut opt).unwrap();
+
+        let data = opt.param_groups[0].params[0]
+            .grad()
+            .unwrap()
+            .unwrap()
+            .data()
+            .unwrap()
+            .to_vec();
+
+        let expected = [2.0, 4.0, -3.0, 0.0];
+        for (i, (&got, &exp)) in data.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (got - exp).abs() < 1e-5,
+                "element {i}: expected {exp}, got {got}"
+            );
+        }
+        assert!(!scaler.found_inf);
+    }
+
+    // -----------------------------------------------------------------------
+    // inf detection sets found_inf and skips optimizer step
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_inf_detection_from_overflow() {
+        // Use a tiny scale so that inv_scale is large enough to overflow.
+        let config = GradScalerConfig {
+            init_scale: 1.0, // inv_scale = 1.0, so we inject inf directly
+            backoff_factor: 0.5,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        let p = make_param(&[1.0, 2.0], &[2]);
+        // One finite, one inf.
+        let grad = leaf(&[1.0, f32::INFINITY], &[2]);
+        p.set_grad(Some(grad)).unwrap();
+
+        let mut opt = MockOptimizer::new(vec![p]);
+        let stepped = scaler.step(&mut opt).unwrap();
+
+        assert!(!stepped, "step should be skipped when inf detected");
+        assert!(!opt.step_called);
+
+        scaler.update();
+        assert!(
+            (scaler.get_scale() - 0.5).abs() < 1e-6,
+            "scale should halve to 0.5, got {}",
+            scaler.get_scale()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // scale update after multiple consecutive inf steps
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_multiple_consecutive_inf_steps() {
+        let config = GradScalerConfig {
+            init_scale: 1024.0,
+            backoff_factor: 0.5,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        // Three consecutive inf steps.
+        for _ in 0..3 {
+            let p = make_param(&[1.0], &[1]);
+            let grad = leaf(&[f32::NAN], &[1]);
+            p.set_grad(Some(grad)).unwrap();
+
+            let mut opt = MockOptimizer::new(vec![p]);
+            let stepped = scaler.step(&mut opt).unwrap();
+            assert!(!stepped);
+            scaler.update();
+        }
+
+        // 1024 * 0.5^3 = 128.
+        assert!(
+            (scaler.get_scale() - 128.0).abs() < 1e-6,
+            "scale should be 1024 * 0.5^3 = 128, got {}",
+            scaler.get_scale()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // normal step without inf proceeds correctly
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_normal_step_proceeds() {
+        let config = GradScalerConfig {
+            init_scale: 64.0,
+            growth_interval: 5,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        let p = make_param(&[1.0, 2.0, 3.0], &[3]);
+        let grad = leaf(&[128.0, 256.0, 384.0], &[3]);
+        p.set_grad(Some(grad)).unwrap();
+
+        let mut opt = MockOptimizer::new(vec![p]);
+        let stepped = scaler.step(&mut opt).unwrap();
+        assert!(stepped, "healthy gradients should allow step");
+        assert!(opt.step_called, "optimizer step should have been called");
+
+        // Verify gradients were unscaled: 128/64=2, 256/64=4, 384/64=6.
+        let data = opt.param_groups[0].params[0]
+            .grad()
+            .unwrap()
+            .unwrap()
+            .data()
+            .unwrap()
+            .to_vec();
+        assert!((data[0] - 2.0).abs() < 1e-5);
+        assert!((data[1] - 4.0).abs() < 1e-5);
+        assert!((data[2] - 6.0).abs() < 1e-5);
+    }
+
+    // -----------------------------------------------------------------------
+    // unscale_ with empty tensor (zero elements)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_unscale_empty_gradient() {
+        let config = GradScalerConfig {
+            init_scale: 256.0,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        // Create a parameter and set an empty gradient.
+        let p = make_param(&[], &[0]);
+        let grad = leaf(&[], &[0]);
+        p.set_grad(Some(grad)).unwrap();
+
+        let mut opt = MockOptimizer::new(vec![p]);
+        scaler.unscale_(&mut opt).unwrap();
+
+        // Empty gradient should not cause inf.
+        assert!(!scaler.found_inf);
+
+        // The gradient should still exist with 0 elements.
+        let g = opt.param_groups[0].params[0].grad().unwrap().unwrap();
+        assert_eq!(g.numel(), 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // GPU-native unscale: correct values (requires GPU backend)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_gpu_unscale_correct_values() {
+        // Skip if no GPU backend is registered.
+        if !ferrotorch_core::gpu_dispatch::has_gpu_backend() {
+            return;
+        }
+
+        let config = GradScalerConfig {
+            init_scale: 256.0,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        // Create a parameter and move it to GPU.
+        let p_cpu = make_param(&[1.0, 2.0, 3.0], &[3]);
+        let p = p_cpu.to(ferrotorch_core::Device::Cuda(0)).unwrap();
+
+        // Set a GPU-resident gradient.
+        let grad_data = vec![256.0f32, 512.0, 768.0];
+        let grad_storage = TensorStorage::on_device(
+            grad_data,
+            ferrotorch_core::Device::Cuda(0),
+        )
+        .unwrap();
+        let grad = Tensor::from_storage(grad_storage, vec![3], false).unwrap();
+        assert!(grad.is_cuda(), "gradient should be on GPU");
+        p.set_grad(Some(grad)).unwrap();
+
+        let mut opt = MockOptimizer::new(vec![p]);
+        scaler.unscale_(&mut opt).unwrap();
+
+        // Download result and verify: 256/256=1, 512/256=2, 768/256=3.
+        let unscaled = opt.param_groups[0].params[0].grad().unwrap().unwrap();
+        let data = unscaled.data_vec().unwrap();
+        assert!(
+            (data[0] - 1.0).abs() < 1e-4,
+            "expected 1.0, got {}",
+            data[0]
+        );
+        assert!(
+            (data[1] - 2.0).abs() < 1e-4,
+            "expected 2.0, got {}",
+            data[1]
+        );
+        assert!(
+            (data[2] - 3.0).abs() < 1e-4,
+            "expected 3.0, got {}",
+            data[2]
+        );
+        assert!(!scaler.found_inf, "no inf in healthy GPU gradients");
+    }
+
+    // -----------------------------------------------------------------------
+    // GPU-native inf detection (requires GPU backend)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_gpu_inf_detection() {
+        if !ferrotorch_core::gpu_dispatch::has_gpu_backend() {
+            return;
+        }
+
+        let config = GradScalerConfig {
+            init_scale: 1.0,
+            backoff_factor: 0.5,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        let p = make_param(&[1.0], &[1])
+            .to(ferrotorch_core::Device::Cuda(0))
+            .unwrap();
+
+        // Upload a gradient with inf.
+        let grad_data = vec![f32::INFINITY];
+        let grad_storage = TensorStorage::on_device(
+            grad_data,
+            ferrotorch_core::Device::Cuda(0),
+        )
+        .unwrap();
+        let grad = Tensor::from_storage(grad_storage, vec![1], false).unwrap();
+        p.set_grad(Some(grad)).unwrap();
+
+        let mut opt = MockOptimizer::new(vec![p]);
+        let stepped = scaler.step(&mut opt).unwrap();
+        assert!(!stepped, "GPU inf should skip step");
+
+        scaler.update();
+        assert!(
+            (scaler.get_scale() - 0.5).abs() < 1e-6,
+            "scale should halve after GPU inf"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // GPU-native NaN detection (requires GPU backend)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_gpu_nan_detection() {
+        if !ferrotorch_core::gpu_dispatch::has_gpu_backend() {
+            return;
+        }
+
+        let config = GradScalerConfig {
+            init_scale: 1.0,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        let p = make_param(&[1.0], &[1])
+            .to(ferrotorch_core::Device::Cuda(0))
+            .unwrap();
+
+        let grad_data = vec![f32::NAN];
+        let grad_storage = TensorStorage::on_device(
+            grad_data,
+            ferrotorch_core::Device::Cuda(0),
+        )
+        .unwrap();
+        let grad = Tensor::from_storage(grad_storage, vec![1], false).unwrap();
+        p.set_grad(Some(grad)).unwrap();
+
+        let mut opt = MockOptimizer::new(vec![p]);
+        let stepped = scaler.step(&mut opt).unwrap();
+        assert!(!stepped, "GPU NaN should skip step");
+    }
+
+    // -----------------------------------------------------------------------
+    // GPU normal step without inf (requires GPU backend)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_gpu_normal_step() {
+        if !ferrotorch_core::gpu_dispatch::has_gpu_backend() {
+            return;
+        }
+
+        let config = GradScalerConfig {
+            init_scale: 64.0,
+            growth_interval: 2,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        for _ in 0..2 {
+            let p = make_param(&[1.0, 2.0], &[2])
+                .to(ferrotorch_core::Device::Cuda(0))
+                .unwrap();
+
+            let grad_data = vec![128.0f32, 256.0];
+            let grad_storage = TensorStorage::on_device(
+                grad_data,
+                ferrotorch_core::Device::Cuda(0),
+            )
+            .unwrap();
+            let grad = Tensor::from_storage(grad_storage, vec![2], false).unwrap();
+            p.set_grad(Some(grad)).unwrap();
+
+            let mut opt = MockOptimizer::new(vec![p]);
+            let stepped = scaler.step(&mut opt).unwrap();
+            assert!(stepped, "healthy GPU step should proceed");
+            scaler.update();
+        }
+
+        // After 2 healthy steps with growth_interval=2, scale should double.
+        assert!(
+            (scaler.get_scale() - 128.0).abs() < 1e-6,
+            "scale should grow from 64 to 128, got {}",
+            scaler.get_scale()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // GPU scale update after inf then recovery
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_gpu_scale_recovery_after_inf() {
+        if !ferrotorch_core::gpu_dispatch::has_gpu_backend() {
+            return;
+        }
+
+        let config = GradScalerConfig {
+            init_scale: 256.0,
+            backoff_factor: 0.5,
+            growth_factor: 2.0,
+            growth_interval: 2,
+            ..Default::default()
+        };
+        let mut scaler = GradScaler::<f32>::new(config);
+
+        // Step 1: inf gradient, scale halves to 128.
+        {
+            let p = make_param(&[1.0], &[1])
+                .to(ferrotorch_core::Device::Cuda(0))
+                .unwrap();
+            let grad_storage = TensorStorage::on_device(
+                vec![f32::INFINITY],
+                ferrotorch_core::Device::Cuda(0),
+            )
+            .unwrap();
+            let grad = Tensor::from_storage(grad_storage, vec![1], false).unwrap();
+            p.set_grad(Some(grad)).unwrap();
+
+            let mut opt = MockOptimizer::new(vec![p]);
+            let stepped = scaler.step(&mut opt).unwrap();
+            assert!(!stepped);
+            scaler.update();
+        }
+        assert!(
+            (scaler.get_scale() - 128.0).abs() < 1e-6,
+            "scale should be 128 after inf, got {}",
+            scaler.get_scale()
+        );
+
+        // Steps 2-3: healthy, growth_interval=2, scale doubles to 256.
+        for _ in 0..2 {
+            let p = make_param(&[1.0], &[1])
+                .to(ferrotorch_core::Device::Cuda(0))
+                .unwrap();
+            let grad_storage = TensorStorage::on_device(
+                vec![1.0f32],
+                ferrotorch_core::Device::Cuda(0),
+            )
+            .unwrap();
+            let grad = Tensor::from_storage(grad_storage, vec![1], false).unwrap();
+            p.set_grad(Some(grad)).unwrap();
+
+            let mut opt = MockOptimizer::new(vec![p]);
+            let stepped = scaler.step(&mut opt).unwrap();
+            assert!(stepped);
+            scaler.update();
+        }
+        assert!(
+            (scaler.get_scale() - 256.0).abs() < 1e-6,
+            "scale should recover to 256, got {}",
+            scaler.get_scale()
         );
     }
 }

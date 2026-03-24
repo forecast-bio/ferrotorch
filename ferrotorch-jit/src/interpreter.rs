@@ -14,7 +14,7 @@ use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 use ferrotorch_core::grad_fns::{
     activation, arithmetic,
     linalg::{self as grad_linalg, mm_differentiable},
-    reduction, shape,
+    reduction, shape, transcendental,
 };
 use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::tensor::Tensor;
@@ -171,6 +171,18 @@ pub fn interpret<T: Float>(graph: &IrGraph, inputs: &[Tensor<T>]) -> FerrotorchR
             IrOpKind::Pow { exponent } => {
                 let a = get_unary_input(&values, &node.inputs)?;
                 let result = arithmetic::pow(a, *exponent)?;
+                set_outputs(&mut values, &node.outputs, result);
+            }
+
+            IrOpKind::Exp => {
+                let a = get_unary_input(&values, &node.inputs)?;
+                let result = transcendental::exp(a)?;
+                set_outputs(&mut values, &node.outputs, result);
+            }
+
+            IrOpKind::Log => {
+                let a = get_unary_input(&values, &node.inputs)?;
+                let result = transcendental::log(a)?;
                 set_outputs(&mut values, &node.outputs, result);
             }
 
@@ -407,6 +419,8 @@ fn apply_elementwise_op<T: Float>(
         IrOpKind::Tanh => activation::tanh(input),
         IrOpKind::Gelu => activation::gelu(input),
         IrOpKind::Silu => activation::silu(input),
+        IrOpKind::Exp => transcendental::exp(input),
+        IrOpKind::Log => transcendental::log(input),
         _ => Err(FerrotorchError::InvalidArgument {
             message: format!(
                 "interpret: unsupported op in FusedElementwise: {:?}",

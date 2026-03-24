@@ -4143,6 +4143,47 @@ pub fn gpu_scale_into(
     Ok(())
 }
 
+/// Check whether a GPU buffer contains any inf or NaN values.
+///
+/// Downloads the buffer contents to the host and scans for non-finite
+/// values. This is correct for any buffer size and requires no custom
+/// reduction kernel.
+///
+/// For a future optimization, a dedicated GPU reduction kernel could be
+/// used to produce a single boolean flag on device, avoiding the full
+/// download. The current approach is already much faster than the old
+/// per-element CPU loop in `unscale_()` because the scaling itself
+/// runs on GPU — only the inf/NaN check touches the host.
+///
+/// # Errors
+///
+/// - [`GpuError::DeviceMismatch`] if `a` and `device` refer to different CUDA devices.
+/// - [`GpuError::Driver`] on CUDA runtime errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_has_inf_nan(
+    a: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<bool> {
+    let n = a.len();
+    if n == 0 {
+        return Ok(false);
+    }
+
+    validate_unary(a, device)?;
+
+    let host: Vec<f32> = crate::transfer::gpu_to_cpu(a, device)?;
+    Ok(host.iter().any(|v| !v.is_finite()))
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_has_inf_nan(
+    _a: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<bool> {
+    Err(GpuError::NoCudaFeature)
+}
+
 /// GELU into pre-allocated output.
 #[cfg(feature = "cuda")]
 pub fn gpu_gelu_into(

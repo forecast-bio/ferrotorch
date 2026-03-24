@@ -225,6 +225,30 @@ pub trait GpuBackend: Send + Sync {
     fn sum_axis_f32(&self, _a: &GpuBufferHandle, _shape: &[usize], _axis: usize) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument { message: "sum_axis_f32 GPU op not yet implemented".into() })
     }
+
+    /// Check if a GPU buffer contains any inf or NaN values.
+    fn has_inf_nan_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<bool> {
+        // Default: download to CPU and scan
+        let bytes = self.gpu_to_cpu(a)?;
+        let floats: &[f32] = unsafe {
+            std::slice::from_raw_parts(bytes.as_ptr() as *const f32, bytes.len() / 4)
+        };
+        Ok(floats.iter().any(|v| !v.is_finite()))
+    }
+
+    // GPU linear algebra via cuSOLVER
+    fn svd_f32(&self, _a: &GpuBufferHandle, _m: usize, _n: usize) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle, GpuBufferHandle)> {
+        Err(FerrotorchError::InvalidArgument { message: "svd_f32 GPU op not yet implemented".into() })
+    }
+    fn cholesky_f32(&self, _a: &GpuBufferHandle, _n: usize) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "cholesky_f32 GPU op not yet implemented".into() })
+    }
+    fn solve_f32(&self, _a: &GpuBufferHandle, _b: &GpuBufferHandle, _n: usize, _nrhs: usize) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument { message: "solve_f32 GPU op not yet implemented".into() })
+    }
+    fn qr_f32(&self, _a: &GpuBufferHandle, _m: usize, _n: usize) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle)> {
+        Err(FerrotorchError::InvalidArgument { message: "qr_f32 GPU op not yet implemented".into() })
+    }
 }
 
 static GPU_BACKEND: OnceLock<Box<dyn GpuBackend>> = OnceLock::new();

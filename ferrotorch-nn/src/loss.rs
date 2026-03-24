@@ -997,6 +997,401 @@ impl Default for CosineEmbeddingLoss {
 }
 
 // ===========================================================================
+// L1Loss
+// ===========================================================================
+
+/// L1 (Mean Absolute Error) loss.
+///
+/// ```text
+/// loss_i = |pred_i - target_i|
+/// ```
+///
+/// Then the chosen reduction is applied.
+///
+/// Matches `torch.nn.L1Loss`.
+#[derive(Debug, Clone)]
+pub struct L1Loss {
+    pub reduction: Reduction,
+}
+
+impl L1Loss {
+    pub fn new(reduction: Reduction) -> Self {
+        Self { reduction }
+    }
+
+    /// Compute L1 loss.
+    ///
+    /// Participates in autocast: classified as `FullPrecision` (`"l1_loss"`).
+    pub fn forward<T: Float>(
+        &self,
+        pred: &Tensor<T>,
+        target: &Tensor<T>,
+    ) -> FerrotorchResult<Tensor<T>> {
+        autocast_guard("l1_loss");
+
+        if pred.shape() != target.shape() {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "L1Loss: pred shape {:?} != target shape {:?}",
+                    pred.shape(),
+                    target.shape()
+                ),
+            });
+        }
+
+        let diff = binary_map(pred, target, |p, t| p - t)?;
+        let abs_diff = unary_map(&diff, |x| x.abs())?;
+        let reduced = apply_reduction(&abs_diff, self.reduction)?;
+
+        if is_grad_enabled() && pred.requires_grad() {
+            let grad_fn = Arc::new(L1Backward {
+                pred: pred.clone(),
+                target: target.clone(),
+                reduction: self.reduction,
+            });
+            Tensor::from_operation(
+                TensorStorage::cpu(reduced.data_vec()?),
+                reduced.shape().to_vec(),
+                grad_fn,
+            )
+        } else {
+            Ok(reduced)
+        }
+    }
+}
+
+impl Default for L1Loss {
+    fn default() -> Self {
+        Self::new(Reduction::Mean)
+    }
+}
+
+/// Backward for `L1Loss`.
+///
+/// `grad_pred = sign(pred - target) * grad_output / n` (mean reduction)
+/// `grad_pred = sign(pred - target) * grad_output`     (sum reduction)
+/// `grad_pred = sign(pred - target) * grad_output`     (no reduction, elementwise)
+///
+/// `sign(0)` is defined as `0` to match PyTorch behavior.
+#[derive(Debug)]
+struct L1Backward<T: Float> {
+    pred: Tensor<T>,
+    target: Tensor<T>,
+    reduction: Reduction,
+}
+
+impl<T: Float> GradFn<T> for L1Backward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let cpu_pred = if self.pred.is_cuda() { self.pred.cpu()? } else { self.pred.clone() };
+        let cpu_target = if self.target.is_cuda() { self.target.cpu()? } else { self.target.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let pred_data = cpu_pred.data()?;
+        let target_data = cpu_target.data()?;
+        let grad_data = cpu_go.data()?;
+        let n = T::from(pred_data.len()).unwrap();
+
+        let sign = |x: T| -> T {
+            let zero = <T as Zero>::zero();
+            if x > zero {
+                <T as One>::one()
+            } else if x < zero {
+                -<T as One>::one()
+            } else {
+                zero
+            }
+        };
+
+        let result: Vec<T> = match self.reduction {
+            Reduction::Mean => {
+                let go = grad_data[0];
+                pred_data
+                    .iter()
+                    .zip(target_data.iter())
+                    .map(|(&p, &t)| sign(p - t) * go / n)
+                    .collect()
+            }
+            Reduction::Sum => {
+                let go = grad_data[0];
+                pred_data
+                    .iter()
+                    .zip(target_data.iter())
+                    .map(|(&p, &t)| sign(p - t) * go)
+                    .collect()
+            }
+            Reduction::None => {
+                pred_data
+                    .iter()
+                    .zip(target_data.iter())
+                    .zip(grad_data.iter())
+                    .map(|((&p, &t), &g)| sign(p - t) * g)
+                    .collect()
+            }
+        };
+
+        let grad_input = Tensor::from_storage(
+            TensorStorage::cpu(result),
+            self.pred.shape().to_vec(),
+            false,
+        )?;
+        let grad_input = grad_input.to(self.pred.device())?;
+        Ok(vec![Some(grad_input)])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.pred]
+    }
+
+    fn name(&self) -> &'static str {
+        "L1Backward"
+    }
+}
+
+// ===========================================================================
+// NLLLoss
+// ===========================================================================
+
+/// Negative log-likelihood loss.
+///
+/// Takes **log-probabilities** of shape `[B, C]` and integer class targets
+/// `[B]` (stored as floats, e.g. `0.0`, `1.0`, `2.0`).
+///
+/// ```text
+/// loss_b = -log_probs[b, target[b]]
+/// ```
+///
+/// Supports an optional `ignore_index`: samples whose target equals this
+/// value are excluded from the loss computation. When using `Reduction::Mean`,
+/// the denominator is the count of non-ignored samples.
+///
+/// Matches `torch.nn.NLLLoss`.
+#[derive(Debug, Clone)]
+pub struct NLLLoss {
+    pub reduction: Reduction,
+    /// If set, class indices equal to this value are ignored.
+    pub ignore_index: Option<isize>,
+}
+
+impl NLLLoss {
+    pub fn new(reduction: Reduction, ignore_index: Option<isize>) -> Self {
+        Self {
+            reduction,
+            ignore_index,
+        }
+    }
+
+    /// Compute NLL loss.
+    ///
+    /// # Arguments
+    ///
+    /// * `log_probs` - Log-probabilities of shape `[B, C]`.
+    /// * `targets` - Class indices of shape `[B]`, stored as floats.
+    ///
+    /// Participates in autocast: classified as `FullPrecision` (`"nll_loss"`).
+    pub fn forward<T: Float>(
+        &self,
+        log_probs: &Tensor<T>,
+        targets: &Tensor<T>,
+    ) -> FerrotorchResult<Tensor<T>> {
+        autocast_guard("nll_loss");
+
+        let shape = log_probs.shape();
+        if shape.len() != 2 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "NLLLoss: expected 2D log_probs [B, C], got shape {:?}",
+                    shape
+                ),
+            });
+        }
+        let batch = shape[0];
+        let classes = shape[1];
+
+        if targets.shape() != [batch] {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "NLLLoss: target shape {:?} does not match batch size {}",
+                    targets.shape(),
+                    batch,
+                ),
+            });
+        }
+
+        if batch == 0 {
+            // Empty batch: return scalar zero for Mean/Sum, empty [0] for None.
+            return match self.reduction {
+                Reduction::None => Tensor::from_storage(
+                    TensorStorage::cpu(vec![]),
+                    vec![0],
+                    false,
+                ),
+                _ => Tensor::from_storage(
+                    TensorStorage::cpu(vec![<T as Zero>::zero()]),
+                    vec![],
+                    false,
+                ),
+            };
+        }
+
+        let lp_data = log_probs.data_vec()?;
+        let targets_data = targets.data_vec()?;
+
+        let mut losses = vec![<T as Zero>::zero(); batch];
+        let mut valid_count: usize = 0;
+
+        for b in 0..batch {
+            let target_idx = targets_data[b].to_isize().unwrap_or(0);
+
+            // Check ignore_index.
+            if let Some(ignore) = self.ignore_index {
+                if target_idx == ignore {
+                    // This sample is ignored (loss = 0, not counted).
+                    continue;
+                }
+            }
+
+            let target_class = target_idx as usize;
+            if target_class >= classes {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "NLLLoss: target index {} is out of range for {} classes at batch element {}",
+                        target_class, classes, b
+                    ),
+                });
+            }
+
+            losses[b] = -lp_data[b * classes + target_class];
+            valid_count += 1;
+        }
+
+        let unreduced = Tensor::from_storage(
+            TensorStorage::cpu(losses),
+            vec![batch],
+            false,
+        )?;
+
+        // Apply reduction, but for Mean we need to use valid_count instead of batch.
+        let reduced = match self.reduction {
+            Reduction::None => unreduced.clone(),
+            Reduction::Sum => sum(&unreduced)?,
+            Reduction::Mean => {
+                if valid_count == 0 {
+                    // All samples ignored: return 0.
+                    Tensor::from_storage(
+                        TensorStorage::cpu(vec![<T as Zero>::zero()]),
+                        vec![],
+                        false,
+                    )?
+                } else {
+                    let s = sum(&unreduced)?;
+                    let s_data = s.data_vec()?;
+                    let mean_val = s_data[0] / T::from(valid_count).unwrap();
+                    Tensor::from_storage(
+                        TensorStorage::cpu(vec![mean_val]),
+                        vec![],
+                        false,
+                    )?
+                }
+            }
+        };
+
+        if is_grad_enabled() && log_probs.requires_grad() {
+            let grad_fn = Arc::new(NLLBackward {
+                log_probs: log_probs.clone(),
+                targets: targets.clone(),
+                reduction: self.reduction,
+                ignore_index: self.ignore_index,
+                valid_count,
+            });
+            Tensor::from_operation(
+                TensorStorage::cpu(reduced.data_vec()?),
+                reduced.shape().to_vec(),
+                grad_fn,
+            )
+        } else {
+            Ok(reduced)
+        }
+    }
+}
+
+impl Default for NLLLoss {
+    fn default() -> Self {
+        Self::new(Reduction::Mean, None)
+    }
+}
+
+/// Backward for `NLLLoss`.
+///
+/// `grad_log_probs[b, c] = 0` for `c != target[b]`
+/// `grad_log_probs[b, target[b]] = -1 * scale`
+///
+/// where `scale = grad_output / valid_count` (mean) or `grad_output` (sum).
+#[derive(Debug)]
+struct NLLBackward<T: Float> {
+    log_probs: Tensor<T>,
+    targets: Tensor<T>,
+    reduction: Reduction,
+    ignore_index: Option<isize>,
+    valid_count: usize,
+}
+
+impl<T: Float> GradFn<T> for NLLBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let shape = self.log_probs.shape();
+        let batch = shape[0];
+        let classes = shape[1];
+
+        let cpu_targets = if self.targets.is_cuda() { self.targets.cpu()? } else { self.targets.clone() };
+        let cpu_go = if grad_output.is_cuda() { grad_output.cpu()? } else { grad_output.clone() };
+        let targets_data = cpu_targets.data()?;
+        let grad_data = cpu_go.data()?;
+
+        let mut result = vec![<T as Zero>::zero(); batch * classes];
+
+        for b in 0..batch {
+            let target_idx = targets_data[b].to_isize().unwrap_or(0);
+
+            if let Some(ignore) = self.ignore_index {
+                if target_idx == ignore {
+                    continue;
+                }
+            }
+
+            let target_class = target_idx as usize;
+
+            let scale = match self.reduction {
+                Reduction::Mean => {
+                    if self.valid_count > 0 {
+                        grad_data[0] / T::from(self.valid_count).unwrap()
+                    } else {
+                        <T as Zero>::zero()
+                    }
+                }
+                Reduction::Sum => grad_data[0],
+                Reduction::None => grad_data[b],
+            };
+
+            result[b * classes + target_class] = -scale;
+        }
+
+        let grad_input = Tensor::from_storage(
+            TensorStorage::cpu(result),
+            shape.to_vec(),
+            false,
+        )?;
+        let grad_input = grad_input.to(self.log_probs.device())?;
+        Ok(vec![Some(grad_input)])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.log_probs]
+    }
+
+    fn name(&self) -> &'static str {
+        "NLLBackward"
+    }
+}
+
+// ===========================================================================
 // SmoothL1Loss
 // ===========================================================================
 
@@ -2010,5 +2405,343 @@ mod tests {
             assert_eq!(events[0].op, "bce_with_logits");
             assert_eq!(events[0].category, AutocastCategory::FullPrecision);
         });
+    }
+
+    // -----------------------------------------------------------------------
+    // L1Loss
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_l1_forward_mean() {
+        let pred = leaf_vec(&[1.0, 2.0, 3.0]);
+        let target = target_vec(&[1.5, 2.5, 3.5]);
+        let loss = L1Loss::new(Reduction::Mean);
+        let out = loss.forward(&pred, &target).unwrap();
+        // Each |diff| is 0.5, mean is 0.5.
+        assert!(out.is_scalar());
+        assert!(
+            (out.item().unwrap() - 0.5).abs() < 1e-7,
+            "L1 mean: expected 0.5, got {}",
+            out.item().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_l1_forward_sum() {
+        let pred = leaf_vec(&[1.0, 2.0, 3.0]);
+        let target = target_vec(&[1.5, 2.5, 3.5]);
+        let loss = L1Loss::new(Reduction::Sum);
+        let out = loss.forward(&pred, &target).unwrap();
+        // sum of 0.5 * 3 = 1.5
+        assert!(
+            (out.item().unwrap() - 1.5).abs() < 1e-7,
+            "L1 sum: expected 1.5, got {}",
+            out.item().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_l1_forward_none() {
+        let pred = leaf_vec(&[1.0, 2.0, 3.0]);
+        let target = target_vec(&[1.5, 2.5, 3.5]);
+        let loss = L1Loss::new(Reduction::None);
+        let out = loss.forward(&pred, &target).unwrap();
+        assert_eq!(out.shape(), &[3]);
+        let d = out.data().unwrap();
+        for i in 0..3 {
+            assert!(
+                (d[i] - 0.5).abs() < 1e-7,
+                "L1 none[{}]: expected 0.5, got {}",
+                i,
+                d[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_l1_backward_mean() {
+        let pred = leaf_vec(&[1.0, 2.0, 3.0]);
+        let target = target_vec(&[1.5, 2.5, 3.5]);
+        let loss = L1Loss::new(Reduction::Mean);
+        let out = loss.forward(&pred, &target).unwrap();
+        backward(&out).unwrap();
+
+        let grad = pred.grad().unwrap().unwrap();
+        let g = grad.data().unwrap();
+        // grad = sign(pred - target) / n = sign(-0.5) / 3 = -1/3
+        let expected = -1.0 / 3.0;
+        for i in 0..3 {
+            assert!(
+                (g[i] - expected).abs() < 1e-7,
+                "L1 backward mean[{}]: expected {}, got {}",
+                i,
+                expected,
+                g[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_l1_backward_sum() {
+        let pred = leaf_vec(&[1.0, 2.0, 3.0]);
+        let target = target_vec(&[0.5, 1.5, 2.5]);
+        let loss = L1Loss::new(Reduction::Sum);
+        let out = loss.forward(&pred, &target).unwrap();
+        backward(&out).unwrap();
+
+        let grad = pred.grad().unwrap().unwrap();
+        let g = grad.data().unwrap();
+        // grad = sign(pred - target) * 1 = sign(0.5) = 1
+        for i in 0..3 {
+            assert!(
+                (g[i] - 1.0).abs() < 1e-7,
+                "L1 backward sum[{}]: expected 1.0, got {}",
+                i,
+                g[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_l1_shape_mismatch() {
+        let pred = leaf_vec(&[1.0, 2.0]);
+        let target = target_vec(&[1.0, 2.0, 3.0]);
+        let loss = L1Loss::default();
+        assert!(loss.forward(&pred, &target).is_err());
+    }
+
+    #[test]
+    fn test_l1_zero_diff() {
+        // When pred == target, loss = 0 and sign(0) = 0.
+        let pred = leaf_vec(&[1.0, 2.0, 3.0]);
+        let target = target_vec(&[1.0, 2.0, 3.0]);
+        let loss = L1Loss::new(Reduction::Mean);
+        let out = loss.forward(&pred, &target).unwrap();
+        assert!((out.item().unwrap()).abs() < 1e-10);
+
+        backward(&out).unwrap();
+        let grad = pred.grad().unwrap().unwrap();
+        let g = grad.data().unwrap();
+        for i in 0..3 {
+            assert!(
+                g[i].abs() < 1e-10,
+                "L1 zero diff grad[{}] should be 0, got {}",
+                i,
+                g[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_l1_mixed_signs() {
+        // Pred above and below target.
+        let pred = leaf_vec(&[3.0, 1.0]);
+        let target = target_vec(&[1.0, 3.0]);
+        let loss = L1Loss::new(Reduction::Mean);
+        let out = loss.forward(&pred, &target).unwrap();
+        // |3-1| = 2, |1-3| = 2, mean = 2
+        assert!(
+            (out.item().unwrap() - 2.0).abs() < 1e-7,
+            "L1 mixed: expected 2.0, got {}",
+            out.item().unwrap()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // NLLLoss
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_nll_forward_mean() {
+        // log_probs: [2, 3], targets: [2]
+        // Manually compute: sample 0 target=1, sample 1 target=0
+        let log_probs = leaf_2d(
+            &[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0],
+            &[2, 3],
+        );
+        let targets = target_vec(&[1.0, 0.0]);
+        let loss = NLLLoss::default();
+        let out = loss.forward(&log_probs, &targets).unwrap();
+        // loss = -(-0.5 + -0.8) / 2 = (0.5 + 0.8) / 2 = 0.65
+        assert!(out.is_scalar());
+        assert!(
+            (out.item().unwrap() - 0.65).abs() < 1e-7,
+            "NLL mean: expected 0.65, got {}",
+            out.item().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_nll_forward_sum() {
+        let log_probs = leaf_2d(
+            &[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0],
+            &[2, 3],
+        );
+        let targets = target_vec(&[1.0, 0.0]);
+        let loss = NLLLoss::new(Reduction::Sum, None);
+        let out = loss.forward(&log_probs, &targets).unwrap();
+        // loss = 0.5 + 0.8 = 1.3
+        assert!(
+            (out.item().unwrap() - 1.3).abs() < 1e-7,
+            "NLL sum: expected 1.3, got {}",
+            out.item().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_nll_forward_none() {
+        let log_probs = leaf_2d(
+            &[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0],
+            &[2, 3],
+        );
+        let targets = target_vec(&[1.0, 0.0]);
+        let loss = NLLLoss::new(Reduction::None, None);
+        let out = loss.forward(&log_probs, &targets).unwrap();
+        assert_eq!(out.shape(), &[2]);
+        let d = out.data().unwrap();
+        assert!((d[0] - 0.5).abs() < 1e-7, "NLL none[0]: expected 0.5, got {}", d[0]);
+        assert!((d[1] - 0.8).abs() < 1e-7, "NLL none[1]: expected 0.8, got {}", d[1]);
+    }
+
+    #[test]
+    fn test_nll_backward_mean() {
+        let log_probs = leaf_2d(
+            &[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0],
+            &[2, 3],
+        );
+        let targets = target_vec(&[1.0, 0.0]);
+        let loss = NLLLoss::default();
+        let out = loss.forward(&log_probs, &targets).unwrap();
+        backward(&out).unwrap();
+
+        let grad = log_probs.grad().unwrap().unwrap();
+        let g = grad.data().unwrap();
+        // grad[0, 1] = -1/2, grad[1, 0] = -1/2, rest = 0
+        let expected = [0.0, -0.5, 0.0, -0.5, 0.0, 0.0];
+        for i in 0..6 {
+            assert!(
+                (g[i] - expected[i]).abs() < 1e-7,
+                "NLL backward mean[{}]: expected {}, got {}",
+                i,
+                expected[i],
+                g[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_nll_ignore_index() {
+        let log_probs = leaf_2d(
+            &[-1.5, -0.5, -2.0, -0.8, -1.2, -1.0],
+            &[2, 3],
+        );
+        let targets = target_vec(&[1.0, 0.0]);
+        // Ignore class 0 — only sample 0 (target=1) contributes.
+        let loss = NLLLoss::new(Reduction::Mean, Some(0));
+        let out = loss.forward(&log_probs, &targets).unwrap();
+        // loss = -(-0.5) / 1 = 0.5
+        assert!(
+            (out.item().unwrap() - 0.5).abs() < 1e-7,
+            "NLL ignore_index mean: expected 0.5, got {}",
+            out.item().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_nll_ignore_index_all_ignored() {
+        let log_probs = leaf_2d(
+            &[-1.5, -0.5, -0.8, -1.2],
+            &[2, 2],
+        );
+        let targets = target_vec(&[0.0, 0.0]);
+        let loss = NLLLoss::new(Reduction::Mean, Some(0));
+        let out = loss.forward(&log_probs, &targets).unwrap();
+        // All ignored => 0.
+        assert!(
+            (out.item().unwrap()).abs() < 1e-10,
+            "NLL all ignored: expected 0, got {}",
+            out.item().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_nll_wrong_log_probs_shape() {
+        // 1-D input should error.
+        let log_probs = leaf_vec(&[-0.5, -1.0, -1.5]);
+        let targets = target_vec(&[1.0]);
+        let loss = NLLLoss::default();
+        assert!(loss.forward(&log_probs, &targets).is_err());
+    }
+
+    #[test]
+    fn test_nll_target_shape_mismatch() {
+        let log_probs = leaf_2d(&[-0.5, -1.0, -1.5, -0.8, -1.2, -1.0], &[2, 3]);
+        let targets = target_vec(&[1.0, 0.0, 2.0]);
+        let loss = NLLLoss::default();
+        assert!(loss.forward(&log_probs, &targets).is_err());
+    }
+
+    #[test]
+    fn test_nll_target_out_of_range() {
+        let log_probs = leaf_2d(&[-0.5, -1.0], &[1, 2]);
+        let targets = target_vec(&[5.0]); // Only 2 classes.
+        let loss = NLLLoss::default();
+        assert!(loss.forward(&log_probs, &targets).is_err());
+    }
+
+    #[test]
+    fn test_nll_empty_batch() {
+        let log_probs = leaf_2d(&[], &[0, 3]);
+        let targets = target_vec(&[]);
+        let loss = NLLLoss::default();
+        let out = loss.forward(&log_probs, &targets).unwrap();
+        assert!((out.item().unwrap()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_nll_backward_sum() {
+        let log_probs = leaf_2d(&[-1.0, -2.0, -3.0, -4.0], &[2, 2]);
+        let targets = target_vec(&[0.0, 1.0]);
+        let loss = NLLLoss::new(Reduction::Sum, None);
+        let out = loss.forward(&log_probs, &targets).unwrap();
+        backward(&out).unwrap();
+
+        let grad = log_probs.grad().unwrap().unwrap();
+        let g = grad.data().unwrap();
+        // grad[0, 0] = -1, grad[1, 1] = -1, rest = 0
+        let expected = [-1.0, 0.0, 0.0, -1.0];
+        for i in 0..4 {
+            assert!(
+                (g[i] - expected[i]).abs() < 1e-7,
+                "NLL backward sum[{}]: expected {}, got {}",
+                i,
+                expected[i],
+                g[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_nll_backward_with_ignore() {
+        let log_probs = leaf_2d(&[-1.0, -2.0, -3.0, -4.0], &[2, 2]);
+        let targets = target_vec(&[0.0, 1.0]);
+        // Ignore target=0, so only sample 1 (target=1) contributes.
+        let loss = NLLLoss::new(Reduction::Mean, Some(0));
+        let out = loss.forward(&log_probs, &targets).unwrap();
+        backward(&out).unwrap();
+
+        let grad = log_probs.grad().unwrap().unwrap();
+        let g = grad.data().unwrap();
+        // Only sample 1, target=1: grad[1,1] = -1/1 = -1, rest = 0.
+        let expected = [0.0, 0.0, 0.0, -1.0];
+        for i in 0..4 {
+            assert!(
+                (g[i] - expected[i]).abs() < 1e-7,
+                "NLL backward ignore[{}]: expected {}, got {}",
+                i,
+                expected[i],
+                g[i]
+            );
+        }
     }
 }

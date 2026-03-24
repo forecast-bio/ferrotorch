@@ -264,6 +264,8 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
             | IrOpKind::Tanh
             | IrOpKind::Gelu
             | IrOpKind::Silu
+            | IrOpKind::Exp
+            | IrOpKind::Log
             | IrOpKind::Pow { .. }) => {
                 let input_id = *node.inputs.first()?;
                 let input_kind = value_kinds.get(&input_id)?.clone();
@@ -445,6 +447,8 @@ fn make_elementwise_op(op: &IrOpKind) -> Option<ElementwiseOp> {
             x * 0.5 * (1.0 + (sqrt_2_over_pi * (x + 0.044715 * x.powi(3))).tanh())
         })),
         IrOpKind::Silu => Some(Arc::new(|x: f64| x / (1.0 + (-x).exp()))),
+        IrOpKind::Exp => Some(Arc::new(|x: f64| x.exp())),
+        IrOpKind::Log => Some(Arc::new(|x: f64| x.ln())),
         _ => None,
     }
 }

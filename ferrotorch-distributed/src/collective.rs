@@ -179,6 +179,198 @@ pub fn broadcast<T: Float>(
 }
 
 // ---------------------------------------------------------------------------
+// All-gather
+// ---------------------------------------------------------------------------
+
+/// Gather tensors from all ranks and concatenate them along the first axis.
+///
+/// Each rank provides a local tensor (chunk). After all-gather, every rank
+/// holds the concatenation of all chunks in rank order. All chunks must
+/// have the same number of elements.
+///
+/// # Algorithm (star topology)
+///
+/// 1. Non-zero ranks send their data to rank 0.
+/// 2. Rank 0 assembles the full buffer `[chunk_0 | chunk_1 | ... | chunk_{N-1}]`.
+/// 3. Rank 0 broadcasts the full buffer to all other ranks.
+pub fn all_gather<T: Float>(
+    tensor: &Tensor<T>,
+    backend: &dyn Backend,
+) -> FerrotorchResult<Tensor<T>> {
+    all_gather_with_timeout(tensor, backend, DEFAULT_COLLECTIVE_TIMEOUT)
+}
+
+/// Like [`all_gather`] but with a configurable timeout for recv operations.
+pub fn all_gather_with_timeout<T: Float>(
+    tensor: &Tensor<T>,
+    backend: &dyn Backend,
+    timeout: Duration,
+) -> FerrotorchResult<Tensor<T>> {
+    let rank = backend.rank();
+    let world_size = backend.world_size();
+    let chunk_numel = tensor.numel();
+    let chunk_byte_len = chunk_numel * std::mem::size_of::<T>();
+    let total_numel = chunk_numel * world_size;
+
+    if world_size == 1 {
+        return Ok(tensor.clone());
+    }
+
+    // Zero-size tensor: nothing to communicate.
+    if chunk_byte_len == 0 {
+        return Tensor::from_storage(
+            TensorStorage::cpu(Vec::<T>::new()),
+            vec![0],
+            false,
+        );
+    }
+
+    if rank == 0 {
+        // Allocate the full gathered buffer. Slot 0 = our own data.
+        let mut gathered: Vec<T> = Vec::with_capacity(total_numel);
+        gathered.extend(tensor.data_vec()?);
+
+        // Receive chunks from ranks 1..world_size.
+        let mut recv_buf = vec![0u8; chunk_byte_len];
+        for src in 1..world_size {
+            backend.recv_timeout(&mut recv_buf, src, timeout)?;
+            gathered.extend(bytes_to_floats::<T>(&recv_buf));
+        }
+
+        // Broadcast the full buffer to all other ranks.
+        let full_bytes = floats_to_bytes(&gathered);
+        for dst in 1..world_size {
+            backend.send(&full_bytes, dst)?;
+        }
+
+        Tensor::from_storage(TensorStorage::cpu(gathered), vec![total_numel], false)
+    } else {
+        // Send our chunk to rank 0.
+        let local = tensor.data_vec()?;
+        backend.send(&floats_to_bytes(&local), 0)?;
+
+        // Receive the full gathered buffer from rank 0.
+        let full_byte_len = total_numel * std::mem::size_of::<T>();
+        let mut recv_buf = vec![0u8; full_byte_len];
+        backend.recv_timeout(&mut recv_buf, 0, timeout)?;
+        let gathered = bytes_to_floats::<T>(&recv_buf);
+
+        Tensor::from_storage(TensorStorage::cpu(gathered), vec![total_numel], false)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reduce-scatter
+// ---------------------------------------------------------------------------
+
+/// Reduce tensors across all ranks and scatter the result so each rank
+/// gets only its chunk.
+///
+/// Each rank provides a tensor of length `chunk_size * world_size`. The
+/// tensors are element-wise reduced (sum or mean), then the result is split
+/// into `world_size` equal chunks and chunk `i` is sent to rank `i`.
+///
+/// # Algorithm (star topology)
+///
+/// 1. Non-zero ranks send their data to rank 0.
+/// 2. Rank 0 reduces (element-wise sum/mean) across all inputs.
+/// 3. Rank 0 splits the reduced buffer into chunks and sends chunk `i` to
+///    rank `i`.
+pub fn reduce_scatter<T: Float>(
+    tensor: &Tensor<T>,
+    backend: &dyn Backend,
+    op: ReduceOp,
+) -> FerrotorchResult<Tensor<T>> {
+    reduce_scatter_with_timeout(tensor, backend, op, DEFAULT_COLLECTIVE_TIMEOUT)
+}
+
+/// Like [`reduce_scatter`] but with a configurable timeout.
+pub fn reduce_scatter_with_timeout<T: Float>(
+    tensor: &Tensor<T>,
+    backend: &dyn Backend,
+    op: ReduceOp,
+    timeout: Duration,
+) -> FerrotorchResult<Tensor<T>> {
+    let rank = backend.rank();
+    let world_size = backend.world_size();
+    let total_numel = tensor.numel();
+
+    if total_numel % world_size != 0 {
+        return Err(DistributedError::SizeMismatch {
+            expected: total_numel,
+            got: world_size,
+        }
+        .into());
+    }
+
+    let chunk_numel = total_numel / world_size;
+
+    if world_size == 1 {
+        // Single rank: chunk = entire tensor, optionally apply mean (no-op
+        // since dividing by 1).
+        return Ok(tensor.clone());
+    }
+
+    // Zero-size tensor: nothing to communicate.
+    if total_numel == 0 {
+        return Tensor::from_storage(
+            TensorStorage::cpu(Vec::<T>::new()),
+            vec![0],
+            false,
+        );
+    }
+
+    let byte_len = total_numel * std::mem::size_of::<T>();
+
+    if rank == 0 {
+        // Start with our own data.
+        let mut accum = tensor.data_vec()?;
+
+        // Receive from every other rank and accumulate.
+        let mut recv_buf = vec![0u8; byte_len];
+        for src in 1..world_size {
+            backend.recv_timeout(&mut recv_buf, src, timeout)?;
+            let peer_data = bytes_to_floats::<T>(&recv_buf);
+            for (a, &b) in accum.iter_mut().zip(peer_data.iter()) {
+                *a = *a + b;
+            }
+        }
+
+        // Apply mean if requested.
+        if op == ReduceOp::Mean {
+            let divisor = T::from(world_size).unwrap();
+            for a in &mut accum {
+                *a = *a / divisor;
+            }
+        }
+
+        // Send chunk i to rank i (skip ourselves — we keep chunk 0).
+        for dst in 1..world_size {
+            let start = dst * chunk_numel;
+            let end = start + chunk_numel;
+            let chunk_bytes = floats_to_bytes(&accum[start..end]);
+            backend.send(&chunk_bytes, dst)?;
+        }
+
+        // Our chunk is the first slice.
+        let our_chunk = accum[..chunk_numel].to_vec();
+        Tensor::from_storage(TensorStorage::cpu(our_chunk), vec![chunk_numel], false)
+    } else {
+        // Send our data to rank 0.
+        let local = tensor.data_vec()?;
+        backend.send(&floats_to_bytes(&local), 0)?;
+
+        // Receive our chunk from rank 0.
+        let chunk_byte_len = chunk_numel * std::mem::size_of::<T>();
+        let mut recv_buf = vec![0u8; chunk_byte_len];
+        backend.recv_timeout(&mut recv_buf, 0, timeout)?;
+        let chunk = bytes_to_floats::<T>(&recv_buf);
+
+        Tensor::from_storage(TensorStorage::cpu(chunk), vec![chunk_numel], false)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Barrier
 // ---------------------------------------------------------------------------
 
@@ -367,6 +559,122 @@ mod tests {
         let group = SimulatedBackend::create_group(1).unwrap();
         let t = ferrotorch_core::from_slice(&[1.0f32, 2.0, 3.0], &[3]).unwrap();
         let result = allreduce(&t, &group[0], ReduceOp::Sum).unwrap();
+        assert_eq!(result.data().unwrap(), &[1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_all_gather_4_ranks() {
+        // Rank i has [10*i, 10*i+1]. After all-gather, all ranks should
+        // hold [0, 1, 10, 11, 20, 21, 30, 31].
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let rank = b.rank();
+                    let base = (rank * 10) as f32;
+                    let t = ferrotorch_core::from_slice(&[base, base + 1.0], &[2]).unwrap();
+                    all_gather(&t, b.as_ref()).unwrap()
+                })
+            })
+            .collect();
+
+        let expected = [0.0f32, 1.0, 10.0, 11.0, 20.0, 21.0, 30.0, 31.0];
+        for h in handles {
+            let result = h.join().unwrap();
+            let data = result.data().unwrap();
+            assert_eq!(data.len(), 8);
+            for (got, want) in data.iter().zip(expected.iter()) {
+                assert!(
+                    (got - want).abs() < 1e-6,
+                    "expected {want}, got {got}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_all_gather_single_rank() {
+        let group = SimulatedBackend::create_group(1).unwrap();
+        let t = ferrotorch_core::from_slice(&[1.0f32, 2.0, 3.0], &[3]).unwrap();
+        let result = all_gather(&t, &group[0]).unwrap();
+        assert_eq!(result.data().unwrap(), &[1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_reduce_scatter_sum_4_ranks() {
+        // Each rank has [1, 2, 3, 4] (total_numel = 4, chunk_numel = 1).
+        // Sum across 4 ranks = [4, 8, 12, 16].
+        // Rank 0 gets [4], rank 1 gets [8], rank 2 gets [12], rank 3 gets [16].
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let rank = b.rank();
+                    let t = ferrotorch_core::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4]).unwrap();
+                    let result = reduce_scatter(&t, b.as_ref(), ReduceOp::Sum).unwrap();
+                    (rank, result.data_vec().unwrap())
+                })
+            })
+            .collect();
+
+        let expected_per_rank: [f32; 4] = [4.0, 8.0, 12.0, 16.0];
+        for h in handles {
+            let (rank, data) = h.join().unwrap();
+            assert_eq!(data.len(), 1, "rank {rank} should get 1 element");
+            assert!(
+                (data[0] - expected_per_rank[rank]).abs() < 1e-6,
+                "rank {rank}: expected {}, got {}",
+                expected_per_rank[rank],
+                data[0]
+            );
+        }
+    }
+
+    #[test]
+    fn test_reduce_scatter_mean_2_ranks() {
+        // 2 ranks, each has [10, 20]. Sum = [20, 40]. Mean = [10, 20].
+        // Rank 0 gets [10], rank 1 gets [20].
+        let group = SimulatedBackend::create_group(2).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let rank = b.rank();
+                    let t = ferrotorch_core::from_slice(&[10.0f32, 20.0], &[2]).unwrap();
+                    let result = reduce_scatter(&t, b.as_ref(), ReduceOp::Mean).unwrap();
+                    (rank, result.data_vec().unwrap())
+                })
+            })
+            .collect();
+
+        for h in handles {
+            let (rank, data) = h.join().unwrap();
+            assert_eq!(data.len(), 1);
+            let expected = if rank == 0 { 10.0f32 } else { 20.0 };
+            assert!(
+                (data[0] - expected).abs() < 1e-6,
+                "rank {rank}: expected {expected}, got {}",
+                data[0]
+            );
+        }
+    }
+
+    #[test]
+    fn test_reduce_scatter_single_rank() {
+        let group = SimulatedBackend::create_group(1).unwrap();
+        let t = ferrotorch_core::from_slice(&[1.0f32, 2.0, 3.0], &[3]).unwrap();
+        let result = reduce_scatter(&t, &group[0], ReduceOp::Sum).unwrap();
         assert_eq!(result.data().unwrap(), &[1.0, 2.0, 3.0]);
     }
 

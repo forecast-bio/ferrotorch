@@ -65,7 +65,7 @@ thiserror = "2.0"
 rayon = "1.11"
 half = "2.4"
 num-traits = "0.2"
-cudarc = { version = "0.19", features = ["cuda-12080", "cublas"] }
+cudarc = { version = "0.19", features = ["cuda-12080", "cublas", "cusolver"] }
 image = "0.25"
 safetensors = "0.5"
 zip = { version = "2", default-features = false, features = ["deflate"] }

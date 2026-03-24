@@ -24,6 +24,8 @@ pub enum IrOpKind {
     Pow { exponent: f64 },
     Sqrt,
     Abs,
+    Exp,
+    Log,
 
     // Reduction
     Sum,

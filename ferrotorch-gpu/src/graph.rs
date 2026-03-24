@@ -5,6 +5,13 @@
 //! launch overhead (~70μs on WSL2, ~5μs on native Linux per call) by collapsing
 //! hundreds of launches into one.
 //!
+//! # Allocator pool isolation
+//!
+//! During capture, the allocator pool is redirected to a capture-private pool
+//! (see [`crate::pool`]). This prevents graph-internal allocations from
+//! aliasing with normal allocations. The capture pool is sealed when
+//! `end_capture` succeeds, and dropped when the `CapturedGraph` is dropped.
+//!
 //! # Usage
 //!
 //! ```ignore
@@ -35,6 +42,7 @@ use std::sync::Arc;
 use cudarc::driver::{CudaSlice, CudaStream, DeviceRepr, ValidAsZeroBits};
 
 use crate::error::{GpuError, GpuResult};
+use crate::pool::CapturePoolId;
 
 // ---------------------------------------------------------------------------
 // DeviceScalar — a single value in GPU memory, updatable before graph replay
@@ -89,9 +97,13 @@ impl<T: DeviceRepr + ValidAsZeroBits + Copy> DeviceScalar<T> {
 /// Created via [`begin_capture`] + GPU ops + [`end_capture`].
 /// The graph holds references to all device memory used during capture.
 /// Those buffers must remain allocated for the lifetime of the graph.
+///
+/// The graph owns a capture-private allocator pool. When the graph is
+/// dropped, the pool is released.
 #[cfg(feature = "cuda")]
 pub struct CapturedGraph {
     graph: cudarc::driver::CudaGraph,
+    capture_pool: CapturePoolId,
 }
 
 #[cfg(feature = "cuda")]
@@ -105,6 +117,24 @@ impl CapturedGraph {
         self.graph.launch()?;
         Ok(())
     }
+
+    /// The capture pool ID for this graph.
+    ///
+    /// Multiple graphs can share a capture pool by passing this ID to
+    /// a subsequent `begin_capture_with_pool`. This is useful when graphs
+    /// share device memory (e.g., different sequence-length variants of
+    /// the same model).
+    #[inline]
+    pub fn pool_id(&self) -> CapturePoolId {
+        self.capture_pool
+    }
+}
+
+#[cfg(feature = "cuda")]
+impl Drop for CapturedGraph {
+    fn drop(&mut self) {
+        crate::pool::drop_capture_pool(self.capture_pool);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +147,15 @@ impl CapturedGraph {
 /// stream after this call are **recorded but not executed**. Call
 /// [`end_capture`] to finalize and instantiate the graph.
 ///
+/// A fresh capture pool ID is generated automatically. Any allocations that
+/// go through `pool_take` / `pool_return` during capture are isolated to
+/// this pool.
+///
+/// # Errors
+///
+/// - [`GpuError::NestedCapture`] if capture is already active on this thread.
+/// - CUDA driver errors from the underlying `begin_capture` call.
+///
 /// # Requirements
 ///
 /// - All output buffers must be pre-allocated before capture begins.
@@ -126,24 +165,86 @@ impl CapturedGraph {
 ///   (call `ctx.disable_event_tracking()` before, re-enable after).
 #[cfg(feature = "cuda")]
 pub fn begin_capture(stream: &Arc<CudaStream>) -> GpuResult<()> {
-    stream.begin_capture(
+    let pool_id = CapturePoolId::next();
+    begin_capture_with_pool(stream, pool_id)
+}
+
+/// Begin CUDA graph capture with an explicit capture pool ID.
+///
+/// Use this to share a capture pool across multiple graphs (e.g., to let
+/// a new graph reuse buffers from a previous graph's pool). The pool must
+/// not be sealed.
+///
+/// # Errors
+///
+/// - [`GpuError::NestedCapture`] if capture is already active on this thread.
+/// - CUDA driver errors from the underlying `begin_capture` call.
+#[cfg(feature = "cuda")]
+pub fn begin_capture_with_pool(
+    stream: &Arc<CudaStream>,
+    pool_id: CapturePoolId,
+) -> GpuResult<()> {
+    if !crate::pool::set_capturing(pool_id) {
+        return Err(GpuError::NestedCapture);
+    }
+
+    let result = stream.begin_capture(
         cudarc::driver::sys::CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_THREAD_LOCAL,
-    )?;
+    );
+
+    if let Err(e) = result {
+        // Stream capture failed — roll back the pool flag so the thread
+        // is not stuck in "capturing" state.
+        crate::pool::clear_capturing();
+        return Err(e.into());
+    }
+
     Ok(())
 }
 
 /// End CUDA graph capture, instantiate, and return the replayable graph.
 ///
-/// Returns `Err` if capture was not active or if instantiation fails.
+/// Clears the capture-mode flag and seals the capture pool. The pool's
+/// buffers are held alive for the lifetime of the returned `CapturedGraph`.
+///
+/// # Errors
+///
+/// - [`GpuError::CaptureNotActive`] if no capture was active on this thread.
+/// - CUDA driver errors from graph instantiation.
+///
+/// On error, the capture-mode flag is cleared and the capture pool is
+/// dropped — no resources are leaked.
 #[cfg(feature = "cuda")]
 pub fn end_capture(stream: &Arc<CudaStream>) -> GpuResult<CapturedGraph> {
+    let pool_id = match crate::pool::clear_capturing() {
+        Some(id) => id,
+        None => return Err(GpuError::CaptureNotActive),
+    };
+
     let flags = cudarc::driver::sys::CUgraphInstantiate_flags_enum::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH;
-    let graph = stream
-        .end_capture(flags)?
-        .ok_or(GpuError::PtxCompileFailed {
-            kernel: "CUDA graph capture returned null",
-        })?;
-    Ok(CapturedGraph { graph })
+    let result = stream.end_capture(flags);
+
+    match result {
+        Ok(Some(graph)) => {
+            crate::pool::seal_capture_pool(pool_id);
+            Ok(CapturedGraph {
+                graph,
+                capture_pool: pool_id,
+            })
+        }
+        Ok(None) => {
+            // Graph capture returned null — clean up pool.
+            crate::pool::drop_capture_pool(pool_id);
+            Err(GpuError::PtxCompileFailed {
+                kernel: "CUDA graph capture returned null",
+            })
+        }
+        Err(e) => {
+            // Driver error — clean up pool.
+            crate::pool::drop_capture_pool(pool_id);
+            Err(e.into())
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -158,17 +259,37 @@ pub struct DeviceScalar<T: Copy> {
 
 /// Stub CapturedGraph.
 #[cfg(not(feature = "cuda"))]
-pub struct CapturedGraph;
+pub struct CapturedGraph {
+    capture_pool: CapturePoolId,
+}
 
 #[cfg(not(feature = "cuda"))]
 impl CapturedGraph {
     pub fn launch(&self) -> GpuResult<()> {
         Err(GpuError::NoCudaFeature)
     }
+
+    /// The capture pool ID for this graph.
+    #[inline]
+    pub fn pool_id(&self) -> CapturePoolId {
+        self.capture_pool
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+impl Drop for CapturedGraph {
+    fn drop(&mut self) {
+        crate::pool::drop_capture_pool(self.capture_pool);
+    }
 }
 
 #[cfg(not(feature = "cuda"))]
 pub fn begin_capture<T>(_stream: &T) -> GpuResult<()> {
+    Err(GpuError::NoCudaFeature)
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn begin_capture_with_pool<T>(_stream: &T, _pool_id: CapturePoolId) -> GpuResult<()> {
     Err(GpuError::NoCudaFeature)
 }
 

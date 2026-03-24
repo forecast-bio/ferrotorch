@@ -89,6 +89,9 @@ fn is_f32<T: Float>() -> bool {
 /// Returns `(U, S, Vh)` where `U` and `Vh` are unitary and `S` contains
 /// singular values in descending order. Uses reduced (thin) SVD.
 ///
+/// When the input tensor resides on a GPU and `T` is `f32`, the computation
+/// is dispatched to cuSOLVER on the device.
+///
 /// # Backward
 /// Not yet implemented. Returns non-grad tensors.
 pub fn svd<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T>, Tensor<T>)> {
@@ -97,6 +100,22 @@ pub fn svd<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T
         return Err(FerrotorchError::InvalidArgument {
             message: format!("svd requires a 2-D tensor, got {:?}", shape),
         });
+    }
+
+    let (m, n) = (shape[0], shape[1]);
+    let k = m.min(n);
+
+    // GPU dispatch for f32 tensors.
+    if input.is_cuda() && is_f32::<T>() {
+        let backend = crate::gpu_dispatch::gpu_backend()
+            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let handle = input.gpu_handle()?;
+        let (u_h, s_h, vh_h) = backend.svd_f32(handle, m, n)?;
+        return Ok((
+            Tensor::from_storage(TensorStorage::gpu(u_h), vec![m, k], false)?,
+            Tensor::from_storage(TensorStorage::gpu(s_h), vec![k], false)?,
+            Tensor::from_storage(TensorStorage::gpu(vh_h), vec![k, n], false)?,
+        ));
     }
 
     if is_f32::<T>() {
@@ -139,6 +158,9 @@ pub fn svd<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T
 /// `a` must be a square 2-D tensor. `b` can be 1-D (single RHS) or 2-D
 /// (multiple RHS columns).
 ///
+/// When both tensors reside on a GPU and `T` is `f32`, the computation
+/// is dispatched to cuSOLVER on the device.
+///
 /// # Backward
 /// Not yet implemented. Returns non-grad tensors.
 pub fn solve<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
@@ -155,6 +177,21 @@ pub fn solve<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
                 a.shape()[1]
             ),
         });
+    }
+
+    let n = a.shape()[0];
+
+    // GPU dispatch for f32 tensors.
+    if a.is_cuda() && b.is_cuda() && is_f32::<T>() {
+        let backend = crate::gpu_dispatch::gpu_backend()
+            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let a_handle = a.gpu_handle()?;
+        let b_handle = b.gpu_handle()?;
+        let b_shape = b.shape();
+        let nrhs = if b_shape.len() == 1 { 1 } else { b_shape[1] };
+        let x_h = backend.solve_f32(a_handle, b_handle, n, nrhs)?;
+        let x_shape = b_shape.to_vec();
+        return Tensor::from_storage(TensorStorage::gpu(x_h), x_shape, false);
     }
 
     if is_f32::<T>() {
@@ -244,6 +281,9 @@ pub fn inv<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 ///
 /// Returns `(Q, R)` in reduced form.
 ///
+/// When the input tensor resides on a GPU and `T` is `f32`, the computation
+/// is dispatched to cuSOLVER on the device.
+///
 /// # Backward
 /// Not yet implemented. Returns non-grad tensors.
 pub fn qr<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T>)> {
@@ -252,6 +292,21 @@ pub fn qr<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T>
         return Err(FerrotorchError::InvalidArgument {
             message: format!("qr requires a 2-D tensor, got {:?}", shape),
         });
+    }
+
+    let (m, n) = (shape[0], shape[1]);
+    let k = m.min(n);
+
+    // GPU dispatch for f32 tensors.
+    if input.is_cuda() && is_f32::<T>() {
+        let backend = crate::gpu_dispatch::gpu_backend()
+            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let handle = input.gpu_handle()?;
+        let (q_h, r_h) = backend.qr_f32(handle, m, n)?;
+        return Ok((
+            Tensor::from_storage(TensorStorage::gpu(q_h), vec![m, k], false)?,
+            Tensor::from_storage(TensorStorage::gpu(r_h), vec![k, n], false)?,
+        ));
     }
 
     if is_f32::<T>() {
@@ -289,6 +344,9 @@ pub fn qr<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T>
 ///
 /// Returns the lower-triangular factor `L` such that `A = L @ L^T`.
 ///
+/// When the input tensor resides on a GPU and `T` is `f32`, the computation
+/// is dispatched to cuSOLVER on the device.
+///
 /// # Backward
 /// Not yet implemented. Returns non-grad tensors.
 pub fn cholesky<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
@@ -300,6 +358,15 @@ pub fn cholesky<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     }
 
     let n = shape[0];
+
+    // GPU dispatch for f32 tensors.
+    if input.is_cuda() && is_f32::<T>() {
+        let backend = crate::gpu_dispatch::gpu_backend()
+            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let handle = input.gpu_handle()?;
+        let l_h = backend.cholesky_f32(handle, n)?;
+        return Tensor::from_storage(TensorStorage::gpu(l_h), vec![n, n], false);
+    }
 
     if is_f32::<T>() {
         let arr = tensor_to_array2_f32(input)?;

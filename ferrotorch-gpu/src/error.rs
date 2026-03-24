@@ -49,6 +49,12 @@ pub enum GpuError {
 
     /// PTX kernel compilation failed (e.g. unsupported GPU architecture).
     PtxCompileFailed { kernel: &'static str },
+
+    /// Attempted to begin a nested CUDA graph capture on the same thread.
+    NestedCapture,
+
+    /// `end_capture` called without a matching `begin_capture`.
+    CaptureNotActive,
 }
 
 impl fmt::Display for GpuError {
@@ -106,6 +112,22 @@ impl fmt::Display for GpuError {
 
             GpuError::PtxCompileFailed { kernel } => {
                 write!(f, "PTX kernel compilation failed: {kernel}")
+            }
+
+            GpuError::NestedCapture => {
+                write!(
+                    f,
+                    "nested CUDA graph capture: begin_capture called while \
+                     already capturing on this thread"
+                )
+            }
+
+            GpuError::CaptureNotActive => {
+                write!(
+                    f,
+                    "end_capture called without a matching begin_capture on \
+                     this thread"
+                )
             }
         }
     }

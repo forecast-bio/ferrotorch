@@ -1,15 +1,64 @@
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::Arc;
+use std::thread::{self, JoinHandle};
 
-use ferrotorch_core::FerrotorchResult;
+use ferrotorch_core::{Device, FerrotorchResult};
 use rayon::prelude::*;
 
 use crate::dataset::Dataset;
 use crate::sampler::{RandomSampler, Sampler, SequentialSampler};
 
+/// Trait for sample types that can be transferred to a target [`Device`].
+///
+/// Implement this for your `Dataset::Sample` type to enable automatic device
+/// transfer via [`DataLoader::device`].
+///
+/// # Examples
+///
+/// ```ignore
+/// use ferrotorch_core::{Device, FerrotorchResult, Tensor};
+/// use ferrotorch_data::ToDevice;
+///
+/// struct MyBatch {
+///     inputs: Tensor<f32>,
+///     labels: Tensor<f32>,
+/// }
+///
+/// impl ToDevice for MyBatch {
+///     fn to_device(&self, device: Device) -> FerrotorchResult<Self> {
+///         Ok(MyBatch {
+///             inputs: self.inputs.to(device)?,
+///             labels: self.labels.to(device)?,
+///         })
+///     }
+/// }
+/// ```
+pub trait ToDevice: Sized {
+    /// Transfer this value to the given device.
+    fn to_device(&self, device: Device) -> FerrotorchResult<Self>;
+}
+
+/// Type alias for the device-transfer function stored internally.
+type TransferFn<S> = Arc<dyn Fn(Vec<S>) -> FerrotorchResult<Vec<S>> + Send + Sync>;
+
 /// A data loader that yields batches of samples from a [`Dataset`].
 ///
 /// Mirrors the core API of PyTorch's `DataLoader`, but returns
 /// `Vec<D::Sample>` batches so the caller can collate as needed.
+///
+/// # Prefetch Pipeline
+///
+/// When `prefetch_factor > 0` (default: 2), a background thread loads batches
+/// ahead of the consumer and buffers them in a bounded channel. The consumer's
+/// `next()` call receives from the channel instead of loading directly, hiding
+/// I/O latency behind computation.
+///
+/// # Device Transfer
+///
+/// When a `device` is set via [`DataLoader::device`] and the `Sample` type
+/// implements [`ToDevice`], each batch is transferred to the target device
+/// after loading. The transfer runs inside the prefetch pipeline when enabled,
+/// so device transfers overlap with the consumer's computation.
 ///
 /// # Examples
 ///
@@ -30,14 +79,18 @@ pub struct DataLoader<D: Dataset> {
     drop_last: bool,
     seed: u64,
     num_workers: usize,
+    prefetch_factor: usize,
+    device: Option<Device>,
     custom_sampler: Option<Box<dyn Sampler>>,
     collate_fn: Option<Arc<dyn Fn(Vec<D::Sample>) -> FerrotorchResult<D::Sample> + Send + Sync>>,
+    transfer_fn: Option<TransferFn<D::Sample>>,
 }
 
 impl<D: Dataset> DataLoader<D> {
     /// Create a new `DataLoader` for the given dataset and batch size.
     ///
-    /// Defaults: sequential order, keep the final partial batch, seed 0.
+    /// Defaults: sequential order, keep the final partial batch, seed 0,
+    /// prefetch_factor 2, no device transfer.
     ///
     /// # Panics
     ///
@@ -51,8 +104,11 @@ impl<D: Dataset> DataLoader<D> {
             drop_last: false,
             seed: 0,
             num_workers: 0,
+            prefetch_factor: 2,
+            device: None,
             custom_sampler: None,
             collate_fn: None,
+            transfer_fn: None,
         }
     }
 
@@ -88,6 +144,43 @@ impl<D: Dataset> DataLoader<D> {
     /// samples are loaded sequentially on the calling thread.
     pub fn num_workers(mut self, n: usize) -> Self {
         self.num_workers = n;
+        self
+    }
+
+    /// Set the prefetch factor — the number of batches buffered ahead of
+    /// the consumer.
+    ///
+    /// When `prefetch_factor > 0`, a background thread loads batches into a
+    /// bounded channel of this capacity. The iterator's `next()` receives
+    /// from the channel instead of loading directly.
+    ///
+    /// When `prefetch_factor == 0`, batches are loaded synchronously on the
+    /// calling thread (no background thread is spawned).
+    ///
+    /// Default: 2.
+    pub fn prefetch_factor(mut self, n: usize) -> Self {
+        self.prefetch_factor = n;
+        self
+    }
+
+    /// Set the target device for automatic batch transfer.
+    ///
+    /// When set, each batch's samples are transferred to the given device
+    /// after loading. The `Sample` type must implement [`ToDevice`].
+    ///
+    /// This transfer happens inside the prefetch pipeline (if enabled),
+    /// so device transfers are overlapped with the consumer's processing.
+    pub fn device(mut self, device: Device) -> Self
+    where
+        D::Sample: ToDevice + 'static,
+    {
+        self.device = Some(device);
+        self.transfer_fn = Some(Arc::new(move |samples: Vec<D::Sample>| {
+            samples
+                .into_iter()
+                .map(|s| s.to_device(device))
+                .collect()
+        }));
         self
     }
 
@@ -135,7 +228,11 @@ impl<D: Dataset> DataLoader<D> {
     ///
     /// Panics if no collation function has been set. Use [`iter`](DataLoader::iter)
     /// for the uncollated path.
-    pub fn iter_collated(&self, epoch: usize) -> CollatedIter<'_, D> {
+    pub fn iter_collated(&self, epoch: usize) -> CollatedIter<'_, D>
+    where
+        D: 'static,
+        D::Sample: 'static,
+    {
         let collate_fn = self
             .collate_fn
             .as_ref()
@@ -162,12 +259,9 @@ impl<D: Dataset> DataLoader<D> {
         self.len() == 0
     }
 
-    /// Produce a batch iterator for the given epoch.
-    ///
-    /// The `epoch` parameter is passed to the sampler so that shuffled
-    /// orderings vary across epochs yet remain reproducible.
-    pub fn iter(&self, epoch: usize) -> DataLoaderIter<'_, D> {
-        let indices = if let Some(ref sampler) = self.custom_sampler {
+    /// Build the index list for the given epoch.
+    fn build_indices(&self, epoch: usize) -> Vec<usize> {
+        if let Some(ref sampler) = self.custom_sampler {
             sampler.indices(epoch)
         } else if self.shuffle {
             let sampler = RandomSampler::new(self.dataset.len(), self.seed);
@@ -175,20 +269,83 @@ impl<D: Dataset> DataLoader<D> {
         } else {
             let sampler = SequentialSampler::new(self.dataset.len());
             sampler.indices(epoch)
-        };
+        }
+    }
 
-        DataLoaderIter {
-            dataset: &self.dataset,
-            indices,
-            batch_size: self.batch_size,
-            drop_last: self.drop_last,
-            num_workers: self.num_workers,
-            pos: 0,
+    /// Produce a batch iterator for the given epoch.
+    ///
+    /// The `epoch` parameter is passed to the sampler so that shuffled
+    /// orderings vary across epochs yet remain reproducible.
+    ///
+    /// When `prefetch_factor > 0`, returns a prefetching iterator backed by
+    /// a background thread. When `prefetch_factor == 0`, returns a
+    /// synchronous iterator that loads on the calling thread.
+    pub fn iter(&self, epoch: usize) -> BatchIter<'_, D>
+    where
+        D: 'static,
+        D::Sample: 'static,
+    {
+        let indices = self.build_indices(epoch);
+
+        if self.prefetch_factor > 0 {
+            BatchIter::Prefetch(PrefetchIter::new(
+                Arc::clone(&self.dataset),
+                indices,
+                self.batch_size,
+                self.drop_last,
+                self.num_workers,
+                self.prefetch_factor,
+                self.transfer_fn.clone(),
+            ))
+        } else {
+            BatchIter::Sync(DataLoaderIter {
+                dataset: &self.dataset,
+                indices,
+                batch_size: self.batch_size,
+                drop_last: self.drop_last,
+                num_workers: self.num_workers,
+                transfer_fn: self.transfer_fn.as_ref(),
+                pos: 0,
+            })
         }
     }
 }
 
-/// Iterator over batches produced by a [`DataLoader`].
+/// Iterator over batches — either synchronous or prefetched.
+///
+/// Returned by [`DataLoader::iter`]. Transparent to the caller: both
+/// variants yield `FerrotorchResult<Vec<D::Sample>>`.
+pub enum BatchIter<'a, D: Dataset> {
+    /// Synchronous loading on the calling thread.
+    Sync(DataLoaderIter<'a, D>),
+    /// Prefetched loading via a background thread.
+    Prefetch(PrefetchIter<D>),
+}
+
+impl<D: Dataset + 'static> Iterator for BatchIter<'_, D>
+where
+    D::Sample: Send + 'static,
+{
+    type Item = FerrotorchResult<Vec<D::Sample>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            BatchIter::Sync(inner) => inner.next(),
+            BatchIter::Prefetch(inner) => inner.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            BatchIter::Sync(inner) => inner.size_hint(),
+            BatchIter::Prefetch(inner) => inner.size_hint(),
+        }
+    }
+}
+
+impl<D: Dataset + 'static> ExactSizeIterator for BatchIter<'_, D> where D::Sample: Send + 'static {}
+
+/// Iterator over batches produced by a [`DataLoader`] (synchronous path).
 ///
 /// Each call to `next()` returns `Some(FerrotorchResult<Vec<D::Sample>>)`.
 /// The result is `Err` if any individual `Dataset::get` fails.
@@ -201,6 +358,7 @@ pub struct DataLoaderIter<'a, D: Dataset> {
     batch_size: usize,
     drop_last: bool,
     num_workers: usize,
+    transfer_fn: Option<&'a TransferFn<D::Sample>>,
     pos: usize,
 }
 
@@ -223,13 +381,12 @@ where
         let batch_indices = &self.indices[self.pos..end];
         self.pos = end;
 
-        if self.num_workers > 0 {
+        let batch = if self.num_workers > 0 {
             // Parallel path: load samples concurrently via rayon.
-            let batch: Result<Vec<_>, _> = batch_indices
+            batch_indices
                 .par_iter()
                 .map(|&idx| self.dataset.get(idx))
-                .collect();
-            Some(batch)
+                .collect::<Result<Vec<_>, _>>()
         } else {
             // Sequential path: load samples one at a time.
             let mut batch = Vec::with_capacity(batch_indices.len());
@@ -239,8 +396,16 @@ where
                     Err(e) => return Some(Err(e)),
                 }
             }
-            Some(Ok(batch))
-        }
+            Ok(batch)
+        };
+
+        // Apply device transfer if configured.
+        let batch = match (batch, &self.transfer_fn) {
+            (Ok(samples), Some(f)) => f(samples),
+            (result, _) => result,
+        };
+
+        Some(batch)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -258,18 +423,173 @@ where
 
 impl<D: Dataset> ExactSizeIterator for DataLoaderIter<'_, D> where D::Sample: Send {}
 
+/// Prefetch iterator backed by a background loading thread.
+///
+/// A bounded channel of capacity `prefetch_factor` buffers batches ahead
+/// of the consumer. The background thread terminates when the channel is
+/// closed (either by exhausting the dataset or by dropping this iterator).
+pub struct PrefetchIter<D: Dataset> {
+    receiver: Receiver<FerrotorchResult<Vec<D::Sample>>>,
+    /// Handle to the background thread. Joined on drop to ensure clean
+    /// shutdown and propagate panics.
+    _handle: JoinHandle<()>,
+    /// Total number of batches the background thread will produce.
+    total_batches: usize,
+    /// Number of batches consumed so far.
+    consumed: usize,
+}
+
+impl<D: Dataset + 'static> PrefetchIter<D>
+where
+    D::Sample: Send + 'static,
+{
+    fn new(
+        dataset: Arc<D>,
+        indices: Vec<usize>,
+        batch_size: usize,
+        drop_last: bool,
+        num_workers: usize,
+        prefetch_factor: usize,
+        transfer_fn: Option<TransferFn<D::Sample>>,
+    ) -> Self {
+        let total_batches = compute_batch_count(indices.len(), batch_size, drop_last);
+
+        // Bounded channel — at most `prefetch_factor` batches buffered.
+        let (tx, rx) = mpsc::sync_channel::<FerrotorchResult<Vec<D::Sample>>>(
+            prefetch_factor.max(1),
+        );
+
+        let handle = thread::spawn(move || {
+            Self::producer_loop(dataset, indices, batch_size, drop_last, num_workers, transfer_fn, tx);
+        });
+
+        PrefetchIter {
+            receiver: rx,
+            _handle: handle,
+            total_batches,
+            consumed: 0,
+        }
+    }
+
+    /// Background producer: loads batches and sends them through the channel.
+    ///
+    /// Stops when all batches are sent or when the receiver is dropped
+    /// (channel disconnected).
+    fn producer_loop(
+        dataset: Arc<D>,
+        indices: Vec<usize>,
+        batch_size: usize,
+        drop_last: bool,
+        num_workers: usize,
+        transfer_fn: Option<TransferFn<D::Sample>>,
+        tx: SyncSender<FerrotorchResult<Vec<D::Sample>>>,
+    ) {
+        let mut pos = 0;
+        loop {
+            let remaining = indices.len().saturating_sub(pos);
+            if remaining == 0 {
+                break;
+            }
+            if drop_last && remaining < batch_size {
+                break;
+            }
+
+            let end = (pos + batch_size).min(indices.len());
+            let batch_indices = &indices[pos..end];
+            pos = end;
+
+            let batch = if num_workers > 0 {
+                batch_indices
+                    .par_iter()
+                    .map(|&idx| dataset.get(idx))
+                    .collect::<Result<Vec<_>, _>>()
+            } else {
+                let mut batch = Vec::with_capacity(batch_indices.len());
+                let mut err = None;
+                for &idx in batch_indices {
+                    match dataset.get(idx) {
+                        Ok(sample) => batch.push(sample),
+                        Err(e) => {
+                            err = Some(e);
+                            break;
+                        }
+                    }
+                }
+                match err {
+                    Some(e) => Err(e),
+                    None => Ok(batch),
+                }
+            };
+
+            // Apply device transfer if configured.
+            let batch = match (batch, &transfer_fn) {
+                (Ok(samples), Some(f)) => f(samples),
+                (result, _) => result,
+            };
+
+            // send() fails when the receiver is dropped — that's our
+            // signal to stop. This is the normal shutdown path when the
+            // consumer drops the iterator mid-iteration.
+            if tx.send(batch).is_err() {
+                break;
+            }
+        }
+        // tx drops here, closing the channel. The consumer's next recv()
+        // will see a disconnected error and return None.
+    }
+}
+
+impl<D: Dataset + 'static> Iterator for PrefetchIter<D>
+where
+    D::Sample: Send + 'static,
+{
+    type Item = FerrotorchResult<Vec<D::Sample>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.consumed >= self.total_batches {
+            return None;
+        }
+        match self.receiver.recv() {
+            Ok(batch) => {
+                self.consumed += 1;
+                Some(batch)
+            }
+            // Channel disconnected — producer finished or panicked.
+            Err(_) => None,
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.total_batches.saturating_sub(self.consumed);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<D: Dataset + 'static> ExactSizeIterator for PrefetchIter<D> where D::Sample: Send + 'static {}
+
+/// Compute the number of batches for a given index count.
+fn compute_batch_count(n_indices: usize, batch_size: usize, drop_last: bool) -> usize {
+    if drop_last {
+        n_indices / batch_size
+    } else if n_indices == 0 {
+        0
+    } else {
+        (n_indices + batch_size - 1) / batch_size
+    }
+}
+
 /// Iterator over collated batches produced by a [`DataLoader`].
 ///
 /// Each call to `next()` returns `Some(FerrotorchResult<D::Sample>)` — a
 /// single collated sample produced by the user-supplied collation function.
 pub struct CollatedIter<'a, D: Dataset> {
-    inner: DataLoaderIter<'a, D>,
+    inner: BatchIter<'a, D>,
     collate_fn: &'a (dyn Fn(Vec<D::Sample>) -> FerrotorchResult<D::Sample> + Send + Sync),
 }
 
-impl<D: Dataset> Iterator for CollatedIter<'_, D>
+impl<D: Dataset + 'static> Iterator for CollatedIter<'_, D>
 where
-    D::Sample: Send,
+    D::Sample: Send + 'static,
 {
     type Item = FerrotorchResult<D::Sample>;
 
@@ -283,7 +603,7 @@ where
     }
 }
 
-impl<D: Dataset> ExactSizeIterator for CollatedIter<'_, D> where D::Sample: Send {}
+impl<D: Dataset + 'static> ExactSizeIterator for CollatedIter<'_, D> where D::Sample: Send + 'static {}
 
 #[cfg(test)]
 mod tests {
@@ -496,10 +816,22 @@ mod tests {
         let loader = DataLoader::new(make_dataset(10), 2)
             .shuffle(true)
             .drop_last(true)
-            .seed(123);
+            .seed(123)
+            .prefetch_factor(4);
         assert!(loader.shuffle);
         assert!(loader.drop_last);
         assert_eq!(loader.seed, 123);
+        assert_eq!(loader.prefetch_factor, 4);
+    }
+
+    #[test]
+    fn test_builder_chaining_with_device() {
+        let loader = DataLoader::new(make_device_dataset(4), 2)
+            .prefetch_factor(4)
+            .device(Device::Cpu);
+        assert_eq!(loader.prefetch_factor, 4);
+        assert_eq!(loader.device, Some(Device::Cpu));
+        assert!(loader.transfer_fn.is_some());
     }
 
     // ── collate_fn ────────────────────────────────────────────────────
@@ -658,7 +990,9 @@ mod tests {
     #[test]
     fn test_num_workers_zero_is_sequential() {
         // num_workers=0 should behave identically to default.
-        let loader = DataLoader::new(make_dataset(10), 3).num_workers(0);
+        let loader = DataLoader::new(make_dataset(10), 3)
+            .num_workers(0)
+            .prefetch_factor(0);
         let batches: Vec<Vec<i32>> = loader
             .iter(0)
             .map(|b| b.unwrap())
@@ -715,5 +1049,398 @@ mod tests {
             .collect();
         all.sort();
         assert_eq!(all, (0..8).collect::<Vec<i32>>());
+    }
+
+    // ── prefetch pipeline ───────────────────────────────────────────
+
+    #[test]
+    fn test_prefetch_produces_same_results_as_sync() {
+        // Compare prefetch=0 (sync) vs prefetch=2 (default) for
+        // sequential loading.
+        let ds = make_dataset(20);
+        let sync_loader = DataLoader::new(Arc::clone(&ds), 3).prefetch_factor(0);
+        let prefetch_loader = DataLoader::new(ds, 3).prefetch_factor(2);
+
+        let sync_batches: Vec<Vec<i32>> = sync_loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+        let prefetch_batches: Vec<Vec<i32>> = prefetch_loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+
+        assert_eq!(sync_batches, prefetch_batches);
+    }
+
+    #[test]
+    fn test_prefetch_with_shuffle_same_elements() {
+        let ds = make_dataset(50);
+        let loader = DataLoader::new(ds, 7)
+            .shuffle(true)
+            .seed(42)
+            .prefetch_factor(3);
+
+        let mut all: Vec<i32> = loader
+            .iter(0)
+            .flat_map(|b| b.unwrap())
+            .collect();
+        all.sort();
+        assert_eq!(all, (0..50).collect::<Vec<i32>>());
+    }
+
+    #[test]
+    fn test_prefetch_with_drop_last() {
+        let loader = DataLoader::new(make_dataset(10), 3)
+            .drop_last(true)
+            .prefetch_factor(2);
+
+        let batches: Vec<_> = loader.iter(0).collect();
+        assert_eq!(batches.len(), 3);
+        for b in &batches {
+            assert_eq!(b.as_ref().unwrap().len(), 3);
+        }
+    }
+
+    #[test]
+    fn test_prefetch_empty_dataset() {
+        let loader = DataLoader::new(make_dataset(0), 4).prefetch_factor(2);
+        let batches: Vec<_> = loader.iter(0).collect();
+        assert!(batches.is_empty());
+    }
+
+    #[test]
+    fn test_prefetch_single_element() {
+        let loader = DataLoader::new(make_dataset(1), 5).prefetch_factor(2);
+        let batches: Vec<_> = loader.iter(0).collect();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].as_ref().unwrap(), &vec![0]);
+    }
+
+    #[test]
+    fn test_prefetch_factor_1() {
+        // Minimal buffer: one batch ahead.
+        let loader = DataLoader::new(make_dataset(10), 3).prefetch_factor(1);
+        let batches: Vec<Vec<i32>> = loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+        assert_eq!(
+            batches,
+            vec![vec![0, 1, 2], vec![3, 4, 5], vec![6, 7, 8], vec![9]]
+        );
+    }
+
+    #[test]
+    fn test_prefetch_factor_large() {
+        // Buffer larger than total batches — should still work.
+        let loader = DataLoader::new(make_dataset(6), 3).prefetch_factor(100);
+        let batches: Vec<Vec<i32>> = loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+        assert_eq!(batches, vec![vec![0, 1, 2], vec![3, 4, 5]]);
+    }
+
+    #[test]
+    fn test_prefetch_size_hint() {
+        let loader = DataLoader::new(make_dataset(11), 3).prefetch_factor(2);
+        let mut it = loader.iter(0);
+        assert_eq!(it.len(), 4);
+        it.next();
+        assert_eq!(it.len(), 3);
+        it.next();
+        assert_eq!(it.len(), 2);
+        it.next();
+        assert_eq!(it.len(), 1);
+        it.next();
+        assert_eq!(it.len(), 0);
+        assert!(it.next().is_none());
+    }
+
+    #[test]
+    fn test_prefetch_drop_mid_iteration_no_hang() {
+        // Dropping the iterator mid-stream must not block or hang.
+        // The background thread should detect the closed channel and exit.
+        let loader = DataLoader::new(make_dataset(1000), 3).prefetch_factor(2);
+        let mut it = loader.iter(0);
+        // Consume only 2 of ~334 batches, then drop.
+        let _ = it.next();
+        let _ = it.next();
+        drop(it);
+        // If we reach here without hanging, the test passes.
+    }
+
+    #[test]
+    fn test_prefetch_multiple_epochs() {
+        let loader = DataLoader::new(make_dataset(10), 5)
+            .shuffle(true)
+            .seed(42)
+            .prefetch_factor(2);
+
+        let epoch0: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
+        let epoch1: Vec<Vec<i32>> = loader.iter(1).map(|b| b.unwrap()).collect();
+
+        // Different ordering.
+        let flat0: Vec<i32> = epoch0.into_iter().flatten().collect();
+        let flat1: Vec<i32> = epoch1.into_iter().flatten().collect();
+        assert_ne!(flat0, flat1);
+
+        // But same elements.
+        let mut sorted0 = flat0;
+        let mut sorted1 = flat1;
+        sorted0.sort();
+        sorted1.sort();
+        assert_eq!(sorted0, sorted1);
+    }
+
+    #[test]
+    fn test_prefetch_with_num_workers() {
+        let loader = DataLoader::new(make_dataset(20), 5)
+            .num_workers(2)
+            .prefetch_factor(3);
+
+        let mut all: Vec<i32> = loader
+            .iter(0)
+            .flat_map(|b| b.unwrap())
+            .collect();
+        all.sort();
+        assert_eq!(all, (0..20).collect::<Vec<i32>>());
+    }
+
+    #[test]
+    fn test_prefetch_reproducibility() {
+        let ds = make_dataset(30);
+        let loader = DataLoader::new(ds, 7)
+            .shuffle(true)
+            .seed(99)
+            .prefetch_factor(2);
+
+        let run1: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
+        let run2: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
+        assert_eq!(run1, run2);
+    }
+
+    #[test]
+    fn test_sync_path_when_prefetch_zero() {
+        // prefetch_factor=0 should use the synchronous DataLoaderIter.
+        let loader = DataLoader::new(make_dataset(6), 3).prefetch_factor(0);
+        let batches: Vec<Vec<i32>> = loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+        assert_eq!(batches, vec![vec![0, 1, 2], vec![3, 4, 5]]);
+    }
+
+    // ── device transfer ─────────────────────────────────────────────
+
+    /// A sample type that implements ToDevice for testing.
+    #[derive(Debug, Clone, PartialEq)]
+    struct DeviceSample {
+        value: i32,
+        device: Device,
+    }
+
+    impl ToDevice for DeviceSample {
+        fn to_device(&self, device: Device) -> FerrotorchResult<Self> {
+            Ok(DeviceSample {
+                value: self.value,
+                device,
+            })
+        }
+    }
+
+    /// Dataset of DeviceSamples, all starting on CPU.
+    struct DeviceDataset {
+        data: Vec<DeviceSample>,
+    }
+
+    impl Dataset for DeviceDataset {
+        type Sample = DeviceSample;
+
+        fn len(&self) -> usize {
+            self.data.len()
+        }
+
+        fn get(&self, index: usize) -> FerrotorchResult<Self::Sample> {
+            self.data.get(index).cloned().ok_or_else(|| {
+                ferrotorch_core::FerrotorchError::IndexOutOfBounds {
+                    index,
+                    axis: 0,
+                    size: self.data.len(),
+                }
+            })
+        }
+    }
+
+    fn make_device_dataset(n: usize) -> Arc<DeviceDataset> {
+        Arc::new(DeviceDataset {
+            data: (0..n as i32)
+                .map(|v| DeviceSample {
+                    value: v,
+                    device: Device::Cpu,
+                })
+                .collect(),
+        })
+    }
+
+    #[test]
+    fn test_device_transfer_sync() {
+        let loader = DataLoader::new(make_device_dataset(4), 2)
+            .prefetch_factor(0)
+            .device(Device::Cuda(0));
+
+        let batches: Vec<Vec<DeviceSample>> = loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+
+        assert_eq!(batches.len(), 2);
+        for batch in &batches {
+            for sample in batch {
+                assert_eq!(sample.device, Device::Cuda(0));
+            }
+        }
+    }
+
+    #[test]
+    fn test_device_transfer_prefetch() {
+        let loader = DataLoader::new(make_device_dataset(6), 2)
+            .prefetch_factor(2)
+            .device(Device::Cuda(1));
+
+        let batches: Vec<Vec<DeviceSample>> = loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+
+        assert_eq!(batches.len(), 3);
+        for batch in &batches {
+            for sample in batch {
+                assert_eq!(sample.device, Device::Cuda(1));
+            }
+        }
+        // Verify values are preserved.
+        let values: Vec<i32> = batches.iter().flat_map(|b| b.iter().map(|s| s.value)).collect();
+        assert_eq!(values, vec![0, 1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_no_device_no_transfer() {
+        // Without .device(), samples should remain on their original device.
+        let loader = DataLoader::new(make_device_dataset(4), 2)
+            .prefetch_factor(0);
+
+        let batches: Vec<Vec<DeviceSample>> = loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+
+        for batch in &batches {
+            for sample in batch {
+                assert_eq!(sample.device, Device::Cpu);
+            }
+        }
+    }
+
+    #[test]
+    fn test_device_transfer_empty_dataset() {
+        let loader = DataLoader::new(make_device_dataset(0), 4)
+            .device(Device::Cuda(0));
+
+        let batches: Vec<_> = loader.iter(0).collect();
+        assert!(batches.is_empty());
+    }
+
+    #[test]
+    fn test_device_transfer_single_element() {
+        let loader = DataLoader::new(make_device_dataset(1), 5)
+            .device(Device::Cuda(0));
+
+        let batches: Vec<Vec<DeviceSample>> = loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0][0].device, Device::Cuda(0));
+        assert_eq!(batches[0][0].value, 0);
+    }
+
+    #[test]
+    fn test_device_transfer_with_collate() {
+        let loader = DataLoader::new(make_device_dataset(6), 3)
+            .device(Device::Cuda(0))
+            .with_collate(|batch| {
+                Ok(DeviceSample {
+                    value: batch.iter().map(|s| s.value).sum(),
+                    device: batch[0].device,
+                })
+            });
+
+        let collated: Vec<DeviceSample> = loader
+            .iter_collated(0)
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(collated.len(), 2);
+        // Device transfer happens before collation.
+        assert_eq!(collated[0].device, Device::Cuda(0));
+        assert_eq!(collated[1].device, Device::Cuda(0));
+        assert_eq!(collated[0].value, 0 + 1 + 2);
+        assert_eq!(collated[1].value, 3 + 4 + 5);
+    }
+
+    // ── prefetch_factor builder ─────────────────────────────────────
+
+    #[test]
+    fn test_prefetch_factor_builder() {
+        let loader = DataLoader::new(make_dataset(10), 2).prefetch_factor(5);
+        assert_eq!(loader.prefetch_factor, 5);
+    }
+
+    #[test]
+    fn test_default_prefetch_factor_is_2() {
+        let loader = DataLoader::new(make_dataset(10), 2);
+        assert_eq!(loader.prefetch_factor, 2);
+    }
+
+    // ── iterator exhaustion ─────────────────────────────────────────
+
+    #[test]
+    fn test_prefetch_iterator_returns_none_after_exhaustion() {
+        let loader = DataLoader::new(make_dataset(3), 2).prefetch_factor(2);
+        let mut it = loader.iter(0);
+        assert!(it.next().is_some()); // [0, 1]
+        assert!(it.next().is_some()); // [2]
+        assert!(it.next().is_none());
+        assert!(it.next().is_none()); // Repeated calls stay None.
+        assert!(it.next().is_none());
+    }
+
+    #[test]
+    fn test_sync_iterator_returns_none_after_exhaustion() {
+        let loader = DataLoader::new(make_dataset(3), 2).prefetch_factor(0);
+        let mut it = loader.iter(0);
+        assert!(it.next().is_some());
+        assert!(it.next().is_some());
+        assert!(it.next().is_none());
+        assert!(it.next().is_none());
+    }
+
+    // ── drop safety ────────────────────────────────────────────────
+
+    #[test]
+    fn test_drop_immediately_after_creation() {
+        // Creating and immediately dropping a prefetch iterator should not
+        // block or panic.
+        let loader = DataLoader::new(make_dataset(100), 3).prefetch_factor(2);
+        let it = loader.iter(0);
+        drop(it);
+    }
+
+    #[test]
+    fn test_drop_empty_prefetch_iter() {
+        let loader = DataLoader::new(make_dataset(0), 4).prefetch_factor(2);
+        let it = loader.iter(0);
+        drop(it);
     }
 }

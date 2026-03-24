@@ -12,7 +12,7 @@ pub mod trace;
 
 pub use codegen::{Codegen, CompiledGraph, InterpreterBackend, NativeBackend};
 pub use error::JitError;
-pub use fusion::{apply_fused, is_fusion_enabled, with_fusion, FusedChain, FusedOp};
+pub use fusion::{apply_fused, apply_fused_multi, is_fusion_enabled, with_fusion, FusedChain, FusedOp};
 pub use graph_break::{GraphSegment, SegmentedModule, TraceResult, trace_with_breaks};
 pub use interpreter::interpret;
 pub use memory_plan::{plan_memory, MemoryPlan};

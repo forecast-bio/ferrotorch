@@ -12,8 +12,13 @@ keywords.workspace = true
 categories.workspace = true
 readme = "README.md"
 
+[features]
+default = []
+cuda = ["dep:cudarc"]
+
 [dependencies]
 ferrotorch-core = { workspace = true }
 num-traits = { workspace = true }
+cudarc = { workspace = true, optional = true }
 
 [dev-dependencies]

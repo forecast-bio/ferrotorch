@@ -12,6 +12,7 @@ pub mod dropout;
 pub mod embedding;
 pub mod functional;
 pub mod hooks;
+pub mod identity;
 pub mod init;
 pub mod linear;
 pub mod lora;
@@ -36,12 +37,13 @@ pub use container::{ModuleDict, ModuleList, Sequential};
 pub use conv::{Conv1d, Conv2d, ConvTranspose2d};
 pub use dropout::{Dropout, Dropout2d};
 pub use embedding::Embedding;
+pub use identity::{Flatten, Identity};
 pub use init::NonLinearity;
 pub use linear::Linear;
 pub use lora::LoRALinear;
 pub use loss::{
-    BCEWithLogitsLoss, CosineEmbeddingLoss, CrossEntropyLoss, HuberLoss, KLDivLoss, MSELoss,
-    SmoothL1Loss,
+    BCEWithLogitsLoss, CosineEmbeddingLoss, CrossEntropyLoss, HuberLoss, KLDivLoss, L1Loss,
+    MSELoss, NLLLoss, SmoothL1Loss,
 };
 pub use hooks::{BackwardHook, ForwardHook, ForwardPreHook, HookHandle, HookedModule};
 pub use module::{Module, Reduction, StateDict};
@@ -50,7 +52,7 @@ pub use module::{Module, Reduction, StateDict};
 // usable simultaneously: `use ferrotorch_nn::{Module, ...}` gives the trait,
 // and `#[derive(Module)]` resolves to the derive macro.
 pub use ferrotorch_nn_derive::Module;
-pub use norm::{BatchNorm2d, GroupNorm, LayerNorm, RMSNorm};
+pub use norm::{BatchNorm1d, BatchNorm2d, GroupNorm, LayerNorm, RMSNorm};
 pub use paged_attention::{KVPage, PagePool, PagedAttentionManager, PagedKVCache};
 pub use parameter::Parameter;
 pub use pooling::{

@@ -1,7 +1,88 @@
+use std::cell::Cell;
+
 use crate::dtype::Float;
 use crate::error::FerrotorchResult;
 use crate::storage::TensorStorage;
 use crate::tensor::Tensor;
+
+// ---------------------------------------------------------------------------
+// Thread-local xorshift64 RNG state
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    /// Thread-local xorshift64 RNG state.
+    ///
+    /// Initialized lazily from system time + thread id on first use.
+    /// Can be set explicitly via `manual_seed` and saved/restored via
+    /// `save_rng_state` / `restore_rng_state` for deterministic replay
+    /// (e.g., gradient checkpointing with dropout).
+    static RNG_STATE: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Initialise the thread-local RNG from system entropy if it has not been
+/// seeded yet (state == 0).
+fn ensure_rng_seeded() {
+    RNG_STATE.with(|cell| {
+        if cell.get() == 0 {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            use std::time::SystemTime;
+
+            let mut hasher = DefaultHasher::new();
+            SystemTime::now().hash(&mut hasher);
+            std::thread::current().id().hash(&mut hasher);
+            let mut s = hasher.finish();
+            if s == 0 {
+                s = 0xdeadbeefcafe;
+            }
+            cell.set(s);
+        }
+    });
+}
+
+/// Advance the thread-local xorshift64 state and return the new value.
+fn next_rng_u64() -> u64 {
+    ensure_rng_seeded();
+    RNG_STATE.with(|cell| {
+        let mut s = cell.get();
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        cell.set(s);
+        s
+    })
+}
+
+/// Set the thread-local RNG seed for reproducible tensor creation.
+///
+/// After calling `manual_seed(s)`, subsequent calls to [`rand`] and [`randn`]
+/// will produce the same sequence of values on this thread.
+pub fn manual_seed(seed: u64) {
+    let s = if seed == 0 { 0xdeadbeefcafe } else { seed };
+    RNG_STATE.with(|cell| cell.set(s));
+}
+
+/// Opaque snapshot of the thread-local RNG state.
+///
+/// Obtained via [`save_rng_state`] and later fed to [`restore_rng_state`]
+/// to replay the exact same random sequence (needed by gradient
+/// checkpointing to reproduce dropout masks).
+#[derive(Debug, Clone, Copy)]
+pub struct RngState(u64);
+
+/// Snapshot the current thread-local RNG state.
+pub fn save_rng_state() -> RngState {
+    ensure_rng_seeded();
+    RngState(RNG_STATE.with(|cell| cell.get()))
+}
+
+/// Restore a previously saved RNG state, returning the state that was
+/// active immediately before the restore (so the caller can undo later).
+pub fn restore_rng_state(state: RngState) -> RngState {
+    let prev = save_rng_state();
+    RNG_STATE.with(|cell| cell.set(state.0));
+    prev
+}
 
 /// Create a tensor filled with zeros.
 pub fn zeros<T: Float>(shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
@@ -95,31 +176,16 @@ pub fn linspace<T: Float>(start: T, end: T, num: usize) -> FerrotorchResult<Tens
 
 /// Create a tensor with random values uniformly distributed in [0, 1).
 ///
-/// Uses a simple xorshift-based PRNG. For reproducible results, use
-/// ferray-random directly and pass the data to `from_vec`.
+/// Uses the thread-local xorshift64 PRNG. Call [`manual_seed`] before this
+/// for reproducible results. The RNG state can be snapshotted with
+/// [`save_rng_state`] and restored with [`restore_rng_state`].
 pub fn rand<T: Float>(shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    use std::time::SystemTime;
-
     let numel: usize = shape.iter().product();
     let mut data = Vec::with_capacity(numel);
 
-    // Seed from system time + thread id for basic uniqueness.
-    let mut hasher = DefaultHasher::new();
-    SystemTime::now().hash(&mut hasher);
-    std::thread::current().id().hash(&mut hasher);
-    let mut state = hasher.finish();
-    if state == 0 {
-        state = 0xdeadbeefcafe;
-    }
-
     for _ in 0..numel {
-        // xorshift64
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        let val = (state as f64) / (u64::MAX as f64);
+        let s = next_rng_u64();
+        let val = (s as f64) / (u64::MAX as f64);
         data.push(T::from(val).unwrap());
     }
 
@@ -128,29 +194,16 @@ pub fn rand<T: Float>(shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
 
 /// Create a tensor with random values from a standard normal distribution.
 ///
-/// Uses Box-Muller transform over the `rand` PRNG.
+/// Uses Box-Muller transform over the thread-local xorshift64 PRNG.
+/// Call [`manual_seed`] before this for reproducible results.
 pub fn randn<T: Float>(shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    use std::time::SystemTime;
-
     let numel: usize = shape.iter().product();
     let mut data = Vec::with_capacity(numel);
 
-    let mut hasher = DefaultHasher::new();
-    SystemTime::now().hash(&mut hasher);
-    std::thread::current().id().hash(&mut hasher);
-    let mut state = hasher.finish();
-    if state == 0 {
-        state = 0xdeadbeefcafe;
-    }
-
-    let mut next_uniform = || -> f64 {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
+    let next_uniform = || -> f64 {
+        let s = next_rng_u64();
         // Ensure non-zero for log.
-        ((state as f64) / (u64::MAX as f64)).max(1e-300)
+        ((s as f64) / (u64::MAX as f64)).max(1e-300)
     };
 
     let mut i = 0;

@@ -45,6 +45,8 @@ const TAG_NEG: u8 = 14;
 const TAG_POW: u8 = 15;
 const TAG_SQRT: u8 = 16;
 const TAG_ABS: u8 = 17;
+const TAG_EXP: u8 = 18;
+const TAG_LOG: u8 = 19;
 
 const TAG_SUM: u8 = 20;
 const TAG_MEAN: u8 = 21;
@@ -214,6 +216,8 @@ fn write_op_kind(w: &mut Writer, op: &IrOpKind) {
         }
         IrOpKind::Sqrt => w.write_u8(TAG_SQRT),
         IrOpKind::Abs => w.write_u8(TAG_ABS),
+        IrOpKind::Exp => w.write_u8(TAG_EXP),
+        IrOpKind::Log => w.write_u8(TAG_LOG),
 
         IrOpKind::Sum => w.write_u8(TAG_SUM),
         IrOpKind::Mean => w.write_u8(TAG_MEAN),
@@ -298,6 +302,8 @@ fn read_op_kind(r: &mut Reader<'_>) -> FerrotorchResult<IrOpKind> {
         }
         TAG_SQRT => Ok(IrOpKind::Sqrt),
         TAG_ABS => Ok(IrOpKind::Abs),
+        TAG_EXP => Ok(IrOpKind::Exp),
+        TAG_LOG => Ok(IrOpKind::Log),
 
         TAG_SUM => Ok(IrOpKind::Sum),
         TAG_MEAN => Ok(IrOpKind::Mean),

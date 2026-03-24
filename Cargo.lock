@@ -1659,6 +1659,7 @@ dependencies = [
 name = "ferrotorch-profiler"
 version = "0.1.5"
 dependencies = [
+ "cudarc",
  "ferrotorch-core",
  "num-traits",
 ]

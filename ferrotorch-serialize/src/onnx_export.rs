@@ -465,6 +465,16 @@ fn map_ir_op(op: &IrOpKind, node_name: &str, elem_type: i32) -> FerrotorchResult
             attributes: vec![],
             aux_initializer: None,
         }),
+        IrOpKind::Exp => Ok(OnnxOpMapping {
+            op_type: "Exp",
+            attributes: vec![],
+            aux_initializer: None,
+        }),
+        IrOpKind::Log => Ok(OnnxOpMapping {
+            op_type: "Log",
+            attributes: vec![],
+            aux_initializer: None,
+        }),
 
         // Reduction
         IrOpKind::Sum => Ok(OnnxOpMapping {
