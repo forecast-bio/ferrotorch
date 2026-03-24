@@ -328,40 +328,17 @@ pub fn interpret<T: Float>(graph: &IrGraph, inputs: &[Tensor<T>]) -> FerrotorchR
                 set_outputs(&mut values, &node.outputs, result);
             }
 
-            // ----- Higher-order ops -----
-            IrOpKind::Cond {
-                true_subgraph: _,
-                false_subgraph: _,
-            } => {
-                // Cond in the JIT IR is a structural marker. At interpretation
-                // time, the conditional has already been lowered: the first
-                // input is the predicate, remaining inputs are operands.
-                //
-                // The Cond node serves as a marker for graph analysis passes.
-                // The actual branch computation was traced at capture time
-                // into concrete ops that follow this node.
-                let result = if node.inputs.len() > 1 {
-                    get_value(&values, node.inputs[1])?.clone()
-                } else {
-                    get_value(&values, node.inputs[0])?.clone()
-                };
-                set_outputs(&mut values, &node.outputs, result);
+            // ----- Higher-order control flow (must be lowered) -----
+            IrOpKind::Cond => {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: "Cond IR nodes must be lowered before interpretation".into(),
+                });
             }
 
-            IrOpKind::Scan {
-                body_subgraph: _,
-                num_carry: _,
-            } => {
-                // Similar to Cond: the Scan node in the JIT IR is a structural
-                // marker. At trace time, the scan loop was unrolled into
-                // concrete ops. The Scan IR node stores the body subgraph for
-                // graph analysis, optimization, and re-tracing.
-                //
-                // During interpretation, forward the carry input as output.
-                if !node.inputs.is_empty() {
-                    let carry = get_value(&values, node.inputs[0])?.clone();
-                    set_outputs(&mut values, &node.outputs, carry);
-                }
+            IrOpKind::Scan => {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: "Scan IR nodes must be lowered before interpretation".into(),
+                });
             }
 
             // ----- Fused elementwise -----

@@ -16,11 +16,7 @@ pub mod optimize;
 pub mod serialize;
 pub mod trace;
 
-pub use aot_autograd::{
-    AotAutograd, AotContext, CompiledAotFunction, SavedTensor,
-    aot_trace_from_graph, compile_aot_from_graph, eliminate_dead_backward_ops,
-    optimize_backward,
-};
+pub use aot_autograd::{compile_aot, decompose_forward_backward, AotGraphPair};
 pub use codegen::{Codegen, CompiledGraph, InductorBackend, InductorTarget, InterpreterBackend, NativeBackend};
 pub use codegen_cpu::CpuCodegen;
 pub use codegen_gpu::GpuCodegen;
@@ -35,6 +31,6 @@ pub use fusion::{apply_fused, is_fusion_enabled, with_fusion, FusedChain, FusedO
 pub use graph_break::{GraphSegment, SegmentedModule, TraceResult, trace_with_breaks};
 pub use interpreter::interpret;
 pub use memory_plan::{plan_memory, MemoryPlan};
-pub use module::{compile, compile_with_config, compile_aot, AotCompiledModule, CompileConfig, TracedModule};
+pub use module::{compile, compile_with_config, AotCompiledModule, CompileConfig, TracedModule};
 pub use optimize::{optimize, OptimizationConfig};
 pub use trace::trace;

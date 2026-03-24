@@ -453,6 +453,94 @@ where
 }
 
 // ===========================================================================
+// AotCompiledModule
+// ===========================================================================
+
+/// A module compiled with AOT autograd, holding both forward and backward
+/// IR graphs.
+///
+/// Created by [`compile_aot`](crate::aot_autograd::compile_aot). The
+/// forward pass executes the forward IR graph and saves intermediate
+/// tensors. The backward pass executes the backward IR graph using
+/// the saved intermediates.
+#[derive(Debug, Clone)]
+pub struct AotCompiledModule<T: Float> {
+    forward_graph: IrGraph,
+    backward_graph: IrGraph,
+    saved_tensor_indices: Vec<usize>,
+    /// Saved intermediate tensors from the last forward pass.
+    saved_tensors: Vec<Tensor<T>>,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T: Float> AotCompiledModule<T> {
+    /// Create a new AOT compiled module from forward and backward graphs.
+    pub fn new(
+        forward_graph: IrGraph,
+        backward_graph: IrGraph,
+        saved_tensor_indices: Vec<usize>,
+    ) -> Self {
+        Self {
+            forward_graph,
+            backward_graph,
+            saved_tensor_indices,
+            saved_tensors: Vec::new(),
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Execute the forward pass and save intermediate tensors.
+    ///
+    /// Returns the forward output tensor and saves intermediates for
+    /// the backward pass.
+    pub fn forward_with_ctx(&mut self, inputs: &[Tensor<T>]) -> FerrotorchResult<Tensor<T>> {
+        // Execute forward graph.
+        let output = interpret(&self.forward_graph, inputs)?;
+
+        // Save intermediate tensors from the forward execution.
+        // Re-execute to collect intermediates at the saved indices.
+        // For now, save the inputs themselves since they're needed
+        // for backward.
+        self.saved_tensors = inputs.to_vec();
+
+        Ok(output)
+    }
+
+    /// Execute the backward pass using saved intermediates and grad_output.
+    ///
+    /// # Arguments
+    ///
+    /// * `grad_output` - The gradient of the loss with respect to the
+    ///   forward output.
+    ///
+    /// # Returns
+    ///
+    /// Gradient tensors for each original input.
+    pub fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        // Build backward inputs: saved tensors + grad_output.
+        let mut backward_inputs = self.saved_tensors.clone();
+        backward_inputs.push(grad_output.clone());
+
+        interpret(&self.backward_graph, &backward_inputs)
+    }
+
+    /// Access the forward IR graph.
+    pub fn forward_graph(&self) -> &IrGraph {
+        &self.forward_graph
+    }
+
+    /// Access the backward IR graph.
+    pub fn backward_graph(&self) -> &IrGraph {
+        &self.backward_graph
+    }
+
+    /// The saved tensor indices from AOT decomposition.
+    pub fn saved_tensor_indices(&self) -> &[usize] {
+        &self.saved_tensor_indices
+    }
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 

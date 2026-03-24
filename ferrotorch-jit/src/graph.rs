@@ -1,5 +1,5 @@
 /// A unique identifier for IR values (edges in the graph).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IrValueId(pub usize);
 
 /// A unique identifier for IR nodes.
@@ -58,26 +58,13 @@ pub enum IrOpKind {
     Unsqueeze { axis: usize },
     Cat { axis: usize },
 
-    // Higher-order ops
-    /// Conditional execution: evaluate `true_subgraph` or `false_subgraph`
-    /// depending on a boolean predicate input.
-    ///
-    /// The first input is the predicate (scalar). Remaining inputs are
-    /// operands passed to the selected subgraph. The subgraph ops
-    /// reference operands by `Input { index }` nodes within each subgraph.
-    Cond {
-        true_subgraph: Vec<IrOpKind>,
-        false_subgraph: Vec<IrOpKind>,
-    },
-    /// Sequential scan (fold with outputs): iterate a body subgraph over
-    /// a sequence of inputs, threading a carry state through each step.
-    ///
-    /// `num_carry` specifies how many of the body's inputs/outputs are
-    /// carry values (the rest are per-step inputs/outputs).
-    Scan {
-        body_subgraph: Vec<IrOpKind>,
-        num_carry: usize,
-    },
+    // Higher-order control flow (must be lowered before interpretation)
+    /// Conditional: selects between two sub-graphs based on a predicate.
+    /// Must be lowered/inlined before the interpreter can execute the graph.
+    Cond,
+    /// Sequential scan: applies a step function over a sequence.
+    /// Must be lowered/inlined before the interpreter can execute the graph.
+    Scan,
 
     // Fused (created by optimization)
     FusedElementwise { ops: Vec<IrOpKind> },
