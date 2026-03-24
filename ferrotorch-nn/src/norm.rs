@@ -4,14 +4,21 @@
 //! applies a learnable affine transform (weight/bias). Backward functions
 //! implement `GradFn<T>` to propagate gradients through the normalization.
 
+use std::any::TypeId;
 use std::sync::{Arc, Mutex};
 
 use ferrotorch_core::autograd::no_grad::is_grad_enabled;
+use ferrotorch_core::gpu_dispatch::gpu_backend;
 use ferrotorch_core::tensor::GradFn;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::module::Module;
 use crate::parameter::Parameter;
+
+#[inline]
+fn is_f32<T: Float>() -> bool {
+    TypeId::of::<T>() == TypeId::of::<f32>()
+}
 
 /// Shorthand for the unambiguous zero.
 #[inline]
@@ -275,6 +282,51 @@ impl<T: Float> GradFn<T> for LayerNormBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let norm_size: usize = self.normalized_shape.iter().product();
         let batch_size = self.input.numel() / norm_size;
+
+        // GPU-native fast path for f32 with elementwise affine
+        if self.input.is_cuda() && is_f32::<T>() && self.elementwise_affine {
+            if let Some(backend) = gpu_backend() {
+                let eps_f32 = self.eps as f32;
+                let (gi_h, gw_h, gb_h) = backend.layernorm_backward_f32(
+                    self.input.gpu_handle()?,
+                    grad_output.gpu_handle()?,
+                    self.weight.gpu_handle()?,
+                    batch_size,
+                    norm_size,
+                    eps_f32,
+                )?;
+
+                let grad_input_tensor = Tensor::from_storage(
+                    TensorStorage::gpu(gi_h),
+                    self.input.shape().to_vec(),
+                    false,
+                )?;
+
+                let grad_weight_out = if self.weight.requires_grad() {
+                    Some(Tensor::from_storage(
+                        TensorStorage::gpu(gw_h),
+                        self.normalized_shape.clone(),
+                        false,
+                    )?)
+                } else {
+                    None
+                };
+
+                let grad_bias_out = if self.bias.requires_grad() {
+                    Some(Tensor::from_storage(
+                        TensorStorage::gpu(gb_h),
+                        self.normalized_shape.clone(),
+                        false,
+                    )?)
+                } else {
+                    None
+                };
+
+                return Ok(vec![Some(grad_input_tensor), grad_weight_out, grad_bias_out]);
+            }
+        }
+
+        // CPU fallback path
         let n_t = T::from(norm_size).unwrap();
         let eps_t = T::from(self.eps).unwrap();
 
