@@ -129,6 +129,161 @@ impl<T: Float> Tensor<T> {
         self.fill_(<T as num_traits::Zero>::zero())
     }
 
+    /// Add another tensor elementwise in-place: `self += other`.
+    ///
+    /// Both tensors must have the same shape. For GPU f32 tensors, uses
+    /// the GPU add kernel and swaps the storage (no CPU round-trip).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if shapes don't match, or if the tensor is part of the
+    /// computation graph or is a leaf with `requires_grad = true`.
+    pub fn add_(&self, other: &Tensor<T>) -> FerrotorchResult<&Self> {
+        check_inplace_allowed(self, "add_")?;
+        if self.shape() != other.shape() {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "add_: shape mismatch {:?} vs {:?}",
+                    self.shape(),
+                    other.shape()
+                ),
+            });
+        }
+
+        // GPU f32 fast path.
+        if self.is_cuda()
+            && other.is_cuda()
+            && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
+        {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                let sum_handle =
+                    backend.add_f32(self.gpu_handle()?, other.gpu_handle()?)?;
+                let storage = crate::storage::TensorStorage::gpu(sum_handle);
+                unsafe { self.update_storage(storage)? };
+                return Ok(self);
+            }
+        }
+
+        let mut data = self.data_vec()?;
+        let other_data = other.data_vec()?;
+        for (a, &b) in data.iter_mut().zip(other_data.iter()) {
+            *a += b;
+        }
+        unsafe { self.update_data(&data)? };
+        Ok(self)
+    }
+
+    /// Subtract another tensor elementwise in-place: `self -= other`.
+    ///
+    /// Both tensors must have the same shape.
+    pub fn sub_(&self, other: &Tensor<T>) -> FerrotorchResult<&Self> {
+        check_inplace_allowed(self, "sub_")?;
+        if self.shape() != other.shape() {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "sub_: shape mismatch {:?} vs {:?}",
+                    self.shape(),
+                    other.shape()
+                ),
+            });
+        }
+
+        if self.is_cuda()
+            && other.is_cuda()
+            && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
+        {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                let handle =
+                    backend.sub_f32(self.gpu_handle()?, other.gpu_handle()?)?;
+                let storage = crate::storage::TensorStorage::gpu(handle);
+                unsafe { self.update_storage(storage)? };
+                return Ok(self);
+            }
+        }
+
+        let mut data = self.data_vec()?;
+        let other_data = other.data_vec()?;
+        for (a, &b) in data.iter_mut().zip(other_data.iter()) {
+            *a = *a - b;
+        }
+        unsafe { self.update_data(&data)? };
+        Ok(self)
+    }
+
+    /// Multiply another tensor elementwise in-place: `self *= other`.
+    ///
+    /// Both tensors must have the same shape.
+    pub fn mul_(&self, other: &Tensor<T>) -> FerrotorchResult<&Self> {
+        check_inplace_allowed(self, "mul_")?;
+        if self.shape() != other.shape() {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "mul_: shape mismatch {:?} vs {:?}",
+                    self.shape(),
+                    other.shape()
+                ),
+            });
+        }
+
+        if self.is_cuda()
+            && other.is_cuda()
+            && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
+        {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                let handle =
+                    backend.mul_f32(self.gpu_handle()?, other.gpu_handle()?)?;
+                let storage = crate::storage::TensorStorage::gpu(handle);
+                unsafe { self.update_storage(storage)? };
+                return Ok(self);
+            }
+        }
+
+        let mut data = self.data_vec()?;
+        let other_data = other.data_vec()?;
+        for (a, &b) in data.iter_mut().zip(other_data.iter()) {
+            *a = *a * b;
+        }
+        unsafe { self.update_data(&data)? };
+        Ok(self)
+    }
+
+    /// Divide by another tensor elementwise in-place: `self /= other`.
+    ///
+    /// Both tensors must have the same shape.
+    pub fn div_(&self, other: &Tensor<T>) -> FerrotorchResult<&Self> {
+        check_inplace_allowed(self, "div_")?;
+        if self.shape() != other.shape() {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "div_: shape mismatch {:?} vs {:?}",
+                    self.shape(),
+                    other.shape()
+                ),
+            });
+        }
+
+        if self.is_cuda()
+            && other.is_cuda()
+            && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
+        {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                let handle =
+                    backend.div_f32(self.gpu_handle()?, other.gpu_handle()?)?;
+                let storage = crate::storage::TensorStorage::gpu(handle);
+                unsafe { self.update_storage(storage)? };
+                return Ok(self);
+            }
+        }
+
+        let mut data = self.data_vec()?;
+        let other_data = other.data_vec()?;
+        for (a, &b) in data.iter_mut().zip(other_data.iter()) {
+            *a = *a / b;
+        }
+        unsafe { self.update_data(&data)? };
+        Ok(self)
+    }
+
     /// Clamp every element to `[min, max]` in-place.
     ///
     /// Each element `x` is replaced with `min.max(x.min(max))`, matching
