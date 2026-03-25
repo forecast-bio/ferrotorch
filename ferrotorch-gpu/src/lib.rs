@@ -36,6 +36,7 @@ pub mod memory_guard;
 pub mod module_cache;
 pub mod pool;
 pub mod rng;
+pub mod stream;
 pub mod tensor_bridge;
 pub mod transfer;
 

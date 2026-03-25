@@ -381,6 +381,20 @@ impl GpuBackend for CudaBackendImpl {
         Ok(())
     }
 
+    fn synchronize(&self, device: usize) -> FerrotorchResult<()> {
+        let dev = self.device(device)?;
+        dev.stream()
+            .synchronize()
+            .map_err(|e| FerrotorchError::InvalidArgument {
+                message: format!("CUDA synchronize failed: {e}"),
+            })?;
+        Ok(())
+    }
+
+    fn stream_count(&self, device: usize) -> usize {
+        crate::stream::StreamPool::pool_size(device)
+    }
+
     // -- Linalg f32 -----------------------------------------------------------
 
     fn matmul_f32(

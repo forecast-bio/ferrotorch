@@ -665,6 +665,17 @@ pub trait GpuBackend: Send + Sync {
             message: "fused_adam_f32 GPU op not yet implemented".into(),
         })
     }
+
+    /// Synchronize the current stream on the given device, blocking until
+    /// all enqueued operations have completed.
+    fn synchronize(&self, _device: usize) -> FerrotorchResult<()> {
+        Err(FerrotorchError::DeviceUnavailable)
+    }
+
+    /// Return the number of streams in the pool for the given device.
+    fn stream_count(&self, _device: usize) -> usize {
+        1
+    }
 }
 
 static GPU_BACKEND: OnceLock<Box<dyn GpuBackend>> = OnceLock::new();

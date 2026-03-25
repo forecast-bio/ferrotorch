@@ -628,9 +628,9 @@ pub fn gpu_matmul_f16(
         // SyncOnDrop ensures stream synchronization when dropped. We hold all
         // _record guards alive until after the gemm_ex call completes (they are
         // dropped at the end of this block).
-        let (a_ptr, _record_a) = a_f16.device_ptr(stream);
-        let (b_ptr, _record_b) = b_f16.device_ptr(stream);
-        let (c_ptr, _record_c) = c.inner_mut().device_ptr_mut(stream);
+        let (a_ptr, _record_a) = a_f16.device_ptr(&stream);
+        let (b_ptr, _record_b) = b_f16.device_ptr(&stream);
+        let (c_ptr, _record_c) = c.inner_mut().device_ptr_mut(&stream);
 
         // SAFETY: All device pointers are valid and correctly sized:
         // - b_ptr points to k*n u16 values (f16 bit patterns) -- passed as A to
