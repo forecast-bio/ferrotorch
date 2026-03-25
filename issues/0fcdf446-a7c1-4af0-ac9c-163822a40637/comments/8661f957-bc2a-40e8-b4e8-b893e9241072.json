@@ -1,0 +1,8 @@
+{
+  "uuid": "8661f957-bc2a-40e8-b4e8-b893e9241072",
+  "issue_uuid": "0fcdf446-a7c1-4af0-ac9c-163822a40637",
+  "author": "anon-a7c6025f",
+  "content": "Decision: GPU Adam step will use decomposed ops via the GpuBackend trait — scale_f32, mul_f32, add_f32, sub_f32, sqrt_f32, div_f32. This avoids a fused kernel (complex PTX) while keeping everything on GPU. Need to add update_storage_gpu() to Tensor to swap the GPU buffer handle in-place for the parameter update (current update_data only takes CPU slices). State will be stored as Tensor<T> on the parameter's device.",
+  "created_at": "2026-03-25T03:34:49.998983518Z",
+  "kind": "decision"
+}
