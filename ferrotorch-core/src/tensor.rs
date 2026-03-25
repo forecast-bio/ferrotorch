@@ -225,6 +225,59 @@ impl<T: Float> Tensor<T> {
         })
     }
 
+    /// Create a zero-copy view with explicit shape, strides, and offset.
+    ///
+    /// This is the lowest-level view constructor — used by permute, transpose,
+    /// narrow, and other operations that change the logical layout without
+    /// copying data. The caller is responsible for ensuring that the given
+    /// shape + strides + offset are valid for the underlying storage.
+    pub fn stride_view(
+        &self,
+        new_shape: Vec<usize>,
+        new_strides: Vec<isize>,
+        new_offset: usize,
+    ) -> Self {
+        Self {
+            inner: Arc::new(TensorInner {
+                id: TensorId::next(),
+                storage: Arc::clone(&self.inner.storage),
+                shape: new_shape,
+                strides: new_strides,
+                offset: new_offset,
+                grad: Mutex::new(None),
+                grad_fn: None,
+                requires_grad: false,
+                is_leaf: true,
+                hooks: Mutex::new(crate::autograd::hooks::HookStorage::new()),
+            }),
+        }
+    }
+
+    /// Create a zero-copy view with explicit shape, strides, and offset,
+    /// with an attached gradient function for autograd.
+    pub fn stride_view_operation(
+        &self,
+        new_shape: Vec<usize>,
+        new_strides: Vec<isize>,
+        new_offset: usize,
+        grad_fn: Arc<dyn GradFn<T>>,
+    ) -> Self {
+        Self {
+            inner: Arc::new(TensorInner {
+                id: TensorId::next(),
+                storage: Arc::clone(&self.inner.storage),
+                shape: new_shape,
+                strides: new_strides,
+                offset: new_offset,
+                grad: Mutex::new(None),
+                grad_fn: Some(grad_fn),
+                requires_grad: true,
+                is_leaf: false,
+                hooks: Mutex::new(crate::autograd::hooks::HookStorage::new()),
+            }),
+        }
+    }
+
     /// Create a tensor that is the result of an operation (non-leaf).
     ///
     /// The resulting tensor has `requires_grad = true`, `is_leaf = false`,
@@ -322,6 +375,14 @@ impl<T: Float> Tensor<T> {
     #[inline]
     pub fn strides(&self) -> &[isize] {
         &self.inner.strides
+    }
+
+    /// Offset (in number of elements) into the underlying storage.
+    ///
+    /// Non-zero for views created by narrow, select, or other subregion ops.
+    #[inline]
+    pub fn storage_offset(&self) -> usize {
+        self.inner.offset
     }
 
     #[inline]

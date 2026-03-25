@@ -196,9 +196,39 @@ impl<T: Float> Tensor<T> {
 
     /// Permute tensor dimensions. Like PyTorch's `tensor.permute(dims)`.
     ///
+    /// Zero-copy: returns a view with permuted shape and strides.
     /// `dims` must be a valid permutation of `0..ndim`.
     pub fn permute(&self, dims: &[usize]) -> FerrotorchResult<Tensor<T>> {
         permute_t(self, dims)
+    }
+
+    /// Swap two dimensions. Like PyTorch's `tensor.transpose(dim0, dim1)`.
+    ///
+    /// Zero-copy: returns a view with swapped strides.
+    pub fn transpose(&self, dim0: usize, dim1: usize) -> FerrotorchResult<Tensor<T>> {
+        let ndim = self.ndim();
+        if dim0 >= ndim || dim1 >= ndim {
+            return Err(crate::error::FerrotorchError::InvalidArgument {
+                message: format!(
+                    "transpose: dims ({}, {}) out of bounds for ndim {}",
+                    dim0, dim1, ndim
+                ),
+            });
+        }
+        if dim0 == dim1 {
+            return Ok(self.clone());
+        }
+        let mut perm: Vec<usize> = (0..ndim).collect();
+        perm.swap(dim0, dim1);
+        permute_t(self, &perm)
+    }
+
+    /// Return a narrowed view along `dim` starting at `start` with `length`
+    /// elements. Like PyTorch's `tensor.narrow(dim, start, length)`.
+    ///
+    /// Zero-copy: shares storage with the original tensor.
+    pub fn narrow(&self, dim: usize, start: usize, length: usize) -> FerrotorchResult<Tensor<T>> {
+        narrow_t(self, dim, start, length)
     }
 
     /// View tensor with new shape. Like PyTorch's `tensor.view(shape)`.
@@ -209,9 +239,8 @@ impl<T: Float> Tensor<T> {
         view_t(self, shape)
     }
 
-    /// Make tensor contiguous (copy data if needed).
-    ///
-    /// Currently all tensors are contiguous, so this is always a cheap clone.
+    /// Make tensor contiguous — if already contiguous, returns a cheap clone.
+    /// Otherwise materializes a new contiguous buffer.
     pub fn contiguous(&self) -> FerrotorchResult<Tensor<T>> {
         contiguous_t(self)
     }
@@ -258,7 +287,6 @@ impl<T: Float> Tensor<T> {
 /// `dims` must be a valid permutation of `0..ndim`.
 pub fn permute_t<T: Float>(input: &Tensor<T>, dims: &[usize]) -> FerrotorchResult<Tensor<T>> {
     use crate::error::FerrotorchError;
-    use crate::storage::TensorStorage;
 
     let ndim = input.ndim();
     if dims.len() != ndim {
@@ -287,44 +315,21 @@ pub fn permute_t<T: Float>(input: &Tensor<T>, dims: &[usize]) -> FerrotorchResul
         seen[d] = true;
     }
 
+    // Zero-copy: permute shape and strides without copying data.
     let in_shape = input.shape();
-    let device = input.device();
-    let in_data = input.data_vec()?;
-
-    // Compute output shape.
+    let in_strides = input.strides();
     let out_shape: Vec<usize> = dims.iter().map(|&d| in_shape[d]).collect();
-    let out_numel: usize = out_shape.iter().product();
-    let mut out_data = vec![<T as num_traits::Zero>::zero(); out_numel];
+    let out_strides: Vec<isize> = dims.iter().map(|&d| in_strides[d]).collect();
+    let offset = input.storage_offset();
 
-    // Compute input strides for coordinate decomposition.
-    let in_strides = crate::shape::c_contiguous_strides(in_shape);
-
-    for (flat, out_elem) in out_data.iter_mut().enumerate() {
-        // Decompose flat index using output shape to get output coords.
-        let mut rem = flat;
-        let mut out_coords = vec![0usize; ndim];
-        for d in (0..ndim).rev() {
-            out_coords[d] = rem % out_shape[d];
-            rem /= out_shape[d];
-        }
-        // Map output coords back to input coords via inverse permutation.
-        let mut in_flat = 0usize;
-        for (out_d, &in_d) in dims.iter().enumerate() {
-            in_flat += out_coords[out_d] * in_strides[in_d] as usize;
-        }
-        *out_elem = in_data[in_flat];
-    }
-
-    // Permute is differentiable: backward is the inverse permutation.
-    let storage = TensorStorage::on_device(out_data, device)?;
     if crate::autograd::no_grad::is_grad_enabled() && input.requires_grad() {
         let grad_fn = std::sync::Arc::new(PermuteBackward {
             input: input.clone(),
             dims: dims.to_vec(),
         });
-        Tensor::from_operation(storage, out_shape, grad_fn)
+        Ok(input.stride_view_operation(out_shape, out_strides, offset, grad_fn))
     } else {
-        Tensor::from_storage(storage, out_shape, false)
+        Ok(input.stride_view(out_shape, out_strides, offset))
     }
 }
 
@@ -355,6 +360,119 @@ impl<T: Float> crate::tensor::GradFn<T> for PermuteBackward<T> {
 
     fn name(&self) -> &'static str {
         "PermuteBackward"
+    }
+}
+
+/// Zero-copy narrow (slice) along a dimension.
+///
+/// Returns a view with the same storage, adjusting offset and shape.
+/// Like PyTorch's `tensor.narrow(dim, start, length)`.
+pub fn narrow_t<T: Float>(
+    input: &Tensor<T>,
+    dim: usize,
+    start: usize,
+    length: usize,
+) -> FerrotorchResult<Tensor<T>> {
+    use crate::error::FerrotorchError;
+
+    let ndim = input.ndim();
+    if dim >= ndim {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!("narrow: dim {} out of bounds for ndim {}", dim, ndim),
+        });
+    }
+    let dim_size = input.shape()[dim];
+    if start + length > dim_size {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "narrow: start({}) + length({}) = {} exceeds dim size {}",
+                start,
+                length,
+                start + length,
+                dim_size,
+            ),
+        });
+    }
+
+    let strides = input.strides();
+    let mut new_shape = input.shape().to_vec();
+    new_shape[dim] = length;
+
+    // Advance offset by start * stride[dim] elements.
+    let new_offset = input.storage_offset() + start * strides[dim] as usize;
+
+    if crate::autograd::no_grad::is_grad_enabled() && input.requires_grad() {
+        let grad_fn = std::sync::Arc::new(NarrowBackward {
+            input: input.clone(),
+            dim,
+            start,
+        });
+        Ok(input.stride_view_operation(
+            new_shape,
+            strides.to_vec(),
+            new_offset,
+            grad_fn,
+        ))
+    } else {
+        Ok(input.stride_view(new_shape, strides.to_vec(), new_offset))
+    }
+}
+
+/// Backward for narrow: pad the gradient with zeros in the sliced dimension.
+#[derive(Debug)]
+struct NarrowBackward<T: Float> {
+    input: Tensor<T>,
+    dim: usize,
+    start: usize,
+}
+
+impl<T: Float> crate::tensor::GradFn<T> for NarrowBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        if !self.input.requires_grad() {
+            return Ok(vec![None]);
+        }
+        // Create a zero tensor matching the input shape and scatter the
+        // gradient into the narrowed region.
+        let mut grad_data = vec![<T as num_traits::Zero>::zero(); self.input.numel()];
+        let grad_out_data = grad_output.data_vec()?;
+        let in_shape = self.input.shape();
+        let dim = self.dim;
+        let start = self.start;
+        let _length = grad_output.shape()[dim];
+
+        // Walk contiguous output elements and map to input flat indices.
+        let out_strides = crate::shape::c_contiguous_strides(grad_output.shape());
+        let in_strides = crate::shape::c_contiguous_strides(in_shape);
+        let ndim = in_shape.len();
+        let out_numel = grad_out_data.len();
+
+        for flat in 0..out_numel {
+            // Decompose flat index to output coords.
+            let mut rem = flat;
+            let mut in_flat: usize = 0;
+            for d in 0..ndim {
+                let coord = rem / out_strides[d] as usize;
+                rem %= out_strides[d] as usize;
+                let in_coord = if d == dim { coord + start } else { coord };
+                in_flat += in_coord * in_strides[d] as usize;
+            }
+            grad_data[in_flat] = grad_out_data[flat];
+        }
+
+        let device = self.input.device();
+        let storage =
+            crate::storage::TensorStorage::on_device(grad_data, device)?;
+        let grad_input =
+            Tensor::from_storage(storage, in_shape.to_vec(), false)?;
+        Ok(vec![Some(grad_input)])
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.input]
+    }
+
+    fn name(&self) -> &'static str {
+        "NarrowBackward"
     }
 }
 
@@ -656,11 +774,17 @@ mod tests {
 
     #[test]
     fn test_method_permute_2d() {
-        // Transpose via permute
+        // Transpose via permute — now zero-copy (stride view).
         let a = from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
         let b = a.permute(&[1, 0]).unwrap();
         assert_eq!(b.shape(), &[3, 2]);
-        assert_eq!(b.data().unwrap(), &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+        // Non-contiguous view — use data_vec() to read logical order.
+        assert_eq!(
+            b.data_vec().unwrap(),
+            &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]
+        );
+        // Verify it's a view (shares storage).
+        assert!(!b.is_contiguous());
     }
 
     #[test]
@@ -669,10 +793,11 @@ mod tests {
         let a = from_slice(&data, &[2, 3, 4]).unwrap();
         let b = a.permute(&[2, 0, 1]).unwrap();
         assert_eq!(b.shape(), &[4, 2, 3]);
-        // Verify element [0,0,0] of output = element [0,0,0] of input = 1.0
-        assert_eq!(b.data().unwrap()[0], 1.0);
+        let bdata = b.data_vec().unwrap();
+        // element [0,0,0] of output = element [0,0,0] of input = 1.0
+        assert_eq!(bdata[0], 1.0);
         // element [1,0,0] of output = input[0,0,1] = 2.0
-        assert_eq!(b.data().unwrap()[1 * 2 * 3], 2.0);
+        assert_eq!(bdata[1 * 2 * 3], 2.0);
     }
 
     #[test]

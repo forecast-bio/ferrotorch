@@ -355,24 +355,7 @@ pub fn transpose_2d<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
         });
     }
 
-    let m = input.shape()[0];
-    let n = input.shape()[1];
-    let out_shape = vec![n, m];
-
-    // GPU fast path: run transpose kernel on device.
-    if input.is_cuda() {
-        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
-            let handle = backend.transpose_2d_f32(input.gpu_handle()?, m, n)?;
-            return if is_grad_enabled() && input.requires_grad() {
-                let grad_fn = Arc::new(TransposeBackward::new(input.clone()));
-                Tensor::from_operation(TensorStorage::gpu(handle), out_shape, grad_fn)
-            } else {
-                Tensor::from_storage(TensorStorage::gpu(handle), out_shape, false)
-            };
-        }
-    }
-
-    // CPU path: zero-copy stride swap via permute [1, 0].
+    // Zero-copy stride swap — works on both CPU and GPU.
     crate::methods::permute_t(input, &[1, 0])
 }
 

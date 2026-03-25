@@ -320,9 +320,11 @@ fn batch_transpose<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let c = input.shape()[2];
     let device = input.device();
 
-    // Use zero-copy borrow for CPU tensors, owned copy only for GPU.
+    // Materialize to contiguous CPU tensor for element access.
     let cpu_input = if input.is_cuda() {
         input.cpu()?
+    } else if !input.is_contiguous() {
+        input.contiguous()?
     } else {
         input.clone()
     };
@@ -643,6 +645,10 @@ pub fn mm_differentiable<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchRe
             got: b.device(),
         });
     }
+
+    // Materialize non-contiguous views before linalg ops.
+    let a = if a.is_contiguous() { a.clone() } else { a.contiguous()? };
+    let b = if b.is_contiguous() { b.clone() } else { b.contiguous()? };
 
     if a.is_cuda() {
         let backend =
@@ -1205,6 +1211,10 @@ pub fn matmul_differentiable<T: Float>(
         });
     }
 
+    // Materialize non-contiguous views before linalg ops.
+    let a = if a.is_contiguous() { a.clone() } else { a.contiguous()? };
+    let b = if b.is_contiguous() { b.clone() } else { b.contiguous()? };
+
     if a.is_cuda() && a.ndim() == 2 && b.ndim() == 2 {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
@@ -1232,15 +1242,15 @@ pub fn matmul_differentiable<T: Float>(
     } else {
         // Dispatch to specialized paths that avoid double-copy.
         match (a.ndim(), b.ndim()) {
-            (1, 1) => return dot_differentiable(a, b),
-            (2, 1) => return mv_differentiable(a, b),
-            (2, 2) => return mm_differentiable(a, b),
-            (3, 3) if a.shape()[0] == b.shape()[0] => return bmm_differentiable(a, b),
+            (1, 1) => return dot_differentiable(&a, &b),
+            (2, 1) => return mv_differentiable(&a, &b),
+            (2, 2) => return mm_differentiable(&a, &b),
+            (3, 3) if a.shape()[0] == b.shape()[0] => return bmm_differentiable(&a, &b),
             _ => {}
         }
 
         // Fallback for other shapes — still goes through linalg::matmul.
-        let result = linalg::matmul(a, b)?;
+        let result = linalg::matmul(&a, &b)?;
 
         if is_grad_enabled() && (a.requires_grad() || b.requires_grad()) {
             let grad_fn = Arc::new(MatmulBackward::new(a.clone(), b.clone()));
@@ -1975,6 +1985,10 @@ pub fn bmm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
             got: b.device(),
         });
     }
+
+    // Materialize non-contiguous views (e.g. from permute/transpose).
+    let a = if a.is_contiguous() { a.clone() } else { a.contiguous()? };
+    let b = if b.is_contiguous() { b.clone() } else { b.contiguous()? };
 
     let batch = a.shape()[0];
     let m = a.shape()[1];

@@ -135,8 +135,10 @@ pub fn backward_with_grad<T: Float>(
         };
 
         if let Some(grad_fn) = node.grad_fn() {
-            // Materialize non-contiguous CPU gradients before backward
-            let grad_output = if !grad_output.is_contiguous() && !grad_output.is_cuda() {
+            // Materialize non-contiguous gradients before backward.
+            // Stride-based views (from permute/transpose/narrow) may be
+            // non-contiguous — backward functions expect contiguous data.
+            let grad_output = if !grad_output.is_contiguous() {
                 crate::methods::contiguous_t(&grad_output)?
             } else {
                 grad_output
