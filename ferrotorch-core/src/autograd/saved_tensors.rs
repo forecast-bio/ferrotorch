@@ -37,13 +37,13 @@ pub type PackHook<T> = Arc<dyn Fn(Tensor<T>) -> FerrotorchResult<Tensor<T>> + Se
 /// An unpack hook transforms a tensor when it is retrieved during backward.
 pub type UnpackHook<T> = Arc<dyn Fn(Tensor<T>) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
 
-/// Thread-local saved-tensors hook state for f32.
+// Thread-local saved-tensors hook state for f32.
 thread_local! {
     static HOOKS_F32: RefCell<Option<(PackHook<f32>, UnpackHook<f32>)>> =
         const { RefCell::new(None) };
 }
 
-/// Thread-local saved-tensors hook state for f64.
+// Thread-local saved-tensors hook state for f64.
 thread_local! {
     static HOOKS_F64: RefCell<Option<(PackHook<f64>, UnpackHook<f64>)>> =
         const { RefCell::new(None) };

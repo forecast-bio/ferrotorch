@@ -7033,6 +7033,63 @@ pub fn gpu_avgpool2d(
 }
 
 // ---------------------------------------------------------------------------
+// Public API -- BatchNorm2d
+// ---------------------------------------------------------------------------
+
+/// BatchNorm2d forward on GPU (placeholder — kernel pass-1 indexing needs
+/// refinement). Currently validates the kernel compiles and falls back to
+/// returning an error so callers use the CPU path.
+#[cfg(feature = "cuda")]
+#[allow(clippy::too_many_arguments)]
+pub fn gpu_batchnorm_forward(
+    _input: &CudaBuffer<f32>,
+    _weight: &CudaBuffer<f32>,
+    _bias: &CudaBuffer<f32>,
+    _running_mean: &mut CudaBuffer<f32>,
+    _running_var: &mut CudaBuffer<f32>,
+    _channels: usize,
+    _spatial: usize,
+    _eps: f32,
+    _momentum: f32,
+    _training: bool,
+    device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>, CudaBuffer<f32>)> {
+    // Validate the PTX compiles (catches syntax errors at first call).
+    let ctx = device.context();
+    let _f = crate::module_cache::get_or_compile(
+        ctx,
+        BATCHNORM_FORWARD_PTX,
+        "batchnorm_forward_kernel",
+        device.ordinal() as u32,
+    );
+    // Full implementation pending — pass-1 loop indexing needs refinement.
+    Err(GpuError::ShapeMismatch {
+        op: "batchnorm_forward",
+        expected: vec![0],
+        got: vec![1],
+    })
+}
+
+/// Stub.
+#[cfg(not(feature = "cuda"))]
+#[allow(clippy::too_many_arguments)]
+pub fn gpu_batchnorm_forward(
+    _input: &CudaBuffer<f32>,
+    _weight: &CudaBuffer<f32>,
+    _bias: &CudaBuffer<f32>,
+    _running_mean: &mut CudaBuffer<f32>,
+    _running_var: &mut CudaBuffer<f32>,
+    _channels: usize,
+    _spatial: usize,
+    _eps: f32,
+    _momentum: f32,
+    _training: bool,
+    _device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>, CudaBuffer<f32>)> {
+    Err(GpuError::NoCudaFeature)
+}
+
+// ---------------------------------------------------------------------------
 // Public API -- LayerNorm
 // ---------------------------------------------------------------------------
 

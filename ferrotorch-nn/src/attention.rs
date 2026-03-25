@@ -531,65 +531,6 @@ fn reshape_to_heads<T: Float>(
     )
 }
 
-/// Expand a scalar-ish tensor `[1]` to `[rows, cols]` for elementwise multiply.
-fn expand_scalar_to_2d<T: Float>(
-    scalar: &Tensor<T>,
-    rows: usize,
-    cols: usize,
-) -> FerrotorchResult<Tensor<T>> {
-    let val = scalar.data()?[0];
-    let data = vec![val; rows * cols];
-    Tensor::from_storage(TensorStorage::cpu(data), vec![rows, cols], false)
-}
-
-/// Apply a causal (lower-triangular) mask to attention scores.
-///
-/// Sets positions where `col > row` to a very large negative value (-1e9)
-/// so that softmax drives them to zero.
-fn apply_causal_mask<T: Float>(scores: &Tensor<T>, seq_len: usize) -> FerrotorchResult<Tensor<T>> {
-    let neg_inf = T::from(-1e9).unwrap();
-    let mut masked = scores.data()?.to_vec();
-
-    for i in 0..seq_len {
-        for j in (i + 1)..seq_len {
-            masked[i * seq_len + j] = neg_inf;
-        }
-    }
-
-    Tensor::from_storage(
-        TensorStorage::cpu(masked),
-        scores.shape().to_vec(),
-        scores.requires_grad(),
-    )
-}
-
-/// Concatenate per-head outputs `[seq, head_dim]` back to `[seq, embed_dim]`.
-///
-/// Inverse of `reshape_to_heads`: gathers head outputs into
-/// `[seq, num_heads * head_dim]` = `[seq, embed_dim]`.
-fn concat_heads<T: Float>(
-    heads: &[Tensor<T>],
-    seq_len: usize,
-    num_heads: usize,
-    head_dim: usize,
-) -> FerrotorchResult<Tensor<T>> {
-    let embed_dim = num_heads * head_dim;
-    let mut result = vec![<T as num_traits::Zero>::zero(); seq_len * embed_dim];
-
-    for (h, head) in heads.iter().enumerate() {
-        let head_data = head.data()?;
-        for s in 0..seq_len {
-            for d in 0..head_dim {
-                let src_idx = s * head_dim + d;
-                let dst_idx = s * embed_dim + h * head_dim + d;
-                result[dst_idx] = head_data[src_idx];
-            }
-        }
-    }
-
-    Tensor::from_storage(TensorStorage::cpu(result), vec![seq_len, embed_dim], false)
-}
-
 /// Transpose [num_heads, seq, head_dim] → [seq, num_heads * head_dim] = [seq, embed_dim].
 ///
 /// Inverse of `reshape_to_heads` for the batched attention output.
