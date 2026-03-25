@@ -191,7 +191,7 @@ pub fn log<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
             Tensor::from_storage(storage, shape, false)
         }
     } else {
-        let output = unary_map(input, |x| x.ln())?;
+        let output = crate::ops::elementwise::fast_log(input)?;
 
         if needs_grad_unary(input) {
             let (storage, shape) = output.into_storage_and_shape()?;

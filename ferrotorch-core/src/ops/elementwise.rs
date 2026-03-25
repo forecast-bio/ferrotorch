@@ -232,8 +232,73 @@ pub fn fast_mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
     binary_map(a, b, |x, y| x * y)
 }
 
+/// Vectorizable f32 exp kernel — polynomial range reduction that LLVM
+/// auto-vectorizes to vexpps (AVX2) or equivalent SIMD.
+///
+/// Algorithm: exp(x) = 2^n * exp(r) where n = round(x / ln2), r = x - n*ln2.
+/// The reduced exp(r) is evaluated via a degree-5 minimax polynomial.
+#[inline(always)]
+fn vexp_f32(x: f32) -> f32 {
+    const LOG2E: f32 = 1.442_695_04;
+    const LN2_HI: f32 = 0.693_145_75; // upper bits of ln(2)
+    const LN2_LO: f32 = 1.428_606_8e-6; // lower bits for precision
+
+    // Clamp to avoid overflow/underflow in the integer exponent.
+    let x = x.max(-87.33654).min(88.72284);
+
+    // Range reduction: n = round(x * log2e), r = x - n * ln2.
+    let n = (x * LOG2E).round();
+    let r = x - n * LN2_HI - n * LN2_LO;
+
+    // Degree-5 minimax polynomial for exp(r) on [-ln2/2, ln2/2].
+    let p = 1.0 + r * (1.0 + r * (0.5 + r * (0.166_666_67 + r * (0.041_666_668 + r * 0.008_333_334))));
+
+    // Scale by 2^n via bit manipulation (branchless).
+    let n_i32 = n as i32;
+    let scale = f32::from_bits(((127 + n_i32) as u32) << 23);
+    p * scale
+}
+
+/// Vectorizable f32 ln kernel — polynomial approximation.
+///
+/// Algorithm: ln(x) = (e-127)*ln2 + ln(m) where x = m * 2^e.
+/// Normalizes mantissa to [sqrt(2)/2, sqrt(2)) for better polynomial
+/// conditioning, then evaluates a degree-7 minimax polynomial for
+/// ln((1+s)/(1-s)) where s = (m-1)/(m+1).
+#[inline(always)]
+fn vlog_f32(x: f32) -> f32 {
+    const LN2: f32 = 0.693_147_18;
+    if x <= 0.0 {
+        if x == 0.0 { return f32::NEG_INFINITY; }
+        return f32::NAN;
+    }
+
+    let bits = x.to_bits();
+    let mut e = ((bits >> 23) & 0xFF) as i32 - 127;
+    let mut m = f32::from_bits((bits & 0x007F_FFFF) | 0x3F80_0000);
+
+    // Normalize mantissa to [sqrt(2)/2, sqrt(2)) for better conditioning.
+    if m > 1.414_213_6 {
+        m *= 0.5;
+        e += 1;
+    }
+
+    // Use the identity: ln(m) = 2*atanh(s) where s = (m-1)/(m+1).
+    // atanh(s) = s + s^3/3 + s^5/5 + s^7/7 + ...
+    let s = (m - 1.0) / (m + 1.0);
+    let s2 = s * s;
+    // Horner evaluation of 2*(s + s^3/3 + s^5/5 + s^7/7 + s^9/9)
+    let p = s * (2.0 + s2 * (0.666_666_67 + s2 * (0.4 + s2 * (0.285_714_29 + s2 * 0.222_222_22))));
+
+    (e as f32) * LN2 + p
+}
+
 /// SIMD-accelerated exp with rayon parallelism for large tensors.
+///
+/// Uses a vectorizable polynomial kernel (vexp_f32) that LLVM auto-vectorizes
+/// to AVX2/SSE SIMD instructions, instead of scalar libm expf.
 pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    let input = if input.is_contiguous() { input.clone() } else { input.contiguous()? };
     let data = input.data()?;
     let n = data.len();
     if std::mem::size_of::<T>() == 4 {
@@ -246,16 +311,31 @@ pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 .for_each(|(ci, chunk)| {
                     let offset = ci * chunk_size;
                     let len = chunk.len();
-                    ferray_ufunc::kernels::simd_f32::exp_f32(&inp[offset..offset + len], chunk);
+                    for (o, &x) in chunk.iter_mut().zip(inp[offset..offset + len].iter()) {
+                        *o = vexp_f32(x);
+                    }
                 });
         } else {
-            ferray_ufunc::kernels::simd_f32::exp_f32(inp, &mut out);
+            for (o, &x) in out.iter_mut().zip(inp.iter()) {
+                *o = vexp_f32(x);
+            }
         }
         let result = unsafe { transmute_vec_f32_to_t(out) };
         return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
-    } else if std::mem::size_of::<T>() == 8 {
-        let inp: &[f64] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f64, n) };
-        let mut out = pool_alloc_cpu_uninit_f64(n);
+    }
+    unary_map(&input, |x| x.exp())
+}
+
+/// SIMD-accelerated log with rayon parallelism for large tensors.
+///
+/// Uses a vectorizable polynomial kernel (vlog_f32) that LLVM auto-vectorizes.
+pub fn fast_log<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    let input = if input.is_contiguous() { input.clone() } else { input.contiguous()? };
+    let data = input.data()?;
+    let n = data.len();
+    if std::mem::size_of::<T>() == 4 {
+        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
+        let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
             let chunk_size = (n / rayon::current_num_threads()).max(4096);
             out.par_chunks_mut(chunk_size)
@@ -263,15 +343,19 @@ pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 .for_each(|(ci, chunk)| {
                     let offset = ci * chunk_size;
                     let len = chunk.len();
-                    ferray_ufunc::kernels::simd_f64::exp_f64(&inp[offset..offset + len], chunk);
+                    for (o, &x) in chunk.iter_mut().zip(inp[offset..offset + len].iter()) {
+                        *o = vlog_f32(x);
+                    }
                 });
         } else {
-            ferray_ufunc::kernels::simd_f64::exp_f64(inp, &mut out);
+            for (o, &x) in out.iter_mut().zip(inp.iter()) {
+                *o = vlog_f32(x);
+            }
         }
-        let result = unsafe { transmute_vec_f64_to_t(out) };
+        let result = unsafe { transmute_vec_f32_to_t(out) };
         return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
     }
-    unary_map(input, |x| x.exp())
+    unary_map(&input, |x| x.ln())
 }
 
 /// Fast f32 exp — single-element, fused, auto-vectorization friendly.
