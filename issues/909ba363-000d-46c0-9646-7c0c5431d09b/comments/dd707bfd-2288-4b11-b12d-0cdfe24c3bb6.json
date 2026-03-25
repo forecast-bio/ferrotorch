@@ -1,0 +1,8 @@
+{
+  "uuid": "dd707bfd-2288-4b11-b12d-0cdfe24c3bb6",
+  "issue_uuid": "909ba363-000d-46c0-9646-7c0c5431d09b",
+  "author": "anon-a7c6025f",
+  "content": "Plan: Add broadcast_div_f32() GPU path mirroring the existing broadcast_add/sub/mul pattern. Four touch points: (1) GpuBackend trait in gpu_dispatch.rs — add broadcast_div_f32 default method, (2) gpu_broadcast_div kernel in ferrotorch-gpu/src/kernels.rs following the exact pattern of gpu_broadcast_add/sub/mul, (3) backend_impl.rs — wire broadcast_div_f32 to the new kernel, (4) arithmetic.rs div() — replace binary_map fallback with backend.broadcast_div_f32() call, matching the add/sub/mul pattern. Root cause: v0.1.9 added div_f32 same-shape kernel but missed the broadcast variant, so mismatched shapes fall through to binary_map() which calls .data() on GPU tensors and panics.",
+  "created_at": "2026-03-25T23:23:13.961672210Z",
+  "kind": "plan"
+}
