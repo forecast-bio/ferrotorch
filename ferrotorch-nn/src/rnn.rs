@@ -706,76 +706,119 @@ impl<T: Float> GRU<T> {
         let mut layer_outputs: Vec<Tensor<T>> = timestep_inputs;
         let mut final_h: Vec<Tensor<T>> = Vec::with_capacity(self.num_layers);
 
+        let is_f32 = std::mem::size_of::<T>() == 4;
+
         for (l, params) in self.layers.iter().enumerate() {
             let mut h = layer_h[l].clone();
             let mut next_layer_outputs: Vec<Tensor<T>> = Vec::with_capacity(seq_len);
 
-            for x_t in &layer_outputs {
-                // Compute input gates: x_t @ W_ih^T + bias_ih
-                let wih_t = transpose_2d(params.weight_ih.tensor())?;
-                let whh_t = transpose_2d(params.weight_hh.tensor())?;
+            // Hoist weight transposes outside the timestep loop — these are
+            // constant across timesteps.
+            let wih_t = ferrotorch_core::grad_fns::shape::transpose_2d(
+                params.weight_ih.tensor(),
+            )?;
+            let whh_t = ferrotorch_core::grad_fns::shape::transpose_2d(
+                params.weight_hh.tensor(),
+            )?;
 
+            // Check if we can use the fused GPU kernel.
+            let use_fused_gpu = is_f32
+                && h.is_cuda()
+                && ferrotorch_core::gpu_dispatch::gpu_backend().is_some();
+
+            for x_t in &layer_outputs {
+                // Phase 1: compute gate matrices via cuBLAS GEMMs.
                 let xw = mm(x_t, &wih_t)?; // [batch, 3*hs]
                 let hw = mm(&h, &whh_t)?; // [batch, 3*hs]
 
-                let bias_ih_2d = broadcast_bias_to_batch(&params.bias_ih, batch)?;
-                let bias_hh_2d = broadcast_bias_to_batch(&params.bias_hh, batch)?;
+                if use_fused_gpu {
+                    // ---- GPU fast path: fused pointwise kernel ----
+                    // The kernel takes raw gate matrices (no bias added) + biases
+                    // and computes all gate activations + GRU update in one launch.
+                    let backend = ferrotorch_core::gpu_dispatch::gpu_backend()
+                        .ok_or(FerrotorchError::DeviceUnavailable)?;
+                    let (hy_handle, _workspace) = backend.fused_gru_cell_f32(
+                        xw.gpu_handle()?,
+                        hw.gpu_handle()?,
+                        params.bias_ih.tensor().gpu_handle()?,
+                        params.bias_hh.tensor().gpu_handle()?,
+                        h.gpu_handle()?,
+                        hs,
+                    )?;
+                    let h_new = Tensor::from_storage(
+                        TensorStorage::gpu(hy_handle),
+                        vec![batch, hs],
+                        false,
+                    )?;
+                    next_layer_outputs.push(h_new.clone());
+                    h = h_new;
+                } else {
+                    // ---- CPU path: scalar gate computation ----
+                    let bias_ih_2d = broadcast_bias_to_batch(&params.bias_ih, batch)?;
+                    let bias_hh_2d = broadcast_bias_to_batch(&params.bias_hh, batch)?;
 
-                let xw_b = add(&xw, &bias_ih_2d)?; // x_t @ W_ih^T + b_ih
-                let hw_b = add(&hw, &bias_hh_2d)?; // h @ W_hh^T + b_hh
+                    let xw_b = add(&xw, &bias_ih_2d)?;
+                    let hw_b = add(&hw, &bias_hh_2d)?;
 
-                // Split xw_b into [r_x, z_x, n_x] and hw_b into [r_h, z_h, n_h],
-                // each [batch, hs].
-                let xw_data = xw_b.data()?;
-                let hw_data = hw_b.data()?;
-                let gate_size = 3 * hs;
+                    let xw_data = xw_b.data()?;
+                    let hw_data = hw_b.data()?;
+                    let gate_size = 3 * hs;
 
-                let mut rx_data = Vec::with_capacity(batch * hs);
-                let mut zx_data = Vec::with_capacity(batch * hs);
-                let mut nx_data = Vec::with_capacity(batch * hs);
-                let mut rh_data = Vec::with_capacity(batch * hs);
-                let mut zh_data = Vec::with_capacity(batch * hs);
-                let mut nh_data = Vec::with_capacity(batch * hs);
+                    let mut rx_data = Vec::with_capacity(batch * hs);
+                    let mut zx_data = Vec::with_capacity(batch * hs);
+                    let mut nx_data = Vec::with_capacity(batch * hs);
+                    let mut rh_data = Vec::with_capacity(batch * hs);
+                    let mut zh_data = Vec::with_capacity(batch * hs);
+                    let mut nh_data = Vec::with_capacity(batch * hs);
 
-                for b_idx in 0..batch {
-                    let xbase = b_idx * gate_size;
-                    rx_data.extend_from_slice(&xw_data[xbase..xbase + hs]);
-                    zx_data.extend_from_slice(&xw_data[xbase + hs..xbase + 2 * hs]);
-                    nx_data.extend_from_slice(&xw_data[xbase + 2 * hs..xbase + 3 * hs]);
+                    for b_idx in 0..batch {
+                        let xbase = b_idx * gate_size;
+                        rx_data.extend_from_slice(&xw_data[xbase..xbase + hs]);
+                        zx_data.extend_from_slice(&xw_data[xbase + hs..xbase + 2 * hs]);
+                        nx_data.extend_from_slice(
+                            &xw_data[xbase + 2 * hs..xbase + 3 * hs],
+                        );
 
-                    let hbase = b_idx * gate_size;
-                    rh_data.extend_from_slice(&hw_data[hbase..hbase + hs]);
-                    zh_data.extend_from_slice(&hw_data[hbase + hs..hbase + 2 * hs]);
-                    nh_data.extend_from_slice(&hw_data[hbase + 2 * hs..hbase + 3 * hs]);
+                        let hbase = b_idx * gate_size;
+                        rh_data.extend_from_slice(&hw_data[hbase..hbase + hs]);
+                        zh_data.extend_from_slice(&hw_data[hbase + hs..hbase + 2 * hs]);
+                        nh_data.extend_from_slice(
+                            &hw_data[hbase + 2 * hs..hbase + 3 * hs],
+                        );
+                    }
+
+                    let rg = xw_b.requires_grad() || hw_b.requires_grad();
+
+                    let rx = Tensor::from_storage(
+                        TensorStorage::cpu(rx_data), vec![batch, hs], rg,
+                    )?;
+                    let zx = Tensor::from_storage(
+                        TensorStorage::cpu(zx_data), vec![batch, hs], rg,
+                    )?;
+                    let nx = Tensor::from_storage(
+                        TensorStorage::cpu(nx_data), vec![batch, hs], rg,
+                    )?;
+                    let rh = Tensor::from_storage(
+                        TensorStorage::cpu(rh_data), vec![batch, hs], rg,
+                    )?;
+                    let zh = Tensor::from_storage(
+                        TensorStorage::cpu(zh_data), vec![batch, hs], rg,
+                    )?;
+                    let nh = Tensor::from_storage(
+                        TensorStorage::cpu(nh_data), vec![batch, hs], rg,
+                    )?;
+
+                    let r_gate = sigmoid(&add(&rx, &rh)?)?;
+                    let z_gate = sigmoid(&add(&zx, &zh)?)?;
+                    let r_nh = mul(&r_gate, &nh)?;
+                    let n_gate = tanh(&add(&nx, &r_nh)?)?;
+                    let h_minus_n = sub(&h, &n_gate)?;
+                    let z_h_minus_n = mul(&z_gate, &h_minus_n)?;
+                    let h_new = add(&n_gate, &z_h_minus_n)?;
+
+                    next_layer_outputs.push(h_new.clone());
+                    h = h_new;
                 }
-
-                let rg = xw_b.requires_grad() || hw_b.requires_grad();
-
-                let rx = Tensor::from_storage(TensorStorage::cpu(rx_data), vec![batch, hs], rg)?;
-                let zx = Tensor::from_storage(TensorStorage::cpu(zx_data), vec![batch, hs], rg)?;
-                let nx = Tensor::from_storage(TensorStorage::cpu(nx_data), vec![batch, hs], rg)?;
-                let rh = Tensor::from_storage(TensorStorage::cpu(rh_data), vec![batch, hs], rg)?;
-                let zh = Tensor::from_storage(TensorStorage::cpu(zh_data), vec![batch, hs], rg)?;
-                let nh = Tensor::from_storage(TensorStorage::cpu(nh_data), vec![batch, hs], rg)?;
-
-                // r_t = sigmoid(rx + rh)
-                let r_gate = sigmoid(&add(&rx, &rh)?)?;
-
-                // z_t = sigmoid(zx + zh)
-                let z_gate = sigmoid(&add(&zx, &zh)?)?;
-
-                // n_t = tanh(nx + r_t * nh)
-                let r_nh = mul(&r_gate, &nh)?;
-                let n_gate = tanh(&add(&nx, &r_nh)?)?;
-
-                // h_t = (1 - z_t) * n_t + z_t * h_{t-1}
-                // Rewritten as: h_t = n_t + z_t * (h_{t-1} - n_t)
-                let h_minus_n = sub(&h, &n_gate)?;
-                let z_h_minus_n = mul(&z_gate, &h_minus_n)?;
-                let h_new = add(&n_gate, &z_h_minus_n)?;
-
-                next_layer_outputs.push(h_new.clone());
-                h = h_new;
             }
 
             final_h.push(h);
