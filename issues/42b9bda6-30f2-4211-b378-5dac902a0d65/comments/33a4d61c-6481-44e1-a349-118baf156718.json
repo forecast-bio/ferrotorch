@@ -1,0 +1,8 @@
+{
+  "uuid": "33a4d61c-6481-44e1-a349-118baf156718",
+  "issue_uuid": "42b9bda6-30f2-4211-b378-5dac902a0d65",
+  "author": "anon-a7c6025f",
+  "content": "Delivered:\n1. apply_binary_op_expr — new function that converts IrOpKind binary ops (Add/Sub/Mul/Div) to Expr::BinOp\n2. lower_fused_elementwise rewritten to load ALL inputs at loop start, initialize accumulator from first input, apply binary ops against subsequent inputs and unary ops against the accumulator\n3. lower_to_loops now uses is_elementwise gate (unary + binary) instead of all_unary, so mixed chains like x+y→relu get fused into a single loop\n4. New test: test_lower_fused_multi_input verifying x+y→relu fusion\n5. All 224 JIT tests pass",
+  "created_at": "2026-03-25T15:00:43.958690480Z",
+  "kind": "result"
+}
