@@ -1,0 +1,8 @@
+{
+  "uuid": "702d30c4-02bf-4785-9aca-c01fbbe75db4",
+  "issue_uuid": "5105f646-c779-490b-b1ac-51bc9c6c8b6a",
+  "author": "anon-a7c6025f",
+  "content": "Analysis: matmul_f16_f32 already works with cublasGemmEx and Tensor Cores. Three gaps remain:\n1. BMM f16 — attention layers use bmm heavily, autocast policy is tracked but no kernel dispatches. HIGHEST PRIORITY.\n2. BF16 matmul — infrastructure exists but no gpu_matmul_bf16. Ampere+ GPUs only.\n3. Conv2d f16 — trivial once matmul_f16 works (conv uses matmul internally).\n\nPlan: (A) Add gpu_bmm_f16_f32 using cublasGemmStridedBatchedEx, wire into bmm autocast path. (B) Add bf16 matmul and f32→bf16 conversion kernel. (C) Wire conv2d to use f16 matmul under autocast.",
+  "created_at": "2026-03-25T11:58:17.556184759Z",
+  "kind": "plan"
+}
