@@ -2,11 +2,12 @@
   "uuid": "f6e0ecba-bcf8-4942-bad7-f8d457f0ac7a",
   "display_id": 182,
   "title": "Full codebase audit — review all crates for bugs, gaps, and correctness",
-  "status": "open",
+  "status": "closed",
   "priority": "critical",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T22:54:38.669365199Z",
-  "updated_at": "2026-03-15T22:54:45.505298626Z",
+  "updated_at": "2026-03-25T12:22:01.432362919Z",
+  "closed_at": "2026-03-25T12:22:01.432362919Z",
   "labels": [
     "feature"
   ]
