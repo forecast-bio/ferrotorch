@@ -2,11 +2,12 @@
   "uuid": "57310f85-0012-4ad5-8646-74947f71beec",
   "display_id": 262,
   "title": "T1.4: SLEEF-style vectorized exp/log/sin/cos via pulp SIMD",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T01:00:50.153374592Z",
-  "updated_at": "2026-03-24T01:00:51.530677344Z",
+  "updated_at": "2026-03-25T13:07:34.313693271Z",
+  "closed_at": "2026-03-25T13:07:34.313693271Z",
   "labels": [
     "enhancement"
   ]
