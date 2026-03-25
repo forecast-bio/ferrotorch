@@ -1,0 +1,8 @@
+{
+  "uuid": "ad88b756-f13e-4467-87e0-ed3e04709346",
+  "issue_uuid": "42b9bda6-30f2-4211-b378-5dac902a0d65",
+  "author": "anon-a7c6025f",
+  "content": "Root cause found: lower_fused_elementwise only loads the first input (line 553). apply_op_expr only handles unary ops — binary ops (Add/Sub/Mul/Div) return None. The fix:\n1. Add apply_binary_op_expr that takes two operands \n2. Extend lower_fused_elementwise to load ALL inputs at loop start\n3. For binary ops, reference the second input; for unary, chain the accumulator\n4. Remove the all_unary gate in lower_to_loops so mixed chains get fused",
+  "created_at": "2026-03-25T14:55:53.900684599Z",
+  "kind": "observation"
+}
