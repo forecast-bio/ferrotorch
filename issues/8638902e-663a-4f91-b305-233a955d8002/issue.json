@@ -2,11 +2,12 @@
   "uuid": "8638902e-663a-4f91-b305-233a955d8002",
   "display_id": 340,
   "title": "Zero-copy stride-based views — permute/transpose/chunk should be O(1) metadata, not O(N) copy",
-  "status": "open",
+  "status": "closed",
   "priority": "critical",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T19:52:40.043148016Z",
-  "updated_at": "2026-03-24T19:52:41.429681676Z",
+  "updated_at": "2026-03-25T12:21:51.962066458Z",
+  "closed_at": "2026-03-25T12:21:51.962066458Z",
   "labels": [
     "perf"
   ]
