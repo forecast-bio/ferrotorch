@@ -1,0 +1,8 @@
+{
+  "uuid": "11e4a31e-bef1-4f99-b30e-3875bc729277",
+  "issue_uuid": "6115a388-5d9f-491d-9fa0-bc8b17c135e8",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Multi-threaded backward engine (backward_parallel) with ready-queue parallelism.\n\nArchitecture:\n1. Shared ready queue (Mutex<VecDeque>) + Condvar for worker wakeup\n2. Atomic in-degree counters for lock-free decrement\n3. Mutex<HashMap> for gradient accumulation with GPU-native add_f32\n4. N worker threads (configurable) pull ready nodes, call backward, push newly-ready inputs\n5. Falls back to sequential for graphs < 8 nodes\n6. accumulate_non_leaf_grad_locked helper for thread-safe gradient accumulation\n\nAlso fixed ONNX export for new FusedLinearActivation/FusedAttention variants.\n810 core + 6 integration tests pass.",
+  "created_at": "2026-03-25T16:26:19.502872511Z",
+  "kind": "result"
+}
