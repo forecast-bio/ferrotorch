@@ -290,6 +290,11 @@ pub fn apply_op_expr(val: Expr, op: &IrOpKind) -> Option<Expr> {
     }
 }
 
+/// Apply a binary op between `lhs` and `rhs`.
+pub fn apply_binary_op_expr(lhs: Expr, rhs: Expr, op: &IrOpKind) -> Option<Expr> {
+    ir_op_to_binary(op).map(|bin_op| Expr::bin(bin_op, lhs, rhs))
+}
+
 // ---------------------------------------------------------------------------
 // Lowering: IrOpKind -> LoopIR
 // ---------------------------------------------------------------------------
@@ -325,13 +330,13 @@ pub fn lower_to_loops(
         return lower_single_op(&ops[0], input_names, output_name, numel);
     }
 
-    // Multiple ops: try to fuse into a single loop if all are unary elementwise
-    let all_unary = ops.iter().all(is_unary_elementwise);
-    if all_unary {
+    // Fuse all elementwise ops (unary and binary) into a single loop.
+    let all_elementwise = ops.iter().all(is_elementwise);
+    if all_elementwise {
         return lower_fused_elementwise(ops, input_names, output_name, numel);
     }
 
-    // Otherwise, lower each op individually and concatenate
+    // Otherwise, lower each op individually and concatenate.
     let mut result = Vec::new();
     for (i, op) in ops.iter().enumerate() {
         let in_names: Vec<&str> = if i == 0 {
@@ -550,31 +555,58 @@ fn lower_fused_elementwise(
     out_name: &str,
     numel: usize,
 ) -> Vec<LoopIR> {
-    let in_name = input_names.first().copied().unwrap_or("in0");
-
-    // Build the inner loop body: load, apply ops in sequence, store
     let mut body = Vec::new();
 
-    // Load the input value
+    // Load all inputs at the start of the loop body.
+    for (i, &name) in input_names.iter().enumerate() {
+        body.push(LoopIR::Let {
+            var: format!("in{i}_val"),
+            value: Expr::index(name, Expr::var("i")),
+        });
+    }
+
+    // Initialize the accumulator with the first input.
     body.push(LoopIR::Let {
         var: "val".into(),
-        value: Expr::index(in_name, Expr::var("i")),
+        value: Expr::var("in0_val"),
     });
 
-    // Apply each op
+    // Apply each op. Binary ops consume the next available input.
+    let mut next_input = 1usize; // in0 is the initial accumulator
     for op in ops {
-        match apply_op_expr(Expr::var("val"), op) {
-            Some(expr) => {
-                body.push(LoopIR::Assign {
-                    var: "val".into(),
-                    value: expr,
-                });
+        if is_binary_elementwise(op) {
+            // Binary op: accumulator <op> next_input
+            let rhs_var = format!("in{next_input}_val");
+            next_input += 1;
+            match apply_binary_op_expr(Expr::var("val"), Expr::var(&rhs_var), op) {
+                Some(expr) => {
+                    body.push(LoopIR::Assign {
+                        var: "val".into(),
+                        value: expr,
+                    });
+                }
+                None => {
+                    body.push(LoopIR::Comment(format!(
+                        "skipped unsupported binary op: {:?}",
+                        op
+                    )));
+                }
             }
-            None => {
-                body.push(LoopIR::Comment(format!(
-                    "skipped unsupported op in fused chain: {:?}",
-                    op
-                )));
+        } else {
+            // Unary op: applied to the accumulator
+            match apply_op_expr(Expr::var("val"), op) {
+                Some(expr) => {
+                    body.push(LoopIR::Assign {
+                        var: "val".into(),
+                        value: expr,
+                    });
+                }
+                None => {
+                    body.push(LoopIR::Comment(format!(
+                        "skipped unsupported unary op: {:?}",
+                        op
+                    )));
+                }
             }
         }
     }
@@ -852,15 +884,46 @@ mod tests {
         assert_eq!(loops.len(), 1);
         match &loops[0] {
             LoopIR::Loop { body, .. } => {
-                // body: Let(val), Assign(neg), Assign(relu), Assign(sigmoid), Store
-                assert_eq!(body.len(), 5);
+                // body: Let(in0_val), Let(val=in0_val), Assign(neg),
+                //       Assign(relu), Assign(sigmoid), Store
+                assert_eq!(body.len(), 6);
                 match &body[0] {
-                    LoopIR::Let { var, .. } => assert_eq!(var, "val"),
-                    _ => panic!("expected Let"),
+                    LoopIR::Let { var, .. } => assert_eq!(var, "in0_val"),
+                    _ => panic!("expected Let(in0_val)"),
                 }
-                match &body[4] {
+                match &body[1] {
+                    LoopIR::Let { var, .. } => assert_eq!(var, "val"),
+                    _ => panic!("expected Let(val)"),
+                }
+                match &body[5] {
                     LoopIR::Store { buffer, .. } => assert_eq!(buffer, "out"),
                     _ => panic!("expected Store"),
+                }
+            }
+            _ => panic!("expected Loop"),
+        }
+    }
+
+    #[test]
+    fn test_lower_fused_multi_input() {
+        // x + y → relu: binary add fused with unary relu
+        let ops = vec![IrOpKind::Add, IrOpKind::Relu];
+        let loops = lower_to_loops(&ops, &["a", "b"], "out", 4);
+
+        assert_eq!(loops.len(), 1);
+        match &loops[0] {
+            LoopIR::Loop { body, .. } => {
+                // body: Let(in0_val), Let(in1_val), Let(val=in0_val),
+                //       Assign(add), Assign(relu), Store
+                assert_eq!(body.len(), 6);
+                // The add should reference both inputs
+                match &body[3] {
+                    LoopIR::Assign { var, value } => {
+                        assert_eq!(var, "val");
+                        // Should be a BinOp(Add, val, in1_val)
+                        matches!(value, Expr::BinOp { .. });
+                    }
+                    _ => panic!("expected Assign for add"),
                 }
             }
             _ => panic!("expected Loop"),
