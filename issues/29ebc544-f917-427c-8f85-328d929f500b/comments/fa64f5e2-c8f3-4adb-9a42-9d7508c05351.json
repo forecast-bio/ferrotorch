@@ -1,0 +1,8 @@
+{
+  "uuid": "fa64f5e2-c8f3-4adb-9a42-9d7508c05351",
+  "issue_uuid": "29ebc544-f917-427c-8f85-328d929f500b",
+  "author": "anon-a7c6025f",
+  "content": "Analysis: CPU reductions are scalar loops (no SIMD). GPU sum does a full tensor download to CPU. GPU sum_axis has a PTX kernel but it's naive (1 thread/output, no warp reduction). mean/mean_dim/sum_dim always CPU-fallback on GPU tensors.\n\nPlan:\nA. Write a proper GPU parallel reduction kernel for full sum (tree reduction with shared memory + warp shuffle)\nB. Fix GPU sum_f32 backend to use the new kernel instead of CPU fallback\nC. Wire mean() to use GPU sum + scalar divide  \nD. Wire sum_dim/mean_dim to use the existing sum_axis GPU kernel (currently bypassed)\nE. CPU SIMD reductions can be a follow-up — GPU is the 500x bottleneck",
+  "created_at": "2026-03-25T12:25:35.856548790Z",
+  "kind": "plan"
+}
