@@ -1,0 +1,8 @@
+{
+  "uuid": "777521f1-7cb2-4241-98e3-3f94ba189591",
+  "issue_uuid": "00facfac-7044-4d2d-98fd-5862175fb954",
+  "author": "anon-a7c6025f",
+  "content": "Observation: Conv2d backward stores im2col columns as Vec<T> on CPU from the forward pass. Making backward GPU-native requires either (1) storing cols on GPU during forward, or (2) uploading them in backward. Both are substantial refactors of the Conv2d module. Deferring to a focused Conv2d session.",
+  "created_at": "2026-03-25T13:12:42.499847826Z",
+  "kind": "observation"
+}
