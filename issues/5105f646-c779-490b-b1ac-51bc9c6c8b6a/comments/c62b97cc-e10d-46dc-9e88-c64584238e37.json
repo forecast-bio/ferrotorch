@@ -1,0 +1,8 @@
+{
+  "uuid": "c62b97cc-e10d-46dc-9e88-c64584238e37",
+  "issue_uuid": "5105f646-c779-490b-b1ac-51bc9c6c8b6a",
+  "author": "anon-a7c6025f",
+  "content": "Delivered:\n1. gpu_bmm_f16 — batched matmul with f16 Tensor Cores via cublasGemmStridedBatchedEx. Converts f32 inputs to f16 on-device, accumulates in f32. Wired into bmm() autocast dispatch.\n2. GpuBackend::bmm_f16_f32() trait method + CudaBackendImpl wiring\n3. f32→bf16 PTX conversion kernel using bit manipulation (round-to-nearest-even via integer ops, works on sm_52+)\n4. gpu_matmul_bf16 — matrix multiply with bf16 Tensor Cores via cublasGemmEx with CUDA_R_16BF\n5. gpu_f32_to_bf16 kernel function with CPU fallback stub\n6. BMM now auto-dispatches to f16 Tensor Core path when autocast selects ReducedPrecision\n7. All 807 core + 250 optim + 193 gpu tests pass",
+  "created_at": "2026-03-25T12:07:08.451462853Z",
+  "kind": "result"
+}
