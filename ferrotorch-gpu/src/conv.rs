@@ -64,33 +64,98 @@ fn im2col_cpu(
 
     let mut cols = vec![0.0f32; batch * col_rows * col_cols];
 
+    // Cache-friendly im2col: iterate in (batch, c, kh, kw, oh, ow) order.
+    // The inner loop writes to sequential col positions AND reads from
+    // spatially-adjacent input positions (consecutive ow → consecutive iw).
+    // For the non-padded interior region, we skip the per-element bounds
+    // check entirely.
+    let chw = channels * height * width;
+    let hw = height * width;
+
     for b in 0..batch {
+        let input_b = b * chw;
+        let col_b = b * col_rows * col_cols;
+
         for c in 0..channels {
+            let input_c = input_b + c * hw;
+
             for kh in 0..kernel_h {
                 for kw in 0..kernel_w {
                     let row = c * kernel_h * kernel_w + kh * kernel_w + kw;
-                    for oh in 0..h_out {
+                    let row_off = col_b + row * col_cols;
+
+                    // Compute the safe interior range where no padding check is needed.
+                    let oh_start = if kh < pad_h { (pad_h - kh + stride_h - 1) / stride_h } else { 0 };
+                    let oh_end = ((height + pad_h).saturating_sub(kh)).min(h_out * stride_h) / stride_h;
+                    let oh_end = oh_end.min(h_out);
+
+                    let ow_start = if kw < pad_w { (pad_w - kw + stride_w - 1) / stride_w } else { 0 };
+                    let ow_end = ((width + pad_w).saturating_sub(kw)).min(w_out * stride_w) / stride_w;
+                    let ow_end = ow_end.min(w_out);
+
+                    // Padded rows before interior.
+                    for oh in 0..oh_start {
+                        let ih = oh * stride_h + kh;
                         for ow in 0..w_out {
-                            let ih = oh * stride_h + kh;
                             let iw = ow * stride_w + kw;
                             let col = oh * w_out + ow;
-
-                            let val = if ih >= pad_h
-                                && iw >= pad_w
-                                && (ih - pad_h) < height
-                                && (iw - pad_w) < width
+                            cols[row_off + col] = if ih >= pad_h && iw >= pad_w
+                                && (ih - pad_h) < height && (iw - pad_w) < width
                             {
-                                let real_h = ih - pad_h;
-                                let real_w = iw - pad_w;
-                                input[b * channels * height * width
-                                    + c * height * width
-                                    + real_h * width
-                                    + real_w]
+                                input[input_c + (ih - pad_h) * width + (iw - pad_w)]
                             } else {
                                 0.0
                             };
+                        }
+                    }
 
-                            cols[b * col_rows * col_cols + row * col_cols + col] = val;
+                    // Interior rows — no bounds check needed for the interior columns.
+                    for oh in oh_start..oh_end {
+                        let real_h = oh * stride_h + kh - pad_h;
+                        let input_row = input_c + real_h * width;
+
+                        // Padded columns before interior.
+                        for ow in 0..ow_start {
+                            let iw = ow * stride_w + kw;
+                            let col = oh * w_out + ow;
+                            cols[row_off + col] = if iw >= pad_w && (iw - pad_w) < width {
+                                input[input_row + (iw - pad_w)]
+                            } else {
+                                0.0
+                            };
+                        }
+
+                        // Fast interior: sequential reads from input, sequential writes to cols.
+                        for ow in ow_start..ow_end {
+                            let real_w = ow * stride_w + kw - pad_w;
+                            cols[row_off + oh * w_out + ow] = input[input_row + real_w];
+                        }
+
+                        // Padded columns after interior.
+                        for ow in ow_end..w_out {
+                            let iw = ow * stride_w + kw;
+                            let col = oh * w_out + ow;
+                            cols[row_off + col] = if iw >= pad_w && (iw - pad_w) < width {
+                                input[input_row + (iw - pad_w)]
+                            } else {
+                                0.0
+                            };
+                        }
+                    }
+
+                    // Padded rows after interior.
+                    for oh in oh_end..h_out {
+                        let ih = oh * stride_h + kh;
+                        for ow in 0..w_out {
+                            let iw = ow * stride_w + kw;
+                            let col = oh * w_out + ow;
+                            cols[row_off + col] = if ih >= pad_h && iw >= pad_w
+                                && (ih - pad_h) < height && (iw - pad_w) < width
+                            {
+                                input[input_c + (ih - pad_h) * width + (iw - pad_w)]
+                            } else {
+                                0.0
+                            };
                         }
                     }
                 }
