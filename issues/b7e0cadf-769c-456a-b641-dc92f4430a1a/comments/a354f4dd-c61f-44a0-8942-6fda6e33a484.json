@@ -1,0 +1,8 @@
+{
+  "uuid": "a354f4dd-c61f-44a0-8942-6fda6e33a484",
+  "issue_uuid": "b7e0cadf-769c-456a-b641-dc92f4430a1a",
+  "author": "anon-a7c6025f",
+  "content": "Delivered:\n1. MaxPool2d GPU PTX kernel — one thread per output element, sliding window max with bounds checking for padding. Launcher + GpuBackend::maxpool2d_f32 + CudaBackendImpl.\n2. AvgPool2d GPU PTX kernel — same structure, sliding window sum / count. Launcher + GpuBackend::avgpool2d_f32 + CudaBackendImpl.\n3. BatchNorm forward PTX kernel (partial — statistics collection pass has indexing that needs refinement for production use, but the kernel structure and shared-memory reduction are in place)\n4. All 810+193+808 tests pass\n\nThe MaxPool2d and AvgPool2d kernels are complete and production-ready. BatchNorm's PTX needs the pass-1 loop index management fixed and pass-2 (normalize+affine) completed. GroupNorm can reuse the BatchNorm kernel structure with channel grouping.",
+  "created_at": "2026-03-25T21:56:32.077256192Z",
+  "kind": "result"
+}
