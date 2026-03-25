@@ -1,0 +1,8 @@
+{
+  "uuid": "2243656a-2ba0-4022-9ee7-33aea4f5dca5",
+  "issue_uuid": "580c502c-33c7-4503-99d4-894b81956656",
+  "author": "anon-a7c6025f",
+  "content": "Root cause: line 291 says 'loop over heads since we lack batched matmul' — but bmm exists (and now has f16 Tensor Core support from CL-268). Fix: replace the per-head serial loop with bmm calls. Q_heads/K_heads/V_heads are already [num_heads, seq, head_dim] — perfect for bmm.",
+  "created_at": "2026-03-25T15:07:15.736089962Z",
+  "kind": "observation"
+}
