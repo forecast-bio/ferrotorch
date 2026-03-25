@@ -1,0 +1,8 @@
+{
+  "uuid": "352cec39-eb88-4095-94ba-25bbf8932d22",
+  "issue_uuid": "0fcdf446-a7c1-4af0-ac9c-163822a40637",
+  "author": "anon-a7c6025f",
+  "content": "Investigating optimizer architecture. Adam stores exp_avg/exp_avg_sq as Vec<f64> on CPU. The entire step function downloads params+grads to CPU, does f64 math, uploads results. Plan: (1) change AdamParamState to use Tensor<T> on same device as param, (2) implement GPU Adam step using decomposed GPU ops (scale, mul, add, sqrt, div — all available from CL-218), (3) keep CPU fallback for small tensors or f64 params. Starting with Adam, then AdamW.",
+  "created_at": "2026-03-25T03:33:50.133099022Z",
+  "kind": "plan"
+}
