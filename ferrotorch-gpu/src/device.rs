@@ -62,9 +62,23 @@ impl GpuDevice {
         &self.ctx
     }
 
+    /// The device's default (legacy) stream.
+    ///
+    /// Prefer [`current_stream`](Self::current_stream) which respects the
+    /// thread-local stream override set by [`StreamGuard`].
     #[inline]
-    pub fn stream(&self) -> &Arc<CudaStream> {
+    pub fn default_stream(&self) -> &Arc<CudaStream> {
         &self.stream
+    }
+
+    /// The active stream for this device on the current thread.
+    ///
+    /// Returns the thread-local stream set by [`StreamGuard`] if one is
+    /// active, otherwise falls back to the device's default stream. All
+    /// kernel launches and memory operations should use this.
+    #[inline]
+    pub fn stream(&self) -> Arc<CudaStream> {
+        crate::stream::current_stream_or_default(self)
     }
 
     /// The cached cuBLAS handle — reused for all matmul/bmm operations.

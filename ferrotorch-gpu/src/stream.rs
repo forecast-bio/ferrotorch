@@ -302,7 +302,7 @@ pub fn clear_current_stream(device: usize) {
 #[cfg(feature = "cuda")]
 pub fn current_stream_or_default(device: &crate::device::GpuDevice) -> Arc<CudaStream> {
     get_current_stream(device.ordinal())
-        .unwrap_or_else(|| Arc::clone(device.stream()))
+        .unwrap_or_else(|| Arc::clone(device.default_stream()))
 }
 
 // ---------------------------------------------------------------------------
@@ -588,7 +588,7 @@ mod tests {
 
         let device = crate::device::GpuDevice::new(dev_ordinal)
             .expect("GpuDevice::new should succeed");
-        let default_ptr = Arc::as_ptr(device.stream());
+        let default_ptr = Arc::as_ptr(device.default_stream());
 
         // No current stream set — should fall back to device default.
         let stream = current_stream_or_default(&device);
