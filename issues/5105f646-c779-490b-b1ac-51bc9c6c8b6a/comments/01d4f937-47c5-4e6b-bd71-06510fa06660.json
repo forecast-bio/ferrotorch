@@ -1,0 +1,8 @@
+{
+  "uuid": "01d4f937-47c5-4e6b-bd71-06510fa06660",
+  "issue_uuid": "5105f646-c779-490b-b1ac-51bc9c6c8b6a",
+  "author": "anon-a7c6025f",
+  "content": "Adding bf16 support: f32→bf16 PTX kernel using cvt.rn.bf16.f32 (requires sm_80+ / Ampere). matmul_bf16 via cublasGemmEx with CUDA_R_BF16. The bf16 kernel targets sm_80 while existing f16 kernels target sm_52.",
+  "created_at": "2026-03-25T12:01:27.209198666Z",
+  "kind": "decision"
+}
