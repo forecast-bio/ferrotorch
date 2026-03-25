@@ -1,0 +1,8 @@
+{
+  "uuid": "01373abc-16c7-4853-a316-2f314ed873d2",
+  "issue_uuid": "b7e0cadf-769c-456a-b641-dc92f4430a1a",
+  "author": "anon-a7c6025f",
+  "content": "This issue requires 4 separate GPU kernels (BatchNorm, GroupNorm, MaxPool2d, AvgPool2d). Each is a substantial implementation:\n- BatchNorm: per-channel reduction (mean, var) + normalization + affine + running stats update\n- GroupNorm: per-group reduction + normalization  \n- MaxPool2d: sliding window with index tracking\n- AvgPool2d: sliding window sum + divide\n\nThese would ideally use cuDNN (which handles all of them), but we don't have cuDNN bindings beyond cuBLAS. Composing from primitives is possible but less efficient. Marking this for a dedicated GPU kernel sprint.",
+  "created_at": "2026-03-25T21:28:27.563472246Z",
+  "kind": "observation"
+}
