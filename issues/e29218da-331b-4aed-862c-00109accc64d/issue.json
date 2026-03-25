@@ -2,11 +2,12 @@
   "uuid": "e29218da-331b-4aed-862c-00109accc64d",
   "display_id": 196,
   "title": "Wire GPU backend into ferrotorch-gpt2 for accelerated inference",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-17T03:14:02.456916385Z",
-  "updated_at": "2026-03-17T03:14:04.255924199Z",
+  "updated_at": "2026-03-25T13:32:12.197851939Z",
+  "closed_at": "2026-03-25T13:32:12.197851939Z",
   "labels": [
     "enhancement"
   ]
