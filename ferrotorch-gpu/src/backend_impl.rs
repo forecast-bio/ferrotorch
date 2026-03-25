@@ -413,6 +413,29 @@ impl GpuBackend for CudaBackendImpl {
         Ok(())
     }
 
+    fn fused_gru_cell_f32(
+        &self,
+        input_gates: &GpuBufferHandle,
+        hidden_gates: &GpuBufferHandle,
+        bias_ih: &GpuBufferHandle,
+        bias_hh: &GpuBufferHandle,
+        hx: &GpuBufferHandle,
+        hidden_size: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle)> {
+        let ig = Self::unwrap_buffer(input_gates)?;
+        let hg = Self::unwrap_buffer(hidden_gates)?;
+        let bih = Self::unwrap_buffer(bias_ih)?;
+        let bhh = Self::unwrap_buffer(bias_hh)?;
+        let hx_buf = Self::unwrap_buffer(hx)?;
+        let dev = self.device(input_gates.device_ordinal())?;
+        let (hy, ws) = crate::kernels::gpu_fused_gru_forward(
+            ig, hg, bih, bhh, hx_buf, hidden_size, dev,
+        )
+        .map_err(Self::map_gpu_err)?;
+        let ord = input_gates.device_ordinal();
+        Ok((Self::wrap_buffer(hy, ord), Self::wrap_buffer(ws, ord)))
+    }
+
     fn synchronize(&self, device: usize) -> FerrotorchResult<()> {
         let dev = self.device(device)?;
         dev.stream()

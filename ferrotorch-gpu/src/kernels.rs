@@ -3764,6 +3764,199 @@ DONE:
 }
 ";
 
+/// PTX source for fused GRU cell forward kernel.
+///
+/// Takes pre-computed input_gates [B, 3*H] and hidden_gates [B, 3*H]
+/// (from cuBLAS GEMMs), biases, and previous hidden state. Computes all
+/// gate activations and the new hidden state in a single kernel launch.
+///
+/// One thread per hidden unit. Each thread reads 3 values from input_gates
+/// and 3 from hidden_gates, applies sigmoid/tanh, computes the GRU update,
+/// and writes hy + workspace (5*H values for backward).
+///
+/// Matches PyTorch's _thnn_fused_gru_cell kernel from RNN.cu.
+#[cfg(feature = "cuda")]
+pub(crate) const FUSED_GRU_FORWARD_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry fused_gru_forward_kernel(
+    .param .u64 input_gates_ptr,
+    .param .u64 hidden_gates_ptr,
+    .param .u64 bias_ih_ptr,
+    .param .u64 bias_hh_ptr,
+    .param .u64 hx_ptr,
+    .param .u64 hy_ptr,
+    .param .u64 workspace_ptr,
+    .param .u32 hsz,
+    .param .u32 total
+) {
+    .reg .u32 %tid, %bid, %bdim, %gdim, %total_reg, %hsz_reg;
+    .reg .u32 %idx, %stride, %offset3, %offset5, %hmod, %batch_idx;
+    .reg .u64 %ig, %hg, %b1, %b2, %hx, %hy, %ws;
+    .reg .u64 %off64, %tmp64;
+    .reg .f32 %ir, %ii, %in, %hr, %hi, %hn;
+    .reg .f32 %b1r, %b1i, %b1n, %b2r, %b2i, %b2n;
+    .reg .f32 %hx_val, %rg, %zg, %ng, %hy_val;
+    .reg .f32 %one, %neg_one, %exp_val, %denom, %tmp;
+    .reg .pred %p;
+
+    ld.param.u64 %ig, [input_gates_ptr];
+    ld.param.u64 %hg, [hidden_gates_ptr];
+    ld.param.u64 %b1, [bias_ih_ptr];
+    ld.param.u64 %b2, [bias_hh_ptr];
+    ld.param.u64 %hx, [hx_ptr];
+    ld.param.u64 %hy, [hy_ptr];
+    ld.param.u64 %ws, [workspace_ptr];
+    ld.param.u32 %hsz_reg, [hsz];
+    ld.param.u32 %total_reg, [total];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %tid, %tid.x;
+    mov.u32 %gdim, %nctaid.x;
+    mad.lo.u32 %idx, %bid, %bdim, %tid;
+    mul.lo.u32 %stride, %bdim, %gdim;
+    mov.f32 %one, 0f3F800000;
+
+LOOP:
+    setp.ge.u32 %p, %idx, %total_reg;
+    @%p bra END;
+
+    // offset3 = (idx/hsz)*3*hsz + idx%hsz  (into [B, 3*H] gates tensor)
+    div.u32 %batch_idx, %idx, %hsz_reg;
+    rem.u32 %hmod, %idx, %hsz_reg;
+    mul.lo.u32 %offset3, %batch_idx, %hsz_reg;
+    mul.lo.u32 %offset3, %offset3, 3;
+    add.u32 %offset3, %offset3, %hmod;
+
+    // Load input gate components: ir, ii, in
+    cvt.u64.u32 %off64, %offset3;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %ig, %off64;
+    ld.global.f32 %ir, [%tmp64];
+    cvt.u64.u32 %off64, %hsz_reg;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %tmp64, %off64;
+    ld.global.f32 %ii, [%tmp64];
+    add.u64 %tmp64, %tmp64, %off64;
+    ld.global.f32 %in, [%tmp64];
+
+    // Load hidden gate components: hr, hi, hn
+    cvt.u64.u32 %off64, %offset3;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %hg, %off64;
+    ld.global.f32 %hr, [%tmp64];
+    cvt.u64.u32 %off64, %hsz_reg;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %tmp64, %off64;
+    ld.global.f32 %hi, [%tmp64];
+    add.u64 %tmp64, %tmp64, %off64;
+    ld.global.f32 %hn, [%tmp64];
+
+    // Load biases (indexed by hmod, hmod+hsz, hmod+2*hsz)
+    cvt.u64.u32 %off64, %hmod;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %b1, %off64;
+    ld.global.f32 %b1r, [%tmp64];
+    cvt.u64.u32 %off64, %hsz_reg;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %tmp64, %off64;
+    ld.global.f32 %b1i, [%tmp64];
+    add.u64 %tmp64, %tmp64, %off64;
+    ld.global.f32 %b1n, [%tmp64];
+
+    cvt.u64.u32 %off64, %hmod;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %b2, %off64;
+    ld.global.f32 %b2r, [%tmp64];
+    cvt.u64.u32 %off64, %hsz_reg;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %tmp64, %off64;
+    ld.global.f32 %b2i, [%tmp64];
+    add.u64 %tmp64, %tmp64, %off64;
+    ld.global.f32 %b2n, [%tmp64];
+
+    // Load hx[idx]
+    cvt.u64.u32 %off64, %idx;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %hx, %off64;
+    ld.global.f32 %hx_val, [%tmp64];
+
+    // r = sigmoid(ir + hr + b1r + b2r)
+    add.f32 %rg, %ir, %hr;
+    add.f32 %rg, %rg, %b1r;
+    add.f32 %rg, %rg, %b2r;
+    neg.f32 %tmp, %rg;
+    mul.f32 %tmp, %tmp, 0f3FB8AA3B;
+    ex2.approx.f32 %exp_val, %tmp;
+    add.f32 %denom, %one, %exp_val;
+    div.rn.f32 %rg, %one, %denom;
+
+    // z = sigmoid(ii + hi + b1i + b2i)
+    add.f32 %zg, %ii, %hi;
+    add.f32 %zg, %zg, %b1i;
+    add.f32 %zg, %zg, %b2i;
+    neg.f32 %tmp, %zg;
+    mul.f32 %tmp, %tmp, 0f3FB8AA3B;
+    ex2.approx.f32 %exp_val, %tmp;
+    add.f32 %denom, %one, %exp_val;
+    div.rn.f32 %zg, %one, %denom;
+
+    // n = tanh(in + b1n + r*(hn + b2n))
+    add.f32 %tmp, %hn, %b2n;
+    fma.rn.f32 %ng, %rg, %tmp, %in;
+    add.f32 %ng, %ng, %b1n;
+    // tanh via 2*sigmoid(2x)-1
+    mul.f32 %tmp, %ng, 0f40000000;
+    neg.f32 %tmp, %tmp;
+    mul.f32 %tmp, %tmp, 0f3FB8AA3B;
+    ex2.approx.f32 %exp_val, %tmp;
+    add.f32 %denom, %one, %exp_val;
+    div.rn.f32 %ng, %one, %denom;
+    mul.f32 %ng, %ng, 0f40000000;
+    sub.f32 %ng, %ng, %one;
+
+    // hy = n + z * (hx - n)
+    sub.f32 %tmp, %hx_val, %ng;
+    fma.rn.f32 %hy_val, %zg, %tmp, %ng;
+
+    // Store hy[idx]
+    cvt.u64.u32 %off64, %idx;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %hy, %off64;
+    st.global.f32 [%tmp64], %hy_val;
+
+    // Store workspace: [r, z, n, hx, hn+b2n] at offset5 = (idx/hsz)*5*hsz + idx%hsz
+    mul.lo.u32 %offset5, %batch_idx, %hsz_reg;
+    mul.lo.u32 %offset5, %offset5, 5;
+    add.u32 %offset5, %offset5, %hmod;
+
+    cvt.u64.u32 %off64, %offset5;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %ws, %off64;
+    st.global.f32 [%tmp64], %rg;
+    cvt.u64.u32 %off64, %hsz_reg;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %tmp64, %off64;
+    st.global.f32 [%tmp64], %zg;
+    add.u64 %tmp64, %tmp64, %off64;
+    st.global.f32 [%tmp64], %ng;
+    add.u64 %tmp64, %tmp64, %off64;
+    st.global.f32 [%tmp64], %hx_val;
+    add.u64 %tmp64, %tmp64, %off64;
+    add.f32 %tmp, %hn, %b2n;
+    st.global.f32 [%tmp64], %tmp;
+
+    add.u32 %idx, %idx, %stride;
+    bra LOOP;
+
+END:
+    ret;
+}
+";
+
 // ---------------------------------------------------------------------------
 // Launch configuration helper
 // ---------------------------------------------------------------------------
@@ -6121,6 +6314,94 @@ pub fn gpu_fused_adam(
     _weight_decay: f32,
     _device: &GpuDevice,
 ) -> GpuResult<()> {
+    Err(GpuError::NoCudaFeature)
+}
+
+// ---------------------------------------------------------------------------
+// Public API -- fused GRU cell
+// ---------------------------------------------------------------------------
+
+/// Fused GRU cell forward: takes pre-computed gate matrices and produces
+/// new hidden state + workspace for backward.
+///
+/// Inputs:
+/// - `input_gates`: `[batch, 3*hsz]` — result of `x @ W_ih^T`
+/// - `hidden_gates`: `[batch, 3*hsz]` — result of `h @ W_hh^T`
+/// - `bias_ih`: `[3*hsz]` — input bias
+/// - `bias_hh`: `[3*hsz]` — hidden bias
+/// - `hx`: `[batch, hsz]` — previous hidden state
+///
+/// Outputs:
+/// - `hy`: `[batch, hsz]` — new hidden state
+/// - `workspace`: `[batch, 5*hsz]` — saved for backward (r, z, n, hx, hn+b2n)
+#[cfg(feature = "cuda")]
+pub fn gpu_fused_gru_forward(
+    input_gates: &CudaBuffer<f32>,
+    hidden_gates: &CudaBuffer<f32>,
+    bias_ih: &CudaBuffer<f32>,
+    bias_hh: &CudaBuffer<f32>,
+    hx: &CudaBuffer<f32>,
+    hsz: usize,
+    device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>)> {
+    use cudarc::driver::PushKernelArg;
+
+    let total = hx.len(); // batch * hsz
+    let batch = total / hsz;
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        FUSED_GRU_FORWARD_PTX,
+        "fused_gru_forward_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "fused_gru_forward_kernel",
+            });
+        }
+    };
+
+    let mut hy = alloc_zeros_f32(total, device)?;
+    let mut workspace = alloc_zeros_f32(batch * 5 * hsz, device)?;
+
+    let cfg = launch_cfg(total)?;
+    let hsz_u32 = hsz as u32;
+    let total_u32 = total as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input_gates.inner())
+            .arg(hidden_gates.inner())
+            .arg(bias_ih.inner())
+            .arg(bias_hh.inner())
+            .arg(hx.inner())
+            .arg(hy.inner_mut())
+            .arg(workspace.inner_mut())
+            .arg(&hsz_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok((hy, workspace))
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_fused_gru_forward(
+    _input_gates: &CudaBuffer<f32>,
+    _hidden_gates: &CudaBuffer<f32>,
+    _bias_ih: &CudaBuffer<f32>,
+    _bias_hh: &CudaBuffer<f32>,
+    _hx: &CudaBuffer<f32>,
+    _hsz: usize,
+    _device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>)> {
     Err(GpuError::NoCudaFeature)
 }
 

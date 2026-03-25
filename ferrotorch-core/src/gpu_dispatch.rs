@@ -695,6 +695,26 @@ pub trait GpuBackend: Send + Sync {
         })
     }
 
+    /// Fused GRU cell forward: pointwise gate computation on pre-computed
+    /// gate matrices. Returns `(hy_handle, workspace_handle)`.
+    ///
+    /// `input_gates` and `hidden_gates` are `[batch, 3*hsz]` from cuBLAS GEMMs.
+    /// `bias_ih` and `bias_hh` are `[3*hsz]`. `hx` is `[batch, hsz]`.
+    /// `workspace` is `[batch, 5*hsz]` saved for backward.
+    fn fused_gru_cell_f32(
+        &self,
+        _input_gates: &GpuBufferHandle,
+        _hidden_gates: &GpuBufferHandle,
+        _bias_ih: &GpuBufferHandle,
+        _bias_hh: &GpuBufferHandle,
+        _hx: &GpuBufferHandle,
+        _hidden_size: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "fused_gru_cell_f32 GPU op not yet implemented".into(),
+        })
+    }
+
     /// Synchronize the current stream on the given device, blocking until
     /// all enqueued operations have completed.
     fn synchronize(&self, _device: usize) -> FerrotorchResult<()> {
