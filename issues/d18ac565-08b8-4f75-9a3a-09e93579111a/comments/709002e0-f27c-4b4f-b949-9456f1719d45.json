@@ -1,0 +1,8 @@
+{
+  "uuid": "709002e0-f27c-4b4f-b949-9456f1719d45",
+  "issue_uuid": "d18ac565-08b8-4f75-9a3a-09e93579111a",
+  "author": "anon-a7c6025f",
+  "content": "Bumped workspace version from 0.1.8 to 0.1.9. All 16 internal crate references updated. External deps (ferray, cudarc, etc.) unchanged. Build successful.",
+  "created_at": "2026-03-25T22:00:18.915371368Z",
+  "kind": "result"
+}
