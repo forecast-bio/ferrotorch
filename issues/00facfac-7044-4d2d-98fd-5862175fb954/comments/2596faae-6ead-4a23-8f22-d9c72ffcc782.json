@@ -1,0 +1,8 @@
+{
+  "uuid": "2596faae-6ead-4a23-8f22-d9c72ffcc782",
+  "issue_uuid": "00facfac-7044-4d2d-98fd-5862175fb954",
+  "author": "anon-a7c6025f",
+  "content": "Observation: Conv2d has NO GPU dispatch at all — forward always downloads to CPU, does im2col on CPU, matmul on CPU. The gpu_conv2d_f32 kernel in ferrotorch-gpu exists but is never called from the nn module.\n\nRevised plan: Add GPU forward dispatch to Conv2d::forward. When input is CUDA f32, call gpu_conv2d_f32 for the forward, store the GPU im2col columns (or just the input) in the grad_fn. For backward on GPU, use the GPU matmul directly.\n\nThis is a bigger change than expected — need to modify both forward and backward paths.",
+  "created_at": "2026-03-25T21:22:43.219554608Z",
+  "kind": "observation"
+}
