@@ -10,6 +10,7 @@ pub mod graph;
 pub mod higher_order;
 pub mod hooks;
 pub mod no_grad;
+pub mod saved_tensors;
 
 pub use autocast::{
     AutocastDtype, autocast, autocast_dtype, is_autocast_debug, is_autocast_enabled,
