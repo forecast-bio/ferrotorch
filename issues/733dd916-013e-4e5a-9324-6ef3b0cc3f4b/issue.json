@@ -2,11 +2,12 @@
   "uuid": "733dd916-013e-4e5a-9324-6ef3b0cc3f4b",
   "display_id": 267,
   "title": "T2.1: CUDA stream pool with thread-local current stream and events",
-  "status": "open",
+  "status": "closed",
   "priority": "critical",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T01:39:01.749190612Z",
-  "updated_at": "2026-03-24T01:39:03.285653637Z",
+  "updated_at": "2026-03-25T11:51:01.137938403Z",
+  "closed_at": "2026-03-25T11:51:01.137938403Z",
   "labels": [
     "enhancement"
   ]
