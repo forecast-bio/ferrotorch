@@ -88,6 +88,19 @@ pub enum IrOpKind {
     FusedElementwise {
         ops: Vec<IrOpKind>,
     },
+
+    /// Fused Linear + activation: `activation(input @ weight^T + bias)`.
+    /// Created by pattern fusion when Linear is followed by an activation.
+    FusedLinearActivation {
+        activation: Box<IrOpKind>,
+    },
+
+    /// Fused scaled dot-product attention:
+    /// `softmax(Q @ K^T / sqrt(d_k)) @ V`.
+    /// Created by pattern fusion when the SDPA pattern is detected.
+    FusedAttention {
+        head_dim: usize,
+    },
 }
 
 /// An IR value — an edge in the graph carrying shape/dtype metadata.

@@ -276,6 +276,16 @@ fn write_op_kind(w: &mut Writer, op: &IrOpKind) {
                 write_op_kind(w, op);
             }
         }
+        IrOpKind::FusedLinearActivation { activation } => {
+            // Tag 0x30 for fused linear+activation
+            w.write_u8(0x30);
+            write_op_kind(w, activation);
+        }
+        IrOpKind::FusedAttention { head_dim } => {
+            // Tag 0x31 for fused attention
+            w.write_u8(0x31);
+            w.write_usize_as_u32(*head_dim);
+        }
     }
 }
 
