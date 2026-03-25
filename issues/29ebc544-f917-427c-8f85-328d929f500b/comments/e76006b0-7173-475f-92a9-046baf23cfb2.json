@@ -1,0 +1,8 @@
+{
+  "uuid": "e76006b0-7173-475f-92a9-046baf23cfb2",
+  "issue_uuid": "29ebc544-f917-427c-8f85-328d929f500b",
+  "author": "anon-a7c6025f",
+  "content": "Decision: Writing a two-pass parallel reduction PTX kernel. Pass 1: each block reduces a chunk of input using shared memory + warp shuffle (__shfl_down_sync), writing one partial sum per block. Pass 2: reduce the partial sums to a single scalar. This is the standard CUDA reduction pattern — O(n/blockDim) work per thread, logarithmic reduction within blocks. Target: 256 threads/block.",
+  "created_at": "2026-03-25T12:25:46.621956744Z",
+  "kind": "decision"
+}
