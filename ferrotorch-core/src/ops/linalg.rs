@@ -539,6 +539,10 @@ pub fn mm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>>
         });
     }
 
+    // Materialize non-contiguous views (e.g. from transpose/permute).
+    let a = if a.is_contiguous() { a.clone() } else { a.contiguous()? };
+    let b = if b.is_contiguous() { b.clone() } else { b.contiguous()? };
+
     let m = a.shape()[0];
     let k = a.shape()[1];
     let n = b.shape()[1];
