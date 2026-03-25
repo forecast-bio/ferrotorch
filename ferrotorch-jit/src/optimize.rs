@@ -35,6 +35,7 @@ pub fn optimize(graph: &mut IrGraph, config: &OptimizationConfig) -> Option<Memo
         dead_code_eliminate(graph);
     }
     if config.operator_fusion {
+        pattern_fuse(graph);
         fuse_elementwise(graph);
     }
     if config.memory_planning {
@@ -454,6 +455,167 @@ fn try_fuse_one_chain(graph: &mut IrGraph) -> bool {
     }
 
     false
+}
+
+// ===========================================================================
+// Pattern fusion — fuse high-level operation patterns
+// ===========================================================================
+
+/// Pattern-level fusion: detects and rewrites known operation patterns.
+///
+/// Currently recognized patterns:
+/// - **Linear + Activation** → `FusedLinearActivation`
+/// - **Matmul + Scale + Softmax** (attention) → `FusedAttention`
+///
+/// Pattern fusion runs before elementwise fusion so that the fused nodes
+/// are treated as opaque ops by the elementwise pass.
+pub fn pattern_fuse(graph: &mut IrGraph) {
+    fuse_linear_activation(graph);
+    fuse_attention_pattern(graph);
+}
+
+/// Fuse Linear → Activation into FusedLinearActivation.
+///
+/// Detects chains of `Linear → Relu/Gelu/Silu/Sigmoid/Tanh` and
+/// replaces them with a single `FusedLinearActivation` node.
+fn fuse_linear_activation(graph: &mut IrGraph) {
+    let topo = graph.topological_order();
+    let mut fusions: Vec<(IrNodeId, IrNodeId, IrOpKind)> = Vec::new();
+
+    for &nid in &topo {
+        let node = match graph.nodes.iter().find(|n| n.id == nid) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        if !matches!(node.op, IrOpKind::Linear) {
+            continue;
+        }
+
+        // Check if the sole consumer is an activation.
+        let linear_output = node.outputs[0];
+        let consumers: Vec<IrNodeId> = graph
+            .nodes
+            .iter()
+            .filter(|n| n.inputs.contains(&linear_output))
+            .map(|n| n.id)
+            .collect();
+
+        if consumers.len() != 1 {
+            continue;
+        }
+
+        let consumer = match graph.nodes.iter().find(|n| n.id == consumers[0]) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        let is_activation = matches!(
+            consumer.op,
+            IrOpKind::Relu
+                | IrOpKind::Gelu
+                | IrOpKind::Silu
+                | IrOpKind::Sigmoid
+                | IrOpKind::Tanh
+        );
+
+        if is_activation {
+            fusions.push((nid, consumers[0], consumer.op.clone()));
+        }
+    }
+
+    // Apply fusions (replace linear op, remove activation node).
+    for (linear_id, act_id, act_op) in fusions {
+        // Collect activation outputs before mutating.
+        let act_outputs = graph
+            .nodes
+            .iter()
+            .find(|n| n.id == act_id)
+            .map(|n| n.outputs.clone())
+            .unwrap_or_default();
+
+        // Update the linear node's op to FusedLinearActivation.
+        if let Some(linear_node) = graph.nodes.iter_mut().find(|n| n.id == linear_id) {
+            linear_node.op = IrOpKind::FusedLinearActivation {
+                activation: Box::new(act_op),
+            };
+            linear_node.outputs = act_outputs;
+        }
+
+        // Remove the activation node.
+        graph.nodes.retain(|n| n.id != act_id);
+    }
+}
+
+/// Detect the scaled dot-product attention pattern and replace with FusedAttention.
+///
+/// Pattern: `Matmul(Q, K^T) → Mul(scale) → Softmax → Matmul(_, V)`
+/// This is a heuristic detector — it looks for the sequence in topo order.
+fn fuse_attention_pattern(graph: &mut IrGraph) {
+    // Simple scan: look for Matmul → Mul/Div → Softmax → Matmul
+    let topo = graph.topological_order();
+    let mut fusions: Vec<(IrNodeId, IrNodeId, IrNodeId, IrNodeId, usize, crate::graph::IrValueId, Vec<crate::graph::IrValueId>)> = Vec::new();
+
+    for (i, &nid) in topo.iter().enumerate() {
+        let node = match graph.nodes.iter().find(|n| n.id == nid) {
+            Some(n) if matches!(n.op, IrOpKind::Matmul | IrOpKind::Mm) => n,
+            _ => continue,
+        };
+
+        // Check: next is Mul or Div (scale), then Softmax, then Matmul.
+        if i + 3 >= topo.len() {
+            continue;
+        }
+
+        let scale_node = graph.nodes.iter().find(|n| n.id == topo[i + 1]);
+        let softmax_node = graph.nodes.iter().find(|n| n.id == topo[i + 2]);
+        let matmul2_node = graph.nodes.iter().find(|n| n.id == topo[i + 3]);
+
+        let is_attention = matches!(
+            (
+                scale_node.map(|n| &n.op),
+                softmax_node.map(|n| &n.op),
+                matmul2_node.map(|n| &n.op),
+            ),
+            (
+                Some(IrOpKind::Mul | IrOpKind::Div),
+                Some(IrOpKind::Softmax),
+                Some(IrOpKind::Matmul | IrOpKind::Mm),
+            )
+        );
+
+        if is_attention {
+            // Infer head_dim from the first matmul's input shape.
+            let head_dim = node
+                .inputs
+                .first()
+                .and_then(|&vid| graph.values.iter().find(|v| v.id == vid))
+                .map(|v| *v.shape.last().unwrap_or(&64))
+                .unwrap_or(64);
+
+            // Collect data before mutating.
+            let v_input = matmul2_node
+                .and_then(|n| n.inputs.get(1).copied())
+                .unwrap_or(node.inputs[1]);
+            let mm2_outputs = matmul2_node
+                .map(|n| n.outputs.clone())
+                .unwrap_or_default();
+
+            fusions.push((nid, topo[i + 1], topo[i + 2], topo[i + 3], head_dim, v_input, mm2_outputs));
+        }
+    }
+
+    // Apply fusions.
+    for (mm1_id, scale_id, softmax_id, matmul2_id, head_dim, v_input, mm2_outputs) in fusions {
+        if let Some(mm1) = graph.nodes.iter_mut().find(|n| n.id == mm1_id) {
+            mm1.inputs.push(v_input);
+            mm1.op = IrOpKind::FusedAttention { head_dim };
+            mm1.outputs = mm2_outputs;
+        }
+        graph
+            .nodes
+            .retain(|n| n.id != scale_id && n.id != softmax_id && n.id != matmul2_id);
+    }
 }
 
 /// Collapse `chain` (ordered list of node ids forming a fusible sequence)

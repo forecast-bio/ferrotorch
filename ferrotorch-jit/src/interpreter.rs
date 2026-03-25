@@ -347,6 +347,15 @@ pub fn interpret<T: Float>(graph: &IrGraph, inputs: &[Tensor<T>]) -> FerrotorchR
                 }
                 set_outputs(&mut values, &node.outputs, current);
             }
+
+            IrOpKind::FusedLinearActivation { .. } | IrOpKind::FusedAttention { .. } => {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "interpret: fused pattern op {:?} must be lowered before interpretation",
+                        node.op
+                    ),
+                });
+            }
         }
     }
 
