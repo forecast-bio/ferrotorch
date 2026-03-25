@@ -103,6 +103,19 @@ pub trait GpuBackend: Send + Sync {
         device: usize,
     ) -> FerrotorchResult<GpuBufferHandle>;
     fn gpu_to_cpu(&self, handle: &GpuBufferHandle) -> FerrotorchResult<Vec<u8>>;
+
+    /// Copy CPU data to GPU via pinned (page-locked) host memory.
+    ///
+    /// ~2x faster than [`cpu_to_gpu`] for large buffers due to DMA transfers.
+    /// Falls back to regular `cpu_to_gpu` by default.
+    fn cpu_to_gpu_pinned(
+        &self,
+        data: &[u8],
+        elem_size: usize,
+        device: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        self.cpu_to_gpu(data, elem_size, device)
+    }
     fn clone_buffer(&self, handle: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
     fn alloc_zeros(
         &self,

@@ -152,6 +152,38 @@ impl GpuBackend for CudaBackendImpl {
         }
     }
 
+    fn cpu_to_gpu_pinned(
+        &self,
+        data: &[u8],
+        elem_size: usize,
+        device: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let dev = self.device(device)?;
+        match elem_size {
+            4 => {
+                let count = data.len() / 4;
+                let f32_data: &[f32] =
+                    unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, count) };
+                let buf = crate::transfer::cpu_to_gpu_pinned(f32_data, dev)
+                    .map_err(Self::map_gpu_err)?;
+                Ok(Self::wrap_buffer(buf, device))
+            }
+            8 => {
+                let count = data.len() / 8;
+                let f64_data: &[f64] =
+                    unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f64, count) };
+                let buf = crate::transfer::cpu_to_gpu_pinned(f64_data, dev)
+                    .map_err(Self::map_gpu_err)?;
+                Ok(Self::wrap_buffer_f64(buf, device))
+            }
+            other => Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "cpu_to_gpu_pinned: unsupported elem_size {other} (expected 4 or 8)"
+                ),
+            }),
+        }
+    }
+
     fn gpu_to_cpu(&self, handle: &GpuBufferHandle) -> FerrotorchResult<Vec<u8>> {
         let dev = self.device(handle.device_ordinal())?;
 

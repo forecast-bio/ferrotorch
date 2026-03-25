@@ -143,6 +143,51 @@ where
     })
 }
 
+/// Copy a host slice to device memory via pinned (page-locked) host memory.
+///
+/// Allocates a temporary `PinnedHostSlice`, copies `data` into it, then
+/// transfers to the GPU using DMA. The pinned allocation is freed after
+/// the transfer completes. For large tensors, this is ~2x faster than
+/// [`cpu_to_gpu`] which uses pageable memory.
+///
+/// # When to use
+///
+/// Use this in DataLoader's prefetch pipeline when `pin_memory=True`.
+/// For small tensors (< 64KB), the overhead of pinned allocation may
+/// outweigh the DMA benefit — prefer [`cpu_to_gpu`] instead.
+#[cfg(feature = "cuda")]
+pub fn cpu_to_gpu_pinned<T>(data: &[T], device: &GpuDevice) -> GpuResult<CudaBuffer<T>>
+where
+    T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits + Copy,
+{
+    let ctx = device.context();
+    let stream = device.stream();
+
+    // Allocate pinned host memory and copy data into it.
+    let mut pinned = unsafe { ctx.alloc_pinned::<T>(data.len())? };
+    pinned.as_mut_slice()?.copy_from_slice(data);
+
+    // Transfer from pinned host to device (uses DMA, ~2x faster than pageable).
+    let slice = stream.clone_htod(&pinned)?;
+
+    // pinned is dropped here, freeing the host memory.
+    drop(pinned);
+
+    Ok(CudaBuffer {
+        data: Some(slice),
+        len: data.len(),
+        alloc_len: data.len(),
+        device_ordinal: device.ordinal(),
+        pool_fn: None,
+    })
+}
+
+/// Stub — always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn cpu_to_gpu_pinned<T>(_data: &[T], _device: &GpuDevice) -> GpuResult<CudaBuffer<T>> {
+    Err(GpuError::NoCudaFeature)
+}
+
 // ---------------------------------------------------------------------------
 // Stubs when `cuda` feature is disabled
 // ---------------------------------------------------------------------------
