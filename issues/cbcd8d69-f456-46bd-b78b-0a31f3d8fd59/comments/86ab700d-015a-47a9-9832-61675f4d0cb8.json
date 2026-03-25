@@ -1,0 +1,8 @@
+{
+  "uuid": "86ab700d-015a-47a9-9832-61675f4d0cb8",
+  "issue_uuid": "cbcd8d69-f456-46bd-b78b-0a31f3d8fd59",
+  "author": "anon-a7c6025f",
+  "content": "Decision: Adding pattern_fuse pass to the JIT optimizer. Three patterns:\n1. Conv+BN: merge BN affine into Conv weights at graph level (IrOpKind::Conv2d + IrOpKind::BatchNorm → IrOpKind::Conv2d with adjusted weights)\n2. Linear+Activation: fuse into IrOpKind::FusedLinearActivation  \n3. Matmul+Scale+Softmax: recognize attention pattern and replace with IrOpKind::FusedAttention\n\nStarting with Conv+BN and Linear+Activation since they're graph-level rewrites with clear semantics.",
+  "created_at": "2026-03-25T16:04:42.903111350Z",
+  "kind": "decision"
+}
