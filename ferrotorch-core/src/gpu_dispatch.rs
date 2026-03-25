@@ -715,6 +715,25 @@ pub trait GpuBackend: Send + Sync {
         })
     }
 
+    /// GPU Conv2d forward: im2col + GEMM + bias add, entirely on-device.
+    ///
+    /// Returns `(output_handle, output_shape)` where output_shape is `[B, C_out, H_out, W_out]`.
+    #[allow(clippy::too_many_arguments)]
+    fn conv2d_f32(
+        &self,
+        _input: &GpuBufferHandle,
+        _weight: &GpuBufferHandle,
+        _bias: Option<&GpuBufferHandle>,
+        _input_shape: [usize; 4],
+        _weight_shape: [usize; 4],
+        _stride: (usize, usize),
+        _padding: (usize, usize),
+    ) -> FerrotorchResult<(GpuBufferHandle, [usize; 4])> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "conv2d_f32 GPU op not yet implemented".into(),
+        })
+    }
+
     /// Synchronize the current stream on the given device, blocking until
     /// all enqueued operations have completed.
     fn synchronize(&self, _device: usize) -> FerrotorchResult<()> {

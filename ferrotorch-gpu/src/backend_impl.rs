@@ -413,6 +413,38 @@ impl GpuBackend for CudaBackendImpl {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn conv2d_f32(
+        &self,
+        input: &GpuBufferHandle,
+        weight: &GpuBufferHandle,
+        bias: Option<&GpuBufferHandle>,
+        input_shape: [usize; 4],
+        weight_shape: [usize; 4],
+        stride: (usize, usize),
+        padding: (usize, usize),
+    ) -> FerrotorchResult<(GpuBufferHandle, [usize; 4])> {
+        let input_buf = Self::unwrap_buffer(input)?;
+        let weight_buf = Self::unwrap_buffer(weight)?;
+        let bias_buf = match bias {
+            Some(b) => Some(Self::unwrap_buffer(b)?),
+            None => None,
+        };
+        let dev = self.device(input.device_ordinal())?;
+        let (out_buf, out_shape) = crate::conv::gpu_conv2d_f32(
+            input_buf,
+            weight_buf,
+            bias_buf,
+            input_shape,
+            weight_shape,
+            stride,
+            padding,
+            dev,
+        )
+        .map_err(Self::map_gpu_err)?;
+        Ok((Self::wrap_buffer(out_buf, input.device_ordinal()), out_shape))
+    }
+
     fn fused_gru_cell_f32(
         &self,
         input_gates: &GpuBufferHandle,

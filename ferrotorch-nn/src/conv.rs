@@ -297,6 +297,65 @@ impl<T: Float> Module<T> for Conv2d<T> {
         // Save the input device so we can restore it on the output.
         let input_device = input.device();
 
+        // ---- GPU fast path: fully on-device conv2d ----
+        let is_f32 = std::mem::size_of::<T>() == 4;
+        if is_f32 && input.is_cuda() {
+            if let Some(backend) = ferrotorch_core::gpu_dispatch::gpu_backend() {
+                let bias_handle = self.bias.as_ref().and_then(|b| b.tensor().gpu_handle().ok());
+                let (out_handle, out_shape) = backend.conv2d_f32(
+                    input.gpu_handle()?,
+                    self.weight.tensor().gpu_handle()?,
+                    bias_handle,
+                    [batch, c_in, h, w],
+                    [self.out_channels, self.in_channels, kh, kw],
+                    self.stride,
+                    self.padding,
+                )?;
+
+                let result = Tensor::from_storage(
+                    TensorStorage::gpu(out_handle),
+                    out_shape.to_vec(),
+                    false,
+                )?;
+
+                // For backward, fall through to CPU path if gradients needed
+                // (GPU backward not yet implemented — stores input for recomputation)
+                if is_grad_enabled()
+                    && (input.requires_grad()
+                        || self.weight.requires_grad()
+                        || self.bias.as_ref().is_some_and(|b| b.requires_grad()))
+                {
+                    // Download cols for backward (CPU backward path).
+                    let input_data = input.data_vec()?;
+                    let (cols, col_rows, col_cols) =
+                        im2col(&input_data, batch, c_in, h, w, kh, kw, sh, sw, ph, pw);
+                    let grad_fn = Arc::new(Conv2dBackward {
+                        input: input.clone(),
+                        weight: self.weight.tensor().clone(),
+                        bias: self.bias.as_ref().map(|b| b.tensor().clone()),
+                        in_channels: self.in_channels,
+                        out_channels: self.out_channels,
+                        kernel_size: self.kernel_size,
+                        stride: self.stride,
+                        padding: self.padding,
+                        cols,
+                        col_rows,
+                        col_cols,
+                        h_out,
+                        w_out,
+                    });
+                    return Tensor::from_operation(
+                        result.into_storage_and_shape()?.0,
+                        out_shape.to_vec(),
+                        grad_fn,
+                    );
+                }
+
+                return Ok(result);
+            }
+        }
+
+        // ---- CPU path ----
         let input_data = input.data_vec()?;
 
         // im2col: [B, C_in * kH * kW, H_out * W_out]
