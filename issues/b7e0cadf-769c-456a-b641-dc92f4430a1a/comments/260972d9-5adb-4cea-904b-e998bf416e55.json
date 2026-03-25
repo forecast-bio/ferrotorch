@@ -1,0 +1,8 @@
+{
+  "uuid": "260972d9-5adb-4cea-904b-e998bf416e55",
+  "issue_uuid": "b7e0cadf-769c-456a-b641-dc92f4430a1a",
+  "author": "anon-a7c6025f",
+  "content": "Research complete. PyTorch BatchNorm uses 3 CUDA kernels:\n1. batch_norm_collect_statistics: Welford online mean+variance per channel (one block per channel, warp shuffle reduction)\n2. batch_norm_transform_input: elementwise normalize + affine per channel (one block per channel)\n3. batch_norm_backward: per-channel gradient reduction + elementwise grad_input\n\nThread structure: blockIdx.x = channel index, threads grid-stride over batch×spatial.\n\nFor our PTX implementation, I'll combine statistics collection and transform into a single two-pass kernel for simplicity (pass 1: compute mean+var, pass 2: normalize+affine). This avoids the complexity of Welford's algorithm in PTX while being correct for the common case.",
+  "created_at": "2026-03-25T21:50:35.018374608Z",
+  "kind": "observation"
+}
