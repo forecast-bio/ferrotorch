@@ -159,18 +159,58 @@ impl<T: Float> GradScaler<T> {
     /// This method is idempotent within a single step — calling it twice is
     /// safe (the second call is a no-op).
     pub fn unscale_(&mut self, optimizer: &mut dyn Optimizer<T>) -> FerrotorchResult<()> {
+        use std::any::TypeId;
+
         if !self.config.enabled || self.already_unscaled {
             return Ok(());
         }
 
         self.found_inf = false;
         let inv_scale = T::from(1.0 / self.scale_factor).unwrap();
+        let is_f32 = TypeId::of::<T>() == TypeId::of::<f32>();
 
         for group in optimizer.param_groups() {
             for param in &group.params {
                 let grad_opt = param.grad()?;
                 if let Some(grad) = grad_opt {
-                    let grad_data = grad.data()?;
+                    // GPU f32 fast path: scale on-device, check inf via GPU sum.
+                    if is_f32 && grad.is_cuda() {
+                        if let Some(backend) =
+                            ferrotorch_core::gpu_dispatch::gpu_backend()
+                        {
+                            let inv_f32 = 1.0f32 / self.scale_factor as f32;
+                            let scaled = backend.scale_f32(
+                                grad.gpu_handle()?,
+                                inv_f32,
+                            )?;
+
+                            // Check for inf/NaN: sum all elements — if any
+                            // element is inf/NaN the sum will be non-finite.
+                            let sum_handle =
+                                backend.sum_f32(&scaled, grad.numel())?;
+                            let sum_bytes = backend.gpu_to_cpu(&sum_handle)?;
+                            let sum_val = f32::from_le_bytes([
+                                sum_bytes[0],
+                                sum_bytes[1],
+                                sum_bytes[2],
+                                sum_bytes[3],
+                            ]);
+                            if !sum_val.is_finite() {
+                                self.found_inf = true;
+                            }
+
+                            let new_grad = Tensor::from_storage(
+                                ferrotorch_core::TensorStorage::gpu(scaled),
+                                grad.shape().to_vec(),
+                                false,
+                            )?;
+                            param.set_grad(Some(new_grad))?;
+                            continue;
+                        }
+                    }
+
+                    // CPU path.
+                    let grad_data = grad.data_vec()?;
                     let mut new_data = Vec::with_capacity(grad_data.len());
 
                     for &val in grad_data.iter() {
@@ -181,8 +221,11 @@ impl<T: Float> GradScaler<T> {
                         new_data.push(unscaled);
                     }
 
+                    let device = grad.device();
                     let new_grad = Tensor::from_storage(
-                        ferrotorch_core::TensorStorage::cpu(new_data),
+                        ferrotorch_core::TensorStorage::on_device(
+                            new_data, device,
+                        )?,
                         grad.shape().to_vec(),
                         false,
                     )?;
