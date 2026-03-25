@@ -2,11 +2,12 @@
   "uuid": "0b2344a5-b902-4c3b-bd78-d43f8799f311",
   "display_id": 341,
   "title": "SLEEF vectorized transcendentals — exp/sin/cos are 22-33x slower than PyTorch (scalar libm)",
-  "status": "open",
+  "status": "closed",
   "priority": "critical",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T19:52:42.843970311Z",
-  "updated_at": "2026-03-24T19:52:44.219869053Z",
+  "updated_at": "2026-03-25T12:53:21.311826131Z",
+  "closed_at": "2026-03-25T12:53:21.311826131Z",
   "labels": [
     "perf"
   ]
