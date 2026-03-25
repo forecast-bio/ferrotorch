@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.3] - 2026-03-17
 
 ### Fixed
+- T1.1: GPU gradient accumulation — use backend.add_f32 instead of CPU roundtrip (#259)
+- Add GPU dispatch for div, exp, log, sqrt, pow, abs elementwise ops (#218)
+- Fix into_storage_and_shape panic on shared GPU tensors (#216)
 - QA review: audit all Tier 3 changes for bugs, lazy shortcuts, and correctness issues (#286)
 - QA review: audit all Tier 2 changes for bugs, lazy shortcuts, and correctness issues (#274)
 - QA review: audit all Tier 1 changes for lazy shortcuts, bugs, and correctness issues (#266)
@@ -46,6 +49,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- WU-20: GPU kernel expansion — GroupNorm, BatchNorm backward, MaxPool2d, AvgPool2d GPU kernels (#358)
+- T3.5: DataLoader prefetch pipeline + pin_memory (#279)
+- Multi-threaded backward engine with per-device worker threads and priority queue (#354)
+- JIT pattern fusion — fuse_attention, fuse_linear, fuse_conv_bn (3-5x transformer speedup) (#366)
+- DDP communication/computation overlap — allreduce during backward (#371)
+- DDP gradient bucketing — group params into 25MB buckets for async allreduce (#370)
+- SavedVariable hooks — pack/unpack for memory offloading in autograd (#355)
+- T3.10: MultiheadAttention batched matmul — eliminate serial batch/head loops (#284)
+- T3.2: Checkpoint RNG preservation + multi-tensor input (#276)
+- T3.1: JIT multi-input fusion + GPU kernel execution (#275)
+- T3.3: GradScaler GPU kernel for fused unscale+inf-check (#277)
+- WU-04: In-place tensor ops (add_, mul_, sub_, div_, zero_, fill_) with version counter (#357)
+- T2.2: fp16/bf16 kernels and cublasGemmEx for Tensor Cores (#268)
+- T2.1: CUDA stream pool with thread-local current stream and events (#267)
+- T1.3: Zero-copy stride-based views for transpose/permute/slice (#261)
+- T1.2: GPU-resident optimizer state — store exp_avg/exp_avg_sq as GPU tensors (#260)
 - Perf Phase 5B: Wire backward GPU kernels — eliminate all CPU roundtrips in backward passes (#255)
 - Perf Phase 3C: Fused SIMD sigmoid, sin, cos kernels — eliminate intermediate allocations (#254)
 - Perf Phase 3B: Wire fast_sigmoid and fast_tanh into activation forward paths (#253)
@@ -81,6 +100,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- GPU Conv2d backward pass — forward-only GPU kernel, backward falls to CPU (#349)
+- Fused GRU/LSTM kernels — GRU forward is 10.7x slower than PyTorch (gate-level fusion needed) (#345)
+- Optimized Conv2d — im2col is 7.4x slower than PyTorch, needs cache-friendly tiling (#344)
+- GPU vectorized loads — ld.global.f32 (32-bit) should be ld.global.v4.f32 (128-bit) (#351)
+- Lower CPU parallel threshold from 2M to 32K elements to match PyTorch grain size (#343)
+- SLEEF vectorized transcendentals — exp/sin/cos are 22-33x slower than PyTorch (scalar libm) (#341)
+- TensorIterator abstraction for broadcasting — broadcast ops are 166-185x slower than PyTorch (#339)
+- Vectorized reduction kernels — sum/mean/max/min along axis are 500-670x slower than PyTorch (#338)
 - `CudaBuffer<T>.data` is now `Option<CudaSlice<T>>` with custom Drop for pool integration
 - `alloc_zeros_f32` / `alloc_zeros_f64` check pool before allocating from CUDA driver
 - All kernel output allocations in `kernels.rs` and `blas.rs` use pool-aware `alloc_zeros_f32`/`alloc_zeros_f64`
