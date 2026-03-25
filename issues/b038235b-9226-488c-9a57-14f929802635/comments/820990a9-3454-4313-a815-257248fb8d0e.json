@@ -1,0 +1,8 @@
+{
+  "uuid": "820990a9-3454-4313-a815-257248fb8d0e",
+  "issue_uuid": "b038235b-9226-488c-9a57-14f929802635",
+  "author": "anon-a7c6025f",
+  "content": "Plan: Current PTX kernels load/store one f32 per thread (32-bit memory transactions). GPU memory bandwidth is optimized for 128-bit (16-byte) transactions. Using ld.global.v4.f32 loads 4 floats per instruction, quadrupling memory throughput for bandwidth-bound kernels.\n\nApproach: Create vectorized variants of the most-used kernels (add, mul, sub, neg, relu, scale). Each thread processes 4 elements. Tail elements handled by a scalar epilogue. Wire the vectorized kernels into the try_launch_unary/binary paths.",
+  "created_at": "2026-03-25T15:42:30.351166649Z",
+  "kind": "plan"
+}
