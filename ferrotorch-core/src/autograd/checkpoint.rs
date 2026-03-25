@@ -8,6 +8,10 @@ use crate::tensor::Tensor;
 /// Type alias for a checkpointable function: takes an input tensor and produces an output tensor.
 type CheckpointFn<T> = Arc<dyn Fn(&Tensor<T>) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
 
+/// Type alias for a multi-input checkpointable function.
+type CheckpointMultiFn<T> =
+    Arc<dyn Fn(&[Tensor<T>]) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
+
 /// Run a function with gradient checkpointing.
 ///
 /// During the forward pass, intermediate activations are **not** saved.
@@ -80,6 +84,47 @@ where
     let checkpoint_fn = Arc::new(CheckpointBackward {
         func: Arc::new(f),
         input: input.clone(),
+        output_shape: output.shape().to_vec(),
+        saved_gpu_rng,
+    });
+
+    let device = output.device();
+    let storage = TensorStorage::on_device(output.data_vec()?, device)?;
+    Tensor::from_operation(storage, output.shape().to_vec(), checkpoint_fn)
+}
+
+/// Gradient checkpointing for functions with multiple tensor inputs.
+///
+/// Like [`checkpoint`], but the function `f` receives a slice of tensors.
+/// Gradients are computed for all inputs that have `requires_grad = true`.
+///
+/// GPU RNG state is saved/restored using the device of the first input.
+pub fn checkpoint_multi<T, F>(f: F, inputs: &[Tensor<T>]) -> FerrotorchResult<Tensor<T>>
+where
+    T: Float,
+    F: Fn(&[Tensor<T>]) -> FerrotorchResult<Tensor<T>> + Send + Sync + 'static,
+{
+    use crate::autograd::no_grad::no_grad;
+    use crate::storage::TensorStorage;
+
+    if inputs.is_empty() {
+        return Err(crate::error::FerrotorchError::InvalidArgument {
+            message: "checkpoint_multi: at least one input required".into(),
+        });
+    }
+
+    let saved_gpu_rng = save_gpu_rng_state(&inputs[0]);
+
+    let output = no_grad(|| f(inputs))?;
+
+    let any_requires_grad = inputs.iter().any(|t| t.requires_grad());
+    if !any_requires_grad {
+        return Ok(output);
+    }
+
+    let checkpoint_fn = Arc::new(CheckpointMultiBackward {
+        func: Arc::new(f),
+        inputs: inputs.to_vec(),
         output_shape: output.shape().to_vec(),
         saved_gpu_rng,
     });
@@ -192,5 +237,85 @@ impl<T: Float> crate::tensor::GradFn<T> for CheckpointBackward<T> {
 
     fn name(&self) -> &'static str {
         "CheckpointBackward"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Multi-input checkpoint backward
+// ---------------------------------------------------------------------------
+
+struct CheckpointMultiBackward<T: Float> {
+    func: CheckpointMultiFn<T>,
+    inputs: Vec<Tensor<T>>,
+    output_shape: Vec<usize>,
+    saved_gpu_rng: Option<GpuRngState>,
+}
+
+impl<T: Float> std::fmt::Debug for CheckpointMultiBackward<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CheckpointMultiBackward")
+            .field("num_inputs", &self.inputs.len())
+            .field("output_shape", &self.output_shape)
+            .field("has_gpu_rng_state", &self.saved_gpu_rng.is_some())
+            .finish()
+    }
+}
+
+impl<T: Float> crate::tensor::GradFn<T> for CheckpointMultiBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        // Restore GPU RNG state for deterministic recomputation.
+        let _rng_guard = if let Some(saved_state) = self.saved_gpu_rng {
+            let current_state = save_gpu_rng_state(&self.inputs[0]);
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                let _ = backend.restore_rng_state(saved_state);
+            }
+            current_state.map(|prev| GpuRngGuard { previous: prev })
+        } else {
+            None
+        };
+
+        // Re-run forward with grad tracking on all inputs that need it.
+        let inputs_with_grad: Vec<Tensor<T>> = self
+            .inputs
+            .iter()
+            .map(|t| {
+                if t.requires_grad() {
+                    t.clone().requires_grad_(true)
+                } else {
+                    t.clone()
+                }
+            })
+            .collect();
+
+        let recomputed = (self.func)(&inputs_with_grad)?;
+
+        // Backprop via weighted sum trick.
+        use crate::grad_fns::arithmetic::mul;
+        use crate::grad_fns::reduction::sum;
+        let weighted = mul(
+            &recomputed,
+            &grad_output.clone().requires_grad_(false).detach(),
+        )?;
+        let scalar = sum(&weighted)?;
+        scalar.backward()?;
+
+        // Collect gradients for each input.
+        let mut grads = Vec::with_capacity(self.inputs.len());
+        for (orig, with_grad) in self.inputs.iter().zip(inputs_with_grad.iter()) {
+            if orig.requires_grad() {
+                grads.push(with_grad.grad()?);
+            } else {
+                grads.push(None);
+            }
+        }
+        Ok(grads)
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        self.inputs.iter().collect()
+    }
+
+    fn name(&self) -> &'static str {
+        "CheckpointMultiBackward"
     }
 }
