@@ -1,0 +1,8 @@
+{
+  "uuid": "18fb9e9b-5468-49e3-9a26-d3ffa977be8c",
+  "issue_uuid": "00facfac-7044-4d2d-98fd-5862175fb954",
+  "author": "anon-a7c6025f",
+  "content": "Investigating the Conv2d backward to understand the GPU integration path. The forward does im2col→cuBLAS on GPU. The backward stores the im2col columns as Vec<T> on CPU (self.cols), so backward has to work on CPU. The fix needs to either (1) store cols on GPU during forward, or (2) restructure backward to recompute im2col on GPU.",
+  "created_at": "2026-03-25T21:21:13.534880572Z",
+  "kind": "plan"
+}
