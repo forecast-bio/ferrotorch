@@ -698,6 +698,14 @@ fn map_ir_op(op: &IrOpKind, node_name: &str, elem_type: i32) -> FerrotorchResult
         IrOpKind::Scan => Err(FerrotorchError::InvalidArgument {
             message: "scan ops must be lowered before ONNX export".into(),
         }),
+
+        IrOpKind::FusedLinearActivation { .. } => Err(FerrotorchError::InvalidArgument {
+            message: "fused linear+activation ops must be un-fused before ONNX export".into(),
+        }),
+
+        IrOpKind::FusedAttention { .. } => Err(FerrotorchError::InvalidArgument {
+            message: "fused attention ops must be lowered before ONNX export".into(),
+        }),
     }
 }
 

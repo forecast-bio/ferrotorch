@@ -198,6 +198,323 @@ pub fn backward_with_grad<T: Float>(
     Ok(())
 }
 
+/// Multi-threaded backward engine.
+///
+/// Same correctness as [`backward_with_grad`], but processes independent
+/// backward nodes in parallel using a ready-queue pattern:
+///
+/// 1. Nodes with in-degree 0 are placed in a shared queue.
+/// 2. Worker threads pull nodes, call `grad_fn.backward()`, accumulate grads.
+/// 3. After processing, workers decrement in-degrees of the node's inputs.
+///    When an input's in-degree reaches 0, it is pushed to the queue.
+/// 4. Workers exit when the queue is empty and all nodes are processed.
+///
+/// Falls back to single-threaded for graphs with fewer than 8 nodes.
+pub fn backward_parallel<T: Float>(
+    root: &Tensor<T>,
+    gradient: Option<&Tensor<T>>,
+    num_workers: usize,
+) -> FerrotorchResult<()> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Condvar, Mutex};
+
+    let seed = if let Some(ext_grad) = gradient {
+        if ext_grad.shape() != root.shape() {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "gradient shape {:?} does not match root shape {:?}",
+                    ext_grad.shape(),
+                    root.shape(),
+                ),
+            });
+        }
+        ext_grad.clone()
+    } else {
+        if !root.is_scalar() && root.numel() != 1 {
+            return Err(FerrotorchError::BackwardNonScalar {
+                shape: root.shape().to_vec(),
+            });
+        }
+        let ones_storage = crate::storage::TensorStorage::cpu(vec![<T as num_traits::One>::one()]);
+        let seed_cpu = Tensor::from_storage(ones_storage, vec![], false)?;
+        seed_cpu.to(root.device())?
+    };
+
+    // Phase 1: Collect nodes and compute in-degree (same as sequential).
+    let mut in_degree_map: HashMap<TensorId, usize> = HashMap::default();
+    let mut node_map: HashMap<TensorId, &Tensor<T>> = HashMap::default();
+    let mut queue: VecDeque<&Tensor<T>> = VecDeque::new();
+
+    queue.push_back(root);
+    in_degree_map.entry(root.id()).or_insert(0);
+    node_map.insert(root.id(), root);
+
+    while let Some(node) = queue.pop_front() {
+        if let Some(grad_fn) = node.grad_fn() {
+            for input in grad_fn.inputs() {
+                let input_id = input.id();
+                let count = in_degree_map.entry(input_id).or_insert(0);
+                *count += 1;
+                if let std::collections::hash_map::Entry::Vacant(e) = node_map.entry(input_id) {
+                    e.insert(input);
+                    queue.push_back(input);
+                }
+            }
+        }
+    }
+
+    let total_nodes = node_map.len();
+
+    // For small graphs, fall back to sequential.
+    if total_nodes < 8 || num_workers <= 1 {
+        return backward_with_grad(root, gradient);
+    }
+
+    // Phase 2: Build shared state for parallel processing.
+
+    // Atomic in-degrees for lock-free decrement.
+    let in_degrees: HashMap<TensorId, AtomicUsize> = in_degree_map
+        .iter()
+        .map(|(&id, &deg)| (id, AtomicUsize::new(deg)))
+        .collect();
+    let in_degrees = Arc::new(in_degrees);
+
+    // Shared gradient accumulator.
+    let grads: Arc<Mutex<HashMap<TensorId, Tensor<T>>>> = Arc::new(Mutex::new({
+        let mut m = HashMap::default();
+        m.insert(root.id(), seed);
+        m
+    }));
+
+    // Ready queue + condvar for waking workers.
+    let ready: Arc<Mutex<VecDeque<TensorId>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let condvar = Arc::new(Condvar::new());
+
+    // Seed the ready queue with all in-degree 0 nodes.
+    {
+        let mut rq = ready.lock().unwrap();
+        for (&id, deg) in in_degrees.iter() {
+            if deg.load(Ordering::Relaxed) == 0 {
+                rq.push_back(id);
+            }
+        }
+    }
+
+    // Counter of processed nodes — workers exit when this reaches total.
+    let processed = Arc::new(AtomicUsize::new(0));
+
+    // Error collector.
+    let errors: Arc<Mutex<Vec<FerrotorchError>>> = Arc::new(Mutex::new(Vec::new()));
+
+    // Phase 3: Parallel backward.
+    let node_map_ref = &node_map;
+    std::thread::scope(|s| {
+        let workers = num_workers.min(total_nodes);
+        for _ in 0..workers {
+            let in_degrees = Arc::clone(&in_degrees);
+            let grads = Arc::clone(&grads);
+            let ready = Arc::clone(&ready);
+            let condvar = Arc::clone(&condvar);
+            let processed = Arc::clone(&processed);
+            let errors = Arc::clone(&errors);
+
+            s.spawn(move || {
+                loop {
+                    // Pull a ready node.
+                    let id = {
+                        let mut rq = ready.lock().unwrap();
+                        loop {
+                            if let Some(id) = rq.pop_front() {
+                                break id;
+                            }
+                            if processed.load(Ordering::Relaxed) >= total_nodes {
+                                return;
+                            }
+                            rq = condvar.wait(rq).unwrap();
+                            if processed.load(Ordering::Relaxed) >= total_nodes {
+                                return;
+                            }
+                        }
+                    };
+
+                    // Process this node.
+                    let result = (|| -> FerrotorchResult<()> {
+                        let node = match node_map_ref.get(&id) {
+                            Some(n) => *n,
+                            None => return Ok(()),
+                        };
+
+                        let grad_output = {
+                            let mut g = grads.lock().unwrap();
+                            match g.remove(&id) {
+                                Some(go) => go,
+                                None => return Ok(()),
+                            }
+                        };
+
+                        if let Some(grad_fn) = node.grad_fn() {
+                            let grad_output = if !grad_output.is_contiguous() {
+                                crate::methods::contiguous_t(&grad_output)?
+                            } else {
+                                grad_output
+                            };
+
+                            let input_grads = grad_fn.backward(&grad_output)?;
+                            let inputs = grad_fn.inputs();
+
+                            if input_grads.len() != inputs.len() {
+                                return Err(FerrotorchError::InvalidArgument {
+                                    message: format!(
+                                        "backward returned {} gradients but expected {}",
+                                        input_grads.len(),
+                                        inputs.len(),
+                                    ),
+                                });
+                            }
+
+                            for (input, maybe_grad) in
+                                inputs.iter().zip(input_grads.into_iter())
+                            {
+                                if let Some(grad) = maybe_grad {
+                                    if input.requires_grad() {
+                                        let hooks = input.hooks();
+                                        let has_hooks = {
+                                            let guard = hooks.lock().map_err(|e| {
+                                                FerrotorchError::LockPoisoned {
+                                                    message: format!(
+                                                        "hook storage mutex: {e}"
+                                                    ),
+                                                }
+                                            })?;
+                                            (
+                                                guard.has_grad_hooks(),
+                                                guard.has_post_accumulate_hooks(),
+                                            )
+                                        };
+                                        let grad = if has_hooks.0 {
+                                            run_grad_hooks(hooks, grad)?
+                                        } else {
+                                            grad
+                                        };
+
+                                        if input.is_leaf() {
+                                            input.accumulate_grad(&grad)?;
+                                            if has_hooks.1 {
+                                                run_post_accumulate_hooks(hooks, input)?;
+                                            }
+                                        } else {
+                                            let mut g = grads.lock().unwrap();
+                                            accumulate_non_leaf_grad_locked(
+                                                &mut g, input, grad,
+                                            )?;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Decrement in-degrees of inputs; push newly ready.
+                            for input in grad_fn.inputs() {
+                                if let Some(deg) = in_degrees.get(&input.id()) {
+                                    let prev = deg.fetch_sub(1, Ordering::AcqRel);
+                                    if prev == 1 {
+                                        let mut rq = ready.lock().unwrap();
+                                        rq.push_back(input.id());
+                                        condvar.notify_one();
+                                    }
+                                }
+                            }
+                        }
+
+                        Ok(())
+                    })();
+
+                    if let Err(e) = result {
+                        errors.lock().unwrap().push(e);
+                    }
+
+                    let prev = processed.fetch_add(1, Ordering::AcqRel);
+                    if prev + 1 >= total_nodes {
+                        condvar.notify_all();
+                    }
+                }
+            });
+        }
+    });
+
+    let errs = match Arc::try_unwrap(errors) {
+        Ok(mutex) => mutex.into_inner().unwrap(),
+        Err(arc) => {
+            let mut guard = arc.lock().unwrap();
+            std::mem::take(&mut *guard)
+        }
+    };
+    if let Some(e) = errs.into_iter().next() {
+        return Err(e);
+    }
+
+    Ok(())
+}
+
+/// Like `accumulate_non_leaf_grad` but caller holds the grads mutex.
+fn accumulate_non_leaf_grad_locked<T: Float>(
+    grads: &mut HashMap<TensorId, Tensor<T>>,
+    input: &Tensor<T>,
+    grad: Tensor<T>,
+) -> FerrotorchResult<()> {
+    let Some(existing) = grads.remove(&input.id()) else {
+        grads.insert(input.id(), grad);
+        return Ok(());
+    };
+
+    if existing.shape() != grad.shape() {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "gradient shape mismatch during accumulation: {:?} vs {:?}",
+                existing.shape(),
+                grad.shape(),
+            ),
+        });
+    }
+
+    // GPU-native accumulation when both on same GPU.
+    if let (Device::Cuda(_), Device::Cuda(_)) = (existing.device(), grad.device()) {
+        if existing.device() == grad.device() {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+                    let sum_handle = backend.add_f32(
+                        existing.gpu_handle()?,
+                        grad.gpu_handle()?,
+                    )?;
+                    let combined = Tensor::from_storage(
+                        crate::storage::TensorStorage::gpu(sum_handle),
+                        existing.shape().to_vec(),
+                        false,
+                    )?;
+                    grads.insert(input.id(), combined);
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    // CPU path.
+    let existing_data = existing.data_vec()?;
+    let grad_data = grad.data_vec()?;
+    let combined_data: Vec<T> = existing_data
+        .iter()
+        .zip(grad_data.iter())
+        .map(|(&a, &b)| a + b)
+        .collect();
+    let device = existing.device();
+    let combined = Tensor::from_storage(
+        crate::storage::TensorStorage::on_device(combined_data, device)?,
+        existing.shape().to_vec(),
+        false,
+    )?;
+    grads.insert(input.id(), combined);
+    Ok(())
+}
+
 /// Accumulate a gradient for a non-leaf tensor in the backward grads map.
 ///
 /// This is separated from the main backward loop for clarity and to
