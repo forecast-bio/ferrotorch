@@ -1,0 +1,8 @@
+{
+  "uuid": "e8ca06c5-7138-4e87-ade4-73f494670760",
+  "issue_uuid": "ebe7df62-47ac-478b-b517-1dbff48e6d29",
+  "author": "anon-a7c6025f",
+  "content": "Decision: Simplifying the approach. Instead of changing TensorStorage (which would ripple through the entire codebase), I'll add:\n\n1. A pin_memory() function in ferrotorch-gpu that copies a &[T] into pinned memory and returns a handle\n2. A fast cpu_to_gpu_pinned() transfer function that uses PinnedHostSlice\n3. GpuBackend::cpu_to_gpu_pinned() trait method  \n4. DataLoader gets a pin_memory flag that wraps the device transfer with pinned memory\n\nThis keeps the change contained to the GPU crate + DataLoader.",
+  "created_at": "2026-03-25T16:36:04.941481246Z",
+  "kind": "decision"
+}
