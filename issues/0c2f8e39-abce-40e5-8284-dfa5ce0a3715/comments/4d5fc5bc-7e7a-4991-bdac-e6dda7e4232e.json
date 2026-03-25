@@ -1,0 +1,8 @@
+{
+  "uuid": "4d5fc5bc-7e7a-4991-bdac-e6dda7e4232e",
+  "issue_uuid": "0c2f8e39-abce-40e5-8284-dfa5ce0a3715",
+  "author": "anon-a7c6025f",
+  "content": "Starting comprehensive QA audit of the full codebase. Scope: (1) stubs/TODOs/unimplemented, (2) CPU fallbacks disguised as GPU impls, (3) panics that should be Results, (4) correctness bugs, (5) dead code. Will audit ferrotorch-core, ferrotorch-gpu, ferrotorch-nn, ferrotorch-optim systematically.",
+  "created_at": "2026-03-25T12:57:12.108052528Z",
+  "kind": "plan"
+}
