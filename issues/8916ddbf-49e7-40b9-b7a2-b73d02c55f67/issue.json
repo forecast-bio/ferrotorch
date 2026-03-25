@@ -2,11 +2,12 @@
   "uuid": "8916ddbf-49e7-40b9-b7a2-b73d02c55f67",
   "display_id": 155,
   "title": "Add vmap (vectorized map over batch dimensions) to ferrotorch-core",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T20:29:49.023471754Z",
-  "updated_at": "2026-03-15T20:29:50.511373244Z",
+  "updated_at": "2026-03-25T13:07:25.480090103Z",
+  "closed_at": "2026-03-25T13:07:25.480090103Z",
   "labels": [
     "feature"
   ]
