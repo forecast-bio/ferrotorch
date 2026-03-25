@@ -1,0 +1,8 @@
+{
+  "uuid": "933169e8-bedf-405b-92c8-9b06d8de8be0",
+  "issue_uuid": "00facfac-7044-4d2d-98fd-5862175fb954",
+  "author": "anon-a7c6025f",
+  "content": "Decision: Taking a pragmatic approach. Rather than restructuring the entire Conv2d module, I'll:\n1. Add GPU dispatch to Conv2d::forward — when input is CUDA f32, call gpu_conv2d_f32\n2. For backward: save the input tensor (on GPU) instead of cols. In backward, recompute im2col on GPU (same as PyTorch's memory-efficient mode)\n3. The backward grad_weight and grad_input computations use GPU matmul directly\n\nThis avoids the massive refactor while getting the key performance win: keeping tensors on GPU through forward and backward.",
+  "created_at": "2026-03-25T21:23:22.550278175Z",
+  "kind": "decision"
+}
