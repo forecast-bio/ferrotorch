@@ -49,10 +49,10 @@ ferrotorch-profiler = { version = "0.1.9", path = "ferrotorch-profiler" }
 ferrotorch-hub = { version = "0.1.9", path = "ferrotorch-hub" }
 
 # ferray ecosystem
-ferray-core = { version = "0.2.5", features = ["bf16"] }
-ferray-ufunc = "0.2.5"
-ferray-linalg = "0.2.5"
-ferray-random = "0.2.5"
+ferray-core = { version = "0.2.7", features = ["bf16"] }
+ferray-ufunc = "0.2.7"
+ferray-linalg = "0.2.7"
+ferray-random = "0.2.7"
 
 # CubeCL portable GPU compute
 cubecl = "0.10.0-pre.2"
