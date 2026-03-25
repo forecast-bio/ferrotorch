@@ -2,11 +2,12 @@
   "uuid": "21cc68c6-2a44-48f9-9573-df1f23c3c452",
   "display_id": 272,
   "title": "T2.6: DDP gradient bucketing and ring allreduce",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T01:39:17.487453897Z",
-  "updated_at": "2026-03-24T01:39:19.233155794Z",
+  "updated_at": "2026-03-25T13:16:34.648738435Z",
+  "closed_at": "2026-03-25T13:16:34.648738435Z",
   "labels": [
     "enhancement"
   ]
