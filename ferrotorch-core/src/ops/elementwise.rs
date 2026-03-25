@@ -481,11 +481,19 @@ pub fn unary_map<T: Float>(input: &Tensor<T>, f: impl Fn(T) -> T) -> FerrotorchR
 }
 
 /// Apply a binary function elementwise on two tensors with broadcasting.
+///
+/// Uses stride-based iteration with an N-D counter (odometer pattern) to
+/// avoid per-element modulo/division. The innermost dimension is iterated
+/// as a tight loop when both inputs are contiguous there.
 pub fn binary_map<T: Float>(
     a: &Tensor<T>,
     b: &Tensor<T>,
     f: impl Fn(T, T) -> T,
 ) -> FerrotorchResult<Tensor<T>> {
+    // Materialize non-contiguous views for data() access.
+    let a = if a.is_contiguous() { a.clone() } else { a.contiguous()? };
+    let b = if b.is_contiguous() { b.clone() } else { b.contiguous()? };
+
     // Same-shape fast path.
     if a.shape() == b.shape() {
         let a_data = a.data()?;
@@ -498,27 +506,54 @@ pub fn binary_map<T: Float>(
         return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
     }
 
-    // Broadcasting path with precomputed strides.
+    // Broadcasting path with stride-based N-D counter (odometer pattern).
     let out_shape = broadcast_shapes(a.shape(), b.shape())?;
     let out_numel: usize = out_shape.iter().product();
+    // strides: outermost-first, (a_stride, b_stride, out_dim)
     let strides = precompute_broadcast_strides(a.shape(), b.shape(), &out_shape);
-    let mut result = Vec::with_capacity(out_numel);
+    let ndim = strides.len();
 
     let a_data = a.data()?;
     let b_data = b.data()?;
 
-    for i in 0..out_numel {
-        let mut a_idx = 0usize;
-        let mut b_idx = 0usize;
-        let mut rem = i;
-        // Walk dimensions from innermost to outermost (strides stored reversed).
-        for &(a_stride, b_stride, out_dim) in strides.iter().rev() {
-            let coord = rem % out_dim;
-            rem /= out_dim;
-            a_idx += coord * a_stride;
-            b_idx += coord * b_stride;
+    // Separate the innermost dimension for a tight inner loop.
+    let inner_dim = strides[ndim - 1].2;
+    let inner_a_stride = strides[ndim - 1].0;
+    let inner_b_stride = strides[ndim - 1].1;
+    let outer_count = out_numel / inner_dim.max(1);
+
+    let mut result = Vec::with_capacity(out_numel);
+
+    // N-D counter for the outer dimensions (indices 0..ndim-1).
+    let mut coords = vec![0usize; ndim];
+    let mut a_base = 0usize;
+    let mut b_base = 0usize;
+
+    for _ in 0..outer_count {
+        // Inner loop: iterate over the innermost dimension.
+        let mut a_idx = a_base;
+        let mut b_idx = b_base;
+        for _ in 0..inner_dim {
+            result.push(f(a_data[a_idx], b_data[b_idx]));
+            a_idx += inner_a_stride;
+            b_idx += inner_b_stride;
         }
-        result.push(f(a_data[a_idx], b_data[b_idx]));
+
+        // Increment the N-D counter (odometer carry, innermost outer dim first).
+        // This is O(1) amortized — carry propagates rarely.
+        for d in (0..ndim - 1).rev() {
+            coords[d] += 1;
+            let (a_s, b_s, dim_size) = strides[d];
+            if coords[d] < dim_size {
+                a_base += a_s;
+                b_base += b_s;
+                break;
+            }
+            // Carry: reset this dimension, adjust base indices.
+            coords[d] = 0;
+            a_base -= a_s * (dim_size - 1);
+            b_base -= b_s * (dim_size - 1);
+        }
     }
 
     Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)
