@@ -1,0 +1,8 @@
+{
+  "uuid": "c602d1dc-4566-4e77-9ca2-ff94015b0e19",
+  "issue_uuid": "766f2ac8-75e5-4252-b774-61b94ec02020",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Rewrote im2col_cpu with cache-friendly tiling. The interior region (no padding) runs a branchless fast path with sequential input reads and sequential output writes. Padded border regions handled separately with bounds checks. Precomputes safe oh/ow interior ranges to avoid per-element branching.\n\nKey change: inner loop now reads consecutive input pixels (stride_w apart) and writes to consecutive col positions, keeping both in L1 cache. 12 gpu conv + 46 nn conv tests pass.",
+  "created_at": "2026-03-25T16:50:31.972013011Z",
+  "kind": "result"
+}
