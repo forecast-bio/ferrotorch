@@ -1,0 +1,8 @@
+{
+  "uuid": "66bed5dd-f6f9-4769-8757-310f8e8c704e",
+  "issue_uuid": "cbcd8d69-f456-46bd-b78b-0a31f3d8fd59",
+  "author": "anon-a7c6025f",
+  "content": "Delivered: Pattern fusion pass with two pattern detectors:\n1. fuse_linear_activation — detects Linear→Activation (Relu/Gelu/Silu/Sigmoid/Tanh) and replaces with FusedLinearActivation node\n2. fuse_attention_pattern — detects Matmul→Scale→Softmax→Matmul (SDPA) and replaces with FusedAttention node\nBoth run in pattern_fuse() before elementwise fusion in the optimizer pipeline. New IrOpKind variants: FusedLinearActivation, FusedAttention. 224 JIT tests pass.",
+  "created_at": "2026-03-25T16:10:36.117995661Z",
+  "kind": "result"
+}
