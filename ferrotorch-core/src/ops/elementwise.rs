@@ -18,7 +18,13 @@ use rayon::prelude::*;
 /// 1M f32s = 4 MiB — below this the per-element SIMD kernel is fast enough
 /// that rayon's work-stealing overhead dominates. At 1M+ elements the memory
 /// bandwidth saturates a single core and parallelism helps.
-const PARALLEL_THRESHOLD: usize = 2_000_000;
+/// Minimum number of elements before splitting work across rayon threads.
+///
+/// PyTorch uses 32K as the grain size (at::internal::GRAIN_SIZE). The
+/// previous value of 2M left tensors with 32K–2M elements single-threaded,
+/// which is a significant missed parallelism window for typical NN layer
+/// sizes (embedding dims, hidden states, etc.).
+const PARALLEL_THRESHOLD: usize = 32_768;
 
 // --- SIMD-accelerated specializations for f32 ---
 
