@@ -4,22 +4,23 @@
 //!
 //! This is meant to be run as a standalone binary via the ferrotorch crate.
 
+use std::hint::black_box;
 use std::time::Instant;
 
 use ferrotorch_core::*;
 use ferrotorch_nn::*;
 use ferrotorch_optim::*;
 
-fn bench<F>(name: &str, warmup: usize, iters: usize, mut f: F) -> f64
+fn bench<R, F>(name: &str, warmup: usize, iters: usize, mut f: F) -> f64
 where
-    F: FnMut(),
+    F: FnMut() -> R,
 {
     for _ in 0..warmup {
-        f();
+        black_box(f());
     }
     let start = Instant::now();
     for _ in 0..iters {
-        f();
+        black_box(f());
     }
     let elapsed = start.elapsed().as_secs_f64() / iters as f64 * 1e6; // microseconds
     println!("  {name}: {elapsed:.1} us");
@@ -38,10 +39,10 @@ fn main() -> FerrotorchResult<()> {
     // 1. Tensor creation
     println!("\n--- Tensor Creation ---");
     bench("zeros [1000,1000]", 5, 100, || {
-        let _ = zeros::<f32>(&[1000, 1000]).unwrap();
+        zeros::<f32>(&[1000, 1000]).unwrap()
     });
     bench("rand [1000,1000]", 5, 100, || {
-        let _ = rand::<f32>(&[1000, 1000]).unwrap();
+        rand::<f32>(&[1000, 1000]).unwrap()
     });
 
     // 2. Elementwise ops
@@ -49,16 +50,16 @@ fn main() -> FerrotorchResult<()> {
     let a = rand::<f32>(&[1000, 1000])?;
     let b = rand::<f32>(&[1000, 1000])?;
     bench("add [1000,1000]", 5, 100, || {
-        let _ = (&a + &b).unwrap();
+        (&a + &b).unwrap()
     });
     bench("mul [1000,1000]", 5, 100, || {
-        let _ = (&a * &b).unwrap();
+        (&a * &b).unwrap()
     });
     bench("relu [1000,1000]", 5, 100, || {
-        let _ = a.relu().unwrap();
+        a.relu().unwrap()
     });
     bench("sigmoid [1000,1000]", 5, 100, || {
-        let _ = a.sigmoid().unwrap();
+        a.sigmoid().unwrap()
     });
 
     // 3. Matrix multiply
@@ -68,7 +69,7 @@ fn main() -> FerrotorchResult<()> {
         let b = rand::<f32>(&[size, size])?;
         let iters = if size <= 256 { 100 } else { 20 };
         bench(&format!("matmul [{size},{size}]"), 5, iters, || {
-            let _ = a.matmul(&b).unwrap();
+            a.matmul(&b).unwrap()
         });
     }
 
@@ -81,7 +82,7 @@ fn main() -> FerrotorchResult<()> {
     ]);
     let x_mlp = rand::<f32>(&[32, 784])?;
     bench("MLP forward B=32", 5, 100, || {
-        let _ = mlp.forward(&x_mlp).unwrap();
+        mlp.forward(&x_mlp).unwrap()
     });
 
     // 5. Backward pass
@@ -128,49 +129,48 @@ fn main() -> FerrotorchResult<()> {
     println!("\n--- Transcendental Ops ---");
     let t = rand::<f32>(&[1000, 1000])?;
     bench("exp [1000,1000]", 5, 100, || {
-        let _ = exp(&t).unwrap();
+        exp(&t).unwrap()
     });
     // log needs positive input
     let t_pos = (&t + &scalar::<f32>(1.0)?)?;
     bench("log [1000,1000]", 5, 100, || {
-        let _ = log(&t_pos).unwrap();
+        log(&t_pos).unwrap()
     });
     bench("sin [1000,1000]", 5, 100, || {
-        let _ = sin(&t).unwrap();
+        sin(&t).unwrap()
     });
     bench("cos [1000,1000]", 5, 100, || {
-        let _ = cos(&t).unwrap();
+        cos(&t).unwrap()
     });
     bench("tanh [1000,1000]", 5, 100, || {
-        let _ = tanh(&t).unwrap();
+        tanh(&t).unwrap()
     });
 
     // 8. Reduction ops with axis
     println!("\n--- Reduction Ops (with axis) ---");
     let r = rand::<f32>(&[1000, 1000])?;
     bench("sum_all [1000,1000]", 5, 100, || {
-        let _ = r.sum_all().unwrap();
+        r.sum_all().unwrap()
     });
     bench("sum dim=0 [1000,1000]", 5, 100, || {
-        let _ = sum_dim(&r, 0).unwrap();
+        sum_dim(&r, 0, false).unwrap()
     });
     bench("mean dim=1 [1000,1000]", 5, 100, || {
-        let _ = mean_dim(&r, 1).unwrap();
+        mean_dim(&r, 1, false).unwrap()
     });
 
     // 9. Tensor manipulation ops
     println!("\n--- Tensor Manipulation ---");
     let m = rand::<f32>(&[1000, 1000])?;
     bench("permute [1000,1000]", 5, 100, || {
-        let _ = permute_t(&m, &[1, 0]).unwrap();
+        permute_t(&m, &[1, 0]).unwrap().contiguous().unwrap()
     });
     bench("chunk [1000,1000] into 4", 5, 100, || {
-        let _ = chunk_t(&m, 4, 0).unwrap();
+        chunk_t(&m, 4, 0).unwrap()
     });
     let chunks: Vec<Tensor<f32>> = chunk_t(&m, 4, 0)?;
-    let chunk_refs: Vec<&Tensor<f32>> = chunks.iter().collect();
     bench("cat [4x 250,1000]", 5, 100, || {
-        let _ = cat(&chunk_refs, 0).unwrap();
+        cat(&chunks, 0).unwrap()
     });
 
     // 10. GRU forward pass
@@ -178,7 +178,7 @@ fn main() -> FerrotorchResult<()> {
     let gru = GRU::new(128, 256)?;
     let x_gru = rand::<f32>(&[16, 32, 128])?;
     bench("GRU forward (128->256, seq=32, B=16)", 5, 50, || {
-        let _ = gru.forward(&x_gru).unwrap();
+        gru.forward(&x_gru, None).unwrap()
     });
 
     // 11. Larger MLP (784->512->256->10)
@@ -192,7 +192,7 @@ fn main() -> FerrotorchResult<()> {
     ]);
     let x_large = rand::<f32>(&[128, 784])?;
     bench("MLP forward B=128 (784->512->256->10)", 5, 50, || {
-        let _ = mlp_large.forward(&x_large).unwrap();
+        mlp_large.forward(&x_large).unwrap()
     });
     bench("MLP backward B=128", 3, 30, || {
         let x = rand::<f32>(&[128, 784]).unwrap().requires_grad_(true);
@@ -231,7 +231,7 @@ fn main() -> FerrotorchResult<()> {
     let conv = Conv2d::<f32>::new(3, 16, (3, 3), (1, 1), (0, 0), true)?;
     let x_conv = rand::<f32>(&[32, 3, 32, 32])?;
     bench("Conv2d forward [32,3,32,32]->[32,16,30,30]", 5, 50, || {
-        let _ = conv.forward(&x_conv).unwrap();
+        conv.forward(&x_conv).unwrap()
     });
 
     // 13. Broadcast operations
@@ -239,22 +239,22 @@ fn main() -> FerrotorchResult<()> {
     let a_bc = rand::<f32>(&[1000, 1])?;
     let b_bc = rand::<f32>(&[1, 1000])?;
     bench("broadcast add [1000,1]+[1,1000]", 5, 100, || {
-        let _ = (&a_bc + &b_bc).unwrap();
+        (&a_bc + &b_bc).unwrap()
     });
     let a_bc3 = rand::<f32>(&[64, 1, 256])?;
     let b_bc3 = rand::<f32>(&[1, 128, 1])?;
     bench("broadcast mul [64,1,256]*[1,128,1]", 5, 100, || {
-        let _ = (&a_bc3 * &b_bc3).unwrap();
+        (&a_bc3 * &b_bc3).unwrap()
     });
 
     // 14. Creation ops
     println!("\n--- Creation Ops (like) ---");
     let tpl = rand::<f32>(&[1000, 1000])?;
     bench("zeros_like [1000,1000]", 5, 100, || {
-        let _ = zeros_like(&tpl).unwrap();
+        zeros_like(&tpl).unwrap()
     });
     bench("randn_like [1000,1000]", 5, 100, || {
-        let _ = randn_like(&tpl).unwrap();
+        randn_like(&tpl).unwrap()
     });
 
     println!("\n{}", "=".repeat(60));
