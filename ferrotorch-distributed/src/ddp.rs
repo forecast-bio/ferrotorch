@@ -99,56 +99,47 @@ impl<M: Module<T>, T: Float> DDP<M, T> {
     /// Call this after `backward()` and before `optimizer.step()`.
     pub fn sync_gradients(&self) -> FerrotorchResult<()> {
         let params = self.module.parameters();
-
         for bucket in &self.buckets {
-            // Build flat buffer for this bucket.
-            let mut flat_data: Vec<T> = Vec::new();
-            let mut param_numels: Vec<usize> = Vec::new();
+            sync_one_bucket::<T>(bucket, &params, self.backend.as_ref())?;
+        }
+        Ok(())
+    }
 
-            for &pi in bucket {
-                let param = &params[pi];
-                let numel = param.tensor().numel();
-                param_numels.push(numel);
+    /// Allreduce parameter gradients with bucket-level parallelism.
+    ///
+    /// Like [`sync_gradients`], but processes all buckets concurrently using
+    /// `std::thread::scope`. Each bucket's allreduce runs in its own thread,
+    /// overlapping communication across buckets. All threads complete before
+    /// this method returns.
+    ///
+    /// This provides communication/computation overlap when backward and
+    /// sync run on different threads, and communication overlap across
+    /// buckets even in the synchronous case.
+    pub fn overlapped_sync_gradients(&self) -> FerrotorchResult<()> {
+        let params = self.module.parameters();
 
-                let grad = param.tensor().grad()?;
-                match grad {
-                    Some(g) => {
-                        let data = g.data_vec()?;
-                        flat_data.extend(data);
+        // Collect errors from threads.
+        let errors: std::sync::Mutex<Vec<ferrotorch_core::error::FerrotorchError>> =
+            std::sync::Mutex::new(Vec::new());
+
+        std::thread::scope(|s| {
+            for bucket in &self.buckets {
+                let params_ref = &params;
+                let backend_ref = self.backend.as_ref();
+                let errors_ref = &errors;
+
+                s.spawn(move || {
+                    let result = sync_one_bucket::<T>(bucket, params_ref, backend_ref);
+                    if let Err(e) = result {
+                        errors_ref.lock().unwrap().push(e);
                     }
-                    None => {
-                        flat_data.extend(
-                            std::iter::repeat_n(<T as num_traits::Zero>::zero(), numel),
-                        );
-                    }
-                }
+                });
             }
+        });
 
-            if flat_data.is_empty() {
-                continue;
-            }
-
-            // Allreduce this bucket.
-            let flat_tensor = Tensor::from_storage(
-                TensorStorage::cpu(flat_data),
-                vec![param_numels.iter().sum()],
-                false,
-            )?;
-            let synced = allreduce(&flat_tensor, self.backend.as_ref(), ReduceOp::Mean)?;
-            let synced_data = synced.data()?;
-
-            // Scatter back to per-parameter gradients.
-            let mut offset = 0;
-            for (&pi, &numel) in bucket.iter().zip(param_numels.iter()) {
-                let grad_slice = &synced_data[offset..offset + numel];
-                let grad_tensor = Tensor::from_storage(
-                    TensorStorage::cpu(grad_slice.to_vec()),
-                    params[pi].tensor().shape().to_vec(),
-                    false,
-                )?;
-                params[pi].tensor().set_grad(Some(grad_tensor))?;
-                offset += numel;
-            }
+        let errs = errors.into_inner().unwrap();
+        if let Some(e) = errs.into_iter().next() {
+            return Err(e);
         }
 
         Ok(())
@@ -247,6 +238,59 @@ fn compute_buckets<T: Float>(
     }
 
     buckets
+}
+
+/// Allreduce a single bucket's gradients.
+///
+/// Builds a flat buffer from the bucket's parameter gradients, allreduces,
+/// and scatters the result back. Used by both `sync_gradients` (serial)
+/// and `overlapped_sync_gradients` (parallel).
+fn sync_one_bucket<T: Float>(
+    bucket: &[usize],
+    params: &[&Parameter<T>],
+    backend: &dyn Backend,
+) -> FerrotorchResult<()> {
+    let mut flat_data: Vec<T> = Vec::new();
+    let mut param_numels: Vec<usize> = Vec::new();
+
+    for &pi in bucket {
+        let numel = params[pi].tensor().numel();
+        param_numels.push(numel);
+
+        let grad = params[pi].tensor().grad()?;
+        match grad {
+            Some(g) => flat_data.extend(g.data_vec()?),
+            None => {
+                flat_data.extend(std::iter::repeat_n(<T as num_traits::Zero>::zero(), numel));
+            }
+        }
+    }
+
+    if flat_data.is_empty() {
+        return Ok(());
+    }
+
+    let flat_tensor = Tensor::from_storage(
+        TensorStorage::cpu(flat_data),
+        vec![param_numels.iter().sum()],
+        false,
+    )?;
+    let synced = allreduce(&flat_tensor, backend, ReduceOp::Mean)?;
+    let synced_data = synced.data()?;
+
+    let mut offset = 0;
+    for (&pi, &numel) in bucket.iter().zip(param_numels.iter()) {
+        let grad_slice = &synced_data[offset..offset + numel];
+        let grad_tensor = Tensor::from_storage(
+            TensorStorage::cpu(grad_slice.to_vec()),
+            params[pi].tensor().shape().to_vec(),
+            false,
+        )?;
+        params[pi].tensor().set_grad(Some(grad_tensor))?;
+        offset += numel;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
