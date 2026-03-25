@@ -2,11 +2,12 @@
   "uuid": "1100bf0b-664e-4766-a4cd-f7faf9858a4b",
   "display_id": 158,
   "title": "Add full linear algebra operations to ferrotorch-core (svd, solve, det, inv, qr, cholesky, matrix_norm, pinv) delegating to ferray-linalg",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-15T20:30:00.169068837Z",
-  "updated_at": "2026-03-15T20:30:02.341964735Z",
+  "updated_at": "2026-03-25T13:07:28.494109256Z",
+  "closed_at": "2026-03-25T13:07:28.494109256Z",
   "labels": [
     "enhancement"
   ]
