@@ -2,11 +2,12 @@
   "uuid": "bafb2088-3053-4987-aa4e-d590b1bbb5c9",
   "display_id": 315,
   "title": "Add InstanceNorm, MaxPool1d/3d, AvgPool1d/3d, AdaptiveMaxPool2d, MaxUnpool2d",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T12:00:43.474065719Z",
-  "updated_at": "2026-03-24T12:00:45.014549602Z",
+  "updated_at": "2026-03-25T13:15:29.840193323Z",
+  "closed_at": "2026-03-25T13:15:29.840193323Z",
   "labels": [
     "feature"
   ]
