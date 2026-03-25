@@ -715,6 +715,48 @@ pub trait GpuBackend: Send + Sync {
         })
     }
 
+    /// GPU MaxPool2d forward.
+    #[allow(clippy::too_many_arguments)]
+    fn maxpool2d_f32(
+        &self,
+        _input: &GpuBufferHandle,
+        _batch: usize,
+        _channels: usize,
+        _h_in: usize,
+        _w_in: usize,
+        _kh: usize,
+        _kw: usize,
+        _sh: usize,
+        _sw: usize,
+        _ph: usize,
+        _pw: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, [usize; 4])> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "maxpool2d_f32 GPU op not yet implemented".into(),
+        })
+    }
+
+    /// GPU AvgPool2d forward.
+    #[allow(clippy::too_many_arguments)]
+    fn avgpool2d_f32(
+        &self,
+        _input: &GpuBufferHandle,
+        _batch: usize,
+        _channels: usize,
+        _h_in: usize,
+        _w_in: usize,
+        _kh: usize,
+        _kw: usize,
+        _sh: usize,
+        _sw: usize,
+        _ph: usize,
+        _pw: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, [usize; 4])> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "avgpool2d_f32 GPU op not yet implemented".into(),
+        })
+    }
+
     /// GPU Conv2d forward: im2col + GEMM + bias add, entirely on-device.
     ///
     /// Returns `(output_handle, output_shape)` where output_shape is `[B, C_out, H_out, W_out]`.

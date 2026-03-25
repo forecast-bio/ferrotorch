@@ -414,6 +414,52 @@ impl GpuBackend for CudaBackendImpl {
     }
 
     #[allow(clippy::too_many_arguments)]
+    fn maxpool2d_f32(
+        &self,
+        input: &GpuBufferHandle,
+        batch: usize,
+        channels: usize,
+        h_in: usize,
+        w_in: usize,
+        kh: usize,
+        kw: usize,
+        sh: usize,
+        sw: usize,
+        ph: usize,
+        pw: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, [usize; 4])> {
+        let buf = Self::unwrap_buffer(input)?;
+        let dev = self.device(input.device_ordinal())?;
+        let (out, shape) = crate::kernels::gpu_maxpool2d(
+            buf, batch, channels, h_in, w_in, kh, kw, sh, sw, ph, pw, dev,
+        ).map_err(Self::map_gpu_err)?;
+        Ok((Self::wrap_buffer(out, input.device_ordinal()), shape))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn avgpool2d_f32(
+        &self,
+        input: &GpuBufferHandle,
+        batch: usize,
+        channels: usize,
+        h_in: usize,
+        w_in: usize,
+        kh: usize,
+        kw: usize,
+        sh: usize,
+        sw: usize,
+        ph: usize,
+        pw: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, [usize; 4])> {
+        let buf = Self::unwrap_buffer(input)?;
+        let dev = self.device(input.device_ordinal())?;
+        let (out, shape) = crate::kernels::gpu_avgpool2d(
+            buf, batch, channels, h_in, w_in, kh, kw, sh, sw, ph, pw, dev,
+        ).map_err(Self::map_gpu_err)?;
+        Ok((Self::wrap_buffer(out, input.device_ordinal()), shape))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn conv2d_f32(
         &self,
         input: &GpuBufferHandle,
