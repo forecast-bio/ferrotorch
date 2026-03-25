@@ -1457,9 +1457,9 @@ dependencies = [
 
 [[package]]
 name = "ferray-core"
-version = "0.2.5"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbd093c7989fdac2fd8a91798019b348c588523d204596916282bff80081889e"
+checksum = "939243941f23aa644f85c0ac74649796d7698c1e213bff96abe853baf6c7da4c"
 dependencies = [
  "ferray-core-macros",
  "half",
@@ -1471,9 +1471,9 @@ dependencies = [
 
 [[package]]
 name = "ferray-core-macros"
-version = "0.2.5"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3f18765f864efaf1b3fe79a3becb46167f1393c967ad02e4532a2ff2d9d52b6"
+checksum = "69d62b0ec84c387b78fa1b75dccc1103066c795e54cb7bf2f8d598161f15c82d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1482,9 +1482,9 @@ dependencies = [
 
 [[package]]
 name = "ferray-linalg"
-version = "0.2.5"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7ea3e470f7a5ff31175ac76db7ee09ed3ac5ec71a59442a68cc9302dd2d57d7"
+checksum = "ae25f71b95ec4ccbff2ab991a85d449dcc2ac81a7c3ee818680dd0869b7d0f27"
 dependencies = [
  "faer",
  "faer-traits",
@@ -1497,20 +1497,21 @@ dependencies = [
 
 [[package]]
 name = "ferray-random"
-version = "0.2.5"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8024dc8ecddd4cbfb5d12d6783295028ec52eef5c5a57325453ea08a85aacc7"
+checksum = "fb11f7fc9e036f2e0a779da2a7cc87a32b82ab87390bcd99fe00b4b051d62f87"
 dependencies = [
  "ferray-core",
+ "getrandom 0.2.17",
  "rand_core 0.6.4",
  "rayon",
 ]
 
 [[package]]
 name = "ferray-ufunc"
-version = "0.2.5"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07217428239b6beccc65dd606afa186dd52e9892e0e2964ff9d5406d48ae86d7"
+checksum = "743d567de028ede41f84f6ddad2870c64fde308fc0ee5bb0d7cac1329f6baba7"
 dependencies = [
  "core-math",
  "ferray-core",
