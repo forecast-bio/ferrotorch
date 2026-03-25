@@ -7,7 +7,7 @@
 
 use ferrotorch_core::grad_fns::activation::softmax;
 use ferrotorch_core::grad_fns::arithmetic::{add, mul};
-use ferrotorch_core::grad_fns::linalg::mm_differentiable;
+use ferrotorch_core::grad_fns::linalg::{bmm_differentiable, mm_differentiable};
 use ferrotorch_core::grad_fns::shape::{expand, transpose_2d};
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
@@ -288,41 +288,43 @@ impl<T: Float> MultiheadAttention<T> {
             let k_heads = reshape_to_heads(&k_proj, self.num_heads, seq_k, self.head_dim)?;
             let v_heads = reshape_to_heads(&v_proj, self.num_heads, seq_k, self.head_dim)?;
 
-            // Per-head attention (loop over heads since we lack batched matmul).
-            let mut head_outputs: Vec<Tensor<T>> = Vec::with_capacity(self.num_heads);
+            // Batched attention: all heads in parallel via bmm.
+            // q_heads, k_heads, v_heads are [num_heads, seq, head_dim].
 
-            for h in 0..self.num_heads {
-                // Extract head slice: [seq, head_dim]
-                let q_h = extract_batch_slice(&q_heads, h)?;
-                let k_h = extract_batch_slice(&k_heads, h)?;
-                let v_h = extract_batch_slice(&v_heads, h)?;
+            // K^T via permute [0,2,1] → [num_heads, head_dim, seq_k] (zero-copy).
+            let k_heads_t = k_heads.permute(&[0, 2, 1])?;
+            let k_heads_t = k_heads_t.contiguous()?;
 
-                // scores = Q_h @ K_h.T -> [seq_q, seq_k]
-                let k_h_t = transpose_2d(&k_h)?;
-                let scores = mm_differentiable(&q_h, &k_h_t)?;
+            // scores = Q @ K^T → [num_heads, seq_q, seq_k]
+            let scores = bmm_differentiable(&q_heads, &k_heads_t)?;
 
-                // Scale: scores / sqrt(head_dim)
-                let scale_expanded = expand_scalar_to_2d(&scale, seq_q, seq_k)?;
-                let scaled_scores = mul(&scores, &scale_expanded)?;
+            // Scale: scores * (1/sqrt(head_dim))
+            let scale_val = scale.data_vec()?[0];
+            let scale_data = vec![scale_val; scores.numel()];
+            let scale_tensor = Tensor::from_storage(
+                TensorStorage::on_device(scale_data, scores.device())?,
+                scores.shape().to_vec(),
+                false,
+            )?;
+            let scaled_scores = mul(&scores, &scale_tensor)?;
 
-                // Apply causal mask if requested.
-                let masked_scores = if causal_mask {
-                    apply_causal_mask(&scaled_scores, seq_q)?
-                } else {
-                    scaled_scores
-                };
+            // Apply causal mask if requested (broadcast over heads).
+            let masked_scores = if causal_mask {
+                apply_causal_mask_3d(&scaled_scores, self.num_heads, seq_q)?
+            } else {
+                scaled_scores
+            };
 
-                // Softmax along last dim (each row).
-                let weights = softmax(&masked_scores)?;
+            // Softmax along last dim → [num_heads, seq_q, seq_k]
+            let weights = softmax(&masked_scores)?;
 
-                // context = weights @ V_h -> [seq_q, head_dim]
-                let context_h = mm_differentiable(&weights, &v_h)?;
+            // context = weights @ V → [num_heads, seq_q, head_dim]
+            let context_3d = bmm_differentiable(&weights, &v_heads)?;
 
-                head_outputs.push(context_h);
-            }
-
-            // Concatenate heads: each is [seq_q, head_dim] -> combine to [seq_q, embed_dim].
-            let context = concat_heads(&head_outputs, seq_q, self.num_heads, self.head_dim)?;
+            // Reshape [num_heads, seq_q, head_dim] → [seq_q, embed_dim]
+            let context = transpose_heads_to_2d(
+                &context_3d, self.num_heads, seq_q, self.head_dim,
+            )?;
 
             // Output projection: context @ W_O.T -> [seq_q, embed_dim]
             let mut output = mm_differentiable(&context, &wo_t)?;
@@ -586,6 +588,63 @@ fn concat_heads<T: Float>(
     }
 
     Tensor::from_storage(TensorStorage::cpu(result), vec![seq_len, embed_dim], false)
+}
+
+/// Transpose [num_heads, seq, head_dim] → [seq, num_heads * head_dim] = [seq, embed_dim].
+///
+/// Inverse of `reshape_to_heads` for the batched attention output.
+fn transpose_heads_to_2d<T: Float>(
+    tensor: &Tensor<T>,
+    num_heads: usize,
+    seq_len: usize,
+    head_dim: usize,
+) -> FerrotorchResult<Tensor<T>> {
+    let embed_dim = num_heads * head_dim;
+    let data = tensor.data_vec()?;
+    let mut result = vec![<T as num_traits::Zero>::zero(); seq_len * embed_dim];
+
+    for h in 0..num_heads {
+        for s in 0..seq_len {
+            for d in 0..head_dim {
+                let src_idx = h * (seq_len * head_dim) + s * head_dim + d;
+                let dst_idx = s * embed_dim + h * head_dim + d;
+                result[dst_idx] = data[src_idx];
+            }
+        }
+    }
+
+    let device = tensor.device();
+    Tensor::from_storage(
+        TensorStorage::on_device(result, device)?,
+        vec![seq_len, embed_dim],
+        false,
+    )
+}
+
+/// Apply causal mask to 3D scores [num_heads, seq_q, seq_k].
+fn apply_causal_mask_3d<T: Float>(
+    scores: &Tensor<T>,
+    num_heads: usize,
+    seq_len: usize,
+) -> FerrotorchResult<Tensor<T>> {
+    let neg_inf = T::from(-1e9).unwrap();
+    let mut masked = scores.data_vec()?;
+
+    for h in 0..num_heads {
+        let offset = h * seq_len * seq_len;
+        for i in 0..seq_len {
+            for j in (i + 1)..seq_len {
+                masked[offset + i * seq_len + j] = neg_inf;
+            }
+        }
+    }
+
+    let device = scores.device();
+    Tensor::from_storage(
+        TensorStorage::on_device(masked, device)?,
+        scores.shape().to_vec(),
+        scores.requires_grad(),
+    )
 }
 
 // ===========================================================================
