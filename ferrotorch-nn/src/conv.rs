@@ -653,9 +653,12 @@ impl<T: Float> GradFn<T> for Conv2dBackward<T> {
             None
         };
 
-        // Return order: input grad, weight grad, then bias grad.
-        // The graph engine matches these positionally with inputs().
-        Ok(vec![grad_input, grad_weight, grad_bias])
+        // Return exactly as many gradients as inputs() returns.
+        let mut grads = vec![grad_input, grad_weight];
+        if self.bias.is_some() {
+            grads.push(grad_bias);
+        }
+        Ok(grads)
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -1088,7 +1091,11 @@ impl<T: Float> GradFn<T> for Conv1dBackward<T> {
             None
         };
 
-        Ok(vec![grad_input, grad_weight, grad_bias])
+        let mut grads = vec![grad_input, grad_weight];
+        if self.bias.is_some() {
+            grads.push(grad_bias);
+        }
+        Ok(grads)
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -1658,7 +1665,11 @@ impl<T: Float> GradFn<T> for ConvTranspose2dBackward<T> {
             _ => None,
         };
 
-        Ok(vec![grad_input, grad_weight, grad_bias])
+        let mut grads = vec![grad_input, grad_weight];
+        if self.bias.is_some() {
+            grads.push(grad_bias);
+        }
+        Ok(grads)
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {

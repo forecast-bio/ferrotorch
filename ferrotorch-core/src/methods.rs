@@ -506,7 +506,40 @@ pub fn contiguous_t<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
     let device = input.device();
     let data = input.data_vec()?;
     let storage = TensorStorage::on_device(data, device)?;
-    Tensor::from_storage(storage, input.shape().to_vec(), input.requires_grad())
+
+    // Preserve the autograd graph: contiguous is a pure data copy, so the
+    // backward is the identity (same shape, same semantics). Without this,
+    // calling .contiguous() on a non-contiguous view severs the grad_fn chain.
+    if crate::autograd::no_grad::is_grad_enabled() && input.requires_grad() {
+        let grad_fn = std::sync::Arc::new(ContiguousBackward { input: input.clone() });
+        Tensor::from_operation(storage, input.shape().to_vec(), grad_fn)
+    } else {
+        Tensor::from_storage(storage, input.shape().to_vec(), false)
+    }
+}
+
+/// Backward for contiguous: gradient passes through unchanged (identity).
+#[derive(Debug)]
+struct ContiguousBackward<T: Float> {
+    input: Tensor<T>,
+}
+
+impl<T: Float> crate::tensor::GradFn<T> for ContiguousBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        if self.input.requires_grad() {
+            Ok(vec![Some(grad_output.clone())])
+        } else {
+            Ok(vec![None])
+        }
+    }
+
+    fn inputs(&self) -> Vec<&Tensor<T>> {
+        vec![&self.input]
+    }
+
+    fn name(&self) -> &'static str {
+        "ContiguousBackward"
+    }
 }
 
 /// Split tensor into `chunks` roughly equal pieces along `dim`.

@@ -1390,6 +1390,134 @@ DONE:
 }
 ";
 
+/// PTX source for `gelu_backward_erf_kernel`:
+/// Exact GELU backward using erf: `d/dx gelu(x) = Φ(x) + x·φ(x)`
+/// where `Φ(x) = 0.5·(1 + erf(x/√2))` and `φ(x) = exp(-x²/2) / √(2π)`.
+///
+/// Uses Abramowitz & Stegun formula 7.1.26 for erf (|ε| < 1.5×10⁻⁷):
+///   `erf(x) = 1 - (a₁t + a₂t² + a₃t³ + a₄t⁴ + a₅t⁵) · exp(-x²)`
+///   where `t = 1/(1 + 0.3275911·|x|)`
+#[cfg(feature = "cuda")]
+pub(crate) const GELU_BACKWARD_ERF_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry gelu_backward_erf_kernel(
+    .param .u64 grad_ptr,
+    .param .u64 input_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %grad, %input, %out, %off;
+    .reg .f32 %vg, %x, %ax, %z, %z2, %neg_z2, %exp_neg_z2;
+    .reg .f32 %t, %pt, %one, %half, %erf_val, %cdf, %pdf;
+    .reg .f32 %neg_x2h, %exp_neg_x2h, %inv_sqrt_2pi, %x_pdf;
+    .reg .f32 %d_gelu, %result;
+    .reg .f32 %p, %a1, %a2, %a3, %a4, %a5, %log2e;
+    .reg .pred %pred_ge, %pred_neg;
+
+    ld.param.u64 %grad, [grad_ptr];
+    ld.param.u64 %input, [input_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %pred_ge, %r_tid, %n_reg;
+    @%pred_ge bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %grad, %grad, %off;
+    add.u64 %input, %input, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %vg, [%grad];
+    ld.global.f32 %x, [%input];
+
+    mov.f32 %one, 0f3F800000;
+    mov.f32 %half, 0f3F000000;
+
+    // z = x / sqrt(2) = x * 0.70710678
+    mov.f32 %z, 0f3F3504F3;
+    mul.f32 %z, %x, %z;
+
+    // |z| for erf(|z|)
+    abs.f32 %ax, %z;
+
+    // t = 1 / (1 + 0.3275911 * |z|)
+    mov.f32 %p, 0f3EA7BA05;
+    mul.f32 %t, %p, %ax;
+    add.f32 %t, %one, %t;
+    rcp.approx.f32 %t, %t;
+
+    // Horner: poly = t*(a1 + t*(a2 + t*(a3 + t*(a4 + t*a5))))
+    mov.f32 %a5, 0f3E0AAAAB;
+    mov.f32 %a4, 0fBEB3A903;
+    mov.f32 %a3, 0f3FB506DD;
+    mov.f32 %a2, 0fBF03C1E1;
+    mov.f32 %a1, 0f3EA0D6BB;
+
+    mul.f32 %pt, %t, %a5;
+    add.f32 %pt, %pt, %a4;
+    mul.f32 %pt, %pt, %t;
+    add.f32 %pt, %pt, %a3;
+    mul.f32 %pt, %pt, %t;
+    add.f32 %pt, %pt, %a2;
+    mul.f32 %pt, %pt, %t;
+    add.f32 %pt, %pt, %a1;
+    mul.f32 %pt, %pt, %t;
+
+    // exp(-z^2) via ex2.approx: exp(y) = 2^(y * log2(e))
+    mul.f32 %z2, %ax, %ax;
+    neg.f32 %neg_z2, %z2;
+    mov.f32 %log2e, 0f3FB8AA3B;
+    mul.f32 %neg_z2, %neg_z2, %log2e;
+    ex2.approx.f32 %exp_neg_z2, %neg_z2;
+
+    // erf(|z|) = 1 - poly * exp(-z^2)
+    mul.f32 %erf_val, %pt, %exp_neg_z2;
+    sub.f32 %erf_val, %one, %erf_val;
+
+    // erf(-z) = -erf(z), so sign-correct
+    setp.lt.f32 %pred_neg, %z, 0f00000000;
+    @%pred_neg neg.f32 %erf_val, %erf_val;
+
+    // Φ(x) = 0.5 * (1 + erf(x/sqrt(2)))
+    add.f32 %cdf, %one, %erf_val;
+    mul.f32 %cdf, %half, %cdf;
+
+    // φ(x) = exp(-x²/2) / sqrt(2π)
+    // exp(-x²/2):
+    mul.f32 %neg_x2h, %x, %x;
+    mul.f32 %neg_x2h, %neg_x2h, %half;
+    neg.f32 %neg_x2h, %neg_x2h;
+    mul.f32 %neg_x2h, %neg_x2h, %log2e;
+    ex2.approx.f32 %exp_neg_x2h, %neg_x2h;
+
+    // 1/sqrt(2π) = 0.39894228
+    mov.f32 %inv_sqrt_2pi, 0f3ECC4220;
+    mul.f32 %pdf, %exp_neg_x2h, %inv_sqrt_2pi;
+
+    // d/dx gelu(x) = Φ(x) + x * φ(x)
+    mul.f32 %x_pdf, %x, %pdf;
+    add.f32 %d_gelu, %cdf, %x_pdf;
+
+    // out = grad * d_gelu
+    mul.f32 %result, %vg, %d_gelu;
+    st.global.f32 [%out], %result;
+
+DONE:
+    ret;
+}
+";
+
 // ---------------------------------------------------------------------------
 // Index-select (1-D gather) PTX kernel
 // ---------------------------------------------------------------------------
@@ -5336,6 +5464,50 @@ pub fn gpu_gelu_backward(
             let k: f32 = 1.702;
             let sig = 1.0 / (1.0 + (-k * x).exp());
             g * (sig + k * x * sig * (1.0 - sig))
+        })
+        .collect();
+    cpu_to_gpu(&result, device)
+}
+
+/// GELU backward (exact erf mode):
+/// `out[i] = grad[i] * (Φ(x) + x·φ(x))`
+/// where Φ = normal CDF, φ = normal PDF.
+#[cfg(feature = "cuda")]
+pub fn gpu_gelu_backward_erf(
+    grad: &CudaBuffer<f32>,
+    input: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    validate_binary(grad, input, device)?;
+
+    if let Some(out) = try_launch_binary(
+        grad,
+        input,
+        device,
+        GELU_BACKWARD_ERF_PTX,
+        "gelu_backward_erf_kernel",
+    )? {
+        return Ok(out);
+    }
+
+    // CPU fallback — Abramowitz & Stegun erf approximation (|ε| < 1.5e-7)
+    let grad_host = gpu_to_cpu(grad, device)?;
+    let input_host = gpu_to_cpu(input, device)?;
+    let inv_sqrt_2: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    let inv_sqrt_2pi: f32 = 1.0 / (2.0 * std::f32::consts::PI).sqrt();
+    let result: Vec<f32> = grad_host
+        .iter()
+        .zip(input_host.iter())
+        .map(|(&g, &x)| {
+            let z = x * inv_sqrt_2;
+            let az = z.abs();
+            let t = 1.0 / (1.0 + 0.3275911 * az);
+            let poly = t * (0.2548296 + t * (-0.2844967 + t * (1.4214137 + t * (-1.4531520 + t * 0.3275911))));
+            let erf_abs = 1.0 - poly * (-az * az).exp();
+            let erf_val = if z >= 0.0 { erf_abs } else { -erf_abs };
+            let cdf = 0.5 * (1.0 + erf_val);
+            let pdf = inv_sqrt_2pi * (-0.5 * x * x).exp();
+            g * (cdf + x * pdf)
         })
         .collect();
     cpu_to_gpu(&result, device)

@@ -439,8 +439,15 @@ pub trait GpuBackend: Send + Sync {
         grad: &GpuBufferHandle,
         input: &GpuBufferHandle,
     ) -> FerrotorchResult<GpuBufferHandle>;
-    // gelu_backward: out[i] = grad[i] * (sig + 1.702*x*sig*(1-sig)) where sig = sigmoid(1.702*x)
+    // gelu_backward (sigmoid approx): out[i] = grad[i] * (sig + 1.702*x*sig*(1-sig))
     fn gelu_backward_f32(
+        &self,
+        grad: &GpuBufferHandle,
+        input: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle>;
+    // gelu_backward (exact erf): out[i] = grad[i] * (Φ(x) + x·φ(x))
+    // where Φ = normal CDF, φ = normal PDF
+    fn gelu_backward_erf_f32(
         &self,
         grad: &GpuBufferHandle,
         input: &GpuBufferHandle,

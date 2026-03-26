@@ -920,6 +920,19 @@ impl GpuBackend for CudaBackendImpl {
         Ok(Self::wrap_buffer(result, grad.device_ordinal()))
     }
 
+    fn gelu_backward_erf_f32(
+        &self,
+        grad: &GpuBufferHandle,
+        input: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let grad_buf = Self::unwrap_buffer(grad)?;
+        let input_buf = Self::unwrap_buffer(input)?;
+        let dev = self.device(grad.device_ordinal())?;
+        let result = crate::kernels::gpu_gelu_backward_erf(grad_buf, input_buf, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, grad.device_ordinal()))
+    }
+
     fn index_select_1d_f32(
         &self,
         input: &GpuBufferHandle,

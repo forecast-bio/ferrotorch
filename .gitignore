@@ -54,3 +54,4 @@ Thumbs.db
 __pycache__/
 .crosslink/
 .claude/worktrees/
+hierarchical-llm-rust/

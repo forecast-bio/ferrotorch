@@ -315,34 +315,9 @@ impl<T: Float> GradFn<T> for DotBackward<T> {
 /// This is a data rearrangement (not a view) that works on any device.
 /// Used by `BmmBackward` to compute `bmm(grad_C, B^T)` and `bmm(A^T, grad_C)`.
 fn batch_transpose<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let batch = input.shape()[0];
-    let r = input.shape()[1];
-    let c = input.shape()[2];
-    let device = input.device();
-
-    // Materialize to contiguous CPU tensor for element access.
-    let cpu_input = if input.is_cuda() {
-        input.cpu()?
-    } else if !input.is_contiguous() {
-        input.contiguous()?
-    } else {
-        input.clone()
-    };
-    let data = cpu_input.data()?;
-    let mut out = vec![<T as num_traits::Zero>::zero(); batch * c * r];
-
-    for bi in 0..batch {
-        let src_off = bi * r * c;
-        let dst_off = bi * c * r;
-        for i in 0..r {
-            for j in 0..c {
-                out[dst_off + j * r + i] = data[src_off + i * c + j];
-            }
-        }
-    }
-
-    let storage = TensorStorage::on_device(out, device)?;
-    Tensor::from_storage(storage, vec![batch, c, r], false)
+    // Use permute + contiguous to transpose dims 1 and 2 entirely on-device.
+    // This avoids the GPU→CPU→GPU roundtrip that dominated BmmBackward cost.
+    input.permute(&[0, 2, 1])?.contiguous()
 }
 
 // ---------------------------------------------------------------------------
@@ -943,7 +918,12 @@ impl<T: Float> GradFn<T> for LinearFusedBackward<T> {
                 None
             };
 
-            return Ok(vec![grad_input, grad_weight, grad_bias]);
+            // Return exactly as many gradients as inputs() returns.
+            let mut grads = vec![grad_input, grad_weight];
+            if self.bias.is_some() {
+                grads.push(grad_bias);
+            }
+            return Ok(grads);
         }
 
         // CPU fallback.

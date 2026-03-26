@@ -300,11 +300,17 @@ impl<T: Float> GeluBackward<T> {
 
 impl<T: Float> GradFn<T> for GeluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        // GPU-native path for sigmoid mode only (the only mode with a PTX kernel).
-        if self.approximate == GeluApproximate::Sigmoid && grad_output.is_cuda() && is_f32::<T>() {
+        // GPU-native path — dispatch by approximation mode.
+        // Tanh mode falls through to CPU (no dedicated kernel yet).
+        if self.approximate != GeluApproximate::Tanh && grad_output.is_cuda() && is_f32::<T>() {
             let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-            let result_h =
-                backend.gelu_backward_f32(grad_output.gpu_handle()?, self.input.gpu_handle()?)?;
+            let go_h = grad_output.gpu_handle()?;
+            let in_h = self.input.gpu_handle()?;
+            let result_h = match self.approximate {
+                GeluApproximate::Sigmoid => backend.gelu_backward_f32(go_h, in_h)?,
+                GeluApproximate::None => backend.gelu_backward_erf_f32(go_h, in_h)?,
+                GeluApproximate::Tanh => unreachable!(),
+            };
             let grad_input = Tensor::from_storage(
                 TensorStorage::gpu(result_h),
                 self.input.shape().to_vec(),
@@ -313,7 +319,7 @@ impl<T: Float> GradFn<T> for GeluBackward<T> {
             return Ok(vec![Some(grad_input)]);
         }
 
-        // CPU path (all modes).
+        // CPU path (all modes, and tanh GPU fallback).
         let cpu_input = if self.input.is_cuda() {
             self.input.cpu()?
         } else {
