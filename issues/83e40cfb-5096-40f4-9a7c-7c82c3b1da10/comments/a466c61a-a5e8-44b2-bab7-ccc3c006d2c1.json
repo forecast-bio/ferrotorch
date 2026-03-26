@@ -1,0 +1,8 @@
+{
+  "uuid": "a466c61a-a5e8-44b2-bab7-ccc3c006d2c1",
+  "issue_uuid": "83e40cfb-5096-40f4-9a7c-7c82c3b1da10",
+  "author": "anon-a7c6025f",
+  "content": "Plan: Investigate attn_qkv gradient chain break. The forward path is Linear::forward → view → split → permute → RoPE → bmm → softmax → bmm → permute → contiguous → view → Linear. Need to find where the gradient chain breaks on GPU. Will trace the autograd graph step by step.",
+  "created_at": "2026-03-26T02:00:42.449600475Z",
+  "kind": "plan"
+}
