@@ -1,0 +1,8 @@
+{
+  "uuid": "3ac497e2-1965-4e81-a686-1e878b717b5d",
+  "issue_uuid": "83e40cfb-5096-40f4-9a7c-7c82c3b1da10",
+  "author": "anon-a7c6025f",
+  "content": "Observation: attn_qkv.w missing gradients is NOT caused by the LinearFusedBackward gradient count bug (issue 3). That bug is fixed (GPU linear_fused(bias=None) backward now passes). The QKV gradient loss is a separate autograd chain break through the split→view→linear path on GPU. Separate issue needed.",
+  "created_at": "2026-03-26T01:59:31.718887463Z",
+  "kind": "observation"
+}
