@@ -1,0 +1,10 @@
+{
+  "uuid": "71a8dc08-a8e8-463f-b7b5-982418ad1b6d",
+  "issue_uuid": "519a03ac-4b69-41ab-8f30-82360b5920a3",
+  "author": "y4rr",
+  "content": "Already implemented — PTX kernel gpu_softmax_backward exists in kernels.rs with backend_impl override",
+  "created_at": "2026-04-03T23:05:55.325088972Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAwpwyGdEgDqKEoX3RZ4oJLFuzTHLkkVZ/eArjZC+MNI2HdnwlRTAS0knwmG/by6SqkZtciYoOQABj4SREPYfOBw=="
+}
