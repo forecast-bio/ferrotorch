@@ -1,0 +1,10 @@
+{
+  "uuid": "21d3f803-fbf5-484d-a3be-98d623730db7",
+  "display_id": 428,
+  "title": "Add missing distributions: Kumaraswamy, LKJCholesky, LogisticNormal, Wishart",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-04-03T22:19:18.066860509Z",
+  "updated_at": "2026-04-03T22:19:18.066860509Z"
+}
