@@ -2,11 +2,12 @@
   "uuid": "9500bdeb-1aed-442e-8c14-7388d727a010",
   "display_id": 462,
   "title": "GPU backward kernel: relu_backward_f32 — eliminate CPU roundtrip",
-  "status": "open",
+  "status": "closed",
   "priority": "critical",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:57:43.435157920Z",
-  "updated_at": "2026-04-03T22:57:45.236663045Z",
+  "updated_at": "2026-04-03T23:05:45.305209822Z",
+  "closed_at": "2026-04-03T23:05:45.305209822Z",
   "labels": [
     "gpu"
   ]
