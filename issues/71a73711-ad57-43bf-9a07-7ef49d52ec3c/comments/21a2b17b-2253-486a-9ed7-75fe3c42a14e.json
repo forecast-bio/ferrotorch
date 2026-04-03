@@ -1,0 +1,10 @@
+{
+  "uuid": "21a2b17b-2253-486a-9ed7-75fe3c42a14e",
+  "issue_uuid": "71a73711-ad57-43bf-9a07-7ef49d52ec3c",
+  "author": "y4rr",
+  "content": "Result: Added gelu_backward_tanh PTX kernel and full GPU dispatch path. GeluBackward::backward() now dispatches all 3 modes (Sigmoid/Tanh/None) to GPU kernels for f32 CUDA tensors. No more CPU roundtrip for any GELU backward mode.",
+  "created_at": "2026-04-03T23:19:53.371732265Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA2Qh5YyI/UKqwFqv95kaKEJgGmpDqxQrlovYl+SxiNfdNNNa6o/sCVoItHeifb1SffGXc0MSWbKN6Sa3SHNpfBQ=="
+}
