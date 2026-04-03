@@ -1,0 +1,10 @@
+{
+  "uuid": "6f1c7a85-67bc-4ed5-a473-f8b2dc70c252",
+  "issue_uuid": "ccd8d285-84d0-441b-8e5e-c77311cda1e0",
+  "author": "y4rr",
+  "content": "Plan: Add two new PTX kernels (gelu_tanh_kernel and gelu_erf_kernel), two new gpu_* functions, two new GpuBackend trait methods (gelu_tanh_f32, gelu_erf_f32), backend_impl overrides, and update gelu_with() forward dispatch in activation.rs to use them for CUDA tensors. Will also add gelu_tanh_backward PTX kernel for #465. Pattern follows existing gpu_gelu/gpu_gelu_backward.",
+  "created_at": "2026-04-03T23:08:12.344305283Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAIbmxawMz64uNArrcF9vwrOt7Lt5QlN6M1EMhMD75id16206JAqZ7aBVo99FR2pC4m+9AA2+NgEwoonRAipUyCA=="
+}
