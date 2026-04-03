@@ -1,0 +1,10 @@
+{
+  "uuid": "606a4e29-4dd3-4a25-9e7a-3af4c3bb6d9e",
+  "display_id": 427,
+  "title": "Add missing distributions: HalfNormal, HalfCauchy, InverseGamma, ContinuousBernoulli",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-04-03T22:19:14.923032980Z",
+  "updated_at": "2026-04-03T22:19:14.923032980Z"
+}
