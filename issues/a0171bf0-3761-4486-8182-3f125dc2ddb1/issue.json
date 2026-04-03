@@ -1,0 +1,10 @@
+{
+  "uuid": "a0171bf0-3761-4486-8182-3f125dc2ddb1",
+  "display_id": 424,
+  "title": "Add missing distributions: Poisson, Binomial, Geometric, NegativeBinomial",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-04-03T22:19:04.651696196Z",
+  "updated_at": "2026-04-03T22:19:04.651696196Z"
+}
