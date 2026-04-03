@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Wired GPU kernels into backward passes — 2 changes in 2 files:\n\n**1. reduce_grad_to_shape GPU fast path (arithmetic.rs)**\nAdded f32 CUDA fast path using sum_axis_f32 to reduce broadcast axes entirely on GPU. Previously downloaded entire gradient to CPU, iterated to sum along broadcast axes, and re-uploaded. Now: clone_buffer + iterative sum_axis_f32 per axis, zero CPU roundtrips. This is the highest-impact fix — called by every AddBackward, SubBackward, MulBackward, DivBackward with broadcast shapes.\n\n**2. LinearFusedBackward bias gradient (linalg.rs line 838)**\nReplaced CPU roundtrip (grad_output.cpu() + manual loop + to(device)) with single sum_axis_f32(go_h, &[m,n], 0) call. Bias gradient now stays entirely on GPU.\n\n**Verified no change needed:**\n- DivBackward: already uses op-level div/neg/mul in no_grad which dispatch to GPU kernels. Only CPU roundtrip was in reduce_grad_to_shape, now fixed.\n- MmBackward: already has mm_backward_gpu, confirmed working.\n- MvBackward/DotBackward: skipped per instructions.\n\nAll 26 unit tests + 3 doc-tests pass.",
   "created_at": "2026-03-24T00:33:00.276963309Z",
-  "kind": "note"
+  "kind": "note",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhANG0LNxc+cccoH+vA55L5gSMuRmfbyXaCG1zhBuyC4yYAAAAIEnEchOQVQnulR+fs0fmtNuaIO8kS9CIv3ToM0Oq7VFp"
 }

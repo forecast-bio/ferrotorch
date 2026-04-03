@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Root cause: Unicode em-dashes (U+2014) in PTX comments — PTX is ASCII-only. Secondary: nested {} blocks with scoped .reg declarations. Fix: hoisted all regs to top level, replaced em-dashes with --. 8/8 FlashAttention GPU tests passing. Shared memory kernel with tiled K/V, online softmax, causal masking running on RTX 3090.",
   "created_at": "2026-03-15T21:41:41.097941142Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgCWMe00Bl5oPqjlQr9ptLCqUBllY2Br8//JgGFQiKY2QAAAAhAPUYDm5ToCCBeJu7OLahjZo3vCpime/u64/EEC8uDPLQ"
 }

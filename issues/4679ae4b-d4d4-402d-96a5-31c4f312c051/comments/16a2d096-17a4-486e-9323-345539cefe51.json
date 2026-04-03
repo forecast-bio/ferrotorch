@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: Optimizer trait (step, zero_grad, lr, set_lr, param_groups, state_dict, load_state_dict), ParamGroup, OptimizerState, helper fns. 2 tests.",
   "created_at": "2026-03-15T03:20:40.125666899Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhALJ2B0DbhxfhhQGdn/TIuL+QN9+Sr0Fx1BO+mn4M8sZGAAAAICHJUp0ehiRccOEoxGxD5PaWV1XG+vXxcJbPM5RkBEmf"
 }

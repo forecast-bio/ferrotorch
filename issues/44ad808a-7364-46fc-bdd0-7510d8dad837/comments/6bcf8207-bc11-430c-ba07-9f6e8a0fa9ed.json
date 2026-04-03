@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "GPU batched broadcast matmul requires CUDA hardware and cuBLAS SgemmStridedBatched integration. The CPU path now works correctly for all rank combinations. GPU path currently only supports 2D×2D matmul. This should be addressed when GPU hardware is available for testing.",
   "created_at": "2026-03-22T21:38:59.164653768Z",
-  "kind": "observation"
+  "kind": "observation",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgFuK+Rl6b7b9NjbkpTS2VcOZAaRPNXLeBUTQ7vCpaKzgAAAAhAOZTBGYvx7LMSHNF3S4Eu8dqT4/NXQLMXU0yeF2uIQTZ"
 }

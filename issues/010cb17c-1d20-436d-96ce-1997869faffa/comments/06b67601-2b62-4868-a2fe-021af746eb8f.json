@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Building Rust benchmarks for core operations, then running equivalent PyTorch benchmarks via Python for comparison. Operations: tensor creation, elementwise ops, matmul (various sizes), forward pass (MLP, ResNet block), backward pass, full training step. Both CPU and GPU.",
   "created_at": "2026-03-15T18:55:27.990860698Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgX1WvOLKmdfC9KDjEMzEraFRpcrbRz+iXqwwJcHO77AQAAAAhAIm5ONyNPzX9BhOFZkOpxzLZIsq2wONioRHqlCSl3IFj"
 }

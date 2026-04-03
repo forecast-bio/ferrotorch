@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Phase 5 scoped to MVP: ResNet (18/34/50), MNIST dataset, CIFAR-10 dataset, core image transforms (Resize, CenterCrop, Normalize, ToTensor), model registry, feature extractor. Full model zoo (VGG, ViT, EfficientNet, etc.) deferred — ResNet proves the architecture and the rest follow the same pattern.",
   "created_at": "2026-03-15T13:32:26.453770456Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgIN7F2J1DerzlQuvABVrq6ddiA5npVL2c1w1SpygwHYsAAAAhAIdwha7keseUAis7wjUBmrUg7XpvOXcIYelrPdA9WFCO"
 }

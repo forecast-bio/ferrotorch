@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Add gradient bucketing to DDP. Parameters are grouped into ~25MB buckets (configurable). sync_gradients processes buckets independently — in a future overlapped implementation, the first bucket's allreduce can start while backward computes later gradients.\n\nCurrent sync_gradients flattens ALL params into one buffer. The fix: (1) bucket assignment during DDP::new based on param sizes, (2) per-bucket flat buffer + allreduce in sync_gradients, (3) configurable bucket_size_mb.",
   "created_at": "2026-03-25T15:48:37.451646585Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgS9DU+y/M3q+w4Ozja2ulps2IS1u7cI6U8B5lSgJCVtIAAAAgUdOgwVYYNf2mTmzFZ3Lq7Y+g/pppyJBvc1hfQKXzce4="
 }

@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Phase 2 epic. 20 subissues across 7 steps per orchestrator dispatch plan. Peak parallelism: 9 agents at step 4 (layer implementations). Design doc: .design/phase-2-nn-modules.md (16 REQ, 19 AC, 0 open questions). Depends on Phase 1 (complete, 203 tests passing).",
   "created_at": "2026-03-15T02:34:13.459980063Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgG7vTEobPKSwiWAp2BBMpcuFe/MWa0+uTjXbT/+EU4/0AAAAgAkQs1LIyUYcMddwKNvGRQ5TpuNNaQOrH1H7j+lA5LSk="
 }

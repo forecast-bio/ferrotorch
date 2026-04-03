@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Wired GPU backward kernels into 4 activation backward passes in ferrotorch-core/src/grad_fns/activation.rs, eliminating CPU roundtrips:\n\n1. **SigmoidBackward** — GPU path via backend.sigmoid_backward_f32(grad, output)\n2. **TanhBackward** — GPU path via backend.tanh_backward_f32(grad, output)\n3. **SoftmaxBackward** — GPU path via backend.softmax_backward_f32(grad, output, cols)\n4. **SoftplusBackward** — GPU composition via scale_f32 + sigmoid_f32 + mul_f32\n\nVerified existing GPU paths for ReluBackward and GeluBackward — both already correct.\n\nSkipped SiluBackward (complex derivative, no dedicated kernel), LogSoftmaxBackward (needs sum_axis not wired from activation.rs), ELU, and Mish (no GPU kernels).\n\nAll 587 unit tests pass.",
   "created_at": "2026-03-24T00:32:32.965029522Z",
-  "kind": "note"
+  "kind": "note",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAK3OzWm/sHPwm4XIhQwmxJI+8clla4VQ/Jw10d9sjeHzAAAAIACbbMqod3RS5oeNV5eUBC4HWWhDe2P8fM7l5IZlmG01"
 }

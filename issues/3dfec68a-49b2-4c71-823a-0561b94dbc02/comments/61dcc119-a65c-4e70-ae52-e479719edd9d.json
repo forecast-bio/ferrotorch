@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Decision: fix reshape forward to use view_operation (zero-copy shared storage + grad_fn) for both CPU and GPU, matching the pattern already used by flatten/squeeze/unsqueeze. Also fix all 4 shape backward functions (ReshapeBackward, FlattenBackward, SqueezeBackward, UnsqueezeBackward) to use view_reshape instead of ensure_cpu/restore_device — these are all pure shape metadata changes that don't need GPU→CPU→GPU roundtrips.",
   "created_at": "2026-03-23T18:20:59.214868361Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgRejD6FufchxKEdKhiPIponAF0x+MKcEEcO5opXN5fFAAAAAgahSFaTuNNUbJ0sJEq4isi9xaYcO5AlaR0vjrBTfN6oM="
 }

@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Step 1: IR types (IrGraph, IrNode, IrValue, IrOpKind), crate skeleton. The IR captures the computation graph as a DAG with typed operations matching ferrotorch-core's op vocabulary.",
   "created_at": "2026-03-15T14:00:10.319360916Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAIXEmf/+wvQ+1bS5fDX9S3H0GuYGxu+ObUQ0eUY1nUmcAAAAIQCQOmvTdczN+j8zDYil+wZSFWJmM7f0E/vs2kUU93RcpA=="
 }

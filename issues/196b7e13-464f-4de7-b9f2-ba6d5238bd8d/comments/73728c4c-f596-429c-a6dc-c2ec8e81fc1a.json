@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Build 5 end-to-end training experiments as integration tests. Each one does forward+backward+optimizer step on both CPU and GPU (when available), verifying loss decreases over 10 iterations. Tests: (1) MLP/MNIST, (2) Small Transformer, (3) CNN/CIFAR, (4) LSTM LM, (5) VAE with distributions.",
   "created_at": "2026-03-23T22:22:01.039509448Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgdH2b0Lbsu4Uff0UTFyJ4Rtypdu61DsZfnhAuNoJzTH8AAAAgJtVZPD8gdY9NN+jRAzSfdyQQxy+4U8ed1JaVgJLQY+g="
 }

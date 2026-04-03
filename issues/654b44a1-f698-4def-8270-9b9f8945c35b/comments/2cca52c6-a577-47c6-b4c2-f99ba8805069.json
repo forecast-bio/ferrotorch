@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Implementing gather, scatter, scatter_add, and where_cond in ops/indexing.rs (forward) and grad_fns/indexing.rs (backward). Pattern: N-D ops with dim parameter, CPU-only for now. Backward: gather->scatter_add, scatter->gather, scatter_add->gather, where_cond->mask.",
   "created_at": "2026-03-24T12:02:43.064053626Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAN37ishbCOy73kv681siUgCVpXufWBvrNO/N5+qeQ/b8AAAAIQC8bT4O0BhmEN+apgNRuBF6crr8ok4gWj+jquSY+90wUA=="
 }

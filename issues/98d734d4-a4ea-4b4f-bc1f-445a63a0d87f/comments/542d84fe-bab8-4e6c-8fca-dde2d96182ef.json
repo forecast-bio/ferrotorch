@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: Conv2d with im2col/col2im, Conv2dBackward, 19 tests.",
   "created_at": "2026-03-15T02:52:44.255709365Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAMRnvv+Rmx9W3QZXaL0EzZbu5Xox6gQuxzt+F2yWKp+LAAAAIDNIJtgj3PSlF9Bu+FLOKnIngVQASk8HJ61+2pfA1emg"
 }

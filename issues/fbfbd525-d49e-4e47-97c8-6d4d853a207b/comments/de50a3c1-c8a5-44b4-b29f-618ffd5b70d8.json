@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Issue tree created: 13 subissues (#3-#15) under epic #2. Blocking relationships encode the 6-step dispatch plan. Prerequisites verified: ferray-core has bf16 (in dtype/mod.rs, dtype/casting.rs, dynarray.rs), ferray-linalg has LinalgFloat trait with f32+f64 impls (scalar.rs:55,84) and generic matmul (products/mod.rs:189). Dispatching Step 1: #3 core types.",
   "created_at": "2026-03-15T01:27:07.923385129Z",
-  "kind": "observation"
+  "kind": "observation",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgeGu7BM+RVE3D7mD8AKtT03eVoFYqBcG0jxBbUsKPQHAAAAAgRjihsG3zrgCQdgCy+fr1LXImrSaHJRD6kbGBpg7HMno="
 }

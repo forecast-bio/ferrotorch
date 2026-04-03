@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered:\n1. Zero-copy permute — permute_t() now returns a stride-based view in O(ndim) instead of copying O(numel) data. Works on both CPU and GPU.\n2. Zero-copy transpose — transpose_2d() now uses stride swap instead of GPU PTX kernel\n3. Added Tensor::stride_view() and Tensor::stride_view_operation() — general-purpose view constructors with arbitrary shape/strides/offset\n4. Added Tensor::storage_offset() and Tensor::narrow() — zero-copy slicing along a dimension\n5. Added narrow_t() with NarrowBackward gradient function\n6. Fixed backward engine to contiguify non-contiguous gradients on ALL devices (was CPU-only)\n7. Fixed bmm, mm, matmul_differentiable, batch_transpose to auto-contiguify inputs\n8. All 807 core + 250 optim + 6 integration tests pass. 5 pre-existing vision failures unchanged.",
   "created_at": "2026-03-25T05:03:27.689651545Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAPrcxubGagHfUfnwL9LJcZNRaZ2xthe1OYEyy2tkY0ORAAAAIQD6P4pTPuHmn4b0jrW+Uj4aJunpoKu74cmXtBvPGDMdgw=="
 }

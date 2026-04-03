@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Decision: implementing CUDA graph capture now. The gpu_embed_lookup eliminates the Embedding CPU roundtrip but doesn't reduce the 600 CUDA API calls. Only CUDA graphs can batch those into a single launch. Plan: (1) allocate fixed input/output buffers, (2) warm-up decode run, (3) stream capture the next decode run, (4) instantiate graph, (5) for each token: memcpy token into fixed buffer, graph.launch(), memcpy logits out. The token/position values are written to fixed GPU addresses via H→D memcpy before each launch — the graph reads from those same addresses.",
   "created_at": "2026-03-17T13:13:07.330417487Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAKeaSe+VT2DaP4OUxT7joE0tvwH6qKpYvZ9K82M9N3edAAAAICvoiTWs7Yb63NTqzd+xq98ZfP6yikV1/mEsqo8hjk9r"
 }

@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered Phase 2: GRU forward restructured for fused GPU path.\n\nChanges:\n1. Weight transposes (wih_t, whh_t) hoisted outside timestep loop — was recomputed every timestep\n2. GPU f32 fast path: calls fused_gru_cell_f32 with raw gate matrices + biases → one kernel per timestep instead of ~14 tensor ops\n3. CPU fallback preserved unchanged for non-GPU/non-f32 params\n4. Fixed ops::linalg::mm to contiguify non-contiguous inputs (needed for zero-copy transpose)\n\nArchitecture per timestep:\n- Before: 2 mm + 2 broadcast + 2 add + 6 tensor splits + 3 sigmoid/tanh + 4 elementwise = ~19 ops\n- After (GPU): 2 mm (cuBLAS) + 1 fused kernel = 3 launches\n\nAll 810 core + 808 nn + 25 GRU + 6 integration tests pass.\n\nBackward kernel still pending — the forward produces workspace but backward currently uses autograd. A fused backward kernel would be the next optimization.",
   "created_at": "2026-03-25T21:20:17.910374282Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhANcZ06lBg1fzUYp33olBUpFYzNWIq9yAwCqxtqIouakDAAAAICuRCYk7RkM5gPIkbT11WOfFj9Cn94Dwq9vqNdfWAs/7"
 }

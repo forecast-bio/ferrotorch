@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Three fixes. Issue 3 (critical): GPU path in LinearFusedBackward (linalg.rs:946) always returns vec![grad_input, grad_weight, grad_bias] regardless of whether bias exists. CPU path (line 1011-1014) correctly conditionalizes. Fix: match the CPU pattern on the GPU path. Issue 1: batch_transpose (linalg.rs:317-346) does GPU→CPU→transpose→CPU→GPU roundtrip. Fix: add a GPU batch_transpose kernel or use permute+contiguous on GPU. Issue 2: GeluBackward erf mode (activation.rs:316-326) does GPU→CPU roundtrip. Fix: add a GPU gelu_backward_erf_f32 kernel, or use the existing elementwise GPU ops to compute the derivative on-device.",
   "created_at": "2026-03-26T01:42:42.751252007Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAKWyKdPqg1uuSq5qzmMY1b6TgyBC94I1kHMzUgeJULjSAAAAIGrhtTF+wNzqb1UpUrTPPAkHn1/XdZL5XV/BAzG2fCQu"
 }

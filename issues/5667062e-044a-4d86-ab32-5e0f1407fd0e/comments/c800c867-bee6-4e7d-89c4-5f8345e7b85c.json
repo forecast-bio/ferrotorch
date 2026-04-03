@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: PyTorch fuses the GRU gate computations into a single kernel that computes all three gates (reset, update, new) in one pass, then applies the gating in a second fused kernel. Our GRU currently does each gate as separate matmul + sigmoid + multiply ops. \n\nThe fix: add a fused GRU cell PTX kernel that takes (input, hidden, weight_ih, weight_hh, bias) and outputs (new_hidden) in a single kernel launch, eliminating ~6 intermediate tensor allocations per timestep.\n\nStarting by checking the current GRU implementation.",
   "created_at": "2026-03-25T16:51:34.138116046Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAKB3dsrwDKtTSRyHwCpT56+Dcc72cCpzlinO9gs08rwuAAAAIQCsNJq/RpAntUeLCKUT5EkyPPTES1jsQnWPe4pJ5VzK0w=="
 }

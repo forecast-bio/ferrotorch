@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: (1) Add ureq for HTTP downloads. (2) Create download.rs that auto-fetches vocab.json, merges.txt, model.safetensors from HuggingFace into ~/.cache/ferrotorch-gpt2/ on first run with progress bars. (3) Rewrite main.rs so the default action is generate — 'cargo run --release -- \"Hello world\"' just works. (4) Positional args, sensible defaults, no mandatory flags.",
   "created_at": "2026-03-17T03:01:55.858225276Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgE3qdfek18Bc4xb8OMmbpDdR/Dl6xA1oa87yEGXl9YVUAAAAgGSwDG/k/teXeL1jsRadgsIjXQR70EzjmUmewSF250uQ="
 }

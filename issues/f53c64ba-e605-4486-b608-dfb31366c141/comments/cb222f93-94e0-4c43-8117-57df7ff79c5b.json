@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Deferred to post-Phase 2. Manual impl Module<T> works for all layers.",
   "created_at": "2026-03-15T03:06:11.008673735Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAIg1AEXfHip/QHtXUOlsfxAKDnt0Hh0jGPMB4hN80bxvAAAAIQCFEf1z/9BmxMKoobBQOpKbHfo5BiM8iPZ9ZxE+pAF85A=="
 }

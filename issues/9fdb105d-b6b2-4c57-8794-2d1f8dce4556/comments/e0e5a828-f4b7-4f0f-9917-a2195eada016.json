@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Committed: feat: audit wave 3 — differentiable transcendentals, GRU, backward(gradient), f64 GPU | Files: 16 files changed, 1820 insertions(+), 20 deletions(-)",
   "created_at": "2026-03-15T23:43:44.844832230Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgJy89+IMDdEL3EOsRP8DUAj1FjuZggcklxnwMuiSohv0AAAAhAJxTj37aMUA2ZiwX6aaZFaWGYD8SpsrfdtYwYawo6u03"
 }

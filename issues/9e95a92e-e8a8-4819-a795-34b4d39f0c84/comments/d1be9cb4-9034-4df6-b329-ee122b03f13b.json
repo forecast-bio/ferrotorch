@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Decision: Replace the inner loop with a stride-based multi-index counter that avoids modulo/division. For each output element, increment the ndim-counter array and carry over — this is O(1) amortized per element (like an odometer) vs O(ndim) per element for modulo decomposition. Also special-case the innermost dimension when both inputs are contiguous there (stride != 0) for a tight inner loop.",
   "created_at": "2026-03-25T12:44:23.205258127Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgEg5pDpjuVe9CkR9IIx5zJgf+MpuP33xA6klNd8XwSVIAAAAgBU0MFuGmSyrDH1i3rdfx/HrFeOoWy+0ZiB6i3bjCLxo="
 }

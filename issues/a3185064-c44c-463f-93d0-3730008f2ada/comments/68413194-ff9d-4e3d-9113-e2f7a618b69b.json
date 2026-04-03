@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Root cause: init_cuda_backend() uses OnceLock::set() which fails if called twice. When multiple tests run in the same process, the first test registers, the rest fail trying to re-register. Fix: make init idempotent — check if already registered before calling set().",
   "created_at": "2026-03-15T22:12:47.778396946Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgFkhfcmi76WJ5elCxZG3Oy71zW3KIhmOq8rSGRY+FqIAAAAAhALVT+I26nQ7BbkRb1zlZI257Nddy8fNJSo/k9i73Bizb"
 }

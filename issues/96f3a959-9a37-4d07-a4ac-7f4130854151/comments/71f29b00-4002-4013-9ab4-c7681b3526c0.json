@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: Codegen trait + InterpreterBackend + NativeBackend (compiles elementwise chains to native closures, falls back to interpreter for complex ops). 15 tests.",
   "created_at": "2026-03-15T17:25:40.336895040Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAMZjCiHYa0NdelMoeTbZYe1GDueh2XRfbdpvWgjXI/bKAAAAIEr0RJRWELm7Ej046yNatR1uYBoOTGdsc+qijwQEMmlp"
 }

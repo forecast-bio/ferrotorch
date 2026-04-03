@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Result: Three issues fixed. (1) LinearFusedBackward GPU path — conditionally push grad_bias only when bias exists, matching CPU path. Also fixed same bug in Conv2dBackward, Conv1dBackward, ConvTranspose2dBackward. (2) batch_transpose — replaced CPU roundtrip with permute+contiguous, stays entirely on-device. (3) GELU erf backward — added gelu_backward_erf_f32 GPU kernel (Abramowitz-Stegun polynomial erf in PTX), eliminating GPU→CPU→GPU roundtrip for exact GELU mode. Full test suite: 3,254 passed, 0 failed.",
   "created_at": "2026-03-26T01:59:41.916790412Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAJkNBSYKiJAVghq7fBh6Sf7+7Eam8LxrS3GbtgN8PQzCAAAAIQDb5XPu8/G0zlCqkjFEn0ay7QDmDly3HpfdZyqPsoPZNA=="
 }

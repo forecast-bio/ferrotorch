@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Session results: Added gpu_embed_lookup kernel (working), GPU-native decode path (decode_step_gpu), and started CUDA graph infrastructure. However, the fundamental bottleneck (600 CUDA API calls per token at ~1ms each) cannot be solved without either: (1) A raw-buffer decode engine that bypasses Tensor entirely (needed for CUDA graph capture), or (2) A completely fused decoder kernel (single kernel for entire transformer block). Both require multi-session architectural work. Current decode speed: 1.02s/tok. The profiling is definitive — compute is microseconds, overhead is everything.",
   "created_at": "2026-03-17T13:16:30.538544469Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgR6TRvzrrZHyM3R8QQm51bvZvSm5JBYCjw8mAva1nArMAAAAgSnNN82lMM93MbJtHIHGqhP67n3ukPhVRjJX2tRt/9RY="
 }

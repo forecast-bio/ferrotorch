@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Fixed: outer Err branch in into_storage_and_shape now checks is_gpu() before accessing storage. GPU tensors clone via TensorStorage::clone() (which uses clone_buffer), CPU tensors keep the existing as_slice() + to_vec() path. All 26 unit tests + 3 doc-tests pass.",
   "created_at": "2026-03-23T19:03:15.552292798Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAOMoDPeW4Ytp8IFcbT7Gqs6wXIzEu+G4HXeWBDz7i6j0AAAAIQCGTebCCvSVtfxF3ixzDp64Y8Jpao2G/kXvAG6BqyQMRQ=="
 }

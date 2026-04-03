@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: 9 init functions (zeros, ones, constant, uniform, normal, xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal), NonLinearity enum with gain(), compute_fans for 1D/2D/4D tensors. 13 tests, 0 warnings.",
   "created_at": "2026-03-15T02:42:17.008651464Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhALA+o9mJfrVQ/6fulT2A2Gu5wFHKNxYh/wiI0Ub0+gN4AAAAIQDvzSmY2+gSojJuR1DHlHb5t5UhO5/pJZBH/4AOutbPdw=="
 }

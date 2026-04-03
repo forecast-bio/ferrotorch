@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered both features. Pre-OOM hooks: MemoryHook with priority/overhead/callback, safe_alloc_with_hooks, PressureLevel with listeners, budget enforcement. ONNX export: hand-written protobuf encoder, all IR ops mapped to ONNX, opset 17+, export_onnx() one-call API. 101 GPU + 87 serialize tests passing.",
   "created_at": "2026-03-15T19:52:09.129908739Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAPTiO5P6iw2+ifDm+ErwmQz67o/GFNaoYMjtvRN6K4gkAAAAIQDKwbe9tLWj6yZpWLIc/f9nM4cF2eQNgX/13RM1TG07CA=="
 }

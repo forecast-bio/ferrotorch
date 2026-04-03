@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: All Step 1 core types implemented and tested. 8/8 tests passing. Files: device.rs (Device enum), dtype.rs (Float trait + re-exports), error.rs (FerrotorchError), storage.rs (TensorStorage + StorageBuffer), tensor.rs (Tensor + GradFn trait + TensorId), lib.rs (re-exports). Workspace Cargo.toml with ferray path deps (bf16 feature enabled). 2 dead_code warnings for pub(crate) functions awaiting Step 3+4 consumers.",
   "created_at": "2026-03-15T01:33:21.934450453Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhALuO9nof1E6fXyp9lFhIQIPg1/zUeHZhZLCJFs23qzC2AAAAIQC/Qej2VHNQotNfGMUPX8SArdww+I5X7gYwJa/4nAumYQ=="
 }

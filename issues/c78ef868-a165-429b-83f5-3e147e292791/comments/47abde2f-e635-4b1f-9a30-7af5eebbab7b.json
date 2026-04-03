@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Add a ToDeviceBackward grad_fn that copies the gradient back to the source device. When to() is called on a tensor that has requires_grad=true and grad is enabled, create the result via from_operation with ToDeviceBackward instead of from_storage. Leaf tensors that are moved should also get requires_grad on the new tensor. This matches PyTorch's behavior where to() is differentiable.",
   "created_at": "2026-03-23T18:37:39.940991368Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgNmx5ypmVLu+s7v+z1CtLE/J2UXLQw83VrpmpR1Ek7YAAAAAgI0jabYZVAEi+FGb5rD4HhaGq/ZxNRZzEh/+x3k1QZBM="
 }

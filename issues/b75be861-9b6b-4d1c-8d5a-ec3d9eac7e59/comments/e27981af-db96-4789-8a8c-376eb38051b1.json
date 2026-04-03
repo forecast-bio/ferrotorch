@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "All 9 design documents iterated to production quality. Final counts: 121 requirements, 138 acceptance criteria, 0 open questions, 0 TODO/TBD markers. All 13 previously-open questions resolved. Key additions: operator overloading, Display formatting, method API, in-place ops, derive(Module) macro, functional API, SafeTensors interop, PyTorch checkpoint import, GradScaler, IterableDataset, pin_memory, pre-trained weights, feature extraction, model registry, autocast/mixed precision, CUDA graphs, ferrotorch-run launcher, elastic training, compile() API, graph breaks, export mode.",
   "created_at": "2026-03-15T02:26:39.090796156Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgIKoD6o2L+BXvFgSjCXptJR22H9NO2Uo1Yvb4qohzFtQAAAAhAKY4TuRUJzhFqnbKIeKwmbTgg9X+EmEucAYaTga8vIq0"
 }

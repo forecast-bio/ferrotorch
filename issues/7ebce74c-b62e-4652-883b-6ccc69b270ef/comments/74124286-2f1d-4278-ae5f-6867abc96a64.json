@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Committed: docs: update READMEs + fix publish blockers for crates.io readiness | Files: 10 files changed, 87 insertions(+), 47 deletions(-)",
   "created_at": "2026-03-16T00:03:02.282137288Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgXQhY1DevktPmpU8QaGDps61a7X/siN0fA1vzQMYCUpEAAAAhAOVLSbmJ2n3IFugloV3DEN4kXTgJQy7r5F54gdTC8XQ+"
 }

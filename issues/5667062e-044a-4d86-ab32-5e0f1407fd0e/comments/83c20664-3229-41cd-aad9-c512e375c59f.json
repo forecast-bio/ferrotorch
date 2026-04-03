@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Restructuring GRU::forward. The fused kernel expects input_gates and hidden_gates WITHOUT bias (bias is added inside the kernel). Current code adds bias before splitting. I need to pass the raw matmul outputs + biases to the kernel.\n\nChanges:\n1. Hoist wih_t/whh_t transposes outside the timestep loop  \n2. For GPU f32: pass xw (raw matmul) + hw (raw matmul) + bias_ih + bias_hh + h to fused_gru_cell_f32\n3. For CPU/non-f32: keep the existing scalar gate logic",
   "created_at": "2026-03-25T21:14:39.960930602Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAKi0wKwvaUWKt0uL5AyYth1ftz5rvg9ul1F3CRHCe8fBAAAAIQDtiOAj7YF4DLYvdLCqSU2KtXzM/yWFf4SbaZvAND2WVg=="
 }

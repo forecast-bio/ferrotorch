@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Designing three-layer GPU memory safety system: 1) Memory reservation — claim VRAM budget upfront so other apps can't steal it. 2) OOM recovery — catch CUDA OOM, free cache, retry instead of crashing. 3) Memory pressure pause — detect when free VRAM drops below threshold, pause training, wait for memory to become available, resume. Also: periodic VRAM watchdog, safe checkpoint on OOM, and memory budget enforcement. This solves the 'Steam game kills your training run' problem.",
   "created_at": "2026-03-15T19:23:22.465068103Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgIwVrBuwIKphmxJTE5+49zmKDytxGscDmrHxK4oq12sMAAAAhAJPJd/KuC5SJuQEMUkC0zYnLDo+RtNNaErXTGCF59um6"
 }

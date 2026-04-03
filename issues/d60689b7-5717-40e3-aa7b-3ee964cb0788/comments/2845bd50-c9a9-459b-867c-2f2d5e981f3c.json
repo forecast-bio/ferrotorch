@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Current GPU conv2d transfers input to CPU for im2col, then back to GPU for GEMM. This is wrong — im2col is pure index arithmetic that should be a GPU kernel. Writing a PTX im2col kernel that runs entirely on device. Zero CPU roundtrips.",
   "created_at": "2026-03-15T20:54:06.660311375Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAJSnNu9aSH+Yux/K9O959ZqewbOH2X56dzaMjIOiPj00AAAAID+ua2gMPDgW35YLXqNXZa10THr4ts3pvYhMe7os7cz4"
 }

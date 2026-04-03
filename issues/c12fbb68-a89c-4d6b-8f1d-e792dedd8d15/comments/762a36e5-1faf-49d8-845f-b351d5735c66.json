@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Key insight: cudarc uses cuMemAllocAsync (stream-ordered allocation) which IS graph-compatible. When captured in a CUDA graph, async allocs are replayed at the same addresses. This means we DON'T need a custom memory pool — we just need to capture the decode step into a graph. The main challenge is that our decode step has variable-length outputs (logits) and accesses model weights (which must be accessible during graph replay). Since weights are static and already on GPU, they should work. The variable part is the input token ID and the output logits — we need fixed-address input/output buffers.",
   "created_at": "2026-03-17T13:02:29.267531350Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgZFPdjsc4MPG0WRhfH8w6WDjAtPFb8NBXELpfNJP4tl0AAAAhANMRr24mnPYB+w7kjo5jV8ChZVAX5EM8idr/6oPC1SJl"
 }

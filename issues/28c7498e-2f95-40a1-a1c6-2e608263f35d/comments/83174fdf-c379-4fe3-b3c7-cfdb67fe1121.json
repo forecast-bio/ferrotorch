@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Add RoPEConvention enum (Interleaved/HalfRotation). Add convention field to RotaryPositionEmbedding, new with_convention() constructor. Update apply() to dispatch on convention — Interleaved pairs (x[2i],x[2i+1]), HalfRotation pairs (x[i],x[i+d/2]). Default Interleaved preserves existing behavior. Add tests for both conventions.",
   "created_at": "2026-03-22T22:46:46.019413670Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhALis1NMuaYsk4xKV/CriEPs49orpRtAKC8F3auZTJ2GFAAAAIGP8w5C6b4S0DiC6Evu2xCa64Ocv13ucDaXw0VJbprtQ"
 }

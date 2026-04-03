@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Step 1 delivered: GpuBufferHandle, GpuBackend trait, StorageBuffer::Gpu, Tensor::to()/cuda()/cpu(), error variants. 424 core tests pass, zero breakage. Ready for Step 2 (op dispatch) and Steps 3-5 in parallel.",
   "created_at": "2026-03-15T22:01:33.629524241Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgWQFsd48M41LHL4Bsg1RRa5RiiiJKoWJKScHie2auDY8AAAAgeoDPLACxtAB5dyNWHycp69AnsC0hta+m3iLeL4EHO28="
 }

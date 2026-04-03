@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: Created .claude/commands/ferrotorch-hints.md — comprehensive API cheat sheet skill covering all 15 crates, tensor creation/ops, autograd, Module trait, derive macro, all built-in layers, loss functions, optimizers with param sync pattern, data loading, GPU/device, serialization, and a complete training loop example. Invocable via /ferrotorch-hints.",
   "created_at": "2026-03-17T01:40:57.213310234Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgf/Om56WuldUAi96Phe6ICN15fKN/OmO8i4nlQgD8fNQAAAAgQ81yloxGJLwMoDGxJJiX9Wa/Nvx/qjNs6GKPbmWXtZI="
 }

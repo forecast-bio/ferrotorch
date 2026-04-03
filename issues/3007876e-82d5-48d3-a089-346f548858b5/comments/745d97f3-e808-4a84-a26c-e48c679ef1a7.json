@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Send 5 agents at a time into the worktrees. Each agent will: (1) review the uncommitted code, (2) run cargo test for the affected crate, (3) fix any issues, (4) commit if tests pass. Starting with the 3 confirmed-complete + 2 most-substantial partial ones.",
   "created_at": "2026-03-24T16:36:42.514021306Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgDoaqZbMSKHoWL+OQ3uziXt+HcNzlgF+IkY7ddr4eYEQAAAAgSbef4WUtY/68WsWvMKmG157uUPSWJsIUULtRBFrF4N4="
 }

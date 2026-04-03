@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Decision: Implementing 4 GPU kernels as PTX:\n\n1. BatchNorm forward (collect stats + transform) — two-kernel approach matching PyTorch:\n   - Kernel A: per-channel mean+variance via block reduction with shared memory\n   - Kernel B: per-channel normalize + affine (gamma * (x-mean) * invstd + beta)\n\n2. GroupNorm forward — same structure as BatchNorm but groups channels\n\n3. MaxPool2d forward — one thread per output element, sliding window max\n\n4. AvgPool2d forward — one thread per output element, sliding window sum / count\n\nStarting with BatchNorm since it's the most impactful for CNN training.",
   "created_at": "2026-03-25T21:50:49.518587252Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgUn/Xlg4+bmZqHqAWX8c8EThT3wOF5stP5Nl4YB8NQX8AAAAgIb2f7rgThxOzUiL7MM4eflxDBJFcCuV8hEWZuB81Q/4="
 }

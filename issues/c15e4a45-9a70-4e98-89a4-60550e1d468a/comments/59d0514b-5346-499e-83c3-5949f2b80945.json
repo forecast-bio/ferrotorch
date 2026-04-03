@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "cuBLAS warmup doesn't help — cuBLAS compiles a unique GEMM variant for EVERY (m,n,k) triple. With growing sequence lengths in KV cache, every decode step has a unique shape. The fix: write our own PTX matmul kernel for small matrices (m*n*k < threshold) and only use cuBLAS for large prefill matmuls. Our PTX kernel compiles once and is cached forever by module_cache.",
   "created_at": "2026-03-17T07:01:39.165961355Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAP2nVW5pWRqd5Dt2N44Qb0UZvUszOvhlBhQFbDjtpTdMAAAAIDnMdkOSd4Z0yU13+C7s9Olvq98FsDEhzOh/Yhio8Xe4"
 }

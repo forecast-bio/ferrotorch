@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: Fixed reshape forward to use view_operation (zero-copy shared storage + grad_fn) for both CPU and GPU, matching flatten/squeeze/unsqueeze pattern. Removed the buggy GPU early-return that discarded autograd metadata. Also fixed 4 shape backward functions (ReshapeBackward, FlattenBackward, SqueezeBackward, UnsqueezeBackward) to use view_reshape instead of ensure_cpu/restore_device roundtrips — these are pure metadata changes that never need GPU→CPU transfers. All 574 core tests pass.",
   "created_at": "2026-03-23T18:22:34.535417680Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAL402VyHNDfP6vgGaizzB8Aw5NyCvZ4SjMyDEYW3ywXWAAAAIB3cKv3cwl1OJn2ahRvVGTUYHJVEG+8wtges0pnp2oVa"
 }

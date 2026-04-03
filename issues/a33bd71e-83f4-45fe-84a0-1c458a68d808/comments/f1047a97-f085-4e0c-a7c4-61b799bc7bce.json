@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Completed audit, creating issues for all findings",
   "created_at": "2026-03-23T18:59:13.621670672Z",
-  "kind": "handoff"
+  "kind": "handoff",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgdP29Y2E6vjwFxpLeEy9+VK1UZ/xG0D/X3So6L1sZiQoAAAAgbBNDejnKP3BgKvureej8eeH9HyPWCg/GGKeLgiQwVuM="
 }

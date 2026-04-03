@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Build a Pythia-70M-equivalent architecture test. Pythia-70M uses GPT-NeoX architecture: 6 layers, 8 heads, d_model=512, MLP dim=2048, vocab=50304, max_seq=2048, rotary embeddings (RoPE), parallel attention+MLP (GPT-NeoX style where attention and MLP run in parallel then add, not sequential). Use untied embedding/unembedding. Test: 10 training steps with AdamW, verify loss decreases.",
   "created_at": "2026-03-23T22:30:08.475741965Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAga3VIwyj6wBsDQrZmV4PpA3udQTo4yaHwgPfeuMuW16YAAAAgU9Z2GXWwqRhnl4eFchw624Y+/GBGCj+vpTGrIOBsGcw="
 }

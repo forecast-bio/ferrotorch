@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Wave 2 complete: 5/5 agents delivered YOLO, SafeTensors (real crate), Codegen (InterpreterBackend + NativeBackend), graph breaks (SegmentedModule), memory planning (liveness + greedy first-fit). Both waves (16 agents total) delivered successfully.",
   "created_at": "2026-03-15T17:36:39.620017605Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgS7wQAw2qkyNuXDM9O4/2bRWljEXjVWeHBph2+afP3kIAAAAhAJwyZ8aufvpFKRb/41Hh5iGYQmLjq5c/3D7XlHd3UKRT"
 }

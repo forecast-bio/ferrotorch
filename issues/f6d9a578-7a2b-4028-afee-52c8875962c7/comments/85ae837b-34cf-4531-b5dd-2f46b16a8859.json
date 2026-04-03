@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "SIMD transmute approach has overhead from Arc/Mutex allocation per tensor, not from the kernel. The ferray-ufunc kernels themselves are fast but the framework wrapping (new TensorInner per operation) dominates at 1M elements. The MLP forward improved 3x (3320->1101us) because matmul dominates there. Committing current improvement — further optimization needs in-place tensor ops or arena allocation.",
   "created_at": "2026-03-15T19:19:00.945669491Z",
-  "kind": "observation"
+  "kind": "observation",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgJxuJSSxk+fSn4znnBU2IJ4fuWTTPRcrwb+hxTQcOjvsAAAAhAP86FOPEnCW1cacEZbiKuEJOHWL6d/r0kHY10Vbot9i/"
 }

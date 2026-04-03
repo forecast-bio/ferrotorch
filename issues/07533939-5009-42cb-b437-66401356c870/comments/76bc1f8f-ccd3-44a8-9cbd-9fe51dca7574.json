@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Fixing two issues from upstream rebase: (1) matmul_differentiable routes broadcast 3D to bmm incorrectly (already fixed), (2) JIT tracer doesn't recognize LinearFusedBackward from the new linear_fused op.",
   "created_at": "2026-03-22T22:27:09.891093993Z",
-  "kind": "observation"
+  "kind": "observation",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAI658Fcq7JVC7Qf5vTJPLodtIUnbuVO4jXwuHgAFtMSzAAAAIQC5AU6Up0Y214djNEL13sg11cvUDuzJmtd91CEtFC9IhA=="
 }

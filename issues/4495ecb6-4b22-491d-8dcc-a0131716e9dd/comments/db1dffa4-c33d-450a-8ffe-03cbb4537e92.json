@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "All 5 PyTorch subsystem analyses complete. Key findings: (1) Scalar libm exp vs SLEEF 8-wide = 8-16x gap, (2) Parallel threshold 2M vs 32K = 4x gap on medium tensors, (3) Transpose copies data instead of zero-copy stride swap, (4) GPU gradient accumulation roundtrips through CPU, (5) Optimizer state as Vec<f64> on CPU not GPU, (6) No vectorized loads in GPU kernels (1 elem/thread vs 8), (7) No fp16/Tensor Core support. Building design docs.",
   "created_at": "2026-03-24T00:43:22.651865709Z",
-  "kind": "observation"
+  "kind": "observation",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAK+3p9jf3719+Ag5SY0BDwNNmRLhXrWRdXT4k4HcoXwdAAAAIQDKOTctiOWs3aK4ikegFGBn7k9dwUvqkQuXUvkzffN14g=="
 }

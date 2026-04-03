@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Forward pass sanity check passes: tiny GPT-2 (2 layers, d=64, 4 heads, 108K params) produces correct output shape [1, 8, 100], all values finite, loss=22.07, gradients flow to parameters. Training loop with synthetic data runs. Build is clean (only upstream ferrotorch-optim warnings).",
   "created_at": "2026-03-17T02:37:13.193749528Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAJVms9k50D2iyYQx/ljsVZcZCNbUotsP45Ma4YTtUFvfAAAAIBGf3cFDQGiOWWzi2FjsCjHSLeBS+ccRGhH1N/MGMkIy"
 }

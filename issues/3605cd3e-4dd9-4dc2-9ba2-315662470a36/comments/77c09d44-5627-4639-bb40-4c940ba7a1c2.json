@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Implementing std::ops traits (Add, Sub, Mul, Div, Neg) on Tensor so users can write 'let c = &a + &b' instead of 'grad_fns::arithmetic::add(&a, &b)'. Also Display for PyTorch-style tensor printing. These are the #1 ergonomic gap vs PyTorch.",
   "created_at": "2026-03-15T14:32:33.510524163Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAJonr7Nc6YX1AjL+O+hmIbPirkALHEiiE+lJGDAttFTWAAAAIDtKySOf66ldGe0q6nvMaOWAzptAh9WiQCxHwIIBCnsh"
 }

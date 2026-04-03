@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: autograd engine with Arc-based Tensor identity sharing. graph.rs: backward() with Kahn's topological sort, gradient accumulation on leaf tensors. no_grad.rs: thread-local gradient suppression. checkpoint.rs: gradient checkpointing via forward recomputation. Key fix: refactored Tensor to wrap Arc<TensorInner> so clone() shares identity and grad Mutex — essential for backward to write gradients to the user's tensors. 41/41 tests passing including 4 backward correctness tests (add, mul, shared input, chain).",
   "created_at": "2026-03-15T01:41:39.519108333Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhALjoAx0lcE6ZXpFQCr4J4yIisIaRhxp3wRuo5YYW80b2AAAAIBIjg7CmKrZG9nW/2MtQ7CNwHpr1hZk6k+91wMHHtbq/"
 }

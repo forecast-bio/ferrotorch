@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Session auto-ended (stale after 435 minutes). No handoff notes provided.",
   "created_at": "2026-03-25T20:46:10.859604093Z",
-  "kind": "handoff"
+  "kind": "handoff",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAKFRkGk4LmCa6GMo5cdsCdJBTSsKEiqIls8ZqXl2idWBAAAAIAtKfKtgWm1AP5USf/+BJQCv8F5//e5K4xqSffD0ie+x"
 }

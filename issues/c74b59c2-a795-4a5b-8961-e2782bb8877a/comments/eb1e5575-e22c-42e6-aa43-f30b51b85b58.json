@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: ferrotorch-gpt2 now works out of the box. 'cargo run --release -- \"The meaning of life is\"' auto-downloads vocab.json (1MB), merges.txt (0.4MB), model.safetensors (523MB) from HuggingFace on first run, caches in ~/.cache/ferrotorch-gpt2/, loads the full GPT-2 124M, and generates coherent text. Second run skips downloads entirely. No flags needed for basic generation.",
   "created_at": "2026-03-17T03:09:03.653370104Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhALg7pPX5pJJCqz4byhS7OIcBk1DlQsPUEZcc5ep0Sq2FAAAAIQDpuEMzRm5GUZpthoT3sv7G2EUJ78ZoOTMQ3nc5dX3dnw=="
 }

@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Wave 1 complete: 11 agents delivered MNIST parsing, bmm, Conv1d/ConvTranspose2d, autocast, L-BFGS, EfficientNet, ConvNeXt, Swin, U-Net, VGG (already done earlier), image I/O. Remaining wave 2 items: #120 (YOLO), #121 (cuDNN), #122 (NCCL), #123 (Cranelift), #124 (graph breaks), #125 (memory planning), #126 (SafeTensors crate), #127 (PyTorch .pt import).",
   "created_at": "2026-03-15T17:17:59.520509717Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhANBTyGsAAkJb3ehN7shBrwXim44RQIplu7QcVBuGVZYfAAAAICwpuUPZUY+eMZvoPaw7UDUCB8AO5iKL1AhD8ooYJgFV"
 }

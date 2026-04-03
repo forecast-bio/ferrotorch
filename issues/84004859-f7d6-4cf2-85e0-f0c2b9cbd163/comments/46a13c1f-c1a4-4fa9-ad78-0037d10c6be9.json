@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: Dataset trait (map-style), IterableDataset trait (streaming), VecDataset, MappedDataset, WorkerInfo, SequentialSampler, RandomSampler (seeded Fisher-Yates). 9 tests, 0 warnings.",
   "created_at": "2026-03-15T04:33:26.169977956Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAOvEZfsx4vcvk78NQTFE5R17Lh14ZDq9QM9PXevYatC4AAAAIQDcf/Eqe9NXZYXxmgqdPJ+953z5KpV2BLyc647jiFgXlQ=="
 }

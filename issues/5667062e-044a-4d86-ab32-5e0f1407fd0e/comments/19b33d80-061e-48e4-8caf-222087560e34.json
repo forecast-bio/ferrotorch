@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Progress checkpoint: Phase 1 complete.\n\nDone:\n- FUSED_GRU_FORWARD_PTX kernel — matches PyTorch's gru_cell_forward from RNN.cu. Takes pre-computed input_gates[B,3H] + hidden_gates[B,3H] + biases + hx. Computes sigmoid/tanh gate activations + GRU update in one kernel launch. Saves workspace[B,5H] for backward.\n- gpu_fused_gru_forward() launcher in kernels.rs\n- GpuBackend::fused_gru_cell_f32() trait method + CudaBackendImpl wiring\n- All 810+193+808 tests pass\n\nRemaining:\n- Restructure GRU::forward to use fused kernel for GPU f32 path\n- Fused GRU backward kernel\n- Wire backward into autograd",
   "created_at": "2026-03-25T17:18:39.230671271Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAIIGg+0bS8iZKEqA0RRqhm6Epj0k9NlHRBJ3OfTDymchAAAAIQDftUHQg5ns+Ghq0kHtVvSLdCvYQYaM94LUznA/hKioFA=="
 }

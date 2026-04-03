@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Add ~15 missing GPU kernels to the GpuBackend trait and implement them. The design doc says CubeCL but CubeCL is alpha and would require rearchitecting the backend. Pragmatic approach: continue with hand-written PTX strings (proven pattern, 14 kernels already work this way) and add the missing ops. This unblocks Phase 5 (eliminate GPU backward roundtrips). Kernels needed: div_f32, exp_f32, log_f32, sqrt_f32, pow_f32, abs_f32, sigmoid_f32, tanh_f32, sum_axis_f32, sigmoid_backward_f32, tanh_backward_f32, softmax_backward_f32.",
   "created_at": "2026-03-23T22:40:17.168813898Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgapnl7+Z284vihLtqwJzpD50dUxJoGtcKeX3VojZExUwAAAAgVy0449xHlTRf0cUBwB7vYua7s+pN0M1fEGceWIaTyOs="
 }

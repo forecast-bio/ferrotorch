@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Full GPU rewrite: (1) Add bmm (batched matmul) via cuBLAS strided batch GEMM. (2) Add GPU permute kernel for head reshaping [B,S,H,D]->[B,H,S,D]. (3) Rewrite attention to stay 100% on GPU — zero data_vec calls in the forward path. (4) Audit every remaining data_vec/ensure_cpu in the hot path and eliminate them.",
   "created_at": "2026-03-17T04:43:33.690937905Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAIyr+ejXABOdkMXHGi1gJCpNd2shkDGpq2Dp54iXrBBUAAAAIEYCxpR578WUiXVt39NE9jF1FGzS0iz+tkTORAwGYw6I"
 }

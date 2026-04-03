@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: Changed PARALLEL_THRESHOLD from 2_000_000 to 32_768. All 837 tests pass (tests that exercise the rayon path now trigger at 32K+1024 instead of 2M+1024).",
   "created_at": "2026-03-25T13:08:46.949026324Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgZ10aRLAgN3Bc1yJdi5gwm2kMLYoGwgt1TrtutE+ce3wAAAAgPeNdb5unhzWOCDMqYk/cs8+MNC7qvP0dGkSbrb1VBOg="
 }

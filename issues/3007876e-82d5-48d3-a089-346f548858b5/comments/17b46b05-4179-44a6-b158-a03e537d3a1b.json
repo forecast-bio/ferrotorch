@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Merge blocked: 40 uncommitted files on main from swarm agents that wrote to the main repo. Need to commit or stash these before merging branches. Modified: tensor.rs (+167), vmap.rs (+738), dataset.rs (+243), conv.rs (+1643), collective.rs (+1). Plus 34 untracked new files.",
   "created_at": "2026-03-24T17:33:35.474911108Z",
-  "kind": "blocker"
+  "kind": "blocker",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgGlz47unscmmKL4TGrmRB2sOqgix1PCycOjuZX3GeZhoAAAAgGDraM2tZjBTaAUNjMPEDHwZEJ9TSTP0KBQyz8wMgciA="
 }

@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: The backward of split is cat — scatter each chunk's gradient back into the correct position along the split dim. Create SplitBackward in grad_fns/shape.rs that cats the incoming grads. Update split_t in methods.rs to attach SplitBackward when grad is enabled. chunk_t delegates to split_t so it gets autograd for free.",
   "created_at": "2026-03-22T22:55:28.686849284Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhALhj8by0JvUtMQlm6fm8lxvXyK1fD1WfsvPQb8ei42V+AAAAIBbgUU28abeiiI9Fz1YptanZiPRq0QMR8jvcWLy8Biia"
 }

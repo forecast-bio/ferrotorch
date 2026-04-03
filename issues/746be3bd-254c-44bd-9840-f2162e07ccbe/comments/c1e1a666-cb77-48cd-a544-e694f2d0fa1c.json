@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Bumped workspace.package.version and all 15 inter-crate dep versions from 0.1.1 to 0.1.2.",
   "created_at": "2026-03-16T04:26:30.691720874Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAIGk8XXPW7umMCqFeYfp0A1Jvcy01OpGISwsay5oEQYnAAAAIGGSvIP73O/1Hro7Ew/OTNRCN7ToKvYfXKC9csCfq2Sf"
 }

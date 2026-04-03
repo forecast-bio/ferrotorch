@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Three bugs identified in into_storage_and_shape:\n1. GPU Clone impl panics instead of returning Result — when Arc::try_unwrap fails on shared GPU tensors, .clone() calls the Clone impl which panics on clone_buffer failure or missing backend. The function returns FerrotorchResult but the Clone impl bypasses error propagation.\n2. Offset ignored in Ok(inner)->Ok(storage) path — returns raw storage without accounting for inner.offset. For GPU tensors with nonzero offset (views), caller gets wrong data.\n3. Offset ignored in Ok(inner)->Err(arc_storage) and Err(arc_inner)->GPU clone paths — clones entire GPU buffer ignoring offset.\n\nFix: Add try_clone() to TensorStorage that returns FerrotorchResult, and add a try_clone_subregion() for offset-aware GPU clones. Replace all .clone() calls in into_storage_and_shape with proper fallible clones that respect offset.",
   "created_at": "2026-03-24T20:43:52.702321235Z",
-  "kind": "observation"
+  "kind": "observation",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAKhVFkHSIsJZKczBTbRnEkZpHeYPkSOWQ/x8o7GY3yiSAAAAIGNJ18ifi5NEY3nMMvG+N0NxU9IIK95J13jPNLOxzt2b"
 }

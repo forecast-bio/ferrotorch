@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: ops/elementwise.rs with unary_map, binary_map (with broadcasting), scalar_map, sum, sum_axis, mean. 9 tests passing. Broadcasting supports arbitrary rank via broadcast_index.",
   "created_at": "2026-03-15T01:45:08.941062949Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgJ138AlmqLStMoRiy1WnwJtS6r0W7iD20jKNtehAdhmIAAAAhANosrK3+NcSqXA6V+0FE69UrVOnAs6N0IXJJ+pYPaJ1y"
 }

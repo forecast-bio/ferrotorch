@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Compiling gap analysis from 16 parallel agents that explored every major PyTorch subsystem against ferrotorch crates. Report will cover: core tensor ops, autograd, nn modules, optimizers, distributed, JIT, data loading, GPU/CUDA, serialization, distributions, vision, profiler, training utils, c10 architecture, functorch, and hub.",
   "created_at": "2026-03-24T11:30:20.137921902Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgPX9lZf5SC7/cgwa87OmAFVRusoHHStIOYirOKid3jwcAAAAhANqvfaf3oj8M6JVCSTy2vAkJSsCAevs0cbz5Tz9eRqEw"
 }

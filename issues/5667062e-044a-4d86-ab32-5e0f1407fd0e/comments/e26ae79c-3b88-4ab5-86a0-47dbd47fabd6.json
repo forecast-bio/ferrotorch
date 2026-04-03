@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Decision: Implementing PyTorch's exact architecture:\n1. Fused GRU forward PTX kernel: takes pre-computed input_gates [B,3H] + hidden_gates [B,3H] + bias + hx → produces hy + workspace\n2. Fused GRU backward PTX kernel: takes workspace + grad_hy → produces grad_input_gates + grad_hidden_gates + grad_hx\n3. Wire into GpuBackend trait as fused_gru_cell_f32 / fused_gru_cell_backward_f32\n4. Restructure GRU::forward to: (a) compute input/hidden gates via mm, (b) call fused kernel for pointwise, (c) save workspace for backward\n\nThe GEMMs stay as cuBLAS calls. Only the pointwise gate logic is fused.",
   "created_at": "2026-03-25T16:58:42.095779507Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAJsNzYTygyzONfcB8hPUQV/tv0BznKr6SSytiaeC1oWjAAAAIHJnDzV7pAqV3rBE8MOVQjgyigr3wLnBsSCWZBGKScOx"
 }

@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Flatten input (*batch, in_features) to (N, in_features), apply existing 2D mm+bias, reshape output back to (*batch, out_features). This preserves all existing autograd graph construction — reshape is differentiable so gradients flow through correctly.",
   "created_at": "2026-03-22T21:34:58.571159397Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAIlgg6wLC0+AQMNBM9BBB2naEJBfv39S5Sqg05FyCeBiAAAAIFLKSStJIKvDBnpC5BsTF5Kf1vVBHWBeEautDUwY92jZ"
 }

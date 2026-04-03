@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Approach: Add 4 new PTX kernels (index_select_1d, scatter_add_1d, masked_fill, masked_zero) to ferrotorch-gpu/src/kernels.rs. Add 4 matching trait methods to GpuBackend in gpu_dispatch.rs. Implement them in backend_impl.rs. Then rewrite grad_fns/indexing.rs to dispatch to GPU when input is_cuda(). Indices and masks will be uploaded to GPU as f32 buffers (same pattern as embed_lookup). The scatter_add backward kernel uses atom.global.add.f32 for safe concurrent accumulation.",
   "created_at": "2026-03-23T18:09:02.893506291Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAIubOaCoAA1eeXSGueMMMRz9ABkkxeinTpYH9E01tpA3AAAAIQDn2gbOTinssc577ttkhd/JSCicLj+361QKSt2/jUZjyw=="
 }

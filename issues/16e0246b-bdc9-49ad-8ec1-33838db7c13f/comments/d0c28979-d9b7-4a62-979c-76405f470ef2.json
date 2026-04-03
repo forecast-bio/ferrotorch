@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Decision: For the forward, reuse the existing GPU-aware bmm() function and attach BmmBackward. For the backward GPU path, add a bmm_backward_gpu() helper that performs per-batch transpose+matmul using the backend's transpose_2d_f32 and matmul_f32, then concatenates results into the output buffer using alloc_zeros + per-batch writes. This avoids GPU→CPU roundtrips for the actual compute while only requiring existing backend primitives.",
   "created_at": "2026-03-23T18:27:25.256005827Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgVHmcGOnsYKYgbZhFk0j2VBzRRSh6kVxjOVxDfzWUWSMAAAAgH2S3II7nJz35QIutGyj9T8tW8vQKeMJqCM8W9Jedwec="
 }

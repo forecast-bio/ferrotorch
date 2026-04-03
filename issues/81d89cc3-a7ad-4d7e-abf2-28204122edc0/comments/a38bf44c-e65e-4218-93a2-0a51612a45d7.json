@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Step 3 of Phase 1. Implementing autograd engine: GraphNode for topology tracking, backward() with Kahn's algorithm, no_grad() thread-local context, gradient checkpointing. Files: src/autograd/mod.rs, graph.rs, function.rs, no_grad.rs, checkpoint.rs. The GradFn trait is already defined in tensor.rs — function.rs will re-export it and add helpers.",
   "created_at": "2026-03-15T01:36:47.417932451Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgD+l0h1c4gCQqPTucW+FjPYHVsbrkG0gNLLEYNbXc7QUAAAAhAL86Qj+srCv4cA+xADdU45kg0GBcYd9b10D+qBSox9Pl"
 }

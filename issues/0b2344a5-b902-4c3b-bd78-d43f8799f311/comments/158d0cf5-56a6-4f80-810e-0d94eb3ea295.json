@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Decision: Using Cephes-style polynomial approximations with explicit range reduction. These are the same algorithms used by SLEEF/Intel VML but written as simple scalar code that LLVM auto-vectorizes. Key design: no branches in the hot path (use select/blend via conditional moves), Horner scheme for polynomial evaluation, bit manipulation for 2^n scaling. Targeting <1 ULP accuracy for exp, <2 ULP for log.",
   "created_at": "2026-03-25T12:48:09.016512993Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgZNDaPs5Xj2VbmqM2F8wPuRp4qTl9VVFLA6QJ/3SDo9YAAAAhAJoL0NWlkTb720wb8TXf1fAHUiHWO5K/X9hLgwxwGeeo"
 }

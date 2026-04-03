@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "The 1,417 cuModuleLoadData calls are NOT from our PTX cache (which works). They're from cuBLAS JIT-compiling GEMM variants for every unique matrix shape. With KV cache, each decode step has a different seq_len for the attention bmm, causing cuBLAS to compile a new variant. This is a known cuBLAS behavior. Fix options: (1) Use cublasSgemm instead of the JIT path (CUBLAS_POINTER_MODE_HOST), (2) Pre-warm cuBLAS with all expected shapes, (3) Use our own matmul PTX kernel for small matrices to avoid cuBLAS entirely.",
   "created_at": "2026-03-17T06:58:32.074034530Z",
-  "kind": "observation"
+  "kind": "observation",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgZgriOm2RXchHUUVFuYmxnPFsCdJrNAl/IdVbpSJeHDAAAAAgVrv0XXZFKNNnggRcge18jBYhb+RJb28dMc1RKOCdjUU="
 }

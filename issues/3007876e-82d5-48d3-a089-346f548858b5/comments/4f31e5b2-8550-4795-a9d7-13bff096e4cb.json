@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Swarm assessment: 30 agents launched, 3 fully completed and reported back (WU-06, WU-15, WU-02). Most agents did substantial work but hit rate limit before committing. 20+ worktrees have uncommitted changes from partial work. The worktrees are still intact and contain the code.",
   "created_at": "2026-03-24T16:25:42.020291447Z",
-  "kind": "observation"
+  "kind": "observation",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAISCrQmZ7lkFT1V5pmNKpPN8/Ulh/2O/fRcVJ3j9bu28AAAAIH2dtou+gDUUTJMmxVt02TtiT9yPYRmQzweUlRBYmDwv"
 }

@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: The decode step does ~600 CUDA API calls per token, each with ~1ms driver overhead = 0.99s/tok. CUDA graphs capture all 600 ops into a single replayable graph, reducing per-token cost to a single cudaGraphLaunch (~10us). Requirements: (1) GPU memory pool with fixed addresses (CUDA graphs replay at same memory locations), (2) Stream capture of one decode step, (3) Graph instantiation + replay loop. Expected speedup: 20-100x on decode. Approach: use cudarc's stream capture API (begin_capture/end_capture/instantiate/launch).",
   "created_at": "2026-03-17T13:01:40.357661417Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgBPlJ/jKFhXJNzvbUF/DuJz3vsDjPSzeQ816p5BhZQiMAAAAhAL6eJeCmkyJbDdh+/ZdoyJx/EPiWQ9WAekGcrYHMk4rd"
 }

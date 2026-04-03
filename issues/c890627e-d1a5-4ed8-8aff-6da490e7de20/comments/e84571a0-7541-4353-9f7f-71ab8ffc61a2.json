@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: overlapped_sync_gradients method that processes all gradient buckets concurrently using std::thread::scope. Each bucket's allreduce runs in its own thread, overlapping communication across buckets. Refactored sync_one_bucket helper shared by both serial and parallel paths. 69 distributed tests pass.",
   "created_at": "2026-03-25T16:03:08.931734065Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAO2TGdDD1GpV7eqrPjJLDsZEu4McCrnlFmxUQI9Wmw7mAAAAIQC/G9UOD1DmdN0zHoM5I7sLneq0kvysZff7U5IYHUhYDg=="
 }

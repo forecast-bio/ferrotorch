@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: RMSprop with centered mode and momentum. 9 tests.",
   "created_at": "2026-03-15T03:31:00.983470294Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhALsWL/F2ThymM6f6h5v7ETzwd7x5/jUvzhBF6VyZAKYnAAAAIQC6uXbuNezCrfWWklDknC/kOi8TVw21WaBDEtt8hEyvKA=="
 }

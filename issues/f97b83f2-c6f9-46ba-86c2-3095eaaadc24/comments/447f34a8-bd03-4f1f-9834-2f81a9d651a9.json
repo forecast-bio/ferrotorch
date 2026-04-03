@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: SplitBackward grad_fn in grad_fns/shape.rs zero-pads incoming gradient into original tensor shape at correct offset. split_t attaches SplitBackward when grad enabled. chunk_t gets autograd for free since it delegates to split_t. 4 new tests: grad_fn presence, 1D backward correctness, 2D chunk backward, no-grad passthrough. All 573 ferrotorch-core tests passing.",
   "created_at": "2026-03-22T23:01:16.773080998Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAOK1+me5+RtNgJJx8Uguv8/KjmzT0nmEofVypTSAcZOUAAAAIHYbKKberrLSGaA776EELOZ0mkjd5nohufmU1COs6diC"
 }

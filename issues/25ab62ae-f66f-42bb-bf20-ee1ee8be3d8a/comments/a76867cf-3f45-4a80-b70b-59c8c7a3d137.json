@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Change PARALLEL_THRESHOLD from 2_000_000 to 32_768 (32K). PyTorch uses 32K as the grain size for parallel dispatch. The current 2M threshold means tensors with 100K-2M elements run single-threaded, missing significant parallelism.",
   "created_at": "2026-03-25T13:08:14.170616721Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgbjqgOMdCPu8b5FdmLHlrSp1ZaaNJrIDjFJijGbr3QjQAAAAhANwtd+MxABsquiqzI2YVIiKTf9Sf2iljtK/SEG0+1oiK"
 }

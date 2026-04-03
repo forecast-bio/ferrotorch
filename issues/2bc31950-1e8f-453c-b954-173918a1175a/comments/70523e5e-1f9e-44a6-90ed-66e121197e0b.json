@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: ferray-linalg matmul wired up — 62x speedup for 1024x1024 (2.1s -> 34ms). All workspace deps now have version numbers for crates.io. 10/10 linalg tests passing.",
   "created_at": "2026-03-15T19:07:51.414673884Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhANZhdBSZaGcsL9O46gcBc6oztPgfjn6BzSIajDQVoJFoAAAAIQCinKRzkvIbn6X3FHjpIEhh2cu/9nGD6UgMB2Bi7iA2+g=="
 }

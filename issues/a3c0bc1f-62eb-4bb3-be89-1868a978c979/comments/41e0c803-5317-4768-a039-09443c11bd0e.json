@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: 3 reduction grad_fns (sum, mean, prod with prefix/suffix product for zero handling) with 25 tests.",
   "created_at": "2026-03-15T01:52:38.695944870Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAPJHwaI4qLWkb6crFgM4dTFIZY9AWCvtBBxqLt8n3OelAAAAIQDrLwccvm5JydtPItp1WxPITmnyVt4BImnHeb4HzAXB1g=="
 }

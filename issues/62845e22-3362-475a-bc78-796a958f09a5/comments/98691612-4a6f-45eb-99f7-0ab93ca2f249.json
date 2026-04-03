@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: Fixed all 41 QA issues. FSDP gradient flow restored (full_params stored for backward, reduce-scatter). JIT fusion restricted to unary chains (diamond reverted). no_grad/enable_grad panic-safe. DataLoader prefetch thread panic propagation. Profiler push_gpu_event returns Option. All loss outputs on correct device. NLLLoss negative target validation. MHA bias gradients differentiable. 1,608 tests pass.",
   "created_at": "2026-03-24T03:29:14.146267702Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAO1+j9baPCaaMrdrgd3hZEoM6cEs/VGerklnbA1e0QZpAAAAIQCnEre+ut589X378/MS7sxxh7p0MOYiAXjIcdkdsI0wAQ=="
 }

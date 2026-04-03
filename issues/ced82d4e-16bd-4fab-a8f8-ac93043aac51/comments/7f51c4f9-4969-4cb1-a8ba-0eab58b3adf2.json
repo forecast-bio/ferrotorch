@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Add tensor-tensor in-place ops: add_, sub_, mul_, div_. Scalar variants (add_scalar_, mul_scalar_) and fill_/zero_ already exist. Will follow the same safety pattern: check_inplace_allowed, data_vec, element-wise op, update_data. GPU-native path for f32 using existing backend ops.",
   "created_at": "2026-03-25T13:10:03.071029750Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAMVZiKrVTzYJnzkP2QZdcR3moGj9jspzNy9sb4oSVJy0AAAAIQCsBUSEijaYUbaaes3lHuBfdmQFrVAUSQeHZxWvZm29xg=="
 }

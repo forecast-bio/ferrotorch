@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Two bugs reported: 1) PTX recompilation on every kernel call — ctx.load_module(Ptx::from_src(...)) compiles PTX→CUBIN every time, 1700us overhead per call. Fix: cache compiled modules. 2) Softplus not differentiable — blocks Forward-Forward training. Fix: make Softplus use autograd. Dispatching both.",
   "created_at": "2026-03-15T22:35:55.056044492Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhALr5ebrtheadB8cgSokIpU/r5NrYH3wumFOIilOXjfvhAAAAICrAprwEmmIIxi97lo9wFsKyjkLLl1+e/mds5gT43b7m"
 }

@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: Vision crate skeleton with model registry (list_models, get_model, register_model with global LazyLock registry), FeatureExtractor wrapper, IMAGENET_MEAN/STD constants. 5 tests.",
   "created_at": "2026-03-15T13:36:33.814294384Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAO0HXH9h8VKnn5nGiB5+73pZ6302Mo6HE4sVrIoW46IwAAAAIQDW7V9SOKXjwmp9L7B1zuH2/R4AkhIS5APPhrFWKe7IXA=="
 }

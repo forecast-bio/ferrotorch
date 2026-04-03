@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Committed: docs: Add comprehensive README and prepare all crates for crates.io | 15 files changed, 292 insertions | Hash: 4122023. README has badges, features, quickstart, training example, crate table, GPU support, model zoo, comparison vs PyTorch/Burn/candle/tch-rs. All 13 Cargo.toml updated with correct repo URL, homepage, keywords, categories, readme.",
   "created_at": "2026-03-15T18:48:28.054606101Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgANNpYjJNQ4Q1Lp4f5wnXdrQFnfGTOKcJlKxpq075X8gAAAAgZurZSvy92ktzLnibbci1g5c364Ircs/qHRL4iIQ1/yI="
 }

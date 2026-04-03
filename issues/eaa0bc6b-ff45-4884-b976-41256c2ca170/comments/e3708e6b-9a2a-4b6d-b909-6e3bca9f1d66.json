@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Deferring SafeTensors and PyTorch import (requires external crate deps: safetensors, repugnant-pickle). For Phase 3 MVP, implementing simple msgpack-based state dict save/load using serde + rmp-serde. SafeTensors format will be added as a follow-up.",
   "created_at": "2026-03-15T03:37:15.036592151Z",
-  "kind": "decision"
+  "kind": "decision",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgfipImlXbJf1XY4vUDMMJVuLXczj4LC9Uqe9AuK90Aj0AAAAhAPf4iIofjFRmjBgQI5B6/WTycunMX3Jhx1A1HIiWvaLN"
 }

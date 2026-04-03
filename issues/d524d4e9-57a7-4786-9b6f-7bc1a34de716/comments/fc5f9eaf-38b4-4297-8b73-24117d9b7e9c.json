@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: Added TensorStorage::on_device() helper that uploads CPU data to the target device before wrapping with from_operation — avoids injecting ToDeviceBackward into the autograd graph. Fixed 11 forward-path instances across: methods.rs (permute_t, split_t), activation.rs (sigmoid, tanh, silu, softplus), fft.rs (fft/ifft/rfft/irfft differentiable), comparison.rs (where_), linalg.rs (batch_transpose), einsum.rs (einsum_differentiable), checkpoint.rs. All 587 tests pass.",
   "created_at": "2026-03-23T22:20:22.932912138Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgRurcfioq28+xddecklswFk7nDSLRFirlVHPAgX8i53cAAAAgTHojC0Lfc4JCHAfFp61xOyRMVML/9EXhzxlP5E9s4zk="
 }

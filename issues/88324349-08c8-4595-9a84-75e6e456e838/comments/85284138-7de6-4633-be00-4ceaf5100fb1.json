@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Findings from codebase exploration:\n1. View infrastructure already exists: TensorInner has offset + strides + Arc<TensorStorage> for shared ownership\n2. view_reshape() and squeeze/unsqueeze already do zero-copy on CPU\n3. permute() ALWAYS copies data element-by-element — even on CPU where stride swap would work\n4. GPU squeeze/unsqueeze do a wasteful CPU round-trip for what should be metadata-only ops\n5. No slice/narrow operations exist yet\n\nPlan:\nA. Rewrite permute to be zero-copy via stride permutation (CPU + GPU)\nB. Fix GPU squeeze/unsqueeze/flatten to avoid CPU round-trip (metadata-only)  \nC. Add narrow() as a zero-copy view using offset adjustment\nD. Add a contiguous() helper that materializes non-contiguous tensors on demand",
   "created_at": "2026-03-25T04:45:46.740596517Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhALIT7PxDvQusKz8gEU8P5TApisl735XitGDNi0M0jv56AAAAIFSe908xgpE5iDvguSKcdRMfX4zAUA9JUyH8R0l1nhz5"
 }

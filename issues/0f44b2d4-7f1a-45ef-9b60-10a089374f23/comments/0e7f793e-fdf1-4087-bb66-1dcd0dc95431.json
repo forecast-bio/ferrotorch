@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Phase 4 epic. ferrotorch-data: Dataset trait, DataLoader with batching/shuffling/parallel prefetch, samplers, transforms, collate. Design doc: .design/phase-4-data-loading.md (10 REQ, 16 AC).",
   "created_at": "2026-03-15T04:30:26.913165186Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAPHsrgdI5RqAAfRD7RlBgB7aUxnjXVizlibVEi9XUENLAAAAIQCGXd8HUjcWtyRxAt4b0XJoca+Nd+l+075mDWQ+LDG7kw=="
 }

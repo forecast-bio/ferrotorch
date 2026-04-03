@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: MaxPool2d, AvgPool2d, AdaptiveAvgPool2d with backward, 21 tests.",
   "created_at": "2026-03-15T02:52:57.965736076Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhALgxPzd7fONiniEZvngqnMAFce7hrD1d89AoDQ+iHfQEAAAAIQCTonA9Ftb/F6a6hEFGd6Idi08Pmjd+Jx1N9c7dFHl6Jw=="
 }

@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered:\n1. Wired stream.rs module into lib.rs (was orphaned — existed but not declared)\n2. Modified GpuDevice::stream() to call current_stream_or_default() — checks thread-local stream first, falls back to default. ALL existing kernel code is now stream-aware automatically.\n3. Added GpuDevice::default_stream() for code that explicitly needs the device's default stream\n4. Fixed circular reference: current_stream_or_default() now calls default_stream() not stream()\n5. Added GpuBackend::synchronize() and stream_count() to expose stream APIs at ferrotorch-core level\n6. Fixed blas.rs device_ptr calls for new Arc<CudaStream> return type\n7. StreamPool (8 streams/device), StreamGuard, CudaEventWrapper were already complete — now reachable\n8. 807 core + 250 optim + 193 gpu tests pass",
   "created_at": "2026-03-25T11:50:27.827902715Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgb29nKuN1odz7pAI0AedqW0lXxtcuoDL+QwkIOtKcr0QAAAAgVcXSqft4U9EX5xhT8W+DzzvJedHiIMkbLkEHxU99dTY="
 }

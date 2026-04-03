@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Delivered: Resize, CenterCrop, VisionToTensor, VisionNormalize transforms. 21 tests.",
   "created_at": "2026-03-15T13:44:26.017580615Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgftOewHLXt4Qv8MsVhmqAukTF3NJklwYb7yO3EZi2hsIAAAAhAOL/ug5HGMg/IdO5Z1i+LS4OYCQ9MBPle5upqaPVy44A"
 }

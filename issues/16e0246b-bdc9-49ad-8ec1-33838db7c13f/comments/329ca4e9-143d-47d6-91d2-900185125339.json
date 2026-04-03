@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: Fix both forward and backward to use GPU-native operations. Forward: dispatch to backend.bmm_f32 (cuBLAS) when input is GPU, then attach BmmBackward. Backward: for grad_A = grad_C @ B^T, use per-batch bmm_f32 with transposed B slices. For grad_B = A^T @ grad_C, use per-batch bmm_f32 with transposed A slices. The backend already has bmm_f32, matmul_f32, and transpose_2d_f32 — use those directly instead of CPU scalar loops.",
   "created_at": "2026-03-23T18:25:47.847904495Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAPHgdWGGGcCtmfS+nBnQYLWDhhv1CT9Qicbx3QYzAI+xAAAAIQCISN7oQykUtASvXoZFB/j8MvTq3IQGcSsv6eDOt2YsLw=="
 }

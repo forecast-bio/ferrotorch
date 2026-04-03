@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Plan: standalone ~/ferrotorch-gpt2 crate with GPT-2 124M. Files: model.rs (GPT2Config, MLP, GPT2Block, GPT2Model with derive(Module)), tokenizer.rs (wrap HF tokenizers crate), data.rs (TextDataset impl), generate.rs (autoregressive sampling with top-k/top-p), main.rs (CLI for train/generate). Will use path dep to ../ferrotorch/ferrotorch. Need to verify exact API signatures from ferrotorch source before writing.",
   "created_at": "2026-03-17T02:12:57.785422372Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAMAwTwIPsm4UEvXsIh3EbXsMmwA7gZHDGejoJZiKXu0mAAAAIETW6aWmColZTENQwIulJvSFlTKdAKTXu1Fixf2CFcHw"
 }

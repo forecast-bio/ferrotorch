@@ -4,5 +4,7 @@
   "author": "anon-a7c6025f",
   "content": "Committed: 14 per-crate READMEs + Cargo.toml readme path fixes. 28 files, 538 insertions. Each crate has focused README with types, usage example, and workspace link. Ready for crates.io.",
   "created_at": "2026-03-15T20:25:20.968314826Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAPGQtZPR5WnByaM9luDxO8P6M72a+t2A85KXKYPpX7AzAAAAIQC1TrzFLamp7CWQtAXFZYVhqtLaEb0Y7Lj3L8YAx5aVfQ=="
 }
