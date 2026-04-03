@@ -1,0 +1,10 @@
+{
+  "uuid": "d6cca288-2ed2-438a-9bb8-3e16e71c96e0",
+  "issue_uuid": "07496f24-68c8-43df-a6cb-59b098ce16aa",
+  "author": "y4rr",
+  "content": "Audit complete. The trait defaults in gpu_dispatch.rs are misleading — CudaBackendImpl in backend_impl.rs overrides almost all of them. Truly unimplemented stubs (no backend_impl override): svd_f32, cholesky_f32, solve_f32, qr_f32 (cuSOLVER linalg), all f64 ops (add/sub/mul/neg/relu/matmul/sum), save_rng_state/restore_rng_state. All backward activation kernels (sigmoid, tanh, softmax, layernorm, sum_axis, relu, gelu) are FULLY IMPLEMENTED with PTX kernels.",
+  "created_at": "2026-04-03T23:07:29.611456130Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAukW8WU6wZLbxOk+b+4WqDS4s4+SLIJ5Y6DIGeF7Q6n0KyE5f6IEUFlVMjc4sXgSNFPq0ROA9CTOt3D3xCM33Dg=="
+}
