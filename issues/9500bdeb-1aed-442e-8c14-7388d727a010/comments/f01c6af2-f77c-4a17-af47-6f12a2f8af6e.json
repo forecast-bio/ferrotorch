@@ -1,0 +1,10 @@
+{
+  "uuid": "f01c6af2-f77c-4a17-af47-6f12a2f8af6e",
+  "issue_uuid": "9500bdeb-1aed-442e-8c14-7388d727a010",
+  "author": "y4rr",
+  "content": "Already implemented — PTX kernel gpu_relu_backward exists in kernels.rs, backend_impl.rs overrides trait default, activation.rs dispatches correctly for f32 CUDA tensors",
+  "created_at": "2026-04-03T23:05:43.184044302Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAjge8stMFc/047sx+t4ORFz+9+R1chSdwGieiBfoHwXb6rDJ43VM2BvK7OfB5WxeYaiP8IYEeoroaYVz0mKmpBw=="
+}
