@@ -1,0 +1,10 @@
+{
+  "uuid": "b5c39fc9-66b1-4308-8710-4faaff5090e5",
+  "display_id": 434,
+  "title": "Implement BatchNorm3d and SyncBatchNorm",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-04-03T22:19:47.389108920Z",
+  "updated_at": "2026-04-03T22:19:47.389108920Z"
+}
