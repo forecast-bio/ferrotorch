@@ -1,0 +1,10 @@
+{
+  "uuid": "c9756601-950f-4293-b725-f469a0dbaf7e",
+  "issue_uuid": "22babf44-dd63-4c4d-b787-dfa1bb1c3d51",
+  "author": "y4rr",
+  "content": "The unused variable misses_before at cpu_pool.rs:246 is captured in test_pool_miss_then_hit. It captures the miss count after the first allocation but is never asserted against. Looking at the test structure: it allocates (miss), captures misses_before, returns the buffer, re-allocates (hit), then captures hits_after — but never verifies that no NEW misses occurred during the hit path. The variable was clearly intended to assert that misses didn't increase (i.e., the second alloc was truly a hit, not a miss). Will complete the assertion.",
+  "created_at": "2026-04-03T23:22:04.881718877Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAsf+XxZBnjKQ/idXa7pRCcC2Mazn37AbYrnDZ66984GuFiO9SZTrGk5E2dFsVTcVxNOq3/yptRxxaOeBt8VzLAg=="
+}
