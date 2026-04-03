@@ -6,5 +6,8 @@
   "priority": "critical",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:18:14.746722727Z",
-  "updated_at": "2026-04-03T22:18:14.746722727Z"
+  "updated_at": "2026-04-03T22:18:16.384026472Z",
+  "labels": [
+    "performance"
+  ]
 }
