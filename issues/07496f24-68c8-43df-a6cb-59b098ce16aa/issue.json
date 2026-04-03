@@ -1,0 +1,10 @@
+{
+  "uuid": "07496f24-68c8-43df-a6cb-59b098ce16aa",
+  "display_id": 470,
+  "title": "Audit and implement all remaining unimplemented GPU backward stubs in gpu_dispatch.rs:537-790",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-03T22:58:32.447986545Z",
+  "updated_at": "2026-04-03T22:58:32.447986545Z"
+}
