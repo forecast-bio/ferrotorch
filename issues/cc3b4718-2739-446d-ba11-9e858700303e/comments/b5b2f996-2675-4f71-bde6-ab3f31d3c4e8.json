@@ -1,0 +1,10 @@
+{
+  "uuid": "b5b2f996-2675-4f71-bde6-ab3f31d3c4e8",
+  "issue_uuid": "cc3b4718-2739-446d-ba11-9e858700303e",
+  "author": "y4rr",
+  "content": "Already implemented — PTX kernel gpu_layernorm_backward exists in kernels.rs with backend_impl override",
+  "created_at": "2026-04-03T23:05:59.151408105Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAqc3tgMPLgnTVOZA3y4UZYIuc0tgZ2g+PCoClkCeoq+AlZiVmDPfKOumrFvsxR5isu6WaD9gjLXDrAKXzbAS/CQ=="
+}
