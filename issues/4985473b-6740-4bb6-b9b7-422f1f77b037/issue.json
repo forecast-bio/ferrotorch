@@ -1,0 +1,10 @@
+{
+  "uuid": "4985473b-6740-4bb6-b9b7-422f1f77b037",
+  "display_id": 417,
+  "title": "Add NCCL backend for distributed GPU collective operations",
+  "status": "open",
+  "priority": "critical",
+  "created_by": "y4rr",
+  "created_at": "2026-04-03T22:18:18.088356466Z",
+  "updated_at": "2026-04-03T22:18:18.088356466Z"
+}
