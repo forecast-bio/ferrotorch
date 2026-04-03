@@ -1,12 +1,12 @@
 {
   "uuid": "71a73711-ad57-43bf-9a07-7ef49d52ec3c",
   "display_id": 465,
-  "title": "GPU backward kernel: gelu_backward_f32 (all approximations) — eliminate CPU roundtrip",
+  "title": "Add GPU backward kernel for GELU Tanh approximation mode",
   "status": "open",
   "priority": "critical",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:58:05.147803427Z",
-  "updated_at": "2026-04-03T22:58:06.976990480Z",
+  "updated_at": "2026-04-03T23:06:18.705977185Z",
   "labels": [
     "gpu"
   ]
