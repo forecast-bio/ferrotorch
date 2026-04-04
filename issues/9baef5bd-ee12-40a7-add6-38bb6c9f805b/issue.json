@@ -1,0 +1,10 @@
+{
+  "uuid": "9baef5bd-ee12-40a7-add6-38bb6c9f805b",
+  "display_id": 487,
+  "title": "Add f64 GPU kernel variants for all existing f32 PTX kernels",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-04T16:50:05.567073287Z",
+  "updated_at": "2026-04-04T16:50:05.567073287Z"
+}
