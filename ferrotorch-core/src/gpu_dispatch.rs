@@ -504,6 +504,18 @@ pub trait GpuBackend: Send + Sync {
         input: &GpuBufferHandle,
     ) -> FerrotorchResult<GpuBufferHandle>;
 
+    // Clamp: out[i] = max(min_val, min(max_val, x[i]))
+    fn clamp_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _min_val: f32,
+        _max_val: f32,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "clamp_f32 GPU op not yet implemented".into(),
+        })
+    }
+
     // SiLU activation: out[i] = x * sigmoid(x)
     fn silu_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument {

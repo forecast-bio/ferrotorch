@@ -442,6 +442,29 @@ impl<T: Float> GradFn<T> for ClampBackward<T> {
 /// Gradient flows through only where `min <= x[i] <= max`; it is zero at
 /// the boundaries where the value was clamped.
 pub fn clamp<T: Float>(input: &Tensor<T>, min: T, max: T) -> FerrotorchResult<Tensor<T>> {
+    // GPU fast path for f32
+    if input.is_cuda() && is_f32::<T>() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let min_f32 = min.to_f32().unwrap_or(f32::MIN);
+            let max_f32 = max.to_f32().unwrap_or(f32::MAX);
+            let handle = backend.clamp_f32(input.gpu_handle()?, min_f32, max_f32)?;
+            return if needs_grad_unary(input) {
+                Tensor::from_operation(
+                    TensorStorage::gpu(handle),
+                    input.shape().to_vec(),
+                    Arc::new(ClampBackward {
+                        input: input.clone(),
+                        min,
+                        max,
+                    }),
+                )
+            } else {
+                Tensor::from_storage(TensorStorage::gpu(handle), input.shape().to_vec(), false)
+            };
+        }
+    }
+
+    // CPU path
     let output = unary_map(input, |x| {
         if x < min {
             min

@@ -1985,6 +1985,55 @@ DONE:
 }
 ";
 
+/// PTX source for `clamp_kernel`: `out[i] = max(min_val, min(max_val, x[i]))`.
+/// Takes two extra f32 params: min_val, max_val.
+#[cfg(feature = "cuda")]
+pub(crate) const CLAMP_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry clamp_kernel(
+    .param .u64 in_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n,
+    .param .f32 min_val,
+    .param .f32 max_val
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %in, %out, %off;
+    .reg .f32 %x, %mn, %mx, %result;
+    .reg .pred %p;
+
+    ld.param.u64 %in, [in_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+    ld.param.f32 %mn, [min_val];
+    ld.param.f32 %mx, [max_val];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %in, %in, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %x, [%in];
+    max.f32 %result, %x, %mn;
+    min.f32 %result, %result, %mx;
+    st.global.f32 [%out], %result;
+
+DONE:
+    ret;
+}
+";
+
 // ---------------------------------------------------------------------------
 // Backward activation kernels
 // ---------------------------------------------------------------------------
@@ -8700,6 +8749,59 @@ pub fn gpu_mish_backward(
     cpu_to_gpu(&result, device)
 }
 
+/// Elementwise clamp: `out[i] = max(min_val, min(max_val, x[i]))`.
+///
+/// Uses a custom launch because the kernel takes two extra f32 parameters.
+#[cfg(feature = "cuda")]
+pub fn gpu_clamp(
+    input: &CudaBuffer<f32>,
+    min_val: f32,
+    max_val: f32,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(input, device)?;
+
+    let n = input.len();
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        CLAMP_PTX,
+        "clamp_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            let host = gpu_to_cpu(input, device)?;
+            let result: Vec<f32> = host
+                .iter()
+                .map(|&x| x.max(min_val).min(max_val))
+                .collect();
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .arg(&min_val)
+            .arg(&max_val)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // Public API -- elementwise transcendentals & math ops
 // ---------------------------------------------------------------------------
@@ -10446,6 +10548,17 @@ pub fn gpu_mish(_input: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<Cuda
 pub fn gpu_mish_backward(
     _grad: &CudaBuffer<f32>,
     _input: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_clamp(
+    _input: &CudaBuffer<f32>,
+    _min_val: f32,
+    _max_val: f32,
     _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)

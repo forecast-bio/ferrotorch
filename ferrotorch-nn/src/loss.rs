@@ -601,85 +601,27 @@ struct HuberBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for HuberBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let cpu_pred = if self.pred.is_cuda() {
-            self.pred.cpu()?
-        } else {
-            self.pred.clone()
-        };
-        let cpu_target = if self.target.is_cuda() {
-            self.target.cpu()?
-        } else {
-            self.target.clone()
-        };
-        let cpu_go = if grad_output.is_cuda() {
-            grad_output.cpu()?
-        } else {
-            grad_output.clone()
-        };
-        let pred_data = cpu_pred.data()?;
-        let target_data = cpu_target.data()?;
-        let grad_data = cpu_go.data()?;
-        let delta = T::from(self.delta).unwrap();
-        let n = T::from(pred_data.len()).unwrap();
+        use ferrotorch_core::autograd::no_grad::no_grad;
+        use ferrotorch_core::grad_fns::arithmetic::{div, mul, sub};
+        use ferrotorch_core::grad_fns::transcendental::clamp;
 
-        let result: Vec<T> = match self.reduction {
-            Reduction::Mean => {
-                let go = grad_data[0];
-                pred_data
-                    .iter()
-                    .zip(target_data.iter())
-                    .map(|(&p, &t)| {
-                        let error = p - t;
-                        let abs_error = error.abs();
-                        let local_grad = if abs_error < delta {
-                            error
-                        } else {
-                            delta * error.signum()
-                        };
-                        local_grad * go / n
-                    })
-                    .collect()
+        // Huber gradient: clamp(pred - target, -delta, delta) * grad_output [/ n]
+        let delta_t = T::from(self.delta).unwrap();
+        let grad_input = no_grad(|| {
+            let error = sub(&self.pred, &self.target)?;
+            let clamped = clamp(&error, -delta_t, delta_t)?;
+            let result = mul(&clamped, grad_output)?;
+            match self.reduction {
+                Reduction::Mean => {
+                    let n = ferrotorch_core::creation::scalar(
+                        T::from(self.pred.shape().iter().product::<usize>()).unwrap(),
+                    )?
+                    .to(self.pred.device())?;
+                    div(&result, &n)
+                }
+                _ => Ok(result),
             }
-            Reduction::Sum => {
-                let go = grad_data[0];
-                pred_data
-                    .iter()
-                    .zip(target_data.iter())
-                    .map(|(&p, &t)| {
-                        let error = p - t;
-                        let abs_error = error.abs();
-                        let local_grad = if abs_error < delta {
-                            error
-                        } else {
-                            delta * error.signum()
-                        };
-                        local_grad * go
-                    })
-                    .collect()
-            }
-            Reduction::None => pred_data
-                .iter()
-                .zip(target_data.iter())
-                .zip(grad_data.iter())
-                .map(|((&p, &t), &g)| {
-                    let error = p - t;
-                    let abs_error = error.abs();
-                    let local_grad = if abs_error < delta {
-                        error
-                    } else {
-                        delta * error.signum()
-                    };
-                    local_grad * g
-                })
-                .collect(),
-        };
-
-        let grad_input = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            self.pred.shape().to_vec(),
-            false,
-        )?;
-        let grad_input = grad_input.to(self.pred.device())?;
+        })?;
         Ok(vec![Some(grad_input)])
     }
 
