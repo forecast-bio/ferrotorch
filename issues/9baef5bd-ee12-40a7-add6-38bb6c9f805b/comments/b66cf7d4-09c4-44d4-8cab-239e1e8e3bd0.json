@@ -1,0 +1,10 @@
+{
+  "uuid": "b66cf7d4-09c4-44d4-8cab-239e1e8e3bd0",
+  "issue_uuid": "9baef5bd-ee12-40a7-add6-38bb6c9f805b",
+  "author": "y4rr",
+  "content": "[result] Full f64 GPU pipeline: 65 PTX kernels, 43 backend_impl methods wired, 44 dispatch sites updated. Covers: all arithmetic+unary, all activation forward+backward (relu/sigmoid/tanh/gelu 3 modes/silu/elu/mish/softmax/log_softmax), all broadcast ops, reductions (sum/sum_axis/mean), all 5 cumulative scans, shape ops (transpose/permute), clamp. Indexing/shape/norm launcher wiring deferred (PTX exists, needs signature matching). 3255 tests pass.",
+  "created_at": "2026-04-04T18:27:09.646446381Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABANlW4gOccn6OpwGIkgRghirQOFc6Av1jPVJg1Q4H2isccTAhTw8V810VPvsykX01InQJnkZFfQC2LaenVgdBNCA=="
+}
