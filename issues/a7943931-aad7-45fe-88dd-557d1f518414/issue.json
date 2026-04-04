@@ -1,0 +1,10 @@
+{
+  "uuid": "a7943931-aad7-45fe-88dd-557d1f518414",
+  "display_id": 476,
+  "title": "Add GPU forward kernel for log_softmax (currently explicit .cpu() download)",
+  "status": "open",
+  "priority": "critical",
+  "created_by": "y4rr",
+  "created_at": "2026-04-04T01:36:51.886866704Z",
+  "updated_at": "2026-04-04T01:36:51.886866704Z"
+}
