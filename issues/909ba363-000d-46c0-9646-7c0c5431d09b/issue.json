@@ -2,11 +2,12 @@
   "uuid": "909ba363-000d-46c0-9646-7c0c5431d09b",
   "display_id": 407,
   "title": "Fix div() broadcast path panic on GPU tensors",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-25T23:18:45.529109685Z",
-  "updated_at": "2026-03-25T23:19:47.097121679Z",
+  "updated_at": "2026-04-04T15:47:55.156474816Z",
+  "closed_at": "2026-04-04T15:47:55.156474816Z",
   "labels": [
     "feature",
     "bug"
