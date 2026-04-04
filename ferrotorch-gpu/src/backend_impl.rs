@@ -996,6 +996,78 @@ impl GpuBackend for CudaBackendImpl {
         Ok(Self::wrap_buffer(result, grad.device_ordinal()))
     }
 
+    fn cumsum_f32(
+        &self,
+        a: &GpuBufferHandle,
+        outer: usize,
+        dim_size: usize,
+        inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_cumsum(a_buf, outer, dim_size, inner, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn cumprod_f32(
+        &self,
+        a: &GpuBufferHandle,
+        outer: usize,
+        dim_size: usize,
+        inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_cumprod(a_buf, outer, dim_size, inner, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn cummax_f32(
+        &self,
+        a: &GpuBufferHandle,
+        outer: usize,
+        dim_size: usize,
+        inner: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle)> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let (vals, idxs) = crate::kernels::gpu_cummax(a_buf, outer, dim_size, inner, dev)
+            .map_err(Self::map_gpu_err)?;
+        let ord = a.device_ordinal();
+        Ok((Self::wrap_buffer(vals, ord), Self::wrap_buffer(idxs, ord)))
+    }
+
+    fn cummin_f32(
+        &self,
+        a: &GpuBufferHandle,
+        outer: usize,
+        dim_size: usize,
+        inner: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle)> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let (vals, idxs) = crate::kernels::gpu_cummin(a_buf, outer, dim_size, inner, dev)
+            .map_err(Self::map_gpu_err)?;
+        let ord = a.device_ordinal();
+        Ok((Self::wrap_buffer(vals, ord), Self::wrap_buffer(idxs, ord)))
+    }
+
+    fn logcumsumexp_f32(
+        &self,
+        a: &GpuBufferHandle,
+        outer: usize,
+        dim_size: usize,
+        inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_logcumsumexp(a_buf, outer, dim_size, inner, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
     fn clamp_f32(
         &self,
         a: &GpuBufferHandle,

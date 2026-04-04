@@ -53,15 +53,29 @@ fn validate_dim(ndim: usize, dim: i64, op_name: &str) -> FerrotorchResult<usize>
 /// `dim` equals `sum(input[..., 0..=i, ...])`.
 pub fn cumsum_forward<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResult<Tensor<T>> {
     let norm_dim = validate_dim(input.ndim(), dim, "cumsum")?;
+    let shape = input.shape();
+    let (outer, dim_size, inner) = dim_strides(shape, norm_dim);
+
+    // GPU fast path for f32
+    if input.is_cuda() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let handle = backend.cumsum_f32(input.gpu_handle()?, outer, dim_size, inner)?;
+            return Tensor::from_storage(
+                TensorStorage::gpu(handle),
+                shape.to_vec(),
+                false,
+            );
+        }
+    }
+
+    // CPU path
     let input_cpu = if input.is_cuda() {
         input.cpu()?
     } else {
         input.clone()
     };
     let in_data = input_cpu.data()?;
-    let shape = input_cpu.shape();
 
-    let (outer, dim_size, inner) = dim_strides(shape, norm_dim);
     let mut out = vec![<T as num_traits::Zero>::zero(); in_data.len()];
 
     for o in 0..outer {
@@ -111,15 +125,29 @@ pub fn reverse_cumsum<T: Float>(data: &[T], shape: &[usize], dim: usize) -> Vec<
 /// `dim` equals `prod(input[..., 0..=i, ...])`.
 pub fn cumprod_forward<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResult<Tensor<T>> {
     let norm_dim = validate_dim(input.ndim(), dim, "cumprod")?;
+    let shape = input.shape();
+    let (outer, dim_size, inner) = dim_strides(shape, norm_dim);
+
+    // GPU fast path for f32
+    if input.is_cuda() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let handle = backend.cumprod_f32(input.gpu_handle()?, outer, dim_size, inner)?;
+            return Tensor::from_storage(
+                TensorStorage::gpu(handle),
+                shape.to_vec(),
+                false,
+            );
+        }
+    }
+
+    // CPU path
     let input_cpu = if input.is_cuda() {
         input.cpu()?
     } else {
         input.clone()
     };
     let in_data = input_cpu.data()?;
-    let shape = input_cpu.shape();
 
-    let (outer, dim_size, inner) = dim_strides(shape, norm_dim);
     let mut out = vec![<T as num_traits::Zero>::zero(); in_data.len()];
 
     for o in 0..outer {
@@ -158,6 +186,26 @@ pub fn cummax_forward<T: Float>(
     dim: i64,
 ) -> FerrotorchResult<CumExtremeResult<T>> {
     let norm_dim = validate_dim(input.ndim(), dim, "cummax")?;
+    let shape = input.shape();
+    let (outer, dim_size, inner) = dim_strides(shape, norm_dim);
+
+    // GPU fast path for f32 — kernel returns both values and indices
+    if input.is_cuda() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let (vals_h, idxs_h) =
+                backend.cummax_f32(input.gpu_handle()?, outer, dim_size, inner)?;
+            let values =
+                Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
+            // Indices are stored as f32 on GPU — download and convert to usize
+            let idxs_tensor =
+                Tensor::<f32>::from_storage(TensorStorage::gpu(idxs_h), shape.to_vec(), false)?;
+            let idxs_cpu = idxs_tensor.cpu()?;
+            let idxs_data = idxs_cpu.data()?;
+            let indices: Vec<usize> = idxs_data.iter().map(|&v| v as usize).collect();
+            return Ok(CumExtremeResult { values, indices });
+        }
+    }
+
     let input_cpu = if input.is_cuda() {
         input.cpu()?
     } else {
@@ -165,8 +213,6 @@ pub fn cummax_forward<T: Float>(
     };
     let in_data = input_cpu.data()?;
     let shape = input_cpu.shape();
-
-    let (outer, dim_size, inner) = dim_strides(shape, norm_dim);
     let numel = in_data.len();
     let mut out_vals = vec![<T as num_traits::Zero>::zero(); numel];
     let mut out_idxs = vec![0usize; numel];
@@ -209,6 +255,25 @@ pub fn cummin_forward<T: Float>(
     dim: i64,
 ) -> FerrotorchResult<CumExtremeResult<T>> {
     let norm_dim = validate_dim(input.ndim(), dim, "cummin")?;
+    let shape = input.shape();
+    let (outer, dim_size, inner) = dim_strides(shape, norm_dim);
+
+    // GPU fast path for f32 — kernel returns both values and indices
+    if input.is_cuda() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let (vals_h, idxs_h) =
+                backend.cummin_f32(input.gpu_handle()?, outer, dim_size, inner)?;
+            let values =
+                Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
+            let idxs_tensor =
+                Tensor::<f32>::from_storage(TensorStorage::gpu(idxs_h), shape.to_vec(), false)?;
+            let idxs_cpu = idxs_tensor.cpu()?;
+            let idxs_data = idxs_cpu.data()?;
+            let indices: Vec<usize> = idxs_data.iter().map(|&v| v as usize).collect();
+            return Ok(CumExtremeResult { values, indices });
+        }
+    }
+
     let input_cpu = if input.is_cuda() {
         input.cpu()?
     } else {
@@ -216,8 +281,6 @@ pub fn cummin_forward<T: Float>(
     };
     let in_data = input_cpu.data()?;
     let shape = input_cpu.shape();
-
-    let (outer, dim_size, inner) = dim_strides(shape, norm_dim);
     let numel = in_data.len();
     let mut out_vals = vec![<T as num_traits::Zero>::zero(); numel];
     let mut out_idxs = vec![0usize; numel];
@@ -258,15 +321,29 @@ pub fn cummin_forward<T: Float>(
 /// Numerically stable: uses the running-max trick to avoid overflow.
 pub fn logcumsumexp_forward<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResult<Tensor<T>> {
     let norm_dim = validate_dim(input.ndim(), dim, "logcumsumexp")?;
+    let shape = input.shape();
+    let (outer, dim_size, inner) = dim_strides(shape, norm_dim);
+
+    // GPU fast path for f32
+    if input.is_cuda() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let handle =
+                backend.logcumsumexp_f32(input.gpu_handle()?, outer, dim_size, inner)?;
+            return Tensor::from_storage(
+                TensorStorage::gpu(handle),
+                shape.to_vec(),
+                false,
+            );
+        }
+    }
+
     let input_cpu = if input.is_cuda() {
         input.cpu()?
     } else {
         input.clone()
     };
     let in_data = input_cpu.data()?;
-    let shape = input_cpu.shape();
 
-    let (outer, dim_size, inner) = dim_strides(shape, norm_dim);
     let mut out = vec![<T as num_traits::Zero>::zero(); in_data.len()];
     let neg_inf = <T as num_traits::Float>::neg_infinity();
 

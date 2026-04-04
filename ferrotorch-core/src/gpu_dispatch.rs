@@ -504,6 +504,66 @@ pub trait GpuBackend: Send + Sync {
         input: &GpuBufferHandle,
     ) -> FerrotorchResult<GpuBufferHandle>;
 
+    // Cumulative scan operations along a dimension.
+    // Parameters: (input, outer, dim_size, inner) factorize the tensor shape.
+    fn cumsum_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _outer: usize,
+        _dim_size: usize,
+        _inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "cumsum_f32 GPU op not yet implemented".into(),
+        })
+    }
+    fn cumprod_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _outer: usize,
+        _dim_size: usize,
+        _inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "cumprod_f32 GPU op not yet implemented".into(),
+        })
+    }
+    // Returns (values, indices_as_f32)
+    fn cummax_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _outer: usize,
+        _dim_size: usize,
+        _inner: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "cummax_f32 GPU op not yet implemented".into(),
+        })
+    }
+    // Returns (values, indices_as_f32)
+    fn cummin_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _outer: usize,
+        _dim_size: usize,
+        _inner: usize,
+    ) -> FerrotorchResult<(GpuBufferHandle, GpuBufferHandle)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "cummin_f32 GPU op not yet implemented".into(),
+        })
+    }
+    fn logcumsumexp_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _outer: usize,
+        _dim_size: usize,
+        _inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "logcumsumexp_f32 GPU op not yet implemented".into(),
+        })
+    }
+
     // Clamp: out[i] = max(min_val, min(max_val, x[i]))
     fn clamp_f32(
         &self,

@@ -3267,6 +3267,438 @@ DONE:
 ";
 
 // ---------------------------------------------------------------------------
+// Cumulative scan PTX kernels
+//
+// One thread per (outer_idx, inner_idx) pair. Each thread does a sequential
+// scan along dim_size elements. Parallelism comes from outer*inner threads.
+// ---------------------------------------------------------------------------
+
+/// PTX source for `cumsum_kernel`: prefix sum along an axis.
+///
+/// Thread i processes the scan for outer_idx = i / inner, inner_idx = i % inner.
+/// `output[base + k*inner] = sum_{j=0}^{k} input[base + j*inner]`
+#[cfg(feature = "cuda")]
+pub(crate) const CUMSUM_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry cumsum_kernel(
+    .param .u64 input_ptr,
+    .param .u64 output_ptr,
+    .param .u32 outer_size,
+    .param .u32 dim_size,
+    .param .u32 inner_size,
+    .param .u32 total
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %outer_sz, %dim_sz, %inner_sz;
+    .reg .u32 %outer_idx, %inner_idx, %k, %base, %idx, %tmp;
+    .reg .u64 %in, %out, %off, %addr;
+    .reg .f32 %val, %acc;
+    .reg .pred %p, %lp;
+
+    ld.param.u64 %in, [input_ptr];
+    ld.param.u64 %out, [output_ptr];
+    ld.param.u32 %outer_sz, [outer_size];
+    ld.param.u32 %dim_sz, [dim_size];
+    ld.param.u32 %inner_sz, [inner_size];
+    ld.param.u32 %n_reg, [total];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    // total threads = outer * inner
+    mul.lo.u32 %tmp, %outer_sz, %inner_sz;
+    setp.ge.u32 %p, %r_tid, %tmp;
+    @%p bra DONE;
+
+    div.u32 %outer_idx, %r_tid, %inner_sz;
+    rem.u32 %inner_idx, %r_tid, %inner_sz;
+
+    // base = outer_idx * dim_size * inner_size + inner_idx
+    mul.lo.u32 %base, %outer_idx, %dim_sz;
+    mul.lo.u32 %base, %base, %inner_sz;
+    add.u32 %base, %base, %inner_idx;
+
+    mov.f32 %acc, 0f00000000;
+    mov.u32 %k, 0;
+SCAN_LOOP:
+    setp.ge.u32 %lp, %k, %dim_sz;
+    @%lp bra SCAN_DONE;
+
+    // idx = base + k * inner_size
+    mul.lo.u32 %idx, %k, %inner_sz;
+    add.u32 %idx, %base, %idx;
+
+    cvt.u64.u32 %off, %idx;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    ld.global.f32 %val, [%addr];
+
+    add.f32 %acc, %acc, %val;
+
+    add.u64 %addr, %out, %off;
+    st.global.f32 [%addr], %acc;
+
+    add.u32 %k, %k, 1;
+    bra SCAN_LOOP;
+SCAN_DONE:
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `cumprod_kernel`: prefix product along an axis.
+///
+/// Thread i processes the scan for outer_idx = i / inner, inner_idx = i % inner.
+/// `output[base + k*inner] = prod_{j=0}^{k} input[base + j*inner]`
+#[cfg(feature = "cuda")]
+pub(crate) const CUMPROD_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry cumprod_kernel(
+    .param .u64 input_ptr,
+    .param .u64 output_ptr,
+    .param .u32 outer_size,
+    .param .u32 dim_size,
+    .param .u32 inner_size,
+    .param .u32 total
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %outer_sz, %dim_sz, %inner_sz;
+    .reg .u32 %outer_idx, %inner_idx, %k, %base, %idx, %tmp;
+    .reg .u64 %in, %out, %off, %addr;
+    .reg .f32 %val, %acc;
+    .reg .pred %p, %lp;
+
+    ld.param.u64 %in, [input_ptr];
+    ld.param.u64 %out, [output_ptr];
+    ld.param.u32 %outer_sz, [outer_size];
+    ld.param.u32 %dim_sz, [dim_size];
+    ld.param.u32 %inner_sz, [inner_size];
+    ld.param.u32 %n_reg, [total];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    mul.lo.u32 %tmp, %outer_sz, %inner_sz;
+    setp.ge.u32 %p, %r_tid, %tmp;
+    @%p bra DONE;
+
+    div.u32 %outer_idx, %r_tid, %inner_sz;
+    rem.u32 %inner_idx, %r_tid, %inner_sz;
+
+    mul.lo.u32 %base, %outer_idx, %dim_sz;
+    mul.lo.u32 %base, %base, %inner_sz;
+    add.u32 %base, %base, %inner_idx;
+
+    // acc = 1.0
+    mov.f32 %acc, 0f3F800000;
+    mov.u32 %k, 0;
+SCAN_LOOP:
+    setp.ge.u32 %lp, %k, %dim_sz;
+    @%lp bra SCAN_DONE;
+
+    mul.lo.u32 %idx, %k, %inner_sz;
+    add.u32 %idx, %base, %idx;
+
+    cvt.u64.u32 %off, %idx;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    ld.global.f32 %val, [%addr];
+
+    mul.f32 %acc, %acc, %val;
+
+    add.u64 %addr, %out, %off;
+    st.global.f32 [%addr], %acc;
+
+    add.u32 %k, %k, 1;
+    bra SCAN_LOOP;
+SCAN_DONE:
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `cummax_kernel`: running maximum along an axis.
+///
+/// Thread i processes the scan for outer_idx = i / inner, inner_idx = i % inner.
+/// Outputs both values and argmax indices (as f32 for uniform buffer handling).
+/// `values[idx] = max_{j=0}^{k} input[base + j*inner]`
+/// `indices[idx] = argmax_{j=0}^{k} input[base + j*inner]`
+#[cfg(feature = "cuda")]
+pub(crate) const CUMMAX_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry cummax_kernel(
+    .param .u64 input_ptr,
+    .param .u64 output_ptr,
+    .param .u64 indices_ptr,
+    .param .u32 outer_size,
+    .param .u32 dim_size,
+    .param .u32 inner_size,
+    .param .u32 total
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %outer_sz, %dim_sz, %inner_sz;
+    .reg .u32 %outer_idx, %inner_idx, %k, %base, %idx, %tmp, %best_k;
+    .reg .u64 %in, %out, %ind, %off, %addr;
+    .reg .f32 %val, %acc, %best_k_f;
+    .reg .pred %p, %lp, %is_new_max;
+
+    ld.param.u64 %in, [input_ptr];
+    ld.param.u64 %out, [output_ptr];
+    ld.param.u64 %ind, [indices_ptr];
+    ld.param.u32 %outer_sz, [outer_size];
+    ld.param.u32 %dim_sz, [dim_size];
+    ld.param.u32 %inner_sz, [inner_size];
+    ld.param.u32 %n_reg, [total];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    mul.lo.u32 %tmp, %outer_sz, %inner_sz;
+    setp.ge.u32 %p, %r_tid, %tmp;
+    @%p bra DONE;
+
+    div.u32 %outer_idx, %r_tid, %inner_sz;
+    rem.u32 %inner_idx, %r_tid, %inner_sz;
+
+    mul.lo.u32 %base, %outer_idx, %dim_sz;
+    mul.lo.u32 %base, %base, %inner_sz;
+    add.u32 %base, %base, %inner_idx;
+
+    mov.b32 %acc, 0xFF800000;
+    mov.u32 %best_k, 0;
+    mov.u32 %k, 0;
+SCAN_LOOP:
+    setp.ge.u32 %lp, %k, %dim_sz;
+    @%lp bra SCAN_DONE;
+
+    mul.lo.u32 %idx, %k, %inner_sz;
+    add.u32 %idx, %base, %idx;
+
+    cvt.u64.u32 %off, %idx;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    ld.global.f32 %val, [%addr];
+
+    setp.gt.f32 %is_new_max, %val, %acc;
+    @%is_new_max mov.u32 %best_k, %k;
+    max.f32 %acc, %acc, %val;
+
+    add.u64 %addr, %out, %off;
+    st.global.f32 [%addr], %acc;
+
+    cvt.rn.f32.u32 %best_k_f, %best_k;
+    add.u64 %addr, %ind, %off;
+    st.global.f32 [%addr], %best_k_f;
+
+    add.u32 %k, %k, 1;
+    bra SCAN_LOOP;
+SCAN_DONE:
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `cummin_kernel`: running minimum along an axis.
+///
+/// Thread i processes the scan for outer_idx = i / inner, inner_idx = i % inner.
+/// Outputs both values and argmin indices (as f32 for uniform buffer handling).
+#[cfg(feature = "cuda")]
+pub(crate) const CUMMIN_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry cummin_kernel(
+    .param .u64 input_ptr,
+    .param .u64 output_ptr,
+    .param .u64 indices_ptr,
+    .param .u32 outer_size,
+    .param .u32 dim_size,
+    .param .u32 inner_size,
+    .param .u32 total
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %outer_sz, %dim_sz, %inner_sz;
+    .reg .u32 %outer_idx, %inner_idx, %k, %base, %idx, %tmp, %best_k;
+    .reg .u64 %in, %out, %ind, %off, %addr;
+    .reg .f32 %val, %acc, %best_k_f;
+    .reg .pred %p, %lp, %is_new_min;
+
+    ld.param.u64 %in, [input_ptr];
+    ld.param.u64 %out, [output_ptr];
+    ld.param.u64 %ind, [indices_ptr];
+    ld.param.u32 %outer_sz, [outer_size];
+    ld.param.u32 %dim_sz, [dim_size];
+    ld.param.u32 %inner_sz, [inner_size];
+    ld.param.u32 %n_reg, [total];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    mul.lo.u32 %tmp, %outer_sz, %inner_sz;
+    setp.ge.u32 %p, %r_tid, %tmp;
+    @%p bra DONE;
+
+    div.u32 %outer_idx, %r_tid, %inner_sz;
+    rem.u32 %inner_idx, %r_tid, %inner_sz;
+
+    mul.lo.u32 %base, %outer_idx, %dim_sz;
+    mul.lo.u32 %base, %base, %inner_sz;
+    add.u32 %base, %base, %inner_idx;
+
+    mov.b32 %acc, 0x7F800000;
+    mov.u32 %best_k, 0;
+    mov.u32 %k, 0;
+SCAN_LOOP:
+    setp.ge.u32 %lp, %k, %dim_sz;
+    @%lp bra SCAN_DONE;
+
+    mul.lo.u32 %idx, %k, %inner_sz;
+    add.u32 %idx, %base, %idx;
+
+    cvt.u64.u32 %off, %idx;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    ld.global.f32 %val, [%addr];
+
+    setp.lt.f32 %is_new_min, %val, %acc;
+    @%is_new_min mov.u32 %best_k, %k;
+    min.f32 %acc, %acc, %val;
+
+    add.u64 %addr, %out, %off;
+    st.global.f32 [%addr], %acc;
+
+    cvt.rn.f32.u32 %best_k_f, %best_k;
+    add.u64 %addr, %ind, %off;
+    st.global.f32 [%addr], %best_k_f;
+
+    add.u32 %k, %k, 1;
+    bra SCAN_LOOP;
+SCAN_DONE:
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `logcumsumexp_kernel`: numerically stable log-cumulative-sum-exp.
+///
+/// Thread i processes the scan for outer_idx = i / inner, inner_idx = i % inner.
+/// `acc = log(exp(acc) + exp(x))` computed as `m + log(exp(acc-m) + exp(x-m))`
+/// where `m = max(acc, x)` for numerical stability.
+///
+/// Uses `ex2.approx.f32` for exp and `lg2.approx.f32` for log with
+/// log2(e) and ln(2) conversion constants.
+#[cfg(feature = "cuda")]
+pub(crate) const LOGCUMSUMEXP_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry logcumsumexp_kernel(
+    .param .u64 input_ptr,
+    .param .u64 output_ptr,
+    .param .u32 outer_size,
+    .param .u32 dim_size,
+    .param .u32 inner_size,
+    .param .u32 total
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %outer_sz, %dim_sz, %inner_sz;
+    .reg .u32 %outer_idx, %inner_idx, %k, %base, %idx, %tmp;
+    .reg .u64 %in, %out, %off, %addr;
+    .reg .f32 %val, %acc, %m, %ea, %ev, %s, %ls, %log2e, %ln2;
+    .reg .pred %p, %lp;
+
+    ld.param.u64 %in, [input_ptr];
+    ld.param.u64 %out, [output_ptr];
+    ld.param.u32 %outer_sz, [outer_size];
+    ld.param.u32 %dim_sz, [dim_size];
+    ld.param.u32 %inner_sz, [inner_size];
+    ld.param.u32 %n_reg, [total];
+
+    // log2(e) = 1.4426950408...  -> 0x3FB8AA3B
+    mov.b32 %log2e, 0x3FB8AA3B;
+    // ln(2) = 0.6931471805... -> 0x3F317218
+    mov.b32 %ln2, 0x3F317218;
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    mul.lo.u32 %tmp, %outer_sz, %inner_sz;
+    setp.ge.u32 %p, %r_tid, %tmp;
+    @%p bra DONE;
+
+    div.u32 %outer_idx, %r_tid, %inner_sz;
+    rem.u32 %inner_idx, %r_tid, %inner_sz;
+
+    mul.lo.u32 %base, %outer_idx, %dim_sz;
+    mul.lo.u32 %base, %base, %inner_sz;
+    add.u32 %base, %base, %inner_idx;
+
+    // acc = -inf
+    mov.b32 %acc, 0xFF800000;
+    mov.u32 %k, 0;
+SCAN_LOOP:
+    setp.ge.u32 %lp, %k, %dim_sz;
+    @%lp bra SCAN_DONE;
+
+    mul.lo.u32 %idx, %k, %inner_sz;
+    add.u32 %idx, %base, %idx;
+
+    cvt.u64.u32 %off, %idx;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    ld.global.f32 %val, [%addr];
+
+    // Numerically stable: m = max(acc, x)
+    max.f32 %m, %acc, %val;
+    // exp(acc - m): (acc - m) * log2(e) -> ex2
+    sub.f32 %ea, %acc, %m;
+    mul.f32 %ea, %ea, %log2e;
+    ex2.approx.f32 %ea, %ea;
+    // exp(x - m): (x - m) * log2(e) -> ex2
+    sub.f32 %ev, %val, %m;
+    mul.f32 %ev, %ev, %log2e;
+    ex2.approx.f32 %ev, %ev;
+    // sum
+    add.f32 %s, %ea, %ev;
+    // log(sum) = lg2(sum) * ln(2)
+    lg2.approx.f32 %ls, %s;
+    mul.f32 %ls, %ls, %ln2;
+    // acc = m + log(sum)
+    add.f32 %acc, %m, %ls;
+
+    add.u64 %addr, %out, %off;
+    st.global.f32 [%addr], %acc;
+
+    add.u32 %k, %k, 1;
+    bra SCAN_LOOP;
+SCAN_DONE:
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
 // LayerNorm PTX kernel (row-wise: mean, var, normalize+affine)
 //
 // Uses `.approx` PTX instructions (`div.approx.f32`, `sqrt.approx.f32`,
@@ -7656,6 +8088,399 @@ pub fn gpu_sum_axis(
 }
 
 // ---------------------------------------------------------------------------
+// Public API -- Cumulative scan operations
+// ---------------------------------------------------------------------------
+
+/// Cumulative sum (prefix sum) along an axis on GPU.
+///
+/// `output[base + k*inner] = sum_{j=0}^{k} input[base + j*inner]`
+/// where `base = outer_idx * dim_size * inner + inner_idx`.
+///
+/// One thread per (outer_idx, inner_idx) pair; each thread does a sequential
+/// scan along `dim_size` elements.
+///
+/// # Errors
+///
+/// - [`GpuError::DeviceMismatch`] if `input` and `device` are on different devices.
+/// - [`GpuError::Driver`] on CUDA runtime errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_cumsum(
+    input: &CudaBuffer<f32>,
+    outer: usize,
+    dim_size: usize,
+    inner: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(input, device)?;
+
+    let total = outer * dim_size * inner;
+    let num_threads = outer * inner;
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        CUMSUM_PTX,
+        "cumsum_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback
+            let host = gpu_to_cpu(input, device)?;
+            let mut result = vec![0.0f32; total];
+            for i in 0..num_threads {
+                let outer_idx = i / inner;
+                let inner_idx = i % inner;
+                let base = outer_idx * dim_size * inner + inner_idx;
+                let mut acc = 0.0f32;
+                for k in 0..dim_size {
+                    let idx = base + k * inner;
+                    acc += host[idx];
+                    result[idx] = acc;
+                }
+            }
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(total, device)?;
+    let cfg = launch_cfg(num_threads)?;
+    let outer_u32 = outer as u32;
+    let dim_size_u32 = dim_size as u32;
+    let inner_u32 = inner as u32;
+    let total_u32 = total as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(&outer_u32)
+            .arg(&dim_size_u32)
+            .arg(&inner_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+/// Cumulative product (prefix product) along an axis on GPU.
+///
+/// `output[base + k*inner] = prod_{j=0}^{k} input[base + j*inner]`
+/// where `base = outer_idx * dim_size * inner + inner_idx`.
+///
+/// # Errors
+///
+/// - [`GpuError::DeviceMismatch`] if `input` and `device` are on different devices.
+/// - [`GpuError::Driver`] on CUDA runtime errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_cumprod(
+    input: &CudaBuffer<f32>,
+    outer: usize,
+    dim_size: usize,
+    inner: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(input, device)?;
+
+    let total = outer * dim_size * inner;
+    let num_threads = outer * inner;
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        CUMPROD_PTX,
+        "cumprod_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback
+            let host = gpu_to_cpu(input, device)?;
+            let mut result = vec![0.0f32; total];
+            for i in 0..num_threads {
+                let outer_idx = i / inner;
+                let inner_idx = i % inner;
+                let base = outer_idx * dim_size * inner + inner_idx;
+                let mut acc = 1.0f32;
+                for k in 0..dim_size {
+                    let idx = base + k * inner;
+                    acc *= host[idx];
+                    result[idx] = acc;
+                }
+            }
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(total, device)?;
+    let cfg = launch_cfg(num_threads)?;
+    let outer_u32 = outer as u32;
+    let dim_size_u32 = dim_size as u32;
+    let inner_u32 = inner as u32;
+    let total_u32 = total as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(&outer_u32)
+            .arg(&dim_size_u32)
+            .arg(&inner_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+/// Cumulative maximum (running max) along an axis on GPU.
+///
+/// `output[base + k*inner] = max_{j=0}^{k} input[base + j*inner]`
+/// where `base = outer_idx * dim_size * inner + inner_idx`.
+///
+/// # Errors
+///
+/// - [`GpuError::DeviceMismatch`] if `input` and `device` are on different devices.
+/// - [`GpuError::Driver`] on CUDA runtime errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_cummax(
+    input: &CudaBuffer<f32>,
+    outer: usize,
+    dim_size: usize,
+    inner: usize,
+    device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>)> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(input, device)?;
+
+    let total = outer * dim_size * inner;
+    let num_threads = outer * inner;
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        CUMMAX_PTX,
+        "cummax_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            let host = gpu_to_cpu(input, device)?;
+            let mut vals = vec![0.0f32; total];
+            let mut idxs = vec![0.0f32; total];
+            for i in 0..num_threads {
+                let outer_idx = i / inner;
+                let inner_idx = i % inner;
+                let base = outer_idx * dim_size * inner + inner_idx;
+                let mut acc = f32::NEG_INFINITY;
+                let mut best = 0u32;
+                for k in 0..dim_size {
+                    let idx = base + k * inner;
+                    if host[idx] > acc {
+                        acc = host[idx];
+                        best = k as u32;
+                    }
+                    vals[idx] = acc;
+                    idxs[idx] = best as f32;
+                }
+            }
+            return Ok((cpu_to_gpu(&vals, device)?, cpu_to_gpu(&idxs, device)?));
+        }
+    };
+
+    let mut out = alloc_zeros_f32(total, device)?;
+    let mut out_idx = alloc_zeros_f32(total, device)?;
+    let cfg = launch_cfg(num_threads)?;
+    let outer_u32 = outer as u32;
+    let dim_size_u32 = dim_size as u32;
+    let inner_u32 = inner as u32;
+    let total_u32 = total as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(out_idx.inner_mut())
+            .arg(&outer_u32)
+            .arg(&dim_size_u32)
+            .arg(&inner_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok((out, out_idx))
+}
+
+/// Cumulative minimum (running min) along an axis on GPU.
+///
+/// `output[base + k*inner] = min_{j=0}^{k} input[base + j*inner]`
+/// where `base = outer_idx * dim_size * inner + inner_idx`.
+///
+/// # Errors
+///
+/// - [`GpuError::DeviceMismatch`] if `input` and `device` are on different devices.
+/// - [`GpuError::Driver`] on CUDA runtime errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_cummin(
+    input: &CudaBuffer<f32>,
+    outer: usize,
+    dim_size: usize,
+    inner: usize,
+    device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>)> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(input, device)?;
+
+    let total = outer * dim_size * inner;
+    let num_threads = outer * inner;
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        CUMMIN_PTX,
+        "cummin_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            let host = gpu_to_cpu(input, device)?;
+            let mut vals = vec![0.0f32; total];
+            let mut idxs = vec![0.0f32; total];
+            for i in 0..num_threads {
+                let outer_idx = i / inner;
+                let inner_idx = i % inner;
+                let base = outer_idx * dim_size * inner + inner_idx;
+                let mut acc = f32::INFINITY;
+                let mut best = 0u32;
+                for k in 0..dim_size {
+                    let idx = base + k * inner;
+                    if host[idx] < acc {
+                        acc = host[idx];
+                        best = k as u32;
+                    }
+                    vals[idx] = acc;
+                    idxs[idx] = best as f32;
+                }
+            }
+            return Ok((cpu_to_gpu(&vals, device)?, cpu_to_gpu(&idxs, device)?));
+        }
+    };
+
+    let mut out = alloc_zeros_f32(total, device)?;
+    let mut out_idx = alloc_zeros_f32(total, device)?;
+    let cfg = launch_cfg(num_threads)?;
+    let outer_u32 = outer as u32;
+    let dim_size_u32 = dim_size as u32;
+    let inner_u32 = inner as u32;
+    let total_u32 = total as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(out_idx.inner_mut())
+            .arg(&outer_u32)
+            .arg(&dim_size_u32)
+            .arg(&inner_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok((out, out_idx))
+}
+
+/// Numerically stable log-cumulative-sum-exp along an axis on GPU.
+///
+/// `acc = log(exp(acc) + exp(x))` computed as `m + log(exp(acc-m) + exp(x-m))`
+/// where `m = max(acc, x)` for numerical stability.
+///
+/// # Errors
+///
+/// - [`GpuError::DeviceMismatch`] if `input` and `device` are on different devices.
+/// - [`GpuError::Driver`] on CUDA runtime errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_logcumsumexp(
+    input: &CudaBuffer<f32>,
+    outer: usize,
+    dim_size: usize,
+    inner: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(input, device)?;
+
+    let total = outer * dim_size * inner;
+    let num_threads = outer * inner;
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        LOGCUMSUMEXP_PTX,
+        "logcumsumexp_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(_) => {
+            // CPU fallback
+            let host = gpu_to_cpu(input, device)?;
+            let mut result = vec![0.0f32; total];
+            for i in 0..num_threads {
+                let outer_idx = i / inner;
+                let inner_idx = i % inner;
+                let base = outer_idx * dim_size * inner + inner_idx;
+                let mut acc = f32::NEG_INFINITY;
+                for k in 0..dim_size {
+                    let idx = base + k * inner;
+                    let x = host[idx];
+                    let m = acc.max(x);
+                    acc = m + ((acc - m).exp() + (x - m).exp()).ln();
+                    result[idx] = acc;
+                }
+            }
+            return cpu_to_gpu(&result, device);
+        }
+    };
+
+    let mut out = alloc_zeros_f32(total, device)?;
+    let cfg = launch_cfg(num_threads)?;
+    let outer_u32 = outer as u32;
+    let dim_size_u32 = dim_size as u32;
+    let inner_u32 = inner as u32;
+    let total_u32 = total as u32;
+
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(&outer_u32)
+            .arg(&dim_size_u32)
+            .arg(&inner_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
 // Public API -- Strided split
 // ---------------------------------------------------------------------------
 
@@ -10954,6 +11779,66 @@ pub fn gpu_sum_axis(
     _a: &CudaBuffer<f32>,
     _outer: usize,
     _axis_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_cumsum(
+    _input: &CudaBuffer<f32>,
+    _outer: usize,
+    _dim_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_cumprod(
+    _input: &CudaBuffer<f32>,
+    _outer: usize,
+    _dim_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_cummax(
+    _input: &CudaBuffer<f32>,
+    _outer: usize,
+    _dim_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>)> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_cummin(
+    _input: &CudaBuffer<f32>,
+    _outer: usize,
+    _dim_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>)> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_logcumsumexp(
+    _input: &CudaBuffer<f32>,
+    _outer: usize,
+    _dim_size: usize,
     _inner: usize,
     _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f32>> {
