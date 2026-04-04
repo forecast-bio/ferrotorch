@@ -1,0 +1,10 @@
+{
+  "uuid": "8b1aba15-733d-4c2b-bbc7-a339aacd7a21",
+  "issue_uuid": "d0fc9b57-b5ed-4cc6-a7ff-02a8a6ead556",
+  "author": "y4rr",
+  "content": "[result] NcclBackend now creates a dedicated non-blocking CUDA stream (cudaStreamCreateWithFlags, flag=cudaStreamNonBlocking) for all NCCL operations. This allows communication-computation overlap (e.g., allreduce of layer N gradients while computing layer N-1 backward). Added synchronize() method, with_stream() constructor for user-provided streams, proper cleanup in Drop. Stream creation uses dlopen to avoid compile-time CUDA dependency.",
+  "created_at": "2026-04-04T22:34:47.394863788Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGqJ+NiwE2fipg+XPEXhvOo81VoyVvucekuAF5VDHEDoF7HvDNB2LG+sV4xqmeHzDa7DDj0m1rqcqIEKpWxLtBw=="
+}
