@@ -366,8 +366,20 @@ pub trait GpuBackend: Send + Sync {
         })
     }
 
-    // GELU activation f32
+    // GELU activation f32 (sigmoid approximation)
     fn gelu_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
+    // GELU activation f32 (tanh approximation: PyTorch approximate="tanh")
+    fn gelu_tanh_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "gelu_tanh_f32 GPU op not yet implemented".into(),
+        })
+    }
+    // GELU activation f32 (exact erf: PyTorch approximate="none")
+    fn gelu_erf_f32(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "gelu_erf_f32 GPU op not yet implemented".into(),
+        })
+    }
 
     // LayerNorm f32 (row-wise, with affine)
     fn layernorm_f32(
@@ -445,6 +457,16 @@ pub trait GpuBackend: Send + Sync {
         grad: &GpuBufferHandle,
         input: &GpuBufferHandle,
     ) -> FerrotorchResult<GpuBufferHandle>;
+    // gelu_backward (tanh approx)
+    fn gelu_backward_tanh_f32(
+        &self,
+        _grad: &GpuBufferHandle,
+        _input: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "gelu_backward_tanh_f32 GPU op not yet implemented".into(),
+        })
+    }
     // gelu_backward (exact erf): out[i] = grad[i] * (Φ(x) + x·φ(x))
     // where Φ = normal CDF, φ = normal PDF
     fn gelu_backward_erf_f32(

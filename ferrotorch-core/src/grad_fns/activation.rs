@@ -300,16 +300,15 @@ impl<T: Float> GeluBackward<T> {
 
 impl<T: Float> GradFn<T> for GeluBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        // GPU-native path — dispatch by approximation mode.
-        // Tanh mode falls through to CPU (no dedicated kernel yet).
-        if self.approximate != GeluApproximate::Tanh && grad_output.is_cuda() && is_f32::<T>() {
+        // GPU-native path — all approximation modes have PTX kernels.
+        if grad_output.is_cuda() && is_f32::<T>() {
             let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
             let go_h = grad_output.gpu_handle()?;
             let in_h = self.input.gpu_handle()?;
             let result_h = match self.approximate {
                 GeluApproximate::Sigmoid => backend.gelu_backward_f32(go_h, in_h)?,
+                GeluApproximate::Tanh => backend.gelu_backward_tanh_f32(go_h, in_h)?,
                 GeluApproximate::None => backend.gelu_backward_erf_f32(go_h, in_h)?,
-                GeluApproximate::Tanh => unreachable!(),
             };
             let grad_input = Tensor::from_storage(
                 TensorStorage::gpu(result_h),
@@ -319,7 +318,7 @@ impl<T: Float> GradFn<T> for GeluBackward<T> {
             return Ok(vec![Some(grad_input)]);
         }
 
-        // CPU path (all modes, and tanh GPU fallback).
+        // CPU path (all modes).
         let cpu_input = if self.input.is_cuda() {
             self.input.cpu()?
         } else {
@@ -798,10 +797,14 @@ pub fn gelu_with<T: Float>(
     input: &Tensor<T>,
     approximate: GeluApproximate,
 ) -> FerrotorchResult<Tensor<T>> {
-    // GPU fast path — only available for Sigmoid mode (has PTX kernel).
-    if approximate == GeluApproximate::Sigmoid && input.is_cuda() {
+    // GPU fast path for all approximation modes (f32 only).
+    if input.is_cuda() && is_f32::<T>() {
         if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
-            let handle = backend.gelu_f32(input.gpu_handle()?)?;
+            let handle = match approximate {
+                GeluApproximate::Sigmoid => backend.gelu_f32(input.gpu_handle()?)?,
+                GeluApproximate::Tanh => backend.gelu_tanh_f32(input.gpu_handle()?)?,
+                GeluApproximate::None => backend.gelu_erf_f32(input.gpu_handle()?)?,
+            };
             return if is_grad_enabled() && input.requires_grad() {
                 Tensor::from_operation(
                     TensorStorage::gpu(handle),

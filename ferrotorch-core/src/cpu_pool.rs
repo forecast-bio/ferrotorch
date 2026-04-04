@@ -253,9 +253,14 @@ mod tests {
         assert_eq!(v2.len(), 1000);
         assert!(v2.iter().all(|&x| x == 0.0)); // Zeroed on checkout.
 
-        let (hits_after, _, _) = cpu_pool_stats();
+        let (hits_after, misses_after, _) = cpu_pool_stats();
         // At least 1 more hit from our reuse.
         assert!(hits_after > 0, "expected at least 1 pool hit");
+        // The second alloc should NOT have caused a new miss.
+        assert_eq!(
+            misses_after, misses_before,
+            "expected no new misses after pool return, but misses went from {misses_before} to {misses_after}"
+        );
 
         drop(v2);
     }

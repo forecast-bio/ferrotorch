@@ -1259,6 +1259,279 @@ DONE:
 }
 ";
 
+/// PTX source for `gelu_tanh_kernel`: tanh approximation of GELU.
+/// `out[i] = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))`
+///
+/// Uses `ex2.approx.f32` for exp and Horner-form tanh approximation via
+/// `tanh(y) = (e^(2y) - 1) / (e^(2y) + 1)`.
+#[cfg(feature = "cuda")]
+pub(crate) const GELU_TANH_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry gelu_tanh_kernel(
+    .param .u64 in_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %in, %out, %off;
+    .reg .f32 %x, %x3, %inner, %sqrt2pi, %c, %y, %two_y, %e2y;
+    .reg .f32 %e2y_m1, %e2y_p1, %th, %one, %half, %log2e, %result;
+    .reg .pred %p;
+
+    ld.param.u64 %in, [in_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %in, %in, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %x, [%in];
+
+    // inner = sqrt(2/π) * (x + 0.044715 * x³)
+    // sqrt(2/π) = 0.7978845608 = 0x3F4C422A
+    // 0.044715 = 0x3D372713
+    mul.f32 %x3, %x, %x;
+    mul.f32 %x3, %x3, %x;
+    mov.f32 %c, 0f3D372713;
+    mul.f32 %x3, %c, %x3;
+    add.f32 %inner, %x, %x3;
+    mov.f32 %sqrt2pi, 0f3F4C422A;
+    mul.f32 %y, %sqrt2pi, %inner;
+
+    // tanh(y) = (exp(2y) - 1) / (exp(2y) + 1)
+    // exp(2y) = 2^(2y * log2(e))
+    mov.f32 %log2e, 0f3FB8AA3B;
+    add.f32 %two_y, %y, %y;
+    mul.f32 %two_y, %two_y, %log2e;
+    ex2.approx.f32 %e2y, %two_y;
+    mov.f32 %one, 0f3F800000;
+    sub.f32 %e2y_m1, %e2y, %one;
+    add.f32 %e2y_p1, %e2y, %one;
+    rcp.approx.f32 %e2y_p1, %e2y_p1;
+    mul.f32 %th, %e2y_m1, %e2y_p1;
+
+    // out = 0.5 * x * (1 + tanh)
+    add.f32 %th, %one, %th;
+    mov.f32 %half, 0f3F000000;
+    mul.f32 %result, %half, %x;
+    mul.f32 %result, %result, %th;
+    st.global.f32 [%out], %result;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `gelu_erf_kernel`: exact GELU using erf.
+/// `out[i] = x * 0.5 * (1 + erf(x / sqrt(2)))`
+///
+/// Uses Abramowitz & Stegun formula 7.1.26 for erf (|ε| < 1.5×10⁻⁷).
+#[cfg(feature = "cuda")]
+pub(crate) const GELU_ERF_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry gelu_erf_kernel(
+    .param .u64 in_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %in, %out, %off;
+    .reg .f32 %x, %z, %ax, %one, %half, %log2e;
+    .reg .f32 %t, %pt, %z2, %neg_z2, %exp_neg_z2, %erf_val;
+    .reg .f32 %p, %a1, %a2, %a3, %a4, %a5, %result;
+    .reg .pred %pred_ge, %pred_neg;
+
+    ld.param.u64 %in, [in_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %pred_ge, %r_tid, %n_reg;
+    @%pred_ge bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %in, %in, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %x, [%in];
+    mov.f32 %one, 0f3F800000;
+    mov.f32 %half, 0f3F000000;
+    mov.f32 %log2e, 0f3FB8AA3B;
+
+    // z = x / sqrt(2) = x * 0.70710678
+    mov.f32 %z, 0f3F3504F3;
+    mul.f32 %z, %x, %z;
+
+    // |z| for erf(|z|)
+    abs.f32 %ax, %z;
+
+    // t = 1 / (1 + 0.3275911 * |z|)
+    mov.f32 %p, 0f3EA7BA05;
+    mul.f32 %t, %p, %ax;
+    add.f32 %t, %one, %t;
+    rcp.approx.f32 %t, %t;
+
+    // Horner: poly = t*(a1 + t*(a2 + t*(a3 + t*(a4 + t*a5))))
+    mov.f32 %a5, 0f3E0AAAAB;
+    mov.f32 %a4, 0fBEB3A903;
+    mov.f32 %a3, 0f3FB506DD;
+    mov.f32 %a2, 0fBF03C1E1;
+    mov.f32 %a1, 0f3EA0D6BB;
+
+    mul.f32 %pt, %t, %a5;
+    add.f32 %pt, %pt, %a4;
+    mul.f32 %pt, %pt, %t;
+    add.f32 %pt, %pt, %a3;
+    mul.f32 %pt, %pt, %t;
+    add.f32 %pt, %pt, %a2;
+    mul.f32 %pt, %pt, %t;
+    add.f32 %pt, %pt, %a1;
+    mul.f32 %pt, %pt, %t;
+
+    // exp(-z^2) via ex2.approx: exp(y) = 2^(y * log2(e))
+    mul.f32 %z2, %ax, %ax;
+    neg.f32 %neg_z2, %z2;
+    mul.f32 %neg_z2, %neg_z2, %log2e;
+    ex2.approx.f32 %exp_neg_z2, %neg_z2;
+
+    // erf(|z|) = 1 - poly * exp(-z^2)
+    mul.f32 %erf_val, %pt, %exp_neg_z2;
+    sub.f32 %erf_val, %one, %erf_val;
+
+    // erf(-z) = -erf(z), so sign-correct
+    setp.lt.f32 %pred_neg, %z, 0f00000000;
+    @%pred_neg neg.f32 %erf_val, %erf_val;
+
+    // out = x * 0.5 * (1 + erf(x/sqrt(2)))
+    add.f32 %erf_val, %one, %erf_val;
+    mul.f32 %result, %half, %x;
+    mul.f32 %result, %result, %erf_val;
+    st.global.f32 [%out], %result;
+
+DONE:
+    ret;
+}
+";
+
+/// PTX source for `gelu_backward_tanh_kernel`:
+/// Backward for tanh approximation of GELU.
+/// Let `u = sqrt(2/π) * (x + 0.044715 * x³)`, `t = tanh(u)`.
+/// `d/dx = 0.5 * (1 + t) + 0.5 * x * (1 - t²) * sqrt(2/π) * (1 + 3*0.044715*x²)`
+/// `out[i] = grad[i] * d/dx`
+#[cfg(feature = "cuda")]
+pub(crate) const GELU_BACKWARD_TANH_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry gelu_backward_tanh_kernel(
+    .param .u64 grad_ptr,
+    .param .u64 input_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %grad, %input, %out, %off;
+    .reg .f32 %vg, %x, %x2, %x3, %inner, %sqrt2pi, %c, %c3, %y;
+    .reg .f32 %two_y, %e2y, %e2y_m1, %e2y_p1, %th, %one, %half, %log2e;
+    .reg .f32 %th2, %one_m_th2, %d_inner, %term1, %term2, %d_gelu, %result;
+    .reg .pred %p;
+
+    ld.param.u64 %grad, [grad_ptr];
+    ld.param.u64 %input, [input_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %grad, %grad, %off;
+    add.u64 %input, %input, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %vg, [%grad];
+    ld.global.f32 %x, [%input];
+
+    mov.f32 %one, 0f3F800000;
+    mov.f32 %half, 0f3F000000;
+    mov.f32 %log2e, 0f3FB8AA3B;
+    mov.f32 %sqrt2pi, 0f3F4C422A;
+    mov.f32 %c, 0f3D372713;
+    // 3 * 0.044715 = 0.134145 = 0x3E096B8C
+    mov.f32 %c3, 0f3E096B8C;
+
+    // u = sqrt(2/π) * (x + 0.044715 * x³)
+    mul.f32 %x2, %x, %x;
+    mul.f32 %x3, %x2, %x;
+    mul.f32 %x3, %c, %x3;
+    add.f32 %inner, %x, %x3;
+    mul.f32 %y, %sqrt2pi, %inner;
+
+    // tanh(y) via exp
+    add.f32 %two_y, %y, %y;
+    mul.f32 %two_y, %two_y, %log2e;
+    ex2.approx.f32 %e2y, %two_y;
+    sub.f32 %e2y_m1, %e2y, %one;
+    add.f32 %e2y_p1, %e2y, %one;
+    rcp.approx.f32 %e2y_p1, %e2y_p1;
+    mul.f32 %th, %e2y_m1, %e2y_p1;
+
+    // d/dx = 0.5*(1+tanh) + 0.5*x*(1-tanh²)*sqrt(2/π)*(1+3*0.044715*x²)
+    // term1 = 0.5 * (1 + th)
+    add.f32 %term1, %one, %th;
+    mul.f32 %term1, %half, %term1;
+
+    // (1 - th²)
+    mul.f32 %th2, %th, %th;
+    sub.f32 %one_m_th2, %one, %th2;
+
+    // d_inner = sqrt(2/π) * (1 + 3*0.044715*x²)
+    mul.f32 %d_inner, %c3, %x2;
+    add.f32 %d_inner, %one, %d_inner;
+    mul.f32 %d_inner, %sqrt2pi, %d_inner;
+
+    // term2 = 0.5 * x * (1-th²) * d_inner
+    mul.f32 %term2, %half, %x;
+    mul.f32 %term2, %term2, %one_m_th2;
+    mul.f32 %term2, %term2, %d_inner;
+
+    add.f32 %d_gelu, %term1, %term2;
+    mul.f32 %result, %vg, %d_gelu;
+    st.global.f32 [%out], %result;
+
+DONE:
+    ret;
+}
+";
+
 // ---------------------------------------------------------------------------
 // Backward activation kernels
 // ---------------------------------------------------------------------------
@@ -6834,6 +7107,85 @@ pub fn gpu_gelu(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBu
     })
 }
 
+/// Elementwise GELU activation on GPU using the tanh approximation:
+/// `gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))`.
+///
+/// Matches PyTorch `nn.GELU(approximate="tanh")`.
+#[cfg(feature = "cuda")]
+pub fn gpu_gelu_tanh(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    validate_unary(input, device)?;
+    if let Some(out) = try_launch_unary(input, device, GELU_TANH_PTX, "gelu_tanh_kernel")? {
+        return Ok(out);
+    }
+    cpu_fallback_unary(input, device, |x| {
+        let sqrt_2_over_pi: f32 = 0.7978845608;
+        let c: f32 = 0.044715;
+        let inner = sqrt_2_over_pi * (x + c * x * x * x);
+        0.5 * x * (1.0 + inner.tanh())
+    })
+}
+
+/// Elementwise GELU activation on GPU using exact erf:
+/// `gelu(x) = x * 0.5 * (1 + erf(x / sqrt(2)))`.
+///
+/// Matches PyTorch `nn.GELU(approximate="none")` (the default).
+#[cfg(feature = "cuda")]
+pub fn gpu_gelu_erf(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    validate_unary(input, device)?;
+    if let Some(out) = try_launch_unary(input, device, GELU_ERF_PTX, "gelu_erf_kernel")? {
+        return Ok(out);
+    }
+    cpu_fallback_unary(input, device, |x| {
+        // Abramowitz & Stegun 7.1.26 erf approximation (matches PTX kernel)
+        let z = x * std::f32::consts::FRAC_1_SQRT_2;
+        let az = z.abs();
+        let t = 1.0 / (1.0 + 0.3275911 * az);
+        let poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+        let erf_abs = 1.0 - poly * (-az * az).exp();
+        let erf_val = if z < 0.0 { -erf_abs } else { erf_abs };
+        x * 0.5 * (1.0 + erf_val)
+    })
+}
+
+/// GELU backward for the tanh approximation mode.
+/// Let `u = sqrt(2/π) * (x + 0.044715 * x³)`, `t = tanh(u)`.
+/// `d/dx = 0.5 * (1 + t) + 0.5 * x * (1 - t²) * sqrt(2/π) * (1 + 3*0.044715*x²)`
+#[cfg(feature = "cuda")]
+pub fn gpu_gelu_backward_tanh(
+    grad: &CudaBuffer<f32>,
+    input: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    validate_binary(grad, input, device)?;
+    if let Some(out) = try_launch_binary(
+        grad,
+        input,
+        device,
+        GELU_BACKWARD_TANH_PTX,
+        "gelu_backward_tanh_kernel",
+    )? {
+        return Ok(out);
+    }
+    // CPU fallback
+    let grad_host = gpu_to_cpu(grad, device)?;
+    let input_host = gpu_to_cpu(input, device)?;
+    let result: Vec<f32> = grad_host
+        .iter()
+        .zip(input_host.iter())
+        .map(|(&g, &x)| {
+            let sqrt_2_over_pi: f32 = 0.7978845608;
+            let c: f32 = 0.044715;
+            let c3: f32 = 0.134145;
+            let u = sqrt_2_over_pi * (x + c * x * x * x);
+            let t = u.tanh();
+            let dt = 1.0 - t * t;
+            let d_inner = sqrt_2_over_pi * (1.0 + c3 * x * x);
+            g * (0.5 * (1.0 + t) + 0.5 * x * dt * d_inner)
+        })
+        .collect();
+    cpu_to_gpu(&result, device)
+}
+
 // ---------------------------------------------------------------------------
 // Public API -- elementwise transcendentals & math ops
 // ---------------------------------------------------------------------------
@@ -8293,6 +8645,34 @@ pub fn precompile_decode_kernels(_device: &GpuDevice) -> GpuResult<()> {
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_gelu(_input: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_gelu_tanh(
+    _input: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_gelu_erf(
+    _input: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_gelu_backward_tanh(
+    _grad: &CudaBuffer<f32>,
+    _input: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
