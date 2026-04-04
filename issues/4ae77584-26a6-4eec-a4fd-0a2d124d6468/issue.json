@@ -1,0 +1,10 @@
+{
+  "uuid": "4ae77584-26a6-4eec-a4fd-0a2d124d6468",
+  "display_id": 485,
+  "title": "Replace silent CPU fallbacks with hard errors for GPU tensors missing kernel coverage",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-04T03:26:25.664088216Z",
+  "updated_at": "2026-04-04T03:26:25.664088216Z"
+}
