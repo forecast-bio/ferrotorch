@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.3] - 2026-03-17
 
 ### Fixed
+- Fix incomplete cache miss tracking in cpu_pool thread pool (#471)
+- Fix unsigned hub commits blocking crosslink sync (#413)
 - T1.1: GPU gradient accumulation — use backend.add_f32 instead of CPU roundtrip (#259)
 - Add GPU dispatch for div, exp, log, sqrt, pow, abs elementwise ops (#218)
 - Fix into_storage_and_shape panic on shared GPU tensors (#216)
@@ -100,6 +102,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- Add GPU backward kernel for GELU Tanh approximation mode (#465)
+- Add GPU forward kernels for GELU Tanh and erf approximation modes (#469)
 - GPU Conv2d backward pass — forward-only GPU kernel, backward falls to CPU (#349)
 - Fused GRU/LSTM kernels — GRU forward is 10.7x slower than PyTorch (gate-level fusion needed) (#345)
 - Optimized Conv2d — im2col is 7.4x slower than PyTorch, needs cache-friendly tiling (#344)
