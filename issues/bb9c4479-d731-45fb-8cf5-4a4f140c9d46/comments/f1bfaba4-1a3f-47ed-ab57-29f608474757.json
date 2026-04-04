@@ -1,0 +1,10 @@
+{
+  "uuid": "f1bfaba4-1a3f-47ed-ab57-29f608474757",
+  "issue_uuid": "bb9c4479-d731-45fb-8cf5-4a4f140c9d46",
+  "author": "y4rr",
+  "content": "Plan: Write 6 PTX kernels for SiLU/ELU/Mish forward+backward. These are simple elementwise (no shared-memory reduction needed). Formulas: SiLU fwd: x*sigmoid(x), bwd: g*(sig+x*sig*(1-sig)); ELU fwd: x>0?x:alpha*(exp(x)-1), bwd: x>0?g:g*alpha*exp(x); Mish fwd: x*tanh(ln(1+exp(x))), bwd: g*(tanh(sp)+x*sig*(1-tanh(sp)^2)). Also doing #476 LogSoftmax (needs row-reduction kernel like softmax) and #477 (backward kernels for all).",
+  "created_at": "2026-04-04T02:24:35.673239926Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAZc5xeYNHvwbWWwU7sv3QjJIDXS8Cnq6O+gxpXWY3nOwqVVzXY5dPnIrGmCWrl0oqSWuNSXHpOgJsToklMoA2Ag=="
+}
