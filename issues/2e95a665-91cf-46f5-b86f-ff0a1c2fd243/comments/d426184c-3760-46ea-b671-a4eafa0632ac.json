@@ -1,0 +1,10 @@
+{
+  "uuid": "d426184c-3760-46ea-b671-a4eafa0632ac",
+  "issue_uuid": "2e95a665-91cf-46f5-b86f-ff0a1c2fd243",
+  "author": "y4rr",
+  "content": "Observation: clamp() uses unary_map which also roundtrips on GPU. This means Huber/L1/SmoothL1 refactors won't actually eliminate roundtrips until unary_map is fixed (#480) or dedicated GPU clamp/sign kernels are added. The losses that DO benefit immediately from tensor-op refactoring are: MSELoss (sub+mul+div), BCEWithLogitsLoss (sigmoid+sub+mul+div), KLDivLoss (neg+mul+div) — because sub/mul/div/neg/sigmoid all have GPU dispatch.",
+  "created_at": "2026-04-04T01:51:37.139138778Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA/D0TbxR4SMwJCP+KHCpDg/PxP9FqhCc4vQSX2Qpd11PyXfcTwYEnbKj0gHHMUjfIipry7fyjWPAjfTHvSbFIAw=="
+}
