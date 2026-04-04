@@ -1,0 +1,10 @@
+{
+  "uuid": "4209edb5-eba0-4593-a25d-68c0047b41a8",
+  "display_id": 478,
+  "title": "Add GPU kernels for cumulative ops (cumsum, cumprod, cummax, cummin, logcumsumexp)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-04T01:37:17.181532123Z",
+  "updated_at": "2026-04-04T01:37:17.181532123Z"
+}
