@@ -1,0 +1,10 @@
+{
+  "uuid": "75e819ee-22fe-497e-a413-c193369d7105",
+  "issue_uuid": "2e95a665-91cf-46f5-b86f-ff0a1c2fd243",
+  "author": "y4rr",
+  "content": "Plan: The loss backward functions all follow the same pattern — download pred/target/grad to CPU, compute elementwise gradient, upload back. The fix is NOT to write 13 separate PTX kernels. Instead, the backward gradients for most losses are simple elementwise formulas that can be expressed using existing GPU-dispatched tensor ops (add, sub, mul, div, neg, exp, log). I'll refactor each backward to use tensor-level ops that already dispatch to GPU, eliminating the .cpu() calls entirely. This is the same pattern that arithmetic/transcendental backward ops already use successfully.",
+  "created_at": "2026-04-04T01:40:39.186339302Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAgGdUiS9nlIiitS82R8R6zIgeDlX8CvnOBefqwAvET1OaSGYP91gIJATJTFP+NrLfhF9/bo6/OSeulozCz/biCQ=="
+}
