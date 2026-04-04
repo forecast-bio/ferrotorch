@@ -1,0 +1,10 @@
+{
+  "uuid": "7be358c4-a044-49c2-b16e-5070b7a675df",
+  "issue_uuid": "9baef5bd-ee12-40a7-add6-38bb6c9f805b",
+  "author": "y4rr",
+  "content": "[result] Massive f64 expansion complete. 65 f64 PTX kernel constants and 108 launcher functions now cover every operation category: arithmetic (add/sub/mul/div/neg/scale), unary (exp/log/sqrt/pow/abs/sigmoid/tanh/relu), backward (relu/sigmoid/tanh/gelu 3 modes/silu/elu/mish/softmax/log_softmax), broadcast (add/sub/mul/div), reduction (reduce_sum/sum_axis), cumulative (cumsum/cumprod/cummax/cummin/logcumsumexp), norm (layernorm/rmsnorm/batchnorm + backwards), indexing (index_select/scatter_add/masked_fill/masked_zero/slice_read/slice_write/embed_lookup), shape (transpose/permute/strided_split/strided_cat), pooling (maxpool2d/avgpool2d), clamp. All 3255 tests pass, clean compile.",
+  "created_at": "2026-04-04T18:13:19.046116604Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAsTgMixxTKBK+tkqTYE5iVE9EAp2ZbLtXD2Q8wT87tdFgp8WwTTddTnkL/JFE5BVoCixZUMXhOCMEMUk6jqnxBw=="
+}
