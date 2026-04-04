@@ -1,0 +1,10 @@
+{
+  "uuid": "2e95a665-91cf-46f5-b86f-ff0a1c2fd243",
+  "display_id": 473,
+  "title": "Eliminate GPU→CPU roundtrips in all loss function backward passes (13+ losses, 42 .cpu() calls)",
+  "status": "open",
+  "priority": "critical",
+  "created_by": "y4rr",
+  "created_at": "2026-04-04T01:36:41.659064490Z",
+  "updated_at": "2026-04-04T01:36:41.659064490Z"
+}
