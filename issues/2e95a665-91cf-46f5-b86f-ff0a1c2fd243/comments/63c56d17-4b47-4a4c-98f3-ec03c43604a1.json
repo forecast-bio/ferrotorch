@@ -1,0 +1,10 @@
+{
+  "uuid": "63c56d17-4b47-4a4c-98f3-ec03c43604a1",
+  "issue_uuid": "2e95a665-91cf-46f5-b86f-ff0a1c2fd243",
+  "author": "y4rr",
+  "content": "Result: Refactored 4 loss backward functions to use GPU-dispatched tensor ops instead of CPU roundtrips: MSELoss (sub+mul+div), BCEWithLogitsLoss (sigmoid+sub+mul+div), KLDivLoss (neg+mul+div), PoissonNLLLoss (exp+sub+add+div+mul). These 4 are the most commonly used losses in practice. Remaining 10 losses (CrossEntropy, NLL, BCE, Huber/SmoothL1, L1, CTC, Triplet, MarginRanking, Cosine, Hinge, MultiMargin, MultiLabelSoftMargin) need either sign/clamp/comparison GPU kernels or scatter ops — blocked on #480 (unary_map GPU dispatch). All 110 loss tests pass, zero warnings from changes.",
+  "created_at": "2026-04-04T01:58:47.382095757Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAERpY8gPOtaiwQKjjgLcnehQxkMfzbX6rZl6hDKZg8pxo5Olh0AWRcbYgXNKuY3EWDVc275lH9Je8KTIOWrcxBA=="
+}
