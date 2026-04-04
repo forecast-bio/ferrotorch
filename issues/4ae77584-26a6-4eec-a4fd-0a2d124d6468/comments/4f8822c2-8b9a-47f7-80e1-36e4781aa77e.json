@@ -1,0 +1,10 @@
+{
+  "uuid": "4f8822c2-8b9a-47f7-80e1-36e4781aa77e",
+  "issue_uuid": "4ae77584-26a6-4eec-a4fd-0a2d124d6468",
+  "author": "y4rr",
+  "content": "Plan: Match PyTorch behavior — GPU ops should either succeed on GPU or error, never silently download to CPU. Currently unary_map, ops/cumulative, ops/indexing, and many backward functions have 'if is_cuda { cpu()? }' patterns that hide missing GPU kernels behind 100x+ slowdowns. After kernel coverage is sufficient (current state: most common ops covered), convert these to errors: 'this op is not implemented on GPU; call .cpu() explicitly'. Phase 1: audit and convert the PTX kernel CPU fallbacks in kernels.rs (try_launch failures). Phase 2: convert the core op CPU fallbacks.",
+  "created_at": "2026-04-04T03:26:40.687518275Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAacClNO8wI0Ft3tOkFpnUcPN7Sj4VsK8/3N7mtwRsd6gIheHXhMoaSxkPX8ShmAD5z6AdSc5NYnaGCcR8FoAfDQ=="
+}
