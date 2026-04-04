@@ -2,11 +2,12 @@
   "uuid": "cc5b863e-432f-43aa-b3f1-567b0b25a7dc",
   "display_id": 488,
   "title": "Fix f64 transcendental PTX kernels — replace f32 downcast with proper f64 precision",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-04T22:25:43.881394969Z",
-  "updated_at": "2026-04-04T22:25:45.601080626Z",
+  "updated_at": "2026-04-04T22:53:20.806723268Z",
+  "closed_at": "2026-04-04T22:53:20.806723268Z",
   "labels": [
     "gpu"
   ]
