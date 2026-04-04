@@ -1,0 +1,10 @@
+{
+  "uuid": "f033cddc-1e8b-418c-8168-b4fa93ae2168",
+  "issue_uuid": "21c0b13f-574e-4095-b659-63a75550812d",
+  "author": "y4rr",
+  "content": "Result: Bumped workspace version from 0.2.1 to 0.2.2 in Cargo.toml. All 16 crates inherit via version.workspace = true. cargo check confirms all crates compile at 0.2.2.",
+  "created_at": "2026-04-04T00:29:07.609790734Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAaXECU4X9SSzsUYbCwB7QEncFa4r6ih2nyYpFurT6Fop/iN3a+b0vZkAGexKiYaWg0ryRmSgR293X5RcxsZ3zDQ=="
+}
