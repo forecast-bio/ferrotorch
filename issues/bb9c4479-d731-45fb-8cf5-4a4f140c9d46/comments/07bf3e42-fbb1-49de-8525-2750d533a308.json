@@ -1,0 +1,10 @@
+{
+  "uuid": "07bf3e42-fbb1-49de-8525-2750d533a308",
+  "issue_uuid": "bb9c4479-d731-45fb-8cf5-4a4f140c9d46",
+  "author": "y4rr",
+  "content": "Result: Added GPU PTX kernels for SiLU (forward+backward), ELU (forward+backward with alpha param), Mish (forward+backward with softplus stability branch). All 6 kernels use ex2.approx/rcp.approx for fast exp/div. Backend trait methods, CudaBackendImpl overrides, and activation.rs GPU dispatch all wired up. All 3200+ tests pass.",
+  "created_at": "2026-04-04T02:50:33.917386530Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA1mD9nIj7t6yeag58JL2HuDL8p2VLvzSpSGwdfXeakENeJQ89ymWQ4+5x03ClkGcD0WO2Uzd4U+j7VpFJ678/AA=="
+}
