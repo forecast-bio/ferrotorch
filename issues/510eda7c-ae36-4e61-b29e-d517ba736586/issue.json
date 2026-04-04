@@ -2,11 +2,12 @@
   "uuid": "510eda7c-ae36-4e61-b29e-d517ba736586",
   "display_id": 481,
   "title": "Add GPU path for Embedding forward gather (currently downloads weight to CPU)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-04T01:37:27.743282202Z",
-  "updated_at": "2026-04-04T01:37:29.385597435Z",
+  "updated_at": "2026-04-04T03:25:04.663940618Z",
+  "closed_at": "2026-04-04T03:25:04.663940618Z",
   "labels": [
     "gpu"
   ]
