@@ -1,0 +1,10 @@
+{
+  "uuid": "b7014d0f-5cbc-4092-85b0-9c7bed7b8e2e",
+  "issue_uuid": "1ff85329-2f49-4513-8105-4ed7b561e73a",
+  "author": "y4rr",
+  "content": "Result: Added GPU clamp PTX kernel (clamp_kernel with min/max params), gpu_clamp function, GpuBackend::clamp_f32 trait method, backend_impl override, and GPU dispatch in clamp() forward. This unblocked Huber/SmoothL1 loss backward refactoring — both now use GPU-dispatched sub+clamp+mul+div instead of CPU roundtrips. The remaining unary_map callers (special.rs functions, ops/elementwise fast_* fallbacks) are CPU-only but only hit when the differentiable function's GPU path isn't available.",
+  "created_at": "2026-04-04T03:14:36.204118676Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADVZuyP0udp+HkBJJHQdhOtv48JtC4T2QWanbrnO6F1D7B4E8EE4oiJreMu2PiyudLe7wUxfd8/13NyK2n4O+Cw=="
+}
