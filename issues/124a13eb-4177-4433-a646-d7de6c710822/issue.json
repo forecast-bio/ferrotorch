@@ -1,0 +1,10 @@
+{
+  "uuid": "124a13eb-4177-4433-a646-d7de6c710822",
+  "display_id": 474,
+  "title": "Eliminate GPU→CPU roundtrips in norm.rs forward/backward (LayerNorm, GroupNorm, RMSNorm, BatchNorm)",
+  "status": "open",
+  "priority": "critical",
+  "created_by": "y4rr",
+  "created_at": "2026-04-04T01:36:45.236596156Z",
+  "updated_at": "2026-04-04T01:36:45.236596156Z"
+}
