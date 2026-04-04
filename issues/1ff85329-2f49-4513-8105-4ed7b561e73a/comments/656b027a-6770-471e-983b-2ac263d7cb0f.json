@@ -1,0 +1,10 @@
+{
+  "uuid": "656b027a-6770-471e-983b-2ac263d7cb0f",
+  "issue_uuid": "1ff85329-2f49-4513-8105-4ed7b561e73a",
+  "author": "y4rr",
+  "content": "Plan: unary_map is the foundation function that many ops (clamp, abs, sqrt, neg forward, silu/elu/mish CPU fallback, etc.) route through. Currently it downloads GPU tensors to CPU. The fix: when the input is CUDA, check if there's a matching GPU kernel for the operation. However, unary_map takes an arbitrary closure — we can't dispatch a closure to GPU. Two approaches: (1) Add a generic GPU unary kernel that takes a precompiled PTX function pointer — complex, needs JIT. (2) Instead of fixing unary_map itself, ensure all callers that receive GPU tensors have their own GPU dispatch before reaching unary_map — which we've already been doing (silu, elu, mish, gelu, etc. now dispatch before falling through). The remaining callers that hit unary_map with GPU tensors are: clamp, abs (forward), sqrt (forward), neg (forward via the forward function). Let me check which of these already have GPU kernels.",
+  "created_at": "2026-04-04T03:01:35.905835666Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA63jd3lRU27QHXxydwSkHepomYWIRumFry94M9NsPdanSfxcMsHGO5uqK/+w6zSXr5erY15a2VzBXT4xv6lV3Bw=="
+}
