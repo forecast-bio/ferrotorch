@@ -1,0 +1,10 @@
+{
+  "uuid": "040f1f0b-6ff7-444f-bcea-c427672de469",
+  "display_id": 489,
+  "title": "Add ptx_kernel! macro to eliminate f32/f64 PTX duplication",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-04T22:25:56.844114899Z",
+  "updated_at": "2026-04-04T22:25:56.844114899Z"
+}
