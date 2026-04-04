@@ -1,0 +1,10 @@
+{
+  "uuid": "0701fd35-a4b3-4792-9aef-593ba022e8e4",
+  "issue_uuid": "510eda7c-ae36-4e61-b29e-d517ba736586",
+  "author": "y4rr",
+  "content": "Observation: Embedding forward ALREADY has a GPU fast path (embed_lookup_batch_f32) for f32 CUDA tensors at embedding.rs:351-381. The CPU path at lines 384+ only runs for non-f32 GPU or missing backend. The audit agent's finding was a false positive — the .cpu() call is in the fallback path, not the hot path. Closing as already implemented.",
+  "created_at": "2026-04-04T03:25:02.440556047Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAfRMe2ggz8GhsvSazilrjrUPPccwzvsw/wx6f/NEk1pwTOa5CwgX7mUga1WeDSR+HClsgP7gZU5Tjw7CwUz5OBQ=="
+}
