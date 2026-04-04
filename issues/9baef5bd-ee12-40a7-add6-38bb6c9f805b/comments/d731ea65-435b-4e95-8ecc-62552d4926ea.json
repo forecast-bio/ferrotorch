@@ -1,0 +1,10 @@
+{
+  "uuid": "d731ea65-435b-4e95-8ecc-62552d4926ea",
+  "issue_uuid": "9baef5bd-ee12-40a7-add6-38bb6c9f805b",
+  "author": "y4rr",
+  "content": "f64 GPU support: 21 PTX kernels (14 arithmetic/unary + 3 backward + 4 broadcast), 66 GpuBackend trait methods, 14 backend_impl wiring, 15 dispatch sites updated, is_f64 in 8 files. Background agent still adding launcher functions. All 3255 tests pass.",
+  "created_at": "2026-04-04T17:26:37.838342512Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAsHS+op1N4aJooTfFm7vKDmJwvzK7QtjKlY0kIn02Q8f2t8WE42OPSV8JLcIS0TGa0oPk8u5XiZ9fC5Jpor5kAQ=="
+}
