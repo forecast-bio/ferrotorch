@@ -1,0 +1,10 @@
+{
+  "uuid": "1c4eb9ee-6db1-48a6-bde0-6199cab94b9a",
+  "issue_uuid": "5f798515-6055-4668-86e3-64d6e6786bdb",
+  "author": "y4rr",
+  "content": "Second antipattern audit complete. Found 12 new GPU→CPU roundtrip issues (#473-#484). Key findings: (1) ALL loss backward passes force CPU (42 .cpu() calls in loss.rs), (2) norm forward/backward forces CPU (29 .cpu() calls in norm.rs), (3) SiLU/ELU/Mish/LogSoftmax forward+backward have no GPU kernels, (4) cumulative/indexing/einops ops are CPU-only. False positives eliminated: arithmetic/transcendental backward ops delegate to GPU-dispatched tensor ops, reduce_grad_to_shape has GPU fast path.",
+  "created_at": "2026-04-04T01:38:46.582057967Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAnxoGzwAXwUlm6+i2hSRo1I4q5rEo8AlBaPknpi/T4+6w8KZs1J/ky0CybUCuvI9vAxc4PxI73ivgiV87BTmjAw=="
+}
