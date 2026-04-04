@@ -1,0 +1,10 @@
+{
+  "uuid": "a10e4cfe-5ee7-4c6e-a738-825a17fc349c",
+  "issue_uuid": "124a13eb-4177-4433-a646-d7de6c710822",
+  "author": "y4rr",
+  "content": "Observation: LayerNorm forward AND backward already have GPU fast paths (backend.layernorm_f32 / backend.layernorm_backward_f32) for f32+elementwise_affine. The CPU fallback only triggers for f64, non-affine, or missing backend. However, GroupNorm, RMSNorm, BatchNorm1d, BatchNorm2d, InstanceNorm1d/2d/3d have NO GPU dispatch at all — every call roundtrips through CPU. These need either new GPU kernels or refactoring to use GPU-dispatched tensor ops.",
+  "created_at": "2026-04-04T02:00:16.623630581Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA/QR1rHK8asOESbz2g18Qw3leD/rSWXDLb8N86JNZQSiFrmam8kT8qBrfhKAYcrXTysLTFKaovKFw97/z98zUCg=="
+}
