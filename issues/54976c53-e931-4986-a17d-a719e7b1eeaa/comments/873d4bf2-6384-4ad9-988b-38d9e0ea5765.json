@@ -1,0 +1,10 @@
+{
+  "uuid": "873d4bf2-6384-4ad9-988b-38d9e0ea5765",
+  "issue_uuid": "54976c53-e931-4986-a17d-a719e7b1eeaa",
+  "author": "y4rr",
+  "content": "[result] Implemented Dropout1d (channel-wise for 3D [B,C,L]), Dropout3d (channel-wise for 5D [B,C,D,H,W]), AlphaDropout (SELU-compatible with mean/var preservation). FeatureAlphaDropout is a rare variant — skipping. 45 dropout tests pass.",
+  "created_at": "2026-04-05T20:11:42.240505814Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAwIXQUs54ZBXz/q9pWxxhuIIS31JwJjkkZEGlyMXDipJ1vop9YPzvCGrF3DbOwOp+33aD6RtySk5Tt/LDKalQBA=="
+}
