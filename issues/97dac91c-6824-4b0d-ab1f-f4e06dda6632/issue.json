@@ -2,11 +2,12 @@
   "uuid": "97dac91c-6824-4b0d-ab1f-f4e06dda6632",
   "display_id": 439,
   "title": "Implement missing LR schedulers: MultiplicativeLR, ChainedScheduler, SWALR",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:20:32.167759010Z",
-  "updated_at": "2026-04-05T20:06:56.584233666Z",
+  "updated_at": "2026-04-05T20:08:47.453676581Z",
+  "closed_at": "2026-04-05T20:08:47.453676581Z",
   "labels": [
     "optim"
   ]
