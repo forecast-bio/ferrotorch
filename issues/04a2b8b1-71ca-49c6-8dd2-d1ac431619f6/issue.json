@@ -2,11 +2,12 @@
   "uuid": "04a2b8b1-71ca-49c6-8dd2-d1ac431619f6",
   "display_id": 194,
   "title": "Fix unused import warnings in ferrotorch-optim",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-17T02:49:13.323233747Z",
-  "updated_at": "2026-03-17T02:49:15.013077625Z",
+  "updated_at": "2026-04-05T15:12:56.334995550Z",
+  "closed_at": "2026-04-05T15:12:56.334995550Z",
   "labels": [
     "fix"
   ]
