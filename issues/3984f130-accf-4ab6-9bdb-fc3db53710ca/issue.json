@@ -2,12 +2,11 @@
   "uuid": "3984f130-accf-4ab6-9bdb-fc3db53710ca",
   "display_id": 432,
   "title": "Implement missing pooling: FractionalMaxPool2d/3d, LPPool1d/2d/3d, MaxUnpool1d/3d",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:19:41.453453369Z",
-  "updated_at": "2026-04-05T20:05:33.565971784Z",
-  "closed_at": "2026-04-05T20:05:33.565971784Z",
+  "updated_at": "2026-04-05T20:07:02.822718917Z",
   "labels": [
     "nn"
   ]
