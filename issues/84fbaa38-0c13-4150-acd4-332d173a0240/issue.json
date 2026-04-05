@@ -2,11 +2,12 @@
   "uuid": "84fbaa38-0c13-4150-acd4-332d173a0240",
   "display_id": 421,
   "title": "Implement EmbeddingBag module",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:18:37.556724752Z",
-  "updated_at": "2026-04-03T22:18:38.941885853Z",
+  "updated_at": "2026-04-05T00:28:02.933261701Z",
+  "closed_at": "2026-04-05T00:28:02.933261701Z",
   "labels": [
     "nn"
   ]
