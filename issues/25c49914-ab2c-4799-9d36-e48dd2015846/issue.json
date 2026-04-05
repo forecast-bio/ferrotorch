@@ -2,11 +2,12 @@
   "uuid": "25c49914-ab2c-4799-9d36-e48dd2015846",
   "display_id": 441,
   "title": "Implement missing tensor ops: histc, histogram, meshgrid, multinomial",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:20:40.015193280Z",
-  "updated_at": "2026-04-03T22:20:41.792192704Z",
+  "updated_at": "2026-04-05T20:53:25.471843779Z",
+  "closed_at": "2026-04-05T20:53:25.471843779Z",
   "labels": [
     "core"
   ]
