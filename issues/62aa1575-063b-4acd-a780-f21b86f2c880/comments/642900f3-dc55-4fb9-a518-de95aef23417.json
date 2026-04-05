@@ -1,0 +1,10 @@
+{
+  "uuid": "642900f3-dc55-4fb9-a518-de95aef23417",
+  "issue_uuid": "62aa1575-063b-4acd-a780-f21b86f2c880",
+  "author": "y4rr",
+  "content": "[result] Implemented searchsorted (binary search on sorted boundaries, left/right modes), bucketize (wrapper around searchsorted), unique (sorted unique values with inverse indices and counts), unique_consecutive (run-length deduplication). All CPU-only with CUDA error guards. 10 tests. Exported from ferrotorch-core.",
+  "created_at": "2026-04-05T20:50:02.339466022Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABApOAive0Nmv3S3DRnFAZrl7f3HYS0yR0aWi+1ga35gjFl8aVeQL6lf0E2D0AOvzSLGE4hP6BgEI8pjv7dbg6pBw=="
+}
