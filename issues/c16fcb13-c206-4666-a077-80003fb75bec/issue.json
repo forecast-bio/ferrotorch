@@ -2,11 +2,12 @@
   "uuid": "c16fcb13-c206-4666-a077-80003fb75bec",
   "display_id": 423,
   "title": "Implement WeightedRandomSampler and BatchSampler",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:18:50.796798495Z",
-  "updated_at": "2026-04-03T22:18:52.815199072Z",
+  "updated_at": "2026-04-05T03:12:16.147889923Z",
+  "closed_at": "2026-04-05T03:12:16.147889923Z",
   "labels": [
     "data"
   ]
