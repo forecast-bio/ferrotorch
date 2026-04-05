@@ -1,0 +1,10 @@
+{
+  "uuid": "4b49216c-40fa-480a-88b1-3f1f94eb193b",
+  "issue_uuid": "aad4dcb3-07d4-4f86-ab08-4293ae655850",
+  "author": "y4rr",
+  "content": "[result] Removed all 6 allow(dead_code) suppressions and wired every function properly: (1) unwrap_buffer_f64_mut — 2 callers now use it instead of inlining downcast, (2) is_f64 in grad_fns/linalg.rs — mm_backward_gpu, MmBtBackward, LinearFusedBackward all dispatch matmul_f64/transpose_2d_f64/sum_axis_f64 for f64 tensors, (3) is_f64 in grad_fns/shape.rs — CatBackward, SplitBackward, cat forward all dispatch strided_split_f64/strided_cat_f64, (4) is_f64 in linalg.rs — all 8 decomposition functions use explicit is_f64 guard with unsupported type error, (5) is_f64 in norm.rs — LayerNormBackward and RMSNormBackward dispatch _f64 variants, (6) is_f64 in embedding.rs — EmbeddingBackward scatter_add_rows_f64 and Embedding forward embed_lookup_batch_f64. 0 warnings, 3445 tests pass.",
+  "created_at": "2026-04-05T04:17:59.311976304Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABATTcYkMbkXzIbmbmGpw5zTHLX40xs2suMULEFRhihnsDO5tdh4UjIesO/ft/f7rbL40b/Ju0RDhYq/QbD28z+BQ=="
+}
