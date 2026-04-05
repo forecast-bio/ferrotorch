@@ -3,10 +3,6 @@
   "next_comment_id": 1,
   "display_id_map": {},
   "locks": {
-    "438": {
-      "agent_id": "y4rr",
-      "claimed_at": "2026-04-05T20:33:25.356198071Z"
-    },
     "472": {
       "agent_id": "y4rr",
       "claimed_at": "2026-04-04T03:39:12.920477388Z"
@@ -14,8 +10,8 @@
   },
   "issues": {},
   "watermark": {
-    "timestamp": "2026-04-05T20:33:25.356198071Z",
+    "timestamp": "2026-04-05T20:47:02.053323608Z",
     "agent_id": "y4rr",
-    "agent_seq": 90
+    "agent_seq": 91
   }
 }
