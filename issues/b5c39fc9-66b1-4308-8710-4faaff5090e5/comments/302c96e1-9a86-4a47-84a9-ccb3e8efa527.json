@@ -1,0 +1,10 @@
+{
+  "uuid": "302c96e1-9a86-4a47-84a9-ccb3e8efa527",
+  "issue_uuid": "b5c39fc9-66b1-4308-8710-4faaff5090e5",
+  "author": "y4rr",
+  "content": "[result] BatchNorm3d implemented with 5D input [B,C,D,H,W] support, running stats tracking, Bessel correction, backward VJP, 12 tests. SyncBatchNorm is tracked separately in #392 (requires distributed backend).",
+  "created_at": "2026-04-05T20:10:54.198981588Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABARFlZipgEbJKrnnuZJbIws7stc2sLuV6+7RLEq9bXklKkPzyODHUkdFAUTWtYAcmAz+cu5TB3ZgbBuNCFGpqPBA=="
+}
