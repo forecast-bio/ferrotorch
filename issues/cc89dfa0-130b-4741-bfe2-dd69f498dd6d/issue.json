@@ -2,11 +2,12 @@
   "uuid": "cc89dfa0-130b-4741-bfe2-dd69f498dd6d",
   "display_id": 492,
   "title": "Replace raw_device_ptr usize hack with proper typed NcclOps trait",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-04-04T22:26:33.097829345Z",
-  "updated_at": "2026-04-04T22:26:34.445610404Z",
+  "updated_at": "2026-04-05T00:04:27.410270392Z",
+  "closed_at": "2026-04-05T00:04:27.410270392Z",
   "labels": [
     "gpu"
   ]
