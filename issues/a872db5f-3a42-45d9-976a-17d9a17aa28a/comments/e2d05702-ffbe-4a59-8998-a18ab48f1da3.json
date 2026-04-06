@@ -1,0 +1,10 @@
+{
+  "uuid": "e2d05702-ffbe-4a59-8998-a18ab48f1da3",
+  "issue_uuid": "a872db5f-3a42-45d9-976a-17d9a17aa28a",
+  "author": "y4rr",
+  "content": "[result] Parallelized randn for f32 tensors >= 32K elements using rayon with per-chunk xorshift64 + native f32 Box-Muller (avoiding f64 intermediates). randn_like [1000,1000] went from 11,578 us to 1,283 us — 9x speedup. Now 1.5x faster than PyTorch (1,976 us). 0 warnings.",
+  "created_at": "2026-04-06T03:37:38.963794358Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAZSWJ8x8avxFKbr1QPMNvCVBAfBNOx0IFViFjcQJyQL+mGYm+UyM6XirEbNRysqWk5kodf5MmNFahfH8OpU86CQ=="
+}
