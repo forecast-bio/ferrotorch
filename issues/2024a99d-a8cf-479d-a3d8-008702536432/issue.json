@@ -2,11 +2,12 @@
   "uuid": "2024a99d-a8cf-479d-a3d8-008702536432",
   "display_id": 402,
   "title": "Add CosineSimilarity and PairwiseDistance distance modules",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T19:57:36.240597748Z",
-  "updated_at": "2026-03-24T19:57:37.740846747Z",
+  "updated_at": "2026-04-06T03:28:49.516094519Z",
+  "closed_at": "2026-04-06T03:28:49.516094519Z",
   "labels": [
     "feature"
   ]
