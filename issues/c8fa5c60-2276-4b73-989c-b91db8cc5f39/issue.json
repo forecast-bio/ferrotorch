@@ -2,11 +2,12 @@
   "uuid": "c8fa5c60-2276-4b73-989c-b91db8cc5f39",
   "display_id": 403,
   "title": "Add Dropout1d, Dropout3d, AlphaDropout variants",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T19:57:39.274845278Z",
-  "updated_at": "2026-03-24T19:57:40.755629077Z",
+  "updated_at": "2026-04-06T03:28:46.857016323Z",
+  "closed_at": "2026-04-06T03:28:46.857016323Z",
   "labels": [
     "feature"
   ]
