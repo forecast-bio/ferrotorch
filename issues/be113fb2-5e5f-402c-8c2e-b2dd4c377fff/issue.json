@@ -2,11 +2,12 @@
   "uuid": "be113fb2-5e5f-402c-8c2e-b2dd4c377fff",
   "display_id": 437,
   "title": "Add vision transforms: RandomErasing, AutoAugment, RandAugment, AugMix",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:20:15.237316428Z",
-  "updated_at": "2026-04-03T22:20:18.544335625Z",
+  "updated_at": "2026-04-06T13:51:55.350615835Z",
+  "closed_at": "2026-04-06T13:51:55.350615835Z",
   "labels": [
     "vision"
   ]
