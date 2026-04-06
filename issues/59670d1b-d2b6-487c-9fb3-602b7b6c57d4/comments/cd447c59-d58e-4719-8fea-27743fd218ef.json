@@ -1,0 +1,10 @@
+{
+  "uuid": "cd447c59-d58e-4719-8fea-27743fd218ef",
+  "issue_uuid": "59670d1b-d2b6-487c-9fb3-602b7b6c57d4",
+  "author": "y4rr",
+  "content": "[result] Implemented ParameterList (indexed container with append/extend/iter) and ParameterDict (BTreeMap-backed named container with insert/get/remove). Both provide parameters()/named_parameters() for Module integration. 7 tests.",
+  "created_at": "2026-04-06T04:13:22.964893847Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABARNxGznWYDUkKMbd6XT4ySVzL1GxKXdcQAW+tlGPR8C0IFdMm48/rL24HYjQCOj2xzJXgT0RRvw5pSboaxcAUBA=="
+}
