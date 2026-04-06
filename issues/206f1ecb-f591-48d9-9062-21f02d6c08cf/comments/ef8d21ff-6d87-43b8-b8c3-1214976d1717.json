@@ -1,0 +1,10 @@
+{
+  "uuid": "ef8d21ff-6d87-43b8-b8c3-1214976d1717",
+  "issue_uuid": "206f1ecb-f591-48d9-9062-21f02d6c08cf",
+  "author": "y4rr",
+  "content": "[result] special.rs already has 9 functions: erf, erfc, erfinv, lgamma, digamma, log1p, expm1, sinc, xlogy.",
+  "created_at": "2026-04-06T03:39:04.742893483Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAMmHBg+r6Zpc68G4SLjuy5myA60Qg2IDPDxzK+0sQ0XIjyy1NOFrK389lmw5a/t66vHg2+7r6trSiKP1TAArXAQ=="
+}
