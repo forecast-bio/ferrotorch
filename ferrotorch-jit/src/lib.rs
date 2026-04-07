@@ -32,7 +32,7 @@ pub use fusion::{
     with_fusion,
 };
 pub use graph_break::{GraphSegment, SegmentedModule, TraceResult, trace_with_breaks};
-pub use interpreter::interpret;
+pub use interpreter::{interpret, interpret_multi};
 pub use memory_plan::{MemoryPlan, plan_memory};
 pub use module::{AotCompiledModule, CompileConfig, TracedModule, compile, compile_with_config};
 pub use optimize::{OptimizationConfig, optimize};

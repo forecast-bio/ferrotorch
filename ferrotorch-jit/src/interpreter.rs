@@ -53,6 +53,50 @@ use crate::graph::{IrGraph, IrNodeId, IrOpKind, IrValueId};
 /// // result == [2.0, 4.0, 6.0]
 /// ```
 pub fn interpret<T: Float>(graph: &IrGraph, inputs: &[Tensor<T>]) -> FerrotorchResult<Tensor<T>> {
+    // The single-output convenience wrapper requires exactly one graph
+    // output. For multi-output graphs use interpret_multi.
+    if graph.output_values.len() != 1 {
+        if graph.output_values.is_empty() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "interpret: graph has no outputs".into(),
+            });
+        }
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "interpret: graph has {} outputs; use interpret_multi for multi-output graphs",
+                graph.output_values.len()
+            ),
+        });
+    }
+    let mut outs = interpret_multi(graph, inputs)?;
+    Ok(outs.remove(0))
+}
+
+/// Execute an IR graph on the given input tensors and return all of its
+/// output tensors in declaration order.
+///
+/// # Arguments
+///
+/// * `graph` - The IR graph to interpret. Must have at least one output
+///   declared via [`crate::graph::IrGraph::set_outputs`].
+/// * `inputs` - Concrete tensors, one per graph input, in the same order
+///   as `graph.input_values`.
+///
+/// # Returns
+///
+/// A `Vec<Tensor<T>>` with one entry per `graph.output_values`, in the
+/// same order they were registered. CL-368.
+///
+/// # Errors
+///
+/// - Input count does not match `graph.input_values.len()`.
+/// - Any operation fails (shape mismatch, unsupported op, etc.).
+/// - The graph has no output values.
+/// - Any declared output value was never produced (graph is malformed).
+pub fn interpret_multi<T: Float>(
+    graph: &IrGraph,
+    inputs: &[Tensor<T>],
+) -> FerrotorchResult<Vec<Tensor<T>>> {
     // 1. Validate input count.
     if inputs.len() != graph.input_values.len() {
         return Err(FerrotorchError::InvalidArgument {
@@ -67,15 +111,6 @@ pub fn interpret<T: Float>(graph: &IrGraph, inputs: &[Tensor<T>]) -> FerrotorchR
     if graph.output_values.is_empty() {
         return Err(FerrotorchError::InvalidArgument {
             message: "interpret: graph has no outputs".into(),
-        });
-    }
-
-    if graph.output_values.len() > 1 {
-        return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "interpret: expected 1 output, got {}",
-                graph.output_values.len()
-            ),
         });
     }
 
@@ -359,16 +394,25 @@ pub fn interpret<T: Float>(graph: &IrGraph, inputs: &[Tensor<T>]) -> FerrotorchR
         }
     }
 
-    // 6. Return the single graph output.
-    let output_id = graph.output_values[0];
-    values
-        .remove(&output_id)
-        .ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!(
-                "interpret: output value {:?} was not produced during execution",
-                output_id
-            ),
-        })
+    // 6. Return all graph outputs in declaration order.
+    //
+    // Use get + clone (not remove) so the same value can be listed as
+    // multiple outputs without the second lookup failing. Tensor::clone
+    // is an Arc clone so this is cheap.
+    let mut results = Vec::with_capacity(graph.output_values.len());
+    for &output_id in &graph.output_values {
+        let t = values
+            .get(&output_id)
+            .cloned()
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!(
+                    "interpret: output value {:?} was not produced during execution",
+                    output_id
+                ),
+            })?;
+        results.push(t);
+    }
+    Ok(results)
 }
 
 // ---------------------------------------------------------------------------
@@ -654,5 +698,104 @@ mod tests {
             msg.contains("no outputs"),
             "unexpected error message: {msg}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-output graphs (CL-368).
+    //
+    // The new interpret_multi entry point supports graphs with more than
+    // one output. The legacy interpret() entry point still requires
+    // exactly one output and returns a clear error pointing users at
+    // interpret_multi for multi-output graphs.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_interpret_multi_two_outputs_returns_both() {
+        // y0 = x + x = 2x
+        // y1 = x * x = x^2
+        // Outputs: [y0, y1]
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![3]);
+        let (_, sum_outs) = g.add_node(IrOpKind::Add, vec![x, x], vec![vec![3]]);
+        let (_, mul_outs) = g.add_node(IrOpKind::Mul, vec![x, x], vec![vec![3]]);
+        g.set_outputs(vec![sum_outs[0], mul_outs[0]]);
+
+        let input = tensor_1d(&[1.0, 2.0, 3.0]);
+        let outs = interpret_multi::<f32>(&g, &[input]).unwrap();
+        assert_eq!(outs.len(), 2);
+        assert_eq!(outs[0].data().unwrap(), &[2.0, 4.0, 6.0]);
+        assert_eq!(outs[1].data().unwrap(), &[1.0, 4.0, 9.0]);
+    }
+
+    #[test]
+    fn test_interpret_single_output_via_multi() {
+        // interpret_multi must also work for single-output graphs.
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![3]);
+        let (_, add_outs) = g.add_node(IrOpKind::Add, vec![x, x], vec![vec![3]]);
+        g.set_outputs(vec![add_outs[0]]);
+
+        let input = tensor_1d(&[1.0, 2.0, 3.0]);
+        let outs = interpret_multi::<f32>(&g, &[input]).unwrap();
+        assert_eq!(outs.len(), 1);
+        assert_eq!(outs[0].data().unwrap(), &[2.0, 4.0, 6.0]);
+    }
+
+    #[test]
+    fn test_interpret_multi_same_value_listed_twice() {
+        // A single intermediate value can appear multiple times in the
+        // output list. interpret_multi should clone (not consume) so the
+        // second lookup succeeds.
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![2]);
+        let (_, add_outs) = g.add_node(IrOpKind::Add, vec![x, x], vec![vec![2]]);
+        g.set_outputs(vec![add_outs[0], add_outs[0]]);
+
+        let input = tensor_1d(&[5.0, 7.0]);
+        let outs = interpret_multi::<f32>(&g, &[input]).unwrap();
+        assert_eq!(outs.len(), 2);
+        assert_eq!(outs[0].data().unwrap(), &[10.0, 14.0]);
+        assert_eq!(outs[1].data().unwrap(), &[10.0, 14.0]);
+    }
+
+    #[test]
+    fn test_interpret_legacy_errors_on_multi_output_graph() {
+        // The single-output `interpret` should refuse a multi-output
+        // graph and point users at `interpret_multi`.
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![3]);
+        let (_, sum_outs) = g.add_node(IrOpKind::Add, vec![x, x], vec![vec![3]]);
+        let (_, mul_outs) = g.add_node(IrOpKind::Mul, vec![x, x], vec![vec![3]]);
+        g.set_outputs(vec![sum_outs[0], mul_outs[0]]);
+
+        let input = tensor_1d(&[1.0, 2.0, 3.0]);
+        let err = interpret::<f32>(&g, &[input]);
+        assert!(err.is_err());
+        let msg = format!("{}", err.unwrap_err());
+        assert!(msg.contains("interpret_multi"), "expected hint at interpret_multi: {msg}");
+    }
+
+    #[test]
+    fn test_interpret_multi_independent_chains() {
+        // Two independent computations sharing the same input.
+        // y0 = (x + x) - x   = x
+        // y1 = (x * x) + x   = x^2 + x
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![3]);
+        let (_, add_outs) = g.add_node(IrOpKind::Add, vec![x, x], vec![vec![3]]);
+        let (_, sub_outs) =
+            g.add_node(IrOpKind::Sub, vec![add_outs[0], x], vec![vec![3]]);
+        let (_, mul_outs) = g.add_node(IrOpKind::Mul, vec![x, x], vec![vec![3]]);
+        let (_, plus_outs) =
+            g.add_node(IrOpKind::Add, vec![mul_outs[0], x], vec![vec![3]]);
+        g.set_outputs(vec![sub_outs[0], plus_outs[0]]);
+
+        let input = tensor_1d(&[1.0, 2.0, 3.0]);
+        let outs = interpret_multi::<f32>(&g, &[input]).unwrap();
+        assert_eq!(outs.len(), 2);
+        // y0 = x: [1, 2, 3]
+        assert_eq!(outs[0].data().unwrap(), &[1.0, 2.0, 3.0]);
+        // y1 = x^2 + x: [1+1, 4+2, 9+3] = [2, 6, 12]
+        assert_eq!(outs[1].data().unwrap(), &[2.0, 6.0, 12.0]);
     }
 }
