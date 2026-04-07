@@ -1,0 +1,10 @@
+{
+  "uuid": "335eaad2-190f-484f-a942-4b1299ba5ec4",
+  "issue_uuid": "5be33e43-5fdf-4542-955f-61f73ed6aa29",
+  "author": "y4rr",
+  "content": "Closing as already addressed by #312 work, which landed in commit 39ef3ac6 ('vmap composability - vmap3, vmap_many, multi_output, per_sample_grad'). The same set of features is covered:\n\n- **multi-arg**: vmap3 (three inputs) and vmap_many (N inputs via slice) added to ferrotorch-core/src/vmap.rs\n- **multi-output**: vmap_multi_output for closures returning Vec<Tensor<T>>, with per-output stacking\n- **matmul batching rule**: existing test_vmap_matmul_matches_bmm proves vmap2(matmul) == bmm. Closure introspection for an automatic fast-path dispatch isn't possible in safe Rust, so the user calls bmm() directly when they want the fast path; vmap is the general fallback.\n- **per_sample_grad**: implemented as a loop-based reference impl that builds a fresh leaf parameter per iteration, runs forward+backward, collects per-sample gradients into a stacked [batch, *param.shape()] tensor.\n- **composability**: nested vmap(vmap(f)) verified by two new tests (identity and double-neg over multi-dim tensors).\n\n13 new vmap tests added. 35 vmap tests pass total, 938 ferrotorch-core lib tests pass. Closing as duplicate of #312.",
+  "created_at": "2026-04-07T18:33:41.062825956Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADpBaHMFG6DxnLrUStLqvmQSEHuJWIjYE+5tADrpH1gPbg/aaqxR387eAT6R60Tsx5Sh+Dnsf2Yz83dRO1PO3BQ=="
+}
