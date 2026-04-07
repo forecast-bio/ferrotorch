@@ -395,6 +395,52 @@ pub fn efficientnet_b0<T: Float>(num_classes: usize) -> FerrotorchResult<Efficie
 }
 
 // ===========================================================================
+// IntermediateFeatures — CL-499
+// ===========================================================================
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for EfficientNet<T> {
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+
+        let x = self.stem_conv.forward(input)?;
+        let mut x = relu(&x)?;
+        out.insert("stem_conv".to_string(), x.clone());
+
+        for (i, stage) in self.stages.iter().enumerate() {
+            x = stage.forward(&x)?;
+            out.insert(format!("stage{i}"), x.clone());
+        }
+
+        let x = self.head_conv.forward(&x)?;
+        let x = relu(&x)?;
+        out.insert("head_conv".to_string(), x.clone());
+        let x = Module::<T>::forward(&self.avgpool, &x)?;
+        out.insert("avgpool".to_string(), x.clone());
+
+        let batch = x.shape()[0];
+        let features = x.numel() / batch;
+        let x = reshape(&x, &[batch as isize, features as isize])?;
+        let logits = self.fc.forward(&x)?;
+        out.insert("fc".to_string(), logits);
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<String> {
+        let mut names = vec!["stem_conv".to_string()];
+        for i in 0..self.stages.len() {
+            names.push(format!("stage{i}"));
+        }
+        names.push("head_conv".to_string());
+        names.push("avgpool".to_string());
+        names.push("fc".to_string());
+        names
+    }
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 

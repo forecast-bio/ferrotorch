@@ -629,8 +629,16 @@ impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for Res
         Ok(out)
     }
 
-    fn feature_node_names(&self) -> Vec<&'static str> {
-        vec!["stem", "layer1", "layer2", "layer3", "layer4", "avgpool", "fc"]
+    fn feature_node_names(&self) -> Vec<String> {
+        vec![
+            "stem".to_string(),
+            "layer1".to_string(),
+            "layer2".to_string(),
+            "layer3".to_string(),
+            "layer4".to_string(),
+            "avgpool".to_string(),
+            "fc".to_string(),
+        ]
     }
 }
 

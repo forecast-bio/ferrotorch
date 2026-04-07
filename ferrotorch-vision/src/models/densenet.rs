@@ -433,6 +433,66 @@ pub fn densenet121<T: Float>(num_classes: usize) -> FerrotorchResult<DenseNet<T>
     DenseNet::new(num_classes)
 }
 
+// ---------------------------------------------------------------------------
+// IntermediateFeatures — CL-499
+// ---------------------------------------------------------------------------
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for DenseNet<T> {
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+
+        let x = self.stem.forward(input)?;
+        let x = relu(&x)?;
+        out.insert("stem".to_string(), x.clone());
+
+        let x = self.block1.forward(&x)?;
+        out.insert("block1".to_string(), x.clone());
+        let x = self.trans1.forward(&x)?;
+        out.insert("trans1".to_string(), x.clone());
+
+        let x = self.block2.forward(&x)?;
+        out.insert("block2".to_string(), x.clone());
+        let x = self.trans2.forward(&x)?;
+        out.insert("trans2".to_string(), x.clone());
+
+        let x = self.block3.forward(&x)?;
+        out.insert("block3".to_string(), x.clone());
+        let x = self.trans3.forward(&x)?;
+        out.insert("trans3".to_string(), x.clone());
+
+        let x = self.block4.forward(&x)?;
+        out.insert("block4".to_string(), x.clone());
+
+        let x = Module::<T>::forward(&self.avgpool, &x)?;
+        out.insert("avgpool".to_string(), x.clone());
+
+        let batch = x.shape()[0];
+        let features = x.numel() / batch;
+        let x = reshape(&x, &[batch as isize, features as isize])?;
+        let logits = self.classifier.forward(&x)?;
+        out.insert("classifier".to_string(), logits);
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<String> {
+        vec![
+            "stem".to_string(),
+            "block1".to_string(),
+            "trans1".to_string(),
+            "block2".to_string(),
+            "trans2".to_string(),
+            "block3".to_string(),
+            "trans3".to_string(),
+            "block4".to_string(),
+            "avgpool".to_string(),
+            "classifier".to_string(),
+        ]
+    }
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================

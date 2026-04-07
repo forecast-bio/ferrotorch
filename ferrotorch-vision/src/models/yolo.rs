@@ -263,6 +263,45 @@ impl<T: Float> Module<T> for Yolo<T> {
 /// * `num_classes` -- number of object classes.
 ///
 /// Equivalent to `Yolo::new(num_classes, 3)`.
+// ===========================================================================
+// IntermediateFeatures — CL-499
+// ===========================================================================
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for Yolo<T> {
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+
+        let x = self.stage1.forward(input)?;
+        out.insert("stage1".to_string(), x.clone());
+        let x = self.stage2.forward(&x)?;
+        out.insert("stage2".to_string(), x.clone());
+        let x = self.stage3.forward(&x)?;
+        out.insert("stage3".to_string(), x.clone());
+        let x = self.stage4.forward(&x)?;
+        out.insert("stage4".to_string(), x.clone());
+        let x = self.stage5.forward(&x)?;
+        out.insert("stage5".to_string(), x.clone());
+
+        let logits = self.head.forward(&x)?;
+        out.insert("head".to_string(), logits);
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<String> {
+        vec![
+            "stage1".to_string(),
+            "stage2".to_string(),
+            "stage3".to_string(),
+            "stage4".to_string(),
+            "stage5".to_string(),
+            "head".to_string(),
+        ]
+    }
+}
+
 pub fn yolo<T: Float>(num_classes: usize) -> FerrotorchResult<Yolo<T>> {
     Yolo::new(num_classes, 3)
 }

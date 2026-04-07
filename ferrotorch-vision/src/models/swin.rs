@@ -577,6 +577,105 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
 /// - Image size: 224x224
 ///
 /// Total parameters: ~29M (for 1000 classes).
+// ===========================================================================
+// IntermediateFeatures — CL-499
+// ===========================================================================
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T>
+    for SwinTransformer<T>
+{
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+        let shape = input.shape();
+        let batch = shape[0];
+        let device = input.device();
+
+        // 1. Patch partition.
+        let x = self.patch_embed.forward(input)?;
+        out.insert("patch_embed".to_string(), x.clone());
+
+        let x_shape = x.shape();
+        let embed_dim = x_shape[1];
+        let mut spatial_h = x_shape[2];
+        let mut spatial_w = x_shape[3];
+        let num_tokens = spatial_h * spatial_w;
+
+        // Transpose [B, C, H, W] -> [B, H*W, C].
+        let x_data = x.data_vec()?;
+        let mut seq_data =
+            vec![<T as num_traits::Zero>::zero(); batch * num_tokens * embed_dim];
+        for b in 0..batch {
+            for c in 0..embed_dim {
+                for t in 0..num_tokens {
+                    let src = b * embed_dim * num_tokens + c * num_tokens + t;
+                    let dst = b * num_tokens * embed_dim + t * embed_dim + c;
+                    seq_data[dst] = x_data[src];
+                }
+            }
+        }
+        let mut x = Tensor::from_storage(
+            TensorStorage::cpu(seq_data),
+            vec![batch, num_tokens, embed_dim],
+            input.requires_grad(),
+        )?
+        .to(device)?;
+
+        // 2. Stages.
+        for (i, stage) in self.stages.iter().enumerate() {
+            x = stage.stage_forward(&x, spatial_h, spatial_w)?;
+            out.insert(format!("stage{i}"), x.clone());
+            if stage.downsample.is_some() {
+                spatial_h /= 2;
+                spatial_w /= 2;
+            }
+        }
+
+        // 3. Global average pool over the final spatial tokens.
+        let x_data = x.data_vec()?;
+        let final_tokens = spatial_h * spatial_w;
+        let mut pooled = vec![<T as num_traits::Zero>::zero(); batch * self.final_dim];
+        let inv_tokens = T::from(1.0).unwrap() / T::from(final_tokens).unwrap();
+        for b in 0..batch {
+            for c in 0..self.final_dim {
+                let mut sum = <T as num_traits::Zero>::zero();
+                for t in 0..final_tokens {
+                    let idx = b * final_tokens * self.final_dim + t * self.final_dim + c;
+                    sum += x_data[idx];
+                }
+                pooled[b * self.final_dim + c] = sum * inv_tokens;
+            }
+        }
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(pooled),
+            vec![batch, self.final_dim],
+            input.requires_grad(),
+        )?
+        .to(device)?;
+        out.insert("avgpool".to_string(), x.clone());
+
+        let x = self.norm.forward(&x)?;
+        out.insert("norm".to_string(), x.clone());
+
+        let logits = self.head.forward(&x)?;
+        out.insert("head".to_string(), logits);
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<String> {
+        let mut names = vec!["patch_embed".to_string()];
+        for i in 0..self.stages.len() {
+            names.push(format!("stage{i}"));
+        }
+        names.push("avgpool".to_string());
+        names.push("norm".to_string());
+        names.push("head".to_string());
+        names
+    }
+}
+
 pub fn swin_tiny<T: Float>(num_classes: usize) -> FerrotorchResult<SwinTransformer<T>> {
     SwinTransformer::from_config(SwinConfig {
         patch_size: 4,

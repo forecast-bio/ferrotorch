@@ -372,6 +372,51 @@ pub fn vgg16<T: Float>(num_classes: usize) -> FerrotorchResult<VGG<T>> {
 }
 
 // ===========================================================================
+// IntermediateFeatures — CL-499
+// ===========================================================================
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for VGG<T> {
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+        // Each entry in `features` is either a ConvReLU or a MaxPool.
+        // Emit one output per layer for maximum flexibility.
+        let mut x = self.features[0].forward(input)?;
+        out.insert("features.0".to_string(), x.clone());
+        for (i, layer) in self.features.iter().enumerate().skip(1) {
+            x = layer.forward(&x)?;
+            out.insert(format!("features.{i}"), x.clone());
+        }
+
+        let x = Module::<T>::forward(&self.avgpool, &x)?;
+        out.insert("avgpool".to_string(), x.clone());
+
+        let batch = x.shape()[0];
+        let features = x.numel() / batch;
+        let mut x = reshape(&x, &[batch as isize, features as isize])?;
+        for (i, layer) in self.classifier.iter().enumerate() {
+            x = layer.forward(&x)?;
+            out.insert(format!("classifier.{i}"), x.clone());
+        }
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        for i in 0..self.features.len() {
+            names.push(format!("features.{i}"));
+        }
+        names.push("avgpool".to_string());
+        for i in 0..self.classifier.len() {
+            names.push(format!("classifier.{i}"));
+        }
+        names
+    }
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 

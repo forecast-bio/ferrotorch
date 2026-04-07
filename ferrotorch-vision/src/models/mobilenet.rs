@@ -315,6 +315,55 @@ pub fn mobilenet_v2<T: Float>(num_classes: usize) -> FerrotorchResult<MobileNetV
     MobileNetV2::new(num_classes)
 }
 
+// ---------------------------------------------------------------------------
+// IntermediateFeatures — CL-499
+// ---------------------------------------------------------------------------
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for MobileNetV2<T> {
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+
+        // Stem.
+        let x = self.stem.forward(input)?;
+        let mut x = relu(&x)?;
+        out.insert("stem".to_string(), x.clone());
+
+        // Each inverted-residual block gets its own named output.
+        for (i, block) in self.blocks.iter().enumerate() {
+            x = block.forward(&x)?;
+            out.insert(format!("block{i}"), x.clone());
+        }
+
+        // Last conv + pool + classifier.
+        let x = self.last_conv.forward(&x)?;
+        let x = relu(&x)?;
+        out.insert("last_conv".to_string(), x.clone());
+        let x = Module::<T>::forward(&self.avgpool, &x)?;
+        out.insert("avgpool".to_string(), x.clone());
+        let batch = x.shape()[0];
+        let features = x.numel() / batch;
+        let x = reshape(&x, &[batch as isize, features as isize])?;
+        let logits = self.classifier.forward(&x)?;
+        out.insert("classifier".to_string(), logits);
+
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<String> {
+        let mut names = vec!["stem".to_string()];
+        for i in 0..self.blocks.len() {
+            names.push(format!("block{i}"));
+        }
+        names.push("last_conv".to_string());
+        names.push("avgpool".to_string());
+        names.push("classifier".to_string());
+        names
+    }
+}
+
 // ===========================================================================
 // MobileNetV3-Small
 // ===========================================================================
@@ -520,6 +569,49 @@ pub fn mobilenet_v3_small<T: Float>(
     num_classes: usize,
 ) -> FerrotorchResult<MobileNetV3Small<T>> {
     MobileNetV3Small::new(num_classes)
+}
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T>
+    for MobileNetV3Small<T>
+{
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+
+        let x = self.stem.forward(input)?;
+        let mut x = relu(&x)?;
+        out.insert("stem".to_string(), x.clone());
+
+        for (i, block) in self.blocks.iter().enumerate() {
+            x = block.forward(&x)?;
+            out.insert(format!("block{i}"), x.clone());
+        }
+
+        let x = self.last_conv.forward(&x)?;
+        let x = relu(&x)?;
+        out.insert("last_conv".to_string(), x.clone());
+        let x = Module::<T>::forward(&self.avgpool, &x)?;
+        out.insert("avgpool".to_string(), x.clone());
+        let batch = x.shape()[0];
+        let features = x.numel() / batch;
+        let x = reshape(&x, &[batch as isize, features as isize])?;
+        let logits = self.classifier.forward(&x)?;
+        out.insert("classifier".to_string(), logits);
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<String> {
+        let mut names = vec!["stem".to_string()];
+        for i in 0..self.blocks.len() {
+            names.push(format!("block{i}"));
+        }
+        names.push("last_conv".to_string());
+        names.push("avgpool".to_string());
+        names.push("classifier".to_string());
+        names
+    }
 }
 
 // ===========================================================================

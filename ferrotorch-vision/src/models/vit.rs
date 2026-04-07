@@ -544,6 +544,106 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
 /// - Image size: 224x224
 ///
 /// Total parameters: ~86M (for 1000 classes).
+// ===========================================================================
+// IntermediateFeatures — CL-499
+// ===========================================================================
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T>
+    for VisionTransformer<T>
+{
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+        let batch = input.shape()[0];
+        let device = input.device();
+
+        // 1. Patch embedding.
+        let x = self.patch_embed.forward(input)?;
+        out.insert("patch_embed".to_string(), x.clone());
+
+        // 2. Prepend CLS token.
+        let cls_data = self.cls_token.data_vec()?;
+        let x_data = x.data_vec()?;
+        let seq_len = self.num_patches + 1;
+        let mut prepended = Vec::with_capacity(batch * seq_len * self.embed_dim);
+        for b in 0..batch {
+            prepended.extend_from_slice(&cls_data);
+            let start = b * self.num_patches * self.embed_dim;
+            let end = start + self.num_patches * self.embed_dim;
+            prepended.extend_from_slice(&x_data[start..end]);
+        }
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(prepended),
+            vec![batch, seq_len, self.embed_dim],
+            input.requires_grad(),
+        )?
+        .to(device)?;
+
+        // 3. Add position embedding.
+        let pos_data = self.pos_embed.data_vec()?;
+        let x_data = x.data_vec()?;
+        let pos_size = seq_len * self.embed_dim;
+        let mut pos_added = Vec::with_capacity(batch * pos_size);
+        for b in 0..batch {
+            for (i, &pd) in pos_data.iter().enumerate().take(pos_size) {
+                pos_added.push(x_data[b * pos_size + i] + pd);
+            }
+        }
+        let mut x = Tensor::from_storage(
+            TensorStorage::cpu(pos_added),
+            vec![batch, seq_len, self.embed_dim],
+            input.requires_grad(),
+        )?
+        .to(device)?;
+        out.insert("embedded".to_string(), x.clone());
+
+        // 4. Transformer encoder blocks.
+        for (i, block) in self.blocks.iter().enumerate() {
+            x = block.forward(&x)?;
+            out.insert(format!("block{i}"), x.clone());
+        }
+
+        // 5. Final LayerNorm.
+        let x = self.norm.forward(&x)?;
+        out.insert("norm".to_string(), x.clone());
+
+        // 6. Extract CLS token.
+        let x_data = x.data_vec()?;
+        let mut cls_out = Vec::with_capacity(batch * self.embed_dim);
+        for b in 0..batch {
+            let start = b * seq_len * self.embed_dim;
+            let end = start + self.embed_dim;
+            cls_out.extend_from_slice(&x_data[start..end]);
+        }
+        let cls_features = Tensor::from_storage(
+            TensorStorage::cpu(cls_out),
+            vec![batch, self.embed_dim],
+            x.requires_grad(),
+        )?
+        .to(device)?;
+
+        // 7. Classification head.
+        let logits = self.head.forward(&cls_features)?;
+        out.insert("head".to_string(), logits);
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<String> {
+        let mut names = vec![
+            "patch_embed".to_string(),
+            "embedded".to_string(),
+        ];
+        for i in 0..self.blocks.len() {
+            names.push(format!("block{i}"));
+        }
+        names.push("norm".to_string());
+        names.push("head".to_string());
+        names
+    }
+}
+
 pub fn vit_b_16<T: Float>(num_classes: usize) -> FerrotorchResult<VisionTransformer<T>> {
     VisionTransformer::new(
         224, // image_size

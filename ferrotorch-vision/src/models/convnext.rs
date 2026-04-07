@@ -504,6 +504,60 @@ impl<T: Float> Module<T> for ConvNeXt<T> {
 /// Note: Because depthwise convolutions are replaced with regular convolutions,
 /// the parameter count is significantly larger than the original ConvNeXt-Tiny
 /// (~28M). The regular-conv variant has ~187M parameters.
+// ===========================================================================
+// IntermediateFeatures — CL-499
+// ===========================================================================
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for ConvNeXt<T> {
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+
+        let x = self.stem_conv.forward(input)?;
+        let mut x = channel_layer_norm(&self.stem_norm, &x)?;
+        out.insert("stem".to_string(), x.clone());
+
+        // Stage 0 (no downsample before it).
+        for block in &self.stages[0] {
+            x = block.forward(&x)?;
+        }
+        out.insert("stage0".to_string(), x.clone());
+
+        // Stages 1..3 with downsampling.
+        for s in 1..4 {
+            x = self.downsamples[s - 1].forward(&x)?;
+            for block in &self.stages[s] {
+                x = block.forward(&x)?;
+            }
+            out.insert(format!("stage{s}"), x.clone());
+        }
+
+        let x = Module::<T>::forward(&self.avgpool, &x)?;
+        out.insert("avgpool".to_string(), x.clone());
+        let batch = x.shape()[0];
+        let features = x.numel() / batch;
+        let x = reshape(&x, &[batch as isize, features as isize])?;
+        let x = self.head_norm.forward(&x)?;
+        let logits = self.head_fc.forward(&x)?;
+        out.insert("head_fc".to_string(), logits);
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<String> {
+        vec![
+            "stem".to_string(),
+            "stage0".to_string(),
+            "stage1".to_string(),
+            "stage2".to_string(),
+            "stage3".to_string(),
+            "avgpool".to_string(),
+            "head_fc".to_string(),
+        ]
+    }
+}
+
 pub fn convnext_tiny<T: Float>(num_classes: usize) -> FerrotorchResult<ConvNeXt<T>> {
     ConvNeXt::new(&[3, 3, 9, 3], &[96, 192, 384, 768], num_classes)
 }

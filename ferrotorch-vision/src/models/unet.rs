@@ -509,6 +509,69 @@ impl<T: Float> Module<T> for UNet<T> {
 ///
 /// Input: `[B, 3, H, W]` where `H` and `W` are divisible by 16.
 /// Output: `[B, num_classes, H, W]`.
+// ===========================================================================
+// IntermediateFeatures — CL-499
+// ===========================================================================
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for UNet<T> {
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+
+        let s1 = self.enc1.forward(input)?;
+        out.insert("enc1".to_string(), s1.clone());
+        let x = Module::<T>::forward(&self.pool, &s1)?;
+
+        let s2 = self.enc2.forward(&x)?;
+        out.insert("enc2".to_string(), s2.clone());
+        let x = Module::<T>::forward(&self.pool, &s2)?;
+
+        let s3 = self.enc3.forward(&x)?;
+        out.insert("enc3".to_string(), s3.clone());
+        let x = Module::<T>::forward(&self.pool, &s3)?;
+
+        let s4 = self.enc4.forward(&x)?;
+        out.insert("enc4".to_string(), s4.clone());
+        let x = Module::<T>::forward(&self.pool, &s4)?;
+
+        let x = self.bottleneck_conv1.forward(&x)?;
+        let x = relu(&x)?;
+        let x = self.bottleneck_conv2.forward(&x)?;
+        let x = relu(&x)?;
+        out.insert("bottleneck".to_string(), x.clone());
+
+        let x = self.dec4.forward(&x, &s4)?;
+        out.insert("dec4".to_string(), x.clone());
+        let x = self.dec3.forward(&x, &s3)?;
+        out.insert("dec3".to_string(), x.clone());
+        let x = self.dec2.forward(&x, &s2)?;
+        out.insert("dec2".to_string(), x.clone());
+        let x = self.dec1.forward(&x, &s1)?;
+        out.insert("dec1".to_string(), x.clone());
+
+        let logits = self.head.forward(&x)?;
+        out.insert("head".to_string(), logits);
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<String> {
+        vec![
+            "enc1".to_string(),
+            "enc2".to_string(),
+            "enc3".to_string(),
+            "enc4".to_string(),
+            "bottleneck".to_string(),
+            "dec4".to_string(),
+            "dec3".to_string(),
+            "dec2".to_string(),
+            "dec1".to_string(),
+            "head".to_string(),
+        ]
+    }
+}
+
 pub fn unet<T: Float>(num_classes: usize) -> FerrotorchResult<UNet<T>> {
     UNet::new(num_classes)
 }

@@ -342,6 +342,55 @@ pub fn inception_v3<T: Float>(num_classes: usize) -> FerrotorchResult<InceptionV
     InceptionV3::new(num_classes)
 }
 
+// ---------------------------------------------------------------------------
+// IntermediateFeatures — CL-499
+// ---------------------------------------------------------------------------
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for InceptionV3<T> {
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+
+        let x = self.stem_conv1.forward(input)?;
+        let x = relu(&x)?;
+        out.insert("stem_conv1".to_string(), x.clone());
+        let x = self.stem_conv2.forward(&x)?;
+        let x = relu(&x)?;
+        out.insert("stem_conv2".to_string(), x.clone());
+
+        let x = self.module_a.forward(&x)?;
+        out.insert("module_a".to_string(), x.clone());
+        let x = self.module_b.forward(&x)?;
+        out.insert("module_b".to_string(), x.clone());
+        let x = self.module_c.forward(&x)?;
+        out.insert("module_c".to_string(), x.clone());
+
+        let x = Module::<T>::forward(&self.avgpool, &x)?;
+        out.insert("avgpool".to_string(), x.clone());
+
+        let batch = x.shape()[0];
+        let features = x.numel() / batch;
+        let x = reshape(&x, &[batch as isize, features as isize])?;
+        let logits = self.classifier.forward(&x)?;
+        out.insert("classifier".to_string(), logits);
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<String> {
+        vec![
+            "stem_conv1".to_string(),
+            "stem_conv2".to_string(),
+            "module_a".to_string(),
+            "module_b".to_string(),
+            "module_c".to_string(),
+            "avgpool".to_string(),
+            "classifier".to_string(),
+        ]
+    }
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================

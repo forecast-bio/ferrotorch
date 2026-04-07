@@ -36,7 +36,12 @@ pub trait IntermediateFeatures<T: Float>: Module<T> {
     ) -> FerrotorchResult<HashMap<String, Tensor<T>>>;
 
     /// List the available intermediate node names, in execution order.
-    fn feature_node_names(&self) -> Vec<&'static str>;
+    ///
+    /// Returns `Vec<String>` (rather than `Vec<&'static str>`) so
+    /// architectures with a variable number of blocks can produce
+    /// per-block names like `"block0"`, `"block1"`, ... keyed off
+    /// their runtime configuration. CL-499.
+    fn feature_node_names(&self) -> Vec<String>;
 }
 
 /// Wraps a model that implements [`IntermediateFeatures`] and returns a
@@ -73,9 +78,9 @@ impl<T: Float, M: IntermediateFeatures<T>> FeatureExtractor<T, M> {
     /// node for the wrapped model. Use [`IntermediateFeatures::feature_node_names`]
     /// on the underlying model to discover the available names.
     pub fn new(model: M, return_nodes: Vec<String>) -> FerrotorchResult<Self> {
-        let valid: Vec<&'static str> = model.feature_node_names();
+        let valid: Vec<String> = model.feature_node_names();
         for name in &return_nodes {
-            if !valid.iter().any(|v| *v == name) {
+            if !valid.iter().any(|v| v == name) {
                 return Err(FerrotorchError::InvalidArgument {
                     message: format!(
                         "FeatureExtractor: '{name}' is not a valid feature node. \
@@ -149,13 +154,13 @@ mod tests {
     fn test_resnet_intermediate_features_keys() {
         let resnet = resnet18::<f32>(1000).unwrap();
         let names = resnet.feature_node_names();
-        assert!(names.contains(&"stem"));
-        assert!(names.contains(&"layer1"));
-        assert!(names.contains(&"layer2"));
-        assert!(names.contains(&"layer3"));
-        assert!(names.contains(&"layer4"));
-        assert!(names.contains(&"avgpool"));
-        assert!(names.contains(&"fc"));
+        assert!(names.iter().any(|n| n == "stem"));
+        assert!(names.iter().any(|n| n == "layer1"));
+        assert!(names.iter().any(|n| n == "layer2"));
+        assert!(names.iter().any(|n| n == "layer3"));
+        assert!(names.iter().any(|n| n == "layer4"));
+        assert!(names.iter().any(|n| n == "avgpool"));
+        assert!(names.iter().any(|n| n == "fc"));
     }
 
     #[test]
@@ -196,7 +201,7 @@ mod tests {
         let all = resnet.forward_features(&input).unwrap();
         // forward_features always returns every named stage.
         for name in resnet.feature_node_names() {
-            assert!(all.contains_key(name), "missing intermediate '{name}'");
+            assert!(all.contains_key(&name), "missing intermediate '{name}'");
         }
     }
 
@@ -224,5 +229,69 @@ mod tests {
         let input: Tensor<f32> = randn(&[1, 3, 32, 32]).unwrap();
         let features = extractor.forward(&input).unwrap();
         assert!(features.is_empty());
+    }
+
+    // CL-499: smoke tests for newly-added IntermediateFeatures impls.
+
+    #[test]
+    fn test_mobilenet_v2_feature_extractor_roundtrip() {
+        use crate::models::mobilenet::mobilenet_v2;
+        let model: crate::models::mobilenet::MobileNetV2<f32> = mobilenet_v2(10).unwrap();
+        let names = model.feature_node_names();
+        assert!(names.iter().any(|n| n == "stem"));
+        assert!(names.iter().any(|n| n == "classifier"));
+        // MobileNetV2 has 17 inverted-residual blocks.
+        assert!(names.iter().any(|n| n == "block0"));
+        assert!(names.iter().any(|n| n == "block16"));
+
+        let extractor = FeatureExtractor::new(model, vec!["block0".into(), "block16".into()])
+            .unwrap();
+        let input: Tensor<f32> = randn(&[1, 3, 32, 32]).unwrap();
+        let features = extractor.forward(&input).unwrap();
+        assert_eq!(features.len(), 2);
+        assert!(features.contains_key("block0"));
+        assert!(features.contains_key("block16"));
+    }
+
+    #[test]
+    fn test_densenet_feature_extractor_roundtrip() {
+        use crate::models::densenet::densenet121;
+        let model: crate::models::densenet::DenseNet<f32> = densenet121(10).unwrap();
+        let extractor = FeatureExtractor::new(
+            model,
+            vec!["block1".into(), "trans2".into(), "block4".into()],
+        )
+        .unwrap();
+        let input: Tensor<f32> = randn(&[1, 3, 32, 32]).unwrap();
+        let features = extractor.forward(&input).unwrap();
+        assert_eq!(features.len(), 3);
+    }
+
+    #[test]
+    fn test_vgg11_feature_extractor_roundtrip() {
+        use crate::models::vgg::vgg11;
+        let model: crate::models::vgg::VGG<f32> = vgg11(10).unwrap();
+        // Just verify feature_node_names is populated and one node
+        // can be requested — we don't run forward to keep the test
+        // fast.
+        let names = model.feature_node_names();
+        assert!(names.iter().any(|n| n == "avgpool"));
+        let _extractor = FeatureExtractor::new(model, vec!["avgpool".into()]).unwrap();
+    }
+
+    #[test]
+    fn test_yolo_feature_extractor_roundtrip() {
+        use crate::models::yolo::yolo;
+        let model: crate::models::yolo::Yolo<f32> = yolo(10).unwrap();
+        let names = model.feature_node_names();
+        assert_eq!(
+            names,
+            vec![
+                "stage1", "stage2", "stage3", "stage4", "stage5", "head"
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>()
+        );
     }
 }
