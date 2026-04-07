@@ -1,0 +1,10 @@
+{
+  "uuid": "29599612-531f-4d0e-9624-0ca0a3c0f1fb",
+  "issue_uuid": "e1a1998b-6b74-4199-86e4-a8b8c07d20ee",
+  "author": "y4rr",
+  "content": "Implemented via commit bc602d96. Added WorkerMode enum (IntraBatch default, CrossBatch new) with a MultiWorkerIter that spawns num_workers dedicated threads pulling WorkItems from a shared Mutex<VecDeque> work queue and returning tagged WorkResults through an mpsc channel. BinaryHeap reorder buffer yields batches in sampler order. Clean Drop shutdown via None sentinels + notify_all. CrossBatch with num_workers=0 falls back to Prefetch path. 11 new tests; 158 ferrotorch-data tests pass.",
+  "created_at": "2026-04-07T21:53:39.443261743Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAIXIpMdVB64fthXLe94ez56NQ/+91GbgHSG1f80/Gvl6y9CvPi24JNwUukouyu+AnggpvT3muU+IJ8OQsgvKzAg=="
+}
