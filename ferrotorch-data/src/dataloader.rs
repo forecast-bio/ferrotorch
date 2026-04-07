@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::{BinaryHeap, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
 
@@ -7,6 +8,40 @@ use rayon::prelude::*;
 
 use crate::dataset::Dataset;
 use crate::sampler::{RandomSampler, Sampler, SequentialSampler};
+
+// ---------------------------------------------------------------------------
+// WorkerMode
+// ---------------------------------------------------------------------------
+
+/// Parallelism strategy for worker threads. Mirrors the split between
+/// PyTorch `DataLoader`'s process-based workers and the existing
+/// rayon-based intra-batch parallelism.
+///
+/// - [`IntraBatch`](WorkerMode::IntraBatch) (default, preserves
+///   existing behavior): batches are loaded one at a time, but samples
+///   within each batch are loaded in parallel using rayon's
+///   work-stealing thread pool sized by `num_workers`. A single
+///   background prefetch thread is used when `prefetch_factor > 0`.
+///
+/// - [`CrossBatch`](WorkerMode::CrossBatch): spawn `num_workers`
+///   dedicated worker threads that independently produce full batches
+///   in parallel. This mirrors PyTorch's multi-process DataLoader
+///   pipeline (except using threads instead of processes, since Rust
+///   has no GIL to work around). Batches are reordered to preserve
+///   deterministic output ordering. CL-377.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkerMode {
+    /// Load samples within a single batch in parallel (rayon pool).
+    IntraBatch,
+    /// Load different batches in parallel (N dedicated worker threads).
+    CrossBatch,
+}
+
+impl Default for WorkerMode {
+    fn default() -> Self {
+        Self::IntraBatch
+    }
+}
 
 /// Trait for sample types that can be transferred to a target [`Device`].
 ///
@@ -121,6 +156,7 @@ pub struct DataLoader<D: Dataset> {
     seed: u64,
     num_workers: usize,
     prefetch_factor: usize,
+    worker_mode: WorkerMode,
     device: Option<Device>,
     pin_memory: bool,
     custom_sampler: Option<Box<dyn Sampler>>,
@@ -147,12 +183,30 @@ impl<D: Dataset> DataLoader<D> {
             seed: 0,
             num_workers: 0,
             prefetch_factor: 2,
+            worker_mode: WorkerMode::IntraBatch,
             device: None,
             pin_memory: false,
             custom_sampler: None,
             collate_fn: None,
             transfer_fn: None,
         }
+    }
+
+    /// Select the worker parallelism strategy.
+    ///
+    /// - [`WorkerMode::IntraBatch`] (default) loads samples within a
+    ///   single batch in parallel via rayon.
+    /// - [`WorkerMode::CrossBatch`] spawns `num_workers` dedicated
+    ///   threads that produce independent batches in parallel, with a
+    ///   reorder buffer to preserve ordering. CL-377.
+    pub fn worker_mode(mut self, mode: WorkerMode) -> Self {
+        self.worker_mode = mode;
+        self
+    }
+
+    /// Returns the current worker mode.
+    pub fn current_worker_mode(&self) -> WorkerMode {
+        self.worker_mode
     }
 
     /// Enable or disable shuffling.
@@ -355,6 +409,22 @@ impl<D: Dataset> DataLoader<D> {
     {
         let indices = self.build_indices(epoch);
 
+        // CrossBatch mode with > 0 workers uses the dedicated
+        // multi-worker pipeline. Any other combination falls back to
+        // the existing Prefetch / Sync code paths.
+        if self.worker_mode == WorkerMode::CrossBatch && self.num_workers > 0 {
+            return BatchIter::MultiWorker(MultiWorkerIter::new(
+                Arc::clone(&self.dataset),
+                indices,
+                self.batch_size,
+                self.drop_last,
+                self.num_workers,
+                self.prefetch_factor.max(self.num_workers),
+                self.transfer_fn.clone(),
+                self.pin_memory,
+            ));
+        }
+
         if self.prefetch_factor > 0 {
             BatchIter::Prefetch(PrefetchIter::new(
                 Arc::clone(&self.dataset),
@@ -381,15 +451,20 @@ impl<D: Dataset> DataLoader<D> {
     }
 }
 
-/// Iterator over batches — either synchronous or prefetched.
-///
-/// Returned by [`DataLoader::iter`]. Transparent to the caller: both
-/// variants yield `FerrotorchResult<Vec<D::Sample>>`.
+/// Iterator over batches — synchronous, single-thread prefetched, or
+/// multi-worker. Returned by [`DataLoader::iter`]. Transparent to the
+/// caller: all variants yield `FerrotorchResult<Vec<D::Sample>>` in
+/// sampler order.
 pub enum BatchIter<'a, D: Dataset> {
     /// Synchronous loading on the calling thread.
     Sync(DataLoaderIter<'a, D>),
-    /// Prefetched loading via a background thread.
+    /// Prefetched loading via a single background thread with
+    /// optional rayon-parallel sample loading within each batch.
     Prefetch(PrefetchIter<D>),
+    /// Cross-batch parallel loading via `num_workers` dedicated
+    /// threads, with a reorder buffer to preserve sampler order.
+    /// CL-377.
+    MultiWorker(MultiWorkerIter<D>),
 }
 
 impl<D: Dataset + 'static> Iterator for BatchIter<'_, D>
@@ -402,6 +477,7 @@ where
         match self {
             BatchIter::Sync(inner) => inner.next(),
             BatchIter::Prefetch(inner) => inner.next(),
+            BatchIter::MultiWorker(inner) => inner.next(),
         }
     }
 
@@ -409,6 +485,7 @@ where
         match self {
             BatchIter::Sync(inner) => inner.size_hint(),
             BatchIter::Prefetch(inner) => inner.size_hint(),
+            BatchIter::MultiWorker(inner) => inner.size_hint(),
         }
     }
 }
@@ -650,6 +727,340 @@ where
 }
 
 impl<D: Dataset + 'static> ExactSizeIterator for PrefetchIter<D> where D::Sample: Send + 'static {}
+
+// ---------------------------------------------------------------------------
+// MultiWorkerIter — cross-batch parallel loading
+// ---------------------------------------------------------------------------
+
+/// A single work item sent from the dispatcher to a worker thread.
+///
+/// `seq` is the batch's position in the sampler's output order. It is
+/// used by the reorder buffer to yield results deterministically even
+/// though worker threads complete batches in arbitrary order.
+struct WorkItem {
+    seq: usize,
+    indices: Vec<usize>,
+}
+
+/// A completed batch produced by a worker, tagged with its sequence
+/// number so the consumer can reorder.
+struct WorkResult<S> {
+    seq: usize,
+    batch: FerrotorchResult<Vec<S>>,
+}
+
+/// Ordering helper for the `BinaryHeap` reorder buffer: we pop the
+/// smallest-seq batch first, so we implement `Ord` in reverse.
+struct SeqEntry<S> {
+    seq: usize,
+    batch: FerrotorchResult<Vec<S>>,
+}
+
+impl<S> PartialEq for SeqEntry<S> {
+    fn eq(&self, other: &Self) -> bool {
+        self.seq == other.seq
+    }
+}
+
+impl<S> Eq for SeqEntry<S> {}
+
+impl<S> PartialOrd for SeqEntry<S> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<S> Ord for SeqEntry<S> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Reverse so BinaryHeap::pop returns the smallest seq.
+        other.seq.cmp(&self.seq)
+    }
+}
+
+/// Cross-batch multi-worker iterator. `num_workers` threads each pull
+/// `WorkItem`s from a shared work queue, load the batch (applying
+/// device transfer if configured), and push a `WorkResult` back on a
+/// result channel. The iterator reorders results by sequence number
+/// so the consumer sees them in sampler order.
+///
+/// Bounded parallelism: at most `in_flight` work items are dispatched
+/// at once so memory use stays predictable.
+pub struct MultiWorkerIter<D: Dataset> {
+    result_rx: Receiver<WorkResult<D::Sample>>,
+    /// Work queue shared with the worker threads; the dispatcher
+    /// pushes onto the back and workers pop from the front under the
+    /// mutex. `None` as a sentinel tells workers to shut down.
+    work_queue: Arc<Mutex<VecDeque<Option<WorkItem>>>>,
+    /// Condvar signaled when new work is pushed or when the queue is
+    /// closed (so workers waiting on an empty queue can wake up).
+    work_cv: Arc<std::sync::Condvar>,
+    /// Next sequence number the dispatcher should hand out.
+    next_dispatch_seq: usize,
+    /// Next sequence number the consumer should yield.
+    next_yield_seq: usize,
+    /// Reorder buffer for out-of-order completions.
+    reorder_buf: BinaryHeap<SeqEntry<D::Sample>>,
+    /// Number of batches currently out with a worker (dispatched but
+    /// not yet collected).
+    in_flight_count: usize,
+    /// Maximum allowed `in_flight_count`.
+    max_in_flight: usize,
+    /// Total number of batches this iterator will produce.
+    total_batches: usize,
+    /// Pre-computed list of batch index slices (seq → Vec<usize>).
+    batch_plans: Vec<Vec<usize>>,
+    /// Worker thread handles. Joined on drop.
+    worker_handles: Vec<JoinHandle<()>>,
+    /// Whether the work queue has been closed (sentinel sent).
+    closed: bool,
+}
+
+impl<D: Dataset + 'static> MultiWorkerIter<D>
+where
+    D::Sample: Send + 'static,
+{
+    fn new(
+        dataset: Arc<D>,
+        indices: Vec<usize>,
+        batch_size: usize,
+        drop_last: bool,
+        num_workers: usize,
+        max_in_flight: usize,
+        transfer_fn: Option<TransferFn<D::Sample>>,
+        pin_memory: bool,
+    ) -> Self {
+        // Plan all batches up front so workers just need to receive
+        // their slice of indices.
+        let total_batches = compute_batch_count(indices.len(), batch_size, drop_last);
+        let mut batch_plans: Vec<Vec<usize>> = Vec::with_capacity(total_batches);
+        let mut pos = 0;
+        while pos < indices.len() {
+            let remaining = indices.len() - pos;
+            if drop_last && remaining < batch_size {
+                break;
+            }
+            let end = (pos + batch_size).min(indices.len());
+            batch_plans.push(indices[pos..end].to_vec());
+            pos = end;
+        }
+
+        let work_queue: Arc<Mutex<VecDeque<Option<WorkItem>>>> =
+            Arc::new(Mutex::new(VecDeque::new()));
+        let work_cv = Arc::new(std::sync::Condvar::new());
+        let (result_tx, result_rx) = mpsc::sync_channel::<WorkResult<D::Sample>>(
+            max_in_flight.max(1),
+        );
+
+        // Spawn worker threads.
+        let mut worker_handles = Vec::with_capacity(num_workers);
+        for _ in 0..num_workers {
+            let dataset_w = Arc::clone(&dataset);
+            let queue_w = Arc::clone(&work_queue);
+            let cv_w = Arc::clone(&work_cv);
+            let tx_w = result_tx.clone();
+            let transfer_w = transfer_fn.clone();
+            let handle = thread::spawn(move || {
+                worker_loop(dataset_w, queue_w, cv_w, tx_w, transfer_w, pin_memory);
+            });
+            worker_handles.push(handle);
+        }
+        // Drop our clone of the sender so the channel closes when all
+        // workers drop theirs.
+        drop(result_tx);
+
+        MultiWorkerIter {
+            result_rx,
+            work_queue,
+            work_cv,
+            next_dispatch_seq: 0,
+            next_yield_seq: 0,
+            reorder_buf: BinaryHeap::new(),
+            in_flight_count: 0,
+            max_in_flight: max_in_flight.max(1),
+            total_batches,
+            batch_plans,
+            worker_handles,
+            closed: false,
+        }
+    }
+
+    /// Push more work items to the queue until we hit max_in_flight or
+    /// exhaust the plan.
+    fn refill_work_queue(&mut self) {
+        while self.in_flight_count < self.max_in_flight
+            && self.next_dispatch_seq < self.total_batches
+        {
+            let seq = self.next_dispatch_seq;
+            let indices = self.batch_plans[seq].clone();
+            {
+                let mut queue = self.work_queue.lock().unwrap();
+                queue.push_back(Some(WorkItem { seq, indices }));
+            }
+            self.work_cv.notify_one();
+            self.next_dispatch_seq += 1;
+            self.in_flight_count += 1;
+        }
+    }
+
+    /// Signal all workers to exit by pushing one `None` sentinel per
+    /// worker and notifying all waiters.
+    fn close_work_queue(&mut self) {
+        if self.closed {
+            return;
+        }
+        {
+            let mut queue = self.work_queue.lock().unwrap();
+            for _ in 0..self.worker_handles.len() {
+                queue.push_back(None);
+            }
+        }
+        self.work_cv.notify_all();
+        self.closed = true;
+    }
+}
+
+impl<D: Dataset + 'static> Iterator for MultiWorkerIter<D>
+where
+    D::Sample: Send + 'static,
+{
+    type Item = FerrotorchResult<Vec<D::Sample>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Iteration done — close the work queue so workers exit and
+        // return None. Idempotent across multiple next() calls.
+        if self.next_yield_seq >= self.total_batches {
+            self.close_work_queue();
+            return None;
+        }
+
+        // Keep the workers busy.
+        self.refill_work_queue();
+
+        // Serve out-of-order results from the reorder buffer first.
+        loop {
+            if let Some(top) = self.reorder_buf.peek() {
+                if top.seq == self.next_yield_seq {
+                    let entry = self.reorder_buf.pop().unwrap();
+                    self.next_yield_seq += 1;
+                    return Some(entry.batch);
+                }
+            }
+            // Not in buffer yet — receive the next completion.
+            match self.result_rx.recv() {
+                Ok(WorkResult { seq, batch }) => {
+                    self.in_flight_count -= 1;
+                    self.reorder_buf.push(SeqEntry { seq, batch });
+                    // Dispatch more work as soon as a slot frees up.
+                    self.refill_work_queue();
+                }
+                Err(_) => {
+                    // Channel closed unexpectedly — no more batches.
+                    return None;
+                }
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.total_batches.saturating_sub(self.next_yield_seq);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<D: Dataset + 'static> ExactSizeIterator for MultiWorkerIter<D> where D::Sample: Send + 'static {}
+
+impl<D: Dataset> Drop for MultiWorkerIter<D> {
+    fn drop(&mut self) {
+        // Close the queue if the consumer dropped us before
+        // exhausting the iterator.
+        if !self.closed {
+            {
+                let mut queue = self.work_queue.lock().unwrap();
+                for _ in 0..self.worker_handles.len() {
+                    queue.push_back(None);
+                }
+            }
+            self.work_cv.notify_all();
+            self.closed = true;
+        }
+        // Join all workers. Panics propagate as thread-panic messages
+        // but are not re-raised — dropping an iterator should never
+        // panic.
+        for handle in self.worker_handles.drain(..) {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// The worker loop executed by every spawned thread. Pulls one
+/// `WorkItem` at a time from the shared queue, loads the batch,
+/// applies the optional device transfer, and sends the `WorkResult`
+/// back to the main thread. Exits when the queue yields a `None`
+/// sentinel or when the result channel is closed.
+fn worker_loop<D: Dataset + 'static>(
+    dataset: Arc<D>,
+    queue: Arc<Mutex<VecDeque<Option<WorkItem>>>>,
+    cv: Arc<std::sync::Condvar>,
+    tx: SyncSender<WorkResult<D::Sample>>,
+    transfer_fn: Option<TransferFn<D::Sample>>,
+    pin_memory: bool,
+) where
+    D::Sample: Send + 'static,
+{
+    loop {
+        // Pop one work item or shutdown sentinel.
+        let item_opt: Option<WorkItem> = {
+            let mut guard = queue.lock().unwrap();
+            loop {
+                if let Some(front) = guard.pop_front() {
+                    break front;
+                }
+                guard = cv.wait(guard).unwrap();
+            }
+        };
+
+        let item = match item_opt {
+            Some(it) => it,
+            None => return, // shutdown
+        };
+
+        // Load the batch sequentially. Cross-batch workers already
+        // give us batch-level parallelism, so intra-batch rayon
+        // parallelism is unnecessary here (and counter-productive if
+        // num_workers exceeds physical cores).
+        let mut batch = Vec::with_capacity(item.indices.len());
+        let mut err = None;
+        for idx in item.indices {
+            match dataset.get(idx) {
+                Ok(sample) => batch.push(sample),
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            }
+        }
+
+        let result: FerrotorchResult<Vec<D::Sample>> = match err {
+            Some(e) => Err(e),
+            None => match &transfer_fn {
+                Some(f) => f(batch, pin_memory),
+                None => Ok(batch),
+            },
+        };
+
+        // Send result back. If the receiver dropped, the consumer has
+        // torn down the iterator — exit quietly.
+        if tx
+            .send(WorkResult {
+                seq: item.seq,
+                batch: result,
+            })
+            .is_err()
+        {
+            return;
+        }
+    }
+}
 
 /// Compute the number of batches for a given index count.
 fn compute_batch_count(n_indices: usize, batch_size: usize, drop_last: bool) -> usize {
@@ -1599,5 +2010,158 @@ mod tests {
         let loader = DataLoader::new(make_dataset(0), 4).prefetch_factor(2);
         let it = loader.iter(0);
         drop(it);
+    }
+
+    // ── CL-377: cross-batch multi-worker pipeline ─────────────────
+
+    #[test]
+    fn test_multi_worker_default_is_intra_batch() {
+        let loader = DataLoader::new(make_dataset(10), 2);
+        assert_eq!(loader.current_worker_mode(), WorkerMode::IntraBatch);
+    }
+
+    #[test]
+    fn test_multi_worker_builder_sets_mode() {
+        let loader = DataLoader::new(make_dataset(10), 2)
+            .worker_mode(WorkerMode::CrossBatch);
+        assert_eq!(loader.current_worker_mode(), WorkerMode::CrossBatch);
+    }
+
+    #[test]
+    fn test_multi_worker_preserves_order() {
+        // 4 workers, 20 samples, batch_size 2 → 10 batches. Each
+        // worker runs independently so batches complete out of order
+        // on the wire; the reorder buffer must yield them in order.
+        let loader = DataLoader::new(make_dataset(20), 2)
+            .num_workers(4)
+            .worker_mode(WorkerMode::CrossBatch)
+            .prefetch_factor(8);
+
+        let batches: Vec<Vec<i32>> = loader
+            .iter(0)
+            .map(|b| b.unwrap())
+            .collect();
+        assert_eq!(batches.len(), 10);
+        // Should be exactly [[0,1],[2,3],...[18,19]] in order.
+        for (i, batch) in batches.iter().enumerate() {
+            let base = (i * 2) as i32;
+            assert_eq!(batch, &vec![base, base + 1], "batch {i}");
+        }
+    }
+
+    #[test]
+    fn test_multi_worker_with_drop_last() {
+        let loader = DataLoader::new(make_dataset(7), 2)
+            .num_workers(2)
+            .worker_mode(WorkerMode::CrossBatch)
+            .drop_last(true);
+        let batches: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
+        // 7 samples, batch=2, drop_last → 3 batches: [0,1],[2,3],[4,5]
+        assert_eq!(batches, vec![vec![0, 1], vec![2, 3], vec![4, 5]]);
+    }
+
+    #[test]
+    fn test_multi_worker_with_keep_last() {
+        let loader = DataLoader::new(make_dataset(7), 2)
+            .num_workers(2)
+            .worker_mode(WorkerMode::CrossBatch)
+            .drop_last(false);
+        let batches: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
+        // 7 samples → 4 batches with last being partial [6]
+        assert_eq!(batches, vec![vec![0, 1], vec![2, 3], vec![4, 5], vec![6]]);
+    }
+
+    #[test]
+    fn test_multi_worker_with_shuffle_deterministic() {
+        // Shuffled + multi-worker should still yield all samples
+        // exactly once, and the same seed should produce the same
+        // sequence across runs.
+        let loader1 = DataLoader::new(make_dataset(12), 3)
+            .shuffle(true)
+            .seed(42)
+            .num_workers(3)
+            .worker_mode(WorkerMode::CrossBatch);
+        let loader2 = DataLoader::new(make_dataset(12), 3)
+            .shuffle(true)
+            .seed(42)
+            .num_workers(3)
+            .worker_mode(WorkerMode::CrossBatch);
+
+        let run1: Vec<i32> = loader1
+            .iter(0)
+            .flat_map(|b| b.unwrap())
+            .collect();
+        let run2: Vec<i32> = loader2
+            .iter(0)
+            .flat_map(|b| b.unwrap())
+            .collect();
+
+        assert_eq!(run1, run2);
+        // Every sample present exactly once.
+        let mut sorted = run1.clone();
+        sorted.sort();
+        assert_eq!(sorted, (0..12).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_multi_worker_empty_dataset() {
+        let loader = DataLoader::new(make_dataset(0), 4)
+            .num_workers(2)
+            .worker_mode(WorkerMode::CrossBatch);
+        let batches: Vec<_> = loader.iter(0).collect();
+        assert_eq!(batches.len(), 0);
+    }
+
+    #[test]
+    fn test_multi_worker_drop_mid_iteration_shuts_down_cleanly() {
+        // Spawn many workers on a big dataset, consume one batch,
+        // then drop the iterator. Workers should exit cleanly without
+        // deadlocking the test.
+        let loader = DataLoader::new(make_dataset(1000), 4)
+            .num_workers(4)
+            .worker_mode(WorkerMode::CrossBatch)
+            .prefetch_factor(16);
+        let mut it = loader.iter(0);
+        let _first = it.next().unwrap().unwrap();
+        drop(it);
+        // If workers had hung the test would time out.
+    }
+
+    #[test]
+    fn test_multi_worker_zero_workers_falls_back_to_prefetch() {
+        // CrossBatch with num_workers=0 should fall back to the
+        // existing Prefetch / Sync code paths.
+        let loader = DataLoader::new(make_dataset(6), 2)
+            .num_workers(0)
+            .worker_mode(WorkerMode::CrossBatch)
+            .prefetch_factor(2);
+        let it = loader.iter(0);
+        assert!(matches!(it, BatchIter::Prefetch(_)));
+    }
+
+    #[test]
+    fn test_multi_worker_iter_variant_returned_when_configured() {
+        let loader = DataLoader::new(make_dataset(6), 2)
+            .num_workers(2)
+            .worker_mode(WorkerMode::CrossBatch);
+        let it = loader.iter(0);
+        assert!(matches!(it, BatchIter::MultiWorker(_)));
+    }
+
+    #[test]
+    fn test_multi_worker_size_hint_decreases_monotonically() {
+        let loader = DataLoader::new(make_dataset(8), 2)
+            .num_workers(2)
+            .worker_mode(WorkerMode::CrossBatch);
+        let mut it = loader.iter(0);
+        assert_eq!(it.size_hint(), (4, Some(4)));
+        let _ = it.next().unwrap().unwrap();
+        assert_eq!(it.size_hint(), (3, Some(3)));
+        let _ = it.next().unwrap().unwrap();
+        assert_eq!(it.size_hint(), (2, Some(2)));
+        let _ = it.next().unwrap().unwrap();
+        let _ = it.next().unwrap().unwrap();
+        assert_eq!(it.size_hint(), (0, Some(0)));
+        assert!(it.next().is_none());
     }
 }

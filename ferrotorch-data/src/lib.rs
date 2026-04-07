@@ -5,7 +5,9 @@ pub mod sampler;
 pub mod transforms;
 
 pub use collate::{default_collate, default_collate_pair};
-pub use dataloader::{BatchIter, CollatedIter, DataLoader, PrefetchIter, ToDevice};
+pub use dataloader::{
+    BatchIter, CollatedIter, DataLoader, MultiWorkerIter, PrefetchIter, ToDevice, WorkerMode,
+};
 pub use dataset::{
     ChainDataset, ConcatDataset, Dataset, IterableDataset, MappedDataset, TensorDataset,
     VecDataset, WorkerInfo,

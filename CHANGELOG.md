@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- DataLoader cross-batch worker pipeline: `WorkerMode::CrossBatch` spawns `num_workers` dedicated threads each producing independent batches, with a reorder buffer to preserve sampler order (#377)
 - JIT kernel autotuning: `Autotuner` benchmarks candidate codegen backends/configs and caches the winner keyed by graph fingerprint + input shapes (#369)
 - JIT symbolic shapes with guards: `SymbolicTracedModule`, `ShapeSignature`, and `compile_symbolic` for dynamic batch sizes with runtime validation and reshape patching (#367)
 - FSDP backward prefetch: `prefetch_forward_params()` + async all-gather handles for overlapping collectives with compute (#373)
