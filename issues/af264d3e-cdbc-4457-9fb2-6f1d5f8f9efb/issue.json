@@ -6,8 +6,11 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-04-04T01:37:41.033864887Z",
-  "updated_at": "2026-04-04T01:37:42.485606241Z",
+  "updated_at": "2026-04-07T12:48:40.214023754Z",
   "labels": [
     "gpu"
+  ],
+  "related": [
+    "93f6a56c-2483-48f5-ba29-07f3f17a4fc8"
   ]
 }
