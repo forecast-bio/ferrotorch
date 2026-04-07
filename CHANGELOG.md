@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- Add Claude skill with ferrotorch API usage hints (#192)
 - Distributed collectives: `all_to_all`, `all_to_all_single_uneven`, and `reduce_scatter_tensor` matching PyTorch's dist API (#460)
 - IntermediateFeatures impls for all vision models: VGG, ViT, EfficientNet, ConvNeXt, Swin, U-Net, YOLO, MobileNetV2/V3, DenseNet-121, Inception v3. Trait now returns `Vec<String>` so architectures with variable block counts can expose dynamic per-block node names (#499)
 - ExportedProgram binary save/load roundtrip (`.ftep` format) preserving graph, state_dict, input_shapes, input_specs, and output_shape (#296)
