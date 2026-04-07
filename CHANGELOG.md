@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- JIT kernel autotuning: `Autotuner` benchmarks candidate codegen backends/configs and caches the winner keyed by graph fingerprint + input shapes (#369)
 - JIT symbolic shapes with guards: `SymbolicTracedModule`, `ShapeSignature`, and `compile_symbolic` for dynamic batch sizes with runtime validation and reshape patching (#367)
 - FSDP backward prefetch: `prefetch_forward_params()` + async all-gather handles for overlapping collectives with compute (#373)
 - FSDP SHARD_GRAD_OP (ZeRO-2) and NoShard (ZeRO-0/DDP) sharding strategies, with `broadcast_updated_params` re-sync hook (#372)

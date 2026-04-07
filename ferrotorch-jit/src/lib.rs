@@ -1,4 +1,5 @@
 pub mod aot_autograd;
+pub mod autotune;
 pub mod codegen;
 pub mod codegen_cpu;
 pub mod codegen_gpu;
@@ -18,6 +19,7 @@ pub mod symbolic;
 pub mod trace;
 
 pub use aot_autograd::{AotGraphPair, compile_aot, decompose_forward_backward};
+pub use autotune::{AutotuneCandidate, AutotuneKey, AutotuneResult, Autotuner};
 pub use codegen::{
     Codegen, CompiledGraph, InductorBackend, InductorTarget, InterpreterBackend, NativeBackend,
 };
