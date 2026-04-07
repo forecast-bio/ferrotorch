@@ -917,6 +917,12 @@ pub fn silu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// Compute `softmax(x)` along the last axis, attaching a backward node when
 /// gradients are enabled.
 pub fn softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    crate::profiler_hook::profile_op_scope("softmax", "activation", &[input.shape()], || {
+        softmax_inner(input)
+    })
+}
+
+fn softmax_inner<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape().to_vec();
 
     // GPU fast path: dispatch to native softmax kernel.

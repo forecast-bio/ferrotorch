@@ -233,6 +233,12 @@ pub fn add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
         });
     }
 
+    crate::profiler_hook::profile_op_scope("add", "tensor_op", &[a.shape(), b.shape()], || {
+        add_inner(a, b)
+    })
+}
+
+fn add_inner<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.is_cuda() {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
@@ -337,6 +343,12 @@ pub fn sub<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
         });
     }
 
+    crate::profiler_hook::profile_op_scope("sub", "tensor_op", &[a.shape(), b.shape()], || {
+        sub_inner(a, b)
+    })
+}
+
+fn sub_inner<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.is_cuda() {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
@@ -469,6 +481,12 @@ pub fn mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
         });
     }
 
+    crate::profiler_hook::profile_op_scope("mul", "tensor_op", &[a.shape(), b.shape()], || {
+        mul_inner(a, b)
+    })
+}
+
+fn mul_inner<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.is_cuda() {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;

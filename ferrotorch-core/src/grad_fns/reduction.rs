@@ -58,6 +58,10 @@ impl<T: Float> GradFn<T> for SumBackward<T> {
 /// When gradient tracking is enabled and the input requires grad, the returned
 /// tensor carries a [`SumBackward`] node.
 pub fn sum<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    crate::profiler_hook::profile_op_scope("sum", "reduction", &[input.shape()], || sum_inner(input))
+}
+
+fn sum_inner<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let is_f32 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>();
     let is_f64 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>();
 
