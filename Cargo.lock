@@ -1672,6 +1672,7 @@ dependencies = [
  "cudarc",
  "ferrotorch-core",
  "num-traits",
+ "tempfile",
 ]
 
 [[package]]

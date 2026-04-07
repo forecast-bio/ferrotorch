@@ -621,3 +621,139 @@ fn memory_by_category_empty_when_no_memory_events() {
     });
     assert_eq!(report.memory_by_category().len(), 0);
 }
+
+// ---------------------------------------------------------------------------
+// TensorBoard export. CL-381.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn tensorboard_export_creates_expected_layout() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (_, report) = with_profiler(ProfileConfig::default(), |p| {
+        p.record_with_duration("matmul", "linalg", 500);
+        p.record_with_duration("relu", "activation", 50);
+    });
+    let path = report
+        .save_tensorboard_trace(tmp.path(), Some("run0"), Some("testhost"))
+        .unwrap();
+
+    // Expected path: {logdir}/plugins/profile/run0/testhost.pt.trace.json
+    let expected = tmp
+        .path()
+        .join("plugins")
+        .join("profile")
+        .join("run0")
+        .join("testhost.pt.trace.json");
+    assert_eq!(path, expected);
+    assert!(expected.exists(), "expected trace file to exist at {expected:?}");
+
+    // Contents should be valid Chrome trace JSON (starts with {"traceEvents":[)
+    let contents = std::fs::read_to_string(&expected).unwrap();
+    assert!(
+        contents.contains("traceEvents"),
+        "expected Chrome trace JSON, got: {contents}"
+    );
+    assert!(contents.contains("matmul"));
+    assert!(contents.contains("relu"));
+}
+
+#[test]
+fn tensorboard_export_default_run_id() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (_, report) = with_profiler(ProfileConfig::default(), |p| {
+        p.record_with_duration("add", "tensor_op", 10);
+    });
+    let path = report
+        .save_tensorboard_trace(tmp.path(), None, Some("host"))
+        .unwrap();
+    // None run_id defaults to "run0"
+    let expected = tmp
+        .path()
+        .join("plugins")
+        .join("profile")
+        .join("run0")
+        .join("host.pt.trace.json");
+    assert_eq!(path, expected);
+}
+
+#[test]
+fn tensorboard_export_creates_nested_directories() {
+    // logdir doesn't exist yet; the export should create all three
+    // levels: logdir, logdir/plugins, logdir/plugins/profile/run_id.
+    let tmp = tempfile::tempdir().unwrap();
+    let nonexistent = tmp.path().join("new").join("deeply").join("nested");
+    assert!(!nonexistent.exists());
+
+    let (_, report) = with_profiler(ProfileConfig::default(), |p| {
+        p.record_with_duration("op", "test", 1);
+    });
+    let result = report
+        .save_tensorboard_trace(&nonexistent, Some("myrun"), Some("h1"))
+        .unwrap();
+    assert!(result.exists());
+    assert!(nonexistent.join("plugins").join("profile").join("myrun").exists());
+}
+
+#[test]
+fn tensorboard_export_multiple_runs_do_not_collide() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Export two separate runs with different run_ids.
+    let (_, report1) = with_profiler(ProfileConfig::default(), |p| {
+        p.record_with_duration("forward_pass_1", "training", 100);
+    });
+    let p1 = report1
+        .save_tensorboard_trace(tmp.path(), Some("epoch1"), Some("host"))
+        .unwrap();
+
+    let (_, report2) = with_profiler(ProfileConfig::default(), |p| {
+        p.record_with_duration("forward_pass_2", "training", 200);
+    });
+    let p2 = report2
+        .save_tensorboard_trace(tmp.path(), Some("epoch2"), Some("host"))
+        .unwrap();
+
+    assert_ne!(p1, p2);
+    assert!(p1.exists());
+    assert!(p2.exists());
+
+    // Each file should contain only its own events.
+    let c1 = std::fs::read_to_string(&p1).unwrap();
+    let c2 = std::fs::read_to_string(&p2).unwrap();
+    assert!(c1.contains("forward_pass_1"));
+    assert!(!c1.contains("forward_pass_2"));
+    assert!(c2.contains("forward_pass_2"));
+    assert!(!c2.contains("forward_pass_1"));
+}
+
+#[test]
+fn tensorboard_export_multiple_hosts_same_run() {
+    // Multi-node / multi-GPU runs write one file per host into the
+    // same run directory.
+    let tmp = tempfile::tempdir().unwrap();
+
+    let (_, report_a) = with_profiler(ProfileConfig::default(), |p| {
+        p.record_with_duration("rank0_op", "distributed", 50);
+    });
+    let (_, report_b) = with_profiler(ProfileConfig::default(), |p| {
+        p.record_with_duration("rank1_op", "distributed", 60);
+    });
+
+    let p_a = report_a
+        .save_tensorboard_trace(tmp.path(), Some("ddp_run"), Some("rank0"))
+        .unwrap();
+    let p_b = report_b
+        .save_tensorboard_trace(tmp.path(), Some("ddp_run"), Some("rank1"))
+        .unwrap();
+
+    // Both in the same run directory, different filenames.
+    assert_eq!(p_a.parent(), p_b.parent());
+    assert_eq!(
+        p_a.file_name().unwrap().to_string_lossy(),
+        "rank0.pt.trace.json"
+    );
+    assert_eq!(
+        p_b.file_name().unwrap().to_string_lossy(),
+        "rank1.pt.trace.json"
+    );
+}

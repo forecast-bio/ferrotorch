@@ -436,6 +436,95 @@ impl ProfileReport {
             }
         })
     }
+
+    /// Export this profile report to a TensorBoard-readable directory
+    /// layout under `logdir`. CL-381.
+    ///
+    /// TensorBoard's PyTorch Profiler plugin (available via
+    /// `tensorboard --logdir <path>` with the `torch_tb_profiler`
+    /// package installed) reads Chrome-format trace files from a
+    /// specific directory structure:
+    ///
+    /// ```text
+    /// {logdir}/plugins/profile/{run_id}/{hostname}.pt.trace.json
+    /// ```
+    ///
+    /// This method creates that structure under `logdir` (creating
+    /// intermediate directories as needed) and writes the Chrome trace
+    /// JSON to the expected filename. The `run_id` is typically a
+    /// wall-clock timestamp; it defaults to `"run0"` if not provided,
+    /// giving a stable default. The `hostname` argument is recorded in
+    /// the filename so multi-node runs don't collide; it defaults to
+    /// the system hostname via `gethostname`-equivalent environment
+    /// lookup, falling back to `"localhost"`.
+    ///
+    /// Returns the absolute path of the written trace file.
+    ///
+    /// # Arguments
+    ///
+    /// - `logdir` — TensorBoard log directory root. Must exist or be
+    ///   createable (this method creates it if missing).
+    /// - `run_id` — label for this profiling run, becomes the
+    ///   intermediate directory name under `plugins/profile/`. Pass
+    ///   `None` to use `"run0"`.
+    /// - `hostname` — hostname label baked into the filename. Pass
+    ///   `None` to auto-detect.
+    pub fn save_tensorboard_trace(
+        &self,
+        logdir: impl AsRef<Path>,
+        run_id: Option<&str>,
+        hostname: Option<&str>,
+    ) -> FerrotorchResult<std::path::PathBuf> {
+        use ferrotorch_core::FerrotorchError;
+
+        let logdir = logdir.as_ref();
+        let run_id = run_id.unwrap_or("run0");
+        let default_hostname;
+        let hostname = match hostname {
+            Some(h) => h,
+            None => {
+                default_hostname = detect_hostname();
+                &default_hostname
+            }
+        };
+
+        // Build the target directory: {logdir}/plugins/profile/{run_id}/
+        let target_dir = logdir.join("plugins").join("profile").join(run_id);
+        std::fs::create_dir_all(&target_dir).map_err(|e| {
+            FerrotorchError::InvalidArgument {
+                message: format!(
+                    "save_tensorboard_trace: failed to create {target_dir:?}: {e}"
+                ),
+            }
+        })?;
+
+        let filename = format!("{hostname}.pt.trace.json");
+        let target_file = target_dir.join(filename);
+        let json = self.chrome_trace_json();
+        std::fs::write(&target_file, json).map_err(|e| {
+            FerrotorchError::InvalidArgument {
+                message: format!(
+                    "save_tensorboard_trace: failed to write {target_file:?}: {e}"
+                ),
+            }
+        })?;
+        Ok(target_file)
+    }
+}
+
+/// Best-effort hostname lookup for the TensorBoard trace filename.
+/// Checks common environment variables; falls back to `"localhost"`
+/// when none are set. Avoids the `hostname` crate dependency for a
+/// feature that doesn't need exact hostnames.
+fn detect_hostname() -> String {
+    for var in &["HOSTNAME", "COMPUTERNAME", "HOST"] {
+        if let Ok(h) = std::env::var(var) {
+            if !h.is_empty() {
+                return h;
+            }
+        }
+    }
+    "localhost".to_string()
 }
 
 /// Format shapes like `[[32,784],[784,256]]`.
@@ -507,5 +596,40 @@ mod tests {
         assert_eq!(json_string("a\"b"), "\"a\\\"b\"");
         assert_eq!(json_string("a\\b"), "\"a\\\\b\"");
         assert_eq!(json_string("a\nb"), "\"a\\nb\"");
+    }
+
+    #[test]
+    fn test_detect_hostname_fallback() {
+        // Defensive check: when the common env vars are unset we fall
+        // back to "localhost". Setting them all to empty strings
+        // should also trigger the fallback since we reject empty
+        // values.
+        let original = std::env::var("HOSTNAME").ok();
+        // SAFETY: single-threaded test, no other thread touches the env.
+        unsafe {
+            std::env::remove_var("HOSTNAME");
+            std::env::remove_var("COMPUTERNAME");
+            std::env::remove_var("HOST");
+        }
+        let h = detect_hostname();
+        assert_eq!(h, "localhost");
+        // Restore to avoid affecting other tests.
+        if let Some(v) = original {
+            unsafe { std::env::set_var("HOSTNAME", v) };
+        }
+    }
+
+    #[test]
+    fn test_detect_hostname_uses_env_var() {
+        let original = std::env::var("HOSTNAME").ok();
+        unsafe {
+            std::env::set_var("HOSTNAME", "my-test-host");
+        }
+        assert_eq!(detect_hostname(), "my-test-host");
+        // Restore.
+        match original {
+            Some(v) => unsafe { std::env::set_var("HOSTNAME", v) },
+            None => unsafe { std::env::remove_var("HOSTNAME") },
+        }
     }
 }
