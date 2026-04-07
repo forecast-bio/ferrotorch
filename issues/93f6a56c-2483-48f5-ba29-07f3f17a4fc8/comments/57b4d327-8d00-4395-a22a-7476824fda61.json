@@ -1,0 +1,10 @@
+{
+  "uuid": "57b4d327-8d00-4395-a22a-7476824fda61",
+  "issue_uuid": "93f6a56c-2483-48f5-ba29-07f3f17a4fc8",
+  "author": "y4rr",
+  "content": "Context: filed while closing #484. The einops rearrange/repeat/reduce refactor in ferrotorch-core/src/einops.rs added GPU-aware fast paths for the common cases (identity-permutation rearrange via view_reshape; axis-aligned reduce via sum_dim/cummax/cummin), but the general case still falls back to a CPU round-trip because Tensor::contiguous() materializes non-contiguous CUDA tensors via data_vec(). The missing primitive is a GPU strided→contiguous gather kernel that takes (input_buf, src_strides, src_offset, output_shape) and writes a contiguous output buffer entirely on-device. Once this exists: (1) wire it into methods::contiguous_t for the CUDA path, (2) the einops fallback in rearrange_with and the legacy reduce loop will both become GPU-native automatically, (3) repeat() can use unsqueeze+expand+contiguous instead of its current CPU index-walk. PTX kernel sketch: each thread handles one output element, decomposes the flat output index into per-axis coordinates via the contiguous output strides, then computes src_offset = sum_d coords[d] * src_strides[d]. Pass shape and strides as small device buffers, support up to 8 dims to keep the kernel general.",
+  "created_at": "2026-04-07T12:48:36.091113522Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAXupNXkCjypuA+LNTnurc0Q5hFhyn6Z2+jVUT+PGlXh5vJTvrD72kr0FzwlYNnwSTG1an4iOe9mXt008CK0OtDw=="
+}
