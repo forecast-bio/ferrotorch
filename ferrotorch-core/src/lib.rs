@@ -17,6 +17,7 @@ mod methods;
 pub mod nested;
 pub mod ops;
 mod ops_trait;
+pub mod profiler_hook;
 pub mod pruning;
 pub mod quantize;
 pub mod shape;

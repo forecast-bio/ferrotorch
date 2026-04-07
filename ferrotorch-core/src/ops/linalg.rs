@@ -20,20 +20,22 @@ use crate::tensor::Tensor;
 ///   If one input is 1D, it is promoted (prepend dim for LHS, append dim for RHS)
 ///   and the added dimension is squeezed from the output.
 pub fn matmul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    match (a.ndim(), b.ndim()) {
-        (0, _) | (_, 0) => Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "matmul: scalar operands not supported, got shapes {:?} and {:?}",
-                a.shape(),
-                b.shape()
-            ),
-        }),
-        (1, 1) => dot(a, b),
-        (2, 1) => mv(a, b),
-        (1, 2) => vm(a, b),
-        (2, 2) => mm(a, b),
-        _ => broadcast_matmul(a, b),
-    }
+    crate::profiler_hook::profile_op_scope("matmul", "linalg", &[a.shape(), b.shape()], || {
+        match (a.ndim(), b.ndim()) {
+            (0, _) | (_, 0) => Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "matmul: scalar operands not supported, got shapes {:?} and {:?}",
+                    a.shape(),
+                    b.shape()
+                ),
+            }),
+            (1, 1) => dot(a, b),
+            (2, 1) => mv(a, b),
+            (1, 2) => vm(a, b),
+            (2, 2) => mm(a, b),
+            _ => broadcast_matmul(a, b),
+        }
+    })
 }
 
 /// Broadcast leading dimensions of two shapes according to NumPy rules.

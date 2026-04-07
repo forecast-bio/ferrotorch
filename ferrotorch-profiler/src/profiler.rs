@@ -1,9 +1,10 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use crate::event::{DeviceType, GpuTimingPair, ProfileEvent};
 use crate::report::ProfileReport;
+use ferrotorch_core::profiler_hook;
 
 /// Controls what the profiler records.
 #[derive(Debug, Clone)]
@@ -226,17 +227,79 @@ impl Profiler {
     }
 }
 
+// ---------------------------------------------------------------------------
+// OpProfiler impl: lets ferrotorch-core's tensor ops auto-record themselves
+// when this profiler is the active one for the thread. CL-379.
+// ---------------------------------------------------------------------------
+
+impl profiler_hook::OpProfiler for Profiler {
+    fn record_op(&self, name: &str, category: &str, shapes: &[&[usize]], duration_us: u64) {
+        if !self.active.load(Ordering::Relaxed) {
+            return;
+        }
+        let start_us = self.elapsed_us().saturating_sub(duration_us);
+        let input_shapes = if self.config.record_shapes {
+            shapes.iter().map(|s| s.to_vec()).collect()
+        } else {
+            Vec::new()
+        };
+        let event = ProfileEvent {
+            name: name.to_owned(),
+            category: category.to_owned(),
+            start_us,
+            duration_us,
+            input_shapes,
+            memory_bytes: None,
+            thread_id: current_thread_id(),
+            device_type: DeviceType::Cpu,
+        };
+        self.push_event(event);
+    }
+}
+
+/// RAII guard that clears the thread-local profiler hook on drop.
+/// Used by `with_profiler` so even on panic the hook is cleared and
+/// subsequent code in the same thread doesn't see a stale profiler.
+struct ProfilerHookGuard;
+
+impl Drop for ProfilerHookGuard {
+    fn drop(&mut self) {
+        profiler_hook::set_current(None);
+    }
+}
+
 /// Profile a closure.
 ///
 /// Returns the closure's return value together with a [`ProfileReport`]
 /// containing every event recorded during execution.
+///
+/// While the closure runs, this profiler is also installed as the
+/// thread-local hook in `ferrotorch_core::profiler_hook`, so any tensor
+/// op invoked from inside the closure that uses
+/// `profile_op_scope` will automatically record itself here. The hook
+/// is cleared on closure exit (including panic unwind) via an RAII
+/// guard. CL-379.
 pub fn with_profiler<F, R>(config: ProfileConfig, f: F) -> (R, ProfileReport)
 where
     F: FnOnce(&Profiler) -> R,
 {
-    let profiler = Profiler::new(config);
+    let profiler = Arc::new(Profiler::new(config));
+    // Install the hook for the duration of f().
+    let hook: Arc<dyn profiler_hook::OpProfiler> = profiler.clone();
+    profiler_hook::set_current(Some(hook));
+    let _guard = ProfilerHookGuard;
     let result = f(&profiler);
     profiler.stop();
+    // Take the profiler back out of the Arc. There may be a lingering
+    // reference inside the thread-local at this point, but it'll be
+    // cleared by the guard's Drop after we move into_report. We need
+    // to drop the local hook BEFORE into_report so the Arc count goes
+    // back to 1 and try_unwrap succeeds.
+    drop(_guard);
+    // Now Arc count is back to 1 (only `profiler` holds it), so we
+    // can extract the inner Profiler.
+    let profiler = Arc::try_unwrap(profiler)
+        .unwrap_or_else(|_| panic!("profiler still has dangling references after closure exit"));
     let report = profiler.into_report();
     (result, report)
 }
