@@ -1,0 +1,10 @@
+{
+  "uuid": "18d03145-87df-4cbf-848a-319ee2b791f2",
+  "issue_uuid": "93f6a56c-2483-48f5-ba29-07f3f17a4fc8",
+  "author": "y4rr",
+  "content": "Implemented via commit 60dffb06. Added STRIDED_COPY_PTX kernel unrolled for up to 8 dims, gpu_strided_copy / gpu_strided_copy_f64 public API with validation helper, backend trait method strided_copy_{f32,f64}, and contiguous_t GPU fast path that dispatches non-contiguous CUDA tensors to the kernel (falls back to CPU for rank > 8 or missing backend). 10 kernel unit tests + 5 end-to-end integration tests verified on RTX 3090 — transpose, 3D/4D permute, column slice, f64, autograd preservation all byte-identical to CPU reference.",
+  "created_at": "2026-04-07T23:10:01.158019558Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABASQiit/ej+LYZgcWucrdF5V6KB17kJRpxQXxXiYOLMezGrQZpEq/N30X+1Xzaxi860Ch3p+JPYve6RLHlnaKaBw=="
+}
