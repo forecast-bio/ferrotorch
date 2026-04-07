@@ -345,13 +345,28 @@ mod tests {
 
     #[test]
     fn test_pretrained_lookup_known_model_in_hub() {
-        // Every architecture in the vision registry should also have an
-        // entry in the hub registry, so requesting pretrained=true at
-        // least gets past the get_model_info check. (We can't actually
-        // verify the download here without network access.)
-        let vision_names = list_models();
-        for name in vision_names {
-            let info = ferrotorch_hub::registry::get_model_info(&name);
+        // Every canonical vision architecture must have a matching entry
+        // in the hub registry, so requesting pretrained=true at least
+        // gets past the get_model_info check. We hard-code the expected
+        // architecture names here instead of iterating list_models()
+        // because other tests register dummy models into the global
+        // REGISTRY (it's a process-wide LazyLock<RwLock>) and we don't
+        // want test ordering to affect this assertion.
+        let canonical = [
+            "resnet18",
+            "resnet34",
+            "resnet50",
+            "vgg11",
+            "vgg16",
+            "vit_b_16",
+            "efficientnet_b0",
+            "swin_tiny",
+            "convnext_tiny",
+            "unet",
+            "yolo",
+        ];
+        for name in canonical {
+            let info = ferrotorch_hub::registry::get_model_info(name);
             assert!(
                 info.is_some(),
                 "vision model '{name}' has no entry in ferrotorch_hub::registry; \

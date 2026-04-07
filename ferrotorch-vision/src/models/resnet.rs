@@ -588,6 +588,53 @@ fn named_layer_params<'a, T: Float>(
 }
 
 // ===========================================================================
+// IntermediateFeatures impl — exposes per-stage activations for feature
+// extraction (e.g. as backbones for FPN, U-Net, etc.). CL-384.
+// ===========================================================================
+
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for ResNet<T> {
+    fn forward_features(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
+        let mut out = std::collections::HashMap::new();
+
+        // Stem.
+        let x = self.conv1.forward(input)?;
+        let x = relu(&x)?;
+        let x = Module::<T>::forward(&self.maxpool, &x)?;
+        out.insert("stem".to_string(), x.clone());
+
+        // Residual stages — record after each.
+        let x = forward_layer(&self.layer1, &x)?;
+        out.insert("layer1".to_string(), x.clone());
+        let x = forward_layer(&self.layer2, &x)?;
+        out.insert("layer2".to_string(), x.clone());
+        let x = forward_layer(&self.layer3, &x)?;
+        out.insert("layer3".to_string(), x.clone());
+        let x = forward_layer(&self.layer4, &x)?;
+        out.insert("layer4".to_string(), x.clone());
+
+        // Global average pool.
+        let x = Module::<T>::forward(&self.avgpool, &x)?;
+        out.insert("avgpool".to_string(), x.clone());
+
+        // Classifier.
+        let batch = x.shape()[0];
+        let features = x.numel() / batch;
+        let x = reshape(&x, &[batch as isize, features as isize])?;
+        let logits = self.fc.forward(&x)?;
+        out.insert("fc".to_string(), logits);
+
+        Ok(out)
+    }
+
+    fn feature_node_names(&self) -> Vec<&'static str> {
+        vec!["stem", "layer1", "layer2", "layer3", "layer4", "avgpool", "fc"]
+    }
+}
+
+// ===========================================================================
 // Convenience constructors
 // ===========================================================================
 

@@ -11,7 +11,7 @@ pub mod yolo;
 
 pub use convnext::{ConvNeXt, ConvNeXtBlock, convnext_tiny};
 pub use efficientnet::{ConvBlock, EfficientNet, efficientnet_b0};
-pub use feature_extractor::{FeatureExtractor, create_feature_extractor};
+pub use feature_extractor::{FeatureExtractor, IntermediateFeatures, create_feature_extractor};
 pub use registry::{
     ModelConstructor, ModelRegistry, REGISTRY, get_model, list_models, register_model,
 };
