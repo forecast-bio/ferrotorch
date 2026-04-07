@@ -1,0 +1,10 @@
+{
+  "uuid": "6425cb42-3e2f-4df8-b4d6-c9ee7a287c86",
+  "issue_uuid": "2e5262a4-fc24-4ba4-97eb-6f166ef41e0b",
+  "author": "y4rr",
+  "content": "Implemented via commit 600734e3. Added ShardingStrategy enum (FullShard/ShardGradOp/NoShard), new_with_strategy constructor, dispatch in forward/sync_gradients, and broadcast_updated_params re-sync hook for ZeRO-2. 5 new tests covering ShardGradOp and NoShard paths; all 13 fsdp tests + 81 distributed crate tests pass.",
+  "created_at": "2026-04-07T20:23:54.731600544Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAACZlDKXDl2Bczd9ObyEZqw0w6faeEFwWO5+O1oJkprFpHoCHI9rJqnEhRPxLEan63i0ahCBsngQXEEyU4pqcAg=="
+}
