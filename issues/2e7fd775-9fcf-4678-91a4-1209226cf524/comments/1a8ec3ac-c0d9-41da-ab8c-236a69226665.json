@@ -1,0 +1,10 @@
+{
+  "uuid": "1a8ec3ac-c0d9-41da-ab8c-236a69226665",
+  "issue_uuid": "2e7fd775-9fcf-4678-91a4-1209226cf524",
+  "author": "y4rr",
+  "content": "Implemented via commit 8602ea91. Added StreamPriority enum (High/Normal/Low), get_stream_priority_range, new_stream_with_priority, and StreamPool::get_priority_stream backed by cuStreamCreateWithPriority + cuCtxGetStreamPriorityRange. The cudarc 0.19 safe API doesn't expose priority creation, so we use a layout-mirror + mem::transmute bounded by a const_eval size/align assertion against pinned cudarc 0.19 — any future cudarc layout change fails to build rather than producing UB. 7 unit tests + 4 integration tests on real RTX 3090, including a CPU→GPU→CPU round trip on a high-priority stream that proves the transmute is end-to-end sound. CUDA graph memory isolation is a separate concern tracked in #278.",
+  "created_at": "2026-04-07T23:21:11.976449975Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAx2PuoPWMFouYLBNjgwQ7GcL9wtUn2aq3Ic9D7AUYxQyP6TyltyBV1GMsK0W+VLx3o31SG7Wv70jXKmCh/soiAA=="
+}
