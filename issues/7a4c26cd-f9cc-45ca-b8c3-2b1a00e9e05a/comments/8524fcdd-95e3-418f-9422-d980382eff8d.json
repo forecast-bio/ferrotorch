@@ -1,0 +1,10 @@
+{
+  "uuid": "8524fcdd-95e3-418f-9422-d980382eff8d",
+  "issue_uuid": "7a4c26cd-f9cc-45ca-b8c3-2b1a00e9e05a",
+  "author": "y4rr",
+  "content": "Implemented via commit 88912ef8. Added async_collective module with async_all_gather/async_reduce_scatter returning PendingCollective<T> handles. Wired into FSDP as prefetch_forward_params() which kicks off async all_gathers and stashes handles; forward() consumes them in place of sync all_gather, hiding collective latency behind caller-inserted local compute. Guards: only valid for FullShard; rejects double-prefetch. 7 new tests (3 async_collective + 4 FSDP prefetch); 88 distributed tests pass.",
+  "created_at": "2026-04-07T20:31:18.592754442Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAAQAwDusH2sYR3yQNx3SgbS/MiN5BK6zK9Q/t91YI6/C3P5DpUH12nuoNQWRk7Zh8AAm+pmqQHXvDLvFNZiAqAA=="
+}
