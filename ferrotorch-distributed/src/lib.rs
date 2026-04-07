@@ -85,8 +85,9 @@ pub use checkpoint::{
     TensorShardSpec, flat_shard_metadata, load_distributed, reshard, save_distributed,
 };
 pub use collective::{
-    DEFAULT_COLLECTIVE_TIMEOUT, ReduceOp, all_gather, all_gather_with_timeout, allreduce,
-    allreduce_with_timeout, barrier, broadcast, reduce_scatter, reduce_scatter_with_timeout,
+    DEFAULT_COLLECTIVE_TIMEOUT, ReduceOp, all_gather, all_gather_with_timeout, all_to_all,
+    all_to_all_single_uneven, all_to_all_with_timeout, allreduce, allreduce_with_timeout,
+    barrier, broadcast, reduce_scatter, reduce_scatter_tensor, reduce_scatter_with_timeout,
 };
 pub use ddp::DDP;
 pub use error::DistributedError;

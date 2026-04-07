@@ -409,6 +409,271 @@ pub fn reduce_scatter_with_timeout<T: Float>(
 }
 
 // ---------------------------------------------------------------------------
+// all_to_all — send a different chunk of our tensor to each peer and
+// receive a chunk from each peer in the same call. Mirrors PyTorch's
+// `torch.distributed.all_to_all_single`.
+// ---------------------------------------------------------------------------
+
+/// All-to-all single-tensor exchange.
+///
+/// Every rank splits its input into `world_size` equal chunks and
+/// sends chunk `dst` to rank `dst`. In the same operation, each rank
+/// receives `world_size` chunks (one from each peer) and concatenates
+/// them in rank order to form its output.
+///
+/// This is the single-tensor variant (PyTorch's
+/// `all_to_all_single`). For an unequal-split form where each rank
+/// can send different sizes to different peers, see
+/// [`all_to_all_single_uneven`].
+///
+/// # Arguments
+///
+/// * `tensor` — local input. Must have `numel() % world_size == 0`.
+///   Conceptually `tensor` is viewed as `world_size` contiguous
+///   chunks of `numel() / world_size` elements each.
+/// * `backend` — process group.
+///
+/// # Returns
+///
+/// A tensor with the same shape as the input, whose chunks are the
+/// gathered per-peer contributions.
+///
+/// # Errors
+///
+/// - `numel() % world_size != 0`.
+/// - Backend communication fails.
+///
+/// CL-460.
+pub fn all_to_all<T: Float>(
+    tensor: &Tensor<T>,
+    backend: &dyn Backend,
+) -> FerrotorchResult<Tensor<T>> {
+    all_to_all_with_timeout(tensor, backend, DEFAULT_COLLECTIVE_TIMEOUT)
+}
+
+/// Like [`all_to_all`] but with a configurable recv timeout.
+pub fn all_to_all_with_timeout<T: Float>(
+    tensor: &Tensor<T>,
+    backend: &dyn Backend,
+    timeout: Duration,
+) -> FerrotorchResult<Tensor<T>> {
+    let rank = backend.rank();
+    let world_size = backend.world_size();
+    let shape = tensor.shape().to_vec();
+    let numel = tensor.numel();
+
+    if world_size == 1 {
+        return Ok(tensor.clone());
+    }
+
+    if numel % world_size != 0 {
+        return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+            message: format!(
+                "all_to_all: tensor numel {numel} is not evenly divisible by world_size {world_size}"
+            ),
+        });
+    }
+
+    let chunk_numel = numel / world_size;
+    let chunk_byte_len = chunk_numel * std::mem::size_of::<T>();
+    let data = tensor.data_vec()?;
+
+    // Pre-split our input into world_size chunks; chunk[i] is what
+    // we send to rank i (chunk[self] stays local).
+    let mut send_chunks: Vec<Vec<T>> = (0..world_size)
+        .map(|i| {
+            let start = i * chunk_numel;
+            let end = start + chunk_numel;
+            data[start..end].to_vec()
+        })
+        .collect();
+
+    // Assemble the output. Slot `i` will hold data received from rank
+    // `i`; our own slot comes from send_chunks[rank] directly.
+    let mut output: Vec<T> = Vec::with_capacity(numel);
+    // Zero-initialize so we can fill slots in arbitrary order.
+    output.resize(numel, <T as num_traits::Zero>::zero());
+    // Copy our self-slot (no network exchange for rank == self).
+    let self_start = rank * chunk_numel;
+    let self_end = self_start + chunk_numel;
+    output[self_start..self_end].copy_from_slice(&send_chunks[rank]);
+
+    // For each peer: send them their chunk, receive ours from them.
+    // Pair ordering avoids deadlock: lower rank sends first, then
+    // receives; higher rank receives first, then sends.
+    for peer in 0..world_size {
+        if peer == rank {
+            continue;
+        }
+        if rank < peer {
+            let bytes = floats_to_bytes(&send_chunks[peer]);
+            backend.send(&bytes, peer)?;
+            let mut buf = vec![0u8; chunk_byte_len];
+            backend.recv_timeout(&mut buf, peer, timeout)?;
+            let recvd = bytes_to_floats::<T>(&buf);
+            let dst_start = peer * chunk_numel;
+            let dst_end = dst_start + chunk_numel;
+            output[dst_start..dst_end].copy_from_slice(&recvd);
+        } else {
+            let mut buf = vec![0u8; chunk_byte_len];
+            backend.recv_timeout(&mut buf, peer, timeout)?;
+            let recvd = bytes_to_floats::<T>(&buf);
+            let dst_start = peer * chunk_numel;
+            let dst_end = dst_start + chunk_numel;
+            output[dst_start..dst_end].copy_from_slice(&recvd);
+            let bytes = floats_to_bytes(&send_chunks[peer]);
+            backend.send(&bytes, peer)?;
+        }
+        // Clear the sent chunk's backing buffer early to free memory.
+        send_chunks[peer].clear();
+    }
+
+    Tensor::from_storage(TensorStorage::cpu(output), shape, false)
+}
+
+/// Uneven-split all-to-all: each rank sends `send_sizes[i]` elements
+/// to rank `i` and declares how many elements `recv_sizes[i]` it
+/// expects to receive from rank `i`. Mirrors PyTorch's
+/// `all_to_all_single` when output_split_sizes / input_split_sizes
+/// are specified.
+///
+/// Unlike the equal-split [`all_to_all`], the per-peer chunk sizes do
+/// not have to match across ranks — only the totals have to be
+/// consistent: `send_sizes[i]` on rank `self` must equal
+/// `recv_sizes[self]` on rank `i`. This is not cross-checked at
+/// runtime; mismatched sizes produce opaque length errors.
+///
+/// # Arguments
+///
+/// * `tensor` — flat send buffer, laid out as concatenated
+///   per-destination chunks: `tensor[sum(send_sizes[..i])..sum(send_sizes[..i+1])]`
+///   goes to rank `i`.
+/// * `send_sizes` — one entry per peer rank (length `world_size`).
+/// * `recv_sizes` — one entry per peer rank (length `world_size`).
+/// * `backend` — process group.
+///
+/// # Returns
+///
+/// A 1-D tensor of length `sum(recv_sizes)` where slot `i` holds the
+/// `recv_sizes[i]` elements received from rank `i`.
+///
+/// CL-460.
+pub fn all_to_all_single_uneven<T: Float>(
+    tensor: &Tensor<T>,
+    send_sizes: &[usize],
+    recv_sizes: &[usize],
+    backend: &dyn Backend,
+) -> FerrotorchResult<Tensor<T>> {
+    let rank = backend.rank();
+    let world_size = backend.world_size();
+    if send_sizes.len() != world_size || recv_sizes.len() != world_size {
+        return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+            message: format!(
+                "all_to_all_single_uneven: send/recv sizes must have length {world_size}, got send={}, recv={}",
+                send_sizes.len(),
+                recv_sizes.len(),
+            ),
+        });
+    }
+    let expected_send: usize = send_sizes.iter().sum();
+    if tensor.numel() != expected_send {
+        return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+            message: format!(
+                "all_to_all_single_uneven: input numel {} does not match sum(send_sizes) = {expected_send}",
+                tensor.numel()
+            ),
+        });
+    }
+
+    let data = tensor.data_vec()?;
+
+    // Compute send offsets into the flat input.
+    let mut send_offsets = vec![0usize; world_size + 1];
+    for i in 0..world_size {
+        send_offsets[i + 1] = send_offsets[i] + send_sizes[i];
+    }
+    // Compute recv offsets into the flat output.
+    let total_recv: usize = recv_sizes.iter().sum();
+    let mut recv_offsets = vec![0usize; world_size + 1];
+    for i in 0..world_size {
+        recv_offsets[i + 1] = recv_offsets[i] + recv_sizes[i];
+    }
+    let mut output: Vec<T> = vec![<T as num_traits::Zero>::zero(); total_recv];
+
+    // Self-slot.
+    let self_send_start = send_offsets[rank];
+    let self_send_end = send_offsets[rank + 1];
+    let self_recv_start = recv_offsets[rank];
+    let self_recv_end = recv_offsets[rank + 1];
+    if self_send_end - self_send_start != self_recv_end - self_recv_start {
+        return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+            message: format!(
+                "all_to_all_single_uneven: rank {rank} self-slot size mismatch: send {} != recv {}",
+                self_send_end - self_send_start,
+                self_recv_end - self_recv_start,
+            ),
+        });
+    }
+    output[self_recv_start..self_recv_end]
+        .copy_from_slice(&data[self_send_start..self_send_end]);
+
+    // Exchange with every peer. Same lower-rank-first ordering as the
+    // equal-split variant to avoid deadlock.
+    for peer in 0..world_size {
+        if peer == rank {
+            continue;
+        }
+        let send_start = send_offsets[peer];
+        let send_end = send_offsets[peer + 1];
+        let recv_start = recv_offsets[peer];
+        let recv_end = recv_offsets[peer + 1];
+        let recv_bytes = (recv_end - recv_start) * std::mem::size_of::<T>();
+
+        if rank < peer {
+            let bytes = floats_to_bytes(&data[send_start..send_end]);
+            backend.send(&bytes, peer)?;
+            let mut buf = vec![0u8; recv_bytes];
+            backend.recv_timeout(&mut buf, peer, DEFAULT_COLLECTIVE_TIMEOUT)?;
+            let recvd = bytes_to_floats::<T>(&buf);
+            output[recv_start..recv_end].copy_from_slice(&recvd);
+        } else {
+            let mut buf = vec![0u8; recv_bytes];
+            backend.recv_timeout(&mut buf, peer, DEFAULT_COLLECTIVE_TIMEOUT)?;
+            let recvd = bytes_to_floats::<T>(&buf);
+            output[recv_start..recv_end].copy_from_slice(&recvd);
+            let bytes = floats_to_bytes(&data[send_start..send_end]);
+            backend.send(&bytes, peer)?;
+        }
+    }
+
+    Tensor::from_storage(TensorStorage::cpu(output), vec![total_recv], false)
+}
+
+// ---------------------------------------------------------------------------
+// reduce_scatter_tensor — alias of reduce_scatter that emphasizes the
+// single-flat-tensor semantics, matching PyTorch's
+// `torch.distributed.reduce_scatter_tensor`. Keeps the input shape's
+// dim-0-divisibility property but exposes an API callers can target
+// when porting code that uses the newer PyTorch name. CL-460.
+// ---------------------------------------------------------------------------
+
+/// Single-tensor reduce-scatter — identical behavior to
+/// [`reduce_scatter`] but named to match PyTorch's
+/// `torch.distributed.reduce_scatter_tensor` (which the framework
+/// deprecates the multi-tensor form in favor of).
+///
+/// The input must have its leading dimension evenly divisible by
+/// `world_size`. The output is the slice `input[rank * chunk..(rank +
+/// 1) * chunk]` along dim 0 after cross-rank reduction.
+pub fn reduce_scatter_tensor<T: Float>(
+    tensor: &Tensor<T>,
+    backend: &dyn Backend,
+    op: ReduceOp,
+) -> FerrotorchResult<Tensor<T>> {
+    reduce_scatter(tensor, backend, op)
+}
+
+// ---------------------------------------------------------------------------
 // Barrier
 // ---------------------------------------------------------------------------
 
@@ -809,5 +1074,187 @@ mod tests {
             let result = h.join().unwrap();
             assert_eq!(result.shape(), &[2, 3]);
         }
+    }
+
+    // ── CL-460: all_to_all / reduce_scatter_tensor ────────────────────
+
+    #[test]
+    fn test_all_to_all_2_ranks() {
+        // Rank 0 sends [10, 20, 30, 40] — splits into [10,20] (for self)
+        // and [30,40] (for rank 1).
+        // Rank 1 sends [50, 60, 70, 80] — splits into [50,60] (for rank 0)
+        // and [70,80] (for self).
+        // After all_to_all:
+        //   Rank 0 output: [10, 20, 50, 60]  (self chunk + from rank 1)
+        //   Rank 1 output: [30, 40, 70, 80]  (from rank 0 + self chunk)
+        let group = SimulatedBackend::create_group(2).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let rank = b.rank();
+                    let t = if rank == 0 {
+                        ferrotorch_core::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4]).unwrap()
+                    } else {
+                        ferrotorch_core::from_slice(&[50.0f32, 60.0, 70.0, 80.0], &[4]).unwrap()
+                    };
+                    all_to_all(&t, b.as_ref()).unwrap()
+                })
+            })
+            .collect();
+
+        let mut results: Vec<Vec<f32>> = vec![vec![]; 2];
+        for (i, h) in handles.into_iter().enumerate() {
+            results[i] = h.join().unwrap().data_vec().unwrap();
+        }
+        assert_eq!(results[0], vec![10.0, 20.0, 50.0, 60.0]);
+        assert_eq!(results[1], vec![30.0, 40.0, 70.0, 80.0]);
+    }
+
+    #[test]
+    fn test_all_to_all_4_ranks() {
+        // Each rank sends [rank*10 + peer*1] to peer — simple pattern
+        // that lets us verify every pair.
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let rank = b.rank();
+                    // Send to peer i the value 100*rank + i.
+                    let data: Vec<f32> =
+                        (0..4).map(|i| (100 * rank + i) as f32).collect();
+                    let t = ferrotorch_core::from_slice(&data, &[4]).unwrap();
+                    let out = all_to_all(&t, b.as_ref()).unwrap();
+                    (rank, out.data_vec().unwrap())
+                })
+            })
+            .collect();
+
+        for h in handles {
+            let (rank, data) = h.join().unwrap();
+            // Slot i of rank's output contains (100*i + rank), i.e.
+            // the message peer i sent to this rank.
+            for (i, v) in data.iter().enumerate() {
+                let expected = (100 * i + rank) as f32;
+                assert_eq!(*v, expected, "rank {rank} slot {i}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_all_to_all_world_size_1_is_identity() {
+        let group = SimulatedBackend::create_group(1).unwrap();
+        let b = &group[0];
+        let t = ferrotorch_core::from_slice(&[1.0f32, 2.0, 3.0], &[3]).unwrap();
+        let out = all_to_all(&t, b).unwrap();
+        assert_eq!(out.data_vec().unwrap(), vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_all_to_all_rejects_uneven_numel() {
+        let group = SimulatedBackend::create_group(2).unwrap();
+        let t = ferrotorch_core::from_slice(&[1.0f32, 2.0, 3.0], &[3]).unwrap();
+        let result = all_to_all(&t, &group[0]);
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("not evenly divisible"));
+    }
+
+    #[test]
+    fn test_all_to_all_single_uneven_2_ranks() {
+        // Rank 0 send: 1 element to self, 3 elements to rank 1 → total 4
+        // Rank 1 send: 2 elements to rank 0, 2 elements to self → total 4
+        //
+        // Therefore:
+        //   Rank 0 recv_sizes = [1, 2]  → total 3
+        //   Rank 1 recv_sizes = [3, 2]  → total 5
+        //
+        // Rank 0 output layout: [rank0-self (1 el), from rank1 (2 el)]
+        // Rank 1 output layout: [from rank0 (3 el), rank1-self (2 el)]
+        let group = SimulatedBackend::create_group(2).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let rank = b.rank();
+                    let (t, send, recv) = if rank == 0 {
+                        let data = vec![10.0f32, 20.0, 21.0, 22.0]; // 1+3
+                        let t = ferrotorch_core::from_slice(&data, &[4]).unwrap();
+                        (t, vec![1, 3], vec![1, 2])
+                    } else {
+                        let data = vec![30.0f32, 31.0, 40.0, 41.0]; // 2+2
+                        let t = ferrotorch_core::from_slice(&data, &[4]).unwrap();
+                        (t, vec![2, 2], vec![3, 2])
+                    };
+                    let out = all_to_all_single_uneven(&t, &send, &recv, b.as_ref()).unwrap();
+                    (rank, out.data_vec().unwrap())
+                })
+            })
+            .collect();
+
+        let mut r0 = None;
+        let mut r1 = None;
+        for h in handles {
+            let (rank, data) = h.join().unwrap();
+            if rank == 0 {
+                r0 = Some(data);
+            } else {
+                r1 = Some(data);
+            }
+        }
+        // Rank 0: self-chunk = [10.0], received-from-rank1 = [30.0, 31.0]
+        assert_eq!(r0.unwrap(), vec![10.0, 30.0, 31.0]);
+        // Rank 1: received-from-rank0 = [20.0, 21.0, 22.0], self-chunk = [40.0, 41.0]
+        assert_eq!(r1.unwrap(), vec![20.0, 21.0, 22.0, 40.0, 41.0]);
+    }
+
+    #[test]
+    fn test_all_to_all_single_uneven_wrong_slice_lengths_error() {
+        let group = SimulatedBackend::create_group(2).unwrap();
+        let t = ferrotorch_core::from_slice(&[1.0f32, 2.0], &[2]).unwrap();
+        let result =
+            all_to_all_single_uneven(&t, &[1, 1, 1], &[1, 1], &group[0]);
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("send/recv sizes must have length 2"));
+    }
+
+    #[test]
+    fn test_reduce_scatter_tensor_matches_reduce_scatter() {
+        // The new alias should behave identically to reduce_scatter.
+        let group = SimulatedBackend::create_group(2).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let t = ferrotorch_core::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4]).unwrap();
+                    reduce_scatter_tensor(&t, b.as_ref(), ReduceOp::Sum)
+                        .unwrap()
+                        .data_vec()
+                        .unwrap()
+                })
+            })
+            .collect();
+
+        let mut results: Vec<Vec<f32>> = Vec::new();
+        for h in handles {
+            results.push(h.join().unwrap());
+        }
+        // Sum of two [1,2,3,4] is [2,4,6,8]. Scattered: rank 0 -> [2,4], rank 1 -> [6,8].
+        assert_eq!(results[0], vec![2.0, 4.0]);
+        assert_eq!(results[1], vec![6.0, 8.0]);
     }
 }
