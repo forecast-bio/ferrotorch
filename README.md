@@ -5,7 +5,7 @@
 [![crates.io](https://img.shields.io/crates/v/ferrotorch.svg)](https://crates.io/crates/ferrotorch)
 [![docs.rs](https://docs.rs/ferrotorch/badge.svg)](https://docs.rs/ferrotorch)
 [![license](https://img.shields.io/crates/l/ferrotorch.svg)](https://github.com/dollspace-gay/ferrotorch#license)
-[![tests](https://img.shields.io/badge/tests-2%2C000%2B_passing-brightgreen.svg)](#)
+[![tests](https://img.shields.io/badge/tests-3%2C600%2B_passing-brightgreen.svg)](#)
 
 ---
 
@@ -19,7 +19,7 @@ If you have ever wanted to train a ResNet or a transformer in Rust without pulli
 - **Reverse-mode autograd** with 40+ differentiable operations (including exp, log, sin, cos, clamp), topological-sort backward pass, gradient accumulation, broadcast gradient reduction, checkpointing, and `backward_with_gradient()` for non-scalar tensors.
 - **Operator overloading** --- write `&a + &b`, `&x * &y`, `-z` with natural Rust syntax. All ownership combinations supported.
 - **26+ neural network layers** including Linear, Conv1d/2d, LSTM, GRU, MultiheadAttention, BatchNorm, LayerNorm, RMSNorm, Flatten, Identity, and LLM modules (RoPE, SwiGLU, KV cache, TransformerEncoder/DecoderLayer).
-- **8 optimizers** --- SGD, Adam, AdamW (in-place updates), RMSprop, Adagrad, L-BFGS, Muon, and K-FAC (Kronecker-factored Fisher), with parameter groups, 5 LR schedulers, and gradient clipping (`clip_grad_norm`, `clip_grad_value`).
+- **19 optimizers** --- SGD, Adam, AdamW, Adamax, NAdam, RAdam, Adagrad, Adadelta, Adafactor, RMSprop, Rprop, ASGD, SparseAdam, L-BFGS, Muon, NaturalGradient (K-FAC), EMA, SWA — with parameter groups, foreach (on-device) update mode for SGD/AdamW, 12+ LR schedulers, and gradient clipping (`clip_grad_norm`, `clip_grad_value`).
 - **JIT compiler** --- trace a forward pass into a static IR, then run constant folding, dead code elimination, operator fusion, and memory planning. `compile()` API mirrors `torch.compile`.
 - **GPU acceleration** --- unified device-aware tensors (`tensor.cuda()`, `model.to_device(Device::Cuda(0))`) with auto-dispatch to CPU or GPU, f32/f64 dispatch. NVIDIA via cudarc + cuBLAS (81.8x matmul speedup on RTX 3090), AMD/Intel/Apple via CubeCL (WGPU, ROCm, Vulkan, Metal). No separate `GpuTensor` type.
 - **GPU memory safety** --- pre-OOM hooks, VRAM reservation, budget enforcement, pressure watchdog, and emergency checkpointing. Never lose a training run to a Steam game again.
@@ -115,7 +115,7 @@ ferrotorch is a workspace of 16 crates. Use the umbrella crate for convenience, 
 | **ferrotorch-core** | Tensor, autograd engine, 40+ differentiable ops, quantization |
 | **ferrotorch-nn** | Module trait, 26+ layers, losses, activations, `#[derive(Module)]` |
 | **ferrotorch-nn-derive** | Proc macro for `#[derive(Module)]` |
-| **ferrotorch-optim** | 8 optimizers, 5 LR schedulers, gradient clipping, GradScaler |
+| **ferrotorch-optim** | 19 optimizers (foreach mode for SGD/AdamW), 12+ LR schedulers, gradient clipping, GradScaler |
 | **ferrotorch-data** | Dataset, parallel DataLoader, samplers, transforms, collate_fn |
 | **ferrotorch-train** | Learner, metrics, callbacks, training history, checkpointing |
 | **ferrotorch-vision** | 8 model architectures, MNIST/CIFAR datasets, image I/O |
@@ -124,7 +124,7 @@ ferrotorch is a workspace of 16 crates. Use the umbrella crate for convenience, 
 | **ferrotorch-gpu** | NVIDIA CUDA backend, cuBLAS, memory guard, pre-OOM hooks |
 | **ferrotorch-cubecl** | Portable GPU via CubeCL (NVIDIA, AMD, Intel, Apple) |
 | **ferrotorch-distributed** | DDP, allreduce, broadcast, TCP backend |
-| **ferrotorch-distributions** | Probability distributions (Normal, Uniform, Bernoulli, Categorical) |
+| **ferrotorch-distributions** | 25+ probability distributions (Normal, MultivariateNormal, Bernoulli, Categorical, Beta, Gamma, Concrete relaxations, Independent, MixtureSameFamily, …), KL registry, bijective transforms |
 | **ferrotorch-hub** | Pretrained model registry, download, and caching |
 | **ferrotorch-profiler** | Operation profiling and Chrome trace export |
 
