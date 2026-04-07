@@ -14,6 +14,7 @@ use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_nn::{Module, Parameter};
 
+use crate::async_collective::{PendingCollective, async_all_gather};
 use crate::backend::Backend;
 use crate::collective::{ReduceOp, all_gather, allreduce, reduce_scatter};
 
@@ -98,6 +99,12 @@ pub struct FSDP<M: Module<T>, T: Float> {
     /// Full-param tensors from the last forward pass, kept alive so
     /// backward can accumulate gradients on them.
     full_params: Vec<Tensor<T>>,
+    /// Pending async all-gather handles produced by
+    /// [`FSDP::prefetch_forward_params`]. One entry per parameter, in
+    /// the same order as [`Module::parameters_mut`]. `None` means no
+    /// prefetch is in flight and `forward()` will use the synchronous
+    /// all-gather path. CL-373.
+    pending_prefetch: Option<Vec<PendingCollective<T>>>,
     _marker: std::marker::PhantomData<T>,
 }
 
@@ -185,6 +192,7 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
             strategy,
             original_shapes,
             full_params: Vec::new(),
+            pending_prefetch: None,
             _marker: std::marker::PhantomData,
         })
     }
@@ -192,6 +200,65 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
     /// Return the active sharding strategy.
     pub fn strategy(&self) -> ShardingStrategy {
         self.strategy
+    }
+
+    /// Kick off asynchronous all-gathers for every parameter so the
+    /// next [`forward`](Self::forward) call consumes the pre-gathered
+    /// tensors instead of blocking on a fresh all-gather.
+    ///
+    /// This is FSDP's equivalent of PyTorch's backward prefetch:
+    /// communication for layer N+1 (or the next forward pass) overlaps
+    /// with compute for layer N. The caller should insert local
+    /// compute (e.g., the previous layer's backward, or input
+    /// preprocessing) between `prefetch_forward_params` and `forward`
+    /// to realize the overlap.
+    ///
+    /// Only valid for [`ShardingStrategy::FullShard`] — the other
+    /// strategies keep parameters replicated on every rank so there's
+    /// nothing to all-gather. Calling this on a non-`FullShard` FSDP
+    /// returns an `InvalidArgument` error.
+    ///
+    /// # Invariant
+    ///
+    /// Exactly one `prefetch_forward_params` → `forward` pair should be
+    /// in flight at any time on a given FSDP instance. Calling
+    /// `prefetch_forward_params` twice in a row (without an intervening
+    /// `forward`) returns an `InvalidArgument` error.
+    ///
+    /// CL-373.
+    pub fn prefetch_forward_params(&mut self) -> FerrotorchResult<()> {
+        if self.strategy != ShardingStrategy::FullShard {
+            return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                message: format!(
+                    "FSDP::prefetch_forward_params: prefetch is only valid for FullShard, got {:?}",
+                    self.strategy
+                ),
+            });
+        }
+        if self.pending_prefetch.is_some() {
+            return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                message: "FSDP::prefetch_forward_params called twice without intervening forward()"
+                    .into(),
+            });
+        }
+
+        let mut handles = Vec::new();
+        {
+            let params = self.module.parameters();
+            for param in params {
+                let shard = param.tensor().clone();
+                let h = async_all_gather(shard, Arc::clone(&self.backend));
+                handles.push(h);
+            }
+        }
+        self.pending_prefetch = Some(handles);
+        Ok(())
+    }
+
+    /// True if a prefetch is currently pending. Primarily useful for
+    /// tests and diagnostics.
+    pub fn has_pending_prefetch(&self) -> bool {
+        self.pending_prefetch.is_some()
     }
 
     /// Immutable access to the inner module.
@@ -223,22 +290,60 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
     /// For `ShardGradOp` and `NoShard` strategies, parameters are already
     /// full on every rank, so no all-gather happens and `full_params` is
     /// populated from the current parameter tensors directly.
+    ///
+    /// If [`prefetch_forward_params`](Self::prefetch_forward_params) was
+    /// called earlier, the pending async all-gather handles are consumed
+    /// here instead of running the synchronous all_gather — this is how
+    /// FSDP hides all-gather latency behind whatever local compute
+    /// happened between `prefetch_forward_params` and `forward`.
     pub fn forward(&mut self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let world_size = self.backend.world_size();
         self.full_params.clear();
 
+        // Grab any pending prefetch handles. They are consumed here so
+        // a subsequent forward() without a matching prefetch reverts to
+        // synchronous all_gather.
+        let mut pending = self.pending_prefetch.take();
+
         match self.strategy {
             ShardingStrategy::FullShard => {
+                if let Some(ref p) = pending {
+                    if p.len() != self.module.parameters().len() {
+                        return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                            message: format!(
+                                "FSDP prefetch: have {} pending handles but module has {} parameters",
+                                p.len(),
+                                self.module.parameters().len(),
+                            ),
+                        });
+                    }
+                }
+                // Pop handles from the front by reversing so we can pop from back.
+                if let Some(ref mut p) = pending {
+                    p.reverse();
+                }
+
                 let params = self.module.parameters_mut();
                 for (i, param) in params.into_iter().enumerate() {
-                    let shard = param.tensor().clone();
                     let orig_shape = &self.original_shapes[i];
 
-                    // All-gather the shard to get the full parameter.
-                    let full = if world_size == 1 {
-                        shard
+                    // Get the gathered full tensor either from a pending
+                    // async handle or via a fresh synchronous all_gather.
+                    let full = if let Some(ref mut handles) = pending {
+                        // Consume the last handle (original order via reverse).
+                        let handle = handles.pop().ok_or_else(|| {
+                            ferrotorch_core::FerrotorchError::InvalidArgument {
+                                message: "FSDP prefetch: exhausted pending handles".into(),
+                            }
+                        })?;
+                        handle.wait()?
                     } else {
-                        all_gather(&shard, self.backend.as_ref())?
+                        let shard = param.tensor().clone();
+                        if world_size == 1 {
+                            shard
+                        } else {
+                            all_gather(&shard, self.backend.as_ref())?
+                        }
                     };
 
                     // Reshape to the original parameter shape and enable grad.
@@ -255,10 +360,19 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                 }
             }
             ShardingStrategy::ShardGradOp | ShardingStrategy::NoShard => {
-                // Parameters are already full on every rank. We still
-                // need to wrap them in requires_grad=true leaves so the
-                // autograd graph can flow through the forward pass, and
-                // we need to stash them in full_params so sync_gradients
+                // Parameters are already full on every rank. Prefetch
+                // is meaningless for these strategies — surface any
+                // accidental misuse.
+                if pending.is_some() {
+                    return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                        message: "FSDP prefetch_forward_params is only valid for FullShard; \
+                                  use ShardingStrategy::FullShard or don't prefetch"
+                            .into(),
+                    });
+                }
+                // We still need to wrap them in requires_grad=true leaves
+                // so the autograd graph can flow through the forward
+                // pass, and stash them in full_params so sync_gradients
                 // can read the backward-accumulated gradients.
                 let params = self.module.parameters_mut();
                 for (_i, param) in params.into_iter().enumerate() {
@@ -1003,6 +1117,110 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_fsdp_prefetched_forward_matches_sync_forward() {
+        // Prefetch then forward should produce exactly the same output
+        // as a plain synchronous forward. 2 ranks, weight [1,2,3,4],
+        // input [2.0] -> expected output [20.0].
+        let group = SimulatedBackend::create_group(2).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
+                    let mut fsdp = FSDP::new(model, b).unwrap();
+
+                    // Kick off prefetch BEFORE doing other work.
+                    assert!(!fsdp.has_pending_prefetch());
+                    fsdp.prefetch_forward_params().unwrap();
+                    assert!(fsdp.has_pending_prefetch());
+
+                    // Simulated "local compute" between prefetch and forward.
+                    let _scratch: f32 = (0..100).map(|i| i as f32).sum();
+
+                    let input = ferrotorch_core::from_slice(&[2.0f32], &[1]).unwrap();
+                    let output = fsdp.forward(&input).unwrap();
+                    // After forward, the prefetch handles have been consumed.
+                    assert!(!fsdp.has_pending_prefetch());
+
+                    output.data_vec().unwrap()[0]
+                })
+            })
+            .collect();
+
+        for h in handles {
+            let v = h.join().unwrap();
+            assert!((v - 20.0).abs() < 1e-6, "expected 20.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_fsdp_forward_without_prefetch_still_works() {
+        // Smoke test: forward() without a prior prefetch should use the
+        // synchronous path and produce the same result.
+        let group = SimulatedBackend::create_group(2).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
+                    let mut fsdp = FSDP::new(model, b).unwrap();
+                    assert!(!fsdp.has_pending_prefetch());
+                    let input = ferrotorch_core::from_slice(&[2.0f32], &[1]).unwrap();
+                    let output = fsdp.forward(&input).unwrap();
+                    output.data_vec().unwrap()[0]
+                })
+            })
+            .collect();
+
+        for h in handles {
+            assert!((h.join().unwrap() - 20.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_fsdp_prefetch_rejects_double_call() {
+        // Calling prefetch twice without an intervening forward should
+        // return an error (stale pending handles would be leaked).
+        let group = SimulatedBackend::create_group(1).unwrap();
+        let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
+        let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
+        let mut fsdp = FSDP::new(model, b).unwrap();
+        fsdp.prefetch_forward_params().unwrap();
+        let r = fsdp.prefetch_forward_params();
+        assert!(r.is_err());
+        let err = format!("{}", r.unwrap_err());
+        assert!(err.contains("called twice"), "err = {err}");
+
+        // Consume the pending handles so the test doesn't leak a live
+        // background thread that waits on channel traffic. Running
+        // forward() drains and joins them cleanly.
+        let input = ferrotorch_core::from_slice(&[1.0f32], &[1]).unwrap();
+        let _ = fsdp.forward(&input).unwrap();
+    }
+
+    #[test]
+    fn test_fsdp_prefetch_rejects_non_fullshard() {
+        // Prefetch only makes sense for FullShard (the other strategies
+        // don't do a parameter all_gather). Calling it on ShardGradOp
+        // must return a clear error.
+        let group = SimulatedBackend::create_group(1).unwrap();
+        let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
+        let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
+        let mut fsdp =
+            FSDP::new_with_strategy(model, b, ShardingStrategy::ShardGradOp).unwrap();
+        let r = fsdp.prefetch_forward_params();
+        assert!(r.is_err());
+        let err = format!("{}", r.unwrap_err());
+        assert!(err.contains("FullShard"), "err = {err}");
     }
 
     #[test]

@@ -11,6 +11,13 @@
 //!   [`reduce_scatter`](collective::reduce_scatter),
 //!   [`broadcast`](collective::broadcast), and [`barrier`](collective::barrier).
 //!
+//! - **Async collectives** ([`async_collective`]) —
+//!   [`async_all_gather`](async_collective::async_all_gather) and
+//!   [`async_reduce_scatter`](async_collective::async_reduce_scatter)
+//!   return a [`PendingCollective`](async_collective::PendingCollective)
+//!   handle that can be `wait()`ed on after local compute, enabling FSDP
+//!   backward prefetch.
+//!
 //! - **DDP** ([`ddp`]) — [`DDP`](ddp::DDP) wraps a `Module` and
 //!   synchronizes gradients across ranks after each backward pass.
 //!
@@ -45,6 +52,7 @@
 //! use ferrotorch_distributed::pipeline::{Pipeline, PipelineStage, PipelineSchedule};
 //! ```
 
+pub mod async_collective;
 pub mod backend;
 pub mod checkpoint;
 pub mod collective;
@@ -68,6 +76,9 @@ pub mod nccl_collective;
 pub mod hybrid_backend;
 
 // Re-export key types at crate root for convenience.
+pub use async_collective::{
+    PendingCollective, async_all_gather, async_reduce_scatter,
+};
 pub use backend::{Backend, SimulatedBackend, TcpBackend};
 pub use checkpoint::{
     AsyncCheckpointer, CheckpointFuture, DistCheckpointError, DistributedCheckpoint, ShardMetadata,
