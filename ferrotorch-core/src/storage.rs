@@ -19,6 +19,14 @@ pub enum StorageBuffer<T: Element> {
     Cpu(Vec<T>),
     /// GPU device memory, accessed via the registered `GpuBackend`.
     Gpu(GpuBufferHandle),
+    /// Meta storage — no backing memory, only the element count is
+    /// recorded. Tensors built on this variant carry shape and dtype
+    /// info but cannot be read or written. Used for shape inference
+    /// and dry-run model construction. CL-395.
+    Meta {
+        numel: usize,
+        _phantom: std::marker::PhantomData<T>,
+    },
 }
 
 impl<T: Element> TensorStorage<T> {
@@ -27,6 +35,19 @@ impl<T: Element> TensorStorage<T> {
         Self {
             data: StorageBuffer::Cpu(data),
             device: Device::Cpu,
+        }
+    }
+
+    /// Create a meta storage with the given element count. No memory is
+    /// allocated for the elements; only the size is recorded. Reading
+    /// the data of a meta tensor returns an error.
+    pub fn meta(numel: usize) -> Self {
+        Self {
+            data: StorageBuffer::Meta {
+                numel,
+                _phantom: std::marker::PhantomData,
+            },
+            device: Device::Meta,
         }
     }
 
@@ -51,6 +72,10 @@ impl<T: Element> TensorStorage<T> {
                 };
                 let handle = backend.cpu_to_gpu(bytes, std::mem::size_of::<T>(), ordinal)?;
                 Ok(Self::gpu(handle))
+            }
+            Device::Meta => {
+                // Discard the data; only the element count matters.
+                Ok(Self::meta(data.len()))
             }
         }
     }
@@ -78,6 +103,7 @@ impl<T: Element> TensorStorage<T> {
                     backend.cpu_to_gpu_pinned(bytes, std::mem::size_of::<T>(), ordinal)?;
                 Ok(Self::gpu(handle))
             }
+            Device::Meta => Ok(Self::meta(data.len())),
         }
     }
 
@@ -101,6 +127,7 @@ impl<T: Element> TensorStorage<T> {
         match &self.data {
             StorageBuffer::Cpu(v) => v.len(),
             StorageBuffer::Gpu(h) => h.len(),
+            StorageBuffer::Meta { numel, .. } => *numel,
         }
     }
 
@@ -113,11 +140,15 @@ impl<T: Element> TensorStorage<T> {
     ///
     /// # Panics
     /// Panics if the tensor is on a GPU device. Call `.cpu()` first.
+    /// Panics if the tensor is a meta tensor.
     pub fn as_slice(&self) -> &[T] {
         match &self.data {
             StorageBuffer::Cpu(v) => v.as_slice(),
             StorageBuffer::Gpu(_) => {
                 panic!("cannot access GPU tensor as CPU slice -- call .cpu() first")
+            }
+            StorageBuffer::Meta { .. } => {
+                panic!("cannot access meta tensor as a slice -- meta tensors carry no data")
             }
         }
     }
@@ -128,6 +159,9 @@ impl<T: Element> TensorStorage<T> {
             StorageBuffer::Cpu(v) => v.as_mut_slice(),
             StorageBuffer::Gpu(_) => {
                 panic!("cannot mutate GPU tensor as CPU slice -- call .cpu() first")
+            }
+            StorageBuffer::Meta { .. } => {
+                panic!("cannot mutate meta tensor as a slice -- meta tensors carry no data")
             }
         }
     }
@@ -144,15 +178,21 @@ impl<T: Element> TensorStorage<T> {
         matches!(&self.data, StorageBuffer::Gpu(_))
     }
 
-    /// Get the GPU buffer handle. Returns `None` for CPU storage.
+    /// Returns `true` if this storage is a meta (no-data) tensor.
+    #[inline]
+    pub fn is_meta(&self) -> bool {
+        matches!(&self.data, StorageBuffer::Meta { .. })
+    }
+
+    /// Get the GPU buffer handle. Returns `None` for CPU and Meta storage.
     pub fn gpu_handle(&self) -> Option<&GpuBufferHandle> {
         match &self.data {
             StorageBuffer::Gpu(h) => Some(h),
-            StorageBuffer::Cpu(_) => None,
+            StorageBuffer::Cpu(_) | StorageBuffer::Meta { .. } => None,
         }
     }
 
-    /// Get a mutable GPU buffer handle. Returns `None` for CPU storage.
+    /// Get a mutable GPU buffer handle. Returns `None` for CPU and Meta storage.
     ///
     /// # Safety note
     ///
@@ -161,7 +201,7 @@ impl<T: Element> TensorStorage<T> {
     pub fn gpu_handle_mut(&mut self) -> Option<&mut GpuBufferHandle> {
         match &mut self.data {
             StorageBuffer::Gpu(h) => Some(h),
-            StorageBuffer::Cpu(_) => None,
+            StorageBuffer::Cpu(_) | StorageBuffer::Meta { .. } => None,
         }
     }
 
@@ -182,6 +222,7 @@ impl<T: Element> TensorStorage<T> {
                     device: self.device,
                 })
             }
+            StorageBuffer::Meta { numel, .. } => Ok(Self::meta(*numel)),
         }
     }
 
@@ -220,6 +261,7 @@ impl<T: Element> TensorStorage<T> {
                     device: self.device,
                 })
             }
+            StorageBuffer::Meta { .. } => Ok(Self::meta(numel)),
         }
     }
 }
@@ -245,6 +287,7 @@ impl<T: Element> Clone for TensorStorage<T> {
                     panic!("no GPU backend registered -- cannot clone GPU tensor")
                 }
             }
+            StorageBuffer::Meta { numel, .. } => Self::meta(*numel),
         }
     }
 }
@@ -268,6 +311,7 @@ impl<T: Element> std::fmt::Debug for StorageBuffer<T> {
         match self {
             StorageBuffer::Cpu(v) => write!(f, "Cpu({} elements)", v.len()),
             StorageBuffer::Gpu(h) => write!(f, "Gpu({h:?})"),
+            StorageBuffer::Meta { numel, .. } => write!(f, "Meta({numel} elements)"),
         }
     }
 }

@@ -153,7 +153,7 @@ where
 fn save_gpu_rng_state<T: Float>(tensor: &Tensor<T>) -> Option<GpuRngState> {
     let device_ordinal = match tensor.device() {
         crate::device::Device::Cuda(id) => id,
-        crate::device::Device::Cpu => return None,
+        crate::device::Device::Cpu | crate::device::Device::Meta => return None,
     };
     let backend = crate::gpu_dispatch::gpu_backend()?;
     backend.save_rng_state(device_ordinal).ok()

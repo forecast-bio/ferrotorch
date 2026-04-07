@@ -607,6 +607,15 @@ impl<T: Float> Tensor<T> {
         if self.inner.storage.is_gpu() {
             return Err(FerrotorchError::GpuTensorNotAccessible);
         }
+        if self.inner.storage.is_meta() {
+            return Err(FerrotorchError::InvalidArgument {
+                message:
+                    "cannot read data from a meta tensor; meta tensors carry shape only. \
+                     Call .to(Device::Cpu) to materialize, or use .shape() / .numel() / .device() \
+                     for metadata access."
+                        .into(),
+            });
+        }
         if !self.is_contiguous() {
             return Err(FerrotorchError::InvalidArgument {
                 message: "tensor is not contiguous; call .contiguous() or use .data_vec()".into(),
@@ -642,6 +651,15 @@ impl<T: Float> Tensor<T> {
     /// CPU tensors it gathers elements in logical (C-order) sequence. For
     /// GPU tensors it performs a device-to-host transfer.
     pub fn data_vec(&self) -> FerrotorchResult<Vec<T>> {
+        if self.inner.storage.is_meta() {
+            return Err(FerrotorchError::InvalidArgument {
+                message:
+                    "cannot read data from a meta tensor; meta tensors carry shape only. \
+                     Call .to(Device::Cpu) to materialize, or use .shape() / .numel() / .device() \
+                     for metadata access."
+                        .into(),
+            });
+        }
         if self.is_cuda() {
             let cpu_tensor = self.cpu()?;
             Ok(cpu_tensor.data()?.to_vec())
@@ -795,6 +813,21 @@ impl<T: Float> Tensor<T> {
                 let cpu = self.to(Device::Cpu)?;
                 cpu.to(Device::Cuda(b))
             }
+            // Move TO the meta device: drop the data, keep shape only.
+            // Works from any source device.
+            (_, Device::Meta) => {
+                let storage = TensorStorage::meta(self.numel());
+                Tensor::from_storage(storage, self.shape().to_vec(), self.requires_grad())
+            }
+            // Move FROM the meta device: cannot materialize random data,
+            // so this errors. Users should construct fresh tensors with
+            // creation::zeros / randn / etc. on the target device instead.
+            (Device::Meta, _) => Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "cannot move a meta tensor to {device} -- meta tensors carry no data. \
+                     Construct a real tensor on {device} via creation::zeros/randn/etc."
+                ),
+            }),
             _ => Ok(self.clone()),
         }
     }
@@ -864,6 +897,12 @@ impl<T: Float> Tensor<T> {
     #[inline]
     pub fn is_cpu(&self) -> bool {
         self.device().is_cpu()
+    }
+
+    /// Returns `true` if this tensor is on the meta device (no backing data).
+    #[inline]
+    pub fn is_meta(&self) -> bool {
+        self.device().is_meta()
     }
 
     /// Returns `true` if this tensor is on a CUDA GPU.

@@ -242,6 +242,35 @@ fn xorshift_seed() -> u64 {
     state
 }
 
+/// Create a meta (no-data) tensor with the given shape. Carries shape and
+/// dtype information but allocates no backing memory. Useful for shape
+/// inference, dry-run model construction, and inspecting parameter counts
+/// of huge models without committing to allocation. CL-395.
+pub fn zeros_meta<T: Float>(shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+    let numel: usize = shape.iter().product();
+    Tensor::from_storage(TensorStorage::meta(numel), shape.to_vec(), false)
+}
+
+/// Create a meta tensor with the given shape. Identical in behavior to
+/// [`zeros_meta`] — meta tensors carry no data, so the value parameter
+/// has no effect, but the function exists for API symmetry with the
+/// regular [`ones`] / [`full`] constructors. CL-395.
+pub fn ones_meta<T: Float>(shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+    zeros_meta(shape)
+}
+
+/// Create a meta tensor with the given shape. Identical in behavior to
+/// [`zeros_meta`] but exists for API symmetry. CL-395.
+pub fn full_meta<T: Float>(shape: &[usize], _value: T) -> FerrotorchResult<Tensor<T>> {
+    zeros_meta(shape)
+}
+
+/// Create a meta tensor matching the shape of `other`. Always allocates
+/// on the meta device regardless of `other`'s device.
+pub fn meta_like<T: Float>(other: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    zeros_meta(other.shape())
+}
+
 /// Create a tensor of zeros with the same shape as `other`.
 pub fn zeros_like<T: Float>(other: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     zeros(other.shape())
@@ -426,5 +455,111 @@ mod tests {
         let t: Tensor<f32> = zeros(&[50]).unwrap();
         let r = randn_like(&t).unwrap();
         assert_eq!(r.shape(), &[50]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Meta device tests (CL-395)
+    //
+    // Meta tensors carry shape and dtype info but no backing memory.
+    // The tests below verify that:
+    //   1. Construction works for arbitrarily large shapes (no allocation)
+    //   2. Metadata accessors return the right values
+    //   3. Data access errors with a clear message
+    //   4. Moving TO meta drops data; moving FROM meta errors
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_zeros_meta_basic_shape() {
+        let t: Tensor<f32> = zeros_meta(&[2, 3, 4]).unwrap();
+        assert_eq!(t.shape(), &[2, 3, 4]);
+        assert_eq!(t.numel(), 24);
+        assert!(t.is_meta());
+        assert_eq!(t.device(), crate::device::Device::Meta);
+    }
+
+    #[test]
+    fn test_zeros_meta_huge_shape_no_allocation() {
+        // 100M elements would be 400MB if allocated -- meta tensor must
+        // not actually allocate, otherwise this test would either OOM
+        // or take a long time on a memory-constrained machine.
+        let t: Tensor<f32> = zeros_meta(&[10_000, 10_000]).unwrap();
+        assert_eq!(t.shape(), &[10_000, 10_000]);
+        assert_eq!(t.numel(), 100_000_000);
+        assert!(t.is_meta());
+    }
+
+    #[test]
+    fn test_meta_data_access_returns_clear_error() {
+        let t: Tensor<f32> = zeros_meta(&[3]).unwrap();
+        let err = t.data().unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("meta tensor"),
+            "expected meta-tensor error message, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_meta_data_vec_returns_clear_error() {
+        let t: Tensor<f32> = zeros_meta(&[3]).unwrap();
+        let err = t.data_vec().unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("meta tensor"));
+    }
+
+    #[test]
+    fn test_meta_like_matches_shape() {
+        let t: Tensor<f32> = zeros(&[7, 11]).unwrap();
+        let m = meta_like(&t).unwrap();
+        assert_eq!(m.shape(), t.shape());
+        assert!(m.is_meta());
+        assert!(!t.is_meta());
+    }
+
+    #[test]
+    fn test_to_meta_from_cpu_drops_data() {
+        let t: Tensor<f32> = zeros(&[5]).unwrap();
+        let m = t.to(crate::device::Device::Meta).unwrap();
+        assert!(m.is_meta());
+        assert_eq!(m.shape(), &[5]);
+        // Original is unchanged.
+        assert!(!t.is_meta());
+    }
+
+    #[test]
+    fn test_to_from_meta_errors() {
+        let m: Tensor<f32> = zeros_meta(&[3]).unwrap();
+        let result = m.to(crate::device::Device::Cpu);
+        let err_msg = match result {
+            Ok(_) => panic!("expected error moving from meta to CPU"),
+            Err(e) => format!("{e}"),
+        };
+        assert!(err_msg.contains("meta tensor"));
+    }
+
+    #[test]
+    fn test_meta_device_display() {
+        let d = crate::device::Device::Meta;
+        assert_eq!(format!("{d}"), "meta");
+    }
+
+    #[test]
+    fn test_meta_device_clone_is_cheap() {
+        let m: Tensor<f32> = zeros_meta(&[1024, 1024, 1024]).unwrap();
+        // Cloning should not allocate (Arc share + new TensorInner).
+        let c = m.clone();
+        assert_eq!(c.shape(), m.shape());
+        assert!(c.is_meta());
+    }
+
+    #[test]
+    fn test_full_meta_and_ones_meta_alias_zeros_meta() {
+        let z: Tensor<f64> = zeros_meta(&[2, 2]).unwrap();
+        let o: Tensor<f64> = ones_meta(&[2, 2]).unwrap();
+        let f: Tensor<f64> = full_meta(&[2, 2], 3.14).unwrap();
+        // All three are meta tensors of the same shape.
+        assert_eq!(z.shape(), o.shape());
+        assert_eq!(z.shape(), f.shape());
+        assert!(z.is_meta() && o.is_meta() && f.is_meta());
     }
 }

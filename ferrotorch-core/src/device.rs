@@ -1,7 +1,10 @@
 /// Device on which a tensor's data resides.
 ///
-/// Defined in Phase 1 with only `Cpu` functional. `Cuda` is present
-/// from day one so the type is baked into every API before GPU work begins.
+/// `Meta` is a special device that does not allocate any backing memory:
+/// meta tensors carry shape, dtype, and device information but no data.
+/// They are useful for shape inference, dry-run model construction, and
+/// inspecting parameter counts of huge models without actually allocating
+/// the weights. Mirrors `torch.device("meta")`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Device {
     /// CPU main memory.
@@ -9,6 +12,11 @@ pub enum Device {
     Cpu,
     /// CUDA GPU with the given device index.
     Cuda(usize),
+    /// Meta device — shape-only, no backing storage. Operations that need
+    /// data return an error; operations that only manipulate metadata
+    /// (reshape, view, permute, narrow, transpose, …) work normally and
+    /// produce meta tensors as output. CL-395.
+    Meta,
 }
 
 impl Device {
@@ -23,6 +31,12 @@ impl Device {
     pub fn is_cuda(&self) -> bool {
         matches!(self, Device::Cuda(_))
     }
+
+    /// Returns `true` if this is the meta device (shape-only, no data).
+    #[inline]
+    pub fn is_meta(&self) -> bool {
+        matches!(self, Device::Meta)
+    }
 }
 
 impl core::fmt::Display for Device {
@@ -30,6 +44,7 @@ impl core::fmt::Display for Device {
         match self {
             Device::Cpu => write!(f, "cpu"),
             Device::Cuda(id) => write!(f, "cuda:{id}"),
+            Device::Meta => write!(f, "meta"),
         }
     }
 }
