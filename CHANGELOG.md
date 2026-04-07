@@ -52,7 +52,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix view/reshape on GPU tensors dropping requires_grad and breaking autograd graph (#211)
 - Fix index_select and masked_fill to use proper GPU kernels instead of CPU fallback (#210)
 - Update rustls-webpki to 0.103.10 (#204)
-- Update rustls-webpki to 0.103.10 (#204)
 - Fix PTX register name collision (`%tid` → `%r_tid`) — all elementwise kernels were silently falling back to CPU due to `CUDA_ERROR_INVALID_PTX`
 - Fix softmax PTX: wrong hex prefix for float literals (`0xff` → `0f`), undeclared shared memory registers (`%saddr`, `%sbase`)
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
