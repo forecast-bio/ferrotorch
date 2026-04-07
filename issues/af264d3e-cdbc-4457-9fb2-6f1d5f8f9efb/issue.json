@@ -2,11 +2,12 @@
   "uuid": "af264d3e-cdbc-4457-9fb2-6f1d5f8f9efb",
   "display_id": 484,
   "title": "Add GPU path for einops rearrange/repeat/reduce (currently CPU roundtrip)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-04-04T01:37:41.033864887Z",
-  "updated_at": "2026-04-07T12:48:40.214023754Z",
+  "updated_at": "2026-04-07T12:49:26.078462744Z",
+  "closed_at": "2026-04-07T12:49:26.078462744Z",
   "labels": [
     "gpu"
   ],
