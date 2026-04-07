@@ -32,6 +32,9 @@
 //! | [`Multinomial`] | `total_count`, `probs` | No (discrete) |
 //! | [`Independent`] | base distribution + `reinterpreted_batch_ndims` | inherits |
 //! | [`MixtureSameFamily`] | mixing `Categorical` + components | No |
+//! | [`OneHotCategorical`] | `probs` | No (discrete) |
+//! | [`RelaxedBernoulli`] | `temperature`, `probs` | Yes (Concrete relaxation) |
+//! | [`RelaxedOneHotCategorical`] | `temperature`, `probs` | Yes (Concrete relaxation) |
 //!
 //! # Infrastructure
 //!
@@ -60,8 +63,11 @@ mod mixture_same_family;
 mod multinomial;
 mod multivariate_normal;
 mod normal;
+mod one_hot_categorical;
 mod poisson;
 mod kumaraswamy;
+mod relaxed_bernoulli;
+mod relaxed_one_hot_categorical;
 pub(crate) mod special_fns;
 mod student_t;
 pub mod transforms;
@@ -87,7 +93,10 @@ pub use mixture_same_family::MixtureSameFamily;
 pub use multinomial::Multinomial;
 pub use multivariate_normal::MultivariateNormal;
 pub use normal::Normal;
+pub use one_hot_categorical::OneHotCategorical;
 pub use poisson::Poisson;
+pub use relaxed_bernoulli::RelaxedBernoulli;
+pub use relaxed_one_hot_categorical::RelaxedOneHotCategorical;
 pub use student_t::StudentT;
 pub use transforms::TransformedDistribution;
 pub use von_mises::VonMises;
