@@ -318,6 +318,36 @@ impl CudaEventWrapper {
         Ok(())
     }
 
+    /// Compute the GPU-side elapsed time between this event (start)
+    /// and `end` (end), in milliseconds.
+    ///
+    /// Both events must have been created with timing enabled
+    /// ([`new_with_timing`](Self::new_with_timing)) and both must
+    /// have been recorded before this call. The end event must also
+    /// be reached on the GPU — call `end.synchronize()` first if you
+    /// need a blocking measurement.
+    ///
+    /// Wraps `cuEventElapsedTime` (cudarc's `CudaEvent::elapsed_ms`).
+    /// CL-380.
+    pub fn elapsed_ms(&self, end: &Self) -> GpuResult<f32> {
+        Ok(self.inner.elapsed_ms(&end.inner)?)
+    }
+
+    /// Compute the GPU-side elapsed time between this event and
+    /// `end`, in **microseconds**, as an integer. Convenience for
+    /// callers (like the profiler) that store durations in u64
+    /// microseconds.
+    ///
+    /// Returns 0 for negative or sub-microsecond elapsed times.
+    /// CL-380.
+    pub fn elapsed_us(&self, end: &Self) -> GpuResult<u64> {
+        let ms = self.elapsed_ms(end)?;
+        if ms <= 0.0 {
+            return Ok(0);
+        }
+        Ok((ms * 1000.0).round() as u64)
+    }
+
     /// Borrow the underlying cudarc [`CudaEvent`].
     #[inline]
     pub fn inner(&self) -> &CudaEvent {

@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- Profiler CUDA event timing: `CudaKernelScope` records start/end CUDA events around a region and `Profiler::flush_cuda_kernels()` synchronizes and converts them to `ProfileEvent`s with real GPU-measured `cuEventElapsedTime` durations, replacing the CPU wall-clock fallback for async kernels (#380)
 - CUDA stream priority levels: `StreamPriority::{High,Normal,Low}`, `get_stream_priority_range`, `new_stream_with_priority`, and `StreamPool::get_priority_stream` for round-robin priority pools per device (#322)
 - GPU `strided_copy` primitive: PTX kernel and backend dispatch for N-d strided→contiguous gather entirely on-device, wired into `Tensor::contiguous()` so non-contiguous CUDA tensors no longer roundtrip through CPU (#496)
 - torch.export-style runtime guards: `ExportedProgram::check_inputs` and `run_with_guards` validate runtime inputs against `input_specs` (static dim match, dynamic dim range) before graph execution (#461)

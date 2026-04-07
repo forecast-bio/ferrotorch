@@ -20,12 +20,16 @@
 //! println!("{}", report.table(10));
 //! ```
 
+#[cfg(feature = "cuda")]
+pub mod cuda_timing;
 mod event;
 pub mod flops;
 mod profiler;
 mod report;
 pub mod schedule;
 
+#[cfg(feature = "cuda")]
+pub use cuda_timing::{CudaKernelScope, PendingCudaScope};
 pub use event::{MemoryCategory, ProfileEvent};
 pub use profiler::{ProfileConfig, Profiler, with_profiler};
 pub use report::{OpSummary, ProfileReport};

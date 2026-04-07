@@ -598,14 +598,26 @@ mod tests {
         assert_eq!(json_string("a\nb"), "\"a\\nb\"");
     }
 
+    /// Both detect_hostname tests mutate the same set of env vars,
+    /// so they must not run concurrently. Cargo runs tests in
+    /// parallel by default, so we serialize them through this
+    /// process-wide lock. The previous version of these tests
+    /// raced under `cargo test --features cuda` because the test
+    /// matrix was larger than the no-feature build.
+    static HOSTNAME_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_detect_hostname_fallback() {
+        let _g = HOSTNAME_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         // Defensive check: when the common env vars are unset we fall
         // back to "localhost". Setting them all to empty strings
         // should also trigger the fallback since we reject empty
         // values.
         let original = std::env::var("HOSTNAME").ok();
-        // SAFETY: single-threaded test, no other thread touches the env.
+        let original_computer = std::env::var("COMPUTERNAME").ok();
+        let original_host = std::env::var("HOST").ok();
+        // SAFETY: serialized via HOSTNAME_TEST_LOCK above; no other
+        // thread touches these env vars while the lock is held.
         unsafe {
             std::env::remove_var("HOSTNAME");
             std::env::remove_var("COMPUTERNAME");
@@ -617,10 +629,17 @@ mod tests {
         if let Some(v) = original {
             unsafe { std::env::set_var("HOSTNAME", v) };
         }
+        if let Some(v) = original_computer {
+            unsafe { std::env::set_var("COMPUTERNAME", v) };
+        }
+        if let Some(v) = original_host {
+            unsafe { std::env::set_var("HOST", v) };
+        }
     }
 
     #[test]
     fn test_detect_hostname_uses_env_var() {
+        let _g = HOSTNAME_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let original = std::env::var("HOSTNAME").ok();
         unsafe {
             std::env::set_var("HOSTNAME", "my-test-host");
