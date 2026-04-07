@@ -2,11 +2,12 @@
   "uuid": "7c8ba030-d854-4872-8878-ea490732ec6e",
   "display_id": 445,
   "title": "Implement LazyLinear and LazyConv variants (deferred shape inference)",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:21:22.689025381Z",
-  "updated_at": "2026-04-03T22:21:24.573187654Z",
+  "updated_at": "2026-04-07T16:31:14.538364794Z",
+  "closed_at": "2026-04-07T16:31:14.538364794Z",
   "labels": [
     "nn"
   ]
