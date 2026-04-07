@@ -51,6 +51,10 @@ pub struct Profiler {
     /// Set to `true` after the first poisoned-lock warning is logged.
     /// Prevents flooding stderr with repeated warnings.
     poison_warned: AtomicBool,
+    /// Queued CUDA event pairs waiting for `flush_cuda_kernels` to
+    /// synchronize and convert into [`ProfileEvent`]s. CL-380.
+    #[cfg(feature = "cuda")]
+    pending_cuda: Mutex<Vec<crate::cuda_timing::PendingCudaScope>>,
 }
 
 impl Profiler {
@@ -62,6 +66,8 @@ impl Profiler {
             config,
             active: AtomicBool::new(true),
             poison_warned: AtomicBool::new(false),
+            #[cfg(feature = "cuda")]
+            pending_cuda: Mutex::new(Vec::new()),
         }
     }
 
@@ -224,6 +230,68 @@ impl Profiler {
     /// Microseconds elapsed since the profiler was created.
     fn elapsed_us(&self) -> u64 {
         self.start_time.elapsed().as_micros() as u64
+    }
+
+    /// Queue a CUDA event scope for later finalization. Called by
+    /// [`crate::cuda_timing::CudaKernelScope::stop`]. CL-380.
+    #[cfg(feature = "cuda")]
+    pub fn push_pending_cuda_scope(&self, scope: crate::cuda_timing::PendingCudaScope) {
+        if !self.active.load(Ordering::Relaxed) {
+            return;
+        }
+        match self.pending_cuda.lock() {
+            Ok(mut q) => q.push(scope),
+            Err(_) => self.warn_poisoned(),
+        }
+    }
+
+    /// Synchronize every queued CUDA event scope and convert them
+    /// into [`ProfileEvent`]s with the GPU-measured duration.
+    ///
+    /// Call this once before exporting the report. Idempotent: a
+    /// second call after the queue is drained is a no-op. CL-380.
+    ///
+    /// Each pending scope is finalized in registration order. The
+    /// elapsed time comes from `cuEventElapsedTime` so the recorded
+    /// `duration_us` reflects actual GPU kernel time, not the CPU
+    /// dispatch latency that the wall-clock fallback measures.
+    #[cfg(feature = "cuda")]
+    pub fn flush_cuda_kernels(&self) {
+        let pending: Vec<crate::cuda_timing::PendingCudaScope> = match self.pending_cuda.lock() {
+            Ok(mut q) => std::mem::take(&mut *q),
+            Err(_) => {
+                self.warn_poisoned();
+                return;
+            }
+        };
+        if pending.is_empty() {
+            return;
+        }
+        let epoch_us = self.elapsed_us();
+        for scope in pending {
+            let event = scope.finalize(epoch_us);
+            self.push_event(event);
+        }
+    }
+
+    /// No-op without the `cuda` feature. Provided so callers compile
+    /// against the same API on both feature configurations.
+    #[cfg(not(feature = "cuda"))]
+    pub fn flush_cuda_kernels(&self) {
+        // Without the cuda feature there are no CUDA events to flush.
+    }
+
+    /// Number of CUDA scopes currently queued waiting for flush.
+    /// Returns 0 without the cuda feature. CL-380.
+    pub fn pending_cuda_count(&self) -> usize {
+        #[cfg(feature = "cuda")]
+        {
+            self.pending_cuda.lock().map(|q| q.len()).unwrap_or(0)
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            0
+        }
     }
 
     /// Push an event into the event list, logging a warning on the first
