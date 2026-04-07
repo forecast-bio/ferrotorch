@@ -1,6 +1,8 @@
 pub mod center_crop;
 pub mod color_jitter;
 pub mod compose;
+pub mod elastic_transform;
+pub mod gaussian_noise;
 pub mod random_apply;
 pub mod random_crop;
 pub mod random_horizontal_flip;
@@ -11,11 +13,14 @@ pub mod random_vertical_flip;
 pub mod resize;
 pub mod rng;
 pub mod to_tensor;
+pub mod trivial_augment_wide;
 pub mod vision_normalize;
 
 pub use center_crop::CenterCrop;
 pub use color_jitter::ColorJitter;
 pub use compose::Compose;
+pub use elastic_transform::ElasticTransform;
+pub use gaussian_noise::GaussianNoise;
 pub use random_crop::RandomCrop;
 pub use random_horizontal_flip::RandomHorizontalFlip;
 pub use random_apply::{RandomApply, RandomChoice};
@@ -26,6 +31,7 @@ pub use random_vertical_flip::RandomVerticalFlip;
 pub use resize::Resize;
 pub use rng::vision_manual_seed;
 pub use to_tensor::VisionToTensor;
+pub use trivial_augment_wide::TrivialAugmentWide;
 pub use vision_normalize::VisionNormalize;
 
 /// ImageNet channel-wise means (RGB order), used for input normalization.
