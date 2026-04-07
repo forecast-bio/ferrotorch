@@ -128,6 +128,45 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::SafeTensors,
         num_parameters: 61_949_149,
     },
+    // CL-436: MobileNetV2, MobileNetV3-Small, DenseNet-121, Inception v3.
+    // Parameter counts reflect the *real* architectures from the original
+    // papers — our simplified implementations will differ slightly.
+    ModelInfo {
+        name: "mobilenet_v2",
+        description: "MobileNetV2 trained on ImageNet-1K (top-1 acc ~72.0%)",
+        weights_url:
+            "https://huggingface.co/ferrotorch/mobilenet_v2/resolve/main/model.safetensors",
+        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        format: WeightsFormat::SafeTensors,
+        num_parameters: 3_504_872,
+    },
+    ModelInfo {
+        name: "mobilenet_v3_small",
+        description: "MobileNetV3-Small trained on ImageNet-1K (top-1 acc ~67.7%)",
+        weights_url:
+            "https://huggingface.co/ferrotorch/mobilenet_v3_small/resolve/main/model.safetensors",
+        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        format: WeightsFormat::SafeTensors,
+        num_parameters: 2_542_856,
+    },
+    ModelInfo {
+        name: "densenet121",
+        description: "DenseNet-121 trained on ImageNet-1K (top-1 acc ~74.4%)",
+        weights_url:
+            "https://huggingface.co/ferrotorch/densenet121/resolve/main/model.safetensors",
+        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        format: WeightsFormat::SafeTensors,
+        num_parameters: 7_978_856,
+    },
+    ModelInfo {
+        name: "inception_v3",
+        description: "Inception v3 trained on ImageNet-1K (top-1 acc ~77.5%)",
+        weights_url:
+            "https://huggingface.co/ferrotorch/inception_v3/resolve/main/model.safetensors",
+        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        format: WeightsFormat::SafeTensors,
+        num_parameters: 27_161_264,
+    },
 ];
 
 /// List all available pretrained models.
@@ -211,6 +250,10 @@ mod tests {
             "convnext_tiny",
             "unet",
             "yolo",
+            "mobilenet_v2",
+            "mobilenet_v3_small",
+            "densenet121",
+            "inception_v3",
         ];
         for name in expected {
             assert!(
