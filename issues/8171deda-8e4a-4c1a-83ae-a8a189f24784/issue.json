@@ -2,11 +2,12 @@
   "uuid": "8171deda-8e4a-4c1a-83ae-a8a189f24784",
   "display_id": 498,
   "title": "reduce_grad_to_shape underflow when grad_ndim < target_ndim",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-04-07T13:10:30.505806122Z",
-  "updated_at": "2026-04-07T13:10:31.974009006Z",
+  "updated_at": "2026-04-07T14:43:28.730535539Z",
+  "closed_at": "2026-04-07T14:43:28.730535539Z",
   "labels": [
     "bug"
   ]
