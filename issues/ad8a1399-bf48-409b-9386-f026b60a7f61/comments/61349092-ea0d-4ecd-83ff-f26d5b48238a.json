@@ -1,0 +1,10 @@
+{
+  "uuid": "61349092-ea0d-4ecd-83ff-f26d5b48238a",
+  "issue_uuid": "ad8a1399-bf48-409b-9386-f026b60a7f61",
+  "author": "y4rr",
+  "content": "Implemented via commit 7e2230fe. Tensor::contiguous_in(MemoryFormat::ChannelsLast{,3d}) on CUDA tensors now dispatches to gpu_strided_copy with a permuted (shape, src_stride) pair so the conversion stays on-device. Permutation [0,2,3,1] for NCHW→NHWC and [0,2,3,4,1] for NCDHW→NDHWC make the kernel's linear output iteration match the channels-last physical layout. CPU fallback preserved for rank > 8 / unsupported dtypes / kernel errors. 5 integration tests on real RTX 3090 covering 4D, 5D, round-trip, cheap-clone short-circuit, and unit-dim edge case.",
+  "created_at": "2026-04-07T23:50:01.414082822Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABARnl844RxJvAMFo5St0Yj4x/W/sdO7W4RdT1K+gXXKOmvaBNpMam7CcAhp6KZcPJahT9s1R9Es0AX2A/KvLU+Bw=="
+}
