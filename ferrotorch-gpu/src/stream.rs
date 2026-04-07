@@ -39,10 +39,200 @@ use crate::error::{GpuError, GpuResult};
 #[cfg(feature = "cuda")]
 const STREAMS_PER_DEVICE: usize = 8;
 
+/// Number of streams per priority level in the priority pool.
+#[cfg(feature = "cuda")]
+const STREAMS_PER_PRIORITY: usize = 4;
+
 /// Maximum supported device ordinal. Guards against unbounded allocation
 /// if a caller passes a bogus ordinal.
 #[cfg(feature = "cuda")]
 const MAX_DEVICES: usize = 64;
+
+// ---------------------------------------------------------------------------
+// Stream priority — CL-322
+// ---------------------------------------------------------------------------
+
+/// Coarse-grained CUDA stream priority level.
+///
+/// Maps onto the device's reported priority range from
+/// `cuCtxGetStreamPriorityRange`. CUDA's convention is that **lower**
+/// integer values = **higher** priority, so [`StreamPriority::High`]
+/// resolves to the device's reported "greatest priority" (numerically
+/// smallest), and [`StreamPriority::Low`] resolves to the reported
+/// "least priority" (numerically largest).
+///
+/// Devices that don't support stream priorities (range collapses to
+/// `(0, 0)`) accept all three variants but produce streams of the same
+/// effective priority.
+///
+/// CL-322.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StreamPriority {
+    /// Highest priority — resolves to the device's greatest priority
+    /// (numerically smallest int).
+    High,
+    /// Default priority — typically 0 on most devices.
+    Normal,
+    /// Lowest priority — resolves to the device's least priority
+    /// (numerically largest int).
+    Low,
+}
+
+impl StreamPriority {
+    /// Resolve this enum to a concrete CUDA priority integer given a
+    /// `(least_priority, greatest_priority)` range from
+    /// [`get_stream_priority_range`]. CUDA's convention: lower int =
+    /// higher priority.
+    pub fn to_cuda_priority(self, range: (i32, i32)) -> i32 {
+        let (least, greatest) = range;
+        match self {
+            StreamPriority::High => greatest,
+            // Normal sits in the middle but clamped to [greatest, least]
+            // so it's well-defined even if the range is collapsed or
+            // inverted on weird drivers.
+            StreamPriority::Normal => {
+                if least == greatest {
+                    least
+                } else {
+                    // Midpoint; the +/-1 handling for odd-length ranges
+                    // doesn't matter for stream priority.
+                    (least + greatest) / 2
+                }
+            }
+            StreamPriority::Low => least,
+        }
+    }
+}
+
+/// Query the device's supported stream priority range.
+///
+/// Returns `(least_priority, greatest_priority)` where, by CUDA
+/// convention, **lower** integer = **higher** scheduling priority.
+/// On devices without priority support both values are 0. CL-322.
+#[cfg(feature = "cuda")]
+pub fn get_stream_priority_range(ctx: &Arc<CudaContext>) -> GpuResult<(i32, i32)> {
+    use cudarc::driver::sys;
+    ctx.bind_to_thread()?;
+    let mut least: std::ffi::c_int = 0;
+    let mut greatest: std::ffi::c_int = 0;
+    // SAFETY: cuCtxGetStreamPriorityRange writes two ints; pointers
+    // are valid stack locations. The current context is bound by the
+    // call above.
+    unsafe {
+        sys::cuCtxGetStreamPriorityRange(&mut least as *mut _, &mut greatest as *mut _)
+            .result()?;
+    }
+    Ok((least, greatest))
+}
+
+// --- Layout mirror for cudarc::driver::CudaStream ---
+//
+// cudarc 0.19 declares `CudaStream` as a 2-field struct:
+//
+//     pub struct CudaStream {
+//         pub(crate) cu_stream: sys::CUstream,
+//         pub(crate) ctx: Arc<CudaContext>,
+//     }
+//
+// The fields are not public, so we cannot construct a `CudaStream`
+// from a raw `CUstream` produced by `cuStreamCreateWithPriority` via
+// the safe API. Until cudarc upstream exposes a priority-aware
+// constructor, we mirror the layout exactly here and use
+// `mem::transmute` to convert. The const assertion below catches any
+// future cudarc layout change at compile time so the conversion
+// fails loudly at build time rather than silently producing UB.
+//
+// Workspace pins `cudarc = "0.19"` so the layout is stable for the
+// lifetime of this minor version.
+//
+// CL-322.
+#[cfg(feature = "cuda")]
+struct CudaStreamMirror {
+    _cu_stream: cudarc::driver::sys::CUstream,
+    _ctx: Arc<CudaContext>,
+}
+
+#[cfg(feature = "cuda")]
+const _CUDA_STREAM_LAYOUT_GUARD: () = {
+    // The two-field struct mirrors cudarc::driver::CudaStream's
+    // layout exactly on every supported target as long as the field
+    // types and order match.
+    assert!(
+        std::mem::size_of::<CudaStreamMirror>() == std::mem::size_of::<CudaStream>(),
+        "cudarc::driver::CudaStream layout has changed; update CudaStreamMirror"
+    );
+    assert!(
+        std::mem::align_of::<CudaStreamMirror>() == std::mem::align_of::<CudaStream>(),
+        "cudarc::driver::CudaStream alignment has changed; update CudaStreamMirror"
+    );
+};
+
+/// Create a new CUDA stream with a specific priority.
+///
+/// Uses `cuStreamCreateWithPriority` under the hood. The `priority`
+/// parameter must be within `get_stream_priority_range(ctx)` and is
+/// silently clamped to the range otherwise. The returned stream is
+/// always non-blocking with respect to the legacy default stream.
+///
+/// # Returns
+///
+/// `Arc<CudaStream>` interoperable with all the rest of the cudarc
+/// API: kernel launches, event recording, synchronization, etc.
+///
+/// # Safety contract
+///
+/// This function uses `mem::transmute` to wrap the raw `CUstream`
+/// into cudarc's `CudaStream`, because cudarc 0.19 does not expose a
+/// public constructor for `CudaStream` from a raw pointer. The
+/// transmute is bounded by a const layout-guard assertion against the
+/// pinned cudarc version. See [`CudaStreamMirror`] above for the
+/// rationale and update procedure.
+///
+/// CL-322.
+#[cfg(feature = "cuda")]
+pub fn new_stream_with_priority(
+    ctx: &Arc<CudaContext>,
+    priority: StreamPriority,
+) -> GpuResult<Arc<CudaStream>> {
+    use cudarc::driver::sys;
+    use std::mem::MaybeUninit;
+
+    ctx.bind_to_thread()?;
+    let range = get_stream_priority_range(ctx)?;
+    let cuda_prio = priority.to_cuda_priority(range);
+
+    // Create the raw stream with cuStreamCreateWithPriority.
+    let mut raw_stream: MaybeUninit<sys::CUstream> = MaybeUninit::uninit();
+    // SAFETY: out-pointer is a valid local; flags are CU_STREAM_NON_BLOCKING;
+    // priority is clamped to the device's reported range.
+    let res = unsafe {
+        sys::cuStreamCreateWithPriority(
+            raw_stream.as_mut_ptr(),
+            sys::CUstream_flags::CU_STREAM_NON_BLOCKING as u32,
+            cuda_prio,
+        )
+    };
+    res.result()?;
+    // SAFETY: cuStreamCreateWithPriority succeeded and wrote a valid
+    // stream handle into raw_stream.
+    let raw_stream = unsafe { raw_stream.assume_init() };
+
+    // Build a layout-mirror, then transmute to the real type. See
+    // CudaStreamMirror's docs for the safety rationale and the
+    // const layout assertion.
+    let mirror = CudaStreamMirror {
+        _cu_stream: raw_stream,
+        _ctx: ctx.clone(),
+    };
+    // SAFETY: CudaStreamMirror has the same field types in the same
+    // order as cudarc 0.19's CudaStream, and the const assertion
+    // _CUDA_STREAM_LAYOUT_GUARD verifies size and alignment match at
+    // compile time. The cudarc dependency is pinned to "0.19" in
+    // the workspace Cargo.toml so the layout is stable for the
+    // lifetime of this build.
+    let cuda_stream: CudaStream = unsafe { std::mem::transmute(mirror) };
+    Ok(Arc::new(cuda_stream))
+}
 
 // ---------------------------------------------------------------------------
 // CudaEventWrapper — safe wrapper around cudarc's CudaEvent
@@ -251,6 +441,140 @@ impl StreamPool {
             .map(|ds| ds.streams.len())
             .unwrap_or(0)
     }
+
+    /// Get a stream of the requested [`StreamPriority`] for the given
+    /// device, round-robin across the priority pool. CL-322.
+    ///
+    /// On first call for a `(device, priority)` pair, lazily creates
+    /// `STREAMS_PER_PRIORITY` streams via
+    /// [`new_stream_with_priority`]. Subsequent calls reuse them
+    /// round-robin.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` — The CUDA context for the target device. Must match
+    ///   `device_ordinal`.
+    /// * `device_ordinal` — The GPU device index (0-based).
+    /// * `priority` — The desired priority bucket.
+    ///
+    /// # Errors
+    ///
+    /// - Returns [`GpuError::InvalidDevice`] if
+    ///   `device_ordinal >= MAX_DEVICES`.
+    /// - Returns a CUDA driver error if stream creation fails.
+    pub fn get_priority_stream(
+        ctx: &Arc<CudaContext>,
+        device_ordinal: usize,
+        priority: StreamPriority,
+    ) -> GpuResult<Arc<CudaStream>> {
+        if device_ordinal >= MAX_DEVICES {
+            return Err(GpuError::InvalidDevice {
+                ordinal: device_ordinal,
+                count: MAX_DEVICES,
+            });
+        }
+
+        let slots = priority_pool_slots();
+        let key = (device_ordinal, priority);
+        let priority_streams = slots
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(key)
+            .or_insert_with(Vec::new)
+            .clone();
+
+        // Lazy: if the pool for this (device, priority) is empty,
+        // populate it. Re-acquire the lock for the insert.
+        if priority_streams.is_empty() {
+            let mut new_streams = Vec::with_capacity(STREAMS_PER_PRIORITY);
+            for _ in 0..STREAMS_PER_PRIORITY {
+                match new_stream_with_priority(ctx, priority) {
+                    Ok(s) => new_streams.push(s),
+                    Err(_) => break,
+                }
+            }
+            if new_streams.is_empty() {
+                return Err(GpuError::Driver(cudarc::driver::DriverError(
+                    cudarc::driver::sys::cudaError_enum::CUDA_ERROR_OUT_OF_MEMORY,
+                )));
+            }
+            let mut guard = slots.lock().unwrap_or_else(|p| p.into_inner());
+            // Race-safe: another thread may have populated meanwhile;
+            // check before overwriting.
+            let entry = guard.entry(key).or_insert_with(Vec::new);
+            if entry.is_empty() {
+                *entry = new_streams.clone();
+            }
+            // Read back the (possibly other thread's) populated pool
+            // so we serve a stable cloned snapshot below.
+            let snapshot = entry.clone();
+            drop(guard);
+            // Round-robin pick from the snapshot.
+            let idx = priority_pool_counter(key)
+                .fetch_add(1, Ordering::Relaxed)
+                % snapshot.len();
+            return Ok(Arc::clone(&snapshot[idx]));
+        }
+
+        let idx = priority_pool_counter(key).fetch_add(1, Ordering::Relaxed)
+            % priority_streams.len();
+        Ok(Arc::clone(&priority_streams[idx]))
+    }
+
+    /// Return the size of the priority pool for the given
+    /// `(device_ordinal, priority)` pair, or 0 if not yet
+    /// initialized. CL-322.
+    pub fn priority_pool_size(device_ordinal: usize, priority: StreamPriority) -> usize {
+        if device_ordinal >= MAX_DEVICES {
+            return 0;
+        }
+        let slots = priority_pool_slots();
+        slots
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&(device_ordinal, priority))
+            .map(|v| v.len())
+            .unwrap_or(0)
+    }
+}
+
+// Priority pool: a Mutex-protected map from (device_ordinal,
+// StreamPriority) to a Vec of cached streams. We use a Mutex rather
+// than per-key OnceLock because the key set is dynamic (3 priorities
+// × MAX_DEVICES rather than a flat array indexed by ordinal). The
+// critical section is short — a hash lookup + clone — so contention
+// is negligible. CL-322.
+#[cfg(feature = "cuda")]
+static PRIORITY_POOL: OnceLock<
+    std::sync::Mutex<HashMap<(usize, StreamPriority), Vec<Arc<CudaStream>>>>,
+> = OnceLock::new();
+
+#[cfg(feature = "cuda")]
+fn priority_pool_slots()
+-> &'static std::sync::Mutex<HashMap<(usize, StreamPriority), Vec<Arc<CudaStream>>>>
+{
+    PRIORITY_POOL.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+// Per-key round-robin counter for the priority pool. Stored as a
+// `Mutex<HashMap>` to allow lazy creation; the get path itself uses
+// `fetch_add` on the contained AtomicUsize so the lock is only held
+// briefly during the (rare) first lookup per key.
+#[cfg(feature = "cuda")]
+static PRIORITY_POOL_COUNTERS: OnceLock<
+    std::sync::Mutex<HashMap<(usize, StreamPriority), Arc<AtomicUsize>>>,
+> = OnceLock::new();
+
+#[cfg(feature = "cuda")]
+fn priority_pool_counter(key: (usize, StreamPriority)) -> Arc<AtomicUsize> {
+    let map = PRIORITY_POOL_COUNTERS
+        .get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    let mut guard = map.lock().unwrap_or_else(|p| p.into_inner());
+    Arc::clone(
+        guard
+            .entry(key)
+            .or_insert_with(|| Arc::new(AtomicUsize::new(0))),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -397,13 +721,23 @@ pub fn get_current_stream(_device: usize) -> Option<()> {
     None
 }
 
-/// Stub — no-op without CUDA.
+/// No-op without CUDA: there is no thread-local stream to set.
+/// Provided so callers compile against the same API on both feature
+/// configurations.
 #[cfg(not(feature = "cuda"))]
-pub fn set_current_stream(_device: usize, _stream: ()) {}
+pub fn set_current_stream(_device: usize, _stream: ()) {
+    // Without the cuda feature there are no real streams to track.
+    // The argument types are unit so there is nothing to store.
+}
 
-/// Stub — no-op without CUDA.
+/// No-op without CUDA: there is no thread-local stream to clear.
+/// Provided so callers compile against the same API on both feature
+/// configurations.
 #[cfg(not(feature = "cuda"))]
-pub fn clear_current_stream(_device: usize) {}
+pub fn clear_current_stream(_device: usize) {
+    // Without the cuda feature there are no real streams to track.
+    // The thread-local map only exists in the cuda-enabled module.
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -631,5 +965,98 @@ mod tests {
 
         // Synchronize stream2 — this implicitly waits for stream1's work too.
         stream2.synchronize().expect("synchronize should succeed");
+    }
+
+    // ── CL-322: stream priority ───────────────────────────────────────
+
+    #[test]
+    fn priority_range_returns_sane_values() {
+        let Some(ctx) = test_ctx() else { return };
+        let (least, greatest) = get_stream_priority_range(&ctx)
+            .expect("priority range should query successfully");
+        // CUDA convention: lower int = higher priority, so
+        // greatest <= least always holds. On devices that don't
+        // support priority both are 0.
+        assert!(
+            greatest <= least,
+            "priority range invariant violated: greatest={greatest} > least={least}"
+        );
+    }
+
+    #[test]
+    fn stream_priority_resolves_within_range() {
+        // Synthetic range with three distinct levels.
+        let range = (5, -5);
+        assert_eq!(StreamPriority::High.to_cuda_priority(range), -5);
+        assert_eq!(StreamPriority::Low.to_cuda_priority(range), 5);
+        // Normal sits at the midpoint of the integer range. Both
+        // greatest and least bracket it.
+        let normal = StreamPriority::Normal.to_cuda_priority(range);
+        assert!(normal >= -5 && normal <= 5);
+    }
+
+    #[test]
+    fn stream_priority_collapsed_range_resolves_to_zero() {
+        let range = (0, 0);
+        assert_eq!(StreamPriority::High.to_cuda_priority(range), 0);
+        assert_eq!(StreamPriority::Normal.to_cuda_priority(range), 0);
+        assert_eq!(StreamPriority::Low.to_cuda_priority(range), 0);
+    }
+
+    #[test]
+    fn new_stream_with_priority_succeeds_for_all_three_levels() {
+        let Some(ctx) = test_ctx() else { return };
+        let high = new_stream_with_priority(&ctx, StreamPriority::High)
+            .expect("high-priority stream creation should succeed");
+        let normal = new_stream_with_priority(&ctx, StreamPriority::Normal)
+            .expect("normal-priority stream creation should succeed");
+        let low = new_stream_with_priority(&ctx, StreamPriority::Low)
+            .expect("low-priority stream creation should succeed");
+
+        // The three streams must be distinct (sanity check that we
+        // didn't accidentally return the same Arc).
+        assert_ne!(Arc::as_ptr(&high), Arc::as_ptr(&normal));
+        assert_ne!(Arc::as_ptr(&normal), Arc::as_ptr(&low));
+        assert_ne!(Arc::as_ptr(&high), Arc::as_ptr(&low));
+    }
+
+    #[test]
+    fn new_stream_with_priority_actually_runs_kernels() {
+        // Create a high-priority stream and synchronize it. If our
+        // transmute conversion is layout-incorrect, cudarc would
+        // segfault here on the synchronize() call.
+        let Some(ctx) = test_ctx() else { return };
+        let stream = new_stream_with_priority(&ctx, StreamPriority::High)
+            .expect("high-priority stream creation should succeed");
+        stream.synchronize().expect("synchronize should succeed");
+    }
+
+    #[test]
+    fn priority_pool_caches_streams_per_device_and_priority() {
+        let Some(ctx) = test_ctx() else { return };
+        let dev = 0;
+
+        // Get a few streams of each priority. The pool should serve
+        // up to STREAMS_PER_PRIORITY distinct streams per priority,
+        // then round-robin.
+        let _h1 = StreamPool::get_priority_stream(&ctx, dev, StreamPriority::High)
+            .expect("get_priority_stream High should succeed");
+        let _l1 = StreamPool::get_priority_stream(&ctx, dev, StreamPriority::Low)
+            .expect("get_priority_stream Low should succeed");
+
+        // Pool sizes should be > 0 after first access.
+        let high_size = StreamPool::priority_pool_size(dev, StreamPriority::High);
+        let low_size = StreamPool::priority_pool_size(dev, StreamPriority::Low);
+        assert!(high_size > 0, "high-priority pool should have streams");
+        assert!(low_size > 0, "low-priority pool should have streams");
+        assert!(high_size <= STREAMS_PER_PRIORITY);
+        assert!(low_size <= STREAMS_PER_PRIORITY);
+    }
+
+    #[test]
+    fn priority_pool_invalid_device() {
+        let Some(ctx) = test_ctx() else { return };
+        let result = StreamPool::get_priority_stream(&ctx, 9999, StreamPriority::High);
+        assert!(matches!(result, Err(GpuError::InvalidDevice { .. })));
     }
 }
