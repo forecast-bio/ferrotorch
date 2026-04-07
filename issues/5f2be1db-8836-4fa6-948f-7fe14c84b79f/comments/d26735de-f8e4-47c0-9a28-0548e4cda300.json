@@ -1,0 +1,10 @@
+{
+  "uuid": "d26735de-f8e4-47c0-9a28-0548e4cda300",
+  "issue_uuid": "5f2be1db-8836-4fa6-948f-7fe14c84b79f",
+  "author": "y4rr",
+  "content": "Filed while closing #384. The IntermediateFeatures trait was added in ferrotorch-vision/src/models/feature_extractor.rs along with an impl for ResNet (stages: stem, layer1, layer2, layer3, layer4, avgpool, fc). The remaining vision models still need their own impls before FeatureExtractor can wrap them:\n\n- VGG (vgg11, vgg16) — natural stages are conv blocks 1-5 + classifier\n- ViT (vit_b_16) — patch_embed, transformer_blocks (per-block output), pre_logits, head\n- EfficientNet (efficientnet_b0) — stem, MBConv blocks per stage, head_conv, classifier\n- ConvNeXt (convnext_tiny) — stem, stages 1-4, head\n- Swin Transformer (swin_tiny) — stages 1-4 (each contains multiple blocks)\n- U-Net (unet) — encoder1-4, bottleneck, decoder1-4 (FCN/segmentation use case is the most natural for FE here)\n- YOLO — backbone stages\n\nPattern from the ResNet impl in ferrotorch-vision/src/models/resnet.rs (around line 590):\n1. impl IntermediateFeatures<T> for {Model}<T>\n2. forward_features iterates the architecture's forward path stage by stage and inserts each output into a HashMap with a stable string key\n3. feature_node_names returns the canonical name list\n\nEach impl is mechanical (~30-40 lines) once the stage names are decided. Group them by file to avoid touching too many files in a single commit.",
+  "created_at": "2026-04-07T14:24:56.112315181Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAT52v70aUcidQJRr88cqKloR/W/eiN52ESKenHnX/HXFa1LplHG9+CyM4MPzg2L+7N5xaaUbj7RYF14LIDSE5BA=="
+}
