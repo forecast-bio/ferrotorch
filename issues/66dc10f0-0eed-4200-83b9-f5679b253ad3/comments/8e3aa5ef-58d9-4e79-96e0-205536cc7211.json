@@ -1,0 +1,10 @@
+{
+  "uuid": "8e3aa5ef-58d9-4e79-96e0-205536cc7211",
+  "issue_uuid": "66dc10f0-0eed-4200-83b9-f5679b253ad3",
+  "author": "y4rr",
+  "content": "Closing: hierarchical-llm-rust is a third-party project, not ours to integrate. We use it purely as a downstream benchmarking and functionality testbed for ferrotorch — no integration work warranted. The Phase 0 baseline (Pythia/GPT-2 inference + gradcheck + finetune) already serves that purpose.",
+  "created_at": "2026-04-07T12:23:30.356360965Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA7nfNELHBBTXsVGrfclq1w3SzqiTKGesTKZw9Ypm8fkJ4IGdLDVMfkFeLI56MregmLYlNpJlFX2tTI7woJw3lAQ=="
+}
