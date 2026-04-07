@@ -1620,6 +1620,8 @@ dependencies = [
  "ferrotorch-core",
  "ferrotorch-nn",
  "ferrotorch-serialize",
+ "serde",
+ "serde_json",
  "sha2",
  "tempfile",
  "ureq",
@@ -4850,6 +4852,8 @@ dependencies = [
  "once_cell",
  "rustls",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "url",
  "webpki-roots 0.26.11",
 ]
