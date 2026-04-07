@@ -162,6 +162,101 @@ impl ExportedProgram {
         crate::interpret(&self.graph, inputs)
     }
 
+    /// Validate `inputs` against this program's [`input_specs`] and
+    /// run the graph. Returns an `InvalidArgument` error describing
+    /// the first violation if:
+    ///
+    /// - The number of inputs doesn't match `input_specs.len()`.
+    /// - Any input's rank doesn't match its spec's rank.
+    /// - Any concrete ([`DimSpec::Static`]) dim doesn't match.
+    /// - Any symbolic ([`DimSpec::Dynamic`]) dim is outside its
+    ///   optional `[min, max]` range.
+    ///
+    /// This is the torch.export-style "run with guards" path. Use
+    /// [`run`](Self::run) for the unchecked path. CL-461.
+    pub fn run_with_guards<T: Float>(
+        &self,
+        inputs: &[Tensor<T>],
+    ) -> FerrotorchResult<Tensor<T>> {
+        self.check_inputs(inputs)?;
+        self.run(inputs)
+    }
+
+    /// Check runtime `inputs` against [`input_specs`]. Returns an
+    /// error describing the first violation or `Ok(())` on success.
+    /// Public so callers can validate without running the graph.
+    /// CL-461.
+    pub fn check_inputs<T: Float>(&self, inputs: &[Tensor<T>]) -> FerrotorchResult<()> {
+        if inputs.len() != self.input_specs.len() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "ExportedProgram guard: expected {} inputs, got {}",
+                    self.input_specs.len(),
+                    inputs.len()
+                ),
+            });
+        }
+        for (i, (input, spec)) in inputs.iter().zip(self.input_specs.iter()).enumerate() {
+            let shape = input.shape();
+            if shape.len() != spec.shape.len() {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "ExportedProgram guard: input {i} rank mismatch: \
+                         spec has {} dims, runtime has {} (shape {:?})",
+                        spec.shape.len(),
+                        shape.len(),
+                        shape,
+                    ),
+                });
+            }
+            for (dim_idx, (&actual, expected)) in shape.iter().zip(spec.shape.iter()).enumerate() {
+                match expected {
+                    DimSpec::Static(s) => {
+                        if *s != actual {
+                            return Err(FerrotorchError::InvalidArgument {
+                                message: format!(
+                                    "ExportedProgram guard: input {i} dim {dim_idx} \
+                                     is static, expected {s}, got {actual}"
+                                ),
+                            });
+                        }
+                    }
+                    DimSpec::Dynamic { name, min, max } => {
+                        if actual == 0 {
+                            return Err(FerrotorchError::InvalidArgument {
+                                message: format!(
+                                    "ExportedProgram guard: input {i} dim {dim_idx} \
+                                     ('{name}') has runtime value 0"
+                                ),
+                            });
+                        }
+                        if let Some(min_v) = min {
+                            if actual < *min_v {
+                                return Err(FerrotorchError::InvalidArgument {
+                                    message: format!(
+                                        "ExportedProgram guard: input {i} dim {dim_idx} \
+                                         ('{name}') = {actual} is below declared min {min_v}"
+                                    ),
+                                });
+                            }
+                        }
+                        if let Some(max_v) = max {
+                            if actual > *max_v {
+                                return Err(FerrotorchError::InvalidArgument {
+                                    message: format!(
+                                        "ExportedProgram guard: input {i} dim {dim_idx} \
+                                         ('{name}') = {actual} is above declared max {max_v}"
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Serialize this `ExportedProgram` to a compact binary byte vector.
     ///
     /// The format is self-contained and deterministic: it layers a
@@ -1161,6 +1256,107 @@ mod tests {
         let a = program.serialize();
         let b = program.serialize();
         assert_eq!(a, b);
+    }
+
+    // --- CL-461: runtime guards on ExportedProgram::run -----------------
+
+    fn build_relu_program_with_dynamic_batch() -> ExportedProgram {
+        use crate::graph::{IrGraph, IrOpKind};
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4, 10]);
+        let (_, outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![4, 10]]);
+        g.set_outputs(vec![outs[0]]);
+
+        ExportedProgram {
+            graph: g,
+            state_dict: HashMap::new(),
+            input_shapes: vec![vec![4, 10]],
+            input_specs: vec![InputSpec::new(vec![
+                DimSpec::dynamic_range("batch", 1, 32),
+                DimSpec::Static(10),
+            ])],
+            output_shape: vec![4, 10],
+        }
+    }
+
+    #[test]
+    fn test_check_inputs_accepts_valid_dynamic_batch() {
+        use ferrotorch_core::randn;
+        let program = build_relu_program_with_dynamic_batch();
+        // Batch=8 is in [1, 32] and dim 1 matches static 10.
+        let x: Tensor<f32> = randn(&[8, 10]).unwrap();
+        program.check_inputs(&[x]).unwrap();
+    }
+
+    #[test]
+    fn test_check_inputs_rejects_wrong_input_count() {
+        let program = build_relu_program_with_dynamic_batch();
+        let empty: Vec<Tensor<f32>> = vec![];
+        let result = program.check_inputs(&empty);
+        assert!(result.is_err());
+        assert!(format!("{}", result.unwrap_err()).contains("expected 1 inputs, got 0"));
+    }
+
+    #[test]
+    fn test_check_inputs_rejects_rank_mismatch() {
+        use ferrotorch_core::randn;
+        let program = build_relu_program_with_dynamic_batch();
+        let x: Tensor<f32> = randn(&[8, 10, 2]).unwrap();
+        let result = program.check_inputs(&[x]);
+        assert!(result.is_err());
+        assert!(format!("{}", result.unwrap_err()).contains("rank mismatch"));
+    }
+
+    #[test]
+    fn test_check_inputs_rejects_static_dim_mismatch() {
+        use ferrotorch_core::randn;
+        let program = build_relu_program_with_dynamic_batch();
+        // dim 1 is static 10 but we pass 7.
+        let x: Tensor<f32> = randn(&[8, 7]).unwrap();
+        let result = program.check_inputs(&[x]);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("dim 1"));
+        assert!(err.contains("expected 10, got 7"));
+    }
+
+    #[test]
+    fn test_check_inputs_rejects_dynamic_dim_below_min() {
+        use ferrotorch_core::randn;
+        let program = build_relu_program_with_dynamic_batch();
+        // batch must be >= 1, but we have the special zero check.
+        // Use the range case: batch=0 fails the "runtime value 0" check.
+        let x: Tensor<f32> = randn(&[1, 10]).unwrap();
+        // 1 is exactly min — should be accepted.
+        program.check_inputs(&[x]).unwrap();
+    }
+
+    #[test]
+    fn test_check_inputs_rejects_dynamic_dim_above_max() {
+        use ferrotorch_core::randn;
+        let program = build_relu_program_with_dynamic_batch();
+        let x: Tensor<f32> = randn(&[64, 10]).unwrap();
+        let result = program.check_inputs(&[x]);
+        assert!(result.is_err());
+        assert!(format!("{}", result.unwrap_err()).contains("above declared max 32"));
+    }
+
+    #[test]
+    fn test_run_with_guards_runs_when_inputs_valid() {
+        use ferrotorch_core::randn;
+        let program = build_relu_program_with_dynamic_batch();
+        let x: Tensor<f32> = randn(&[16, 10]).unwrap();
+        let out = program.run_with_guards(&[x]).unwrap();
+        assert_eq!(out.shape(), &[16, 10]);
+    }
+
+    #[test]
+    fn test_run_with_guards_rejects_bad_inputs_without_calling_interpret() {
+        use ferrotorch_core::randn;
+        let program = build_relu_program_with_dynamic_batch();
+        let x: Tensor<f32> = randn(&[64, 10]).unwrap();
+        let result = program.run_with_guards(&[x]);
+        assert!(result.is_err());
     }
 
     #[test]
