@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.3] - 2026-03-17
 
 ### Fixed
+- reduce_grad_to_shape underflow when grad_ndim < target_ndim (#498)
 - Fix permute benchmark to include contiguous copy for apples-to-apples PyTorch comparison (#409)
 - Fix unused import warnings in ferrotorch-optim (#194)
 - Fix dead code warnings properly — wire unused is_f64 and unwrap_buffer_f64_mut into dispatch paths (#493)
@@ -57,6 +58,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- FSDP SHARD_GRAD_OP (ZeRO-2) and NoShard (ZeRO-0/DDP) sharding strategies, with `broadcast_updated_params` re-sync hook (#372)
+- Expand KL divergence registry — cross-family pairs (Normal-Laplace, Gamma-Exponential, etc.) (#365)
+- Optimizer differentiable mode — autograd through optimizer step for meta-learning (#389)
+- Profiler TensorBoard export integration (#381)
+- Hub dynamic model discovery from HuggingFace API (#383)
+- Add profiler scheduling, memory categories, FLOPS estimation, and stack traces (#333)
+- WU-08: vmap composability — multi-arg/output, matmul batching rule, per_sample_grad (#362)
+- Fix vmap composability and add batching rules for matmul, elementwise ops (#312)
+- Meta device: propagate through arithmetic and linalg ops for full shape inference (#500)
+- JIT multi-output graph support (currently single output only) (#368)
+- Profiler auto-instrumentation of tensor ops (currently manual record() calls only) (#379)
+- Meta device — dry-run tensor allocation for shape inference without data (#395)
+- Vision feature extraction — return intermediate layer outputs, not just final (#384)
+- Vision pretrained weight auto-download (registry returns false for all models) (#385)
+- Hub auto-download with reqwest HTTP client + SHA-256 verification (#382)
+- Add SyncBatchNorm — distributed batch normalization across GPUs (#392)
+- DataLoader pin_memory for async CPU→GPU transfer (#378)
+- Optimizer foreach/fused kernel modes for batched parameter updates (#388)
+- Gradient checkpointing multi-tensor input and autocast state preservation (#400)
+- Integrate hierarchical-llm-rust as ferrotorch consumer test (#410)
 - Add PyTorch export writer, expand dtype support, expand ONNX op coverage (#328)
 - WU-07 remainder: integrate anomaly detection into backward engine (check NaN/Inf) (#361)
 - Wire autocast context to classify operations via autocast_ops module (#161)
@@ -157,6 +178,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- Add vision transforms: GaussianNoise, ElasticTransform, TrivialAugmentWide (#458)
+- Implement LazyLinear and LazyConv variants (deferred shape inference) (#445)
+- Add missing crate READMEs and update workspace README for crates.io publishing (#177)
+- Add relaxed distributions: RelaxedBernoulli, RelaxedOneHotCategorical, OneHotCategorical (#430)
+- Add missing distributions: LowRankMultivariateNormal, MixtureSameFamily, Independent (#429)
+- Add GPU path for flex_attention (currently downloads Q/K/V to CPU) (#483)
+- Add GPU path for einops rearrange/repeat/reduce (currently CPU roundtrip) (#484)
 - Add vision transforms: RandomErasing, AutoAugment, RandAugment, AugMix (#437)
 - Add missing distributions: Kumaraswamy, LKJCholesky, LogisticNormal, Wishart (#428)
 - Add missing distributions: Weibull, VonMises, Gumbel, Pareto, GeneralizedPareto (#426)

@@ -333,38 +333,51 @@ impl<M: Module<T>, T: Float> Pipeline<M, T> {
 mod tests {
     use super::*;
     use crate::backend::SimulatedBackend;
+    use ferrotorch_nn::Parameter;
+
+    /// Identity module with real train/eval state tracking.
+    /// Used by multiple pipeline validation tests.
+    struct IdentityModule {
+        training: bool,
+    }
+
+    impl IdentityModule {
+        fn new() -> Self {
+            Self { training: true }
+        }
+    }
+
+    impl Module<f32> for IdentityModule {
+        fn forward(&self, input: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
+            Ok(input.clone())
+        }
+        fn parameters(&self) -> Vec<&Parameter<f32>> {
+            vec![]
+        }
+        fn parameters_mut(&mut self) -> Vec<&mut Parameter<f32>> {
+            vec![]
+        }
+        fn named_parameters(&self) -> Vec<(String, &Parameter<f32>)> {
+            vec![]
+        }
+        fn train(&mut self) {
+            self.training = true;
+        }
+        fn eval(&mut self) {
+            self.training = false;
+        }
+        fn is_training(&self) -> bool {
+            self.training
+        }
+    }
 
     #[test]
     fn test_pipeline_new_validates_microbatches() {
-        use ferrotorch_core::TensorStorage;
-        use ferrotorch_nn::Parameter;
-
-        struct DummyModule;
-        impl Module<f32> for DummyModule {
-            fn forward(&self, input: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
-                Ok(input.clone())
-            }
-            fn parameters(&self) -> Vec<&Parameter<f32>> {
-                vec![]
-            }
-            fn parameters_mut(&mut self) -> Vec<&mut Parameter<f32>> {
-                vec![]
-            }
-            fn named_parameters(&self) -> Vec<(String, &Parameter<f32>)> {
-                vec![]
-            }
-            fn train(&mut self) {}
-            fn eval(&mut self) {}
-            fn is_training(&self) -> bool {
-                true
-            }
-        }
-
         let group = SimulatedBackend::create_group(2).unwrap();
         let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
 
         // Zero microbatches should error.
-        let result = Pipeline::new(DummyModule, b.clone(), 0, PipelineSchedule::GPipe);
+        let result = Pipeline::new(IdentityModule::new(), b.clone(), 0, PipelineSchedule::GPipe);
         assert!(result.is_err());
         let err = format!("{}", result.unwrap_err());
         assert!(err.contains("num_microbatches must be > 0"));
@@ -372,34 +385,11 @@ mod tests {
 
     #[test]
     fn test_pipeline_new_validates_world_size() {
-        use ferrotorch_nn::Parameter;
-
-        struct DummyModule;
-        impl Module<f32> for DummyModule {
-            fn forward(&self, input: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
-                Ok(input.clone())
-            }
-            fn parameters(&self) -> Vec<&Parameter<f32>> {
-                vec![]
-            }
-            fn parameters_mut(&mut self) -> Vec<&mut Parameter<f32>> {
-                vec![]
-            }
-            fn named_parameters(&self) -> Vec<(String, &Parameter<f32>)> {
-                vec![]
-            }
-            fn train(&mut self) {}
-            fn eval(&mut self) {}
-            fn is_training(&self) -> bool {
-                true
-            }
-        }
-
         let group = SimulatedBackend::create_group(1).unwrap();
         let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
 
         // World size 1 should error.
-        let result = Pipeline::new(DummyModule, b, 2, PipelineSchedule::OneFOnEB);
+        let result = Pipeline::new(IdentityModule::new(), b, 2, PipelineSchedule::OneFOnEB);
         assert!(result.is_err());
         let err = format!("{}", result.unwrap_err());
         assert!(err.contains("world_size must be >= 2"));
@@ -407,34 +397,22 @@ mod tests {
 
     #[test]
     fn test_pipeline_schedule_accessors() {
-        use ferrotorch_nn::Parameter;
-
-        struct DummyModule;
-        impl Module<f32> for DummyModule {
-            fn forward(&self, input: &Tensor<f32>) -> FerrotorchResult<Tensor<f32>> {
-                Ok(input.clone())
-            }
-            fn parameters(&self) -> Vec<&Parameter<f32>> {
-                vec![]
-            }
-            fn parameters_mut(&mut self) -> Vec<&mut Parameter<f32>> {
-                vec![]
-            }
-            fn named_parameters(&self) -> Vec<(String, &Parameter<f32>)> {
-                vec![]
-            }
-            fn train(&mut self) {}
-            fn eval(&mut self) {}
-            fn is_training(&self) -> bool {
-                true
-            }
-        }
-
         let group = SimulatedBackend::create_group(2).unwrap();
         let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
 
-        let pipeline = Pipeline::new(DummyModule, b, 4, PipelineSchedule::GPipe).unwrap();
+        let pipeline =
+            Pipeline::new(IdentityModule::new(), b, 4, PipelineSchedule::GPipe).unwrap();
         assert_eq!(pipeline.schedule(), PipelineSchedule::GPipe);
         assert_eq!(pipeline.num_microbatches(), 4);
+    }
+
+    #[test]
+    fn test_identity_module_train_eval_toggles_state() {
+        let mut m = IdentityModule::new();
+        assert!(m.is_training());
+        m.eval();
+        assert!(!m.is_training());
+        m.train();
+        assert!(m.is_training());
     }
 }
