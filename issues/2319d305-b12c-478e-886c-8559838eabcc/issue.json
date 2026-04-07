@@ -2,11 +2,12 @@
   "uuid": "2319d305-b12c-478e-886c-8559838eabcc",
   "display_id": 369,
   "title": "JIT autotuning — benchmark tile/block sizes for generated kernels",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T19:55:16.776430526Z",
-  "updated_at": "2026-03-24T19:55:18.300302927Z",
+  "updated_at": "2026-04-07T21:48:03.327159308Z",
+  "closed_at": "2026-04-07T21:48:03.327159308Z",
   "labels": [
     "feature"
   ]
