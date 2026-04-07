@@ -1,0 +1,10 @@
+{
+  "uuid": "cca83585-1d6b-4da9-b829-0b5205bbd28a",
+  "issue_uuid": "a12fa64e-90f8-4fc6-81d7-cfafbaf9bc5e",
+  "author": "y4rr",
+  "content": "Partial implementation via #372 — ShardGradOp and NoShard strategies are done (commit 600734e3). HybridShard requires a subgroup API on Backend (intra-node + inter-node process groups) that doesn't exist today; that's a larger refactor best tracked as its own issue. Backward prefetch is already tracked in #373.",
+  "created_at": "2026-04-07T20:25:59.150377900Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAqfc81hipYW4eVt86tnjhy0nlKOZEHwku/8a6oMGkLF4Z2G92EyPSXFQCjHqIHEgTXniWm2bnFAHC1pIkOpXhBA=="
+}
