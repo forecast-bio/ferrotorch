@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{FerrotorchResult, Float, no_grad};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -39,6 +39,14 @@ pub struct SgdConfig {
     /// When `true`, maximize the objective by negating the gradient (default:
     /// false). CL-321
     pub maximize: bool,
+    /// When `true`, the optimizer uses a tensor-op update path that keeps
+    /// parameters and momentum buffers on the parameter's native device
+    /// (default: false). Compared to the legacy CPU path which downloads
+    /// parameter and gradient buffers each step, the foreach path avoids
+    /// per-step CPU↔GPU round-trips when training on CUDA. Functionally
+    /// equivalent on CPU but somewhat slower than the manual loop path
+    /// for small tensors due to per-op kernel launch overhead. CL-388
+    pub foreach: bool,
 }
 
 impl SgdConfig {
@@ -57,7 +65,14 @@ impl SgdConfig {
             weight_decay: 0.0,
             nesterov: false,
             maximize: false,
+            foreach: false,
         }
+    }
+
+    /// Enable or disable the foreach (tensor-op, on-device) update path.
+    pub fn foreach(mut self, foreach: bool) -> Self {
+        self.foreach = foreach;
+        self
     }
 
     /// Set the momentum factor.
@@ -103,10 +118,15 @@ pub struct Sgd<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     /// Global configuration (momentum, dampening, weight_decay, nesterov).
     config: SgdConfig,
-    /// Momentum buffers keyed by `"{group_idx}_{param_idx}"`.
+    /// Legacy CPU-side momentum buffers keyed by `"{group_idx}_{param_idx}"`.
+    /// Used when `config.foreach == false`.
     momentum_buffers: HashMap<String, Vec<T>>,
+    /// Foreach (on-device) momentum buffers, used when `config.foreach == true`.
+    /// Each buffer lives on the same device as its parameter and is updated
+    /// via tensor-op kernels with no CPU round-trip per step.
+    foreach_buffers: HashMap<String, Tensor<T>>,
     /// Tracks whether each parameter has had its first step (for momentum
-    /// buffer initialization). Keyed the same as `momentum_buffers`.
+    /// buffer initialization). Keyed the same as the buffer maps above.
     step_count: HashMap<String, u64>,
 }
 
@@ -123,6 +143,7 @@ impl<T: Float> Sgd<T> {
             param_groups: vec![group],
             config,
             momentum_buffers: HashMap::new(),
+            foreach_buffers: HashMap::new(),
             step_count: HashMap::new(),
         }
     }
@@ -132,10 +153,111 @@ impl<T: Float> Sgd<T> {
     fn buf_key(group_idx: usize, param_idx: usize) -> String {
         format!("{group_idx}_{param_idx}")
     }
+
+    /// Foreach (on-device, tensor-op) update path. Activated when
+    /// `config.foreach == true`. Returns Ok(()) on success.
+    fn step_foreach(&mut self) -> FerrotorchResult<()> {
+        use ferrotorch_core::creation::scalar;
+        use ferrotorch_core::grad_fns::arithmetic::{add, mul, neg, sub};
+
+        let momentum = self.config.momentum;
+        let dampening = self.config.dampening;
+        let nesterov = self.config.nesterov;
+
+        for gi in 0..self.param_groups.len() {
+            let group_lr = self.param_groups[gi].lr;
+            let group_wd = self.param_groups[gi].weight_decay;
+
+            for pi in 0..self.param_groups[gi].params.len() {
+                let param = &self.param_groups[gi].params[pi];
+                let param_t = param.tensor();
+
+                let grad_tensor = match param.grad()? {
+                    Some(g) => g,
+                    None => continue,
+                };
+
+                let device = param_t.device();
+                let key = Self::buf_key(gi, pi);
+
+                no_grad(|| {
+                    // Step 1: gradient (possibly negated for maximize, possibly
+                    // L2 weight-decayed). All ops are GPU-aware on CUDA.
+                    let mut grad: Tensor<T> = grad_tensor.clone();
+                    if self.config.maximize {
+                        grad = neg(&grad)?;
+                    }
+                    if group_wd > 0.0 {
+                        let wd_t = scalar(T::from(group_wd).unwrap())?.to(device)?;
+                        let weighted = mul(&param_t, &wd_t)?;
+                        grad = add(&grad, &weighted)?;
+                    }
+
+                    // Step 2: momentum.
+                    let effective_grad = if momentum > 0.0 {
+                        let step = self.step_count.entry(key.clone()).or_insert(0);
+                        let buf = if *step == 0 {
+                            // First step: buf = grad
+                            self.foreach_buffers.insert(key.clone(), grad.clone());
+                            grad.clone()
+                        } else {
+                            // buf = momentum * buf + (1 - dampening) * grad
+                            let mom_t = scalar(T::from(momentum).unwrap())?.to(device)?;
+                            let damp_coeff = scalar(T::from(1.0 - dampening).unwrap())?.to(device)?;
+                            let prev_buf = self
+                                .foreach_buffers
+                                .get(&key)
+                                .expect("foreach buffer present after first step")
+                                .clone();
+                            let scaled_buf = mul(&prev_buf, &mom_t)?;
+                            let scaled_grad = mul(&grad, &damp_coeff)?;
+                            let new_buf = add(&scaled_buf, &scaled_grad)?;
+                            self.foreach_buffers.insert(key.clone(), new_buf.clone());
+                            new_buf
+                        };
+                        *step += 1;
+
+                        if nesterov {
+                            // grad = grad + momentum * buf
+                            let mom_t = scalar(T::from(momentum).unwrap())?.to(device)?;
+                            let mom_buf = mul(&buf, &mom_t)?;
+                            add(&grad, &mom_buf)?
+                        } else {
+                            buf
+                        }
+                    } else {
+                        grad
+                    };
+
+                    // Step 3: param = param - lr * effective_grad
+                    let lr_t = scalar(T::from(group_lr).unwrap())?.to(device)?;
+                    let scaled = mul(&effective_grad, &lr_t)?;
+                    let new_param = sub(&param_t, &scaled)?;
+
+                    // Commit by swapping the underlying storage on the same
+                    // device. update_storage is GPU-native — no round-trip.
+                    let (storage, _) = new_param.into_storage_and_shape()?;
+                    // SAFETY: optimizer step runs inside no_grad with exclusive
+                    // access to the parameter, so no aliasing references exist.
+                    unsafe { param_t.update_storage(storage)? };
+                    Ok::<(), ferrotorch_core::FerrotorchError>(())
+                })?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<T: Float> Optimizer<T> for Sgd<T> {
     fn step(&mut self) -> FerrotorchResult<()> {
+        // Dispatch to the on-device tensor-op path when foreach mode is on.
+        // The legacy CPU path below stays as the default — it's faster for
+        // small CPU tensors due to lower per-op overhead.
+        if self.config.foreach {
+            return self.step_foreach();
+        }
+
         let momentum = self.config.momentum;
         let dampening = self.config.dampening;
         let nesterov = self.config.nesterov;
@@ -665,5 +787,159 @@ mod tests {
             final_loss < 0.01,
             "XOR did not converge: final loss = {final_loss}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Foreach mode tests — verify parity with the legacy CPU path. CL-388
+    // -----------------------------------------------------------------------
+
+    /// Helper: build two copies of the same parameter so we can run the
+    /// legacy and foreach paths side by side and compare results.
+    fn paired_param(data: &[f32]) -> (Parameter<f32>, Parameter<f32>) {
+        let p1 = Parameter::from_slice(data, &[data.len()]).unwrap();
+        let p2 = Parameter::from_slice(data, &[data.len()]).unwrap();
+        (p1, p2)
+    }
+
+    #[test]
+    fn test_foreach_basic_parity_no_momentum() {
+        // foreach=true and foreach=false should produce the same result
+        // for plain SGD (no momentum, no decay).
+        let (p_legacy, p_foreach) = paired_param(&[1.0, 2.0, 3.0]);
+
+        // Configure two optimizers with the same lr.
+        let mut sgd_legacy = Sgd::new(vec![p_legacy.clone()], SgdConfig::new(0.1));
+        let mut sgd_foreach = Sgd::new(vec![p_foreach.clone()], SgdConfig::new(0.1).foreach(true));
+
+        let grad = leaf(&[0.1, 0.2, 0.3], &[3], false);
+        p_legacy.set_grad(Some(grad.clone())).unwrap();
+        p_foreach.set_grad(Some(grad)).unwrap();
+
+        sgd_legacy.step().unwrap();
+        sgd_foreach.step().unwrap();
+
+        let l = sgd_legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = sgd_foreach.param_groups()[0].params[0].data().unwrap().to_vec();
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-6,
+                "foreach output {} differs from legacy {}",
+                b,
+                a
+            );
+        }
+    }
+
+    #[test]
+    fn test_foreach_parity_with_momentum() {
+        let (p_legacy, p_foreach) = paired_param(&[10.0, 20.0]);
+        let mut sgd_legacy = Sgd::new(vec![p_legacy.clone()], SgdConfig::new(0.1).momentum(0.9));
+        let mut sgd_foreach = Sgd::new(
+            vec![p_foreach.clone()],
+            SgdConfig::new(0.1).momentum(0.9).foreach(true),
+        );
+
+        // Run three steps with the same gradients.
+        for _ in 0..3 {
+            let g = leaf(&[1.0, 2.0], &[2], false);
+            p_legacy.set_grad(Some(g.clone())).unwrap();
+            p_foreach.set_grad(Some(g)).unwrap();
+            sgd_legacy.step().unwrap();
+            sgd_foreach.step().unwrap();
+        }
+
+        let l = sgd_legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = sgd_foreach.param_groups()[0].params[0].data().unwrap().to_vec();
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "momentum parity: legacy={}, foreach={}",
+                a,
+                b
+            );
+        }
+    }
+
+    #[test]
+    fn test_foreach_parity_with_weight_decay() {
+        let (p_legacy, p_foreach) = paired_param(&[5.0, -3.0, 2.0]);
+        let mut sgd_legacy =
+            Sgd::new(vec![p_legacy.clone()], SgdConfig::new(0.1).weight_decay(0.05));
+        let mut sgd_foreach = Sgd::new(
+            vec![p_foreach.clone()],
+            SgdConfig::new(0.1).weight_decay(0.05).foreach(true),
+        );
+
+        for _ in 0..2 {
+            let g = leaf(&[0.5, -0.5, 1.0], &[3], false);
+            p_legacy.set_grad(Some(g.clone())).unwrap();
+            p_foreach.set_grad(Some(g)).unwrap();
+            sgd_legacy.step().unwrap();
+            sgd_foreach.step().unwrap();
+        }
+
+        let l = sgd_legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = sgd_foreach.param_groups()[0].params[0].data().unwrap().to_vec();
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "weight decay parity: legacy={}, foreach={}",
+                a,
+                b
+            );
+        }
+    }
+
+    #[test]
+    fn test_foreach_parity_with_nesterov() {
+        let (p_legacy, p_foreach) = paired_param(&[1.0, 1.0, 1.0]);
+        let mut sgd_legacy = Sgd::new(
+            vec![p_legacy.clone()],
+            SgdConfig::new(0.05).momentum(0.9).nesterov(true),
+        );
+        let mut sgd_foreach = Sgd::new(
+            vec![p_foreach.clone()],
+            SgdConfig::new(0.05)
+                .momentum(0.9)
+                .nesterov(true)
+                .foreach(true),
+        );
+
+        for _ in 0..4 {
+            let g = leaf(&[0.1, 0.2, 0.3], &[3], false);
+            p_legacy.set_grad(Some(g.clone())).unwrap();
+            p_foreach.set_grad(Some(g)).unwrap();
+            sgd_legacy.step().unwrap();
+            sgd_foreach.step().unwrap();
+        }
+
+        let l = sgd_legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = sgd_foreach.param_groups()[0].params[0].data().unwrap().to_vec();
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "nesterov parity: legacy={}, foreach={}",
+                a,
+                b
+            );
+        }
+    }
+
+    #[test]
+    fn test_foreach_skips_params_without_grad() {
+        // Same skip-no-grad behavior as the legacy path.
+        let p1 = Parameter::from_slice(&[1.0f32, 2.0], &[2]).unwrap();
+        let p2 = Parameter::from_slice(&[3.0f32, 4.0], &[2]).unwrap();
+        let g = leaf(&[1.0, 1.0], &[2], false);
+        p1.set_grad(Some(g)).unwrap();
+        // p2 has no grad.
+
+        let mut sgd = Sgd::new(vec![p1, p2], SgdConfig::new(0.5).foreach(true));
+        sgd.step().unwrap();
+
+        let p1_data = sgd.param_groups()[0].params[0].data().unwrap();
+        let p2_data = sgd.param_groups()[0].params[1].data().unwrap();
+        assert!((p1_data[0] - 0.5).abs() < 1e-5);
+        assert!((p2_data[0] - 3.0).abs() < 1e-5); // unchanged
     }
 }
