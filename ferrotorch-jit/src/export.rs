@@ -21,6 +21,97 @@ use crate::graph::IrGraph;
 use crate::trace;
 
 // ---------------------------------------------------------------------------
+// Symbolic shape specs — DimSpec, InputSpec
+// ---------------------------------------------------------------------------
+
+/// A single dimension in an [`InputSpec`] — either a fixed integer
+/// size or a symbolic (dynamic) dimension with an optional range.
+///
+/// Mirrors PyTorch's `torch.export.Dim` / `SymInt` for dynamic shape
+/// support. Produced by [`export`] (all dims are [`DimSpec::Static`])
+/// or [`export_with_dynamic_shapes`] (selected dims are
+/// [`DimSpec::Dynamic`]). CL-396.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DimSpec {
+    /// A fixed, concrete dimension size.
+    Static(usize),
+    /// A dynamic dimension whose size is allowed to vary at runtime.
+    Dynamic {
+        /// Symbolic name (e.g., `"batch"`). Forwarded to ONNX as
+        /// `dim_param` for consumers that support symbolic shapes.
+        name: String,
+        /// Optional inclusive minimum. `None` means unbounded.
+        min: Option<usize>,
+        /// Optional inclusive maximum. `None` means unbounded.
+        max: Option<usize>,
+    },
+}
+
+impl DimSpec {
+    /// Convenience constructor for a symbolic dim with no bounds.
+    pub fn dynamic(name: impl Into<String>) -> Self {
+        DimSpec::Dynamic {
+            name: name.into(),
+            min: None,
+            max: None,
+        }
+    }
+
+    /// Convenience constructor for a symbolic dim bounded to
+    /// `[min, max]` inclusive.
+    pub fn dynamic_range(name: impl Into<String>, min: usize, max: usize) -> Self {
+        DimSpec::Dynamic {
+            name: name.into(),
+            min: Some(min),
+            max: Some(max),
+        }
+    }
+
+    /// Returns `true` if this dimension is dynamic.
+    pub fn is_dynamic(&self) -> bool {
+        matches!(self, DimSpec::Dynamic { .. })
+    }
+}
+
+/// Per-input shape specification carrying a mix of static and
+/// dynamic dimensions.
+///
+/// [`export`] produces `InputSpec`s with all dimensions
+/// [`DimSpec::Static`]. To mark dimensions as symbolic, use
+/// [`export_with_dynamic_shapes`] (or construct an `InputSpec`
+/// manually and pass it to [`export_from_program`] in
+/// `ferrotorch-serialize`). CL-396.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputSpec {
+    /// Per-dimension spec, outermost-first.
+    pub shape: Vec<DimSpec>,
+}
+
+impl InputSpec {
+    /// Create a new `InputSpec` from a list of dim specs.
+    pub fn new(shape: Vec<DimSpec>) -> Self {
+        Self { shape }
+    }
+
+    /// Build an all-static `InputSpec` from concrete sizes.
+    pub fn all_static(shape: &[usize]) -> Self {
+        Self {
+            shape: shape.iter().map(|&d| DimSpec::Static(d)).collect(),
+        }
+    }
+
+    /// Returns `true` if any dimension in this spec is dynamic.
+    pub fn has_dynamic_dims(&self) -> bool {
+        self.shape.iter().any(|d| d.is_dynamic())
+    }
+
+    /// Number of dimensions (rank).
+    pub fn rank(&self) -> usize {
+        self.shape.len()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ExportedProgram
 // ---------------------------------------------------------------------------
 
@@ -47,6 +138,13 @@ pub struct ExportedProgram {
     pub state_dict: HashMap<String, Vec<f32>>,
     /// Input tensor shapes used during tracing.
     pub input_shapes: Vec<Vec<usize>>,
+    /// Per-input shape specifications, optionally carrying symbolic
+    /// (dynamic) dimensions. Produced by [`export`] (all
+    /// [`DimSpec::Static`]) or [`export_with_dynamic_shapes`]
+    /// (selected dims [`DimSpec::Dynamic`]). Consumers such as
+    /// `ferrotorch-serialize::export_from_program` use this to emit
+    /// `dim_param` entries in ONNX for dynamic axes. CL-396.
+    pub input_specs: Vec<InputSpec>,
     /// Output tensor shape produced during tracing.
     pub output_shape: Vec<usize>,
 }
@@ -172,7 +270,51 @@ pub fn export<T: Float, M: Module<T>>(
     module: &M,
     example_inputs: &[Tensor<T>],
 ) -> FerrotorchResult<ExportedProgram> {
-    // Validate single-input constraint.
+    // All-static input specs derived from example shapes.
+    let input_specs: Vec<InputSpec> = example_inputs
+        .iter()
+        .map(|t| InputSpec::all_static(t.shape()))
+        .collect();
+    export_with_dynamic_shapes(module, example_inputs, input_specs)
+}
+
+/// Like [`export`] but lets the caller mark selected input dimensions
+/// as symbolic (dynamic) via [`InputSpec`]s.
+///
+/// The resulting [`ExportedProgram`] records the per-input
+/// [`DimSpec`] list in its `input_specs` field, which downstream
+/// exporters (e.g. ONNX `export_from_program`) use to emit
+/// `dim_param` entries for dynamic axes. CL-396.
+///
+/// # Arguments
+///
+/// * `module` — the module to trace.
+/// * `example_inputs` — concrete example tensors; their sizes set the
+///   trace-time shapes. Dynamic dim positions must match the
+///   example's concrete size at trace time, but runtime consumers
+///   are free to substitute any positive integer (subject to the
+///   optional `min`/`max` bounds) so long as the remaining
+///   shape-dependent ops are polymorphic.
+/// * `input_specs` — one `InputSpec` per input, specifying which
+///   dims are static vs. dynamic. Length must equal
+///   `example_inputs.len()`, and each `InputSpec.rank()` must match
+///   the corresponding example tensor's rank.
+///
+/// # Errors
+///
+/// - `example_inputs` does not have exactly one tensor (single-input
+///   limitation inherited from [`export`]).
+/// - `input_specs.len() != example_inputs.len()`.
+/// - Any `InputSpec` rank does not match its example tensor's rank.
+/// - Any `DimSpec::Static` dim does not match the example's size at
+///   that position.
+/// - Tracing fails.
+pub fn export_with_dynamic_shapes<T: Float, M: Module<T>>(
+    module: &M,
+    example_inputs: &[Tensor<T>],
+    input_specs: Vec<InputSpec>,
+) -> FerrotorchResult<ExportedProgram> {
+    // Validate single-input constraint (inherited from export).
     if example_inputs.len() != 1 {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
@@ -183,8 +325,46 @@ pub fn export<T: Float, M: Module<T>>(
             ),
         });
     }
+    if input_specs.len() != example_inputs.len() {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "export_with_dynamic_shapes: input_specs length {} does not match \
+                 example_inputs length {}",
+                input_specs.len(),
+                example_inputs.len(),
+            ),
+        });
+    }
+    for (i, (spec, example)) in input_specs.iter().zip(example_inputs.iter()).enumerate() {
+        if spec.rank() != example.shape().len() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "export_with_dynamic_shapes: input {i} rank mismatch: \
+                     spec rank {} vs example rank {} (example shape {:?})",
+                    spec.rank(),
+                    example.shape().len(),
+                    example.shape(),
+                ),
+            });
+        }
+        for (dim_idx, (dim_spec, &example_dim)) in
+            spec.shape.iter().zip(example.shape().iter()).enumerate()
+        {
+            if let DimSpec::Static(s) = dim_spec {
+                if *s != example_dim {
+                    return Err(FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "export_with_dynamic_shapes: input {i} dim {dim_idx} \
+                             DimSpec::Static({s}) != example dim {example_dim}"
+                        ),
+                    });
+                }
+            }
+        }
+    }
 
-    let input_shapes: Vec<Vec<usize>> = example_inputs.iter().map(|t| t.shape().to_vec()).collect();
+    let input_shapes: Vec<Vec<usize>> =
+        example_inputs.iter().map(|t| t.shape().to_vec()).collect();
 
     // Trace the module's forward function.
     let graph = trace(
@@ -217,6 +397,7 @@ pub fn export<T: Float, M: Module<T>>(
         graph,
         state_dict,
         input_shapes,
+        input_specs,
         output_shape,
     })
 }
@@ -543,5 +724,50 @@ mod tests {
         assert_eq!(meta.input_shapes, vec![vec![2, 3]]);
         assert_eq!(meta.output_shape, vec![2, 5]);
         assert_eq!(meta.state_dict_keys, vec!["fc.weight", "fc.bias"]);
+    }
+
+    // --- CL-396: symbolic shape specs ------------------------------------
+
+    #[test]
+    fn test_dim_spec_dynamic_constructors() {
+        let d = DimSpec::dynamic("batch");
+        assert!(d.is_dynamic());
+        if let DimSpec::Dynamic { name, min, max } = &d {
+            assert_eq!(name, "batch");
+            assert_eq!(*min, None);
+            assert_eq!(*max, None);
+        } else {
+            unreachable!();
+        }
+
+        let r = DimSpec::dynamic_range("batch", 1, 64);
+        if let DimSpec::Dynamic { name, min, max } = &r {
+            assert_eq!(name, "batch");
+            assert_eq!(*min, Some(1));
+            assert_eq!(*max, Some(64));
+        } else {
+            unreachable!();
+        }
+    }
+
+    #[test]
+    fn test_dim_spec_static_is_not_dynamic() {
+        assert!(!DimSpec::Static(4).is_dynamic());
+    }
+
+    #[test]
+    fn test_input_spec_all_static_has_no_dynamic_dims() {
+        let s = InputSpec::all_static(&[4, 3, 32, 32]);
+        assert_eq!(s.rank(), 4);
+        assert!(!s.has_dynamic_dims());
+        for d in &s.shape {
+            assert!(matches!(d, DimSpec::Static(_)));
+        }
+    }
+
+    #[test]
+    fn test_input_spec_mixed_has_dynamic_dims() {
+        let s = InputSpec::new(vec![DimSpec::dynamic("batch"), DimSpec::Static(10)]);
+        assert!(s.has_dynamic_dims());
     }
 }

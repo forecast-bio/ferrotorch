@@ -1088,10 +1088,15 @@ pub fn export_ir_graph_to_onnx(
 /// f32 state dict is not emitted as separate ONNX metadata — the
 /// graph's `Constant` nodes already carry the weights.
 ///
+/// Any dynamic dimensions declared in `program.input_specs` are
+/// forwarded into the ONNX output as `dim_param` entries via the
+/// [`OnnxExportConfig::dynamic_axes`] path — existing entries on the
+/// caller's `config` are merged with the program-level specs, with
+/// caller entries taking precedence on conflict (input index +
+/// axis). CL-396.
+///
 /// Uses [`ONNX_FLOAT`] as the element type since the current
-/// [`ExportedProgram`] state dict is f32-only. When the
-/// `ExportedProgram` API grows dynamic axis support, this function
-/// will forward that metadata into [`OnnxExportConfig::dynamic_axes`].
+/// [`ExportedProgram`] state dict is f32-only.
 ///
 /// # Arguments
 ///
@@ -1107,7 +1112,7 @@ pub fn export_ir_graph_to_onnx(
 pub fn export_from_program(
     program: &ferrotorch_jit::export::ExportedProgram,
     path: impl AsRef<Path>,
-    config: OnnxExportConfig,
+    mut config: OnnxExportConfig,
 ) -> FerrotorchResult<()> {
     if config.opset_version < 17 {
         return Err(FerrotorchError::InvalidArgument {
@@ -1119,6 +1124,26 @@ pub fn export_from_program(
     }
     // ExportedProgram state dict is f32-only today; match that.
     let elem_type = ONNX_FLOAT;
+
+    // Merge program-level dynamic dims into the caller's
+    // OnnxExportConfig. Caller-provided entries win on conflict.
+    for (input_idx, spec) in program.input_specs.iter().enumerate() {
+        let mut program_axes: Vec<(usize, String)> = Vec::new();
+        for (axis, dim) in spec.shape.iter().enumerate() {
+            if let ferrotorch_jit::export::DimSpec::Dynamic { name, .. } = dim {
+                program_axes.push((axis, name.clone()));
+            }
+        }
+        if program_axes.is_empty() {
+            continue;
+        }
+        let entry = config.dynamic_axes.entry(input_idx).or_default();
+        for (axis, name) in program_axes {
+            if !entry.iter().any(|(a, _)| *a == axis) {
+                entry.push((axis, name));
+            }
+        }
+    }
 
     let onnx_bytes = ir_graph_to_onnx(&program.graph, &config, elem_type)?;
 
@@ -1652,6 +1677,7 @@ mod tests {
             graph: g,
             state_dict: std::collections::HashMap::new(),
             input_shapes: vec![vec![4]],
+            input_specs: vec![ferrotorch_jit::export::InputSpec::all_static(&[4])],
             output_shape: vec![4],
         };
 
@@ -1672,6 +1698,86 @@ mod tests {
     }
 
     #[test]
+    fn test_export_from_program_forwards_dynamic_input_specs() {
+        use ferrotorch_jit::export::{DimSpec, ExportedProgram, InputSpec};
+
+        // Simple Relu graph with input [batch, 10] where batch is
+        // symbolic. The ExportedProgram.input_specs should be
+        // forwarded into the ONNX output's dim_param field.
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4, 10]);
+        let (_, outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![4, 10]]);
+        g.set_outputs(vec![outs[0]]);
+
+        let program = ExportedProgram {
+            graph: g,
+            state_dict: std::collections::HashMap::new(),
+            input_shapes: vec![vec![4, 10]],
+            input_specs: vec![InputSpec::new(vec![
+                DimSpec::dynamic("batch"),
+                DimSpec::Static(10),
+            ])],
+            output_shape: vec![4, 10],
+        };
+
+        let dir = std::env::temp_dir().join("ferrotorch_test_export_from_program_dynamic");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("dyn.onnx");
+
+        export_from_program(&program, &path, OnnxExportConfig::default()).unwrap();
+
+        let bytes = std::fs::read(&path).unwrap();
+        let as_str = String::from_utf8_lossy(&bytes);
+        // The symbolic dim name should appear in the output as a
+        // dim_param entry.
+        assert!(
+            as_str.contains("batch"),
+            "dynamic dim name 'batch' should appear in ONNX output"
+        );
+        assert!(as_str.contains("Relu"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_export_from_program_caller_dynamic_axes_take_precedence() {
+        use ferrotorch_jit::export::{DimSpec, ExportedProgram, InputSpec};
+
+        // Program declares axis 0 as "batch"; caller overrides with
+        // "N" on the same axis — caller should win.
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4, 10]);
+        let (_, outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![4, 10]]);
+        g.set_outputs(vec![outs[0]]);
+
+        let program = ExportedProgram {
+            graph: g,
+            state_dict: std::collections::HashMap::new(),
+            input_shapes: vec![vec![4, 10]],
+            input_specs: vec![InputSpec::new(vec![
+                DimSpec::dynamic("batch"),
+                DimSpec::Static(10),
+            ])],
+            output_shape: vec![4, 10],
+        };
+
+        let dir =
+            std::env::temp_dir().join("ferrotorch_test_export_from_program_caller_override");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("override.onnx");
+
+        let mut config = OnnxExportConfig::default();
+        config.dynamic_axes.insert(0, vec![(0, "N".to_string())]);
+        export_from_program(&program, &path, config).unwrap();
+
+        let bytes = std::fs::read(&path).unwrap();
+        let as_str = String::from_utf8_lossy(&bytes);
+        assert!(as_str.contains("N"), "caller override 'N' should be present");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn test_export_from_program_rejects_opset_below_17() {
         use ferrotorch_jit::export::ExportedProgram;
 
@@ -1683,6 +1789,7 @@ mod tests {
             graph: g,
             state_dict: std::collections::HashMap::new(),
             input_shapes: vec![vec![2]],
+            input_specs: vec![ferrotorch_jit::export::InputSpec::all_static(&[2])],
             output_shape: vec![2],
         };
 
