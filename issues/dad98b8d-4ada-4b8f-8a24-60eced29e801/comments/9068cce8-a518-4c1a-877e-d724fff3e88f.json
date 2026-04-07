@@ -1,0 +1,10 @@
+{
+  "uuid": "9068cce8-a518-4c1a-877e-d724fff3e88f",
+  "issue_uuid": "dad98b8d-4ada-4b8f-8a24-60eced29e801",
+  "author": "y4rr",
+  "content": "Implemented via commit cdf42d89. Decomposed Silu (Sigmoid+Mul) and Gelu (Div+Erf+Add+Mul+Mul via erf formula) into standard ONNX ops in the ir_graph_to_onnx emitter loop so exports no longer depend on opset-20 Gelu or a custom Silu op. Three dtype-matched initializers emitted for Gelu (sqrt(2), 0.5, 1.0). Re-enabled export_from_program(&ExportedProgram, path, config) against the current public API (graph/state_dict/input_shapes), with the same opset validation as other entry points. 7 new tests; 125 ferrotorch-serialize tests pass.",
+  "created_at": "2026-04-07T22:02:44.737154499Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAfx46CKlrei6yqFCelHAcuovbd2U/wbjyJ8z12mPcZQc2cGOknAYAJ0IxB/8viN2gfuh+O+D8jM8fa9U32+vcDw=="
+}
