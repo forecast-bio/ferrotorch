@@ -1,0 +1,10 @@
+{
+  "uuid": "38c55a38-52b0-4fd2-af6c-8a7b911ee043",
+  "issue_uuid": "5f2be1db-8836-4fa6-948f-7fe14c84b79f",
+  "author": "y4rr",
+  "content": "Implemented via commit 9cc261c4. Extended IntermediateFeatures trait signature from Vec<&'static str> to Vec<String> so variable-block architectures can expose dynamic per-block names. Added impls for VGG, EfficientNet, ConvNeXt, Swin, ViT, U-Net, YOLO, MobileNetV2/V3, DenseNet-121, Inception v3. Every registered vision model is now wrappable in FeatureExtractor. 4 new smoke tests; 289 ferrotorch-vision tests pass.",
+  "created_at": "2026-04-07T22:37:41.795900350Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA6BezgLC7usUfyyM/ohONJ1j3ChD3BxQv+MRYHHWxDSx3Nv33uYStL9rK2AI/UqxFHdnm6M1M5i5LdUUYPt/1Cw=="
+}
