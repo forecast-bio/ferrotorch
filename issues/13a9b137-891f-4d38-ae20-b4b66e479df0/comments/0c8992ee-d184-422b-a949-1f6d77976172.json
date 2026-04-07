@@ -1,0 +1,10 @@
+{
+  "uuid": "0c8992ee-d184-422b-a949-1f6d77976172",
+  "issue_uuid": "13a9b137-891f-4d38-ae20-b4b66e479df0",
+  "author": "y4rr",
+  "content": "Implemented via commit 3e831cf8. Extended profile_op_scope wrapping to 18 additional ops: div/neg/pow/sqrt/abs (arithmetic.rs), exp/log/sin/cos (transcendental.rs), mean/prod/sum_dim/mean_dim (reduction.rs), and relu/sigmoid/tanh/gelu/silu/log_softmax (activation.rs). Each op validates + meta-propagates outside the scope and dispatches to a private *_inner helper. Auto-instrumented set is now 22 core tensor ops. 3941 workspace tests pass with no behavioral changes.",
+  "created_at": "2026-04-07T22:49:50.492680515Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA9Uf6C9sf4aHAoObI14+7eyDpIrlqqzrZR6gspbr8puOTTr0miql+rRV25lyieQhkQl7p76+++cdpR9P/Q2/gCA=="
+}
