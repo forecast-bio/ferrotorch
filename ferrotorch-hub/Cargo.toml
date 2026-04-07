@@ -12,10 +12,19 @@ keywords.workspace = true
 categories.workspace = true
 readme = "README.md"
 
+[features]
+default = ["http"]
+# Enables the blocking HTTP download path (ureq) and SHA-256 verification
+# (sha2). Disable this for a no-network build that only loads weights from
+# the local cache.
+http = ["dep:ureq", "dep:sha2"]
+
 [dependencies]
 ferrotorch-core = { workspace = true }
 ferrotorch-nn = { workspace = true }
 ferrotorch-serialize = { workspace = true }
+ureq = { version = "2", default-features = false, features = ["tls"], optional = true }
+sha2 = { version = "0.10", optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
