@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- Vision models: MobileNetV2, MobileNetV3-Small, DenseNet-121, Inception v3, each registered in both `ferrotorch_vision::models::REGISTRY` and `ferrotorch_hub::registry` (#436)
 - Symbolic shapes for export: `DimSpec` (Static/Dynamic), `InputSpec`, `export_with_dynamic_shapes`, and automatic forwarding of dynamic axes from `ExportedProgram.input_specs` into ONNX `dim_param` output (#396)
 - ONNX exporter: decompose Silu (Sigmoid+Mul) and Gelu (Div+Erf+Add+Mul+Mul via erf formula) into standard ONNX ops, re-enable `export_from_program` on the current ExportedProgram API (#375)
 - DataLoader cross-batch worker pipeline: `WorkerMode::CrossBatch` spawns `num_workers` dedicated threads each producing independent batches, with a reorder buffer to preserve sampler order (#377)

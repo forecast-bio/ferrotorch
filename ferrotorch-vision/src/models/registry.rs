@@ -217,6 +217,43 @@ fn default_registry() -> ModelRegistry<f32> {
         }),
     );
 
+    // CL-436: MobileNetV2, MobileNetV3-Small, DenseNet-121, Inception v3.
+    registry.register_model(
+        "mobilenet_v2",
+        Box::new(|pretrained, num_classes| {
+            maybe_load_pretrained(pretrained, "mobilenet_v2", || {
+                super::mobilenet::mobilenet_v2::<f32>(num_classes)
+            })
+        }),
+    );
+
+    registry.register_model(
+        "mobilenet_v3_small",
+        Box::new(|pretrained, num_classes| {
+            maybe_load_pretrained(pretrained, "mobilenet_v3_small", || {
+                super::mobilenet::mobilenet_v3_small::<f32>(num_classes)
+            })
+        }),
+    );
+
+    registry.register_model(
+        "densenet121",
+        Box::new(|pretrained, num_classes| {
+            maybe_load_pretrained(pretrained, "densenet121", || {
+                super::densenet::densenet121::<f32>(num_classes)
+            })
+        }),
+    );
+
+    registry.register_model(
+        "inception_v3",
+        Box::new(|pretrained, num_classes| {
+            maybe_load_pretrained(pretrained, "inception_v3", || {
+                super::inception::inception_v3::<f32>(num_classes)
+            })
+        }),
+    );
+
     registry
 }
 
@@ -316,6 +353,10 @@ mod tests {
         assert!(names.contains(&"convnext_tiny".to_string()));
         assert!(names.contains(&"unet".to_string()));
         assert!(names.contains(&"yolo".to_string()));
+        assert!(names.contains(&"mobilenet_v2".to_string()));
+        assert!(names.contains(&"mobilenet_v3_small".to_string()));
+        assert!(names.contains(&"densenet121".to_string()));
+        assert!(names.contains(&"inception_v3".to_string()));
     }
 
     #[test]
@@ -364,6 +405,10 @@ mod tests {
             "convnext_tiny",
             "unet",
             "yolo",
+            "mobilenet_v2",
+            "mobilenet_v3_small",
+            "densenet121",
+            "inception_v3",
         ];
         for name in canonical {
             let info = ferrotorch_hub::registry::get_model_info(name);
