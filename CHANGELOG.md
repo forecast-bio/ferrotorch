@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- ONNX exporter: decompose Silu (Sigmoid+Mul) and Gelu (Div+Erf+Add+Mul+Mul via erf formula) into standard ONNX ops, re-enable `export_from_program` on the current ExportedProgram API (#375)
 - DataLoader cross-batch worker pipeline: `WorkerMode::CrossBatch` spawns `num_workers` dedicated threads each producing independent batches, with a reorder buffer to preserve sampler order (#377)
 - JIT kernel autotuning: `Autotuner` benchmarks candidate codegen backends/configs and caches the winner keyed by graph fingerprint + input shapes (#369)
 - JIT symbolic shapes with guards: `SymbolicTracedModule`, `ShapeSignature`, and `compile_symbolic` for dynamic batch sizes with runtime validation and reshape patching (#367)

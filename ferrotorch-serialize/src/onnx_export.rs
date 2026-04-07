@@ -12,13 +12,11 @@
 //! # Example
 //!
 //! ```ignore
+//! use ferrotorch_core::grad_fns::activation::relu;
 //! use ferrotorch_serialize::onnx_export::{export_onnx, OnnxExportConfig};
 //!
 //! export_onnx(
-//!     |inputs| {
-//!         // ... model forward pass ...
-//!         # unimplemented!()
-//!     },
+//!     |inputs| relu(&inputs[0]),
 //!     &example_inputs,
 //!     "model.onnx",
 //!     OnnxExportConfig::default(),
@@ -581,34 +579,19 @@ fn map_ir_op(op: &IrOpKind, node_name: &str, elem_type: i32) -> FerrotorchResult
             aux_initializer: None,
         }),
         IrOpKind::Gelu => {
-            // ONNX Gelu was introduced in opset 20. For opset < 20, we should
-            // decompose to: x * 0.5 * (1 + Erf(x / sqrt(2))). However, the
-            // decomposition requires emitting multiple ONNX nodes (Div, Erf,
-            // Add, Mul, Mul) which cannot be represented as a single
-            // OnnxOpMapping. For now, we emit the "Gelu" op name and warn.
-            //
-            // WARNING: The emitted "Gelu" op requires ONNX opset >= 20 for
-            // standard compliance. ONNX Runtime supports it as an extension in
-            // earlier opsets, but other runtimes (TensorRT, CoreML) may reject
-            // it. A future version should decompose Gelu for opset < 20.
-            Ok(OnnxOpMapping {
-                op_type: "Gelu",
-                attributes: vec![],
-                aux_initializer: None,
+            // Gelu is handled as a multi-node decomposition in the
+            // emitter loop — map_ir_op is never called for it. This
+            // branch exists only for completeness; if it ever fires,
+            // we have a bug in the emitter.
+            Err(FerrotorchError::InvalidArgument {
+                message: "Gelu should be decomposed in the emitter loop, not mapped here; see emit_gelu_decomposed".into(),
             })
         }
         IrOpKind::Silu => {
-            // WARNING: SiLU (x * sigmoid(x)) is NOT a standard ONNX operator
-            // in any opset version. We emit it as a custom "Silu" op name.
-            // Consumers that don't support custom ops will need to decompose
-            // it into: x * Sigmoid(x) (two standard ONNX ops: Sigmoid + Mul).
-            //
-            // A future version should emit the decomposed form instead of the
-            // non-standard op name.
-            Ok(OnnxOpMapping {
-                op_type: "Silu",
-                attributes: vec![],
-                aux_initializer: None,
+            // Silu is decomposed into Sigmoid + Mul in the emitter
+            // loop — see emit_silu_decomposed. See Gelu above.
+            Err(FerrotorchError::InvalidArgument {
+                message: "Silu should be decomposed in the emitter loop, not mapped here; see emit_silu_decomposed".into(),
             })
         }
         IrOpKind::Softmax => Ok(OnnxOpMapping {
@@ -807,6 +790,129 @@ pub fn ir_graph_to_onnx(
                 // Output nodes don't create ONNX nodes.
             }
 
+            // Silu decomposed into Sigmoid + Mul so the ONNX output
+            // is portable to any opset >= 13. CL-375.
+            IrOpKind::Silu => {
+                let node_name = format!("node_{}", nid.0);
+                let input_name = value_name(node.inputs[0]);
+                let output_name = value_name(node.outputs[0]);
+                let sigmoid_out = format!("{node_name}_sigmoid");
+
+                // x -> Sigmoid -> tmp
+                let sigmoid_node = encode_node(
+                    &format!("{node_name}_sigmoid"),
+                    "Sigmoid",
+                    &[input_name.as_str()],
+                    &[sigmoid_out.as_str()],
+                    &[],
+                );
+                // (x, tmp) -> Mul -> y
+                let mul_node = encode_node(
+                    &format!("{node_name}_mul"),
+                    "Mul",
+                    &[input_name.as_str(), sigmoid_out.as_str()],
+                    &[output_name.as_str()],
+                    &[],
+                );
+                onnx_nodes.push(sigmoid_node);
+                onnx_nodes.push(mul_node);
+            }
+
+            // Gelu decomposed into the erf-based formula
+            //     y = x * 0.5 * (1 + Erf(x / sqrt(2)))
+            // which maps to five standard ONNX ops (Div, Erf, Add,
+            // Mul, Mul) supported since opset 13. CL-375.
+            IrOpKind::Gelu => {
+                let node_name = format!("node_{}", nid.0);
+                let input_name = value_name(node.inputs[0]);
+                let output_name = value_name(node.outputs[0]);
+
+                // Intermediate value names.
+                let sqrt2_name = format!("{node_name}_sqrt2");
+                let half_name = format!("{node_name}_half");
+                let one_name = format!("{node_name}_one");
+                let div_out = format!("{node_name}_div");
+                let erf_out = format!("{node_name}_erf");
+                let add_out = format!("{node_name}_add");
+                let half_mul_out = format!("{node_name}_halfmul");
+
+                // Constants — we create three initializers: sqrt(2),
+                // 0.5, and 1.0. They use `elem_type` so they match
+                // the model's dtype. Scalars are encoded as 1-element
+                // tensors with a 1D [1] shape (an empty shape is also
+                // valid ONNX but less portable across runtimes).
+                let scalar_dims = vec![1usize];
+                let sqrt2_raw: Vec<u8> = if elem_type == ONNX_FLOAT {
+                    (std::f64::consts::SQRT_2 as f32).to_le_bytes().to_vec()
+                } else {
+                    std::f64::consts::SQRT_2.to_le_bytes().to_vec()
+                };
+                let half_raw: Vec<u8> = if elem_type == ONNX_FLOAT {
+                    (0.5f32).to_le_bytes().to_vec()
+                } else {
+                    (0.5f64).to_le_bytes().to_vec()
+                };
+                let one_raw: Vec<u8> = if elem_type == ONNX_FLOAT {
+                    (1.0f32).to_le_bytes().to_vec()
+                } else {
+                    (1.0f64).to_le_bytes().to_vec()
+                };
+                for (cname, craw) in [
+                    (&sqrt2_name, &sqrt2_raw),
+                    (&half_name, &half_raw),
+                    (&one_name, &one_raw),
+                ] {
+                    let tp = encode_tensor_proto(cname, elem_type, &scalar_dims, craw);
+                    onnx_initializers.push(tp);
+                    let vi = encode_value_info(cname, elem_type, &scalar_dims);
+                    onnx_inputs.push(vi);
+                    declared_inputs.push(cname.clone());
+                }
+
+                // Emit the five ONNX nodes.
+                let div_node = encode_node(
+                    &format!("{node_name}_div"),
+                    "Div",
+                    &[input_name.as_str(), sqrt2_name.as_str()],
+                    &[div_out.as_str()],
+                    &[],
+                );
+                let erf_node = encode_node(
+                    &format!("{node_name}_erf"),
+                    "Erf",
+                    &[div_out.as_str()],
+                    &[erf_out.as_str()],
+                    &[],
+                );
+                let add_node = encode_node(
+                    &format!("{node_name}_add"),
+                    "Add",
+                    &[erf_out.as_str(), one_name.as_str()],
+                    &[add_out.as_str()],
+                    &[],
+                );
+                let halfmul_node = encode_node(
+                    &format!("{node_name}_halfmul"),
+                    "Mul",
+                    &[input_name.as_str(), half_name.as_str()],
+                    &[half_mul_out.as_str()],
+                    &[],
+                );
+                let final_mul_node = encode_node(
+                    &format!("{node_name}_finalmul"),
+                    "Mul",
+                    &[half_mul_out.as_str(), add_out.as_str()],
+                    &[output_name.as_str()],
+                    &[],
+                );
+
+                onnx_nodes.push(div_node);
+                onnx_nodes.push(erf_node);
+                onnx_nodes.push(add_node);
+                onnx_nodes.push(halfmul_node);
+                onnx_nodes.push(final_mul_node);
+            }
+
             op => {
                 // Regular computation node.
                 let node_name = format!("node_{}", nid.0);
@@ -971,36 +1077,38 @@ pub fn export_ir_graph_to_onnx(
 }
 
 // ===========================================================================
-// ExportedProgram -> ONNX (temporarily disabled — export.rs API was rewritten)
+// ExportedProgram -> ONNX
 // ===========================================================================
 
-// TODO: Re-implement export_from_program once the new ExportedProgram API stabilizes.
-// The ExportedProgram type was rewritten in the T4.9 QA pass and no longer exposes
-// graph(), input_specs(), DimSpec, etc.
-
-/*
-/// Export an [`ExportedProgram`] as an ONNX model file.
+/// Export an [`ExportedProgram`](ferrotorch_jit::export::ExportedProgram)
+/// as an ONNX model file.
 ///
-/// This is the preferred path for ONNX export: the `ExportedProgram` already
-/// contains the traced graph, input/output specs, and dynamic shape
-/// information. Converting from an `ExportedProgram` preserves dynamic axes
-/// as ONNX `dim_param` (symbolic dimension) entries.
+/// The program's `graph` field is written out with the given config,
+/// matching the behavior of [`export_ir_graph_to_onnx`]. The program's
+/// f32 state dict is not emitted as separate ONNX metadata — the
+/// graph's `Constant` nodes already carry the weights.
+///
+/// Uses [`ONNX_FLOAT`] as the element type since the current
+/// [`ExportedProgram`] state dict is f32-only. When the
+/// `ExportedProgram` API grows dynamic axis support, this function
+/// will forward that metadata into [`OnnxExportConfig::dynamic_axes`].
 ///
 /// # Arguments
 ///
 /// * `program` — The exported program to convert.
 /// * `path` — Output file path (conventionally `*.onnx`).
+/// * `config` — Export configuration (opset version, model name,
+///   dynamic axes).
 ///
 /// # Errors
 ///
-/// Returns an error if the graph contains operations that cannot be mapped to
-/// ONNX, or if the file cannot be written.
+/// Returns an error if the graph contains operations that cannot be
+/// mapped to ONNX, or if the file cannot be written.
 pub fn export_from_program(
     program: &ferrotorch_jit::export::ExportedProgram,
-    path: &Path,
+    path: impl AsRef<Path>,
+    config: OnnxExportConfig,
 ) -> FerrotorchResult<()> {
-    let config = OnnxExportConfig::default();
-
     if config.opset_version < 17 {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
@@ -1009,158 +1117,18 @@ pub fn export_from_program(
             ),
         });
     }
+    // ExportedProgram state dict is f32-only today; match that.
+    let elem_type = ONNX_FLOAT;
 
-    let elem_type = ONNX_FLOAT; // ExportedProgram is currently f32-only
+    let onnx_bytes = ir_graph_to_onnx(&program.graph, &config, elem_type)?;
 
-    let graph = program.graph();
-    let topo = graph.topological_order();
-
-    let value_name = |id: IrValueId| -> String { format!("val_{}", id.0) };
-
-    let node_map: HashMap<IrNodeId, &_> = graph.nodes.iter().map(|n| (n.id, n)).collect();
-    let value_map: HashMap<IrValueId, &_> = graph.values.iter().map(|v| (v.id, v)).collect();
-
-    let mut onnx_nodes: Vec<Vec<u8>> = Vec::new();
-    let mut onnx_initializers: Vec<Vec<u8>> = Vec::new();
-    let mut onnx_inputs: Vec<Vec<u8>> = Vec::new();
-    let mut declared_inputs: Vec<String> = Vec::new();
-
-    // Track which graph inputs we've processed so we can map to input specs.
-    let mut graph_input_index = 0usize;
-
-    for &nid in &topo {
-        let node = node_map[&nid];
-
-        match &node.op {
-            IrOpKind::Input { .. } => {
-                let out_id = node.outputs[0];
-                let shape = &value_map[&out_id].shape;
-                let name = value_name(out_id);
-
-                // Check if this input has a corresponding InputSpec with
-                // dynamic dimensions.
-                let input_specs = program.input_specs();
-                if graph_input_index < input_specs.len() {
-                    let spec = &input_specs[graph_input_index];
-                    let onnx_dims: Vec<OnnxDimSpec> = spec
-                        .shape
-                        .iter()
-                        .enumerate()
-                        .map(|(d, dim_spec)| match dim_spec {
-                            ferrotorch_jit::export::DimSpec::Static(_) => {
-                                OnnxDimSpec::Static(if d < shape.len() { shape[d] } else { 1 })
-                            }
-                            ferrotorch_jit::export::DimSpec::Dynamic {
-                                name: dim_name, ..
-                            } => OnnxDimSpec::Dynamic(dim_name.clone()),
-                        })
-                        .collect();
-
-                    let vi = encode_value_info_dynamic(&name, elem_type, &onnx_dims);
-                    onnx_inputs.push(vi);
-                } else {
-                    // Fall back to static shape for extra inputs (e.g., captured
-                    // parameters that became graph inputs during tracing).
-                    let vi = encode_value_info(&name, elem_type, shape);
-                    onnx_inputs.push(vi);
-                }
-
-                declared_inputs.push(name);
-                graph_input_index += 1;
-            }
-
-            IrOpKind::Constant { data, shape } => {
-                let out_id = node.outputs[0];
-                let name = value_name(out_id);
-
-                let raw: Vec<u8> = if elem_type == ONNX_FLOAT {
-                    data.iter()
-                        .flat_map(|&v| (v as f32).to_le_bytes())
-                        .collect()
-                } else {
-                    data.iter().flat_map(|&v| v.to_le_bytes()).collect()
-                };
-
-                let tp = encode_tensor_proto(&name, elem_type, shape, &raw);
-                onnx_initializers.push(tp);
-
-                let vi = encode_value_info(&name, elem_type, shape);
-                onnx_inputs.push(vi);
-                declared_inputs.push(name);
-            }
-
-            IrOpKind::Output => {}
-
-            op => {
-                let node_name = format!("node_{}", nid.0);
-                let mapping = map_ir_op(op, &node_name, elem_type)?;
-
-                let input_names: Vec<String> =
-                    node.inputs.iter().map(|&id| value_name(id)).collect();
-                let mut all_input_names = input_names;
-
-                if let Some((aux_name, raw, dims)) = &mapping.aux_initializer {
-                    let aux_dtype = match mapping.op_type {
-                        "Reshape" | "Squeeze" | "Unsqueeze" => 7, // INT64
-                        _ => elem_type,
-                    };
-                    let tp = encode_tensor_proto(aux_name, aux_dtype, dims, &raw);
-                    onnx_initializers.push(tp);
-
-                    let vi = encode_value_info(aux_name, aux_dtype, dims);
-                    onnx_inputs.push(vi);
-                    declared_inputs.push(aux_name.clone());
-
-                    all_input_names.push(aux_name.clone());
-                }
-
-                let output_names: Vec<String> =
-                    node.outputs.iter().map(|&id| value_name(id)).collect();
-
-                let input_refs: Vec<&str> = all_input_names.iter().map(|s| s.as_str()).collect();
-                let output_refs: Vec<&str> = output_names.iter().map(|s| s.as_str()).collect();
-
-                let encoded = encode_node(
-                    &node_name,
-                    mapping.op_type,
-                    &input_refs,
-                    &output_refs,
-                    &mapping.attributes,
-                );
-                onnx_nodes.push(encoded);
-            }
-        }
-    }
-
-    // Graph outputs — use output specs to determine shape.
-    let onnx_outputs: Vec<Vec<u8>> = graph
-        .output_values
-        .iter()
-        .map(|&id| {
-            let shape = &value_map[&id].shape;
-            encode_value_info(&value_name(id), elem_type, shape)
-        })
-        .collect();
-
-    let graph_bytes = encode_graph(
-        &config.model_name,
-        &onnx_nodes,
-        &onnx_inputs,
-        &onnx_outputs,
-        &onnx_initializers,
-    );
-
-    let opset = encode_opset("", config.opset_version as u64);
-    let model_bytes = encode_model(8, &[opset], &graph_bytes);
-
-    std::fs::write(path, &model_bytes).map_err(|e| FerrotorchError::InvalidArgument {
+    let path = path.as_ref();
+    std::fs::write(path, &onnx_bytes).map_err(|e| FerrotorchError::InvalidArgument {
         message: format!("failed to write ONNX file {}: {e}", path.display()),
     })?;
 
     Ok(())
 }
-
-*/
 
 // ===========================================================================
 // Tests
@@ -1555,8 +1523,10 @@ mod tests {
             IrOpKind::Relu,
             IrOpKind::Sigmoid,
             IrOpKind::Tanh,
-            IrOpKind::Gelu,
-            IrOpKind::Silu,
+            // Gelu and Silu are intentionally absent — they are
+            // decomposed into multiple ONNX nodes in the emitter
+            // loop, not mapped by `map_ir_op` directly. See the
+            // dedicated decomposition tests below.
             IrOpKind::Softmax,
             IrOpKind::LogSoftmax,
             IrOpKind::Reshape { shape: vec![6] },
@@ -1575,6 +1545,159 @@ mod tests {
                 result.err()
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Silu decomposition: Sigmoid + Mul (CL-375)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_silu_decomposed_into_sigmoid_and_mul() {
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![3]);
+        let (_, outs) = g.add_node(IrOpKind::Silu, vec![x], vec![vec![3]]);
+        g.set_outputs(vec![outs[0]]);
+
+        let bytes = ir_graph_to_onnx(&g, &OnnxExportConfig::default(), ONNX_FLOAT).unwrap();
+        let as_str = String::from_utf8_lossy(&bytes);
+
+        // Standard ONNX ops — no custom "Silu" op type should appear.
+        assert!(as_str.contains("Sigmoid"), "should contain Sigmoid op");
+        assert!(as_str.contains("Mul"), "should contain Mul op");
+        assert!(
+            !as_str.contains("\u{0}Silu"),
+            "should NOT contain the non-standard Silu op type"
+        );
+    }
+
+    #[test]
+    fn test_map_ir_op_rejects_silu_direct_call() {
+        // Direct calls to map_ir_op with Silu should error — it's
+        // handled exclusively in the emitter loop.
+        let result = map_ir_op(&IrOpKind::Silu, "test", ONNX_FLOAT);
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("decomposed"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Gelu decomposition: Div + Erf + Add + Mul + Mul (CL-375)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_gelu_decomposed_via_erf_formula() {
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4]);
+        let (_, outs) = g.add_node(IrOpKind::Gelu, vec![x], vec![vec![4]]);
+        g.set_outputs(vec![outs[0]]);
+
+        let bytes = ir_graph_to_onnx(&g, &OnnxExportConfig::default(), ONNX_FLOAT).unwrap();
+        let as_str = String::from_utf8_lossy(&bytes);
+
+        // All five decomposed ONNX ops should be present.
+        assert!(as_str.contains("Div"), "should contain Div op");
+        assert!(as_str.contains("Erf"), "should contain Erf op");
+        assert!(as_str.contains("Add"), "should contain Add op");
+        assert!(as_str.contains("Mul"), "should contain Mul op");
+        // And the original Gelu name should not appear as an op type.
+        assert!(
+            !as_str.contains("\u{0}Gelu"),
+            "should NOT contain the standalone Gelu op type"
+        );
+    }
+
+    #[test]
+    fn test_map_ir_op_rejects_gelu_direct_call() {
+        let result = map_ir_op(&IrOpKind::Gelu, "test", ONNX_FLOAT);
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("decomposed"));
+    }
+
+    #[test]
+    fn test_gelu_decomposition_emits_three_initializers() {
+        // sqrt(2), 0.5, and 1.0 should each appear as initializers.
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![2]);
+        let (_, outs) = g.add_node(IrOpKind::Gelu, vec![x], vec![vec![2]]);
+        g.set_outputs(vec![outs[0]]);
+
+        let bytes = ir_graph_to_onnx(&g, &OnnxExportConfig::default(), ONNX_FLOAT).unwrap();
+        let as_str = String::from_utf8_lossy(&bytes);
+
+        // Every initializer is named "<node>_sqrt2", "<node>_half", "<node>_one".
+        assert!(as_str.contains("sqrt2"), "sqrt2 initializer missing");
+        assert!(as_str.contains("half"), "half initializer missing");
+        assert!(as_str.contains("one"), "one initializer missing");
+    }
+
+    // -----------------------------------------------------------------------
+    // export_from_program (CL-375 — re-enabled)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_export_from_program_writes_valid_file() {
+        use ferrotorch_jit::export::ExportedProgram;
+
+        // Build a minimal IrGraph directly and wrap it in an
+        // ExportedProgram. This avoids depending on the tracer for
+        // the test, which has stricter requirements on the input
+        // function.
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4]);
+        let (_, outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![4]]);
+        g.set_outputs(vec![outs[0]]);
+
+        let program = ExportedProgram {
+            graph: g,
+            state_dict: std::collections::HashMap::new(),
+            input_shapes: vec![vec![4]],
+            output_shape: vec![4],
+        };
+
+        let dir = std::env::temp_dir().join("ferrotorch_test_export_from_program");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("prog.onnx");
+
+        export_from_program(&program, &path, OnnxExportConfig::default()).unwrap();
+
+        // File should exist and be non-empty.
+        assert!(path.exists());
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(!bytes.is_empty());
+        let as_str = String::from_utf8_lossy(&bytes);
+        assert!(as_str.contains("Relu"), "exported bytes should contain Relu op");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_export_from_program_rejects_opset_below_17() {
+        use ferrotorch_jit::export::ExportedProgram;
+
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![2]);
+        g.set_outputs(vec![x]);
+
+        let program = ExportedProgram {
+            graph: g,
+            state_dict: std::collections::HashMap::new(),
+            input_shapes: vec![vec![2]],
+            output_shape: vec![2],
+        };
+
+        let dir = std::env::temp_dir().join("ferrotorch_test_export_from_program_opset");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bad.onnx");
+        let config = OnnxExportConfig {
+            opset_version: 16,
+            ..OnnxExportConfig::default()
+        };
+        let result = export_from_program(&program, &path, config);
+        assert!(result.is_err());
+        assert!(format!("{}", result.unwrap_err()).contains("opset version"));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     // -----------------------------------------------------------------------
