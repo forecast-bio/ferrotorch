@@ -2,11 +2,12 @@
   "uuid": "5be33e43-5fdf-4542-955f-61f73ed6aa29",
   "display_id": 362,
   "title": "WU-08: vmap composability — multi-arg/output, matmul batching rule, per_sample_grad",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-a7c6025f",
   "created_at": "2026-03-24T19:54:33.943440760Z",
-  "updated_at": "2026-03-24T19:54:35.361599021Z",
+  "updated_at": "2026-04-07T18:33:48.470236751Z",
+  "closed_at": "2026-04-07T18:33:48.470236751Z",
   "labels": [
     "feature"
   ]
