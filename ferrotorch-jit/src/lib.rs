@@ -14,6 +14,7 @@ pub mod memory_plan;
 pub mod module;
 pub mod optimize;
 pub mod serialize;
+pub mod symbolic;
 pub mod trace;
 
 pub use aot_autograd::{AotGraphPair, compile_aot, decompose_forward_backward};
@@ -36,4 +37,7 @@ pub use interpreter::{interpret, interpret_multi};
 pub use memory_plan::{MemoryPlan, plan_memory};
 pub use module::{AotCompiledModule, CompileConfig, TracedModule, compile, compile_with_config};
 pub use optimize::{OptimizationConfig, optimize};
+pub use symbolic::{
+    Guard, ShapeSignature, SymbolicDim, SymbolicTracedModule, compile_symbolic,
+};
 pub use trace::trace;
