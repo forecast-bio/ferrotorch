@@ -672,6 +672,9 @@ impl<T: Float> GradFn<T> for LogSoftmaxBackward<T> {
 
 /// Compute `relu(x)`, attaching a backward node when gradients are enabled.
 pub fn relu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::unary_same_shape(input)? {
+        return Ok(out);
+    }
     if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
@@ -705,6 +708,9 @@ pub fn relu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
 /// Compute `sigmoid(x)`, attaching a backward node when gradients are enabled.
 pub fn sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::unary_same_shape(input)? {
+        return Ok(out);
+    }
     if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let handle = if is_f32::<T>() {
@@ -746,6 +752,9 @@ pub fn sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
 /// Compute `tanh(x)`, attaching a backward node when gradients are enabled.
 pub fn tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::unary_same_shape(input)? {
+        return Ok(out);
+    }
     if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let handle = if is_f32::<T>() {
@@ -793,6 +802,10 @@ pub fn gelu_with<T: Float>(
     input: &Tensor<T>,
     approximate: GeluApproximate,
 ) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::unary_same_shape(input)? {
+        let _ = approximate;
+        return Ok(out);
+    }
     // GPU fast path for all approximation modes (f32/f64).
     if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
@@ -872,6 +885,9 @@ pub fn gelu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// Compute `silu(x) = x * sigmoid(x)`, attaching a backward node when
 /// gradients are enabled.
 pub fn silu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::unary_same_shape(input)? {
+        return Ok(out);
+    }
     // GPU fast path for f32/f64
     if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
@@ -917,6 +933,9 @@ pub fn silu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// Compute `softmax(x)` along the last axis, attaching a backward node when
 /// gradients are enabled.
 pub fn softmax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::unary_same_shape(input)? {
+        return Ok(out);
+    }
     crate::profiler_hook::profile_op_scope("softmax", "activation", &[input.shape()], || {
         softmax_inner(input)
     })

@@ -58,6 +58,9 @@ impl<T: Float> GradFn<T> for SumBackward<T> {
 /// When gradient tracking is enabled and the input requires grad, the returned
 /// tensor carries a [`SumBackward`] node.
 pub fn sum<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::reduce_all(input)? {
+        return Ok(out);
+    }
     crate::profiler_hook::profile_op_scope("sum", "reduction", &[input.shape()], || sum_inner(input))
 }
 
@@ -145,6 +148,9 @@ impl<T: Float> GradFn<T> for MeanBackward<T> {
 /// When gradient tracking is enabled and the input requires grad, the returned
 /// tensor carries a [`MeanBackward`] node.
 pub fn mean<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::reduce_all(input)? {
+        return Ok(out);
+    }
     // GPU path: use GPU sum kernel + scalar divide (avoids CPU round-trip).
     let is_f32 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>();
     let is_f64 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>();
@@ -271,6 +277,9 @@ impl<T: Float> GradFn<T> for ProdBackward<T> {
 /// When gradient tracking is enabled and the input requires grad, the returned
 /// tensor carries a [`ProdBackward`] node.
 pub fn prod<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::reduce_all(input)? {
+        return Ok(out);
+    }
     if input.is_cuda() {
         return Err(FerrotorchError::NotImplementedOnCuda { op: "prod" });
     }
@@ -377,6 +386,9 @@ pub fn sum_dim<T: Float>(
     dim: i64,
     keepdim: bool,
 ) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::reduce_dim(input, dim, keepdim)? {
+        return Ok(out);
+    }
     let ndim = input.ndim();
     if ndim == 0 {
         return Err(FerrotorchError::InvalidArgument {
@@ -569,6 +581,9 @@ pub fn mean_dim<T: Float>(
     dim: i64,
     keepdim: bool,
 ) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::reduce_dim(input, dim, keepdim)? {
+        return Ok(out);
+    }
     let ndim = input.ndim();
     if ndim == 0 {
         return Err(FerrotorchError::InvalidArgument {

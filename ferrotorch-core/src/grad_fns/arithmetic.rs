@@ -233,6 +233,10 @@ pub fn add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
         });
     }
 
+    if let Some(out) = crate::meta_propagate::binary_broadcast(a, b)? {
+        return Ok(out);
+    }
+
     crate::profiler_hook::profile_op_scope("add", "tensor_op", &[a.shape(), b.shape()], || {
         add_inner(a, b)
     })
@@ -341,6 +345,10 @@ pub fn sub<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
             expected: a.device(),
             got: b.device(),
         });
+    }
+
+    if let Some(out) = crate::meta_propagate::binary_broadcast(a, b)? {
+        return Ok(out);
     }
 
     crate::profiler_hook::profile_op_scope("sub", "tensor_op", &[a.shape(), b.shape()], || {
@@ -481,6 +489,10 @@ pub fn mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
         });
     }
 
+    if let Some(out) = crate::meta_propagate::binary_broadcast(a, b)? {
+        return Ok(out);
+    }
+
     crate::profiler_hook::profile_op_scope("mul", "tensor_op", &[a.shape(), b.shape()], || {
         mul_inner(a, b)
     })
@@ -604,6 +616,10 @@ pub fn div<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
         });
     }
 
+    if let Some(out) = crate::meta_propagate::binary_broadcast(a, b)? {
+        return Ok(out);
+    }
+
     if a.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
@@ -691,6 +707,9 @@ impl<T: Float> GradFn<T> for NegBackward<T> {
 
 /// Elementwise negation: `c = -a`.
 pub fn neg<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::unary_same_shape(a)? {
+        return Ok(out);
+    }
     if a.is_cuda() {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
@@ -800,6 +819,10 @@ impl<T: Float> GradFn<T> for PowBackward<T> {
 
 /// Elementwise power: `c = a ^ exp` where `exp` is a scalar `f64`.
 pub fn pow<T: Float>(a: &Tensor<T>, exp: f64) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::unary_same_shape(a)? {
+        let _ = exp;
+        return Ok(out);
+    }
     if a.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
@@ -892,6 +915,9 @@ impl<T: Float> GradFn<T> for SqrtBackward<T> {
 
 /// Elementwise square root: `c = sqrt(a)`.
 pub fn sqrt<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::unary_same_shape(a)? {
+        return Ok(out);
+    }
     if a.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
@@ -982,6 +1008,9 @@ impl<T: Float> GradFn<T> for AbsBackward<T> {
 
 /// Elementwise absolute value: `c = |a|`.
 pub fn abs<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::unary_same_shape(a)? {
+        return Ok(out);
+    }
     if a.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;

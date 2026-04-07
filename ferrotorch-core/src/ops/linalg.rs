@@ -20,6 +20,9 @@ use crate::tensor::Tensor;
 ///   If one input is 1D, it is promoted (prepend dim for LHS, append dim for RHS)
 ///   and the added dimension is squeezed from the output.
 pub fn matmul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if let Some(out) = crate::meta_propagate::matmul(a, b)? {
+        return Ok(out);
+    }
     crate::profiler_hook::profile_op_scope("matmul", "linalg", &[a.shape(), b.shape()], || {
         match (a.ndim(), b.ndim()) {
             (0, _) | (_, 0) => Err(FerrotorchError::InvalidArgument {

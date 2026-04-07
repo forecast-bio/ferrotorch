@@ -15,6 +15,7 @@ mod inplace;
 pub mod linalg;
 mod methods;
 pub mod nested;
+pub mod meta_propagate;
 pub mod ops;
 mod ops_trait;
 pub mod profiler_hook;
