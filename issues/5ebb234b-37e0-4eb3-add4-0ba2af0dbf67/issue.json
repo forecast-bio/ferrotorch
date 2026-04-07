@@ -1,0 +1,10 @@
+{
+  "uuid": "5ebb234b-37e0-4eb3-add4-0ba2af0dbf67",
+  "display_id": 500,
+  "title": "Meta device: propagate through arithmetic and linalg ops for full shape inference",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-04-07T14:35:45.519284429Z",
+  "updated_at": "2026-04-07T14:35:45.519284429Z"
+}
