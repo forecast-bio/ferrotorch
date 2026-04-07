@@ -15,6 +15,8 @@ pub mod functional;
 pub mod hooks;
 pub mod identity;
 pub mod init;
+pub mod lazy_conv;
+pub mod lazy_linear;
 pub mod linear;
 pub mod lora;
 pub mod loss;
@@ -49,6 +51,8 @@ pub use flex_attention::{
 pub use hooks::{BackwardHook, ForwardHook, ForwardPreHook, HookHandle, HookedModule};
 pub use identity::{ChannelShuffle, CosineSimilarity, Flatten, Identity, PairwiseDistance, Unflatten};
 pub use init::NonLinearity;
+pub use lazy_conv::{LazyConv1d, LazyConv2d, LazyConv3d};
+pub use lazy_linear::LazyLinear;
 pub use linear::Linear;
 pub use lora::LoRALinear;
 pub use loss::{
