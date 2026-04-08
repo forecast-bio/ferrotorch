@@ -72,6 +72,7 @@ pub use ops::indexing::{gather, scatter, scatter_add, where_cond};
 pub use ops::search::{bucketize, histc, meshgrid, searchsorted, topk, unique, unique_consecutive};
 pub use ops::tensor_ops::{cdist, diag, diagflat, roll, tril, triu};
 pub use pruning::{apply_2_4_mask, magnitude_prune, sparsity_ratio};
+pub use sparse::{SemiStructuredSparseTensor, sparse_matmul_24};
 pub use quantize::{
     FakeQuantize, HistogramObserver, MinMaxObserver, Observer, PerChannelMinMaxObserver, QParams,
     QatLayer, QatModel, QuantDtype, QuantScheme, QuantizedTensor, cuda_rng, dequantize,
