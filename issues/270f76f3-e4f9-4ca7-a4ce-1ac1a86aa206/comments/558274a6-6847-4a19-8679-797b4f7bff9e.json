@@ -1,0 +1,10 @@
+{
+  "uuid": "558274a6-6847-4a19-8679-797b4f7bff9e",
+  "issue_uuid": "270f76f3-e4f9-4ca7-a4ce-1ac1a86aa206",
+  "author": "y4rr",
+  "content": "Expanded foreach on-device path to 10 more optimizers: adam (+AMSGrad), adagrad, rmsprop (+centered+momentum), adamax, nadam, radam (+rectified branch), adadelta, asgd, ema, swa (SWA+EMA). 27 new parity tests; optim suite 295 -> 322 passing, workspace 3946 -> 3974. Plus fixed 5 pre-existing unused-Result warnings in adafactor/sparse_adam tests. Shared foreach_utils module provides elemwise_max + scalar-on-device helpers reused across all ports.\n\nRemaining 7 (rprop, adafactor, muon, lbfgs, sparse_adam, natural_gradient, grad_scaler/grad_accumulator) are documented as out-of-scope for the foreach pattern:\n- rprop: sign-based update inherently requires elementwise branching\n- adafactor: factored second-moment matmul over row/col reductions\n- muon: Newton-Schulz matrix orthogonalization \n- lbfgs: line search requires loss closure re-evaluation\n- sparse_adam: sparse gradient semantics conflict with dense tensor-op path\n- natural_gradient: K-FAC matrix factor storage\n- grad_scaler / grad_accumulator: utility wrappers, no update to express",
+  "created_at": "2026-04-08T05:21:44.798600304Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQOCYh1BNhU2a3Fw/RX93v/57bztLQQ/tZ/LGy9lMkvtMtyLt88SV75RQ8fuOwiKXgIDBK8/yslm2Jsqj2NjJDA=="
+}
