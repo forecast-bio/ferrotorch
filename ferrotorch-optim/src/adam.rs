@@ -10,9 +10,10 @@ use std::any::TypeId;
 use std::collections::HashMap;
 
 use ferrotorch_core::gpu_dispatch::{gpu_backend, GpuBufferHandle};
-use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
+use crate::foreach_utils::elemwise_max;
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,12 @@ pub struct AdamConfig {
     /// When `true`, maximize the objective by negating the gradient (default:
     /// false). CL-321
     pub maximize: bool,
+    /// When `true`, use the on-device tensor-op update path. Moments live
+    /// on the parameter's device and are updated via GPU-aware tensor ops,
+    /// avoiding per-step CPU round-trips. Computes in `T` precision instead
+    /// of the legacy `f64` accumulation — a documented accuracy tradeoff
+    /// users opt into. Default: false. CL-497
+    pub foreach: bool,
 }
 
 impl Default for AdamConfig {
@@ -47,6 +54,7 @@ impl Default for AdamConfig {
             weight_decay: 0.0,
             amsgrad: false,
             maximize: false,
+            foreach: false,
         }
     }
 }
@@ -77,6 +85,16 @@ struct AdamParamState {
     gpu_exp_avg_sq: Option<GpuBufferHandle>,
 }
 
+/// On-device state used by the foreach (tensor-op) update path. Moments
+/// live on the parameter's device and are updated via GPU-aware tensor ops.
+#[derive(Debug)]
+struct AdamForeachState<T: Float> {
+    step_count: u64,
+    exp_avg: Tensor<T>,
+    exp_avg_sq: Tensor<T>,
+    max_exp_avg_sq: Option<Tensor<T>>,
+}
+
 // ---------------------------------------------------------------------------
 // Adam
 // ---------------------------------------------------------------------------
@@ -90,8 +108,12 @@ struct AdamParamState {
 pub struct Adam<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: AdamConfig,
-    /// Per-parameter state, keyed by `"g{group_idx}_p{param_idx}"`.
+    /// Per-parameter state (legacy CPU path), keyed by
+    /// `"g{group_idx}_p{param_idx}"`. Used when `config.foreach == false`.
     state: HashMap<String, AdamParamState>,
+    /// Foreach (on-device) per-parameter state. Used when
+    /// `config.foreach == true`.
+    foreach_state: HashMap<String, AdamForeachState<T>>,
 }
 
 impl<T: Float> Adam<T> {
@@ -104,6 +126,7 @@ impl<T: Float> Adam<T> {
             param_groups: vec![group],
             config,
             state: HashMap::new(),
+            foreach_state: HashMap::new(),
         }
     }
 
@@ -112,10 +135,160 @@ impl<T: Float> Adam<T> {
     fn param_key(group_idx: usize, param_idx: usize) -> String {
         format!("g{group_idx}_p{param_idx}")
     }
+
+    /// Foreach (on-device, tensor-op) update path used when
+    /// `config.foreach == true`. Mirrors the legacy CPU path numerically
+    /// within `T` precision.
+    fn step_foreach(&mut self) -> FerrotorchResult<()> {
+        use ferrotorch_core::creation::{scalar, zeros};
+        use ferrotorch_core::grad_fns::arithmetic::{add, div, mul, neg, sqrt, sub};
+
+        let config = self.config;
+        let (beta1, beta2) = config.betas;
+
+        for gi in 0..self.param_groups.len() {
+            let group_lr = self.param_groups[gi].lr;
+            let group_wd = self.param_groups[gi].weight_decay;
+
+            for pi in 0..self.param_groups[gi].params.len() {
+                let param = &self.param_groups[gi].params[pi];
+                let param_t = param.tensor();
+
+                let grad_tensor = match param.grad()? {
+                    Some(g) => g,
+                    None => continue,
+                };
+
+                let device = param_t.device();
+                let key = Self::param_key(gi, pi);
+
+                no_grad(|| {
+                    // grad (possibly negated for maximize, possibly L2-augmented
+                    // with wd*param — classic Adam uses coupled weight decay).
+                    let mut grad: Tensor<T> = if config.maximize {
+                        neg(&grad_tensor)?
+                    } else {
+                        grad_tensor.clone()
+                    };
+                    if group_wd > 0.0 {
+                        let wd_t = scalar(T::from(group_wd).unwrap())?.to(device)?;
+                        let weighted = mul(&param_t, &wd_t)?;
+                        grad = add(&grad, &weighted)?;
+                    }
+
+                    // Initialize state on first step.
+                    let next_step = {
+                        let st = self.foreach_state.entry(key.clone()).or_insert_with(|| {
+                            AdamForeachState {
+                                step_count: 0,
+                                exp_avg: zeros::<T>(param_t.shape())
+                                    .expect("zeros allocation")
+                                    .to(device)
+                                    .expect("zeros to device"),
+                                exp_avg_sq: zeros::<T>(param_t.shape())
+                                    .expect("zeros allocation")
+                                    .to(device)
+                                    .expect("zeros to device"),
+                                max_exp_avg_sq: if config.amsgrad {
+                                    Some(
+                                        zeros::<T>(param_t.shape())
+                                            .expect("zeros allocation")
+                                            .to(device)
+                                            .expect("zeros to device"),
+                                    )
+                                } else {
+                                    None
+                                },
+                            }
+                        });
+                        st.step_count + 1
+                    };
+
+                    // Read current moment tensors.
+                    let exp_avg_old = self.foreach_state[&key].exp_avg.clone();
+                    let exp_avg_sq_old = self.foreach_state[&key].exp_avg_sq.clone();
+
+                    // exp_avg = beta1 * exp_avg + (1 - beta1) * grad
+                    let beta1_t = scalar(T::from(beta1).unwrap())?.to(device)?;
+                    let one_minus_beta1 = scalar(T::from(1.0 - beta1).unwrap())?.to(device)?;
+                    let exp_avg_new = add(
+                        &mul(&exp_avg_old, &beta1_t)?,
+                        &mul(&grad, &one_minus_beta1)?,
+                    )?;
+
+                    // exp_avg_sq = beta2 * exp_avg_sq + (1 - beta2) * grad^2
+                    let beta2_t = scalar(T::from(beta2).unwrap())?.to(device)?;
+                    let one_minus_beta2 = scalar(T::from(1.0 - beta2).unwrap())?.to(device)?;
+                    let grad_sq = mul(&grad, &grad)?;
+                    let exp_avg_sq_new = add(
+                        &mul(&exp_avg_sq_old, &beta2_t)?,
+                        &mul(&grad_sq, &one_minus_beta2)?,
+                    )?;
+
+                    // Bias-correction factors.
+                    let bc1 = 1.0 - beta1.powi(next_step as i32);
+                    let bc2 = 1.0 - beta2.powi(next_step as i32);
+                    let inv_bc1 = scalar(T::from(1.0 / bc1).unwrap())?.to(device)?;
+                    let inv_bc2 = scalar(T::from(1.0 / bc2).unwrap())?.to(device)?;
+
+                    let m_hat = mul(&exp_avg_new, &inv_bc1)?;
+
+                    // AMSGrad: take elementwise max of bias-corrected v.
+                    let (v_hat, new_max) = if config.amsgrad {
+                        let old_max = self.foreach_state[&key]
+                            .max_exp_avg_sq
+                            .as_ref()
+                            .expect("amsgrad state")
+                            .clone();
+                        let corrected_v = mul(&exp_avg_sq_new, &inv_bc2)?;
+                        let new_max = elemwise_max(&old_max, &corrected_v, device)?;
+                        (new_max.clone(), Some(new_max))
+                    } else {
+                        (mul(&exp_avg_sq_new, &inv_bc2)?, None)
+                    };
+
+                    // sqrt(v_hat) + eps
+                    let sqrt_v = sqrt(&v_hat)?;
+                    let eps_t = scalar(T::from(config.eps).unwrap())?.to(device)?;
+                    let denom = add(&sqrt_v, &eps_t)?;
+                    let update = div(&m_hat, &denom)?;
+
+                    // param = param - lr * update
+                    let lr_t = scalar(T::from(group_lr).unwrap())?.to(device)?;
+                    let scaled_update = mul(&update, &lr_t)?;
+                    let new_param = sub(&param_t, &scaled_update)?;
+
+                    // Commit parameter update.
+                    let (storage, _) = new_param.into_storage_and_shape()?;
+                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    unsafe { param_t.update_storage(storage)? };
+
+                    // Commit state after the parameter update succeeded.
+                    let st = self.foreach_state.get_mut(&key).unwrap();
+                    st.step_count = next_step;
+                    st.exp_avg = exp_avg_new;
+                    st.exp_avg_sq = exp_avg_sq_new;
+                    if let Some(m) = new_max {
+                        st.max_exp_avg_sq = Some(m);
+                    }
+
+                    Ok::<(), ferrotorch_core::FerrotorchError>(())
+                })?;
+            }
+        }
+
+        Ok(())
+    }
 }
+
 
 impl<T: Float> Optimizer<T> for Adam<T> {
     fn step(&mut self) -> FerrotorchResult<()> {
+        // Foreach path: stay on-device throughout, no CPU roundtrip.
+        if self.config.foreach {
+            return self.step_foreach();
+        }
+
         let config = self.config;
         let (beta1, beta2) = config.betas;
         let is_f32 = TypeId::of::<T>() == TypeId::of::<f32>();
@@ -721,5 +894,138 @@ mod tests {
         let v2 = param_val(&opt, 0, 1);
         assert!(v1.abs() < 0.5, "expected p1 near 0, got {v1}");
         assert!(v2.abs() < 0.5, "expected p2 near 0, got {v2}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Foreach mode parity tests. CL-497
+    // -----------------------------------------------------------------------
+
+    /// Create a pair of parameters with identical initial values so the
+    /// legacy and foreach paths can be compared side by side.
+    fn paired_params(data: &[f32]) -> (Parameter<f32>, Parameter<f32>) {
+        (
+            Parameter::from_slice(data, &[data.len()]).unwrap(),
+            Parameter::from_slice(data, &[data.len()]).unwrap(),
+        )
+    }
+
+    fn leaf_f32(data: &[f32], shape: &[usize]) -> Tensor<f32> {
+        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), shape.to_vec(), false).unwrap()
+    }
+
+    #[test]
+    fn test_adam_foreach_basic_parity() {
+        let (p_legacy, p_foreach) = paired_params(&[1.0, 2.0, 3.0, 4.0]);
+        let mut legacy = Adam::new(vec![p_legacy.clone()], AdamConfig::default());
+        let mut foreach = Adam::new(
+            vec![p_foreach.clone()],
+            AdamConfig {
+                foreach: true,
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..8 {
+            let g = leaf_f32(&[0.1, 0.2, -0.3, 0.4], &[4]);
+            p_legacy.set_grad(Some(g.clone())).unwrap();
+            p_foreach.set_grad(Some(g)).unwrap();
+            legacy.step().unwrap();
+            foreach.step().unwrap();
+        }
+
+        let l = legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = foreach.param_groups()[0].params[0].data().unwrap().to_vec();
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-4,
+                "adam foreach parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adam_foreach_parity_with_weight_decay() {
+        let (p_legacy, p_foreach) = paired_params(&[5.0, -3.0, 2.0]);
+        let cfg = AdamConfig {
+            lr: 0.01,
+            weight_decay: 0.05,
+            ..Default::default()
+        };
+        let mut legacy = Adam::new(vec![p_legacy.clone()], cfg);
+        let mut foreach = Adam::new(
+            vec![p_foreach.clone()],
+            AdamConfig { foreach: true, ..cfg },
+        );
+
+        for _ in 0..5 {
+            let g = leaf_f32(&[0.5, -0.5, 1.0], &[3]);
+            p_legacy.set_grad(Some(g.clone())).unwrap();
+            p_foreach.set_grad(Some(g)).unwrap();
+            legacy.step().unwrap();
+            foreach.step().unwrap();
+        }
+
+        let l = legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = foreach.param_groups()[0].params[0].data().unwrap().to_vec();
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-4,
+                "adam weight decay parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adam_foreach_parity_with_amsgrad() {
+        let (p_legacy, p_foreach) = paired_params(&[2.0, -1.0, 0.5, 0.0]);
+        let cfg = AdamConfig {
+            amsgrad: true,
+            ..Default::default()
+        };
+        let mut legacy = Adam::new(vec![p_legacy.clone()], cfg);
+        let mut foreach = Adam::new(
+            vec![p_foreach.clone()],
+            AdamConfig { foreach: true, ..cfg },
+        );
+
+        for _ in 0..6 {
+            let g = leaf_f32(&[0.2, 0.1, -0.05, 0.3], &[4]);
+            p_legacy.set_grad(Some(g.clone())).unwrap();
+            p_foreach.set_grad(Some(g)).unwrap();
+            legacy.step().unwrap();
+            foreach.step().unwrap();
+        }
+
+        let l = legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = foreach.param_groups()[0].params[0].data().unwrap().to_vec();
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-3,
+                "adam amsgrad parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adam_foreach_skips_params_without_grad() {
+        let p1 = Parameter::from_slice(&[1.0f32, 2.0], &[2]).unwrap();
+        let p2 = Parameter::from_slice(&[3.0f32, 4.0], &[2]).unwrap();
+        let g = leaf_f32(&[1.0, 1.0], &[2]);
+        p1.set_grad(Some(g)).unwrap();
+
+        let mut opt = Adam::new(
+            vec![p1, p2],
+            AdamConfig {
+                foreach: true,
+                ..Default::default()
+            },
+        );
+        opt.step().unwrap();
+
+        let p1_data = opt.param_groups()[0].params[0].data().unwrap();
+        let p2_data = opt.param_groups()[0].params[1].data().unwrap();
+        // p1 updated by Adam; p2 unchanged.
+        assert!(p1_data[0] < 1.0);
+        assert_eq!(&*p2_data, &[3.0, 4.0]);
     }
 }

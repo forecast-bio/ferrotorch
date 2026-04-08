@@ -31,6 +31,10 @@ pub struct AdagradConfig {
     /// When `true`, maximize the objective by negating the gradient (default:
     /// false). CL-321
     pub maximize: bool,
+    /// When `true`, use the on-device tensor-op update path. Avoids per-step
+    /// CPU↔GPU round-trips at the cost of computing in `T` precision
+    /// instead of f64. Default: false. CL-497
+    pub foreach: bool,
 }
 
 impl Default for AdagradConfig {
@@ -42,6 +46,7 @@ impl Default for AdagradConfig {
             initial_accumulator_value: 0.0,
             eps: 1e-10,
             maximize: false,
+            foreach: false,
         }
     }
 }
@@ -124,10 +129,104 @@ impl<T: Float> Adagrad<T> {
         }
         Ok(())
     }
+
+    /// Foreach (on-device, tensor-op) update path used when
+    /// `config.foreach == true`. CL-497
+    fn step_foreach(&mut self) -> FerrotorchResult<()> {
+        use ferrotorch_core::creation::scalar;
+        use ferrotorch_core::grad_fns::arithmetic::{add, div, mul, neg, sqrt, sub};
+
+        let lr = self.config.lr;
+        let lr_decay = self.config.lr_decay;
+        let weight_decay = self.config.weight_decay;
+        let eps = self.config.eps;
+
+        for group_idx in 0..self.param_groups.len() {
+            for param_idx in 0..self.param_groups[group_idx].params.len() {
+                let shape = self.param_groups[group_idx].params[param_idx]
+                    .shape()
+                    .to_vec();
+
+                // Clone once: grabs fresh Arc, avoids aliasing borrow.
+                let grad_tensor_opt =
+                    self.param_groups[group_idx].params[param_idx].grad()?;
+                let grad_tensor = match grad_tensor_opt {
+                    Some(g) => g,
+                    None => continue,
+                };
+
+                let param_t =
+                    self.param_groups[group_idx].params[param_idx].tensor().clone();
+                let device = param_t.device();
+
+                // Ensure the state exists. The sum accumulator is allocated
+                // on CPU initially; move it to the parameter's device on
+                // first use so all subsequent ops stay on-device.
+                self.ensure_state(group_idx, param_idx, &shape)?;
+                {
+                    let state = self.state.get_mut(&(group_idx, param_idx)).unwrap();
+                    if state.sum.device() != device {
+                        state.sum = state.sum.clone().to(device)?;
+                    }
+                }
+
+                let state_key = (group_idx, param_idx);
+
+                no_grad(|| {
+                    // grad (possibly negated, possibly with L2 weight decay).
+                    let mut grad: Tensor<T> = if self.config.maximize {
+                        neg(&grad_tensor)?
+                    } else {
+                        grad_tensor.clone()
+                    };
+                    if weight_decay > 0.0 {
+                        let wd_t = scalar(T::from(weight_decay).unwrap())?.to(device)?;
+                        let weighted = mul(&param_t, &wd_t)?;
+                        grad = add(&grad, &weighted)?;
+                    }
+
+                    // sum += grad^2
+                    let sum_old = self.state[&state_key].sum.clone();
+                    let grad_sq = mul(&grad, &grad)?;
+                    let sum_new = add(&sum_old, &grad_sq)?;
+
+                    // Effective learning rate with decay.
+                    let next_step = self.state[&state_key].step_count + 1;
+                    let clr = lr / (1.0 + (next_step as f64 - 1.0) * lr_decay);
+
+                    // param = param - clr * grad / (sqrt(sum) + eps)
+                    let clr_t = scalar(T::from(clr).unwrap())?.to(device)?;
+                    let eps_t = scalar(T::from(eps).unwrap())?.to(device)?;
+                    let denom = add(&sqrt(&sum_new)?, &eps_t)?;
+                    let scaled_grad = mul(&grad, &clr_t)?;
+                    let update = div(&scaled_grad, &denom)?;
+                    let new_param = sub(&param_t, &update)?;
+
+                    // Commit parameter and state.
+                    let (storage, _) = new_param.into_storage_and_shape()?;
+                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    unsafe { param_t.update_storage(storage)? };
+
+                    let state = self.state.get_mut(&state_key).unwrap();
+                    state.sum = sum_new;
+                    state.step_count = next_step;
+
+                    Ok::<(), ferrotorch_core::FerrotorchError>(())
+                })?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<T: Float> Optimizer<T> for Adagrad<T> {
     fn step(&mut self) -> FerrotorchResult<()> {
+        // Foreach path: stay on-device throughout, no CPU roundtrip.
+        if self.config.foreach {
+            return self.step_foreach();
+        }
+
         let lr = self.config.lr;
         let lr_decay = self.config.lr_decay;
         let weight_decay = self.config.weight_decay;
@@ -626,5 +725,129 @@ mod tests {
             (val - 3.0).abs() < 1e-7,
             "param without grad should be unchanged, got {val}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Foreach mode parity tests. CL-497
+    // -----------------------------------------------------------------------
+
+    fn paired_adagrad(data: &[f32]) -> (Parameter<f32>, Parameter<f32>) {
+        (
+            Parameter::from_slice(data, &[data.len()]).unwrap(),
+            Parameter::from_slice(data, &[data.len()]).unwrap(),
+        )
+    }
+
+    fn adagrad_run_pair(
+        cfg: AdagradConfig,
+        init: &[f32],
+        grads: &[&[f32]],
+    ) -> (Vec<f32>, Vec<f32>) {
+        let (p_legacy, p_foreach) = paired_adagrad(init);
+        let mut legacy = Adagrad::new(
+            vec![ParamGroup::new(vec![p_legacy.clone()], cfg.lr)],
+            cfg.clone(),
+        );
+        let mut foreach = Adagrad::new(
+            vec![ParamGroup::new(vec![p_foreach.clone()], cfg.lr)],
+            AdagradConfig {
+                foreach: true,
+                ..cfg
+            },
+        );
+
+        for g in grads {
+            let gt = Tensor::from_storage(
+                TensorStorage::cpu(g.to_vec()),
+                vec![init.len()],
+                false,
+            )
+            .unwrap();
+            p_legacy.set_grad(Some(gt.clone())).unwrap();
+            p_foreach.set_grad(Some(gt)).unwrap();
+            legacy.step().unwrap();
+            foreach.step().unwrap();
+        }
+
+        let l = legacy.param_groups()[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
+        let f = foreach.param_groups()[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
+        (l, f)
+    }
+
+    #[test]
+    fn test_adagrad_foreach_basic_parity() {
+        let g: &[f32] = &[0.1, 0.2, -0.3, 0.4];
+        let grads: Vec<&[f32]> = vec![g; 5];
+        let (l, f) = adagrad_run_pair(
+            AdagradConfig::default(),
+            &[1.0, 2.0, 3.0, 4.0],
+            &grads,
+        );
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "adagrad foreach parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adagrad_foreach_parity_with_weight_decay() {
+        let cfg = AdagradConfig {
+            lr: 0.1,
+            weight_decay: 0.02,
+            ..Default::default()
+        };
+        let g: &[f32] = &[0.5, -0.5, 1.0];
+        let grads: Vec<&[f32]> = vec![g; 4];
+        let (l, f) = adagrad_run_pair(cfg, &[5.0, -3.0, 2.0], &grads);
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "adagrad weight decay parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adagrad_foreach_parity_with_lr_decay() {
+        let cfg = AdagradConfig {
+            lr: 0.1,
+            lr_decay: 0.01,
+            ..Default::default()
+        };
+        let g: &[f32] = &[0.3, -0.2, 0.1];
+        let grads: Vec<&[f32]> = vec![g; 6];
+        let (l, f) = adagrad_run_pair(cfg, &[1.0, -1.0, 0.5], &grads);
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "adagrad lr_decay parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adagrad_foreach_parity_with_maximize() {
+        let cfg = AdagradConfig {
+            lr: 0.05,
+            maximize: true,
+            ..Default::default()
+        };
+        let g: &[f32] = &[0.3, 0.4];
+        let grads: Vec<&[f32]> = vec![g; 3];
+        let (l, f) = adagrad_run_pair(cfg, &[0.5, 1.0], &grads);
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "adagrad maximize parity: legacy={a}, foreach={b}"
+            );
+        }
     }
 }

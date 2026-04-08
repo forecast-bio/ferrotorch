@@ -9,9 +9,10 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
+use crate::foreach_utils::{elemwise_max, f64_scalar_on};
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 // ---------------------------------------------------------------------------
@@ -30,6 +31,8 @@ pub struct AdamaxConfig {
     pub eps: f64,
     /// Weight decay coefficient (default: 0.0).
     pub weight_decay: f64,
+    /// When `true`, use the on-device tensor-op update path. CL-497
+    pub foreach: bool,
 }
 
 impl Default for AdamaxConfig {
@@ -39,6 +42,7 @@ impl Default for AdamaxConfig {
             betas: (0.9, 0.999),
             eps: 1e-8,
             weight_decay: 0.0,
+            foreach: false,
         }
     }
 }
@@ -54,6 +58,14 @@ struct AdamaxParamState {
     exp_avg: Vec<f64>,
     /// Exponentially weighted infinity norm.
     exp_inf: Vec<f64>,
+}
+
+/// On-device foreach state for Adamax.
+#[derive(Debug)]
+struct AdamaxForeachState<T: Float> {
+    step_count: u64,
+    exp_avg: Tensor<T>,
+    exp_inf: Tensor<T>,
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +89,8 @@ pub struct Adamax<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: AdamaxConfig,
     state: HashMap<String, AdamaxParamState>,
+    /// Foreach (on-device) state. Used when `config.foreach == true`.
+    foreach_state: HashMap<String, AdamaxForeachState<T>>,
 }
 
 impl<T: Float> Adamax<T> {
@@ -88,6 +102,7 @@ impl<T: Float> Adamax<T> {
             param_groups: vec![group],
             config,
             state: HashMap::new(),
+            foreach_state: HashMap::new(),
         }
     }
 
@@ -95,10 +110,108 @@ impl<T: Float> Adamax<T> {
     fn param_key(group_idx: usize, param_idx: usize) -> String {
         format!("g{group_idx}_p{param_idx}")
     }
+
+    /// Foreach (on-device, tensor-op) update path. CL-497
+    fn step_foreach(&mut self) -> FerrotorchResult<()> {
+        use ferrotorch_core::creation::zeros;
+        use ferrotorch_core::grad_fns::arithmetic::{abs, add, div, mul, sub};
+
+        let config = self.config;
+        let (beta1, beta2) = config.betas;
+
+        for gi in 0..self.param_groups.len() {
+            let group_lr = self.param_groups[gi].lr;
+            let group_wd = self.param_groups[gi].weight_decay;
+
+            for pi in 0..self.param_groups[gi].params.len() {
+                let grad_opt = self.param_groups[gi].params[pi].grad()?;
+                let grad_tensor = match grad_opt {
+                    Some(g) => g,
+                    None => continue,
+                };
+
+                let param_t =
+                    self.param_groups[gi].params[pi].tensor().clone();
+                let device = param_t.device();
+                let key = Self::param_key(gi, pi);
+
+                // Lazy-init state.
+                if !self.foreach_state.contains_key(&key) {
+                    self.foreach_state.insert(
+                        key.clone(),
+                        AdamaxForeachState {
+                            step_count: 0,
+                            exp_avg: zeros::<T>(param_t.shape())?.to(device)?,
+                            exp_inf: zeros::<T>(param_t.shape())?.to(device)?,
+                        },
+                    );
+                }
+
+                no_grad(|| {
+                    // grad (with L2 weight decay if enabled).
+                    let mut grad: Tensor<T> = grad_tensor.clone();
+                    if group_wd > 0.0 {
+                        let wd_t = f64_scalar_on::<T>(group_wd, device)?;
+                        let weighted = mul(&param_t, &wd_t)?;
+                        grad = add(&grad, &weighted)?;
+                    }
+
+                    let beta1_t = f64_scalar_on::<T>(beta1, device)?;
+                    let one_minus_beta1 = f64_scalar_on::<T>(1.0 - beta1, device)?;
+                    let beta2_t = f64_scalar_on::<T>(beta2, device)?;
+                    let eps_t = f64_scalar_on::<T>(config.eps, device)?;
+
+                    // exp_avg = beta1 * exp_avg + (1 - beta1) * grad
+                    let exp_avg_old = self.foreach_state[&key].exp_avg.clone();
+                    let exp_avg_new = add(
+                        &mul(&exp_avg_old, &beta1_t)?,
+                        &mul(&grad, &one_minus_beta1)?,
+                    )?;
+
+                    // exp_inf = max(beta2 * exp_inf, |grad| + eps)
+                    let exp_inf_old = self.foreach_state[&key].exp_inf.clone();
+                    let beta2_scaled_inf = mul(&exp_inf_old, &beta2_t)?;
+                    let abs_grad = abs(&grad)?;
+                    let abs_grad_plus_eps = add(&abs_grad, &eps_t)?;
+                    let exp_inf_new =
+                        elemwise_max(&beta2_scaled_inf, &abs_grad_plus_eps, device)?;
+
+                    // Bias correction for the first moment only.
+                    let next_step = self.foreach_state[&key].step_count + 1;
+                    let bc1 = 1.0 - beta1.powi(next_step as i32);
+                    let clr = group_lr / bc1;
+                    let clr_t = f64_scalar_on::<T>(clr, device)?;
+
+                    // param = param - clr * exp_avg / exp_inf
+                    let update = div(&exp_avg_new, &exp_inf_new)?;
+                    let scaled = mul(&update, &clr_t)?;
+                    let new_param = sub(&param_t, &scaled)?;
+
+                    // Commit.
+                    let (storage, _) = new_param.into_storage_and_shape()?;
+                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    unsafe { param_t.update_storage(storage)? };
+
+                    let state = self.foreach_state.get_mut(&key).unwrap();
+                    state.step_count = next_step;
+                    state.exp_avg = exp_avg_new;
+                    state.exp_inf = exp_inf_new;
+
+                    Ok::<(), ferrotorch_core::FerrotorchError>(())
+                })?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<T: Float> Optimizer<T> for Adamax<T> {
     fn step(&mut self) -> FerrotorchResult<()> {
+        if self.config.foreach {
+            return self.step_foreach();
+        }
+
         let config = self.config;
         let (beta1, beta2) = config.betas;
 
@@ -425,5 +538,80 @@ mod tests {
 
         let val = param_val(&opt, 0, 0);
         assert!(val.abs() < 5.0, "should have moved from 5.0, got {val}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Foreach mode parity tests. CL-497
+    // -----------------------------------------------------------------------
+
+    fn paired_adamax(data: &[f32]) -> (Parameter<f32>, Parameter<f32>) {
+        (
+            Parameter::from_slice(data, &[data.len()]).unwrap(),
+            Parameter::from_slice(data, &[data.len()]).unwrap(),
+        )
+    }
+
+    fn adamax_run_pair(
+        cfg: AdamaxConfig,
+        init: &[f32],
+        steps: usize,
+        grad: &[f32],
+    ) -> (Vec<f32>, Vec<f32>) {
+        let (p_legacy, p_foreach) = paired_adamax(init);
+        let mut legacy = Adamax::new(vec![p_legacy.clone()], cfg);
+        let mut foreach = Adamax::new(
+            vec![p_foreach.clone()],
+            AdamaxConfig { foreach: true, ..cfg },
+        );
+
+        for _ in 0..steps {
+            let g = Tensor::from_storage(
+                TensorStorage::cpu(grad.to_vec()),
+                vec![init.len()],
+                false,
+            )
+            .unwrap();
+            p_legacy.set_grad(Some(g.clone())).unwrap();
+            p_foreach.set_grad(Some(g)).unwrap();
+            legacy.step().unwrap();
+            foreach.step().unwrap();
+        }
+
+        (
+            legacy.param_groups()[0].params[0].data().unwrap().to_vec(),
+            foreach.param_groups()[0].params[0].data().unwrap().to_vec(),
+        )
+    }
+
+    #[test]
+    fn test_adamax_foreach_basic_parity() {
+        let (l, f) = adamax_run_pair(
+            AdamaxConfig::default(),
+            &[1.0, 2.0, 3.0, 4.0],
+            5,
+            &[0.1, 0.2, -0.3, 0.4],
+        );
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-4,
+                "adamax foreach parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adamax_foreach_parity_with_weight_decay() {
+        let cfg = AdamaxConfig {
+            lr: 0.002,
+            weight_decay: 0.05,
+            ..Default::default()
+        };
+        let (l, f) = adamax_run_pair(cfg, &[5.0, -3.0, 2.0], 6, &[0.5, -0.5, 1.0]);
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-4,
+                "adamax wd parity: legacy={a}, foreach={b}"
+            );
+        }
     }
 }

@@ -8,6 +8,7 @@ pub mod asgd;
 pub mod differentiable;
 pub mod sparse_adam;
 pub mod ema;
+pub mod foreach_utils;
 pub mod grad_accumulator;
 pub mod grad_scaler;
 pub mod lbfgs;
