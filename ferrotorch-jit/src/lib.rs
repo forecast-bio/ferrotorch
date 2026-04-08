@@ -4,6 +4,7 @@ pub mod codegen;
 pub mod codegen_cpu;
 pub mod codegen_gpu;
 pub mod codegen_ir;
+pub mod codegen_jit;
 pub mod dag_fusion;
 pub mod error;
 pub mod export;
@@ -26,6 +27,7 @@ pub use codegen::{
 pub use codegen_cpu::CpuCodegen;
 pub use codegen_gpu::GpuCodegen;
 pub use codegen_ir::{BinOpKind, Expr, LoopIR, UnaryOpKind};
+pub use codegen_jit::{JitCompiledKernel, compile_c_kernel};
 pub use dag_fusion::{FusionGroup, FusionGroupKind};
 pub use error::JitError;
 pub use export::{

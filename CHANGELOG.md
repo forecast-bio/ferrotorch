@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- Inductor CpuC JIT execution: `InductorBackend::compile` with `InductorTarget::CpuC` now really compiles generated C source into a shared library via the system C compiler (`cc`/`gcc`/`clang`, or `$CC`), loads it with `libloading`, and dispatches to the native kernel on every `execute` call — replacing the previous interpreter fallback. Single-fusion-group elementwise graphs (including ones with constant inputs) are fully JIT'd; mixed graphs with reductions/matmul/etc. still fall back to the interpreter. A global hash-keyed compile cache returns the same `Arc<JitCompiledKernel>` for byte-identical source, so repeated compiles are O(1). (#290)
 - Semi-structured 2:4 sparsity: `SemiStructuredSparseTensor<T>` with compressed values + 4-bit-per-group mask storage, `compress`/`decompress` round-trip, deterministic tie-breaking, and a `sparse_matmul_24(a, b)` reference implementation. Matches the NVIDIA Sparse Tensor Core format for Ampere+ hardware. (#292)
 - Differentiable QAT: `fake_quantize_differentiable(tensor, scale, zero_point, qmin, qmax)` integrates fake-quantization into the autograd engine with clipped straight-through-estimator backward, so models can train end-to-end through simulated quantization noise (#293)
 - Dispatch key system: `DispatchKey` enum (Cpu/Cuda/Meta/Sparse/Quantized/Nested/Autocast/Autograd/Vmap/Profiler/Tracer), `DispatchKeySet` bitmask with priority iteration, and a `Dispatcher<T>` kernel registration table with `call` (priority resolution + redispatch) and `call_direct` (bypass for testing). Enables composable sparse/quantized/autograd/tracer layers. (#397)
@@ -200,6 +201,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- 292 (#502)
 - Add vision transforms: GaussianNoise, ElasticTransform, TrivialAugmentWide (#458)
 - Implement LazyLinear and LazyConv variants (deferred shape inference) (#445)
 - Add missing crate READMEs and update workspace README for crates.io publishing (#177)

@@ -1633,7 +1633,9 @@ version = "0.2.3"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-nn",
+ "libloading 0.8.9",
  "num-traits",
+ "tempfile",
  "thiserror 2.0.18",
 ]
 
@@ -1671,6 +1673,7 @@ version = "0.2.3"
 dependencies = [
  "cudarc",
  "ferrotorch-core",
+ "ferrotorch-gpu",
  "num-traits",
  "tempfile",
 ]

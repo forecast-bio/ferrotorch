@@ -870,14 +870,19 @@ impl InductorBackend {
 
 impl Codegen for InductorBackend {
     fn compile(&self, graph: &IrGraph) -> FerrotorchResult<CompiledGraph> {
-        // Generate source code (for inspection / future JIT compilation).
-        let _sources = self.generate(graph)?;
+        // For the CpuC target, attempt the real JIT path: generate C,
+        // shell out to the system C compiler, load the resulting shared
+        // library, and dispatch to it on every `execute` call.  Graphs
+        // that are a single elementwise fusion group are fully JIT'd;
+        // anything else falls back to the interpreter.
+        if self.target == InductorTarget::CpuC {
+            if let Some(compiled) = try_jit_compile_cpu_c(graph)? {
+                return Ok(compiled);
+            }
+        }
 
-        // For execution, we currently fall back to the interpreter.
-        // In a production system the generated source would be compiled
-        // (via rustc / nvcc / ptxas) and dynamically loaded.  For now the
-        // value proposition is the *generated source* which can be fed to
-        // an external compiler pipeline.
+        // Fallback: generate source for inspection, then interpret.
+        let _sources = self.generate(graph)?;
         InterpreterBackend.compile(graph)
     }
 
@@ -889,6 +894,174 @@ impl Codegen for InductorBackend {
             InductorTarget::GpuCuda => "inductor-gpu-cuda",
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// JIT compile path for CpuC
+// ---------------------------------------------------------------------------
+
+/// Resolve how an `external_input` of a fusion group is supplied at
+/// runtime. Graph inputs become indices into the `execute` call's input
+/// list; constants are baked into the closure.
+#[derive(Debug, Clone)]
+enum InputSource {
+    /// `inputs[index]` from the execute-time input slice.
+    GraphInput(usize),
+    /// A constant buffer captured at compile time.
+    Constant(Vec<f64>),
+}
+
+/// Attempt to JIT-compile the graph to a native shared library via the
+/// CpuC target. Returns `Ok(Some(..))` on a successful JIT compile,
+/// `Ok(None)` if the graph shape is unsupported, or `Err(..)` if the
+/// compile pipeline itself failed.
+///
+/// The supported shape is:
+///
+/// - Exactly one fusion group, of kind `Elementwise`
+/// - Exactly one graph output, which is the group's sole external output
+/// - All external inputs are either graph inputs or graph constants
+fn try_jit_compile_cpu_c(graph: &IrGraph) -> FerrotorchResult<Option<CompiledGraph>> {
+    use crate::dag_fusion::{FusionGroupKind, find_fusion_groups, fuse_dag};
+    use crate::graph::IrOpKind;
+
+    let groups = find_fusion_groups(graph);
+    if groups.len() != 1 {
+        return Ok(None);
+    }
+    let group = &groups[0];
+    if group.kind != FusionGroupKind::Elementwise {
+        return Ok(None);
+    }
+    if graph.output_values.len() != 1 {
+        return Ok(None);
+    }
+    if group.external_outputs.len() != 1 {
+        return Ok(None);
+    }
+    if group.external_outputs[0] != graph.output_values[0] {
+        return Ok(None);
+    }
+    if group.external_inputs.is_empty() {
+        // A group with no external inputs is pathological; bail.
+        return Ok(None);
+    }
+
+    // Map each external_input to its runtime source.
+    let mut sources: Vec<InputSource> = Vec::with_capacity(group.external_inputs.len());
+    for &val_id in &group.external_inputs {
+        let value = graph
+            .values
+            .iter()
+            .find(|v| v.id == val_id)
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("inductor-jit: external input {val_id:?} has no value entry"),
+            })?;
+        let producer_id = match value.producer {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+        let producer = graph
+            .nodes
+            .iter()
+            .find(|n| n.id == producer_id)
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("inductor-jit: producer {producer_id:?} not found"),
+            })?;
+        match &producer.op {
+            IrOpKind::Input { index } => {
+                sources.push(InputSource::GraphInput(*index));
+            }
+            IrOpKind::Constant { data, .. } => {
+                sources.push(InputSource::Constant(data.clone()));
+            }
+            _ => {
+                // The external input was produced by a non-input, non-constant
+                // node. That shouldn't happen for a single-group graph
+                // (the producer would have been in the same group), but
+                // if it does, bail to the interpreter.
+                return Ok(None);
+            }
+        }
+    }
+
+    // Determine output length from the graph's output shape.
+    let output_shape = resolve_output_shape(graph)?;
+    let output_len: usize = output_shape.iter().product();
+    if output_len == 0 {
+        return Ok(None);
+    }
+
+    // Lower the group to LoopIR and emit C source.
+    let loops_per_group = fuse_dag(&groups, graph);
+    let kernel_loops = &loops_per_group[0];
+    let fn_name = "kernel_0";
+    let num_inputs = group.external_inputs.len();
+    let kernel_source =
+        crate::codegen_cpu::CpuCodegen::generate_c_source(kernel_loops, fn_name, num_inputs);
+
+    // Compile through the JIT pipeline (with cache).
+    let kernel =
+        crate::codegen_jit::compile_c_kernel(&kernel_source, fn_name, num_inputs, output_len)?;
+
+    // Capture everything we need for the execute closure.
+    let num_graph_inputs = graph.input_values.len();
+    let input_shapes = collect_input_shapes(graph);
+
+    let execute = move |inputs: &[Vec<f64>]| -> FerrotorchResult<Vec<f64>> {
+        if inputs.len() != num_graph_inputs {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "inductor-jit: expected {} graph inputs, got {}",
+                    num_graph_inputs,
+                    inputs.len()
+                ),
+            });
+        }
+        // Optional: validate input lengths against declared shapes.
+        for (i, (data, shape)) in inputs.iter().zip(input_shapes.iter()).enumerate() {
+            let expected: usize = shape.iter().product();
+            if expected != 0 && data.len() != expected {
+                return Err(FerrotorchError::ShapeMismatch {
+                    message: format!(
+                        "inductor-jit: input {i} expected {expected} elements \
+                         (shape {shape:?}), got {}",
+                        data.len()
+                    ),
+                });
+            }
+        }
+
+        // Build the kernel's per-external-input buffer list.
+        let mut kernel_inputs: Vec<&[f64]> = Vec::with_capacity(sources.len());
+        for src in &sources {
+            match src {
+                InputSource::GraphInput(idx) => {
+                    let buf = inputs.get(*idx).ok_or_else(|| {
+                        FerrotorchError::InvalidArgument {
+                            message: format!(
+                                "inductor-jit: graph input {idx} out of range"
+                            ),
+                        }
+                    })?;
+                    kernel_inputs.push(buf.as_slice());
+                }
+                InputSource::Constant(data) => {
+                    kernel_inputs.push(data.as_slice());
+                }
+            }
+        }
+
+        let mut output = vec![0.0f64; output_len];
+        kernel.execute(&kernel_inputs, &mut output)?;
+        Ok(output)
+    };
+
+    Ok(Some(CompiledGraph {
+        execute: Box::new(execute),
+        num_inputs: num_graph_inputs,
+        output_shape,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -1401,6 +1574,241 @@ mod tests {
             let sources = backend.generate(&g).unwrap();
             assert!(!sources.is_empty(), "no sources generated for {:?}", target);
             assert!(!sources[0].is_empty(), "empty source for {:?}", target);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Inductor CpuC JIT tests
+    //
+    // These exercise the real end-to-end path: C source is generated,
+    // handed to the system C compiler, loaded as a shared library, and
+    // invoked via FFI on every `execute` call. They skip gracefully when
+    // no C compiler is available on the host.
+    // -----------------------------------------------------------------------
+
+    fn have_c_compiler() -> bool {
+        // Private to codegen_jit, but reflected here via an env probe on
+        // the standard names the module checks.
+        if std::env::var("CC")
+            .ok()
+            .and_then(|cc| {
+                std::env::split_paths(&std::env::var_os("PATH")?)
+                    .find(|p| p.join(&cc).is_file())
+            })
+            .is_some()
+        {
+            return true;
+        }
+        if let Some(path) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&path) {
+                for cand in ["cc", "gcc", "clang"] {
+                    if dir.join(cand).is_file() {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn test_inductor_cpuc_jit_unary_chain() {
+        if !have_c_compiler() {
+            eprintln!("skipping JIT test: no C compiler");
+            return;
+        }
+        // y = relu(neg(x))
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![5]);
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![5]]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![neg_outs[0]], vec![vec![5]]);
+        g.set_outputs(vec![relu_outs[0]]);
+
+        let compiled = InductorBackend::new(InductorTarget::CpuC)
+            .compile(&g)
+            .unwrap();
+        assert_eq!(compiled.num_inputs(), 1);
+        assert_eq!(compiled.output_shape(), &[5]);
+
+        let input = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
+        let out = compiled.execute(&[input]).unwrap();
+        // relu(neg([-2,-1,0,1,2])) = relu([2,1,0,-1,-2]) = [2,1,0,0,0]
+        assert_close(&out, &[2.0, 1.0, 0.0, 0.0, 0.0], 1e-10);
+    }
+
+    #[test]
+    fn test_inductor_cpuc_jit_two_input_add() {
+        if !have_c_compiler() {
+            return;
+        }
+        // y = a + b
+        let mut g = IrGraph::new();
+        let a = g.add_input(vec![4]);
+        let b = g.add_input(vec![4]);
+        let (_, add_outs) = g.add_node(IrOpKind::Add, vec![a, b], vec![vec![4]]);
+        g.set_outputs(vec![add_outs[0]]);
+
+        let compiled = InductorBackend::new(InductorTarget::CpuC)
+            .compile(&g)
+            .unwrap();
+        assert_eq!(compiled.num_inputs(), 2);
+        let out = compiled
+            .execute(&[vec![1.0, 2.0, 3.0, 4.0], vec![10.0, 20.0, 30.0, 40.0]])
+            .unwrap();
+        assert_close(&out, &[11.0, 22.0, 33.0, 44.0], 1e-10);
+    }
+
+    #[test]
+    fn test_inductor_cpuc_jit_matches_interpreter() {
+        if !have_c_compiler() {
+            return;
+        }
+        // y = sigmoid(tanh(neg(x)))
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![6]);
+        let (_, n_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![6]]);
+        let (_, t_outs) = g.add_node(IrOpKind::Tanh, vec![n_outs[0]], vec![vec![6]]);
+        let (_, s_outs) = g.add_node(IrOpKind::Sigmoid, vec![t_outs[0]], vec![vec![6]]);
+        g.set_outputs(vec![s_outs[0]]);
+
+        let input = vec![-3.0, -1.5, -0.5, 0.5, 1.5, 3.0];
+
+        let interp = InterpreterBackend
+            .compile(&g)
+            .unwrap()
+            .execute(&[input.clone()])
+            .unwrap();
+        let jit = InductorBackend::new(InductorTarget::CpuC)
+            .compile(&g)
+            .unwrap()
+            .execute(&[input])
+            .unwrap();
+
+        assert_close(&jit, &interp, 1e-9);
+    }
+
+    #[test]
+    fn test_inductor_cpuc_jit_constant_input() {
+        if !have_c_compiler() {
+            return;
+        }
+        // y = x + [10, 20, 30]  — one graph input + one constant
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![3]);
+        let c = g.add_constant(vec![10.0, 20.0, 30.0], vec![3]);
+        let (_, add_outs) = g.add_node(IrOpKind::Add, vec![x, c], vec![vec![3]]);
+        g.set_outputs(vec![add_outs[0]]);
+
+        let compiled = InductorBackend::new(InductorTarget::CpuC)
+            .compile(&g)
+            .unwrap();
+        assert_eq!(compiled.num_inputs(), 1);
+        let out = compiled.execute(&[vec![1.0, 2.0, 3.0]]).unwrap();
+        assert_close(&out, &[11.0, 22.0, 33.0], 1e-10);
+    }
+
+    #[test]
+    fn test_inductor_cpuc_jit_rejects_wrong_input_count() {
+        if !have_c_compiler() {
+            return;
+        }
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![3]);
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![3]]);
+        g.set_outputs(vec![neg_outs[0]]);
+
+        let compiled = InductorBackend::new(InductorTarget::CpuC)
+            .compile(&g)
+            .unwrap();
+        assert!(compiled.execute(&[]).is_err());
+        assert!(compiled
+            .execute(&[vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]])
+            .is_err());
+    }
+
+    #[test]
+    fn test_inductor_cpuc_jit_rejects_wrong_input_shape() {
+        if !have_c_compiler() {
+            return;
+        }
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4]);
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![4]]);
+        g.set_outputs(vec![neg_outs[0]]);
+
+        let compiled = InductorBackend::new(InductorTarget::CpuC)
+            .compile(&g)
+            .unwrap();
+        // Graph declares 4-element input; supplying 3 is an error.
+        assert!(compiled.execute(&[vec![1.0, 2.0, 3.0]]).is_err());
+    }
+
+    #[test]
+    fn test_inductor_cpuc_jit_reduction_falls_back_to_interpreter() {
+        if !have_c_compiler() {
+            return;
+        }
+        // x -> sum (single reduction, not elementwise) → JIT path not taken
+        // → InterpreterBackend fallback produces the correct scalar.
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4]);
+        let (_, sum_outs) = g.add_node(IrOpKind::Sum, vec![x], vec![vec![1]]);
+        g.set_outputs(vec![sum_outs[0]]);
+
+        let compiled = InductorBackend::new(InductorTarget::CpuC)
+            .compile(&g)
+            .unwrap();
+        let out = compiled.execute(&[vec![1.0, 2.0, 3.0, 4.0]]).unwrap();
+        assert_close(&out, &[10.0], 1e-10);
+    }
+
+    #[test]
+    fn test_inductor_cpuc_jit_matmul_falls_back_to_interpreter() {
+        if !have_c_compiler() {
+            return;
+        }
+        // Matmul is not elementwise → falls back to the interpreter.
+        let mut g = IrGraph::new();
+        let a = g.add_input(vec![2, 3]);
+        let b = g.add_input(vec![3, 2]);
+        let (_, mm_outs) =
+            g.add_node(IrOpKind::Matmul, vec![a, b], vec![vec![2, 2]]);
+        g.set_outputs(vec![mm_outs[0]]);
+
+        let compiled = InductorBackend::new(InductorTarget::CpuC)
+            .compile(&g)
+            .unwrap();
+        // Simple matmul: [[1,2,3],[4,5,6]] @ [[1,2],[3,4],[5,6]]
+        //   = [[1+6+15, 2+8+18], [4+15+30, 8+20+36]]
+        //   = [[22, 28], [49, 64]]
+        let out = compiled
+            .execute(&[
+                vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            ])
+            .unwrap();
+        assert_close(&out, &[22.0, 28.0, 49.0, 64.0], 1e-10);
+    }
+
+    #[test]
+    fn test_inductor_cpuc_jit_repeated_execution() {
+        if !have_c_compiler() {
+            return;
+        }
+        // Compile once, run many times — each call should produce the
+        // correct output without re-invoking the compiler (cache-hit).
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![3]);
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![3]]);
+        g.set_outputs(vec![neg_outs[0]]);
+
+        let compiled = InductorBackend::new(InductorTarget::CpuC)
+            .compile(&g)
+            .unwrap();
+
+        for _ in 0..5 {
+            let out = compiled.execute(&[vec![1.0, -2.0, 3.5]]).unwrap();
+            assert_close(&out, &[-1.0, 2.0, -3.5], 1e-10);
         }
     }
 }

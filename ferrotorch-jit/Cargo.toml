@@ -17,5 +17,7 @@ ferrotorch-core = { workspace = true }
 ferrotorch-nn = { workspace = true }
 num-traits = { workspace = true }
 thiserror = { workspace = true }
+libloading = "0.8"
+tempfile = { workspace = true }
 
 [dev-dependencies]

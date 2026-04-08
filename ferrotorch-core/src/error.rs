@@ -32,6 +32,9 @@ pub enum FerrotorchError {
     #[error("internal lock poisoned: {message}")]
     LockPoisoned { message: String },
 
+    #[error("internal error: {message}")]
+    Internal { message: String },
+
     #[error("no GPU backend available -- install ferrotorch-gpu and call init()")]
     DeviceUnavailable,
 
