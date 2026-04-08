@@ -138,16 +138,55 @@
 
 ## TIER 4: Advanced Features (Do Later)
 
-### 4.1 Higher-Order Ops (cond, scan, flex_attention)
-### 4.2 AOT Autograd (backward graph compilation)
-### 4.3 Inductor-Style Codegen (Triton/C++ backends)
-### 4.4 Nested/Jagged Tensors (variable-length sequences)
-### 4.5 Semi-Structured 2:4 Sparsity
-### 4.6 Quantization-Aware Training
-### 4.7 Distributed Checkpointing + Resharding
-### 4.8 RPC / Pipeline Parallelism
-### 4.9 Model Export (ExportedProgram, dynamic shapes)
-### 4.10 CUDA RNG State Management
+### 4.1 Higher-Order Ops (cond, scan, flex_attention) ✅ DONE (#288)
+- **PyTorch**: `torch.cond`, `torch.while_loop`, `torch._higher_order_ops.scan`, `torch.nn.attention.flex_attention` — autograd-aware control flow and data-dependent attention patterns
+- **ferrotorch**: `ferrotorch-core/src/autograd/higher_order.rs` implements `cond`/`scan`/`while_loop` as autograd nodes with branch tracing; `ferrotorch-core/src/autograd/fixed_point.rs` adds fixed-point iteration with implicit differentiation; `ferrotorch-core/src/flex_attention.rs` provides a score-mod flex attention primitive (#483 added the GPU path)
+- **Files**: `ferrotorch-core/src/autograd/higher_order.rs`, `autograd/fixed_point.rs`, `autograd/grad_penalty.rs`, `flex_attention.rs`
+
+### 4.2 AOT Autograd (backward graph compilation) ✅ DONE (#289)
+- **PyTorch**: `torch._functorch.aot_autograd` decomposes a forward trace into a joint forward+backward graph, emits real backward IR nodes, and hands the pair to Inductor for compilation
+- **ferrotorch**: `ferrotorch-jit/src/aot_autograd.rs` — `decompose_forward_backward` emits real backward IR for Add/Sub/Mul/Neg/Relu/Sum/Mean with gradient accumulation, deterministic saved-tensor ordering, and zero-constant fallback for unused inputs. `AotGraphPair` and `compile_aot` wire the joint graph into the Inductor backend
+- **Files**: `ferrotorch-jit/src/aot_autograd.rs`, `ferrotorch-jit/src/codegen.rs`
+
+### 4.3 Inductor-Style Codegen (Triton/C++ backends) ✅ DONE (#290)
+- **PyTorch**: Inductor lowers an FX graph through IR, runs scheduler/fusion, and emits Triton (GPU) or C++/OpenMP (CPU) source that it compiles and loads via `PyCodeCache`
+- **ferrotorch**: `ferrotorch-jit/src/codegen.rs` provides `InductorBackend` with `CpuC`/`CpuRust`/`GpuPtx`/`GpuCuda` targets; `dag_fusion.rs` groups elementwise ops into fusion groups; `codegen_cpu.rs`/`codegen_gpu.rs` emit source. `codegen_jit.rs` compiles C source via the system C compiler into an `.so`, loads it with `libloading`, and dispatches to the real kernel (with a global hash-keyed compile cache). Single-group elementwise graphs run JIT'd; mixed graphs fall back to the interpreter
+- **Files**: `ferrotorch-jit/src/codegen.rs`, `codegen_cpu.rs`, `codegen_gpu.rs`, `codegen_ir.rs`, `codegen_jit.rs`, `dag_fusion.rs`, `fusion.rs`, `optimize.rs`
+
+### 4.4 Nested/Jagged Tensors (variable-length sequences) ✅ DONE (#291)
+- **PyTorch**: `torch.nested.nested_tensor` — ragged batches of variable-length sequences with contiguous packed storage + offsets, autograd-aware, transparent to nn.Modules that support it
+- **ferrotorch**: `ferrotorch-core/src/nested.rs` has `NestedTensor` (list-of-tensors) and `PackedNestedTensor` (flat packed storage + offsets) with elementwise map/add/sub/mul/div, per-component sum/mean reductions, `to_padded`/`from_padded` conversions, and round-trip between the two layouts
+- **Files**: `ferrotorch-core/src/nested.rs`
+
+### 4.5 Semi-Structured 2:4 Sparsity ✅ DONE (#292)
+- **PyTorch**: `torch.sparse.SparseSemiStructuredTensor` — 2:4 sparse matmul via Ampere+ Sparse Tensor Cores (1.5-2x dense throughput on A100/H100)
+- **ferrotorch**: `ferrotorch-core/src/sparse.rs` has `SemiStructuredSparseTensor<T>` with compressed values + 4-bit-per-group mask storage, `compress`/`decompress` round-trip with deterministic tie-breaking, and a `sparse_matmul_24(a, b)` reference implementation matching the NVIDIA format. GPU sparse tensor-core path is a follow-up
+- **Files**: `ferrotorch-core/src/sparse.rs`
+
+### 4.6 Quantization-Aware Training ✅ DONE (#293)
+- **PyTorch**: `torch.ao.quantization` — fake-quant with straight-through estimator backward, observers, qconfig, convert-to-int8
+- **ferrotorch**: `ferrotorch-core/src/quantize.rs` provides `fake_quantize_differentiable(tensor, scale, zero_point, qmin, qmax)` wired into the autograd engine with clipped STE backward, so models train end-to-end through simulated quantization noise. `DispatchKey::Quantized` composes with the multi-dispatch layer (#397)
+- **Files**: `ferrotorch-core/src/quantize.rs`, `dispatch.rs`
+
+### 4.7 Distributed Checkpointing + Resharding ✅ DONE (#294)
+- **PyTorch**: `torch.distributed.checkpoint` (DCP) — shard-aware save/load, `DefaultSavePlanner`, `FileSystemWriter/Reader`, resharding across different world sizes
+- **ferrotorch**: `ferrotorch-distributed/src/checkpoint.rs` implements a shard-aware save/load pipeline with planner, writer, reader, and resharding entry points
+- **Files**: `ferrotorch-distributed/src/checkpoint.rs`
+
+### 4.8 RPC / Pipeline Parallelism ✅ DONE (#295)
+- **PyTorch**: `torch.distributed.rpc` for remote tensor refs, `torch.distributed.pipelining` for GPipe/1F1B pipeline schedules
+- **ferrotorch**: `ferrotorch-distributed/src/rpc.rs` for remote invocation primitives, `pipeline.rs` for pipeline-parallel stage scheduling
+- **Files**: `ferrotorch-distributed/src/rpc.rs`, `pipeline.rs`
+
+### 4.9 Model Export (ExportedProgram, dynamic shapes) ✅ DONE (#296, #396, #461)
+- **PyTorch**: `torch.export` — freeze a model into `ExportedProgram` with a graph, state_dict, input specs, dynamic shape constraints, and runtime guards; `.pt2` serialization
+- **ferrotorch**: `ferrotorch-jit/src/export.rs` has `ExportedProgram`, `ExportedProgramMetadata`, `InputSpec`, `DimSpec::{Static,Dynamic}`, `export_with_dynamic_shapes`, a `.ftep` binary save/load format preserving graph + state_dict + input_specs + output_shape (#296), symbolic-shape export with ONNX `dim_param` forwarding (#396), and runtime guards via `check_inputs`/`run_with_guards` (#461)
+- **Files**: `ferrotorch-jit/src/export.rs`, `symbolic.rs`, `serialize.rs`
+
+### 4.10 CUDA RNG State Management ✅ DONE (#297)
+- **PyTorch**: Per-device `torch.cuda.get_rng_state()`/`set_rng_state()` with a Philox counter that travels with the graph for reproducible dropout/sampling under CUDA graphs
+- **ferrotorch**: `ferrotorch-gpu/src/rng.rs` owns per-device RNG state, exposes save/restore, and the dropout/randn kernels thread the state through so CUDA graph capture + replay is reproducible
+- **Files**: `ferrotorch-gpu/src/rng.rs`, `kernels.rs`, `backend_impl.rs`
 
 ---
 
@@ -188,3 +227,23 @@ Each task below is independent and can be assigned to a separate agent:
 | T3.8 GPU linalg via cuSOLVER | linalg.rs, new cusolver.rs | Large | None |
 | T3.9 FSDP | new fsdp.rs | Large | T2.6 |
 | T3.10 MHA batched matmul | attention.rs | Medium | None |
+
+### TIER 4 (10 tasks — advanced features, all done)
+| Task | Files | Status | Tracking |
+|------|-------|--------|----------|
+| T4.1 Higher-order ops (cond/scan/flex_attention) | autograd/higher_order.rs, fixed_point.rs, flex_attention.rs | ✅ Done | #288, #483 |
+| T4.2 AOT autograd backward graph | jit/aot_autograd.rs, codegen.rs | ✅ Done | #289 |
+| T4.3 Inductor-style codegen (CPU-C JIT) | jit/codegen.rs, codegen_jit.rs, dag_fusion.rs | ✅ Done | #290 |
+| T4.4 Nested/jagged tensors (packed + list) | core/nested.rs | ✅ Done | #291 |
+| T4.5 Semi-structured 2:4 sparsity | core/sparse.rs | ✅ Done | #292 |
+| T4.6 Differentiable fake-quant (QAT) | core/quantize.rs, dispatch.rs | ✅ Done | #293 |
+| T4.7 Distributed checkpointing + resharding | distributed/checkpoint.rs | ✅ Done | #294 |
+| T4.8 RPC + pipeline parallelism | distributed/rpc.rs, pipeline.rs | ✅ Done | #295 |
+| T4.9 Model export (ExportedProgram, dynamic shapes, guards) | jit/export.rs, symbolic.rs, serialize.rs | ✅ Done | #296, #396, #461 |
+| T4.10 CUDA RNG state management | gpu/rng.rs, kernels.rs | ✅ Done | #297 |
+
+**Tier 4 follow-ups (tracked elsewhere, not counted as gaps):**
+- CubeCL portable GPU backend (`ferrotorch-cubecl`) with real `#[cube]` kernels — done in #398
+- ferrotorch-cubecl full op coverage (div/neg/exp/log/sqrt/pow/sin/cos/tanh/sigmoid/gelu/softmax/layernorm/reductions) — #453
+- Sparse Tensor Core GPU path for semi-structured 2:4 matmul — follow-up to #292
+- ONNX op coverage expansion — ongoing
