@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use ferrotorch_core::{FerrotorchResult, Float, no_grad};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -35,6 +35,9 @@ pub struct RmspropConfig {
     /// When `true`, maximize the objective by negating the gradient (default:
     /// false). CL-321
     pub maximize: bool,
+    /// When `true`, use the on-device tensor-op update path. Avoids per-step
+    /// CPU↔GPU round-trips. Default: false. CL-497
+    pub foreach: bool,
 }
 
 impl Default for RmspropConfig {
@@ -47,6 +50,7 @@ impl Default for RmspropConfig {
             momentum: 0.0,
             centered: false,
             maximize: false,
+            foreach: false,
         }
     }
 }
@@ -64,6 +68,15 @@ struct ParamState<T: Float> {
     grad_avg: Option<Vec<T>>,
     /// Momentum buffer (only when `momentum > 0`).
     momentum_buf: Option<Vec<T>>,
+}
+
+/// On-device foreach state: all buffers live as `Tensor<T>` on the
+/// parameter's device.
+#[derive(Debug)]
+struct ForeachState<T: Float> {
+    square_avg: Tensor<T>,
+    grad_avg: Option<Tensor<T>>,
+    momentum_buf: Option<Tensor<T>>,
 }
 
 /// Composite key for per-parameter state: `(group_index, param_index)`.
@@ -98,6 +111,8 @@ pub struct Rmsprop<T: Float> {
     config: RmspropConfig,
     /// Per-parameter state keyed by `(group_index, param_index)`.
     state: HashMap<ParamKey, ParamState<T>>,
+    /// Foreach (on-device) state. Used when `config.foreach == true`.
+    foreach_state: HashMap<ParamKey, ForeachState<T>>,
 }
 
 impl<T: Float> Rmsprop<T> {
@@ -110,6 +125,7 @@ impl<T: Float> Rmsprop<T> {
             param_groups: vec![group],
             config,
             state: HashMap::new(),
+            foreach_state: HashMap::new(),
         }
     }
 
@@ -119,7 +135,150 @@ impl<T: Float> Rmsprop<T> {
             param_groups: groups,
             config,
             state: HashMap::new(),
+            foreach_state: HashMap::new(),
         }
+    }
+
+    /// Foreach (on-device, tensor-op) update path. CL-497
+    fn step_foreach(&mut self) -> FerrotorchResult<()> {
+        use ferrotorch_core::creation::{scalar, zeros};
+        use ferrotorch_core::grad_fns::arithmetic::{add, div, mul, neg, sqrt, sub};
+
+        let config = &self.config;
+        let alpha = config.alpha;
+        let eps = config.eps;
+        let momentum = config.momentum;
+        let centered = config.centered;
+
+        for gi in 0..self.param_groups.len() {
+            let group_lr = self.param_groups[gi].lr;
+            let group_wd = self.param_groups[gi].weight_decay;
+
+            for pi in 0..self.param_groups[gi].params.len() {
+                let grad_opt = self.param_groups[gi].params[pi].grad()?;
+                let grad_tensor = match grad_opt {
+                    Some(g) => g,
+                    None => continue,
+                };
+
+                let param_t =
+                    self.param_groups[gi].params[pi].tensor().clone();
+                let device = param_t.device();
+                let key = (gi, pi);
+
+                // Lazy-init state.
+                if !self.foreach_state.contains_key(&key) {
+                    self.foreach_state.insert(
+                        key,
+                        ForeachState {
+                            square_avg: zeros::<T>(param_t.shape())?.to(device)?,
+                            grad_avg: if centered {
+                                Some(zeros::<T>(param_t.shape())?.to(device)?)
+                            } else {
+                                None
+                            },
+                            momentum_buf: if momentum > 0.0 {
+                                Some(zeros::<T>(param_t.shape())?.to(device)?)
+                            } else {
+                                None
+                            },
+                        },
+                    );
+                }
+
+                no_grad(|| {
+                    // grad (possibly negated, possibly L2-augmented).
+                    let mut grad: Tensor<T> = if config.maximize {
+                        neg(&grad_tensor)?
+                    } else {
+                        grad_tensor.clone()
+                    };
+                    if group_wd > 0.0 {
+                        let wd_t = scalar(T::from(group_wd).unwrap())?.to(device)?;
+                        let weighted = mul(&param_t, &wd_t)?;
+                        grad = add(&grad, &weighted)?;
+                    }
+
+                    let alpha_t = scalar(T::from(alpha).unwrap())?.to(device)?;
+                    let one_minus_alpha_t =
+                        scalar(T::from(1.0 - alpha).unwrap())?.to(device)?;
+                    let eps_t = scalar(T::from(eps).unwrap())?.to(device)?;
+
+                    // square_avg = alpha * square_avg + (1 - alpha) * g^2
+                    let sq_old = self.foreach_state[&key].square_avg.clone();
+                    let g_sq = mul(&grad, &grad)?;
+                    let square_avg_new = add(
+                        &mul(&sq_old, &alpha_t)?,
+                        &mul(&g_sq, &one_minus_alpha_t)?,
+                    )?;
+
+                    // avg denominator.
+                    let (avg, grad_avg_new) = if centered {
+                        let ga_old = self.foreach_state[&key]
+                            .grad_avg
+                            .as_ref()
+                            .expect("centered grad_avg")
+                            .clone();
+                        let grad_avg_new_t = add(
+                            &mul(&ga_old, &alpha_t)?,
+                            &mul(&grad, &one_minus_alpha_t)?,
+                        )?;
+                        // avg = sqrt(square_avg - grad_avg^2 + eps)
+                        let ga_sq = mul(&grad_avg_new_t, &grad_avg_new_t)?;
+                        let inner = sub(&square_avg_new, &ga_sq)?;
+                        let inner_eps = add(&inner, &eps_t)?;
+                        (sqrt(&inner_eps)?, Some(grad_avg_new_t))
+                    } else {
+                        // avg = sqrt(square_avg + eps)
+                        let inner = add(&square_avg_new, &eps_t)?;
+                        (sqrt(&inner)?, None)
+                    };
+
+                    // Compute update and momentum buffer.
+                    let lr_t = scalar(T::from(group_lr).unwrap())?.to(device)?;
+
+                    let (new_param, momentum_buf_new) = if momentum > 0.0 {
+                        let momentum_t = scalar(T::from(momentum).unwrap())?.to(device)?;
+                        let buf_old = self.foreach_state[&key]
+                            .momentum_buf
+                            .as_ref()
+                            .expect("momentum_buf")
+                            .clone();
+                        // buf = momentum * buf + grad / avg
+                        let grad_over_avg = div(&grad, &avg)?;
+                        let new_buf =
+                            add(&mul(&buf_old, &momentum_t)?, &grad_over_avg)?;
+                        let scaled = mul(&new_buf, &lr_t)?;
+                        let np = sub(&param_t, &scaled)?;
+                        (np, Some(new_buf))
+                    } else {
+                        // param = param - lr * grad / avg
+                        let grad_over_avg = div(&grad, &avg)?;
+                        let scaled = mul(&grad_over_avg, &lr_t)?;
+                        let np = sub(&param_t, &scaled)?;
+                        (np, None)
+                    };
+
+                    // Commit param update and state.
+                    let (storage, _) = new_param.into_storage_and_shape()?;
+                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    unsafe { param_t.update_storage(storage)? };
+
+                    let state = self.foreach_state.get_mut(&key).unwrap();
+                    state.square_avg = square_avg_new;
+                    if let Some(ga) = grad_avg_new {
+                        state.grad_avg = Some(ga);
+                    }
+                    if let Some(buf) = momentum_buf_new {
+                        state.momentum_buf = Some(buf);
+                    }
+
+                    Ok::<(), ferrotorch_core::FerrotorchError>(())
+                })?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -129,6 +288,10 @@ impl<T: Float> Rmsprop<T> {
 
 impl<T: Float> Optimizer<T> for Rmsprop<T> {
     fn step(&mut self) -> FerrotorchResult<()> {
+        if self.config.foreach {
+            return self.step_foreach();
+        }
+
         let alpha = self.config.alpha;
         let eps = self.config.eps;
         let momentum = self.config.momentum;
@@ -638,5 +801,103 @@ mod tests {
             (val - 5.0).abs() < 1e-12,
             "param should be unchanged without grad, got {val}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Foreach mode parity tests. CL-497
+    // -----------------------------------------------------------------------
+
+    fn paired_rmsprop(data: &[f32]) -> (Parameter<f32>, Parameter<f32>) {
+        (make_param(data), make_param(data))
+    }
+
+    fn rmsprop_run_pair(
+        cfg: RmspropConfig,
+        init: &[f32],
+        steps: usize,
+        grad: &[f32],
+    ) -> (Vec<f32>, Vec<f32>) {
+        let (p_legacy, p_foreach) = paired_rmsprop(init);
+        let mut legacy = Rmsprop::new(vec![p_legacy.clone()], cfg.clone());
+        let mut foreach = Rmsprop::new(
+            vec![p_foreach.clone()],
+            RmspropConfig {
+                foreach: true,
+                ..cfg
+            },
+        );
+
+        for _ in 0..steps {
+            set_grad(&p_legacy, grad);
+            set_grad(&p_foreach, grad);
+            legacy.step().unwrap();
+            foreach.step().unwrap();
+        }
+
+        (read_param(&p_legacy), read_param(&p_foreach))
+    }
+
+    #[test]
+    fn test_rmsprop_foreach_basic_parity() {
+        let (l, f) = rmsprop_run_pair(
+            RmspropConfig::default(),
+            &[1.0, 2.0, 3.0, 4.0],
+            5,
+            &[0.1, 0.2, -0.3, 0.4],
+        );
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-4,
+                "rmsprop foreach parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rmsprop_foreach_parity_with_momentum() {
+        let cfg = RmspropConfig {
+            lr: 0.01,
+            momentum: 0.9,
+            ..Default::default()
+        };
+        let (l, f) = rmsprop_run_pair(cfg, &[5.0, -3.0, 2.0], 5, &[0.5, -0.5, 1.0]);
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-4,
+                "rmsprop momentum parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rmsprop_foreach_parity_with_centered() {
+        let cfg = RmspropConfig {
+            lr: 0.01,
+            centered: true,
+            ..Default::default()
+        };
+        let (l, f) = rmsprop_run_pair(cfg, &[1.0, -1.0, 0.5], 6, &[0.3, -0.2, 0.1]);
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-4,
+                "rmsprop centered parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rmsprop_foreach_parity_with_weight_decay() {
+        let cfg = RmspropConfig {
+            lr: 0.01,
+            weight_decay: 0.02,
+            ..Default::default()
+        };
+        let (l, f) = rmsprop_run_pair(cfg, &[2.0, -1.0, 0.5, 0.0], 4, &[0.2, 0.1, -0.05, 0.3]);
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-4,
+                "rmsprop wd parity: legacy={a}, foreach={b}"
+            );
+        }
     }
 }
