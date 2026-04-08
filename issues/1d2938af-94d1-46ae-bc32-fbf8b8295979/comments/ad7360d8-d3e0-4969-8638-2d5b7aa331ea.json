@@ -1,0 +1,10 @@
+{
+  "uuid": "ad7360d8-d3e0-4969-8638-2d5b7aa331ea",
+  "issue_uuid": "1d2938af-94d1-46ae-bc32-fbf8b8295979",
+  "author": "y4rr",
+  "content": "Implemented via commit d4bac84f. Added PackedNestedTensor with flat packed storage + offsets array — the efficient layout for bulk elementwise ops on variable-length sequences. Public API: from_sequences/from_nested/from_padded/to_nested/to_padded, map elementwise, add/sub/mul/div binary ops with layout validation, sum_per_component / mean_per_component reductions. Layout invariants documented on the struct. 22 new tests cover construction, error paths, elementwise ops, per-component reductions, padded round-trip, and NestedTensor interop. Coexists with the existing list-of-tensors NestedTensor (each is better for a different workload). 958 ferrotorch-core tests pass.",
+  "created_at": "2026-04-08T00:15:23.083211397Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAqBxN1rXq8n/Kn0Nv+h7z5kAiF038LTZ9DSSRex4qRSVCbzXBf5XsS/RJaR9Eu4DfRkp8erNWHYRwOnrEbi6tAA=="
+}
