@@ -5,6 +5,7 @@ pub mod cumulative;
 pub mod fft;
 pub mod indexing;
 pub mod linalg;
+pub mod quantize_grad;
 pub mod reduction;
 pub mod shape;
 pub mod transcendental;

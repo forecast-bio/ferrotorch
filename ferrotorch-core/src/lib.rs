@@ -60,6 +60,7 @@ pub use grad_fns::cumulative::{cummax, cummin, cumprod, cumsum, logcumsumexp};
 pub use grad_fns::fft::{
     fft_differentiable, ifft_differentiable, irfft_differentiable, rfft_differentiable,
 };
+pub use grad_fns::quantize_grad::fake_quantize_differentiable;
 pub use grad_fns::reduction::{mean_dim, sum_dim};
 pub use grad_fns::shape::cat;
 pub use grad_fns::transcendental::{clamp, cos, exp, log, sin};
