@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- Semi-structured 2:4 sparsity: `SemiStructuredSparseTensor<T>` with compressed values + 4-bit-per-group mask storage, `compress`/`decompress` round-trip, deterministic tie-breaking, and a `sparse_matmul_24(a, b)` reference implementation. Matches the NVIDIA Sparse Tensor Core format for Ampere+ hardware. (#292)
 - Differentiable QAT: `fake_quantize_differentiable(tensor, scale, zero_point, qmin, qmax)` integrates fake-quantization into the autograd engine with clipped straight-through-estimator backward, so models can train end-to-end through simulated quantization noise (#293)
 - Dispatch key system: `DispatchKey` enum (Cpu/Cuda/Meta/Sparse/Quantized/Nested/Autocast/Autograd/Vmap/Profiler/Tracer), `DispatchKeySet` bitmask with priority iteration, and a `Dispatcher<T>` kernel registration table with `call` (priority resolution + redispatch) and `call_direct` (bypass for testing). Enables composable sparse/quantized/autograd/tracer layers. (#397)
 - PackedNestedTensor: flat packed storage + offsets layout for nested/jagged tensors with elementwise map/add/sub/mul/div, per-component sum/mean reductions, to_padded/from_padded conversion, and roundtrip with the existing list-of-tensors NestedTensor (#291)

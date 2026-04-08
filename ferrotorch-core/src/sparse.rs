@@ -730,6 +730,262 @@ impl<T: Float> CsrTensor<T> {
     }
 }
 
+// ===========================================================================
+// SemiStructuredSparseTensor — 2:4 structured sparsity. CL-292.
+// ===========================================================================
+
+/// A tensor stored in the NVIDIA 2:4 structured sparsity format.
+///
+/// In 2:4 structured sparsity, every contiguous group of 4 elements
+/// along the innermost dimension has exactly 2 non-zero values.
+/// This regular pattern is what NVIDIA's Sparse Tensor Cores
+/// consume (Ampere SM_80+) to deliver up to 2× matmul throughput
+/// on sparse weights.
+///
+/// # Storage
+///
+/// - `values` holds the retained elements in original row-major
+///   order, with length `original.numel() / 2`. Each group of 4
+///   contributes 2 consecutive values.
+/// - `mask` is a byte-packed metadata stream: 4 bits per group
+///   encoding which 2 of the 4 positions were kept. Two groups
+///   pack into one byte, so `mask.len() == (num_groups + 1) / 2`.
+/// - `shape` preserves the original dense shape so the tensor can
+///   be decompressed back to the same layout.
+///
+/// # Invariants
+///
+/// - `original.numel() % 4 == 0` (the innermost stride must cover
+///   full 4-element groups; non-multiples are rejected at
+///   construction time).
+/// - Every group's mask has **exactly** 2 bits set.
+/// - `values.len() == num_groups * 2`.
+/// - `mask.len() == num_groups.div_ceil(2)`.
+#[derive(Debug, Clone)]
+pub struct SemiStructuredSparseTensor<T: Float> {
+    /// Retained values in row-major order (2 per group of 4).
+    values: Vec<T>,
+    /// Byte-packed 4-bit-per-group masks (2 groups per byte).
+    mask: Vec<u8>,
+    /// Original dense shape.
+    shape: Vec<usize>,
+}
+
+impl<T: Float> SemiStructuredSparseTensor<T> {
+    /// Compress a dense tensor into 2:4 semi-structured format.
+    ///
+    /// For each contiguous group of 4 elements along the flat
+    /// row-major order, keeps the 2 elements with the largest
+    /// absolute value and zeros the other two. Ties are broken
+    /// by position (lower index wins).
+    ///
+    /// # Errors
+    ///
+    /// - `FerrotorchError::InvalidArgument` if `dense.numel() % 4 != 0`.
+    pub fn compress(dense: &Tensor<T>) -> FerrotorchResult<Self> {
+        let data = dense.data_vec()?;
+        let numel = data.len();
+        if !numel.is_multiple_of(4) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "SemiStructuredSparseTensor::compress: numel must be a \
+                     multiple of 4, got {numel}"
+                ),
+            });
+        }
+        let num_groups = numel / 4;
+        let mut values = Vec::with_capacity(num_groups * 2);
+        let mut mask = vec![0u8; num_groups.div_ceil(2)];
+
+        for g in 0..num_groups {
+            let base = g * 4;
+            // Find the 2 largest-magnitude positions.
+            let mut mags: [(usize, T); 4] = [
+                (0, data[base].abs()),
+                (1, data[base + 1].abs()),
+                (2, data[base + 2].abs()),
+                (3, data[base + 3].abs()),
+            ];
+            // Sort descending by magnitude; stable on ties so
+            // lower index wins.
+            mags.sort_by(|a, b| {
+                b.1.partial_cmp(&a.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.0.cmp(&b.0))
+            });
+            // Take positions [0] and [1] as kept, then sort those
+            // two ascending so values are stored in original
+            // position order.
+            let mut kept = [mags[0].0, mags[1].0];
+            kept.sort();
+            values.push(data[base + kept[0]]);
+            values.push(data[base + kept[1]]);
+
+            // Build the 4-bit mask for this group: set bit i if
+            // position i was kept.
+            let nibble: u8 = (1 << kept[0]) | (1 << kept[1]);
+            // Pack into the mask byte: group `g` uses bits
+            // (g % 2) * 4 .. (g % 2) * 4 + 4.
+            let byte = g / 2;
+            let shift = (g % 2) * 4;
+            mask[byte] |= nibble << shift;
+        }
+
+        Ok(Self {
+            values,
+            mask,
+            shape: dense.shape().to_vec(),
+        })
+    }
+
+    /// Decompress back to a dense `Tensor<T>`. The output has the
+    /// same shape as the original and zeros at every position
+    /// that was masked out.
+    pub fn decompress(&self) -> FerrotorchResult<Tensor<T>> {
+        let numel = self.shape.iter().product::<usize>();
+        let mut out = vec![<T as num_traits::Zero>::zero(); numel];
+        let num_groups = numel / 4;
+
+        for g in 0..num_groups {
+            let byte = g / 2;
+            let shift = (g % 2) * 4;
+            let nibble = (self.mask[byte] >> shift) & 0xF;
+            // Walk the 4 bits in ascending order; for each set
+            // bit, consume one value from the stream.
+            let mut val_idx = g * 2;
+            for pos in 0..4 {
+                if (nibble >> pos) & 1 != 0 {
+                    out[g * 4 + pos] = self.values[val_idx];
+                    val_idx += 1;
+                }
+            }
+        }
+        Tensor::from_storage(TensorStorage::cpu(out), self.shape.clone(), false)
+    }
+
+    /// Original dense shape.
+    #[inline]
+    pub fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    /// Retained values in row-major order (2 per group of 4).
+    #[inline]
+    pub fn values(&self) -> &[T] {
+        &self.values
+    }
+
+    /// Byte-packed 4-bit-per-group mask stream.
+    #[inline]
+    pub fn mask(&self) -> &[u8] {
+        &self.mask
+    }
+
+    /// Number of 4-element groups in the original tensor.
+    #[inline]
+    pub fn num_groups(&self) -> usize {
+        self.shape.iter().product::<usize>() / 4
+    }
+
+    /// Compressed byte count vs. dense byte count, as a ratio in
+    /// `(0, 1]`. For 2:4 sparsity the values halve the storage;
+    /// the mask adds ~1 byte per 8 elements, so the steady-state
+    /// ratio is ≈ 0.5 + 1/16 = 0.5625 of the dense size (for f32).
+    pub fn compression_ratio(&self) -> f64 {
+        let dense_bytes = (self.shape.iter().product::<usize>()) * std::mem::size_of::<T>();
+        if dense_bytes == 0 {
+            return 1.0;
+        }
+        let compressed =
+            self.values.len() * std::mem::size_of::<T>() + self.mask.len();
+        compressed as f64 / dense_bytes as f64
+    }
+
+    /// Return the extracted 4-bit nibble for group `g`. The low
+    /// four bits of the returned byte hold the mask (bit `i` set
+    /// if position `i` was kept).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `g >= num_groups()`.
+    pub fn group_mask(&self, g: usize) -> u8 {
+        let byte = g / 2;
+        let shift = (g % 2) * 4;
+        (self.mask[byte] >> shift) & 0xF
+    }
+}
+
+/// Matrix multiply `a @ b` where `b` is stored in 2:4 semi-
+/// structured format. The last-dim strides of `b`'s original
+/// dense shape must be a multiple of 4 (guaranteed by
+/// [`SemiStructuredSparseTensor::compress`]).
+///
+/// This is a **reference implementation** that decompresses `b`
+/// and calls the dense matmul path. It establishes the correct
+/// numeric behavior and API surface for a future Tensor Core
+/// specialization. CL-292.
+///
+/// # Shape contract
+///
+/// - `a` is 2-D with shape `[m, k]`.
+/// - `b` is a compressed representation of a `[k, n]` dense
+///   weight matrix where `n % 4 == 0`.
+/// - Output shape: `[m, n]`.
+///
+/// # Errors
+///
+/// - `b.shape().len() != 2`
+/// - `a.shape().len() != 2`
+/// - Inner dimensions don't match
+pub fn sparse_matmul_24<T: Float>(
+    a: &Tensor<T>,
+    b: &SemiStructuredSparseTensor<T>,
+) -> FerrotorchResult<Tensor<T>> {
+    if a.shape().len() != 2 {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "sparse_matmul_24: `a` must be 2-D, got shape {:?}",
+                a.shape()
+            ),
+        });
+    }
+    if b.shape().len() != 2 {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "sparse_matmul_24: `b` must be 2-D, got shape {:?}",
+                b.shape()
+            ),
+        });
+    }
+    let m = a.shape()[0];
+    let k = a.shape()[1];
+    let kb = b.shape()[0];
+    let n = b.shape()[1];
+    if k != kb {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "sparse_matmul_24: inner dims mismatch: a.shape[1]={k} != b.shape[0]={kb}"
+            ),
+        });
+    }
+
+    // Reference path: decompress and do the dense matmul.
+    let b_dense = b.decompress()?;
+    let a_data = a.data_vec()?;
+    let b_data = b_dense.data_vec()?;
+    let mut out = vec![<T as num_traits::Zero>::zero(); m * n];
+    for i in 0..m {
+        for j in 0..n {
+            let mut acc = <T as num_traits::Zero>::zero();
+            for kk in 0..k {
+                acc += a_data[i * k + kk] * b_data[kk * n + j];
+            }
+            out[i * n + j] = acc;
+        }
+    }
+    Tensor::from_storage(TensorStorage::cpu(out), vec![m, n], false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1195,5 +1451,204 @@ mod tests {
         let dense = sp.to_dense().unwrap();
         assert_eq!(dense.numel(), 0);
         assert!(dense.data().unwrap().is_empty());
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // CL-292: SemiStructuredSparseTensor (2:4) tests
+    // ────────────────────────────────────────────────────────────────
+
+    fn mk(data: Vec<f32>, shape: Vec<usize>) -> Tensor<f32> {
+        Tensor::from_storage(TensorStorage::cpu(data), shape, false).unwrap()
+    }
+
+    #[test]
+    fn semi24_compress_keeps_two_largest_magnitudes_per_group() {
+        // Group 0: [1, 4, 2, 3] → keep 4 and 3 (positions 1, 3).
+        // Group 1: [-5, 2, 0, 1] → keep -5 and 2 (positions 0, 1).
+        let t = mk(vec![1.0, 4.0, 2.0, 3.0, -5.0, 2.0, 0.0, 1.0], vec![8]);
+        let sp = SemiStructuredSparseTensor::compress(&t).unwrap();
+
+        // Values stored in original position order.
+        assert_eq!(sp.values(), &[4.0, 3.0, -5.0, 2.0]);
+        // Group 0 mask = bits 1 and 3 → 0b1010 = 0xA.
+        // Group 1 mask = bits 0 and 1 → 0b0011 = 0x3.
+        // Packed byte = (group1 << 4) | group0 = (0x3 << 4) | 0xA = 0x3A.
+        assert_eq!(sp.mask(), &[0x3A]);
+        assert_eq!(sp.num_groups(), 2);
+        assert_eq!(sp.group_mask(0), 0xA);
+        assert_eq!(sp.group_mask(1), 0x3);
+    }
+
+    #[test]
+    fn semi24_decompress_roundtrips_compressed_values() {
+        // After compress → decompress, retained positions have
+        // their original values and dropped positions are zero.
+        let t = mk(vec![1.0, 4.0, 2.0, 3.0, -5.0, 2.0, 0.0, 1.0], vec![8]);
+        let sp = SemiStructuredSparseTensor::compress(&t).unwrap();
+        let dense = sp.decompress().unwrap();
+        let data = dense.data().unwrap();
+        // Group 0 [1,4,2,3] → kept pos 1,3 → [0,4,0,3].
+        // Group 1 [-5,2,0,1] → kept pos 0,1 → [-5,2,0,0].
+        assert_eq!(data, &[0.0, 4.0, 0.0, 3.0, -5.0, 2.0, 0.0, 0.0]);
+        assert_eq!(dense.shape(), &[8]);
+    }
+
+    #[test]
+    fn semi24_compress_decompress_preserves_shape() {
+        // 2-D shape [2, 8] — 4 groups total, 2 per row.
+        let data: Vec<f32> = (0..16).map(|i| i as f32).collect();
+        let t = mk(data, vec![2, 8]);
+        let sp = SemiStructuredSparseTensor::compress(&t).unwrap();
+        assert_eq!(sp.shape(), &[2, 8]);
+        let dense = sp.decompress().unwrap();
+        assert_eq!(dense.shape(), &[2, 8]);
+    }
+
+    #[test]
+    fn semi24_rejects_non_multiple_of_4() {
+        let t = mk(vec![1.0, 2.0, 3.0, 4.0, 5.0], vec![5]);
+        let result = SemiStructuredSparseTensor::compress(&t);
+        assert!(result.is_err());
+        assert!(format!("{}", result.unwrap_err()).contains("multiple of 4"));
+    }
+
+    #[test]
+    fn semi24_tie_breaking_prefers_lower_position() {
+        // All magnitudes equal → keep positions 0 and 1 (lowest indices).
+        let t = mk(vec![1.0, 1.0, 1.0, 1.0], vec![4]);
+        let sp = SemiStructuredSparseTensor::compress(&t).unwrap();
+        // Mask should be 0b0011 = 0x3 (positions 0 and 1).
+        assert_eq!(sp.group_mask(0), 0x3);
+        assert_eq!(sp.values(), &[1.0, 1.0]);
+    }
+
+    #[test]
+    fn semi24_compression_ratio_is_roughly_half() {
+        // For any f32 tensor multiple of 4, ratio ≈ (values*4 + mask*1) / (numel*4)
+        // = (numel/2 * 4 + ceil(numel/8)) / (numel*4)
+        // ≈ 0.5 + small overhead from the mask byte.
+        let n = 1024usize;
+        let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
+        let t = mk(data, vec![n]);
+        let sp = SemiStructuredSparseTensor::compress(&t).unwrap();
+        let ratio = sp.compression_ratio();
+        // Values: 512 f32s = 2048 bytes. Mask: 128 bytes.
+        // Dense: 4096 bytes. Ratio: (2048+128)/4096 = 0.53125.
+        assert!(ratio > 0.5 && ratio < 0.6, "unexpected ratio: {ratio}");
+    }
+
+    #[test]
+    fn semi24_zero_tensor_has_deterministic_mask() {
+        // When all values are zero, the tie-breaker picks
+        // positions 0 and 1 uniformly across every group.
+        let t = mk(vec![0.0; 16], vec![16]);
+        let sp = SemiStructuredSparseTensor::compress(&t).unwrap();
+        assert_eq!(sp.values(), &[0.0; 8]);
+        for g in 0..4 {
+            assert_eq!(sp.group_mask(g), 0x3);
+        }
+    }
+
+    #[test]
+    fn semi24_negative_and_positive_by_magnitude() {
+        // Group [-10, 1, -2, 3] → magnitudes [10, 1, 2, 3] →
+        // top-2 are positions 0 (-10) and 3 (3). Values stored
+        // in ascending position order: [-10, 3]. Mask bits 0, 3
+        // → 0b1001 = 0x9.
+        let t = mk(vec![-10.0, 1.0, -2.0, 3.0], vec![4]);
+        let sp = SemiStructuredSparseTensor::compress(&t).unwrap();
+        assert_eq!(sp.values(), &[-10.0, 3.0]);
+        assert_eq!(sp.group_mask(0), 0x9);
+    }
+
+    #[test]
+    fn semi24_sparse_matmul_matches_dense_matmul() {
+        // a @ b where b is compressed to 2:4. The reference
+        // implementation decompresses b and does the full
+        // matmul, so the output should match dense @ (masked b).
+        // We verify that by computing dense matmul of the
+        // decompressed b and comparing.
+        let a = mk(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
+        // b = [2, 4] with groups along the innermost dim.
+        let b_data = vec![
+            1.0, 4.0, 2.0, 3.0, // row 0 group → kept 4, 3
+            -5.0, 2.0, 0.0, 1.0, // row 1 group → kept -5, 2
+        ];
+        let b_dense = mk(b_data.clone(), vec![2, 4]);
+        let b_sparse = SemiStructuredSparseTensor::compress(&b_dense).unwrap();
+
+        // Compute sparse_matmul: result = a @ decompress(b_sparse).
+        let out = sparse_matmul_24(&a, &b_sparse).unwrap();
+        assert_eq!(out.shape(), &[2, 4]);
+
+        // Manual reference: a @ decompressed.
+        let b_masked = b_sparse.decompress().unwrap();
+        let b_m = b_masked.data().unwrap();
+        // Row 0 of a @ b_masked:
+        //   a[0,:] = [1, 2]
+        //   b_masked = [[0,4,0,3],[-5,2,0,0]]
+        //   out[0,:] = [1*0 + 2*(-5), 1*4 + 2*2, 0, 1*3 + 0] = [-10, 8, 0, 3]
+        let d = out.data().unwrap();
+        assert_eq!(d[0], 1.0 * b_m[0] + 2.0 * b_m[4]);
+        assert_eq!(d[1], 1.0 * b_m[1] + 2.0 * b_m[5]);
+        assert_eq!(d[2], 1.0 * b_m[2] + 2.0 * b_m[6]);
+        assert_eq!(d[3], 1.0 * b_m[3] + 2.0 * b_m[7]);
+        // Row 1: a[1,:] = [3, 4]
+        assert_eq!(d[4], 3.0 * b_m[0] + 4.0 * b_m[4]);
+        assert_eq!(d[5], 3.0 * b_m[1] + 4.0 * b_m[5]);
+        assert_eq!(d[6], 3.0 * b_m[2] + 4.0 * b_m[6]);
+        assert_eq!(d[7], 3.0 * b_m[3] + 4.0 * b_m[7]);
+    }
+
+    #[test]
+    fn semi24_sparse_matmul_rejects_non_2d_a() {
+        let a = mk(vec![1.0, 2.0, 3.0, 4.0], vec![4]); // 1-D
+        let b_dense = mk(vec![1.0; 16], vec![4, 4]);
+        let b_sparse = SemiStructuredSparseTensor::compress(&b_dense).unwrap();
+        let result = sparse_matmul_24(&a, &b_sparse);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn semi24_sparse_matmul_rejects_inner_dim_mismatch() {
+        let a = mk(vec![1.0, 2.0, 3.0], vec![1, 3]); // k=3
+        let b_dense = mk(vec![1.0; 16], vec![4, 4]); // k=4
+        let b_sparse = SemiStructuredSparseTensor::compress(&b_dense).unwrap();
+        let result = sparse_matmul_24(&a, &b_sparse);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn semi24_compress_then_decompress_matches_apply_2_4_mask() {
+        // Compressing + decompressing should yield the same result
+        // as the existing `apply_2_4_mask` function (which also
+        // keeps the 2 largest-magnitude elements per group).
+        let t = mk(
+            vec![0.1, 0.9, 0.3, 0.5, -0.8, 0.2, 0.7, -0.4, 1.5, -2.0, 0.1, 0.3],
+            vec![12],
+        );
+        let sp = SemiStructuredSparseTensor::compress(&t).unwrap();
+        let sp_dense = sp.decompress().unwrap();
+        let mask_result = crate::pruning::apply_2_4_mask(&t).unwrap();
+        assert_eq!(
+            sp_dense.data().unwrap(),
+            mask_result.data().unwrap(),
+            "compress+decompress must match apply_2_4_mask output"
+        );
+    }
+
+    #[test]
+    fn semi24_f64_parity() {
+        let t = Tensor::<f64>::from_storage(
+            TensorStorage::cpu(vec![1.0, 4.0, 2.0, 3.0, -5.0, 2.0, 0.0, 1.0]),
+            vec![8],
+            false,
+        )
+        .unwrap();
+        let sp = SemiStructuredSparseTensor::compress(&t).unwrap();
+        assert_eq!(sp.values(), &[4.0, 3.0, -5.0, 2.0]);
+        let dense = sp.decompress().unwrap();
+        let data = dense.data().unwrap();
+        assert_eq!(data, &[0.0, 4.0, 0.0, 3.0, -5.0, 2.0, 0.0, 0.0]);
     }
 }
