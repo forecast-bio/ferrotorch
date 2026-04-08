@@ -12,8 +12,10 @@
 //!
 //! # CL-321
 
-use ferrotorch_core::{FerrotorchResult, Float, no_grad};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
+
+use crate::foreach_utils::f64_scalar_on;
 
 // ---------------------------------------------------------------------------
 // ExponentialMovingAverage
@@ -43,7 +45,10 @@ pub struct ExponentialMovingAverage<T: Float> {
     /// Decay coefficient in [0, 1]. Higher = slower update.
     decay: f64,
     /// Shadow (averaged) parameter values. Flat Vec<T> per parameter.
+    /// Used when `foreach == false`.
     shadow_params: Vec<Vec<T>>,
+    /// On-device shadow tensors. Used when `foreach == true`.
+    shadow_tensors: Vec<Tensor<T>>,
     /// Backup of original parameter values (populated by `apply_shadow`).
     backup_params: Vec<Vec<T>>,
     /// Number of updates performed.
@@ -55,6 +60,9 @@ pub struct ExponentialMovingAverage<T: Float> {
     /// to the target decay, preventing the initial average from being
     /// dominated by the (often random) initial parameters.
     use_decay_warmup: bool,
+    /// When `true`, keep shadow state on-device as `Tensor<T>` and update
+    /// via GPU-aware tensor ops. CL-497
+    foreach: bool,
 }
 
 impl<T: Float> ExponentialMovingAverage<T> {
@@ -83,10 +91,54 @@ impl<T: Float> ExponentialMovingAverage<T> {
         Self {
             decay,
             shadow_params,
+            shadow_tensors: Vec::new(),
             backup_params: Vec::new(),
             num_updates: 0,
             use_decay_warmup: false,
+            foreach: false,
         }
+    }
+
+    /// Enable the on-device (foreach) update path.
+    ///
+    /// When enabled, shadow state is held as `Tensor<T>` on the parameter's
+    /// native device and updated via GPU-aware tensor ops instead of a CPU
+    /// scalar loop. This avoids a CPU roundtrip every `update()` call.
+    ///
+    /// Must be called with the same `params` that `new` was called with —
+    /// this initializes on-device shadow copies that replace the CPU
+    /// `Vec<T>` shadows. The shadow tensors own independent storage (not
+    /// aliased with the parameter storage), so updating the parameter never
+    /// disturbs the shadow and vice versa.
+    pub fn with_foreach(mut self, params: &[Parameter<T>]) -> Self {
+        assert_eq!(
+            params.len(),
+            self.shadow_params.len(),
+            "with_foreach: parameter count mismatch"
+        );
+
+        // Deep-copy each parameter so shadow storage is independent from the
+        // parameter's own storage Arc. We read the data to a Vec (which
+        // handles non-contiguous / GPU cases) and construct a fresh tensor.
+        self.shadow_tensors = params
+            .iter()
+            .map(|p| {
+                let data = p.data_vec().expect("with_foreach: read parameter data");
+                let shape = p.tensor().shape().to_vec();
+                let device = p.tensor().device();
+                let t = Tensor::from_storage(
+                    ferrotorch_core::TensorStorage::cpu(data),
+                    shape,
+                    false,
+                )
+                .expect("with_foreach: construct shadow tensor");
+                t.to(device).expect("with_foreach: move to device")
+            })
+            .collect();
+        // The CPU shadows are no longer authoritative; drop them to save memory.
+        self.shadow_params.clear();
+        self.foreach = true;
+        self
     }
 
     /// Enable inverse-decay warmup (bias correction).
@@ -125,6 +177,10 @@ impl<T: Float> ExponentialMovingAverage<T> {
     /// shadow = decay * shadow + (1 - decay) * param
     /// ```
     pub fn update(&mut self, params: &[Parameter<T>]) -> FerrotorchResult<()> {
+        if self.foreach {
+            return self.update_foreach(params);
+        }
+
         assert_eq!(
             params.len(),
             self.shadow_params.len(),
@@ -154,22 +210,78 @@ impl<T: Float> ExponentialMovingAverage<T> {
         Ok(())
     }
 
+    /// Foreach (on-device) EMA update. Computes
+    /// `shadow = decay * shadow + (1 - decay) * param` entirely via tensor
+    /// ops on the parameter's native device. CL-497
+    fn update_foreach(&mut self, params: &[Parameter<T>]) -> FerrotorchResult<()> {
+        use ferrotorch_core::grad_fns::arithmetic::{add, mul};
+
+        assert_eq!(
+            params.len(),
+            self.shadow_tensors.len(),
+            "foreach EMA: parameter count mismatch: expected {}, got {}",
+            self.shadow_tensors.len(),
+            params.len()
+        );
+
+        let decay = self.effective_decay();
+        let one_minus_decay = 1.0 - decay;
+
+        no_grad(|| {
+            for (shadow, param) in self.shadow_tensors.iter_mut().zip(params.iter()) {
+                let param_t = param.tensor().clone();
+                let device = param_t.device();
+                let decay_t = f64_scalar_on::<T>(decay, device)?;
+                let one_minus_decay_t =
+                    f64_scalar_on::<T>(one_minus_decay, device)?;
+
+                let scaled_shadow = mul(&*shadow, &decay_t)?;
+                let scaled_param = mul(&param_t, &one_minus_decay_t)?;
+                let new_shadow = add(&scaled_shadow, &scaled_param)?;
+                *shadow = new_shadow;
+            }
+            Ok::<(), ferrotorch_core::FerrotorchError>(())
+        })?;
+
+        self.num_updates += 1;
+        Ok(())
+    }
+
     /// Copy shadow parameters into the model parameters (for evaluation).
     ///
     /// The original parameter values are saved in an internal backup so they
     /// can be restored with [`restore`](Self::restore).
     pub fn apply_shadow(&mut self, params: &[Parameter<T>]) -> FerrotorchResult<()> {
-        assert_eq!(params.len(), self.shadow_params.len());
+        let n_shadow = if self.foreach {
+            self.shadow_tensors.len()
+        } else {
+            self.shadow_params.len()
+        };
+        assert_eq!(params.len(), n_shadow);
 
-        // Save current params as backup.
+        // Save current params as backup (always CPU so restore is identical
+        // across paths).
         self.backup_params = params
             .iter()
             .map(|p| p.data().unwrap_or_default().to_vec())
             .collect();
 
-        // Write shadow values into parameters.
-        for (shadow, param) in self.shadow_params.iter().zip(params.iter()) {
-            no_grad(|| unsafe { param.tensor().update_data(shadow) })?;
+        if self.foreach {
+            // Write shadow tensor storage into parameters.
+            no_grad(|| {
+                for (shadow, param) in self.shadow_tensors.iter().zip(params.iter()) {
+                    let shadow_clone = shadow.clone();
+                    let (storage, _) = shadow_clone.into_storage_and_shape()?;
+                    // SAFETY: inside no_grad with exclusive access.
+                    unsafe { param.tensor().update_storage(storage)? };
+                }
+                Ok::<(), ferrotorch_core::FerrotorchError>(())
+            })?;
+        } else {
+            // Write shadow values into parameters.
+            for (shadow, param) in self.shadow_params.iter().zip(params.iter()) {
+                no_grad(|| unsafe { param.tensor().update_data(shadow) })?;
+            }
         }
 
         Ok(())
@@ -195,9 +307,20 @@ impl<T: Float> ExponentialMovingAverage<T> {
         Ok(())
     }
 
-    /// Return a reference to the shadow parameter values.
+    /// Return a reference to the shadow parameter values (CPU path only).
     pub fn shadow_params(&self) -> &[Vec<T>] {
         &self.shadow_params
+    }
+
+    /// Read the current shadow values as a flat Vec for the parameter at
+    /// `index`. Works for both the legacy (`Vec<T>` storage) and foreach
+    /// (`Tensor<T>` storage) paths.
+    pub fn shadow_values(&self, index: usize) -> FerrotorchResult<Vec<T>> {
+        if self.foreach {
+            self.shadow_tensors[index].data_vec()
+        } else {
+            Ok(self.shadow_params[index].clone())
+        }
     }
 }
 
@@ -369,5 +492,107 @@ mod tests {
 
         // shadow = 1.0 * 5.0 + 0.0 * 100.0 = 5.0
         assert!((ema.shadow_params()[0][0] - 5.0).abs() < 1e-6);
+    }
+
+    // -----------------------------------------------------------------------
+    // Foreach mode parity tests. CL-497
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_ema_foreach_basic_parity() {
+        let p_legacy = Parameter::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4]).unwrap();
+        let p_foreach = Parameter::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4]).unwrap();
+
+        let mut legacy = ExponentialMovingAverage::new(&[p_legacy.clone()], 0.9);
+        let mut foreach =
+            ExponentialMovingAverage::new(&[p_foreach.clone()], 0.9).with_foreach(&[p_foreach.clone()]);
+
+        // Simulate parameter updates across 5 steps with varying values.
+        for step in 0..5 {
+            let new_vals: Vec<f32> =
+                (0..4).map(|i| 1.0 + i as f32 + step as f32 * 0.5).collect();
+            ferrotorch_core::no_grad(|| unsafe {
+                p_legacy.tensor().update_data(&new_vals)
+            })
+            .unwrap();
+            ferrotorch_core::no_grad(|| unsafe {
+                p_foreach.tensor().update_data(&new_vals)
+            })
+            .unwrap();
+
+            legacy.update(&[p_legacy.clone()]).unwrap();
+            foreach.update(&[p_foreach.clone()]).unwrap();
+        }
+
+        let l = legacy.shadow_values(0).unwrap();
+        let f = foreach.shadow_values(0).unwrap();
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "ema foreach parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_ema_foreach_parity_with_decay_warmup() {
+        let p_legacy = Parameter::from_slice(&[0.0f32, 0.0, 0.0], &[3]).unwrap();
+        let p_foreach = Parameter::from_slice(&[0.0f32, 0.0, 0.0], &[3]).unwrap();
+
+        let mut legacy = ExponentialMovingAverage::new(&[p_legacy.clone()], 0.999)
+            .with_decay_warmup(true);
+        let mut foreach = ExponentialMovingAverage::new(&[p_foreach.clone()], 0.999)
+            .with_decay_warmup(true)
+            .with_foreach(&[p_foreach.clone()]);
+
+        for step in 0..8 {
+            let v = 10.0 + step as f32;
+            let new_vals = vec![v, v + 1.0, v + 2.0];
+            ferrotorch_core::no_grad(|| unsafe {
+                p_legacy.tensor().update_data(&new_vals)
+            })
+            .unwrap();
+            ferrotorch_core::no_grad(|| unsafe {
+                p_foreach.tensor().update_data(&new_vals)
+            })
+            .unwrap();
+
+            legacy.update(&[p_legacy.clone()]).unwrap();
+            foreach.update(&[p_foreach.clone()]).unwrap();
+        }
+
+        let l = legacy.shadow_values(0).unwrap();
+        let f = foreach.shadow_values(0).unwrap();
+        // Larger tolerance: the foreach path accumulates in a different
+        // order (two separate scalar muls + add vs one fused scalar loop).
+        for (a, b) in l.iter().zip(f.iter()) {
+            assert!(
+                (a - b).abs() < 1e-3,
+                "ema warmup parity: legacy={a}, foreach={b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_ema_foreach_apply_and_restore() {
+        let p = Parameter::from_slice(&[10.0f32, 20.0], &[2]).unwrap();
+        let mut ema =
+            ExponentialMovingAverage::new(&[p.clone()], 0.5).with_foreach(&[p.clone()]);
+
+        // Update once with param = [0.0, 0.0].
+        ferrotorch_core::no_grad(|| unsafe { p.tensor().update_data(&[0.0f32, 0.0]) })
+            .unwrap();
+        ema.update(&[p.clone()]).unwrap();
+        // shadow = 0.5 * [10, 20] + 0.5 * [0, 0] = [5, 10]
+
+        ema.apply_shadow(&[p.clone()]).unwrap();
+        let data = p.data().unwrap();
+        assert!((data[0] - 5.0).abs() < 1e-6);
+        assert!((data[1] - 10.0).abs() < 1e-6);
+
+        ema.restore(&[p.clone()]).unwrap();
+        let data = p.data().unwrap();
+        assert!((data[0] - 0.0).abs() < 1e-6);
+        assert!((data[1] - 0.0).abs() < 1e-6);
     }
 }
