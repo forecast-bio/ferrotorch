@@ -1,0 +1,10 @@
+{
+  "uuid": "519983b3-5a8d-4ef1-bc35-8c484725149b",
+  "issue_uuid": "2acf6039-6087-45a3-9241-ed57f92c55bd",
+  "author": "y4rr",
+  "content": "Fixed 6 build errors caused by API drift:\n- 5x cuda_graph_decode.rs: stream() now returns Arc<CudaStream> by value, but begin_capture/end_capture/DeviceScalar::new take &Arc<CudaStream>. Added & prefix at call sites.\n- 1x main.rs: AdamWConfig gained 'foreach' and 'maximize' fields; changed to use ..Default::default().\n\nVerified: 'cargo run -- test' runs the tiny 108K-param GPT-2 forward+backward sanity check successfully. Model: 2 layers, d_model=64, 4 heads. Forward produces [1, 8, 100] with all finite values; backward computes loss=19.6356 with gradients flowing. ferrotorch-gpt2 is not a git repo so changes are filesystem-local (same as before).",
+  "created_at": "2026-04-08T05:24:54.501019657Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAdtRLbgVrsa2daHDuRP13hpzjuXGYjomhI0greaqEhFqDFx5ciN1fKrBH0by4kcZMnR13vUDVJ/upQJWqmuIgCQ=="
+}
