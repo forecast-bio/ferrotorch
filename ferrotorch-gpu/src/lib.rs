@@ -51,6 +51,16 @@ pub use buffer::CudaBuffer;
 pub use conv::gpu_conv2d_f32;
 pub use device::GpuDevice;
 pub use error::{GpuError, GpuResult};
+pub use graph::{
+    CaptureMode, CapturePool, CaptureStatus, CapturedGraph, GraphPoolHandle,
+    begin_capture, capture_pool_for_handle, end_capture, end_capture_with_pool, graph_pool_handle,
+    make_graphed_callable, release_graph_pool_handle,
+};
+#[cfg(feature = "cuda")]
+pub use graph::{
+    GraphCaptureGuard, begin_capture_with_mode, begin_capture_with_pool, capture_status,
+    is_stream_capturing,
+};
 pub use flash_attention::gpu_flash_attention_f32;
 pub use kernels::{gpu_add, gpu_mul, gpu_neg, gpu_relu, gpu_sub};
 pub use kernels::{
