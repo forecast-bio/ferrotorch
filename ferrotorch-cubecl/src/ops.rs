@@ -245,6 +245,67 @@ fn check_matmul_shapes(
 }
 
 // ---------------------------------------------------------------------------
+// Additional elementwise ops — macro-generated for brevity
+// ---------------------------------------------------------------------------
+
+macro_rules! define_portable_unary {
+    ($name:ident, $runner:ident) => {
+        #[doc = concat!("Elementwise `", stringify!($name), "(x)` on the GPU.")]
+        #[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+        pub fn $name(x: &Tensor<f32>, rt: &CubeRuntime) -> FerrotorchResult<Tensor<f32>> {
+            let x_data = contiguous_data(x)?;
+            let out = dispatch_unary!(rt, kernels::$runner, &x_data);
+            from_vec(out, x.shape())
+        }
+
+        #[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "rocm")))]
+        pub fn $name(_x: &Tensor<f32>, _rt: &CubeRuntime) -> FerrotorchResult<Tensor<f32>> {
+            Err(FerrotorchError::DeviceUnavailable)
+        }
+    };
+}
+
+macro_rules! define_portable_binary {
+    ($name:ident, $runner:ident) => {
+        #[doc = concat!("Elementwise `a ", stringify!($name), " b` on the GPU.")]
+        #[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+        pub fn $name(
+            a: &Tensor<f32>,
+            b: &Tensor<f32>,
+            rt: &CubeRuntime,
+        ) -> FerrotorchResult<Tensor<f32>> {
+            check_same_shape(a, b)?;
+            let a_data = contiguous_data(a)?;
+            let b_data = contiguous_data(b)?;
+            let out = dispatch_binary!(rt, kernels::$runner, &a_data, &b_data);
+            from_vec(out, a.shape())
+        }
+
+        #[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "rocm")))]
+        pub fn $name(
+            a: &Tensor<f32>,
+            b: &Tensor<f32>,
+            _rt: &CubeRuntime,
+        ) -> FerrotorchResult<Tensor<f32>> {
+            check_same_shape(a, b)?;
+            Err(FerrotorchError::DeviceUnavailable)
+        }
+    };
+}
+
+define_portable_binary!(portable_div, run_div);
+
+define_portable_unary!(portable_neg, run_neg);
+define_portable_unary!(portable_abs, run_abs);
+define_portable_unary!(portable_exp, run_exp);
+define_portable_unary!(portable_ln, run_ln);
+define_portable_unary!(portable_sqrt, run_sqrt);
+define_portable_unary!(portable_sin, run_sin);
+define_portable_unary!(portable_cos, run_cos);
+define_portable_unary!(portable_tanh, run_tanh);
+define_portable_unary!(portable_sigmoid, run_sigmoid);
+
+// ---------------------------------------------------------------------------
 // Tests — only meaningful with a real backend feature
 // ---------------------------------------------------------------------------
 
@@ -375,6 +436,163 @@ mod tests {
         let c = portable_matmul(&ta, &tb, &rt).unwrap();
         let data: &[f32] = c.data().unwrap();
         assert_eq!(data, b.as_slice(), "I * B should equal B");
+    }
+
+    // Helper: approximate-equal for float comparisons in transcendental tests.
+    fn assert_close(actual: &[f32], expected: &[f32], tol: f32) {
+        assert_eq!(actual.len(), expected.len());
+        for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (a - e).abs() < tol,
+                "at index {i}: expected {e}, got {a} (tol={tol})"
+            );
+        }
+    }
+
+    #[test]
+    fn portable_div_runs_on_gpu() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[10.0_f32, 20.0, 30.0, 40.0]).unwrap();
+        let b = ferrotorch_core::tensor(&[2.0_f32, 4.0, 5.0, 8.0]).unwrap();
+        let c = portable_div(&a, &b, &rt).unwrap();
+        let data: &[f32] = c.data().unwrap();
+        assert_close(data, &[5.0, 5.0, 6.0, 5.0], 1e-4);
+    }
+
+    #[test]
+    fn portable_neg_runs_on_gpu() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[-3.0_f32, -1.0, 0.0, 1.0, 3.0]).unwrap();
+        let c = portable_neg(&a, &rt).unwrap();
+        let data: &[f32] = c.data().unwrap();
+        assert_close(data, &[3.0, 1.0, 0.0, -1.0, -3.0], 1e-6);
+    }
+
+    #[test]
+    fn portable_abs_runs_on_gpu() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[-3.0_f32, -1.0, 0.0, 1.0, 3.0]).unwrap();
+        let c = portable_abs(&a, &rt).unwrap();
+        let data: &[f32] = c.data().unwrap();
+        assert_close(data, &[3.0, 1.0, 0.0, 1.0, 3.0], 1e-6);
+    }
+
+    #[test]
+    fn portable_exp_runs_on_gpu() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[0.0_f32, 1.0, 2.0, -1.0]).unwrap();
+        let c = portable_exp(&a, &rt).unwrap();
+        let data: &[f32] = c.data().unwrap();
+        let expected: Vec<f32> = [0.0, 1.0, 2.0, -1.0].iter().map(|x: &f32| x.exp()).collect();
+        assert_close(data, &expected, 1e-3);
+    }
+
+    #[test]
+    fn portable_ln_runs_on_gpu() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[1.0_f32, 2.718281828, 10.0, 100.0]).unwrap();
+        let c = portable_ln(&a, &rt).unwrap();
+        let data: &[f32] = c.data().unwrap();
+        let expected: Vec<f32> = [1.0_f32, 2.718281828, 10.0, 100.0]
+            .iter()
+            .map(|x| x.ln())
+            .collect();
+        assert_close(data, &expected, 1e-3);
+    }
+
+    #[test]
+    fn portable_sqrt_runs_on_gpu() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[0.0_f32, 1.0, 4.0, 9.0, 16.0]).unwrap();
+        let c = portable_sqrt(&a, &rt).unwrap();
+        let data: &[f32] = c.data().unwrap();
+        assert_close(data, &[0.0, 1.0, 2.0, 3.0, 4.0], 1e-4);
+    }
+
+    #[test]
+    fn portable_sin_runs_on_gpu() {
+        let rt = runtime();
+        let pi = std::f32::consts::PI;
+        let a = ferrotorch_core::tensor(&[0.0_f32, pi / 2.0, pi, 3.0 * pi / 2.0]).unwrap();
+        let c = portable_sin(&a, &rt).unwrap();
+        let data: &[f32] = c.data().unwrap();
+        assert_close(data, &[0.0, 1.0, 0.0, -1.0], 1e-3);
+    }
+
+    #[test]
+    fn portable_cos_runs_on_gpu() {
+        let rt = runtime();
+        let pi = std::f32::consts::PI;
+        let a = ferrotorch_core::tensor(&[0.0_f32, pi / 2.0, pi, 3.0 * pi / 2.0]).unwrap();
+        let c = portable_cos(&a, &rt).unwrap();
+        let data: &[f32] = c.data().unwrap();
+        assert_close(data, &[1.0, 0.0, -1.0, 0.0], 1e-3);
+    }
+
+    #[test]
+    fn portable_tanh_runs_on_gpu() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[-2.0_f32, -0.5, 0.0, 0.5, 2.0]).unwrap();
+        let c = portable_tanh(&a, &rt).unwrap();
+        let data: &[f32] = c.data().unwrap();
+        let expected: Vec<f32> = [-2.0_f32, -0.5, 0.0, 0.5, 2.0]
+            .iter()
+            .map(|x| x.tanh())
+            .collect();
+        assert_close(data, &expected, 1e-4);
+    }
+
+    #[test]
+    fn portable_sigmoid_runs_on_gpu() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[-4.0_f32, -1.0, 0.0, 1.0, 4.0]).unwrap();
+        let c = portable_sigmoid(&a, &rt).unwrap();
+        let data: &[f32] = c.data().unwrap();
+        let expected: Vec<f32> = [-4.0_f32, -1.0, 0.0, 1.0, 4.0]
+            .iter()
+            .map(|x| 1.0 / (1.0 + (-x).exp()))
+            .collect();
+        assert_close(data, &expected, 1e-4);
+    }
+
+    #[test]
+    fn portable_sigmoid_large_shape() {
+        // Sigmoid across multiple cubes + verify numerical stability.
+        let rt = runtime();
+        let n: usize = 1024;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 - 512.0) * 0.01).collect();
+        let t = ferrotorch_core::from_vec(input.clone(), &[n]).unwrap();
+        let out = portable_sigmoid(&t, &rt).unwrap();
+        let data: &[f32] = out.data().unwrap();
+        for (i, &x) in input.iter().enumerate() {
+            let expected = 1.0 / (1.0 + (-x).exp());
+            assert!(
+                (data[i] - expected).abs() < 1e-4,
+                "sigmoid mismatch at {i}: got {}, expected {}",
+                data[i],
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn portable_exp_then_ln_is_identity() {
+        // End-to-end check: ln(exp(x)) ≈ x.
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[-2.0_f32, -0.5, 0.1, 1.0, 3.0]).unwrap();
+        let e = portable_exp(&a, &rt).unwrap();
+        let back = portable_ln(&e, &rt).unwrap();
+        let data: &[f32] = back.data().unwrap();
+        assert_close(data, &[-2.0, -0.5, 0.1, 1.0, 3.0], 1e-3);
+    }
+
+    #[test]
+    fn portable_div_rejects_shape_mismatch() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[1.0_f32, 2.0, 3.0]).unwrap();
+        let b = ferrotorch_core::tensor(&[1.0_f32, 2.0]).unwrap();
+        let err = portable_div(&a, &b, &rt).unwrap_err();
+        assert!(matches!(err, FerrotorchError::ShapeMismatch { .. }));
     }
 }
 

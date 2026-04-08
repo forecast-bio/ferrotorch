@@ -40,12 +40,93 @@ pub fn kernel_mul<F: Float>(a: &Array<F>, b: &Array<F>, out: &mut Array<F>) {
     }
 }
 
+/// Elementwise `out = a / b`.
+#[cube(launch_unchecked)]
+pub fn kernel_div<F: Float>(a: &Array<F>, b: &Array<F>, out: &mut Array<F>) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = a[ABSOLUTE_POS] / b[ABSOLUTE_POS];
+    }
+}
+
 /// Elementwise `out = max(x, 0)`.
 #[cube(launch_unchecked)]
 pub fn kernel_relu<F: Float>(x: &Array<F>, out: &mut Array<F>) {
     if ABSOLUTE_POS < out.len() {
         let v = x[ABSOLUTE_POS];
         out[ABSOLUTE_POS] = F::max(v, F::new(0.0));
+    }
+}
+
+/// Elementwise `out = -x`.
+#[cube(launch_unchecked)]
+pub fn kernel_neg<F: Float>(x: &Array<F>, out: &mut Array<F>) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = F::new(0.0) - x[ABSOLUTE_POS];
+    }
+}
+
+/// Elementwise `out = |x|`.
+#[cube(launch_unchecked)]
+pub fn kernel_abs<F: Float>(x: &Array<F>, out: &mut Array<F>) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = F::abs(x[ABSOLUTE_POS]);
+    }
+}
+
+/// Elementwise `out = exp(x)`.
+#[cube(launch_unchecked)]
+pub fn kernel_exp<F: Float>(x: &Array<F>, out: &mut Array<F>) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = F::exp(x[ABSOLUTE_POS]);
+    }
+}
+
+/// Elementwise `out = ln(x)` (natural log).
+#[cube(launch_unchecked)]
+pub fn kernel_ln<F: Float>(x: &Array<F>, out: &mut Array<F>) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = F::ln(x[ABSOLUTE_POS]);
+    }
+}
+
+/// Elementwise `out = sqrt(x)`.
+#[cube(launch_unchecked)]
+pub fn kernel_sqrt<F: Float>(x: &Array<F>, out: &mut Array<F>) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = F::sqrt(x[ABSOLUTE_POS]);
+    }
+}
+
+/// Elementwise `out = sin(x)`.
+#[cube(launch_unchecked)]
+pub fn kernel_sin<F: Float>(x: &Array<F>, out: &mut Array<F>) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = F::sin(x[ABSOLUTE_POS]);
+    }
+}
+
+/// Elementwise `out = cos(x)`.
+#[cube(launch_unchecked)]
+pub fn kernel_cos<F: Float>(x: &Array<F>, out: &mut Array<F>) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = F::cos(x[ABSOLUTE_POS]);
+    }
+}
+
+/// Elementwise `out = tanh(x)`.
+#[cube(launch_unchecked)]
+pub fn kernel_tanh<F: Float>(x: &Array<F>, out: &mut Array<F>) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = F::tanh(x[ABSOLUTE_POS]);
+    }
+}
+
+/// Elementwise `out = 1 / (1 + exp(-x))` — logistic sigmoid.
+#[cube(launch_unchecked)]
+pub fn kernel_sigmoid<F: Float>(x: &Array<F>, out: &mut Array<F>) {
+    if ABSOLUTE_POS < out.len() {
+        let neg_x = F::new(0.0) - x[ABSOLUTE_POS];
+        out[ABSOLUTE_POS] = F::new(1.0) / (F::new(1.0) + F::exp(neg_x));
     }
 }
 
@@ -97,89 +178,16 @@ fn elementwise_launch_dims(n: u32) -> (CubeCount, CubeDim) {
     )
 }
 
-/// Upload `a` and `b`, run `kernel_add`, read back the result.
-pub fn run_add<R: Runtime>(client: &ComputeClient<R>, a: &[f32], b: &[f32]) -> Vec<f32> {
-    let n = a.len();
-    debug_assert_eq!(n, b.len());
-    let size_bytes = n * std::mem::size_of::<f32>();
+// ---------------------------------------------------------------------------
+// Unary + binary helpers shared by every elementwise op
+// ---------------------------------------------------------------------------
 
-    let a_handle = client.create_from_slice(f32::as_bytes(a));
-    let b_handle = client.create_from_slice(f32::as_bytes(b));
-    let out_handle = client.empty(size_bytes);
-
-    let (count, dim) = elementwise_launch_dims(n as u32);
-    unsafe {
-        kernel_add::launch_unchecked::<f32, R>(
-            client,
-            count,
-            dim,
-            ArrayArg::from_raw_parts::<f32>(&a_handle, n, 1),
-            ArrayArg::from_raw_parts::<f32>(&b_handle, n, 1),
-            ArrayArg::from_raw_parts::<f32>(&out_handle, n, 1),
-        )
-        .expect("cubecl add kernel launch failed");
-    }
-
-    let bytes = client.read_one(out_handle);
-    f32::from_bytes(&bytes)[..n].to_vec()
-}
-
-/// Upload `a` and `b`, run `kernel_sub`, read back the result.
-pub fn run_sub<R: Runtime>(client: &ComputeClient<R>, a: &[f32], b: &[f32]) -> Vec<f32> {
-    let n = a.len();
-    debug_assert_eq!(n, b.len());
-    let size_bytes = n * std::mem::size_of::<f32>();
-
-    let a_handle = client.create_from_slice(f32::as_bytes(a));
-    let b_handle = client.create_from_slice(f32::as_bytes(b));
-    let out_handle = client.empty(size_bytes);
-
-    let (count, dim) = elementwise_launch_dims(n as u32);
-    unsafe {
-        kernel_sub::launch_unchecked::<f32, R>(
-            client,
-            count,
-            dim,
-            ArrayArg::from_raw_parts::<f32>(&a_handle, n, 1),
-            ArrayArg::from_raw_parts::<f32>(&b_handle, n, 1),
-            ArrayArg::from_raw_parts::<f32>(&out_handle, n, 1),
-        )
-        .expect("cubecl sub kernel launch failed");
-    }
-
-    let bytes = client.read_one(out_handle);
-    f32::from_bytes(&bytes)[..n].to_vec()
-}
-
-/// Upload `a` and `b`, run `kernel_mul`, read back the result.
-pub fn run_mul<R: Runtime>(client: &ComputeClient<R>, a: &[f32], b: &[f32]) -> Vec<f32> {
-    let n = a.len();
-    debug_assert_eq!(n, b.len());
-    let size_bytes = n * std::mem::size_of::<f32>();
-
-    let a_handle = client.create_from_slice(f32::as_bytes(a));
-    let b_handle = client.create_from_slice(f32::as_bytes(b));
-    let out_handle = client.empty(size_bytes);
-
-    let (count, dim) = elementwise_launch_dims(n as u32);
-    unsafe {
-        kernel_mul::launch_unchecked::<f32, R>(
-            client,
-            count,
-            dim,
-            ArrayArg::from_raw_parts::<f32>(&a_handle, n, 1),
-            ArrayArg::from_raw_parts::<f32>(&b_handle, n, 1),
-            ArrayArg::from_raw_parts::<f32>(&out_handle, n, 1),
-        )
-        .expect("cubecl mul kernel launch failed");
-    }
-
-    let bytes = client.read_one(out_handle);
-    f32::from_bytes(&bytes)[..n].to_vec()
-}
-
-/// Upload `x`, run `kernel_relu`, read back the result.
-pub fn run_relu<R: Runtime>(client: &ComputeClient<R>, x: &[f32]) -> Vec<f32> {
+/// Upload `x`, launch `launcher`, read back the result.
+fn run_unary<R, L>(client: &ComputeClient<R>, x: &[f32], launcher: L) -> Vec<f32>
+where
+    R: Runtime,
+    L: FnOnce(&ComputeClient<R>, CubeCount, CubeDim, ArrayArg<R>, ArrayArg<R>),
+{
     let n = x.len();
     let size_bytes = n * std::mem::size_of::<f32>();
 
@@ -187,20 +195,87 @@ pub fn run_relu<R: Runtime>(client: &ComputeClient<R>, x: &[f32]) -> Vec<f32> {
     let out_handle = client.empty(size_bytes);
 
     let (count, dim) = elementwise_launch_dims(n as u32);
-    unsafe {
-        kernel_relu::launch_unchecked::<f32, R>(
-            client,
-            count,
-            dim,
-            ArrayArg::from_raw_parts::<f32>(&x_handle, n, 1),
-            ArrayArg::from_raw_parts::<f32>(&out_handle, n, 1),
-        )
-        .expect("cubecl relu kernel launch failed");
-    }
+    let in_arg = unsafe { ArrayArg::from_raw_parts::<f32>(&x_handle, n, 1) };
+    let out_arg = unsafe { ArrayArg::from_raw_parts::<f32>(&out_handle, n, 1) };
+    launcher(client, count, dim, in_arg, out_arg);
 
     let bytes = client.read_one(out_handle);
     f32::from_bytes(&bytes)[..n].to_vec()
 }
+
+/// Upload `a` and `b`, launch `launcher`, read back the result.
+fn run_binary<R, L>(client: &ComputeClient<R>, a: &[f32], b: &[f32], launcher: L) -> Vec<f32>
+where
+    R: Runtime,
+    L: FnOnce(&ComputeClient<R>, CubeCount, CubeDim, ArrayArg<R>, ArrayArg<R>, ArrayArg<R>),
+{
+    let n = a.len();
+    debug_assert_eq!(n, b.len());
+    let size_bytes = n * std::mem::size_of::<f32>();
+
+    let a_handle = client.create_from_slice(f32::as_bytes(a));
+    let b_handle = client.create_from_slice(f32::as_bytes(b));
+    let out_handle = client.empty(size_bytes);
+
+    let (count, dim) = elementwise_launch_dims(n as u32);
+    let a_arg = unsafe { ArrayArg::from_raw_parts::<f32>(&a_handle, n, 1) };
+    let b_arg = unsafe { ArrayArg::from_raw_parts::<f32>(&b_handle, n, 1) };
+    let out_arg = unsafe { ArrayArg::from_raw_parts::<f32>(&out_handle, n, 1) };
+    launcher(client, count, dim, a_arg, b_arg, out_arg);
+
+    let bytes = client.read_one(out_handle);
+    f32::from_bytes(&bytes)[..n].to_vec()
+}
+
+// Per-kernel `run_*` helpers: each one is just a thin wrapper around
+// `run_unary` / `run_binary` that plugs in the generated
+// `kernel_*::launch_unchecked` symbol. Two macros stamp them out.
+
+macro_rules! define_unary_runner {
+    ($run_fn:ident, $kernel:ident) => {
+        #[doc = concat!("Upload `x`, run `", stringify!($kernel), "`, read back the result.")]
+        pub fn $run_fn<R: Runtime>(client: &ComputeClient<R>, x: &[f32]) -> Vec<f32> {
+            run_unary::<R, _>(client, x, |client, count, dim, input, output| unsafe {
+                $kernel::launch_unchecked::<f32, R>(client, count, dim, input, output)
+                    .expect(concat!("cubecl ", stringify!($kernel), " launch failed"));
+            })
+        }
+    };
+}
+
+macro_rules! define_binary_runner {
+    ($run_fn:ident, $kernel:ident) => {
+        #[doc = concat!("Upload `a` and `b`, run `", stringify!($kernel), "`, read back the result.")]
+        pub fn $run_fn<R: Runtime>(
+            client: &ComputeClient<R>,
+            a: &[f32],
+            b: &[f32],
+        ) -> Vec<f32> {
+            run_binary::<R, _>(client, a, b, |client, count, dim, a, b, out| unsafe {
+                $kernel::launch_unchecked::<f32, R>(client, count, dim, a, b, out)
+                    .expect(concat!("cubecl ", stringify!($kernel), " launch failed"));
+            })
+        }
+    };
+}
+
+// Binary ops
+define_binary_runner!(run_add, kernel_add);
+define_binary_runner!(run_sub, kernel_sub);
+define_binary_runner!(run_mul, kernel_mul);
+define_binary_runner!(run_div, kernel_div);
+
+// Unary ops
+define_unary_runner!(run_relu, kernel_relu);
+define_unary_runner!(run_neg, kernel_neg);
+define_unary_runner!(run_abs, kernel_abs);
+define_unary_runner!(run_exp, kernel_exp);
+define_unary_runner!(run_ln, kernel_ln);
+define_unary_runner!(run_sqrt, kernel_sqrt);
+define_unary_runner!(run_sin, kernel_sin);
+define_unary_runner!(run_cos, kernel_cos);
+define_unary_runner!(run_tanh, kernel_tanh);
+define_unary_runner!(run_sigmoid, kernel_sigmoid);
 
 /// Upload `a` and `b`, run `kernel_matmul_naive`, read back the result.
 ///

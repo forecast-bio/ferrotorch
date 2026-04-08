@@ -57,6 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- Expanded `ferrotorch-cubecl` op coverage: added real CubeCL `#[cube]` kernels for `div`, `neg`, `abs`, `exp`, `ln`, `sqrt`, `sin`, `cos`, `tanh`, and `sigmoid` alongside the existing add/sub/mul/relu/matmul, each wired through `run_*` launchers (now macro-generated for brevity) and `portable_*` entry points on `CubeRuntime`. Adds 13 new GPU tests on wgpu including an `exp`→`ln` round-trip identity check, a 1024-element sigmoid numerical-stability check across multiple cubes, and shape-validation for `portable_div`. (#453)
+- CubeCL actual GPU kernels — currently all ops fall back to CPU despite abstraction (#398)
 - Real CubeCL GPU kernels in `ferrotorch-cubecl`: the crate now dispatches `#[cube]` kernels (`kernel_add`, `kernel_sub`, `kernel_mul`, `kernel_relu`, `kernel_matmul_naive`) through a real `ComputeClient` per backend. `CubeRuntime::new` constructs the matching `CubeClient::{Wgpu,Cuda,Rocm}` enum variant from `cubecl-wgpu` / `cubecl-cuda` / `cubecl-hip`, and `portable_add/sub/mul/relu/matmul` upload inputs, launch the kernel via runtime-generic `run_*` helpers, and read results back. No more CPU fallback — without a backend feature `CubeRuntime::new` returns `DeviceUnavailable`. Verified end-to-end against wgpu with 12 new GPU tests including `portable_matmul_square_8x8` and `portable_add_large_shape` (1024 elements across multiple cubes). (#398)
 - T4.3 Inductor-style codegen (Triton/C++ backends) (#290)
 - Inductor CpuC JIT execution: `InductorBackend::compile` with `InductorTarget::CpuC` now really compiles generated C source into a shared library via the system C compiler (`cc`/`gcc`/`clang`, or `$CC`), loads it with `libloading`, and dispatches to the native kernel on every `execute` call — replacing the previous interpreter fallback. Single-fusion-group elementwise graphs (including ones with constant inputs) are fully JIT'd; mixed graphs with reductions/matmul/etc. still fall back to the interpreter. A global hash-keyed compile cache returns the same `Arc<JitCompiledKernel>` for byte-identical source, so repeated compiles are O(1). (#290)
@@ -203,6 +205,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- Complete Tier 4 gap analysis sections (#287)
 - 292 (#502)
 - Add vision transforms: GaussianNoise, ElasticTransform, TrivialAugmentWide (#458)
 - Implement LazyLinear and LazyConv variants (deferred shape inference) (#445)
