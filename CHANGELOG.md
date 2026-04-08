@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix CUDA graph capture on legacy default stream — fork non-blocking stream via `GpuDevice::fork_for_capture()`
 
 ### Added
+- PackedNestedTensor: flat packed storage + offsets layout for nested/jagged tensors with elementwise map/add/sub/mul/div, per-component sum/mean reductions, to_padded/from_padded conversion, and roundtrip with the existing list-of-tensors NestedTensor (#291)
 - AOT autograd: `decompose_forward_backward` now emits real backward IR nodes for Add/Sub/Mul/Neg/Relu/Sum/Mean (replacing the previous no-op pass-through), with grad accumulation, deterministic saved-tensor ordering, and zero-constant fallback for unused inputs (#289)
 - channels_last memory format on CUDA: `Tensor::contiguous_in(MemoryFormat::ChannelsLast{,3d})` now dispatches to `gpu_strided_copy` with permuted shape+stride parameters, keeping the conversion entirely on-device instead of round-tripping through CPU memory (#455)
 - CUDA graph allocator pool: `CapturePool::record_buffer` registers GPU buffers for lifetime extension and `end_capture_with_pool` produces a `CapturedGraph` that holds an `Arc<CapturePool>`, keeping recorded buffers alive across replays (#278)
