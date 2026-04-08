@@ -2,11 +2,12 @@
   "uuid": "cd347ec2-25b4-480f-b26a-1beb0bc71089",
   "display_id": 454,
   "title": "Improve CUDA Graph support to match PyTorch maturity",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:21:58.743544003Z",
-  "updated_at": "2026-04-03T22:22:00.322362861Z",
+  "updated_at": "2026-04-08T14:15:14.116749765Z",
+  "closed_at": "2026-04-08T14:15:14.116749765Z",
   "labels": [
     "gpu"
   ]
