@@ -552,6 +552,189 @@ impl Backend for SimulatedBackend {
     }
 }
 
+// ---------------------------------------------------------------------------
+// SubBackend — subgroup adapter
+// ---------------------------------------------------------------------------
+
+/// A backend view that restricts communication to a subset of global ranks.
+///
+/// `SubBackend` wraps a parent [`Backend`] and a list of member global ranks
+/// to form a logical sub-process-group. It translates every `rank()`,
+/// `world_size()`, `send()`, and `recv()` call into the equivalent parent-
+/// backend operation using the subgroup→global rank mapping.
+///
+/// Because `SubBackend` implements the [`Backend`] trait, the existing
+/// [`allreduce`](crate::collective::allreduce),
+/// [`all_gather`](crate::collective::all_gather), and
+/// [`reduce_scatter`](crate::collective::reduce_scatter) collective functions
+/// work on a subgroup without any changes: they only see the `SubBackend`
+/// through the trait, so "rank 0" in the collective means "the first member
+/// of the subgroup" and `world_size` means the subgroup size.
+///
+/// Used by FSDP's [`HybridShard`](crate::fsdp::ShardingStrategy::HybridShard)
+/// strategy to form an intra-node (sharding) subgroup and an inter-node
+/// (replication) subgroup.
+///
+/// CL-327.
+pub struct SubBackend {
+    parent: Arc<dyn Backend>,
+    /// Global ranks that are members of this subgroup, sorted ascending.
+    members: Vec<usize>,
+    /// This process's index within `members` (the local rank).
+    local_rank: usize,
+}
+
+impl SubBackend {
+    /// Create a subgroup view from a parent backend and a list of member
+    /// global ranks.
+    ///
+    /// The caller's rank (read from `parent.rank()`) must be in `members`.
+    /// `members` is sorted and deduplicated before being stored.
+    ///
+    /// # Errors
+    ///
+    /// - [`DistributedError::InvalidRank`] if the parent's rank is not in
+    ///   `members`, or if any member is ≥ parent `world_size`.
+    /// - [`DistributedError::InvalidWorldSize`] if `members` is empty.
+    pub fn new(parent: Arc<dyn Backend>, members: Vec<usize>) -> FerrotorchResult<Self> {
+        if members.is_empty() {
+            return Err(DistributedError::InvalidWorldSize { world_size: 0 }.into());
+        }
+
+        let parent_world = parent.world_size();
+        for &m in &members {
+            if m >= parent_world {
+                return Err(DistributedError::InvalidRank {
+                    rank: m,
+                    world_size: parent_world,
+                }
+                .into());
+            }
+        }
+
+        // Sort and dedup so local rank ordering is deterministic.
+        let mut sorted_members = members;
+        sorted_members.sort_unstable();
+        sorted_members.dedup();
+
+        let parent_rank = parent.rank();
+        let local_rank = sorted_members
+            .iter()
+            .position(|&r| r == parent_rank)
+            .ok_or(DistributedError::InvalidRank {
+                rank: parent_rank,
+                world_size: sorted_members.len(),
+            })?;
+
+        Ok(Self {
+            parent,
+            members: sorted_members,
+            local_rank,
+        })
+    }
+
+    /// Return the global ranks that make up this subgroup, in ascending
+    /// order. The index of this rank's entry is its local rank.
+    pub fn members(&self) -> &[usize] {
+        &self.members
+    }
+
+    /// Map a local (subgroup-relative) rank to its global rank.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `local` is out of bounds.
+    pub fn to_global(&self, local: usize) -> usize {
+        self.members[local]
+    }
+
+    /// Map a global rank to its local subgroup rank, or `None` if the
+    /// global rank is not a member of this subgroup.
+    pub fn to_local(&self, global: usize) -> Option<usize> {
+        self.members.iter().position(|&r| r == global)
+    }
+
+    /// The parent backend this subgroup was derived from.
+    pub fn parent(&self) -> &Arc<dyn Backend> {
+        &self.parent
+    }
+}
+
+impl Backend for SubBackend {
+    fn rank(&self) -> usize {
+        self.local_rank
+    }
+
+    fn world_size(&self) -> usize {
+        self.members.len()
+    }
+
+    fn send(&self, data: &[u8], dst_rank: usize) -> FerrotorchResult<()> {
+        if dst_rank >= self.members.len() {
+            return Err(DistributedError::InvalidRank {
+                rank: dst_rank,
+                world_size: self.members.len(),
+            }
+            .into());
+        }
+        self.parent.send(data, self.members[dst_rank])
+    }
+
+    fn recv(&self, dst: &mut [u8], src_rank: usize) -> FerrotorchResult<()> {
+        if src_rank >= self.members.len() {
+            return Err(DistributedError::InvalidRank {
+                rank: src_rank,
+                world_size: self.members.len(),
+            }
+            .into());
+        }
+        self.parent.recv(dst, self.members[src_rank])
+    }
+
+    fn recv_timeout(
+        &self,
+        dst: &mut [u8],
+        src_rank: usize,
+        timeout: Duration,
+    ) -> FerrotorchResult<()> {
+        if src_rank >= self.members.len() {
+            return Err(DistributedError::InvalidRank {
+                rank: src_rank,
+                world_size: self.members.len(),
+            }
+            .into());
+        }
+        self.parent.recv_timeout(dst, self.members[src_rank], timeout)
+    }
+
+    fn barrier(&self) -> FerrotorchResult<()> {
+        // Gather-scatter barrier within the subgroup: local rank 0 waits
+        // for a byte from every other member, then sends one back. We
+        // use the parent backend's send/recv via the local→global rank
+        // map, so this doesn't conflict with a simultaneous parent-level
+        // barrier as long as the subgroups are non-overlapping at rank 0.
+        let tag = [0u8; 1];
+        let size = self.members.len();
+        if size <= 1 {
+            return Ok(());
+        }
+        if self.local_rank == 0 {
+            let mut buf = [0u8; 1];
+            for r in 1..size {
+                self.recv(&mut buf, r)?;
+            }
+            for r in 1..size {
+                self.send(&tag, r)?;
+            }
+        } else {
+            self.send(&tag, 0)?;
+            let mut buf = [0u8; 1];
+            self.recv(&mut buf, 0)?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,5 +798,131 @@ mod tests {
         let group = SimulatedBackend::create_group(2).unwrap();
         let result = group[0].send(&[1], 5);
         assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // SubBackend tests. CL-327
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_subbackend_local_rank_and_world_size() {
+        // 4 parent ranks, subgroup is {1, 3}. Rank 3 should be local 1.
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arcs: Vec<Arc<dyn Backend>> = group
+            .into_iter()
+            .map(|b| Arc::new(b) as Arc<dyn Backend>)
+            .collect();
+
+        let sub_for_rank1 = SubBackend::new(Arc::clone(&arcs[1]), vec![1, 3]).unwrap();
+        let sub_for_rank3 = SubBackend::new(Arc::clone(&arcs[3]), vec![1, 3]).unwrap();
+
+        assert_eq!(sub_for_rank1.rank(), 0);
+        assert_eq!(sub_for_rank1.world_size(), 2);
+        assert_eq!(sub_for_rank3.rank(), 1);
+        assert_eq!(sub_for_rank3.world_size(), 2);
+    }
+
+    #[test]
+    fn test_subbackend_global_rank_not_in_members_is_error() {
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arcs: Vec<Arc<dyn Backend>> = group
+            .into_iter()
+            .map(|b| Arc::new(b) as Arc<dyn Backend>)
+            .collect();
+
+        // Rank 0 tries to create a subgroup that doesn't include itself.
+        let result = SubBackend::new(Arc::clone(&arcs[0]), vec![1, 3]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_subbackend_empty_members_is_error() {
+        let group = SimulatedBackend::create_group(2).unwrap();
+        let arc: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
+        let result = SubBackend::new(arc, vec![]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_subbackend_send_recv_routes_through_parent() {
+        // 4 parent ranks, subgroup {0, 2}. Local rank 0 sends to local rank 1
+        // (which is global 2).
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arcs: Vec<Arc<dyn Backend>> = group
+            .into_iter()
+            .map(|b| Arc::new(b) as Arc<dyn Backend>)
+            .collect();
+
+        let sub0 = SubBackend::new(Arc::clone(&arcs[0]), vec![0, 2]).unwrap();
+        let sub2 = SubBackend::new(Arc::clone(&arcs[2]), vec![0, 2]).unwrap();
+
+        let sender = thread::spawn(move || {
+            sub0.send(&[9, 8, 7], 1).unwrap();
+        });
+
+        let mut buf = [0u8; 3];
+        sub2.recv(&mut buf, 0).unwrap();
+        sender.join().unwrap();
+
+        assert_eq!(buf, [9, 8, 7]);
+    }
+
+    #[test]
+    fn test_subbackend_barrier() {
+        // 6 parent ranks, subgroup {0, 2, 4} (even ranks). Barrier runs
+        // only across the subgroup.
+        let group = SimulatedBackend::create_group(6).unwrap();
+        let arcs: Vec<Arc<dyn Backend>> = group
+            .into_iter()
+            .map(|b| Arc::new(b) as Arc<dyn Backend>)
+            .collect();
+
+        let members = vec![0usize, 2, 4];
+
+        let handles: Vec<_> = [0usize, 2, 4]
+            .into_iter()
+            .map(|global_rank| {
+                let parent = Arc::clone(&arcs[global_rank]);
+                let ms = members.clone();
+                thread::spawn(move || {
+                    let sub = SubBackend::new(parent, ms).unwrap();
+                    sub.barrier().unwrap();
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_subbackend_to_global_to_local() {
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arc: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
+        let sub = SubBackend::new(arc, vec![0, 2]).unwrap();
+
+        // Members are sorted, so to_global(0)=0, to_global(1)=2.
+        assert_eq!(sub.to_global(0), 0);
+        assert_eq!(sub.to_global(1), 2);
+        assert_eq!(sub.to_local(0), Some(0));
+        assert_eq!(sub.to_local(2), Some(1));
+        assert_eq!(sub.to_local(1), None);
+        assert_eq!(sub.to_local(3), None);
+    }
+
+    #[test]
+    fn test_subbackend_sorts_and_dedups_members() {
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arcs: Vec<Arc<dyn Backend>> = group
+            .into_iter()
+            .map(|b| Arc::new(b) as Arc<dyn Backend>)
+            .collect();
+
+        // Pass unsorted + duplicated members; expect sorted + deduped.
+        let sub = SubBackend::new(Arc::clone(&arcs[2]), vec![3, 2, 0, 2, 3]).unwrap();
+        assert_eq!(sub.members(), &[0, 2, 3]);
+        assert_eq!(sub.rank(), 1); // rank 2 maps to local index 1 in sorted order.
+        assert_eq!(sub.world_size(), 3);
     }
 }

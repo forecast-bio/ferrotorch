@@ -15,7 +15,7 @@ use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_nn::{Module, Parameter};
 
 use crate::async_collective::{PendingCollective, async_all_gather};
-use crate::backend::Backend;
+use crate::backend::{Backend, SubBackend};
 use crate::collective::{ReduceOp, all_gather, allreduce, reduce_scatter};
 
 /// Sharding strategy for [`FSDP`]. Mirrors PyTorch's `ShardingStrategy`.
@@ -33,6 +33,11 @@ use crate::collective::{ReduceOp, all_gather, allreduce, reduce_scatter};
 ///   sharding, allreduce the full gradient. Provided so the FSDP
 ///   wrapper can be used as a drop-in replacement for DDP during
 ///   debugging or for single-node experiments.
+/// - [`HybridShard`](ShardingStrategy::HybridShard) — shard within a
+///   node (intra-node FullShard) and replicate across nodes
+///   (inter-node DDP). Uses two [`SubBackend`]s derived from the
+///   global backend to run intra-node `all_gather` / `reduce_scatter`
+///   and inter-node `allreduce` independently. CL-327.
 ///
 /// CL-372.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +51,12 @@ pub enum ShardingStrategy {
     ShardGradOp,
     /// No sharding (ZeRO-0 / DDP equivalent). gradients are allreduced.
     NoShard,
+    /// Hybrid sharding: shard within a node (intra-node FullShard) +
+    /// replicate across nodes (inter-node DDP). The `intra_node_size`
+    /// is the number of ranks per node (i.e., local GPUs). The total
+    /// `world_size` must be a multiple of `intra_node_size`.
+    /// CL-327.
+    HybridShard { intra_node_size: usize },
 }
 
 impl Default for ShardingStrategy {
@@ -105,6 +116,12 @@ pub struct FSDP<M: Module<T>, T: Float> {
     /// prefetch is in flight and `forward()` will use the synchronous
     /// all-gather path. CL-373.
     pending_prefetch: Option<Vec<PendingCollective<T>>>,
+    /// Intra-node subgroup used by [`ShardingStrategy::HybridShard`].
+    /// `None` for all other strategies. CL-327.
+    intra_node_group: Option<Arc<SubBackend>>,
+    /// Inter-node subgroup used by [`ShardingStrategy::HybridShard`].
+    /// `None` for all other strategies. CL-327.
+    inter_node_group: Option<Arc<SubBackend>>,
     _marker: std::marker::PhantomData<T>,
 }
 
@@ -145,6 +162,46 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
         let world_size = backend.world_size();
         let mut original_shapes = Vec::new();
 
+        // For HybridShard, build the intra- and inter-node subgroups
+        // upfront so we can use the intra_group's world_size to shard
+        // parameters below.
+        let (intra_node_group, inter_node_group) = match strategy {
+            ShardingStrategy::HybridShard { intra_node_size } => {
+                if intra_node_size == 0 || world_size % intra_node_size != 0 {
+                    return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "HybridShard: world_size={world_size} must be a positive multiple of intra_node_size={intra_node_size}"
+                        ),
+                    });
+                }
+
+                // This node's row index in the (inter_size x intra_size)
+                // rank grid.
+                let node_idx = rank / intra_node_size;
+                let local_idx = rank % intra_node_size;
+
+                // Intra-node members: contiguous block of `intra_node_size`
+                // ranks starting at `node_idx * intra_node_size`.
+                let intra_members: Vec<usize> = (node_idx * intra_node_size
+                    ..node_idx * intra_node_size + intra_node_size)
+                    .collect();
+                let intra =
+                    Arc::new(SubBackend::new(Arc::clone(&backend), intra_members)?);
+
+                // Inter-node members: ranks with the same local_idx across
+                // every node (i.e., ranks stride-selected by
+                // `intra_node_size`).
+                let inter_members: Vec<usize> = (0..world_size / intra_node_size)
+                    .map(|n| n * intra_node_size + local_idx)
+                    .collect();
+                let inter =
+                    Arc::new(SubBackend::new(Arc::clone(&backend), inter_members)?);
+
+                (Some(intra), Some(inter))
+            }
+            _ => (None, None),
+        };
+
         {
             let params = module.parameters_mut();
             for param in params {
@@ -162,6 +219,31 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                         let data = tensor.data_vec()?;
                         let chunk_size = numel / world_size;
                         let start = rank * chunk_size;
+                        let end = start + chunk_size;
+                        let shard_data = data[start..end].to_vec();
+                        let shard_tensor = Tensor::from_storage(
+                            TensorStorage::cpu(shard_data),
+                            vec![chunk_size],
+                            true,
+                        )?;
+                        *param = Parameter::new(shard_tensor);
+                    }
+                    ShardingStrategy::HybridShard { .. } => {
+                        // Shard within the node only. Each rank keeps
+                        // `1 / intra_node_size` of each parameter.
+                        let intra = intra_node_group
+                            .as_ref()
+                            .expect("HybridShard: intra_node_group built above");
+                        let intra_size = intra.world_size();
+                        let intra_rank = intra.rank();
+                        let numel = tensor.numel();
+                        assert!(
+                            numel % intra_size == 0,
+                            "FSDP HybridShard: parameter with {numel} elements is not evenly divisible by intra_node_size {intra_size}"
+                        );
+                        let data = tensor.data_vec()?;
+                        let chunk_size = numel / intra_size;
+                        let start = intra_rank * chunk_size;
                         let end = start + chunk_size;
                         let shard_data = data[start..end].to_vec();
                         let shard_tensor = Tensor::from_storage(
@@ -193,6 +275,8 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
             original_shapes,
             full_params: Vec::new(),
             pending_prefetch: None,
+            intra_node_group,
+            inter_node_group,
             _marker: std::marker::PhantomData,
         })
     }
@@ -359,6 +443,45 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                     *param = Parameter::new(full);
                 }
             }
+            ShardingStrategy::HybridShard { .. } => {
+                // HybridShard: all-gather the shards within the node only.
+                // Prefetch is not supported for this strategy yet — the
+                // intra-node subgroup needs its own async path. CL-327.
+                if pending.is_some() {
+                    return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                        message: "FSDP prefetch_forward_params is not yet implemented for HybridShard"
+                            .into(),
+                    });
+                }
+
+                let intra = self
+                    .intra_node_group
+                    .as_ref()
+                    .expect("HybridShard: intra_node_group set in new_with_strategy");
+                let intra_ref: &dyn Backend = &**intra;
+                let intra_size = intra.world_size();
+
+                let params = self.module.parameters_mut();
+                for (i, param) in params.into_iter().enumerate() {
+                    let orig_shape = &self.original_shapes[i];
+
+                    let shard = param.tensor().clone();
+                    let full = if intra_size == 1 {
+                        shard
+                    } else {
+                        all_gather(&shard, intra_ref)?
+                    };
+
+                    let full = Tensor::from_storage(
+                        TensorStorage::cpu(full.data_vec()?),
+                        orig_shape.clone(),
+                        true,
+                    )?;
+
+                    self.full_params.push(full.clone());
+                    *param = Parameter::new(full);
+                }
+            }
             ShardingStrategy::ShardGradOp | ShardingStrategy::NoShard => {
                 // Parameters are already full on every rank. Prefetch
                 // is meaningless for these strategies — surface any
@@ -388,16 +511,51 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
 
         let output = self.module.forward(input)?;
 
-        // After forward, restore shard parameters (FullShard) or leave
-        // the full params in place (ShardGradOp / NoShard).
+        // After forward, restore shard parameters (FullShard /
+        // HybridShard) or leave the full params in place
+        // (ShardGradOp / NoShard).
         match self.strategy {
             ShardingStrategy::FullShard => self.restore_shards()?,
+            ShardingStrategy::HybridShard { .. } => self.restore_hybrid_shards()?,
             ShardingStrategy::ShardGradOp | ShardingStrategy::NoShard => {
                 // Nothing to do: params are already full on every rank.
             }
         }
 
         Ok(output)
+    }
+
+    /// Replace the current full parameter tensors with this rank's
+    /// intra-node shards. Used by [`ShardingStrategy::HybridShard`] after
+    /// forward completes. CL-327.
+    fn restore_hybrid_shards(&mut self) -> FerrotorchResult<()> {
+        let intra = self
+            .intra_node_group
+            .as_ref()
+            .expect("HybridShard: intra_node_group set")
+            .clone();
+        let intra_size = intra.world_size();
+        let intra_rank = intra.rank();
+
+        let params = self.module.parameters_mut();
+        for (i, param) in params.into_iter().enumerate() {
+            let tensor = param.tensor();
+            let data = tensor.data_vec()?;
+            let numel = data.len();
+            let chunk_size = numel / intra_size;
+            let start = intra_rank * chunk_size;
+            let end = start + chunk_size;
+            let shard_data = data[start..end].to_vec();
+
+            let shard_tensor =
+                Tensor::from_storage(TensorStorage::cpu(shard_data), vec![chunk_size], true)?;
+            *param = Parameter::new(shard_tensor);
+
+            // Preserve the original shape metadata.
+            let _ = &self.original_shapes[i];
+        }
+
+        Ok(())
     }
 
     /// Replace full parameters with their local shards to free memory.
@@ -540,6 +698,44 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                         false,
                     )?;
                     param.tensor().set_grad(Some(padded_grad))?;
+                }
+                ShardingStrategy::HybridShard { .. } => {
+                    // HybridShard: reduce-scatter within the node to
+                    // get this rank's intra-node shard of the mean
+                    // gradient, then allreduce the shard across nodes
+                    // so every replica of this intra-rank has the
+                    // same gradient. Parameter is already the
+                    // intra-node shard (installed by
+                    // restore_hybrid_shards after forward).
+                    let intra = self
+                        .intra_node_group
+                        .as_ref()
+                        .expect("HybridShard: intra_node_group set");
+                    let inter = self
+                        .inter_node_group
+                        .as_ref()
+                        .expect("HybridShard: inter_node_group set");
+                    let intra_ref: &dyn Backend = &**intra;
+                    let inter_ref: &dyn Backend = &**inter;
+                    let intra_size = intra.world_size();
+                    let inter_size = inter.world_size();
+
+                    // Step 1: intra-node reduce_scatter (mean).
+                    let intra_shard = if intra_size == 1 {
+                        flat_grad
+                    } else {
+                        reduce_scatter(&flat_grad, intra_ref, ReduceOp::Mean)?
+                    };
+
+                    // Step 2: inter-node allreduce (mean across
+                    // replicas).
+                    let replicated = if inter_size == 1 {
+                        intra_shard
+                    } else {
+                        allreduce(&intra_shard, inter_ref, ReduceOp::Mean)?
+                    };
+
+                    param.tensor().set_grad(Some(replicated))?;
                 }
                 ShardingStrategy::NoShard => {
                     // Plain DDP: allreduce the full gradient so every
@@ -1305,6 +1501,221 @@ mod tests {
                     (data[1] - 4.0).abs() < 1e-6,
                     "rank 1: expected 4.0, got {}",
                     data[1]
+                );
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // HybridShard tests. CL-327
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_fsdp_hybrid_shard_rejects_uneven_world_size() {
+        // world_size=4, intra_node_size=3 is not a divisor → error.
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let b = arcs[0].clone();
+        let model = TestModule::<f32>::new(&[1.0f32; 8]).unwrap();
+        let result = FSDP::new_with_strategy(
+            model,
+            b,
+            ShardingStrategy::HybridShard { intra_node_size: 3 },
+        );
+        assert!(result.is_err(), "expected uneven intra_node_size to fail");
+    }
+
+    #[test]
+    fn test_fsdp_hybrid_shard_intra_node_sharding() {
+        // world_size=4, intra_node_size=2:
+        //   node 0 = {rank 0, rank 1}
+        //   node 1 = {rank 2, rank 3}
+        // Each rank shards a param of size 4 into chunks of size 4/2=2.
+        //   rank 0 (intra 0, node 0) -> [weight[0], weight[1]]
+        //   rank 1 (intra 1, node 0) -> [weight[2], weight[3]]
+        //   rank 2 (intra 0, node 1) -> [weight[0], weight[1]]
+        //   rank 3 (intra 1, node 1) -> [weight[2], weight[3]]
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let rank = b.rank();
+                    let model = TestModule::<f32>::new(&[10.0, 20.0, 30.0, 40.0]).unwrap();
+                    let fsdp = FSDP::new_with_strategy(
+                        model,
+                        b,
+                        ShardingStrategy::HybridShard { intra_node_size: 2 },
+                    )
+                    .unwrap();
+                    let shard = fsdp.module().weight.tensor().data_vec().unwrap();
+                    (rank, shard)
+                })
+            })
+            .collect();
+
+        for h in handles {
+            let (rank, shard) = h.join().unwrap();
+            assert_eq!(shard.len(), 2, "each rank gets 4/2 = 2 elements");
+            let expected: &[f32] = if rank % 2 == 0 {
+                &[10.0, 20.0]
+            } else {
+                &[30.0, 40.0]
+            };
+            assert_eq!(shard, expected, "rank {} shard mismatch", rank);
+        }
+    }
+
+    #[test]
+    fn test_fsdp_hybrid_shard_sync_gradients() {
+        // world_size=4, intra_node_size=2:
+        //   node 0 = {rank 0, rank 1}, node 1 = {rank 2, rank 3}.
+        // Each rank produces the same full grad [1,2,3,4]. After:
+        //   intra-node reduce_scatter(mean) → each intra-rank gets its shard
+        //     of the node-local mean gradient: rank 0 gets [1,2], rank 1
+        //     gets [3,4], rank 2 gets [1,2], rank 3 gets [3,4].
+        //   inter-node allreduce(mean) across replicas of the same intra
+        //     position: replicas produce identical shards, so the mean is
+        //     unchanged.
+        // Final expected shard gradients:
+        //   ranks 0, 2 → [1, 2]
+        //   ranks 1, 3 → [3, 4]
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let rank = b.rank();
+                    let model = TestModule::<f32>::new(&[10.0, 20.0, 30.0, 40.0]).unwrap();
+                    let mut fsdp = FSDP::new_with_strategy(
+                        model,
+                        b,
+                        ShardingStrategy::HybridShard { intra_node_size: 2 },
+                    )
+                    .unwrap();
+
+                    let input = ferrotorch_core::from_slice(&[1.0f32], &[1]).unwrap();
+                    let _output = fsdp.forward(&input).unwrap();
+
+                    // After forward, the module param is back to a shard
+                    // (intra-node) but full_params[0] holds the gathered
+                    // full tensor. Attach a synthetic full-shape gradient.
+                    let grad = Tensor::from_storage(
+                        TensorStorage::cpu(vec![1.0f32, 2.0, 3.0, 4.0]),
+                        vec![4],
+                        false,
+                    )
+                    .unwrap();
+                    fsdp.full_params[0].set_grad(Some(grad)).unwrap();
+
+                    fsdp.sync_gradients().unwrap();
+
+                    let w = fsdp.module().weight.tensor();
+                    assert_eq!(w.numel(), 2, "HybridShard keeps params as intra-shards");
+                    let g = w.grad().unwrap().unwrap();
+                    let gd = g.data_vec().unwrap();
+                    (rank, gd)
+                })
+            })
+            .collect();
+
+        for h in handles {
+            let (rank, gd) = h.join().unwrap();
+            assert_eq!(gd.len(), 2, "shard grad should have 2 elements");
+            let expected: &[f32] = if rank % 2 == 0 { &[1.0, 2.0] } else { &[3.0, 4.0] };
+            for (i, e) in expected.iter().enumerate() {
+                assert!(
+                    (gd[i] - e).abs() < 1e-6,
+                    "rank {} [{}]: expected {}, got {}",
+                    rank,
+                    i,
+                    e,
+                    gd[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_fsdp_hybrid_shard_inter_node_averaging() {
+        // Construct a scenario where the two nodes disagree on grads, so
+        // the inter-node allreduce has meaningful work:
+        //   node 0 (ranks 0,1) full grad = [2,4,6,8]
+        //   node 1 (ranks 2,3) full grad = [10,20,30,40]
+        // Node means after intra reduce_scatter:
+        //   rank 0 [2,4], rank 1 [6,8], rank 2 [10,20], rank 3 [30,40].
+        // After inter-node allreduce(mean):
+        //   rank 0 (intra 0) = mean(rank 0's shard, rank 2's shard) = [6,12]
+        //   rank 1 (intra 1) = mean(rank 1's shard, rank 3's shard) = [18,24]
+        //   rank 2 (intra 0) = mean(rank 2's shard, rank 0's shard) = [6,12]
+        //   rank 3 (intra 1) = mean(rank 3's shard, rank 1's shard) = [18,24]
+        let group = SimulatedBackend::create_group(4).unwrap();
+        let arcs: Vec<Arc<SimulatedBackend>> = group.into_iter().map(Arc::new).collect();
+
+        let handles: Vec<_> = arcs
+            .iter()
+            .cloned()
+            .map(|b| {
+                thread::spawn(move || {
+                    let rank = b.rank();
+                    let model = TestModule::<f32>::new(&[0.0f32; 4]).unwrap();
+                    let mut fsdp = FSDP::new_with_strategy(
+                        model,
+                        b,
+                        ShardingStrategy::HybridShard { intra_node_size: 2 },
+                    )
+                    .unwrap();
+
+                    let input = ferrotorch_core::from_slice(&[1.0f32], &[1]).unwrap();
+                    let _ = fsdp.forward(&input).unwrap();
+
+                    // Node-specific gradient: node 0 ranks 0/1 get
+                    // [2,4,6,8], node 1 ranks 2/3 get [10,20,30,40].
+                    let grad_vec: Vec<f32> = if rank < 2 {
+                        vec![2.0, 4.0, 6.0, 8.0]
+                    } else {
+                        vec![10.0, 20.0, 30.0, 40.0]
+                    };
+                    let grad =
+                        Tensor::from_storage(TensorStorage::cpu(grad_vec), vec![4], false).unwrap();
+                    fsdp.full_params[0].set_grad(Some(grad)).unwrap();
+
+                    fsdp.sync_gradients().unwrap();
+
+                    let gd = fsdp
+                        .module()
+                        .weight
+                        .tensor()
+                        .grad()
+                        .unwrap()
+                        .unwrap()
+                        .data_vec()
+                        .unwrap();
+                    (rank, gd)
+                })
+            })
+            .collect();
+
+        for h in handles {
+            let (rank, gd) = h.join().unwrap();
+            assert_eq!(gd.len(), 2);
+            // intra-position 0 -> [6, 12]; intra-position 1 -> [18, 24]
+            let expected: &[f32] = if rank % 2 == 0 { &[6.0, 12.0] } else { &[18.0, 24.0] };
+            for (i, e) in expected.iter().enumerate() {
+                assert!(
+                    (gd[i] - e).abs() < 1e-4,
+                    "hybrid inter-node mean rank {} [{}]: expected {}, got {}",
+                    rank,
+                    i,
+                    e,
+                    gd[i]
                 );
             }
         }
