@@ -1,0 +1,10 @@
+{
+  "uuid": "3d84e62f-b019-4afb-a879-8d9dce2018c3",
+  "issue_uuid": "74abf9dc-54f9-4203-b9b2-70148ac0c735",
+  "author": "y4rr",
+  "content": "Implemented via commit bd59ce9d. Added SemiStructuredSparseTensor<T> with compressed values + 4-bit-per-group mask storage matching the NVIDIA Sparse Tensor Core format. compress() picks the 2 largest-magnitude positions per group of 4 (lower-index tie-breaking), decompress() restores the dense layout with zeros at masked positions. sparse_matmul_24 reference implementation validates shape + inner-dim match and produces numerically-correct output. 13 tests cover compression semantics, mask packing, round-trip, edge cases, sparse matmul correctness, cross-check against apply_2_4_mask, and f64 parity. 1002 ferrotorch-core tests pass.",
+  "created_at": "2026-04-08T00:30:46.926339343Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAZ2gn31PPTBCm7rjP6UQ0zEqku/V4qayvba5aZHDCoNmV48q+1m72b9Z+nqbt8nS8OHWDKbgbwKIaOkcVGo2QDg=="
+}
