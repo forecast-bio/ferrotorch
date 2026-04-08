@@ -79,7 +79,7 @@ pub mod hybrid_backend;
 pub use async_collective::{
     PendingCollective, async_all_gather, async_reduce_scatter,
 };
-pub use backend::{Backend, SimulatedBackend, TcpBackend};
+pub use backend::{Backend, SimulatedBackend, SubBackend, TcpBackend};
 pub use checkpoint::{
     AsyncCheckpointer, CheckpointFuture, DistCheckpointError, DistributedCheckpoint, ShardMetadata,
     TensorShardSpec, flat_shard_metadata, load_distributed, reshard, save_distributed,
