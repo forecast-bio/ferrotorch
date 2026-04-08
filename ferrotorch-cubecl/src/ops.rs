@@ -1,152 +1,395 @@
-//! Portable GPU operations that mirror `ferrotorch-gpu` but dispatch via CubeCL.
+//! Portable GPU operations that dispatch through a real CubeCL
+//! [`ComputeClient`] and run `#[cube]` kernels on the selected backend.
 //!
-//! Each function accepts a [`CubeDevice`] indicating the target backend. The
-//! current implementation delegates to the existing CPU autograd kernels in
-//! `ferrotorch-core` — this is correct and portable, making the crate usable
-//! today. As CubeCL kernel implementations land, each function will be
-//! replaced with a real GPU dispatch while the API remains identical.
+//! Each function takes a [`CubeRuntime`] (which owns the client) and a pair
+//! of `f32` tensors, uploads the inputs to device memory, launches the
+//! kernel, and reads the result back into a new CPU-resident tensor. This
+//! mirrors what `ferrotorch-gpu` does for eager execution and lets us share
+//! the same API across CUDA, ROCm, and WGPU.
 //!
-//! The CPU-fallback strategy mirrors what `ferrotorch-gpu` does for non-f32
-//! types: compute on the host, return a `Tensor<T>`. Once a CubeCL kernel is
-//! wired up the data stays on-device and the fallback disappears.
+//! Only `f32` is supported today — CubeCL's `Float` trait requires
+//! `CubeElement`, which `f32` implements on every backend. Adding `f16` /
+//! `bf16` is a drop-in extension once the CubeCL support matures.
 
-use crate::runtime::CubeDevice;
-use ferrotorch_core::{FerrotorchResult, Float, Tensor};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Tensor};
+
+use crate::runtime::CubeRuntime;
+
+// When a backend feature is enabled we pull in the kernels, the
+// dispatcher macros, and the client enum. Without a feature we leave the
+// module empty and every public op returns `DeviceUnavailable`. That matches
+// the contract of `CubeRuntime::new`, which itself errors out in no-backend
+// builds.
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+use ferrotorch_core::from_vec;
+
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+use crate::kernels;
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+use crate::runtime::CubeClient;
 
 // ---------------------------------------------------------------------------
-// Elementwise arithmetic
+// Shape helpers (always available so error paths can use them)
 // ---------------------------------------------------------------------------
 
-/// Portable GPU elementwise addition.
+fn check_same_shape(a: &Tensor<f32>, b: &Tensor<f32>) -> FerrotorchResult<()> {
+    if a.shape() != b.shape() {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "cubecl elementwise: lhs {:?} vs rhs {:?}",
+                a.shape(),
+                b.shape()
+            ),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+fn contiguous_data(t: &Tensor<f32>) -> FerrotorchResult<Vec<f32>> {
+    // `data()` only works on contiguous tensors; fall back to `data_vec()`
+    // otherwise.
+    match t.data() {
+        Ok(slice) => Ok(slice.to_vec()),
+        Err(_) => t.data_vec(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher macros — one per op signature, only defined when a backend is
+// present so they can expand without unreachable arms.
+// ---------------------------------------------------------------------------
+
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+macro_rules! dispatch_binary {
+    ($rt:expr, $launcher:path, $a:expr, $b:expr) => {{
+        match $rt.client() {
+            #[cfg(feature = "wgpu")]
+            CubeClient::Wgpu(c) => $launcher(c, $a, $b),
+            #[cfg(feature = "cuda")]
+            CubeClient::Cuda(c) => $launcher(c, $a, $b),
+            #[cfg(feature = "rocm")]
+            CubeClient::Rocm(c) => $launcher(c, $a, $b),
+        }
+    }};
+}
+
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+macro_rules! dispatch_unary {
+    ($rt:expr, $launcher:path, $x:expr) => {{
+        match $rt.client() {
+            #[cfg(feature = "wgpu")]
+            CubeClient::Wgpu(c) => $launcher(c, $x),
+            #[cfg(feature = "cuda")]
+            CubeClient::Cuda(c) => $launcher(c, $x),
+            #[cfg(feature = "rocm")]
+            CubeClient::Rocm(c) => $launcher(c, $x),
+        }
+    }};
+}
+
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+macro_rules! dispatch_matmul {
+    ($rt:expr, $a:expr, $b:expr, $m:expr, $k:expr, $n:expr) => {{
+        match $rt.client() {
+            #[cfg(feature = "wgpu")]
+            CubeClient::Wgpu(c) => kernels::run_matmul(c, $a, $b, $m, $k, $n),
+            #[cfg(feature = "cuda")]
+            CubeClient::Cuda(c) => kernels::run_matmul(c, $a, $b, $m, $k, $n),
+            #[cfg(feature = "rocm")]
+            CubeClient::Rocm(c) => kernels::run_matmul(c, $a, $b, $m, $k, $n),
+        }
+    }};
+}
+
+// ---------------------------------------------------------------------------
+// Public ops — one implementation per backend-enabled build, one no-op
+// error stub for the no-backend build.
+// ---------------------------------------------------------------------------
+
+/// Elementwise `a + b` on the GPU.
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+pub fn portable_add(
+    a: &Tensor<f32>,
+    b: &Tensor<f32>,
+    rt: &CubeRuntime,
+) -> FerrotorchResult<Tensor<f32>> {
+    check_same_shape(a, b)?;
+    let a_data = contiguous_data(a)?;
+    let b_data = contiguous_data(b)?;
+    let out = dispatch_binary!(rt, kernels::run_add, &a_data, &b_data);
+    from_vec(out, a.shape())
+}
+
+#[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "rocm")))]
+pub fn portable_add(
+    a: &Tensor<f32>,
+    b: &Tensor<f32>,
+    _rt: &CubeRuntime,
+) -> FerrotorchResult<Tensor<f32>> {
+    check_same_shape(a, b)?;
+    Err(FerrotorchError::DeviceUnavailable)
+}
+
+/// Elementwise `a - b` on the GPU.
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+pub fn portable_sub(
+    a: &Tensor<f32>,
+    b: &Tensor<f32>,
+    rt: &CubeRuntime,
+) -> FerrotorchResult<Tensor<f32>> {
+    check_same_shape(a, b)?;
+    let a_data = contiguous_data(a)?;
+    let b_data = contiguous_data(b)?;
+    let out = dispatch_binary!(rt, kernels::run_sub, &a_data, &b_data);
+    from_vec(out, a.shape())
+}
+
+#[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "rocm")))]
+pub fn portable_sub(
+    a: &Tensor<f32>,
+    b: &Tensor<f32>,
+    _rt: &CubeRuntime,
+) -> FerrotorchResult<Tensor<f32>> {
+    check_same_shape(a, b)?;
+    Err(FerrotorchError::DeviceUnavailable)
+}
+
+/// Elementwise `a * b` on the GPU.
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+pub fn portable_mul(
+    a: &Tensor<f32>,
+    b: &Tensor<f32>,
+    rt: &CubeRuntime,
+) -> FerrotorchResult<Tensor<f32>> {
+    check_same_shape(a, b)?;
+    let a_data = contiguous_data(a)?;
+    let b_data = contiguous_data(b)?;
+    let out = dispatch_binary!(rt, kernels::run_mul, &a_data, &b_data);
+    from_vec(out, a.shape())
+}
+
+#[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "rocm")))]
+pub fn portable_mul(
+    a: &Tensor<f32>,
+    b: &Tensor<f32>,
+    _rt: &CubeRuntime,
+) -> FerrotorchResult<Tensor<f32>> {
+    check_same_shape(a, b)?;
+    Err(FerrotorchError::DeviceUnavailable)
+}
+
+/// Elementwise `relu(x)` on the GPU.
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+pub fn portable_relu(x: &Tensor<f32>, rt: &CubeRuntime) -> FerrotorchResult<Tensor<f32>> {
+    let x_data = contiguous_data(x)?;
+    let out = dispatch_unary!(rt, kernels::run_relu, &x_data);
+    from_vec(out, x.shape())
+}
+
+#[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "rocm")))]
+pub fn portable_relu(_x: &Tensor<f32>, _rt: &CubeRuntime) -> FerrotorchResult<Tensor<f32>> {
+    Err(FerrotorchError::DeviceUnavailable)
+}
+
+/// 2-D matrix multiplication on the GPU.
 ///
-/// Dispatches to the appropriate CubeCL backend identified by `device`.
-/// Currently falls back to the CPU autograd kernel.
-pub fn portable_add<T: Float>(
-    a: &Tensor<T>,
-    b: &Tensor<T>,
-    _device: &CubeDevice,
-) -> FerrotorchResult<Tensor<T>> {
-    // TODO: replace with CubeCL kernel dispatch
-    ferrotorch_core::grad_fns::arithmetic::add(a, b)
+/// `a` must have shape `[M, K]` and `b` must have shape `[K, N]`. The
+/// result has shape `[M, N]`.
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+pub fn portable_matmul(
+    a: &Tensor<f32>,
+    b: &Tensor<f32>,
+    rt: &CubeRuntime,
+) -> FerrotorchResult<Tensor<f32>> {
+    let (m, k, n) = check_matmul_shapes(a, b)?;
+    let a_data = contiguous_data(a)?;
+    let b_data = contiguous_data(b)?;
+    let out = dispatch_matmul!(rt, &a_data, &b_data, m, k, n);
+    from_vec(out, &[m, n])
 }
 
-/// Portable GPU elementwise subtraction.
-pub fn portable_sub<T: Float>(
-    a: &Tensor<T>,
-    b: &Tensor<T>,
-    _device: &CubeDevice,
-) -> FerrotorchResult<Tensor<T>> {
-    ferrotorch_core::grad_fns::arithmetic::sub(a, b)
+#[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "rocm")))]
+pub fn portable_matmul(
+    a: &Tensor<f32>,
+    b: &Tensor<f32>,
+    _rt: &CubeRuntime,
+) -> FerrotorchResult<Tensor<f32>> {
+    check_matmul_shapes(a, b)?;
+    Err(FerrotorchError::DeviceUnavailable)
 }
 
-/// Portable GPU elementwise multiplication.
-pub fn portable_mul<T: Float>(
-    a: &Tensor<T>,
-    b: &Tensor<T>,
-    _device: &CubeDevice,
-) -> FerrotorchResult<Tensor<T>> {
-    ferrotorch_core::grad_fns::arithmetic::mul(a, b)
-}
-
-// ---------------------------------------------------------------------------
-// Linear algebra
-// ---------------------------------------------------------------------------
-
-/// Portable GPU matrix multiplication.
-///
-/// Both tensors must be 2-D with compatible inner dimensions.
-pub fn portable_matmul<T: Float>(
-    a: &Tensor<T>,
-    b: &Tensor<T>,
-    _device: &CubeDevice,
-) -> FerrotorchResult<Tensor<T>> {
-    ferrotorch_core::grad_fns::linalg::matmul_differentiable(a, b)
-}
-
-// ---------------------------------------------------------------------------
-// Activations
-// ---------------------------------------------------------------------------
-
-/// Portable GPU ReLU activation.
-pub fn portable_relu<T: Float>(
-    input: &Tensor<T>,
-    _device: &CubeDevice,
-) -> FerrotorchResult<Tensor<T>> {
-    ferrotorch_core::grad_fns::activation::relu(input)
+fn check_matmul_shapes(
+    a: &Tensor<f32>,
+    b: &Tensor<f32>,
+) -> FerrotorchResult<(usize, usize, usize)> {
+    let a_shape = a.shape();
+    let b_shape = b.shape();
+    if a_shape.len() != 2 || b_shape.len() != 2 {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "cubecl matmul requires 2-D tensors, got lhs {:?} rhs {:?}",
+                a_shape, b_shape
+            ),
+        });
+    }
+    if a_shape[1] != b_shape[0] {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "cubecl matmul inner dims mismatch: lhs {:?} vs rhs {:?}",
+                a_shape, b_shape
+            ),
+        });
+    }
+    Ok((a_shape[0], a_shape[1], b_shape[1]))
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Tests — only meaningful with a real backend feature
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "wgpu"))]
 mod tests {
     use super::*;
     use crate::runtime::CubeDevice;
 
-    fn device() -> CubeDevice {
-        CubeDevice::Wgpu(0)
+    fn runtime() -> CubeRuntime {
+        CubeRuntime::new(CubeDevice::Wgpu(0)).expect("wgpu runtime init")
     }
 
     #[test]
-    fn portable_add_basic() {
-        let a = ferrotorch_core::tensor(&[1.0_f32, 2.0, 3.0]).unwrap();
-        let b = ferrotorch_core::tensor(&[10.0_f32, 20.0, 30.0]).unwrap();
-        let c = portable_add(&a, &b, &device()).unwrap();
+    fn portable_add_runs_on_gpu() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[1.0_f32, 2.0, 3.0, 4.0]).unwrap();
+        let b = ferrotorch_core::tensor(&[10.0_f32, 20.0, 30.0, 40.0]).unwrap();
+        let c = portable_add(&a, &b, &rt).unwrap();
         let data: &[f32] = c.data().unwrap();
-        assert!((data[0] - 11.0).abs() < 1e-6);
-        assert!((data[1] - 22.0).abs() < 1e-6);
-        assert!((data[2] - 33.0).abs() < 1e-6);
+        assert_eq!(data, &[11.0, 22.0, 33.0, 44.0]);
     }
 
     #[test]
-    fn portable_sub_basic() {
+    fn portable_sub_runs_on_gpu() {
+        let rt = runtime();
         let a = ferrotorch_core::tensor(&[10.0_f32, 20.0, 30.0]).unwrap();
         let b = ferrotorch_core::tensor(&[1.0_f32, 2.0, 3.0]).unwrap();
-        let c = portable_sub(&a, &b, &device()).unwrap();
+        let c = portable_sub(&a, &b, &rt).unwrap();
         let data: &[f32] = c.data().unwrap();
-        assert!((data[0] - 9.0).abs() < 1e-6);
-        assert!((data[1] - 18.0).abs() < 1e-6);
-        assert!((data[2] - 27.0).abs() < 1e-6);
+        assert_eq!(data, &[9.0, 18.0, 27.0]);
     }
 
     #[test]
-    fn portable_mul_basic() {
+    fn portable_mul_runs_on_gpu() {
+        let rt = runtime();
         let a = ferrotorch_core::tensor(&[2.0_f32, 3.0, 4.0]).unwrap();
         let b = ferrotorch_core::tensor(&[10.0_f32, 10.0, 10.0]).unwrap();
-        let c = portable_mul(&a, &b, &device()).unwrap();
+        let c = portable_mul(&a, &b, &rt).unwrap();
         let data: &[f32] = c.data().unwrap();
-        assert!((data[0] - 20.0).abs() < 1e-6);
-        assert!((data[1] - 30.0).abs() < 1e-6);
-        assert!((data[2] - 40.0).abs() < 1e-6);
+        assert_eq!(data, &[20.0, 30.0, 40.0]);
     }
 
     #[test]
-    fn portable_relu_basic() {
+    fn portable_relu_runs_on_gpu() {
+        let rt = runtime();
         let a = ferrotorch_core::tensor(&[-3.0_f32, -1.0, 0.0, 1.0, 3.0]).unwrap();
-        let c = portable_relu(&a, &device()).unwrap();
+        let c = portable_relu(&a, &rt).unwrap();
         let data: &[f32] = c.data().unwrap();
-        assert!((data[0] - 0.0).abs() < 1e-6);
-        assert!((data[1] - 0.0).abs() < 1e-6);
-        assert!((data[2] - 0.0).abs() < 1e-6);
-        assert!((data[3] - 1.0).abs() < 1e-6);
-        assert!((data[4] - 3.0).abs() < 1e-6);
+        assert_eq!(data, &[0.0, 0.0, 0.0, 1.0, 3.0]);
     }
 
     #[test]
-    fn portable_matmul_basic() {
+    fn portable_matmul_runs_on_gpu() {
+        let rt = runtime();
         // A = [[1, 2, 3], [4, 5, 6]]  (2x3)
         // B = [[7, 8], [9, 10], [11, 12]]  (3x2)
         // C = [[58, 64], [139, 154]]  (2x2)
         let a = ferrotorch_core::from_vec(vec![1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
         let b =
             ferrotorch_core::from_vec(vec![7.0_f32, 8.0, 9.0, 10.0, 11.0, 12.0], &[3, 2]).unwrap();
-        let c = portable_matmul(&a, &b, &device()).unwrap();
+        let c = portable_matmul(&a, &b, &rt).unwrap();
         assert_eq!(c.shape(), &[2, 2]);
         let data: &[f32] = c.data().unwrap();
         assert!((data[0] - 58.0).abs() < 1e-4);
         assert!((data[1] - 64.0).abs() < 1e-4);
         assert!((data[2] - 139.0).abs() < 1e-4);
         assert!((data[3] - 154.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn portable_matmul_rejects_rank_mismatch() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[1.0_f32, 2.0, 3.0]).unwrap();
+        let b = ferrotorch_core::from_vec(vec![1.0_f32, 2.0, 3.0], &[3, 1]).unwrap();
+        let err = portable_matmul(&a, &b, &rt).unwrap_err();
+        assert!(matches!(err, FerrotorchError::ShapeMismatch { .. }));
+    }
+
+    #[test]
+    fn portable_matmul_rejects_inner_dim_mismatch() {
+        let rt = runtime();
+        let a = ferrotorch_core::from_vec(vec![1.0_f32; 6], &[2, 3]).unwrap();
+        let b = ferrotorch_core::from_vec(vec![1.0_f32; 8], &[4, 2]).unwrap();
+        let err = portable_matmul(&a, &b, &rt).unwrap_err();
+        assert!(matches!(err, FerrotorchError::ShapeMismatch { .. }));
+    }
+
+    #[test]
+    fn portable_add_rejects_shape_mismatch() {
+        let rt = runtime();
+        let a = ferrotorch_core::tensor(&[1.0_f32, 2.0, 3.0]).unwrap();
+        let b = ferrotorch_core::tensor(&[1.0_f32, 2.0]).unwrap();
+        let err = portable_add(&a, &b, &rt).unwrap_err();
+        assert!(matches!(err, FerrotorchError::ShapeMismatch { .. }));
+    }
+
+    #[test]
+    fn portable_add_large_shape() {
+        // Exercise multi-cube launch (more than 256 elements so we go past
+        // one cube).
+        let rt = runtime();
+        let n: usize = 1024;
+        let a: Vec<f32> = (0..n).map(|i| i as f32).collect();
+        let b: Vec<f32> = (0..n).map(|i| (2 * i) as f32).collect();
+        let ta = ferrotorch_core::from_vec(a.clone(), &[n]).unwrap();
+        let tb = ferrotorch_core::from_vec(b.clone(), &[n]).unwrap();
+        let tc = portable_add(&ta, &tb, &rt).unwrap();
+        let data: &[f32] = tc.data().unwrap();
+        for i in 0..n {
+            assert_eq!(data[i], a[i] + b[i]);
+        }
+    }
+
+    #[test]
+    fn portable_matmul_square_8x8() {
+        let rt = runtime();
+        let n = 8usize;
+        // identity matrix
+        let mut a = vec![0.0_f32; n * n];
+        for i in 0..n {
+            a[i * n + i] = 1.0;
+        }
+        // arbitrary matrix
+        let b: Vec<f32> = (0..n * n).map(|i| i as f32).collect();
+
+        let ta = ferrotorch_core::from_vec(a, &[n, n]).unwrap();
+        let tb = ferrotorch_core::from_vec(b.clone(), &[n, n]).unwrap();
+        let c = portable_matmul(&ta, &tb, &rt).unwrap();
+        let data: &[f32] = c.data().unwrap();
+        assert_eq!(data, b.as_slice(), "I * B should equal B");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests that run on every build (no backend feature needed)
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, not(any(feature = "wgpu", feature = "cuda", feature = "rocm"))))]
+mod no_backend_tests {
+    use super::*;
+    use crate::runtime::CubeDevice;
+
+    #[test]
+    fn runtime_construction_errors_without_backend() {
+        let err = CubeRuntime::new(CubeDevice::Wgpu(0)).unwrap_err();
+        assert!(matches!(err, FerrotorchError::DeviceUnavailable));
     }
 }
