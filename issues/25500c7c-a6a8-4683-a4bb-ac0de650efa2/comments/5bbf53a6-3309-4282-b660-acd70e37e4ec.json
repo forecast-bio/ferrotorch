@@ -1,0 +1,10 @@
+{
+  "uuid": "5bbf53a6-3309-4282-b660-acd70e37e4ec",
+  "issue_uuid": "25500c7c-a6a8-4683-a4bb-ac0de650efa2",
+  "author": "y4rr",
+  "content": "Implemented via commit b3b1b513. New ferrotorch_core::dispatch module with DispatchKey enum (Cpu/Cuda/Meta/Sparse/Quantized/Nested/Autocast/Autograd/Vmap/Profiler/Tracer in priority order), DispatchKeySet u16 bitmask with iter_desc for priority iteration, and Dispatcher<T> with register/call/call_direct. The Dispatcher walks active keys highest-first, picks the first registered kernel, and passes the full keyset to the kernel so it can mask itself off and redispatch to a lower layer. 18 tests including a three-layer Tracer → Autograd → Cpu chain that verifies ordered execution. 977 ferrotorch-core tests pass.",
+  "created_at": "2026-04-08T00:21:29.012223377Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAiVgMc+DID9wvhoFcfdwNd7xyrlg7IQx5zLXJTVBDObm40KGkxrCII2Jjcqn+mCtox5YYCC8zI3QGhhJ0kOWpAQ=="
+}
