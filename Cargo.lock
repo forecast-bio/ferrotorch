@@ -1523,7 +1523,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-cubecl",
@@ -1544,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-core"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "faer",
  "ferray-core",
@@ -1561,7 +1561,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-cubecl"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "cubecl",
  "cubecl-cuda",
@@ -1573,7 +1573,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-data"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "num-traits",
@@ -1582,7 +1582,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-distributed"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-gpu",
@@ -1598,7 +1598,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-distributions"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "num-traits",
@@ -1606,7 +1606,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-gpu"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "cudarc",
  "ferrotorch-core",
@@ -1615,7 +1615,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-hub"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-nn",
@@ -1629,7 +1629,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-jit"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-nn",
@@ -1641,7 +1641,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-nn"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-nn-derive",
@@ -1651,7 +1651,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-nn-derive"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1660,7 +1660,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-optim"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-nn",
@@ -1669,7 +1669,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-profiler"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "cudarc",
  "ferrotorch-core",
@@ -1680,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-serialize"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-jit",
@@ -1693,7 +1693,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-train"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-data",
@@ -1705,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-vision"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-data",
@@ -1719,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "ferrotorch-xpu"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-cubecl",

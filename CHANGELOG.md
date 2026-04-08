@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [0.1.3] - 2026-03-17
+## [0.3.0] - 2026-04-08
 
 ### Fixed
 - reduce_grad_to_shape underflow when grad_ndim < target_ndim (#498)
@@ -212,6 +212,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- Add XPU backend for Intel GPUs (#452)
 - Improve CUDA Graph support to match PyTorch maturity (#454)
 - Expand ferrotorch-cubecl with full op coverage (#453)
 - Complete Tier 4 gap analysis sections (#287)
