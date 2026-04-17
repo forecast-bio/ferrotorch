@@ -1,6 +1,6 @@
 {
   "uuid": "74a30374-51fe-4f58-a304-4d0caed3f696",
-  "display_id": 60,
+  "display_id": 504,
   "title": "Implement Adagrad optimizer in ferrotorch-optim",
   "status": "open",
   "priority": "high",
