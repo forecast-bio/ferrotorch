@@ -1,0 +1,11 @@
+{
+  "uuid": "197df445-0e1c-416f-a263-d276a48b3bed",
+  "display_id": 511,
+  "title": "bf16 hybrid GPU weight storage (Plan B for PoC)",
+  "description": "Goal: \n\nAcceptance criteria:\n- \n\nAt f32, Llama 3 8B is ~32 GB and won't fit in 24 GB VRAM. At bf16, 16 GB fits. For the PoC we use a hybrid path: weights stored as bf16 in GPU buffers, activations stay f32. Uses existing gpu_matmul_bf16 (ferrotorch-gpu/src/blas.rs:909) which does f32->bf16 matmul->f32 on-device.\n\nWork:\n- Add GpuBufferHandle variant or sidecar metadata for Dtype::BF16 buffers.\n- StateDict -> GPU loader: for each tensor, on-device convert f32->bf16 via existing gpu_f32_to_bf16 kernel (ferrotorch-gpu/src/kernels.rs:719, launcher at line 16775), then free the f32 buffer. Net VRAM cost = 2 bytes/param instead of 4.\n- Teach Linear::forward (and GQA q_proj/k_proj/v_proj/o_proj) to dispatch to gpu_matmul_bf16 when weight buffer dtype is bf16.\n- Embedding lookup: bf16 rows, upcast to f32 on gather (cheap; 1 row per token).\n- RMSNorm weight: bf16, upcast in the kernel (already does fp arithmetic).\n\nExplicitly OUT of scope (tracked separately):\n- Native bf16 Float trait impl in ferrotorch-core (Plan A; follow-up issue).\n- bf16 on CPU, bf16 for gradients/optimizer state, mixed-precision training.\n\nAcceptance:\n- Llama-3-8B loaded end-to-end using <18 GB peak VRAM (measured via nvidia-smi during forward pass).\n- Generated token IDs match a reference implementation (vLLM / transformers) for a fixed seed/prompt within an acceptable top-k overlap (>95% top-5 token agreement for a 32-token continuation).",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-21T01:08:49.839637082Z",
+  "updated_at": "2026-04-21T01:08:49.839637082Z"
+}
