@@ -1,0 +1,11 @@
+{
+  "uuid": "cb5a79f2-07de-41c5-b58d-131c2e495603",
+  "display_id": 513,
+  "title": "Llama 3 8B end-to-end smoke example",
+  "description": "Goal: \n\nAcceptance criteria:\n- \n\nexamples/llama3_8b.rs in ferrotorch-llama (or ferrotorch top-level examples):\n\n1. Read HF_TOKEN from env.\n2. Download meta-llama/Meta-Llama-3-8B if not in cache (via hf_download_model).\n3. Load tokenizer.json via the tokenizers crate.\n4. Parse config.json via HfTransformerConfig.\n5. Construct LlamaForCausalLM, load weights from sharded safetensors via load_safetensors_sharded, convert to bf16 on GPU.\n6. Tokenize a fixed prompt (e.g. \"The meaning of life is\").\n7. Run prefill + 32-token decode loop on GPU, stream tokens to stdout.\n8. Print wall-clock tokens/sec and peak VRAM.\n\nAcceptance:\n- Produces coherent English continuation.\n- Peak VRAM <= 20 GB (leaving headroom for KV cache growth on longer contexts).\n- Tokens/sec reported (no specific target for PoC; we want a baseline number to compare against once paging is wired in).\n\nDepends on: GQA, KVCache-GQA, sharded loader, config parser, HF hub auth, tokenizer crate, bf16 hybrid, Llama composition.",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-04-21T01:09:46.188712525Z",
+  "updated_at": "2026-04-21T01:09:46.188712525Z"
+}
