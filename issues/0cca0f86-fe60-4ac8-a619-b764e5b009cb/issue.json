@@ -7,9 +7,10 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-21T01:09:02.049799198Z",
-  "updated_at": "2026-04-21T01:09:08.913900229Z",
+  "updated_at": "2026-04-21T01:09:11.364819921Z",
   "labels": [
     "feature",
-    "llama3"
+    "llama3",
+    "paged-poc"
   ]
 }
