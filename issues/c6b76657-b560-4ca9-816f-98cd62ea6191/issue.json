@@ -1,0 +1,11 @@
+{
+  "uuid": "c6b76657-b560-4ca9-816f-98cd62ea6191",
+  "display_id": 514,
+  "title": "Native bf16 Float impl (Plan A, follow-up to Plan B PoC)",
+  "description": "Goal: \n\nAcceptance criteria:\n- \n\nFollow-up to the Plan B hybrid storage issue. After the PoC profiling data is in and we know bf16 is the right target precision, do a proper bf16 Float trait impl.\n\nWork:\n- Implement Float for half::bf16 in ferrotorch-core/src/dtype.rs. Cover: arithmetic ops, transcendentals (SIMD where possible, fall back to f32 via upcast), epsilon/tiny/min/max constants, rng support.\n- Extend ferrotorch-ufunc / SIMD paths to have bf16 variants where profitable; elsewhere upcast-compute-downcast.\n- ferrotorch-gpu: native bf16 kernels for elementwise ops, layernorm, rmsnorm, softmax. Currently bf16 only appears in the matmul upcast path.\n- StateDict<bf16> load path in safetensors_io (avoid the f32 round-trip).\n- Mixed-precision training: bf16 weights + f32 optimizer state (standard mixed-precision recipe).\n\nAcceptance:\n- Tensor<bf16> compiles and runs end-to-end.\n- Llama 3 8B loaded as StateDict<bf16> directly, no f32 intermediate.\n- Training on a toy task in bf16 converges equivalently to f32 baseline (no loss divergence).\n\nNon-blocker for PoC. File when the PoC produces profiling data and we decide bf16 is worth doing properly.",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-04-21T01:09:57.031002888Z",
+  "updated_at": "2026-04-21T01:09:57.031002888Z"
+}
