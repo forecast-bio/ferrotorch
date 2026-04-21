@@ -1,0 +1,11 @@
+{
+  "uuid": "9962a66b-9bda-490a-9f84-e098c14c42d7",
+  "display_id": 507,
+  "title": "Sharded safetensors loader (index.json + multi-file)",
+  "description": "Goal: \n\nAcceptance criteria:\n- \n\nLlama 3 8B ships as model-00001-of-00004.safetensors ... model-00004-of-00004.safetensors plus model.safetensors.index.json (which maps tensor names -> shard filenames). Current load_safetensors in ferrotorch-serialize/src/safetensors_io.rs is single-file only.\n\nWork:\n- Add load_safetensors_sharded(index_path: &Path) -> StateDict<T>: parse the JSON index (fields: metadata.total_size, weight_map: HashMap<String, String>), group keys by shard, load each shard once, assemble into a single StateDict.\n- Also: load_safetensors_auto(path) that detects whether it was given a .safetensors file or an index.json and dispatches.\n- Memory-map shards if possible (safetensors::SafeTensors::deserialize on mmap) to avoid copying every byte through user RAM for a ~16GB model.\n- Preserve existing bf16 -> f32 upcast path across all shards.\n\nAcceptance:\n- Test fixture: two small fake shards + an index.json in tests/fixtures/. load_safetensors_sharded returns a StateDict with the union of their keys, shapes intact.\n- Works on a real Llama-3-8B checkpoint (4 shards, ~16GB bf16) without OOM on a 64GB RAM machine.",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-21T01:05:39.580629375Z",
+  "updated_at": "2026-04-21T01:05:39.580629375Z"
+}

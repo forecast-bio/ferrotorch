@@ -1,0 +1,11 @@
+{
+  "uuid": "ebb2e3da-4808-4216-9cd5-337078bb9049",
+  "display_id": 508,
+  "title": "HF config.json parser",
+  "description": "Goal: \n\nAcceptance criteria:\n- \n\nNeed a serde struct to parse HuggingFace transformer config.json. Start with the union of fields needed by Llama 3 + common extensions:\n\nhidden_size: usize\nnum_hidden_layers: usize\nnum_attention_heads: usize\nnum_key_value_heads: Option<usize> (default = num_attention_heads)\nintermediate_size: usize\nrms_norm_eps: f32 (default 1e-6)\nrope_theta: f32 (default 10000.0)\nmax_position_embeddings: usize\nvocab_size: usize\ntie_word_embeddings: bool (default false)\nhidden_act: String (expect 'silu' for Llama)\ntorch_dtype: String (e.g. 'bfloat16')\narchitectures: Vec<String>\n\nLive in ferrotorch-hub/src/hf_config.rs (new file). Expose from ferrotorch-hub lib.rs. Don't reinvent AutoConfig's full dispatch; keep it as a flat HfTransformerConfig struct that downstream code maps to model-specific LlamaConfig/MistralConfig/etc.",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-04-21T01:05:45.395427270Z",
+  "updated_at": "2026-04-21T01:05:45.395427270Z"
+}

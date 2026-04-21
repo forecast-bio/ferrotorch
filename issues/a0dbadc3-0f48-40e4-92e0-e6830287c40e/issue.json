@@ -1,0 +1,11 @@
+{
+  "uuid": "a0dbadc3-0f48-40e4-92e0-e6830287c40e",
+  "display_id": 506,
+  "title": "Fix KVCache to support n_kv_heads != n_q_heads",
+  "description": "Current state: \n\nDesired state: \n\nReason: \n\nferrotorch-nn/src/transformer.rs KVCache (line 613) hardcodes num_heads in dim 1 of [B, num_heads, S, D]; shape validation at line 729 (sa[1] != sb[1]) assumes uniform head count. Incompatible with GQA.\n\nWork:\n- Track num_kv_heads separately from num_q_heads in KVCache.\n- Cache shape becomes [B, num_kv_heads, S, head_dim]; repeat_kv happens at read time (inside attention), not at cache time. This keeps the cache at ~1/4 the size for Llama 3 8B.\n- Update prefill_cached and decode_one_cached (or the ferrotorch-gpu equivalents) to respect the GQA shape.\n- Update concat_along_dim2 / shape checks.\n\nAcceptance:\n- KVCache::new(num_kv_heads=8, ...) then update with K/V tensors of head-dim 8 succeeds.\n- Decoder step using this cache produces outputs matching un-cached GQA attention on the same inputs.\n\nDepends on GQA issue.",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-21T01:05:32.802413693Z",
+  "updated_at": "2026-04-21T01:05:32.802413693Z"
+}
