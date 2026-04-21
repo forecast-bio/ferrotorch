@@ -7,7 +7,7 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-21T01:09:02.049799198Z",
-  "updated_at": "2026-04-21T01:10:33.940669288Z",
+  "updated_at": "2026-04-21T01:10:36.349588492Z",
   "labels": [
     "feature",
     "llama3",
@@ -15,6 +15,7 @@
   ],
   "blockers": [
     "c13efef8-1bf6-4e5f-86e8-a917a4827f91",
-    "a0dbadc3-0f48-40e4-92e0-e6830287c40e"
+    "a0dbadc3-0f48-40e4-92e0-e6830287c40e",
+    "9962a66b-9bda-490a-9f84-e098c14c42d7"
   ]
 }
