@@ -22,10 +22,12 @@ pub mod cache;
 #[cfg(feature = "http")]
 pub mod discovery;
 pub mod download;
+pub mod hf_config;
 pub mod registry;
 
 pub use cache::{HubCache, default_cache_dir};
 #[cfg(feature = "http")]
 pub use discovery::{HfModelInfo, HfModelSummary, HfRepoFile, SearchQuery, get_model, search_models};
 pub use download::{download_weights, load_pretrained};
+pub use hf_config::HfTransformerConfig;
 pub use registry::{ModelInfo, WeightsFormat, get_model_info, list_models};
