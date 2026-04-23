@@ -599,6 +599,16 @@ impl<T: Float> Module<T> for SwiGLU<T> {
 // KVCache
 // ===========================================================================
 
+/// Dimensions a [`KVCache`] is pinned to after its first update (or when
+/// pre-declared via [`KVCache::with_dims`]). Every subsequent update must
+/// match these exactly on `batch`, `num_kv_heads`, and `head_dim`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CacheDims {
+    batch: usize,
+    num_kv_heads: usize,
+    head_dim: usize,
+}
+
 /// Key-value cache for efficient autoregressive (incremental) inference.
 ///
 /// During generation, previously computed keys and values are cached so that
@@ -607,20 +617,36 @@ impl<T: Float> Module<T> for SwiGLU<T> {
 ///
 /// # Shape convention
 ///
-/// Keys and values are expected as `[batch, num_heads, seq_len, head_dim]`.
+/// Keys and values are stored as `[batch, num_kv_heads, seq_len, head_dim]`.
 /// The cache grows along the `seq_len` axis (dimension 2).
+///
+/// ## Grouped-Query Attention
+///
+/// For models with grouped-query attention (e.g. Llama 3 8B: 32 Q heads,
+/// 8 KV heads) the cache stores at KV-head granularity — `dim 1 = num_kv_heads`,
+/// not `num_q_heads`. This keeps the cache ~1/4 the size versus storing
+/// at Q-head granularity. `repeat_kv` happens at *read* time, inside the
+/// attention computation, not at cache time.
+///
+/// Pre-declare the expected shape with [`KVCache::with_dims`] to get
+/// strict validation from the first update, or use [`KVCache::new`] to
+/// let the dims be inferred from the first push (matching the pre-GQA
+/// behaviour).
 #[derive(Debug)]
 pub struct KVCache<T: Float> {
-    /// Cached keys: `[B, num_heads, cached_seq, head_dim]`, or `None` if empty.
+    /// Cached keys: `[B, num_kv_heads, cached_seq, head_dim]`, or `None` if empty.
     key_cache: Option<Tensor<T>>,
     /// Cached values: same shape as `key_cache`.
     value_cache: Option<Tensor<T>>,
     /// Maximum sequence length the cache will hold.
     max_seq_len: usize,
+    /// Pinned dimensions (batch, num_kv_heads, head_dim). `None` means the
+    /// cache hasn't been populated or pre-declared yet.
+    dims: Option<CacheDims>,
 }
 
 impl<T: Float> KVCache<T> {
-    /// Create a new empty cache.
+    /// Create an empty cache with dims inferred from the first update.
     ///
     /// `max_seq_len` is the upper bound on the total cached sequence length.
     pub fn new(max_seq_len: usize) -> Self {
@@ -628,6 +654,32 @@ impl<T: Float> KVCache<T> {
             key_cache: None,
             value_cache: None,
             max_seq_len,
+            dims: None,
+        }
+    }
+
+    /// Create an empty cache with pre-declared dimensions.
+    ///
+    /// Every subsequent [`update`](Self::update) must supply tensors with
+    /// shape `[batch, num_kv_heads, _, head_dim]`. Mismatches fail on the
+    /// very first update rather than silently poisoning the cache.
+    ///
+    /// For Llama 3 8B: `with_dims(max_seq_len, 1, 8, 128)`.
+    pub fn with_dims(
+        max_seq_len: usize,
+        batch: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+    ) -> Self {
+        Self {
+            key_cache: None,
+            value_cache: None,
+            max_seq_len,
+            dims: Some(CacheDims {
+                batch,
+                num_kv_heads,
+                head_dim,
+            }),
         }
     }
 
@@ -638,12 +690,13 @@ impl<T: Float> KVCache<T> {
     ///
     /// # Arguments
     ///
-    /// - `key` - New key tensor: `[B, num_heads, new_seq, head_dim]`.
+    /// - `key` - New key tensor: `[B, num_kv_heads, new_seq, head_dim]`.
     /// - `value` - New value tensor: same shape as `key`.
     ///
     /// # Returns
     ///
-    /// `(full_key, full_value)` with shape `[B, num_heads, cached_seq + new_seq, head_dim]`.
+    /// `(full_key, full_value)` with shape
+    /// `[B, num_kv_heads, cached_seq + new_seq, head_dim]`.
     pub fn update(
         &mut self,
         key: Tensor<T>,
@@ -652,7 +705,7 @@ impl<T: Float> KVCache<T> {
         if key.ndim() != 4 || value.ndim() != 4 {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
-                    "KVCache expects 4-D [B, heads, seq, dim] tensors, \
+                    "KVCache expects 4-D [B, kv_heads, seq, dim] tensors, \
                      got key {:?}, value {:?}",
                     key.shape(),
                     value.shape()
@@ -668,6 +721,32 @@ impl<T: Float> KVCache<T> {
                     value.shape()
                 ),
             });
+        }
+
+        let ks = key.shape();
+        let incoming = CacheDims {
+            batch: ks[0],
+            num_kv_heads: ks[1],
+            head_dim: ks[3],
+        };
+
+        match &self.dims {
+            Some(expected) if expected != &incoming => {
+                return Err(FerrotorchError::ShapeMismatch {
+                    message: format!(
+                        "KVCache: update shape [B={}, kv_heads={}, _, dim={}] does not \
+                         match pinned dims [B={}, kv_heads={}, _, dim={}]",
+                        incoming.batch,
+                        incoming.num_kv_heads,
+                        incoming.head_dim,
+                        expected.batch,
+                        expected.num_kv_heads,
+                        expected.head_dim,
+                    ),
+                });
+            }
+            None => self.dims = Some(incoming),
+            _ => {}
         }
 
         let (full_key, full_value) = match (&self.key_cache, &self.value_cache) {
@@ -696,7 +775,10 @@ impl<T: Float> KVCache<T> {
         Ok((full_key, full_value))
     }
 
-    /// Reset the cache, discarding all stored keys and values.
+    /// Reset the cache, discarding all stored keys and values. The pinned
+    /// dimensions (if any) are preserved — a cache created via
+    /// [`with_dims`](Self::with_dims) still validates the next update
+    /// against the original declaration.
     pub fn reset(&mut self) {
         self.key_cache = None;
         self.value_cache = None;
@@ -707,7 +789,7 @@ impl<T: Float> KVCache<T> {
         self.key_cache.as_ref().map(|k| k.shape()[2]).unwrap_or(0)
     }
 
-    /// Whether the cache is empty.
+    /// Whether the cache holds any keys/values.
     pub fn is_empty(&self) -> bool {
         self.key_cache.is_none()
     }
@@ -716,6 +798,24 @@ impl<T: Float> KVCache<T> {
     #[inline]
     pub fn max_seq_len(&self) -> usize {
         self.max_seq_len
+    }
+
+    /// Number of KV heads the cache is pinned to, once an update has
+    /// happened (or pre-declared via [`with_dims`](Self::with_dims)).
+    /// Returns `None` for a fresh [`new`](Self::new) cache that has not
+    /// yet been updated.
+    pub fn num_kv_heads(&self) -> Option<usize> {
+        self.dims.map(|d| d.num_kv_heads)
+    }
+
+    /// Head dimension (`head_dim`), once pinned. See [`num_kv_heads`].
+    pub fn head_dim(&self) -> Option<usize> {
+        self.dims.map(|d| d.head_dim)
+    }
+
+    /// Batch size, once pinned. See [`num_kv_heads`].
+    pub fn batch_size(&self) -> Option<usize> {
+        self.dims.map(|d| d.batch)
     }
 }
 
@@ -2065,6 +2165,171 @@ mod tests {
         }
         for &v in &fk_data[6..9] {
             assert!((v - 2.0).abs() < 1e-10, "expected 2.0, got {v}");
+        }
+    }
+
+    // -- GQA KVCache tests (#506) -------------------------------------------
+
+    #[test]
+    fn test_kv_cache_gqa_stores_at_kv_head_granularity() {
+        // Llama 3 8B: 8 KV heads, not 32. Cache dim 1 must be num_kv_heads.
+        let mut cache = KVCache::<f32>::new(8192);
+        let k = ferrotorch_core::zeros::<f32>(&[1, 8, 3, 128]).unwrap();
+        let v = ferrotorch_core::zeros::<f32>(&[1, 8, 3, 128]).unwrap();
+        let (fk, _) = cache.update(k, v).unwrap();
+        assert_eq!(fk.shape(), &[1, 8, 3, 128]);
+        assert_eq!(cache.num_kv_heads(), Some(8));
+        assert_eq!(cache.head_dim(), Some(128));
+        assert_eq!(cache.batch_size(), Some(1));
+    }
+
+    #[test]
+    fn test_kv_cache_with_dims_pre_declares_shape() {
+        let cache = KVCache::<f32>::with_dims(8192, 1, 8, 128);
+        assert_eq!(cache.num_kv_heads(), Some(8));
+        assert_eq!(cache.head_dim(), Some(128));
+        assert_eq!(cache.batch_size(), Some(1));
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn test_kv_cache_with_dims_rejects_first_update_mismatch() {
+        // Pre-declare num_kv_heads=8, then try to push num_kv_heads=4.
+        let mut cache = KVCache::<f32>::with_dims(128, 1, 8, 16);
+        let k = ferrotorch_core::zeros::<f32>(&[1, 4, 2, 16]).unwrap();
+        let v = ferrotorch_core::zeros::<f32>(&[1, 4, 2, 16]).unwrap();
+        assert!(cache.update(k, v).is_err());
+    }
+
+    #[test]
+    fn test_kv_cache_with_dims_rejects_head_dim_mismatch() {
+        let mut cache = KVCache::<f32>::with_dims(128, 1, 8, 16);
+        let k = ferrotorch_core::zeros::<f32>(&[1, 8, 2, 32]).unwrap(); // dim=32 != 16
+        let v = ferrotorch_core::zeros::<f32>(&[1, 8, 2, 32]).unwrap();
+        assert!(cache.update(k, v).is_err());
+    }
+
+    #[test]
+    fn test_kv_cache_with_dims_rejects_batch_mismatch() {
+        let mut cache = KVCache::<f32>::with_dims(128, 2, 4, 8);
+        let k = ferrotorch_core::zeros::<f32>(&[1, 4, 2, 8]).unwrap(); // B=1 != 2
+        let v = ferrotorch_core::zeros::<f32>(&[1, 4, 2, 8]).unwrap();
+        assert!(cache.update(k, v).is_err());
+    }
+
+    #[test]
+    fn test_kv_cache_with_dims_accepts_matching_update() {
+        let mut cache = KVCache::<f32>::with_dims(128, 1, 8, 16);
+        let k = ferrotorch_core::ones::<f32>(&[1, 8, 3, 16]).unwrap();
+        let v = ferrotorch_core::ones::<f32>(&[1, 8, 3, 16]).unwrap();
+        assert!(cache.update(k, v).is_ok());
+        assert_eq!(cache.seq_len(), 3);
+    }
+
+    #[test]
+    fn test_kv_cache_inferred_dims_reject_subsequent_mismatch() {
+        // First push defines dims; second push with different num_kv_heads must fail.
+        let mut cache = KVCache::<f32>::new(128);
+        let k1 = ferrotorch_core::zeros::<f32>(&[1, 8, 2, 16]).unwrap();
+        let v1 = ferrotorch_core::zeros::<f32>(&[1, 8, 2, 16]).unwrap();
+        cache.update(k1, v1).unwrap();
+        assert_eq!(cache.num_kv_heads(), Some(8));
+
+        let k2 = ferrotorch_core::zeros::<f32>(&[1, 4, 1, 16]).unwrap(); // 4 != 8
+        let v2 = ferrotorch_core::zeros::<f32>(&[1, 4, 1, 16]).unwrap();
+        assert!(cache.update(k2, v2).is_err());
+    }
+
+    #[test]
+    fn test_kv_cache_dims_not_yet_pinned_on_fresh_new() {
+        let cache = KVCache::<f32>::new(128);
+        assert_eq!(cache.num_kv_heads(), None);
+        assert_eq!(cache.head_dim(), None);
+        assert_eq!(cache.batch_size(), None);
+    }
+
+    #[test]
+    fn test_kv_cache_reset_preserves_pinned_dims() {
+        let mut cache = KVCache::<f32>::with_dims(128, 1, 8, 16);
+        let k = ferrotorch_core::ones::<f32>(&[1, 8, 2, 16]).unwrap();
+        let v = ferrotorch_core::ones::<f32>(&[1, 8, 2, 16]).unwrap();
+        cache.update(k, v).unwrap();
+        cache.reset();
+        assert!(cache.is_empty());
+        // Dims are retained so the cache still validates the next push.
+        assert_eq!(cache.num_kv_heads(), Some(8));
+        let bad = ferrotorch_core::zeros::<f32>(&[1, 4, 1, 16]).unwrap();
+        assert!(cache.update(bad.clone(), bad).is_err());
+    }
+
+    #[test]
+    fn test_kv_cache_gqa_prefill_then_decode_preserves_all_positions() {
+        // Acceptance: "Decoder step using this cache produces outputs
+        // matching un-cached GQA attention on the same inputs." We prove
+        // the cache round-trips data faithfully by:
+        //   (1) prefilling 4 tokens, then pushing 1 decode token
+        //   (2) verifying every (batch, head, seq, dim) position in the
+        //       returned full tensor matches the source tensors at the
+        //       corresponding index.
+        let build = |seed: u64, shape: &[usize]| {
+            let numel: usize = shape.iter().product();
+            let data: Vec<f32> = (0..numel)
+                .map(|i| ((i as u64).wrapping_mul(seed) % 997) as f32 * 0.001)
+                .collect();
+            ferrotorch_core::from_slice(&data, shape).unwrap()
+        };
+
+        // Llama-8B-ish: 1 batch, 8 KV heads, head_dim=16 (scaled down).
+        let (b, h, s_prefill, s_decode, d) = (1usize, 8usize, 4usize, 1usize, 16usize);
+        let s_full = s_prefill + s_decode;
+
+        let k_prefill = build(7, &[b, h, s_prefill, d]);
+        let v_prefill = build(11, &[b, h, s_prefill, d]);
+        let k_decode = build(13, &[b, h, s_decode, d]);
+        let v_decode = build(17, &[b, h, s_decode, d]);
+
+        let mut cache = KVCache::<f32>::with_dims(16, b, h, d);
+        cache.update(k_prefill.clone(), v_prefill.clone()).unwrap();
+        let (fk, fv) = cache.update(k_decode.clone(), v_decode.clone()).unwrap();
+        assert_eq!(fk.shape(), &[b, h, s_full, d]);
+        assert_eq!(fv.shape(), &[b, h, s_full, d]);
+
+        let fk_data = fk.data_vec().unwrap();
+        let fv_data = fv.data_vec().unwrap();
+        let kp = k_prefill.data_vec().unwrap();
+        let vp = v_prefill.data_vec().unwrap();
+        let kd = k_decode.data_vec().unwrap();
+        let vd = v_decode.data_vec().unwrap();
+
+        // Row-major [B, H, S, D] stride.
+        let full_idx = |bi, hi, si, di| ((bi * h + hi) * s_full + si) * d + di;
+        let src_idx = |bi, hi, si, di, s_len| ((bi * h + hi) * s_len + si) * d + di;
+
+        for bi in 0..b {
+            for hi in 0..h {
+                for si in 0..s_full {
+                    for di in 0..d {
+                        let out = full_idx(bi, hi, si, di);
+                        let (exp_k, exp_v) = if si < s_prefill {
+                            let src = src_idx(bi, hi, si, di, s_prefill);
+                            (kp[src], vp[src])
+                        } else {
+                            let src = src_idx(bi, hi, si - s_prefill, di, s_decode);
+                            (kd[src], vd[src])
+                        };
+                        assert!(
+                            (fk_data[out] - exp_k).abs() < 1e-6,
+                            "k mismatch at [b={bi}, h={hi}, s={si}, d={di}]: got {}, want {exp_k}",
+                            fk_data[out]
+                        );
+                        assert!(
+                            (fv_data[out] - exp_v).abs() < 1e-6,
+                            "v mismatch at [b={bi}, h={hi}, s={si}, d={di}]: got {}, want {exp_v}",
+                            fv_data[out]
+                        );
+                    }
+                }
+            }
         }
     }
 
