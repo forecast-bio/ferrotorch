@@ -3,11 +3,12 @@
   "display_id": 505,
   "title": "Implement Grouped-Query Attention in MultiheadAttention",
   "description": "Goal: \n\nAcceptance criteria:\n- \n\nLlama 3 8B uses 32 query heads with only 8 KV heads (ratio 4:1). Current ferrotorch-nn/src/attention.rs MultiheadAttention (line 37+) has a single num_heads parameter and no repeat_kv logic.\n\nWork:\n- Add num_kv_heads: Option<usize> param to MultiheadAttention::new (and a MultiheadAttention::with_gqa constructor). When None, defaults to num_heads (MHA behavior preserved).\n- Project K and V with n_kv_heads * head_dim output dim instead of n_heads * head_dim.\n- Before attention scores, broadcast K/V from [B, n_kv_heads, S, D] to [B, n_heads, S, D] via repeat_kv. Implement as stride-broadcast where possible (avoids data copy); fall back to explicit repeat for the GPU path initially.\n- Gradient path: repeat_kv reduction in backward is a sum over the replicated group.\n\nAcceptance:\n- New test: MultiheadAttention with num_heads=32, num_kv_heads=8, forward on random input matches PyTorch nn.functional.scaled_dot_product_attention(is_causal=True) after K/V repeat within 1e-5 (f32).\n- Existing tests still pass (MHA default path unchanged).\n\nHard blocker for Llama 3 8B.",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-21T01:05:28.006884767Z",
-  "updated_at": "2026-04-21T01:11:16.807929141Z",
+  "updated_at": "2026-04-23T23:06:35.023576850Z",
+  "closed_at": "2026-04-23T23:06:35.023576850Z",
   "labels": [
     "work"
   ]
