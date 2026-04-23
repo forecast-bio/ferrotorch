@@ -4,12 +4,22 @@
 //! Files produced by this module are fully compatible with Python's
 //! `safetensors` library, enabling seamless model exchange between Rust and
 //! the HuggingFace ecosystem.
+//!
+//! # Sharded checkpoints
+//!
+//! Large models (Llama 3 8B, Mistral, etc.) are shipped as multiple
+//! `model-00001-of-NNNNN.safetensors` files alongside a
+//! `model.safetensors.index.json` that maps tensor names to shards.
+//! [`load_safetensors_sharded`] loads all shards into a single
+//! [`StateDict`]; [`load_safetensors_auto`] detects whether the given
+//! path is a single file or an index and dispatches accordingly.
 
-use std::collections::HashMap;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use safetensors::serialize_to_file;
 use safetensors::tensor::{Dtype, SafeTensors, TensorView};
+use serde::Deserialize;
 
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_nn::StateDict;
@@ -146,14 +156,95 @@ pub fn save_safetensors<T: Float>(
     Ok(())
 }
 
+/// Decode a single `TensorView` into a `Tensor<T>`, handling the bf16/f16
+/// upcast and the element-size / dtype validation shared by both the
+/// single-file and sharded load paths.
+fn decode_view<T: Float>(name: &str, view: &TensorView<'_>) -> FerrotorchResult<Tensor<T>> {
+    let shape: Vec<usize> = view.shape().to_vec();
+    let byte_data = view.data();
+    let numel: usize = if shape.is_empty() {
+        1
+    } else {
+        shape.iter().product()
+    };
+
+    // Auto-cast f16/bf16 to the target type (f32 or f64).
+    if view.dtype() == Dtype::F16 || view.dtype() == Dtype::BF16 {
+        let is_bf16 = view.dtype() == Dtype::BF16;
+        if byte_data.len() != numel * 2 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "tensor '{name}': expected {} bytes for {:?} with {numel} elements, got {}",
+                    numel * 2,
+                    view.dtype(),
+                    byte_data.len()
+                ),
+            });
+        }
+
+        let mut float_data: Vec<T> = Vec::with_capacity(numel);
+        for i in 0..numel {
+            let lo = byte_data[i * 2];
+            let hi = byte_data[i * 2 + 1];
+            let f32_val = if is_bf16 {
+                // bf16: top 16 bits of f32
+                f32::from_bits((hi as u32) << 24 | (lo as u32) << 16)
+            } else {
+                // f16: IEEE 754 half-precision
+                let bits = (hi as u16) << 8 | lo as u16;
+                half_to_f32(bits)
+            };
+            float_data.push(T::from(f32_val).unwrap());
+        }
+        return Tensor::from_storage(TensorStorage::cpu(float_data), shape, false);
+    }
+
+    // Validate dtype for non-half types.
+    let expected = expected_dtype::<T>()?;
+    let elem_size = std::mem::size_of::<T>();
+    if view.dtype() != expected {
+        return Err(FerrotorchError::DtypeMismatch {
+            expected: format!("{:?}", expected),
+            got: format!("{:?}", view.dtype()),
+        });
+    }
+
+    // Validate byte length.
+    let expected_bytes = numel * elem_size;
+    if byte_data.len() != expected_bytes {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "tensor \"{name}\" has {} bytes but shape {:?} with dtype {:?} requires {} bytes",
+                byte_data.len(),
+                shape,
+                expected,
+                expected_bytes,
+            ),
+        });
+    }
+
+    // Reinterpret bytes as T values (little-endian assumption, same as
+    // the safetensors specification).
+    let data: Vec<T> = byte_data
+        .chunks_exact(elem_size)
+        .map(|chunk| {
+            let mut bytes = [0u8; 8];
+            bytes[..elem_size].copy_from_slice(chunk);
+            unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const T) }
+        })
+        .collect();
+
+    Tensor::from_storage(TensorStorage::cpu(data), shape, false)
+}
+
 /// Load a state dict from a SafeTensors file.
 ///
 /// The dtype stored in the file must match the requested type `T`. For
 /// example, loading an `F32` file into `StateDict<f64>` produces an error.
+/// `bf16` and `f16` tensors are automatically up-cast to the target
+/// `Float` type.
 pub fn load_safetensors<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<StateDict<T>> {
     let path = path.as_ref();
-    let expected = expected_dtype::<T>()?;
-    let elem_size = std::mem::size_of::<T>();
 
     let file_data = std::fs::read(path).map_err(|e| FerrotorchError::InvalidArgument {
         message: format!("failed to read safetensors file {}: {e}", path.display()),
@@ -168,89 +259,190 @@ pub fn load_safetensors<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<St
     let mut state: StateDict<T> = HashMap::with_capacity(tensor_list.len());
 
     for (name, view) in &tensor_list {
-        let shape = view.shape().to_vec();
-        let byte_data = view.data();
-        let numel: usize = if shape.is_empty() {
-            1
-        } else {
-            shape.iter().product()
-        };
-
-        // Auto-cast f16/bf16 to the target type (f32 or f64).
-        if view.dtype() == Dtype::F16 || view.dtype() == Dtype::BF16 {
-            let is_bf16 = view.dtype() == Dtype::BF16;
-            if byte_data.len() != numel * 2 {
-                return Err(FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "tensor '{name}': expected {} bytes for {:?} with {numel} elements, got {}",
-                        numel * 2,
-                        view.dtype(),
-                        byte_data.len()
-                    ),
-                });
-            }
-
-            let mut float_data: Vec<T> = Vec::with_capacity(numel);
-            for i in 0..numel {
-                let lo = byte_data[i * 2];
-                let hi = byte_data[i * 2 + 1];
-                let f32_val = if is_bf16 {
-                    // bf16: top 16 bits of f32
-                    f32::from_bits((hi as u32) << 24 | (lo as u32) << 16)
-                } else {
-                    // f16: IEEE 754 half-precision
-                    let bits = (hi as u16) << 8 | lo as u16;
-                    half_to_f32(bits)
-                };
-                float_data.push(T::from(f32_val).unwrap());
-            }
-
-            let tensor =
-                Tensor::from_storage(TensorStorage::cpu(float_data), shape, false)?;
-            state.insert(name.to_string(), tensor);
-            continue;
-        }
-
-        // Validate dtype for non-half types.
-        if view.dtype() != expected {
-            return Err(FerrotorchError::DtypeMismatch {
-                expected: format!("{:?}", expected),
-                got: format!("{:?}", view.dtype()),
-            });
-        }
-
-        // Validate byte length.
-        let expected_bytes = numel * elem_size;
-        if byte_data.len() != expected_bytes {
-            return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "tensor \"{}\" has {} bytes but shape {:?} with dtype {:?} requires {} bytes",
-                    name,
-                    byte_data.len(),
-                    shape,
-                    expected,
-                    expected_bytes,
-                ),
-            });
-        }
-
-        // Reinterpret bytes as T values (little-endian assumption, same as
-        // the safetensors specification).
-        let data: Vec<T> = byte_data
-            .chunks_exact(elem_size)
-            .map(|chunk| {
-                let mut bytes = [0u8; 8];
-                bytes[..elem_size].copy_from_slice(chunk);
-                unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const T) }
-            })
-            .collect();
-
-        let storage = TensorStorage::cpu(data);
-        let tensor = Tensor::from_storage(storage, shape, false)?;
-        state.insert(name.clone(), tensor);
+        let tensor = decode_view::<T>(name, view)?;
+        state.insert(name.to_string(), tensor);
     }
 
     Ok(state)
+}
+
+// ---------------------------------------------------------------------------
+// Sharded loading (HuggingFace `model.safetensors.index.json`)
+// ---------------------------------------------------------------------------
+
+/// HuggingFace safetensors index file (`model.safetensors.index.json`).
+///
+/// Maps each tensor name to the shard file that contains it, plus a
+/// total-size metadata field used for progress reporting.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SafeTensorsIndex {
+    pub metadata: SafeTensorsIndexMetadata,
+    pub weight_map: HashMap<String, String>,
+}
+
+/// Metadata section of the safetensors index.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SafeTensorsIndexMetadata {
+    /// Sum of the sizes (in bytes) of every tensor referenced by the index.
+    pub total_size: u64,
+}
+
+impl SafeTensorsIndex {
+    /// Parse an index file from disk.
+    pub fn from_file(path: impl AsRef<Path>) -> FerrotorchResult<Self> {
+        let path = path.as_ref();
+        let bytes = std::fs::read(path).map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("failed to read index file {}: {e}", path.display()),
+        })?;
+        serde_json::from_slice::<SafeTensorsIndex>(&bytes).map_err(|e| {
+            FerrotorchError::InvalidArgument {
+                message: format!("failed to parse index file {}: {e}", path.display()),
+            }
+        })
+    }
+
+    /// Unique shard filenames, sorted lexicographically for deterministic
+    /// load order.
+    pub fn shard_files(&self) -> Vec<String> {
+        let mut files: HashSet<&String> = self.weight_map.values().collect();
+        let mut sorted: Vec<String> = files.drain().cloned().collect();
+        sorted.sort();
+        sorted
+    }
+
+    /// Tensor names grouped by the shard file that contains them.
+    pub fn group_by_shard(&self) -> HashMap<String, Vec<String>> {
+        let mut grouped: HashMap<String, Vec<String>> = HashMap::new();
+        for (key, shard) in &self.weight_map {
+            grouped.entry(shard.clone()).or_default().push(key.clone());
+        }
+        for keys in grouped.values_mut() {
+            keys.sort();
+        }
+        grouped
+    }
+}
+
+/// Load a sharded HuggingFace safetensors checkpoint from its
+/// `model.safetensors.index.json`.
+///
+/// Shards are loaded one at a time (sorted by filename) and each tensor
+/// the index maps to that shard is decoded into the returned
+/// [`StateDict`]. Shards not referenced by the index are ignored; tensor
+/// names that the index claims but the shard does not contain produce an
+/// error.
+///
+/// Memory usage peaks at ≈ (one shard size) + (decoded shard size)
+/// during each shard's decode — 8-10 GB for a 4 GB Llama 3 8B shard
+/// at bf16→f32 upcast. Sequential loading keeps total RSS bounded
+/// regardless of checkpoint size.
+pub fn load_safetensors_sharded<T: Float>(
+    index_path: impl AsRef<Path>,
+) -> FerrotorchResult<StateDict<T>> {
+    let index_path = index_path.as_ref();
+    let dir: PathBuf = index_path
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let index = SafeTensorsIndex::from_file(index_path)?;
+
+    let grouped = index.group_by_shard();
+    let mut state: StateDict<T> = HashMap::with_capacity(index.weight_map.len());
+
+    // Deterministic shard order for reproducible loads.
+    let mut shard_files: Vec<&String> = grouped.keys().collect();
+    shard_files.sort();
+
+    for shard_file in shard_files {
+        let shard_path = dir.join(shard_file);
+        let expected_keys = grouped
+            .get(shard_file)
+            .expect("grouped map built from shard_files keys");
+        load_one_shard_into::<T>(&shard_path, expected_keys, &mut state)?;
+    }
+
+    // Cross-check: every key declared in the index must now be present.
+    for key in index.weight_map.keys() {
+        if !state.contains_key(key) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "safetensors index declares \"{key}\" but no shard provided it"
+                ),
+            });
+        }
+    }
+
+    Ok(state)
+}
+
+/// Read one safetensors shard from disk and extract exactly the tensors
+/// named in `expected_keys`, storing them in `state`.
+///
+/// Any tensor present in the shard but not in `expected_keys` is skipped
+/// (HF index is authoritative). Any `expected_keys` entry that is not in
+/// the shard produces a [`FerrotorchError::InvalidArgument`] so a
+/// corrupt index is caught early.
+fn load_one_shard_into<T: Float>(
+    shard_path: &Path,
+    expected_keys: &[String],
+    state: &mut StateDict<T>,
+) -> FerrotorchResult<()> {
+    let file_data = std::fs::read(shard_path).map_err(|e| FerrotorchError::InvalidArgument {
+        message: format!("failed to read shard {}: {e}", shard_path.display()),
+    })?;
+    let st = SafeTensors::deserialize(&file_data).map_err(|e| {
+        FerrotorchError::InvalidArgument {
+            message: format!("failed to parse shard {}: {e}", shard_path.display()),
+        }
+    })?;
+
+    let expected_set: HashSet<&str> = expected_keys.iter().map(|s| s.as_str()).collect();
+    let mut found: HashSet<String> = HashSet::with_capacity(expected_keys.len());
+
+    let tensors = st.tensors();
+    for (name, view) in &tensors {
+        if !expected_set.contains(name.as_str()) {
+            continue;
+        }
+        let tensor = decode_view::<T>(name, view)?;
+        state.insert(name.to_string(), tensor);
+        found.insert(name.clone());
+    }
+
+    // Report missing keys — the index said this shard has them, but it didn't.
+    for key in expected_keys {
+        if !found.contains(key) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "safetensors shard {} is missing tensor \"{key}\" declared in the index",
+                    shard_path.display()
+                ),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+/// Auto-detect whether `path` is a single safetensors file or a
+/// `model.safetensors.index.json` and dispatch to the correct loader.
+///
+/// Detection rule:
+/// - `*.index.json` → [`load_safetensors_sharded`]
+/// - anything else → [`load_safetensors`] (single-file)
+pub fn load_safetensors_auto<T: Float>(
+    path: impl AsRef<Path>,
+) -> FerrotorchResult<StateDict<T>> {
+    let p = path.as_ref();
+    let filename = p
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    if filename.ends_with(".index.json") {
+        load_safetensors_sharded(p)
+    } else {
+        load_safetensors(p)
+    }
 }
 
 #[cfg(test)]
@@ -502,5 +694,270 @@ mod tests {
         assert_eq!(v.data().unwrap(), &[42.0f32]);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // -- Sharded loader tests (#507) ----------------------------------------
+
+    /// Write `state` to `<dir>/<filename>` as a single safetensors file.
+    fn write_shard(
+        dir: &Path,
+        filename: &str,
+        state: &StateDict<f32>,
+    ) -> std::path::PathBuf {
+        let path = dir.join(filename);
+        save_safetensors(state, &path).unwrap();
+        path
+    }
+
+    /// Write a `model.safetensors.index.json` file describing the union
+    /// of the given shards.
+    fn write_index(
+        dir: &Path,
+        filename: &str,
+        shards: &[(&str, &StateDict<f32>)],
+    ) -> std::path::PathBuf {
+        let mut weight_map: Vec<(String, String)> = Vec::new();
+        let mut total_size: u64 = 0;
+        for (shard_file, sd) in shards {
+            for (key, tensor) in sd.iter() {
+                weight_map.push((key.clone(), shard_file.to_string()));
+                total_size += (tensor.numel() * std::mem::size_of::<f32>()) as u64;
+            }
+        }
+        // Build minimal JSON manually to avoid pulling serde_json as a
+        // dev-only dependency everywhere it's not already available.
+        let mut json = String::from("{\"metadata\":{\"total_size\":");
+        json.push_str(&total_size.to_string());
+        json.push_str("},\"weight_map\":{");
+        for (i, (k, v)) in weight_map.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!("\"{k}\":\"{v}\""));
+        }
+        json.push_str("}}");
+
+        let path = dir.join(filename);
+        std::fs::write(&path, json).unwrap();
+        path
+    }
+
+    #[test]
+    fn sharded_loader_merges_all_shards() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut shard_a: StateDict<f32> = HashMap::new();
+        shard_a.insert(
+            "model.layers.0.q_proj.weight".to_string(),
+            make_tensor_f32(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]),
+        );
+        shard_a.insert(
+            "model.embed_tokens.weight".to_string(),
+            make_tensor_f32(vec![0.1; 12], vec![4, 3]),
+        );
+
+        let mut shard_b: StateDict<f32> = HashMap::new();
+        shard_b.insert(
+            "model.layers.1.q_proj.weight".to_string(),
+            make_tensor_f32(vec![5.0, 6.0, 7.0, 8.0], vec![2, 2]),
+        );
+        shard_b.insert(
+            "lm_head.weight".to_string(),
+            make_tensor_f32(vec![0.5; 6], vec![2, 3]),
+        );
+
+        write_shard(tmp.path(), "model-00001-of-00002.safetensors", &shard_a);
+        write_shard(tmp.path(), "model-00002-of-00002.safetensors", &shard_b);
+        let index_path = write_index(
+            tmp.path(),
+            "model.safetensors.index.json",
+            &[
+                ("model-00001-of-00002.safetensors", &shard_a),
+                ("model-00002-of-00002.safetensors", &shard_b),
+            ],
+        );
+
+        let merged: StateDict<f32> = load_safetensors_sharded(&index_path).unwrap();
+        assert_eq!(merged.len(), 4);
+
+        assert_eq!(
+            merged["model.layers.0.q_proj.weight"].data().unwrap(),
+            &[1.0f32, 2.0, 3.0, 4.0]
+        );
+        assert_eq!(
+            merged["model.layers.1.q_proj.weight"].data().unwrap(),
+            &[5.0f32, 6.0, 7.0, 8.0]
+        );
+        assert_eq!(merged["model.embed_tokens.weight"].shape(), &[4, 3]);
+        assert_eq!(merged["lm_head.weight"].shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn sharded_loader_respects_index_over_shard_contents() {
+        // If a shard physically contains tensors the index does not
+        // list for that shard, they must be ignored.
+        let tmp = tempfile::tempdir().unwrap();
+        let mut shard_a: StateDict<f32> = HashMap::new();
+        shard_a.insert("a".to_string(), make_tensor_f32(vec![1.0], vec![1]));
+        shard_a.insert("stray".to_string(), make_tensor_f32(vec![9.9], vec![1]));
+        write_shard(tmp.path(), "a.safetensors", &shard_a);
+
+        // Index only lists "a".
+        let json = r#"{"metadata":{"total_size":4},"weight_map":{"a":"a.safetensors"}}"#;
+        let idx = tmp.path().join("model.safetensors.index.json");
+        std::fs::write(&idx, json).unwrap();
+
+        let merged: StateDict<f32> = load_safetensors_sharded(&idx).unwrap();
+        assert_eq!(merged.len(), 1);
+        assert!(merged.contains_key("a"));
+        assert!(!merged.contains_key("stray"));
+    }
+
+    #[test]
+    fn sharded_loader_rejects_index_with_missing_tensor() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut shard: StateDict<f32> = HashMap::new();
+        shard.insert("present".to_string(), make_tensor_f32(vec![1.0], vec![1]));
+        write_shard(tmp.path(), "s.safetensors", &shard);
+
+        // Index claims "missing" is in s.safetensors, but it isn't.
+        let json = r#"{
+            "metadata":{"total_size":4},
+            "weight_map":{"present":"s.safetensors","missing":"s.safetensors"}
+        }"#;
+        let idx = tmp.path().join("model.safetensors.index.json");
+        std::fs::write(&idx, json).unwrap();
+
+        let err = load_safetensors_sharded::<f32>(&idx).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("missing"), "error message was: {msg}");
+    }
+
+    #[test]
+    fn sharded_loader_rejects_missing_shard_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let json = r#"{
+            "metadata":{"total_size":4},
+            "weight_map":{"a":"nonexistent.safetensors"}
+        }"#;
+        let idx = tmp.path().join("model.safetensors.index.json");
+        std::fs::write(&idx, json).unwrap();
+        assert!(load_safetensors_sharded::<f32>(&idx).is_err());
+    }
+
+    #[test]
+    fn sharded_loader_rejects_malformed_index_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let idx = tmp.path().join("model.safetensors.index.json");
+        std::fs::write(&idx, "{ this is not valid").unwrap();
+        assert!(load_safetensors_sharded::<f32>(&idx).is_err());
+    }
+
+    #[test]
+    fn safe_tensors_index_exposes_shard_files_and_groups() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut shard_a: StateDict<f32> = HashMap::new();
+        shard_a.insert("k1".to_string(), make_tensor_f32(vec![0.0], vec![1]));
+        shard_a.insert("k2".to_string(), make_tensor_f32(vec![0.0], vec![1]));
+        let mut shard_b: StateDict<f32> = HashMap::new();
+        shard_b.insert("k3".to_string(), make_tensor_f32(vec![0.0], vec![1]));
+
+        let idx_path = write_index(
+            tmp.path(),
+            "model.safetensors.index.json",
+            &[("a.safetensors", &shard_a), ("b.safetensors", &shard_b)],
+        );
+        let idx = SafeTensorsIndex::from_file(&idx_path).unwrap();
+
+        assert_eq!(idx.shard_files(), vec!["a.safetensors", "b.safetensors"]);
+        let grouped = idx.group_by_shard();
+        assert_eq!(grouped["a.safetensors"], vec!["k1".to_string(), "k2".to_string()]);
+        assert_eq!(grouped["b.safetensors"], vec!["k3".to_string()]);
+    }
+
+    #[test]
+    fn load_safetensors_auto_dispatches_on_filename() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Single-file case: .safetensors → load_safetensors.
+        let mut sd: StateDict<f32> = HashMap::new();
+        sd.insert("w".to_string(), make_tensor_f32(vec![1.0, 2.0], vec![2]));
+        let single_path = tmp.path().join("model.safetensors");
+        save_safetensors(&sd, &single_path).unwrap();
+        let loaded: StateDict<f32> = load_safetensors_auto(&single_path).unwrap();
+        assert_eq!(loaded.len(), 1);
+
+        // Sharded case: .index.json → load_safetensors_sharded.
+        let mut shard: StateDict<f32> = HashMap::new();
+        shard.insert("x".to_string(), make_tensor_f32(vec![3.0], vec![1]));
+        let shard_subdir = tmp.path().join("sharded");
+        std::fs::create_dir_all(&shard_subdir).unwrap();
+        write_shard(&shard_subdir, "m-1.safetensors", &shard);
+        let idx_path = write_index(
+            &shard_subdir,
+            "model.safetensors.index.json",
+            &[("m-1.safetensors", &shard)],
+        );
+        let loaded_sharded: StateDict<f32> = load_safetensors_auto(&idx_path).unwrap();
+        assert_eq!(loaded_sharded.len(), 1);
+        assert!(loaded_sharded.contains_key("x"));
+    }
+
+    /// End-to-end load of the downloaded Meta-Llama-3-8B checkpoint.
+    /// Ignored by default (pulls 16 GB from disk and needs 30+ GB RAM
+    /// for the bf16→f32 upcast). Run with:
+    ///   `cargo test --release -p ferrotorch-serialize -- --ignored llama3_8b_sharded_load`
+    #[test]
+    #[ignore = "requires Meta-Llama-3-8B weights in the HF cache and ~30GB RAM"]
+    fn llama3_8b_sharded_load() {
+        // Resolve the snapshot directory dynamically so we don't hard-code
+        // the commit hash.
+        let base = dirs_home()
+            .join(".cache")
+            .join("huggingface")
+            .join("hub")
+            .join("models--meta-llama--Meta-Llama-3-8B")
+            .join("snapshots");
+        let snapshot = std::fs::read_dir(&base)
+            .expect("HF cache snapshots dir missing")
+            .next()
+            .expect("no snapshot in HF cache")
+            .unwrap()
+            .path();
+        let idx = snapshot.join("model.safetensors.index.json");
+        assert!(idx.exists(), "index.json missing at {}", idx.display());
+
+        let state: StateDict<f32> = load_safetensors_sharded(&idx).unwrap();
+        // Llama 3 8B has:
+        //   1 embed_tokens + 1 norm + 1 lm_head + 32 * (
+        //     2 layernorms + q_proj + k_proj + v_proj + o_proj +
+        //     gate_proj + up_proj + down_proj
+        //   ) = 3 + 32 * 9 = 291 tensors.
+        assert_eq!(state.len(), 291);
+
+        // Spot-check key shapes.
+        assert_eq!(state["model.embed_tokens.weight"].shape(), &[128_256, 4096]);
+        assert_eq!(state["lm_head.weight"].shape(), &[128_256, 4096]);
+        assert_eq!(
+            state["model.layers.0.self_attn.q_proj.weight"].shape(),
+            &[4096, 4096]
+        );
+        // GQA: K/V have num_kv_heads=8 * head_dim=128 = 1024 output rows.
+        assert_eq!(
+            state["model.layers.0.self_attn.k_proj.weight"].shape(),
+            &[1024, 4096]
+        );
+        assert_eq!(
+            state["model.layers.0.self_attn.v_proj.weight"].shape(),
+            &[1024, 4096]
+        );
+    }
+
+    /// Helper for the ignored real-weights test: HOME directory lookup
+    /// without a dirs crate dep.
+    fn dirs_home() -> std::path::PathBuf {
+        std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .expect("$HOME not set")
     }
 }
