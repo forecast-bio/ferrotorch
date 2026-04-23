@@ -91,8 +91,8 @@ pub use qat::{ObserverType, QatConfig, QatModel, QuantizedModel, prepare_qat};
 pub use rnn::{GRU, GRUCell, LSTM, LSTMCell, RNN, RNNCell, RNNNonlinearity};
 pub use rnn_utils::{PackedSequence, pack_padded_sequence, pad_packed_sequence};
 pub use transformer::{
-    KVCache, RoPEConvention, RotaryPositionEmbedding, SwiGLU, Transformer, TransformerDecoder,
-    TransformerDecoderLayer, TransformerEncoder, TransformerEncoderLayer,
+    KVCache, RoPEConvention, RoPEScaling, RotaryPositionEmbedding, SwiGLU, Transformer,
+    TransformerDecoder, TransformerDecoderLayer, TransformerEncoder, TransformerEncoderLayer,
 };
 pub use upsample::{
     Fold, GridSampleMode, GridSamplePaddingMode, InterpolateMode, PixelShuffle, PixelUnshuffle,

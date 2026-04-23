@@ -194,14 +194,194 @@ pub struct RotaryPositionEmbedding<T: Float> {
     max_seq_len: usize,
     base: f64,
     convention: RoPEConvention,
+    scaling: RoPEScaling,
     /// Precomputed cosines: `[max_seq_len, dim/2]`.
     cos_cache: Tensor<T>,
     /// Precomputed sines: `[max_seq_len, dim/2]`.
     sin_cache: Tensor<T>,
 }
 
+/// Frequency-scaling strategy for [`RotaryPositionEmbedding`].
+///
+/// Determines how `inv_freq[i] = 1 / base^(2i / dim)` is modified to
+/// support context lengths beyond the model's training distribution.
+/// Default is [`RoPEScaling::None`] (classical RoPE with no modification).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RoPEScaling {
+    /// No scaling. `inv_freq[i] = 1 / base^(2i / dim)`. Matches the
+    /// original RoFormer formulation and the Llama 3 8B base model
+    /// (8k context, no stretching).
+    None,
+
+    /// Linear / positional interpolation (Chen et al. 2023,
+    /// kaiokendev's "linear RoPE scaling"). Divides the frequencies
+    /// uniformly by `factor`, so a position of `p` tokens rotates at
+    /// the same angle as position `p / factor` under the unscaled
+    /// schedule. Extends context by `factor` at the cost of short-text
+    /// quality.
+    Linear {
+        /// Target-context / original-context ratio. >= 1.
+        factor: f64,
+    },
+
+    /// NTK-aware scaling (bloc97's "NTK-Aware Scaled RoPE"). Scales the
+    /// base itself via `base_new = base * factor^(dim / (dim - 2))`.
+    /// Preserves high-frequency components (short-range token ordering)
+    /// while stretching low-frequency components (long-range position).
+    /// Default choice for short-extension long-context Llama variants
+    /// that don't want short-text degradation.
+    NtkAware {
+        /// Target-context / original-context ratio. >= 1.
+        factor: f64,
+        /// Original maximum context length the model was trained on.
+        /// Reserved for future use — current NTK formulation only
+        /// depends on `factor` and `dim`. Held on the struct so the
+        /// config the model ships with is fully captured.
+        original_max_pos_embeddings: usize,
+    },
+
+    /// YARN scaling (Peng et al. 2023, "YaRN: Efficient Context Window
+    /// Extension of Large Language Models"). Per-dimension piecewise
+    /// mix between PI (linear interpolation) for low-frequency dims
+    /// and extrapolation (no scaling) for high-frequency dims, with a
+    /// linear ramp in between. Generally the best-quality long-context
+    /// scaling; used by Mistral 7B v0.2, CodeLlama, and Yi.
+    Yarn {
+        /// Target-context / original-context ratio. >= 1.
+        factor: f64,
+        /// Original maximum context length the model was trained on.
+        original_max_pos_embeddings: usize,
+        /// Number of rotations above which a dimension extrapolates
+        /// (no interpolation). Default in the paper is 32.
+        beta_fast: f64,
+        /// Number of rotations below which a dimension fully
+        /// interpolates (linear PI). Default in the paper is 1.
+        beta_slow: f64,
+    },
+}
+
+impl Default for RoPEScaling {
+    fn default() -> Self {
+        RoPEScaling::None
+    }
+}
+
+impl RoPEScaling {
+    /// Convenience: YARN with the paper's default beta_fast=32, beta_slow=1.
+    pub const fn yarn_default(factor: f64, original_max_pos_embeddings: usize) -> Self {
+        RoPEScaling::Yarn {
+            factor,
+            original_max_pos_embeddings,
+            beta_fast: 32.0,
+            beta_slow: 1.0,
+        }
+    }
+}
+
+/// YARN helper: for a given `num_rotations` target, solve for the
+/// dimension index at which a base-schedule RoPE produces that many
+/// rotations across `original_max_pos_embeddings` positions.
+fn yarn_find_correction_dim(
+    num_rotations: f64,
+    dim: usize,
+    base: f64,
+    original_max_pos_embeddings: usize,
+) -> f64 {
+    // dim * ln(L / (num_rotations * 2pi)) / (2 ln(base))
+    (dim as f64
+        * (original_max_pos_embeddings as f64
+            / (num_rotations * 2.0 * std::f64::consts::PI))
+            .ln())
+        / (2.0 * base.ln())
+}
+
+/// YARN helper: bracket the correction range to valid indices.
+fn yarn_find_correction_range(
+    low_rot: f64,
+    high_rot: f64,
+    dim: usize,
+    base: f64,
+    original_max_pos_embeddings: usize,
+) -> (f64, f64) {
+    let low = yarn_find_correction_dim(low_rot, dim, base, original_max_pos_embeddings).floor();
+    let high = yarn_find_correction_dim(high_rot, dim, base, original_max_pos_embeddings).ceil();
+    (low.max(0.0), high.min((dim - 1) as f64))
+}
+
+/// Compute inv_freq[i] = 1 / base^(2i / dim) for i in 0..dim/2.
+fn compute_base_inv_freq(dim: usize, base: f64) -> Vec<f64> {
+    let half = dim / 2;
+    (0..half)
+        .map(|i| 1.0 / base.powf(2.0 * i as f64 / dim as f64))
+        .collect()
+}
+
+/// Compute the per-dim inv_freq vector under the given scaling policy.
+///
+/// Exposed at `pub(crate)` so unit tests can verify the math directly
+/// without round-tripping through the precomputed cos/sin caches.
+pub(crate) fn compute_scaled_inv_freq(dim: usize, base: f64, scaling: RoPEScaling) -> Vec<f64> {
+    match scaling {
+        RoPEScaling::None => compute_base_inv_freq(dim, base),
+
+        RoPEScaling::Linear { factor } => {
+            let mut iv = compute_base_inv_freq(dim, base);
+            for v in iv.iter_mut() {
+                *v /= factor;
+            }
+            iv
+        }
+
+        RoPEScaling::NtkAware { factor, .. } => {
+            // NTK-Aware: base' = base * factor^(dim / (dim - 2)).
+            // Exponent is chosen so the *highest* frequency (i = 0) is
+            // unchanged while the *lowest* frequency (i = dim/2 - 1)
+            // is scaled by ~1/factor, matching linear PI at the long end.
+            let exp = dim as f64 / (dim as f64 - 2.0);
+            let base_scaled = base * factor.powf(exp);
+            compute_base_inv_freq(dim, base_scaled)
+        }
+
+        RoPEScaling::Yarn {
+            factor,
+            original_max_pos_embeddings,
+            beta_fast,
+            beta_slow,
+        } => {
+            let half = dim / 2;
+            let pos_freqs: Vec<f64> = (0..half)
+                .map(|i| base.powf(2.0 * i as f64 / dim as f64))
+                .collect();
+            let extrapolation: Vec<f64> = pos_freqs.iter().map(|p| 1.0 / p).collect();
+            let interpolation: Vec<f64> =
+                pos_freqs.iter().map(|p| 1.0 / (factor * p)).collect();
+
+            let (low, high) =
+                yarn_find_correction_range(beta_fast, beta_slow, dim, base, original_max_pos_embeddings);
+            // Map the full-dim correction range onto the half-dim inv_freq
+            // index space.
+            let (low, high) = (low / 2.0, high / 2.0);
+
+            // ramp_mask[i] is 1.0 at i <= low (full extrapolation),
+            // 0.0 at i >= high (full interpolation), linear ramp
+            // between. Paper uses "1 - linear_ramp(low, high, dim/2)"
+            // to get this shape.
+            let denom = if high == low { 0.001 } else { high - low };
+            (0..half)
+                .map(|i| {
+                    let t = ((i as f64 - low) / denom).clamp(0.0, 1.0);
+                    // Invert: high-freq (small i) keeps extrapolation.
+                    let mask = 1.0 - t;
+                    interpolation[i] * (1.0 - mask) + extrapolation[i] * mask
+                })
+                .collect()
+        }
+    }
+}
+
 impl<T: Float> RotaryPositionEmbedding<T> {
-    /// Create a new RoPE instance with the default interleaved convention.
+    /// Create a new RoPE instance with the default interleaved convention
+    /// and no frequency scaling.
     ///
     /// # Arguments
     ///
@@ -213,10 +393,17 @@ impl<T: Float> RotaryPositionEmbedding<T> {
     ///
     /// Returns an error if `dim` is odd or zero, or if `max_seq_len` is zero.
     pub fn new(dim: usize, max_seq_len: usize, base: f64) -> FerrotorchResult<Self> {
-        Self::with_convention(dim, max_seq_len, base, RoPEConvention::default())
+        Self::with_scaling(
+            dim,
+            max_seq_len,
+            base,
+            RoPEConvention::default(),
+            RoPEScaling::None,
+        )
     }
 
-    /// Create a new RoPE instance with a specified pairing convention.
+    /// Create a new RoPE instance with a specified pairing convention
+    /// and no frequency scaling.
     ///
     /// Use [`RoPEConvention::HalfRotation`] for LLaMA, GPT-NeoX, and Pythia
     /// compatibility.
@@ -225,6 +412,21 @@ impl<T: Float> RotaryPositionEmbedding<T> {
         max_seq_len: usize,
         base: f64,
         convention: RoPEConvention,
+    ) -> FerrotorchResult<Self> {
+        Self::with_scaling(dim, max_seq_len, base, convention, RoPEScaling::None)
+    }
+
+    /// Create a new RoPE instance with explicit convention and scaling.
+    ///
+    /// `scaling` selects between no scaling, linear PI, NTK-aware, and
+    /// YARN extension strategies. See [`RoPEScaling`] for the per-variant
+    /// semantics; [`RoPEScaling::None`] reproduces classical RoPE.
+    pub fn with_scaling(
+        dim: usize,
+        max_seq_len: usize,
+        base: f64,
+        convention: RoPEConvention,
+        scaling: RoPEScaling,
     ) -> FerrotorchResult<Self> {
         if dim == 0 || dim % 2 != 0 {
             return Err(FerrotorchError::InvalidArgument {
@@ -236,13 +438,19 @@ impl<T: Float> RotaryPositionEmbedding<T> {
                 message: "RoPE max_seq_len must be positive".into(),
             });
         }
+        if let RoPEScaling::Linear { factor }
+        | RoPEScaling::NtkAware { factor, .. }
+        | RoPEScaling::Yarn { factor, .. } = scaling
+        {
+            if !(factor.is_finite() && factor > 0.0) {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!("RoPE scaling factor must be finite and > 0, got {factor}"),
+                });
+            }
+        }
 
         let half_dim = dim / 2;
-
-        // theta_i = 1 / base^(2i / dim) for i in 0..dim/2
-        let thetas: Vec<f64> = (0..half_dim)
-            .map(|i| 1.0 / base.powf(2.0 * i as f64 / dim as f64))
-            .collect();
+        let thetas = compute_scaled_inv_freq(dim, base, scaling);
 
         // cos_cache[pos, i] = cos(pos * theta_i)
         // sin_cache[pos, i] = sin(pos * theta_i)
@@ -274,6 +482,7 @@ impl<T: Float> RotaryPositionEmbedding<T> {
             max_seq_len,
             base,
             convention,
+            scaling,
             cos_cache,
             sin_cache,
         })
@@ -435,6 +644,12 @@ impl<T: Float> RotaryPositionEmbedding<T> {
     #[inline]
     pub fn convention(&self) -> RoPEConvention {
         self.convention
+    }
+
+    /// The frequency-scaling strategy this RoPE instance was built with.
+    #[inline]
+    pub fn scaling(&self) -> RoPEScaling {
+        self.scaling
     }
 }
 
@@ -1854,6 +2069,211 @@ mod tests {
         let rope = RotaryPositionEmbedding::<f32>::new(8, 128, 10000.0).unwrap();
         let x = ferrotorch_core::zeros::<f32>(&[4, 10]).unwrap(); // dim=10 != 8
         assert!(rope.apply(&x, 0).is_err());
+    }
+
+    // -- RoPE scaling tests (#515) -----------------------------------------
+
+    #[test]
+    fn test_rope_scaling_default_is_none() {
+        let rope = RotaryPositionEmbedding::<f32>::new(16, 128, 10000.0).unwrap();
+        assert_eq!(rope.scaling(), RoPEScaling::None);
+    }
+
+    #[test]
+    fn test_rope_scaling_none_matches_classical() {
+        // with_scaling(RoPEScaling::None) must produce the same caches as new().
+        let a = RotaryPositionEmbedding::<f64>::new(16, 32, 10000.0).unwrap();
+        let b = RotaryPositionEmbedding::<f64>::with_scaling(
+            16,
+            32,
+            10000.0,
+            RoPEConvention::default(),
+            RoPEScaling::None,
+        )
+        .unwrap();
+        let x = ferrotorch_core::from_slice(
+            &(0..16).map(|i| i as f64 * 0.1).collect::<Vec<_>>(),
+            &[1, 16],
+        )
+        .unwrap();
+        let ya = a.apply(&x, 7).unwrap();
+        let yb = b.apply(&x, 7).unwrap();
+        for (va, vb) in ya.data().unwrap().iter().zip(yb.data().unwrap().iter()) {
+            assert!((va - vb).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn test_rope_scaling_linear_halves_angles() {
+        // Linear factor=2: all angles at position p under the scaled
+        // schedule equal angles at p/2 under the unscaled schedule.
+        let scaled = RotaryPositionEmbedding::<f64>::with_scaling(
+            8,
+            64,
+            10000.0,
+            RoPEConvention::default(),
+            RoPEScaling::Linear { factor: 2.0 },
+        )
+        .unwrap();
+        let plain = RotaryPositionEmbedding::<f64>::new(8, 64, 10000.0).unwrap();
+
+        // All-ones probe; applying at pos=8 on scaled should equal
+        // applying at pos=4 on plain.
+        let x = ferrotorch_core::ones::<f64>(&[1, 8]).unwrap();
+        let y_scaled = scaled.apply(&x, 8).unwrap();
+        let y_plain = plain.apply(&x, 4).unwrap();
+        for (a, b) in y_scaled
+            .data()
+            .unwrap()
+            .iter()
+            .zip(y_plain.data().unwrap().iter())
+        {
+            assert!(
+                (a - b).abs() < 1e-6,
+                "scaled(pos=8) should match plain(pos=4): {a} vs {b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rope_scaling_ntk_inv_freq() {
+        // NTK-aware scaling: base' = base * factor^(dim / (dim - 2)).
+        // For i=0, inv_freq[0] = 1 / base'^0 = 1 exactly, matching the
+        // unscaled schedule. For i = dim/2 - 1, NTK stretches by
+        // approximately 1/factor (matches linear PI at the long end).
+        use super::compute_scaled_inv_freq;
+
+        let dim = 64;
+        let base = 10000.0;
+        let factor = 4.0;
+        let ntk = compute_scaled_inv_freq(
+            dim,
+            base,
+            RoPEScaling::NtkAware {
+                factor,
+                original_max_pos_embeddings: 2048,
+            },
+        );
+        let plain = compute_scaled_inv_freq(dim, base, RoPEScaling::None);
+        assert_eq!(ntk.len(), 32);
+        assert_eq!(plain.len(), 32);
+
+        // High-frequency dim (i=0) must round-trip bit-identically.
+        assert!(
+            (ntk[0] - plain[0]).abs() < 1e-15,
+            "NTK inv_freq[0] should equal plain inv_freq[0]: ntk={}, plain={}",
+            ntk[0],
+            plain[0]
+        );
+
+        // Lowest-frequency dim (i = dim/2 - 1 = 31) should approach the
+        // linear-PI scaling of 1/factor of the plain frequency.
+        let ratio = ntk[31] / plain[31];
+        let expected = 1.0 / factor;
+        assert!(
+            (ratio - expected).abs() < 0.05,
+            "NTK inv_freq[31]/plain ratio should be ~{expected}: got {ratio}"
+        );
+    }
+
+    #[test]
+    fn test_rope_scaling_linear_inv_freq_halved() {
+        use super::compute_scaled_inv_freq;
+        let lin = compute_scaled_inv_freq(8, 10000.0, RoPEScaling::Linear { factor: 2.0 });
+        let plain = compute_scaled_inv_freq(8, 10000.0, RoPEScaling::None);
+        for (a, b) in lin.iter().zip(plain.iter()) {
+            assert!((a - b / 2.0).abs() < 1e-15, "linear should halve: {a} vs {b}/2");
+        }
+    }
+
+    #[test]
+    fn test_rope_scaling_yarn_inv_freq_piecewise() {
+        // YARN mixes extrapolation (no scale) at the highest frequencies
+        // with interpolation (1/factor) at the lowest frequencies.
+        use super::compute_scaled_inv_freq;
+        let dim = 64;
+        let base = 10000.0;
+        let factor = 4.0;
+        let yarn = compute_scaled_inv_freq(
+            dim,
+            base,
+            RoPEScaling::yarn_default(factor, 2048),
+        );
+        let plain = compute_scaled_inv_freq(dim, base, RoPEScaling::None);
+
+        // Highest-frequency dim: extrapolation regime (value matches plain).
+        assert!(
+            (yarn[0] - plain[0]).abs() < 1e-12,
+            "YARN[0] (extrapolation) should equal plain[0]: {} vs {}",
+            yarn[0],
+            plain[0]
+        );
+        // Lowest-frequency dim: interpolation regime (value matches plain/factor).
+        let expected_low = plain[dim / 2 - 1] / factor;
+        let ratio = yarn[dim / 2 - 1] / expected_low;
+        assert!(
+            (ratio - 1.0).abs() < 0.1,
+            "YARN[dim/2-1] (interpolation) should approx equal plain/factor: {} vs {}",
+            yarn[dim / 2 - 1],
+            expected_low
+        );
+    }
+
+    #[test]
+    fn test_rope_scaling_yarn_constructs() {
+        let rope = RotaryPositionEmbedding::<f32>::with_scaling(
+            64,
+            256,
+            10000.0,
+            RoPEConvention::default(),
+            RoPEScaling::yarn_default(2.0, 2048),
+        )
+        .unwrap();
+        assert!(matches!(rope.scaling(), RoPEScaling::Yarn { .. }));
+        let x = ferrotorch_core::ones::<f32>(&[1, 64]).unwrap();
+        for &v in rope.apply(&x, 0).unwrap().data().unwrap() {
+            assert!(v.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_rope_scaling_rejects_zero_factor() {
+        let r = RotaryPositionEmbedding::<f32>::with_scaling(
+            8,
+            16,
+            10000.0,
+            RoPEConvention::default(),
+            RoPEScaling::Linear { factor: 0.0 },
+        );
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_rope_scaling_rejects_negative_factor() {
+        let r = RotaryPositionEmbedding::<f32>::with_scaling(
+            8,
+            16,
+            10000.0,
+            RoPEConvention::default(),
+            RoPEScaling::NtkAware {
+                factor: -2.0,
+                original_max_pos_embeddings: 2048,
+            },
+        );
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_rope_scaling_accessor() {
+        let rope = RotaryPositionEmbedding::<f32>::with_scaling(
+            16,
+            64,
+            10000.0,
+            RoPEConvention::default(),
+            RoPEScaling::Linear { factor: 4.0 },
+        )
+        .unwrap();
+        assert_eq!(rope.scaling(), RoPEScaling::Linear { factor: 4.0 });
     }
 
     // -----------------------------------------------------------------------
