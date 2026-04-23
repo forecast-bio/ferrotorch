@@ -1,0 +1,10 @@
+{
+  "uuid": "af1f955c-b6fd-4898-b461-d5a417f7984f",
+  "issue_uuid": "17fadb8b-29a2-4097-ae98-fa57f5b867b9",
+  "author": "y4rr",
+  "content": "Applied: stdlib constants in 3 kernel sites (LOG2_E/LN_2/SQRT_2 in vexp_f32/vlog_f32) + 2 test sites (E in ln/exp round-trip tests). idx() helpers replaced zero-multiplier index formulas in sparse.rs, init.rs dirac test, loss.rs CTC test. #[allow(clippy::approx_constant)] added to 14 test fns where 3.14 is an arbitrary placeholder. cargo clippy --workspace --all-targets is error-free; 3346 tests pass across touched crates.",
+  "created_at": "2026-04-23T22:35:34.925532676Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvcH+DNOGWK54kMEeNDCtOT8QhSSlvv+KrCBCJ5UKAS1faRZ86SPRsnNC3ZYLangPD+7TuPQs+B8O5zVUyOCdBg=="
+}
