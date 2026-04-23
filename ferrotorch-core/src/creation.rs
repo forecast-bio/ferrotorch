@@ -315,6 +315,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is an arbitrary test fill value, not π.
     fn test_full() {
         let t: Tensor<f32> = full(&[2, 2], 3.14).unwrap();
         assert!(t.data().unwrap().iter().all(|&x| (x - 3.14).abs() < 1e-6));
@@ -553,6 +554,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is an arbitrary test fill value, not π.
     fn test_full_meta_and_ones_meta_alias_zeros_meta() {
         let z: Tensor<f64> = zeros_meta(&[2, 2]).unwrap();
         let o: Tensor<f64> = ones_meta(&[2, 2]).unwrap();

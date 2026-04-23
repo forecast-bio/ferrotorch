@@ -304,6 +304,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is an arbitrary round-trip value, not π.
     fn test_save_load_roundtrip_f64() {
         let mut state: StateDict<f64> = HashMap::new();
         state.insert(

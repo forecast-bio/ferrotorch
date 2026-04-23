@@ -141,6 +141,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is an arbitrary loss value, not π.
     fn test_scale_loss_steps_one_identity() {
         let acc = GradientAccumulator::new(1);
         let loss = t(&[3.14]);

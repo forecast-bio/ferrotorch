@@ -578,6 +578,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is an arbitrary constant-init test value, not π.
     fn test_constant_init() {
         let mut p = Parameter::<f32>::zeros(&[5]).unwrap();
         constant(&mut p, 3.14).unwrap();
@@ -916,12 +917,14 @@ mod tests {
         let data = p.data().unwrap();
         let center = 1;
 
+        // Shape is [out_ch=4, in_ch=2, k=3]; row-major stride = (6, 3, 1).
+        let idx = |oc: usize, ic: usize, k: usize| oc * 6 + ic * 3 + k;
         // Group 0: out_ch 0,1 map to in_ch 0,1
-        assert!((data[0 * 2 * 3 + 0 * 3 + center] - 1.0).abs() < 1e-6);
-        assert!((data[1 * 2 * 3 + 1 * 3 + center] - 1.0).abs() < 1e-6);
+        assert!((data[idx(0, 0, center)] - 1.0).abs() < 1e-6);
+        assert!((data[idx(1, 1, center)] - 1.0).abs() < 1e-6);
         // Group 1: out_ch 2,3 map to in_ch 0,1
-        assert!((data[2 * 2 * 3 + 0 * 3 + center] - 1.0).abs() < 1e-6);
-        assert!((data[3 * 2 * 3 + 1 * 3 + center] - 1.0).abs() < 1e-6);
+        assert!((data[idx(2, 0, center)] - 1.0).abs() < 1e-6);
+        assert!((data[idx(3, 1, center)] - 1.0).abs() < 1e-6);
     }
 
     #[test]

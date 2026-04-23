@@ -599,6 +599,7 @@ mod tests {
 
     /// Constants must preserve their data values across round-trip.
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14159 is an arbitrary round-trip value, not π.
     fn test_round_trip_constants() {
         let mut g = IrGraph::new();
 

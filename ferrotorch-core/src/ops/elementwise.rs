@@ -374,9 +374,11 @@ pub fn fast_div<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
 /// The reduced exp(r) is evaluated via a degree-5 minimax polynomial.
 #[inline(always)]
 fn vexp_f32(x: f32) -> f32 {
-    const LOG2E: f32 = 1.442_695_04;
-    const LN2_HI: f32 = 0.693_145_75; // upper bits of ln(2)
-    const LN2_LO: f32 = 1.428_606_8e-6; // lower bits for precision
+    const LOG2E: f32 = std::f32::consts::LOG2_E;
+    // ln(2) Cody-Waite decomposition: LN2_HI + LN2_LO ≈ ln(2) with extra
+    // precision needed by the range reduction `x - n*ln2`.
+    const LN2_HI: f32 = 0.693_145_75;
+    const LN2_LO: f32 = 1.428_606_8e-6;
 
     // Clamp to avoid overflow/underflow in the integer exponent.
     let x = x.max(-87.33654).min(88.72284);
@@ -402,7 +404,7 @@ fn vexp_f32(x: f32) -> f32 {
 /// ln((1+s)/(1-s)) where s = (m-1)/(m+1).
 #[inline(always)]
 fn vlog_f32(x: f32) -> f32 {
-    const LN2: f32 = 0.693_147_18;
+    const LN2: f32 = std::f32::consts::LN_2;
     if x <= 0.0 {
         if x == 0.0 { return f32::NEG_INFINITY; }
         return f32::NAN;
@@ -413,7 +415,7 @@ fn vlog_f32(x: f32) -> f32 {
     let mut m = f32::from_bits((bits & 0x007F_FFFF) | 0x3F80_0000);
 
     // Normalize mantissa to [sqrt(2)/2, sqrt(2)) for better conditioning.
-    if m > 1.414_213_6 {
+    if m > std::f32::consts::SQRT_2 {
         m *= 0.5;
         e += 1;
     }

@@ -857,6 +857,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // -3.14 is an arbitrary round-trip value, not -π.
     fn test_bytes_roundtrip_f32() {
         let original = vec![1.0f32, 2.5, -3.14, 0.0];
         let bytes = floats_to_bytes(&original);
@@ -865,6 +866,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // -3.14 is an arbitrary round-trip value, not -π.
     fn test_bytes_roundtrip_f64() {
         let original = vec![1.0f64, 2.5, -3.14, 0.0];
         let bytes = floats_to_bytes(&original);

@@ -212,6 +212,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- Clean up pre-existing clippy errors (approx_constant, erasing_op) (#517)
+- Bump crate versions to 0.3.0 (#503)
 - Add XPU backend for Intel GPUs (#452)
 - Improve CUDA Graph support to match PyTorch maturity (#454)
 - Expand ferrotorch-cubecl with full op coverage (#453)

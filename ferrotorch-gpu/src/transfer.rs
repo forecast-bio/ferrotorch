@@ -245,6 +245,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is an arbitrary round-trip value, not π.
     fn round_trip_f64() {
         let device = GpuDevice::new(0).expect("CUDA device 0");
         let host: Vec<f64> = vec![1.0, -2.5, 3.14, 0.0, f64::MAX];

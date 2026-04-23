@@ -525,7 +525,11 @@ mod tests {
 
     #[test]
     fn test_exp_inverse() {
-        let y = from_slice(&[1.0f32, 2.718_281_8, 0.367_879_44], &[3]).unwrap();
+        let y = from_slice(
+            &[1.0f32, std::f32::consts::E, 1.0 / std::f32::consts::E],
+            &[3],
+        )
+        .unwrap();
         let t = ExpTransform;
         let x = t.inverse(&y).unwrap();
         let data = x.data().unwrap();

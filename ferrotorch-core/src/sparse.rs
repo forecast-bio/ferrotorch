@@ -1023,8 +1023,10 @@ mod tests {
         // Should contain [0,2] -> 5.0 and [2,0] -> 3.0
         let dense = sp.to_dense().unwrap();
         let d = dense.data().unwrap();
-        assert_eq!(d[0 * 3 + 2], 5.0); // [0, 2]
-        assert_eq!(d[2 * 3 + 0], 3.0); // [2, 0]
+        // Row-major 3x3, stride = (3, 1).
+        let idx = |r: usize, c: usize| r * 3 + c;
+        assert_eq!(d[idx(0, 2)], 5.0);
+        assert_eq!(d[idx(2, 0)], 3.0);
     }
 
     #[test]

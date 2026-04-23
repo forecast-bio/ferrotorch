@@ -4840,18 +4840,20 @@ mod tests {
         // Perfect alignment: [blank, 1, 2] for target [1, 2]
         // log_probs that heavily favor the correct alignment
         let mut lp = vec![-10.0_f64; 3 * 1 * 3]; // [T=3, B=1, C=3]
+        // Shape [T, B=1, C=3]; row-major stride = (3, 3, 1).
+        let idx = |t: usize, c: usize| t * 3 + c;
         // t=0: blank (class 0) is likely
-        lp[0 * 1 * 3 + 0 * 3 + 0] = -0.1; // blank
-        lp[0 * 1 * 3 + 0 * 3 + 1] = -10.0;
-        lp[0 * 1 * 3 + 0 * 3 + 2] = -10.0;
+        lp[idx(0, 0)] = -0.1;
+        lp[idx(0, 1)] = -10.0;
+        lp[idx(0, 2)] = -10.0;
         // t=1: class 1 is likely
-        lp[1 * 1 * 3 + 0 * 3 + 0] = -10.0;
-        lp[1 * 1 * 3 + 0 * 3 + 1] = -0.1;
-        lp[1 * 1 * 3 + 0 * 3 + 2] = -10.0;
+        lp[idx(1, 0)] = -10.0;
+        lp[idx(1, 1)] = -0.1;
+        lp[idx(1, 2)] = -10.0;
         // t=2: class 2 is likely
-        lp[2 * 1 * 3 + 0 * 3 + 0] = -10.0;
-        lp[2 * 1 * 3 + 0 * 3 + 1] = -10.0;
-        lp[2 * 1 * 3 + 0 * 3 + 2] = -0.1;
+        lp[idx(2, 0)] = -10.0;
+        lp[idx(2, 1)] = -10.0;
+        lp[idx(2, 2)] = -0.1;
 
         let log_probs = Tensor::from_storage(TensorStorage::cpu(lp), vec![3, 1, 3], false).unwrap();
         let targets = target_vec(&[1.0, 2.0]);

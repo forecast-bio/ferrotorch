@@ -1220,6 +1220,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is an arbitrary pickle round-trip value, not π.
     fn test_pickle_binfloat() {
         let f_bytes = 3.14f64.to_be_bytes();
         let mut data = vec![0x80, 0x02, BINFLOAT];
@@ -1482,6 +1483,7 @@ mod tests {
     // -- dtype conversion tests --
 
     #[test]
+    #[allow(clippy::approx_constant)] // -3.14 is an arbitrary round-trip value, not -π.
     fn test_convert_f32_to_f32() {
         let src: Vec<f32> = vec![1.0, 2.5, -3.14];
         let bytes: Vec<u8> = src.iter().flat_map(|v| v.to_le_bytes()).collect();
@@ -1493,6 +1495,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // -3.14 is an arbitrary round-trip value, not -π.
     fn test_convert_f64_to_f64() {
         let src: Vec<f64> = vec![1.0, 2.5, -3.14];
         let bytes: Vec<u8> = src.iter().flat_map(|v| v.to_le_bytes()).collect();

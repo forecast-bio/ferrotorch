@@ -142,6 +142,7 @@ mod tests {
     use crate::*;
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is an arbitrary test display value, not π.
     fn test_display_scalar() {
         let t = scalar(3.14f32).unwrap();
         let s = format!("{t}");

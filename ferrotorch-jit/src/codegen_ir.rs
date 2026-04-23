@@ -704,6 +704,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is an arbitrary Expr::Const test value, not π.
     fn test_expr_builders() {
         let v = Expr::var("x");
         assert_eq!(v, Expr::Var("x".into()));

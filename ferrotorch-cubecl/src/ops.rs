@@ -490,10 +490,10 @@ mod tests {
     #[test]
     fn portable_ln_runs_on_gpu() {
         let rt = runtime();
-        let a = ferrotorch_core::tensor(&[1.0_f32, 2.718281828, 10.0, 100.0]).unwrap();
+        let a = ferrotorch_core::tensor(&[1.0_f32, std::f32::consts::E, 10.0, 100.0]).unwrap();
         let c = portable_ln(&a, &rt).unwrap();
         let data: &[f32] = c.data().unwrap();
-        let expected: Vec<f32> = [1.0_f32, 2.718281828, 10.0, 100.0]
+        let expected: Vec<f32> = [1.0_f32, std::f32::consts::E, 10.0, 100.0]
             .iter()
             .map(|x| x.ln())
             .collect();

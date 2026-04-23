@@ -632,6 +632,7 @@ mod tests {
     /// Protobuf encoding round-trip: an event's raw bytes should contain the
     /// expected tag string.
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is an arbitrary metric value, not π.
     fn test_protobuf_encoding_contains_tag() {
         let summary = encode_summary(&[("my_metric", 3.14)]);
         assert!(
