@@ -588,7 +588,7 @@ fn expand_bias_to_2d<T: Float>(bias: &Tensor<T>, rows: usize) -> FerrotorchResul
 /// -> transpose(0,1) -> `[num_heads, seq, head_dim]`.
 ///
 /// Since we lack a general N-D transpose, we do this with explicit data shuffling.
-fn reshape_to_heads<T: Float>(
+pub fn reshape_to_heads<T: Float>(
     tensor: &Tensor<T>,
     num_heads: usize,
     seq_len: usize,
@@ -619,7 +619,7 @@ fn reshape_to_heads<T: Float>(
 /// Transpose [num_heads, seq, head_dim] → [seq, num_heads * head_dim] = [seq, embed_dim].
 ///
 /// Inverse of `reshape_to_heads` for the batched attention output.
-fn transpose_heads_to_2d<T: Float>(
+pub fn transpose_heads_to_2d<T: Float>(
     tensor: &Tensor<T>,
     num_heads: usize,
     seq_len: usize,
@@ -664,7 +664,7 @@ fn transpose_heads_to_2d<T: Float>(
 /// autograd graph — it is correct for inference but training-broken. A
 /// fully-differentiable variant would require a `RepeatKvBackward` op
 /// that sums gradients across replicated groups.
-fn repeat_kv<T: Float>(kv: &Tensor<T>, group_size: usize) -> FerrotorchResult<Tensor<T>> {
+pub fn repeat_kv<T: Float>(kv: &Tensor<T>, group_size: usize) -> FerrotorchResult<Tensor<T>> {
     if group_size == 1 {
         return Ok(kv.clone());
     }

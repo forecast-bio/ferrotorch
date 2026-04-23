@@ -39,7 +39,7 @@ pub use activation::{
     LogSigmoid, LogSoftmax, Mish, PReLU, RReLU, ReLU, ReLU6, SELU, SiLU, Sigmoid, Softmax, Softmin,
     Softmax2d, Softplus, Softshrink, Softsign, Tanh, Tanhshrink, Threshold,
 };
-pub use attention::MultiheadAttention;
+pub use attention::{MultiheadAttention, repeat_kv, reshape_to_heads, transpose_heads_to_2d};
 pub use container::{ModuleDict, ModuleList, Sequential};
 pub use conv::{Conv1d, Conv2d, Conv3d, ConvTranspose1d, ConvTranspose2d, ConvTranspose3d};
 pub use dropout::{AlphaDropout, Dropout, Dropout1d, Dropout2d, Dropout3d};

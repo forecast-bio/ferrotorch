@@ -1765,6 +1765,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferrotorch-llama"
+version = "0.3.0"
+dependencies = [
+ "ferrotorch-core",
+ "ferrotorch-hub",
+ "ferrotorch-nn",
+ "ferrotorch-serialize",
+ "num-traits",
+]
+
+[[package]]
 name = "ferrotorch-nn"
 version = "0.3.0"
 dependencies = [

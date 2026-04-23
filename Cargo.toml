@@ -19,6 +19,7 @@ members = [
     "ferrotorch-profiler",
     "ferrotorch-hub",
     "ferrotorch-tokenize",
+    "ferrotorch-llama",
 ]
 
 [workspace.package]
@@ -51,6 +52,7 @@ ferrotorch-distributions = { version = "0.3.0", path = "ferrotorch-distributions
 ferrotorch-profiler = { version = "0.3.0", path = "ferrotorch-profiler" }
 ferrotorch-hub = { version = "0.3.0", path = "ferrotorch-hub" }
 ferrotorch-tokenize = { version = "0.3.0", path = "ferrotorch-tokenize" }
+ferrotorch-llama = { version = "0.3.0", path = "ferrotorch-llama" }
 
 # ferray ecosystem
 ferray-core = { version = "0.2.7", features = ["bf16"] }
