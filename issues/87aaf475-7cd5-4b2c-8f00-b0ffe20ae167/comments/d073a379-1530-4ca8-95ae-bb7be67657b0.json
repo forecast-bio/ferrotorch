@@ -1,0 +1,10 @@
+{
+  "uuid": "d073a379-1530-4ca8-95ae-bb7be67657b0",
+  "issue_uuid": "87aaf475-7cd5-4b2c-8f00-b0ffe20ae167",
+  "author": "y4rr",
+  "content": "Phase 3 v2 paused: CPU-only backward grad_fns block GPU training. Moving to fix ferrotorch-core GPU autograd gaps.",
+  "created_at": "2026-04-24T04:16:29.167468760Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAuHuSGVraeFbWgq5cS5orHiMh0C+KMAzJTWbKQ/Q0cQ6+rhUfMyoZQITHO5FpAdMCnD6SXXOVYhF8P4y+9+39Ag=="
+}
