@@ -195,11 +195,11 @@ where
     let out_handle = client.empty(size_bytes);
 
     let (count, dim) = elementwise_launch_dims(n as u32);
-    let in_arg = unsafe { ArrayArg::from_raw_parts::<f32>(&x_handle, n, 1) };
-    let out_arg = unsafe { ArrayArg::from_raw_parts::<f32>(&out_handle, n, 1) };
+    let in_arg = unsafe { ArrayArg::from_raw_parts(x_handle, n) };
+    let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), n) };
     launcher(client, count, dim, in_arg, out_arg);
 
-    let bytes = client.read_one(out_handle);
+    let bytes = client.read_one(out_handle).expect("cubecl read_one failed");
     f32::from_bytes(&bytes)[..n].to_vec()
 }
 
@@ -218,12 +218,12 @@ where
     let out_handle = client.empty(size_bytes);
 
     let (count, dim) = elementwise_launch_dims(n as u32);
-    let a_arg = unsafe { ArrayArg::from_raw_parts::<f32>(&a_handle, n, 1) };
-    let b_arg = unsafe { ArrayArg::from_raw_parts::<f32>(&b_handle, n, 1) };
-    let out_arg = unsafe { ArrayArg::from_raw_parts::<f32>(&out_handle, n, 1) };
+    let a_arg = unsafe { ArrayArg::from_raw_parts(a_handle, n) };
+    let b_arg = unsafe { ArrayArg::from_raw_parts(b_handle, n) };
+    let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), n) };
     launcher(client, count, dim, a_arg, b_arg, out_arg);
 
-    let bytes = client.read_one(out_handle);
+    let bytes = client.read_one(out_handle).expect("cubecl read_one failed");
     f32::from_bytes(&bytes)[..n].to_vec()
 }
 
@@ -236,8 +236,7 @@ macro_rules! define_unary_runner {
         #[doc = concat!("Upload `x`, run `", stringify!($kernel), "`, read back the result.")]
         pub fn $run_fn<R: Runtime>(client: &ComputeClient<R>, x: &[f32]) -> Vec<f32> {
             run_unary::<R, _>(client, x, |client, count, dim, input, output| unsafe {
-                $kernel::launch_unchecked::<f32, R>(client, count, dim, input, output)
-                    .expect(concat!("cubecl ", stringify!($kernel), " launch failed"));
+                $kernel::launch_unchecked::<f32, R>(client, count, dim, input, output);
             })
         }
     };
@@ -252,8 +251,7 @@ macro_rules! define_binary_runner {
             b: &[f32],
         ) -> Vec<f32> {
             run_binary::<R, _>(client, a, b, |client, count, dim, a, b, out| unsafe {
-                $kernel::launch_unchecked::<f32, R>(client, count, dim, a, b, out)
-                    .expect(concat!("cubecl ", stringify!($kernel), " launch failed"));
+                $kernel::launch_unchecked::<f32, R>(client, count, dim, a, b, out);
             })
         }
     };
@@ -304,16 +302,15 @@ pub fn run_matmul<R: Runtime>(
             client,
             count,
             dim,
-            ArrayArg::from_raw_parts::<f32>(&a_handle, a.len(), 1),
-            ArrayArg::from_raw_parts::<f32>(&b_handle, b.len(), 1),
-            ArrayArg::from_raw_parts::<f32>(&out_handle, out_len, 1),
-            ScalarArg::new(m as u32),
-            ScalarArg::new(k as u32),
-            ScalarArg::new(n as u32),
-        )
-        .expect("cubecl matmul kernel launch failed");
+            ArrayArg::from_raw_parts(a_handle, a.len()),
+            ArrayArg::from_raw_parts(b_handle, b.len()),
+            ArrayArg::from_raw_parts(out_handle.clone(), out_len),
+            m as u32,
+            k as u32,
+            n as u32,
+        );
     }
 
-    let bytes = client.read_one(out_handle);
+    let bytes = client.read_one(out_handle).expect("cubecl read_one failed");
     f32::from_bytes(&bytes)[..out_len].to_vec()
 }
