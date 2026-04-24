@@ -1,0 +1,10 @@
+{
+  "uuid": "09827a7f-336c-46f0-90c5-def52c467303",
+  "issue_uuid": "4cce6538-54cb-4065-93c0-0131e43e3b64",
+  "author": "y4rr",
+  "content": "Landed in 50723297. Four hot kernels (mm_raw/bt/at small-path, standard_attention, RMSNorm CPU, softmax CPU) now promote accumulators to f32 when T=bf16. Before: 'The meaning of life is' -> 'don' (garbage). After: 'The meaning of life is a free-line' (coherent over 5-token greedy decode). 2110 existing lib tests pass.",
+  "created_at": "2026-04-24T00:07:41.047253027Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAk16n16svu21VTl/GU3Ax5mzlpMyA3g2ErqyMJ+j901xWbEe5wFHvFSaDEkqlUHZ0zus+IY4hawqy0I+R0n2FAQ=="
+}
