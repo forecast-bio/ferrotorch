@@ -35,7 +35,7 @@ pub mod model;
 pub mod gpu;
 
 pub use attention::LlamaAttention;
-pub use config::LlamaConfig;
+pub use config::{LlamaActivation, LlamaConfig};
 pub use layer::LlamaDecoderLayer;
 pub use mlp::LlamaMLP;
 pub use model::{LlamaForCausalLM, LlamaModel};

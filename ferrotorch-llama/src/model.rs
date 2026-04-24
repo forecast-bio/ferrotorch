@@ -352,6 +352,7 @@ mod tests {
             rope_theta: 10_000.0,
             max_position_embeddings: 64,
             tie_word_embeddings: false,
+            hidden_act: crate::config::LlamaActivation::Silu,
         }
     }
 

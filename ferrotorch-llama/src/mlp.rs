@@ -5,20 +5,26 @@
 //! `down_proj`) so HuggingFace weight names can be mapped directly
 //! onto them.
 
-use ferrotorch_core::grad_fns::activation::silu;
+use ferrotorch_core::grad_fns::activation::{relu, silu};
 use ferrotorch_core::grad_fns::arithmetic::mul;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor};
 use ferrotorch_nn::Linear;
 use ferrotorch_nn::module::{Module, StateDict};
 use ferrotorch_nn::parameter::Parameter;
 
-use crate::config::LlamaConfig;
+use crate::config::{LlamaActivation, LlamaConfig};
 
-/// Llama SwiGLU feedforward: `down(silu(gate(x)) * up(x))`.
+/// Llama gated feedforward: `down(act(gate(x)) * up(x))`.
+///
+/// The activation is determined by [`LlamaConfig::hidden_act`]:
+/// - [`LlamaActivation::Silu`]: standard SwiGLU (`silu(gate) * up`)
+/// - [`LlamaActivation::Relu`]: ReluLLaMA (`relu(gate) * up`)
+/// - [`LlamaActivation::FatRelu`]: ProSparse (`fatrelu(gate, θ) * up`)
 pub struct LlamaMLP<T: Float> {
     pub gate_proj: Linear<T>,
     pub up_proj: Linear<T>,
     pub down_proj: Linear<T>,
+    hidden_act: LlamaActivation,
     training: bool,
 }
 
@@ -29,8 +35,25 @@ impl<T: Float> LlamaMLP<T> {
             gate_proj: Linear::new(cfg.hidden_size, cfg.intermediate_size, false)?,
             up_proj: Linear::new(cfg.hidden_size, cfg.intermediate_size, false)?,
             down_proj: Linear::new(cfg.intermediate_size, cfg.hidden_size, false)?,
+            hidden_act: cfg.hidden_act,
             training: false,
         })
+    }
+
+    fn activate(&self, gate: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        match self.hidden_act {
+            LlamaActivation::Silu => silu(gate),
+            LlamaActivation::Relu => relu(gate),
+            LlamaActivation::FatRelu(threshold) => {
+                let t = T::from(threshold).unwrap();
+                let zero = <T as num_traits::Zero>::zero();
+                let data: Vec<T> = gate.data_vec()?
+                    .into_iter()
+                    .map(|x| if x >= t { x } else { zero })
+                    .collect();
+                ferrotorch_core::from_vec(data, gate.shape())
+            }
+        }
     }
 }
 
@@ -38,7 +61,7 @@ impl<T: Float> Module<T> for LlamaMLP<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let gate = self.gate_proj.forward(input)?;
         let up = self.up_proj.forward(input)?;
-        let activated = silu(&gate)?;
+        let activated = self.activate(&gate)?;
         let gated = mul(&activated, &up)?;
         self.down_proj.forward(&gated)
     }

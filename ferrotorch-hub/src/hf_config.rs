@@ -81,9 +81,14 @@ pub struct HfTransformerConfig {
     pub tie_word_embeddings: bool,
 
     /// Activation function name inside the FFN. Llama family uses
-    /// `"silu"` which composes with SwiGLU.
+    /// `"silu"` which composes with SwiGLU. ProSparse uses `"fatrelu"`.
     #[serde(default = "default_hidden_act")]
     pub hidden_act: String,
+
+    /// Activation parameter for parameterised activations (e.g. FATReLU
+    /// threshold). `None` for standard activations.
+    #[serde(default)]
+    pub hidden_act_param: Option<f32>,
 
     /// The dtype the weights were saved in. Llama 3 8B: `"bfloat16"`.
     /// May be absent on older configs.
@@ -203,11 +208,11 @@ impl HfTransformerConfig {
             });
         }
         match self.hidden_act.as_str() {
-            "silu" | "swish" | "gelu" | "relu" | "gelu_new" => Ok(()),
+            "silu" | "swish" | "gelu" | "relu" | "gelu_new" | "fatrelu" => Ok(()),
             other => Err(FerrotorchError::InvalidArgument {
                 message: format!(
                     "HfTransformerConfig: unsupported hidden_act {other:?} \
-                     (supported: silu, swish, gelu, gelu_new, relu)"
+                     (supported: silu, swish, gelu, gelu_new, relu, fatrelu)"
                 ),
             }),
         }

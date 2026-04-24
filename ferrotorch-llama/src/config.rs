@@ -7,6 +7,17 @@
 use ferrotorch_core::{FerrotorchError, FerrotorchResult};
 use ferrotorch_hub::HfTransformerConfig;
 
+/// FFN activation function.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LlamaActivation {
+    /// SiLU / SwiGLU (standard Llama 2 / Llama 3).
+    Silu,
+    /// FATReLU: `x if x >= threshold else 0` (ProSparse).
+    FatRelu(f64),
+    /// Plain ReLU (ReluLLaMA).
+    Relu,
+}
+
 /// Llama model hyperparameters.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LlamaConfig {
@@ -14,7 +25,7 @@ pub struct LlamaConfig {
     pub vocab_size: usize,
     /// Hidden / model dimension (often called `d_model`).
     pub hidden_size: usize,
-    /// Feedforward inner dimension used by SwiGLU.
+    /// Feedforward inner dimension.
     pub intermediate_size: usize,
     /// Number of transformer decoder layers.
     pub num_hidden_layers: usize,
@@ -30,6 +41,8 @@ pub struct LlamaConfig {
     pub max_position_embeddings: usize,
     /// Whether the input embedding and LM head share weights.
     pub tie_word_embeddings: bool,
+    /// FFN activation function. Default: SiLU (SwiGLU).
+    pub hidden_act: LlamaActivation,
 }
 
 impl LlamaConfig {
@@ -46,6 +59,32 @@ impl LlamaConfig {
             rope_theta: 500_000.0,
             max_position_embeddings: 8192,
             tie_word_embeddings: false,
+            hidden_act: LlamaActivation::Silu,
+        }
+    }
+
+    /// The canonical Meta-Llama-2-7B configuration.
+    pub fn llama2_7b() -> Self {
+        Self {
+            vocab_size: 32_000,
+            hidden_size: 4096,
+            intermediate_size: 11_008,
+            num_hidden_layers: 32,
+            num_attention_heads: 32,
+            num_key_value_heads: 32,
+            rms_norm_eps: 1e-5,
+            rope_theta: 10_000.0,
+            max_position_embeddings: 4096,
+            tie_word_embeddings: false,
+            hidden_act: LlamaActivation::Silu,
+        }
+    }
+
+    /// SparseLLM/prosparse-llama-2-7b — FATReLU with 89% MLP sparsity.
+    pub fn prosparse_7b() -> Self {
+        Self {
+            hidden_act: LlamaActivation::FatRelu(0.01),
+            ..Self::llama2_7b()
         }
     }
 
@@ -55,6 +94,19 @@ impl LlamaConfig {
     /// invariants (head divisibility, positive sizes) to already hold.
     pub fn from_hf(hf: &HfTransformerConfig) -> FerrotorchResult<Self> {
         hf.validate()?;
+        let hidden_act = match hf.hidden_act.as_str() {
+            "silu" | "swish" => LlamaActivation::Silu,
+            "relu" => LlamaActivation::Relu,
+            "fatrelu" => {
+                let threshold = hf.hidden_act_param.unwrap_or(0.01) as f64;
+                LlamaActivation::FatRelu(threshold)
+            }
+            other => {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!("LlamaConfig: unsupported hidden_act {other:?}"),
+                });
+            }
+        };
         Ok(Self {
             vocab_size: hf.vocab_size,
             hidden_size: hf.hidden_size,
@@ -66,6 +118,7 @@ impl LlamaConfig {
             rope_theta: hf.rope_theta as f64,
             max_position_embeddings: hf.max_position_embeddings,
             tie_word_embeddings: hf.tie_word_embeddings,
+            hidden_act,
         })
     }
 
@@ -128,6 +181,25 @@ mod tests {
         cfg.validate().unwrap();
         assert_eq!(cfg.head_dim(), 128);
         assert_eq!(cfg.kv_group_size(), 4);
+        assert_eq!(cfg.hidden_act, LlamaActivation::Silu);
+    }
+
+    #[test]
+    fn llama2_7b_is_valid() {
+        let cfg = LlamaConfig::llama2_7b();
+        cfg.validate().unwrap();
+        assert_eq!(cfg.head_dim(), 128);
+        assert_eq!(cfg.kv_group_size(), 1); // MHA, not GQA
+        assert_eq!(cfg.vocab_size, 32_000);
+        assert_eq!(cfg.hidden_act, LlamaActivation::Silu);
+    }
+
+    #[test]
+    fn prosparse_7b_is_valid() {
+        let cfg = LlamaConfig::prosparse_7b();
+        cfg.validate().unwrap();
+        assert_eq!(cfg.hidden_act, LlamaActivation::FatRelu(0.01));
+        assert_eq!(cfg.vocab_size, 32_000);
     }
 
     #[test]
