@@ -32,11 +32,18 @@ use crate::config::LlamaConfig;
 /// Shape summary (see `ferrotorch-paged` for interpretation):
 /// * each `attn_f32` entry: `[n_heads * seq]` — max|attn_out[h, t, :]|
 /// * each `mlp_f32` entry: `[seq, n_mlp_blocks]` — max|gated[t, block]|
+/// * `bootstrap_hidden` (Some iff `bootstrap_k` was set): a `[seq,
+///   hidden_size]` bf16 bits snapshot of the hidden state after the
+///   bootstrap_k-th layer. This is the signal the Phase-3 predictor
+///   actually needs — the 8B's routing decisions at layer `k` are
+///   driven by this tensor, not by raw token ids.
 struct ForwardTaps {
     mlp_block_size: usize,
     n_mlp_blocks: usize,
+    bootstrap_k: Option<usize>,
     attn_f32: Vec<CudaSlice<f32>>,
     mlp_f32: Vec<CudaSlice<f32>>,
+    bootstrap_hidden: Option<CudaSlice<u16>>,
 }
 
 /// Result of a profiled forward: per-token, per-layer, per-block
@@ -49,6 +56,14 @@ pub struct ProfiledForwardResult {
     pub attn_magnitudes: Vec<f32>,
     /// `[n_layers, seq, n_mlp_blocks]` f32.
     pub mlp_magnitudes: Vec<f32>,
+    /// When `bootstrap_k` was `Some(k)` on the request, this is the
+    /// bf16 bit pattern of the hidden state after layer `k-1` (i.e.
+    /// the input to layer `k`). Shape `[seq, hidden_size]`.
+    pub bootstrap_hidden: Option<Vec<u16>>,
+    /// Hidden size carried for downstream consumers — avoids their
+    /// having to re-derive it from the model config.
+    pub bootstrap_k: Option<usize>,
+    pub hidden_size: usize,
 }
 
 /// All the weights that make up one Llama decoder layer, uploaded to GPU.
@@ -167,10 +182,31 @@ impl LlamaGpuInferencer {
         mlp_block_size: usize,
         n_mlp_blocks: usize,
     ) -> FerrotorchResult<ProfiledForwardResult> {
+        self.forward_from_ids_profiled_with_bootstrap(ids, mlp_block_size, n_mlp_blocks, None)
+    }
+
+    /// Profiled forward with an optional bootstrap hidden-state tap.
+    /// When `bootstrap_k` is `Some(k)`, the hidden state after layer
+    /// `k-1` (i.e. the input to layer `k`) is cloned on-device and
+    /// downloaded to the returned [`ProfiledForwardResult`]. This is
+    /// the input signal the Phase-3 predictor consumes — the 8B's
+    /// routing decisions at layer `k` are driven by this tensor, not
+    /// by raw token ids.
+    ///
+    /// Valid bootstrap_k range: `1..=num_hidden_layers`. `bootstrap_k
+    /// = num_hidden_layers` captures the final pre-norm state.
+    pub fn forward_from_ids_profiled_with_bootstrap(
+        &self,
+        ids: &[u32],
+        mlp_block_size: usize,
+        n_mlp_blocks: usize,
+        bootstrap_k: Option<usize>,
+    ) -> FerrotorchResult<ProfiledForwardResult> {
         let cfg = &self.config;
         let seq = ids.len();
         let n_heads = cfg.num_attention_heads;
         let n_layers = cfg.num_hidden_layers;
+        let hidden_size = cfg.hidden_size;
 
         if mlp_block_size == 0 || n_mlp_blocks == 0 {
             return Err(FerrotorchError::InvalidArgument {
@@ -186,12 +222,23 @@ impl LlamaGpuInferencer {
                 ),
             });
         }
+        if let Some(k) = bootstrap_k {
+            if k == 0 || k > n_layers {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "bootstrap_k must be in 1..={n_layers}, got {k}"
+                    ),
+                });
+            }
+        }
 
         let mut taps = ForwardTaps {
             mlp_block_size,
             n_mlp_blocks,
+            bootstrap_k,
             attn_f32: Vec::with_capacity(n_layers),
             mlp_f32: Vec::with_capacity(n_layers),
+            bootstrap_hidden: None,
         };
         // Run the forward; the helper fills `taps` with per-layer f32 buffers.
         let _final_norm = self.forward_core(ids, Some(&mut taps))?;
@@ -221,10 +268,24 @@ impl LlamaGpuInferencer {
             mlp_magnitudes.extend_from_slice(&mlp_layer);
         }
 
+        let bootstrap_hidden = if let Some(cuda_hidden) = taps.bootstrap_hidden.as_ref() {
+            Some(
+                self.device
+                    .stream()
+                    .clone_dtoh(cuda_hidden)
+                    .map_err(map_driver_err)?,
+            )
+        } else {
+            None
+        };
+
         Ok(ProfiledForwardResult {
             seq_len: seq,
             attn_magnitudes,
             mlp_magnitudes,
+            bootstrap_hidden,
+            bootstrap_k,
+            hidden_size,
         })
     }
 
@@ -272,7 +333,7 @@ impl LlamaGpuInferencer {
             gpu_embedding_gather_bf16(&self.embed_tokens, &ids_gpu, hidden, dev)
                 .map_err(map_gpu_err)?;
 
-        for layer in &self.layers {
+        for (layer_idx, layer) in self.layers.iter().enumerate() {
             let h_norm = gpu_rmsnorm_bf16(
                 &hidden_buf,
                 &layer.input_norm,
@@ -434,6 +495,25 @@ impl LlamaGpuInferencer {
                     .map_err(map_gpu_err)?;
 
             hidden_buf = gpu_add_bf16(&hidden_buf, &down, dev).map_err(map_gpu_err)?;
+
+            // Bootstrap tap — after finishing layer `layer_idx`, if
+            // this matches the requested `bootstrap_k` we clone the
+            // hidden state on-device so the subsequent layers can
+            // keep mutating `hidden_buf` without disturbing the tap.
+            if let Some(t) = taps.as_deref_mut() {
+                if let Some(k) = t.bootstrap_k {
+                    if layer_idx + 1 == k && t.bootstrap_hidden.is_none() {
+                        let mut snapshot = dev
+                            .stream()
+                            .alloc_zeros::<u16>(seq * hidden)
+                            .map_err(map_driver_err)?;
+                        dev.stream()
+                            .memcpy_dtod(&hidden_buf, &mut snapshot)
+                            .map_err(map_driver_err)?;
+                        t.bootstrap_hidden = Some(snapshot);
+                    }
+                }
+            }
         }
 
         let final_norm = gpu_rmsnorm_bf16(

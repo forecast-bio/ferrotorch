@@ -3283,6 +3283,114 @@ DONE:
 // Backward activation kernels
 // ---------------------------------------------------------------------------
 
+/// PTX source for `fill_kernel`: `out[i] = scalar for all i < n`.
+///
+/// Used by sum/mean backward to produce a GPU-resident tensor filled
+/// with a constant, without the CPU → GPU round-trip the legacy path
+/// incurred (`vec![go; numel].to(device)`).
+#[cfg(feature = "cuda")]
+pub(crate) const FILL_F32_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry fill_f32_kernel(
+    .param .u64 out_ptr,
+    .param .f32 scalar,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %out, %off;
+    .reg .f32 %v;
+    .reg .pred %p;
+
+    ld.param.u64 %out, [out_ptr];
+    ld.param.f32 %v, [scalar];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %out, %out, %off;
+    st.global.f32 [%out], %v;
+
+DONE:
+    ret;
+}
+";
+
+
+/// PTX source for `abs_backward_kernel`:
+/// `out[i] = input[i] > 0 ? grad[i] : (input[i] < 0 ? -grad[i] : 0)`.
+///
+/// Implements the derivative of `|x|`: `sign(x)` with the convention
+/// that `sign(0) = 0`. Takes `grad` (upstream) and `input` (forward
+/// activation input) as its two tensor parameters.
+#[cfg(feature = "cuda")]
+pub(crate) const ABS_BACKWARD_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry abs_backward_kernel(
+    .param .u64 grad_ptr,
+    .param .u64 input_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %grad, %input, %out, %off;
+    .reg .f32 %vg, %vi, %zero, %neg_vg, %tmp, %vr;
+    .reg .pred %p, %pos, %neg;
+
+    ld.param.u64 %grad, [grad_ptr];
+    ld.param.u64 %input, [input_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %grad, %grad, %off;
+    add.u64 %input, %input, %off;
+    add.u64 %out, %out, %off;
+
+    ld.global.f32 %vg, [%grad];
+    ld.global.f32 %vi, [%input];
+    mov.f32 %zero, 0f00000000;
+
+    neg.f32 %neg_vg, %vg;
+
+    // tmp = (vi < 0) ? -vg : 0
+    setp.lt.f32 %neg, %vi, %zero;
+    selp.f32 %tmp, %neg_vg, %zero, %neg;
+    // vr = (vi > 0) ? vg : tmp
+    setp.gt.f32 %pos, %vi, %zero;
+    selp.f32 %vr, %vg, %tmp, %pos;
+
+    st.global.f32 [%out], %vr;
+
+DONE:
+    ret;
+}
+";
+
+
 /// PTX source for `relu_backward_kernel`: `out[i] = (input[i] > 0) ? grad[i] : 0`.
 /// Takes two inputs: grad (upstream gradient) and input (forward activation input).
 #[cfg(feature = "cuda")]
@@ -10404,6 +10512,45 @@ pub fn gpu_relu_backward(
     cpu_to_gpu(&result, device)
 }
 
+/// Elementwise backward for `|x|`: `out[i] = grad[i] * sign(input[i])`
+/// with the convention `sign(0) = 0`. Drives `AbsBackward` on GPU.
+#[cfg(feature = "cuda")]
+pub fn gpu_abs_backward(
+    grad: &CudaBuffer<f32>,
+    input: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    validate_binary(grad, input, device)?;
+
+    if let Some(out) = try_launch_binary(
+        grad,
+        input,
+        device,
+        ABS_BACKWARD_PTX,
+        "abs_backward_kernel",
+    )? {
+        return Ok(out);
+    }
+
+    // CPU fallback
+    let grad_host = gpu_to_cpu(grad, device)?;
+    let input_host = gpu_to_cpu(input, device)?;
+    let result: Vec<f32> = grad_host
+        .iter()
+        .zip(input_host.iter())
+        .map(|(&g, &x)| {
+            if x > 0.0 {
+                g
+            } else if x < 0.0 {
+                -g
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    cpu_to_gpu(&result, device)
+}
+
 /// GELU backward: `out[i] = grad[i] * (sig + 1.702 * x * sig * (1 - sig))`
 /// where `sig = sigmoid(1.702 * x)`.
 #[cfg(feature = "cuda")]
@@ -15480,6 +15627,49 @@ pub fn gpu_scale_into(
     Ok(())
 }
 
+/// Allocate an `n`-element f32 buffer on `device` filled with `scalar`.
+///
+/// Entirely on-device: no CPU→GPU upload beyond the single f32 scalar
+/// passed as a kernel argument. Used by sum/mean backward to produce
+/// the constant gradient tensor without the legacy `vec![go;
+/// numel].to(device)` round-trip.
+#[cfg(feature = "cuda")]
+pub fn gpu_fill_f32(
+    n: usize,
+    scalar: f32,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        FILL_F32_PTX,
+        "fill_f32_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|_| GpuError::PtxCompileFailed {
+        kernel: "fill_f32_kernel",
+    })?;
+
+    let mut out = alloc_zeros_f32(n, device)?;
+    if n == 0 {
+        return Ok(out);
+    }
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(out.inner_mut())
+            .arg(&scalar)
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
 /// Check whether a GPU buffer contains any inf or NaN values.
 ///
 /// Downloads the buffer contents to the host and scans for non-finite
@@ -16462,6 +16652,26 @@ pub fn gpu_scatter_add_rows(
 pub fn gpu_relu_backward(
     _grad: &CudaBuffer<f32>,
     _input: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_abs_backward(
+    _grad: &CudaBuffer<f32>,
+    _input: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_fill_f32(
+    _n: usize,
+    _scalar: f32,
     _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)

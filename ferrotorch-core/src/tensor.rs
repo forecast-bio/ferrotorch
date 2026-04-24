@@ -1076,10 +1076,21 @@ impl<T: Float> Tensor<T> {
         }
 
         let storage_ptr = Arc::as_ptr(&self.inner.storage) as *mut TensorStorage<T>;
-        // SAFETY: Caller guarantees exclusive access (optimizer step inside no_grad).
-        unsafe {
-            std::ptr::write(storage_ptr, new_storage);
-        }
+        // SAFETY: Caller guarantees exclusive access (optimizer step inside
+        // no_grad).
+        //
+        // Critical: `ptr::replace` returns the OLD value so its destructor
+        // runs. The previous `ptr::write` here treated the target as
+        // uninitialized memory and dropped nothing, leaking the old
+        // `TensorStorage` — and in the GPU case, every leaked storage also
+        // leaked its `GpuBufferHandle` -> `CudaBuffer` -> pooled `CudaSlice`.
+        // Running optimizer steps in a long training loop (e.g. AdamW
+        // foreach, which calls `update_storage` once per parameter per
+        // step) would climb toward VRAM exhaustion at a rate proportional
+        // to parameter size × step count. Replacing with `ptr::replace` +
+        // explicit `drop` restores correct single-ownership semantics.
+        let old = unsafe { std::ptr::replace(storage_ptr, new_storage) };
+        drop(old);
 
         Ok(())
     }

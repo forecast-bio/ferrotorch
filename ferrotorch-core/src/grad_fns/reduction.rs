@@ -36,10 +36,47 @@ impl<T: Float> GradFn<T> for SumBackward<T> {
             grad_output.data()?[0]
         };
         let numel = self.input.numel();
+
+        // GPU-native path: skip the `vec![go; numel]` CPU allocation +
+        // upload by calling the on-device `fill` primitive. Falls back
+        // to the CPU build + `.to(device)` for non-f32/f64 types or if
+        // the backend hasn't been initialised.
+        if self.input.is_cuda() {
+            use crate::device::Device;
+            use crate::gpu_dispatch::gpu_backend;
+            use std::any::TypeId;
+            let ordinal = match self.input.device() {
+                Device::Cuda(o) => o,
+                _ => 0,
+            };
+            let is_t_f32 = TypeId::of::<T>() == TypeId::of::<f32>();
+            let is_t_f64 = TypeId::of::<T>() == TypeId::of::<f64>();
+            if let Some(backend) = gpu_backend() {
+                if is_t_f32 {
+                    let scalar_f32: f32 = <T as num_traits::ToPrimitive>::to_f32(&go).unwrap();
+                    let handle = backend.fill_f32(numel, scalar_f32, ordinal)?;
+                    let grad_input = Tensor::from_storage(
+                        TensorStorage::gpu(handle),
+                        self.input.shape().to_vec(),
+                        false,
+                    )?;
+                    return Ok(vec![Some(grad_input)]);
+                } else if is_t_f64 {
+                    let scalar_f64: f64 = <T as num_traits::ToPrimitive>::to_f64(&go).unwrap();
+                    let handle = backend.fill_f64(numel, scalar_f64, ordinal)?;
+                    let grad_input = Tensor::from_storage(
+                        TensorStorage::gpu(handle),
+                        self.input.shape().to_vec(),
+                        false,
+                    )?;
+                    return Ok(vec![Some(grad_input)]);
+                }
+            }
+        }
+        // CPU / fallback path — legacy behaviour.
         let data = vec![go; numel];
         let grad_cpu =
             Tensor::from_storage(TensorStorage::cpu(data), self.input.shape().to_vec(), false)?;
-        // Place gradient on the same device as the input.
         let grad_input = grad_cpu.to(self.input.device())?;
         Ok(vec![Some(grad_input)])
     }
@@ -127,6 +164,41 @@ impl<T: Float> GradFn<T> for MeanBackward<T> {
         let numel = self.input.numel();
         let n = T::from(numel).unwrap();
         let val = go / n;
+
+        // GPU-native path mirrors SumBackward: use on-device fill
+        // instead of allocating `vec![val; numel]` on CPU and uploading.
+        if self.input.is_cuda() {
+            use crate::device::Device;
+            use crate::gpu_dispatch::gpu_backend;
+            use std::any::TypeId;
+            let ordinal = match self.input.device() {
+                Device::Cuda(o) => o,
+                _ => 0,
+            };
+            let is_t_f32 = TypeId::of::<T>() == TypeId::of::<f32>();
+            let is_t_f64 = TypeId::of::<T>() == TypeId::of::<f64>();
+            if let Some(backend) = gpu_backend() {
+                if is_t_f32 {
+                    let scalar_f32: f32 = <T as num_traits::ToPrimitive>::to_f32(&val).unwrap();
+                    let handle = backend.fill_f32(numel, scalar_f32, ordinal)?;
+                    let grad_input = Tensor::from_storage(
+                        TensorStorage::gpu(handle),
+                        self.input.shape().to_vec(),
+                        false,
+                    )?;
+                    return Ok(vec![Some(grad_input)]);
+                } else if is_t_f64 {
+                    let scalar_f64: f64 = <T as num_traits::ToPrimitive>::to_f64(&val).unwrap();
+                    let handle = backend.fill_f64(numel, scalar_f64, ordinal)?;
+                    let grad_input = Tensor::from_storage(
+                        TensorStorage::gpu(handle),
+                        self.input.shape().to_vec(),
+                        false,
+                    )?;
+                    return Ok(vec![Some(grad_input)]);
+                }
+            }
+        }
         let data = vec![val; numel];
         let grad_cpu =
             Tensor::from_storage(TensorStorage::cpu(data), self.input.shape().to_vec(), false)?;

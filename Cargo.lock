@@ -1817,6 +1817,8 @@ dependencies = [
  "ferrotorch-gpu",
  "ferrotorch-hub",
  "ferrotorch-llama",
+ "ferrotorch-nn",
+ "ferrotorch-optim",
  "ferrotorch-serialize",
  "ferrotorch-tokenize",
  "half",

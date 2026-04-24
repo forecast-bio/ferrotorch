@@ -980,7 +980,25 @@ struct AbsBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for AbsBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        use crate::gpu_dispatch::gpu_backend;
+
         let da = if self.a.requires_grad() {
+            // GPU-native path for f32/f64 when both tensors live on CUDA.
+            if grad_output.is_cuda() && self.a.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
+                let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+                let handle = if is_f32::<T>() {
+                    backend.abs_backward_f32(grad_output.gpu_handle()?, self.a.gpu_handle()?)?
+                } else {
+                    backend.abs_backward_f64(grad_output.gpu_handle()?, self.a.gpu_handle()?)?
+                };
+                let grad_a = Tensor::from_storage(
+                    TensorStorage::gpu(handle),
+                    self.a.shape().to_vec(),
+                    false,
+                )?;
+                return Ok(vec![Some(grad_a)]);
+            }
+
             if grad_output.is_cuda() || self.a.is_cuda() {
                 return Err(FerrotorchError::NotImplementedOnCuda {
                     op: "AbsBackward",

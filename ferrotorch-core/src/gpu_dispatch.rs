@@ -737,6 +737,47 @@ pub trait GpuBackend: Send + Sync {
             message: "relu_backward_f64 GPU op not yet implemented".into(),
         })
     }
+    // abs_backward: out[i] = grad[i] * sign(input[i])  (sign(0) = 0)
+    fn abs_backward_f32(
+        &self,
+        _grad: &GpuBufferHandle,
+        _input: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "abs_backward_f32 GPU op not yet implemented".into(),
+        })
+    }
+    fn abs_backward_f64(
+        &self,
+        _grad: &GpuBufferHandle,
+        _input: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "abs_backward_f64 GPU op not yet implemented".into(),
+        })
+    }
+    // fill: allocate an n-element device buffer filled with `scalar`.
+    // Used by sum/mean backward so the grad is built entirely on-device.
+    fn fill_f32(
+        &self,
+        _n: usize,
+        _scalar: f32,
+        _ordinal: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "fill_f32 GPU op not yet implemented".into(),
+        })
+    }
+    fn fill_f64(
+        &self,
+        _n: usize,
+        _scalar: f64,
+        _ordinal: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "fill_f64 GPU op not yet implemented".into(),
+        })
+    }
     // gelu_backward (sigmoid approx): out[i] = grad[i] * (sig + 1.702*x*sig*(1-sig))
     fn gelu_backward_f32(
         &self,
