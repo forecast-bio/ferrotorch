@@ -1,0 +1,10 @@
+{
+  "uuid": "ddde2004-550d-4fad-8fd9-33a249ac73fe",
+  "issue_uuid": "4cce6538-54cb-4065-93c0-0131e43e3b64",
+  "author": "y4rr",
+  "content": "[action] Mixed-precision kernels landed (#518). bf16 weights with f32 accumulators in mm_raw small-path, standard_attention, RMSNorm CPU, softmax CPU. Llama 3 8B smoke now produces coherent continuation ('The meaning of life is a free-line') instead of garbage ('don'). 2110 tests pass.",
+  "created_at": "2026-04-24T00:07:53.038402620Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABArNYzaIMDuzJZ0ec1Vtcyibx88mvYhGk9Z5IXVmGX7rYILlObVokXumttc86mqmHrKU3w5Wjsu4QSk+6FHkGyCA=="
+}
