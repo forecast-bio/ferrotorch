@@ -1,0 +1,10 @@
+{
+  "uuid": "b1f06259-f55e-4936-b8ef-d88a9a0412dd",
+  "display_id": 526,
+  "title": "Phase 3 v3: diverse public-domain corpus + bf16 dataset + shuffled split",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-24T14:19:03.784786617Z",
+  "updated_at": "2026-04-24T14:19:03.784786617Z"
+}
