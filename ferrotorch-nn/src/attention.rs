@@ -292,115 +292,133 @@ impl<T: Float> MultiheadAttention<T> {
             return output.reshape_t(&[batch as isize, 1, self.embed_dim as isize]);
         }
 
-        // ─── General path: full multi-head attention ────────────────
+        // ─── General path: batched multi-head attention ────────────
+        //
+        // Fully differentiable, GPU-compatible. Uses reshape/permute
+        // (zero-copy metadata ops) instead of data shuffling, and
+        // bmm_differentiable for the full batch at once.
 
-        // Transpose projection weights once: W_Q.T, W_K.T, W_V.T, W_O.T
+        let nh = self.num_heads;
+        let nkv = self.num_kv_heads;
+        let hd = self.head_dim;
+        let group_size = nh / nkv;
+
+        // 1. Project Q/K/V. Flatten to 2-D for the matmul.
         let wq_t = transpose_2d(self.q_proj.tensor())?;
         let wk_t = transpose_2d(self.k_proj.tensor())?;
         let wv_t = transpose_2d(self.v_proj.tensor())?;
         let wo_t = transpose_2d(self.out_proj.tensor())?;
 
-        // Scale factor: 1 / sqrt(head_dim) as a scalar tensor for broadcasting.
-        let scale_val = T::from(1.0 / (self.head_dim as f64).sqrt()).unwrap();
-        let scale = Tensor::from_storage(TensorStorage::cpu(vec![scale_val]), vec![1], false)?;
+        let flat_q = query.reshape_t(&[-1, self.embed_dim as isize])?;
+        let flat_k = key.reshape_t(&[-1, self.embed_dim as isize])?;
+        let flat_v = value.reshape_t(&[-1, self.embed_dim as isize])?;
 
-        // Process each batch element independently (no batched matmul yet).
-        let total_elements = batch * seq_q * self.embed_dim;
-        let mut result_data: Vec<T> = Vec::with_capacity(total_elements);
+        let mut q_proj = mm_differentiable(&flat_q, &wq_t)?;
+        let mut k_proj = mm_differentiable(&flat_k, &wk_t)?;
+        let mut v_proj = mm_differentiable(&flat_v, &wv_t)?;
 
-        for b in 0..batch {
-            // Extract batch slices: [seq, embed_dim] as 2D tensors.
-            let q_slice = extract_batch_slice(query, b)?;
-            let k_slice = extract_batch_slice(key, b)?;
-            let v_slice = extract_batch_slice(value, b)?;
-
-            // Project: Q_proj = q_slice @ W_Q.T  -> [seq_q, embed_dim]
-            let mut q_proj = mm_differentiable(&q_slice, &wq_t)?;
-            let mut k_proj = mm_differentiable(&k_slice, &wk_t)?;
-            let mut v_proj = mm_differentiable(&v_slice, &wv_t)?;
-
-            // Add biases if present.
-            if let Some(ref qb) = self.q_bias {
-                let bias_expanded = expand_bias_to_2d(qb.tensor(), seq_q)?;
-                q_proj = add(&q_proj, &bias_expanded)?;
-            }
-            if let Some(ref kb) = self.k_bias {
-                let bias_expanded = expand_bias_to_2d(kb.tensor(), seq_k)?;
-                k_proj = add(&k_proj, &bias_expanded)?;
-            }
-            if let Some(ref vb) = self.v_bias {
-                let bias_expanded = expand_bias_to_2d(vb.tensor(), seq_k)?;
-                v_proj = add(&v_proj, &bias_expanded)?;
-            }
-
-            // Reshape Q to [num_heads, seq_q, head_dim].
-            // Reshape K/V to [num_kv_heads, seq_k, head_dim], then broadcast
-            // (repeat_kv) up to [num_heads, seq_k, head_dim] so Q and K/V
-            // match on the head axis. `group_size == 1` is a no-op branch
-            // inside `repeat_kv`, so MHA pays nothing here.
-            let q_heads = reshape_to_heads(&q_proj, self.num_heads, seq_q, self.head_dim)?;
-            let k_heads_kv = reshape_to_heads(&k_proj, self.num_kv_heads, seq_k, self.head_dim)?;
-            let v_heads_kv = reshape_to_heads(&v_proj, self.num_kv_heads, seq_k, self.head_dim)?;
-            let group_size = self.num_heads / self.num_kv_heads;
-            let k_heads = repeat_kv(&k_heads_kv, group_size)?;
-            let v_heads = repeat_kv(&v_heads_kv, group_size)?;
-
-            // Batched attention: all heads in parallel via bmm.
-            // q_heads, k_heads, v_heads are [num_heads, seq, head_dim].
-
-            // K^T via permute [0,2,1] → [num_heads, head_dim, seq_k] (zero-copy).
-            let k_heads_t = k_heads.permute(&[0, 2, 1])?;
-            let k_heads_t = k_heads_t.contiguous()?;
-
-            // scores = Q @ K^T → [num_heads, seq_q, seq_k]
-            let scores = bmm_differentiable(&q_heads, &k_heads_t)?;
-
-            // Scale: scores * (1/sqrt(head_dim))
-            let scale_val = scale.data_vec()?[0];
-            let scale_data = vec![scale_val; scores.numel()];
-            let scale_tensor = Tensor::from_storage(
-                TensorStorage::on_device(scale_data, scores.device())?,
-                scores.shape().to_vec(),
-                false,
-            )?;
-            let scaled_scores = mul(&scores, &scale_tensor)?;
-
-            // Apply causal mask if requested (broadcast over heads).
-            let masked_scores = if causal_mask {
-                apply_causal_mask_3d(&scaled_scores, self.num_heads, seq_q)?
-            } else {
-                scaled_scores
-            };
-
-            // Softmax along last dim → [num_heads, seq_q, seq_k]
-            let weights = softmax(&masked_scores)?;
-
-            // context = weights @ V → [num_heads, seq_q, head_dim]
-            let context_3d = bmm_differentiable(&weights, &v_heads)?;
-
-            // Reshape [num_heads, seq_q, head_dim] → [seq_q, embed_dim]
-            let context = transpose_heads_to_2d(
-                &context_3d, self.num_heads, seq_q, self.head_dim,
-            )?;
-
-            // Output projection: context @ W_O.T -> [seq_q, embed_dim]
-            let mut output = mm_differentiable(&context, &wo_t)?;
-
-            if let Some(ref ob) = self.out_bias {
-                let bias_expanded = expand_bias_to_2d(ob.tensor(), seq_q)?;
-                output = add(&output, &bias_expanded)?;
-            }
-
-            // Collect output data for this batch element.
-            let out_data = output.data()?;
-            result_data.extend_from_slice(out_data);
+        if let Some(ref qb) = self.q_bias {
+            let b = expand_bias_to_2d(qb.tensor(), batch * seq_q)?;
+            q_proj = add(&q_proj, &b)?;
+        }
+        if let Some(ref kb) = self.k_bias {
+            let b = expand_bias_to_2d(kb.tensor(), batch * seq_k)?;
+            k_proj = add(&k_proj, &b)?;
+        }
+        if let Some(ref vb) = self.v_bias {
+            let b = expand_bias_to_2d(vb.tensor(), batch * seq_k)?;
+            v_proj = add(&v_proj, &b)?;
         }
 
-        Tensor::from_storage(
-            TensorStorage::cpu(result_data),
-            vec![batch, seq_q, self.embed_dim],
+        // 2. Reshape to per-head layout via permute (zero-copy + contiguous).
+        //    Q: [B*Sq, D] → [B, Sq, H, Hd] → [B, H, Sq, Hd] → [B*H, Sq, Hd]
+        //    K/V: same but with Hkv instead of H.
+        let q = q_proj
+            .reshape_t(&[batch as isize, seq_q as isize, nh as isize, hd as isize])?
+            .permute(&[0, 2, 1, 3])?
+            .contiguous()?
+            .reshape_t(&[(batch * nh) as isize, seq_q as isize, hd as isize])?;
+
+        let mut k = k_proj
+            .reshape_t(&[batch as isize, seq_k as isize, nkv as isize, hd as isize])?
+            .permute(&[0, 2, 1, 3])?
+            .contiguous()?;
+        let mut v = v_proj
+            .reshape_t(&[batch as isize, seq_k as isize, nkv as isize, hd as isize])?
+            .permute(&[0, 2, 1, 3])?
+            .contiguous()?;
+
+        // 3. GQA repeat: expand each KV head to serve `group_size` Q heads.
+        if group_size > 1 {
+            // [B, Hkv, S, Hd] → [B, Hkv, 1, S, Hd] → expand [B, Hkv, G, S, Hd]
+            // → reshape [B, H, S, Hd]
+            k = k
+                .reshape_t(&[batch as isize, nkv as isize, 1, seq_k as isize, hd as isize])?;
+            k = expand(&k, &[batch, nkv, group_size, seq_k, hd])?;
+            k = k.reshape_t(&[batch as isize, nh as isize, seq_k as isize, hd as isize])?;
+
+            v = v
+                .reshape_t(&[batch as isize, nkv as isize, 1, seq_k as isize, hd as isize])?;
+            v = expand(&v, &[batch, nkv, group_size, seq_k, hd])?;
+            v = v.reshape_t(&[batch as isize, nh as isize, seq_k as isize, hd as isize])?;
+        }
+
+        let k = k.reshape_t(&[(batch * nh) as isize, seq_k as isize, hd as isize])?;
+        let v = v.reshape_t(&[(batch * nh) as isize, seq_k as isize, hd as isize])?;
+
+        // 4. Scaled dot-product attention.
+        //    scores = Q @ K^T → [B*H, Sq, Sk]
+        let k_t = k.permute(&[0, 2, 1])?.contiguous()?;
+        let scores = bmm_differentiable(&q, &k_t)?;
+
+        let scale_val = T::from(1.0 / (hd as f64).sqrt()).unwrap();
+        let scale_tensor = Tensor::from_storage(
+            TensorStorage::on_device(vec![scale_val], scores.device())?,
+            vec![1],
             false,
-        )
+        )?;
+        let scaled = mul(&scores, &scale_tensor)?;
+
+        // 5. Causal mask: additive -1e9 for future positions.
+        let masked = if causal_mask {
+            let neg_inf = T::from(-1e9).unwrap();
+            let zero = <T as num_traits::Zero>::zero();
+            let mut mask_data = vec![zero; seq_q * seq_k];
+            for i in 0..seq_q {
+                for j in (i + 1)..seq_k {
+                    mask_data[i * seq_k + j] = neg_inf;
+                }
+            }
+            let mask = Tensor::from_storage(
+                TensorStorage::cpu(mask_data),
+                vec![1, seq_q, seq_k],
+                false,
+            )?;
+            let mask = if scaled.is_cuda() { mask.to(scaled.device())? } else { mask };
+            add(&scaled, &mask)?
+        } else {
+            scaled
+        };
+
+        // 6. Softmax + context.
+        let weights = softmax(&masked)?;
+        let context = bmm_differentiable(&weights, &v)?;
+
+        // 7. Reshape back: [B*H, Sq, Hd] → [B, H, Sq, Hd] → [B, Sq, H, Hd] → [B*Sq, D]
+        let context = context
+            .reshape_t(&[batch as isize, nh as isize, seq_q as isize, hd as isize])?
+            .permute(&[0, 2, 1, 3])?
+            .contiguous()?
+            .reshape_t(&[(batch * seq_q) as isize, self.embed_dim as isize])?;
+
+        // 8. Output projection.
+        let mut output = mm_differentiable(&context, &wo_t)?;
+        if let Some(ref ob) = self.out_bias {
+            let b = expand_bias_to_2d(ob.tensor(), batch * seq_q)?;
+            output = add(&output, &b)?;
+        }
+
+        output.reshape_t(&[batch as isize, seq_q as isize, self.embed_dim as isize])
     }
 
     /// The embedding dimension.
@@ -552,25 +570,6 @@ impl<T: Float> Module<T> for MultiheadAttention<T> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Extract a 2-D slice `[seq, dim]` from a 3-D tensor at batch index `b`.
-///
-/// This creates a new tensor (copies data) since we don't have strided views.
-fn extract_batch_slice<T: Float>(tensor: &Tensor<T>, b: usize) -> FerrotorchResult<Tensor<T>> {
-    let shape = tensor.shape();
-    let dim1 = shape[1];
-    let dim2 = shape[2];
-    let slice_size = dim1 * dim2;
-    let data = tensor.data()?;
-    let start = b * slice_size;
-    let end = start + slice_size;
-    let slice_data = data[start..end].to_vec();
-    Tensor::from_storage(
-        TensorStorage::cpu(slice_data),
-        vec![dim1, dim2],
-        tensor.requires_grad(),
-    )
-}
-
 /// Expand a 1-D bias `[dim]` to `[rows, dim]` by repeating it along rows.
 ///
 /// Uses the differentiable `expand` primitive so that gradients flow back
@@ -696,32 +695,6 @@ pub fn repeat_kv<T: Float>(kv: &Tensor<T>, group_size: usize) -> FerrotorchResul
         TensorStorage::on_device(out, device)?,
         vec![num_q_heads, seq, head_dim],
         kv.requires_grad(),
-    )
-}
-
-/// Apply causal mask to 3D scores [num_heads, seq_q, seq_k].
-fn apply_causal_mask_3d<T: Float>(
-    scores: &Tensor<T>,
-    num_heads: usize,
-    seq_len: usize,
-) -> FerrotorchResult<Tensor<T>> {
-    let neg_inf = T::from(-1e9).unwrap();
-    let mut masked = scores.data_vec()?;
-
-    for h in 0..num_heads {
-        let offset = h * seq_len * seq_len;
-        for i in 0..seq_len {
-            for j in (i + 1)..seq_len {
-                masked[offset + i * seq_len + j] = neg_inf;
-            }
-        }
-    }
-
-    let device = scores.device();
-    Tensor::from_storage(
-        TensorStorage::on_device(masked, device)?,
-        scores.shape().to_vec(),
-        scores.requires_grad(),
     )
 }
 

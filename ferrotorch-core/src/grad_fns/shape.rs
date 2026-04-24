@@ -392,41 +392,14 @@ impl<T: Float> GradFn<T> for ExpandBackward<T> {
             return Ok(vec![None]);
         }
 
-        let out_shape = grad_output.shape();
-        let in_shape = &self.input_shape;
-        let out_ndim = out_shape.len();
-        let in_ndim = in_shape.len();
-
-        // Determine which axes to sum over.
-        // Expanded dims are where input had size 1 (or was missing / implicitly 1).
-        let mut reduce_axes: Vec<usize> = Vec::new();
-        for i in 0..out_ndim {
-            let in_dim = if i < out_ndim - in_ndim {
-                // Leading dimensions not present in input (implicit 1).
-                1
-            } else {
-                in_shape[i - (out_ndim - in_ndim)]
-            };
-            if in_dim == 1 && out_shape[i] != 1 {
-                reduce_axes.push(i);
-            }
-        }
-
-        // Transfer to CPU for the reduction if needed.
-        let (cpu_go, device) = ensure_cpu(grad_output)?;
-
-        // Repeatedly sum along the reduced axes (from highest to lowest so
-        // indices remain valid as we remove dimensions).
-        let mut grad = cpu_go;
-        for &axis in reduce_axes.iter().rev() {
-            grad = crate::ops::elementwise::sum_axis(&grad, axis)?;
-        }
-
-        // If input had fewer dimensions, the leading dims were summed away.
-        // Now reshape to the original input shape.
-        let data = grad.data()?.to_vec();
-        let grad_input = Tensor::from_storage(TensorStorage::cpu(data), in_shape.clone(), false)?;
-        Ok(vec![Some(restore_device(grad_input, device)?)])
+        // reduce_grad_to_shape sums over broadcast dimensions (leading dims
+        // not in target + size-1 dims) and works natively on GPU via
+        // sum_axis_f32/f64 — no CPU roundtrip.
+        let grad_input = super::arithmetic::reduce_grad_to_shape(
+            grad_output,
+            &self.input_shape,
+        )?;
+        Ok(vec![Some(grad_input)])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -472,9 +445,49 @@ pub fn expand<T: Float>(input: &Tensor<T>, new_shape: &[usize]) -> FerrotorchRes
         }
     }
 
+    // GPU fast path for f32/f64: broadcast-add with a zeros scalar to produce
+    // the expanded tensor entirely on device (no CPU roundtrip).
+    if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let device_ord = input.gpu_handle()?.device_ordinal();
+            let elem_size = if is_f64::<T>() { 8 } else { 4 };
+            let zeros = backend.alloc_zeros(1, elem_size, device_ord)?;
+            let expanded = if is_f64::<T>() {
+                backend.broadcast_add_f64(
+                    input.gpu_handle()?,
+                    &zeros,
+                    in_shape,
+                    &[1],
+                    new_shape,
+                )?
+            } else {
+                backend.broadcast_add_f32(
+                    input.gpu_handle()?,
+                    &zeros,
+                    in_shape,
+                    &[1],
+                    new_shape,
+                )?
+            };
+            let storage = TensorStorage::gpu(expanded);
+            return if is_grad_enabled() && input.requires_grad() {
+                let grad_fn = Arc::new(ExpandBackward::new(input.clone(), in_shape.to_vec()));
+                Tensor::from_operation(storage, new_shape.to_vec(), grad_fn)
+            } else {
+                Tensor::from_storage(storage, new_shape.to_vec(), false)
+            };
+        }
+    }
+
+    // CPU path — error if GPU tensor without supported dtype.
+    if input.is_cuda() {
+        return Err(crate::error::FerrotorchError::NotImplementedOnCuda {
+            op: "expand",
+        });
+    }
+
     // Build expanded data via broadcast indexing.
-    let (cpu_input, device) = ensure_cpu(input)?;
-    let in_data = cpu_input.data()?;
+    let in_data = input.data()?;
     let out_numel: usize = new_shape.iter().product();
     let mut out_data = Vec::with_capacity(out_numel);
 
@@ -484,20 +497,10 @@ pub fn expand<T: Float>(input: &Tensor<T>, new_shape: &[usize]) -> FerrotorchRes
     }
 
     if is_grad_enabled() && input.requires_grad() {
-        // For GPU: transfer data first, THEN wrap with from_operation to preserve grad_fn.
-        let storage = if device.is_cuda() {
-            let tmp =
-                Tensor::from_storage(TensorStorage::cpu(out_data), new_shape.to_vec(), false)?;
-            let gpu_tmp = tmp.to(device)?;
-            gpu_tmp.into_storage_and_shape()?.0
-        } else {
-            TensorStorage::cpu(out_data)
-        };
         let grad_fn = Arc::new(ExpandBackward::new(input.clone(), in_shape.to_vec()));
-        Tensor::from_operation(storage, new_shape.to_vec(), grad_fn)
+        Tensor::from_operation(TensorStorage::cpu(out_data), new_shape.to_vec(), grad_fn)
     } else {
-        let result = Tensor::from_storage(TensorStorage::cpu(out_data), new_shape.to_vec(), false)?;
-        restore_device(result, device)
+        Tensor::from_storage(TensorStorage::cpu(out_data), new_shape.to_vec(), false)
     }
 }
 

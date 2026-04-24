@@ -62,7 +62,7 @@ pub use grad_fns::fft::{
 };
 pub use grad_fns::quantize_grad::fake_quantize_differentiable;
 pub use grad_fns::reduction::{mean_dim, sum_dim};
-pub use grad_fns::shape::cat;
+pub use grad_fns::shape::{cat, expand};
 pub use grad_fns::transcendental::{clamp, cos, exp, log, sin};
 pub use methods::{chunk_t, contiguous_t, permute_t, split_t, view_t};
 pub use dispatch::{DispatchKey, DispatchKeySet, Dispatcher, Kernel};

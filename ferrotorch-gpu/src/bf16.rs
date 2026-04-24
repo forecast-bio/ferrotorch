@@ -438,6 +438,140 @@ pub fn gpu_embedding_gather_bf16(
 }
 
 // ===========================================================================
+// Embedding gather bf16 → f32 (fused cast)
+// ===========================================================================
+
+// Same grid layout as `embedding_gather_bf16_kernel`: one block per
+// output row, threads stride over columns. Reads `.b16` from the
+// weight table and writes `.f32` to the output via the standard
+// `mov.b32 {0, %h}` bf16→f32 expansion.
+
+const EMBEDDING_GATHER_BF16_TO_F32_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry embedding_gather_bf16_to_f32_kernel(
+    .param .u64 weight_ptr,
+    .param .u64 indices_ptr,
+    .param .u64 out_ptr,
+    .param .u32 n_tokens,
+    .param .u32 dim
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %dim_reg, %src_row, %col, %src_elem, %dst_elem;
+    .reg .u64 %weight, %indices, %out, %off;
+    .reg .b16 %v16, %zero16;
+    .reg .b32 %v32;
+    .reg .pred %p_tok, %p_col;
+
+    ld.param.u64 %weight, [weight_ptr];
+    ld.param.u64 %indices, [indices_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %n_reg, [n_tokens];
+    ld.param.u32 %dim_reg, [dim];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+
+    setp.ge.u32 %p_tok, %bid, %n_reg;
+    @%p_tok bra DONE;
+
+    // Load the row index for this block.
+    cvt.u64.u32 %off, %bid;
+    shl.b64 %off, %off, 2;
+    add.u64 %indices, %indices, %off;
+    ld.global.u32 %src_row, [%indices];
+
+    mov.b16 %zero16, 0;
+    mov.u32 %col, %r_tid;
+LOOP:
+    setp.ge.u32 %p_col, %col, %dim_reg;
+    @%p_col bra DONE;
+
+    // Source offset: weight[src_row * dim + col], 2 bytes per element.
+    mul.lo.u32 %src_elem, %src_row, %dim_reg;
+    add.u32 %src_elem, %src_elem, %col;
+    cvt.u64.u32 %off, %src_elem;
+    shl.b64 %off, %off, 1;
+    add.u64 %off, %weight, %off;
+    ld.global.b16 %v16, [%off];
+
+    // bf16 -> f32: place bf16 bits in upper half of f32.
+    mov.b32 %v32, {%zero16, %v16};
+
+    // Dest offset: out[bid * dim + col], 4 bytes per element.
+    mul.lo.u32 %dst_elem, %bid, %dim_reg;
+    add.u32 %dst_elem, %dst_elem, %col;
+    cvt.u64.u32 %off, %dst_elem;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %out, %off;
+    st.global.b32 [%off], %v32;
+
+    add.u32 %col, %col, %bdim;
+    bra LOOP;
+
+DONE:
+    ret;
+}
+";
+
+/// Gather rows from a bf16 weight table and cast to f32 in a single
+/// kernel launch. Equivalent to `embedding_gather_bf16` followed by a
+/// bf16→f32 cast, but without the intermediate bf16 buffer.
+///
+/// - `weight`: `[vocab_size, dim]` stored as bf16 (`u16`)
+/// - `indices`: `[n_tokens]` as `u32` row indices
+/// - Returns: `CudaBuffer<f32>` with `n_tokens * dim` elements
+pub fn gpu_embedding_gather_bf16_to_f32(
+    weight: &cudarc::driver::CudaSlice<u16>,
+    indices: &cudarc::driver::CudaSlice<u32>,
+    dim: usize,
+    device: &GpuDevice,
+) -> GpuResult<crate::buffer::CudaBuffer<f32>> {
+    let n_tokens = indices.len();
+    if n_tokens == 0 || dim == 0 {
+        return crate::transfer::alloc_zeros_f32(0, device);
+    }
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = get_or_compile(
+        ctx,
+        EMBEDDING_GATHER_BF16_TO_F32_PTX,
+        "embedding_gather_bf16_to_f32_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|e| {
+        eprintln!("embedding_gather_bf16_to_f32_kernel: {e}");
+        GpuError::PtxCompileFailed {
+            kernel: "embedding_gather_bf16_to_f32_kernel",
+        }
+    })?;
+
+    let total = n_tokens * dim;
+    let mut out = crate::transfer::alloc_zeros_f32(total, device)?;
+    let cfg = LaunchConfig {
+        grid_dim: (n_tokens as u32, 1, 1),
+        block_dim: (BLOCK_SIZE, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    let n_u32 = n_tokens as u32;
+    let dim_u32 = dim as u32;
+    let out_slice = out.inner_mut();
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(weight)
+            .arg(indices)
+            .arg(out_slice)
+            .arg(&n_u32)
+            .arg(&dim_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+// ===========================================================================
 // RMSNorm — per-row, f32 accumulator, tree reduction in shared memory
 // ===========================================================================
 
