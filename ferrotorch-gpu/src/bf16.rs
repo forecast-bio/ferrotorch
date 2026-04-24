@@ -1675,6 +1675,195 @@ pub fn gpu_scale_bf16(
 }
 
 // ===========================================================================
+// Block max-abs reduce  ---- per-block L-infinity magnitude
+// ===========================================================================
+
+// For each (row, block) in a [rows, n_blocks * block_size] bf16 input,
+// compute max(|x|) over the `block_size` contiguous elements and write
+// one f32 per (row, block) to the output.  This is the core "tap"
+// kernel for the paged-weight activation profiler: run it on attn_out
+// and on the gated MLP activation to get per-head / per-MLP-block
+// magnitudes without any CPU round-trip.
+//
+// One CUDA block per output scalar.  Grid is (n_blocks, rows, 1).
+// Each thread strides over block_size, keeping a local f32 max(|x|);
+// the warp-wide max is produced by shared-memory tree reduction.
+const BLOCK_REDUCE_MAX_ABS_BF16_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.shared .align 4 .f32 block_reduce_max_abs_sdata[256];
+
+.visible .entry block_reduce_max_abs_bf16_kernel(
+    .param .u64 in_ptr,
+    .param .u64 out_ptr,
+    .param .u32 rows,
+    .param .u32 n_blocks,
+    .param .u32 block_size
+) {
+    .reg .u32 %r_tid, %bid_b, %bid_r, %bdim, %rows_reg, %nb_reg, %bs_reg, %j, %half, %otid, %flat;
+    .reg .u64 %in, %out, %in_off, %out_off, %off, %sbase, %saddr;
+    .reg .b16 %x_b16, %zero16;
+    .reg .b32 %x_u32;
+    .reg .f32 %x_f, %abs_f, %max_f, %other;
+    .reg .pred %p, %lp, %rp;
+
+    ld.param.u64 %in, [in_ptr];
+    ld.param.u64 %out, [out_ptr];
+    ld.param.u32 %rows_reg, [rows];
+    ld.param.u32 %nb_reg, [n_blocks];
+    ld.param.u32 %bs_reg, [block_size];
+
+    mov.u64 %sbase, block_reduce_max_abs_sdata;
+
+    mov.u32 %bid_b, %ctaid.x;
+    mov.u32 %bid_r, %ctaid.y;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+
+    setp.ge.u32 %p, %bid_r, %rows_reg;
+    @%p bra DONE;
+    setp.ge.u32 %p, %bid_b, %nb_reg;
+    @%p bra DONE;
+
+    mov.b16 %zero16, 0;
+
+    // in_off (bytes) = ((bid_r * n_blocks + bid_b) * block_size) * 2
+    mul.lo.u32 %flat, %bid_r, %nb_reg;
+    add.u32 %flat, %flat, %bid_b;
+    mul.lo.u32 %flat, %flat, %bs_reg;
+    cvt.u64.u32 %in_off, %flat;
+    shl.b64 %in_off, %in_off, 1;
+    add.u64 %in_off, %in, %in_off;
+
+    // Phase 1: thread-local max(|x|)
+    mov.f32 %max_f, 0f00000000;
+    mov.u32 %j, %r_tid;
+ML:
+    setp.ge.u32 %lp, %j, %bs_reg;
+    @%lp bra MLD;
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 1;
+    add.u64 %off, %in_off, %off;
+    ld.global.b16 %x_b16, [%off];
+    mov.b32 %x_u32, {%zero16, %x_b16};
+    mov.b32 %x_f, %x_u32;
+    abs.f32 %abs_f, %x_f;
+    max.f32 %max_f, %max_f, %abs_f;
+    add.u32 %j, %j, %bdim;
+    bra ML;
+MLD:
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    st.shared.f32 [%saddr], %max_f;
+    bar.sync 0;
+
+    // Shared-memory tree max
+    mov.u32 %half, %bdim;
+MR:
+    shr.u32 %half, %half, 1;
+    setp.eq.u32 %rp, %half, 0;
+    @%rp bra MRD;
+    setp.ge.u32 %rp, %r_tid, %half;
+    @%rp bra MRS;
+    add.u32 %otid, %r_tid, %half;
+    cvt.u64.u32 %off, %otid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %other, [%saddr];
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %max_f, [%saddr];
+    max.f32 %max_f, %max_f, %other;
+    st.shared.f32 [%saddr], %max_f;
+MRS:
+    bar.sync 0;
+    bra MR;
+MRD:
+    // Thread 0 writes the final f32 to out[bid_r * n_blocks + bid_b]
+    setp.ne.u32 %p, %r_tid, 0;
+    @%p bra DONE;
+    ld.shared.f32 %max_f, [%sbase];
+    mul.lo.u32 %flat, %bid_r, %nb_reg;
+    add.u32 %flat, %flat, %bid_b;
+    cvt.u64.u32 %out_off, %flat;
+    shl.b64 %out_off, %out_off, 2;
+    add.u64 %out_off, %out, %out_off;
+    st.global.f32 [%out_off], %max_f;
+
+DONE:
+    ret;
+}
+";
+
+/// Per-block L-infinity magnitude reduction for a bf16 activation tensor.
+///
+/// Treats `input` as `[rows, n_blocks * block_size]` bf16 and produces
+/// `[rows, n_blocks]` f32 where each output is `max(|x|)` over the
+/// corresponding `block_size`-wide slice.
+///
+/// Used by `ferrotorch-paged`'s activation profiler to tap attention
+/// heads (one head == one block) and MLP neuron groups (one block ==
+/// `mlp_block_size` neurons) directly on device.
+pub fn gpu_block_reduce_max_abs_bf16(
+    input: &cudarc::driver::CudaSlice<u16>,
+    rows: usize,
+    n_blocks: usize,
+    block_size: usize,
+    device: &GpuDevice,
+) -> GpuResult<cudarc::driver::CudaSlice<f32>> {
+    if rows == 0 || n_blocks == 0 || block_size == 0 {
+        return Ok(device.stream().alloc_zeros::<f32>(rows * n_blocks)?);
+    }
+    let expected = rows * n_blocks * block_size;
+    if input.len() < expected {
+        return Err(GpuError::ShapeMismatch {
+            op: "block_reduce_max_abs_bf16",
+            expected: vec![rows, n_blocks, block_size],
+            got: vec![input.len()],
+        });
+    }
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = get_or_compile(
+        ctx,
+        BLOCK_REDUCE_MAX_ABS_BF16_PTX,
+        "block_reduce_max_abs_bf16_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|e| {
+        eprintln!("block_reduce_max_abs_bf16_kernel: {e}");
+        GpuError::PtxCompileFailed {
+            kernel: "block_reduce_max_abs_bf16_kernel",
+        }
+    })?;
+
+    let mut out = stream.alloc_zeros::<f32>(rows * n_blocks)?;
+    let cfg = LaunchConfig {
+        grid_dim: (n_blocks as u32, rows as u32, 1),
+        block_dim: (BLOCK_SIZE, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    let rows_u32 = rows as u32;
+    let nb_u32 = n_blocks as u32;
+    let bs_u32 = block_size as u32;
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input)
+            .arg(&mut out)
+            .arg(&rows_u32)
+            .arg(&nb_u32)
+            .arg(&bs_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 
@@ -1950,6 +2139,84 @@ mod tests {
             assert!(
                 (g - e).abs() < 1e-3,
                 "rope identity[{i}]: got {g}, expected {e}",
+            );
+        }
+    }
+
+    #[test]
+    fn block_reduce_max_abs_bf16_matches_cpu_groundtruth() {
+        let dev = GpuDevice::new(0).expect("cuda");
+        // 3 rows, 4 blocks per row, 8 elements per block. Fill with values
+        // whose absolute max we can predict per block.
+        let rows = 3usize;
+        let n_blocks = 4usize;
+        let block_size = 8usize;
+        let total = rows * n_blocks * block_size;
+
+        let mut data: Vec<f32> = Vec::with_capacity(total);
+        for r in 0..rows {
+            for b in 0..n_blocks {
+                for i in 0..block_size {
+                    // Sign flips with `i` so abs matters; magnitude hits
+                    // a predictable peak at i == block_size - 1.
+                    let sign = if i % 2 == 0 { 1.0 } else { -1.0 };
+                    let mag = (r as f32) * 10.0 + (b as f32) + (i as f32) * 0.125;
+                    data.push(sign * mag);
+                }
+            }
+        }
+
+        let input = upload_bf16(&dev, &data);
+        let out = gpu_block_reduce_max_abs_bf16(&input, rows, n_blocks, block_size, &dev)
+            .expect("block_reduce");
+        let got: Vec<f32> = dev.stream().memcpy_dtov(&out).expect("download f32");
+
+        assert_eq!(got.len(), rows * n_blocks);
+
+        // CPU ground truth with matching bf16 rounding.
+        for r in 0..rows {
+            for b in 0..n_blocks {
+                let base = (r * n_blocks + b) * block_size;
+                let expected = (0..block_size)
+                    .map(|i| half::bf16::from_f32(data[base + i]).to_f32().abs())
+                    .fold(0.0f32, f32::max);
+                let g = got[r * n_blocks + b];
+                assert!(
+                    (g - expected).abs() < expected.abs() * 0.01 + 1e-3,
+                    "block_reduce[{r},{b}]: got {g}, expected {expected}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn block_reduce_max_abs_bf16_single_block_row() {
+        // Edge case: n_blocks = 1, i.e. one L-inf norm per row. This is
+        // how the attention tap reduces [n_heads * seq, head_dim] ->
+        // [n_heads * seq] magnitudes.
+        let dev = GpuDevice::new(0).expect("cuda");
+        let rows = 5usize;
+        let block_size = 16usize;
+        let mut data: Vec<f32> = Vec::with_capacity(rows * block_size);
+        for r in 0..rows {
+            for i in 0..block_size {
+                let sign = if (r + i) % 3 == 0 { -1.0 } else { 1.0 };
+                data.push(sign * ((r as f32 + 1.0) * 0.5 + (i as f32) * 0.0625));
+            }
+        }
+        let input = upload_bf16(&dev, &data);
+        let out = gpu_block_reduce_max_abs_bf16(&input, rows, 1, block_size, &dev)
+            .expect("block_reduce single");
+        let got: Vec<f32> = dev.stream().memcpy_dtov(&out).expect("download f32");
+        assert_eq!(got.len(), rows);
+        for r in 0..rows {
+            let expected = (0..block_size)
+                .map(|i| half::bf16::from_f32(data[r * block_size + i]).to_f32().abs())
+                .fold(0.0f32, f32::max);
+            let g = got[r];
+            assert!(
+                (g - expected).abs() < expected.abs() * 0.01 + 1e-3,
+                "single-block row[{r}]: got {g}, expected {expected}"
             );
         }
     }

@@ -41,4 +41,4 @@ pub use mlp::LlamaMLP;
 pub use model::{LlamaForCausalLM, LlamaModel};
 
 #[cfg(feature = "cuda")]
-pub use gpu::{LlamaGpuInferencer, LlamaGpuLayer};
+pub use gpu::{LlamaGpuInferencer, LlamaGpuLayer, ProfiledForwardResult};

@@ -20,6 +20,7 @@ members = [
     "ferrotorch-hub",
     "ferrotorch-tokenize",
     "ferrotorch-llama",
+    "ferrotorch-paged",
 ]
 
 [workspace.package]
@@ -53,6 +54,7 @@ ferrotorch-profiler = { version = "0.3.0", path = "ferrotorch-profiler" }
 ferrotorch-hub = { version = "0.3.0", path = "ferrotorch-hub" }
 ferrotorch-tokenize = { version = "0.3.0", path = "ferrotorch-tokenize" }
 ferrotorch-llama = { version = "0.3.0", path = "ferrotorch-llama" }
+ferrotorch-paged = { version = "0.3.0", path = "ferrotorch-paged" }
 
 # ferray ecosystem
 ferray-core = { version = "0.2.7", features = ["bf16"] }

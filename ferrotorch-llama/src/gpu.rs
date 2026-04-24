@@ -16,8 +16,8 @@
 use cudarc::driver::CudaSlice;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Tensor};
 use ferrotorch_gpu::{
-    GpuDevice, gpu_add_bf16, gpu_causal_mask_bf16, gpu_embedding_gather_bf16,
-    gpu_matmul_bf16_bf16_nt, gpu_matmul_bf16_bf16_strided_batched,
+    GpuDevice, gpu_add_bf16, gpu_block_reduce_max_abs_bf16, gpu_causal_mask_bf16,
+    gpu_embedding_gather_bf16, gpu_matmul_bf16_bf16_nt, gpu_matmul_bf16_bf16_strided_batched,
     gpu_matmul_bf16_bf16_strided_batched_nt, gpu_mul_bf16, gpu_repeat_kv_bf16, gpu_rmsnorm_bf16,
     gpu_rope_half_bf16, gpu_silu_bf16, gpu_softmax_bf16, gpu_transpose_from_heads_bf16,
     gpu_transpose_to_heads_bf16,
@@ -26,6 +26,30 @@ use ferrotorch_nn::StateDict;
 use half::bf16;
 
 use crate::config::LlamaConfig;
+
+/// Per-layer activation taps collected during a profiled forward pass.
+///
+/// Shape summary (see `ferrotorch-paged` for interpretation):
+/// * each `attn_f32` entry: `[n_heads * seq]` — max|attn_out[h, t, :]|
+/// * each `mlp_f32` entry: `[seq, n_mlp_blocks]` — max|gated[t, block]|
+struct ForwardTaps {
+    mlp_block_size: usize,
+    n_mlp_blocks: usize,
+    attn_f32: Vec<CudaSlice<f32>>,
+    mlp_f32: Vec<CudaSlice<f32>>,
+}
+
+/// Result of a profiled forward: per-token, per-layer, per-block
+/// magnitudes downloaded to host. Returned by
+/// [`LlamaGpuInferencer::forward_from_ids_profiled`].
+#[derive(Debug, Clone)]
+pub struct ProfiledForwardResult {
+    pub seq_len: usize,
+    /// `[n_layers, seq, n_heads]` f32.
+    pub attn_magnitudes: Vec<f32>,
+    /// `[n_layers, seq, n_mlp_blocks]` f32.
+    pub mlp_magnitudes: Vec<f32>,
+}
 
 /// All the weights that make up one Llama decoder layer, uploaded to GPU.
 pub struct LlamaGpuLayer {
@@ -105,9 +129,120 @@ impl LlamaGpuInferencer {
     /// Forward `ids` through the network and return the last-token
     /// logits as `Vec<f32>` of length `vocab_size`.
     pub fn forward_from_ids(&self, ids: &[u32]) -> FerrotorchResult<Vec<f32>> {
+        let seq = ids.len();
+        let cfg = &self.config;
+        let dev = &self.device;
+        let hidden = cfg.hidden_size;
+        let vocab = cfg.vocab_size;
+
+        let final_norm = self.forward_core(ids, None)?;
+
+        let logits =
+            gpu_matmul_bf16_bf16_nt(&final_norm, &self.lm_head, seq, hidden, vocab, dev)
+                .map_err(map_gpu_err)?;
+
+        // Download just the last-token row of logits and convert bf16 -> f32.
+        let logits_host: Vec<u16> = dev
+            .stream()
+            .clone_dtoh(&logits)
+            .map_err(map_driver_err)?;
+        let last_offset = (seq - 1) * vocab;
+        let last_row = &logits_host[last_offset..last_offset + vocab];
+        Ok(last_row
+            .iter()
+            .map(|&b| bf16::from_bits(b).to_f32())
+            .collect())
+    }
+
+    /// Forward `ids` through the network with activation taps on every
+    /// layer, returning per-(layer, token, block) magnitudes for the
+    /// paged-weight sparsity profiler.
+    ///
+    /// `mlp_block_size * n_mlp_blocks` must equal `intermediate_size`.
+    /// The lm_head is skipped — profiling doesn't need logits and the
+    /// 128k-row projection is the single biggest kernel in the pass.
+    pub fn forward_from_ids_profiled(
+        &self,
+        ids: &[u32],
+        mlp_block_size: usize,
+        n_mlp_blocks: usize,
+    ) -> FerrotorchResult<ProfiledForwardResult> {
+        let cfg = &self.config;
+        let seq = ids.len();
+        let n_heads = cfg.num_attention_heads;
+        let n_layers = cfg.num_hidden_layers;
+
+        if mlp_block_size == 0 || n_mlp_blocks == 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "forward_from_ids_profiled: block sizing must be positive".into(),
+            });
+        }
+        if mlp_block_size * n_mlp_blocks != cfg.intermediate_size {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "forward_from_ids_profiled: mlp_block_size ({mlp_block_size}) * \
+                     n_mlp_blocks ({n_mlp_blocks}) must equal intermediate_size ({})",
+                    cfg.intermediate_size
+                ),
+            });
+        }
+
+        let mut taps = ForwardTaps {
+            mlp_block_size,
+            n_mlp_blocks,
+            attn_f32: Vec::with_capacity(n_layers),
+            mlp_f32: Vec::with_capacity(n_layers),
+        };
+        // Run the forward; the helper fills `taps` with per-layer f32 buffers.
+        let _final_norm = self.forward_core(ids, Some(&mut taps))?;
+
+        // Download all tap buffers and transpose per-layer attn output
+        // from [n_heads, seq] (tap layout) to [seq, n_heads] (frame
+        // layout). MLP output is already [seq, n_mlp_blocks].
+        let mut attn_magnitudes = Vec::with_capacity(n_layers * seq * n_heads);
+        let mut mlp_magnitudes = Vec::with_capacity(n_layers * seq * n_mlp_blocks);
+        for l in 0..n_layers {
+            let attn_layer: Vec<f32> = self
+                .device
+                .stream()
+                .clone_dtoh(&taps.attn_f32[l])
+                .map_err(map_driver_err)?;
+            // attn_layer is [n_heads, seq]; emit [seq, n_heads]
+            for t in 0..seq {
+                for h in 0..n_heads {
+                    attn_magnitudes.push(attn_layer[h * seq + t]);
+                }
+            }
+            let mlp_layer: Vec<f32> = self
+                .device
+                .stream()
+                .clone_dtoh(&taps.mlp_f32[l])
+                .map_err(map_driver_err)?;
+            mlp_magnitudes.extend_from_slice(&mlp_layer);
+        }
+
+        Ok(ProfiledForwardResult {
+            seq_len: seq,
+            attn_magnitudes,
+            mlp_magnitudes,
+        })
+    }
+
+    /// Core forward pass shared between `forward_from_ids` and
+    /// `forward_from_ids_profiled`. Returns the final rmsnorm output;
+    /// the caller is responsible for optional lm_head + download.
+    ///
+    /// If `taps` is `Some`, each layer pushes one f32 CudaSlice of
+    /// per-(head, token) attn magnitudes and one of per-(token, block)
+    /// MLP magnitudes into the struct. No CPU round-trip happens here.
+    fn forward_core(
+        &self,
+        ids: &[u32],
+        mut taps: Option<&mut ForwardTaps>,
+    ) -> FerrotorchResult<CudaSlice<u16>> {
         if ids.is_empty() {
             return Err(FerrotorchError::InvalidArgument {
-                message: "forward_from_ids: empty id list".into(),
+                message: "forward_core: empty id list".into(),
             });
         }
 
@@ -120,7 +255,6 @@ impl LlamaGpuInferencer {
         let head_dim = cfg.head_dim();
         let group = cfg.kv_group_size();
         let ffn = cfg.intermediate_size;
-        let vocab = cfg.vocab_size;
         let scale = 1.0f32 / (head_dim as f32).sqrt();
 
         if seq > cfg.max_position_embeddings {
@@ -132,19 +266,13 @@ impl LlamaGpuInferencer {
             });
         }
 
-        // Upload token ids.
-        let ids_gpu = dev
-            .stream()
-            .clone_htod(ids)
-            .map_err(map_driver_err)?;
+        let ids_gpu = dev.stream().clone_htod(ids).map_err(map_driver_err)?;
 
-        // Embedding lookup: [seq, hidden]
         let mut hidden_buf =
             gpu_embedding_gather_bf16(&self.embed_tokens, &ids_gpu, hidden, dev)
                 .map_err(map_gpu_err)?;
 
-        for (i, layer) in self.layers.iter().enumerate() {
-            // ----- attention sub-block -----
+        for layer in &self.layers {
             let h_norm = gpu_rmsnorm_bf16(
                 &hidden_buf,
                 &layer.input_norm,
@@ -155,8 +283,6 @@ impl LlamaGpuInferencer {
             )
             .map_err(map_gpu_err)?;
 
-            // Q,K,V projections — Linear is `x @ W^T`, with W stored
-            // row-major as [out, in] in HF layout.
             let q = gpu_matmul_bf16_bf16_nt(&h_norm, &layer.q_proj, seq, hidden, hidden, dev)
                 .map_err(map_gpu_err)?;
             let k = gpu_matmul_bf16_bf16_nt(
@@ -178,7 +304,6 @@ impl LlamaGpuInferencer {
             )
             .map_err(map_gpu_err)?;
 
-            // Reshape to per-head layout.
             let q_heads = gpu_transpose_to_heads_bf16(&q, n_heads, seq, head_dim, dev)
                 .map_err(map_gpu_err)?;
             let k_heads = gpu_transpose_to_heads_bf16(&k, n_kv, seq, head_dim, dev)
@@ -186,7 +311,6 @@ impl LlamaGpuInferencer {
             let v_heads = gpu_transpose_to_heads_bf16(&v, n_kv, seq, head_dim, dev)
                 .map_err(map_gpu_err)?;
 
-            // RoPE on Q,K.
             let q_rot = gpu_rope_half_bf16(
                 &q_heads,
                 &self.cos_cache,
@@ -210,13 +334,11 @@ impl LlamaGpuInferencer {
             )
             .map_err(map_gpu_err)?;
 
-            // GQA broadcast KV heads to match Q head count.
             let k_full = gpu_repeat_kv_bf16(&k_rot, n_kv, group, seq, head_dim, dev)
                 .map_err(map_gpu_err)?;
             let v_full = gpu_repeat_kv_bf16(&v_heads, n_kv, group, seq, head_dim, dev)
                 .map_err(map_gpu_err)?;
 
-            // Attention scores: scores[h] = Q_h @ K_h^T * scale, batched over heads.
             let mut scores = gpu_matmul_bf16_bf16_strided_batched_nt(
                 &q_rot,
                 &k_full,
@@ -231,16 +353,11 @@ impl LlamaGpuInferencer {
             )
             .map_err(map_gpu_err)?;
 
-            // Causal mask in-place.
-            gpu_causal_mask_bf16(&mut scores, n_heads, seq, seq, dev)
-                .map_err(map_gpu_err)?;
+            gpu_causal_mask_bf16(&mut scores, n_heads, seq, seq, dev).map_err(map_gpu_err)?;
 
-            // Softmax per row — reshape [n_heads, seq, seq] to [n_heads*seq, seq] for
-            // the row-wise softmax kernel. This is a shape reinterpret, not a copy.
             let attn_weights = gpu_softmax_bf16(&scores, n_heads * seq, seq, dev)
                 .map_err(map_gpu_err)?;
 
-            // attn_out[h] = attn_weights[h] @ V_h
             let attn_out = gpu_matmul_bf16_bf16_strided_batched(
                 &attn_weights,
                 &v_full,
@@ -255,20 +372,29 @@ impl LlamaGpuInferencer {
             )
             .map_err(map_gpu_err)?;
 
-            // Flatten heads back to [seq, n_heads * head_dim].
+            // Attention tap — per-head L-inf magnitude before o_proj.
+            if let Some(t) = taps.as_deref_mut() {
+                let a = gpu_block_reduce_max_abs_bf16(
+                    &attn_out,
+                    n_heads * seq,
+                    1,
+                    head_dim,
+                    dev,
+                )
+                .map_err(map_gpu_err)?;
+                t.attn_f32.push(a);
+            }
+
             let attn_flat =
                 gpu_transpose_from_heads_bf16(&attn_out, n_heads, seq, head_dim, dev)
                     .map_err(map_gpu_err)?;
 
-            // Output projection.
             let attn_proj =
                 gpu_matmul_bf16_bf16_nt(&attn_flat, &layer.o_proj, seq, hidden, hidden, dev)
                     .map_err(map_gpu_err)?;
 
-            // Residual.
             hidden_buf = gpu_add_bf16(&hidden_buf, &attn_proj, dev).map_err(map_gpu_err)?;
 
-            // ----- MLP sub-block -----
             let h_norm2 = gpu_rmsnorm_bf16(
                 &hidden_buf,
                 &layer.post_attn_norm,
@@ -289,15 +415,27 @@ impl LlamaGpuInferencer {
             let silu_gate = gpu_silu_bf16(&gate, dev).map_err(map_gpu_err)?;
             let gated = gpu_mul_bf16(&silu_gate, &up, dev).map_err(map_gpu_err)?;
 
+            // MLP tap — per-block L-inf magnitude of the gated activation
+            // (what multiplies each row of down_proj).
+            if let Some(t) = taps.as_deref_mut() {
+                let m = gpu_block_reduce_max_abs_bf16(
+                    &gated,
+                    seq,
+                    t.n_mlp_blocks,
+                    t.mlp_block_size,
+                    dev,
+                )
+                .map_err(map_gpu_err)?;
+                t.mlp_f32.push(m);
+            }
+
             let down =
                 gpu_matmul_bf16_bf16_nt(&gated, &layer.down_proj, seq, ffn, hidden, dev)
                     .map_err(map_gpu_err)?;
 
             hidden_buf = gpu_add_bf16(&hidden_buf, &down, dev).map_err(map_gpu_err)?;
-            let _ = i; // silence unused warning; kept for future debug prints
         }
 
-        // Final norm + LM head.
         let final_norm = gpu_rmsnorm_bf16(
             &hidden_buf,
             &self.norm,
@@ -307,21 +445,7 @@ impl LlamaGpuInferencer {
             dev,
         )
         .map_err(map_gpu_err)?;
-        let logits =
-            gpu_matmul_bf16_bf16_nt(&final_norm, &self.lm_head, seq, hidden, vocab, dev)
-                .map_err(map_gpu_err)?;
-
-        // Download just the last-token row of logits and convert bf16 -> f32.
-        let logits_host: Vec<u16> = dev
-            .stream()
-            .clone_dtoh(&logits)
-            .map_err(map_driver_err)?;
-        let last_offset = (seq - 1) * vocab;
-        let last_row = &logits_host[last_offset..last_offset + vocab];
-        Ok(last_row
-            .iter()
-            .map(|&b| bf16::from_bits(b).to_f32())
-            .collect())
+        Ok(final_norm)
     }
 }
 

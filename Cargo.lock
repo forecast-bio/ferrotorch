@@ -1769,7 +1769,9 @@ dependencies = [
 name = "ferrotorch-llama"
 version = "0.3.0"
 dependencies = [
+ "cudarc",
  "ferrotorch-core",
+ "ferrotorch-gpu",
  "ferrotorch-hub",
  "ferrotorch-nn",
  "ferrotorch-serialize",
@@ -1804,6 +1806,20 @@ dependencies = [
  "ferrotorch-core",
  "ferrotorch-nn",
  "num-traits",
+]
+
+[[package]]
+name = "ferrotorch-paged"
+version = "0.3.0"
+dependencies = [
+ "cudarc",
+ "ferrotorch-core",
+ "ferrotorch-gpu",
+ "ferrotorch-hub",
+ "ferrotorch-llama",
+ "ferrotorch-serialize",
+ "ferrotorch-tokenize",
+ "half",
 ]
 
 [[package]]

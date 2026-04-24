@@ -56,10 +56,10 @@ pub use blas::{
 };
 #[cfg(feature = "cuda")]
 pub use bf16::{
-    gpu_add_bf16, gpu_causal_mask_bf16, gpu_embedding_gather_bf16, gpu_mul_bf16,
-    gpu_repeat_kv_bf16, gpu_rmsnorm_bf16, gpu_rope_half_bf16, gpu_scale_bf16,
-    gpu_silu_bf16, gpu_softmax_bf16, gpu_transpose_from_heads_bf16,
-    gpu_transpose_to_heads_bf16,
+    gpu_add_bf16, gpu_block_reduce_max_abs_bf16, gpu_causal_mask_bf16,
+    gpu_embedding_gather_bf16, gpu_mul_bf16, gpu_repeat_kv_bf16, gpu_rmsnorm_bf16,
+    gpu_rope_half_bf16, gpu_scale_bf16, gpu_silu_bf16, gpu_softmax_bf16,
+    gpu_transpose_from_heads_bf16, gpu_transpose_to_heads_bf16,
 };
 pub use buffer::CudaBuffer;
 pub use conv::gpu_conv2d_f32;
