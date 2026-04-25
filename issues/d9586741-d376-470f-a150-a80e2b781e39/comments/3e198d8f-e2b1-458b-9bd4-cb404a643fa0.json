@@ -1,0 +1,10 @@
+{
+  "uuid": "3e198d8f-e2b1-458b-9bd4-cb404a643fa0",
+  "issue_uuid": "d9586741-d376-470f-a150-a80e2b781e39",
+  "author": "y4rr",
+  "content": "pw=10 retrain saturates pos_weight lever: F1 0.6144 (lower than pw=3=0.676), inference matches pw=5. The pos_weight knob has clearly hit diminishing returns on the 1.5M trace. Final shipped pareto unchanged — best operating points: 57% savings @ cos 0.88 (pw=3 t=-2.5), 31% savings @ cos 0.95 (pw=3 topk=18), 18% savings @ cos 0.97 (pw=3 h=2048 t=-3). To break through: capture trace with plainact criterion (gradient × activation) per internal tooling",
+  "created_at": "2026-04-25T23:07:49.320836195Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAtWjUBIIi7fWw6q/rIBQ93it2l3T8gBoMjkHzFe6i08bXNkevqh0RaFU/TeaWQhHtec6ntpeONOz1RRLm32QFDw=="
+}
