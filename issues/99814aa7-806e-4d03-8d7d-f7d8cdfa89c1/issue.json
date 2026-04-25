@@ -1,0 +1,10 @@
+{
+  "uuid": "99814aa7-806e-4d03-8d7d-f7d8cdfa89c1",
+  "display_id": 546,
+  "title": "ShadowLlm top-K per layer decoding to break the bimodal-logit ceiling",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-25T21:52:05.561422831Z",
+  "updated_at": "2026-04-25T21:52:05.561422831Z"
+}
