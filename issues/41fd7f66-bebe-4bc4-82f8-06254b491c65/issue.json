@@ -2,11 +2,12 @@
   "uuid": "41fd7f66-bebe-4bc4-82f8-06254b491c65",
   "display_id": 543,
   "title": "pin_hot_blocks must stop when VRAM budget is exhausted, not panic",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-25T17:06:45.533246711Z",
-  "updated_at": "2026-04-25T17:06:46.820785560Z",
+  "updated_at": "2026-04-25T17:14:50.048160440Z",
+  "closed_at": "2026-04-25T17:14:50.048160440Z",
   "labels": [
     "rust"
   ]
