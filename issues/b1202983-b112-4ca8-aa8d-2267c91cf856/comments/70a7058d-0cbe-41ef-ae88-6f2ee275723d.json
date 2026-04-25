@@ -1,0 +1,10 @@
+{
+  "uuid": "70a7058d-0cbe-41ef-ae88-6f2ee275723d",
+  "issue_uuid": "b1202983-b112-4ca8-aa8d-2267c91cf856",
+  "author": "y4rr",
+  "content": "Phase 5 V7 deferred — async DMA needs internal toolingnow; revisit after internal tooling",
+  "created_at": "2026-04-25T13:46:58.202946391Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA7FJn2qbA2VQYS5E/EDIK2/S+tjBm2N9fJCQ6ZabQ4JX6xYH/BLSAU2+PIPmHL4DeldvjHRGPJ2t5bhvPHQ4NAQ=="
+}
