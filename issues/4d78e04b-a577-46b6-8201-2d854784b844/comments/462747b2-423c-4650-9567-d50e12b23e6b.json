@@ -1,0 +1,10 @@
+{
+  "uuid": "462747b2-423c-4650-9567-d50e12b23e6b",
+  "issue_uuid": "4d78e04b-a577-46b6-8201-2d854784b844",
+  "author": "y4rr",
+  "content": "Phase 5 V10: paged attention shipped. AttnLayerStore (per-layer LRU, host bf16 + VRAM hot set), enable_paged_attention method on PagedLlamaInferencer (downloads existing q/k/v/o slices to host, replaces with empty placeholders, installs in store). Forward dispatches: ensure_layer_resident at start of each layer's attention block, then reads q_proj/k_proj/v_proj/o_proj from the AttnVramLayer view. End-to-end on Llama 3 8B (PAGED_ATTN_BUDGET_MB=1024 = ~12 layers fit, 20 evict per forward): cos_sim = 1.000000, paged_argmax = dense_argmax = 311, hit_rate = 99.85%, fault_stall p99 = 8 ms, 0.37s/forward (vs 0.17s without paged-attn). 83 tests pass.",
+  "created_at": "2026-04-25T14:27:42.906270495Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAM9FMQiDo5iC9CemdiScWqUijd/fjzTznLNY8YhUVHzlPkU40dcY8gn4XvqikyqBAB8620J39UO/XphEmIF4+Bw=="
+}
