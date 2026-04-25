@@ -6,5 +6,8 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-25T18:21:02.357420452Z",
-  "updated_at": "2026-04-25T18:21:02.357420452Z"
+  "updated_at": "2026-04-25T18:21:03.721397842Z",
+  "labels": [
+    "rust"
+  ]
 }
