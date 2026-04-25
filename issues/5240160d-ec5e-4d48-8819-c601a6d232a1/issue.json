@@ -1,0 +1,10 @@
+{
+  "uuid": "5240160d-ec5e-4d48-8819-c601a6d232a1",
+  "display_id": 541,
+  "title": "Phase 5 V11: async DMA prefetch via worker stream",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-25T14:27:44.178094072Z",
+  "updated_at": "2026-04-25T14:27:44.178094072Z"
+}
