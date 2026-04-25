@@ -1,0 +1,10 @@
+{
+  "uuid": "10208481-e8c2-4272-8d77-63c0bebc579f",
+  "issue_uuid": "d9586741-d376-470f-a150-a80e2b781e39",
+  "author": "y4rr",
+  "content": "ShadowLlm threshold sweep #545: characterized predictor curve, found bimodal logits at pw=1. Implemented asymmetric BCE (bce_with_logits_pos_weighted) + pos_weight knob in trainer. Retrained at pw=3.0: F1=0.6762, and shifted the F1/density curve favorably. SHIPPED OPERATING POINT: pw=3 + threshold=-2.5 gives 43% block density (57% savings), cos_sim=0.882, argmax matches dense. First non-trivial paging point that preserves top-1 token. 85 lib tests pass. Notes: results/SESSION_99_THRESHOLD_SWEEP.md",
+  "created_at": "2026-04-25T19:16:48.083234833Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA1BPCaZQivtY5Xxwvac2IQ71KIoaSwzQYNwHqnhUqS/wy1MvlIFg5Fn3cCA/GFcBLt+5ZfcL/kie/zBrhrFp1Bg=="
+}
