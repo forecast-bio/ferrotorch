@@ -1,0 +1,10 @@
+{
+  "uuid": "802a2d46-92b7-4406-94fb-dab4d207ca79",
+  "issue_uuid": "a987fbc4-9b06-49a1-a7fa-799083262721",
+  "author": "y4rr",
+  "content": "Phase 5 V8: paged lm_head shipped. PagedLmHead struct with from_state_dict/from_bits/ensure_resident/release. PagedLlamaInferencer.lm_head_paged + enable_paged_lm_head + release_lm_head methods. Forward dispatches on paged vs resident. New tests: ensure_resident_then_release_round_trips (verifies bf16 bits survive Vram→drop→reload), shape_mismatch_errors. 80 tests pass.",
+  "created_at": "2026-04-25T13:50:07.301121131Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAO4zwklEPqPs0z9lAxCVWJyWKj9lD90X7Of/Q/ipNUigHQC4bAzkqWOb6ZxgCnV1kKYQl+iiQIhk6EMeqEGtEBA=="
+}
