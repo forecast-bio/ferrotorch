@@ -1,0 +1,10 @@
+{
+  "uuid": "a24c4662-c789-4371-b7cf-5ac86e206a13",
+  "issue_uuid": "354a9e79-b4d8-42dc-8694-22b8f7e2be82",
+  "author": "y4rr",
+  "content": "Tight-budget stress test on Llama 3 8B + pw=3 BCE t=-2.5 predictor at 1 GiB VRAM budget (10% of MLP weight total): cos_sim=0.882 + argmax=311 ✓ (correctness-equivalent to 4 GiB run), 169 ms/decode token (~7× the 4 GiB run), 4656 host faults/forward, vram resident steady at 1 GiB. The paging stack is validated for 70B-scale memory-pressure scenarios. All 'do all three' research-axis attempts are now characterized: multi-tap (negative), more data (OOM-bounded), local plainact (positive infrastructure, marginal pareto). Final pareto unchanged: pw=3 BCE t=-2.5 → 57% MLP weight bandwidth saved with argmax preserved on Llama 3 8B. 85 lib tests pass.",
+  "created_at": "2026-04-26T04:53:48.474461647Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvRtD9VRu/qlE2dVr7Gq05ki8tYzPLxhh26RC+xBBc3qKY4VDC4dCYY1x2XU7/68aNPqlPnI1cyKN64XReiPEBg=="
+}
