@@ -1,0 +1,10 @@
+{
+  "uuid": "724932fb-9ef5-4b0a-ad08-bcc3d9f3f103",
+  "display_id": 551,
+  "title": "Local plainact: |act × (down_proj^T @ y_full)| as per-block training signal",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-26T03:46:49.413081346Z",
+  "updated_at": "2026-04-26T03:46:49.413081346Z"
+}
