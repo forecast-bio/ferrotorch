@@ -1,0 +1,10 @@
+{
+  "uuid": "a45194d7-cae2-44e2-a683-73eefe1fca46",
+  "display_id": 549,
+  "title": "Magnitude-weighted BCE: weight loss by block magnitude (compensates for OOM on full-corpus capture)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-26T02:52:42.045489555Z",
+  "updated_at": "2026-04-26T02:52:42.045489555Z"
+}
