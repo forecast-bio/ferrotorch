@@ -1,0 +1,10 @@
+{
+  "uuid": "b6bfa99d-ab88-45eb-8637-fe87b6868595",
+  "issue_uuid": "9f3a62f0-c3f2-4ae8-9d6a-e188a509d5af",
+  "author": "y4rr",
+  "content": "Followup move complete:\n- Memory file: moved feedback_no_scaffolds.md from .claude/projects/-home-doll-ferrotorch/memory/ to .claude/projects/-home-doll-ferrotorch-paged/memory/, created paged-specific MEMORY.md index there, pruned the dead link from the ferrotorch MEMORY.md\n- .gitignore: removed dead entries for ferrotorch-paged/ and ferrotorch-paged-design.md\n- Public-crate doc strings: removed dangling references in ferrotorch-llama/src/gpu.rs (ForwardTaps doc), ferrotorch-llama/examples/llama3_8b.rs (header note), ferrotorch-gpu/src/bf16.rs (gpu_block_reduce_max_abs_bf16 doc) — replaced with neutral descriptions of intent\n- .claude/settings.local.json: removed dead Bash permission targeting ferrotorch-paged/src/predictor/mod.rs\nLeft as-is on purpose: CHANGELOG.md historical entries (truthful project history) and one passing reference in llama3_stack.md memory (rationale for multi-batch deferral, not paged-specific). Both workspaces (ferrotorch and ferrotorch-paged) cargo check clean.",
+  "created_at": "2026-04-27T20:53:27.070432500Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABARjNc5SszWBOntM5F1c8ZHQWPn6mngrnpN9/hvhPd9QCQ+EuJZz4NQsXRI9BVbwlcK30T0yIm3IMfh8Gtgik7Bg=="
+}
