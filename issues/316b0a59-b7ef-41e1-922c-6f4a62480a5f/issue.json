@@ -2,11 +2,12 @@
   "uuid": "316b0a59-b7ef-41e1-922c-6f4a62480a5f",
   "display_id": 554,
   "title": "Add JSON-schema constrained-decoding logits processor (ferrotorch-llama::grammar::JsonSchemaProcessor)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-27T15:55:38.956535031Z",
-  "updated_at": "2026-04-27T15:55:40.400799562Z",
+  "updated_at": "2026-04-27T18:16:27.751398619Z",
+  "closed_at": "2026-04-27T18:16:27.751398619Z",
   "labels": [
     "feature"
   ]
