@@ -1,0 +1,10 @@
+{
+  "uuid": "3df95524-846d-42c9-85c1-494b2faf2c2a",
+  "display_id": 553,
+  "title": "Add Llama-3.3-70B-Instruct support to ferrotorch-llama (architecture + weight loader + quantization)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-04-27T15:55:36.062300984Z",
+  "updated_at": "2026-04-27T15:55:36.062300984Z"
+}
