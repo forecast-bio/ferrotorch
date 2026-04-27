@@ -1,0 +1,10 @@
+{
+  "uuid": "34037d86-3aec-4114-bf06-fd3abdf95617",
+  "issue_uuid": "c502842b-ad7f-4372-a07f-61a00db56c2c",
+  "author": "y4rr",
+  "content": "AC-18 (qnd-trial-intel-rs design doc): scaled JsonSchemaProcessor sampled-completion coverage from 1k to 10k per schema (release; debug stays 1k for fast cargo test). 5 schemas × 10000 trials = 50000 completions, all parse + validate. Commit 9b87d105 on main. Issue #558 has its result comment posted but cross-repo close from qnd-trial-intel-rs's session is blocked by that repo's hook (the hook resolves to qnd-trial-intel-rs's DB, doesn't see issue 558 there, and refuses to close). Run 'crosslink issue close 558' from a ferrotorch-rooted shell to finalize.",
+  "created_at": "2026-04-27T21:09:38.767423566Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAFgV2GKuSIOfv7VAvrgTW/HdiES70scaS5/ZQ6wRZb/oYvp8UwrYXJ8q70JgeOngLtEjqCX9DNJP/qvhb1dJEAA=="
+}
