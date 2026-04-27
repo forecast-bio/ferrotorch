@@ -19,19 +19,27 @@ use ferrotorch_cubecl::{DfaMaskInputs, compute_token_mask_dfa_to_gpu};
 use super::schema::Schema;
 use super::state::{
     BooleanEmissionStage, IntegerEmissionStage, NullEmissionStage, NullableEmissionStage,
-    NumberEmissionStage, StringEmissionStage, StringEnumEmissionStage,
+    NumberEmissionStage, ObjectKeyEmissionStage, StringEmissionStage, StringEnumEmissionStage,
 };
 use super::json_schema::{JsonSchemaProcessor, TokenMask};
 
 /// One DFA built from a grammar state. All buffers are owned `Vec<u32>`s
 /// because the kernel launcher takes them by reference, and they need to
 /// outlive the launcher call.
+///
+/// `complete_states` is non-empty only when the wrapped schema has
+/// states that are syntactically valid completion points (e.g. after
+/// `"true"` for a Boolean, or after at least one digit for an Integer).
+/// Multi-frame dispatch uses this to know which states should accept
+/// the parent's terminator chars (`,`, `}`, `]`). Single-frame
+/// dispatch leaves it empty.
 struct CompiledDfa {
     transitions: Vec<u32>,
     char_classes: Vec<u32>,
     num_classes: u32,
     start_state: u32,
     reject_state: u32,
+    complete_states: Vec<u32>,
 }
 
 /// Compile a [`NullEmissionStage`] into a finite DFA. Mirrors
@@ -96,12 +104,17 @@ fn compile_dfa_for_integer(stage: &IntegerEmissionStage) -> CompiledDfa {
         IntegerEmissionStage::AfterDigits => 3,
     };
 
+    // Integer is complete (a valid integer has been emitted) at
+    // AfterZero (just "0") and AfterDigits (one or more non-zero
+    // digits, possibly preceded by '-'). AfterSign (just "-") is not
+    // complete.
     CompiledDfa {
         transitions,
         char_classes,
         num_classes,
         start_state,
         reject_state: reject,
+        complete_states: vec![2, 3],
     }
 }
 
@@ -176,12 +189,16 @@ fn compile_dfa_for_number(stage: &NumberEmissionStage) -> CompiledDfa {
         NumberEmissionStage::AfterFractionalDigits => 5,
     };
 
+    // Number is complete at every digit-emitting state EXCEPT
+    // AfterDecimalNoFrac, where the grammar requires at least one
+    // fractional digit before the value can terminate.
     CompiledDfa {
         transitions,
         char_classes,
         num_classes,
         start_state,
         reject_state: reject,
+        complete_states: vec![2, 3, 5],
     }
 }
 
@@ -233,12 +250,14 @@ fn compile_dfa_for_string(stage: &StringEmissionStage) -> CompiledDfa {
         StringEmissionStage::InBody => 1,
     };
 
+    // String is complete only after the closing '"' (state 2).
     CompiledDfa {
         transitions,
         char_classes,
         num_classes,
         start_state,
         reject_state: reject,
+        complete_states: vec![2],
     }
 }
 
@@ -355,13 +374,85 @@ fn compile_dfa_for_string_enum(
         StringEnumEmissionStage::InBody { partial } => *prefix_to_state.get(*partial)?,
     };
 
+    // StringEnum is complete only after the closing '"' lands on
+    // closed_state.
     Some(CompiledDfa {
         transitions,
         char_classes,
         num_classes,
         start_state,
         reject_state: reject,
+        complete_states: vec![closed_state],
     })
+}
+
+/// Append parent terminator support to an existing DFA.
+///
+/// At each state listed in `dfa.complete_states` (states that
+/// represent a syntactically-valid scalar completion — e.g. for
+/// Integer: AfterZero and AfterDigits), every `terminator` char gets
+/// a dedicated class (via `split_class_for_char`) and transitions to a
+/// fresh "popped" sink state. The popped state rejects any further
+/// character.
+///
+/// This is the multi-frame extension: when the scalar lives inside an
+/// Object property value or Array element, the parent contributes
+/// terminator chars (`,`, `}`, `]`) that legally end the value. The
+/// kernel walks one token's chars, so a token consisting of "value
+/// chars + one terminator" is accepted; a token spanning the value
+/// boundary into a *new* parent state (e.g. `,"` in BPE) is
+/// conservatively rejected (CPU still accepts it). For ASCII single-
+/// char vocabularies this is byte-equal; for real BPE vocabs it's a
+/// known under-allow on rare cross-boundary structural tokens.
+fn add_terminators_to_states(mut dfa: CompiledDfa, terminators: &[char]) -> CompiledDfa {
+    if terminators.is_empty() || dfa.complete_states.is_empty() {
+        return dfa;
+    }
+
+    let mut term_classes: Vec<u32> = Vec::with_capacity(terminators.len());
+    for &c in terminators {
+        if (c as u32) < 128 {
+            term_classes.push(split_class_for_char(&mut dfa, c as u8));
+        }
+    }
+
+    // Append a single "popped" sink state. Any class transitions to
+    // REJECT (default fill). Multiple terminators all funnel into the
+    // same popped state — that's correct because a token can include
+    // at most one terminator char before its parent's transitions take
+    // over, and we don't model the parent here.
+    let nc = dfa.num_classes as usize;
+    let n_old = dfa.transitions.len() / nc;
+    let popped = n_old as u32;
+    let new_total = n_old + 1;
+    let mut new_t = vec![dfa.reject_state; new_total * nc];
+    new_t[..n_old * nc].copy_from_slice(&dfa.transitions);
+
+    for &complete in &dfa.complete_states {
+        for &cls in &term_classes {
+            new_t[complete as usize * nc + cls as usize] = popped;
+        }
+    }
+
+    dfa.transitions = new_t;
+    dfa
+}
+
+/// Compile a `Phase::ObjectKey` DFA from the still-unseen-property
+/// candidates. Structurally identical to a `Schema::StringEnum` at
+/// `Phase::StringChars` — a prefix trie over the candidates with
+/// closing `'"'` enabled at trie nodes matching a complete value. We
+/// reuse the StringEnum compiler with `StringEnumEmissionStage::InBody`
+/// since by the time we're in `ObjectKey`, the opening `'"'` has
+/// already been emitted (consumed by the grammar's transition into
+/// `ObjectKey`).
+fn compile_dfa_for_object_key(stage: &ObjectKeyEmissionStage<'_>) -> Option<CompiledDfa> {
+    compile_dfa_for_string_enum(
+        &StringEnumEmissionStage::InBody {
+            partial: stage.partial,
+        },
+        stage.candidates,
+    )
 }
 
 /// Ensure the byte-level char `c` has its own class in `dfa`. If the
@@ -428,6 +519,10 @@ fn merge_null_branch(mut inner: CompiledDfa) -> CompiledDfa {
     new_t[walk_l2_state as usize * nc + class_l as usize] = accept_null_state;
 
     inner.transitions = new_t;
+    // Merged completion set: inner's existing complete states plus the
+    // freshly-added "null" accept. Multi-frame dispatch attaches parent
+    // terminators to all of them.
+    inner.complete_states.push(accept_null_state);
     inner
 }
 
@@ -541,12 +636,15 @@ fn compile_boolean_full() -> CompiledDfa {
     // state 9 (= "false" complete): every class → REJECT (already set).
     // state 10 (REJECT): every class → REJECT (already set).
 
+    // Boolean is complete in two places: state 4 ("true" emitted) and
+    // state 9 ("false" emitted).
     CompiledDfa {
         transitions,
         char_classes,
         num_classes,
         start_state: 0,
         reject_state: reject,
+        complete_states: vec![4, 9],
     }
 }
 
@@ -593,12 +691,15 @@ fn compile_linear_literal(literal: &str) -> CompiledDfa {
     // state `n` (accept): every class → REJECT (already set).
     // state `reject`: every class → REJECT (already set).
 
+    // The literal walk is complete only when the full literal has been
+    // emitted — state index `n`.
     CompiledDfa {
         transitions,
         char_classes,
         num_classes,
         start_state: 0,
         reject_state: reject,
+        complete_states: vec![n as u32],
     }
 }
 
@@ -654,29 +755,59 @@ pub fn compute_mask_gpu<R: Runtime>(
     client: &ComputeClient<R>,
     packed: &PackedVocab,
 ) -> Option<TokenMask> {
-    // Try each supported emission-stage accessor in turn. Returning early
-    // on the first match gives a deterministic priority — but at most one
-    // accessor returns Some for any given grammar state (single-frame +
-    // schema-discriminated), so the order is observationally irrelevant.
+    // Try each supported emission-stage accessor in turn. Each scalar
+    // accessor returns the *top* frame's stage (multi-frame aware); the
+    // helper `top_frame_parent_terminators` then surfaces the parent
+    // frame's terminator chars, which `add_terminators_to_states` bakes
+    // into the compiled DFA at every completion state. For single-
+    // frame grammars `terminators` is empty and the helper is a no-op,
+    // so the same dispatch handles both single-frame (top-level scalar)
+    // and nested (scalar inside Object/Array) shapes.
     let grammar = processor.grammar();
-    let dfa = if let Some(stage) = grammar.boolean_emission_stage() {
-        compile_dfa_for_boolean(&stage)
-    } else if let Some(stage) = grammar.null_emission_stage() {
-        compile_dfa_for_null(&stage)
-    } else if let Some(stage) = grammar.integer_emission_stage() {
-        compile_dfa_for_integer(&stage)
-    } else if let Some(stage) = grammar.number_emission_stage() {
-        compile_dfa_for_number(&stage)
-    } else if let Some(stage) = grammar.string_emission_stage() {
-        compile_dfa_for_string(&stage)
-    } else if let Some((stage, values)) = grammar.string_enum_emission_stage() {
-        compile_dfa_for_string_enum(&stage, values)?
+    let terminators = grammar.top_frame_parent_terminators();
+
+    // ObjectKey is a non-scalar accessor (still multi-frame, but the
+    // current top frame is an Object — not a scalar — and it carries
+    // its own self-contained DFA shape). It's checked first so its
+    // dispatch is independent of the scalar-with-terminators chain.
+    if let Some(stage) = grammar.object_key_emission_stage() {
+        let dfa = compile_dfa_for_object_key(&stage)?;
+        return run_dfa_on_gpu(client, packed, &dfa);
+    }
+
+    let dfa = if let Some(stage) = grammar.boolean_emission_stage_top() {
+        add_terminators_to_states(compile_dfa_for_boolean(&stage), &terminators)
+    } else if let Some(stage) = grammar.null_emission_stage_top() {
+        add_terminators_to_states(compile_dfa_for_null(&stage), &terminators)
+    } else if let Some(stage) = grammar.integer_emission_stage_top() {
+        add_terminators_to_states(compile_dfa_for_integer(&stage), &terminators)
+    } else if let Some(stage) = grammar.number_emission_stage_top() {
+        add_terminators_to_states(compile_dfa_for_number(&stage), &terminators)
+    } else if let Some(stage) = grammar.string_emission_stage_top() {
+        add_terminators_to_states(compile_dfa_for_string(&stage), &terminators)
+    } else if let Some((stage, values)) = grammar.string_enum_emission_stage_top() {
+        add_terminators_to_states(
+            compile_dfa_for_string_enum(&stage, values)?,
+            &terminators,
+        )
     } else if let Some(NullableEmissionStage::Start { inner }) = grammar.nullable_emission_stage() {
-        compile_dfa_for_nullable(inner)?
+        add_terminators_to_states(compile_dfa_for_nullable(inner)?, &terminators)
     } else {
         return None;
     };
 
+    run_dfa_on_gpu(client, packed, &dfa)
+}
+
+/// Build [`DfaMaskInputs`] from a compiled DFA + the host-packed
+/// vocab, dispatch the kernel, and read the mask back. Returns `None`
+/// if the device-side read returns the wrong byte count (corrupt
+/// transfer).
+fn run_dfa_on_gpu<R: Runtime>(
+    client: &ComputeClient<R>,
+    packed: &PackedVocab,
+    dfa: &CompiledDfa,
+) -> Option<TokenMask> {
     let inputs = DfaMaskInputs {
         transitions: &dfa.transitions,
         char_classes: &dfa.char_classes,
@@ -1244,12 +1375,219 @@ mod cuda_tests {
     }
 
     // -----------------------------------------------------------------
+    // Stage 5 — Nested scalars (Integer / String inside Array)
+    // -----------------------------------------------------------------
+
+    /// Walk an Integer schema nested inside an Array element. After
+    /// "[1" the grammar is at NumberDigits inside an Array frame, with
+    /// parent_terminators = [',', ']']. Both terminators must be
+    /// allowed; CPU-equal byte-for-byte on ASCII single-char vocab.
+    #[test]
+    fn nested_integer_in_array_after_digit() {
+        let vocab = ascii_char_vocab();
+        let mut processor = JsonSchemaProcessor::new(
+            &json!({"type": "array", "items": {"type": "integer"}}),
+            vocab.clone(),
+        )
+        .unwrap();
+        let lb = vocab.iter().position(|s| s == "[").unwrap() as u32;
+        let one = vocab.iter().position(|s| s == "1").unwrap() as u32;
+        processor.step_token(lb).unwrap();
+        processor.step_token(one).unwrap();
+
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Integer in Array after digit must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+
+        // Both ',' and ']' should be allowed — they're parent
+        // terminators, and Integer at AfterDigits is a complete value.
+        for c in [',', ']'] {
+            let i = vocab.iter().position(|s| s == &c.to_string()).unwrap();
+            assert_eq!(
+                gpu_mask.allow[i], 1,
+                "terminator {c} must be accepted by nested Integer DFA",
+            );
+        }
+        // '5' is also valid (more digits before terminating).
+        let five = vocab.iter().position(|s| s == "5").unwrap();
+        assert_eq!(gpu_mask.allow[five], 1);
+    }
+
+    /// Walk a String schema nested inside an Array. Inside the body,
+    /// the closing '"' completes the value; ',' / ']' are NOT valid
+    /// directly because the closing quote must come first. After the
+    /// closing quote the multi-frame DFA's "popped" sink kicks in.
+    #[test]
+    fn nested_string_in_array_after_open_quote() {
+        let vocab = ascii_char_vocab();
+        let mut processor = JsonSchemaProcessor::new(
+            &json!({"type": "array", "items": {"type": "string"}}),
+            vocab.clone(),
+        )
+        .unwrap();
+        let lb = vocab.iter().position(|s| s == "[").unwrap() as u32;
+        let dq = vocab.iter().position(|s| s == "\"").unwrap() as u32;
+        processor.step_token(lb).unwrap();
+        processor.step_token(dq).unwrap();
+
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("String in Array InBody must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+
+        // Closing '"' is allowed (will close the body, completing the
+        // string); content chars (including ',' which is a literal
+        // comma inside the string body, not a terminator) are also
+        // allowed. The terminator-class transitions only fire at the
+        // String DFA's complete_states (state 2 = closed-after-quote),
+        // not mid-body.
+        let dq_idx = vocab.iter().position(|s| s == "\"").unwrap();
+        assert_eq!(gpu_mask.allow[dq_idx], 1);
+        let a = vocab.iter().position(|s| s == "a").unwrap();
+        assert_eq!(gpu_mask.allow[a], 1);
+        let comma = vocab.iter().position(|s| s == ",").unwrap();
+        assert_eq!(gpu_mask.allow[comma], 1, "comma is valid string-body content");
+        // The backslash is still rejected (escapes unsupported).
+        let bs = vocab.iter().position(|s| s == "\\").unwrap();
+        assert_eq!(gpu_mask.allow[bs], 0);
+    }
+
+    /// Walk a Boolean nested inside an Array. After "[t", we're at
+    /// PartialTrue {remaining: "rue"}; nothing should change vs the
+    /// top-level case at this state because the Boolean is mid-emission
+    /// (not at a completion state, so no terminators apply yet).
+    #[test]
+    fn nested_boolean_in_array_after_t() {
+        let vocab = ascii_char_vocab();
+        let mut processor = JsonSchemaProcessor::new(
+            &json!({"type": "array", "items": {"type": "boolean"}}),
+            vocab.clone(),
+        )
+        .unwrap();
+        let lb = vocab.iter().position(|s| s == "[").unwrap() as u32;
+        let t = vocab.iter().position(|s| s == "t").unwrap() as u32;
+        processor.step_token(lb).unwrap();
+        processor.step_token(t).unwrap();
+
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Boolean in Array after 't' must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+    }
+
+    // -----------------------------------------------------------------
+    // Stage 5 — ObjectKey (prefix trie over unseen properties)
+    // -----------------------------------------------------------------
+
+    fn extraction_response_shaped_object() -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "value": {"type": "number"},
+                "valor": {"type": "number"},
+                "name": {"type": "string"},
+                "note": {"type": "string"},
+            },
+            "required": ["name"]
+        })
+    }
+
+    /// Right after '{"', the grammar is in ObjectKey with empty partial.
+    /// Valid first chars: 'v' (toward "value" or "valor"), 'n' (toward
+    /// "name" or "note"). Other letters reject.
+    #[test]
+    fn object_key_gpu_mask_matches_cpu_at_empty_partial() {
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&extraction_response_shaped_object(), vocab.clone())
+                .unwrap();
+        let lb = vocab.iter().position(|s| s == "{").unwrap() as u32;
+        let dq = vocab.iter().position(|s| s == "\"").unwrap() as u32;
+        processor.step_token(lb).unwrap();
+        processor.step_token(dq).unwrap();
+
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("ObjectKey at empty partial must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // 'v' and 'n' lead to candidates; 'x' doesn't.
+        for c in ['v', 'n'] {
+            let i = vocab.iter().position(|s| s == &c.to_string()).unwrap();
+            assert_eq!(gpu_mask.allow[i], 1);
+        }
+        let x = vocab.iter().position(|s| s == "x").unwrap();
+        assert_eq!(gpu_mask.allow[x], 0);
+        // Closing '"' is forbidden — empty partial isn't a complete key.
+        let dq_idx = vocab.iter().position(|s| s == "\"").unwrap();
+        assert_eq!(gpu_mask.allow[dq_idx], 0);
+    }
+
+    /// After '{"v', valid chars are those that extend toward "value"
+    /// or "valor" — 'a' is the only one. Closing '"' still forbidden
+    /// (partial isn't complete).
+    #[test]
+    fn object_key_gpu_mask_matches_cpu_after_v() {
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&extraction_response_shaped_object(), vocab.clone())
+                .unwrap();
+        for s in ["{", "\"", "v"] {
+            let id = vocab.iter().position(|t| t == s).unwrap() as u32;
+            processor.step_token(id).unwrap();
+        }
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("ObjectKey at partial='v' must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        let a = vocab.iter().position(|s| s == "a").unwrap();
+        assert_eq!(gpu_mask.allow[a], 1);
+        let dq = vocab.iter().position(|s| s == "\"").unwrap();
+        assert_eq!(gpu_mask.allow[dq], 0);
+    }
+
+    /// After '{"name', the partial matches the complete property name
+    /// "name" — closing '"' becomes valid (and is the only valid char,
+    /// since no other property starts with "name…").
+    #[test]
+    fn object_key_gpu_mask_matches_cpu_after_complete_name() {
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&extraction_response_shaped_object(), vocab.clone())
+                .unwrap();
+        for s in ["{", "\"", "n", "a", "m", "e"] {
+            let id = vocab.iter().position(|t| t == s).unwrap() as u32;
+            processor.step_token(id).unwrap();
+        }
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("ObjectKey at partial='name' must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        let dq = vocab.iter().position(|s| s == "\"").unwrap();
+        assert_eq!(gpu_mask.allow[dq], 1, "closing quote must be valid when partial == 'name'");
+    }
+
+    // -----------------------------------------------------------------
     // Gate verification: still-unsupported schemas fall through.
     // -----------------------------------------------------------------
 
-    /// `Schema::Object` and `Schema::Array` remain CPU-only — their
-    /// dynamic state space (BTreeSet keys_seen, array element counts)
-    /// doesn't fit a small static DFA.
+    /// Phase::ObjectFreshOpen / ObjectExpectKey / ObjectAfterValue /
+    /// ObjectColon and Array structural phases still return `None`.
+    /// The user-visible behaviour: GPU dispatch handles ObjectKey and
+    /// nested scalars; the structural transitions stay on CPU
+    /// (cheap there, kernel-launch overhead would exceed savings).
     #[test]
     fn unsupported_schema_returns_none() {
         let vocab = ascii_char_vocab();

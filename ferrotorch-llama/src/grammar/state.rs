@@ -462,6 +462,216 @@ impl JsonGrammar {
             _ => None,
         }
     }
+
+    /// Compute the chars that legally terminate the top-of-stack value
+    /// frame, given the current parent (one level up). Returns an empty
+    /// vector when the top frame is the only frame (single-frame
+    /// dispatch path). Wraps the private `parent_terminators` so the
+    /// GPU dispatch module can use it without inheriting the rest of
+    /// `Phase`'s API surface.
+    pub fn top_frame_parent_terminators(&self) -> Vec<char> {
+        if self.done || self.frames.is_empty() {
+            return Vec::new();
+        }
+        let parent = if self.frames.len() > 1 {
+            Some(&self.frames[self.frames.len() - 2])
+        } else {
+            None
+        };
+        parent_terminators(parent)
+    }
+
+    /// If the *top* frame of this grammar is `Schema::Integer`, report
+    /// the emission stage. Unlike [`Self::integer_emission_stage`] this
+    /// version permits multi-frame grammars (Integer nested inside an
+    /// Object property value or Array element). Pair the result with
+    /// [`Self::top_frame_parent_terminators`] to feed the GPU compiler.
+    pub fn integer_emission_stage_top(&self) -> Option<IntegerEmissionStage> {
+        if self.done {
+            return None;
+        }
+        let frame = self.frames.last()?;
+        if !matches!(frame.schema, Schema::Integer) {
+            return None;
+        }
+        match &frame.phase {
+            Phase::Start => Some(IntegerEmissionStage::Start),
+            Phase::NumberDigits {
+                had_sign,
+                had_digits,
+                is_zero_only,
+                had_decimal,
+                had_fractional_digit,
+            } => {
+                debug_assert!(!*had_decimal && !*had_fractional_digit);
+                if !*had_digits {
+                    if *had_sign {
+                        Some(IntegerEmissionStage::AfterSign)
+                    } else {
+                        None
+                    }
+                } else if *is_zero_only {
+                    Some(IntegerEmissionStage::AfterZero)
+                } else {
+                    Some(IntegerEmissionStage::AfterDigits)
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Multi-frame variant of [`Self::number_emission_stage`].
+    pub fn number_emission_stage_top(&self) -> Option<NumberEmissionStage> {
+        if self.done {
+            return None;
+        }
+        let frame = self.frames.last()?;
+        if !matches!(frame.schema, Schema::Number) {
+            return None;
+        }
+        match &frame.phase {
+            Phase::Start => Some(NumberEmissionStage::Start),
+            Phase::NumberDigits {
+                had_sign,
+                had_digits,
+                had_decimal,
+                had_fractional_digit,
+                is_zero_only,
+            } => match (
+                *had_sign,
+                *had_digits,
+                *had_decimal,
+                *had_fractional_digit,
+                *is_zero_only,
+            ) {
+                (true, false, false, false, false) => Some(NumberEmissionStage::AfterSign),
+                (_, true, false, false, true) => Some(NumberEmissionStage::AfterZeroNoDecimal),
+                (_, true, false, false, false) => Some(NumberEmissionStage::AfterDigitsNoDecimal),
+                (_, true, true, false, _) => Some(NumberEmissionStage::AfterDecimalNoFrac),
+                (_, true, true, true, _) => Some(NumberEmissionStage::AfterFractionalDigits),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Multi-frame variant of [`Self::string_emission_stage`].
+    pub fn string_emission_stage_top(&self) -> Option<StringEmissionStage> {
+        if self.done {
+            return None;
+        }
+        let frame = self.frames.last()?;
+        if !matches!(frame.schema, Schema::String) {
+            return None;
+        }
+        match &frame.phase {
+            Phase::Start => Some(StringEmissionStage::Start),
+            Phase::StringChars { allowed: None, .. } => Some(StringEmissionStage::InBody),
+            _ => None,
+        }
+    }
+
+    /// Multi-frame variant of [`Self::boolean_emission_stage`].
+    pub fn boolean_emission_stage_top(&self) -> Option<BooleanEmissionStage> {
+        if self.done {
+            return None;
+        }
+        let frame = self.frames.last()?;
+        if !matches!(frame.schema, Schema::Boolean) {
+            return None;
+        }
+        match &frame.phase {
+            Phase::Start => Some(BooleanEmissionStage::Start),
+            Phase::Literal { remaining }
+                if "true".ends_with(remaining) && remaining.len() < "true".len() =>
+            {
+                Some(BooleanEmissionStage::PartialTrue { remaining })
+            }
+            Phase::Literal { remaining }
+                if "false".ends_with(remaining) && remaining.len() < "false".len() =>
+            {
+                Some(BooleanEmissionStage::PartialFalse { remaining })
+            }
+            _ => None,
+        }
+    }
+
+    /// Multi-frame variant of [`Self::null_emission_stage`].
+    pub fn null_emission_stage_top(&self) -> Option<NullEmissionStage> {
+        if self.done {
+            return None;
+        }
+        let frame = self.frames.last()?;
+        if !matches!(frame.schema, Schema::Null) {
+            return None;
+        }
+        match &frame.phase {
+            Phase::Start => Some(NullEmissionStage::Start),
+            Phase::Literal { remaining } if "null".ends_with(remaining) && !remaining.is_empty() => {
+                Some(NullEmissionStage::Partial { remaining })
+            }
+            _ => None,
+        }
+    }
+
+    /// Multi-frame variant of [`Self::string_enum_emission_stage`].
+    pub fn string_enum_emission_stage_top(
+        &self,
+    ) -> Option<(StringEnumEmissionStage<'_>, &[String])> {
+        if self.done {
+            return None;
+        }
+        let frame = self.frames.last()?;
+        let values: &[String] = match &frame.schema {
+            Schema::StringEnum(v) => v.as_slice(),
+            _ => return None,
+        };
+        let stage = match &frame.phase {
+            Phase::Start => StringEnumEmissionStage::Start,
+            Phase::StringChars {
+                partial,
+                allowed: Some(_),
+            } => StringEnumEmissionStage::InBody {
+                partial: partial.as_str(),
+            },
+            _ => return None,
+        };
+        Some((stage, values))
+    }
+
+    /// If the top frame is in `Phase::ObjectKey`, surface the partial
+    /// chars and the still-unseen-property candidates list. The
+    /// candidates borrow into the grammar's own state — no clone.
+    pub fn object_key_emission_stage(&self) -> Option<ObjectKeyEmissionStage<'_>> {
+        if self.done {
+            return None;
+        }
+        let frame = self.frames.last()?;
+        if !matches!(frame.schema, Schema::Object { .. }) {
+            return None;
+        }
+        match &frame.phase {
+            Phase::ObjectKey {
+                partial,
+                candidates,
+                ..
+            } => Some(ObjectKeyEmissionStage {
+                partial: partial.as_str(),
+                candidates: candidates.as_slice(),
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Stage of `Phase::ObjectKey` emission. The DFA is structurally the
+/// same as a [`StringEnumEmissionStage`] over `candidates` — a prefix
+/// trie with closing `'"'` enabled at trie nodes that match a complete
+/// candidate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectKeyEmissionStage<'a> {
+    pub partial: &'a str,
+    pub candidates: &'a [String],
 }
 
 impl JsonGrammar {
