@@ -2,11 +2,12 @@
   "uuid": "6abc7040-5b77-45c0-a28f-9b1004cdc991",
   "display_id": 556,
   "title": "Extract ferrotorch-paged to private repo at /home/doll/ferrotorch-paged",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-27T20:48:39.328457435Z",
-  "updated_at": "2026-04-27T20:48:40.709229325Z",
+  "updated_at": "2026-04-27T20:49:59.823624033Z",
+  "closed_at": "2026-04-27T20:49:59.823624033Z",
   "labels": [
     "chore"
   ]
