@@ -16,7 +16,10 @@
 use cubecl::prelude::{ComputeClient, Runtime};
 use ferrotorch_cubecl::{DfaMaskInputs, compute_token_mask_dfa_to_gpu};
 
-use super::state::BooleanEmissionStage;
+use super::state::{
+    BooleanEmissionStage, IntegerEmissionStage, NullEmissionStage, NumberEmissionStage,
+    StringEmissionStage,
+};
 use super::json_schema::{JsonSchemaProcessor, TokenMask};
 
 /// One DFA built from a grammar state. All buffers are owned `Vec<u32>`s
@@ -28,6 +31,214 @@ struct CompiledDfa {
     num_classes: u32,
     start_state: u32,
     reject_state: u32,
+}
+
+/// Compile a [`NullEmissionStage`] into a finite DFA. Mirrors
+/// [`compile_dfa_for_boolean`] but for the single literal `"null"`.
+fn compile_dfa_for_null(stage: &NullEmissionStage) -> CompiledDfa {
+    match stage {
+        NullEmissionStage::Start => compile_linear_literal("null"),
+        NullEmissionStage::Partial { remaining } => compile_linear_literal(remaining),
+    }
+}
+
+/// Compile an [`IntegerEmissionStage`] into a finite DFA. Top-level
+/// integers only (no parent terminator chars). The DFA covers all
+/// reachable forward states from the given starting stage.
+///
+/// Char classes:
+/// - 0 = `'-'`
+/// - 1 = `'0'` (zero specifically)
+/// - 2 = `'1'..='9'` (non-zero digit)
+/// - 3 = OTHER (anything else → REJECT)
+///
+/// States:
+/// - 0 = start (need `'-'` or any digit)
+/// - 1 = after `'-'` (need any digit)
+/// - 2 = after a single `'0'` (REJECT on any further char — JSON forbids `01`)
+/// - 3 = after one or more non-zero digits (more digits valid; nothing else)
+/// - 4 = REJECT
+fn compile_dfa_for_integer(stage: &IntegerEmissionStage) -> CompiledDfa {
+    let class_minus = 0u32;
+    let class_zero = 1u32;
+    let class_pos_digit = 2u32;
+    let class_other = 3u32;
+    let num_classes = 4u32;
+
+    let mut char_classes = vec![class_other; 128];
+    char_classes[b'-' as usize] = class_minus;
+    char_classes[b'0' as usize] = class_zero;
+    for d in b'1'..=b'9' {
+        char_classes[d as usize] = class_pos_digit;
+    }
+
+    let num_states = 5usize;
+    let reject = 4u32;
+    let nc = num_classes as usize;
+    let mut transitions = vec![reject; num_states * nc];
+    let row = |s: usize, c: u32| s * nc + c as usize;
+
+    transitions[row(0, class_minus)] = 1;
+    transitions[row(0, class_zero)] = 2;
+    transitions[row(0, class_pos_digit)] = 3;
+    transitions[row(1, class_zero)] = 2;
+    transitions[row(1, class_pos_digit)] = 3;
+    // state 2 (after-zero): every class → REJECT (already set).
+    transitions[row(3, class_zero)] = 3;
+    transitions[row(3, class_pos_digit)] = 3;
+    // state 4 (REJECT): every class → REJECT (already set).
+
+    let start_state = match stage {
+        IntegerEmissionStage::Start => 0,
+        IntegerEmissionStage::AfterSign => 1,
+        IntegerEmissionStage::AfterZero => 2,
+        IntegerEmissionStage::AfterDigits => 3,
+    };
+
+    CompiledDfa {
+        transitions,
+        char_classes,
+        num_classes,
+        start_state,
+        reject_state: reject,
+    }
+}
+
+/// Compile a [`NumberEmissionStage`] into a finite DFA. Top-level
+/// numbers only. Adds the decimal-point + fractional-digit dimensions
+/// over [`compile_dfa_for_integer`].
+///
+/// Char classes:
+/// - 0 = `'-'`
+/// - 1 = `'0'`
+/// - 2 = `'1'..='9'`
+/// - 3 = `'.'`
+/// - 4 = OTHER
+///
+/// States:
+/// - 0 = start
+/// - 1 = after `'-'`
+/// - 2 = after `'0'`, no decimal — only `'.'` is valid
+/// - 3 = after non-zero integer digits, no decimal — digits or `'.'`
+/// - 4 = after `'.'` with no fractional digit yet (mid_decimal) — only digits
+/// - 5 = after one or more fractional digits — only digits
+/// - 6 = REJECT
+fn compile_dfa_for_number(stage: &NumberEmissionStage) -> CompiledDfa {
+    let class_minus = 0u32;
+    let class_zero = 1u32;
+    let class_pos_digit = 2u32;
+    let class_dot = 3u32;
+    let class_other = 4u32;
+    let num_classes = 5u32;
+
+    let mut char_classes = vec![class_other; 128];
+    char_classes[b'-' as usize] = class_minus;
+    char_classes[b'0' as usize] = class_zero;
+    for d in b'1'..=b'9' {
+        char_classes[d as usize] = class_pos_digit;
+    }
+    char_classes[b'.' as usize] = class_dot;
+
+    let num_states = 7usize;
+    let reject = 6u32;
+    let nc = num_classes as usize;
+    let mut transitions = vec![reject; num_states * nc];
+    let row = |s: usize, c: u32| s * nc + c as usize;
+
+    // state 0 (start): '-' / '0' / '1'-'9'
+    transitions[row(0, class_minus)] = 1;
+    transitions[row(0, class_zero)] = 2;
+    transitions[row(0, class_pos_digit)] = 3;
+    // state 1 (after '-'): '0' / '1'-'9'
+    transitions[row(1, class_zero)] = 2;
+    transitions[row(1, class_pos_digit)] = 3;
+    // state 2 (after '0', no decimal): only '.'
+    transitions[row(2, class_dot)] = 4;
+    // state 3 (after non-zero integer digits, no decimal): digits or '.'
+    transitions[row(3, class_zero)] = 3;
+    transitions[row(3, class_pos_digit)] = 3;
+    transitions[row(3, class_dot)] = 4;
+    // state 4 (mid-decimal, no fractional digit): only digits
+    transitions[row(4, class_zero)] = 5;
+    transitions[row(4, class_pos_digit)] = 5;
+    // state 5 (after fractional digit): more digits
+    transitions[row(5, class_zero)] = 5;
+    transitions[row(5, class_pos_digit)] = 5;
+    // state 6 (REJECT): already set.
+
+    let start_state = match stage {
+        NumberEmissionStage::Start => 0,
+        NumberEmissionStage::AfterSign => 1,
+        NumberEmissionStage::AfterZeroNoDecimal => 2,
+        NumberEmissionStage::AfterDigitsNoDecimal => 3,
+        NumberEmissionStage::AfterDecimalNoFrac => 4,
+        NumberEmissionStage::AfterFractionalDigits => 5,
+    };
+
+    CompiledDfa {
+        transitions,
+        char_classes,
+        num_classes,
+        start_state,
+        reject_state: reject,
+    }
+}
+
+/// Compile a [`StringEmissionStage`] into a DFA for `Schema::String`
+/// (non-enum). Two grammar states map onto three DFA states.
+///
+/// Char classes:
+/// - 0 = `'"'` (string delimiter)
+/// - 1 = `'\\'` (escapes are intentionally unsupported per the grammar)
+/// - 2 = printable ASCII other than `'"'` / `'\\'` (i.e. `0x20..=0x7E` minus those two)
+/// - 3 = OTHER (control chars, non-ASCII — REJECT)
+///
+/// States:
+/// - 0 = `Phase::Start`, expects opening `'"'`
+/// - 1 = inside body, accepts content chars or closing `'"'`
+/// - 2 = closed (after `'"'`), any further char rejects
+/// - 3 = REJECT
+fn compile_dfa_for_string(stage: &StringEmissionStage) -> CompiledDfa {
+    let class_quote = 0u32;
+    let class_backslash = 1u32;
+    let class_content = 2u32;
+    let class_other = 3u32;
+    let num_classes = 4u32;
+
+    let mut char_classes = vec![class_other; 128];
+    for b in 0x20u8..=0x7Eu8 {
+        char_classes[b as usize] = class_content;
+    }
+    char_classes[b'"' as usize] = class_quote;
+    char_classes[b'\\' as usize] = class_backslash;
+
+    let num_states = 4usize;
+    let reject = 3u32;
+    let nc = num_classes as usize;
+    let mut transitions = vec![reject; num_states * nc];
+    let row = |s: usize, c: u32| s * nc + c as usize;
+
+    // state 0 (Start): only opening '"' is valid
+    transitions[row(0, class_quote)] = 1;
+    // state 1 (in body): content chars stay in body, closing '"' goes to closed
+    transitions[row(1, class_content)] = 1;
+    transitions[row(1, class_quote)] = 2;
+    // backslash → REJECT (already set; escapes unsupported by the grammar).
+    // state 2 (closed): any further char → REJECT (already set).
+    // state 3 (REJECT): already set.
+
+    let start_state = match stage {
+        StringEmissionStage::Start => 0,
+        StringEmissionStage::InBody => 1,
+    };
+
+    CompiledDfa {
+        transitions,
+        char_classes,
+        num_classes,
+        start_state,
+        reject_state: reject,
+    }
 }
 
 /// Compile a [`BooleanEmissionStage`] into a finite DFA.
@@ -229,8 +440,24 @@ pub fn compute_mask_gpu<R: Runtime>(
     client: &ComputeClient<R>,
     packed: &PackedVocab,
 ) -> Option<TokenMask> {
-    let stage = processor.grammar().boolean_emission_stage()?;
-    let dfa = compile_dfa_for_boolean(&stage);
+    // Try each supported emission-stage accessor in turn. Returning early
+    // on the first match gives a deterministic priority — but at most one
+    // accessor returns Some for any given grammar state (single-frame +
+    // schema-discriminated), so the order is observationally irrelevant.
+    let grammar = processor.grammar();
+    let dfa = if let Some(stage) = grammar.boolean_emission_stage() {
+        compile_dfa_for_boolean(&stage)
+    } else if let Some(stage) = grammar.null_emission_stage() {
+        compile_dfa_for_null(&stage)
+    } else if let Some(stage) = grammar.integer_emission_stage() {
+        compile_dfa_for_integer(&stage)
+    } else if let Some(stage) = grammar.number_emission_stage() {
+        compile_dfa_for_number(&stage)
+    } else if let Some(stage) = grammar.string_emission_stage() {
+        compile_dfa_for_string(&stage)
+    } else {
+        return None;
+    };
 
     let inputs = DfaMaskInputs {
         transitions: &dfa.transitions,
@@ -357,9 +584,249 @@ mod cuda_tests {
         assert!(!allowed_chars.contains(&'f'));
     }
 
-    /// Stage-2 unsupported schemas return `None` so the caller can fall
-    /// through to CPU compute_mask. Verifies the gate is in place — no
-    /// silent mis-dispatch to a half-built DFA.
+    // -----------------------------------------------------------------
+    // Stage 3 — Null
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn null_gpu_mask_matches_cpu_at_start() {
+        let vocab = ascii_char_vocab();
+        let processor =
+            JsonSchemaProcessor::new(&json!({"type": "null"}), vocab.clone()).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Schema::Null at Phase::Start must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // Sanity: only 'n' should be allowed at the start of `null`.
+        let n_id = vocab.iter().position(|s| s == "n").unwrap();
+        let m_id = vocab.iter().position(|s| s == "m").unwrap();
+        assert_eq!(gpu_mask.allow[n_id], 1);
+        assert_eq!(gpu_mask.allow[m_id], 0);
+    }
+
+    #[test]
+    fn null_gpu_mask_matches_cpu_after_n() {
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&json!({"type": "null"}), vocab.clone()).unwrap();
+        let n_id = vocab.iter().position(|s| s == "n").unwrap() as u32;
+        processor.step_token(n_id).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Null Partial must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        let u_id = vocab.iter().position(|s| s == "u").unwrap();
+        assert_eq!(gpu_mask.allow[u_id], 1);
+    }
+
+    // -----------------------------------------------------------------
+    // Stage 3 — Integer
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn integer_gpu_mask_matches_cpu_at_start() {
+        let vocab = ascii_char_vocab();
+        let processor =
+            JsonSchemaProcessor::new(&json!({"type": "integer"}), vocab.clone()).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Integer Start must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // Sanity: '-' and '0'-'9' are allowed; letters aren't.
+        for d in '0'..='9' {
+            let i = vocab.iter().position(|s| s == &d.to_string()).unwrap();
+            assert_eq!(gpu_mask.allow[i], 1, "digit {d} should be allowed");
+        }
+        let minus = vocab.iter().position(|s| s == "-").unwrap();
+        assert_eq!(gpu_mask.allow[minus], 1);
+        let a = vocab.iter().position(|s| s == "a").unwrap();
+        assert_eq!(gpu_mask.allow[a], 0);
+    }
+
+    #[test]
+    fn integer_gpu_mask_matches_cpu_after_sign() {
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&json!({"type": "integer"}), vocab.clone()).unwrap();
+        let minus = vocab.iter().position(|s| s == "-").unwrap() as u32;
+        processor.step_token(minus).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Integer AfterSign must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+    }
+
+    #[test]
+    fn integer_gpu_mask_matches_cpu_after_zero() {
+        // Leading-zero edge case: after '0', no further chars are valid
+        // for a top-level integer (the JSON forbids "01").
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&json!({"type": "integer"}), vocab.clone()).unwrap();
+        let zero = vocab.iter().position(|s| s == "0").unwrap() as u32;
+        processor.step_token(zero).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Integer AfterZero must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // CPU and GPU both reject every single-char token here.
+        assert!(
+            gpu_mask.allow.iter().all(|&a| a == 0),
+            "AfterZero with no parent must reject everything",
+        );
+    }
+
+    #[test]
+    fn integer_gpu_mask_matches_cpu_after_digits() {
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&json!({"type": "integer"}), vocab.clone()).unwrap();
+        let four = vocab.iter().position(|s| s == "4").unwrap() as u32;
+        let two = vocab.iter().position(|s| s == "2").unwrap() as u32;
+        processor.step_token(four).unwrap();
+        processor.step_token(two).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Integer AfterDigits must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+    }
+
+    // -----------------------------------------------------------------
+    // Stage 3 — Number
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn number_gpu_mask_matches_cpu_at_start() {
+        let vocab = ascii_char_vocab();
+        let processor =
+            JsonSchemaProcessor::new(&json!({"type": "number"}), vocab.clone()).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Number Start must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+    }
+
+    #[test]
+    fn number_gpu_mask_matches_cpu_after_zero_is_only_dot() {
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&json!({"type": "number"}), vocab.clone()).unwrap();
+        let zero = vocab.iter().position(|s| s == "0").unwrap() as u32;
+        processor.step_token(zero).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Number AfterZeroNoDecimal must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // Only '.' should be allowed.
+        let dot = vocab.iter().position(|s| s == ".").unwrap();
+        assert_eq!(gpu_mask.allow[dot], 1);
+        let one = vocab.iter().position(|s| s == "1").unwrap();
+        assert_eq!(gpu_mask.allow[one], 0);
+    }
+
+    #[test]
+    fn number_gpu_mask_matches_cpu_mid_decimal() {
+        // After "3." the grammar is in NumberDigits with had_decimal=true,
+        // had_fractional_digit=false (mid_decimal). Only digits are valid.
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&json!({"type": "number"}), vocab.clone()).unwrap();
+        let three = vocab.iter().position(|s| s == "3").unwrap() as u32;
+        let dot = vocab.iter().position(|s| s == ".").unwrap() as u32;
+        processor.step_token(three).unwrap();
+        processor.step_token(dot).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Number AfterDecimalNoFrac must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // Mid-decimal: only digits valid; '.' specifically rejected.
+        let dot_idx = vocab.iter().position(|s| s == ".").unwrap();
+        assert_eq!(gpu_mask.allow[dot_idx], 0, "second '.' must reject mid-decimal");
+        let one = vocab.iter().position(|s| s == "1").unwrap();
+        assert_eq!(gpu_mask.allow[one], 1);
+    }
+
+    #[test]
+    fn number_gpu_mask_matches_cpu_after_fractional() {
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&json!({"type": "number"}), vocab.clone()).unwrap();
+        for s in ["3", ".", "1"] {
+            let id = vocab.iter().position(|t| t == s).unwrap() as u32;
+            processor.step_token(id).unwrap();
+        }
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Number AfterFractionalDigits must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+    }
+
+    // -----------------------------------------------------------------
+    // Stage 3 — String (non-enum)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn string_gpu_mask_matches_cpu_at_start() {
+        let vocab = ascii_char_vocab();
+        let processor =
+            JsonSchemaProcessor::new(&json!({"type": "string"}), vocab.clone()).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("String Start must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // Only the opening '"' should be allowed.
+        let dq = vocab.iter().position(|s| s == "\"").unwrap();
+        assert_eq!(gpu_mask.allow[dq], 1);
+        let a = vocab.iter().position(|s| s == "a").unwrap();
+        assert_eq!(gpu_mask.allow[a], 0);
+    }
+
+    #[test]
+    fn string_gpu_mask_matches_cpu_in_body() {
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&json!({"type": "string"}), vocab.clone()).unwrap();
+        let dq = vocab.iter().position(|s| s == "\"").unwrap() as u32;
+        processor.step_token(dq).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("String InBody must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // Backslash is intentionally rejected (escapes unsupported).
+        let bs = vocab.iter().position(|s| s == "\\").unwrap();
+        assert_eq!(gpu_mask.allow[bs], 0, "backslash must reject (no escapes)");
+    }
+
+    // -----------------------------------------------------------------
+    // Gate verification: non-Boolean / non-stage-3 schemas fall through.
+    // -----------------------------------------------------------------
+
+    /// Schemas not yet supported (Object, StringEnum, Array, Nullable)
+    /// must return `None` so the caller falls back to CPU.
     #[test]
     fn unsupported_schema_returns_none() {
         let vocab = ascii_char_vocab();
@@ -377,7 +844,7 @@ mod cuda_tests {
         let res = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed);
         assert!(
             res.is_none(),
-            "stage-2 must return None for non-Boolean schemas; got Some",
+            "Object schema must return None; stage 3 doesn't handle it",
         );
 
         // Sanity: directly verify the underlying API too.

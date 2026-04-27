@@ -211,6 +211,182 @@ pub enum BooleanEmissionStage {
     },
 }
 
+/// Stage of `Schema::Null` emission. Mirrors `BooleanEmissionStage` for
+/// the "null" literal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NullEmissionStage {
+    /// Nothing emitted yet — DFA expects 'n' first.
+    Start,
+    /// Some prefix of `"null"` has been emitted. `remaining` is the
+    /// suffix still to match.
+    Partial {
+        remaining: &'static str,
+    },
+}
+
+/// Stage of single-frame `Schema::Integer` emission. The grammar's
+/// `Phase::NumberDigits` carries five booleans; for top-level integers
+/// `had_decimal` and `had_fractional_digit` are always false, so the
+/// reachable space collapses to four cases.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IntegerEmissionStage {
+    /// `Phase::Start` — DFA expects `'-'` or `'0'..='9'`.
+    Start,
+    /// After `'-'`, no digits yet — DFA expects `'0'..='9'`.
+    AfterSign,
+    /// First digit was `'0'`, no more chars valid (JSON forbids `01`).
+    /// The DFA's only outgoing transition is to REJECT.
+    AfterZero,
+    /// At least one non-zero digit emitted. More digits are valid.
+    AfterDigits,
+}
+
+/// Stage of single-frame `Schema::Number` emission. Like
+/// `IntegerEmissionStage` but extended with the decimal / fractional
+/// dimensions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NumberEmissionStage {
+    /// `Phase::Start` — DFA expects `'-'` or `'0'..='9'`.
+    Start,
+    /// After `'-'`, no digits yet — DFA expects `'0'..='9'`.
+    AfterSign,
+    /// First digit was `'0'`, no decimal yet. Only `'.'` is valid.
+    AfterZeroNoDecimal,
+    /// Non-zero integer part, no decimal yet. `'0'..='9'` and `'.'`.
+    AfterDigitsNoDecimal,
+    /// `'.'` emitted, no fractional digit yet. Only `'0'..='9'`.
+    AfterDecimalNoFrac,
+    /// At least one fractional digit. `'0'..='9'`.
+    AfterFractionalDigits,
+}
+
+/// Stage of single-frame `Schema::String` emission (non-enum strings).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StringEmissionStage {
+    /// `Phase::Start` — DFA expects opening `'"'`.
+    Start,
+    /// Inside the string body. Any printable ASCII except `'"'` and
+    /// `'\\'` (escapes are intentionally unsupported per the existing
+    /// grammar) plus the closing `'"'`.
+    InBody,
+}
+
+impl JsonGrammar {
+    /// If this grammar is a single-frame `Schema::Null`, report which
+    /// stage of literal emission we're at.
+    pub fn null_emission_stage(&self) -> Option<NullEmissionStage> {
+        if self.done || self.frames.len() != 1 {
+            return None;
+        }
+        let frame = &self.frames[0];
+        if !matches!(frame.schema, Schema::Null) {
+            return None;
+        }
+        match &frame.phase {
+            Phase::Start => Some(NullEmissionStage::Start),
+            Phase::Literal { remaining } if "null".ends_with(remaining) && !remaining.is_empty() => {
+                Some(NullEmissionStage::Partial { remaining })
+            }
+            _ => None,
+        }
+    }
+
+    /// If this grammar is a single-frame `Schema::Integer`, report the
+    /// emission stage. Stage-3 GPU dispatch handles the four reachable
+    /// cases for top-level integers; nested integers fall through to
+    /// CPU because their value-end terminator depends on the parent.
+    pub fn integer_emission_stage(&self) -> Option<IntegerEmissionStage> {
+        if self.done || self.frames.len() != 1 {
+            return None;
+        }
+        let frame = &self.frames[0];
+        if !matches!(frame.schema, Schema::Integer) {
+            return None;
+        }
+        match &frame.phase {
+            Phase::Start => Some(IntegerEmissionStage::Start),
+            Phase::NumberDigits {
+                had_sign,
+                had_digits,
+                is_zero_only,
+                had_decimal,
+                had_fractional_digit,
+            } => {
+                // Integer mode never sets decimal or fractional flags;
+                // assert that to catch grammar drift early.
+                debug_assert!(!*had_decimal && !*had_fractional_digit);
+                if !*had_digits {
+                    if *had_sign {
+                        Some(IntegerEmissionStage::AfterSign)
+                    } else {
+                        // had_sign=F && had_digits=F is Phase::Start; should be unreachable.
+                        None
+                    }
+                } else if *is_zero_only {
+                    Some(IntegerEmissionStage::AfterZero)
+                } else {
+                    Some(IntegerEmissionStage::AfterDigits)
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// If this grammar is a single-frame `Schema::Number`, report the
+    /// emission stage. Same nested-vs-top-level caveat as
+    /// `integer_emission_stage`.
+    pub fn number_emission_stage(&self) -> Option<NumberEmissionStage> {
+        if self.done || self.frames.len() != 1 {
+            return None;
+        }
+        let frame = &self.frames[0];
+        if !matches!(frame.schema, Schema::Number) {
+            return None;
+        }
+        match &frame.phase {
+            Phase::Start => Some(NumberEmissionStage::Start),
+            Phase::NumberDigits {
+                had_sign,
+                had_digits,
+                had_decimal,
+                had_fractional_digit,
+                is_zero_only,
+            } => match (
+                *had_sign,
+                *had_digits,
+                *had_decimal,
+                *had_fractional_digit,
+                *is_zero_only,
+            ) {
+                (true, false, false, false, false) => Some(NumberEmissionStage::AfterSign),
+                (_, true, false, false, true) => Some(NumberEmissionStage::AfterZeroNoDecimal),
+                (_, true, false, false, false) => Some(NumberEmissionStage::AfterDigitsNoDecimal),
+                (_, true, true, false, _) => Some(NumberEmissionStage::AfterDecimalNoFrac),
+                (_, true, true, true, _) => Some(NumberEmissionStage::AfterFractionalDigits),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// If this grammar is a single-frame `Schema::String` (non-enum),
+    /// report the emission stage.
+    pub fn string_emission_stage(&self) -> Option<StringEmissionStage> {
+        if self.done || self.frames.len() != 1 {
+            return None;
+        }
+        let frame = &self.frames[0];
+        if !matches!(frame.schema, Schema::String) {
+            return None;
+        }
+        match &frame.phase {
+            Phase::Start => Some(StringEmissionStage::Start),
+            Phase::StringChars { allowed: None, .. } => Some(StringEmissionStage::InBody),
+            _ => None,
+        }
+    }
+}
+
 impl JsonGrammar {
 
     /// Set of single-byte characters that may legally come next.
