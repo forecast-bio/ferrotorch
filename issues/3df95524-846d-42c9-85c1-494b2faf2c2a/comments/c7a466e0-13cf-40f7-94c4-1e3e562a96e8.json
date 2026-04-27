@@ -1,0 +1,10 @@
+{
+  "uuid": "c7a466e0-13cf-40f7-94c4-1e3e562a96e8",
+  "issue_uuid": "3df95524-846d-42c9-85c1-494b2faf2c2a",
+  "author": "y4rr",
+  "content": "Companion to qnd-trial-intel-rs#5 (umbrella qnd-trial-intel-rs#3). Phase 0b deliverable for the Rust port of qnd-trial-intel.\n\n## Why\nqnd-trial-intel currently runs meta-llama/Llama-3.3-70B-Instruct via a separate vllm serve process. The Rust rewrite replaces that with embedded ferrotorch-llama inference. Today ferrotorch-llama ships an 8B example only.\n\n## Scope\n1. LlamaConfig presets for Llama-3.3-70B-Instruct:\n   - 80 hidden layers\n   - 64 attention heads\n   - 8 key-value heads (GQA)\n   - hidden_size 8192, intermediate_size 28 672\n   - vocab 128 256\n   - RoPE theta 500 000\n   - context length 128 000\n2. Weight loader for the 70B HF safetensors layout in ferrotorch-serialize.\n3. examples/llama3_70b_gpu.rs that loads weights and runs greedy generation under --features cuda.\n4. Quantization path so 70B fits on a single 8-GPU node. The Python pyproject.toml gpu extra pins bitsandbytes and compressed-tensors — we need at least one equivalent format. Suggested: GGUF Q4/Q5 via ferrotorch-serialize, or a compressed-tensors-equivalent.\n\n## Acceptance (mirrors qnd-trial-intel-rs AC-17)\n- Held-out prompt set of >=10 prompts: temperature=0 greedy completions byte-equal to a HuggingFace transformers reference run (fp16/bf16 baseline).\n- Quantized variant passes within a configurable perplexity tolerance vs. the fp16 baseline.\n\n## Consumer\nqnd-trial-intel-rs/qnd-trial-intel-llm wraps the Llama model + ferrotorch-paged + ferrotorch-tokenize into an LlmEngine. See .design/qnd-trial-intel-rust-port.md REQ-9 / REQ-18 for full context.",
+  "created_at": "2026-04-27T15:56:22.268636773Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPn6x6T7DKVe8HbfwKm1o3zJ9DOIBe8clfPg89hJPyQIwD7sie2mpd3Y/qs1CtXhmrP4EPSyB15Kp856i91IiDg=="
+}
