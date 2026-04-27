@@ -1,0 +1,10 @@
+{
+  "uuid": "30b41e51-ec97-41fe-9c7d-9b78edbf7309",
+  "issue_uuid": "c502842b-ad7f-4372-a07f-61a00db56c2c",
+  "author": "y4rr",
+  "content": "Delivered: trial count scaled from 1000 to 10000 per schema in release builds (build-mode-aware constant; debug stays at 1000 for fast cargo test). 5 schemas × 10 000 trials = 50 000 sampled completions, all parse + validate against their schema. Release-mode wall-clock 19.12 s. Debug-mode (1000/schema) 8.68 s for the full grammar::json_schema test suite (10 tests). Clippy clean. Commit 9b87d105.",
+  "created_at": "2026-04-27T21:06:56.899029553Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAgQgv4Tbdfx5BmHRW4DA310ravJMEekUi2pdDdnNK7wK5JwWtUMT5nQoDZ6lsobuczrQm8rJ1cuFXC/XmzjpTBA=="
+}
