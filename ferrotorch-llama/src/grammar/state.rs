@@ -271,6 +271,39 @@ pub enum StringEmissionStage {
     InBody,
 }
 
+/// Stage of single-frame `Schema::StringEnum` emission. `partial` is a
+/// borrow into the grammar's current `Phase::StringChars` payload so no
+/// allocation happens at dispatch time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StringEnumEmissionStage<'a> {
+    /// `Phase::Start` — DFA expects opening `'"'`.
+    Start,
+    /// Inside the quoted body, having emitted some prefix of one of the
+    /// allowed values. `partial` is the chars between the opening `'"'`
+    /// and the cursor; an empty `partial` is the just-opened state.
+    InBody {
+        partial: &'a str,
+    },
+}
+
+/// Stage of single-frame `Schema::Nullable(_)` emission. The grammar
+/// commits to either the null branch or `inner` after the very first
+/// emitted character, so we only need to surface the `Phase::Start`
+/// case — every other phase is handled by the inner schema's own
+/// accessor (or by `null_emission_stage` for the null branch).
+///
+/// `PartialEq` only — `Schema` itself derives `PartialEq` but not `Eq`
+/// (consistent with the rest of the type), so neither does this.
+#[derive(Debug, Clone, PartialEq)]
+pub enum NullableEmissionStage<'a> {
+    /// `Phase::Start` with a `Schema::Nullable(inner)`. The DFA must
+    /// accept any prefix of `"null"` plus any prefix accepted by
+    /// `inner`'s start state.
+    Start {
+        inner: &'a Schema,
+    },
+}
+
 impl JsonGrammar {
     /// If this grammar is a single-frame `Schema::Null`, report which
     /// stage of literal emission we're at.
@@ -382,6 +415,50 @@ impl JsonGrammar {
         match &frame.phase {
             Phase::Start => Some(StringEmissionStage::Start),
             Phase::StringChars { allowed: None, .. } => Some(StringEmissionStage::InBody),
+            _ => None,
+        }
+    }
+
+    /// If this grammar is a single-frame `Schema::StringEnum`, report
+    /// the emission stage *and* the allowed value list. The list is
+    /// borrowed from the schema, so callers don't pay an allocation.
+    pub fn string_enum_emission_stage(&self) -> Option<(StringEnumEmissionStage<'_>, &[String])> {
+        if self.done || self.frames.len() != 1 {
+            return None;
+        }
+        let frame = &self.frames[0];
+        let values: &[String] = match &frame.schema {
+            Schema::StringEnum(v) => v.as_slice(),
+            _ => return None,
+        };
+        let stage = match &frame.phase {
+            Phase::Start => StringEnumEmissionStage::Start,
+            Phase::StringChars {
+                partial,
+                allowed: Some(_),
+            } => StringEnumEmissionStage::InBody {
+                partial: partial.as_str(),
+            },
+            _ => return None,
+        };
+        Some((stage, values))
+    }
+
+    /// If this grammar is a single-frame `Schema::Nullable(_)` at
+    /// `Phase::Start`, surface the inner schema so the GPU dispatcher
+    /// can build a merged DFA. After the first character is emitted
+    /// the grammar commits to either the null branch or the inner
+    /// schema, and subsequent compute_mask calls hit those accessors
+    /// directly — so only `Phase::Start` is in scope here.
+    pub fn nullable_emission_stage(&self) -> Option<NullableEmissionStage<'_>> {
+        if self.done || self.frames.len() != 1 {
+            return None;
+        }
+        let frame = &self.frames[0];
+        match (&frame.schema, &frame.phase) {
+            (Schema::Nullable(inner), Phase::Start) => {
+                Some(NullableEmissionStage::Start { inner })
+            }
             _ => None,
         }
     }

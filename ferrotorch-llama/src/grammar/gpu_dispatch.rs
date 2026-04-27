@@ -16,9 +16,10 @@
 use cubecl::prelude::{ComputeClient, Runtime};
 use ferrotorch_cubecl::{DfaMaskInputs, compute_token_mask_dfa_to_gpu};
 
+use super::schema::Schema;
 use super::state::{
-    BooleanEmissionStage, IntegerEmissionStage, NullEmissionStage, NumberEmissionStage,
-    StringEmissionStage,
+    BooleanEmissionStage, IntegerEmissionStage, NullEmissionStage, NullableEmissionStage,
+    NumberEmissionStage, StringEmissionStage, StringEnumEmissionStage,
 };
 use super::json_schema::{JsonSchemaProcessor, TokenMask};
 
@@ -241,6 +242,219 @@ fn compile_dfa_for_string(stage: &StringEmissionStage) -> CompiledDfa {
     }
 }
 
+/// Compile a `Schema::StringEnum` DFA from a prefix trie over the
+/// allowed values. State numbering:
+///
+/// - `0` = `Phase::Start` (only `'"'` is valid).
+/// - `1` = trie root (after the opening `'"'`).
+/// - `2..K` = trie nodes, one per distinct prefix that appears in any
+///   allowed value.
+/// - `K` = closed-string accept state (after the closing `'"'`; nothing
+///   further is valid).
+/// - `K + 1` = REJECT.
+///
+/// Char classes:
+///
+/// - one per distinct ASCII char appearing in any allowed value;
+/// - `'"'` gets its own class (always present, used for open + close);
+/// - `OTHER` (final class) covers anything else.
+///
+/// `start_partial` selects which trie node the DFA's start_state points
+/// at. Empty `start_partial` ⇒ trie root (state 1, used for both
+/// `Phase::Start` after the open quote and the just-opened body).
+/// Non-empty ⇒ the trie node reached by walking those chars; `None`
+/// returned from the parent call when `start_partial` doesn't match any
+/// node (which should be unreachable for a valid grammar).
+fn compile_dfa_for_string_enum(
+    stage: &StringEnumEmissionStage<'_>,
+    values: &[String],
+) -> Option<CompiledDfa> {
+    // Trie node = ordered sequence of chars walked from the root.
+    // `prefix_to_state` maps a known prefix to its state id (offset by 1
+    // because state 0 is Phase::Start).
+    let mut prefix_to_state: std::collections::BTreeMap<String, u32> =
+        std::collections::BTreeMap::new();
+    prefix_to_state.insert(String::new(), 1);
+    let mut all_prefixes: Vec<String> = vec![String::new()];
+    for v in values {
+        let mut acc = String::new();
+        for c in v.chars() {
+            acc.push(c);
+            if !prefix_to_state.contains_key(&acc) {
+                let id = (prefix_to_state.len() + 1) as u32; // +1 for state 0
+                prefix_to_state.insert(acc.clone(), id);
+                all_prefixes.push(acc.clone());
+            }
+        }
+    }
+
+    // Closed accept and REJECT states sit after every trie node.
+    let closed_state = (1 + all_prefixes.len()) as u32;
+    let reject = closed_state + 1;
+    let num_states = (reject + 1) as usize;
+
+    // Char classes: each distinct char in any value gets its own class,
+    // plus '"' and OTHER.
+    let mut classes_for_char: std::collections::BTreeMap<char, u32> =
+        std::collections::BTreeMap::new();
+    let class_quote = 0u32;
+    let mut next_class: u32 = 1;
+    for v in values {
+        for c in v.chars() {
+            if c == '"' {
+                continue; // Reserved for the literal quote class.
+            }
+            classes_for_char.entry(c).or_insert_with(|| {
+                let id = next_class;
+                next_class += 1;
+                id
+            });
+        }
+    }
+    let class_other = next_class;
+    let num_classes = next_class + 1;
+
+    let mut char_classes = vec![class_other; 128];
+    char_classes[b'"' as usize] = class_quote;
+    for (&c, &id) in &classes_for_char {
+        if (c as u32) < 128 {
+            char_classes[c as usize] = id;
+        }
+    }
+
+    let nc = num_classes as usize;
+    let mut transitions = vec![reject; num_states * nc];
+    let row = |s: u32, c: u32| s as usize * nc + c as usize;
+
+    // State 0 (Phase::Start): only '"' → trie root.
+    transitions[row(0, class_quote)] = 1;
+
+    // Each trie node: for every char that extends the prefix toward a
+    // value, transition to the deeper trie node. If the prefix is
+    // itself a complete value, '"' transitions to closed_state.
+    for prefix in &all_prefixes {
+        let from_state = *prefix_to_state.get(prefix).unwrap();
+        // Per-char extensions.
+        for c in classes_for_char.keys().copied() {
+            let mut extended = prefix.clone();
+            extended.push(c);
+            if let Some(&to_state) = prefix_to_state.get(&extended) {
+                let class = *classes_for_char.get(&c).unwrap();
+                transitions[row(from_state, class)] = to_state;
+            }
+        }
+        // Close-quote allowed iff prefix is a complete enum value.
+        if values.iter().any(|v| v == prefix) {
+            transitions[row(from_state, class_quote)] = closed_state;
+        }
+    }
+    // closed_state and reject_state: every class → REJECT (already set).
+
+    let start_state = match stage {
+        StringEnumEmissionStage::Start => 0,
+        StringEnumEmissionStage::InBody { partial } => *prefix_to_state.get(*partial)?,
+    };
+
+    Some(CompiledDfa {
+        transitions,
+        char_classes,
+        num_classes,
+        start_state,
+        reject_state: reject,
+    })
+}
+
+/// Ensure the byte-level char `c` has its own class in `dfa`. If the
+/// class assigned to `c` is currently shared with at least one other
+/// char (in `0..128`), split it: introduce a new class, point `c` at
+/// the new class, and copy `c`'s old transition column into the new
+/// column for every state. Returns `c`'s class (whether new or
+/// pre-existing).
+fn split_class_for_char(dfa: &mut CompiledDfa, c: u8) -> u32 {
+    let original_class = dfa.char_classes[c as usize];
+    let other_using = (0..128usize)
+        .any(|i| i != c as usize && dfa.char_classes[i] == original_class);
+    if !other_using {
+        return original_class;
+    }
+    let new_class = dfa.num_classes;
+    let new_nc = (dfa.num_classes + 1) as usize;
+    let old_nc = dfa.num_classes as usize;
+    let n_states = dfa.transitions.len() / old_nc;
+    let mut new_t = vec![dfa.reject_state; n_states * new_nc];
+    for s in 0..n_states {
+        for cl in 0..old_nc {
+            new_t[s * new_nc + cl] = dfa.transitions[s * old_nc + cl];
+        }
+        new_t[s * new_nc + new_class as usize] =
+            dfa.transitions[s * old_nc + original_class as usize];
+    }
+    dfa.transitions = new_t;
+    dfa.num_classes = new_class + 1;
+    dfa.char_classes[c as usize] = new_class;
+    new_class
+}
+
+/// Merge an inner schema's DFA with a "null" branch: at the inner DFA's
+/// start state, the char `'n'` triggers a 4-state walk through `"ull"`.
+/// All other char-class transitions of the inner DFA are preserved.
+///
+/// Adds dedicated classes for `'n'`, `'u'`, and `'l'` if those chars
+/// were sharing a class with other chars in the inner DFA. Each newly-
+/// dedicated class inherits the inner state-by-state transitions for
+/// the original char, so behaviour past state 0 doesn't change.
+fn merge_null_branch(mut inner: CompiledDfa) -> CompiledDfa {
+    let class_n = split_class_for_char(&mut inner, b'n');
+    let class_u = split_class_for_char(&mut inner, b'u');
+    let class_l = split_class_for_char(&mut inner, b'l');
+
+    let nc = inner.num_classes as usize;
+    let n_old_states = inner.transitions.len() / nc;
+
+    let walk_u_state = n_old_states as u32;
+    let walk_l_state = walk_u_state + 1;
+    let walk_l2_state = walk_l_state + 1;
+    let accept_null_state = walk_l2_state + 1;
+
+    let new_total_states = n_old_states + 4;
+    let mut new_t = vec![inner.reject_state; new_total_states * nc];
+    new_t[..n_old_states * nc].copy_from_slice(&inner.transitions);
+
+    // State 0: the 'n' class now jumps into the null-branch walk.
+    new_t[class_n as usize] = walk_u_state;
+    // Null-walk transitions (all other classes default to REJECT).
+    new_t[walk_u_state as usize * nc + class_u as usize] = walk_l_state;
+    new_t[walk_l_state as usize * nc + class_l as usize] = walk_l2_state;
+    new_t[walk_l2_state as usize * nc + class_l as usize] = accept_null_state;
+
+    inner.transitions = new_t;
+    inner
+}
+
+/// Build a `Schema::Nullable(inner)` DFA at `Phase::Start`. Returns
+/// `None` if `inner` is itself an unsupported schema (Object, Array, or
+/// nested Nullable).
+fn compile_dfa_for_nullable(inner: &Schema) -> Option<CompiledDfa> {
+    let inner_dfa = match inner {
+        Schema::Null => {
+            // Nullable(Null) is degenerate but still valid; both paths
+            // walk "null". Just compile the null DFA directly.
+            return Some(compile_dfa_for_null(&NullEmissionStage::Start));
+        }
+        Schema::Boolean => compile_dfa_for_boolean(&BooleanEmissionStage::Start),
+        Schema::Integer => compile_dfa_for_integer(&IntegerEmissionStage::Start),
+        Schema::Number => compile_dfa_for_number(&NumberEmissionStage::Start),
+        Schema::String => compile_dfa_for_string(&StringEmissionStage::Start),
+        Schema::StringEnum(values) => {
+            compile_dfa_for_string_enum(&StringEnumEmissionStage::Start, values)?
+        }
+        // Object / Array / nested Nullable / unknown → return None so
+        // callers fall through to CPU compute_mask.
+        _ => return None,
+    };
+    Some(merge_null_branch(inner_dfa))
+}
+
 /// Compile a [`BooleanEmissionStage`] into a finite DFA.
 ///
 /// State numbering convention:
@@ -455,6 +669,10 @@ pub fn compute_mask_gpu<R: Runtime>(
         compile_dfa_for_number(&stage)
     } else if let Some(stage) = grammar.string_emission_stage() {
         compile_dfa_for_string(&stage)
+    } else if let Some((stage, values)) = grammar.string_enum_emission_stage() {
+        compile_dfa_for_string_enum(&stage, values)?
+    } else if let Some(NullableEmissionStage::Start { inner }) = grammar.nullable_emission_stage() {
+        compile_dfa_for_nullable(inner)?
     } else {
         return None;
     };
@@ -822,11 +1040,216 @@ mod cuda_tests {
     }
 
     // -----------------------------------------------------------------
-    // Gate verification: non-Boolean / non-stage-3 schemas fall through.
+    // Stage 4 — StringEnum
     // -----------------------------------------------------------------
 
-    /// Schemas not yet supported (Object, StringEnum, Array, Nullable)
-    /// must return `None` so the caller falls back to CPU.
+    fn string_enum_schema() -> serde_json::Value {
+        json!({"enum": ["high", "medium", "low"]})
+    }
+
+    #[test]
+    fn string_enum_gpu_mask_matches_cpu_at_start() {
+        let vocab = ascii_char_vocab();
+        let processor =
+            JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("StringEnum Start must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // Sanity: only '"' is allowed at Phase::Start.
+        let dq = vocab.iter().position(|s| s == "\"").unwrap();
+        assert_eq!(gpu_mask.allow[dq], 1);
+        let h = vocab.iter().position(|s| s == "h").unwrap();
+        assert_eq!(gpu_mask.allow[h], 0);
+    }
+
+    #[test]
+    fn string_enum_gpu_mask_matches_cpu_after_open_quote() {
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
+        let dq = vocab.iter().position(|s| s == "\"").unwrap() as u32;
+        processor.step_token(dq).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("StringEnum InBody empty-partial must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // Only first chars of 'high'/'medium'/'low' are valid.
+        for c in ['h', 'm', 'l'] {
+            let i = vocab.iter().position(|s| s == &c.to_string()).unwrap();
+            assert_eq!(gpu_mask.allow[i], 1, "first char {c} must be allowed");
+        }
+        let x = vocab.iter().position(|s| s == "x").unwrap();
+        assert_eq!(gpu_mask.allow[x], 0);
+    }
+
+    #[test]
+    fn string_enum_gpu_mask_matches_cpu_after_h() {
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
+        let dq = vocab.iter().position(|s| s == "\"").unwrap() as u32;
+        let h = vocab.iter().position(|s| s == "h").unwrap() as u32;
+        processor.step_token(dq).unwrap();
+        processor.step_token(h).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("StringEnum InBody{partial='h'} must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // After 'h' only 'i' continues toward 'high'; closing '"' is
+        // forbidden because 'h' isn't a complete value.
+        let i = vocab.iter().position(|s| s == "i").unwrap();
+        assert_eq!(gpu_mask.allow[i], 1);
+        let dq_idx = vocab.iter().position(|s| s == "\"").unwrap();
+        assert_eq!(gpu_mask.allow[dq_idx], 0);
+    }
+
+    #[test]
+    fn string_enum_gpu_mask_matches_cpu_after_complete_value() {
+        // After "low" the partial matches a complete value, so the
+        // closing '"' becomes valid (and the only valid char).
+        let vocab = ascii_char_vocab();
+        let mut processor =
+            JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
+        for s in ["\"", "l", "o", "w"] {
+            let id = vocab.iter().position(|t| t == s).unwrap() as u32;
+            processor.step_token(id).unwrap();
+        }
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("StringEnum InBody{partial='low'} must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        let dq = vocab.iter().position(|s| s == "\"").unwrap();
+        assert_eq!(gpu_mask.allow[dq], 1, "closing quote must be allowed when partial is a complete value");
+    }
+
+    // -----------------------------------------------------------------
+    // Stage 4 — Nullable
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn nullable_boolean_gpu_mask_matches_cpu_at_start() {
+        let vocab = ascii_char_vocab();
+        let processor = JsonSchemaProcessor::new(
+            &json!({"type": ["boolean", "null"]}),
+            vocab.clone(),
+        )
+        .unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Nullable(Boolean) Start must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        // Sanity: 't', 'f', 'n' all allowed.
+        for c in ['t', 'f', 'n'] {
+            let i = vocab.iter().position(|s| s == &c.to_string()).unwrap();
+            assert_eq!(gpu_mask.allow[i], 1, "char {c} must be allowed for Nullable(Boolean)");
+        }
+        let a = vocab.iter().position(|s| s == "a").unwrap();
+        assert_eq!(gpu_mask.allow[a], 0);
+    }
+
+    #[test]
+    fn nullable_integer_gpu_mask_matches_cpu_at_start() {
+        let vocab = ascii_char_vocab();
+        let processor = JsonSchemaProcessor::new(
+            &json!({"type": ["integer", "null"]}),
+            vocab.clone(),
+        )
+        .unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Nullable(Integer) Start must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        let n = vocab.iter().position(|s| s == "n").unwrap();
+        let one = vocab.iter().position(|s| s == "1").unwrap();
+        let minus = vocab.iter().position(|s| s == "-").unwrap();
+        assert_eq!(gpu_mask.allow[n], 1);
+        assert_eq!(gpu_mask.allow[one], 1);
+        assert_eq!(gpu_mask.allow[minus], 1);
+    }
+
+    #[test]
+    fn nullable_string_gpu_mask_matches_cpu_at_start() {
+        let vocab = ascii_char_vocab();
+        let processor = JsonSchemaProcessor::new(
+            &json!({"type": ["string", "null"]}),
+            vocab.clone(),
+        )
+        .unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Nullable(String) Start must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+        let n = vocab.iter().position(|s| s == "n").unwrap();
+        let dq = vocab.iter().position(|s| s == "\"").unwrap();
+        assert_eq!(gpu_mask.allow[n], 1);
+        assert_eq!(gpu_mask.allow[dq], 1);
+    }
+
+    /// After committing to the inner schema (here: emitting 't' for
+    /// Nullable(Boolean)), the grammar transitions out of the
+    /// `Nullable` wrapper into `Schema::Boolean`. Subsequent
+    /// `compute_mask_gpu` must still produce parity, this time via the
+    /// Boolean accessor, not the Nullable one.
+    #[test]
+    fn nullable_boolean_gpu_mask_matches_cpu_after_committing_to_inner() {
+        let vocab = ascii_char_vocab();
+        let mut processor = JsonSchemaProcessor::new(
+            &json!({"type": ["boolean", "null"]}),
+            vocab.clone(),
+        )
+        .unwrap();
+        let t_id = vocab.iter().position(|s| s == "t").unwrap() as u32;
+        processor.step_token(t_id).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Boolean PartialTrue must be DFA-compilable post-commit");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+    }
+
+    /// After committing to the null branch, the grammar is now in
+    /// `Schema::Null` literal mode, hit by `null_emission_stage`.
+    #[test]
+    fn nullable_boolean_gpu_mask_matches_cpu_after_committing_to_null() {
+        let vocab = ascii_char_vocab();
+        let mut processor = JsonSchemaProcessor::new(
+            &json!({"type": ["boolean", "null"]}),
+            vocab.clone(),
+        )
+        .unwrap();
+        let n_id = vocab.iter().position(|s| s == "n").unwrap() as u32;
+        processor.step_token(n_id).unwrap();
+        let cpu_mask = processor.compute_mask();
+        let client = cuda_client();
+        let packed = PackedVocab::pack(&vocab);
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Null Partial after commit must be DFA-compilable");
+        assert_eq!(cpu_mask.allow, gpu_mask.allow);
+    }
+
+    // -----------------------------------------------------------------
+    // Gate verification: still-unsupported schemas fall through.
+    // -----------------------------------------------------------------
+
+    /// `Schema::Object` and `Schema::Array` remain CPU-only — their
+    /// dynamic state space (BTreeSet keys_seen, array element counts)
+    /// doesn't fit a small static DFA.
     #[test]
     fn unsupported_schema_returns_none() {
         let vocab = ascii_char_vocab();
@@ -844,7 +1267,7 @@ mod cuda_tests {
         let res = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed);
         assert!(
             res.is_none(),
-            "Object schema must return None; stage 3 doesn't handle it",
+            "Object schema must return None; Object support is post-stage-4 work",
         );
 
         // Sanity: directly verify the underlying API too.
