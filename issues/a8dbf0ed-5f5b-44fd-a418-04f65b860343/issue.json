@@ -1,0 +1,10 @@
+{
+  "uuid": "a8dbf0ed-5f5b-44fd-a418-04f65b860343",
+  "display_id": 560,
+  "title": "Decouple llama/gpu doc comments from ferrotorch-paged sibling",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-04-28T12:48:11.045470039Z",
+  "updated_at": "2026-04-28T12:48:11.045470039Z"
+}
