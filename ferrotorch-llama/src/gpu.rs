@@ -260,29 +260,33 @@ impl LlamaGpuInferencer {
         // Run the forward; the helper fills `taps` with per-layer f32 buffers.
         let _final_norm = self.forward_core(ids, Some(&mut taps))?;
 
-        // Download all tap buffers and transpose per-layer attn output
-        // from [n_heads, seq] (tap layout) to [seq, n_heads] (frame
-        // layout). MLP output is already [seq, n_mlp_blocks].
-        let mut attn_magnitudes = Vec::with_capacity(n_layers * seq * n_heads);
-        let mut mlp_magnitudes = Vec::with_capacity(n_layers * seq * n_mlp_blocks);
+        // Download all tap buffers, then assemble in **token-major**
+        // order (`[t, l, h]` for attn, `[t, l, b]` for mlp) — matches
+        // the trace's documented `[total_tokens, n_layers, ...]`
+        // layout so consumers like `attn_at(tok, layer, head)` and
+        // `from_trace` indexing resolve correctly when seq > 1. The
+        // earlier loop nesting was layer-major and silently scrambled
+        // the data for any seq > 1 capture window.
+        let stream = self.device.stream();
+        let mut attn_per_layer: Vec<Vec<f32>> = Vec::with_capacity(n_layers);
+        let mut mlp_per_layer: Vec<Vec<f32>> = Vec::with_capacity(n_layers);
         for l in 0..n_layers {
-            let attn_layer: Vec<f32> = self
-                .device
-                .stream()
-                .clone_dtoh(&taps.attn_f32[l])
-                .map_err(map_driver_err)?;
-            // attn_layer is [n_heads, seq]; emit [seq, n_heads]
-            for t in 0..seq {
+            attn_per_layer
+                .push(stream.clone_dtoh(&taps.attn_f32[l]).map_err(map_driver_err)?);
+            mlp_per_layer.push(stream.clone_dtoh(&taps.mlp_f32[l]).map_err(map_driver_err)?);
+        }
+        let mut attn_magnitudes = Vec::with_capacity(seq * n_layers * n_heads);
+        let mut mlp_magnitudes = Vec::with_capacity(seq * n_layers * n_mlp_blocks);
+        for t in 0..seq {
+            for l in 0..n_layers {
+                let alayer = &attn_per_layer[l];
                 for h in 0..n_heads {
-                    attn_magnitudes.push(attn_layer[h * seq + t]);
+                    attn_magnitudes.push(alayer[h * seq + t]);
                 }
+                let mlayer = &mlp_per_layer[l];
+                let off = t * n_mlp_blocks;
+                mlp_magnitudes.extend_from_slice(&mlayer[off..off + n_mlp_blocks]);
             }
-            let mlp_layer: Vec<f32> = self
-                .device
-                .stream()
-                .clone_dtoh(&taps.mlp_f32[l])
-                .map_err(map_driver_err)?;
-            mlp_magnitudes.extend_from_slice(&mlp_layer);
         }
 
         let bootstrap_hidden = if let Some(cuda_hidden) = taps.bootstrap_hidden.as_ref() {

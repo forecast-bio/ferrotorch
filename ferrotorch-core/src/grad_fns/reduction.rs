@@ -608,12 +608,51 @@ pub struct MeanDimBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for MeanDimBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
+        let input_shape = self.input.shape();
+        let dim_size = input_shape[self.dim];
+
+        // GPU path: native expand-and-scale via fill + broadcast_mul.
+        // Conceptually grad_input[..., j, ...] = grad_output[..., 0, ...] / N
+        // for every j in the reduced dim. Implement that as:
+        //   ones = fill(input_numel, 1/N)         shape: input_shape
+        //   grad_input = broadcast_mul(ones, grad_output_keepdim)
+        // grad_output_keepdim is grad_output with a size-1 dim re-inserted
+        // when keepdim=false (free metadata change, no copy).
+        let is_f32 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>();
+        if grad_output.is_cuda() && is_f32 {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                let grad_shape_keepdim: Vec<usize> = if self.keepdim {
+                    grad_output.shape().to_vec()
+                } else {
+                    let mut s = grad_output.shape().to_vec();
+                    s.insert(self.dim, 1);
+                    s
+                };
+                let input_numel: usize = input_shape.iter().product();
+                let inv_n = 1.0f32 / (dim_size as f32);
+                // Use device 0 — current backend doesn't expose handle's
+                // ordinal at this layer; the upstream GPU pipeline is
+                // single-device for now. (Multi-device support lives in
+                // a wider refactor; not blocking this.)
+                let ones_handle = backend.fill_f32(input_numel, inv_n, 0)?;
+                let grad_handle = grad_output.gpu_handle()?;
+                let grad_input_handle = backend.broadcast_mul_f32(
+                    &ones_handle,
+                    grad_handle,
+                    input_shape,
+                    &grad_shape_keepdim,
+                    input_shape,
+                )?;
+                let storage = TensorStorage::gpu(grad_input_handle);
+                let grad_input = Tensor::from_storage(storage, input_shape.to_vec(), false)?;
+                return Ok(vec![Some(grad_input)]);
+            }
+        }
+
         if grad_output.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda { op: "mean_dim backward" });
         }
 
-        let input_shape = self.input.shape();
-        let dim_size = input_shape[self.dim];
         let n = T::from(dim_size).unwrap();
 
         // If keepdim was false, reinsert the reduced dimension as size 1.
@@ -710,10 +749,6 @@ fn mean_dim_inner<T: Float>(
         });
     }
 
-    if input.is_cuda() {
-        return Err(FerrotorchError::NotImplementedOnCuda { op: "mean_dim" });
-    }
-    let in_data = input.data()?;
     let in_shape = input.shape();
     let dim_size = in_shape[norm_dim];
     let n = T::from(dim_size).unwrap();
@@ -725,6 +760,45 @@ fn mean_dim_inner<T: Float>(
     } else {
         out_shape.remove(norm_dim);
     }
+
+    // GPU path: native sum-then-scale on the existing backend kernels.
+    // Mirrors `sum_dim_inner`'s dispatch but composes a second op
+    // (`scale_f32(1/dim_size)`) so the result stays on-device end-to-end.
+    let is_f32 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>();
+    let is_f64 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>();
+    if input.is_cuda() && (is_f32 || is_f64) {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let summed_handle = if is_f32 {
+                backend.sum_axis_f32(input.gpu_handle()?, in_shape, norm_dim)?
+            } else {
+                backend.sum_axis_f64(input.gpu_handle()?, in_shape, norm_dim)?
+            };
+            // Divide by dim_size on-device. scale_* is only declared
+            // for f32; for f64 this path falls through to the error
+            // below until a scale_f64 is added.
+            if is_f32 {
+                let mean_handle = backend.scale_f32(&summed_handle, 1.0 / dim_size as f32)?;
+                let storage = TensorStorage::gpu(mean_handle);
+                return if is_grad_enabled() && input.requires_grad() {
+                    let grad_fn = Arc::new(MeanDimBackward {
+                        input: input.clone(),
+                        dim: norm_dim,
+                        keepdim,
+                    });
+                    Tensor::from_operation(storage, out_shape, grad_fn)
+                } else {
+                    Tensor::from_storage(storage, out_shape, false)
+                };
+            }
+        }
+    }
+
+    // No GPU handler matched; bail rather than silently round-trip.
+    if input.is_cuda() {
+        return Err(FerrotorchError::NotImplementedOnCuda { op: "mean_dim" });
+    }
+
+    let in_data = input.data()?;
 
     // Accumulate sum first, then divide.
     let mut accum_shape: Vec<usize> = in_shape.to_vec();
