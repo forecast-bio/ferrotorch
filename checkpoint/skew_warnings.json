@@ -1,6 +1,13 @@
 [
   {
     "agent_id": "y4rr",
+    "event_description": "LockClaimed(#562)",
+    "event_timestamp": "2026-05-01T12:32:40.511979880Z",
+    "commit_timestamp": "2026-05-01T12:35:16Z",
+    "skew_seconds": 155
+  },
+  {
+    "agent_id": "y4rr",
     "event_description": "LockReleased(#177)",
     "event_timestamp": "2026-04-07T13:51:22.532181333Z",
     "commit_timestamp": "2026-04-07T13:52:24Z",
