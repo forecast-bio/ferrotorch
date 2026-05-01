@@ -1,0 +1,10 @@
+{
+  "uuid": "1207ddb5-4982-46fb-b855-4148d4714727",
+  "display_id": 589,
+  "title": "ImageFolder + DatasetFolder for ferrotorch-vision (single biggest practical dataset gap)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-01T15:37:43.293031367Z",
+  "updated_at": "2026-05-01T15:37:43.293031367Z"
+}
