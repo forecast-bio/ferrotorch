@@ -1,0 +1,10 @@
+{
+  "uuid": "7019b95d-4e1d-4740-9995-d69dcba2f86d",
+  "display_id": 619,
+  "title": "Sparse gradients + sparse tensors (COO / CSR / CSC formats)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-01T21:50:13.906401302Z",
+  "updated_at": "2026-05-01T21:50:13.906401302Z"
+}
