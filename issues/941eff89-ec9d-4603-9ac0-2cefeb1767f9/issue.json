@@ -7,5 +7,8 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-01T13:25:25.944172917Z",
-  "updated_at": "2026-05-01T13:25:25.944172917Z"
+  "updated_at": "2026-05-01T13:25:27.267980446Z",
+  "labels": [
+    "integration"
+  ]
 }
