@@ -1,0 +1,10 @@
+{
+  "uuid": "9e17a694-601b-4fac-8f86-0eb3cdd23a57",
+  "display_id": 607,
+  "title": "functional parity tail: conv*/pool*/pad*/embedding/scaled_dot_product_attention forwarders",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-01T19:27:00.828531773Z",
+  "updated_at": "2026-05-01T19:27:00.828531773Z"
+}
