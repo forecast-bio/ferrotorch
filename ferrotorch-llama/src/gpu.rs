@@ -697,10 +697,14 @@ fn upload_bf16_tensor(
 /// View a `Tensor<bf16>`'s underlying data as `Vec<u16>` bits.
 /// Allocates a fresh Vec — correct and simple. Callers immediately
 /// upload to GPU and drop this Vec, so the duplication is bounded
-/// to one tensor at a time.
+/// to one tensor at a time. `bf16` is `repr(transparent)` over `u16`,
+/// so the conversion is a single bulk memcpy via `bytemuck` rather
+/// than an element-by-element iterator (the iterator form was the
+/// dominant bottleneck on large weight loads — Llama-3-70B paged
+/// load was spending most of its time here).
 fn bf16_tensor_as_bits(t: &Tensor<bf16>) -> FerrotorchResult<Vec<u16>> {
     let data = t.data()?;
-    Ok(data.iter().map(|v| v.to_bits()).collect())
+    Ok(bytemuck::cast_slice::<bf16, u16>(data).to_vec())
 }
 
 /// Precompute cos/sin caches for Llama's half-rotation RoPE, upload
