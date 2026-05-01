@@ -2,11 +2,12 @@
   "uuid": "3be0edb7-0ecd-4a22-9b55-f246afe61d93",
   "display_id": 577,
   "title": "GPU cubecl kernels for orthogonal polynomial families (CPU-only today)",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-01T15:01:45.760867172Z",
-  "updated_at": "2026-05-01T15:02:26.305384215Z",
+  "updated_at": "2026-05-01T18:11:19.447614530Z",
+  "closed_at": "2026-05-01T18:11:19.447614530Z",
   "labels": [
     "gpu"
   ]
