@@ -2,11 +2,12 @@
   "uuid": "1ddc194e-ff8e-45c6-a5d4-775b04484359",
   "display_id": 591,
   "title": "ferrotorch-distributed: send/recv point-to-point + all_to_all collective + DTensor/DeviceMesh abstraction",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-01T15:37:53.544011917Z",
-  "updated_at": "2026-05-01T15:37:54.915312780Z",
+  "updated_at": "2026-05-01T20:21:13.562102908Z",
+  "closed_at": "2026-05-01T20:21:13.562102908Z",
   "labels": [
     "feature"
   ]
