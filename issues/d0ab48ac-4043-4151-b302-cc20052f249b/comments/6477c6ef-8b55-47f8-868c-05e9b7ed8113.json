@@ -1,0 +1,10 @@
+{
+  "uuid": "6477c6ef-8b55-47f8-868c-05e9b7ed8113",
+  "issue_uuid": "d0ab48ac-4043-4151-b302-cc20052f249b",
+  "author": "y4rr",
+  "content": "Landed GPU dispatch for matrix_norm (Frobenius). The other three (det / inv / pinv) need GPU-resident LU or SVD which is already scoped under #604, so I'm folding them in there rather than duplicating.\n\n## Landed\n- \\`linalg::matrix_norm\\` GPU path: \\`mul → reduce_sum → sqrt\\` via existing \\`GpuBackend\\` trait methods. Three kernel launches but fully GPU-resident — no host bounce. Returns a 0-d device tensor.\n- 5 integration tests in \\`ferrotorch-gpu/tests/test_gpu_matrix_norm.rs\\` covering f32/f64, square/rectangular, zero matrix, non-2D rejection. All pass.\n\n## Folded into #604\n- det → needs LU (getrf) on GPU; det = sign(P) · prod(diag(U)). Trivial once LU is GPU-resident.\n- inv → also needs LU; A⁻¹ = LU\\\\I via getrs.\n- pinv → needs GPU-resident SVD without host bounce; pinv = V · diag(1/s_thresh) · Uᵀ via cuBLAS GEMM.\n\nClosing in favor of #604 for the LU/SVD-dependent ops.",
+  "created_at": "2026-05-01T18:04:20.443539939Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABApDzNdhzRS8eXgrxBVVlwrpE9rj4cdpzLK/guTL0O4Jn2j+skL+NzUMKE8bF/8jiO7nAe7k8nVHjXCFjnShoAAg=="
+}
