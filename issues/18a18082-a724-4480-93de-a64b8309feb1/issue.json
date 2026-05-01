@@ -1,0 +1,10 @@
+{
+  "uuid": "18a18082-a724-4480-93de-a64b8309feb1",
+  "display_id": 613,
+  "title": "Quantization tail: HQQ unpacker + GPTQ/AWQ integration tests against real HF checkpoints",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-01T20:31:44.841272221Z",
+  "updated_at": "2026-05-01T20:31:44.841272221Z"
+}
