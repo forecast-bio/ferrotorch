@@ -1,0 +1,10 @@
+{
+  "uuid": "13eae83a-d741-46a2-aa1c-72d1679068ce",
+  "issue_uuid": "7f0a2497-a156-4ea6-ba01-7beb481e42d0",
+  "author": "y4rr",
+  "content": "Phase 1A complete. Added 10 fft wrappers in ferrotorch-core/src/fft.rs (fftn, ifftn, rfftn, irfftn, hfft, ihfft, fftfreq, rfftfreq, fftshift, ifftshift) wrapping ferray-fft 0.3.0. Bumped workspace ferray deps from 0.2.7 to 0.3 (resolves to 0.3.0). Added 14 new tests; all 32 fft tests pass. GPU discipline: new fns route through tensor_to_complex_array/tensor_to_real_array helpers that gate on input.is_cuda() and return NotImplementedOnCuda — never silently moves CUDA tensors through host. fft.rs:486-501 + each pub fn explicitly checks. While here, fixed pre-existing cudarc duplicate-FFI issue caused by .cargo/config.toml CUDARC_CUDA_VERSION=12080 colliding with workspace cudarc features=[cuda-13000]; removed the cuda-13000 explicit feature so the env var alone drives version selection. Also fixed cubecl-wgpu and ferrotorch-xpu test panics in headless / no-Vulkan environments via panic-catching runtime probe; tests now skip cleanly when no wgpu adapter is present (tracked in #573). Workspace test count: 4458 passed, 0 failed, 99 ignored.",
+  "created_at": "2026-05-01T14:07:06.074828872Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABApm2024/pK8yBTwIuwAkeKFNtRBE15Z3+UJCEwM2gp8ONfz0N653jSqExLk5MCHJUQM9BgCd6pGi/GhCCbk/VCg=="
+}
