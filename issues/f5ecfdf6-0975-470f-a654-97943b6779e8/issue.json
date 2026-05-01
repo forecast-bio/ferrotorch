@@ -1,0 +1,10 @@
+{
+  "uuid": "f5ecfdf6-0975-470f-a654-97943b6779e8",
+  "display_id": 605,
+  "title": "GPU cuFFT tail: hfft/ihfft + fft2/ifft2 + fftn/ifftn + GPU pad/truncate",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-01T18:25:18.642246408Z",
+  "updated_at": "2026-05-01T18:25:18.642246408Z"
+}
