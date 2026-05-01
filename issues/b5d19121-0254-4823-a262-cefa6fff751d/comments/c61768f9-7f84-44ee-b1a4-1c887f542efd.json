@@ -1,0 +1,10 @@
+{
+  "uuid": "c61768f9-7f84-44ee-b1a4-1c887f542efd",
+  "issue_uuid": "b5d19121-0254-4823-a262-cefa6fff751d",
+  "author": "y4rr",
+  "content": "Tracked from #568. ferrotorch-core::stride_tricks::as_strided_scatter currently returns NotImplementedOnCuda for GPU tensors. Add a strided_scatter_f32/f64 method to GpuBackend trait + ferrotorch-gpu implementation that writes a contiguous src buffer into a target buffer at strided positions. Mirrors the existing strided_copy_f32/f64 but in the inverse direction. Once landed, autograd through as_strided will work end-to-end on CUDA. /rust-gpu-discipline: forbidden = silent t.to(Cpu) bounce in stride_tricks.rs::as_strided_scatter. Real CUDA kernel only.",
+  "created_at": "2026-05-01T14:21:39.999782516Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAClvwoMferLoq/9yRjdCKVpOE2+yusHcqx0KJQTzkszx3Me6ihn6R7ZiafnTWq3HbeZ0XrA4SiuUSTLqzVo7JAA=="
+}
