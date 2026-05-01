@@ -2,11 +2,12 @@
   "uuid": "d5f18cf2-8ae4-49c9-b7eb-a43da185dcd2",
   "display_id": 615,
   "title": "Wire IntTensor / BoolTensor into existing ops (embedding, gather, masked_fill, where)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-01T20:54:27.518373519Z",
-  "updated_at": "2026-05-01T20:54:28.806545476Z",
+  "updated_at": "2026-05-01T23:13:20.116435442Z",
+  "closed_at": "2026-05-01T23:13:20.116435442Z",
   "labels": [
     "feature"
   ]
