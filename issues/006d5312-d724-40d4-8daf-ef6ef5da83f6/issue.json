@@ -1,0 +1,10 @@
+{
+  "uuid": "006d5312-d724-40d4-8daf-ef6ef5da83f6",
+  "display_id": 597,
+  "title": "GPU MaskedTensor: kernel paths for masked_sum/mean/min/max via where_cond + sum (CPU-only today)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-01T15:48:39.941923635Z",
+  "updated_at": "2026-05-01T15:48:39.941923635Z"
+}
