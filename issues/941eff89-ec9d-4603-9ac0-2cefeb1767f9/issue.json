@@ -3,11 +3,12 @@
   "display_id": 570,
   "title": "Phase 2B: feature-gated Arrow/Polars data interop via ferray-numpy-interop",
   "description": "Add ferray-numpy-interop as a feature-gated workspace dep enabling Arrow/Polars/numpy round-trip for ferrotorch-data. Unlocks zero-copy tabular pipelines.\n\nferray-numpy-interop (per its 0.2.11 changelog) provides: complex types, bool, f16/bf16, DynArray, FromArrow impls, Arrow RecordBatch, Polars DataFrame round-trip, null/missing handling.\n\nScope:\n- Add ferray-numpy-interop as an OPTIONAL workspace dep behind feature 'arrow' (also expose as 'numpy' or 'polars' aliases if convenient).\n- Add adapter functions in ferrotorch-data/src/interop.rs (new module, feature-gated):\n  - tensor_from_arrow_array(arr: &dyn Array) -> Tensor<T>\n  - tensor_to_arrow_array(t: &Tensor<T>) -> ArrayRef\n  - dataset_from_record_batch(rb: &RecordBatch) -> impl Dataset\n  - dataset_from_polars(df: &DataFrame) -> impl Dataset\n- Re-export from ferrotorch-data::lib.rs gated on the same feature.\n- Document the round-trip semantics: what dtype maps to what Arrow type, null handling rules.\n- Tests gated on the feature: round-trip a small tensor through Arrow, through a RecordBatch, through a Polars DataFrame.\n\nGPU discipline:\n- Arrow/Polars are CPU formats. Adapter fns should produce CPU-resident Tensor<T>; the user is responsible for a subsequent t.to(Device::Cuda(_)).\n- Document this explicitly. Adding an automatic GPU upload inside the from_arrow path would obscure data movement and conflict with /rust-gpu-discipline.\n- For tensor_to_arrow_array on a GPU tensor: explicit move-to-CPU is required AND should be visible to the caller. Implement it as explicit Result<...> with a doc note rather than a silent GPU->CPU bounce. Or even better: take &Tensor<T> on Device::Cpu only, force the caller to move first.\n\nBig win for tabular ML pipelines (datasets too large for in-memory ndarray, columnar input from Parquet/Arrow ecosystem). Tracked as Phase 2 in docs/audit/16-ferray-ferrolearn-integration.md.",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-01T13:25:25.944172917Z",
-  "updated_at": "2026-05-01T13:25:27.267980446Z",
+  "updated_at": "2026-05-01T16:07:01.999103503Z",
+  "closed_at": "2026-05-01T16:07:01.999103503Z",
   "labels": [
     "integration"
   ]
