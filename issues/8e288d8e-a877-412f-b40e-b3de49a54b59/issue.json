@@ -1,0 +1,10 @@
+{
+  "uuid": "8e288d8e-a877-412f-b40e-b3de49a54b59",
+  "display_id": 599,
+  "title": "ferrotorch-ml: 2-D scoring metrics — log_loss / brier_score_loss take Array2 prob outputs",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-01T16:35:55.435835460Z",
+  "updated_at": "2026-05-01T16:35:55.435835460Z"
+}
