@@ -2,11 +2,12 @@
   "uuid": "b2ae4f96-76a1-4a48-9cfb-4b802c8e8342",
   "display_id": 584,
   "title": "ferrotorch-nn::functional parity expansion (~70 missing fns: conv*, pool*, pad*, loss*, norm*, embedding, scaled_dot_product_attention, etc.)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-01T15:37:16.584172896Z",
-  "updated_at": "2026-05-01T15:37:18.091519854Z",
+  "updated_at": "2026-05-01T19:28:06.517377060Z",
+  "closed_at": "2026-05-01T19:28:06.517377060Z",
   "labels": [
     "feature"
   ]
