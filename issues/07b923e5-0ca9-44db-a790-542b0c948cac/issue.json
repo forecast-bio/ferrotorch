@@ -2,11 +2,12 @@
   "uuid": "07b923e5-0ca9-44db-a790-542b0c948cac",
   "display_id": 621,
   "title": "Named tensors: dim names + name-aware ops + alignment / refinement",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-01T21:50:24.305038457Z",
-  "updated_at": "2026-05-01T21:50:25.554430060Z",
+  "updated_at": "2026-05-01T22:34:13.379771197Z",
+  "closed_at": "2026-05-01T22:34:13.379771197Z",
   "labels": [
     "feature"
   ]
