@@ -2,11 +2,12 @@
   "uuid": "86f2da19-643f-4fa2-99cc-6d7c2683fa3d",
   "display_id": 603,
   "title": "Fix flaky test_dirichlet_concentrated: per-sample 0.1 tolerance was ~3.7sigma (0.4% false-fail rate)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-01T17:35:35.879015585Z",
-  "updated_at": "2026-05-01T17:35:37.153343995Z",
+  "updated_at": "2026-05-01T17:35:43.675978105Z",
+  "closed_at": "2026-05-01T17:35:43.675978105Z",
   "labels": [
     "bug"
   ]
