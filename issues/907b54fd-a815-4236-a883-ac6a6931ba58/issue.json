@@ -2,11 +2,12 @@
   "uuid": "907b54fd-a815-4236-a883-ac6a6931ba58",
   "display_id": 590,
   "title": "ferrotorch-vision::ops: nms, box_iou, box_convert, roi_align, roi_pool, focal_loss, sigmoid_focal_loss",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-01T15:37:48.374012729Z",
-  "updated_at": "2026-05-01T15:37:49.697623712Z",
+  "updated_at": "2026-05-01T20:14:01.463973699Z",
+  "closed_at": "2026-05-01T20:14:01.463973699Z",
   "labels": [
     "feature"
   ]
