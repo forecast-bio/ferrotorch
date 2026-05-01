@@ -1,0 +1,10 @@
+{
+  "uuid": "3bcda1bf-514b-412b-ac8b-0d40b876a056",
+  "display_id": 593,
+  "title": "Quantization loaders beyond GGUF: GPTQ / AWQ / HQQ weight unpackers in ferrotorch-llama or core::quantize",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-01T15:38:05.487291883Z",
+  "updated_at": "2026-05-01T15:38:05.487291883Z"
+}
