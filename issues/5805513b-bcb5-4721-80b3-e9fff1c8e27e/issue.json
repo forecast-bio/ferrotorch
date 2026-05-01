@@ -2,11 +2,12 @@
   "uuid": "5805513b-bcb5-4721-80b3-e9fff1c8e27e",
   "display_id": 579,
   "title": "GPU cuFFT dispatch for fft/ifft/rfft/irfft/fftn/ifftn/rfftn/irfftn/hfft/ihfft",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-01T15:36:50.528290165Z",
-  "updated_at": "2026-05-01T15:36:51.927744159Z",
+  "updated_at": "2026-05-01T18:26:13.724637735Z",
+  "closed_at": "2026-05-01T18:26:13.724637735Z",
   "labels": [
     "gpu"
   ]
