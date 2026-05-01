@@ -2,11 +2,12 @@
   "uuid": "530e5061-fc35-4907-b287-b96083e28d1c",
   "display_id": 610,
   "title": "vision::ops tail: roi_align, roi_pool, generalized_box_iou, distance_box_iou",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-01T20:12:50.442246551Z",
-  "updated_at": "2026-05-01T20:12:51.794101548Z",
+  "updated_at": "2026-05-01T23:56:50.919480522Z",
+  "closed_at": "2026-05-01T23:56:50.919480522Z",
   "labels": [
     "feature"
   ]
