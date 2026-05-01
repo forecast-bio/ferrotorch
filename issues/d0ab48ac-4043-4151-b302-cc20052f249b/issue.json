@@ -2,11 +2,12 @@
   "uuid": "d0ab48ac-4043-4151-b302-cc20052f249b",
   "display_id": 576,
   "title": "GPU dispatch for det/inv/pinv/matrix_norm via cuSOLVER + cublas",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-01T14:40:36.275173435Z",
-  "updated_at": "2026-05-01T14:40:37.604259351Z",
+  "updated_at": "2026-05-01T14:41:25.687777359Z",
+  "closed_at": "2026-05-01T14:41:25.687777359Z",
   "labels": [
     "gpu"
   ]
