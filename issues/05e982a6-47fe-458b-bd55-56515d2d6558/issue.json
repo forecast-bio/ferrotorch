@@ -1,0 +1,11 @@
+{
+  "uuid": "05e982a6-47fe-458b-bd55-56515d2d6558",
+  "display_id": 566,
+  "title": "Phase 1C: add ferrotorch-core::signal::windows wrapping ferray-window",
+  "description": "Add a new ferrotorch-core::signal module wrapping ferray-window. Closes the torch.signal.windows gap flagged at the top level in docs/audit/README.md.\n\nferray-window provides:\n- bartlett(m)\n- blackman(m)\n- hamming(m)\n- hanning(m)\n- kaiser(m, beta)\n\nScope:\n- Add ferray-window = workspace dep in ferrotorch-core/Cargo.toml.\n- Create ferrotorch-core/src/signal/mod.rs with a windows submodule.\n- Each fn returns Tensor<f64> on Device::Cpu by default (windows are tiny precomputed coefficient vectors; no GPU compute needed). Caller can .to(Device::Cuda(_)) if they want it on device.\n- Add: bartlett, blackman, hamming, hann (alias of hanning), kaiser, plus the typical extras users will want: cosine, exponential, gaussian, general_cosine, general_hamming, nuttall, parzen, taylor, tukey — these are NOT in ferray-window today. For Phase 1C scope, add only the 5 ferray-window provides; track the missing 9 as a follow-up issue. Pure-Rust window-fn implementations are short (~10 LOC each).\n- Re-export at ferrotorch-core::lib.rs as  and .\n- Tests: assert window length, symmetry, peak position.\n\nGPU discipline:\n- Windows are coefficient generators, not compute kernels. CPU output is correct and idiomatic. Document that the returned tensor lives on CPU and the user must move it to device.\n- Do NOT add a fake GPU path that uploads a 2048-element vector via cudaMemcpy — that's worse than the CPU path.\n- This is one of the few cases where /rust-gpu-discipline tolerates CPU-only because the math is trivial; document the choice in the module docstring.\n\ntorch.signal.windows is a top-level pytorch surface with no current ferrotorch home. This adds it.",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-01T13:24:00.189564997Z",
+  "updated_at": "2026-05-01T13:24:00.189564997Z"
+}
