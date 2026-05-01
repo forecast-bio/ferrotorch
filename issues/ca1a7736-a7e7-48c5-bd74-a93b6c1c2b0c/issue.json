@@ -1,0 +1,10 @@
+{
+  "uuid": "ca1a7736-a7e7-48c5-bd74-a93b6c1c2b0c",
+  "display_id": 609,
+  "title": "Memory-mapped GGUF + pytorch-pickle loaders",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-01T19:54:42.047852254Z",
+  "updated_at": "2026-05-01T19:54:42.047852254Z"
+}
