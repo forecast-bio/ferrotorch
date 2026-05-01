@@ -1,0 +1,10 @@
+{
+  "uuid": "c6fc5afc-8642-4a4b-91e4-30a127926583",
+  "display_id": 594,
+  "title": "Activation tail in grad_fns: leaky_relu, elu, selu, hardswish, hardtanh, mish, softplus, softsign, prelu, glu, relu6, hardsigmoid",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-01T15:38:11.594247890Z",
+  "updated_at": "2026-05-01T15:38:11.594247890Z"
+}
