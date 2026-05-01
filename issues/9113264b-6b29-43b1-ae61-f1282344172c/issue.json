@@ -2,11 +2,12 @@
   "uuid": "9113264b-6b29-43b1-ae61-f1282344172c",
   "display_id": 618,
   "title": "Complex tensor support: Tensor<Complex<f32>> for FFT, signal processing, audio",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-01T21:50:08.213509896Z",
-  "updated_at": "2026-05-01T21:50:09.465338938Z",
+  "updated_at": "2026-05-01T22:44:08.500115767Z",
+  "closed_at": "2026-05-01T22:44:08.500115767Z",
   "labels": [
     "feature"
   ]
