@@ -1,0 +1,10 @@
+{
+  "uuid": "c7210e5d-21cf-4842-b8b1-96ded8a32253",
+  "issue_uuid": "29fc4154-ccf3-4092-a9b4-e800b0ca67bb",
+  "author": "y4rr",
+  "content": "Propagation complete + skill tightened. (1) Original subagent fix to Normalize::new broke ferrotorch-vision in 6 places, not just 1 — vision_normalize.rs:26 (the obvious one) plus 5 more in random_apply.rs test code (lines 90, 105, 134, 135, 156). (2) Applied propagation: vision_normalize.rs new() now returns FerrotorchResult<Self>, imagenet() keeps -> Self via .expect with documented invariant + # Panics rustdoc; the 5 random_apply.rs test sites got .unwrap() appended. (3) Verified: cargo test -p ferrotorch-vision PASS (333 tests + 4 doctests), cargo build --workspace --all-targets PASS (all 22 crates, 24.83s). (4) Skill tightened in 3 places: §6 now has explicit 'workspace-build requirement is non-negotiable for pub API changes' paragraph that calls out dispatch-prompt-override as a discipline failure not the agent's call to make; §7 Call-site impact line now requires the literal grep command + one-line summary, not narrative; §3 has new forbidden pattern #11 'The unverified call-site claim'. The new mandate paid off immediately — 'cargo test -p ferrotorch-vision' (which I ran per the new rule) surfaced the 5 additional breakages that the previous subagent's per-crate testing missed.",
+  "created_at": "2026-05-02T20:01:50.344368036Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABACC5Tb1+/LRC6Eb8mNhOMceppjBStb/4o24UOhuSxudYZnSwa9sPyaHCaz9fAis2G2OAgHsxyqqTJnbMHWXfQBw=="
+}
