@@ -16,6 +16,15 @@ readme = "README.md"
 default = []
 gpu = ["dep:ferrotorch-gpu"]
 nccl = ["gpu", "dep:libc"]
+# Skeleton flags for the additional backends listed in #459. The crates
+# themselves still have the API contracts in place (Gloo/MPI/UCC modules
+# always compile); enabling these flags is what turns on the actual FFI
+# binding layers, which are not yet implemented and will live in
+# follow-ups #459-gloo / #459-mpi / #459-ucc once a CI host with the
+# corresponding C library is available.
+gloo-backend = []
+mpi-backend = []
+ucc-backend = []
 
 [dependencies]
 ferrotorch-core = { workspace = true }

@@ -60,10 +60,13 @@ pub mod ddp;
 pub mod device_mesh;
 pub mod error;
 pub mod fsdp;
+pub mod gloo_backend;
+pub mod mpi_backend;
 pub mod p2p;
 pub mod pipeline;
 pub mod rpc;
 pub mod sync_batch_norm;
+pub mod ucc_backend;
 
 #[cfg(feature = "gpu")]
 pub mod gpu_collective;
@@ -95,6 +98,9 @@ pub use ddp::DDP;
 pub use device_mesh::DeviceMesh;
 pub use error::DistributedError;
 pub use fsdp::FSDP;
+pub use gloo_backend::{GlooBackend, is_gloo_available};
+pub use mpi_backend::{MpiBackend, is_mpi_available};
+pub use ucc_backend::{UccBackend, is_ucc_available};
 pub use p2p::{recv, recv_into, recv_into_with_timeout, recv_with_timeout, send, sendrecv};
 pub use sync_batch_norm::SyncBatchNorm2d;
 pub use pipeline::{Pipeline, PipelineSchedule};
