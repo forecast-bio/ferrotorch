@@ -1,0 +1,10 @@
+{
+  "uuid": "97da4e33-7174-4796-b50f-f5519f553bea",
+  "display_id": 643,
+  "title": "Add Step 0 (env probe) to rust-gpu-discipline skill; codify 'check, don't assume' rule",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-02T17:32:49.570871163Z",
+  "updated_at": "2026-05-02T17:32:49.570871163Z"
+}
