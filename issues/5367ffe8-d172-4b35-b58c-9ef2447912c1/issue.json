@@ -2,11 +2,12 @@
   "uuid": "5367ffe8-d172-4b35-b58c-9ef2447912c1",
   "display_id": 525,
   "title": "Phase 3 v2 refinement: dropout + internal tooling",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-24T13:17:08.760910940Z",
-  "updated_at": "2026-04-24T13:17:10.525936490Z",
+  "updated_at": "2026-05-02T01:59:01.198124765Z",
+  "closed_at": "2026-05-02T01:59:01.198124765Z",
   "labels": [
     "gpu"
   ]
