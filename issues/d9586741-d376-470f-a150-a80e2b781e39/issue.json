@@ -2,11 +2,12 @@
   "uuid": "d9586741-d376-470f-a150-a80e2b781e39",
   "display_id": 545,
   "title": "ShadowLlm threshold sweep + recall-weighted training for cos_sim>0.99 at meaningful density",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-25T18:21:02.357420452Z",
-  "updated_at": "2026-04-25T18:21:03.721397842Z",
+  "updated_at": "2026-05-02T01:58:25.629307605Z",
+  "closed_at": "2026-05-02T01:58:25.629307605Z",
   "labels": [
     "rust"
   ]
