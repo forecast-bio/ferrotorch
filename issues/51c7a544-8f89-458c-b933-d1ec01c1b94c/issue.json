@@ -2,11 +2,12 @@
   "uuid": "51c7a544-8f89-458c-b933-d1ec01c1b94c",
   "display_id": 547,
   "title": "Multi-tap trace capture (k1,k4,k16) + plainact criterion + scale corpus",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-25T23:09:38.389892957Z",
-  "updated_at": "2026-04-25T23:09:39.709258817Z",
+  "updated_at": "2026-05-02T01:58:28.076472658Z",
+  "closed_at": "2026-05-02T01:58:28.076472658Z",
   "labels": [
     "rust"
   ]
