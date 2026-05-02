@@ -2,11 +2,12 @@
   "uuid": "be17a65a-10e8-4677-93ec-2212e59ceb59",
   "display_id": 459,
   "title": "Add additional distributed backends: Gloo, MPI, UCC",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:22:19.315403946Z",
-  "updated_at": "2026-04-03T22:22:23.453554567Z",
+  "updated_at": "2026-05-02T00:36:46.475489959Z",
+  "closed_at": "2026-05-02T00:36:46.475489959Z",
   "labels": [
     "distributed"
   ]
