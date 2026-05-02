@@ -2,11 +2,12 @@
   "uuid": "87aaf475-7cd5-4b2c-8f00-b0ffe20ae167",
   "display_id": 523,
   "title": "internal tooling",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-24T03:48:57.906545403Z",
-  "updated_at": "2026-04-24T03:48:59.214317061Z",
+  "updated_at": "2026-05-02T01:57:58.537395843Z",
+  "closed_at": "2026-05-02T01:57:58.537395843Z",
   "labels": [
     "gpu"
   ]
