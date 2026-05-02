@@ -1,0 +1,11 @@
+{
+  "uuid": "d4ab1ea5-95f6-43a6-a74f-4c74b718a3f5",
+  "display_id": 629,
+  "title": "Memory-mapped pytorch-pickle loader",
+  "description": "Spun out from #609 which landed mmap GGUF. The pytorch-pickle loader (`ferrotorch-serialize/src/pytorch_import.rs::load_pytorch_state_dict`) reads the whole zip archive into a heap Vec via `std::fs::read`, then does pickle parsing. Mmap'ing is more involved than GGUF because the pickle parser wants `Read` on a sub-file rather than a borrowed slice — but at minimum we should mmap the outer zip file. A shallower win: feed the mmap'd bytes through `Cursor` instead of allocating a Vec.\n\nSame safety contract as #587 / #609 — mmap dropped before loader returns, no borrows escape.",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-02T00:26:53.422837032Z",
+  "updated_at": "2026-05-02T00:26:53.422837032Z"
+}
