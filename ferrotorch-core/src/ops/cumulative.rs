@@ -203,8 +203,7 @@ pub fn cummax_forward<T: Float>(
             } else {
                 backend.cummax_f64(input.gpu_handle()?, outer, dim_size, inner)?
             };
-            let values =
-                Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
+            let values = Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
             // Indices are stored as f32 on GPU — download and convert to usize
             let idxs_tensor =
                 Tensor::<f32>::from_storage(TensorStorage::gpu(idxs_h), shape.to_vec(), false)?;
@@ -272,8 +271,7 @@ pub fn cummin_forward<T: Float>(
             } else {
                 backend.cummin_f64(input.gpu_handle()?, outer, dim_size, inner)?
             };
-            let values =
-                Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
+            let values = Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
             let idxs_tensor =
                 Tensor::<f32>::from_storage(TensorStorage::gpu(idxs_h), shape.to_vec(), false)?;
             let idxs_cpu = idxs_tensor.cpu()?;

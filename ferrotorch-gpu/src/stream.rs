@@ -119,8 +119,7 @@ pub fn get_stream_priority_range(ctx: &Arc<CudaContext>) -> GpuResult<(i32, i32)
     // are valid stack locations. The current context is bound by the
     // call above.
     unsafe {
-        sys::cuCtxGetStreamPriorityRange(&mut least as *mut _, &mut greatest as *mut _)
-            .result()?;
+        sys::cuCtxGetStreamPriorityRange(&mut least as *mut _, &mut greatest as *mut _).result()?;
     }
     Ok((least, greatest))
 }
@@ -389,9 +388,7 @@ static STREAM_POOL: OnceLock<Vec<OnceLock<DeviceStreams>>> = OnceLock::new();
 /// Initialize the pool structure (array of `OnceLock` slots). Called once.
 #[cfg(feature = "cuda")]
 fn pool_slots() -> &'static Vec<OnceLock<DeviceStreams>> {
-    STREAM_POOL.get_or_init(|| {
-        (0..MAX_DEVICES).map(|_| OnceLock::new()).collect()
-    })
+    STREAM_POOL.get_or_init(|| (0..MAX_DEVICES).map(|_| OnceLock::new()).collect())
 }
 
 /// Public interface for the CUDA stream pool.
@@ -414,10 +411,7 @@ impl StreamPool {
     ///
     /// - Returns [`GpuError::InvalidDevice`] if `device_ordinal >= MAX_DEVICES`.
     /// - Returns a CUDA driver error if stream creation fails.
-    pub fn get_stream(
-        ctx: &Arc<CudaContext>,
-        device_ordinal: usize,
-    ) -> GpuResult<Arc<CudaStream>> {
+    pub fn get_stream(ctx: &Arc<CudaContext>, device_ordinal: usize) -> GpuResult<Arc<CudaStream>> {
         if device_ordinal >= MAX_DEVICES {
             return Err(GpuError::InvalidDevice {
                 ordinal: device_ordinal,
@@ -454,8 +448,8 @@ impl StreamPool {
             )));
         }
 
-        let idx = device_streams.counter.fetch_add(1, Ordering::Relaxed)
-            % device_streams.streams.len();
+        let idx =
+            device_streams.counter.fetch_add(1, Ordering::Relaxed) % device_streams.streams.len();
         Ok(Arc::clone(&device_streams.streams[idx]))
     }
 
@@ -540,14 +534,12 @@ impl StreamPool {
             let snapshot = entry.clone();
             drop(guard);
             // Round-robin pick from the snapshot.
-            let idx = priority_pool_counter(key)
-                .fetch_add(1, Ordering::Relaxed)
-                % snapshot.len();
+            let idx = priority_pool_counter(key).fetch_add(1, Ordering::Relaxed) % snapshot.len();
             return Ok(Arc::clone(&snapshot[idx]));
         }
 
-        let idx = priority_pool_counter(key).fetch_add(1, Ordering::Relaxed)
-            % priority_streams.len();
+        let idx =
+            priority_pool_counter(key).fetch_add(1, Ordering::Relaxed) % priority_streams.len();
         Ok(Arc::clone(&priority_streams[idx]))
     }
 
@@ -596,8 +588,7 @@ static PRIORITY_POOL_COUNTERS: OnceLock<PriorityCounterMap> = OnceLock::new();
 
 #[cfg(feature = "cuda")]
 fn priority_pool_counter(key: (usize, StreamPriority)) -> Arc<AtomicUsize> {
-    let map = PRIORITY_POOL_COUNTERS
-        .get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    let map = PRIORITY_POOL_COUNTERS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
     let mut guard = map.lock().unwrap_or_else(|p| p.into_inner());
     Arc::clone(
         guard
@@ -654,8 +645,7 @@ pub fn clear_current_stream(device: usize) {
 /// This is the primary entry point for operations that need "the stream to use."
 #[cfg(feature = "cuda")]
 pub fn current_stream_or_default(device: &crate::device::GpuDevice) -> Arc<CudaStream> {
-    get_current_stream(device.ordinal())
-        .unwrap_or_else(|| Arc::clone(device.default_stream()))
+    get_current_stream(device.ordinal()).unwrap_or_else(|| Arc::clone(device.default_stream()))
 }
 
 // ---------------------------------------------------------------------------
@@ -787,8 +777,7 @@ mod tests {
         let Some(ctx) = test_ctx() else { return };
         let stream = ctx.default_stream();
 
-        let event = CudaEventWrapper::new(&ctx)
-            .expect("event creation should succeed");
+        let event = CudaEventWrapper::new(&ctx).expect("event creation should succeed");
 
         // Record on the default stream (which has no pending work).
         event.record(&stream).expect("record should succeed");
@@ -807,8 +796,7 @@ mod tests {
     fn event_query_before_record() {
         let Some(ctx) = test_ctx() else { return };
 
-        let event = CudaEventWrapper::new(&ctx)
-            .expect("event creation should succeed");
+        let event = CudaEventWrapper::new(&ctx).expect("event creation should succeed");
 
         // A freshly created event with no work recorded. Per CUDA semantics,
         // cuEventQuery on an event that has never been recorded returns
@@ -825,27 +813,25 @@ mod tests {
         // Use a high ordinal unlikely to collide with other tests.
         let dev = 0;
 
-        let s1 = StreamPool::get_stream(&ctx, dev)
-            .expect("first get_stream should succeed");
-        let s2 = StreamPool::get_stream(&ctx, dev)
-            .expect("second get_stream should succeed");
+        let s1 = StreamPool::get_stream(&ctx, dev).expect("first get_stream should succeed");
+        let s2 = StreamPool::get_stream(&ctx, dev).expect("second get_stream should succeed");
 
         // After STREAMS_PER_DEVICE calls, we should wrap around.
         let pool_size = StreamPool::pool_size(dev);
         assert!(pool_size > 0, "pool should have streams");
-        assert!(pool_size <= STREAMS_PER_DEVICE, "pool should not exceed configured size");
+        assert!(
+            pool_size <= STREAMS_PER_DEVICE,
+            "pool should not exceed configured size"
+        );
 
         // Collect all streams from a full cycle.
         let mut streams = vec![s1, s2];
         for _ in 2..pool_size {
-            streams.push(
-                StreamPool::get_stream(&ctx, dev).expect("get_stream should succeed"),
-            );
+            streams.push(StreamPool::get_stream(&ctx, dev).expect("get_stream should succeed"));
         }
 
         // The next stream should wrap around to the same as the first.
-        let wrap = StreamPool::get_stream(&ctx, dev)
-            .expect("wrapped get_stream should succeed");
+        let wrap = StreamPool::get_stream(&ctx, dev).expect("wrapped get_stream should succeed");
 
         // Because round-robin, `wrap` should be the same Arc as `streams[0]`.
         // We compare the underlying cu_stream pointers.
@@ -949,8 +935,8 @@ mod tests {
         // Clear any leftover state.
         clear_current_stream(dev_ordinal);
 
-        let device = crate::device::GpuDevice::new(dev_ordinal)
-            .expect("GpuDevice::new should succeed");
+        let device =
+            crate::device::GpuDevice::new(dev_ordinal).expect("GpuDevice::new should succeed");
         let default_ptr = Arc::as_ptr(device.default_stream());
 
         // No current stream set — should fall back to device default.
@@ -983,8 +969,7 @@ mod tests {
         let stream1 = ctx.default_stream();
         let stream2 = ctx.new_stream().expect("new_stream should succeed");
 
-        let event = CudaEventWrapper::new(&ctx)
-            .expect("event creation should succeed");
+        let event = CudaEventWrapper::new(&ctx).expect("event creation should succeed");
 
         // Record on stream1.
         event.record(&stream1).expect("record should succeed");
@@ -1001,8 +986,8 @@ mod tests {
     #[test]
     fn priority_range_returns_sane_values() {
         let Some(ctx) = test_ctx() else { return };
-        let (least, greatest) = get_stream_priority_range(&ctx)
-            .expect("priority range should query successfully");
+        let (least, greatest) =
+            get_stream_priority_range(&ctx).expect("priority range should query successfully");
         // CUDA convention: lower int = higher priority, so
         // greatest <= least always holds. On devices that don't
         // support priority both are 0.

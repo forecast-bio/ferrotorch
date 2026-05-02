@@ -229,12 +229,9 @@ impl<T: Float> InceptionV3<T> {
 
         // Three Inception modules at 64 → 128 → 192 channels.
         // Branch sizes chosen so out_channels() gives 128 and 192.
-        let module_a =
-            InceptionModule::new(64, 32, 24, 32, 24, 32, 32)?; // 128 out
-        let module_b =
-            InceptionModule::new(128, 48, 32, 48, 32, 48, 48)?; // 192 out
-        let module_c =
-            InceptionModule::new(192, 64, 48, 64, 48, 64, 64)?; // 256 out
+        let module_a = InceptionModule::new(64, 32, 24, 32, 24, 32, 32)?; // 128 out
+        let module_b = InceptionModule::new(128, 48, 32, 48, 32, 48, 48)?; // 192 out
+        let module_c = InceptionModule::new(192, 64, 48, 64, 48, 64, 64)?; // 256 out
 
         let avgpool = AdaptiveAvgPool2d::new((1, 1));
         let classifier = Linear::new(256, num_classes, true)?;
@@ -409,8 +406,7 @@ mod tests {
     #[test]
     fn test_inception_module_concat_channel_count() {
         // in 16, branches 8/6/8/6/8/4 → out 8+8+8+4 = 28
-        let module: InceptionModule<f32> =
-            InceptionModule::new(16, 8, 6, 8, 6, 8, 4).unwrap();
+        let module: InceptionModule<f32> = InceptionModule::new(16, 8, 6, 8, 6, 8, 4).unwrap();
         let x = dummy_image(1, 16, 8, 8);
         let y = module.forward(&x).unwrap();
         assert_eq!(y.shape(), &[1, 28, 8, 8]);
@@ -442,8 +438,11 @@ mod tests {
     #[test]
     fn test_inception_v3_named_parameters_prefixes() {
         let model: InceptionV3<f32> = inception_v3(10).unwrap();
-        let names: Vec<String> =
-            model.named_parameters().into_iter().map(|(n, _)| n).collect();
+        let names: Vec<String> = model
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
         assert!(names.iter().any(|n| n.starts_with("stem_conv1.")));
         assert!(names.iter().any(|n| n.starts_with("stem_conv2.")));
         assert!(names.iter().any(|n| n.starts_with("module_a.")));

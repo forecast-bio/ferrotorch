@@ -31,4 +31,6 @@ pub use grad_penalty::{grad_norm, gradient_penalty, jvp, vjp};
 pub use gradcheck::gradcheck;
 pub use graph::{backward, backward_with_grad};
 pub use higher_order::{grad, hessian, jacobian};
-pub use no_grad::{enable_grad, inference_mode, is_grad_enabled, is_inference_mode, no_grad, set_grad_enabled};
+pub use no_grad::{
+    enable_grad, inference_mode, is_grad_enabled, is_inference_mode, no_grad, set_grad_enabled,
+};

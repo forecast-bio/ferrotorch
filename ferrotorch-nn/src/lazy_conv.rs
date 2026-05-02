@@ -138,11 +138,17 @@ impl<T: Float> Module<T> for LazyConv1d<T> {
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-        self.inner.get_mut().map(|c| c.parameters_mut()).unwrap_or_default()
+        self.inner
+            .get_mut()
+            .map(|c| c.parameters_mut())
+            .unwrap_or_default()
     }
 
     fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-        self.inner.get().map(|c| c.named_parameters()).unwrap_or_default()
+        self.inner
+            .get()
+            .map(|c| c.named_parameters())
+            .unwrap_or_default()
     }
 
     fn train(&mut self) {
@@ -265,11 +271,17 @@ impl<T: Float> Module<T> for LazyConv2d<T> {
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-        self.inner.get_mut().map(|c| c.parameters_mut()).unwrap_or_default()
+        self.inner
+            .get_mut()
+            .map(|c| c.parameters_mut())
+            .unwrap_or_default()
     }
 
     fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-        self.inner.get().map(|c| c.named_parameters()).unwrap_or_default()
+        self.inner
+            .get()
+            .map(|c| c.named_parameters())
+            .unwrap_or_default()
     }
 
     fn train(&mut self) {
@@ -392,11 +404,17 @@ impl<T: Float> Module<T> for LazyConv3d<T> {
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-        self.inner.get_mut().map(|c| c.parameters_mut()).unwrap_or_default()
+        self.inner
+            .get_mut()
+            .map(|c| c.parameters_mut())
+            .unwrap_or_default()
     }
 
     fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-        self.inner.get().map(|c| c.named_parameters()).unwrap_or_default()
+        self.inner
+            .get()
+            .map(|c| c.named_parameters())
+            .unwrap_or_default()
     }
 
     fn train(&mut self) {
@@ -535,8 +553,7 @@ mod tests {
 
     #[test]
     fn test_lazy_conv2d_train_eval_propagates_to_inner() {
-        let mut lazy: LazyConv2d<f32> =
-            LazyConv2d::new(2, (3, 3), (1, 1), (1, 1), true).unwrap();
+        let mut lazy: LazyConv2d<f32> = LazyConv2d::new(2, (3, 3), (1, 1), (1, 1), true).unwrap();
         let data: Vec<f32> = (0..48).map(|i| i as f32).collect();
         let input = cpu_tensor(&data, &[1, 3, 4, 4]);
         let _ = lazy.forward(&input).unwrap();

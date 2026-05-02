@@ -58,16 +58,12 @@ pub fn fake_quantize_differentiable<T: Float>(
     use crate::error::FerrotorchError;
     if scale.is_nan() || scale <= 0.0 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "fake_quantize_differentiable: scale must be > 0, got {scale}"
-            ),
+            message: format!("fake_quantize_differentiable: scale must be > 0, got {scale}"),
         });
     }
     if qmin >= qmax {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "fake_quantize_differentiable: qmin ({qmin}) must be < qmax ({qmax})"
-            ),
+            message: format!("fake_quantize_differentiable: qmin ({qmin}) must be < qmax ({qmax})"),
         });
     }
 
@@ -176,8 +172,7 @@ mod tests {
 
         // Values that are exact multiples of scale should round-trip.
         let input = t(vec![0.0, 0.1, 0.2, -0.1, -0.2], vec![5], false);
-        let out =
-            fake_quantize_differentiable(&input, scale, zp, qmin, qmax).unwrap();
+        let out = fake_quantize_differentiable(&input, scale, zp, qmin, qmax).unwrap();
         let data = out.data().unwrap();
         for (got, expected) in data.iter().zip([0.0, 0.1, 0.2, -0.1, -0.2].iter()) {
             assert!(
@@ -268,13 +263,8 @@ mod tests {
     fn fake_quantize_ste_zeros_grad_for_out_of_range_values() {
         // Only values in [-1.0, 1.0] (scale=0.01, range=[-1.28, 1.27])
         // get grad 1, others get 0. Use scale=0.01, qmin=-128, qmax=127.
-        let input = t(
-            vec![-5.0, -1.0, 0.0, 1.0, 5.0, 100.0],
-            vec![6],
-            true,
-        );
-        let out =
-            fake_quantize_differentiable(&input, 0.01, 0, -128, 127).unwrap();
+        let input = t(vec![-5.0, -1.0, 0.0, 1.0, 5.0, 100.0], vec![6], true);
+        let out = fake_quantize_differentiable(&input, 0.01, 0, -128, 127).unwrap();
         let sum = crate::grad_fns::reduction::sum(&out).unwrap();
         backward(&sum).unwrap();
         let grad = input.grad().unwrap().unwrap();
@@ -313,10 +303,7 @@ mod tests {
     fn fake_quantize_no_grad_context_skips_grad_fn() {
         use crate::autograd::no_grad::no_grad;
         let input = t(vec![1.0, 2.0], vec![2], true);
-        let out = no_grad(|| {
-            fake_quantize_differentiable(&input, 1.0, 0, -128, 127)
-        })
-        .unwrap();
+        let out = no_grad(|| fake_quantize_differentiable(&input, 1.0, 0, -128, 127)).unwrap();
         // Inside no_grad, even a requires_grad input produces an
         // output with no grad_fn.
         assert!(out.grad_fn().is_none());

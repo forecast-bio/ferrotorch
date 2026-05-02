@@ -220,13 +220,13 @@ mod tests {
     #[test]
     fn test_multiplicative_halving() {
         // Halve the LR at epochs 5 and 10.
-        let mut sched = MultiplicativeLR::new(1.0, |epoch| {
-            if epoch == 5 || epoch == 10 {
-                0.5
-            } else {
-                1.0
-            }
-        });
+        let mut sched =
+            MultiplicativeLR::new(
+                1.0,
+                |epoch| {
+                    if epoch == 5 || epoch == 10 { 0.5 } else { 1.0 }
+                },
+            );
         let mut opt = MockOptimizer::new(1.0);
 
         for _ in 0..4 {

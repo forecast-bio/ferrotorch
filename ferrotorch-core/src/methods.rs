@@ -427,12 +427,7 @@ pub fn narrow_t<T: Float>(
             dim,
             start,
         });
-        Ok(input.stride_view_operation(
-            new_shape,
-            strides.to_vec(),
-            new_offset,
-            grad_fn,
-        ))
+        Ok(input.stride_view_operation(new_shape, strides.to_vec(), new_offset, grad_fn))
     } else {
         Ok(input.stride_view(new_shape, strides.to_vec(), new_offset))
     }
@@ -480,10 +475,8 @@ impl<T: Float> crate::tensor::GradFn<T> for NarrowBackward<T> {
         }
 
         let device = self.input.device();
-        let storage =
-            crate::storage::TensorStorage::on_device(grad_data, device)?;
-        let grad_input =
-            Tensor::from_storage(storage, in_shape.to_vec(), false)?;
+        let storage = crate::storage::TensorStorage::on_device(grad_data, device)?;
+        let grad_input = Tensor::from_storage(storage, in_shape.to_vec(), false)?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -553,9 +546,7 @@ pub fn contiguous_t<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
 
             if let Ok(handle) = out_handle {
                 let storage = TensorStorage::gpu(handle);
-                return if crate::autograd::no_grad::is_grad_enabled()
-                    && input.requires_grad()
-                {
+                return if crate::autograd::no_grad::is_grad_enabled() && input.requires_grad() {
                     let grad_fn = std::sync::Arc::new(ContiguousBackward {
                         input: input.clone(),
                     });
@@ -583,7 +574,9 @@ fn contiguous_t_cpu<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
     // backward is the identity (same shape, same semantics). Without this,
     // calling .contiguous() on a non-contiguous view severs the grad_fn chain.
     if crate::autograd::no_grad::is_grad_enabled() && input.requires_grad() {
-        let grad_fn = std::sync::Arc::new(ContiguousBackward { input: input.clone() });
+        let grad_fn = std::sync::Arc::new(ContiguousBackward {
+            input: input.clone(),
+        });
         Tensor::from_operation(storage, input.shape().to_vec(), grad_fn)
     } else {
         Tensor::from_storage(storage, input.shape().to_vec(), false)
@@ -884,10 +877,7 @@ mod tests {
         let b = a.permute(&[1, 0]).unwrap();
         assert_eq!(b.shape(), &[3, 2]);
         // Non-contiguous view — use data_vec() to read logical order.
-        assert_eq!(
-            b.data_vec().unwrap(),
-            &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]
-        );
+        assert_eq!(b.data_vec().unwrap(), &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
         // Verify it's a view (shares storage).
         assert!(!b.is_contiguous());
     }

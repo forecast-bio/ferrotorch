@@ -27,15 +27,20 @@ impl<T: Float> Pareto<T> {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
                     "Pareto: scale shape {:?} != alpha shape {:?}",
-                    scale.shape(), alpha.shape()
+                    scale.shape(),
+                    alpha.shape()
                 ),
             });
         }
         Ok(Self { scale, alpha })
     }
 
-    pub fn scale(&self) -> &Tensor<T> { &self.scale }
-    pub fn alpha(&self) -> &Tensor<T> { &self.alpha }
+    pub fn scale(&self) -> &Tensor<T> {
+        &self.scale
+    }
+    pub fn alpha(&self) -> &Tensor<T> {
+        &self.alpha
+    }
 }
 
 impl<T: Float> Distribution<T> for Pareto<T> {
@@ -50,10 +55,21 @@ impl<T: Float> Distribution<T> for Pareto<T> {
 
         let mut out = Vec::with_capacity(numel);
         for i in 0..numel {
-            let si = if s_data.len() == 1 { 0 } else { i % s_data.len() };
-            let ai = if a_data.len() == 1 { 0 } else { i % a_data.len() };
+            let si = if s_data.len() == 1 {
+                0
+            } else {
+                i % s_data.len()
+            };
+            let ai = if a_data.len() == 1 {
+                0
+            } else {
+                i % a_data.len()
+            };
             // x = scale / u^(1/alpha)
-            let val = s_data[si] / u_data[i].max(T::from(1e-30).unwrap()).powf(one / a_data[ai]);
+            let val = s_data[si]
+                / u_data[i]
+                    .max(T::from(1e-30).unwrap())
+                    .powf(one / a_data[ai]);
             out.push(val);
         }
 

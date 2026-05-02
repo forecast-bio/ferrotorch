@@ -203,7 +203,8 @@ impl<T: Float> Sgd<T> {
                         } else {
                             // buf = momentum * buf + (1 - dampening) * grad
                             let mom_t = scalar(T::from(momentum).unwrap())?.to(device)?;
-                            let damp_coeff = scalar(T::from(1.0 - dampening).unwrap())?.to(device)?;
+                            let damp_coeff =
+                                scalar(T::from(1.0 - dampening).unwrap())?.to(device)?;
                             let prev_buf = self
                                 .foreach_buffers
                                 .get(&key)
@@ -818,8 +819,14 @@ mod tests {
         sgd_legacy.step().unwrap();
         sgd_foreach.step().unwrap();
 
-        let l = sgd_legacy.param_groups()[0].params[0].data().unwrap().to_vec();
-        let f = sgd_foreach.param_groups()[0].params[0].data().unwrap().to_vec();
+        let l = sgd_legacy.param_groups()[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
+        let f = sgd_foreach.param_groups()[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
         for (a, b) in l.iter().zip(f.iter()) {
             assert!(
                 (a - b).abs() < 1e-6,
@@ -848,8 +855,14 @@ mod tests {
             sgd_foreach.step().unwrap();
         }
 
-        let l = sgd_legacy.param_groups()[0].params[0].data().unwrap().to_vec();
-        let f = sgd_foreach.param_groups()[0].params[0].data().unwrap().to_vec();
+        let l = sgd_legacy.param_groups()[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
+        let f = sgd_foreach.param_groups()[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
         for (a, b) in l.iter().zip(f.iter()) {
             assert!(
                 (a - b).abs() < 1e-5,
@@ -863,8 +876,10 @@ mod tests {
     #[test]
     fn test_foreach_parity_with_weight_decay() {
         let (p_legacy, p_foreach) = paired_param(&[5.0, -3.0, 2.0]);
-        let mut sgd_legacy =
-            Sgd::new(vec![p_legacy.clone()], SgdConfig::new(0.1).weight_decay(0.05));
+        let mut sgd_legacy = Sgd::new(
+            vec![p_legacy.clone()],
+            SgdConfig::new(0.1).weight_decay(0.05),
+        );
         let mut sgd_foreach = Sgd::new(
             vec![p_foreach.clone()],
             SgdConfig::new(0.1).weight_decay(0.05).foreach(true),
@@ -878,8 +893,14 @@ mod tests {
             sgd_foreach.step().unwrap();
         }
 
-        let l = sgd_legacy.param_groups()[0].params[0].data().unwrap().to_vec();
-        let f = sgd_foreach.param_groups()[0].params[0].data().unwrap().to_vec();
+        let l = sgd_legacy.param_groups()[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
+        let f = sgd_foreach.param_groups()[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
         for (a, b) in l.iter().zip(f.iter()) {
             assert!(
                 (a - b).abs() < 1e-5,
@@ -913,8 +934,14 @@ mod tests {
             sgd_foreach.step().unwrap();
         }
 
-        let l = sgd_legacy.param_groups()[0].params[0].data().unwrap().to_vec();
-        let f = sgd_foreach.param_groups()[0].params[0].data().unwrap().to_vec();
+        let l = sgd_legacy.param_groups()[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
+        let f = sgd_foreach.param_groups()[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
         for (a, b) in l.iter().zip(f.iter()) {
             assert!(
                 (a - b).abs() < 1e-5,

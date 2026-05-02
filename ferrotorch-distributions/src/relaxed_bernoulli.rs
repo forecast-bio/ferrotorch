@@ -164,14 +164,19 @@ impl<T: Float> Distribution<T> for RelaxedBernoulli<T> {
                 let b = log_1mp + neg_lambda * log_1mz;
                 let max_ab = if a > b { a } else { b };
                 let lse = max_ab + ((a - max_ab).exp() + (b - max_ab).exp()).ln();
-                log_p - log_1mp + lambda.ln() - (lambda + one) * (log_z + log_1mz)
+                log_p - log_1mp + lambda.ln()
+                    - (lambda + one) * (log_z + log_1mz)
                     - (one + one) * lse
             })
             .collect();
 
         let device = self.probs.device();
         let out = Tensor::from_storage(TensorStorage::cpu(result), value.shape().to_vec(), false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
@@ -223,7 +228,11 @@ fn relaxed_bernoulli_sample<T: Float>(
         })
         .collect();
     let out = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
-    if device.is_cuda() { out.to(device) } else { Ok(out) }
+    if device.is_cuda() {
+        out.to(device)
+    } else {
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
@@ -280,7 +289,10 @@ mod tests {
         let s = d.sample(&[100]).unwrap();
         let data = s.data().unwrap();
         // Most samples should be < 0.05 or > 0.95.
-        let extreme = data.iter().filter(|&&v| !(0.05..=0.95).contains(&v)).count();
+        let extreme = data
+            .iter()
+            .filter(|&&v| !(0.05..=0.95).contains(&v))
+            .count();
         assert!(
             extreme > 90,
             "low temp should give bimodal samples; got only {extreme}/100 extreme"

@@ -198,7 +198,11 @@ impl<T: Float> Distribution<T> for RelaxedOneHotCategorical<T> {
         out_shape.pop();
         let device = self.probs.device();
         let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
@@ -259,7 +263,11 @@ fn relaxed_one_hot_sample<T: Float>(
     let mut out_shape = shape.to_vec();
     out_shape.push(k);
     let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
-    if device.is_cuda() { out.to(device) } else { Ok(out) }
+    if device.is_cuda() {
+        out.to(device)
+    } else {
+        Ok(out)
+    }
 }
 
 #[cfg(test)]

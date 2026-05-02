@@ -11,9 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use ferrotorch_gpu::buffer::CudaBuffer;
 use ferrotorch_gpu::device::GpuDevice;
-use ferrotorch_gpu::graph::{
-    CapturePool, begin_capture_with_pool, end_capture_with_pool,
-};
+use ferrotorch_gpu::graph::{CapturePool, begin_capture_with_pool, end_capture_with_pool};
 use ferrotorch_gpu::kernels::gpu_add_into;
 use ferrotorch_gpu::transfer::{alloc_zeros_f32, cpu_to_gpu};
 
@@ -62,8 +60,7 @@ fn captured_graph_holds_pool_buffers_alive() {
 
     begin_capture_with_pool(&pool, &stream).expect("begin capture");
     gpu_add_into(&a, &b, &mut out, &device).expect("add_into during capture");
-    let graph = end_capture_with_pool(&stream, Arc::clone(&pool))
-        .expect("end_capture_with_pool");
+    let graph = end_capture_with_pool(&stream, Arc::clone(&pool)).expect("end_capture_with_pool");
 
     // Donate the buffers to the pool now so they outlive the
     // local variables we're about to drop.
@@ -123,7 +120,10 @@ fn pool_seal_blocks_begin_capture_with_pool() {
     let pool = Arc::new(CapturePool::new());
     pool.seal();
     let result = begin_capture_with_pool(&pool, &stream);
-    assert!(result.is_err(), "sealed pool must reject begin_capture_with_pool");
+    assert!(
+        result.is_err(),
+        "sealed pool must reject begin_capture_with_pool"
+    );
 }
 
 #[test]

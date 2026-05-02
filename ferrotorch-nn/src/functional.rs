@@ -1068,9 +1068,7 @@ pub fn one_hot<T: Float>(input: &Tensor<T>, num_classes: usize) -> FerrotorchRes
         let idx = f.round() as usize;
         if idx >= num_classes {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "one_hot: index {idx} out of range (num_classes = {num_classes})"
-                ),
+                message: format!("one_hot: index {idx} out of range (num_classes = {num_classes})"),
             });
         }
         out[i * num_classes + idx] = one;
@@ -1101,12 +1099,7 @@ pub fn conv1d<T: Float>(
     stride: usize,
     padding: usize,
 ) -> FerrotorchResult<Tensor<T>> {
-    let layer = Conv1d::from_parts(
-        weight.clone(),
-        bias.cloned(),
-        stride,
-        padding,
-    )?;
+    let layer = Conv1d::from_parts(weight.clone(), bias.cloned(), stride, padding)?;
     layer.forward(input)
 }
 
@@ -1119,12 +1112,7 @@ pub fn conv2d<T: Float>(
     stride: (usize, usize),
     padding: (usize, usize),
 ) -> FerrotorchResult<Tensor<T>> {
-    let layer = Conv2d::from_parts(
-        weight.clone(),
-        bias.cloned(),
-        stride,
-        padding,
-    )?;
+    let layer = Conv2d::from_parts(weight.clone(), bias.cloned(), stride, padding)?;
     layer.forward(input)
 }
 
@@ -1137,12 +1125,7 @@ pub fn conv3d<T: Float>(
     stride: (usize, usize, usize),
     padding: (usize, usize, usize),
 ) -> FerrotorchResult<Tensor<T>> {
-    let layer = Conv3d::from_parts(
-        weight.clone(),
-        bias.cloned(),
-        stride,
-        padding,
-    )?;
+    let layer = Conv3d::from_parts(weight.clone(), bias.cloned(), stride, padding)?;
     layer.forward(input)
 }
 
@@ -1225,8 +1208,7 @@ pub use crate::pooling::{
 // ===========================================================================
 
 pub use crate::padding::{
-    PaddingMode, functional_pad_1d as pad1d, functional_pad_2d as pad2d,
-    functional_pad_3d as pad3d,
+    PaddingMode, functional_pad_1d as pad1d, functional_pad_2d as pad2d, functional_pad_3d as pad3d,
 };
 
 // ===========================================================================
@@ -1711,7 +1693,11 @@ mod tests {
         let d = out.data().unwrap();
         for (i, &xi) in [-2.0, -0.5, 0.0, 0.5, 2.0].iter().enumerate() {
             let ref_val = (1.0_f32 / (1.0 + (-xi as f32).exp())).ln();
-            assert!(close(d[i], ref_val, 1e-5), "log_sigmoid({xi}) = {} vs {ref_val}", d[i]);
+            assert!(
+                close(d[i], ref_val, 1e-5),
+                "log_sigmoid({xi}) = {} vs {ref_val}",
+                d[i]
+            );
         }
     }
 
@@ -1759,7 +1745,7 @@ mod tests {
         let out = selu(&x).unwrap();
         let d = out.data().unwrap();
         assert!(close(d[0], 0.0, 1e-6));
-        assert!(close(d[1], 1.0507009873554805, 1e-5));
+        assert!(close(d[1], 1.050_700_9, 1e-5));
     }
 
     #[test]
@@ -1986,15 +1972,15 @@ mod tests {
     fn conv2d_forwarder_matches_module() {
         // Compare nn::functional::conv2d output against an equivalent
         // Conv2d module driven via the same weight/bias.
-        let input = leaf(&[1.0; 1 * 1 * 4 * 4], &[1, 1, 4, 4], false);
-        let weight = leaf(&[1.0; 1 * 1 * 3 * 3], &[1, 1, 3, 3], false);
+        let input = leaf(&[1.0; 16], &[1, 1, 4, 4], false);
+        let weight = leaf(&[1.0; 9], &[1, 1, 3, 3], false);
         let bias = leaf(&[0.0], &[1], false);
 
         let f_out = super::conv2d(&input, &weight, Some(&bias), (1, 1), (0, 0)).unwrap();
         // Output spatial size: (4 - 3 + 0) / 1 + 1 = 2
         assert_eq!(f_out.shape(), &[1, 1, 2, 2]);
         // All ones in a 3x3 window summed = 9.0 per output cell.
-        assert_close(&f_out.data().unwrap(), &[9.0, 9.0, 9.0, 9.0], 1e-5);
+        assert_close(f_out.data().unwrap(), &[9.0, 9.0, 9.0, 9.0], 1e-5);
     }
 
     #[test]
@@ -2012,7 +1998,7 @@ mod tests {
         let out = super::conv1d(&input, &weight, None, 1, 0).unwrap();
         // Sum-of-pairs: (1+2)=3, (2+3)=5, (3+4)=7
         assert_eq!(out.shape(), &[1, 1, 3]);
-        assert_close(&out.data().unwrap(), &[3.0, 5.0, 7.0], 1e-5);
+        assert_close(out.data().unwrap(), &[3.0, 5.0, 7.0], 1e-5);
     }
 
     #[test]
@@ -2021,7 +2007,7 @@ mod tests {
         let idx = leaf(&[0.0, 2.0, 1.0], &[3], false);
         let out = super::embedding(&idx, &weight, None).unwrap();
         assert_eq!(out.shape(), &[3, 2]);
-        assert_close(&out.data().unwrap(), &[0.0, 0.1, 2.0, 2.1, 1.0, 1.1], 1e-5);
+        assert_close(out.data().unwrap(), &[0.0, 0.1, 2.0, 2.1, 1.0, 1.1], 1e-5);
     }
 
     #[test]
@@ -2040,6 +2026,6 @@ mod tests {
         let out = super::scaled_dot_product_attention(&q, &k, &v, false).unwrap();
         assert_eq!(out.shape(), &[1, 1, 2]);
         // softmax over single key returns 1.0; output should equal v.
-        assert_close(&out.data().unwrap(), &[3.0, 4.0], 1e-5);
+        assert_close(out.data().unwrap(), &[3.0, 4.0], 1e-5);
     }
 }

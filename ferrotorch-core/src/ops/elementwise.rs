@@ -388,7 +388,8 @@ fn vexp_f32(x: f32) -> f32 {
     let r = x - n * LN2_HI - n * LN2_LO;
 
     // Degree-5 minimax polynomial for exp(r) on [-ln2/2, ln2/2].
-    let p = 1.0 + r * (1.0 + r * (0.5 + r * (0.166_666_67 + r * (0.041_666_668 + r * 0.008_333_334))));
+    let p =
+        1.0 + r * (1.0 + r * (0.5 + r * (0.166_666_67 + r * (0.041_666_668 + r * 0.008_333_334))));
 
     // Scale by 2^n via bit manipulation (branchless).
     let n_i32 = n as i32;
@@ -406,7 +407,9 @@ fn vexp_f32(x: f32) -> f32 {
 fn vlog_f32(x: f32) -> f32 {
     const LN2: f32 = std::f32::consts::LN_2;
     if x <= 0.0 {
-        if x == 0.0 { return f32::NEG_INFINITY; }
+        if x == 0.0 {
+            return f32::NEG_INFINITY;
+        }
         return f32::NAN;
     }
 
@@ -435,7 +438,11 @@ fn vlog_f32(x: f32) -> f32 {
 /// Uses a vectorizable polynomial kernel (vexp_f32) that LLVM auto-vectorizes
 /// to AVX2/SSE SIMD instructions, instead of scalar libm expf.
 pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let input = if input.is_contiguous() { input.clone() } else { input.contiguous()? };
+    let input = if input.is_contiguous() {
+        input.clone()
+    } else {
+        input.contiguous()?
+    };
     let data = input.data()?;
     let n = data.len();
     if std::mem::size_of::<T>() == 4 {
@@ -467,7 +474,11 @@ pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 ///
 /// Uses a vectorizable polynomial kernel (vlog_f32) that LLVM auto-vectorizes.
 pub fn fast_log<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let input = if input.is_contiguous() { input.clone() } else { input.contiguous()? };
+    let input = if input.is_contiguous() {
+        input.clone()
+    } else {
+        input.contiguous()?
+    };
     let data = input.data()?;
     let n = data.len();
     if std::mem::size_of::<T>() == 4 {
@@ -712,8 +723,16 @@ pub fn binary_map<T: Float>(
     f: impl Fn(T, T) -> T,
 ) -> FerrotorchResult<Tensor<T>> {
     // Materialize non-contiguous views for data() access.
-    let a = if a.is_contiguous() { a.clone() } else { a.contiguous()? };
-    let b = if b.is_contiguous() { b.clone() } else { b.contiguous()? };
+    let a = if a.is_contiguous() {
+        a.clone()
+    } else {
+        a.contiguous()?
+    };
+    let b = if b.is_contiguous() {
+        b.clone()
+    } else {
+        b.contiguous()?
+    };
 
     // Same-shape fast path.
     if a.shape() == b.shape() {
@@ -787,9 +806,7 @@ pub fn scalar_map<T: Float>(
     f: impl Fn(T, T) -> T,
 ) -> FerrotorchResult<Tensor<T>> {
     if input.is_cuda() {
-        return Err(crate::error::FerrotorchError::NotImplementedOnCuda {
-            op: "scalar_map",
-        });
+        return Err(crate::error::FerrotorchError::NotImplementedOnCuda { op: "scalar_map" });
     }
     let data = input.data()?;
     let result: Vec<T> = data.iter().map(|&x| f(x, scalar)).collect();
@@ -908,9 +925,7 @@ pub fn sum_axis<T: Float>(input: &Tensor<T>, axis: usize) -> FerrotorchResult<Te
 /// Mean of all elements, returning a scalar.
 pub fn mean<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if input.is_cuda() {
-        return Err(crate::error::FerrotorchError::NotImplementedOnCuda {
-            op: "mean",
-        });
+        return Err(crate::error::FerrotorchError::NotImplementedOnCuda { op: "mean" });
     }
     let data = input.data()?;
     let n = T::from(data.len()).unwrap();
@@ -975,11 +990,7 @@ pub fn logsumexp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     }
     let data = input.data()?;
     if data.is_empty() {
-        return Tensor::from_storage(
-            TensorStorage::cpu(vec![T::neg_infinity()]),
-            vec![],
-            false,
-        );
+        return Tensor::from_storage(TensorStorage::cpu(vec![T::neg_infinity()]), vec![], false);
     }
 
     // Find max for numerical stability.
@@ -990,11 +1001,7 @@ pub fn logsumexp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
     if max_val.is_infinite() && max_val < <T as num_traits::Zero>::zero() {
         // All -inf → result is -inf
-        return Tensor::from_storage(
-            TensorStorage::cpu(vec![T::neg_infinity()]),
-            vec![],
-            false,
-        );
+        return Tensor::from_storage(TensorStorage::cpu(vec![T::neg_infinity()]), vec![], false);
     }
 
     let sum_exp = data
@@ -1485,7 +1492,10 @@ mod tests {
         let a = t(&[1000.0, 1001.0, 1002.0], &[3]);
         let r = logsumexp(&a).unwrap();
         let d = r.data().unwrap()[0];
-        assert!(!d.is_nan() && !d.is_infinite(), "logsumexp should be finite, got {d}");
+        assert!(
+            !d.is_nan() && !d.is_infinite(),
+            "logsumexp should be finite, got {d}"
+        );
         // Should be approximately 1002 + ln(exp(-2)+exp(-1)+1) ≈ 1002.41
         assert!((d - 1002.408).abs() < 0.01);
     }

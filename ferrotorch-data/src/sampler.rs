@@ -192,7 +192,10 @@ impl WeightedRandomSampler {
     /// Panics if `weights` is empty, any weight is negative, all weights are
     /// zero, or `!replacement && num_samples > weights.len()`.
     pub fn new(weights: Vec<f64>, num_samples: usize, replacement: bool, seed: u64) -> Self {
-        assert!(!weights.is_empty(), "WeightedRandomSampler: weights must not be empty");
+        assert!(
+            !weights.is_empty(),
+            "WeightedRandomSampler: weights must not be empty"
+        );
         assert!(
             weights.iter().all(|&w| w >= 0.0),
             "WeightedRandomSampler: weights must be non-negative"
@@ -234,7 +237,9 @@ impl WeightedRandomSampler {
         // Map to (0, 1].
         let r = ((u >> 11) as f64) / ((1u64 << 53) as f64) * total;
         // Binary search: first index where cumulative[i] > r.
-        cumulative.partition_point(|&c| c <= r).min(cumulative.len() - 1)
+        cumulative
+            .partition_point(|&c| c <= r)
+            .min(cumulative.len() - 1)
     }
 }
 
@@ -545,7 +550,10 @@ mod tests {
         // Weight 0 on index 1 means it should never be sampled.
         let s = WeightedRandomSampler::new(vec![1.0, 0.0, 1.0], 100, true, 42);
         let idx = s.indices(0);
-        assert!(idx.iter().all(|&i| i != 1), "index with zero weight was sampled");
+        assert!(
+            idx.iter().all(|&i| i != 1),
+            "index with zero weight was sampled"
+        );
     }
 
     #[test]

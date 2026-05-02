@@ -118,8 +118,8 @@ impl<T: Float> GradFn<T> for MSEBackward<T> {
         // grad = 2 * (pred - target) * grad_output [/ n for mean]
         let grad_input = no_grad(|| {
             let diff = sub(&self.pred, &self.target)?;
-            let two = ferrotorch_core::creation::scalar(T::from(2.0).unwrap())?
-                .to(self.pred.device())?;
+            let two =
+                ferrotorch_core::creation::scalar(T::from(2.0).unwrap())?.to(self.pred.device())?;
             let scaled = mul(&diff, &two)?;
             let result = mul(&scaled, grad_output)?;
             match self.reduction {
@@ -311,7 +311,9 @@ impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
         let batch = shape[0];
         let classes = shape[1];
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "CrossEntropy backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "CrossEntropy backward",
+            });
         }
         let sm_data = self.softmax.data()?;
         let targets_data = self.targets.data()?;
@@ -974,7 +976,11 @@ impl<T: Float> GradFn<T> for CosineEmbeddingBackward<T> {
             }
 
             // sign: -1 for positive pairs, +1 for negative pairs
-            let sign = if is_positive { -<T as One>::one() } else { <T as One>::one() };
+            let sign = if is_positive {
+                -<T as One>::one()
+            } else {
+                <T as One>::one()
+            };
 
             for f in 0..feat {
                 let a = x1_data[base + f];
@@ -1750,7 +1756,9 @@ impl<T: Float> GradFn<T> for TripletMarginBackward<T> {
         let batch = shape[0];
         let feat = shape[1];
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "TripletMargin backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "TripletMargin backward",
+            });
         }
         let anchor_data = self.anchor.data()?;
         let positive_data = self.positive.data()?;
@@ -1934,7 +1942,9 @@ struct MarginRankingBackward<T: Float> {
 impl<T: Float> GradFn<T> for MarginRankingBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "MarginRanking backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "MarginRanking backward",
+            });
         }
         let x1_data = self.x1.data()?;
         let x2_data = self.x2.data()?;
@@ -2211,9 +2221,7 @@ struct CTCBackward<T: Float> {
 impl<T: Float> GradFn<T> for CTCBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda {
-                op: "CTC backward",
-            });
+            return Err(FerrotorchError::NotImplementedOnCuda { op: "CTC backward" });
         }
 
         let shape = self.log_probs.shape();
@@ -2269,16 +2277,12 @@ impl<T: Float> GradFn<T> for CTCBackward<T> {
             }
             for t in 1..t_len {
                 for s in 0..ext_len {
-                    let lp_val =
-                        lp_data[t * batch * num_classes + b * num_classes + ext_labels[s]];
+                    let lp_val = lp_data[t * batch * num_classes + b * num_classes + ext_labels[s]];
                     let mut log_sum = alpha[t - 1][s];
                     if s >= 1 {
                         log_sum = log_add_exp(log_sum, alpha[t - 1][s - 1]);
                     }
-                    if s >= 2
-                        && ext_labels[s] != self.blank
-                        && ext_labels[s] != ext_labels[s - 2]
-                    {
+                    if s >= 2 && ext_labels[s] != self.blank && ext_labels[s] != ext_labels[s - 2] {
                         log_sum = log_add_exp(log_sum, alpha[t - 1][s - 2]);
                     }
                     alpha[t][s] = log_sum + lp_val;
@@ -2359,8 +2363,7 @@ impl<T: Float> GradFn<T> for CTCBackward<T> {
             }
         }
 
-        let grad_input =
-            Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
+        let grad_input = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -2494,8 +2497,8 @@ impl<T: Float> GradFn<T> for PoissonNLLBackward<T> {
                 let exp_input = exp(&self.input)?;
                 sub(&exp_input, &self.target)?
             } else {
-                let eps = ferrotorch_core::creation::scalar(T::from(self.eps).unwrap())?
-                    .to(device)?;
+                let eps =
+                    ferrotorch_core::creation::scalar(T::from(self.eps).unwrap())?.to(device)?;
                 let one = ferrotorch_core::creation::scalar(<T as One>::one())?.to(device)?;
                 let denom = add(&self.input, &eps)?;
                 let ratio = div(&self.target, &denom)?;
@@ -2660,7 +2663,9 @@ impl<T: Float> GradFn<T> for MultiMarginBackward<T> {
         let classes = shape[1];
 
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "MultiMargin backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "MultiMargin backward",
+            });
         }
         let input_data = self.input.data()?;
         let target_data = self.target.data()?;
@@ -2838,7 +2843,9 @@ impl<T: Float> GradFn<T> for MultiLabelSoftMarginBackward<T> {
         let classes = shape[1];
 
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "MultiLabelSoftMargin backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "MultiLabelSoftMargin backward",
+            });
         }
         let input_data = self.input.data()?;
         let target_data = self.target.data()?;
@@ -2986,7 +2993,9 @@ struct HingeEmbeddingBackward<T: Float> {
 impl<T: Float> GradFn<T> for HingeEmbeddingBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "HingeEmbedding backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "HingeEmbedding backward",
+            });
         }
         let input_data = self.input.data()?;
         let y_data = self.y.data()?;
@@ -3148,11 +3157,8 @@ impl GaussianNLLLoss {
             })
             .collect();
 
-        let unreduced = Tensor::from_storage(
-            TensorStorage::cpu(loss_data),
-            input.shape().to_vec(),
-            false,
-        )?;
+        let unreduced =
+            Tensor::from_storage(TensorStorage::cpu(loss_data), input.shape().to_vec(), false)?;
         let reduced = apply_reduction(&unreduced, self.reduction)?;
 
         if is_grad_enabled() && (input.requires_grad() || var.requires_grad()) {
@@ -3239,8 +3245,7 @@ impl<T: Float> GradFn<T> for GaussianNLLBackward<T> {
         let shape = self.input.shape().to_vec();
         let grad_input_tensor =
             Tensor::from_storage(TensorStorage::cpu(grad_input), shape.clone(), false)?;
-        let grad_var_tensor =
-            Tensor::from_storage(TensorStorage::cpu(grad_var), shape, false)?;
+        let grad_var_tensor = Tensor::from_storage(TensorStorage::cpu(grad_var), shape, false)?;
         Ok(vec![Some(grad_input_tensor), Some(grad_var_tensor)])
     }
 
@@ -5338,12 +5343,8 @@ mod tests {
         // => 0.5 * (1/4 - 1/16) = 0.5 * (0.25 - 0.0625) = 0.09375
         let input = leaf_vec(&[2.0]);
         let target = target_vec(&[1.0]);
-        let var_tensor = Tensor::from_storage(
-            TensorStorage::cpu(vec![4.0]),
-            vec![1],
-            true,
-        )
-        .unwrap();
+        let var_tensor =
+            Tensor::from_storage(TensorStorage::cpu(vec![4.0]), vec![1], true).unwrap();
         let loss = GaussianNLLLoss::new(Reduction::Mean, false, 1e-6);
         let out = loss.forward(&input, &target, &var_tensor).unwrap();
         backward(&out).unwrap();
@@ -5421,12 +5422,8 @@ mod tests {
         // ||x1|| = 5, ||x2|| = 5, dot = 24, cos = 24/25 = 0.96
         // loss = 1 - 0.96 = 0.04
         let x1 = leaf_2d(&[3.0, 4.0], &[1, 2]);
-        let x2 = Tensor::from_storage(
-            TensorStorage::cpu(vec![4.0, 3.0]),
-            vec![1, 2],
-            true,
-        )
-        .unwrap();
+        let x2 =
+            Tensor::from_storage(TensorStorage::cpu(vec![4.0, 3.0]), vec![1, 2], true).unwrap();
         let y = target_vec(&[1.0]);
         let loss = CosineEmbeddingLoss::new(Reduction::Sum, 0.0);
         let out = loss.forward_pair(&x1, &x2, &y).unwrap();
@@ -5485,12 +5482,8 @@ mod tests {
         // cos = 1.0, loss = max(0, 1.0 - 0.5) = 0.5
         // Gradients should be opposite sign of positive case.
         let x1 = leaf_2d(&[1.0, 0.0], &[1, 2]);
-        let x2 = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0, 0.0]),
-            vec![1, 2],
-            true,
-        )
-        .unwrap();
+        let x2 =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0, 0.0]), vec![1, 2], true).unwrap();
         let y = target_vec(&[-1.0]);
         let loss = CosineEmbeddingLoss::new(Reduction::Sum, 0.5);
         let out = loss.forward_pair(&x1, &x2, &y).unwrap();
@@ -5523,12 +5516,8 @@ mod tests {
         // x1 = [1, 0], x2 = [0, 1], y = -1, margin = 0.0
         // cos = 0, loss = max(0, 0 - 0) = 0, hinge inactive => grad = 0
         let x1 = leaf_2d(&[1.0, 0.0], &[1, 2]);
-        let x2 = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.0, 1.0]),
-            vec![1, 2],
-            true,
-        )
-        .unwrap();
+        let x2 =
+            Tensor::from_storage(TensorStorage::cpu(vec![0.0, 1.0]), vec![1, 2], true).unwrap();
         let y = target_vec(&[-1.0]);
         let loss = CosineEmbeddingLoss::new(Reduction::Sum, 0.0);
         let out = loss.forward_pair(&x1, &x2, &y).unwrap();
@@ -5566,12 +5555,7 @@ mod tests {
         lp[7] = -5.0;
         lp[8] = -0.1;
 
-        let log_probs = Tensor::from_storage(
-            TensorStorage::cpu(lp),
-            vec![3, 1, 3],
-            true,
-        )
-        .unwrap();
+        let log_probs = Tensor::from_storage(TensorStorage::cpu(lp), vec![3, 1, 3], true).unwrap();
         let targets = target_vec(&[1.0, 2.0]);
         let loss = CTCLoss::new(Reduction::Sum, 0, false);
         let out = loss.forward(&log_probs, &targets, &[3], &[2]).unwrap();
@@ -5581,12 +5565,7 @@ mod tests {
         let g = grad.data().unwrap();
         // Verify gradients are finite.
         for i in 0..9 {
-            assert!(
-                g[i].is_finite(),
-                "CTC grad[{}] is not finite: {}",
-                i,
-                g[i]
-            );
+            assert!(g[i].is_finite(), "CTC grad[{}] is not finite: {}", i, g[i]);
         }
     }
 
@@ -5594,12 +5573,7 @@ mod tests {
     fn test_ctc_backward_empty_target() {
         // Empty target: grad should be -1 at blank for each timestep.
         let lp = vec![-0.5_f64, -10.0, -10.0, -0.3, -10.0, -10.0];
-        let log_probs = Tensor::from_storage(
-            TensorStorage::cpu(lp),
-            vec![2, 1, 3],
-            true,
-        )
-        .unwrap();
+        let log_probs = Tensor::from_storage(TensorStorage::cpu(lp), vec![2, 1, 3], true).unwrap();
         let targets = target_vec(&[]);
         let loss = CTCLoss::new(Reduction::Sum, 0, false);
         let out = loss.forward(&log_probs, &targets, &[2], &[0]).unwrap();
@@ -5631,17 +5605,11 @@ mod tests {
         // Inside no_grad, CTC should not attach grad_fn.
         ferrotorch_core::no_grad(|| {
             let lp = vec![-0.5_f64; 3 * 2];
-            let log_probs = Tensor::from_storage(
-                TensorStorage::cpu(lp),
-                vec![3, 1, 2],
-                true,
-            )
-            .unwrap();
+            let log_probs =
+                Tensor::from_storage(TensorStorage::cpu(lp), vec![3, 1, 2], true).unwrap();
             let targets = target_vec(&[1.0]);
             let loss = CTCLoss::default();
-            let out = loss
-                .forward(&log_probs, &targets, &[3], &[1])
-                .unwrap();
+            let out = loss.forward(&log_probs, &targets, &[3], &[1]).unwrap();
             assert!(
                 out.grad_fn().is_none(),
                 "CTCLoss inside no_grad should not attach grad_fn"
@@ -5660,12 +5628,8 @@ mod tests {
         let eps = 1e-5;
 
         // Compute analytical gradient.
-        let log_probs = Tensor::from_storage(
-            TensorStorage::cpu(base_lp.clone()),
-            vec![3, 1, 3],
-            true,
-        )
-        .unwrap();
+        let log_probs =
+            Tensor::from_storage(TensorStorage::cpu(base_lp.clone()), vec![3, 1, 3], true).unwrap();
         let targets = target_vec(&[1.0, 2.0]);
         let loss = CTCLoss::new(Reduction::Sum, 0, false);
         let out = loss.forward(&log_probs, &targets, &[3], &[2]).unwrap();
@@ -5678,12 +5642,8 @@ mod tests {
         for idx in 0..9 {
             let mut lp_plus = base_lp.clone();
             lp_plus[idx] += eps;
-            let lp_p = Tensor::from_storage(
-                TensorStorage::cpu(lp_plus),
-                vec![3, 1, 3],
-                false,
-            )
-            .unwrap();
+            let lp_p =
+                Tensor::from_storage(TensorStorage::cpu(lp_plus), vec![3, 1, 3], false).unwrap();
             let t_p = target_vec(&[1.0, 2.0]);
             let out_p = CTCLoss::new(Reduction::Sum, 0, false)
                 .forward(&lp_p, &t_p, &[3], &[2])
@@ -5691,12 +5651,8 @@ mod tests {
 
             let mut lp_minus = base_lp.clone();
             lp_minus[idx] -= eps;
-            let lp_m = Tensor::from_storage(
-                TensorStorage::cpu(lp_minus),
-                vec![3, 1, 3],
-                false,
-            )
-            .unwrap();
+            let lp_m =
+                Tensor::from_storage(TensorStorage::cpu(lp_minus), vec![3, 1, 3], false).unwrap();
             let t_m = target_vec(&[1.0, 2.0]);
             let out_m = CTCLoss::new(Reduction::Sum, 0, false)
                 .forward(&lp_m, &t_m, &[3], &[2])

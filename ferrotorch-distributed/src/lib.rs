@@ -73,18 +73,16 @@ pub mod ucc_backend;
 pub mod gpu_collective;
 
 #[cfg(feature = "nccl")]
-pub mod nccl_sys;
+pub mod hybrid_backend;
 #[cfg(feature = "nccl")]
 pub mod nccl_backend;
 #[cfg(feature = "nccl")]
 pub mod nccl_collective;
 #[cfg(feature = "nccl")]
-pub mod hybrid_backend;
+pub mod nccl_sys;
 
 // Re-export key types at crate root for convenience.
-pub use async_collective::{
-    PendingCollective, async_all_gather, async_reduce_scatter,
-};
+pub use async_collective::{PendingCollective, async_all_gather, async_reduce_scatter};
 pub use backend::{Backend, SimulatedBackend, SubBackend, TcpBackend};
 pub use checkpoint::{
     AsyncCheckpointer, CheckpointFuture, DistCheckpointError, DistributedCheckpoint, ShardMetadata,
@@ -92,8 +90,8 @@ pub use checkpoint::{
 };
 pub use collective::{
     DEFAULT_COLLECTIVE_TIMEOUT, ReduceOp, all_gather, all_gather_with_timeout, all_to_all,
-    all_to_all_single_uneven, all_to_all_with_timeout, allreduce, allreduce_with_timeout,
-    barrier, broadcast, reduce_scatter, reduce_scatter_tensor, reduce_scatter_with_timeout,
+    all_to_all_single_uneven, all_to_all_with_timeout, allreduce, allreduce_with_timeout, barrier,
+    broadcast, reduce_scatter, reduce_scatter_tensor, reduce_scatter_with_timeout,
 };
 pub use ddp::DDP;
 pub use device_mesh::DeviceMesh;
@@ -102,20 +100,20 @@ pub use error::DistributedError;
 pub use fsdp::FSDP;
 pub use gloo_backend::{GlooBackend, is_gloo_available};
 pub use mpi_backend::{MpiBackend, is_mpi_available};
-pub use ucc_backend::{UccBackend, is_ucc_available};
 pub use p2p::{recv, recv_into, recv_into_with_timeout, recv_with_timeout, send, sendrecv};
-pub use sync_batch_norm::SyncBatchNorm2d;
 pub use pipeline::{Pipeline, PipelineSchedule};
 pub use rpc::{RpcAgent, RpcError, TcpRpcBackend};
+pub use sync_batch_norm::SyncBatchNorm2d;
+pub use ucc_backend::{UccBackend, is_ucc_available};
 
 #[cfg(feature = "gpu")]
 pub use gpu_collective::{gpu_allreduce, gpu_broadcast};
 
 #[cfg(feature = "nccl")]
+pub use hybrid_backend::HybridBackend;
+#[cfg(feature = "nccl")]
 pub use nccl_backend::{NcclBackend, is_nccl_available};
 #[cfg(feature = "nccl")]
-pub use nccl_collective::{nccl_allreduce, nccl_all_gather, nccl_broadcast, nccl_reduce_scatter};
+pub use nccl_collective::{nccl_all_gather, nccl_allreduce, nccl_broadcast, nccl_reduce_scatter};
 #[cfg(feature = "nccl")]
 pub use nccl_sys::NcclUniqueId;
-#[cfg(feature = "nccl")]
-pub use hybrid_backend::HybridBackend;

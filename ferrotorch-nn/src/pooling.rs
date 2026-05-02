@@ -2389,16 +2389,14 @@ fn adaptive_max_pool3d_forward<T: Float>(
                         let w_start = adaptive_start(ow, w, out_w);
                         let w_end = adaptive_end(ow, w, out_w);
 
-                        let out_idx =
-                            (((b * channels + c) * out_d + od) * out_h + oh) * out_w + ow;
+                        let out_idx = (((b * channels + c) * out_d + od) * out_h + oh) * out_w + ow;
                         let mut max_val = neg_inf;
                         let mut max_idx = 0usize;
 
                         for id in d_start..d_end {
                             for ih in h_start..h_end {
                                 for iw in w_start..w_end {
-                                    let in_idx =
-                                        (((b * channels + c) * d + id) * h + ih) * w + iw;
+                                    let in_idx = (((b * channels + c) * d + id) * h + ih) * w + iw;
                                     let val = data[in_idx];
                                     if val > max_val {
                                         max_val = val;
@@ -2915,8 +2913,16 @@ impl LPPool2d {
     /// * `stride` - Stride of the pooling window `[sH, sW]`. Elements of `0` default to corresponding kernel_size.
     pub fn new(norm_type: f64, kernel_size: [usize; 2], stride: [usize; 2]) -> Self {
         let stride = [
-            if stride[0] == 0 { kernel_size[0] } else { stride[0] },
-            if stride[1] == 0 { kernel_size[1] } else { stride[1] },
+            if stride[0] == 0 {
+                kernel_size[0]
+            } else {
+                stride[0]
+            },
+            if stride[1] == 0 {
+                kernel_size[1]
+            } else {
+                stride[1]
+            },
         ];
         Self {
             norm_type,
@@ -3829,10 +3835,7 @@ mod tests {
         let out: Tensor<f32> = Module::<f32>::forward(&pool, &input).unwrap();
         let out_data = out.data().unwrap();
         for &v in out_data.iter() {
-            assert!(
-                data.contains(&v),
-                "output value {v} not found in input"
-            );
+            assert!(data.contains(&v), "output value {v} not found in input");
         }
     }
 
@@ -3858,7 +3861,10 @@ mod tests {
         // At least some positions should have non-zero gradient.
         let gd = grad.data().unwrap();
         let non_zero = gd.iter().filter(|&&g| g != 0.0).count();
-        assert!(non_zero > 0, "backward should route gradient to max positions");
+        assert!(
+            non_zero > 0,
+            "backward should route gradient to max positions"
+        );
     }
 
     #[test]
@@ -3895,8 +3901,16 @@ mod tests {
         let out = lp_pool1d(&input, 2.0, 2, 2).unwrap();
         let d = out.data().unwrap();
         assert_eq!(d.len(), 2);
-        assert!((d[0] - 5.0).abs() < 1e-5, "L2 pool of [3,4] = {}, expected 5", d[0]);
-        assert!((d[1] - 1.0).abs() < 1e-5, "L2 pool of [1,0] = {}, expected 1", d[1]);
+        assert!(
+            (d[0] - 5.0).abs() < 1e-5,
+            "L2 pool of [3,4] = {}, expected 5",
+            d[0]
+        );
+        assert!(
+            (d[1] - 1.0).abs() < 1e-5,
+            "L2 pool of [1,0] = {}, expected 1",
+            d[1]
+        );
     }
 
     #[test]

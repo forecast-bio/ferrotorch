@@ -451,11 +451,7 @@ macro_rules! define_unary_runner {
 macro_rules! define_binary_runner {
     ($run_fn:ident, $kernel:ident) => {
         #[doc = concat!("Upload `a` and `b`, run `", stringify!($kernel), "`, read back the result.")]
-        pub fn $run_fn<R: Runtime>(
-            client: &ComputeClient<R>,
-            a: &[f32],
-            b: &[f32],
-        ) -> Vec<f32> {
+        pub fn $run_fn<R: Runtime>(client: &ComputeClient<R>, a: &[f32], b: &[f32]) -> Vec<f32> {
             run_binary::<R, _>(client, a, b, |client, count, dim, a, b, out| unsafe {
                 $kernel::launch_unchecked::<f32, R>(client, count, dim, a, b, out);
             })
@@ -487,12 +483,7 @@ define_unary_runner!(run_sigmoid, kernel_sigmoid);
 
 /// Run a unary polynomial kernel taking an extra `n: u32` (degree) scalar.
 /// Same pattern as `run_unary` but threads through a single scalar argument.
-fn run_unary_with_n<R, L>(
-    client: &ComputeClient<R>,
-    x: &[f32],
-    n: u32,
-    launcher: L,
-) -> Vec<f32>
+fn run_unary_with_n<R, L>(client: &ComputeClient<R>, x: &[f32], n: u32, launcher: L) -> Vec<f32>
 where
     R: Runtime,
     L: FnOnce(&ComputeClient<R>, CubeCount, CubeDim, ArrayArg<R>, ArrayArg<R>, u32),

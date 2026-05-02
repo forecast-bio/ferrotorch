@@ -974,8 +974,7 @@ impl<T: Float> Module<T> for RMSNorm<T> {
                 }
             } else {
                 // rms = sqrt(mean(x^2) + eps)
-                let mean_sq =
-                    slice.iter().copied().fold(zero::<T>(), |a, x| a + x * x) / n_t;
+                let mean_sq = slice.iter().copied().fold(zero::<T>(), |a, x| a + x * x) / n_t;
                 let rms = (mean_sq + eps_t).sqrt();
                 let inv_rms = rms.recip();
 
@@ -2894,12 +2893,13 @@ impl<T: Float> GradFn<T> for LocalResponseNormBackward<T> {
                     let mut cross_sum = zero::<T>();
                     for c in c_start..c_end {
                         let c_idx = b * channels * spatial + c * spatial + s;
-                        cross_sum += go_data[c_idx] * input_data[c_idx]
+                        cross_sum += go_data[c_idx]
+                            * input_data[c_idx]
                             * self.denom[c_idx].powf(-beta_t - T::from(1.0).unwrap());
                     }
 
-                    grad_input[i_idx] = term1
-                        - two * beta_t * alpha_t / size_t * input_data[i_idx] * cross_sum;
+                    grad_input[i_idx] =
+                        term1 - two * beta_t * alpha_t / size_t * input_data[i_idx] * cross_sum;
                 }
             }
         }
@@ -4672,12 +4672,9 @@ mod tests {
     #[test]
     fn test_batchnorm3d_rejects_non_5d() {
         let bn = BatchNorm3d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32; 24]),
-            vec![2, 3, 4],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0f32; 24]), vec![2, 3, 4], false)
+                .unwrap();
         assert!(bn.forward(&input).is_err());
     }
 
@@ -4723,10 +4720,7 @@ mod tests {
                 }
             }
             let mean = sum / (batch * spatial) as f64;
-            assert!(
-                mean.abs() < 1e-5,
-                "channel {c} mean = {mean}, expected ~0"
-            );
+            assert!(mean.abs() < 1e-5, "channel {c} mean = {mean}, expected ~0");
         }
     }
 
@@ -4739,7 +4733,10 @@ mod tests {
 
         assert_eq!(bn.num_batches_tracked(), 1);
         let rm = bn.running_mean();
-        assert!(rm[0] != 0.0 || rm[1] != 0.0, "running mean should be updated");
+        assert!(
+            rm[0] != 0.0 || rm[1] != 0.0,
+            "running mean should be updated"
+        );
     }
 
     #[test]
@@ -4833,7 +4830,9 @@ mod tests {
             assert!(
                 (analytic_grad[i] - numerical).abs() < 1e-3,
                 "BatchNorm3d grad[{}]: numerical={}, analytic={}",
-                i, numerical, analytic_grad[i]
+                i,
+                numerical,
+                analytic_grad[i]
             );
         }
     }
@@ -4877,12 +4876,9 @@ mod tests {
     #[test]
     fn test_lrn_rejects_2d() {
         let lrn = LocalResponseNorm::new(3, 1e-4, 0.75, 1.0).unwrap();
-        let input = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0f32; 8]),
-            vec![2, 4],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0f32; 8]), vec![2, 4], false)
+                .unwrap();
         assert!(Module::<f32>::forward(&lrn, &input).is_err());
     }
 
@@ -4912,12 +4908,8 @@ mod tests {
         // attenuated compared to input.
         let lrn = LocalResponseNorm::new(3, 10.0, 1.0, 1.0).unwrap();
         let data: Vec<f32> = vec![1.0; 3 * 2];
-        let input = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(data),
-            vec![1, 3, 2],
-            false,
-        )
-        .unwrap();
+        let input =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(data), vec![1, 3, 2], false).unwrap();
         let output = Module::<f32>::forward(&lrn, &input).unwrap();
         let out_data = output.data().unwrap();
 
@@ -4933,8 +4925,9 @@ mod tests {
     #[test]
     fn test_lrn_backward_numerical() {
         let lrn = LocalResponseNorm::new(3, 1e-4, 0.75, 1.0).unwrap();
-        let input_data: Vec<f64> = vec![1.0, -0.5, 2.0, 0.3, 0.7, -1.2, 0.4, 1.5,
-                                         -0.3, 0.8, 1.1, -0.7];
+        let input_data: Vec<f64> = vec![
+            1.0, -0.5, 2.0, 0.3, 0.7, -1.2, 0.4, 1.5, -0.3, 0.8, 1.1, -0.7,
+        ];
         let shape = vec![1usize, 3, 4];
 
         let input = leaf(&input_data, &shape, true);

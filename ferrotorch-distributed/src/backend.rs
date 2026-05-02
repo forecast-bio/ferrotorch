@@ -704,7 +704,8 @@ impl Backend for SubBackend {
             }
             .into());
         }
-        self.parent.recv_timeout(dst, self.members[src_rank], timeout)
+        self.parent
+            .recv_timeout(dst, self.members[src_rank], timeout)
     }
 
     fn barrier(&self) -> FerrotorchResult<()> {

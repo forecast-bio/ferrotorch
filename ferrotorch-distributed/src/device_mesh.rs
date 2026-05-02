@@ -41,9 +41,7 @@ impl DeviceMesh {
         let prod: usize = shape.iter().product::<usize>().max(1);
         if prod != world_size {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "DeviceMesh: shape product {prod} != world_size {world_size}"
-                ),
+                message: format!("DeviceMesh: shape product {prod} != world_size {world_size}"),
             });
         }
         for (i, &d) in shape.iter().enumerate() {
@@ -102,9 +100,12 @@ impl DeviceMesh {
 
     /// Resolve a dim name to its index.
     pub fn dim_index(&self, name: &str) -> FerrotorchResult<usize> {
-        let names = self.dim_names.as_ref().ok_or(FerrotorchError::InvalidArgument {
-            message: "DeviceMesh: no dim names registered".into(),
-        })?;
+        let names = self
+            .dim_names
+            .as_ref()
+            .ok_or(FerrotorchError::InvalidArgument {
+                message: "DeviceMesh: no dim names registered".into(),
+            })?;
         names
             .iter()
             .position(|n| n == name)
@@ -275,12 +276,8 @@ mod tests {
 
     #[test]
     fn mesh_with_dim_names_resolve_index() {
-        let m = DeviceMesh::new_with_names(
-            vec![2, 4],
-            vec!["dp".to_string(), "tp".to_string()],
-            8,
-        )
-        .unwrap();
+        let m = DeviceMesh::new_with_names(vec![2, 4], vec!["dp".to_string(), "tp".to_string()], 8)
+            .unwrap();
         assert_eq!(m.dim_index("dp").unwrap(), 0);
         assert_eq!(m.dim_index("tp").unwrap(), 1);
         assert!(m.dim_index("missing").is_err());
@@ -288,12 +285,8 @@ mod tests {
 
     #[test]
     fn mesh_new_with_names_rejects_mismatched_lengths() {
-        let err = DeviceMesh::new_with_names(
-            vec![2, 4],
-            vec!["only_one_name".to_string()],
-            8,
-        )
-        .unwrap_err();
+        let err = DeviceMesh::new_with_names(vec![2, 4], vec!["only_one_name".to_string()], 8)
+            .unwrap_err();
         assert!(matches!(err, FerrotorchError::InvalidArgument { .. }));
     }
 

@@ -8,8 +8,7 @@ use ferrotorch_jit::TracedModule;
 use ferrotorch_jit_script::script;
 
 fn t1d(data: &[f32]) -> Tensor<f32> {
-    Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], false)
-        .unwrap()
+    Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], false).unwrap()
 }
 
 #[script]

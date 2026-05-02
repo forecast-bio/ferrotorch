@@ -40,8 +40,7 @@ use crate::collective::{ReduceOp, all_gather, allreduce, reduce_scatter};
 ///   and inter-node `allreduce` independently. CL-327.
 ///
 /// CL-372.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShardingStrategy {
     /// Shard parameters + gradients + optimizer state (ZeRO-3 /
     /// full FSDP). This is the default and matches the behavior
@@ -60,7 +59,6 @@ pub enum ShardingStrategy {
     /// CL-327.
     HybridShard { intra_node_size: usize },
 }
-
 
 /// Fully Sharded Data Parallel module wrapper.
 ///
@@ -182,8 +180,7 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                 let intra_members: Vec<usize> = (node_idx * intra_node_size
                     ..node_idx * intra_node_size + intra_node_size)
                     .collect();
-                let intra =
-                    Arc::new(SubBackend::new(Arc::clone(&backend), intra_members)?);
+                let intra = Arc::new(SubBackend::new(Arc::clone(&backend), intra_members)?);
 
                 // Inter-node members: ranks with the same local_idx across
                 // every node (i.e., ranks stride-selected by
@@ -191,8 +188,7 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                 let inter_members: Vec<usize> = (0..world_size / intra_node_size)
                     .map(|n| n * intra_node_size + local_idx)
                     .collect();
-                let inter =
-                    Arc::new(SubBackend::new(Arc::clone(&backend), inter_members)?);
+                let inter = Arc::new(SubBackend::new(Arc::clone(&backend), inter_members)?);
 
                 (Some(intra), Some(inter))
             }
@@ -446,8 +442,9 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                 // intra-node subgroup needs its own async path. CL-327.
                 if pending.is_some() {
                     return Err(ferrotorch_core::FerrotorchError::InvalidArgument {
-                        message: "FSDP prefetch_forward_params is not yet implemented for HybridShard"
-                            .into(),
+                        message:
+                            "FSDP prefetch_forward_params is not yet implemented for HybridShard"
+                                .into(),
                     });
                 }
 
@@ -649,11 +646,7 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                     let shard_grad = if world_size == 1 {
                         flat_grad
                     } else {
-                        reduce_scatter(
-                            &flat_grad,
-                            self.backend.as_ref(),
-                            ReduceOp::Mean,
-                        )?
+                        reduce_scatter(&flat_grad, self.backend.as_ref(), ReduceOp::Mean)?
                     };
                     param.tensor().set_grad(Some(shard_grad))?;
                 }
@@ -676,11 +669,7 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                     let shard_grad_flat = if world_size == 1 {
                         flat_grad
                     } else {
-                        reduce_scatter(
-                            &flat_grad,
-                            self.backend.as_ref(),
-                            ReduceOp::Mean,
-                        )?
+                        reduce_scatter(&flat_grad, self.backend.as_ref(), ReduceOp::Mean)?
                     };
                     let chunk_size = numel / world_size;
                     let shard_data = shard_grad_flat.data_vec()?;
@@ -741,11 +730,7 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                     let reduced = if world_size == 1 {
                         flat_grad
                     } else {
-                        allreduce(
-                            &flat_grad,
-                            self.backend.as_ref(),
-                            ReduceOp::Mean,
-                        )?
+                        allreduce(&flat_grad, self.backend.as_ref(), ReduceOp::Mean)?
                     };
                     let reduced_full = Tensor::from_storage(
                         TensorStorage::cpu(reduced.data_vec()?),
@@ -812,11 +797,8 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
             // All-gather across ranks to get the full updated parameter.
             let gathered = all_gather(&shard_tensor, self.backend.as_ref())?;
             let full_shape = full.shape().to_vec();
-            let new_full = Tensor::from_storage(
-                TensorStorage::cpu(gathered.data_vec()?),
-                full_shape,
-                true,
-            )?;
+            let new_full =
+                Tensor::from_storage(TensorStorage::cpu(gathered.data_vec()?), full_shape, true)?;
             *param = Parameter::new(new_full);
         }
         Ok(())
@@ -1105,12 +1087,8 @@ mod tests {
             .map(|b| {
                 thread::spawn(move || {
                     let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
-                    let fsdp = FSDP::new_with_strategy(
-                        model,
-                        b,
-                        ShardingStrategy::ShardGradOp,
-                    )
-                    .unwrap();
+                    let fsdp =
+                        FSDP::new_with_strategy(model, b, ShardingStrategy::ShardGradOp).unwrap();
                     assert_eq!(fsdp.strategy(), ShardingStrategy::ShardGradOp);
                     fsdp.module().weight.tensor().data_vec().unwrap()
                 })
@@ -1141,12 +1119,8 @@ mod tests {
                 thread::spawn(move || {
                     let rank = b.rank();
                     let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
-                    let mut fsdp = FSDP::new_with_strategy(
-                        model,
-                        b,
-                        ShardingStrategy::ShardGradOp,
-                    )
-                    .unwrap();
+                    let mut fsdp =
+                        FSDP::new_with_strategy(model, b, ShardingStrategy::ShardGradOp).unwrap();
 
                     let input = ferrotorch_core::from_slice(&[1.0f32], &[1]).unwrap();
                     let _output = fsdp.forward(&input).unwrap();
@@ -1214,12 +1188,8 @@ mod tests {
                 thread::spawn(move || {
                     let rank = b.rank();
                     let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
-                    let mut fsdp = FSDP::new_with_strategy(
-                        model,
-                        b,
-                        ShardingStrategy::ShardGradOp,
-                    )
-                    .unwrap();
+                    let mut fsdp =
+                        FSDP::new_with_strategy(model, b, ShardingStrategy::ShardGradOp).unwrap();
 
                     // Simulate per-rank optimizer step: each rank overwrites
                     // its shard slice, leaving the other slice untouched.
@@ -1231,12 +1201,8 @@ mod tests {
                         local[2] += 20.0;
                         local[3] += 20.0;
                     }
-                    let new_param = Tensor::from_storage(
-                        TensorStorage::cpu(local),
-                        vec![4],
-                        true,
-                    )
-                    .unwrap();
+                    let new_param =
+                        Tensor::from_storage(TensorStorage::cpu(local), vec![4], true).unwrap();
                     *fsdp.module.parameters_mut()[0] = Parameter::new(new_param);
 
                     // Re-sync.
@@ -1408,8 +1374,7 @@ mod tests {
         let group = SimulatedBackend::create_group(1).unwrap();
         let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
         let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
-        let mut fsdp =
-            FSDP::new_with_strategy(model, b, ShardingStrategy::ShardGradOp).unwrap();
+        let mut fsdp = FSDP::new_with_strategy(model, b, ShardingStrategy::ShardGradOp).unwrap();
         let r = fsdp.prefetch_forward_params();
         assert!(r.is_err());
         let err = format!("{}", r.unwrap_err());
@@ -1423,8 +1388,7 @@ mod tests {
         let group = SimulatedBackend::create_group(1).unwrap();
         let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
         let model = TestModule::<f32>::new(&[1.0, 2.0, 3.0, 4.0]).unwrap();
-        let mut fsdp =
-            FSDP::new_with_strategy(model, b, ShardingStrategy::NoShard).unwrap();
+        let mut fsdp = FSDP::new_with_strategy(model, b, ShardingStrategy::NoShard).unwrap();
         fsdp.broadcast_updated_params().unwrap();
         assert_eq!(
             fsdp.module().weight.tensor().data_vec().unwrap(),
@@ -1626,7 +1590,11 @@ mod tests {
         for h in handles {
             let (rank, gd) = h.join().unwrap();
             assert_eq!(gd.len(), 2, "shard grad should have 2 elements");
-            let expected: &[f32] = if rank % 2 == 0 { &[1.0, 2.0] } else { &[3.0, 4.0] };
+            let expected: &[f32] = if rank % 2 == 0 {
+                &[1.0, 2.0]
+            } else {
+                &[3.0, 4.0]
+            };
             for (i, e) in expected.iter().enumerate() {
                 assert!(
                     (gd[i] - e).abs() < 1e-6,
@@ -1704,7 +1672,11 @@ mod tests {
             let (rank, gd) = h.join().unwrap();
             assert_eq!(gd.len(), 2);
             // intra-position 0 -> [6, 12]; intra-position 1 -> [18, 24]
-            let expected: &[f32] = if rank % 2 == 0 { &[6.0, 12.0] } else { &[18.0, 24.0] };
+            let expected: &[f32] = if rank % 2 == 0 {
+                &[6.0, 12.0]
+            } else {
+                &[18.0, 24.0]
+            };
             for (i, e) in expected.iter().enumerate() {
                 assert!(
                     (gd[i] - e).abs() < 1e-4,

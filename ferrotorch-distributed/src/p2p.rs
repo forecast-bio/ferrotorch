@@ -171,9 +171,8 @@ mod tests {
         let handle_send = std::thread::spawn(move || {
             send::<f32>(&payload_clone, 1, &a).unwrap();
         });
-        let handle_recv = std::thread::spawn(move || -> Tensor<f32> {
-            recv::<f32>(&[2, 2], 0, &b).unwrap()
-        });
+        let handle_recv =
+            std::thread::spawn(move || -> Tensor<f32> { recv::<f32>(&[2, 2], 0, &b).unwrap() });
 
         handle_send.join().unwrap();
         let received = handle_recv.join().unwrap();

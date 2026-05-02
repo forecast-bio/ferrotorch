@@ -60,10 +60,7 @@ mod tests {
 
     #[test]
     fn test_compose_chains() {
-        let c = Compose::new(vec![
-            Box::new(DoubleTransform),
-            Box::new(AddOneTransform),
-        ]);
+        let c = Compose::new(vec![Box::new(DoubleTransform), Box::new(AddOneTransform)]);
         let input = Tensor::from_storage(TensorStorage::cpu(vec![3.0f32]), vec![1], false).unwrap();
         let out = c.apply(input).unwrap();
         // 3 * 2 + 1 = 7

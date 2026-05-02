@@ -395,10 +395,7 @@ impl<T: Float> GradFn<T> for ExpandBackward<T> {
         // reduce_grad_to_shape sums over broadcast dimensions (leading dims
         // not in target + size-1 dims) and works natively on GPU via
         // sum_axis_f32/f64 — no CPU roundtrip.
-        let grad_input = super::arithmetic::reduce_grad_to_shape(
-            grad_output,
-            &self.input_shape,
-        )?;
+        let grad_input = super::arithmetic::reduce_grad_to_shape(grad_output, &self.input_shape)?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -453,21 +450,9 @@ pub fn expand<T: Float>(input: &Tensor<T>, new_shape: &[usize]) -> FerrotorchRes
             let elem_size = if is_f64::<T>() { 8 } else { 4 };
             let zeros = backend.alloc_zeros(1, elem_size, device_ord)?;
             let expanded = if is_f64::<T>() {
-                backend.broadcast_add_f64(
-                    input.gpu_handle()?,
-                    &zeros,
-                    in_shape,
-                    &[1],
-                    new_shape,
-                )?
+                backend.broadcast_add_f64(input.gpu_handle()?, &zeros, in_shape, &[1], new_shape)?
             } else {
-                backend.broadcast_add_f32(
-                    input.gpu_handle()?,
-                    &zeros,
-                    in_shape,
-                    &[1],
-                    new_shape,
-                )?
+                backend.broadcast_add_f32(input.gpu_handle()?, &zeros, in_shape, &[1], new_shape)?
             };
             let storage = TensorStorage::gpu(expanded);
             return if is_grad_enabled() && input.requires_grad() {
@@ -481,9 +466,7 @@ pub fn expand<T: Float>(input: &Tensor<T>, new_shape: &[usize]) -> FerrotorchRes
 
     // CPU path — error if GPU tensor without supported dtype.
     if input.is_cuda() {
-        return Err(crate::error::FerrotorchError::NotImplementedOnCuda {
-            op: "expand",
-        });
+        return Err(crate::error::FerrotorchError::NotImplementedOnCuda { op: "expand" });
     }
 
     // Build expanded data via broadcast indexing.
@@ -559,9 +542,23 @@ impl<T: Float> GradFn<T> for CatBackward<T> {
 
                     let chunk_numel = self.inputs[i].numel();
                     let chunk_handle = if f64_path {
-                        backend.strided_split_f64(go_handle, total_along_axis, offset, split_size, inner, chunk_numel)?
+                        backend.strided_split_f64(
+                            go_handle,
+                            total_along_axis,
+                            offset,
+                            split_size,
+                            inner,
+                            chunk_numel,
+                        )?
                     } else {
-                        backend.strided_split_f32(go_handle, total_along_axis, offset, split_size, inner, chunk_numel)?
+                        backend.strided_split_f32(
+                            go_handle,
+                            total_along_axis,
+                            offset,
+                            split_size,
+                            inner,
+                            chunk_numel,
+                        )?
                     };
 
                     let grad_tensor = Tensor::from_storage(
@@ -694,9 +691,25 @@ impl<T: Float> GradFn<T> for SplitBackward<T> {
                 let go_handle = grad_output.gpu_handle()?;
                 let chunk_numel = grad_output.numel();
                 if f64_path {
-                    backend.strided_cat_f64(go_handle, &mut zeros_handle, total_along_dim, self.offset, self.chunk_size, inner, chunk_numel)?;
+                    backend.strided_cat_f64(
+                        go_handle,
+                        &mut zeros_handle,
+                        total_along_dim,
+                        self.offset,
+                        self.chunk_size,
+                        inner,
+                        chunk_numel,
+                    )?;
                 } else {
-                    backend.strided_cat_f32(go_handle, &mut zeros_handle, total_along_dim, self.offset, self.chunk_size, inner, chunk_numel)?;
+                    backend.strided_cat_f32(
+                        go_handle,
+                        &mut zeros_handle,
+                        total_along_dim,
+                        self.offset,
+                        self.chunk_size,
+                        inner,
+                        chunk_numel,
+                    )?;
                 }
 
                 let grad_tensor = Tensor::from_storage(
@@ -820,9 +833,25 @@ pub fn cat<T: Float>(tensors: &[Tensor<T>], axis: isize) -> FerrotorchResult<Ten
                 let t_numel = t.numel();
                 let t_handle = t.gpu_handle()?;
                 if f64_path {
-                    backend.strided_cat_f64(t_handle, &mut out_handle, total_along_axis, offset, t_axis_size, inner, t_numel)?;
+                    backend.strided_cat_f64(
+                        t_handle,
+                        &mut out_handle,
+                        total_along_axis,
+                        offset,
+                        t_axis_size,
+                        inner,
+                        t_numel,
+                    )?;
                 } else {
-                    backend.strided_cat_f32(t_handle, &mut out_handle, total_along_axis, offset, t_axis_size, inner, t_numel)?;
+                    backend.strided_cat_f32(
+                        t_handle,
+                        &mut out_handle,
+                        total_along_axis,
+                        offset,
+                        t_axis_size,
+                        inner,
+                        t_numel,
+                    )?;
                 }
                 offset += t_axis_size;
             }
@@ -841,9 +870,7 @@ pub fn cat<T: Float>(tensors: &[Tensor<T>], axis: isize) -> FerrotorchResult<Ten
 
     // CPU path — non-f32 GPU tensors have no GPU kernel, error out.
     if device.is_cuda() {
-        return Err(crate::error::FerrotorchError::NotImplementedOnCuda {
-            op: "cat",
-        });
+        return Err(crate::error::FerrotorchError::NotImplementedOnCuda { op: "cat" });
     }
     let cpu_tensors: Vec<Tensor<T>> = tensors.to_vec();
 

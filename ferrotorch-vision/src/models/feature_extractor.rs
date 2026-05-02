@@ -30,10 +30,7 @@ pub trait IntermediateFeatures<T: Float>: Module<T> {
     /// Run the forward pass and return all intermediate feature tensors
     /// keyed by stage name. The map always includes the final output
     /// under its conventional name (`"fc"` for ResNet).
-    fn forward_features(
-        &self,
-        input: &Tensor<T>,
-    ) -> FerrotorchResult<HashMap<String, Tensor<T>>>;
+    fn forward_features(&self, input: &Tensor<T>) -> FerrotorchResult<HashMap<String, Tensor<T>>>;
 
     /// List the available intermediate node names, in execution order.
     ///
@@ -97,21 +94,20 @@ impl<T: Float, M: IntermediateFeatures<T>> FeatureExtractor<T, M> {
     }
 
     /// Run the forward pass and return only the requested feature tensors.
-    pub fn forward(
-        &self,
-        input: &Tensor<T>,
-    ) -> FerrotorchResult<HashMap<String, Tensor<T>>> {
+    pub fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<HashMap<String, Tensor<T>>> {
         let all = self.model.forward_features(input)?;
         let mut filtered = HashMap::new();
         for name in &self.return_nodes {
             // Every key in return_nodes was validated at construction
             // time, so this lookup should always succeed; treat a miss
             // as an internal invariant violation.
-            let t = all.get(name).ok_or_else(|| FerrotorchError::InvalidArgument {
-                message: format!(
-                    "FeatureExtractor: forward_features did not produce expected node '{name}'"
-                ),
-            })?;
+            let t = all
+                .get(name)
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "FeatureExtractor: forward_features did not produce expected node '{name}'"
+                    ),
+                })?;
             filtered.insert(name.clone(), t.clone());
         }
         Ok(filtered)
@@ -166,11 +162,9 @@ mod tests {
     #[test]
     fn test_feature_extractor_filters_to_requested_nodes() {
         let resnet = resnet18::<f32>(10).unwrap();
-        let extractor = FeatureExtractor::new(
-            resnet,
-            vec!["layer3".to_string(), "layer4".to_string()],
-        )
-        .unwrap();
+        let extractor =
+            FeatureExtractor::new(resnet, vec!["layer3".to_string(), "layer4".to_string()])
+                .unwrap();
         let input: Tensor<f32> = randn(&[1, 3, 32, 32]).unwrap();
         let features = extractor.forward(&input).unwrap();
         assert_eq!(features.len(), 2);
@@ -244,8 +238,8 @@ mod tests {
         assert!(names.iter().any(|n| n == "block0"));
         assert!(names.iter().any(|n| n == "block16"));
 
-        let extractor = FeatureExtractor::new(model, vec!["block0".into(), "block16".into()])
-            .unwrap();
+        let extractor =
+            FeatureExtractor::new(model, vec!["block0".into(), "block16".into()]).unwrap();
         let input: Tensor<f32> = randn(&[1, 3, 32, 32]).unwrap();
         let features = extractor.forward(&input).unwrap();
         assert_eq!(features.len(), 2);
@@ -286,12 +280,10 @@ mod tests {
         let names = model.feature_node_names();
         assert_eq!(
             names,
-            vec![
-                "stage1", "stage2", "stage3", "stage4", "stage5", "head"
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect::<Vec<String>>()
+            vec!["stage1", "stage2", "stage3", "stage4", "stage5", "head"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<String>>()
         );
     }
 }

@@ -336,7 +336,10 @@ fn elementwise_f64<T: Float, F: Fn(f64) -> f64>(
 ///
 /// `T_0 = 1`, `T_1 = x`, `T_{n+1} = 2x T_n - T_{n-1}`. Mirrors
 /// `torch.special.chebyshev_polynomial_t`.
-pub fn chebyshev_polynomial_t<T: Float>(input: &Tensor<T>, n: usize) -> FerrotorchResult<Tensor<T>> {
+pub fn chebyshev_polynomial_t<T: Float>(
+    input: &Tensor<T>,
+    n: usize,
+) -> FerrotorchResult<Tensor<T>> {
     elementwise_f64(input, "chebyshev_polynomial_t", move |x| chebyshev_t(n, x))
 }
 
@@ -345,7 +348,10 @@ pub fn chebyshev_polynomial_t<T: Float>(input: &Tensor<T>, n: usize) -> Ferrotor
 /// `U_0 = 1`, `U_1 = 2x`, `U_{n+1} = 2x U_n - U_{n-1}`. Mirrors
 /// `torch.special.chebyshev_polynomial_u`. Evaluated by direct recurrence;
 /// not provided by ferray-polynomial.
-pub fn chebyshev_polynomial_u<T: Float>(input: &Tensor<T>, n: usize) -> FerrotorchResult<Tensor<T>> {
+pub fn chebyshev_polynomial_u<T: Float>(
+    input: &Tensor<T>,
+    n: usize,
+) -> FerrotorchResult<Tensor<T>> {
     elementwise_f64(input, "chebyshev_polynomial_u", move |x| chebyshev_u(n, x))
 }
 
@@ -353,7 +359,10 @@ pub fn chebyshev_polynomial_u<T: Float>(input: &Tensor<T>, n: usize) -> Ferrotor
 ///
 /// `V_0 = 1`, `V_1 = 2x - 1`, same recurrence as T/U. Mirrors
 /// `torch.special.chebyshev_polynomial_v`.
-pub fn chebyshev_polynomial_v<T: Float>(input: &Tensor<T>, n: usize) -> FerrotorchResult<Tensor<T>> {
+pub fn chebyshev_polynomial_v<T: Float>(
+    input: &Tensor<T>,
+    n: usize,
+) -> FerrotorchResult<Tensor<T>> {
     elementwise_f64(input, "chebyshev_polynomial_v", move |x| chebyshev_v(n, x))
 }
 
@@ -361,7 +370,10 @@ pub fn chebyshev_polynomial_v<T: Float>(input: &Tensor<T>, n: usize) -> Ferrotor
 ///
 /// `W_0 = 1`, `W_1 = 2x + 1`, same recurrence as T/U. Mirrors
 /// `torch.special.chebyshev_polynomial_w`.
-pub fn chebyshev_polynomial_w<T: Float>(input: &Tensor<T>, n: usize) -> FerrotorchResult<Tensor<T>> {
+pub fn chebyshev_polynomial_w<T: Float>(
+    input: &Tensor<T>,
+    n: usize,
+) -> FerrotorchResult<Tensor<T>> {
     elementwise_f64(input, "chebyshev_polynomial_w", move |x| chebyshev_w(n, x))
 }
 
@@ -379,10 +391,7 @@ pub fn hermite_polynomial_h<T: Float>(input: &Tensor<T>, n: usize) -> Ferrotorch
 ///
 /// `He_0 = 1`, `He_1 = x`, `He_{n+1} = x He_n - n He_{n-1}`. Mirrors
 /// `torch.special.hermite_polynomial_he`.
-pub fn hermite_polynomial_he<T: Float>(
-    input: &Tensor<T>,
-    n: usize,
-) -> FerrotorchResult<Tensor<T>> {
+pub fn hermite_polynomial_he<T: Float>(input: &Tensor<T>, n: usize) -> FerrotorchResult<Tensor<T>> {
     elementwise_f64(input, "hermite_polynomial_he", move |x| hermite_he(n, x))
 }
 
@@ -1037,7 +1046,11 @@ mod tests {
         // U_0 = 1, U_1 = 2x, U_2 = 4x^2 - 1
         let x = t(&[0.5], &[1]);
         let xv = 0.5;
-        assert!(close(chebyshev_polynomial_u(&x, 0).unwrap().data().unwrap()[0], 1.0, 1e-12));
+        assert!(close(
+            chebyshev_polynomial_u(&x, 0).unwrap().data().unwrap()[0],
+            1.0,
+            1e-12
+        ));
         assert!(close(
             chebyshev_polynomial_u(&x, 1).unwrap().data().unwrap()[0],
             2.0 * xv,
@@ -1068,7 +1081,11 @@ mod tests {
     fn chebyshev_w_endpoints() {
         // W_1(0) = 1; W_n(1) = 2n + 1 for the recurrence above.
         let zero = t(&[0.0], &[1]);
-        assert!(close(chebyshev_polynomial_w(&zero, 1).unwrap().data().unwrap()[0], 1.0, 1e-12));
+        assert!(close(
+            chebyshev_polynomial_w(&zero, 1).unwrap().data().unwrap()[0],
+            1.0,
+            1e-12
+        ));
     }
 
     // --- Hermite (physicist) ---
@@ -1078,8 +1095,16 @@ mod tests {
         // H_0 = 1, H_1 = 2x, H_2 = 4x^2 - 2, H_3 = 8x^3 - 12x
         let x = t(&[0.5], &[1]);
         let xv = 0.5;
-        assert!(close(hermite_polynomial_h(&x, 0).unwrap().data().unwrap()[0], 1.0, 1e-12));
-        assert!(close(hermite_polynomial_h(&x, 1).unwrap().data().unwrap()[0], 2.0 * xv, 1e-12));
+        assert!(close(
+            hermite_polynomial_h(&x, 0).unwrap().data().unwrap()[0],
+            1.0,
+            1e-12
+        ));
+        assert!(close(
+            hermite_polynomial_h(&x, 1).unwrap().data().unwrap()[0],
+            2.0 * xv,
+            1e-12
+        ));
         assert!(close(
             hermite_polynomial_h(&x, 2).unwrap().data().unwrap()[0],
             4.0 * xv * xv - 2.0,
@@ -1099,8 +1124,16 @@ mod tests {
         // He_0 = 1, He_1 = x, He_2 = x^2 - 1, He_3 = x^3 - 3x
         let x = t(&[0.5], &[1]);
         let xv = 0.5;
-        assert!(close(hermite_polynomial_he(&x, 0).unwrap().data().unwrap()[0], 1.0, 1e-12));
-        assert!(close(hermite_polynomial_he(&x, 1).unwrap().data().unwrap()[0], xv, 1e-12));
+        assert!(close(
+            hermite_polynomial_he(&x, 0).unwrap().data().unwrap()[0],
+            1.0,
+            1e-12
+        ));
+        assert!(close(
+            hermite_polynomial_he(&x, 1).unwrap().data().unwrap()[0],
+            xv,
+            1e-12
+        ));
         assert!(close(
             hermite_polynomial_he(&x, 2).unwrap().data().unwrap()[0],
             xv * xv - 1.0,
@@ -1120,8 +1153,16 @@ mod tests {
         // L_0 = 1, L_1 = 1 - x, L_2 = (x^2 - 4x + 2) / 2
         let x = t(&[0.5], &[1]);
         let xv = 0.5;
-        assert!(close(laguerre_polynomial_l(&x, 0).unwrap().data().unwrap()[0], 1.0, 1e-12));
-        assert!(close(laguerre_polynomial_l(&x, 1).unwrap().data().unwrap()[0], 1.0 - xv, 1e-12));
+        assert!(close(
+            laguerre_polynomial_l(&x, 0).unwrap().data().unwrap()[0],
+            1.0,
+            1e-12
+        ));
+        assert!(close(
+            laguerre_polynomial_l(&x, 1).unwrap().data().unwrap()[0],
+            1.0 - xv,
+            1e-12
+        ));
         assert!(close(
             laguerre_polynomial_l(&x, 2).unwrap().data().unwrap()[0],
             (xv * xv - 4.0 * xv + 2.0) / 2.0,
@@ -1136,8 +1177,16 @@ mod tests {
         // P_0 = 1, P_1 = x, P_2 = (3x^2 - 1)/2, P_3 = (5x^3 - 3x)/2
         let x = t(&[0.5], &[1]);
         let xv = 0.5;
-        assert!(close(legendre_polynomial_p(&x, 0).unwrap().data().unwrap()[0], 1.0, 1e-12));
-        assert!(close(legendre_polynomial_p(&x, 1).unwrap().data().unwrap()[0], xv, 1e-12));
+        assert!(close(
+            legendre_polynomial_p(&x, 0).unwrap().data().unwrap()[0],
+            1.0,
+            1e-12
+        ));
+        assert!(close(
+            legendre_polynomial_p(&x, 1).unwrap().data().unwrap()[0],
+            xv,
+            1e-12
+        ));
         assert!(close(
             legendre_polynomial_p(&x, 2).unwrap().data().unwrap()[0],
             (3.0 * xv * xv - 1.0) / 2.0,
@@ -1174,7 +1223,12 @@ mod tests {
             let mapped: Vec<f64> = xs_data.iter().map(|v| 2.0 * v - 1.0).collect();
             let mapped_t = t(&mapped, &[mapped.len()]);
             let direct = chebyshev_polynomial_t(&mapped_t, n).unwrap();
-            for (s, d) in shifted.data().unwrap().iter().zip(direct.data().unwrap().iter()) {
+            for (s, d) in shifted
+                .data()
+                .unwrap()
+                .iter()
+                .zip(direct.data().unwrap().iter())
+            {
                 assert!(close(*s, *d, 1e-12), "T*_{n} mismatch at n={n}: {s} vs {d}");
             }
         }

@@ -386,9 +386,7 @@ pub fn backward_parallel<T: Float>(
                                         let has_hooks = {
                                             let guard = hooks.lock().map_err(|e| {
                                                 FerrotorchError::LockPoisoned {
-                                                    message: format!(
-                                                        "hook storage mutex: {e}"
-                                                    ),
+                                                    message: format!("hook storage mutex: {e}"),
                                                 }
                                             })?;
                                             (
@@ -409,9 +407,7 @@ pub fn backward_parallel<T: Float>(
                                             }
                                         } else {
                                             let mut g = grads.lock().unwrap();
-                                            accumulate_non_leaf_grad_locked(
-                                                &mut g, input, grad,
-                                            )?;
+                                            accumulate_non_leaf_grad_locked(&mut g, input, grad)?;
                                         }
                                     }
                                 }
@@ -486,10 +482,7 @@ fn accumulate_non_leaf_grad_locked<T: Float>(
         if existing.device() == grad.device() {
             if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
                 if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
-                    let sum_handle = backend.add_f32(
-                        existing.gpu_handle()?,
-                        grad.gpu_handle()?,
-                    )?;
+                    let sum_handle = backend.add_f32(existing.gpu_handle()?, grad.gpu_handle()?)?;
                     let combined = Tensor::from_storage(
                         crate::storage::TensorStorage::gpu(sum_handle),
                         existing.shape().to_vec(),
@@ -862,12 +855,7 @@ mod tests {
     fn test_backward_one_element_tensor_seed_has_same_shape() {
         // Build x = [3.0] with grad, compute y = x * x (= [9.0]),
         // then backward — should populate x.grad without panicking.
-        let x = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![3.0]),
-            vec![1],
-            true,
-        )
-        .unwrap();
+        let x = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![3.0]), vec![1], true).unwrap();
         let y = crate::grad_fns::arithmetic::mul(&x, &x).unwrap();
         assert_eq!(y.shape(), &[1]);
         // backward without an explicit gradient must succeed for [1]-shaped
@@ -883,18 +871,8 @@ mod tests {
         // Reproduces the AdamW convergence test pattern that previously
         // panicked: f(x, y) = x^2 + y^2 where x, y are [1]-shaped Parameters.
         // backward() should produce gradients [2x] and [2y].
-        let x = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![3.0]),
-            vec![1],
-            true,
-        )
-        .unwrap();
-        let y = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![-4.0]),
-            vec![1],
-            true,
-        )
-        .unwrap();
+        let x = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![3.0]), vec![1], true).unwrap();
+        let y = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![-4.0]), vec![1], true).unwrap();
         let xs = crate::grad_fns::arithmetic::pow(&x, 2.0).unwrap();
         let ys = crate::grad_fns::arithmetic::pow(&y, 2.0).unwrap();
         let loss = crate::grad_fns::arithmetic::add(&xs, &ys).unwrap();
@@ -912,12 +890,8 @@ mod tests {
         // Defensive guard: if any code path produces a gradient with
         // fewer dims than the target, reduce_grad_to_shape should return
         // a clean ShapeMismatch instead of panicking with subtract overflow.
-        let grad = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![1.0]),
-            vec![],
-            false,
-        )
-        .unwrap();
+        let grad =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0]), vec![], false).unwrap();
         let result = crate::grad_fns::arithmetic::reduce_grad_to_shape(&grad, &[1]);
         let err_msg = match result {
             Ok(_) => panic!("expected error for grad_ndim < target_ndim"),

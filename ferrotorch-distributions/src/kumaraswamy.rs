@@ -30,15 +30,20 @@ impl<T: Float> Kumaraswamy<T> {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
                     "Kumaraswamy: a shape {:?} != b shape {:?}",
-                    a.shape(), b.shape()
+                    a.shape(),
+                    b.shape()
                 ),
             });
         }
         Ok(Self { a, b })
     }
 
-    pub fn a(&self) -> &Tensor<T> { &self.a }
-    pub fn b(&self) -> &Tensor<T> { &self.b }
+    pub fn a(&self) -> &Tensor<T> {
+        &self.a
+    }
+    pub fn b(&self) -> &Tensor<T> {
+        &self.b
+    }
 }
 
 impl<T: Float> Distribution<T> for Kumaraswamy<T> {
@@ -53,11 +58,21 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
 
         let mut out = Vec::with_capacity(numel);
         for i in 0..numel {
-            let ai = if a_data.len() == 1 { 0 } else { i % a_data.len() };
-            let bi = if b_data.len() == 1 { 0 } else { i % b_data.len() };
+            let ai = if a_data.len() == 1 {
+                0
+            } else {
+                i % a_data.len()
+            };
+            let bi = if b_data.len() == 1 {
+                0
+            } else {
+                i % b_data.len()
+            };
             // x = (1 - (1-u)^(1/b))^(1/a)
             let inner = (one - u_data[i]).powf(one / b_data[bi]);
-            let val = (one - inner).max(T::from(1e-30).unwrap()).powf(one / a_data[ai]);
+            let val = (one - inner)
+                .max(T::from(1e-30).unwrap())
+                .powf(one / a_data[ai]);
             out.push(val);
         }
 
@@ -87,7 +102,8 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
                 out.push(T::neg_infinity());
             } else {
                 // log_prob = log(a) + log(b) + (a-1)*log(x) + (b-1)*log(1 - x^a)
-                let lp = a[ai].ln() + b[bi].ln()
+                let lp = a[ai].ln()
+                    + b[bi].ln()
                     + (a[ai] - one) * v[i].ln()
                     + (b[bi] - one) * (one - v[i].powf(a[ai])).ln();
                 out.push(lp);
@@ -122,11 +138,12 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
                     x += 1.0;
                 }
                 val
-            }).unwrap();
+            })
+            .unwrap();
 
-            let h = (one - one / a[i]) * (digamma_b1 + euler)
-                + (one - one / b[i])
-                - a[i].ln() - b[i].ln();
+            let h = (one - one / a[i]) * (digamma_b1 + euler) + (one - one / b[i])
+                - a[i].ln()
+                - b[i].ln();
             out.push(h);
         }
 
@@ -141,10 +158,9 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
         let zero = <T as num_traits::Zero>::zero();
         let one = <T as num_traits::One>::one();
         let mut out = Vec::with_capacity(v.len());
-        for i in 0..v.len() {
+        for (i, &x) in v.iter().enumerate() {
             let ai = if a.len() == 1 { 0 } else { i % a.len() };
             let bi = if b.len() == 1 { 0 } else { i % b.len() };
-            let x = v[i];
             if x <= zero {
                 out.push(zero);
             } else if x >= one {
@@ -163,10 +179,10 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
         let b = self.b.data()?;
         let one = <T as num_traits::One>::one();
         let mut out = Vec::with_capacity(p.len());
-        for i in 0..p.len() {
+        for (i, &pi) in p.iter().enumerate() {
             let ai = if a.len() == 1 { 0 } else { i % a.len() };
             let bi = if b.len() == 1 { 0 } else { i % b.len() };
-            let inner = (one - p[i]).powf(one / b[bi]);
+            let inner = (one - pi).powf(one / b[bi]);
             out.push((one - inner).max(T::from(1e-30).unwrap()).powf(one / a[ai]));
         }
         Tensor::from_storage(TensorStorage::cpu(out), q.shape().to_vec(), false)
@@ -182,8 +198,7 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
         let mut out = Vec::with_capacity(a.len());
         for i in 0..a.len() {
             let alpha = one + one / a[i];
-            let lg = lgamma_scalar(alpha) + lgamma_scalar(b[i])
-                - lgamma_scalar(alpha + b[i]);
+            let lg = lgamma_scalar(alpha) + lgamma_scalar(b[i]) - lgamma_scalar(alpha + b[i]);
             out.push(b[i] * lg.exp());
         }
         Tensor::from_storage(TensorStorage::cpu(out), self.a.shape().to_vec(), false)
@@ -258,7 +273,10 @@ mod tests {
         let d = Kumaraswamy::new(scalar(2.0), scalar(5.0)).unwrap();
         let s = d.sample(&[500]).unwrap();
         for &v in s.data().unwrap() {
-            assert!(v > 0.0 && v < 1.0, "Kumaraswamy sample should be in (0,1), got {v}");
+            assert!(
+                v > 0.0 && v < 1.0,
+                "Kumaraswamy sample should be in (0,1), got {v}"
+            );
         }
     }
 
@@ -277,7 +295,10 @@ mod tests {
         let d = Kumaraswamy::new(scalar(1.0), scalar(1.0)).unwrap();
         let v = Tensor::from_storage(TensorStorage::cpu(vec![0.5]), vec![1], false).unwrap();
         let lp = d.log_prob(&v).unwrap().data().unwrap()[0];
-        assert!((lp - 0.0).abs() < 1e-6, "a=1,b=1 should be uniform, log_prob={lp}");
+        assert!(
+            (lp - 0.0).abs() < 1e-6,
+            "a=1,b=1 should be uniform, log_prob={lp}"
+        );
     }
 
     // ---- properties (#608) ----

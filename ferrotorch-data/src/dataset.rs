@@ -215,10 +215,7 @@ impl<T: Float> TensorDataset<T> {
                 size: self.len,
             });
         }
-        self.tensors
-            .iter()
-            .map(|t| select(t, 0, index))
-            .collect()
+        self.tensors.iter().map(|t| select(t, 0, index)).collect()
     }
 }
 
@@ -278,9 +275,7 @@ impl<D: Dataset> ConcatDataset<D> {
     /// Map a global index to (dataset_index, local_index).
     fn locate(&self, index: usize) -> (usize, usize) {
         // Binary search for the first cumulative length > index.
-        let ds_idx = self
-            .cumulative
-            .partition_point(|&cum| cum <= index);
+        let ds_idx = self.cumulative.partition_point(|&cum| cum <= index);
         let local = if ds_idx == 0 {
             index
         } else {

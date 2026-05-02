@@ -48,29 +48,29 @@ pub mod transfer;
 // Re-exports for ergonomic use.
 pub use allocator::CudaAllocator;
 pub use backend_impl::{CudaBackendImpl, get_cuda_device, init_cuda_backend};
+#[cfg(feature = "cuda")]
+pub use bf16::{
+    gpu_add_bf16, gpu_block_reduce_max_abs_bf16, gpu_causal_mask_bf16, gpu_embedding_gather_bf16,
+    gpu_embedding_gather_bf16_to_f32, gpu_fatrelu_bf16, gpu_mul_bf16, gpu_relu_bf16,
+    gpu_repeat_kv_bf16, gpu_rmsnorm_bf16, gpu_rope_half_bf16, gpu_scale_bf16, gpu_silu_bf16,
+    gpu_softmax_bf16, gpu_transpose_from_heads_bf16, gpu_transpose_to_heads_bf16,
+};
 pub use blas::gpu_bmm_f32;
 pub use blas::{gpu_bmm_f32_into, gpu_matmul_f32_into};
-pub use blas::{gpu_matmul_f32, gpu_matmul_f64};
 #[cfg(feature = "cuda")]
 pub use blas::{
     gpu_matmul_bf16_bf16, gpu_matmul_bf16_bf16_nt, gpu_matmul_bf16_bf16_strided_batched,
     gpu_matmul_bf16_bf16_strided_batched_nt,
 };
-#[cfg(feature = "cuda")]
-pub use bf16::{
-    gpu_add_bf16, gpu_block_reduce_max_abs_bf16, gpu_causal_mask_bf16,
-    gpu_embedding_gather_bf16, gpu_embedding_gather_bf16_to_f32, gpu_fatrelu_bf16, gpu_mul_bf16,
-    gpu_relu_bf16, gpu_repeat_kv_bf16, gpu_rmsnorm_bf16,
-    gpu_rope_half_bf16, gpu_scale_bf16, gpu_silu_bf16, gpu_softmax_bf16,
-    gpu_transpose_from_heads_bf16, gpu_transpose_to_heads_bf16,
-};
+pub use blas::{gpu_matmul_f32, gpu_matmul_f64};
 pub use buffer::CudaBuffer;
 pub use conv::gpu_conv2d_f32;
 pub use device::GpuDevice;
 pub use error::{GpuError, GpuResult};
+pub use flash_attention::gpu_flash_attention_f32;
 pub use graph::{
-    CaptureMode, CapturePool, CaptureStatus, CapturedGraph, GraphPoolHandle,
-    begin_capture, capture_pool_for_handle, end_capture, end_capture_with_pool, graph_pool_handle,
+    CaptureMode, CapturePool, CaptureStatus, CapturedGraph, GraphPoolHandle, begin_capture,
+    capture_pool_for_handle, end_capture, end_capture_with_pool, graph_pool_handle,
     make_graphed_callable, release_graph_pool_handle,
 };
 #[cfg(feature = "cuda")]
@@ -78,7 +78,6 @@ pub use graph::{
     GraphCaptureGuard, begin_capture_with_mode, begin_capture_with_pool, capture_status,
     is_stream_capturing,
 };
-pub use flash_attention::gpu_flash_attention_f32;
 pub use kernels::{gpu_add, gpu_mul, gpu_neg, gpu_relu, gpu_sub};
 pub use kernels::{
     gpu_add_into, gpu_embed_lookup_into, gpu_gelu_into, gpu_layernorm_into, gpu_mul_into,

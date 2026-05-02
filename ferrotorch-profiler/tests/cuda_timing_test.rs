@@ -29,8 +29,8 @@ fn cuda_kernel_scope_basic_lifecycle() {
     let stream = c.default_stream();
 
     let ((), report) = with_profiler(ProfileConfig::default(), |p| {
-        let scope = CudaKernelScope::new(&c, &stream, "test_kernel", "cuda_kernel")
-            .expect("create scope");
+        let scope =
+            CudaKernelScope::new(&c, &stream, "test_kernel", "cuda_kernel").expect("create scope");
         // No actual kernel — just measure the empty interval. The
         // GPU duration should be near zero but the event still gets
         // recorded.
@@ -73,14 +73,14 @@ fn cuda_kernel_scope_measures_real_gpu_time() {
     let input = cpu_to_gpu(&host, &dev).expect("upload");
 
     let ((), report) = with_profiler(ProfileConfig::default(), |p| {
-        let scope = CudaKernelScope::new(&c, &stream, "strided_copy", "cuda_kernel")
-            .expect("scope");
+        let scope =
+            CudaKernelScope::new(&c, &stream, "strided_copy", "cuda_kernel").expect("scope");
 
         // Permute via strided copy: shape [1024, 1024] -> [1024, 1024]
         // with strides [1, 1024] (transpose). This launches a real
         // PTX kernel on the default stream.
-        let _out = gpu_strided_copy(&input, &[1024, 1024], &[1, 1024], 0, &dev)
-            .expect("strided_copy");
+        let _out =
+            gpu_strided_copy(&input, &[1024, 1024], &[1, 1024], 0, &dev).expect("strided_copy");
 
         scope.stop(p).expect("stop scope");
         p.flush_cuda_kernels();
@@ -115,7 +115,11 @@ fn flush_cuda_kernels_is_idempotent() {
         p.flush_cuda_kernels();
     });
 
-    assert_eq!(report.events().len(), 1, "duplicate flushes must not duplicate events");
+    assert_eq!(
+        report.events().len(),
+        1,
+        "duplicate flushes must not duplicate events"
+    );
 }
 
 #[test]
@@ -137,8 +141,7 @@ fn multiple_kernels_finalize_in_registration_order() {
 
     let ((), report) = with_profiler(ProfileConfig::default(), |p| {
         for i in 0..3 {
-            let scope =
-                CudaKernelScope::new(&c, &stream, format!("k{i}"), "cuda_kernel").unwrap();
+            let scope = CudaKernelScope::new(&c, &stream, format!("k{i}"), "cuda_kernel").unwrap();
             scope.stop(p).unwrap();
         }
         assert_eq!(p.pending_cuda_count(), 3);

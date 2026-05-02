@@ -147,9 +147,7 @@ pub fn generate_with_streamer<T: Float>(
         let shape = logits_tensor.shape();
         if shape.len() != 3 {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "generate: expected logits shape [1, S, V], got {shape:?}"
-                ),
+                message: format!("generate: expected logits shape [1, S, V], got {shape:?}"),
             });
         }
         let seq_len = shape[1];
@@ -412,9 +410,7 @@ pub fn beam_search<T: Float>(
             let shape = logits_tensor.shape();
             if shape.len() != 3 {
                 return Err(FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "beam_search: expected logits shape [1, S, V], got {shape:?}"
-                    ),
+                    message: format!("beam_search: expected logits shape [1, S, V], got {shape:?}"),
                 });
             }
             let seq_len = shape[1];
@@ -427,10 +423,7 @@ pub fn beam_search<T: Float>(
                 .collect();
 
             // Softmax → log-prob in the numerically-stable way.
-            let max_logit = logits
-                .iter()
-                .copied()
-                .fold(f64::NEG_INFINITY, f64::max);
+            let max_logit = logits.iter().copied().fold(f64::NEG_INFINITY, f64::max);
             let log_sum_exp = max_logit
                 + logits
                     .iter()
@@ -453,9 +446,8 @@ pub fn beam_search<T: Float>(
         }
 
         // Take global top `num_beams` by score.
-        candidates.sort_unstable_by(|a, b| {
-            b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        candidates
+            .sort_unstable_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
         candidates.truncate(config.num_beams);
 
         // Build the next round of beams.
@@ -493,10 +485,7 @@ pub fn beam_search<T: Float>(
 
 /// Numerically-stable softmax (private helper).
 fn softmax_f64(logits: &[f64]) -> Vec<f64> {
-    let max = logits
-        .iter()
-        .copied()
-        .fold(f64::NEG_INFINITY, f64::max);
+    let max = logits.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     if !max.is_finite() {
         // All -inf — degenerate; return zeros so the caller falls back.
         return vec![0.0; logits.len()];
@@ -670,8 +659,7 @@ mod tests {
         let model = LlamaForCausalLM::<f32>::new(cfg).unwrap();
 
         // Empty prompt rejected.
-        let err =
-            beam_search(&model, &[], &BeamSearchConfig::default()).unwrap_err();
+        let err = beam_search(&model, &[], &BeamSearchConfig::default()).unwrap_err();
         assert!(matches!(
             err,
             ferrotorch_core::FerrotorchError::InvalidArgument { .. }

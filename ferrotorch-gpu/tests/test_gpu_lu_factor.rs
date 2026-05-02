@@ -178,8 +178,7 @@ fn lu_factor_cpu_path_matches_gpu_via_reconstruction() {
     let a_cpu = cpu_t_f32(&a_data, &[3, 3]);
 
     let (cpu_lu, cpu_ipiv) = linalg::lu_factor(&a_cpu).unwrap();
-    let cpu_recon =
-        reconstruct_from_lu_factor_f32(cpu_lu.data().unwrap(), &cpu_ipiv, 3);
+    let cpu_recon = reconstruct_from_lu_factor_f32(cpu_lu.data().unwrap(), &cpu_ipiv, 3);
 
     let a_gpu = a_cpu.to(Device::Cuda(0)).unwrap();
     let (gpu_lu, gpu_ipiv) = linalg::lu_factor(&a_gpu).unwrap();
@@ -237,5 +236,8 @@ fn lu_factor_large_matrix_64x64_reconstructs() {
     for (g, c) in recon.iter().zip(a_data.iter()) {
         max_err = max_err.max((g - c).abs());
     }
-    assert!(max_err < 1e-3, "max recon error {max_err} too large for 64x64");
+    assert!(
+        max_err < 1e-3,
+        "max recon error {max_err} too large for 64x64"
+    );
 }

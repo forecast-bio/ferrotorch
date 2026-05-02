@@ -377,11 +377,7 @@ pub fn kernel_dequantize_q4_1<F: Float>(
 /// for both ranges (0..128 → 0..127 and 128..256 → -128..-1) without
 /// integer reinterpretation.
 #[cube(launch_unchecked)]
-pub fn kernel_dequantize_q8_0<F: Float>(
-    scales: &Array<F>,
-    bytes: &Array<u32>,
-    out: &mut Array<F>,
-) {
+pub fn kernel_dequantize_q8_0<F: Float>(scales: &Array<F>, bytes: &Array<u32>, out: &mut Array<F>) {
     if ABSOLUTE_POS < out.len() {
         let t = ABSOLUTE_POS;
         let block_id = t / 32;
@@ -604,10 +600,7 @@ pub fn dequantize_q8_0_to_gpu<R: Runtime>(
 
     let scales_handle = client.create_from_slice(f32::as_bytes(scales));
     let bytes_handle = client.create_from_slice(unsafe {
-        std::slice::from_raw_parts(
-            bytes.as_ptr() as *const u8,
-            std::mem::size_of_val(bytes),
-        )
+        std::slice::from_raw_parts(bytes.as_ptr() as *const u8, std::mem::size_of_val(bytes))
     });
     let out_handle = client.empty(num_elements * std::mem::size_of::<f32>());
 
@@ -725,10 +718,7 @@ pub fn dequantize_q8_1_to_gpu<R: Runtime>(
     let scales_handle = client.create_from_slice(f32::as_bytes(scales));
     let mins_handle = client.create_from_slice(f32::as_bytes(mins));
     let bytes_handle = client.create_from_slice(unsafe {
-        std::slice::from_raw_parts(
-            bytes.as_ptr() as *const u8,
-            std::mem::size_of_val(bytes),
-        )
+        std::slice::from_raw_parts(bytes.as_ptr() as *const u8, std::mem::size_of_val(bytes))
     });
     let out_handle = client.empty(num_elements * std::mem::size_of::<f32>());
 
@@ -776,11 +766,7 @@ pub(crate) fn dequantize_q4_0_reference(scales: &[f32], nibbles: &[u32]) -> Vec<
 }
 
 #[cfg(test)]
-pub(crate) fn dequantize_q4_1_reference(
-    scales: &[f32],
-    mins: &[f32],
-    nibbles: &[u32],
-) -> Vec<f32> {
+pub(crate) fn dequantize_q4_1_reference(scales: &[f32], mins: &[f32], nibbles: &[u32]) -> Vec<f32> {
     let num_blocks = scales.len();
     let mut out = Vec::with_capacity(num_blocks * 32);
     for b in 0..num_blocks {
@@ -822,11 +808,7 @@ pub(crate) fn dequantize_q8_0_reference(scales: &[f32], bytes: &[u32]) -> Vec<f3
 }
 
 #[cfg(test)]
-pub(crate) fn dequantize_q5_0_reference(
-    scales: &[f32],
-    qh: &[u32],
-    nibbles: &[u32],
-) -> Vec<f32> {
+pub(crate) fn dequantize_q5_0_reference(scales: &[f32], qh: &[u32], nibbles: &[u32]) -> Vec<f32> {
     let num_blocks = scales.len();
     let mut out = Vec::with_capacity(num_blocks * 32);
     for b in 0..num_blocks {
@@ -880,11 +862,7 @@ pub(crate) fn dequantize_q5_1_reference(
 }
 
 #[cfg(test)]
-pub(crate) fn dequantize_q8_1_reference(
-    scales: &[f32],
-    mins: &[f32],
-    bytes: &[u32],
-) -> Vec<f32> {
+pub(crate) fn dequantize_q8_1_reference(scales: &[f32], mins: &[f32], bytes: &[u32]) -> Vec<f32> {
     let num_blocks = scales.len();
     let mut out = Vec::with_capacity(num_blocks * 32);
     for b in 0..num_blocks {
@@ -936,10 +914,13 @@ mod tests {
     fn split_q4_0_recovers_scales_and_nibbles() {
         let blocks = vec![
             (1.0, [0u8; 32]),
-            (0.5, [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-                15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
-            ]),
+            (
+                0.5,
+                [
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 14, 13, 12, 11, 10,
+                    9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
+                ],
+            ),
             (-2.5, [15u8; 32]),
         ];
         let (raw, expected) = build_q4_0_blocks(&blocks);
@@ -996,10 +977,14 @@ mod tests {
     fn split_q4_1_recovers_scales_mins_nibbles() {
         let blocks = vec![
             (1.0, 0.0, [3u8; 32]),
-            (0.5, 1.5, [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-                15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
-            ]),
+            (
+                0.5,
+                1.5,
+                [
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 14, 13, 12, 11, 10,
+                    9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
+                ],
+            ),
         ];
         let raw = build_q4_1_blocks(&blocks);
         let (scales, mins, nibbles) = split_q4_1_blocks(&raw, blocks.len());
@@ -1268,11 +1253,7 @@ mod tests {
 /// One thread per logit. CubeCL's `Float` trait exposes `min_value()` rather
 /// than a literal `f32::NEG_INFINITY`, so we use that for the mask sentinel.
 #[cube(launch_unchecked)]
-pub fn kernel_apply_token_mask<F: Float>(
-    logits: &Array<F>,
-    mask: &Array<u32>,
-    out: &mut Array<F>,
-) {
+pub fn kernel_apply_token_mask<F: Float>(logits: &Array<F>, mask: &Array<u32>, out: &mut Array<F>) {
     if ABSOLUTE_POS < out.len() {
         let i = ABSOLUTE_POS;
         let allow = mask[i];
@@ -1364,8 +1345,7 @@ mod cuda_tests {
         }
         let (scales, nibbles) = split_q4_0_blocks(&raw, num_blocks);
         let expected = dequantize_q4_0_reference(&scales, &nibbles);
-        let handle =
-            dequantize_q4_0_to_gpu(&client, &scales, &nibbles, num_blocks * 32);
+        let handle = dequantize_q4_0_to_gpu(&client, &scales, &nibbles, num_blocks * 32);
         let got = read_f32(&client, handle);
         assert_eq!(got.len(), expected.len());
         for (a, b) in got.iter().zip(expected.iter()) {
@@ -1396,13 +1376,7 @@ mod cuda_tests {
         }
         let (scales, mins, nibbles) = split_q4_1_blocks(&raw, num_blocks);
         let expected = dequantize_q4_1_reference(&scales, &mins, &nibbles);
-        let handle = dequantize_q4_1_to_gpu(
-            &client,
-            &scales,
-            &mins,
-            &nibbles,
-            num_blocks * 32,
-        );
+        let handle = dequantize_q4_1_to_gpu(&client, &scales, &mins, &nibbles, num_blocks * 32);
         let got = read_f32(&client, handle);
         assert_eq!(got.len(), expected.len());
         for (a, b) in got.iter().zip(expected.iter()) {
@@ -1429,8 +1403,7 @@ mod cuda_tests {
         }
         let (scales, bytes) = split_q8_0_blocks(&raw, num_blocks);
         let expected = dequantize_q8_0_reference(&scales, &bytes);
-        let handle =
-            dequantize_q8_0_to_gpu(&client, &scales, &bytes, num_blocks * 32);
+        let handle = dequantize_q8_0_to_gpu(&client, &scales, &bytes, num_blocks * 32);
         let got = read_f32(&client, handle);
         assert_eq!(got.len(), expected.len());
         for (a, b) in got.iter().zip(expected.iter()) {
@@ -1495,14 +1468,7 @@ mod cuda_tests {
         }
         let (scales, mins, qh, nibs) = split_q5_1_blocks(&raw, num_blocks);
         let expected = dequantize_q5_1_reference(&scales, &mins, &qh, &nibs);
-        let handle = dequantize_q5_1_to_gpu(
-            &client,
-            &scales,
-            &mins,
-            &qh,
-            &nibs,
-            num_blocks * 32,
-        );
+        let handle = dequantize_q5_1_to_gpu(&client, &scales, &mins, &qh, &nibs, num_blocks * 32);
         let got = read_f32(&client, handle);
         assert_eq!(got.len(), expected.len());
         for (a, b) in got.iter().zip(expected.iter()) {
@@ -1551,13 +1517,7 @@ mod cuda_tests {
         }
         let (scales, mins, bytes) = split_q8_1_blocks(&raw, num_blocks);
         let expected = dequantize_q8_1_reference(&scales, &mins, &bytes);
-        let handle = dequantize_q8_1_to_gpu(
-            &client,
-            &scales,
-            &mins,
-            &bytes,
-            num_blocks * 32,
-        );
+        let handle = dequantize_q8_1_to_gpu(&client, &scales, &mins, &bytes, num_blocks * 32);
         let got = read_f32(&client, handle);
         assert_eq!(got.len(), expected.len());
         for (a, b) in got.iter().zip(expected.iter()) {

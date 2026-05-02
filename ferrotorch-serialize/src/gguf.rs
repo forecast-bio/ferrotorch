@@ -1237,10 +1237,7 @@ mod tests {
             data.extend_from_slice(&v.to_le_bytes());
         }
 
-        let bytes = build_gguf(
-            &[],
-            &[("layer.weight", &[2, 3], 0, &data)],
-        );
+        let bytes = build_gguf(&[], &[("layer.weight", &[2, 3], 0, &data)]);
 
         let dir = std::env::temp_dir().join("ferrotorch_gguf_mmap_test");
         let _ = std::fs::create_dir_all(&dir);

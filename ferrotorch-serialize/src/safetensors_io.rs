@@ -386,9 +386,7 @@ pub fn load_safetensors_sharded<T: Float>(
     for key in index.weight_map.keys() {
         if !state.contains_key(key) {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "safetensors index declares \"{key}\" but no shard provided it"
-                ),
+                message: format!("safetensors index declares \"{key}\" but no shard provided it"),
             });
         }
     }
@@ -411,11 +409,10 @@ fn load_one_shard_into<T: Float>(
     let file_data = std::fs::read(shard_path).map_err(|e| FerrotorchError::InvalidArgument {
         message: format!("failed to read shard {}: {e}", shard_path.display()),
     })?;
-    let st = SafeTensors::deserialize(&file_data).map_err(|e| {
-        FerrotorchError::InvalidArgument {
+    let st =
+        SafeTensors::deserialize(&file_data).map_err(|e| FerrotorchError::InvalidArgument {
             message: format!("failed to parse shard {}: {e}", shard_path.display()),
-        }
-    })?;
+        })?;
 
     let expected_set: HashSet<&str> = expected_keys.iter().map(|s| s.as_str()).collect();
     let mut found: HashSet<String> = HashSet::with_capacity(expected_keys.len());
@@ -451,14 +448,9 @@ fn load_one_shard_into<T: Float>(
 /// Detection rule:
 /// - `*.index.json` → [`load_safetensors_sharded`]
 /// - anything else → [`load_safetensors`] (single-file)
-pub fn load_safetensors_auto<T: Float>(
-    path: impl AsRef<Path>,
-) -> FerrotorchResult<StateDict<T>> {
+pub fn load_safetensors_auto<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<StateDict<T>> {
     let p = path.as_ref();
-    let filename = p
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let filename = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
     if filename.ends_with(".index.json") {
         load_safetensors_sharded(p)
     } else {
@@ -531,9 +523,7 @@ where
     for key in index.weight_map.keys() {
         if !state.contains_key(key) {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "safetensors index declares \"{key}\" but no shard provided it"
-                ),
+                message: format!("safetensors index declares \"{key}\" but no shard provided it"),
             });
         }
     }
@@ -558,9 +548,7 @@ where
 ///
 /// While the mmap is live, callers must not modify the underlying file
 /// (this matches the `safetensors` Python library's contract).
-pub fn load_safetensors_mmap<T: Float>(
-    path: impl AsRef<Path>,
-) -> FerrotorchResult<StateDict<T>> {
+pub fn load_safetensors_mmap<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<StateDict<T>> {
     let path = path.as_ref();
     let file = File::open(path).map_err(|e| FerrotorchError::InvalidArgument {
         message: format!("failed to open safetensors file {}: {e}", path.display()),
@@ -618,9 +606,7 @@ pub fn load_safetensors_sharded_mmap<T: Float>(
     for key in index.weight_map.keys() {
         if !state.contains_key(key) {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "safetensors index declares \"{key}\" but no shard provided it"
-                ),
+                message: format!("safetensors index declares \"{key}\" but no shard provided it"),
             });
         }
     }
@@ -644,10 +630,8 @@ fn load_one_shard_into_mmap<T: Float>(
     let mmap = unsafe { Mmap::map(&file) }.map_err(|e| FerrotorchError::InvalidArgument {
         message: format!("failed to mmap shard {}: {e}", shard_path.display()),
     })?;
-    let st = SafeTensors::deserialize(&mmap[..]).map_err(|e| {
-        FerrotorchError::InvalidArgument {
-            message: format!("failed to parse shard {}: {e}", shard_path.display()),
-        }
+    let st = SafeTensors::deserialize(&mmap[..]).map_err(|e| FerrotorchError::InvalidArgument {
+        message: format!("failed to parse shard {}: {e}", shard_path.display()),
     })?;
 
     let expected_set: HashSet<&str> = expected_keys.iter().map(|s| s.as_str()).collect();
@@ -977,11 +961,7 @@ mod tests {
     // -- Sharded loader tests (#507) ----------------------------------------
 
     /// Write `state` to `<dir>/<filename>` as a single safetensors file.
-    fn write_shard(
-        dir: &Path,
-        filename: &str,
-        state: &StateDict<f32>,
-    ) -> std::path::PathBuf {
+    fn write_shard(dir: &Path, filename: &str, state: &StateDict<f32>) -> std::path::PathBuf {
         let path = dir.join(filename);
         save_safetensors(state, &path).unwrap();
         path
@@ -1149,7 +1129,10 @@ mod tests {
 
         assert_eq!(idx.shard_files(), vec!["a.safetensors", "b.safetensors"]);
         let grouped = idx.group_by_shard();
-        assert_eq!(grouped["a.safetensors"], vec!["k1".to_string(), "k2".to_string()]);
+        assert_eq!(
+            grouped["a.safetensors"],
+            vec!["k1".to_string(), "k2".to_string()]
+        );
         assert_eq!(grouped["b.safetensors"], vec!["k3".to_string()]);
     }
 
@@ -1327,10 +1310,8 @@ mod tests {
         );
 
         // Only load tensors whose name contains ".q_proj.".
-        let filtered: StateDict<f32> = load_safetensors_sharded_filtered(&index_path, |k| {
-            k.contains(".q_proj.")
-        })
-        .unwrap();
+        let filtered: StateDict<f32> =
+            load_safetensors_sharded_filtered(&index_path, |k| k.contains(".q_proj.")).unwrap();
 
         assert_eq!(filtered.len(), 2);
         assert!(filtered.contains_key("model.layers.0.q_proj.weight"));
@@ -1353,10 +1334,7 @@ mod tests {
             "weight".to_string(),
             make_tensor_f32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]),
         );
-        sd.insert(
-            "bias".to_string(),
-            make_tensor_f32(vec![0.5; 3], vec![3]),
-        );
+        sd.insert("bias".to_string(), make_tensor_f32(vec![0.5; 3], vec![3]));
         save_safetensors::<f32>(&sd, &path).unwrap();
 
         let from_read = load_safetensors::<f32>(&path).unwrap();

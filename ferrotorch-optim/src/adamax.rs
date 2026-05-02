@@ -130,8 +130,7 @@ impl<T: Float> Adamax<T> {
                     None => continue,
                 };
 
-                let param_t =
-                    self.param_groups[gi].params[pi].tensor().clone();
+                let param_t = self.param_groups[gi].params[pi].tensor().clone();
                 let device = param_t.device();
                 let key = Self::param_key(gi, pi);
 
@@ -173,8 +172,7 @@ impl<T: Float> Adamax<T> {
                     let beta2_scaled_inf = mul(&exp_inf_old, &beta2_t)?;
                     let abs_grad = abs(&grad)?;
                     let abs_grad_plus_eps = add(&abs_grad, &eps_t)?;
-                    let exp_inf_new =
-                        elemwise_max(&beta2_scaled_inf, &abs_grad_plus_eps, device)?;
+                    let exp_inf_new = elemwise_max(&beta2_scaled_inf, &abs_grad_plus_eps, device)?;
 
                     // Bias correction for the first moment only.
                     let next_step = self.foreach_state[&key].step_count + 1;
@@ -561,16 +559,16 @@ mod tests {
         let mut legacy = Adamax::new(vec![p_legacy.clone()], cfg);
         let mut foreach = Adamax::new(
             vec![p_foreach.clone()],
-            AdamaxConfig { foreach: true, ..cfg },
+            AdamaxConfig {
+                foreach: true,
+                ..cfg
+            },
         );
 
         for _ in 0..steps {
-            let g = Tensor::from_storage(
-                TensorStorage::cpu(grad.to_vec()),
-                vec![init.len()],
-                false,
-            )
-            .unwrap();
+            let g =
+                Tensor::from_storage(TensorStorage::cpu(grad.to_vec()), vec![init.len()], false)
+                    .unwrap();
             p_legacy.set_grad(Some(g.clone())).unwrap();
             p_foreach.set_grad(Some(g)).unwrap();
             legacy.step().unwrap();

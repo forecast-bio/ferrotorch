@@ -350,7 +350,10 @@ impl<T: Float> Module<T> for Conv2d<T> {
         let is_f32 = std::mem::size_of::<T>() == 4;
         if is_f32 && input.is_cuda() {
             if let Some(backend) = ferrotorch_core::gpu_dispatch::gpu_backend() {
-                let bias_handle = self.bias.as_ref().and_then(|b| b.tensor().gpu_handle().ok());
+                let bias_handle = self
+                    .bias
+                    .as_ref()
+                    .and_then(|b| b.tensor().gpu_handle().ok());
                 let (out_handle, out_shape) = backend.conv2d_f32(
                     input.gpu_handle()?,
                     self.weight.tensor().gpu_handle()?,
@@ -2200,7 +2203,21 @@ impl<T: Float> Module<T> for Conv3d<T> {
 
         // im2col_3d: [B, C_in * kD * kH * kW, D_out * H_out * W_out]
         let (cols, col_rows, col_cols) = im2col_3d(
-            &input_data, batch, c_in, d, h, w, kd, kh, kw, sd, sh, sw, pd, ph, pw,
+            &input_data,
+            batch,
+            c_in,
+            d,
+            h,
+            w,
+            kd,
+            kh,
+            kw,
+            sd,
+            sh,
+            sw,
+            pd,
+            ph,
+            pw,
         );
 
         // Reshape weight to 2D: [C_out, C_in * kD * kH * kW]
@@ -2720,7 +2737,8 @@ impl<T: Float> Module<T> for ConvTranspose1d<T> {
         // Step 1: Insert zeros between input elements (stride insertion).
         // Treat [B, C, L] as [B, C, 1, L] for the 2-D helper.
         let input_data = input.data_vec()?;
-        let (upsampled, _h_up, w_up) = stride_insert_zeros(&input_data, batch, c_in, 1, length, 1, s);
+        let (upsampled, _h_up, w_up) =
+            stride_insert_zeros(&input_data, batch, c_in, 1, length, 1, s);
 
         // Step 2: Flip the kernel and transpose channel dimensions.
         // Weight: [in_channels, out_channels, k] -> treat as [in_channels, out_channels, 1, k]
@@ -2979,8 +2997,7 @@ impl<T: Float> GradFn<T> for ConvTranspose1dBackward<T> {
                                     let go_idx = b * self.out_channels * self.l_out
                                         + co * self.l_out
                                         + (ow - p);
-                                    let in_idx =
-                                        b * self.in_channels * l_in + ci * l_in + il;
+                                    let in_idx = b * self.in_channels * l_in + ci * l_in + il;
                                     acc += input_data[in_idx] * go_data[go_idx];
                                 }
                             }
@@ -3259,11 +3276,8 @@ fn stride_insert_zeros_3d<T: Float>(
                             + c * d_up * h_up * w_up
                             + od * h_up * w_up
                             + oh * w_up
-                            + ow] = input[b * channels * d * h * w
-                            + c * d * h * w
-                            + id * h * w
-                            + ih * w
-                            + iw];
+                            + ow] = input
+                            [b * channels * d * h * w + c * d * h * w + id * h * w + ih * w + iw];
                     }
                 }
             }
@@ -3359,7 +3373,14 @@ impl<T: Float> Module<T> for ConvTranspose3d<T> {
 
         // Step 2: Flip the kernel and transpose channel dimensions.
         let weight_data = self.weight.data_vec()?;
-        let flipped = flip_kernel_3d(&weight_data, self.in_channels, self.out_channels, kd, kh, kw);
+        let flipped = flip_kernel_3d(
+            &weight_data,
+            self.in_channels,
+            self.out_channels,
+            kd,
+            kh,
+            kw,
+        );
 
         // Step 3: Apply a regular 3-D convolution on the upsampled input using the
         // flipped kernel. The "padding" for this internal convolution is
@@ -3433,8 +3454,10 @@ impl<T: Float> Module<T> for ConvTranspose3d<T> {
                                 + c * spatial_out
                                 + od * h_out * w_out
                                 + oh * w_out
-                                + ow] = out_data
-                                [c * spatial_base + od * h_out_base * w_out_base + oh * w_out_base + ow];
+                                + ow] = out_data[c * spatial_base
+                                + od * h_out_base * w_out_base
+                                + oh * w_out_base
+                                + ow];
                         }
                     }
                 }
@@ -3656,17 +3679,17 @@ impl<T: Float> GradFn<T> for ConvTranspose3dBackward<T> {
                                                     && (oh - ph) < self.h_out
                                                     && (ow - pw) < self.w_out
                                                 {
-                                                    let go_idx = b * self.out_channels * spatial_out
-                                                        + co * spatial_out
-                                                        + (od - pd) * self.h_out * self.w_out
-                                                        + (oh - ph) * self.w_out
-                                                        + (ow - pw);
-                                                    let in_idx =
-                                                        b * self.in_channels * spatial_in
-                                                            + ci * spatial_in
-                                                            + id * h_in * w_in
-                                                            + ih * w_in
-                                                            + iw;
+                                                    let go_idx =
+                                                        b * self.out_channels * spatial_out
+                                                            + co * spatial_out
+                                                            + (od - pd) * self.h_out * self.w_out
+                                                            + (oh - ph) * self.w_out
+                                                            + (ow - pw);
+                                                    let in_idx = b * self.in_channels * spatial_in
+                                                        + ci * spatial_in
+                                                        + id * h_in * w_in
+                                                        + ih * w_in
+                                                        + iw;
                                                     acc += input_data[in_idx] * go_data[go_idx];
                                                 }
                                             }
@@ -4643,11 +4666,7 @@ mod tests {
         let input = t(&[1.0, 2.0], &[1, 1, 2, 1, 1]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 2, 2, 1, 1]);
-        assert_close(
-            output.data().unwrap(),
-            &[3.0, 6.0, 5.0, 10.0],
-            1e-5,
-        );
+        assert_close(output.data().unwrap(), &[3.0, 6.0, 5.0, 10.0], 1e-5);
     }
 
     // -----------------------------------------------------------------------
@@ -5024,10 +5043,9 @@ mod tests {
     fn test_conv_transpose3d_output_shape_basic() {
         // Input: [1, 1, 3, 3, 3], kernel 3x3x3, stride 1, padding 0, output_padding 0
         // D_out = (3 - 1) * 1 - 0 + 3 + 0 = 5
-        let conv = ConvTranspose3d::<f32>::new(
-            1, 1, (3, 3, 3), (1, 1, 1), (0, 0, 0), (0, 0, 0), false,
-        )
-        .unwrap();
+        let conv =
+            ConvTranspose3d::<f32>::new(1, 1, (3, 3, 3), (1, 1, 1), (0, 0, 0), (0, 0, 0), false)
+                .unwrap();
         let input = t(&[0.0; 27], &[1, 1, 3, 3, 3]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 1, 5, 5, 5]);
@@ -5037,10 +5055,9 @@ mod tests {
     fn test_conv_transpose3d_output_shape_stride2() {
         // Input: [1, 1, 2, 2, 2], kernel 3x3x3, stride 2, padding 0, output_padding 0
         // D_out = (2 - 1) * 2 - 0 + 3 + 0 = 5
-        let conv = ConvTranspose3d::<f32>::new(
-            1, 1, (3, 3, 3), (2, 2, 2), (0, 0, 0), (0, 0, 0), false,
-        )
-        .unwrap();
+        let conv =
+            ConvTranspose3d::<f32>::new(1, 1, (3, 3, 3), (2, 2, 2), (0, 0, 0), (0, 0, 0), false)
+                .unwrap();
         let input = t(&[0.0; 8], &[1, 1, 2, 2, 2]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 1, 5, 5, 5]);
@@ -5050,10 +5067,9 @@ mod tests {
     fn test_conv_transpose3d_output_shape_with_padding() {
         // Input: [1, 1, 3, 3, 3], kernel 3x3x3, stride 2, padding 1, output_padding 0
         // D_out = (3 - 1) * 2 - 2 + 3 + 0 = 5
-        let conv = ConvTranspose3d::<f32>::new(
-            1, 1, (3, 3, 3), (2, 2, 2), (1, 1, 1), (0, 0, 0), false,
-        )
-        .unwrap();
+        let conv =
+            ConvTranspose3d::<f32>::new(1, 1, (3, 3, 3), (2, 2, 2), (1, 1, 1), (0, 0, 0), false)
+                .unwrap();
         let input = t(&[0.0; 27], &[1, 1, 3, 3, 3]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 1, 5, 5, 5]);
@@ -5063,10 +5079,9 @@ mod tests {
     fn test_conv_transpose3d_output_shape_with_output_padding() {
         // Input: [1, 1, 3, 3, 3], kernel 3x3x3, stride 2, padding 1, output_padding 1
         // D_out = (3 - 1) * 2 - 2 + 3 + 1 = 6
-        let conv = ConvTranspose3d::<f32>::new(
-            1, 1, (3, 3, 3), (2, 2, 2), (1, 1, 1), (1, 1, 1), false,
-        )
-        .unwrap();
+        let conv =
+            ConvTranspose3d::<f32>::new(1, 1, (3, 3, 3), (2, 2, 2), (1, 1, 1), (1, 1, 1), false)
+                .unwrap();
         let input = t(&[0.0; 27], &[1, 1, 3, 3, 3]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 1, 6, 6, 6]);
@@ -5080,10 +5095,9 @@ mod tests {
     fn test_conv_transpose3d_stride2_upsamples() {
         // With stride=2, kernel=2x2x2, padding=0, output_padding=0:
         // D_out = (D - 1) * 2 + 2 = 2 * D
-        let conv = ConvTranspose3d::<f32>::new(
-            1, 1, (2, 2, 2), (2, 2, 2), (0, 0, 0), (0, 0, 0), false,
-        )
-        .unwrap();
+        let conv =
+            ConvTranspose3d::<f32>::new(1, 1, (2, 2, 2), (2, 2, 2), (0, 0, 0), (0, 0, 0), false)
+                .unwrap();
         let input = t(&vec![0.0; 4 * 4 * 4], &[1, 1, 4, 4, 4]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 1, 8, 8, 8]);
@@ -5112,11 +5126,7 @@ mod tests {
         let input = t(&[1.0, 2.0], &[1, 1, 2, 1, 1]);
         let output = conv.forward(&input).unwrap();
         assert_eq!(output.shape(), &[1, 2, 2, 1, 1]);
-        assert_close(
-            output.data().unwrap(),
-            &[3.0, 6.0, 7.0, 14.0],
-            1e-5,
-        );
+        assert_close(output.data().unwrap(), &[3.0, 6.0, 7.0, 14.0], 1e-5);
     }
 
     // -----------------------------------------------------------------------
@@ -5187,20 +5197,18 @@ mod tests {
 
     #[test]
     fn test_conv_transpose3d_invalid_ndim() {
-        let conv = ConvTranspose3d::<f32>::new(
-            1, 1, (3, 3, 3), (1, 1, 1), (0, 0, 0), (0, 0, 0), false,
-        )
-        .unwrap();
+        let conv =
+            ConvTranspose3d::<f32>::new(1, 1, (3, 3, 3), (1, 1, 1), (0, 0, 0), (0, 0, 0), false)
+                .unwrap();
         let input = t(&[0.0; 25], &[1, 1, 5, 5]);
         assert!(conv.forward(&input).is_err());
     }
 
     #[test]
     fn test_conv_transpose3d_channel_mismatch() {
-        let conv = ConvTranspose3d::<f32>::new(
-            3, 1, (3, 3, 3), (1, 1, 1), (0, 0, 0), (0, 0, 0), false,
-        )
-        .unwrap();
+        let conv =
+            ConvTranspose3d::<f32>::new(3, 1, (3, 3, 3), (1, 1, 1), (0, 0, 0), (0, 0, 0), false)
+                .unwrap();
         let input = t(&vec![0.0; 5 * 5 * 5], &[1, 1, 5, 5, 5]);
         assert!(conv.forward(&input).is_err());
     }
@@ -5227,10 +5235,9 @@ mod tests {
 
     #[test]
     fn test_conv_transpose3d_parameter_count() {
-        let conv = ConvTranspose3d::<f32>::new(
-            8, 16, (3, 3, 3), (2, 2, 2), (1, 1, 1), (0, 0, 0), true,
-        )
-        .unwrap();
+        let conv =
+            ConvTranspose3d::<f32>::new(8, 16, (3, 3, 3), (2, 2, 2), (1, 1, 1), (0, 0, 0), true)
+                .unwrap();
         // weight: 8 * 16 * 3 * 3 * 3 = 3456, bias: 16, total: 3472
         assert_eq!(conv.num_parameters(), 3472);
         assert_eq!(conv.parameters().len(), 2);

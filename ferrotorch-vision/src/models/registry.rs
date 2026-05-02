@@ -193,9 +193,7 @@ fn default_registry() -> ModelRegistry<f32> {
     registry.register_model(
         "unet",
         Box::new(|pretrained, num_classes| {
-            maybe_load_pretrained(pretrained, "unet", || {
-                super::unet::unet::<f32>(num_classes)
-            })
+            maybe_load_pretrained(pretrained, "unet", || super::unet::unet::<f32>(num_classes))
         }),
     );
 
@@ -211,9 +209,7 @@ fn default_registry() -> ModelRegistry<f32> {
     registry.register_model(
         "yolo",
         Box::new(|pretrained, num_classes| {
-            maybe_load_pretrained(pretrained, "yolo", || {
-                super::yolo::yolo::<f32>(num_classes)
-            })
+            maybe_load_pretrained(pretrained, "yolo", || super::yolo::yolo::<f32>(num_classes))
         }),
     );
 

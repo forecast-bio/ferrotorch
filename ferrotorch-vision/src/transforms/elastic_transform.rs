@@ -35,8 +35,14 @@ impl<T: Float> ElasticTransform<T> {
     ///
     /// Panics if `alpha < 0` or `sigma <= 0`.
     pub fn new(alpha: f64, sigma: f64) -> Self {
-        assert!(alpha >= 0.0, "ElasticTransform: alpha must be >= 0, got {alpha}");
-        assert!(sigma > 0.0, "ElasticTransform: sigma must be > 0, got {sigma}");
+        assert!(
+            alpha >= 0.0,
+            "ElasticTransform: alpha must be >= 0, got {alpha}"
+        );
+        assert!(
+            sigma > 0.0,
+            "ElasticTransform: sigma must be > 0, got {sigma}"
+        );
         Self {
             alpha,
             sigma,
@@ -132,9 +138,7 @@ impl<T: Float> Transform<T> for ElasticTransform<T> {
         let shape = input.shape().to_vec();
         if shape.len() != 3 {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "ElasticTransform: expected 3-D tensor [C, H, W], got {shape:?}"
-                ),
+                message: format!("ElasticTransform: expected 3-D tensor [C, H, W], got {shape:?}"),
             });
         }
         let c = shape[0];
@@ -195,8 +199,7 @@ mod tests {
     #[test]
     fn test_elastic_output_shape_preserved() {
         let t: Tensor<f32> =
-            Tensor::from_storage(TensorStorage::cpu(vec![0.5; 48]), vec![3, 4, 4], false)
-                .unwrap();
+            Tensor::from_storage(TensorStorage::cpu(vec![0.5; 48]), vec![3, 4, 4], false).unwrap();
         let et = ElasticTransform::<f32>::new(5.0, 1.5);
         let out = et.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);
@@ -206,8 +209,7 @@ mod tests {
     fn test_elastic_zero_alpha_is_identity() {
         let data: Vec<f32> = (0..12).map(|i| i as f32).collect();
         let t: Tensor<f32> =
-            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 2, 2], false)
-                .unwrap();
+            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 2, 2], false).unwrap();
         let et = ElasticTransform::<f32>::new(0.0, 1.0);
         let out = et.apply(t).unwrap();
         assert_eq!(out.data().unwrap(), data.as_slice());
@@ -219,12 +221,9 @@ mod tests {
         // deformation because bilinear-sampling a constant gives
         // that constant everywhere.
         vision_manual_seed(99);
-        let t: Tensor<f64> = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.7; 100]),
-            vec![1, 10, 10],
-            false,
-        )
-        .unwrap();
+        let t: Tensor<f64> =
+            Tensor::from_storage(TensorStorage::cpu(vec![0.7; 100]), vec![1, 10, 10], false)
+                .unwrap();
         let et = ElasticTransform::<f64>::new(10.0, 2.0);
         let out = et.apply(t).unwrap();
         for &v in out.data().unwrap() {

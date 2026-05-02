@@ -93,9 +93,7 @@ impl<T: Float> Optimizer<T> for SparseAdam<T> {
                 };
 
                 if tensor.is_cuda() {
-                    return Err(FerrotorchError::NotImplementedOnCuda {
-                        op: "SparseAdam",
-                    });
+                    return Err(FerrotorchError::NotImplementedOnCuda { op: "SparseAdam" });
                 }
 
                 let grad_data = grad_tensor.data_vec()?;
@@ -127,8 +125,7 @@ impl<T: Float> Optimizer<T> for SparseAdam<T> {
 
                         // Update moments at this index.
                         state.exp_avg[i] = beta1 * state.exp_avg[i] + (1.0 - beta1) * g;
-                        state.exp_avg_sq[i] =
-                            beta2 * state.exp_avg_sq[i] + (1.0 - beta2) * g * g;
+                        state.exp_avg_sq[i] = beta2 * state.exp_avg_sq[i] + (1.0 - beta2) * g * g;
 
                         // Bias-corrected estimates.
                         let m_hat = state.exp_avg[i] / bc1;
@@ -191,16 +188,12 @@ impl<T: Float> Optimizer<T> for SparseAdam<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::storage::TensorStorage;
     use ferrotorch_core::Tensor;
+    use ferrotorch_core::storage::TensorStorage;
 
     fn make_param(data: &[f32]) -> Parameter<f32> {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(data.to_vec()),
-            vec![data.len()],
-            true,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], true)
+            .unwrap();
         Parameter::new(t)
     }
 
@@ -211,21 +204,14 @@ mod tests {
         let initial = param.tensor().data_vec().unwrap();
 
         // Manually set gradient: [0, 1, 0]
-        let grad = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.0f32, 1.0, 0.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let grad = Tensor::from_storage(TensorStorage::cpu(vec![0.0f32, 1.0, 0.0]), vec![3], false)
+            .unwrap();
         param.tensor().set_grad(Some(grad)).unwrap();
 
         let mut opt = SparseAdam::new(vec![param.clone()], SparseAdamConfig::default());
         opt.step().unwrap();
 
-        let updated = opt.param_groups[0].params[0]
-            .tensor()
-            .data_vec()
-            .unwrap();
+        let updated = opt.param_groups[0].params[0].tensor().data_vec().unwrap();
 
         // Index 0 and 2 should be unchanged (zero gradient).
         assert_eq!(updated[0], initial[0], "index 0 should not change");
@@ -238,21 +224,14 @@ mod tests {
     fn test_sparse_adam_dense_matches_direction() {
         // With all non-zero gradients, SparseAdam should still update all params.
         let param = make_param(&[1.0, 2.0]);
-        let grad = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.5f32, -0.5]),
-            vec![2],
-            false,
-        )
-        .unwrap();
+        let grad =
+            Tensor::from_storage(TensorStorage::cpu(vec![0.5f32, -0.5]), vec![2], false).unwrap();
         param.tensor().set_grad(Some(grad)).unwrap();
 
         let mut opt = SparseAdam::new(vec![param.clone()], SparseAdamConfig::default());
         opt.step().unwrap();
 
-        let updated = opt.param_groups[0].params[0]
-            .tensor()
-            .data_vec()
-            .unwrap();
+        let updated = opt.param_groups[0].params[0].tensor().data_vec().unwrap();
 
         // Positive gradient -> param should decrease.
         assert!(updated[0] < 1.0, "positive grad should decrease param");
@@ -266,12 +245,8 @@ mod tests {
         let mut opt = SparseAdam::new(vec![param.clone()], SparseAdamConfig::default());
 
         for _ in 0..10 {
-            let grad = Tensor::from_storage(
-                TensorStorage::cpu(vec![1.0f32]),
-                vec![1],
-                false,
-            )
-            .unwrap();
+            let grad =
+                Tensor::from_storage(TensorStorage::cpu(vec![1.0f32]), vec![1], false).unwrap();
             opt.param_groups[0].params[0]
                 .tensor()
                 .set_grad(Some(grad))
@@ -279,10 +254,7 @@ mod tests {
             opt.step().unwrap();
         }
 
-        let val = opt.param_groups[0].params[0]
-            .tensor()
-            .data_vec()
-            .unwrap()[0];
+        let val = opt.param_groups[0].params[0].tensor().data_vec().unwrap()[0];
         // After 10 steps with constant positive gradient, param should decrease.
         assert!(val < 5.0, "param should decrease after 10 steps, got {val}");
     }
@@ -290,12 +262,8 @@ mod tests {
     #[test]
     fn test_sparse_adam_zero_grad() {
         let param = make_param(&[1.0, 2.0]);
-        let grad = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0f32, 1.0]),
-            vec![2],
-            false,
-        )
-        .unwrap();
+        let grad =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0f32, 1.0]), vec![2], false).unwrap();
         param.tensor().set_grad(Some(grad)).unwrap();
 
         let mut opt = SparseAdam::new(vec![param], SparseAdamConfig::default());

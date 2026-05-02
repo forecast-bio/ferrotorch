@@ -449,8 +449,8 @@ pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
                         let b_row = j * k;
                         let mut acc = zero;
                         for p in 0..k {
-                            acc += *a_data.get_unchecked(a_row + p)
-                                * *b_data.get_unchecked(b_row + p);
+                            acc +=
+                                *a_data.get_unchecked(a_row + p) * *b_data.get_unchecked(b_row + p);
                         }
                         *result.get_unchecked_mut(r_row + j) = acc;
                     }
@@ -641,8 +641,16 @@ pub fn mm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>>
     }
 
     // Materialize non-contiguous views (e.g. from transpose/permute).
-    let a = if a.is_contiguous() { a.clone() } else { a.contiguous()? };
-    let b = if b.is_contiguous() { b.clone() } else { b.contiguous()? };
+    let a = if a.is_contiguous() {
+        a.clone()
+    } else {
+        a.contiguous()?
+    };
+    let b = if b.is_contiguous() {
+        b.clone()
+    } else {
+        b.contiguous()?
+    };
 
     let m = a.shape()[0];
     let k = a.shape()[1];

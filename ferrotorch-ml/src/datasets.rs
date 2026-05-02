@@ -221,7 +221,7 @@ mod tests {
     fn make_classification_y_labels_are_in_range() {
         let (_x, y) = make_classification::<f64>(50, 4, 3, Some(0)).unwrap();
         for &v in y.data().unwrap() {
-            assert!(v >= 0.0 && v < 3.0, "label {v} out of range [0, 3)");
+            assert!((0.0..3.0).contains(&v), "label {v} out of range [0, 3)");
             assert!(v.fract() == 0.0, "label {v} is not integer-valued");
         }
     }
@@ -241,7 +241,7 @@ mod tests {
         assert_eq!(y.shape(), &[60]);
         // Labels span [0, 3).
         for &v in y.data().unwrap() {
-            assert!(v >= 0.0 && v < 3.0);
+            assert!((0.0..3.0).contains(&v));
         }
     }
 
@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(y.shape(), &[150]);
         // 3 classes (0, 1, 2).
         for &v in y.data().unwrap() {
-            assert!(v >= 0.0 && v < 3.0);
+            assert!((0.0..3.0).contains(&v));
         }
     }
 

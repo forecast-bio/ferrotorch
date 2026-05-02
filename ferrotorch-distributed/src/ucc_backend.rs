@@ -44,10 +44,7 @@ impl UccBackend {
     /// [`DistributedError::BackendUnavailable`].
     pub fn new(rank: usize, world_size: usize) -> FerrotorchResult<Self> {
         if !is_ucc_available() {
-            return Err(DistributedError::BackendUnavailable {
-                backend: "ucc",
-            }
-            .into());
+            return Err(DistributedError::BackendUnavailable { backend: "ucc" }.into());
         }
         Ok(Self { rank, world_size })
     }

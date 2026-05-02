@@ -259,16 +259,13 @@ mod tests {
 
     #[test]
     fn parses_nullable_via_type_array() {
-        let s =
-            Schema::from_json_schema(&json!({"type": ["string", "null"]})).unwrap();
+        let s = Schema::from_json_schema(&json!({"type": ["string", "null"]})).unwrap();
         assert_eq!(s, Schema::Nullable(Box::new(Schema::String)));
     }
 
     #[test]
     fn parses_string_enum() {
-        let s =
-            Schema::from_json_schema(&json!({"enum": ["high", "medium", "low"]}))
-                .unwrap();
+        let s = Schema::from_json_schema(&json!({"enum": ["high", "medium", "low"]})).unwrap();
         assert_eq!(
             s,
             Schema::StringEnum(vec!["high".into(), "medium".into(), "low".into()])
@@ -329,8 +326,7 @@ mod tests {
 
     #[test]
     fn rejects_ref() {
-        let err = Schema::from_json_schema(&json!({"$ref": "#/definitions/foo"}))
-            .unwrap_err();
+        let err = Schema::from_json_schema(&json!({"$ref": "#/definitions/foo"})).unwrap_err();
         assert!(matches!(err, SchemaError::Unsupported("$ref")));
     }
 

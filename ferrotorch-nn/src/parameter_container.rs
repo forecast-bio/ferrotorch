@@ -180,10 +180,7 @@ impl<T: Float> ParameterDict<T> {
 
     /// Return named parameters.
     pub fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-        self.params
-            .iter()
-            .map(|(k, v)| (k.clone(), v))
-            .collect()
+        self.params.iter().map(|(k, v)| (k.clone(), v)).collect()
     }
 }
 

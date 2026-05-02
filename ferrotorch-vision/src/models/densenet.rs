@@ -564,8 +564,11 @@ mod tests {
     #[test]
     fn test_densenet121_named_parameters_prefixes() {
         let model: DenseNet<f32> = densenet121(10).unwrap();
-        let names: Vec<String> =
-            model.named_parameters().into_iter().map(|(n, _)| n).collect();
+        let names: Vec<String> = model
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
         assert!(names.iter().any(|n| n.starts_with("stem.")));
         assert!(names.iter().any(|n| n.starts_with("block1.")));
         assert!(names.iter().any(|n| n.starts_with("trans1.")));

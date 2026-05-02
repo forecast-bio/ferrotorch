@@ -571,16 +571,10 @@ impl<T: Float> Tensor<T> {
                             ),
                         });
                     }
-                    let sum_handle = backend.add_f32(
-                        existing.gpu_handle()?,
-                        incoming.gpu_handle()?,
-                    )?;
+                    let sum_handle =
+                        backend.add_f32(existing.gpu_handle()?, incoming.gpu_handle()?)?;
                     let storage = TensorStorage::gpu(sum_handle);
-                    let combined = Tensor::from_storage(
-                        storage,
-                        existing.shape().to_vec(),
-                        false,
-                    )?;
+                    let combined = Tensor::from_storage(storage, existing.shape().to_vec(), false)?;
                     *guard = Some(Box::new(combined));
                 } else {
                     // CPU path (or mixed-device): download if needed and
@@ -627,11 +621,10 @@ impl<T: Float> Tensor<T> {
         }
         if self.inner.storage.is_meta() {
             return Err(FerrotorchError::InvalidArgument {
-                message:
-                    "cannot read data from a meta tensor; meta tensors carry shape only. \
+                message: "cannot read data from a meta tensor; meta tensors carry shape only. \
                      Call .to(Device::Cpu) to materialize, or use .shape() / .numel() / .device() \
                      for metadata access."
-                        .into(),
+                    .into(),
             });
         }
         if !self.is_contiguous() {
@@ -671,11 +664,10 @@ impl<T: Float> Tensor<T> {
     pub fn data_vec(&self) -> FerrotorchResult<Vec<T>> {
         if self.inner.storage.is_meta() {
             return Err(FerrotorchError::InvalidArgument {
-                message:
-                    "cannot read data from a meta tensor; meta tensors carry shape only. \
+                message: "cannot read data from a meta tensor; meta tensors carry shape only. \
                      Call .to(Device::Cpu) to materialize, or use .shape() / .numel() / .device() \
                      for metadata access."
-                        .into(),
+                    .into(),
             });
         }
         if self.is_cuda() {
@@ -1315,9 +1307,7 @@ impl<T: Float> Tensor<T> {
                             grad_fn: None,
                             requires_grad: self.inner.requires_grad,
                             is_leaf: true,
-                            hooks: Mutex::new(
-                                crate::autograd::hooks::HookStorage::new(),
-                            ),
+                            hooks: Mutex::new(crate::autograd::hooks::HookStorage::new()),
                         }),
                     });
                 }

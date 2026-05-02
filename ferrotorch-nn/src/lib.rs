@@ -5,6 +5,7 @@ extern crate self as ferrotorch_nn;
 
 pub mod activation;
 pub mod attention;
+pub mod buffer;
 pub mod container;
 pub mod conv;
 pub mod dropout;
@@ -24,7 +25,6 @@ pub mod lora;
 pub mod loss;
 pub mod module;
 pub mod norm;
-pub mod buffer;
 pub mod padding;
 pub mod paged_attention;
 pub mod parameter;
@@ -39,8 +39,8 @@ pub mod utils;
 
 pub use activation::{
     CELU, ELU, GELU, GLU, GeluApproximate, HardSigmoid, HardSwish, Hardshrink, Hardtanh, LeakyReLU,
-    LogSigmoid, LogSoftmax, Mish, PReLU, RReLU, ReLU, ReLU6, SELU, SiLU, Sigmoid, Softmax, Softmin,
-    Softmax2d, Softplus, Softshrink, Softsign, Tanh, Tanhshrink, Threshold,
+    LogSigmoid, LogSoftmax, Mish, PReLU, RReLU, ReLU, ReLU6, SELU, SiLU, Sigmoid, Softmax,
+    Softmax2d, Softmin, Softplus, Softshrink, Softsign, Tanh, Tanhshrink, Threshold,
 };
 pub use attention::{MultiheadAttention, repeat_kv, reshape_to_heads, transpose_heads_to_2d};
 pub use container::{ModuleDict, ModuleList, Sequential};
@@ -52,7 +52,9 @@ pub use flex_attention::{
     BlockMask, alibi_score_mod, causal_score_mod, flex_attention, relative_position_bias_score_mod,
 };
 pub use hooks::{BackwardHook, ForwardHook, ForwardPreHook, HookHandle, HookedModule};
-pub use identity::{ChannelShuffle, CosineSimilarity, Flatten, Identity, PairwiseDistance, Unflatten};
+pub use identity::{
+    ChannelShuffle, CosineSimilarity, Flatten, Identity, PairwiseDistance, Unflatten,
+};
 pub use init::NonLinearity;
 pub use lazy_conv::{LazyConv1d, LazyConv2d, LazyConv3d};
 pub use lazy_linear::LazyLinear;
@@ -69,10 +71,11 @@ pub use module::{Module, Reduction, StateDict};
 // `Module` but live in different namespaces (macro vs type), so both are
 // usable simultaneously: `use ferrotorch_nn::{Module, ...}` gives the trait,
 // and `#[derive(Module)]` resolves to the derive macro.
+pub use buffer::Buffer;
 pub use ferrotorch_nn_derive::Module;
 pub use norm::{
-    BatchNorm1d, BatchNorm2d, BatchNorm3d, GroupNorm, InstanceNorm1d, InstanceNorm2d, InstanceNorm3d,
-    LayerNorm, LocalResponseNorm, RMSNorm,
+    BatchNorm1d, BatchNorm2d, BatchNorm3d, GroupNorm, InstanceNorm1d, InstanceNorm2d,
+    InstanceNorm3d, LayerNorm, LocalResponseNorm, RMSNorm,
 };
 pub use padding::{
     CircularPad1d, CircularPad2d, CircularPad3d, ConstantPad1d, ConstantPad2d, ConstantPad3d,
@@ -80,16 +83,14 @@ pub use padding::{
     ReplicationPad2d, ReplicationPad3d, ZeroPad1d, ZeroPad2d, ZeroPad3d,
 };
 pub use paged_attention::{KVPage, PagePool, PagedAttentionManager, PagedKVCache};
-pub use buffer::Buffer;
 pub use parameter::Parameter;
 pub use parameter_container::{ParameterDict, ParameterList};
 pub use pooling::{
     AdaptiveAvgPool1d, AdaptiveAvgPool2d, AdaptiveAvgPool3d, AdaptiveMaxPool1d, AdaptiveMaxPool2d,
     AdaptiveMaxPool3d, AvgPool1d, AvgPool2d, AvgPool3d, FractionalMaxPool2d, LPPool1d, LPPool2d,
     MaxPool1d, MaxPool2d, MaxPool3d, MaxUnpool2d, adaptive_avg_pool1d, adaptive_avg_pool2d,
-    adaptive_avg_pool3d, adaptive_max_pool1d, adaptive_max_pool2d, adaptive_max_pool3d,
-    avg_pool1d, avg_pool2d, avg_pool3d, lp_pool1d, lp_pool2d, max_pool1d, max_pool2d, max_pool3d,
-    max_unpool2d,
+    adaptive_avg_pool3d, adaptive_max_pool1d, adaptive_max_pool2d, adaptive_max_pool3d, avg_pool1d,
+    avg_pool2d, avg_pool3d, lp_pool1d, lp_pool2d, max_pool1d, max_pool2d, max_pool3d, max_unpool2d,
 };
 pub use qat::{ObserverType, QatConfig, QatModel, QuantizedModel, prepare_qat};
 pub use rnn::{GRU, GRUCell, LSTM, LSTMCell, RNN, RNNCell, RNNNonlinearity};

@@ -100,11 +100,7 @@ pub fn cosine(m: usize) -> FerrotorchResult<Tensor<f64>> {
 ///
 /// Mirrors `torch.signal.windows.exponential` /
 /// `scipy.signal.windows.exponential`.
-pub fn exponential(
-    m: usize,
-    center: Option<f64>,
-    tau: f64,
-) -> FerrotorchResult<Tensor<f64>> {
+pub fn exponential(m: usize, center: Option<f64>, tau: f64) -> FerrotorchResult<Tensor<f64>> {
     let arr = ferray_window::exponential(m, center, tau).map_err(FerrotorchError::Ferray)?;
     array_to_tensor(arr, m)
 }

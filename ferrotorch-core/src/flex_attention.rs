@@ -248,10 +248,8 @@ where
 
     // Reshape weights to [B*H, n_q, n_k] for the second bmm. Differentiable
     // reshape preserves the autograd chain.
-    let weights3 = crate::grad_fns::shape::reshape(
-        &weights4,
-        &[bh as isize, n_q as isize, n_k as isize],
-    )?;
+    let weights3 =
+        crate::grad_fns::shape::reshape(&weights4, &[bh as isize, n_q as isize, n_k as isize])?;
 
     // weights @ V: [B*H, n_q, n_k] @ [B*H, n_k, d_v] -> [B*H, n_q, d_v]
     let output3 = crate::grad_fns::linalg::bmm_differentiable(&weights3, &v3)?;

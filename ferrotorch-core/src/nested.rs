@@ -572,15 +572,15 @@ impl<T: Float> PackedNestedTensor<T> {
 
         let mut total = 0usize;
         for (i, seq) in sequences.iter().enumerate() {
-            let expected = lengths[i]
-                .checked_mul(tail_numel)
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
+            let expected = lengths[i].checked_mul(tail_numel).ok_or_else(|| {
+                FerrotorchError::InvalidArgument {
                     message: format!(
                         "PackedNestedTensor: length overflow in component {i} \
                          (length={}, tail_numel={tail_numel})",
                         lengths[i]
                     ),
-                })?;
+                }
+            })?;
             if seq.len() != expected {
                 return Err(FerrotorchError::InvalidArgument {
                     message: format!(
@@ -656,7 +656,11 @@ impl<T: Float> PackedNestedTensor<T> {
             let mut shape = vec![len];
             shape.extend_from_slice(&self.tail_shape);
             let slice = self.component_slice(i).to_vec();
-            tensors.push(Tensor::from_storage(TensorStorage::cpu(slice), shape, false)?);
+            tensors.push(Tensor::from_storage(
+                TensorStorage::cpu(slice),
+                shape,
+                false,
+            )?);
         }
         NestedTensor::new(tensors, 0)
     }
@@ -1205,27 +1209,16 @@ mod tests {
 
         assert_eq!(a.add(&b).unwrap().data(), &[11.0, 22.0, 33.0, 44.0, 55.0]);
         assert_eq!(a.sub(&b).unwrap().data(), &[9.0, 18.0, 27.0, 36.0, 45.0]);
-        assert_eq!(
-            a.mul(&b).unwrap().data(),
-            &[10.0, 40.0, 90.0, 160.0, 250.0]
-        );
+        assert_eq!(a.mul(&b).unwrap().data(), &[10.0, 40.0, 90.0, 160.0, 250.0]);
         assert_eq!(a.div(&b).unwrap().data(), &[10.0, 10.0, 10.0, 10.0, 10.0]);
     }
 
     #[test]
     fn packed_add_rejects_mismatched_offsets() {
-        let a = PackedNestedTensor::from_sequences(
-            vec![vec![1.0f32, 2.0, 3.0]],
-            &[3usize],
-            &[],
-        )
-        .unwrap();
-        let b = PackedNestedTensor::from_sequences(
-            vec![vec![1.0f32, 2.0]],
-            &[2usize],
-            &[],
-        )
-        .unwrap();
+        let a = PackedNestedTensor::from_sequences(vec![vec![1.0f32, 2.0, 3.0]], &[3usize], &[])
+            .unwrap();
+        let b =
+            PackedNestedTensor::from_sequences(vec![vec![1.0f32, 2.0]], &[2usize], &[]).unwrap();
         let result = a.add(&b);
         assert!(result.is_err());
         assert!(format!("{}", result.unwrap_err()).contains("offsets mismatch"));
@@ -1255,9 +1248,9 @@ mod tests {
     fn packed_sum_per_component() {
         let pnt = PackedNestedTensor::from_sequences(
             vec![
-                vec![1.0f32, 2.0, 3.0],     // sum = 6
+                vec![1.0f32, 2.0, 3.0],       // sum = 6
                 vec![10.0, 20.0, 30.0, 40.0], // sum = 100
-                vec![5.0],                   // sum = 5
+                vec![5.0],                    // sum = 5
             ],
             &[3usize, 4, 1],
             &[],
@@ -1273,7 +1266,7 @@ mod tests {
             vec![
                 vec![2.0f32, 4.0, 6.0],       // mean = 4
                 vec![10.0, 20.0, 30.0, 40.0], // mean = 25
-                vec![7.0],                     // mean = 7
+                vec![7.0],                    // mean = 7
             ],
             &[3usize, 4, 1],
             &[],
@@ -1286,12 +1279,9 @@ mod tests {
     #[test]
     fn packed_mean_handles_empty_component_as_zero() {
         // Zero-length components give zero mean rather than NaN.
-        let pnt = PackedNestedTensor::from_sequences(
-            vec![vec![1.0f32, 2.0], vec![]],
-            &[2usize, 0],
-            &[],
-        )
-        .unwrap();
+        let pnt =
+            PackedNestedTensor::from_sequences(vec![vec![1.0f32, 2.0], vec![]], &[2usize, 0], &[])
+                .unwrap();
         let means = pnt.mean_per_component();
         assert_eq!(means, vec![1.5, 0.0]);
     }
@@ -1329,7 +1319,7 @@ mod tests {
         let pnt = PackedNestedTensor::from_sequences(
             vec![
                 vec![1.0f32, 2.0, 3.0, 4.0], // 2 rows of 2
-                vec![5.0, 6.0],               // 1 row of 2
+                vec![5.0, 6.0],              // 1 row of 2
             ],
             &[2usize, 1],
             &[2],

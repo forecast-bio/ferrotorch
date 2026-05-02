@@ -615,8 +615,7 @@ pub fn all_to_all_single_uneven<T: Float>(
             ),
         });
     }
-    output[self_recv_start..self_recv_end]
-        .copy_from_slice(&data[self_send_start..self_send_end]);
+    output[self_recv_start..self_recv_end].copy_from_slice(&data[self_send_start..self_send_end]);
 
     // Exchange with every peer. Same lower-rank-first ordering as the
     // equal-split variant to avoid deadlock.
@@ -1131,8 +1130,7 @@ mod tests {
                 thread::spawn(move || {
                     let rank = b.rank();
                     // Send to peer i the value 100*rank + i.
-                    let data: Vec<f32> =
-                        (0..4).map(|i| (100 * rank + i) as f32).collect();
+                    let data: Vec<f32> = (0..4).map(|i| (100 * rank + i) as f32).collect();
                     let t = ferrotorch_core::from_slice(&data, &[4]).unwrap();
                     let out = all_to_all(&t, b.as_ref()).unwrap();
                     (rank, out.data_vec().unwrap())
@@ -1225,8 +1223,7 @@ mod tests {
     fn test_all_to_all_single_uneven_wrong_slice_lengths_error() {
         let group = SimulatedBackend::create_group(2).unwrap();
         let t = ferrotorch_core::from_slice(&[1.0f32, 2.0], &[2]).unwrap();
-        let result =
-            all_to_all_single_uneven(&t, &[1, 1, 1], &[1, 1], &group[0]);
+        let result = all_to_all_single_uneven(&t, &[1, 1, 1], &[1, 1], &group[0]);
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
         assert!(msg.contains("send/recv sizes must have length 2"));

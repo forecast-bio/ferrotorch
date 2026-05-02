@@ -13,7 +13,7 @@ use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::tensor::{GradFn, Tensor};
 
 use crate::Distribution;
-use crate::special_fns::{lgamma_scalar, digamma_scalar};
+use crate::special_fns::{digamma_scalar, lgamma_scalar};
 
 /// Student's t-distribution parameterized by `df` (degrees of freedom),
 /// `loc` (location), and `scale`.
@@ -329,11 +329,8 @@ impl<T: Float> Distribution<T> for StudentT<T> {
             })
             .collect();
 
-        let out = Tensor::from_storage(
-            TensorStorage::cpu(result),
-            self.df.shape().to_vec(),
-            false,
-        )?;
+        let out =
+            Tensor::from_storage(TensorStorage::cpu(result), self.df.shape().to_vec(), false)?;
         if device.is_cuda() {
             out.to(device)
         } else {

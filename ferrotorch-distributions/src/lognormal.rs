@@ -210,20 +210,12 @@ impl<T: Float> Distribution<T> for LogNormal<T> {
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
         let data = self.mean_value()?;
-        Tensor::from_storage(
-            TensorStorage::cpu(data),
-            self.loc.shape().to_vec(),
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(data), self.loc.shape().to_vec(), false)
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
         let data = self.variance_value()?;
-        Tensor::from_storage(
-            TensorStorage::cpu(data),
-            self.loc.shape().to_vec(),
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(data), self.loc.shape().to_vec(), false)
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
@@ -235,11 +227,7 @@ impl<T: Float> Distribution<T> for LogNormal<T> {
             .zip(scale_data.iter())
             .map(|(&mu, &sigma)| (mu - sigma * sigma).exp())
             .collect();
-        Tensor::from_storage(
-            TensorStorage::cpu(result),
-            self.loc.shape().to_vec(),
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(result), self.loc.shape().to_vec(), false)
     }
 }
 

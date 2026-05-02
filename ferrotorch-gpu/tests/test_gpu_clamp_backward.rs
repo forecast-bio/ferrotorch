@@ -59,10 +59,7 @@ fn clamp_backward_f32_gpu_matches_cpu() {
         .zip(expected.iter())
         .enumerate()
     {
-        assert!(
-            (got - exp).abs() < 1e-6,
-            "i={i}: gpu={got} expected={exp}"
-        );
+        assert!((got - exp).abs() < 1e-6, "i={i}: gpu={got} expected={exp}");
         assert!(
             (cpu_got - exp).abs() < 1e-6,
             "i={i}: cpu={cpu_got} expected={exp}"
@@ -85,7 +82,12 @@ fn clamp_backward_f64_kernel_correctness() {
     let g_gpu = g_cpu.to(Device::Cuda(0)).unwrap();
 
     let h = backend
-        .clamp_backward_f64(g_gpu.gpu_handle().unwrap(), x_gpu.gpu_handle().unwrap(), -0.5, 0.5)
+        .clamp_backward_f64(
+            g_gpu.gpu_handle().unwrap(),
+            x_gpu.gpu_handle().unwrap(),
+            -0.5,
+            0.5,
+        )
         .unwrap();
     let result = Tensor::<f64>::from_storage(TensorStorage::gpu(h), vec![6], false)
         .unwrap()
@@ -93,7 +95,7 @@ fn clamp_backward_f64_kernel_correctness() {
         .unwrap();
     // x = [-100, -0.5, 0, 0.25, 0.5, 200]; in [-0.5, 0.5] = [F, T, T, T, T, F]
     // grad masked: [0, 2, 3, 4, 5, 0]
-    let expected = vec![0.0_f64, 2.0, 3.0, 4.0, 5.0, 0.0];
+    let expected = [0.0_f64, 2.0, 3.0, 4.0, 5.0, 0.0];
     let got = result.data().unwrap();
     for i in 0..6 {
         assert!(
@@ -153,8 +155,12 @@ fn clamp_backward_large_input_gpu() {
     // Expected: 1 if -1 <= x <= 1, else 0.
     let mut in_range = 0usize;
     for (i, &h) in host.iter().enumerate() {
-        let exp = if h >= -1.0 && h <= 1.0 { 1.0 } else { 0.0 };
-        assert!((g_data[i] - exp).abs() < 1e-6, "i={i}: got {} exp {exp}", g_data[i]);
+        let exp = if (-1.0..=1.0).contains(&h) { 1.0 } else { 0.0 };
+        assert!(
+            (g_data[i] - exp).abs() < 1e-6,
+            "i={i}: got {} exp {exp}",
+            g_data[i]
+        );
         if exp == 1.0 {
             in_range += 1;
         }

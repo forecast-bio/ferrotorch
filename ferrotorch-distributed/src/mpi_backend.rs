@@ -53,10 +53,7 @@ impl MpiBackend {
     /// `MPI_Comm_rank` / `MPI_Comm_size`.
     pub fn new(rank: usize, world_size: usize) -> FerrotorchResult<Self> {
         if !is_mpi_available() {
-            return Err(DistributedError::BackendUnavailable {
-                backend: "mpi",
-            }
-            .into());
+            return Err(DistributedError::BackendUnavailable { backend: "mpi" }.into());
         }
         Ok(Self { rank, world_size })
     }

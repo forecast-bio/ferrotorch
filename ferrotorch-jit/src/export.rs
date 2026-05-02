@@ -174,10 +174,7 @@ impl ExportedProgram {
     ///
     /// This is the torch.export-style "run with guards" path. Use
     /// [`run`](Self::run) for the unchecked path. CL-461.
-    pub fn run_with_guards<T: Float>(
-        &self,
-        inputs: &[Tensor<T>],
-    ) -> FerrotorchResult<Tensor<T>> {
+    pub fn run_with_guards<T: Float>(&self, inputs: &[Tensor<T>]) -> FerrotorchResult<Tensor<T>> {
         self.check_inputs(inputs)?;
         self.run(inputs)
     }
@@ -741,8 +738,7 @@ pub fn export_with_dynamic_shapes<T: Float, M: Module<T>>(
         }
     }
 
-    let input_shapes: Vec<Vec<usize>> =
-        example_inputs.iter().map(|t| t.shape().to_vec()).collect();
+    let input_shapes: Vec<Vec<usize>> = example_inputs.iter().map(|t| t.shape().to_vec()).collect();
 
     // Trace the module's forward function.
     let graph = trace(

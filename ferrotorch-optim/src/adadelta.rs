@@ -137,8 +137,7 @@ impl<T: Float> Adadelta<T> {
                     None => continue,
                 };
 
-                let param_t =
-                    self.param_groups[gi].params[pi].tensor().clone();
+                let param_t = self.param_groups[gi].params[pi].tensor().clone();
                 let device = param_t.device();
                 let key = Self::param_key(gi, pi);
 
@@ -169,18 +168,14 @@ impl<T: Float> Adadelta<T> {
                     // square_avg = rho * square_avg + (1 - rho) * g^2
                     let sq_old = self.foreach_state[&key].square_avg.clone();
                     let g_sq = mul(&grad, &grad)?;
-                    let square_avg_new = add(
-                        &mul(&sq_old, &rho_t)?,
-                        &mul(&g_sq, &one_minus_rho)?,
-                    )?;
+                    let square_avg_new = add(&mul(&sq_old, &rho_t)?, &mul(&g_sq, &one_minus_rho)?)?;
 
                     // std = sqrt(square_avg + eps)
                     let std_sq = add(&square_avg_new, &eps_t)?;
                     let std = sqrt(&std_sq)?;
 
                     // delta = sqrt(acc_delta + eps) / std * grad
-                    let acc_delta_old =
-                        self.foreach_state[&key].acc_delta.clone();
+                    let acc_delta_old = self.foreach_state[&key].acc_delta.clone();
                     let ad_plus_eps = add(&acc_delta_old, &eps_t)?;
                     let sqrt_ad = sqrt(&ad_plus_eps)?;
                     let ratio = div(&sqrt_ad, &std)?;
@@ -563,14 +558,8 @@ mod tests {
             foreach.step().unwrap();
         }
 
-        let l = legacy.param_groups()[0].params[0]
-            .data()
-            .unwrap()
-            .to_vec();
-        let f = foreach.param_groups()[0].params[0]
-            .data()
-            .unwrap()
-            .to_vec();
+        let l = legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = foreach.param_groups()[0].params[0].data().unwrap().to_vec();
         for (a, b) in l.iter().zip(f.iter()) {
             assert!(
                 (a - b).abs() < 1e-4,
@@ -591,30 +580,24 @@ mod tests {
         let mut legacy = Adadelta::new(vec![p_legacy.clone()], cfg);
         let mut foreach = Adadelta::new(
             vec![p_foreach.clone()],
-            AdadeltaConfig { foreach: true, ..cfg },
+            AdadeltaConfig {
+                foreach: true,
+                ..cfg
+            },
         );
 
         for _ in 0..6 {
-            let g = Tensor::from_storage(
-                TensorStorage::cpu(vec![0.5f32, -0.5, 1.0]),
-                vec![3],
-                false,
-            )
-            .unwrap();
+            let g =
+                Tensor::from_storage(TensorStorage::cpu(vec![0.5f32, -0.5, 1.0]), vec![3], false)
+                    .unwrap();
             p_legacy.set_grad(Some(g.clone())).unwrap();
             p_foreach.set_grad(Some(g)).unwrap();
             legacy.step().unwrap();
             foreach.step().unwrap();
         }
 
-        let l = legacy.param_groups()[0].params[0]
-            .data()
-            .unwrap()
-            .to_vec();
-        let f = foreach.param_groups()[0].params[0]
-            .data()
-            .unwrap()
-            .to_vec();
+        let l = legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = foreach.param_groups()[0].params[0].data().unwrap().to_vec();
         for (a, b) in l.iter().zip(f.iter()) {
             assert!(
                 (a - b).abs() < 1e-4,

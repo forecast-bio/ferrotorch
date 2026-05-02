@@ -182,13 +182,48 @@ struct V2Stage {
 
 /// MobileNetV2 ImageNet configuration (t, c, n, s) from the paper.
 const MOBILENETV2_STAGES: [V2Stage; 7] = [
-    V2Stage { t: 1, c: 16, n: 1, s: 1 },
-    V2Stage { t: 6, c: 24, n: 2, s: 2 },
-    V2Stage { t: 6, c: 32, n: 3, s: 2 },
-    V2Stage { t: 6, c: 64, n: 4, s: 2 },
-    V2Stage { t: 6, c: 96, n: 3, s: 1 },
-    V2Stage { t: 6, c: 160, n: 3, s: 2 },
-    V2Stage { t: 6, c: 320, n: 1, s: 1 },
+    V2Stage {
+        t: 1,
+        c: 16,
+        n: 1,
+        s: 1,
+    },
+    V2Stage {
+        t: 6,
+        c: 24,
+        n: 2,
+        s: 2,
+    },
+    V2Stage {
+        t: 6,
+        c: 32,
+        n: 3,
+        s: 2,
+    },
+    V2Stage {
+        t: 6,
+        c: 64,
+        n: 4,
+        s: 2,
+    },
+    V2Stage {
+        t: 6,
+        c: 96,
+        n: 3,
+        s: 1,
+    },
+    V2Stage {
+        t: 6,
+        c: 160,
+        n: 3,
+        s: 2,
+    },
+    V2Stage {
+        t: 6,
+        c: 320,
+        n: 1,
+        s: 1,
+    },
 ];
 
 /// A simplified MobileNetV2 for ImageNet-style classification.
@@ -381,17 +416,61 @@ struct V3Stage {
 }
 
 const MOBILENETV3_SMALL_STAGES: [V3Stage; 11] = [
-    V3Stage { out_ch: 16, kernel: 3, stride: 2 },
-    V3Stage { out_ch: 24, kernel: 3, stride: 2 },
-    V3Stage { out_ch: 24, kernel: 3, stride: 1 },
-    V3Stage { out_ch: 40, kernel: 5, stride: 2 },
-    V3Stage { out_ch: 40, kernel: 5, stride: 1 },
-    V3Stage { out_ch: 40, kernel: 5, stride: 1 },
-    V3Stage { out_ch: 48, kernel: 5, stride: 1 },
-    V3Stage { out_ch: 48, kernel: 5, stride: 1 },
-    V3Stage { out_ch: 96, kernel: 5, stride: 2 },
-    V3Stage { out_ch: 96, kernel: 5, stride: 1 },
-    V3Stage { out_ch: 96, kernel: 5, stride: 1 },
+    V3Stage {
+        out_ch: 16,
+        kernel: 3,
+        stride: 2,
+    },
+    V3Stage {
+        out_ch: 24,
+        kernel: 3,
+        stride: 2,
+    },
+    V3Stage {
+        out_ch: 24,
+        kernel: 3,
+        stride: 1,
+    },
+    V3Stage {
+        out_ch: 40,
+        kernel: 5,
+        stride: 2,
+    },
+    V3Stage {
+        out_ch: 40,
+        kernel: 5,
+        stride: 1,
+    },
+    V3Stage {
+        out_ch: 40,
+        kernel: 5,
+        stride: 1,
+    },
+    V3Stage {
+        out_ch: 48,
+        kernel: 5,
+        stride: 1,
+    },
+    V3Stage {
+        out_ch: 48,
+        kernel: 5,
+        stride: 1,
+    },
+    V3Stage {
+        out_ch: 96,
+        kernel: 5,
+        stride: 2,
+    },
+    V3Stage {
+        out_ch: 96,
+        kernel: 5,
+        stride: 1,
+    },
+    V3Stage {
+        out_ch: 96,
+        kernel: 5,
+        stride: 1,
+    },
 ];
 
 /// A single MobileNetV3 block — Conv + ReLU with optional residual.
@@ -468,7 +547,12 @@ impl<T: Float> MobileNetV3Small<T> {
         let mut blocks: Vec<V3Block<T>> = Vec::new();
         let mut in_ch = 16usize;
         for stage in &MOBILENETV3_SMALL_STAGES {
-            blocks.push(V3Block::new(in_ch, stage.out_ch, stage.kernel, stage.stride)?);
+            blocks.push(V3Block::new(
+                in_ch,
+                stage.out_ch,
+                stage.kernel,
+                stage.stride,
+            )?);
             in_ch = stage.out_ch;
         }
         let last_conv = conv(in_ch, 576, 1, 1, 0)?;
@@ -565,15 +649,11 @@ impl<T: Float> Module<T> for MobileNetV3Small<T> {
 }
 
 /// Convenience constructor for MobileNetV3-Small.
-pub fn mobilenet_v3_small<T: Float>(
-    num_classes: usize,
-) -> FerrotorchResult<MobileNetV3Small<T>> {
+pub fn mobilenet_v3_small<T: Float>(num_classes: usize) -> FerrotorchResult<MobileNetV3Small<T>> {
     MobileNetV3Small::new(num_classes)
 }
 
-impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T>
-    for MobileNetV3Small<T>
-{
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for MobileNetV3Small<T> {
     fn forward_features(
         &self,
         input: &Tensor<T>,
@@ -654,8 +734,11 @@ mod tests {
     #[test]
     fn test_mobilenet_v2_named_parameters_prefixes() {
         let model: MobileNetV2<f32> = mobilenet_v2(10).unwrap();
-        let names: Vec<String> =
-            model.named_parameters().into_iter().map(|(n, _)| n).collect();
+        let names: Vec<String> = model
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
         assert!(names.iter().any(|n| n.starts_with("stem.")));
         assert!(names.iter().any(|n| n.starts_with("blocks.0.")));
         assert!(names.iter().any(|n| n.starts_with("last_conv.")));
@@ -709,8 +792,11 @@ mod tests {
     #[test]
     fn test_mobilenet_v3_small_named_parameters_prefixes() {
         let model: MobileNetV3Small<f32> = mobilenet_v3_small(10).unwrap();
-        let names: Vec<String> =
-            model.named_parameters().into_iter().map(|(n, _)| n).collect();
+        let names: Vec<String> = model
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
         assert!(names.iter().any(|n| n.starts_with("stem.")));
         assert!(names.iter().any(|n| n.starts_with("blocks.0.")));
         assert!(names.iter().any(|n| n.starts_with("last_conv.")));

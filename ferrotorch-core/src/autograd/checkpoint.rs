@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use crate::autograd::autocast::{
-    AutocastSnapshot, current_autocast_snapshot, with_autocast_state,
-};
+use crate::autograd::autocast::{AutocastSnapshot, current_autocast_snapshot, with_autocast_state};
 use crate::dtype::Float;
 use crate::error::FerrotorchResult;
 use crate::gpu_dispatch::GpuRngState;
@@ -12,8 +10,7 @@ use crate::tensor::Tensor;
 type CheckpointFn<T> = Arc<dyn Fn(&Tensor<T>) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
 
 /// Type alias for a multi-input checkpointable function.
-type CheckpointMultiFn<T> =
-    Arc<dyn Fn(&[Tensor<T>]) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
+type CheckpointMultiFn<T> = Arc<dyn Fn(&[Tensor<T>]) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
 
 /// Run a function with gradient checkpointing.
 ///
@@ -488,11 +485,7 @@ mod tests {
         // None of the inputs need grad — output is computed but no backward.
         let a = from_slice(&[1.0f32, 2.0], &[2]).unwrap();
         let b = from_slice(&[3.0f32, 4.0], &[2]).unwrap();
-        let y = checkpoint_multi(
-            |ts: &[Tensor<f32>]| add(&ts[0], &ts[1]),
-            &[a, b],
-        )
-        .unwrap();
+        let y = checkpoint_multi(|ts: &[Tensor<f32>]| add(&ts[0], &ts[1]), &[a, b]).unwrap();
         let yd = y.data().unwrap();
         assert_eq!(yd, &[4.0, 6.0]);
         assert!(y.grad_fn().is_none());
@@ -544,10 +537,16 @@ mod tests {
         autocast(AutocastDtype::BF16, || {
             with_autocast_state(f16_state, || {
                 assert!(is_autocast_enabled());
-                assert_eq!(crate::autograd::autocast::autocast_dtype(), AutocastDtype::F16);
+                assert_eq!(
+                    crate::autograd::autocast::autocast_dtype(),
+                    AutocastDtype::F16
+                );
             });
             // Restored.
-            assert_eq!(crate::autograd::autocast::autocast_dtype(), AutocastDtype::BF16);
+            assert_eq!(
+                crate::autograd::autocast::autocast_dtype(),
+                AutocastDtype::BF16
+            );
         });
     }
 
@@ -593,8 +592,8 @@ mod tests {
         // be re-enabled (with F16) so the inner ops see the same context.
         // We verify by inspecting the autocast state from inside the
         // recomputation closure via a shared flag.
-        use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc as StdArc;
+        use std::sync::atomic::{AtomicBool, Ordering};
 
         let saw_autocast = StdArc::new(AtomicBool::new(false));
         let saw_autocast_clone = StdArc::clone(&saw_autocast);
@@ -634,8 +633,8 @@ mod tests {
     #[test]
     fn test_checkpoint_multi_recomputation_uses_saved_autocast() {
         // Same as the single-input test but for checkpoint_multi.
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc as StdArc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let observed = StdArc::new(AtomicUsize::new(0));
         let observed_clone = StdArc::clone(&observed);
@@ -702,8 +701,8 @@ mod tests {
     fn test_checkpoint_recomputation_inside_different_autocast() {
         // Forward in F16, backward called from inside BF16 region.
         // Recomputation should TEMPORARILY switch to F16, then restore BF16.
-        use std::sync::atomic::{AtomicU8, Ordering};
         use std::sync::Arc as StdArc;
+        use std::sync::atomic::{AtomicU8, Ordering};
 
         let observed = StdArc::new(AtomicU8::new(0));
         let observed_clone = StdArc::clone(&observed);

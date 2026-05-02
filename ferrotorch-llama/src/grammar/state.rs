@@ -70,7 +70,10 @@ enum Phase {
     /// chars still to emit.
     Literal { remaining: &'static str },
     /// Inside a string value (between the opening `"` and closing `"`).
-    StringChars { partial: String, allowed: Option<Vec<String>> },
+    StringChars {
+        partial: String,
+        allowed: Option<Vec<String>>,
+    },
     /// Inside a number value.
     ///
     /// - `had_sign`: a leading `-` was emitted.
@@ -202,13 +205,9 @@ pub enum BooleanEmissionStage {
     /// We've already emitted some prefix of `"true"`. `remaining` is the
     /// suffix still to emit (always non-empty; complete is unreachable
     /// here since the grammar reports `done` for that case).
-    PartialTrue {
-        remaining: &'static str,
-    },
+    PartialTrue { remaining: &'static str },
     /// Same as `PartialTrue` but for `"false"`.
-    PartialFalse {
-        remaining: &'static str,
-    },
+    PartialFalse { remaining: &'static str },
 }
 
 /// Stage of `Schema::Null` emission. Mirrors `BooleanEmissionStage` for
@@ -219,9 +218,7 @@ pub enum NullEmissionStage {
     Start,
     /// Some prefix of `"null"` has been emitted. `remaining` is the
     /// suffix still to match.
-    Partial {
-        remaining: &'static str,
-    },
+    Partial { remaining: &'static str },
 }
 
 /// Stage of single-frame `Schema::Integer` emission. The grammar's
@@ -281,9 +278,7 @@ pub enum StringEnumEmissionStage<'a> {
     /// Inside the quoted body, having emitted some prefix of one of the
     /// allowed values. `partial` is the chars between the opening `'"'`
     /// and the cursor; an empty `partial` is the just-opened state.
-    InBody {
-        partial: &'a str,
-    },
+    InBody { partial: &'a str },
 }
 
 /// Stage of single-frame `Schema::Nullable(_)` emission. The grammar
@@ -299,9 +294,7 @@ pub enum NullableEmissionStage<'a> {
     /// `Phase::Start` with a `Schema::Nullable(inner)`. The DFA must
     /// accept any prefix of `"null"` plus any prefix accepted by
     /// `inner`'s start state.
-    Start {
-        inner: &'a Schema,
-    },
+    Start { inner: &'a Schema },
 }
 
 impl JsonGrammar {
@@ -317,7 +310,9 @@ impl JsonGrammar {
         }
         match &frame.phase {
             Phase::Start => Some(NullEmissionStage::Start),
-            Phase::Literal { remaining } if "null".ends_with(remaining) && !remaining.is_empty() => {
+            Phase::Literal { remaining }
+                if "null".ends_with(remaining) && !remaining.is_empty() =>
+            {
                 Some(NullEmissionStage::Partial { remaining })
             }
             _ => None,
@@ -456,9 +451,7 @@ impl JsonGrammar {
         }
         let frame = &self.frames[0];
         match (&frame.schema, &frame.phase) {
-            (Schema::Nullable(inner), Phase::Start) => {
-                Some(NullableEmissionStage::Start { inner })
-            }
+            (Schema::Nullable(inner), Phase::Start) => Some(NullableEmissionStage::Start { inner }),
             _ => None,
         }
     }
@@ -607,7 +600,9 @@ impl JsonGrammar {
         }
         match &frame.phase {
             Phase::Start => Some(NullEmissionStage::Start),
-            Phase::Literal { remaining } if "null".ends_with(remaining) && !remaining.is_empty() => {
+            Phase::Literal { remaining }
+                if "null".ends_with(remaining) && !remaining.is_empty() =>
+            {
                 Some(NullEmissionStage::Partial { remaining })
             }
             _ => None,
@@ -675,7 +670,6 @@ pub struct ObjectKeyEmissionStage<'a> {
 }
 
 impl JsonGrammar {
-
     /// Set of single-byte characters that may legally come next.
     ///
     /// Emits an empty vector when the grammar is complete (no more input is
@@ -1036,9 +1030,9 @@ impl JsonGrammar {
             }
 
             (schema, phase) => {
-                return Err(StepError::Unsupported(
-                    Box::leak(format!("schema={schema:?} phase={phase:?}").into_boxed_str()),
-                ));
+                return Err(StepError::Unsupported(Box::leak(
+                    format!("schema={schema:?} phase={phase:?}").into_boxed_str(),
+                )));
             }
         }
         Ok(())
@@ -1169,11 +1163,19 @@ fn valid_next_chars_for(frame: &Frame, parent: Option<&Frame>) -> Vec<char> {
             let _ = properties;
             vec!['{']
         }
-        (Schema::Object { properties, required }, Phase::ObjectFreshOpen { keys_seen }) => {
+        (
+            Schema::Object {
+                properties,
+                required,
+            },
+            Phase::ObjectFreshOpen { keys_seen },
+        ) => {
             let mut v = vec![];
             // Need at least one more key if any required key is unseen.
-            let unseen_required: Vec<&String> =
-                required.iter().filter(|k| !keys_seen.contains(*k)).collect();
+            let unseen_required: Vec<&String> = required
+                .iter()
+                .filter(|k| !keys_seen.contains(*k))
+                .collect();
             if !properties.keys().all(|k| keys_seen.contains(k)) {
                 v.push('"');
             }
@@ -1213,8 +1215,10 @@ fn valid_next_chars_for(frame: &Frame, parent: Option<&Frame>) -> Vec<char> {
             Phase::ObjectAfterValue { keys_seen },
         ) => {
             let mut v = vec![];
-            let unseen_required: Vec<&String> =
-                required.iter().filter(|k| !keys_seen.contains(*k)).collect();
+            let unseen_required: Vec<&String> = required
+                .iter()
+                .filter(|k| !keys_seen.contains(*k))
+                .collect();
             if !properties.keys().all(|k| keys_seen.contains(k)) {
                 v.push(',');
             }
@@ -1261,10 +1265,18 @@ fn parent_terminators(parent: Option<&Frame>) -> Vec<char> {
         return Vec::new();
     };
     match (&parent.schema, &parent.phase) {
-        (Schema::Object { properties, required }, Phase::ObjectAfterValue { keys_seen }) => {
+        (
+            Schema::Object {
+                properties,
+                required,
+            },
+            Phase::ObjectAfterValue { keys_seen },
+        ) => {
             let mut v = vec![];
-            let unseen_required: Vec<&String> =
-                required.iter().filter(|k| !keys_seen.contains(*k)).collect();
+            let unseen_required: Vec<&String> = required
+                .iter()
+                .filter(|k| !keys_seen.contains(*k))
+                .collect();
             if !properties.keys().all(|k| keys_seen.contains(k)) {
                 v.push(',');
             }
@@ -1412,7 +1424,10 @@ mod tests {
 
     #[test]
     fn object_with_required_field() {
-        let s = obj(&[("name", Schema::String), ("n", Schema::Integer)], &["name"]);
+        let s = obj(
+            &[("name", Schema::String), ("n", Schema::Integer)],
+            &["name"],
+        );
         let mut g = JsonGrammar::new(s);
         g.step_char('{').unwrap();
         // Can't close yet — `name` is required and unseen.

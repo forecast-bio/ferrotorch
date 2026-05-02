@@ -129,8 +129,7 @@ impl<T: Float> RAdam<T> {
                     None => continue,
                 };
 
-                let param_t =
-                    self.param_groups[gi].params[pi].tensor().clone();
+                let param_t = self.param_groups[gi].params[pi].tensor().clone();
                 let device = param_t.device();
                 let key = Self::param_key(gi, pi);
 
@@ -158,8 +157,7 @@ impl<T: Float> RAdam<T> {
                     let step_i32 = next_step as i32;
                     let bc1 = 1.0 - beta1.powi(step_i32);
                     let bc2 = 1.0 - beta2.powi(step_i32);
-                    let rho_t =
-                        rho_inf - 2.0 * (next_step as f64) * beta2.powi(step_i32) / bc2;
+                    let rho_t = rho_inf - 2.0 * (next_step as f64) * beta2.powi(step_i32) / bc2;
 
                     let beta1_t = f64_scalar_on::<T>(beta1, device)?;
                     let one_minus_beta1 = f64_scalar_on::<T>(1.0 - beta1, device)?;
@@ -185,12 +183,11 @@ impl<T: Float> RAdam<T> {
                     let m_hat = mul(&exp_avg_new, &inv_bc1)?;
 
                     // Decoupled weight decay.
-                    let decay_factor =
-                        if config.decoupled_weight_decay && group_wd > 0.0 {
-                            1.0 - group_lr * group_wd
-                        } else {
-                            1.0
-                        };
+                    let decay_factor = if config.decoupled_weight_decay && group_wd > 0.0 {
+                        1.0 - group_lr * group_wd
+                    } else {
+                        1.0
+                    };
                     let decayed = if decay_factor != 1.0 {
                         let decay_t = f64_scalar_on::<T>(decay_factor, device)?;
                         mul(&param_t, &decay_t)?
@@ -210,8 +207,7 @@ impl<T: Float> RAdam<T> {
                         let sqrt_bc2_t = f64_scalar_on::<T>(sqrt_bc2, device)?;
                         let adaptive_lr_num = mul(&m_hat, &sqrt_bc2_t)?;
                         let adaptive = div(&adaptive_lr_num, &denom)?;
-                        let factor =
-                            f64_scalar_on::<T>(group_lr * rect, device)?;
+                        let factor = f64_scalar_on::<T>(group_lr * rect, device)?;
                         let scaled = mul(&adaptive, &factor)?;
                         sub(&decayed, &scaled)?
                     } else {
@@ -668,16 +664,16 @@ mod tests {
         let mut legacy = RAdam::new(vec![p_legacy.clone()], cfg);
         let mut foreach = RAdam::new(
             vec![p_foreach.clone()],
-            RAdamConfig { foreach: true, ..cfg },
+            RAdamConfig {
+                foreach: true,
+                ..cfg
+            },
         );
 
         for _ in 0..steps {
-            let g = Tensor::from_storage(
-                TensorStorage::cpu(grad.to_vec()),
-                vec![init.len()],
-                false,
-            )
-            .unwrap();
+            let g =
+                Tensor::from_storage(TensorStorage::cpu(grad.to_vec()), vec![init.len()], false)
+                    .unwrap();
             p_legacy.set_grad(Some(g.clone())).unwrap();
             p_foreach.set_grad(Some(g)).unwrap();
             legacy.step().unwrap();

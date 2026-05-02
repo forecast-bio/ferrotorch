@@ -189,7 +189,9 @@ struct Dropout2dBackward<T: Float> {
 impl<T: Float> GradFn<T> for Dropout2dBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "dropout2d backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "dropout2d backward",
+            });
         }
         let da = if self.input.requires_grad() {
             let go_data = grad_output.data_vec()?;
@@ -285,8 +287,7 @@ impl<T: Float> Module<T> for Dropout<T> {
                 // GPU kernel uses. This is reproducible across checkpoint
                 // save/restore because the Philox state is deterministic.
                 if is_grad_enabled() && input.requires_grad() {
-                    let scaled_mask_vec =
-                        philox_dropout_mask(numel, threshold, scale, &rng_state);
+                    let scaled_mask_vec = philox_dropout_mask(numel, threshold, scale, &rng_state);
                     // Upload the mask to the input's device so the
                     // backward `mul` runs on-device without a CPU
                     // round-trip.
@@ -854,7 +855,9 @@ struct AlphaDropoutBackward<T: Float> {
 impl<T: Float> GradFn<T> for AlphaDropoutBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "AlphaDropout backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "AlphaDropout backward",
+            });
         }
         let da = if self.input.requires_grad() {
             let go_data = grad_output.data_vec()?;
@@ -914,9 +917,7 @@ impl<T: Float> Module<T> for AlphaDropout<T> {
 
         // Generate drop mask.
         let mut state = xorshift_seed();
-        let keep: Vec<bool> = (0..numel)
-            .map(|_| xorshift_next(&mut state) >= p)
-            .collect();
+        let keep: Vec<bool> = (0..numel).map(|_| xorshift_next(&mut state) >= p).collect();
 
         let input_data = input.data()?;
         let mut output_data = Vec::with_capacity(numel);
@@ -1500,12 +1501,7 @@ mod tests {
         let data: Vec<f64> = (0..n).map(|i| (i as f64 / n as f64) - 0.5).collect();
         let input_mean: f64 = data.iter().sum::<f64>() / n as f64;
 
-        let input = Tensor::from_storage(
-            TensorStorage::cpu(data),
-            vec![1, n],
-            false,
-        )
-        .unwrap();
+        let input = Tensor::from_storage(TensorStorage::cpu(data), vec![1, n], false).unwrap();
         let output = d.forward(&input).unwrap();
         let out_data = output.data().unwrap();
         let out_mean: f64 = out_data.iter().sum::<f64>() / n as f64;
@@ -1604,8 +1600,14 @@ mod tests {
                 seen_nonzero = true;
             }
         }
-        assert!(seen_zero, "some elements should have zero gradient (dropped)");
-        assert!(seen_nonzero, "some elements should have nonzero gradient (kept)");
+        assert!(
+            seen_zero,
+            "some elements should have zero gradient (dropped)"
+        );
+        assert!(
+            seen_nonzero,
+            "some elements should have nonzero gradient (kept)"
+        );
     }
 
     #[test]

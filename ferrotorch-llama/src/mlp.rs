@@ -47,7 +47,8 @@ impl<T: Float> LlamaMLP<T> {
             LlamaActivation::FatRelu(threshold) => {
                 let t = T::from(threshold).unwrap();
                 let zero = <T as num_traits::Zero>::zero();
-                let data: Vec<T> = gate.data_vec()?
+                let data: Vec<T> = gate
+                    .data_vec()?
                     .into_iter()
                     .map(|x| if x >= t { x } else { zero })
                     .collect();
@@ -115,11 +116,7 @@ impl<T: Float> Module<T> for LlamaMLP<T> {
             .collect()
     }
 
-    fn load_state_dict(
-        &mut self,
-        state: &StateDict<T>,
-        strict: bool,
-    ) -> FerrotorchResult<()> {
+    fn load_state_dict(&mut self, state: &StateDict<T>, strict: bool) -> FerrotorchResult<()> {
         let extract = |prefix: &str| -> StateDict<T> {
             let expected = format!("{prefix}.");
             state

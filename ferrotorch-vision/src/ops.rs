@@ -11,9 +11,7 @@ use ferrotorch_core::grad_fns::activation as act;
 use ferrotorch_core::grad_fns::arithmetic;
 use ferrotorch_core::grad_fns::reduction as red;
 use ferrotorch_core::grad_fns::transcendental as trans;
-use ferrotorch_core::{
-    FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage,
-};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 /// Box format conventions accepted by [`box_convert`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,10 +111,7 @@ pub fn box_area<T: Float>(boxes: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
 /// Pairwise IoU matrix between two sets of `xyxy` boxes. Output shape:
 /// `[N, M]` where `boxes1` is `[N, 4]` and `boxes2` is `[M, 4]`.
-pub fn box_iou<T: Float>(
-    boxes1: &Tensor<T>,
-    boxes2: &Tensor<T>,
-) -> FerrotorchResult<Tensor<T>> {
+pub fn box_iou<T: Float>(boxes1: &Tensor<T>, boxes2: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     check_boxes_shape(boxes1, "box_iou")?;
     check_boxes_shape(boxes2, "box_iou")?;
     let n = boxes1.shape()[0];
@@ -466,7 +461,10 @@ pub fn focal_loss<T: Float>(
 fn check_boxes_shape<T: Float>(boxes: &Tensor<T>, op: &str) -> FerrotorchResult<()> {
     if boxes.ndim() != 2 || boxes.shape()[1] != 4 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("{op}: boxes must have shape [N, 4], got {:?}", boxes.shape()),
+            message: format!(
+                "{op}: boxes must have shape [N, 4], got {:?}",
+                boxes.shape()
+            ),
         });
     }
     Ok(())
@@ -689,13 +687,7 @@ pub fn complete_box_iou<T: Float>(
 /// Out-of-bounds samples return 0 (matches torchvision's `roi_align` border
 /// behavior for `aligned=true`).
 #[inline]
-fn bilinear_sample<T: Float>(
-    feature_map: &[T],
-    h: usize,
-    w: usize,
-    y: T,
-    x: T,
-) -> T {
+fn bilinear_sample<T: Float>(feature_map: &[T], h: usize, w: usize, y: T, x: T) -> T {
     let zero = T::from(0.0).unwrap();
     let h_f = T::from(h as f64).unwrap();
     let w_f = T::from(w as f64).unwrap();
@@ -814,12 +806,16 @@ pub fn roi_align<T: Float>(
         let grid_h = if sampling_ratio > 0 {
             sampling_ratio
         } else {
-            (roi_h.to_f64().unwrap_or(0.0) / out_h as f64).ceil().max(1.0) as usize
+            (roi_h.to_f64().unwrap_or(0.0) / out_h as f64)
+                .ceil()
+                .max(1.0) as usize
         };
         let grid_w = if sampling_ratio > 0 {
             sampling_ratio
         } else {
-            (roi_w.to_f64().unwrap_or(0.0) / out_w as f64).ceil().max(1.0) as usize
+            (roi_w.to_f64().unwrap_or(0.0) / out_w as f64)
+                .ceil()
+                .max(1.0) as usize
         };
         let grid_count = T::from((grid_h * grid_w) as f64).unwrap();
 
@@ -833,23 +829,24 @@ pub fn roi_align<T: Float>(
                     let pw_f = T::from(pw as f64).unwrap();
                     let mut sum = zero;
                     for iy in 0..grid_h {
-                        let y =
-                            y1 + ph_f * bin_h
-                                + (T::from(iy as f64).unwrap() + half)
-                                    * bin_h
-                                    / T::from(grid_h as f64).unwrap();
+                        let y = y1
+                            + ph_f * bin_h
+                            + (T::from(iy as f64).unwrap() + half) * bin_h
+                                / T::from(grid_h as f64).unwrap();
                         for ix in 0..grid_w {
-                            let x =
-                                x1 + pw_f * bin_w
-                                    + (T::from(ix as f64).unwrap() + half)
-                                        * bin_w
-                                        / T::from(grid_w as f64).unwrap();
-                            sum = sum + bilinear_sample(fm, h, w, y, x);
+                            let x = x1
+                                + pw_f * bin_w
+                                + (T::from(ix as f64).unwrap() + half) * bin_w
+                                    / T::from(grid_w as f64).unwrap();
+                            sum += bilinear_sample(fm, h, w, y, x);
                         }
                     }
-                    let avg = if grid_count > zero { sum / grid_count } else { zero };
-                    let out_offset =
-                        ((i * c + ch) * out_h + ph) * out_w + pw;
+                    let avg = if grid_count > zero {
+                        sum / grid_count
+                    } else {
+                        zero
+                    };
+                    let out_offset = ((i * c + ch) * out_h + ph) * out_w + pw;
                     out[out_offset] = avg;
                 }
             }
@@ -1137,7 +1134,7 @@ mod tests {
         let b = boxes_xyxy(&[
             0.0, 0.0, 10.0, 10.0, // class 0, score 0.9
             1.0, 1.0, 11.0, 11.0, // class 0, score 0.8 → suppressed
-            0.5, 0.5, 9.5, 9.5,   // class 1, score 0.7 → kept (different class)
+            0.5, 0.5, 9.5, 9.5, // class 1, score 0.7 → kept (different class)
         ]);
         let s = scores(&[0.9, 0.8, 0.7]);
         let idxs = vec![0u32, 0, 1];

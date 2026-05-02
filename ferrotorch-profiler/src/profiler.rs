@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::event::{DeviceType, GpuTimingPair, MemoryCategory, ProfileEvent};
@@ -141,12 +141,7 @@ impl Profiler {
     /// Record a memory allocation or free event with a specific
     /// category (Activations, Parameters, OptimizerState, Gradients,
     /// Other). CL-333.
-    pub fn record_memory_categorized(
-        &self,
-        name: &str,
-        bytes: i64,
-        category: MemoryCategory,
-    ) {
+    pub fn record_memory_categorized(&self, name: &str, bytes: i64, category: MemoryCategory) {
         if !self.active.load(Ordering::Relaxed) || !self.config.record_memory {
             return;
         }

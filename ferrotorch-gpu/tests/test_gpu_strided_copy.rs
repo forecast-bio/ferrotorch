@@ -49,7 +49,10 @@ fn contiguous_on_cuda_transpose_matches_cpu() {
 
     let gpu_host = gpu_c.cpu().expect("cpu()").data().unwrap().to_vec();
     let cpu_data = cpu_c.data().unwrap().to_vec();
-    assert_eq!(gpu_host, cpu_data, "GPU strided_copy transpose != CPU reference");
+    assert_eq!(
+        gpu_host, cpu_data,
+        "GPU strided_copy transpose != CPU reference"
+    );
 }
 
 #[test]
@@ -74,7 +77,10 @@ fn contiguous_on_cuda_permute_3d_matches_cpu() {
 
     let gpu_host = gpu_c.cpu().unwrap().data().unwrap().to_vec();
     let cpu_data = cpu_c.data().unwrap().to_vec();
-    assert_eq!(gpu_host, cpu_data, "GPU strided_copy 3d permute != CPU reference");
+    assert_eq!(
+        gpu_host, cpu_data,
+        "GPU strided_copy 3d permute != CPU reference"
+    );
 }
 
 #[test]
@@ -112,10 +118,7 @@ fn contiguous_on_cuda_4d_permute() {
     let gpu_host = gpu_c.cpu().unwrap().data().unwrap().to_vec();
     let cpu_data = cpu_c.data().unwrap().to_vec();
     for (i, (&g, &c)) in gpu_host.iter().zip(cpu_data.iter()).enumerate() {
-        assert!(
-            (g - c).abs() < 1e-6,
-            "element {i}: gpu={g} cpu={c}",
-        );
+        assert!((g - c).abs() < 1e-6, "element {i}: gpu={g} cpu={c}",);
     }
 }
 

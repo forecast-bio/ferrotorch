@@ -162,7 +162,9 @@ pub fn randn<T: Float>(shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
             .for_each(|(ci, chunk)| {
                 // Derive per-chunk seed.
                 let mut state = seed ^ (ci as u64).wrapping_mul(0x9E3779B97F4A7C15);
-                if state == 0 { state = 0xdeadbeef; }
+                if state == 0 {
+                    state = 0xdeadbeef;
+                }
 
                 let mut next_u = || -> f32 {
                     state ^= state << 13;
@@ -238,7 +240,9 @@ fn xorshift_seed() -> u64 {
     SystemTime::now().hash(&mut hasher);
     std::thread::current().id().hash(&mut hasher);
     let mut state = hasher.finish();
-    if state == 0 { state = 0xdeadbeefcafe; }
+    if state == 0 {
+        state = 0xdeadbeefcafe;
+    }
     state
 }
 

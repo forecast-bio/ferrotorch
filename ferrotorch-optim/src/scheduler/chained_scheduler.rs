@@ -80,10 +80,7 @@ impl<T: Float> LrScheduler<T> for ChainedScheduler<T> {
 
     fn get_lr(&self) -> f64 {
         // The effective LR is whatever the last scheduler set.
-        self.schedulers
-            .last()
-            .map(|s| s.get_lr())
-            .unwrap_or(0.0)
+        self.schedulers.last().map(|s| s.get_lr()).unwrap_or(0.0)
     }
 }
 

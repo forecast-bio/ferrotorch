@@ -207,8 +207,14 @@ fn masked_min_max_large_input_matches_cpu() {
     let gpu_min = masked_min(&mt).unwrap().cpu().unwrap().item().unwrap();
     let gpu_max = masked_max(&mt).unwrap().cpu().unwrap().item().unwrap();
 
-    assert!((gpu_min - cpu_min).abs() < 1e-3, "min: gpu={gpu_min} cpu={cpu_min}");
-    assert!((gpu_max - cpu_max).abs() < 1e-3, "max: gpu={gpu_max} cpu={cpu_max}");
+    assert!(
+        (gpu_min - cpu_min).abs() < 1e-3,
+        "min: gpu={gpu_min} cpu={cpu_min}"
+    );
+    assert!(
+        (gpu_max - cpu_max).abs() < 1e-3,
+        "max: gpu={gpu_max} cpu={cpu_max}"
+    );
 }
 
 // ===========================================================================

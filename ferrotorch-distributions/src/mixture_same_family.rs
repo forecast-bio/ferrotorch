@@ -129,7 +129,11 @@ impl<T: Float, D: Distribution<T>> Distribution<T> for MixtureSameFamily<T, D> {
 
         let device = self.mixing.probs().device();
         let out = Tensor::from_storage(TensorStorage::cpu(result), shape.to_vec(), false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn rsample(&self, _shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
@@ -199,7 +203,11 @@ impl<T: Float, D: Distribution<T>> Distribution<T> for MixtureSameFamily<T, D> {
         }
 
         let out = Tensor::from_storage(TensorStorage::cpu(result), v_shape, false)?;
-        if v_dev.is_cuda() { out.to(v_dev) } else { Ok(out) }
+        if v_dev.is_cuda() {
+            out.to(v_dev)
+        } else {
+            Ok(out)
+        }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
@@ -290,10 +298,7 @@ mod tests {
         // Component 1 contributes negligibly: log(0.1) - 0.5*log(2pi) - 18 ≈ -21.22
         // logsumexp([-1.0243, -21.22]) ≈ -1.0243.
         let val = lp.data().unwrap()[0];
-        assert!(
-            (val + 1.0243).abs() < 0.01,
-            "expected ≈ -1.0243, got {val}"
-        );
+        assert!((val + 1.0243).abs() < 0.01, "expected ≈ -1.0243, got {val}");
     }
 
     #[test]

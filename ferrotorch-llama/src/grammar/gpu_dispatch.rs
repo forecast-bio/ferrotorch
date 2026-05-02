@@ -16,12 +16,12 @@
 use cubecl::prelude::{ComputeClient, Runtime};
 use ferrotorch_cubecl::{DfaMaskInputs, compute_token_mask_dfa_to_gpu};
 
+use super::json_schema::{JsonSchemaProcessor, TokenMask};
 use super::schema::Schema;
 use super::state::{
     BooleanEmissionStage, IntegerEmissionStage, NullEmissionStage, NullableEmissionStage,
     NumberEmissionStage, ObjectKeyEmissionStage, StringEmissionStage, StringEnumEmissionStage,
 };
-use super::json_schema::{JsonSchemaProcessor, TokenMask};
 
 /// One DFA built from a grammar state. All buffers are owned `Vec<u32>`s
 /// because the kernel launcher takes them by reference, and they need to
@@ -463,8 +463,8 @@ fn compile_dfa_for_object_key(stage: &ObjectKeyEmissionStage<'_>) -> Option<Comp
 /// pre-existing).
 fn split_class_for_char(dfa: &mut CompiledDfa, c: u8) -> u32 {
     let original_class = dfa.char_classes[c as usize];
-    let other_using = (0..128usize)
-        .any(|i| i != c as usize && dfa.char_classes[i] == original_class);
+    let other_using =
+        (0..128usize).any(|i| i != c as usize && dfa.char_classes[i] == original_class);
     if !other_using {
         return original_class;
     }
@@ -786,10 +786,7 @@ pub fn compute_mask_gpu<R: Runtime>(
     } else if let Some(stage) = grammar.string_emission_stage_top() {
         add_terminators_to_states(compile_dfa_for_string(&stage), &terminators)
     } else if let Some((stage, values)) = grammar.string_enum_emission_stage_top() {
-        add_terminators_to_states(
-            compile_dfa_for_string_enum(&stage, values)?,
-            &terminators,
-        )
+        add_terminators_to_states(compile_dfa_for_string_enum(&stage, values)?, &terminators)
     } else if let Some(NullableEmissionStage::Start { inner }) = grammar.nullable_emission_stage() {
         add_terminators_to_states(compile_dfa_for_nullable(inner)?, &terminators)
     } else {
@@ -862,10 +859,8 @@ mod cuda_tests {
 
         let client = cuda_client();
         let packed = PackedVocab::pack(&vocab);
-        let gpu_mask =
-            compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed).expect(
-                "Schema::Boolean at Phase::Start must be DFA-compilable",
-            );
+        let gpu_mask = compute_mask_gpu::<CudaRuntime>(&processor, &client, &packed)
+            .expect("Schema::Boolean at Phase::Start must be DFA-compilable");
 
         assert_eq!(
             cpu_mask.allow, gpu_mask.allow,
@@ -940,8 +935,7 @@ mod cuda_tests {
     #[test]
     fn null_gpu_mask_matches_cpu_at_start() {
         let vocab = ascii_char_vocab();
-        let processor =
-            JsonSchemaProcessor::new(&json!({"type": "null"}), vocab.clone()).unwrap();
+        let processor = JsonSchemaProcessor::new(&json!({"type": "null"}), vocab.clone()).unwrap();
         let cpu_mask = processor.compute_mask();
         let client = cuda_client();
         let packed = PackedVocab::pack(&vocab);
@@ -1108,7 +1102,10 @@ mod cuda_tests {
         assert_eq!(cpu_mask.allow, gpu_mask.allow);
         // Mid-decimal: only digits valid; '.' specifically rejected.
         let dot_idx = vocab.iter().position(|s| s == ".").unwrap();
-        assert_eq!(gpu_mask.allow[dot_idx], 0, "second '.' must reject mid-decimal");
+        assert_eq!(
+            gpu_mask.allow[dot_idx], 0,
+            "second '.' must reject mid-decimal"
+        );
         let one = vocab.iter().position(|s| s == "1").unwrap();
         assert_eq!(gpu_mask.allow[one], 1);
     }
@@ -1181,8 +1178,7 @@ mod cuda_tests {
     #[test]
     fn string_enum_gpu_mask_matches_cpu_at_start() {
         let vocab = ascii_char_vocab();
-        let processor =
-            JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
+        let processor = JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
         let cpu_mask = processor.compute_mask();
         let client = cuda_client();
         let packed = PackedVocab::pack(&vocab);
@@ -1199,8 +1195,7 @@ mod cuda_tests {
     #[test]
     fn string_enum_gpu_mask_matches_cpu_after_open_quote() {
         let vocab = ascii_char_vocab();
-        let mut processor =
-            JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
+        let mut processor = JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
         let dq = vocab.iter().position(|s| s == "\"").unwrap() as u32;
         processor.step_token(dq).unwrap();
         let cpu_mask = processor.compute_mask();
@@ -1221,8 +1216,7 @@ mod cuda_tests {
     #[test]
     fn string_enum_gpu_mask_matches_cpu_after_h() {
         let vocab = ascii_char_vocab();
-        let mut processor =
-            JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
+        let mut processor = JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
         let dq = vocab.iter().position(|s| s == "\"").unwrap() as u32;
         let h = vocab.iter().position(|s| s == "h").unwrap() as u32;
         processor.step_token(dq).unwrap();
@@ -1246,8 +1240,7 @@ mod cuda_tests {
         // After "low" the partial matches a complete value, so the
         // closing '"' becomes valid (and the only valid char).
         let vocab = ascii_char_vocab();
-        let mut processor =
-            JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
+        let mut processor = JsonSchemaProcessor::new(&string_enum_schema(), vocab.clone()).unwrap();
         for s in ["\"", "l", "o", "w"] {
             let id = vocab.iter().position(|t| t == s).unwrap() as u32;
             processor.step_token(id).unwrap();
@@ -1259,7 +1252,10 @@ mod cuda_tests {
             .expect("StringEnum InBody{partial='low'} must be DFA-compilable");
         assert_eq!(cpu_mask.allow, gpu_mask.allow);
         let dq = vocab.iter().position(|s| s == "\"").unwrap();
-        assert_eq!(gpu_mask.allow[dq], 1, "closing quote must be allowed when partial is a complete value");
+        assert_eq!(
+            gpu_mask.allow[dq], 1,
+            "closing quote must be allowed when partial is a complete value"
+        );
     }
 
     // -----------------------------------------------------------------
@@ -1269,11 +1265,8 @@ mod cuda_tests {
     #[test]
     fn nullable_boolean_gpu_mask_matches_cpu_at_start() {
         let vocab = ascii_char_vocab();
-        let processor = JsonSchemaProcessor::new(
-            &json!({"type": ["boolean", "null"]}),
-            vocab.clone(),
-        )
-        .unwrap();
+        let processor =
+            JsonSchemaProcessor::new(&json!({"type": ["boolean", "null"]}), vocab.clone()).unwrap();
         let cpu_mask = processor.compute_mask();
         let client = cuda_client();
         let packed = PackedVocab::pack(&vocab);
@@ -1283,7 +1276,10 @@ mod cuda_tests {
         // Sanity: 't', 'f', 'n' all allowed.
         for c in ['t', 'f', 'n'] {
             let i = vocab.iter().position(|s| s == &c.to_string()).unwrap();
-            assert_eq!(gpu_mask.allow[i], 1, "char {c} must be allowed for Nullable(Boolean)");
+            assert_eq!(
+                gpu_mask.allow[i], 1,
+                "char {c} must be allowed for Nullable(Boolean)"
+            );
         }
         let a = vocab.iter().position(|s| s == "a").unwrap();
         assert_eq!(gpu_mask.allow[a], 0);
@@ -1292,11 +1288,8 @@ mod cuda_tests {
     #[test]
     fn nullable_integer_gpu_mask_matches_cpu_at_start() {
         let vocab = ascii_char_vocab();
-        let processor = JsonSchemaProcessor::new(
-            &json!({"type": ["integer", "null"]}),
-            vocab.clone(),
-        )
-        .unwrap();
+        let processor =
+            JsonSchemaProcessor::new(&json!({"type": ["integer", "null"]}), vocab.clone()).unwrap();
         let cpu_mask = processor.compute_mask();
         let client = cuda_client();
         let packed = PackedVocab::pack(&vocab);
@@ -1314,11 +1307,8 @@ mod cuda_tests {
     #[test]
     fn nullable_string_gpu_mask_matches_cpu_at_start() {
         let vocab = ascii_char_vocab();
-        let processor = JsonSchemaProcessor::new(
-            &json!({"type": ["string", "null"]}),
-            vocab.clone(),
-        )
-        .unwrap();
+        let processor =
+            JsonSchemaProcessor::new(&json!({"type": ["string", "null"]}), vocab.clone()).unwrap();
         let cpu_mask = processor.compute_mask();
         let client = cuda_client();
         let packed = PackedVocab::pack(&vocab);
@@ -1339,11 +1329,8 @@ mod cuda_tests {
     #[test]
     fn nullable_boolean_gpu_mask_matches_cpu_after_committing_to_inner() {
         let vocab = ascii_char_vocab();
-        let mut processor = JsonSchemaProcessor::new(
-            &json!({"type": ["boolean", "null"]}),
-            vocab.clone(),
-        )
-        .unwrap();
+        let mut processor =
+            JsonSchemaProcessor::new(&json!({"type": ["boolean", "null"]}), vocab.clone()).unwrap();
         let t_id = vocab.iter().position(|s| s == "t").unwrap() as u32;
         processor.step_token(t_id).unwrap();
         let cpu_mask = processor.compute_mask();
@@ -1359,11 +1346,8 @@ mod cuda_tests {
     #[test]
     fn nullable_boolean_gpu_mask_matches_cpu_after_committing_to_null() {
         let vocab = ascii_char_vocab();
-        let mut processor = JsonSchemaProcessor::new(
-            &json!({"type": ["boolean", "null"]}),
-            vocab.clone(),
-        )
-        .unwrap();
+        let mut processor =
+            JsonSchemaProcessor::new(&json!({"type": ["boolean", "null"]}), vocab.clone()).unwrap();
         let n_id = vocab.iter().position(|s| s == "n").unwrap() as u32;
         processor.step_token(n_id).unwrap();
         let cpu_mask = processor.compute_mask();
@@ -1451,7 +1435,10 @@ mod cuda_tests {
         let a = vocab.iter().position(|s| s == "a").unwrap();
         assert_eq!(gpu_mask.allow[a], 1);
         let comma = vocab.iter().position(|s| s == ",").unwrap();
-        assert_eq!(gpu_mask.allow[comma], 1, "comma is valid string-body content");
+        assert_eq!(
+            gpu_mask.allow[comma], 1,
+            "comma is valid string-body content"
+        );
         // The backslash is still rejected (escapes unsupported).
         let bs = vocab.iter().position(|s| s == "\\").unwrap();
         assert_eq!(gpu_mask.allow[bs], 0);
@@ -1506,8 +1493,7 @@ mod cuda_tests {
     fn object_key_gpu_mask_matches_cpu_at_empty_partial() {
         let vocab = ascii_char_vocab();
         let mut processor =
-            JsonSchemaProcessor::new(&extraction_response_shaped_object(), vocab.clone())
-                .unwrap();
+            JsonSchemaProcessor::new(&extraction_response_shaped_object(), vocab.clone()).unwrap();
         let lb = vocab.iter().position(|s| s == "{").unwrap() as u32;
         let dq = vocab.iter().position(|s| s == "\"").unwrap() as u32;
         processor.step_token(lb).unwrap();
@@ -1538,8 +1524,7 @@ mod cuda_tests {
     fn object_key_gpu_mask_matches_cpu_after_v() {
         let vocab = ascii_char_vocab();
         let mut processor =
-            JsonSchemaProcessor::new(&extraction_response_shaped_object(), vocab.clone())
-                .unwrap();
+            JsonSchemaProcessor::new(&extraction_response_shaped_object(), vocab.clone()).unwrap();
         for s in ["{", "\"", "v"] {
             let id = vocab.iter().position(|t| t == s).unwrap() as u32;
             processor.step_token(id).unwrap();
@@ -1563,8 +1548,7 @@ mod cuda_tests {
     fn object_key_gpu_mask_matches_cpu_after_complete_name() {
         let vocab = ascii_char_vocab();
         let mut processor =
-            JsonSchemaProcessor::new(&extraction_response_shaped_object(), vocab.clone())
-                .unwrap();
+            JsonSchemaProcessor::new(&extraction_response_shaped_object(), vocab.clone()).unwrap();
         for s in ["{", "\"", "n", "a", "m", "e"] {
             let id = vocab.iter().position(|t| t == s).unwrap() as u32;
             processor.step_token(id).unwrap();
@@ -1576,7 +1560,10 @@ mod cuda_tests {
             .expect("ObjectKey at partial='name' must be DFA-compilable");
         assert_eq!(cpu_mask.allow, gpu_mask.allow);
         let dq = vocab.iter().position(|s| s == "\"").unwrap();
-        assert_eq!(gpu_mask.allow[dq], 1, "closing quote must be valid when partial == 'name'");
+        assert_eq!(
+            gpu_mask.allow[dq], 1,
+            "closing quote must be valid when partial == 'name'"
+        );
     }
 
     // -----------------------------------------------------------------

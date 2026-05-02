@@ -129,8 +129,8 @@ pub fn svd<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T
     if input.is_cuda() {
         // GPU dispatch via cuSOLVER. Reduced SVD shapes:
         //   U: [m, k], S: [k], Vh: [k, n], k = min(m, n)
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let m = shape[0];
         let n = shape[1];
         let k = m.min(n);
@@ -180,7 +180,9 @@ pub fn svd<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T
             Tensor::from_storage(TensorStorage::cpu(vh_data), vh_shape, false)?,
         ))
     } else {
-        Err(FerrotorchError::InvalidArgument { message: "linalg op requires f32 or f64".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "linalg op requires f32 or f64".into(),
+        })
     }
 }
 
@@ -218,8 +220,8 @@ pub fn solve<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
     }
 
     if a.is_cuda() {
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let n = a.shape()[0];
         // b can be [n] (single RHS) or [n, nrhs].
         let nrhs = if b.ndim() == 1 { 1 } else { b.shape()[1] };
@@ -232,7 +234,11 @@ pub fn solve<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
                 message: "solve requires f32 or f64".into(),
             });
         };
-        let out_shape: Vec<usize> = if b.ndim() == 1 { vec![n] } else { vec![n, nrhs] };
+        let out_shape: Vec<usize> = if b.ndim() == 1 {
+            vec![n]
+        } else {
+            vec![n, nrhs]
+        };
         return Tensor::from_storage(TensorStorage::gpu(x_h), out_shape, false);
     }
 
@@ -251,7 +257,9 @@ pub fn solve<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
         let x_shape = x.shape().to_vec();
         Tensor::from_storage(TensorStorage::cpu(x_data), x_shape, false)
     } else {
-        Err(FerrotorchError::InvalidArgument { message: "linalg op requires f32 or f64".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "linalg op requires f32 or f64".into(),
+        })
     }
 }
 
@@ -285,7 +293,9 @@ pub fn det<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let val = T::from(d).unwrap();
         Tensor::from_storage(TensorStorage::cpu(vec![val]), vec![], false)
     } else {
-        Err(FerrotorchError::InvalidArgument { message: "linalg op requires f32 or f64".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "linalg op requires f32 or f64".into(),
+        })
     }
 }
 
@@ -319,7 +329,9 @@ pub fn inv<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let data = slice_to_vec::<T>(r.as_slice().unwrap());
         Tensor::from_storage(TensorStorage::cpu(data), vec![n, n], false)
     } else {
-        Err(FerrotorchError::InvalidArgument { message: "linalg op requires f32 or f64".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "linalg op requires f32 or f64".into(),
+        })
     }
 }
 
@@ -343,8 +355,8 @@ pub fn qr<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T>
 
     if input.is_cuda() {
         // Reduced QR shapes: Q [m, k], R [k, n], k = min(m, n)
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let m = shape[0];
         let n = shape[1];
         let k = m.min(n);
@@ -388,7 +400,9 @@ pub fn qr<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T>
             Tensor::from_storage(TensorStorage::cpu(r_data), r_shape, false)?,
         ))
     } else {
-        Err(FerrotorchError::InvalidArgument { message: "linalg op requires f32 or f64".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "linalg op requires f32 or f64".into(),
+        })
     }
 }
 
@@ -413,8 +427,8 @@ pub fn cholesky<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let n = shape[0];
 
     if input.is_cuda() {
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let l_h = if is_f32::<T>() {
             backend.cholesky_f32(input.gpu_handle()?, n)?
         } else if is_f64::<T>() {
@@ -438,7 +452,9 @@ pub fn cholesky<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let data = slice_to_vec::<T>(l.as_slice().unwrap());
         Tensor::from_storage(TensorStorage::cpu(data), vec![n, n], false)
     } else {
-        Err(FerrotorchError::InvalidArgument { message: "linalg op requires f32 or f64".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "linalg op requires f32 or f64".into(),
+        })
     }
 }
 
@@ -464,8 +480,8 @@ pub fn matrix_norm<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // Frobenius norm: sqrt(sum_ij A_ij^2). Composes existing GPU
         // primitives (mul → reduce_sum → sqrt) — three kernel launches but
         // fully GPU-resident; result lands as a 0-d tensor on device.
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let buf = input.gpu_handle()?;
         let numel = shape.iter().product::<usize>();
         let h = if is_f32::<T>() {
@@ -497,7 +513,9 @@ pub fn matrix_norm<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let val = T::from(n).unwrap();
         Tensor::from_storage(TensorStorage::cpu(vec![val]), vec![], false)
     } else {
-        Err(FerrotorchError::InvalidArgument { message: "linalg op requires f32 or f64".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "linalg op requires f32 or f64".into(),
+        })
     }
 }
 
@@ -531,7 +549,9 @@ pub fn pinv<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let r_shape = r.shape().to_vec();
         Tensor::from_storage(TensorStorage::cpu(data), r_shape, false)
     } else {
-        Err(FerrotorchError::InvalidArgument { message: "linalg op requires f32 or f64".into() })
+        Err(FerrotorchError::InvalidArgument {
+            message: "linalg op requires f32 or f64".into(),
+        })
     }
 }
 
@@ -556,8 +576,8 @@ pub fn eigh<T: Float>(a: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T>)>
     let n = shape[0];
 
     if a.is_cuda() {
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let buf = a.gpu_handle()?;
         let (w_h, v_h) = if is_f32::<T>() {
             backend.eigh_f32(buf, n)?
@@ -613,8 +633,8 @@ pub fn eigvalsh<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let n = shape[0];
 
     if a.is_cuda() {
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let buf = a.gpu_handle()?;
         let w_h = if is_f32::<T>() {
             backend.eigvalsh_f32(buf, n)?
@@ -820,8 +840,8 @@ pub fn lu_factor<T: Float>(a: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Vec<i3
     let n = shape[0];
 
     if a.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let (lu_h, ipiv) = if is_f32::<T>() {
             backend.lu_factor_f32(a.gpu_handle()?, n)?
         } else {
@@ -951,10 +971,7 @@ pub fn svdvals<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// other dtypes route through `ferray-linalg::lstsq` and discard the
 /// extra outputs. `A` is `[M, N]`; `B` is `[M, K]` (or `[M]` treated as
 /// `[M, 1]`); output is `[N, K]` (or `[N]` for the 1-D case).
-pub fn lstsq_solve<T: Float>(
-    a: &Tensor<T>,
-    b: &Tensor<T>,
-) -> FerrotorchResult<Tensor<T>> {
+pub fn lstsq_solve<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.ndim() != 2 {
         return Err(FerrotorchError::InvalidArgument {
             message: format!("lstsq_solve: `a` must be 2-D, got {:?}", a.shape()),
@@ -976,8 +993,8 @@ pub fn lstsq_solve<T: Float>(
     };
 
     if a.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let x_h = if is_f32::<T>() {
             backend.lstsq_f32(a.gpu_handle()?, b.gpu_handle()?, m, n, nrhs)?
         } else {
@@ -1002,6 +1019,7 @@ pub fn lstsq_solve<T: Float>(
 /// uses a sensible default (`max(m, n) * eps`).
 ///
 /// Mirrors `torch.linalg.lstsq`. CPU-only today.
+#[allow(clippy::type_complexity)]
 pub fn lstsq<T: Float>(
     a: &Tensor<T>,
     b: &Tensor<T>,
@@ -1018,9 +1036,8 @@ pub fn lstsq<T: Float>(
     if is_f32::<T>() {
         let a_arr = tensor_to_array2_f32(a)?;
         let b_arr = tensor_to_arraydyn_f32(b)?;
-        let (sol, resid, rank, sv) =
-            ferray_linalg::lstsq(&a_arr, &b_arr, rcond.map(|r| r as f32))
-                .map_err(FerrotorchError::Ferray)?;
+        let (sol, resid, rank, sv) = ferray_linalg::lstsq(&a_arr, &b_arr, rcond.map(|r| r as f32))
+            .map_err(FerrotorchError::Ferray)?;
         Ok((
             Tensor::from_storage(
                 TensorStorage::cpu(slice_f32_to_vec::<T>(sol.as_slice().unwrap())),
@@ -1047,8 +1064,8 @@ pub fn lstsq<T: Float>(
     } else if is_f64::<T>() {
         let a_arr = tensor_to_array2_f64(a)?;
         let b_arr = tensor_to_arraydyn_f64(b)?;
-        let (sol, resid, rank, sv) = ferray_linalg::lstsq(&a_arr, &b_arr, rcond)
-            .map_err(FerrotorchError::Ferray)?;
+        let (sol, resid, rank, sv) =
+            ferray_linalg::lstsq(&a_arr, &b_arr, rcond).map_err(FerrotorchError::Ferray)?;
         Ok((
             Tensor::from_storage(
                 TensorStorage::cpu(slice_to_vec::<T>(sol.as_slice().unwrap())),
@@ -1499,17 +1516,17 @@ pub fn solve_triangular<T: Float>(
         2 => {
             if b.shape()[0] != n {
                 return Err(FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "solve_triangular: b leading dim {} ≠ n={n}",
-                        b.shape()[0]
-                    ),
+                    message: format!("solve_triangular: b leading dim {} ≠ n={n}", b.shape()[0]),
                 });
             }
             (vec![n, b.shape()[1]], b.shape()[1])
         }
         _ => {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!("solve_triangular: b must be 1-D or 2-D, got {:?}", b.shape()),
+                message: format!(
+                    "solve_triangular: b must be 1-D or 2-D, got {:?}",
+                    b.shape()
+                ),
             });
         }
     };
@@ -1670,7 +1687,9 @@ pub fn ldl_solve<T: Float>(
     }
 
     // Step 1: solve L y = b (forward substitution, unit diagonal).
-    let y = solve_triangular(l, b, /* upper */ false, /* transpose */ false, /* unit_diag */ true)?;
+    let y = solve_triangular(
+        l, b, /* upper */ false, /* transpose */ false, /* unit_diag */ true,
+    )?;
     // Step 2: scale by D^{-1}: z_i = y_i / d_i (broadcast across columns of y).
     let n = d.shape()[0];
     let d_data = d.data()?.to_vec();
@@ -1701,7 +1720,9 @@ pub fn ldl_solve<T: Float>(
     }
     let z_t = Tensor::from_storage(TensorStorage::cpu(z), z_shape, false)?;
     // Step 3: solve L^T x = z (back substitution via transpose).
-    solve_triangular(l, &z_t, /* upper */ false, /* transpose */ true, /* unit_diag */ true)
+    solve_triangular(
+        l, &z_t, /* upper */ false, /* transpose */ true, /* unit_diag */ true,
+    )
 }
 
 /// Apply the implicit Householder representation `(V, tau)` from a QR
@@ -1713,7 +1734,10 @@ pub fn ldl_solve<T: Float>(
 /// `Q = (I - tau_0 v_0 v_0^T)(I - tau_1 v_1 v_1^T) ... `.
 ///
 /// Mirrors `torch.linalg.householder_product`.
-pub fn householder_product<T: Float>(v: &Tensor<T>, tau: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+pub fn householder_product<T: Float>(
+    v: &Tensor<T>,
+    tau: &Tensor<T>,
+) -> FerrotorchResult<Tensor<T>> {
     require_cpu(v, "householder_product")?;
     require_cpu(tau, "householder_product")?;
     if v.ndim() != 2 {
@@ -1723,7 +1747,10 @@ pub fn householder_product<T: Float>(v: &Tensor<T>, tau: &Tensor<T>) -> Ferrotor
     }
     if tau.ndim() != 1 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("householder_product: tau must be 1-D, got {:?}", tau.shape()),
+            message: format!(
+                "householder_product: tau must be 1-D, got {:?}",
+                tau.shape()
+            ),
         });
     }
     let m = v.shape()[0];
@@ -1985,7 +2012,14 @@ fn matrix_exp_pade13(a: &[f64], n: usize) -> FerrotorchResult<Vec<f64>> {
 /// scalar tensor (cast to `T`) for shape consistency with the family.
 pub fn cholesky_ex<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T>)> {
     match cholesky(input) {
-        Ok(l) => Ok((l, Tensor::from_storage(TensorStorage::cpu(vec![T::from(0.0).unwrap()]), vec![], false)?)),
+        Ok(l) => Ok((
+            l,
+            Tensor::from_storage(
+                TensorStorage::cpu(vec![T::from(0.0).unwrap()]),
+                vec![],
+                false,
+            )?,
+        )),
         Err(_) => {
             // Build a same-shape zero L and info=1 (non-zero failure indicator).
             let shape = input.shape();
@@ -1993,7 +2027,11 @@ pub fn cholesky_ex<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, 
             let zero_l = vec![T::from(0.0).unwrap(); n * n];
             Ok((
                 Tensor::from_storage(TensorStorage::cpu(zero_l), vec![n, n], false)?,
-                Tensor::from_storage(TensorStorage::cpu(vec![T::from(1.0).unwrap()]), vec![], false)?,
+                Tensor::from_storage(
+                    TensorStorage::cpu(vec![T::from(1.0).unwrap()]),
+                    vec![],
+                    false,
+                )?,
             ))
         }
     }
@@ -2002,30 +2040,55 @@ pub fn cholesky_ex<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, 
 /// `inv` that doesn't error on singular input: returns `(A^{-1}, info)`.
 pub fn inv_ex<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T>)> {
     match inv(input) {
-        Ok(out) => Ok((out, Tensor::from_storage(TensorStorage::cpu(vec![T::from(0.0).unwrap()]), vec![], false)?)),
+        Ok(out) => Ok((
+            out,
+            Tensor::from_storage(
+                TensorStorage::cpu(vec![T::from(0.0).unwrap()]),
+                vec![],
+                false,
+            )?,
+        )),
         Err(_) => {
             let shape = input.shape();
             let n = shape.first().copied().unwrap_or(0);
             let zero = vec![T::from(0.0).unwrap(); n * n];
             Ok((
                 Tensor::from_storage(TensorStorage::cpu(zero), vec![n, n], false)?,
-                Tensor::from_storage(TensorStorage::cpu(vec![T::from(1.0).unwrap()]), vec![], false)?,
+                Tensor::from_storage(
+                    TensorStorage::cpu(vec![T::from(1.0).unwrap()]),
+                    vec![],
+                    false,
+                )?,
             ))
         }
     }
 }
 
 /// `solve` that doesn't error on singular `A`: returns `(x, info)`.
-pub fn solve_ex<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T>)> {
+pub fn solve_ex<T: Float>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+) -> FerrotorchResult<(Tensor<T>, Tensor<T>)> {
     match solve(a, b) {
-        Ok(x) => Ok((x, Tensor::from_storage(TensorStorage::cpu(vec![T::from(0.0).unwrap()]), vec![], false)?)),
+        Ok(x) => Ok((
+            x,
+            Tensor::from_storage(
+                TensorStorage::cpu(vec![T::from(0.0).unwrap()]),
+                vec![],
+                false,
+            )?,
+        )),
         Err(_) => {
             let shape = b.shape().to_vec();
             let total: usize = shape.iter().product();
             let zero = vec![T::from(0.0).unwrap(); total];
             Ok((
                 Tensor::from_storage(TensorStorage::cpu(zero), shape, false)?,
-                Tensor::from_storage(TensorStorage::cpu(vec![T::from(1.0).unwrap()]), vec![], false)?,
+                Tensor::from_storage(
+                    TensorStorage::cpu(vec![T::from(1.0).unwrap()]),
+                    vec![],
+                    false,
+                )?,
             ))
         }
     }
@@ -2746,7 +2809,12 @@ mod tests {
         let xd = x_ldl.data().unwrap();
         let rd = x_ref.data().unwrap();
         for i in 0..2 {
-            assert!((xd[i] - rd[i]).abs() < 1e-9, "ldl_solve[{i}]={} vs {}", xd[i], rd[i]);
+            assert!(
+                (xd[i] - rd[i]).abs() < 1e-9,
+                "ldl_solve[{i}]={} vs {}",
+                xd[i],
+                rd[i]
+            );
         }
     }
 
@@ -2841,8 +2909,10 @@ mod tests {
     #[test]
     fn householder_product_identity_when_no_reflectors() {
         // k=0 → tau is empty → output is I_m.
-        let v = Tensor::from_storage(TensorStorage::cpu(Vec::<f64>::new()), vec![3, 0], false).unwrap();
-        let tau = Tensor::from_storage(TensorStorage::cpu(Vec::<f64>::new()), vec![0], false).unwrap();
+        let v =
+            Tensor::from_storage(TensorStorage::cpu(Vec::<f64>::new()), vec![3, 0], false).unwrap();
+        let tau =
+            Tensor::from_storage(TensorStorage::cpu(Vec::<f64>::new()), vec![0], false).unwrap();
         let q = householder_product(&v, &tau).unwrap();
         assert_eq!(q.shape(), &[3, 3]);
         let d = q.data().unwrap();
@@ -2860,7 +2930,8 @@ mod tests {
         // with tau = 2 → I - 2·v0·v0^T = I - 2·e_0·e_0^T = diag(-1, 1).
         // V is [m=2, k=1]: v[0,0] is the implicit unit (we store anything;
         // householder_product overrides with 1), v[1,0] = 0 (below row 0).
-        let v = Tensor::from_storage(TensorStorage::cpu(vec![0.0_f64, 0.0]), vec![2, 1], false).unwrap();
+        let v = Tensor::from_storage(TensorStorage::cpu(vec![0.0_f64, 0.0]), vec![2, 1], false)
+            .unwrap();
         let tau = Tensor::from_storage(TensorStorage::cpu(vec![2.0_f64]), vec![1], false).unwrap();
         let q = householder_product(&v, &tau).unwrap();
         let d = q.data().unwrap();

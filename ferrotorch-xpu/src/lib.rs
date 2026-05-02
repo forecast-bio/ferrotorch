@@ -329,9 +329,8 @@ mod tests {
     /// instead of failing the whole suite. Tests pattern: `let Some(xpu) =
     /// xpu() else { return; };`.
     fn xpu() -> Option<XpuDevice> {
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            XpuDevice::new(0).ok()
-        }));
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| XpuDevice::new(0).ok()));
         match result {
             Ok(Some(d)) => Some(d),
             _ => {
@@ -344,7 +343,10 @@ mod tests {
     }
 
     fn xpu_tensor(data: &[f32]) -> Tensor<f32> {
-        ferrotorch_core::tensor(data).unwrap().to(Device::Xpu(0)).unwrap()
+        ferrotorch_core::tensor(data)
+            .unwrap()
+            .to(Device::Xpu(0))
+            .unwrap()
     }
 
     #[test]
@@ -399,13 +401,10 @@ mod tests {
             .unwrap()
             .to(Device::Xpu(0))
             .unwrap();
-        let b = ferrotorch_core::from_vec(
-            vec![7.0_f32, 8.0, 9.0, 10.0, 11.0, 12.0],
-            &[3, 2],
-        )
-        .unwrap()
-        .to(Device::Xpu(0))
-        .unwrap();
+        let b = ferrotorch_core::from_vec(vec![7.0_f32, 8.0, 9.0, 10.0, 11.0, 12.0], &[3, 2])
+            .unwrap()
+            .to(Device::Xpu(0))
+            .unwrap();
 
         let c = xpu_matmul(&a, &b, &xpu).unwrap();
         assert_eq!(c.shape(), &[2, 2]);

@@ -286,11 +286,14 @@ impl<T: Float> GradFn<T> for CauchyRsampleBackward<T> {
         };
 
         // grad_scale = sum(grad_output * tan(pi * (u - 0.5)))
-        let grad_scale_val: T = go.iter().zip(u_data.iter()).fold(zero, |acc, (&g, &u_val)| {
-            let u_clamped = u_val.max(eps).min(one - eps);
-            let tan_val = (pi * (u_clamped - half)).tan();
-            acc + g * tan_val
-        });
+        let grad_scale_val: T = go
+            .iter()
+            .zip(u_data.iter())
+            .fold(zero, |acc, (&g, &u_val)| {
+                let u_clamped = u_val.max(eps).min(one - eps);
+                let tan_val = (pi * (u_clamped - half)).tan();
+                acc + g * tan_val
+            });
         let grad_scale = Tensor::from_storage(
             TensorStorage::cpu(vec![grad_scale_val]),
             self.scale.shape().to_vec(),

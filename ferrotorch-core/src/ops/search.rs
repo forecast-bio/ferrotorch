@@ -32,9 +32,7 @@ pub fn searchsorted<T: Float>(
     }
 
     if boundaries.is_cuda() || values.is_cuda() {
-        return Err(FerrotorchError::NotImplementedOnCuda {
-            op: "searchsorted",
-        });
+        return Err(FerrotorchError::NotImplementedOnCuda { op: "searchsorted" });
     }
 
     let bounds = boundaries.data()?;
@@ -235,7 +233,10 @@ pub fn meshgrid<T: Float>(tensors: &[Tensor<T>]) -> FerrotorchResult<Vec<Tensor<
     for t in tensors {
         if t.ndim() != 1 {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!("meshgrid: all inputs must be 1-D, got shape {:?}", t.shape()),
+                message: format!(
+                    "meshgrid: all inputs must be 1-D, got shape {:?}",
+                    t.shape()
+                ),
             });
         }
         if t.is_cuda() {
@@ -316,9 +317,17 @@ pub fn topk<T: Float>(
         let mut idx: Vec<usize> = (0..last_dim).collect();
 
         if largest {
-            idx.sort_by(|&a, &b| slice[b].partial_cmp(&slice[a]).unwrap_or(std::cmp::Ordering::Equal));
+            idx.sort_by(|&a, &b| {
+                slice[b]
+                    .partial_cmp(&slice[a])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
         } else {
-            idx.sort_by(|&a, &b| slice[a].partial_cmp(&slice[b]).unwrap_or(std::cmp::Ordering::Equal));
+            idx.sort_by(|&a, &b| {
+                slice[a]
+                    .partial_cmp(&slice[b])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
         }
 
         for &i in &idx[..k] {

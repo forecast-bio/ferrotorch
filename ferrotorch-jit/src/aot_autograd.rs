@@ -235,10 +235,9 @@ pub fn decompose_forward_backward(forward_graph: &IrGraph) -> FerrotorchResult<A
             IrOpKind::Sub => {
                 let a = node.inputs[0];
                 let b = node.inputs[1];
-                let neg_grad =
-                    backward
-                        .add_node(IrOpKind::Neg, vec![grad_out], vec![out_shape.clone()])
-                        .1[0];
+                let neg_grad = backward
+                    .add_node(IrOpKind::Neg, vec![grad_out], vec![out_shape.clone()])
+                    .1[0];
                 accumulate_grad(&mut grad_for_value, &mut backward, a, grad_out, &out_shape);
                 accumulate_grad(&mut grad_for_value, &mut backward, b, neg_grad, &out_shape);
             }
@@ -248,16 +247,18 @@ pub fn decompose_forward_backward(forward_graph: &IrGraph) -> FerrotorchResult<A
             IrOpKind::Mul => {
                 let a = node.inputs[0];
                 let b = node.inputs[1];
-                let saved_a = *saved_to_backward.get(&a).ok_or_else(|| {
-                    JitError::UnsupportedOp {
-                        op: format!("Mul backward: missing saved input {:?}", a),
-                    }
-                })?;
-                let saved_b = *saved_to_backward.get(&b).ok_or_else(|| {
-                    JitError::UnsupportedOp {
-                        op: format!("Mul backward: missing saved input {:?}", b),
-                    }
-                })?;
+                let saved_a =
+                    *saved_to_backward
+                        .get(&a)
+                        .ok_or_else(|| JitError::UnsupportedOp {
+                            op: format!("Mul backward: missing saved input {:?}", a),
+                        })?;
+                let saved_b =
+                    *saved_to_backward
+                        .get(&b)
+                        .ok_or_else(|| JitError::UnsupportedOp {
+                            op: format!("Mul backward: missing saved input {:?}", b),
+                        })?;
                 let grad_a = backward
                     .add_node(
                         IrOpKind::Mul,
@@ -282,13 +283,7 @@ pub fn decompose_forward_backward(forward_graph: &IrGraph) -> FerrotorchResult<A
                 let neg_grad = backward
                     .add_node(IrOpKind::Neg, vec![grad_out], vec![out_shape.clone()])
                     .1[0];
-                accumulate_grad(
-                    &mut grad_for_value,
-                    &mut backward,
-                    a,
-                    neg_grad,
-                    &out_shape,
-                );
+                accumulate_grad(&mut grad_for_value, &mut backward, a, neg_grad, &out_shape);
             }
 
             // d/da relu(a) = (a > 0). grad_a = mask(a) * grad_out.
@@ -317,13 +312,7 @@ pub fn decompose_forward_backward(forward_graph: &IrGraph) -> FerrotorchResult<A
                 // a sign/step op (not in IR) or saving the output
                 // and dividing — both unsuitable. Document this
                 // approximation in the function-level comment.
-                accumulate_grad(
-                    &mut grad_for_value,
-                    &mut backward,
-                    a,
-                    grad_out,
-                    &out_shape,
-                );
+                accumulate_grad(&mut grad_for_value, &mut backward, a, grad_out, &out_shape);
             }
 
             // d/da sum(a) = ones_like(a) * grad_out.
@@ -341,15 +330,13 @@ pub fn decompose_forward_backward(forward_graph: &IrGraph) -> FerrotorchResult<A
                 let numel: usize = a_shape.iter().product::<usize>().max(1);
                 let ones_id = backward.add_constant(vec![1.0; numel], a_shape.clone());
                 let grad_a = backward
-                    .add_node(IrOpKind::Mul, vec![ones_id, grad_out], vec![a_shape.clone()])
+                    .add_node(
+                        IrOpKind::Mul,
+                        vec![ones_id, grad_out],
+                        vec![a_shape.clone()],
+                    )
                     .1[0];
-                accumulate_grad(
-                    &mut grad_for_value,
-                    &mut backward,
-                    a,
-                    grad_a,
-                    &a_shape,
-                );
+                accumulate_grad(&mut grad_for_value, &mut backward, a, grad_a, &a_shape);
             }
 
             // d/da mean(a) = grad_out / n broadcast to a's shape.
@@ -365,8 +352,7 @@ pub fn decompose_forward_backward(forward_graph: &IrGraph) -> FerrotorchResult<A
                     .unwrap_or_default();
                 let numel: usize = a_shape.iter().product::<usize>().max(1);
                 let inv_n = 1.0 / numel as f64;
-                let inv_n_tensor =
-                    backward.add_constant(vec![inv_n; numel], a_shape.clone());
+                let inv_n_tensor = backward.add_constant(vec![inv_n; numel], a_shape.clone());
                 let grad_a = backward
                     .add_node(
                         IrOpKind::Mul,
@@ -374,13 +360,7 @@ pub fn decompose_forward_backward(forward_graph: &IrGraph) -> FerrotorchResult<A
                         vec![a_shape.clone()],
                     )
                     .1[0];
-                accumulate_grad(
-                    &mut grad_for_value,
-                    &mut backward,
-                    a,
-                    grad_a,
-                    &a_shape,
-                );
+                accumulate_grad(&mut grad_for_value, &mut backward, a, grad_a, &a_shape);
             }
 
             // Unsupported ops fail loudly rather than silently

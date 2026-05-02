@@ -49,18 +49,10 @@ fn main() -> FerrotorchResult<()> {
     println!("\n--- Elementwise Ops ---");
     let a = rand::<f32>(&[1000, 1000])?;
     let b = rand::<f32>(&[1000, 1000])?;
-    bench("add [1000,1000]", 5, 100, || {
-        (&a + &b).unwrap()
-    });
-    bench("mul [1000,1000]", 5, 100, || {
-        (&a * &b).unwrap()
-    });
-    bench("relu [1000,1000]", 5, 100, || {
-        a.relu().unwrap()
-    });
-    bench("sigmoid [1000,1000]", 5, 100, || {
-        a.sigmoid().unwrap()
-    });
+    bench("add [1000,1000]", 5, 100, || (&a + &b).unwrap());
+    bench("mul [1000,1000]", 5, 100, || (&a * &b).unwrap());
+    bench("relu [1000,1000]", 5, 100, || a.relu().unwrap());
+    bench("sigmoid [1000,1000]", 5, 100, || a.sigmoid().unwrap());
 
     // 3. Matrix multiply
     println!("\n--- Matrix Multiply ---");
@@ -81,9 +73,7 @@ fn main() -> FerrotorchResult<()> {
         Box::new(Linear::new(256, 10, true)?),
     ]);
     let x_mlp = rand::<f32>(&[32, 784])?;
-    bench("MLP forward B=32", 5, 100, || {
-        mlp.forward(&x_mlp).unwrap()
-    });
+    bench("MLP forward B=32", 5, 100, || mlp.forward(&x_mlp).unwrap());
 
     // 5. Backward pass
     println!("\n--- Backward Pass (MLP 784->256->10) ---");
@@ -103,10 +93,7 @@ fn main() -> FerrotorchResult<()> {
     let loss_fn = CrossEntropyLoss::new(Reduction::Mean, 0.0);
     bench("training step B=32", 3, 50, || {
         let x = rand::<f32>(&[32, 784]).unwrap();
-        let target = from_vec(
-            (0..32).map(|i| (i % 10) as f32).collect(),
-            &[32],
-        ).unwrap();
+        let target = from_vec((0..32).map(|i| (i % 10) as f32).collect(), &[32]).unwrap();
         optimizer.zero_grad().unwrap();
         let out = mlp.forward(&x).unwrap();
         let loss = loss_fn.forward(&out, &target).unwrap();
@@ -128,30 +115,18 @@ fn main() -> FerrotorchResult<()> {
     // 7. Transcendental ops
     println!("\n--- Transcendental Ops ---");
     let t = rand::<f32>(&[1000, 1000])?;
-    bench("exp [1000,1000]", 5, 100, || {
-        exp(&t).unwrap()
-    });
+    bench("exp [1000,1000]", 5, 100, || exp(&t).unwrap());
     // log needs positive input
     let t_pos = (&t + &scalar::<f32>(1.0)?)?;
-    bench("log [1000,1000]", 5, 100, || {
-        log(&t_pos).unwrap()
-    });
-    bench("sin [1000,1000]", 5, 100, || {
-        sin(&t).unwrap()
-    });
-    bench("cos [1000,1000]", 5, 100, || {
-        cos(&t).unwrap()
-    });
-    bench("tanh [1000,1000]", 5, 100, || {
-        tanh(&t).unwrap()
-    });
+    bench("log [1000,1000]", 5, 100, || log(&t_pos).unwrap());
+    bench("sin [1000,1000]", 5, 100, || sin(&t).unwrap());
+    bench("cos [1000,1000]", 5, 100, || cos(&t).unwrap());
+    bench("tanh [1000,1000]", 5, 100, || tanh(&t).unwrap());
 
     // 8. Reduction ops with axis
     println!("\n--- Reduction Ops (with axis) ---");
     let r = rand::<f32>(&[1000, 1000])?;
-    bench("sum_all [1000,1000]", 5, 100, || {
-        r.sum_all().unwrap()
-    });
+    bench("sum_all [1000,1000]", 5, 100, || r.sum_all().unwrap());
     bench("sum dim=0 [1000,1000]", 5, 100, || {
         sum_dim(&r, 0, false).unwrap()
     });
@@ -169,9 +144,7 @@ fn main() -> FerrotorchResult<()> {
         chunk_t(&m, 4, 0).unwrap()
     });
     let chunks: Vec<Tensor<f32>> = chunk_t(&m, 4, 0)?;
-    bench("cat [4x 250,1000]", 5, 100, || {
-        cat(&chunks, 0).unwrap()
-    });
+    bench("cat [4x 250,1000]", 5, 100, || cat(&chunks, 0).unwrap());
 
     // 10. GRU forward pass
     println!("\n--- GRU Forward ---");
@@ -207,10 +180,7 @@ fn main() -> FerrotorchResult<()> {
     let loss_fn_large = CrossEntropyLoss::new(Reduction::Mean, 0.0);
     bench("training step B=128", 3, 30, || {
         let x = rand::<f32>(&[128, 784]).unwrap();
-        let target = from_vec(
-            (0..128).map(|i| (i % 10) as f32).collect(),
-            &[128],
-        ).unwrap();
+        let target = from_vec((0..128).map(|i| (i % 10) as f32).collect(), &[128]).unwrap();
         opt_large.zero_grad().unwrap();
         let out = mlp_large.forward(&x).unwrap();
         let loss = loss_fn_large.forward(&out, &target).unwrap();
@@ -265,7 +235,9 @@ fn main() -> FerrotorchResult<()> {
     if ferrotorch_core::gpu_dispatch::gpu_backend().is_none() {
         // Try to initialize the GPU backend.
         #[cfg(feature = "gpu")]
-        { let _ = ferrotorch_gpu::init_cuda_backend(); }
+        {
+            let _ = ferrotorch_gpu::init_cuda_backend();
+        }
     }
 
     if ferrotorch_core::gpu_dispatch::gpu_backend().is_some() {
@@ -284,18 +256,10 @@ fn main() -> FerrotorchResult<()> {
         println!("\n--- GPU Elementwise Ops ---");
         let ga = rand::<f32>(&[1000, 1000])?.cuda()?;
         let gb = rand::<f32>(&[1000, 1000])?.cuda()?;
-        bench("GPU add [1000,1000]", 10, 100, || {
-            (&ga + &gb).unwrap()
-        });
-        bench("GPU mul [1000,1000]", 10, 100, || {
-            (&ga * &gb).unwrap()
-        });
-        bench("GPU sub [1000,1000]", 10, 100, || {
-            (&ga - &gb).unwrap()
-        });
-        bench("GPU div [1000,1000]", 10, 100, || {
-            (&ga / &gb).unwrap()
-        });
+        bench("GPU add [1000,1000]", 10, 100, || (&ga + &gb).unwrap());
+        bench("GPU mul [1000,1000]", 10, 100, || (&ga * &gb).unwrap());
+        bench("GPU sub [1000,1000]", 10, 100, || (&ga - &gb).unwrap());
+        bench("GPU div [1000,1000]", 10, 100, || (&ga / &gb).unwrap());
 
         // Unary on GPU
         println!("\n--- GPU Unary Ops ---");
@@ -327,7 +291,15 @@ fn main() -> FerrotorchResult<()> {
             let iters = if size >= 4096 { 20 } else { 100 };
             let backend = ferrotorch_core::gpu_dispatch::gpu_backend().unwrap();
             bench(&format!("GPU matmul [{size},{size}]"), 10, iters, || {
-                backend.matmul_f32(ga.gpu_handle().unwrap(), gb.gpu_handle().unwrap(), size, size, size).unwrap()
+                backend
+                    .matmul_f32(
+                        ga.gpu_handle().unwrap(),
+                        gb.gpu_handle().unwrap(),
+                        size,
+                        size,
+                        size,
+                    )
+                    .unwrap()
             });
         }
 
@@ -362,12 +334,8 @@ fn main() -> FerrotorchResult<()> {
         println!("\n--- Host <-> Device Transfer ---");
         let h = rand::<f32>(&[1000, 1000])?;
         let d = h.cuda()?;
-        bench("CPU->GPU [1000,1000]", 5, 100, || {
-            h.cuda().unwrap()
-        });
-        bench("GPU->CPU [1000,1000]", 5, 100, || {
-            d.cpu().unwrap()
-        });
+        bench("CPU->GPU [1000,1000]", 5, 100, || h.cuda().unwrap());
+        bench("GPU->CPU [1000,1000]", 5, 100, || d.cpu().unwrap());
 
         // Softmax/LayerNorm on GPU
         println!("\n--- GPU Normalization ---");
@@ -375,7 +343,6 @@ fn main() -> FerrotorchResult<()> {
         bench("GPU softmax [64,256]", 10, 100, || {
             ferrotorch_core::grad_fns::activation::softmax(&gn).unwrap()
         });
-
     } else {
         println!("\n  (no GPU backend available — skipping GPU benchmarks)");
     }

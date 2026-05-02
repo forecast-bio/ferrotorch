@@ -12,7 +12,8 @@ Neural network modules for ferrotorch — layers, losses, hooks, and parameter m
 | Category        | Modules                                                                  |
 |-----------------|--------------------------------------------------------------------------|
 | Linear          | `Linear`, `LazyLinear`, `Bilinear`, `LoRALinear`                         |
-| Convolution     | `Conv1d`, `Conv2d`, `Conv3d`, `ConvTranspose1d`/`2d`/`3d`                 |
+| Convolution     | `Conv1d`, `Conv2d`, `Conv3d`, `ConvTranspose1d`/`2d`/`3d`, `LazyConv1d`/`2d`/`3d` |
+| Buffer          | `Buffer<T>` non-trainable persistent state with state_dict round-trip    |
 | Pooling         | `MaxPool1d`/`2d`/`3d`, `AvgPool1d`/`2d`/`3d`, `AdaptiveAvgPool1d`/`2d`/`3d`, `AdaptiveMaxPool*` |
 | Normalization   | `BatchNorm1d`/`2d`/`3d`, `LayerNorm`, `GroupNorm`, `RMSNorm`, `InstanceNorm*`, `LocalResponseNorm` |
 | Activation      | `ReLU`, `LeakyReLU`, `PReLU`, `ELU`, `GELU`, `SiLU`, `Mish`, `Sigmoid`, `Tanh`, `Softmax`, `LogSoftmax`, `Softplus`, `Hardswish`, `Hardsigmoid` |

@@ -251,9 +251,21 @@ fn add_inner<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
         let (handle, out_shape) = if needs_broadcast {
             let out_shape = broadcast_shapes(a.shape(), b.shape())?;
             let h = if is_f64::<T>() {
-                backend.broadcast_add_f64(a.gpu_handle()?, b.gpu_handle()?, a.shape(), b.shape(), &out_shape)?
+                backend.broadcast_add_f64(
+                    a.gpu_handle()?,
+                    b.gpu_handle()?,
+                    a.shape(),
+                    b.shape(),
+                    &out_shape,
+                )?
             } else {
-                backend.broadcast_add_f32(a.gpu_handle()?, b.gpu_handle()?, a.shape(), b.shape(), &out_shape)?
+                backend.broadcast_add_f32(
+                    a.gpu_handle()?,
+                    b.gpu_handle()?,
+                    a.shape(),
+                    b.shape(),
+                    &out_shape,
+                )?
             };
             (h, out_shape)
         } else if is_f64::<T>() {
@@ -365,9 +377,21 @@ fn sub_inner<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
         let (handle, out_shape) = if needs_broadcast {
             let out_shape = broadcast_shapes(a.shape(), b.shape())?;
             let h = if is_f64::<T>() {
-                backend.broadcast_sub_f64(a.gpu_handle()?, b.gpu_handle()?, a.shape(), b.shape(), &out_shape)?
+                backend.broadcast_sub_f64(
+                    a.gpu_handle()?,
+                    b.gpu_handle()?,
+                    a.shape(),
+                    b.shape(),
+                    &out_shape,
+                )?
             } else {
-                backend.broadcast_sub_f32(a.gpu_handle()?, b.gpu_handle()?, a.shape(), b.shape(), &out_shape)?
+                backend.broadcast_sub_f32(
+                    a.gpu_handle()?,
+                    b.gpu_handle()?,
+                    a.shape(),
+                    b.shape(),
+                    &out_shape,
+                )?
             };
             (h, out_shape)
         } else if is_f64::<T>() {
@@ -507,9 +531,21 @@ fn mul_inner<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
         let (handle, out_shape) = if needs_broadcast {
             let out_shape = broadcast_shapes(a.shape(), b.shape())?;
             let h = if is_f64::<T>() {
-                backend.broadcast_mul_f64(a.gpu_handle()?, b.gpu_handle()?, a.shape(), b.shape(), &out_shape)?
+                backend.broadcast_mul_f64(
+                    a.gpu_handle()?,
+                    b.gpu_handle()?,
+                    a.shape(),
+                    b.shape(),
+                    &out_shape,
+                )?
             } else {
-                backend.broadcast_mul_f32(a.gpu_handle()?, b.gpu_handle()?, a.shape(), b.shape(), &out_shape)?
+                backend.broadcast_mul_f32(
+                    a.gpu_handle()?,
+                    b.gpu_handle()?,
+                    a.shape(),
+                    b.shape(),
+                    &out_shape,
+                )?
             };
             (h, out_shape)
         } else if is_f64::<T>() {
@@ -634,9 +670,21 @@ fn div_inner<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
         let (handle, out_shape) = if needs_broadcast {
             let out_shape = broadcast_shapes(a.shape(), b.shape())?;
             let h = if is_f64::<T>() {
-                backend.broadcast_div_f64(a.gpu_handle()?, b.gpu_handle()?, a.shape(), b.shape(), &out_shape)?
+                backend.broadcast_div_f64(
+                    a.gpu_handle()?,
+                    b.gpu_handle()?,
+                    a.shape(),
+                    b.shape(),
+                    &out_shape,
+                )?
             } else {
-                backend.broadcast_div_f32(a.gpu_handle()?, b.gpu_handle()?, a.shape(), b.shape(), &out_shape)?
+                backend.broadcast_div_f32(
+                    a.gpu_handle()?,
+                    b.gpu_handle()?,
+                    a.shape(),
+                    b.shape(),
+                    &out_shape,
+                )?
             };
             (h, out_shape)
         } else {
@@ -833,9 +881,7 @@ pub fn pow<T: Float>(a: &Tensor<T>, exp: f64) -> FerrotorchResult<Tensor<T>> {
         let _ = exp;
         return Ok(out);
     }
-    crate::profiler_hook::profile_op_scope("pow", "tensor_op", &[a.shape()], || {
-        pow_inner(a, exp)
-    })
+    crate::profiler_hook::profile_op_scope("pow", "tensor_op", &[a.shape()], || pow_inner(a, exp))
 }
 
 fn pow_inner<T: Float>(a: &Tensor<T>, exp: f64) -> FerrotorchResult<Tensor<T>> {
@@ -1000,9 +1046,7 @@ impl<T: Float> GradFn<T> for AbsBackward<T> {
             }
 
             if grad_output.is_cuda() || self.a.is_cuda() {
-                return Err(FerrotorchError::NotImplementedOnCuda {
-                    op: "AbsBackward",
-                });
+                return Err(FerrotorchError::NotImplementedOnCuda { op: "AbsBackward" });
             } else {
                 // CPU path: direct data access for performance.
                 let go_data = grad_output.data()?;

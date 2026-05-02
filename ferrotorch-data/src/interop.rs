@@ -283,18 +283,20 @@ where
         // Numeric-only by construction (we caught the dtype above).
         let mut v: Vec<T> = Vec::with_capacity(n_rows);
         for av in s.iter() {
-            let f64v: f64 = av
-                .try_extract::<f64>()
-                .map_err(|e| FerrotorchError::InvalidArgument {
+            let f64v: f64 =
+                av.try_extract::<f64>()
+                    .map_err(|e| FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "dataframe_to_tensor: column {col_idx} value extract failed: {e}"
+                        ),
+                    })?;
+            v.push(
+                T::from(f64v).ok_or_else(|| FerrotorchError::InvalidArgument {
                     message: format!(
-                        "dataframe_to_tensor: column {col_idx} value extract failed: {e}"
+                        "dataframe_to_tensor: column {col_idx} value {f64v} cannot be cast to T"
                     ),
-                })?;
-            v.push(T::from(f64v).ok_or_else(|| FerrotorchError::InvalidArgument {
-                message: format!(
-                    "dataframe_to_tensor: column {col_idx} value {f64v} cannot be cast to T"
-                ),
-            })?);
+                })?,
+            );
         }
         if v.len() != n_rows {
             return Err(FerrotorchError::ShapeMismatch {

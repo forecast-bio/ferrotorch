@@ -190,8 +190,12 @@ mod tests {
     use ferrotorch_core::storage::TensorStorage;
 
     fn leaf(data: &[f32], shape: &[usize], requires_grad: bool) -> Tensor<f32> {
-        Tensor::from_storage(TensorStorage::cpu(data.to_vec()), shape.to_vec(), requires_grad)
-            .unwrap()
+        Tensor::from_storage(
+            TensorStorage::cpu(data.to_vec()),
+            shape.to_vec(),
+            requires_grad,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -282,8 +286,7 @@ mod tests {
         let p = leaf(&[10.0, 20.0], &[2], true);
         let g = leaf(&[1.0, 2.0], &[2], false);
         // Empty prev_velocities → v_new = g; p_new = p - lr*g.
-        let (new_p, new_v) =
-            diff_sgd_momentum_step(&[p], &[g], &[], 0.1, 0.9).unwrap();
+        let (new_p, new_v) = diff_sgd_momentum_step(&[p], &[g], &[], 0.1, 0.9).unwrap();
         assert_eq!(new_p[0].data().unwrap(), &[9.9, 19.8]);
         assert_eq!(new_v[0].data().unwrap(), &[1.0, 2.0]);
     }
@@ -295,8 +298,7 @@ mod tests {
         let v_prev = leaf(&[2.0], &[1], false);
         // v_new = 0.9*2.0 + 1.0 = 2.8
         // p_new = 10 - 0.1*2.8 = 9.72
-        let (new_p, new_v) =
-            diff_sgd_momentum_step(&[p], &[g], &[v_prev], 0.1, 0.9).unwrap();
+        let (new_p, new_v) = diff_sgd_momentum_step(&[p], &[g], &[v_prev], 0.1, 0.9).unwrap();
         assert!((new_v[0].data().unwrap()[0] - 2.8).abs() < 1e-5);
         assert!((new_p[0].data().unwrap()[0] - 9.72).abs() < 1e-5);
     }
@@ -306,8 +308,7 @@ mod tests {
         let p = leaf(&[1.0], &[1], true);
         let g1 = leaf(&[0.1], &[1], false);
         let g2 = leaf(&[0.2], &[1], false);
-        let result =
-            diff_sgd_momentum_step(&[p], &[g1, g2], &[], 0.1, 0.9);
+        let result = diff_sgd_momentum_step(&[p], &[g1, g2], &[], 0.1, 0.9);
         assert!(result.is_err());
     }
 
@@ -318,8 +319,7 @@ mod tests {
         let v1 = leaf(&[0.0], &[1], false);
         let v2 = leaf(&[0.0], &[1], false);
         // prev_velocities is non-empty but wrong length.
-        let result =
-            diff_sgd_momentum_step(&[p], &[g], &[v1, v2], 0.1, 0.9);
+        let result = diff_sgd_momentum_step(&[p], &[g], &[v1, v2], 0.1, 0.9);
         assert!(result.is_err());
     }
 

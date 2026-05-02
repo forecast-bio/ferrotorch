@@ -99,7 +99,9 @@ pub struct SymbolicDim {
 impl ShapeSignature {
     /// Create an empty signature (no symbolic dims).
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     /// Mark dimension `dim` of input `input_index` as symbolic with no
@@ -197,9 +199,7 @@ impl Guard {
             });
         }
 
-        for (i, (got, expected)) in
-            inputs.iter().zip(self.trace_shapes.iter()).enumerate()
-        {
+        for (i, (got, expected)) in inputs.iter().zip(self.trace_shapes.iter()).enumerate() {
             if got.len() != expected.len() {
                 return Err(FerrotorchError::InvalidArgument {
                     message: format!(
@@ -411,8 +411,7 @@ where
     T: Float,
     F: Fn(&[Tensor<T>]) -> FerrotorchResult<Tensor<T>>,
 {
-    let trace_shapes: Vec<Vec<usize>> =
-        example_inputs.iter().map(|t| t.shape().to_vec()).collect();
+    let trace_shapes: Vec<Vec<usize>> = example_inputs.iter().map(|t| t.shape().to_vec()).collect();
 
     let mut graph = trace(f, example_inputs)?;
     // Patch Reshape ops BEFORE running optimization passes so the
@@ -531,20 +530,21 @@ mod tests {
         .requires_grad_(true);
 
         let sig = ShapeSignature::new().symbolic_dim(0, 0);
-        let compiled = compile_symbolic::<f32, _>(
-            |inputs| activation::relu(&inputs[0]),
-            &[example],
-            sig,
-        )
-        .unwrap();
+        let compiled =
+            compile_symbolic::<f32, _>(|inputs| activation::relu(&inputs[0]), &[example], sig)
+                .unwrap();
 
         // Run with a bigger batch.
         let big: Tensor<f32> = from_vec(
-            (0..160).map(|i| (i as f32 - 80.0) * 0.05).collect::<Vec<_>>(),
+            (0..160)
+                .map(|i| (i as f32 - 80.0) * 0.05)
+                .collect::<Vec<_>>(),
             &[16, 10],
         )
         .unwrap();
-        let out = compiled.forward_symbolic(std::slice::from_ref(&big)).unwrap();
+        let out = compiled
+            .forward_symbolic(std::slice::from_ref(&big))
+            .unwrap();
         assert_eq!(out.shape(), &[16, 10]);
 
         // Verify values match eager relu(x) on the big input.
@@ -596,7 +596,9 @@ mod tests {
             &[9, 10],
         )
         .unwrap();
-        let out = compiled.forward_symbolic(std::slice::from_ref(&big)).unwrap();
+        let out = compiled
+            .forward_symbolic(std::slice::from_ref(&big))
+            .unwrap();
         assert_eq!(out.shape(), &[9, 10]);
 
         // Sanity on values: the reshape is a no-op so output == relu(input).
@@ -635,9 +637,7 @@ mod tests {
         let mut g = IrGraph::new();
         let x = g.add_input(vec![4, 10]);
         let (_, outs) = g.add_node(
-            IrOpKind::Reshape {
-                shape: vec![4, 10],
-            },
+            IrOpKind::Reshape { shape: vec![4, 10] },
             vec![x],
             vec![vec![4, 10]],
         );
@@ -665,9 +665,7 @@ mod tests {
         let mut g = IrGraph::new();
         let x = g.add_input(vec![4, 4]);
         let (_, outs) = g.add_node(
-            IrOpKind::Reshape {
-                shape: vec![4, 4],
-            },
+            IrOpKind::Reshape { shape: vec![4, 4] },
             vec![x],
             vec![vec![4, 4]],
         );
@@ -694,9 +692,7 @@ mod tests {
         let mut g = IrGraph::new();
         let x = g.add_input(vec![4, 10]);
         let (_, outs) = g.add_node(
-            IrOpKind::Reshape {
-                shape: vec![4, 10],
-            },
+            IrOpKind::Reshape { shape: vec![4, 10] },
             vec![x],
             vec![vec![4, 10]],
         );

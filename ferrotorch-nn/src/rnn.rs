@@ -717,17 +717,12 @@ impl<T: Float> GRU<T> {
 
             // Hoist weight transposes outside the timestep loop — these are
             // constant across timesteps.
-            let wih_t = ferrotorch_core::grad_fns::shape::transpose_2d(
-                params.weight_ih.tensor(),
-            )?;
-            let whh_t = ferrotorch_core::grad_fns::shape::transpose_2d(
-                params.weight_hh.tensor(),
-            )?;
+            let wih_t = ferrotorch_core::grad_fns::shape::transpose_2d(params.weight_ih.tensor())?;
+            let whh_t = ferrotorch_core::grad_fns::shape::transpose_2d(params.weight_hh.tensor())?;
 
             // Check if we can use the fused GPU kernel.
-            let use_fused_gpu = is_f32
-                && h.is_cuda()
-                && ferrotorch_core::gpu_dispatch::gpu_backend().is_some();
+            let use_fused_gpu =
+                is_f32 && h.is_cuda() && ferrotorch_core::gpu_dispatch::gpu_backend().is_some();
 
             for x_t in &layer_outputs {
                 // Phase 1: compute gate matrices via cuBLAS GEMMs.
@@ -778,38 +773,28 @@ impl<T: Float> GRU<T> {
                         let xbase = b_idx * gate_size;
                         rx_data.extend_from_slice(&xw_data[xbase..xbase + hs]);
                         zx_data.extend_from_slice(&xw_data[xbase + hs..xbase + 2 * hs]);
-                        nx_data.extend_from_slice(
-                            &xw_data[xbase + 2 * hs..xbase + 3 * hs],
-                        );
+                        nx_data.extend_from_slice(&xw_data[xbase + 2 * hs..xbase + 3 * hs]);
 
                         let hbase = b_idx * gate_size;
                         rh_data.extend_from_slice(&hw_data[hbase..hbase + hs]);
                         zh_data.extend_from_slice(&hw_data[hbase + hs..hbase + 2 * hs]);
-                        nh_data.extend_from_slice(
-                            &hw_data[hbase + 2 * hs..hbase + 3 * hs],
-                        );
+                        nh_data.extend_from_slice(&hw_data[hbase + 2 * hs..hbase + 3 * hs]);
                     }
 
                     let rg = xw_b.requires_grad() || hw_b.requires_grad();
 
-                    let rx = Tensor::from_storage(
-                        TensorStorage::cpu(rx_data), vec![batch, hs], rg,
-                    )?;
-                    let zx = Tensor::from_storage(
-                        TensorStorage::cpu(zx_data), vec![batch, hs], rg,
-                    )?;
-                    let nx = Tensor::from_storage(
-                        TensorStorage::cpu(nx_data), vec![batch, hs], rg,
-                    )?;
-                    let rh = Tensor::from_storage(
-                        TensorStorage::cpu(rh_data), vec![batch, hs], rg,
-                    )?;
-                    let zh = Tensor::from_storage(
-                        TensorStorage::cpu(zh_data), vec![batch, hs], rg,
-                    )?;
-                    let nh = Tensor::from_storage(
-                        TensorStorage::cpu(nh_data), vec![batch, hs], rg,
-                    )?;
+                    let rx =
+                        Tensor::from_storage(TensorStorage::cpu(rx_data), vec![batch, hs], rg)?;
+                    let zx =
+                        Tensor::from_storage(TensorStorage::cpu(zx_data), vec![batch, hs], rg)?;
+                    let nx =
+                        Tensor::from_storage(TensorStorage::cpu(nx_data), vec![batch, hs], rg)?;
+                    let rh =
+                        Tensor::from_storage(TensorStorage::cpu(rh_data), vec![batch, hs], rg)?;
+                    let zh =
+                        Tensor::from_storage(TensorStorage::cpu(zh_data), vec![batch, hs], rg)?;
+                    let nh =
+                        Tensor::from_storage(TensorStorage::cpu(nh_data), vec![batch, hs], rg)?;
 
                     let r_gate = sigmoid(&add(&rx, &rh)?)?;
                     let z_gate = sigmoid(&add(&zx, &zh)?)?;
@@ -1118,7 +1103,12 @@ impl<T: Float> Module<T> for RNNCell<T> {
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
-        vec![&self.weight_ih, &self.weight_hh, &self.bias_ih, &self.bias_hh]
+        vec![
+            &self.weight_ih,
+            &self.weight_hh,
+            &self.bias_ih,
+            &self.bias_hh,
+        ]
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
@@ -1338,7 +1328,12 @@ impl<T: Float> Module<T> for LSTMCell<T> {
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
-        vec![&self.weight_ih, &self.weight_hh, &self.bias_ih, &self.bias_hh]
+        vec![
+            &self.weight_ih,
+            &self.weight_hh,
+            &self.bias_ih,
+            &self.bias_hh,
+        ]
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
@@ -1574,7 +1569,12 @@ impl<T: Float> Module<T> for GRUCell<T> {
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
-        vec![&self.weight_ih, &self.weight_hh, &self.bias_ih, &self.bias_hh]
+        vec![
+            &self.weight_ih,
+            &self.weight_hh,
+            &self.bias_ih,
+            &self.bias_hh,
+        ]
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
@@ -2608,8 +2608,7 @@ mod tests {
 
     #[test]
     fn test_rnn_cell_relu() {
-        let cell =
-            RNNCell::<f32>::with_nonlinearity(10, 20, RNNNonlinearity::ReLU).unwrap();
+        let cell = RNNCell::<f32>::with_nonlinearity(10, 20, RNNNonlinearity::ReLU).unwrap();
         assert_eq!(cell.nonlinearity(), RNNNonlinearity::ReLU);
     }
 
@@ -2626,8 +2625,8 @@ mod tests {
         assert_eq!(params.len(), 4);
         assert_eq!(params[0].shape(), &[20, 10]); // weight_ih
         assert_eq!(params[1].shape(), &[20, 20]); // weight_hh
-        assert_eq!(params[2].shape(), &[20]);      // bias_ih
-        assert_eq!(params[3].shape(), &[20]);      // bias_hh
+        assert_eq!(params[2].shape(), &[20]); // bias_ih
+        assert_eq!(params[3].shape(), &[20]); // bias_hh
     }
 
     #[test]
@@ -2723,8 +2722,7 @@ mod tests {
     #[test]
     fn test_rnn_cell_relu_output_nonneg() {
         // With relu nonlinearity, all outputs should be >= 0.
-        let cell =
-            RNNCell::<f32>::with_nonlinearity(4, 8, RNNNonlinearity::ReLU).unwrap();
+        let cell = RNNCell::<f32>::with_nonlinearity(4, 8, RNNNonlinearity::ReLU).unwrap();
         let x = ferrotorch_core::randn::<f32>(&[5, 4]).unwrap();
         let h = cell.forward_cell(&x, None).unwrap();
         let data = h.data().unwrap();
@@ -2765,8 +2763,8 @@ mod tests {
         assert_eq!(params.len(), 4);
         assert_eq!(params[0].shape(), &[80, 10]); // weight_ih [4*hs, input]
         assert_eq!(params[1].shape(), &[80, 20]); // weight_hh [4*hs, hs]
-        assert_eq!(params[2].shape(), &[80]);      // bias_ih
-        assert_eq!(params[3].shape(), &[80]);      // bias_hh
+        assert_eq!(params[2].shape(), &[80]); // bias_ih
+        assert_eq!(params[3].shape(), &[80]); // bias_hh
     }
 
     #[test]
@@ -2924,8 +2922,8 @@ mod tests {
         assert_eq!(params.len(), 4);
         assert_eq!(params[0].shape(), &[60, 10]); // weight_ih [3*hs, input]
         assert_eq!(params[1].shape(), &[60, 20]); // weight_hh [3*hs, hs]
-        assert_eq!(params[2].shape(), &[60]);      // bias_ih
-        assert_eq!(params[3].shape(), &[60]);      // bias_hh
+        assert_eq!(params[2].shape(), &[60]); // bias_ih
+        assert_eq!(params[3].shape(), &[60]); // bias_hh
     }
 
     #[test]
@@ -3040,8 +3038,7 @@ mod tests {
 
     #[test]
     fn test_rnn_with_options() {
-        let rnn =
-            RNN::<f32>::with_options(10, 20, 3, RNNNonlinearity::ReLU).unwrap();
+        let rnn = RNN::<f32>::with_options(10, 20, 3, RNNNonlinearity::ReLU).unwrap();
         assert_eq!(rnn.num_layers(), 3);
         assert_eq!(rnn.nonlinearity(), RNNNonlinearity::ReLU);
     }
@@ -3066,14 +3063,13 @@ mod tests {
         let params = rnn.parameters();
         assert_eq!(params[0].shape(), &[20, 10]); // weight_ih [hs, input]
         assert_eq!(params[1].shape(), &[20, 20]); // weight_hh [hs, hs]
-        assert_eq!(params[2].shape(), &[20]);      // bias_ih
-        assert_eq!(params[3].shape(), &[20]);      // bias_hh
+        assert_eq!(params[2].shape(), &[20]); // bias_ih
+        assert_eq!(params[3].shape(), &[20]); // bias_hh
     }
 
     #[test]
     fn test_rnn_multi_layer_weight_shapes() {
-        let rnn =
-            RNN::<f32>::with_options(10, 20, 3, RNNNonlinearity::Tanh).unwrap();
+        let rnn = RNN::<f32>::with_options(10, 20, 3, RNNNonlinearity::Tanh).unwrap();
         let params = rnn.parameters();
 
         // Layer 0: weight_ih [20, 10] (input_size=10)
@@ -3098,13 +3094,12 @@ mod tests {
         let (output, h_n) = rnn.forward_with_state(&input, None).unwrap();
 
         assert_eq!(output.shape(), &[2, 5, 20]); // [B, T, hidden]
-        assert_eq!(h_n.shape(), &[1, 2, 20]);    // [layers, B, hidden]
+        assert_eq!(h_n.shape(), &[1, 2, 20]); // [layers, B, hidden]
     }
 
     #[test]
     fn test_rnn_forward_multi_layer_shapes() {
-        let rnn =
-            RNN::<f32>::with_options(8, 16, 3, RNNNonlinearity::Tanh).unwrap();
+        let rnn = RNN::<f32>::with_options(8, 16, 3, RNNNonlinearity::Tanh).unwrap();
         let input = ferrotorch_core::zeros::<f32>(&[4, 7, 8]).unwrap();
 
         let (output, h_n) = rnn.forward_with_state(&input, None).unwrap();
@@ -3123,8 +3118,7 @@ mod tests {
 
     #[test]
     fn test_rnn_forward_does_not_error() {
-        let rnn =
-            RNN::<f32>::with_options(4, 8, 2, RNNNonlinearity::Tanh).unwrap();
+        let rnn = RNN::<f32>::with_options(4, 8, 2, RNNNonlinearity::Tanh).unwrap();
         let input = ferrotorch_core::randn::<f32>(&[3, 10, 4]).unwrap();
         let result = rnn.forward_with_state(&input, None);
         assert!(
@@ -3185,8 +3179,7 @@ mod tests {
 
     #[test]
     fn test_rnn_named_parameters() {
-        let rnn =
-            RNN::<f32>::with_options(4, 8, 2, RNNNonlinearity::Tanh).unwrap();
+        let rnn = RNN::<f32>::with_options(4, 8, 2, RNNNonlinearity::Tanh).unwrap();
         let named = rnn.named_parameters();
         assert_eq!(named.len(), 8);
         assert_eq!(named[0].0, "layers.0.weight_ih");
@@ -3252,8 +3245,7 @@ mod tests {
 
     #[test]
     fn test_rnn_relu_forward() {
-        let rnn =
-            RNN::<f32>::with_options(4, 8, 1, RNNNonlinearity::ReLU).unwrap();
+        let rnn = RNN::<f32>::with_options(4, 8, 1, RNNNonlinearity::ReLU).unwrap();
         let input = ferrotorch_core::randn::<f32>(&[2, 3, 4]).unwrap();
         let (output, h_n) = rnn.forward_with_state(&input, None).unwrap();
         assert_eq!(output.shape(), &[2, 3, 8]);

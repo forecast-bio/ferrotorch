@@ -134,8 +134,7 @@ impl<T: Float> NAdam<T> {
                     None => continue,
                 };
 
-                let param_t =
-                    self.param_groups[gi].params[pi].tensor().clone();
+                let param_t = self.param_groups[gi].params[pi].tensor().clone();
                 let device = param_t.device();
                 let key = Self::param_key(gi, pi);
 
@@ -165,8 +164,7 @@ impl<T: Float> NAdam<T> {
 
                     // mu schedule.
                     let mu = beta1 * (1.0 - 0.5 * 0.96_f64.powf(step * psi));
-                    let mu_next =
-                        beta1 * (1.0 - 0.5 * 0.96_f64.powf((step + 1.0) * psi));
+                    let mu_next = beta1 * (1.0 - 0.5 * 0.96_f64.powf((step + 1.0) * psi));
                     let mu_product = self.foreach_state[&key].mu_product * mu;
                     let mu_product_next = mu_product * mu_next;
                     let bc2 = 1.0 - beta2.powi(next_step as i32);
@@ -192,14 +190,8 @@ impl<T: Float> NAdam<T> {
                     )?;
 
                     // m_hat = (1-mu)*grad/(1-mu_prod) + mu_next*exp_avg/(1-mu_prod_next)
-                    let grad_coef = f64_scalar_on::<T>(
-                        (1.0 - mu) / (1.0 - mu_product),
-                        device,
-                    )?;
-                    let mom_coef = f64_scalar_on::<T>(
-                        mu_next / (1.0 - mu_product_next),
-                        device,
-                    )?;
+                    let grad_coef = f64_scalar_on::<T>((1.0 - mu) / (1.0 - mu_product), device)?;
+                    let mom_coef = f64_scalar_on::<T>(mu_next / (1.0 - mu_product_next), device)?;
                     let grad_component = mul(&grad, &grad_coef)?;
                     let mom_component = mul(&exp_avg_new, &mom_coef)?;
                     let m_hat = add(&grad_component, &mom_component)?;
@@ -214,12 +206,11 @@ impl<T: Float> NAdam<T> {
                     let update = div(&m_hat, &denom)?;
 
                     // Decoupled weight decay: param *= (1 - lr * wd)
-                    let decay_factor =
-                        if config.decoupled_weight_decay && group_wd > 0.0 {
-                            1.0 - group_lr * group_wd
-                        } else {
-                            1.0
-                        };
+                    let decay_factor = if config.decoupled_weight_decay && group_wd > 0.0 {
+                        1.0 - group_lr * group_wd
+                    } else {
+                        1.0
+                    };
                     let decayed = if decay_factor != 1.0 {
                         let decay_t = f64_scalar_on::<T>(decay_factor, device)?;
                         mul(&param_t, &decay_t)?
@@ -618,16 +609,16 @@ mod tests {
         let mut legacy = NAdam::new(vec![p_legacy.clone()], cfg);
         let mut foreach = NAdam::new(
             vec![p_foreach.clone()],
-            NAdamConfig { foreach: true, ..cfg },
+            NAdamConfig {
+                foreach: true,
+                ..cfg
+            },
         );
 
         for _ in 0..steps {
-            let g = Tensor::from_storage(
-                TensorStorage::cpu(grad.to_vec()),
-                vec![init.len()],
-                false,
-            )
-            .unwrap();
+            let g =
+                Tensor::from_storage(TensorStorage::cpu(grad.to_vec()), vec![init.len()], false)
+                    .unwrap();
             p_legacy.set_grad(Some(g.clone())).unwrap();
             p_foreach.set_grad(Some(g)).unwrap();
             legacy.step().unwrap();

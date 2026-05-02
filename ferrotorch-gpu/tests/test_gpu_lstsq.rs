@@ -61,7 +61,11 @@ fn lstsq_overdetermined_least_squares_fit() {
     // Closed-form least-squares answer (computed offline) is approximately
     // [1.18, 1.95]. Tolerance loose since we only need "approximately right".
     assert!(host[0].abs() < 5.0, "intercept estimate {} OOB", host[0]);
-    assert!((host[1] - 2.0).abs() < 0.5, "slope estimate {} should be near 2", host[1]);
+    assert!(
+        (host[1] - 2.0).abs() < 0.5,
+        "slope estimate {} should be near 2",
+        host[1]
+    );
 }
 
 #[test]
@@ -87,9 +91,7 @@ fn lstsq_1d_b_returns_1d_solution() {
     let a = cpu_t_f32(&[1.0, 0.0, 0.0, 1.0], &[2, 2])
         .to(Device::Cuda(0))
         .unwrap();
-    let b = cpu_t_f32(&[7.0, 8.0], &[2])
-        .to(Device::Cuda(0))
-        .unwrap();
+    let b = cpu_t_f32(&[7.0, 8.0], &[2]).to(Device::Cuda(0)).unwrap();
     let x = lstsq_solve(&a, &b).unwrap();
     assert_eq!(x.shape(), &[2]);
     let host = x.cpu().unwrap().data().unwrap().to_vec();
@@ -100,9 +102,7 @@ fn lstsq_1d_b_returns_1d_solution() {
 #[test]
 fn lstsq_rejects_shape_mismatch() {
     ensure_cuda();
-    let a = cpu_t_f32(&[1.0; 6], &[2, 3])
-        .to(Device::Cuda(0))
-        .unwrap();
+    let a = cpu_t_f32(&[1.0; 6], &[2, 3]).to(Device::Cuda(0)).unwrap();
     // b has wrong leading dim (3 instead of 2).
     let b = cpu_t_f32(&[1.0, 2.0, 3.0], &[3])
         .to(Device::Cuda(0))
@@ -128,6 +128,10 @@ fn lstsq_multi_column_b() {
     let host = x.cpu().unwrap().data().unwrap().to_vec();
     let expected = [1.0, 2.0, 3.0, 4.0];
     for i in 0..4 {
-        assert!((host[i] - expected[i]).abs() < 1e-4, "i={i}: got {}", host[i]);
+        assert!(
+            (host[i] - expected[i]).abs() < 1e-4,
+            "i={i}: got {}",
+            host[i]
+        );
     }
 }

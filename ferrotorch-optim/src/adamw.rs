@@ -1231,9 +1231,7 @@ mod tests {
         // commented out due to the reduce_grad_to_shape underflow bug
         // (now fixed in CL-498). It exercises the full backward chain
         // through pow + add on [1]-shaped parameters.
-        use ferrotorch_core::grad_fns::{
-            arithmetic::add as t_add, arithmetic::pow as t_pow,
-        };
+        use ferrotorch_core::grad_fns::{arithmetic::add as t_add, arithmetic::pow as t_pow};
 
         let x = Parameter::from_slice(&[3.0f32], &[1]).unwrap();
         let y = Parameter::from_slice(&[-4.0f32], &[1]).unwrap();

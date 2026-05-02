@@ -61,7 +61,13 @@ impl<T: Float> NamedTensor<T> {
     pub fn refined(inner: Tensor<T>, names: &[&str]) -> FerrotorchResult<Self> {
         let owned: Vec<Option<String>> = names
             .iter()
-            .map(|s| if s.is_empty() { None } else { Some((*s).to_string()) })
+            .map(|s| {
+                if s.is_empty() {
+                    None
+                } else {
+                    Some((*s).to_string())
+                }
+            })
             .collect();
         Self::new(inner, owned)
     }
@@ -99,9 +105,7 @@ impl<T: Float> NamedTensor<T> {
 
     /// Index of the dim with the given name, if any.
     pub fn dim_index(&self, name: &str) -> Option<usize> {
-        self.names
-            .iter()
-            .position(|n| n.as_deref() == Some(name))
+        self.names.iter().position(|n| n.as_deref() == Some(name))
     }
 
     /// Size of the dim with the given name, or `None` if not found.
@@ -116,9 +120,12 @@ impl<T: Float> NamedTensor<T> {
         let new_names: Vec<Option<String>> = self
             .names
             .iter()
-            .map(|n| match n {
-                Some(s) => Some(map.get(s.as_str()).map(|n| (*n).to_string()).unwrap_or_else(|| s.clone())),
-                None => None,
+            .map(|n| {
+                n.as_ref().map(|s| {
+                    map.get(s.as_str())
+                        .map(|n| (*n).to_string())
+                        .unwrap_or_else(|| s.clone())
+                })
             })
             .collect();
         Self::new(self.inner.clone(), new_names)
@@ -195,8 +202,7 @@ mod tests {
 
     #[test]
     fn named_tensor_basic_construction() {
-        let nt =
-            NamedTensor::refined(t_f32(&[2, 3, 4]), &["batch", "seq", "feat"]).unwrap();
+        let nt = NamedTensor::refined(t_f32(&[2, 3, 4]), &["batch", "seq", "feat"]).unwrap();
         assert_eq!(nt.ndim(), 3);
         assert_eq!(nt.size_of("batch"), Some(2));
         assert_eq!(nt.size_of("seq"), Some(3));
@@ -227,8 +233,7 @@ mod tests {
     fn named_tensor_align_permutes_dims() {
         // [batch=2, seq=3, feat=4] aligned to [feat, batch, seq] should
         // yield shape [4, 2, 3].
-        let nt =
-            NamedTensor::refined(t_f32(&[2, 3, 4]), &["batch", "seq", "feat"]).unwrap();
+        let nt = NamedTensor::refined(t_f32(&[2, 3, 4]), &["batch", "seq", "feat"]).unwrap();
         let aligned = nt.align_to(&["feat", "batch", "seq"]).unwrap();
         assert_eq!(aligned.shape(), &[4, 2, 3]);
         assert_eq!(aligned.names()[0].as_deref(), Some("feat"));

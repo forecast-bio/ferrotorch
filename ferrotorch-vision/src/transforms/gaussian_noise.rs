@@ -85,8 +85,7 @@ mod tests {
     #[test]
     fn test_gaussian_noise_output_shape_preserved() {
         let t: Tensor<f32> =
-            Tensor::from_storage(TensorStorage::cpu(vec![0.5; 48]), vec![3, 4, 4], false)
-                .unwrap();
+            Tensor::from_storage(TensorStorage::cpu(vec![0.5; 48]), vec![3, 4, 4], false).unwrap();
         let noise = GaussianNoise::<f32>::new(0.0, 0.1);
         let out = noise.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);
@@ -133,8 +132,7 @@ mod tests {
         let out = noise.apply(t).unwrap();
         let d = out.data().unwrap();
         let mean: f64 = d.iter().sum::<f64>() / d.len() as f64;
-        let var: f64 =
-            d.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / d.len() as f64;
+        let var: f64 = d.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / d.len() as f64;
         let std = var.sqrt();
         // Expect mean near 0 and std near 0.5. Loose tolerance because
         // we only have 10k samples.

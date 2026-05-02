@@ -175,19 +175,13 @@ impl<T: Float> GradScaler<T> {
                 if let Some(grad) = grad_opt {
                     // GPU f32 fast path: scale on-device, check inf via GPU sum.
                     if is_f32 && grad.is_cuda() {
-                        if let Some(backend) =
-                            ferrotorch_core::gpu_dispatch::gpu_backend()
-                        {
+                        if let Some(backend) = ferrotorch_core::gpu_dispatch::gpu_backend() {
                             let inv_f32 = 1.0f32 / self.scale_factor as f32;
-                            let scaled = backend.scale_f32(
-                                grad.gpu_handle()?,
-                                inv_f32,
-                            )?;
+                            let scaled = backend.scale_f32(grad.gpu_handle()?, inv_f32)?;
 
                             // Check for inf/NaN: sum all elements — if any
                             // element is inf/NaN the sum will be non-finite.
-                            let sum_handle =
-                                backend.sum_f32(&scaled, grad.numel())?;
+                            let sum_handle = backend.sum_f32(&scaled, grad.numel())?;
                             let sum_bytes = backend.gpu_to_cpu(&sum_handle)?;
                             let sum_val = f32::from_le_bytes([
                                 sum_bytes[0],
@@ -223,9 +217,7 @@ impl<T: Float> GradScaler<T> {
 
                     let device = grad.device();
                     let new_grad = Tensor::from_storage(
-                        ferrotorch_core::TensorStorage::on_device(
-                            new_data, device,
-                        )?,
+                        ferrotorch_core::TensorStorage::on_device(new_data, device)?,
                         grad.shape().to_vec(),
                         false,
                     )?;

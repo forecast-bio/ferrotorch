@@ -273,18 +273,10 @@ fn auto_instrumentation_records_add() {
     use ferrotorch_core::Tensor;
     use ferrotorch_core::storage::TensorStorage;
 
-    let a: Tensor<f32> = Tensor::from_storage(
-        TensorStorage::cpu(vec![1.0, 2.0, 3.0]),
-        vec![3],
-        false,
-    )
-    .unwrap();
-    let b: Tensor<f32> = Tensor::from_storage(
-        TensorStorage::cpu(vec![10.0, 20.0, 30.0]),
-        vec![3],
-        false,
-    )
-    .unwrap();
+    let a: Tensor<f32> =
+        Tensor::from_storage(TensorStorage::cpu(vec![1.0, 2.0, 3.0]), vec![3], false).unwrap();
+    let b: Tensor<f32> =
+        Tensor::from_storage(TensorStorage::cpu(vec![10.0, 20.0, 30.0]), vec![3], false).unwrap();
 
     let (_result, report) = with_profiler(ProfileConfig::default(), |_p| {
         // Note: we don't call _p.record() at all -- the tensor op below
@@ -314,12 +306,8 @@ fn auto_instrumentation_records_matmul_and_sum() {
         false,
     )
     .unwrap();
-    let b: Tensor<f32> = Tensor::from_storage(
-        TensorStorage::cpu(vec![1.0; 12]),
-        vec![3, 4],
-        false,
-    )
-    .unwrap();
+    let b: Tensor<f32> =
+        Tensor::from_storage(TensorStorage::cpu(vec![1.0; 12]), vec![3, 4], false).unwrap();
 
     let (_, report) = with_profiler(ProfileConfig::default(), |_| {
         let c = ferrotorch_core::ops::linalg::matmul(&a, &b).unwrap();
@@ -333,7 +321,11 @@ fn auto_instrumentation_records_matmul_and_sum() {
         "expected matmul in events, got {:?}",
         names
     );
-    assert!(names.contains(&"sum"), "expected sum in events, got {:?}", names);
+    assert!(
+        names.contains(&"sum"),
+        "expected sum in events, got {:?}",
+        names
+    );
 
     let matmul_ev = events.iter().find(|e| e.name == "matmul").unwrap();
     assert_eq!(matmul_ev.category, "linalg");
@@ -359,7 +351,10 @@ fn auto_instrumentation_no_profiler_outside_with_profiler() {
 
     // Only the in-profile call should appear.
     let add_count = report.events().iter().filter(|e| e.name == "add").count();
-    assert_eq!(add_count, 1, "expected exactly 1 'add' event, got {add_count}");
+    assert_eq!(
+        add_count, 1,
+        "expected exactly 1 'add' event, got {add_count}"
+    );
 }
 
 #[test]
@@ -424,11 +419,7 @@ fn memory_category_recorded_when_specified() {
         p.record_memory_categorized("alloc_weight", 4096, MemoryCategory::Parameters);
         p.record_memory_categorized("alloc_grad", 4096, MemoryCategory::Gradients);
         p.record_memory_categorized("alloc_act", 8192, MemoryCategory::Activations);
-        p.record_memory_categorized(
-            "alloc_optim",
-            8192,
-            MemoryCategory::OptimizerState,
-        );
+        p.record_memory_categorized("alloc_optim", 8192, MemoryCategory::OptimizerState);
     });
     let events = report.events();
     assert_eq!(events.len(), 4);
@@ -560,18 +551,10 @@ fn auto_instrumented_op_gets_flops_estimate() {
     use ferrotorch_core::Tensor;
     use ferrotorch_core::storage::TensorStorage;
 
-    let a: Tensor<f32> = Tensor::from_storage(
-        TensorStorage::cpu(vec![1.0; 12]),
-        vec![3, 4],
-        false,
-    )
-    .unwrap();
-    let b: Tensor<f32> = Tensor::from_storage(
-        TensorStorage::cpu(vec![2.0; 12]),
-        vec![3, 4],
-        false,
-    )
-    .unwrap();
+    let a: Tensor<f32> =
+        Tensor::from_storage(TensorStorage::cpu(vec![1.0; 12]), vec![3, 4], false).unwrap();
+    let b: Tensor<f32> =
+        Tensor::from_storage(TensorStorage::cpu(vec![2.0; 12]), vec![3, 4], false).unwrap();
 
     let config = ProfileConfig {
         record_shapes: true,
@@ -645,7 +628,10 @@ fn tensorboard_export_creates_expected_layout() {
         .join("run0")
         .join("testhost.pt.trace.json");
     assert_eq!(path, expected);
-    assert!(expected.exists(), "expected trace file to exist at {expected:?}");
+    assert!(
+        expected.exists(),
+        "expected trace file to exist at {expected:?}"
+    );
 
     // Contents should be valid Chrome trace JSON (starts with {"traceEvents":[)
     let contents = std::fs::read_to_string(&expected).unwrap();
@@ -691,7 +677,13 @@ fn tensorboard_export_creates_nested_directories() {
         .save_tensorboard_trace(&nonexistent, Some("myrun"), Some("h1"))
         .unwrap();
     assert!(result.exists());
-    assert!(nonexistent.join("plugins").join("profile").join("myrun").exists());
+    assert!(
+        nonexistent
+            .join("plugins")
+            .join("profile")
+            .join("myrun")
+            .exists()
+    );
 }
 
 #[test]

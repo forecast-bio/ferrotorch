@@ -255,7 +255,9 @@ mod tests {
     fn test_lazy_linear_materializes_on_first_forward() {
         let lazy: LazyLinear<f32> = LazyLinear::new(4, true).unwrap();
         let input = cpu_tensor(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            &[
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+            ],
             &[2, 6],
         );
         let out = lazy.forward(&input).unwrap();
@@ -342,7 +344,11 @@ mod tests {
         let lazy: LazyLinear<f32> = LazyLinear::new(2, true).unwrap();
         let input = cpu_tensor(&[1.0, 2.0, 3.0], &[1, 3]);
         let _ = lazy.forward(&input).unwrap();
-        let names: Vec<String> = lazy.named_parameters().iter().map(|(n, _)| n.clone()).collect();
+        let names: Vec<String> = lazy
+            .named_parameters()
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect();
         assert!(names.contains(&"weight".to_string()));
         assert!(names.contains(&"bias".to_string()));
     }

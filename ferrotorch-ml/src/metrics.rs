@@ -68,10 +68,7 @@ where
 }
 
 /// Root mean squared error: `sqrt(mean((y_true - y_pred)^2))`.
-pub fn root_mean_squared_error<T>(
-    y_true: &Tensor<T>,
-    y_pred: &Tensor<T>,
-) -> FerrotorchResult<T>
+pub fn root_mean_squared_error<T>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<T>
 where
     T: Float + num_traits::Float + Send + Sync + 'static,
 {
@@ -91,10 +88,7 @@ where
 }
 
 /// Median absolute error.
-pub fn median_absolute_error<T>(
-    y_true: &Tensor<T>,
-    y_pred: &Tensor<T>,
-) -> FerrotorchResult<T>
+pub fn median_absolute_error<T>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<T>
 where
     T: Float + num_traits::Float + Send + Sync + 'static,
 {
@@ -114,10 +108,7 @@ where
 }
 
 /// Explained-variance score (between 0 and 1; 1 = perfect).
-pub fn explained_variance_score<T>(
-    y_true: &Tensor<T>,
-    y_pred: &Tensor<T>,
-) -> FerrotorchResult<T>
+pub fn explained_variance_score<T>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<T>
 where
     T: Float + num_traits::Float + Send + Sync + 'static,
 {
@@ -154,9 +145,7 @@ pub use ferrolearn_metrics::classification::Average;
 
 /// Convert a `Tensor<T>` to an `Array1<f64>`. Used for score-typed metric
 /// arguments (ROC-AUC, log_loss, etc. expect raw scores in f64).
-fn tensor_to_array1_f64<T: Float>(
-    t: &Tensor<T>,
-) -> FerrotorchResult<ndarray::Array1<f64>> {
+fn tensor_to_array1_f64<T: Float>(t: &Tensor<T>) -> FerrotorchResult<ndarray::Array1<f64>> {
     let data: Vec<f64> = t.data_vec()?.iter().map(|v| v.to_f64().unwrap()).collect();
     Ok(ndarray::Array1::from(data))
 }
@@ -196,10 +185,7 @@ pub fn f1_score<T: Float>(
 
 /// Area under the ROC curve. `y_score` is the predicted probability /
 /// decision-function value for the positive class. Binary classification.
-pub fn roc_auc_score<T: Float>(
-    y_true: &Tensor<T>,
-    y_score: &Tensor<T>,
-) -> FerrotorchResult<f64> {
+pub fn roc_auc_score<T: Float>(y_true: &Tensor<T>, y_score: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array1_usize(y_true)?;
     let ys = tensor_to_array1_f64(y_score)?;
     ferrolearn_metrics::roc_auc_score(&yt, &ys).map_err(map_metric_err)
@@ -208,10 +194,7 @@ pub fn roc_auc_score<T: Float>(
 /// Cross-entropy / log loss for probabilistic classifiers. `y_prob` is
 /// `[n_samples, n_classes]` of class probabilities; rows must sum to 1
 /// (within tolerance). `y_true` is integer labels.
-pub fn log_loss<T: Float>(
-    y_true: &Tensor<T>,
-    y_prob: &Tensor<T>,
-) -> FerrotorchResult<f64> {
+pub fn log_loss<T: Float>(y_true: &Tensor<T>, y_prob: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array1_usize(y_true)?;
     if y_prob.ndim() != 2 {
         return Err(FerrotorchError::InvalidArgument {
@@ -223,7 +206,11 @@ pub fn log_loss<T: Float>(
     }
     let n = y_prob.shape()[0];
     let k = y_prob.shape()[1];
-    let data: Vec<f64> = y_prob.data_vec()?.iter().map(|v| v.to_f64().unwrap()).collect();
+    let data: Vec<f64> = y_prob
+        .data_vec()?
+        .iter()
+        .map(|v| v.to_f64().unwrap())
+        .collect();
     let arr = ndarray::Array2::from_shape_vec((n, k), data).map_err(|e| {
         FerrotorchError::InvalidArgument {
             message: format!("log_loss: failed to build Array2: {e}"),
@@ -245,16 +232,11 @@ pub fn confusion_matrix<T: Float>(
     let n = m.shape()[0];
     let k = m.shape()[1];
     let flat = m.iter().copied().collect::<Vec<usize>>();
-    Ok((0..n)
-        .map(|i| flat[i * k..(i + 1) * k].to_vec())
-        .collect())
+    Ok((0..n).map(|i| flat[i * k..(i + 1) * k].to_vec()).collect())
 }
 
 /// Hamming loss: fraction of mispredicted labels.
-pub fn hamming_loss<T: Float>(
-    y_true: &Tensor<T>,
-    y_pred: &Tensor<T>,
-) -> FerrotorchResult<f64> {
+pub fn hamming_loss<T: Float>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array1_usize(y_true)?;
     let yp = tensor_to_array1_usize(y_pred)?;
     ferrolearn_metrics::hamming_loss(&yt, &yp).map_err(map_metric_err)
@@ -301,10 +283,7 @@ pub fn cohen_kappa_score<T: Float>(
 /// Brier score loss for binary classification: `mean((y_prob - y_true)^2)`.
 /// `y_prob` is the predicted probability of the positive class (1-D, shape
 /// `[N]`). Mirrors `sklearn.metrics.brier_score_loss`.
-pub fn brier_score_loss<T: Float>(
-    y_true: &Tensor<T>,
-    y_prob: &Tensor<T>,
-) -> FerrotorchResult<f64> {
+pub fn brier_score_loss<T: Float>(y_true: &Tensor<T>, y_prob: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array1_usize(y_true)?;
     let yp = tensor_to_array1_f64(y_prob)?;
     ferrolearn_metrics::brier_score_loss(&yt, &yp).map_err(map_metric_err)
@@ -313,10 +292,7 @@ pub fn brier_score_loss<T: Float>(
 /// D² Brier score: 1 - (model_brier / null_brier). Coefficient-of-determination
 /// analog for binary calibration. `1.0` is perfect, `0.0` is null-model
 /// baseline.
-pub fn d2_brier_score<T: Float>(
-    y_true: &Tensor<T>,
-    y_prob: &Tensor<T>,
-) -> FerrotorchResult<f64> {
+pub fn d2_brier_score<T: Float>(y_true: &Tensor<T>, y_prob: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array1_usize(y_true)?;
     let yp = tensor_to_array1_f64(y_prob)?;
     ferrolearn_metrics::d2_brier_score(&yt, &yp).map_err(map_metric_err)
@@ -340,7 +316,11 @@ pub fn top_k_accuracy_score<T: Float>(
     }
     let n = y_score.shape()[0];
     let c = y_score.shape()[1];
-    let data: Vec<f64> = y_score.data_vec()?.iter().map(|v| v.to_f64().unwrap()).collect();
+    let data: Vec<f64> = y_score
+        .data_vec()?
+        .iter()
+        .map(|v| v.to_f64().unwrap())
+        .collect();
     let arr = ndarray::Array2::from_shape_vec((n, c), data).map_err(|e| {
         FerrotorchError::InvalidArgument {
             message: format!("top_k_accuracy_score: y_score shape: {e}"),
@@ -393,8 +373,10 @@ fn tensor_to_array2_f64<T: Float>(t: &Tensor<T>) -> FerrotorchResult<ndarray::Ar
     }
     let (rows, cols) = (t.shape()[0], t.shape()[1]);
     let data: Vec<f64> = t.data_vec()?.iter().map(|v| v.to_f64().unwrap()).collect();
-    ndarray::Array2::from_shape_vec((rows, cols), data).map_err(|e| FerrotorchError::ShapeMismatch {
-        message: format!("tensor_to_array2_f64: shape build failed: {e}"),
+    ndarray::Array2::from_shape_vec((rows, cols), data).map_err(|e| {
+        FerrotorchError::ShapeMismatch {
+            message: format!("tensor_to_array2_f64: shape build failed: {e}"),
+        }
     })
 }
 
@@ -485,10 +467,7 @@ pub fn ndcg_score<T: Float>(
 /// Coverage error: average number of labels in the ranked list above the
 /// last positive label. Mirrors `sklearn.metrics.coverage_error`. `y_true`
 /// must be 2-D `[N, K]` of binary indicators (0/1).
-pub fn coverage_error<T: Float>(
-    y_true: &Tensor<T>,
-    y_score: &Tensor<T>,
-) -> FerrotorchResult<f64> {
+pub fn coverage_error<T: Float>(y_true: &Tensor<T>, y_score: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array2_usize(y_true)?;
     let ys = tensor_to_array2_f64(y_score)?;
     ferrolearn_metrics::coverage_error(&yt, &ys).map_err(map_metric_err)
@@ -613,10 +592,7 @@ pub fn fowlkes_mallows_score<T: Float>(
 /// separation. `x` is the feature matrix `[N, D]`; `labels` is the 1-D
 /// cluster assignment (encoded as floats; cast to `isize`, sklearn allows
 /// `-1` for noise).
-pub fn silhouette_score<T: Float>(
-    x: &Tensor<T>,
-    labels: &Tensor<T>,
-) -> FerrotorchResult<f64> {
+pub fn silhouette_score<T: Float>(x: &Tensor<T>, labels: &Tensor<T>) -> FerrotorchResult<f64> {
     let xa = tensor_to_array2_f64(x)?;
     let la = tensor_to_array1_isize(labels)?;
     ferrolearn_metrics::silhouette_score(&xa, &la).map_err(map_metric_err)
@@ -624,10 +600,7 @@ pub fn silhouette_score<T: Float>(
 
 /// Davies-Bouldin score (lower is better): cluster compactness over
 /// inter-cluster spread.
-pub fn davies_bouldin_score<T: Float>(
-    x: &Tensor<T>,
-    labels: &Tensor<T>,
-) -> FerrotorchResult<f64> {
+pub fn davies_bouldin_score<T: Float>(x: &Tensor<T>, labels: &Tensor<T>) -> FerrotorchResult<f64> {
     let xa = tensor_to_array2_f64(x)?;
     let la = tensor_to_array1_isize(labels)?;
     ferrolearn_metrics::davies_bouldin_score(&xa, &la).map_err(map_metric_err)
@@ -881,9 +854,7 @@ mod tests {
         let y_true = tensor(&[0.0_f64, 2.0, 1.0]).unwrap();
         let y_score = Tensor::from_storage(
             ferrotorch_core::storage::TensorStorage::cpu(vec![
-                0.6_f64, 0.3, 0.1,
-                0.1, 0.2, 0.7,
-                0.2, 0.5, 0.3,
+                0.6_f64, 0.3, 0.1, 0.1, 0.2, 0.7, 0.2, 0.5, 0.3,
             ]),
             vec![3, 3],
             false,
@@ -899,8 +870,8 @@ mod tests {
         let y_true = tensor(&[0.0_f64, 2.0]).unwrap();
         let y_score = Tensor::from_storage(
             ferrotorch_core::storage::TensorStorage::cpu(vec![
-                0.6_f64, 0.3, 0.1,  // argmax = 0 ✓
-                0.5, 0.4, 0.1,      // argmax = 0 ✗ (true = 2)
+                0.6_f64, 0.3, 0.1, // argmax = 0 ✓
+                0.5, 0.4, 0.1, // argmax = 0 ✗ (true = 2)
             ]),
             vec![2, 3],
             false,
@@ -1038,9 +1009,7 @@ mod tests {
     #[test]
     fn davies_bouldin_returns_finite() {
         let x = Tensor::from_storage(
-            ferrotorch_core::TensorStorage::cpu(vec![
-                0.0_f64, 0.0, 0.1, 0.1, 5.0, 5.0, 5.1, 5.1,
-            ]),
+            ferrotorch_core::TensorStorage::cpu(vec![0.0_f64, 0.0, 0.1, 0.1, 5.0, 5.0, 5.1, 5.1]),
             vec![4, 2],
             false,
         )
@@ -1053,9 +1022,7 @@ mod tests {
     #[test]
     fn calinski_harabasz_returns_finite() {
         let x = Tensor::from_storage(
-            ferrotorch_core::TensorStorage::cpu(vec![
-                0.0_f64, 0.0, 0.1, 0.1, 5.0, 5.0, 5.1, 5.1,
-            ]),
+            ferrotorch_core::TensorStorage::cpu(vec![0.0_f64, 0.0, 0.1, 0.1, 5.0, 5.0, 5.1, 5.1]),
             vec![4, 2],
             false,
         )

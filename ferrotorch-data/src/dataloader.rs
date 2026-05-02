@@ -1,6 +1,6 @@
 use std::collections::{BinaryHeap, VecDeque};
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use ferrotorch_core::{Device, FerrotorchResult};
@@ -29,8 +29,7 @@ use crate::sampler::{RandomSampler, Sampler, SequentialSampler};
 ///   pipeline (except using threads instead of processes, since Rust
 ///   has no GIL to work around). Batches are reordered to preserve
 ///   deterministic output ordering. CL-377.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WorkerMode {
     /// Load samples within a single batch in parallel (rayon pool).
     #[default]
@@ -38,7 +37,6 @@ pub enum WorkerMode {
     /// Load different batches in parallel (N dedicated worker threads).
     CrossBatch,
 }
-
 
 /// Trait for sample types that can be transferred to a target [`Device`].
 ///
@@ -273,8 +271,8 @@ impl<D: Dataset> DataLoader<D> {
         // can flip pin_memory on or off via the builder after device() has
         // been called. The branch picks the pinned vs. regular ToDevice
         // method based on the flag's value at call time.
-        self.transfer_fn =
-            Some(Arc::new(move |samples: Vec<D::Sample>, pin_memory: bool| {
+        self.transfer_fn = Some(Arc::new(
+            move |samples: Vec<D::Sample>, pin_memory: bool| {
                 if pin_memory {
                     samples
                         .into_iter()
@@ -283,7 +281,8 @@ impl<D: Dataset> DataLoader<D> {
                 } else {
                     samples.into_iter().map(|s| s.to_device(device)).collect()
                 }
-            }));
+            },
+        ));
         self
     }
 
@@ -847,9 +846,8 @@ where
         let work_queue: Arc<Mutex<VecDeque<Option<WorkItem>>>> =
             Arc::new(Mutex::new(VecDeque::new()));
         let work_cv = Arc::new(std::sync::Condvar::new());
-        let (result_tx, result_rx) = mpsc::sync_channel::<WorkResult<D::Sample>>(
-            max_in_flight.max(1),
-        );
+        let (result_tx, result_rx) =
+            mpsc::sync_channel::<WorkResult<D::Sample>>(max_in_flight.max(1));
 
         // Spawn worker threads.
         let mut worker_handles = Vec::with_capacity(num_workers);
@@ -1895,8 +1893,7 @@ mod tests {
         // pin_memory without device() should be a no-op (no transfer
         // happens at all). Samples retain their original device and
         // pinned=None.
-        let loader = DataLoader::new(make_device_dataset(2), 2)
-            .pin_memory(true);
+        let loader = DataLoader::new(make_device_dataset(2), 2).pin_memory(true);
         let batches: Vec<Vec<DeviceSample>> = loader.iter(0).map(|b| b.unwrap()).collect();
         for sample in &batches[0] {
             assert_eq!(sample.pinned, None);
@@ -1949,7 +1946,9 @@ mod tests {
                 },
             ],
         });
-        let loader = DataLoader::new(ds, 2).device(Device::Cuda(0)).pin_memory(true);
+        let loader = DataLoader::new(ds, 2)
+            .device(Device::Cuda(0))
+            .pin_memory(true);
         let batches: Vec<Vec<NoPinSample>> = loader.iter(0).map(|b| b.unwrap()).collect();
         for sample in &batches[0] {
             // Default impl forwards to to_device, so device is set correctly.
@@ -2022,8 +2021,7 @@ mod tests {
 
     #[test]
     fn test_multi_worker_builder_sets_mode() {
-        let loader = DataLoader::new(make_dataset(10), 2)
-            .worker_mode(WorkerMode::CrossBatch);
+        let loader = DataLoader::new(make_dataset(10), 2).worker_mode(WorkerMode::CrossBatch);
         assert_eq!(loader.current_worker_mode(), WorkerMode::CrossBatch);
     }
 
@@ -2037,10 +2035,7 @@ mod tests {
             .worker_mode(WorkerMode::CrossBatch)
             .prefetch_factor(8);
 
-        let batches: Vec<Vec<i32>> = loader
-            .iter(0)
-            .map(|b| b.unwrap())
-            .collect();
+        let batches: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
         assert_eq!(batches.len(), 10);
         // Should be exactly [[0,1],[2,3],...[18,19]] in order.
         for (i, batch) in batches.iter().enumerate() {
@@ -2087,14 +2082,8 @@ mod tests {
             .num_workers(3)
             .worker_mode(WorkerMode::CrossBatch);
 
-        let run1: Vec<i32> = loader1
-            .iter(0)
-            .flat_map(|b| b.unwrap())
-            .collect();
-        let run2: Vec<i32> = loader2
-            .iter(0)
-            .flat_map(|b| b.unwrap())
-            .collect();
+        let run1: Vec<i32> = loader1.iter(0).flat_map(|b| b.unwrap()).collect();
+        let run2: Vec<i32> = loader2.iter(0).flat_map(|b| b.unwrap()).collect();
 
         assert_eq!(run1, run2);
         // Every sample present exactly once.

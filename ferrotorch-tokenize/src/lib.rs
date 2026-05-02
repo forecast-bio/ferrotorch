@@ -55,11 +55,11 @@ pub fn encode(
     text: &str,
     add_special_tokens: bool,
 ) -> FerrotorchResult<Vec<u32>> {
-    let encoding = tokenizer
-        .encode(text, add_special_tokens)
-        .map_err(|e| FerrotorchError::InvalidArgument {
+    let encoding = tokenizer.encode(text, add_special_tokens).map_err(|e| {
+        FerrotorchError::InvalidArgument {
             message: format!("tokenizer encode failed: {e}"),
-        })?;
+        }
+    })?;
     Ok(encoding.get_ids().to_vec())
 }
 
@@ -75,7 +75,10 @@ pub fn encode_batch(
         .map_err(|e| FerrotorchError::InvalidArgument {
             message: format!("tokenizer encode_batch failed: {e}"),
         })?;
-    Ok(encodings.into_iter().map(|e| e.get_ids().to_vec()).collect())
+    Ok(encodings
+        .into_iter()
+        .map(|e| e.get_ids().to_vec())
+        .collect())
 }
 
 /// Decode a sequence of token ids back to text.
@@ -169,25 +172,32 @@ pub fn apply_chat_template(
     let mut env = minijinja::Environment::new();
     // `raise_exception` is referenced by some HF templates (Mistral et al.).
     // Implement it as a no-arg helper that just panics with a message.
-    env.add_function("raise_exception", |msg: String| -> Result<String, minijinja::Error> {
-        Err(minijinja::Error::new(
-            minijinja::ErrorKind::InvalidOperation,
-            msg,
-        ))
-    });
+    env.add_function(
+        "raise_exception",
+        |msg: String| -> Result<String, minijinja::Error> {
+            Err(minijinja::Error::new(
+                minijinja::ErrorKind::InvalidOperation,
+                msg,
+            ))
+        },
+    );
     // `strftime_now` is referenced by some templates (Llama 3.1 system prompt).
     // Provide a stub that returns the empty string — callers wanting real
     // dates should preprocess the template.
-    env.add_function("strftime_now", |_fmt: String| -> Result<String, minijinja::Error> {
-        Ok(String::new())
-    });
+    env.add_function(
+        "strftime_now",
+        |_fmt: String| -> Result<String, minijinja::Error> { Ok(String::new()) },
+    );
 
-    env.add_template("chat", template).map_err(|e| FerrotorchError::InvalidArgument {
-        message: format!("invalid chat template: {e}"),
-    })?;
-    let tmpl = env.get_template("chat").map_err(|e| FerrotorchError::InvalidArgument {
-        message: format!("chat template lookup failed: {e}"),
-    })?;
+    env.add_template("chat", template)
+        .map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("invalid chat template: {e}"),
+        })?;
+    let tmpl = env
+        .get_template("chat")
+        .map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("chat template lookup failed: {e}"),
+        })?;
 
     let context = minijinja::context! {
         messages => messages,
@@ -195,9 +205,10 @@ pub fn apply_chat_template(
         bos_token => bos_token.unwrap_or(""),
         eos_token => eos_token.unwrap_or(""),
     };
-    tmpl.render(context).map_err(|e| FerrotorchError::InvalidArgument {
-        message: format!("chat template render failed: {e}"),
-    })
+    tmpl.render(context)
+        .map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("chat template render failed: {e}"),
+        })
 }
 
 /// Apply a chat template and tokenize the result.
@@ -241,11 +252,10 @@ pub fn load_chat_template(
     let bytes = std::fs::read(path).map_err(|e| FerrotorchError::InvalidArgument {
         message: format!("failed to read tokenizer_config {}: {e}", path.display()),
     })?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
-        FerrotorchError::InvalidArgument {
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|e| FerrotorchError::InvalidArgument {
             message: format!("failed to parse tokenizer_config {}: {e}", path.display()),
-        }
-    })?;
+        })?;
     match value.get("chat_template") {
         None => Ok(None),
         Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
@@ -278,7 +288,11 @@ mod tests {
             .join(".cache/huggingface/hub")
             .join(format!("models--{}", repo_slug.replace('/', "--")))
             .join("snapshots");
-        std::fs::read_dir(&base).ok()?.next()?.ok().map(|e| e.path())
+        std::fs::read_dir(&base)
+            .ok()?
+            .next()?
+            .ok()
+            .map(|e| e.path())
     }
 
     #[test]
@@ -384,9 +398,8 @@ mod tests {
     fn chat_template_passes_bos_token() {
         let template = "{{ bos_token }}{% for m in messages %}{{ m.content }}{% endfor %}";
         let messages = vec![ChatMessage::new("user", "hi")];
-        let s =
-            apply_chat_template(template, &messages, false, Some("<|begin_of_text|>"), None)
-                .unwrap();
+        let s = apply_chat_template(template, &messages, false, Some("<|begin_of_text|>"), None)
+            .unwrap();
         assert_eq!(s, "<|begin_of_text|>hi");
     }
 
@@ -394,8 +407,10 @@ mod tests {
     fn chat_template_propagates_extra_fields() {
         let template = "{% for m in messages %}{{ m.role }}:{{ m.name }}{% endfor %}";
         let mut msg = ChatMessage::new("tool", "result");
-        msg.extra
-            .insert("name".to_string(), serde_json::Value::String("my_tool".to_string()));
+        msg.extra.insert(
+            "name".to_string(),
+            serde_json::Value::String("my_tool".to_string()),
+        );
         let s = apply_chat_template(template, &[msg], false, None, None).unwrap();
         assert_eq!(s, "tool:my_tool");
     }
@@ -404,7 +419,13 @@ mod tests {
     fn chat_template_rejects_invalid_template() {
         let messages = vec![ChatMessage::new("user", "hi")];
         // Unclosed braces.
-        let s = apply_chat_template("{% for m in messages %}{{ m.role", &messages, false, None, None);
+        let s = apply_chat_template(
+            "{% for m in messages %}{{ m.role",
+            &messages,
+            false,
+            None,
+            None,
+        );
         assert!(s.is_err());
     }
 
@@ -461,7 +482,8 @@ mod tests {
     #[test]
     fn chat_message_roundtrip_through_serde() {
         let mut msg = ChatMessage::new("assistant", "hello");
-        msg.extra.insert("name".to_string(), serde_json::json!("alice"));
+        msg.extra
+            .insert("name".to_string(), serde_json::json!("alice"));
         let s = serde_json::to_string(&msg).unwrap();
         // Both top-level fields and the flattened extras must show up.
         assert!(s.contains("\"role\":\"assistant\""));

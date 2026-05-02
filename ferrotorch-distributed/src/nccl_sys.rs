@@ -99,8 +99,7 @@ pub enum NcclError {
 #[allow(non_snake_case)]
 struct NcclFunctions {
     ncclGetUniqueId: unsafe extern "C" fn(*mut NcclUniqueId) -> NcclResult,
-    ncclCommInitRank:
-        unsafe extern "C" fn(*mut NcclComm, i32, NcclUniqueId, i32) -> NcclResult,
+    ncclCommInitRank: unsafe extern "C" fn(*mut NcclComm, i32, NcclUniqueId, i32) -> NcclResult,
     ncclCommDestroy: unsafe extern "C" fn(NcclComm) -> NcclResult,
     ncclAllReduce: unsafe extern "C" fn(
         *const c_void,
@@ -237,7 +236,9 @@ fn nccl() -> Result<&'static NcclFunctions, NcclError> {
 /// (e.g. via TCP or shared filesystem).
 pub fn get_unique_id() -> Result<NcclUniqueId, NcclError> {
     let lib = nccl()?;
-    let mut id = NcclUniqueId { internal: [0u8; 128] };
+    let mut id = NcclUniqueId {
+        internal: [0u8; 128],
+    };
     // SAFETY: id is a valid NcclUniqueId struct on the stack.
     unsafe { (lib.ncclGetUniqueId)(&mut id) }.ok()?;
     Ok(id)

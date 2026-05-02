@@ -98,7 +98,9 @@ pub fn sum<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if let Some(out) = crate::meta_propagate::reduce_all(input)? {
         return Ok(out);
     }
-    crate::profiler_hook::profile_op_scope("sum", "reduction", &[input.shape()], || sum_inner(input))
+    crate::profiler_hook::profile_op_scope("sum", "reduction", &[input.shape()], || {
+        sum_inner(input)
+    })
 }
 
 fn sum_inner<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
@@ -244,7 +246,10 @@ fn mean_inner<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 let n = input.numel() as f32;
                 let inv_n_data = [1.0f32 / n];
                 let inv_n_bytes: &[u8] = unsafe {
-                    std::slice::from_raw_parts(inv_n_data.as_ptr() as *const u8, inv_n_data.len() * 4)
+                    std::slice::from_raw_parts(
+                        inv_n_data.as_ptr() as *const u8,
+                        inv_n_data.len() * 4,
+                    )
                 };
                 let inv_handle = backend.cpu_to_gpu(inv_n_bytes, 4, ordinal)?;
                 backend.mul_f32(&sum_handle, &inv_handle)?
@@ -253,16 +258,15 @@ fn mean_inner<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 let n = input.numel() as f64;
                 let inv_n_data = [1.0f64 / n];
                 let inv_n_bytes: &[u8] = unsafe {
-                    std::slice::from_raw_parts(inv_n_data.as_ptr() as *const u8, inv_n_data.len() * 8)
+                    std::slice::from_raw_parts(
+                        inv_n_data.as_ptr() as *const u8,
+                        inv_n_data.len() * 8,
+                    )
                 };
                 let inv_handle = backend.cpu_to_gpu(inv_n_bytes, 8, ordinal)?;
                 backend.mul_f64(&sum_handle, &inv_handle)?
             };
-            Tensor::from_storage(
-                TensorStorage::gpu(mean_handle),
-                vec![],
-                false,
-            )?
+            Tensor::from_storage(TensorStorage::gpu(mean_handle), vec![], false)?
         } else {
             elementwise::mean(input)?
         }
@@ -307,7 +311,9 @@ impl<T: Float> GradFn<T> for ProdBackward<T> {
         };
 
         if self.input.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "prod backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "prod backward",
+            });
         }
         let input_data = self.input.data()?;
         let n = input_data.len();
@@ -432,7 +438,10 @@ impl<T: Float> GradFn<T> for AminBackward<T> {
         let mn = input_data
             .iter()
             .copied()
-            .fold(T::from(f64::INFINITY).unwrap(), |a, b| if b < a { b } else { a });
+            .fold(
+                T::from(f64::INFINITY).unwrap(),
+                |a, b| if b < a { b } else { a },
+            );
         // Distribute `go` evenly across all positions equal to the min
         // (subgradient at ties — matches torch.amin's gradient).
         let count = input_data.iter().filter(|&&v| v == mn).count() as f64;
@@ -475,7 +484,9 @@ impl<T: Float> GradFn<T> for AmaxBackward<T> {
         let mx = input_data
             .iter()
             .copied()
-            .fold(T::from(f64::NEG_INFINITY).unwrap(), |a, b| if b > a { b } else { a });
+            .fold(T::from(f64::NEG_INFINITY).unwrap(), |a, b| {
+                if b > a { b } else { a }
+            });
         let count = input_data.iter().filter(|&&v| v == mx).count() as f64;
         let scale = T::from(go.to_f64().unwrap() / count.max(1.0)).unwrap();
         let result: Vec<T> = input_data
@@ -531,10 +542,10 @@ pub fn amin<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     }
     // CPU walk.
     let data = input.data_vec()?;
-    let mn = data
-        .iter()
-        .copied()
-        .fold(T::from(f64::INFINITY).unwrap(), |a, b| if b < a { b } else { a });
+    let mn = data.iter().copied().fold(
+        T::from(f64::INFINITY).unwrap(),
+        |a, b| if b < a { b } else { a },
+    );
     let storage = TensorStorage::cpu(vec![mn]);
     if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(AminBackward {
@@ -576,7 +587,9 @@ pub fn amax<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let mx = data
         .iter()
         .copied()
-        .fold(T::from(f64::NEG_INFINITY).unwrap(), |a, b| if b > a { b } else { a });
+        .fold(T::from(f64::NEG_INFINITY).unwrap(), |a, b| {
+            if b > a { b } else { a }
+        });
     let storage = TensorStorage::cpu(vec![mx]);
     if is_grad_enabled() && input.requires_grad() {
         let grad_fn = Arc::new(AmaxBackward {
@@ -621,19 +634,28 @@ impl<T: Float> GradFn<T> for SumDimBackward<T> {
             let backend =
                 crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
             let result_h = if t_is_f32 {
-                backend.repeat_along_dim_f32(grad_output.gpu_handle()?, outer, repeat_count, inner)?
+                backend.repeat_along_dim_f32(
+                    grad_output.gpu_handle()?,
+                    outer,
+                    repeat_count,
+                    inner,
+                )?
             } else {
-                backend.repeat_along_dim_f64(grad_output.gpu_handle()?, outer, repeat_count, inner)?
+                backend.repeat_along_dim_f64(
+                    grad_output.gpu_handle()?,
+                    outer,
+                    repeat_count,
+                    inner,
+                )?
             };
-            let grad_input = Tensor::from_storage(
-                TensorStorage::gpu(result_h),
-                input_shape.to_vec(),
-                false,
-            )?;
+            let grad_input =
+                Tensor::from_storage(TensorStorage::gpu(result_h), input_shape.to_vec(), false)?;
             return Ok(vec![Some(grad_input)]);
         }
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "sum_dim backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "sum_dim backward",
+            });
         }
 
         // If keepdim was false, reinsert the reduced dimension as size 1.
@@ -880,28 +902,30 @@ impl<T: Float> GradFn<T> for MeanDimBackward<T> {
         let is_f64 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>();
         if grad_output.is_cuda() && is_f64 {
             if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
-                let outer: usize =
-                    input_shape[..self.dim].iter().product::<usize>().max(1);
+                let outer: usize = input_shape[..self.dim].iter().product::<usize>().max(1);
                 let inner: usize = input_shape[(self.dim + 1)..]
                     .iter()
                     .product::<usize>()
                     .max(1);
                 let repeat_count = dim_size;
-                let expanded =
-                    backend.repeat_along_dim_f64(grad_output.gpu_handle()?, outer, repeat_count, inner)?;
+                let expanded = backend.repeat_along_dim_f64(
+                    grad_output.gpu_handle()?,
+                    outer,
+                    repeat_count,
+                    inner,
+                )?;
                 // Scale by 1/repeat_count to get the mean's gradient.
                 let scaled = backend.scale_f64(&expanded, 1.0 / repeat_count as f64)?;
-                let grad_input = Tensor::from_storage(
-                    TensorStorage::gpu(scaled),
-                    input_shape.to_vec(),
-                    false,
-                )?;
+                let grad_input =
+                    Tensor::from_storage(TensorStorage::gpu(scaled), input_shape.to_vec(), false)?;
                 return Ok(vec![Some(grad_input)]);
             }
         }
 
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "mean_dim backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "mean_dim backward",
+            });
         }
 
         let n = T::from(dim_size).unwrap();

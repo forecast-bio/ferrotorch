@@ -202,5 +202,8 @@ fn eigh_rejects_non_square() {
     let a_cpu = cpu_t_f32(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]);
     let a_gpu = a_cpu.to(Device::Cuda(0)).unwrap();
     let err = eigh(&a_gpu).unwrap_err();
-    matches!(err, ferrotorch_core::error::FerrotorchError::InvalidArgument { .. });
+    matches!(
+        err,
+        ferrotorch_core::error::FerrotorchError::InvalidArgument { .. }
+    );
 }

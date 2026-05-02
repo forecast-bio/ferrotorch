@@ -327,11 +327,7 @@ macro_rules! define_portable_polynomial {
     ($name:ident, $runner:ident, $math:literal) => {
         #[doc = concat!("Evaluate ", $math, " elementwise on the GPU at degree `n`.")]
         #[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
-        pub fn $name(
-            x: &Tensor<f32>,
-            n: usize,
-            rt: &CubeRuntime,
-        ) -> FerrotorchResult<Tensor<f32>> {
+        pub fn $name(x: &Tensor<f32>, n: usize, rt: &CubeRuntime) -> FerrotorchResult<Tensor<f32>> {
             let x_data = contiguous_data(x)?;
             let n_u32 = u32::try_from(n).map_err(|_| FerrotorchError::InvalidArgument {
                 message: format!("polynomial degree {n} exceeds u32 range"),
@@ -351,14 +347,46 @@ macro_rules! define_portable_polynomial {
     };
 }
 
-define_portable_polynomial!(portable_chebyshev_polynomial_t, run_chebyshev_t, "Chebyshev T_n(x)");
-define_portable_polynomial!(portable_chebyshev_polynomial_u, run_chebyshev_u, "Chebyshev U_n(x)");
-define_portable_polynomial!(portable_chebyshev_polynomial_v, run_chebyshev_v, "Chebyshev V_n(x)");
-define_portable_polynomial!(portable_chebyshev_polynomial_w, run_chebyshev_w, "Chebyshev W_n(x)");
-define_portable_polynomial!(portable_hermite_polynomial_h, run_hermite_h, "Hermite (physicist) H_n(x)");
-define_portable_polynomial!(portable_hermite_polynomial_he, run_hermite_he, "Hermite (probabilist) He_n(x)");
-define_portable_polynomial!(portable_laguerre_polynomial_l, run_laguerre_l, "Laguerre L_n(x)");
-define_portable_polynomial!(portable_legendre_polynomial_p, run_legendre_p, "Legendre P_n(x)");
+define_portable_polynomial!(
+    portable_chebyshev_polynomial_t,
+    run_chebyshev_t,
+    "Chebyshev T_n(x)"
+);
+define_portable_polynomial!(
+    portable_chebyshev_polynomial_u,
+    run_chebyshev_u,
+    "Chebyshev U_n(x)"
+);
+define_portable_polynomial!(
+    portable_chebyshev_polynomial_v,
+    run_chebyshev_v,
+    "Chebyshev V_n(x)"
+);
+define_portable_polynomial!(
+    portable_chebyshev_polynomial_w,
+    run_chebyshev_w,
+    "Chebyshev W_n(x)"
+);
+define_portable_polynomial!(
+    portable_hermite_polynomial_h,
+    run_hermite_h,
+    "Hermite (physicist) H_n(x)"
+);
+define_portable_polynomial!(
+    portable_hermite_polynomial_he,
+    run_hermite_he,
+    "Hermite (probabilist) He_n(x)"
+);
+define_portable_polynomial!(
+    portable_laguerre_polynomial_l,
+    run_laguerre_l,
+    "Laguerre L_n(x)"
+);
+define_portable_polynomial!(
+    portable_legendre_polynomial_p,
+    run_legendre_p,
+    "Legendre P_n(x)"
+);
 
 // ---------------------------------------------------------------------------
 // Tests — only meaningful with a real backend feature
@@ -558,7 +586,10 @@ mod tests {
         let a = ferrotorch_core::tensor(&[0.0_f32, 1.0, 2.0, -1.0]).unwrap();
         let c = portable_exp(&a, &rt).unwrap();
         let data: &[f32] = c.data().unwrap();
-        let expected: Vec<f32> = [0.0, 1.0, 2.0, -1.0].iter().map(|x: &f32| x.exp()).collect();
+        let expected: Vec<f32> = [0.0, 1.0, 2.0, -1.0]
+            .iter()
+            .map(|x: &f32| x.exp())
+            .collect();
         assert_close(data, &expected, 1e-3);
     }
 

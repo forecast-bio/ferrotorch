@@ -120,11 +120,7 @@ impl JitCompiledKernel {
     ///
     /// Returns an error if the number of input buffers does not match
     /// `num_inputs` or if `output.len() < output_len`.
-    pub fn execute(
-        &self,
-        inputs: &[&[f64]],
-        output: &mut [f64],
-    ) -> FerrotorchResult<()> {
+    pub fn execute(&self, inputs: &[&[f64]], output: &mut [f64]) -> FerrotorchResult<()> {
         if inputs.len() != self.num_inputs {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
@@ -165,11 +161,7 @@ impl JitCompiledKernel {
         // was resolved from a library we keep alive, and the trampoline
         // ABI matches `KernelEntry`.
         unsafe {
-            (self.kernel_fn)(
-                ptrs.as_ptr(),
-                output.as_mut_ptr(),
-                self.output_len as i32,
-            );
+            (self.kernel_fn)(ptrs.as_ptr(), output.as_mut_ptr(), self.output_len as i32);
         }
         Ok(())
     }
@@ -182,8 +174,7 @@ impl JitCompiledKernel {
 /// Global compile cache keyed by hash of the complete source (kernel +
 /// trampoline). Shared across threads.
 fn compile_cache() -> &'static Mutex<HashMap<u64, Arc<JitCompiledKernel>>> {
-    static CACHE: OnceLock<Mutex<HashMap<u64, Arc<JitCompiledKernel>>>> =
-        OnceLock::new();
+    static CACHE: OnceLock<Mutex<HashMap<u64, Arc<JitCompiledKernel>>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -227,9 +218,11 @@ pub fn compile_c_kernel(
 
     // Cache hit?
     {
-        let cache = compile_cache().lock().map_err(|_| FerrotorchError::Internal {
-            message: "jit compile cache mutex poisoned".into(),
-        })?;
+        let cache = compile_cache()
+            .lock()
+            .map_err(|_| FerrotorchError::Internal {
+                message: "jit compile cache mutex poisoned".into(),
+            })?;
         if let Some(existing) = cache.get(&key) {
             return Ok(existing.clone());
         }
@@ -241,9 +234,11 @@ pub fn compile_c_kernel(
     // Insert into cache (ignore races — last writer wins, but the
     // kernels are observationally identical).
     {
-        let mut cache = compile_cache().lock().map_err(|_| FerrotorchError::Internal {
-            message: "jit compile cache mutex poisoned".into(),
-        })?;
+        let mut cache = compile_cache()
+            .lock()
+            .map_err(|_| FerrotorchError::Internal {
+                message: "jit compile cache mutex poisoned".into(),
+            })?;
         cache.insert(key, arc.clone());
     }
 
@@ -253,11 +248,7 @@ pub fn compile_c_kernel(
 /// Build the full C translation unit: the user-provided kernel function
 /// plus a fixed-signature trampoline `ferrotorch_kernel_entry` that fans
 /// out a `const double* const*` array into per-input arguments.
-fn wrap_with_trampoline(
-    kernel_source: &str,
-    kernel_fn_name: &str,
-    num_inputs: usize,
-) -> String {
+fn wrap_with_trampoline(kernel_source: &str, kernel_fn_name: &str, num_inputs: usize) -> String {
     let mut out = String::with_capacity(kernel_source.len() + 256);
 
     // Keep the kernel verbatim.
@@ -308,10 +299,9 @@ fn compile_and_load(
 
     // Write the source.
     {
-        let mut f =
-            std::fs::File::create(&c_path).map_err(|e| FerrotorchError::Internal {
-                message: format!("jit: failed to create {}: {}", c_path.display(), e),
-            })?;
+        let mut f = std::fs::File::create(&c_path).map_err(|e| FerrotorchError::Internal {
+            message: format!("jit: failed to create {}: {}", c_path.display(), e),
+        })?;
         f.write_all(source.as_bytes())
             .map_err(|e| FerrotorchError::Internal {
                 message: format!("jit: failed to write source: {e}"),
@@ -336,11 +326,7 @@ fn compile_and_load(
         .arg("-lm")
         .status()
         .map_err(|e| FerrotorchError::Internal {
-            message: format!(
-                "jit: failed to spawn {}: {}",
-                compiler.to_string_lossy(),
-                e
-            ),
+            message: format!("jit: failed to spawn {}: {}", compiler.to_string_lossy(), e),
         })?;
 
     if !status.success() {
@@ -358,26 +344,29 @@ fn compile_and_load(
     //
     // Safety: we just wrote and compiled this library ourselves, and the
     // trampoline has a well-defined C ABI.
-    let lib = unsafe { libloading::Library::new(&so_path) }.map_err(|e| {
-        FerrotorchError::Internal {
-            message: format!("jit: libloading::Library::new({}): {}", so_path.display(), e),
-        }
-    })?;
+    let lib =
+        unsafe { libloading::Library::new(&so_path) }.map_err(|e| FerrotorchError::Internal {
+            message: format!(
+                "jit: libloading::Library::new({}): {}",
+                so_path.display(),
+                e
+            ),
+        })?;
 
     // Resolve the trampoline symbol.
     //
     // Safety: the symbol was defined in the source we compiled and its
     // ABI matches `KernelEntry`.
     let kernel_fn: KernelEntry = unsafe {
-        let sym: libloading::Symbol<KernelEntry> = lib
-            .get(b"ferrotorch_kernel_entry\0")
-            .map_err(|e| FerrotorchError::Internal {
-                message: format!(
-                    "jit: could not resolve ferrotorch_kernel_entry in {}: {}",
-                    so_path.display(),
-                    e
-                ),
-            })?;
+        let sym: libloading::Symbol<KernelEntry> =
+            lib.get(b"ferrotorch_kernel_entry\0")
+                .map_err(|e| FerrotorchError::Internal {
+                    message: format!(
+                        "jit: could not resolve ferrotorch_kernel_entry in {}: {}",
+                        so_path.display(),
+                        e
+                    ),
+                })?;
         *sym
     };
 

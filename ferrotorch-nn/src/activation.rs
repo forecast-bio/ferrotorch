@@ -106,14 +106,17 @@ impl Softmax2d {
     pub fn forward<T: Float>(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         if input.ndim() != 4 {
             return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
-                message: format!("Softmax2d expects 4-D input [N,C,H,W], got {:?}", input.shape()),
+                message: format!(
+                    "Softmax2d expects 4-D input [N,C,H,W], got {:?}",
+                    input.shape()
+                ),
             });
         }
 
         if input.is_cuda() {
-            return Err(ferrotorch_core::error::FerrotorchError::NotImplementedOnCuda {
-                op: "Softmax2d",
-            });
+            return Err(
+                ferrotorch_core::error::FerrotorchError::NotImplementedOnCuda { op: "Softmax2d" },
+            );
         }
 
         let shape = input.shape();
@@ -608,9 +611,9 @@ impl<T: Float> PReLU<T> {
     /// native fused [`act::prelu`] op (single forward, single backward).
     pub fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         if self.alpha.tensor().is_cuda() {
-            return Err(ferrotorch_core::error::FerrotorchError::NotImplementedOnCuda {
-                op: "PReLU",
-            });
+            return Err(
+                ferrotorch_core::error::FerrotorchError::NotImplementedOnCuda { op: "PReLU" },
+            );
         }
         act::prelu(input, self.alpha.tensor())
     }

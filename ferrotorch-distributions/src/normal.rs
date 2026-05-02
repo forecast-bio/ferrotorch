@@ -195,8 +195,7 @@ impl<T: Float> Distribution<T> for Normal<T> {
             .zip(scale_data.iter().cycle())
             .map(|((&x, &l), &s)| (x - l) / (s * sqrt2))
             .collect();
-        let z_tensor =
-            Tensor::from_storage(TensorStorage::cpu(z), value.shape().to_vec(), false)?;
+        let z_tensor = Tensor::from_storage(TensorStorage::cpu(z), value.shape().to_vec(), false)?;
         let erf_z = ferrotorch_core::special::erf(&z_tensor)?;
         let erf_data = erf_z.data_vec()?;
         let result: Vec<T> = erf_data.iter().map(|&e| half * (one + e)).collect();
@@ -209,8 +208,7 @@ impl<T: Float> Distribution<T> for Normal<T> {
         let two = T::from(2.0).unwrap();
         let one = <T as num_traits::One>::one();
         let arg: Vec<T> = q_data.iter().map(|&p| two * p - one).collect();
-        let arg_tensor =
-            Tensor::from_storage(TensorStorage::cpu(arg), q.shape().to_vec(), false)?;
+        let arg_tensor = Tensor::from_storage(TensorStorage::cpu(arg), q.shape().to_vec(), false)?;
         let erfinv_arg = ferrotorch_core::special::erfinv(&arg_tensor)?;
         let erfinv_data = erfinv_arg.data_vec()?;
         let loc_data = self.loc.data_vec()?;
@@ -236,11 +234,7 @@ impl<T: Float> Distribution<T> for Normal<T> {
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
         let scale_data = self.scale.data_vec()?;
         let out: Vec<T> = scale_data.iter().map(|&s| s * s).collect();
-        Tensor::from_storage(
-            TensorStorage::cpu(out),
-            self.scale.shape().to_vec(),
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(out), self.scale.shape().to_vec(), false)
     }
 
     fn stddev(&self) -> FerrotorchResult<Tensor<T>> {

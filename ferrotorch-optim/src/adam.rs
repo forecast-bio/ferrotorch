@@ -9,7 +9,7 @@
 use std::any::TypeId;
 use std::collections::HashMap;
 
-use ferrotorch_core::gpu_dispatch::{gpu_backend, GpuBufferHandle};
+use ferrotorch_core::gpu_dispatch::{GpuBufferHandle, gpu_backend};
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -281,7 +281,6 @@ impl<T: Float> Adam<T> {
     }
 }
 
-
 impl<T: Float> Optimizer<T> for Adam<T> {
     fn step(&mut self) -> FerrotorchResult<()> {
         // Foreach path: stay on-device throughout, no CPU roundtrip.
@@ -318,31 +317,29 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                     && !config.maximize;
 
                 if use_gpu {
-                    let backend =
-                        gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+                    let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
 
                     // Lazy-init GPU state.
-                    let state =
-                        self.state.entry(key.clone()).or_insert_with(|| {
-                            let ordinal = match tensor.device() {
-                                ferrotorch_core::Device::Cuda(o) => o,
-                                _ => 0,
-                            };
-                            let gpu_m = backend
-                                .alloc_zeros(numel, std::mem::size_of::<f32>(), ordinal)
-                                .ok();
-                            let gpu_v = backend
-                                .alloc_zeros(numel, std::mem::size_of::<f32>(), ordinal)
-                                .ok();
-                            AdamParamState {
-                                step_count: 0,
-                                exp_avg: Vec::new(),
-                                exp_avg_sq: Vec::new(),
-                                max_exp_avg_sq: None,
-                                gpu_exp_avg: gpu_m,
-                                gpu_exp_avg_sq: gpu_v,
-                            }
-                        });
+                    let state = self.state.entry(key.clone()).or_insert_with(|| {
+                        let ordinal = match tensor.device() {
+                            ferrotorch_core::Device::Cuda(o) => o,
+                            _ => 0,
+                        };
+                        let gpu_m = backend
+                            .alloc_zeros(numel, std::mem::size_of::<f32>(), ordinal)
+                            .ok();
+                        let gpu_v = backend
+                            .alloc_zeros(numel, std::mem::size_of::<f32>(), ordinal)
+                            .ok();
+                        AdamParamState {
+                            step_count: 0,
+                            exp_avg: Vec::new(),
+                            exp_avg_sq: Vec::new(),
+                            max_exp_avg_sq: None,
+                            gpu_exp_avg: gpu_m,
+                            gpu_exp_avg_sq: gpu_v,
+                        }
+                    });
 
                     state.step_count += 1;
                     let step = state.step_count;
@@ -356,9 +353,8 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                             // SAFETY: Optimizer step runs inside no_grad() with
                             // exclusive access to parameters; no aliasing.
                             unsafe {
-                                let storage_ptr = std::sync::Arc::as_ptr(
-                                    tensor.inner_storage_arc(),
-                                ) as *mut ferrotorch_core::TensorStorage<T>;
+                                let storage_ptr = std::sync::Arc::as_ptr(tensor.inner_storage_arc())
+                                    as *mut ferrotorch_core::TensorStorage<T>;
                                 let storage = &mut *storage_ptr;
                                 let param_handle = storage
                                     .gpu_handle_mut()
@@ -519,9 +515,7 @@ impl<T: Float> Optimizer<T> for Adam<T> {
             entry.insert("step_count".to_string(), vec![pstate.step_count as f64]);
 
             // For GPU state, download moments to CPU f64 for serialization.
-            if let (Some(gpu_m), Some(gpu_v)) =
-                (&pstate.gpu_exp_avg, &pstate.gpu_exp_avg_sq)
-            {
+            if let (Some(gpu_m), Some(gpu_v)) = (&pstate.gpu_exp_avg, &pstate.gpu_exp_avg_sq) {
                 if let Some(backend) = gpu_backend() {
                     if let (Ok(m_bytes), Ok(v_bytes)) =
                         (backend.gpu_to_cpu(gpu_m), backend.gpu_to_cpu(gpu_v))
@@ -954,7 +948,10 @@ mod tests {
         let mut legacy = Adam::new(vec![p_legacy.clone()], cfg);
         let mut foreach = Adam::new(
             vec![p_foreach.clone()],
-            AdamConfig { foreach: true, ..cfg },
+            AdamConfig {
+                foreach: true,
+                ..cfg
+            },
         );
 
         for _ in 0..5 {
@@ -985,7 +982,10 @@ mod tests {
         let mut legacy = Adam::new(vec![p_legacy.clone()], cfg);
         let mut foreach = Adam::new(
             vec![p_foreach.clone()],
-            AdamConfig { foreach: true, ..cfg },
+            AdamConfig {
+                foreach: true,
+                ..cfg
+            },
         );
 
         for _ in 0..6 {

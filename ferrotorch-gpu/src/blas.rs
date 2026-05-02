@@ -361,13 +361,19 @@ pub fn gpu_bmm_f64(
     }
 
     let m_i32 = i32::try_from(m).map_err(|_| GpuError::ShapeMismatch {
-        op: "bmm_f64", expected: vec![i32::MAX as usize], got: vec![m],
+        op: "bmm_f64",
+        expected: vec![i32::MAX as usize],
+        got: vec![m],
     })?;
     let k_i32 = i32::try_from(k).map_err(|_| GpuError::ShapeMismatch {
-        op: "bmm_f64", expected: vec![i32::MAX as usize], got: vec![k],
+        op: "bmm_f64",
+        expected: vec![i32::MAX as usize],
+        got: vec![k],
     })?;
     let n_i32 = i32::try_from(n).map_err(|_| GpuError::ShapeMismatch {
-        op: "bmm_f64", expected: vec![i32::MAX as usize], got: vec![n],
+        op: "bmm_f64",
+        expected: vec![i32::MAX as usize],
+        got: vec![n],
     })?;
 
     let blas = device.blas();
@@ -1893,24 +1899,16 @@ mod tests {
     // -- BF16 storage matmul tensor-core path (#519) -----------------------
 
     /// Upload a slice of f32 values to the GPU as bf16 (u16-stored).
-    fn upload_as_bf16(
-        dev: &GpuDevice,
-        data: &[f32],
-    ) -> cudarc::driver::CudaSlice<u16> {
+    fn upload_as_bf16(dev: &GpuDevice, data: &[f32]) -> cudarc::driver::CudaSlice<u16> {
         let u16_data: Vec<u16> = data
             .iter()
             .map(|&x| half::bf16::from_f32(x).to_bits())
             .collect();
-        dev.stream()
-            .clone_htod(&u16_data)
-            .expect("bf16 upload")
+        dev.stream().clone_htod(&u16_data).expect("bf16 upload")
     }
 
     /// Download a bf16 buffer (u16-stored) and decode to f32.
-    fn download_bf16_as_f32(
-        dev: &GpuDevice,
-        buf: &cudarc::driver::CudaSlice<u16>,
-    ) -> Vec<f32> {
+    fn download_bf16_as_f32(dev: &GpuDevice, buf: &cudarc::driver::CudaSlice<u16>) -> Vec<f32> {
         let bits: Vec<u16> = dev.stream().clone_dtoh(buf).expect("bf16 download");
         bits.into_iter()
             .map(|b| half::bf16::from_bits(b).to_f32())
@@ -2021,10 +2019,7 @@ mod tests {
         let nt = download_bf16_as_f32(&dev, &c_nt);
         let rf = download_bf16_as_f32(&dev, &c_ref);
         for (i, (&a, &b)) in nt.iter().zip(rf.iter()).enumerate() {
-            assert!(
-                (a - b).abs() < 0.01,
-                "nt[{i}]={a} vs ref[{i}]={b}",
-            );
+            assert!((a - b).abs() < 0.01, "nt[{i}]={a} vs ref[{i}]={b}",);
         }
     }
 
@@ -2041,10 +2036,9 @@ mod tests {
 
         let a_gpu = upload_as_bf16(&dev, &a);
         let b_gpu = upload_as_bf16(&dev, &b);
-        let c = gpu_matmul_bf16_bf16_strided_batched_nt(
-            &a_gpu, &b_gpu, 2, 3, 2, 2, 6, 6, 0.5, &dev,
-        )
-        .expect("batched");
+        let c =
+            gpu_matmul_bf16_bf16_strided_batched_nt(&a_gpu, &b_gpu, 2, 3, 2, 2, 6, 6, 0.5, &dev)
+                .expect("batched");
         let got = download_bf16_as_f32(&dev, &c);
 
         // Reference: per-batch matmul_bf16_bf16_nt.
@@ -2109,5 +2103,4 @@ mod tests {
             assert!(v.is_finite(), "non-finite output in bf16 matmul");
         }
     }
-
 }

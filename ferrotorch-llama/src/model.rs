@@ -119,11 +119,7 @@ impl<T: Float> Module<T> for LlamaModel<T> {
             .collect()
     }
 
-    fn load_state_dict(
-        &mut self,
-        state: &StateDict<T>,
-        strict: bool,
-    ) -> FerrotorchResult<()> {
+    fn load_state_dict(&mut self, state: &StateDict<T>, strict: bool) -> FerrotorchResult<()> {
         let extract = |prefix: &str| -> StateDict<T> {
             let expected = format!("{prefix}.");
             state
@@ -190,10 +186,7 @@ impl<T: Float> LlamaForCausalLM<T> {
             });
         }
         // Embedding.forward takes a 1-D tensor of float-encoded indices.
-        let idx_data: Vec<T> = ids
-            .iter()
-            .map(|&i| T::from(i as f64).unwrap())
-            .collect();
+        let idx_data: Vec<T> = ids.iter().map(|&i| T::from(i as f64).unwrap()).collect();
         let seq_len = ids.len();
         let hidden = self.config.hidden_size;
         let idx_tensor = ferrotorch_core::Tensor::from_storage(
@@ -301,11 +294,7 @@ impl<T: Float> Module<T> for LlamaForCausalLM<T> {
             .collect()
     }
 
-    fn load_state_dict(
-        &mut self,
-        state: &StateDict<T>,
-        strict: bool,
-    ) -> FerrotorchResult<()> {
+    fn load_state_dict(&mut self, state: &StateDict<T>, strict: bool) -> FerrotorchResult<()> {
         let extract = |prefix: &str| -> StateDict<T> {
             let expected = format!("{prefix}.");
             state
@@ -454,7 +443,11 @@ mod tests {
         let mut dst = LlamaForCausalLM::<f32>::new(cfg).unwrap();
         dst.load_hf_state_dict(&sd, true).unwrap();
         // lm_head should now equal embed_tokens.
-        let lm_head = dst.lm_head.parameters()[0].tensor().data().unwrap().to_vec();
+        let lm_head = dst.lm_head.parameters()[0]
+            .tensor()
+            .data()
+            .unwrap()
+            .to_vec();
         let embed = dst.model.embed_tokens.parameters()[0]
             .tensor()
             .data()

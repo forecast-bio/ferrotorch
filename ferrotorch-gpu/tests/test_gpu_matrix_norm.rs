@@ -43,7 +43,10 @@ fn matrix_norm_f32_matches_cpu() {
     assert!(out_gpu.is_cuda(), "result must remain on GPU");
     assert_eq!(out_gpu.shape(), &[] as &[usize], "norm is 0-dimensional");
 
-    let cpu_val = matrix_norm(&a_cpu).expect("cpu matrix_norm").data().unwrap()[0];
+    let cpu_val = matrix_norm(&a_cpu)
+        .expect("cpu matrix_norm")
+        .data()
+        .unwrap()[0];
     let gpu_val = out_gpu.cpu().expect(".cpu()").data().unwrap()[0];
     let expected = 30.0_f32.sqrt();
     assert!(
@@ -65,7 +68,12 @@ fn matrix_norm_f32_rectangular() {
 
     let cpu_val = matrix_norm(&a_cpu).unwrap().data().unwrap()[0];
     let gpu_val = matrix_norm(&a_gpu).unwrap().cpu().unwrap().data().unwrap()[0];
-    assert!((gpu_val - cpu_val).abs() < 1e-5, "gpu={} cpu={}", gpu_val, cpu_val);
+    assert!(
+        (gpu_val - cpu_val).abs() < 1e-5,
+        "gpu={} cpu={}",
+        gpu_val,
+        cpu_val
+    );
 }
 
 #[test]
@@ -103,5 +111,8 @@ fn matrix_norm_rejects_non_2d() {
     let a_cpu = cpu_t_f32(&[1.0, 2.0, 3.0, 4.0], &[4]);
     let a_gpu = a_cpu.to(Device::Cuda(0)).unwrap();
     let err = matrix_norm(&a_gpu).unwrap_err();
-    matches!(err, ferrotorch_core::error::FerrotorchError::InvalidArgument { .. });
+    matches!(
+        err,
+        ferrotorch_core::error::FerrotorchError::InvalidArgument { .. }
+    );
 }

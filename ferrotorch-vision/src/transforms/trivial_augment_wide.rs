@@ -100,14 +100,7 @@ impl Op {
 /// Apply the selected op with a strength sampled uniformly from its
 /// canonical range. The canonical ranges are taken from the
 /// torchvision TrivialAugmentWide op space.
-fn apply_op<T: Float>(
-    data: &[T],
-    h: usize,
-    w: usize,
-    c: usize,
-    op: Op,
-    num_bins: usize,
-) -> Vec<T> {
+fn apply_op<T: Float>(data: &[T], h: usize, w: usize, c: usize, op: Op, num_bins: usize) -> Vec<T> {
     // Sample a magnitude level in [0, num_bins), then map to the op's
     // canonical range.
     let level = random_usize(num_bins);
@@ -131,11 +124,8 @@ fn apply_op<T: Float>(
             let mut out = Vec::with_capacity(data.len());
             for ch in 0..c {
                 let ch_slice = &data[ch * h * w..(ch + 1) * h * w];
-                let mean_f64: f64 = ch_slice
-                    .iter()
-                    .map(|v| v.to_f64().unwrap())
-                    .sum::<f64>()
-                    / (h * w) as f64;
+                let mean_f64: f64 =
+                    ch_slice.iter().map(|v| v.to_f64().unwrap()).sum::<f64>() / (h * w) as f64;
                 let mean_t: T = <T as NumCast>::from(mean_f64).unwrap();
                 for &v in ch_slice {
                     out.push(mean_t + f_t * (v - mean_t));
@@ -207,7 +197,11 @@ fn apply_op<T: Float>(
                 let range = max_v - min_v;
                 for &v in ch_slice {
                     let vf = v.to_f64().unwrap();
-                    let stretched = if range > 0.0 { (vf - min_v) / range } else { vf };
+                    let stretched = if range > 0.0 {
+                        (vf - min_v) / range
+                    } else {
+                        vf
+                    };
                     out.push(<T as NumCast>::from(stretched).unwrap());
                 }
             }
@@ -357,8 +351,7 @@ mod tests {
     #[test]
     fn test_trivial_augment_output_shape_preserved() {
         let t: Tensor<f32> =
-            Tensor::from_storage(TensorStorage::cpu(vec![0.5; 48]), vec![3, 4, 4], false)
-                .unwrap();
+            Tensor::from_storage(TensorStorage::cpu(vec![0.5; 48]), vec![3, 4, 4], false).unwrap();
         let aug = TrivialAugmentWide::<f32>::new(31);
         let out = aug.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);
@@ -421,7 +414,10 @@ mod tests {
         let out = apply_op(&data, 3, 3, 1, Op::Posterize, 7);
         assert_eq!(out.len(), 9);
         for &v in &out {
-            assert!((0.0..=1.0).contains(&v), "posterize should stay in [0,1], got {v}");
+            assert!(
+                (0.0..=1.0).contains(&v),
+                "posterize should stay in [0,1], got {v}"
+            );
         }
     }
 

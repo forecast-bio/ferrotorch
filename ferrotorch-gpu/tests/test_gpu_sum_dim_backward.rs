@@ -38,9 +38,7 @@ fn sum_dim_backward_gpu_propagates_ones_along_reduced_dim() {
     for i in 0..12 {
         data.push(i as f32 * 0.1);
     }
-    let x = cpu_t_f32(&data, &[3, 4], true)
-        .to(Device::Cuda(0))
-        .unwrap();
+    let x = cpu_t_f32(&data, &[3, 4], true).to(Device::Cuda(0)).unwrap();
     let s = sum_dim(&x, 1, false).unwrap(); // [3]
     assert_eq!(s.shape(), &[3]);
     let scalar = s.sum_all().unwrap();

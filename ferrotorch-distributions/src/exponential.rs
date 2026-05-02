@@ -148,13 +148,11 @@ impl<T: Float> Distribution<T> for Exponential<T> {
         let result: Vec<T> = val
             .iter()
             .zip(rate_data.iter().cycle())
-            .map(|(&x, &r)| {
-                if x < zero {
-                    zero
-                } else {
-                    one - (-r * x).exp()
-                }
-            })
+            .map(
+                |(&x, &r)| {
+                    if x < zero { zero } else { one - (-r * x).exp() }
+                },
+            )
             .collect();
         Tensor::from_storage(TensorStorage::cpu(result), value.shape().to_vec(), false)
     }

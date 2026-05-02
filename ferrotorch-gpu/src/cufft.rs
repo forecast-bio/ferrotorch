@@ -63,12 +63,15 @@ pub fn gpu_fft_c2c_f32(
     device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f32>> {
     check_n_batch(n, batch, "gpu_fft_c2c_f32")?;
-    let total = batch.checked_mul(n).and_then(|v| v.checked_mul(2))
-        .ok_or(GpuError::ShapeMismatch {
-            op: "gpu_fft_c2c_f32",
-            expected: vec![batch, n, 2],
-            got: vec![input.len()],
-        })?;
+    let total =
+        batch
+            .checked_mul(n)
+            .and_then(|v| v.checked_mul(2))
+            .ok_or(GpuError::ShapeMismatch {
+                op: "gpu_fft_c2c_f32",
+                expected: vec![batch, n, 2],
+                got: vec![input.len()],
+            })?;
     if input.len() != total {
         return Err(GpuError::ShapeMismatch {
             op: "gpu_fft_c2c_f32",
@@ -91,7 +94,11 @@ pub fn gpu_fft_c2c_f32(
     let mut tmp = crate::transfer::alloc_zeros_f32(total, device)?;
     stream.memcpy_dtod(input.inner(), tmp.inner_mut())?;
 
-    let direction = if inverse { FftDirection::Inverse } else { FftDirection::Forward };
+    let direction = if inverse {
+        FftDirection::Inverse
+    } else {
+        FftDirection::Forward
+    };
     unsafe {
         let (idata, _isync) = tmp.inner_mut().device_ptr_mut(&stream);
         let (odata, _osync) = out.inner_mut().device_ptr_mut(&stream);
@@ -119,12 +126,15 @@ pub fn gpu_fft_c2c_f64(
     device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f64>> {
     check_n_batch(n, batch, "gpu_fft_c2c_f64")?;
-    let total = batch.checked_mul(n).and_then(|v| v.checked_mul(2))
-        .ok_or(GpuError::ShapeMismatch {
-            op: "gpu_fft_c2c_f64",
-            expected: vec![batch, n, 2],
-            got: vec![input.len()],
-        })?;
+    let total =
+        batch
+            .checked_mul(n)
+            .and_then(|v| v.checked_mul(2))
+            .ok_or(GpuError::ShapeMismatch {
+                op: "gpu_fft_c2c_f64",
+                expected: vec![batch, n, 2],
+                got: vec![input.len()],
+            })?;
     if input.len() != total {
         return Err(GpuError::ShapeMismatch {
             op: "gpu_fft_c2c_f64",
@@ -144,7 +154,11 @@ pub fn gpu_fft_c2c_f64(
     let mut tmp = crate::transfer::alloc_zeros_f64(total, device)?;
     stream.memcpy_dtod(input.inner(), tmp.inner_mut())?;
 
-    let direction = if inverse { FftDirection::Inverse } else { FftDirection::Forward };
+    let direction = if inverse {
+        FftDirection::Inverse
+    } else {
+        FftDirection::Forward
+    };
     unsafe {
         let (idata, _isync) = tmp.inner_mut().device_ptr_mut(&stream);
         let (odata, _osync) = out.inner_mut().device_ptr_mut(&stream);
@@ -208,7 +222,11 @@ pub fn gpu_fft2_c2c_f32(
     stream.memcpy_dtod(input.inner(), tmp.inner_mut())?;
     let mut out = crate::transfer::alloc_zeros_f32(total, device)?;
 
-    let direction = if inverse { FftDirection::Inverse } else { FftDirection::Forward };
+    let direction = if inverse {
+        FftDirection::Inverse
+    } else {
+        FftDirection::Forward
+    };
     unsafe {
         let (idata, _isync) = tmp.inner_mut().device_ptr_mut(&stream);
         let (odata, _osync) = out.inner_mut().device_ptr_mut(&stream);
@@ -263,7 +281,11 @@ pub fn gpu_fft2_c2c_f64(
     stream.memcpy_dtod(input.inner(), tmp.inner_mut())?;
     let mut out = crate::transfer::alloc_zeros_f64(total, device)?;
 
-    let direction = if inverse { FftDirection::Inverse } else { FftDirection::Forward };
+    let direction = if inverse {
+        FftDirection::Inverse
+    } else {
+        FftDirection::Forward
+    };
     unsafe {
         let (idata, _isync) = tmp.inner_mut().device_ptr_mut(&stream);
         let (odata, _osync) = out.inner_mut().device_ptr_mut(&stream);
@@ -394,7 +416,9 @@ pub fn gpu_irfft_c2r_f32(
 ) -> GpuResult<CudaBuffer<f32>> {
     check_n_batch(n_out, batch, "gpu_irfft_c2r_f32")?;
     let half = n_out / 2 + 1;
-    let in_total = batch.checked_mul(half).and_then(|v| v.checked_mul(2))
+    let in_total = batch
+        .checked_mul(half)
+        .and_then(|v| v.checked_mul(2))
         .ok_or(GpuError::ShapeMismatch {
             op: "gpu_irfft_c2r_f32",
             expected: vec![batch, half, 2],
@@ -444,7 +468,9 @@ pub fn gpu_irfft_c2r_f64(
 ) -> GpuResult<CudaBuffer<f64>> {
     check_n_batch(n_out, batch, "gpu_irfft_c2r_f64")?;
     let half = n_out / 2 + 1;
-    let in_total = batch.checked_mul(half).and_then(|v| v.checked_mul(2))
+    let in_total = batch
+        .checked_mul(half)
+        .and_then(|v| v.checked_mul(2))
         .ok_or(GpuError::ShapeMismatch {
             op: "gpu_irfft_c2r_f64",
             expected: vec![batch, half, 2],

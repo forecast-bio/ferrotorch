@@ -84,12 +84,7 @@ pub fn current() -> Option<Arc<dyn OpProfiler>> {
 ///
 /// `shapes` carries the input tensor shapes for diagnostic display.
 /// Pass an empty slice if shape recording is not relevant.
-pub fn profile_op_scope<F, R>(
-    name: &str,
-    category: &str,
-    shapes: &[&[usize]],
-    f: F,
-) -> R
+pub fn profile_op_scope<F, R>(name: &str, category: &str, shapes: &[&[usize]], f: F) -> R
 where
     F: FnOnce() -> R,
 {

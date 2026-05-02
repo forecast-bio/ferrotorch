@@ -15,6 +15,7 @@ Data loading, batching, transforms, and device transfer for ferrotorch.
   - **`pin_memory(true)`** — page-locked host memory + DMA for ~2x faster CPU→GPU transfers (CL-378)
 - **Samplers** — `SequentialSampler`, `RandomSampler`, `DistributedSampler`, custom sampler injection via `Sampler` trait
 - **Transforms** — `ToTensor`, `Normalize`, `RandomCrop`, `RandomHorizontalFlip`, `Compose`, `Transform` trait with seedable RNG
+- **Interop** — NumPy `.npy`/`.npz` and Apache Arrow / Parquet readers via `interop::{load_numpy, load_npz, ArrowDataset}`
 
 ## Quick start
 

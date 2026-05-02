@@ -896,8 +896,7 @@ impl<T: Float> SemiStructuredSparseTensor<T> {
         if dense_bytes == 0 {
             return 1.0;
         }
-        let compressed =
-            self.values.len() * std::mem::size_of::<T>() + self.mask.len();
+        let compressed = self.values.len() * std::mem::size_of::<T>() + self.mask.len();
         compressed as f64 / dense_bytes as f64
     }
 
@@ -1131,7 +1130,11 @@ impl<T: Float> CscTensor<T> {
                 data[r * self.ncols + c] = self.values[k];
             }
         }
-        Tensor::from_storage(TensorStorage::cpu(data), vec![self.nrows, self.ncols], false)
+        Tensor::from_storage(
+            TensorStorage::cpu(data),
+            vec![self.nrows, self.ncols],
+            false,
+        )
     }
 
     pub fn nnz(&self) -> usize {
@@ -1242,7 +1245,7 @@ impl<T: Float> SparseGrad<T> {
                 .entry(idx)
                 .or_insert_with(|| vec![<T as num_traits::Zero>::zero(); slab_size]);
             for (j, dst) in entry.iter_mut().enumerate() {
-                *dst = *dst + self.values[slab_start + j];
+                *dst += self.values[slab_start + j];
             }
         }
         let new_nnz = groups.len();
@@ -1941,7 +1944,9 @@ mod tests {
         // as the existing `apply_2_4_mask` function (which also
         // keeps the 2 largest-magnitude elements per group).
         let t = mk(
-            vec![0.1, 0.9, 0.3, 0.5, -0.8, 0.2, 0.7, -0.4, 1.5, -2.0, 0.1, 0.3],
+            vec![
+                0.1, 0.9, 0.3, 0.5, -0.8, 0.2, 0.7, -0.4, 1.5, -2.0, 0.1, 0.3,
+            ],
             vec![12],
         );
         let sp = SemiStructuredSparseTensor::compress(&t).unwrap();
@@ -2040,12 +2045,8 @@ mod tests {
     fn sparse_grad_coalesce_sums_duplicate_indices() {
         // index 0 appears twice with slabs [1, 2] and [3, 4] → coalesced [4, 6].
         // index 1 once with [5, 6].
-        let g = SparseGrad::<f32>::new(
-            vec![0, 1, 0],
-            vec![1.0, 2.0, 5.0, 6.0, 3.0, 4.0],
-            vec![2],
-        )
-        .unwrap();
+        let g = SparseGrad::<f32>::new(vec![0, 1, 0], vec![1.0, 2.0, 5.0, 6.0, 3.0, 4.0], vec![2])
+            .unwrap();
         let c = g.coalesce();
         assert_eq!(c.indices(), &[0, 1]);
         assert_eq!(c.values(), &[4.0, 6.0, 5.0, 6.0]);
@@ -2054,18 +2055,11 @@ mod tests {
     #[test]
     fn sparse_grad_apply_sgd_updates_only_affected_rows() {
         // Embedding [4, 3] init zeros; sparse grad at rows 1, 3 with lr=1.
-        let mut param = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![0.0; 12]),
-            vec![4, 3],
-            false,
-        )
-        .unwrap();
-        let grad = SparseGrad::<f32>::new(
-            vec![1, 3],
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-            vec![3],
-        )
-        .unwrap();
+        let mut param =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.0; 12]), vec![4, 3], false)
+                .unwrap();
+        let grad = SparseGrad::<f32>::new(vec![1, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![3])
+            .unwrap();
         grad.apply_sgd(&mut param, 1.0).unwrap();
         let d = param.data().unwrap();
         // Row 0: untouched
@@ -2080,12 +2074,9 @@ mod tests {
 
     #[test]
     fn sparse_grad_apply_sgd_rejects_oob_index() {
-        let mut param = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![0.0; 6]),
-            vec![2, 3],
-            false,
-        )
-        .unwrap();
+        let mut param =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.0; 6]), vec![2, 3], false)
+                .unwrap();
         let grad = SparseGrad::<f32>::new(vec![5], vec![1.0, 2.0, 3.0], vec![3]).unwrap();
         let err = grad.apply_sgd(&mut param, 1.0).unwrap_err();
         assert!(matches!(err, FerrotorchError::InvalidArgument { .. }));
@@ -2093,12 +2084,9 @@ mod tests {
 
     #[test]
     fn sparse_grad_apply_sgd_rejects_shape_mismatch() {
-        let mut param = Tensor::<f32>::from_storage(
-            TensorStorage::cpu(vec![0.0; 6]),
-            vec![2, 3],
-            false,
-        )
-        .unwrap();
+        let mut param =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.0; 6]), vec![2, 3], false)
+                .unwrap();
         // slab_shape [4] != param trailing [3]
         let grad = SparseGrad::<f32>::new(vec![0], vec![1.0; 4], vec![4]).unwrap();
         let err = grad.apply_sgd(&mut param, 1.0).unwrap_err();

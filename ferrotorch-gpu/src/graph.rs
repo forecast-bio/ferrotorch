@@ -55,8 +55,7 @@ use crate::error::{GpuError, GpuResult};
 /// - `Relaxed` — the driver does not track cross-thread interactions
 ///   at all. Fastest, but the caller is fully responsible for making
 ///   sure no other thread interferes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum CaptureMode {
     /// Global serialization (`CU_STREAM_CAPTURE_MODE_GLOBAL`).
     Global,
@@ -68,7 +67,6 @@ pub enum CaptureMode {
     /// (`CU_STREAM_CAPTURE_MODE_RELAXED`).
     Relaxed,
 }
-
 
 #[cfg(feature = "cuda")]
 impl CaptureMode {
@@ -255,10 +253,7 @@ impl CapturedGraph {
     /// Number of buffers held alive by this graph's allocator pool.
     /// Returns 0 if the graph was created without a pool. CL-278.
     pub fn pool_buffer_count(&self) -> usize {
-        self.pool
-            .as_ref()
-            .map(|p| p.buffer_count())
-            .unwrap_or(0)
+        self.pool.as_ref().map(|p| p.buffer_count()).unwrap_or(0)
     }
 
     /// True if this graph holds a CapturePool reference. CL-278.
@@ -302,10 +297,7 @@ pub fn begin_capture(stream: &Arc<CudaStream>) -> GpuResult<()> {
 /// this form when you need `Global` (debugging / strict serialization)
 /// or `Relaxed` (max throughput, single-thread ownership).
 #[cfg(feature = "cuda")]
-pub fn begin_capture_with_mode(
-    stream: &Arc<CudaStream>,
-    mode: CaptureMode,
-) -> GpuResult<()> {
+pub fn begin_capture_with_mode(stream: &Arc<CudaStream>, mode: CaptureMode) -> GpuResult<()> {
     stream.begin_capture(mode.to_cuda())?;
     Ok(())
 }
@@ -423,10 +415,7 @@ impl GraphCaptureGuard {
     }
 
     /// Begin graph capture with an explicit [`CaptureMode`]. CL-454.
-    pub fn begin_with_mode(
-        stream: &Arc<CudaStream>,
-        mode: CaptureMode,
-    ) -> GpuResult<Self> {
+    pub fn begin_with_mode(stream: &Arc<CudaStream>, mode: CaptureMode) -> GpuResult<Self> {
         begin_capture_with_mode(stream, mode)?;
         Ok(Self {
             stream: Arc::clone(stream),
@@ -437,10 +426,7 @@ impl GraphCaptureGuard {
 
     /// Begin graph capture bound to a [`CapturePool`]. The pool is
     /// attached to the resulting graph by [`finish`]. CL-454.
-    pub fn begin_with_pool(
-        stream: &Arc<CudaStream>,
-        pool: Arc<CapturePool>,
-    ) -> GpuResult<Self> {
+    pub fn begin_with_pool(stream: &Arc<CudaStream>, pool: Arc<CapturePool>) -> GpuResult<Self> {
         begin_capture_with_pool(&pool, stream)?;
         Ok(Self {
             stream: Arc::clone(stream),
@@ -523,9 +509,7 @@ fn pool_registry() -> &'static std::sync::Mutex<std::collections::HashMap<u64, A
 pub fn graph_pool_handle() -> GraphPoolHandle {
     let id = NEXT_POOL_HANDLE.fetch_add(1, Ordering::Relaxed);
     let pool = Arc::new(CapturePool::new());
-    let mut reg = pool_registry()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let mut reg = pool_registry().lock().unwrap_or_else(|p| p.into_inner());
     reg.insert(id, pool);
     GraphPoolHandle(id)
 }
@@ -536,9 +520,7 @@ pub fn graph_pool_handle() -> GraphPoolHandle {
 /// CL-454.
 #[cfg(feature = "cuda")]
 pub fn capture_pool_for_handle(handle: GraphPoolHandle) -> Option<Arc<CapturePool>> {
-    let reg = pool_registry()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let reg = pool_registry().lock().unwrap_or_else(|p| p.into_inner());
     reg.get(&handle.0).cloned()
 }
 
@@ -548,9 +530,7 @@ pub fn capture_pool_for_handle(handle: GraphPoolHandle) -> Option<Arc<CapturePoo
 /// is dropped too. CL-454.
 #[cfg(feature = "cuda")]
 pub fn release_graph_pool_handle(handle: GraphPoolHandle) {
-    let mut reg = pool_registry()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let mut reg = pool_registry().lock().unwrap_or_else(|p| p.into_inner());
     reg.remove(&handle.0);
 }
 
@@ -682,10 +662,7 @@ impl CapturePool {
     where
         B: Send + Sync + 'static,
     {
-        let mut guard = self
-            .buffers
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let mut guard = self.buffers.lock().unwrap_or_else(|p| p.into_inner());
         let idx = guard.len();
         guard.push(Box::new(buffer));
         idx
@@ -693,10 +670,7 @@ impl CapturePool {
 
     /// Number of buffers currently registered with the pool. CL-278.
     pub fn buffer_count(&self) -> usize {
-        self.buffers
-            .lock()
-            .map(|g| g.len())
-            .unwrap_or(0)
+        self.buffers.lock().map(|g| g.len()).unwrap_or(0)
     }
 
     /// Drop every registered buffer immediately, in registration
@@ -708,10 +682,7 @@ impl CapturePool {
     /// to this pool is safe — the graph's strong reference keeps
     /// the pool struct alive, but the buffer slots are reset.
     pub fn clear_buffers(&self) {
-        let mut guard = self
-            .buffers
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let mut guard = self.buffers.lock().unwrap_or_else(|p| p.into_inner());
         guard.clear();
     }
 }
@@ -891,10 +862,7 @@ impl GraphCaptureGuard {
         Err(GpuError::NoCudaFeature)
     }
 
-    pub fn begin_with_pool<T>(
-        _stream: &T,
-        _pool: std::sync::Arc<CapturePool>,
-    ) -> GpuResult<Self> {
+    pub fn begin_with_pool<T>(_stream: &T, _pool: std::sync::Arc<CapturePool>) -> GpuResult<Self> {
         Err(GpuError::NoCudaFeature)
     }
 

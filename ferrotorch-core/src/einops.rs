@@ -724,12 +724,24 @@ pub fn reduce<T: Float>(
     let kept_left_positions: Vec<usize> = left_names
         .iter()
         .enumerate()
-        .filter_map(|(i, name)| if right_names.contains(name) { Some(i) } else { None })
+        .filter_map(|(i, name)| {
+            if right_names.contains(name) {
+                Some(i)
+            } else {
+                None
+            }
+        })
         .collect();
     let reduced_left_positions: Vec<usize> = left_names
         .iter()
         .enumerate()
-        .filter_map(|(i, name)| if !right_names.contains(name) { Some(i) } else { None })
+        .filter_map(|(i, name)| {
+            if !right_names.contains(name) {
+                Some(i)
+            } else {
+                None
+            }
+        })
         .collect();
 
     // Are the reduced axes contiguous in left order?
@@ -755,11 +767,12 @@ pub fn reduce<T: Float>(
 
         // Build the 3-D view shape: [outer, reduced_combined, inner].
         let outer: usize = left_elem_shape[..reduced_start].iter().product();
-        let reduced_combined: usize = left_elem_shape
-            [reduced_start..reduced_start + reduced_len]
+        let reduced_combined: usize = left_elem_shape[reduced_start..reduced_start + reduced_len]
             .iter()
             .product();
-        let inner: usize = left_elem_shape[reduced_start + reduced_len..].iter().product();
+        let inner: usize = left_elem_shape[reduced_start + reduced_len..]
+            .iter()
+            .product();
 
         if let Ok(result) = (|| -> FerrotorchResult<Tensor<T>> {
             let view = input.view_reshape(vec![outer, reduced_combined, inner])?;
@@ -769,8 +782,8 @@ pub fn reduce<T: Float>(
                     // sum_dim is GPU-aware; mean_dim is not. Compose
                     // sum_dim → multiply by 1/N to stay on-device.
                     let summed = crate::grad_fns::reduction::sum_dim(&view, 1, false)?;
-                    let n_recip = <T as num_traits::One>::one()
-                        / T::from(reduced_combined).unwrap();
+                    let n_recip =
+                        <T as num_traits::One>::one() / T::from(reduced_combined).unwrap();
                     let scale_t = crate::creation::scalar(n_recip)?.to(input.device())?;
                     crate::grad_fns::arithmetic::mul(&summed, &scale_t)?
                 }

@@ -100,8 +100,7 @@ pub fn script(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // return is Tensor<f64>. Most callers use f32; f64 falls back to
     // explicit annotation.
     let scalar_ty = match output {
-        syn::ReturnType::Type(_, ty) => extract_tensor_param(ty)
-            .unwrap_or_else(|| quote! { f32 }),
+        syn::ReturnType::Type(_, ty) => extract_tensor_param(ty).unwrap_or_else(|| quote! { f32 }),
         _ => quote! { f32 },
     };
 

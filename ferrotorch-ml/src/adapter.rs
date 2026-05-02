@@ -100,10 +100,7 @@ pub fn array2_to_tensor<T: Float>(arr: Array2<T>) -> FerrotorchResult<Tensor<T>>
 /// of `T`. Useful when ferrolearn returns class predictions and you want
 /// them back inside a tensor pipeline.
 pub fn array1_usize_to_tensor<T: Float>(arr: Array1<usize>) -> FerrotorchResult<Tensor<T>> {
-    let data: Vec<T> = arr
-        .iter()
-        .map(|&i| T::from(i as f64).unwrap())
-        .collect();
+    let data: Vec<T> = arr.iter().map(|&i| T::from(i as f64).unwrap()).collect();
     Tensor::from_storage(TensorStorage::cpu(data), vec![arr.len()], false)
 }
 
@@ -193,8 +190,8 @@ mod tests {
 
     #[test]
     fn tensor_to_array1_rejects_2d() {
-        let t = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64; 6]), vec![2, 3], false)
-            .unwrap();
+        let t =
+            Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64; 6]), vec![2, 3], false).unwrap();
         let err = tensor_to_array1(&t).unwrap_err();
         assert!(matches!(err, FerrotorchError::ShapeMismatch { .. }));
     }

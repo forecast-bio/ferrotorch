@@ -158,7 +158,10 @@ impl<T: Float> TracedModule<T> {
         let path = path.as_ref();
         let bytes = self.to_bytes();
         std::fs::write(path, bytes).map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!("TracedModule::save: failed to write {}: {e}", path.display()),
+            message: format!(
+                "TracedModule::save: failed to write {}: {e}",
+                path.display()
+            ),
         })
     }
 

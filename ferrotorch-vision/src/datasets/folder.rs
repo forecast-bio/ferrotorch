@@ -87,8 +87,7 @@ impl<T: Float> ImageFolder<T> {
         root: impl AsRef<Path>,
         is_valid_file: F,
     ) -> FerrotorchResult<Self> {
-        let (samples, classes) =
-            scan_class_dirs(root.as_ref(), IMG_EXTENSIONS, is_valid_file)?;
+        let (samples, classes) = scan_class_dirs(root.as_ref(), IMG_EXTENSIONS, is_valid_file)?;
         Ok(Self {
             samples,
             classes,
@@ -129,15 +128,15 @@ impl<T: Float + 'static> Dataset for ImageFolder<T> {
     }
 
     fn get(&self, index: usize) -> FerrotorchResult<Self::Sample> {
-        let (path, label) =
-            self.samples
-                .get(index)
-                .ok_or(FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "ImageFolder::get: index {index} out of range (len={})",
-                        self.samples.len()
-                    ),
-                })?;
+        let (path, label) = self
+            .samples
+            .get(index)
+            .ok_or(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "ImageFolder::get: index {index} out of range (len={})",
+                    self.samples.len()
+                ),
+            })?;
         let image = crate::io::read_image_as_tensor::<T>(path)?;
         Ok(ImageSample {
             image,
@@ -235,15 +234,15 @@ where
     }
 
     fn get(&self, index: usize) -> FerrotorchResult<Self::Sample> {
-        let (path, label) =
-            self.samples
-                .get(index)
-                .ok_or(FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "DatasetFolder::get: index {index} out of range (len={})",
-                        self.samples.len()
-                    ),
-                })?;
+        let (path, label) = self
+            .samples
+            .get(index)
+            .ok_or(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "DatasetFolder::get: index {index} out of range (len={})",
+                    self.samples.len()
+                ),
+            })?;
         let data = (self.loader)(path)?;
         Ok(FolderSample {
             data,
@@ -259,6 +258,7 @@ where
 /// Walk `root` and produce `(samples, classes)`. Subdirectories are sorted
 /// alphabetically; files within each subdirectory are sorted too. Hidden
 /// dotfiles are skipped to match torchvision behavior.
+#[allow(clippy::type_complexity)]
 fn scan_class_dirs<F: Fn(&Path) -> bool>(
     root: &Path,
     extensions: &[&str],
@@ -340,7 +340,9 @@ fn has_extension_ci(path: &Path, extensions: &[&str]) -> bool {
         return false;
     };
     let ext_lower = ext.to_ascii_lowercase();
-    extensions.iter().any(|e| e.eq_ignore_ascii_case(&ext_lower))
+    extensions
+        .iter()
+        .any(|e| e.eq_ignore_ascii_case(&ext_lower))
 }
 
 #[cfg(test)]
@@ -407,7 +409,13 @@ mod tests {
 
         let folder = ImageFolder::<f32>::from_dir(tmp.path()).unwrap();
         assert_eq!(folder.len(), 1);
-        assert!(folder.samples()[0].0.to_str().unwrap().ends_with("good.jpg"));
+        assert!(
+            folder.samples()[0]
+                .0
+                .to_str()
+                .unwrap()
+                .ends_with("good.jpg")
+        );
     }
 
     #[test]
@@ -502,18 +510,14 @@ mod tests {
             }
         }
 
-        let ds: DatasetFolder<usize, _> = DatasetFolder::from_dir(
-            tmp.path(),
-            &["txt"],
-            |p: &Path| {
-                let bytes = std::fs::read(p)
-                    .map_err(|e| FerrotorchError::InvalidArgument {
-                        message: format!("read failed: {e}"),
-                    })?;
+        let ds: DatasetFolder<usize, _> =
+            DatasetFolder::from_dir(tmp.path(), &["txt"], |p: &Path| {
+                let bytes = std::fs::read(p).map_err(|e| FerrotorchError::InvalidArgument {
+                    message: format!("read failed: {e}"),
+                })?;
                 Ok(bytes.len())
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(ds.len(), 6);
         // class 0 is "long" alphabetically, class 1 is "short".
         for i in 0..6 {
@@ -535,15 +539,13 @@ mod tests {
         std::fs::write(dir.join("b.bar"), b"b").unwrap();
         std::fs::write(dir.join("c"), b"c").unwrap();
 
-        let ds: DatasetFolder<u8, _> =
-            DatasetFolder::from_dir(tmp.path(), &[], |p: &Path| {
-                let bytes = std::fs::read(p)
-                    .map_err(|e| FerrotorchError::InvalidArgument {
-                        message: format!("read failed: {e}"),
-                    })?;
-                Ok(bytes[0])
-            })
-            .unwrap();
+        let ds: DatasetFolder<u8, _> = DatasetFolder::from_dir(tmp.path(), &[], |p: &Path| {
+            let bytes = std::fs::read(p).map_err(|e| FerrotorchError::InvalidArgument {
+                message: format!("read failed: {e}"),
+            })?;
+            Ok(bytes[0])
+        })
+        .unwrap();
         assert_eq!(ds.len(), 3);
     }
 }

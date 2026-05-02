@@ -20,9 +20,7 @@ use std::sync::Arc;
 use crate::error::{FerrotorchError, FerrotorchResult};
 
 /// Element types supported by [`IntTensor`].
-pub trait IntElement:
-    Copy + Send + Sync + 'static + std::fmt::Debug + std::fmt::Display
-{
+pub trait IntElement: Copy + Send + Sync + 'static + std::fmt::Debug + std::fmt::Display {
     /// Bit-width of one element, used for dtype tagging.
     const BITS: u32;
     /// Returns this element type's printable name (e.g. `"i32"`).
@@ -111,12 +109,14 @@ impl<I: IntElement> IntTensor<I> {
     pub fn arange(n: usize) -> FerrotorchResult<Self> {
         let mut data: Vec<I> = Vec::with_capacity(n);
         for i in 0..n {
-            data.push(I::try_from_i64(i as i64).ok_or(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "IntTensor::arange: {i} out of range for {}",
-                    I::dtype_name()
-                ),
-            })?);
+            data.push(
+                I::try_from_i64(i as i64).ok_or(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "IntTensor::arange: {i} out of range for {}",
+                        I::dtype_name()
+                    ),
+                })?,
+            );
         }
         Self::from_vec(data, vec![n])
     }
@@ -160,12 +160,14 @@ impl<I: IntElement> IntTensor<I> {
         let mut out: Vec<J> = Vec::with_capacity(self.data.len());
         for (i, &v) in self.data.iter().enumerate() {
             let widened = v.to_i64();
-            out.push(J::try_from_i64(widened).ok_or(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "IntTensor::cast: element {i} = {v} out of range for {}",
-                    J::dtype_name()
-                ),
-            })?);
+            out.push(
+                J::try_from_i64(widened).ok_or(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "IntTensor::cast: element {i} = {v} out of range for {}",
+                        J::dtype_name()
+                    ),
+                })?,
+            );
         }
         IntTensor::<J>::from_vec(out, self.shape.clone())
     }

@@ -95,9 +95,7 @@ pub fn nccl_allreduce_dtype(
     let ptr = get_ptr_mut(buffer)?;
 
     // In-place: sendbuf == recvbuf.
-    unsafe {
-        backend.allreduce_raw(ptr as *const c_void, ptr, count, dtype, nccl_op)
-    }
+    unsafe { backend.allreduce_raw(ptr as *const c_void, ptr, count, dtype, nccl_op) }
 }
 
 /// Broadcast a GPU buffer from `root` to all ranks via NCCL.
@@ -122,9 +120,7 @@ pub fn nccl_broadcast_dtype(
     let count = buffer.len();
     let ptr = get_ptr_mut(buffer)?;
 
-    unsafe {
-        backend.broadcast_raw(ptr as *const c_void, ptr, count, dtype, root as i32)
-    }
+    unsafe { backend.broadcast_raw(ptr as *const c_void, ptr, count, dtype, root as i32) }
 }
 
 /// All-gather GPU buffers via NCCL.
@@ -152,9 +148,7 @@ pub fn nccl_all_gather_dtype(
     let send_ptr = get_ptr(send_buf)?;
     let recv_ptr = get_ptr_mut(recv_buf)?;
 
-    unsafe {
-        backend.all_gather_raw(send_ptr, recv_ptr, sendcount, dtype)
-    }
+    unsafe { backend.all_gather_raw(send_ptr, recv_ptr, sendcount, dtype) }
 }
 
 /// Reduce-scatter GPU buffers via NCCL.
@@ -184,7 +178,5 @@ pub fn nccl_reduce_scatter_dtype(
     let send_ptr = get_ptr(send_buf)?;
     let recv_ptr = get_ptr_mut(recv_buf)?;
 
-    unsafe {
-        backend.reduce_scatter_raw(send_ptr, recv_ptr, recvcount, dtype, nccl_op)
-    }
+    unsafe { backend.reduce_scatter_raw(send_ptr, recv_ptr, recvcount, dtype, nccl_op) }
 }

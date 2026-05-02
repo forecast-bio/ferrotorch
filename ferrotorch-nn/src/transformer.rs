@@ -206,8 +206,7 @@ pub struct RotaryPositionEmbedding<T: Float> {
 /// Determines how `inv_freq[i] = 1 / base^(2i / dim)` is modified to
 /// support context lengths beyond the model's training distribution.
 /// Default is [`RoPEScaling::None`] (classical RoPE with no modification).
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum RoPEScaling {
     /// No scaling. `inv_freq[i] = 1 / base^(2i / dim)`. Matches the
     /// original RoFormer formulation and the Llama 3 8B base model
@@ -262,7 +261,6 @@ pub enum RoPEScaling {
     },
 }
 
-
 impl RoPEScaling {
     /// Convenience: YARN with the paper's default beta_fast=32, beta_slow=1.
     pub const fn yarn_default(factor: f64, original_max_pos_embeddings: usize) -> Self {
@@ -286,9 +284,7 @@ fn yarn_find_correction_dim(
 ) -> f64 {
     // dim * ln(L / (num_rotations * 2pi)) / (2 ln(base))
     (dim as f64
-        * (original_max_pos_embeddings as f64
-            / (num_rotations * 2.0 * std::f64::consts::PI))
-            .ln())
+        * (original_max_pos_embeddings as f64 / (num_rotations * 2.0 * std::f64::consts::PI)).ln())
         / (2.0 * base.ln())
 }
 
@@ -350,11 +346,15 @@ pub(crate) fn compute_scaled_inv_freq(dim: usize, base: f64, scaling: RoPEScalin
                 .map(|i| base.powf(2.0 * i as f64 / dim as f64))
                 .collect();
             let extrapolation: Vec<f64> = pos_freqs.iter().map(|p| 1.0 / p).collect();
-            let interpolation: Vec<f64> =
-                pos_freqs.iter().map(|p| 1.0 / (factor * p)).collect();
+            let interpolation: Vec<f64> = pos_freqs.iter().map(|p| 1.0 / (factor * p)).collect();
 
-            let (low, high) =
-                yarn_find_correction_range(beta_fast, beta_slow, dim, base, original_max_pos_embeddings);
+            let (low, high) = yarn_find_correction_range(
+                beta_fast,
+                beta_slow,
+                dim,
+                base,
+                original_max_pos_embeddings,
+            );
             // Map the full-dim correction range onto the half-dim inv_freq
             // index space.
             let (low, high) = (low / 2.0, high / 2.0);
@@ -2179,7 +2179,10 @@ mod tests {
         let lin = compute_scaled_inv_freq(8, 10000.0, RoPEScaling::Linear { factor: 2.0 });
         let plain = compute_scaled_inv_freq(8, 10000.0, RoPEScaling::None);
         for (a, b) in lin.iter().zip(plain.iter()) {
-            assert!((a - b / 2.0).abs() < 1e-15, "linear should halve: {a} vs {b}/2");
+            assert!(
+                (a - b / 2.0).abs() < 1e-15,
+                "linear should halve: {a} vs {b}/2"
+            );
         }
     }
 
@@ -2191,11 +2194,7 @@ mod tests {
         let dim = 64;
         let base = 10000.0;
         let factor = 4.0;
-        let yarn = compute_scaled_inv_freq(
-            dim,
-            base,
-            RoPEScaling::yarn_default(factor, 2048),
-        );
+        let yarn = compute_scaled_inv_freq(dim, base, RoPEScaling::yarn_default(factor, 2048));
         let plain = compute_scaled_inv_freq(dim, base, RoPEScaling::None);
 
         // Highest-frequency dim: extrapolation regime (value matches plain).
@@ -3098,10 +3097,7 @@ mod tests {
         let tgt = ferrotorch_core::ones::<f32>(&[1, 3, 8]).unwrap();
         let output = t.forward_transformer(&src, &tgt).unwrap();
         for &v in output.data().unwrap() {
-            assert!(
-                v.is_finite(),
-                "Transformer produced non-finite value: {v}"
-            );
+            assert!(v.is_finite(), "Transformer produced non-finite value: {v}");
         }
     }
 

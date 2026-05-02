@@ -10,9 +10,10 @@ Core tensor and autograd engine for ferrotorch — PyTorch in Rust.
   (`f32`, `f64`, with `f16`/`bf16` storage support). Reference-counted
   via `Arc<TensorInner>`, with shape, strides, offset, and an optional
   `grad_fn` for autograd.
-- **Device abstraction** — `Device::Cpu`, `Device::Cuda(ordinal)`. Move
-  tensors with `.to(device)`, `.cuda()`, `.cpu()`, and the pinned-memory
-  variant `.to_pinned(device)` for fast CPU→GPU transfer.
+- **Device abstraction** — `Device::Cpu`, `Device::Cuda(ordinal)`,
+  `Device::Mps(ordinal)`, `Device::Xpu(ordinal)`. Move tensors with
+  `.to(device)`, `.cuda()`, `.cpu()`, and the pinned-memory variant
+  `.to_pinned(device)` for fast CPU→GPU transfer.
 - **Storage** — `TensorStorage` over `StorageBuffer::Cpu(Vec<T>)` or
   `StorageBuffer::Gpu(GpuBufferHandle)` with `on_device` and
   `on_device_pinned` constructors.
@@ -61,8 +62,20 @@ Core tensor and autograd engine for ferrotorch — PyTorch in Rust.
 - **Einsum** — differentiable Einstein summation
 - **Activations** (differentiable) — `relu`, `gelu`, `silu`, `elu`,
   `mish`, `sigmoid`, `tanh`, `softmax`, `log_softmax`
-- **FFT** — `fft`, `ifft`, `rfft`, `irfft`, `fft2`, `ifft2`
-- **Sparse** — `SparseTensor` (COO format) with sparse arithmetic
+- **FFT** — `fft`, `ifft`, `rfft`, `irfft`, `fft2`, `ifft2`, `fftn`,
+  `ifftn`, `rfftn`, `irfftn`, with cuFFT GPU dispatch
+- **Signal processing** — `signal::{stft, istft, hilbert,
+  spectrogram, hann/hamming/blackman}` window functions
+- **Complex tensors** — interleaved-real complex storage, complex-aware
+  arithmetic, FFT, and `eig` non-symmetric eigendecomposition
+- **Sparse** — `SparseTensor` (COO format) with sparse arithmetic and
+  sparse-grad support for embedding tables
+- **Named tensors** — `NamedTensor<T>` with `refine_names`, `align_to`,
+  `rename` for advisory dim labels (PyTorch parity)
+- **Stride tricks** — `as_strided`, `sliding_window_view`,
+  `broadcast_to` zero-copy view manipulation
+- **Masked tensors** — `masked_min`, `masked_max`, `masked_mean` with
+  fused PTX kernels on GPU
 - **Quantization** — INT8/INT4 per-tensor and per-channel
 - **Flexible attention** — `flex_attention` with score-mod callbacks,
   composed from `bmm + softmax + cat` for full GPU dispatch

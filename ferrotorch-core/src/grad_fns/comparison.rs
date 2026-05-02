@@ -150,8 +150,18 @@ mod first_class_tests {
 
     #[test]
     fn where_bt_picks_correctly() {
-        let x = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f32, 2.0, 3.0, 4.0]), vec![4], false).unwrap();
-        let y = Tensor::from_storage(TensorStorage::cpu(vec![10.0_f32, 20.0, 30.0, 40.0]), vec![4], false).unwrap();
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0_f32, 2.0, 3.0, 4.0]),
+            vec![4],
+            false,
+        )
+        .unwrap();
+        let y = Tensor::from_storage(
+            TensorStorage::cpu(vec![10.0_f32, 20.0, 30.0, 40.0]),
+            vec![4],
+            false,
+        )
+        .unwrap();
         let cond = BoolTensor::from_vec(vec![true, false, true, false], vec![4]).unwrap();
         let out = where_bt(&cond, &x, &y).unwrap();
         assert_eq!(out.data().unwrap(), &[1.0, 20.0, 3.0, 40.0]);

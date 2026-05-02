@@ -676,12 +676,11 @@ fn emit_ptx_body(out: &mut String, stmts: &[LoopIR]) {
                     emit_ptx_expr_to_reg(out, value, "%acc");
                 }
             }
-            LoopIR::Accumulate { var, value }
-                if var == "acc" => {
-                    // Load the value into a temp, then add to acc
-                    emit_ptx_expr_to_reg(out, value, "%t0");
-                    out.push_str("    add.f32 %acc, %acc, %t0;\n");
-                }
+            LoopIR::Accumulate { var, value } if var == "acc" => {
+                // Load the value into a temp, then add to acc
+                emit_ptx_expr_to_reg(out, value, "%t0");
+                out.push_str("    add.f32 %acc, %acc, %t0;\n");
+            }
             LoopIR::Store { value, .. } => {
                 // Store already handled by the caller (st.global.f32)
                 // But if the value is not %val, we need to move it there
@@ -893,18 +892,16 @@ fn loops_contain_accumulate(stmts: &[LoopIR]) -> bool {
     for stmt in stmts {
         match stmt {
             LoopIR::Accumulate { .. } => return true,
-            LoopIR::Loop { body, .. }
-                if loops_contain_accumulate(body) => {
-                    return true;
-                }
+            LoopIR::Loop { body, .. } if loops_contain_accumulate(body) => {
+                return true;
+            }
             LoopIR::If {
                 then_body,
                 else_body,
                 ..
+            } if (loops_contain_accumulate(then_body) || loops_contain_accumulate(else_body)) => {
+                return true;
             }
-                if (loops_contain_accumulate(then_body) || loops_contain_accumulate(else_body)) => {
-                    return true;
-                }
             _ => {}
         }
     }

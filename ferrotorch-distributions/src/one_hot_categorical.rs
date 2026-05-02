@@ -123,15 +123,18 @@ impl<T: Float> Distribution<T> for OneHotCategorical<T> {
         let mut out_shape = shape.to_vec();
         out_shape.push(k);
         let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn rsample(&self, _shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
         Err(FerrotorchError::InvalidArgument {
-            message:
-                "OneHotCategorical: rsample is not supported -- discrete distribution. \
+            message: "OneHotCategorical: rsample is not supported -- discrete distribution. \
                  Use RelaxedOneHotCategorical for a differentiable continuous relaxation."
-                    .into(),
+                .into(),
         })
     }
 
@@ -170,7 +173,11 @@ impl<T: Float> Distribution<T> for OneHotCategorical<T> {
         out_shape.pop();
         let device = self.probs.device();
         let out = Tensor::from_storage(TensorStorage::cpu(result), out_shape, false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
@@ -184,7 +191,11 @@ impl<T: Float> Distribution<T> for OneHotCategorical<T> {
         }
         let device = self.probs.device();
         let out = Tensor::from_storage(TensorStorage::cpu(vec![h]), vec![], false)?;
-        if device.is_cuda() { out.to(device) } else { Ok(out) }
+        if device.is_cuda() {
+            out.to(device)
+        } else {
+            Ok(out)
+        }
     }
 }
 
@@ -206,7 +217,10 @@ mod tests {
         let data = s.data().unwrap();
         for row in 0..10 {
             let row_sum: f32 = (0..3).map(|c| data[row * 3 + c]).sum();
-            assert!((row_sum - 1.0).abs() < 1e-6, "row {row} not one-hot: sum={row_sum}");
+            assert!(
+                (row_sum - 1.0).abs() < 1e-6,
+                "row {row} not one-hot: sum={row_sum}"
+            );
         }
     }
 
@@ -219,7 +233,10 @@ mod tests {
         assert_eq!(lp.shape(), [] as [usize; 0]);
         let val = lp.item().unwrap();
         let expected = 0.3_f32.ln();
-        assert!((val - expected).abs() < 1e-5, "expected {expected}, got {val}");
+        assert!(
+            (val - expected).abs() < 1e-5,
+            "expected {expected}, got {val}"
+        );
     }
 
     #[test]

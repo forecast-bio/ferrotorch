@@ -161,26 +161,26 @@ impl<T: Float> Rmsprop<T> {
                     None => continue,
                 };
 
-                let param_t =
-                    self.param_groups[gi].params[pi].tensor().clone();
+                let param_t = self.param_groups[gi].params[pi].tensor().clone();
                 let device = param_t.device();
                 let key = (gi, pi);
 
                 // Lazy-init state.
-                if let std::collections::hash_map::Entry::Vacant(e) = self.foreach_state.entry(key) {
+                if let std::collections::hash_map::Entry::Vacant(e) = self.foreach_state.entry(key)
+                {
                     e.insert(ForeachState {
-                            square_avg: zeros::<T>(param_t.shape())?.to(device)?,
-                            grad_avg: if centered {
-                                Some(zeros::<T>(param_t.shape())?.to(device)?)
-                            } else {
-                                None
-                            },
-                            momentum_buf: if momentum > 0.0 {
-                                Some(zeros::<T>(param_t.shape())?.to(device)?)
-                            } else {
-                                None
-                            },
-                        });
+                        square_avg: zeros::<T>(param_t.shape())?.to(device)?,
+                        grad_avg: if centered {
+                            Some(zeros::<T>(param_t.shape())?.to(device)?)
+                        } else {
+                            None
+                        },
+                        momentum_buf: if momentum > 0.0 {
+                            Some(zeros::<T>(param_t.shape())?.to(device)?)
+                        } else {
+                            None
+                        },
+                    });
                 }
 
                 no_grad(|| {
@@ -197,17 +197,14 @@ impl<T: Float> Rmsprop<T> {
                     }
 
                     let alpha_t = scalar(T::from(alpha).unwrap())?.to(device)?;
-                    let one_minus_alpha_t =
-                        scalar(T::from(1.0 - alpha).unwrap())?.to(device)?;
+                    let one_minus_alpha_t = scalar(T::from(1.0 - alpha).unwrap())?.to(device)?;
                     let eps_t = scalar(T::from(eps).unwrap())?.to(device)?;
 
                     // square_avg = alpha * square_avg + (1 - alpha) * g^2
                     let sq_old = self.foreach_state[&key].square_avg.clone();
                     let g_sq = mul(&grad, &grad)?;
-                    let square_avg_new = add(
-                        &mul(&sq_old, &alpha_t)?,
-                        &mul(&g_sq, &one_minus_alpha_t)?,
-                    )?;
+                    let square_avg_new =
+                        add(&mul(&sq_old, &alpha_t)?, &mul(&g_sq, &one_minus_alpha_t)?)?;
 
                     // avg denominator.
                     let (avg, grad_avg_new) = if centered {
@@ -216,10 +213,8 @@ impl<T: Float> Rmsprop<T> {
                             .as_ref()
                             .expect("centered grad_avg")
                             .clone();
-                        let grad_avg_new_t = add(
-                            &mul(&ga_old, &alpha_t)?,
-                            &mul(&grad, &one_minus_alpha_t)?,
-                        )?;
+                        let grad_avg_new_t =
+                            add(&mul(&ga_old, &alpha_t)?, &mul(&grad, &one_minus_alpha_t)?)?;
                         // avg = sqrt(square_avg - grad_avg^2 + eps)
                         let ga_sq = mul(&grad_avg_new_t, &grad_avg_new_t)?;
                         let inner = sub(&square_avg_new, &ga_sq)?;
@@ -243,8 +238,7 @@ impl<T: Float> Rmsprop<T> {
                             .clone();
                         // buf = momentum * buf + grad / avg
                         let grad_over_avg = div(&grad, &avg)?;
-                        let new_buf =
-                            add(&mul(&buf_old, &momentum_t)?, &grad_over_avg)?;
+                        let new_buf = add(&mul(&buf_old, &momentum_t)?, &grad_over_avg)?;
                         let scaled = mul(&new_buf, &lr_t)?;
                         let np = sub(&param_t, &scaled)?;
                         (np, Some(new_buf))

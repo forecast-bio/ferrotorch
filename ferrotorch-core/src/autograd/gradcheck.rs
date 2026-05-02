@@ -52,9 +52,21 @@ where
     F: Fn(&[Tensor<T>]) -> FerrotorchResult<Tensor<T>>,
 {
     // Default eps is larger for f32 to avoid cancellation in finite differences.
-    let default_eps = if std::mem::size_of::<T>() <= 4 { 1e-3 } else { 1e-6 };
-    let default_atol = if std::mem::size_of::<T>() <= 4 { 1e-3 } else { 1e-5 };
-    let default_rtol = if std::mem::size_of::<T>() <= 4 { 1e-2 } else { 1e-3 };
+    let default_eps = if std::mem::size_of::<T>() <= 4 {
+        1e-3
+    } else {
+        1e-6
+    };
+    let default_atol = if std::mem::size_of::<T>() <= 4 {
+        1e-3
+    } else {
+        1e-5
+    };
+    let default_rtol = if std::mem::size_of::<T>() <= 4 {
+        1e-2
+    } else {
+        1e-3
+    };
     let eps = eps.unwrap_or(default_eps);
     let atol = atol.unwrap_or(default_atol);
     let rtol = rtol.unwrap_or(default_rtol);
@@ -150,7 +162,11 @@ where
                 numerical - analytical
             };
             let zero = <T as num_traits::Zero>::zero();
-            let abs_numerical = if numerical < zero { zero - numerical } else { numerical };
+            let abs_numerical = if numerical < zero {
+                zero - numerical
+            } else {
+                numerical
+            };
             let tolerance = T::from(atol).unwrap() + T::from(rtol).unwrap() * abs_numerical;
 
             if diff > tolerance {
@@ -231,13 +247,7 @@ mod tests {
     #[test]
     fn test_gradcheck_non_scalar_fails() {
         let x = leaf(&[1.0, 2.0], &[2]);
-        let result = gradcheck(
-            |inputs| Ok(inputs[0].clone()),
-            &[x],
-            None,
-            None,
-            None,
-        );
+        let result = gradcheck(|inputs| Ok(inputs[0].clone()), &[x], None, None, None);
         assert!(result.is_err());
     }
 }

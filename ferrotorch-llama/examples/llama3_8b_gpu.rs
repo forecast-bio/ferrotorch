@@ -104,8 +104,8 @@ fn main() {
     );
 
     // Step 5: encode prompt
-    let prompt_ids = encode(&tok, &prompt, /* add_special_tokens = */ true)
-        .expect("failed to encode prompt");
+    let prompt_ids =
+        encode(&tok, &prompt, /* add_special_tokens = */ true).expect("failed to encode prompt");
     println!(
         "[llama3_8b_gpu] prompt tokens ({}): {:?}",
         prompt_ids.len(),
@@ -151,7 +151,10 @@ fn main() {
     let avg = generation_secs / max_new_tokens as f64;
     println!(
         "[llama3_8b_gpu] generated {} tokens in {:.2}s (avg {:.2}s/token, {:.3} tok/s)",
-        max_new_tokens, generation_secs, avg, 1.0 / avg,
+        max_new_tokens,
+        generation_secs,
+        avg,
+        1.0 / avg,
     );
     println!("[llama3_8b_gpu] full continuation: {}", full);
 }

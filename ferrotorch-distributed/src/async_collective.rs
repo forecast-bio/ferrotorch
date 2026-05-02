@@ -56,14 +56,15 @@ impl<T: Float> PendingCollective<T> {
     ///
     /// Consumes the handle. Calling `wait()` twice returns an error.
     pub fn wait(mut self) -> FerrotorchResult<Tensor<T>> {
-        let recv = self.recv.take().ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!("{}: wait() called on already-consumed handle", self.op_name),
-        })?;
-        let result = recv
-            .recv()
-            .map_err(|e| FerrotorchError::InvalidArgument {
-                message: format!("{}: background thread disconnected: {e}", self.op_name),
+        let recv = self
+            .recv
+            .take()
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: format!("{}: wait() called on already-consumed handle", self.op_name),
             })?;
+        let result = recv.recv().map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("{}: background thread disconnected: {e}", self.op_name),
+        })?;
         if let Some(handle) = self.handle.take() {
             // Join the background thread; propagate any panic as an error.
             if let Err(e) = handle.join() {
@@ -224,12 +225,8 @@ mod tests {
     fn test_async_all_gather_world_size_1() {
         let group = SimulatedBackend::create_group(1).unwrap();
         let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![5.0f32, 6.0, 7.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![5.0f32, 6.0, 7.0]), vec![3], false)
+            .unwrap();
         let pending = async_all_gather(t, b);
         let out = pending.wait().unwrap();
         assert_eq!(out.data_vec().unwrap(), &[5.0, 6.0, 7.0]);

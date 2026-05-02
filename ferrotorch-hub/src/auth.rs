@@ -123,7 +123,10 @@ mod tests {
         let prior_home = std::env::var("HF_HOME").ok();
         unsafe {
             std::env::remove_var("HF_TOKEN");
-            std::env::set_var("HF_HOME", "/tmp/__ferrotorch_nonexistent_hf_home_for_test__");
+            std::env::set_var(
+                "HF_HOME",
+                "/tmp/__ferrotorch_nonexistent_hf_home_for_test__",
+            );
         };
         // The decorated request is observably the same shape; we can't
         // compare requests for header equality directly, but we can ensure

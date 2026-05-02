@@ -156,8 +156,7 @@ impl<T: Float> Tensor<T> {
             && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
         {
             if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
-                let sum_handle =
-                    backend.add_f32(self.gpu_handle()?, other.gpu_handle()?)?;
+                let sum_handle = backend.add_f32(self.gpu_handle()?, other.gpu_handle()?)?;
                 let storage = crate::storage::TensorStorage::gpu(sum_handle);
                 unsafe { self.update_storage(storage)? };
                 return Ok(self);
@@ -193,8 +192,7 @@ impl<T: Float> Tensor<T> {
             && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
         {
             if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
-                let handle =
-                    backend.sub_f32(self.gpu_handle()?, other.gpu_handle()?)?;
+                let handle = backend.sub_f32(self.gpu_handle()?, other.gpu_handle()?)?;
                 let storage = crate::storage::TensorStorage::gpu(handle);
                 unsafe { self.update_storage(storage)? };
                 return Ok(self);
@@ -230,8 +228,7 @@ impl<T: Float> Tensor<T> {
             && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
         {
             if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
-                let handle =
-                    backend.mul_f32(self.gpu_handle()?, other.gpu_handle()?)?;
+                let handle = backend.mul_f32(self.gpu_handle()?, other.gpu_handle()?)?;
                 let storage = crate::storage::TensorStorage::gpu(handle);
                 unsafe { self.update_storage(storage)? };
                 return Ok(self);
@@ -267,8 +264,7 @@ impl<T: Float> Tensor<T> {
             && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>()
         {
             if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
-                let handle =
-                    backend.div_f32(self.gpu_handle()?, other.gpu_handle()?)?;
+                let handle = backend.div_f32(self.gpu_handle()?, other.gpu_handle()?)?;
                 let storage = crate::storage::TensorStorage::gpu(handle);
                 unsafe { self.update_storage(storage)? };
                 return Ok(self);

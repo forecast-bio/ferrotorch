@@ -490,23 +490,15 @@ impl ProfileReport {
 
         // Build the target directory: {logdir}/plugins/profile/{run_id}/
         let target_dir = logdir.join("plugins").join("profile").join(run_id);
-        std::fs::create_dir_all(&target_dir).map_err(|e| {
-            FerrotorchError::InvalidArgument {
-                message: format!(
-                    "save_tensorboard_trace: failed to create {target_dir:?}: {e}"
-                ),
-            }
+        std::fs::create_dir_all(&target_dir).map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("save_tensorboard_trace: failed to create {target_dir:?}: {e}"),
         })?;
 
         let filename = format!("{hostname}.pt.trace.json");
         let target_file = target_dir.join(filename);
         let json = self.chrome_trace_json();
-        std::fs::write(&target_file, json).map_err(|e| {
-            FerrotorchError::InvalidArgument {
-                message: format!(
-                    "save_tensorboard_trace: failed to write {target_file:?}: {e}"
-                ),
-            }
+        std::fs::write(&target_file, json).map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("save_tensorboard_trace: failed to write {target_file:?}: {e}"),
         })?;
         Ok(target_file)
     }

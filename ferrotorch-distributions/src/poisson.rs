@@ -341,12 +341,8 @@ mod tests {
         let dist = Poisson::new(scalar(4.7f64).unwrap()).unwrap();
         // Poisson has an inherent `mean()` returning &Tensor; use FQ syntax
         // to invoke the trait methods which return Tensor by value.
-        assert!(
-            (Distribution::mean(&dist).unwrap().item().unwrap() - 4.7).abs() < 1e-12
-        );
-        assert!(
-            (Distribution::variance(&dist).unwrap().item().unwrap() - 4.7).abs() < 1e-12
-        );
+        assert!((Distribution::mean(&dist).unwrap().item().unwrap() - 4.7).abs() < 1e-12);
+        assert!((Distribution::variance(&dist).unwrap().item().unwrap() - 4.7).abs() < 1e-12);
         // mode = floor(4.7) = 4
         assert!((dist.mode().unwrap().item().unwrap() - 4.0).abs() < 1e-12);
     }

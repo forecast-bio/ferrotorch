@@ -180,8 +180,7 @@ impl<T: Float> GradFn<T> for CumprodBackward<T> {
             }
         }
 
-        let result =
-            Tensor::from_storage(TensorStorage::cpu(grad_input), shape.to_vec(), false)?;
+        let result = Tensor::from_storage(TensorStorage::cpu(grad_input), shape.to_vec(), false)?;
         Ok(vec![Some(result)])
     }
 

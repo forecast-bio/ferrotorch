@@ -276,7 +276,8 @@ mod tests {
             let id = vocab.iter().position(|s| s == &tok).unwrap();
             let mask = p.compute_mask();
             assert_eq!(
-                mask.allow[id], 1,
+                mask.allow[id],
+                1,
                 "char {c:?} masked at point of emitting {target:?}; \
                  emitted-so-far valid_next from grammar: {:?}",
                 p.grammar().valid_next_chars()
@@ -338,8 +339,7 @@ mod tests {
         });
         let mut p = JsonSchemaProcessor::new(&schema, ascii_char_vocab()).unwrap();
         let out = greedy_complete(&mut p, 256);
-        let parsed: serde_json::Value =
-            serde_json::from_str(&out).expect("valid nested JSON");
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid nested JSON");
         let outer = parsed.as_object().unwrap().get("outer").unwrap();
         let inner = outer.as_object().unwrap().get("inner").unwrap();
         assert!(inner.is_boolean());
@@ -408,11 +408,8 @@ mod tests {
     /// `cargo test` (debug) and back up for CI (`--release`). The split is
     /// done with a constant rather than `cfg!(debug_assertions)` directly so
     /// a future operator can flip it via env var without recompiling.
-    const SAMPLED_COMPLETIONS_PER_SCHEMA: usize = if cfg!(debug_assertions) {
-        1000
-    } else {
-        10_000
-    };
+    const SAMPLED_COMPLETIONS_PER_SCHEMA: usize =
+        if cfg!(debug_assertions) { 1000 } else { 10_000 };
 
     #[test]
     fn sampled_completions_always_validate() {
@@ -479,8 +476,7 @@ mod tests {
                 // grammar guarantee is that any *prefix* it produces is a
                 // legal prefix of a value matching the schema.
                 if p.is_complete() {
-                    let parsed: Result<serde_json::Value, _> =
-                        serde_json::from_str(&emitted);
+                    let parsed: Result<serde_json::Value, _> = serde_json::from_str(&emitted);
                     assert!(
                         parsed.is_ok(),
                         "schema {i} trial {trial}: emitted invalid JSON: {emitted:?}"

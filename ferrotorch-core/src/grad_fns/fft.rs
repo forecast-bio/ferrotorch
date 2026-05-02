@@ -928,10 +928,7 @@ mod tests {
     #[test]
     fn fftn_differentiable_attaches_grad_fn() {
         // 2x2 complex input: [[1+0i, 0+0i], [0+0i, 0+0i]] → flat [2, 2, 2].
-        let input = leaf(
-            &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            &[2, 2, 2],
-        );
+        let input = leaf(&[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &[2, 2, 2]);
         let result = fftn_differentiable(&input, None, None).unwrap();
         assert!(result.grad_fn().is_some());
         assert_eq!(result.grad_fn().unwrap().name(), "FftnBackward");
@@ -939,10 +936,7 @@ mod tests {
 
     #[test]
     fn ifftn_differentiable_attaches_grad_fn() {
-        let input = leaf(
-            &[1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0],
-            &[2, 2, 2],
-        );
+        let input = leaf(&[1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0], &[2, 2, 2]);
         let result = ifftn_differentiable(&input, None, None).unwrap();
         assert!(result.grad_fn().is_some());
         assert_eq!(result.grad_fn().unwrap().name(), "IfftnBackward");
@@ -950,10 +944,7 @@ mod tests {
 
     #[test]
     fn fftn_no_grad_when_not_needed() {
-        let input = no_grad_leaf(
-            &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            &[2, 2, 2],
-        );
+        let input = no_grad_leaf(&[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &[2, 2, 2]);
         let result = fftn_differentiable(&input, None, None).unwrap();
         assert!(result.grad_fn().is_none());
     }
@@ -964,16 +955,10 @@ mod tests {
         // [[1+0i, 0+0i], [0+0i, 0+0i]]). fftn → all-ones 2x2 complex
         // (DFT-2D of a corner impulse). grad_y = ones → grad_x =
         // prod_s * ifftn(ones) = 4 * impulse / 4 → impulse_complex.
-        let input = leaf(
-            &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            &[2, 2, 2],
-        );
+        let input = leaf(&[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &[2, 2, 2]);
         let result = fftn_differentiable(&input, None, None).unwrap();
         // grad_y = ones (4 complex pairs).
-        let grad_out = no_grad_leaf(
-            &[1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0],
-            &[2, 2, 2],
-        );
+        let grad_out = no_grad_leaf(&[1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0], &[2, 2, 2]);
         let grads = result.grad_fn().unwrap().backward(&grad_out).unwrap();
         let g = grads[0].as_ref().unwrap();
         // Expected: 4 * ifftn(ones) over a 2x2 grid → 4 * impulse / 4 = impulse.
@@ -996,10 +981,7 @@ mod tests {
     #[test]
     fn irfftn_differentiable_attaches_grad_fn() {
         // Hermitian-shaped complex input [2, 2, 2]: 2 batch × 2 freq × complex.
-        let input = leaf(
-            &[1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0],
-            &[2, 2, 2],
-        );
+        let input = leaf(&[1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0], &[2, 2, 2]);
         let result = irfftn_differentiable(&input, Some(&[2, 2]), None).unwrap();
         assert!(result.grad_fn().is_some());
         assert_eq!(result.grad_fn().unwrap().name(), "IrfftnBackward");
@@ -1032,7 +1014,7 @@ mod tests {
 
     #[test]
     fn fftn_norm_n_with_explicit_s() {
-        let input = no_grad_leaf(&vec![0.0; 8 * 2], &[2, 2, 2, 2]);
+        let input = no_grad_leaf(&[0.0; 8 * 2], &[2, 2, 2, 2]);
         let n = fftn_norm_n(&input, Some(&[3, 5]), None);
         assert_eq!(n, 15);
     }

@@ -247,7 +247,13 @@ pub fn cdist<T: Float>(x1: &Tensor<T>, x2: &Tensor<T>, p: f64) -> FerrotorchResu
                     ),
                 });
             }
-            (true, x1.shape()[0], x1.shape()[1], x2.shape()[1], x1.shape()[2])
+            (
+                true,
+                x1.shape()[0],
+                x1.shape()[1],
+                x2.shape()[1],
+                x1.shape()[2],
+            )
         }
         _ => {
             return Err(FerrotorchError::InvalidArgument {
@@ -256,7 +262,7 @@ pub fn cdist<T: Float>(x1: &Tensor<T>, x2: &Tensor<T>, p: f64) -> FerrotorchResu
                     x1.shape(),
                     x2.shape()
                 ),
-            })
+            });
         }
     };
 
@@ -311,21 +317,30 @@ mod tests {
     fn test_triu_main_diagonal() {
         let input = t2d(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], 3, 3);
         let result = triu(&input, 0).unwrap();
-        assert_eq!(result.data().unwrap(), &[1.0, 2.0, 3.0, 0.0, 5.0, 6.0, 0.0, 0.0, 9.0]);
+        assert_eq!(
+            result.data().unwrap(),
+            &[1.0, 2.0, 3.0, 0.0, 5.0, 6.0, 0.0, 0.0, 9.0]
+        );
     }
 
     #[test]
     fn test_tril_main_diagonal() {
         let input = t2d(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], 3, 3);
         let result = tril(&input, 0).unwrap();
-        assert_eq!(result.data().unwrap(), &[1.0, 0.0, 0.0, 4.0, 5.0, 0.0, 7.0, 8.0, 9.0]);
+        assert_eq!(
+            result.data().unwrap(),
+            &[1.0, 0.0, 0.0, 4.0, 5.0, 0.0, 7.0, 8.0, 9.0]
+        );
     }
 
     #[test]
     fn test_triu_positive_diagonal() {
         let input = t2d(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], 3, 3);
         let result = triu(&input, 1).unwrap();
-        assert_eq!(result.data().unwrap(), &[0.0, 2.0, 3.0, 0.0, 0.0, 6.0, 0.0, 0.0, 0.0]);
+        assert_eq!(
+            result.data().unwrap(),
+            &[0.0, 2.0, 3.0, 0.0, 0.0, 6.0, 0.0, 0.0, 0.0]
+        );
     }
 
     #[test]

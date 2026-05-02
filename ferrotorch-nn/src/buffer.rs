@@ -112,7 +112,9 @@ mod tests {
     #[test]
     fn buffer_set_data_keeps_no_grad() {
         let mut b = Buffer::<f32>::zeros(&[3]).unwrap();
-        let t = ferrotorch_core::ones::<f32>(&[3]).unwrap().requires_grad_(true);
+        let t = ferrotorch_core::ones::<f32>(&[3])
+            .unwrap()
+            .requires_grad_(true);
         assert!(t.requires_grad());
         b.set_data(t);
         assert!(!b.requires_grad());

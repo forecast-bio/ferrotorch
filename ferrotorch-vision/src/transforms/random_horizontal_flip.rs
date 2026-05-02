@@ -57,8 +57,7 @@ impl<T: Float> Transform<T> for RandomHorizontalFlip<T> {
         for ch in 0..c {
             for row in 0..h {
                 for col in 0..w {
-                    out[ch * h * w + row * w + col] =
-                        data[ch * h * w + row * w + (w - 1 - col)];
+                    out[ch * h * w + row * w + col] = data[ch * h * w + row * w + (w - 1 - col)];
                 }
             }
         }

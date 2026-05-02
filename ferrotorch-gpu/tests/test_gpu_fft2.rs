@@ -61,9 +61,7 @@ fn fft2_ifft2_round_trip_f32() {
         data.push((i as f32) * 0.25);
         data.push(((i as f32) * 0.1).sin());
     }
-    let original = cpu_t_f32(&data, &[4, 4, 2])
-        .to(Device::Cuda(0))
-        .unwrap();
+    let original = cpu_t_f32(&data, &[4, 4, 2]).to(Device::Cuda(0)).unwrap();
 
     let f = fft2(&original).unwrap();
     let back = ifft2(&f).unwrap();
@@ -89,9 +87,7 @@ fn fft2_f64_round_trip() {
         data.push((i as f64) * 0.5);
         data.push(0.0);
     }
-    let original = cpu_t_f64(&data, &[4, 4, 2])
-        .to(Device::Cuda(0))
-        .unwrap();
+    let original = cpu_t_f64(&data, &[4, 4, 2]).to(Device::Cuda(0)).unwrap();
     let f = fft2(&original).unwrap();
     let back = ifft2(&f).unwrap();
     let original_host = original.cpu().unwrap().data().unwrap().to_vec();
@@ -121,7 +117,12 @@ fn fft2_8x8_matches_cpu() {
     let cd = cpu_out.data().unwrap();
     let gd = gpu_out.data().unwrap();
     for i in 0..cd.len() {
-        assert!((gd[i] - cd[i]).abs() < 1e-3, "i={i}: gpu={} cpu={}", gd[i], cd[i]);
+        assert!(
+            (gd[i] - cd[i]).abs() < 1e-3,
+            "i={i}: gpu={} cpu={}",
+            gd[i],
+            cd[i]
+        );
     }
 }
 
@@ -129,9 +130,7 @@ fn fft2_8x8_matches_cpu() {
 fn fft2_returns_gpu_tensor() {
     ensure_cuda();
     let data = vec![0.0_f32; 16 * 2];
-    let gpu = cpu_t_f32(&data, &[4, 4, 2])
-        .to(Device::Cuda(0))
-        .unwrap();
+    let gpu = cpu_t_f32(&data, &[4, 4, 2]).to(Device::Cuda(0)).unwrap();
     let out = fft2(&gpu).unwrap();
     assert!(matches!(out.device(), Device::Cuda(0)));
 }

@@ -69,7 +69,9 @@ pub fn gguf_to_hf_state_dict<T: Float + Clone>(
             }
             None if strict => {
                 return Err(FerrotorchError::InvalidArgument {
-                    message: format!("gguf_to_hf_state_dict: unrecognised tensor name {gguf_key:?}"),
+                    message: format!(
+                        "gguf_to_hf_state_dict: unrecognised tensor name {gguf_key:?}"
+                    ),
                 });
             }
             None => continue,

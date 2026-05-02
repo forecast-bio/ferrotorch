@@ -162,10 +162,7 @@ impl<T: Float> MaskedTensor<T> {
     ///
     /// Inverts the mask to match NumPy semantics (`true` = invalid)
     /// since ferrotorch uses the torch convention (`true` = valid).
-    pub fn to_ferray<U>(
-        &self,
-        op: &'static str,
-    ) -> FerrotorchResult<MaskedArray<U, FerrayIxDyn>>
+    pub fn to_ferray<U>(&self, op: &'static str) -> FerrotorchResult<MaskedArray<U, FerrayIxDyn>>
     where
         U: ferray_core::Element + Copy + num_traits::Float + 'static,
     {
@@ -174,18 +171,14 @@ impl<T: Float> MaskedTensor<T> {
             .into_iter()
             .map(|v| U::from(v.to_f64().unwrap()).unwrap())
             .collect();
-        let arr = FerrayArray::<U, FerrayIxDyn>::from_vec(
-            FerrayIxDyn::new(self.data.shape()),
-            data_u,
-        )
-        .map_err(FerrotorchError::Ferray)?;
+        let arr =
+            FerrayArray::<U, FerrayIxDyn>::from_vec(FerrayIxDyn::new(self.data.shape()), data_u)
+                .map_err(FerrotorchError::Ferray)?;
         // Invert mask: ferrotorch true=valid → numpy true=invalid.
         let inv: Vec<bool> = self.mask.iter().map(|&v| !v).collect();
-        let mask_arr = FerrayArray::<bool, FerrayIxDyn>::from_vec(
-            FerrayIxDyn::new(self.data.shape()),
-            inv,
-        )
-        .map_err(FerrotorchError::Ferray)?;
+        let mask_arr =
+            FerrayArray::<bool, FerrayIxDyn>::from_vec(FerrayIxDyn::new(self.data.shape()), inv)
+                .map_err(FerrotorchError::Ferray)?;
         MaskedArray::new(arr, mask_arr).map_err(|e| FerrotorchError::InvalidArgument {
             message: format!("{op}: {e}"),
         })
@@ -216,7 +209,7 @@ pub fn masked_sum<T: Float>(mt: &MaskedTensor<T>) -> FerrotorchResult<Tensor<T>>
     let mut acc = <T as num_traits::Zero>::zero();
     for (&v, &valid) in data.iter().zip(mt.mask.iter()) {
         if valid {
-            acc = acc + v;
+            acc += v;
         }
     }
     Tensor::from_storage(TensorStorage::cpu(vec![acc]), vec![], false)
@@ -226,8 +219,7 @@ pub fn masked_sum<T: Float>(mt: &MaskedTensor<T>) -> FerrotorchResult<Tensor<T>>
 fn masked_sum_gpu<T: Float>(mt: &MaskedTensor<T>) -> FerrotorchResult<Tensor<T>> {
     let device = mt.data.device();
     let mask_t: Tensor<T> = mask_as_float_tensor(&mt.mask, mt.data.shape(), device)?;
-    let backend = crate::gpu_dispatch::gpu_backend()
-        .ok_or(FerrotorchError::DeviceUnavailable)?;
+    let backend = crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
     let numel = mt.data.numel();
     let prod_h = if is_f32::<T>() {
         backend.mul_f32(mt.data.gpu_handle()?, mask_t.gpu_handle()?)?
@@ -292,7 +284,7 @@ pub fn masked_mean<T: Float>(mt: &MaskedTensor<T>) -> FerrotorchResult<Tensor<T>
     let mut count: usize = 0;
     for (&v, &valid) in data.iter().zip(mt.mask.iter()) {
         if valid {
-            acc = acc + v;
+            acc += v;
             count += 1;
         }
     }
@@ -374,7 +366,11 @@ fn masked_extremum_cpu<T: Float>(
     }
     let val = best.unwrap_or_else(|| T::from(f64::NAN).unwrap());
     let cpu = Tensor::from_storage(TensorStorage::cpu(vec![val]), vec![], false)?;
-    if device.is_cuda() { cpu.to(device) } else { Ok(cpu) }
+    if device.is_cuda() {
+        cpu.to(device)
+    } else {
+        Ok(cpu)
+    }
 }
 
 /// GPU lowering via the **fused** masked-reduce kernel (#627).
@@ -395,8 +391,7 @@ fn masked_extremum_gpu<T: Float>(
     }
 
     let device = mt.data.device();
-    let backend = crate::gpu_dispatch::gpu_backend()
-        .ok_or(FerrotorchError::DeviceUnavailable)?;
+    let backend = crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
     let numel = mt.data.numel();
 
     // Build the [0/1] float mask on device. This is the only host upload —
@@ -479,9 +474,7 @@ pub fn masked_equal<T: Float + PartialEq>(
     value: T,
 ) -> FerrotorchResult<MaskedTensor<T>> {
     if data.is_cuda() {
-        return Err(FerrotorchError::NotImplementedOnCuda {
-            op: "masked_equal",
-        });
+        return Err(FerrotorchError::NotImplementedOnCuda { op: "masked_equal" });
     }
     let data_vec = data.data_vec()?;
     let mask: Vec<bool> = data_vec.iter().map(|&v| v != value).collect();
@@ -598,8 +591,16 @@ mod tests {
         // Mask out the 9.0 (max) and 1.0 (min) → among valids: 5.0, 2.0
         // min=2.0, max=5.0
         let mt = MaskedTensor::new(d, vec![true, false, false, true]).unwrap();
-        assert!(close(masked_min(&mt).unwrap().data().unwrap()[0], 2.0, 1e-12));
-        assert!(close(masked_max(&mt).unwrap().data().unwrap()[0], 5.0, 1e-12));
+        assert!(close(
+            masked_min(&mt).unwrap().data().unwrap()[0],
+            2.0,
+            1e-12
+        ));
+        assert!(close(
+            masked_max(&mt).unwrap().data().unwrap()[0],
+            5.0,
+            1e-12
+        ));
     }
 
     #[test]

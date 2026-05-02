@@ -243,11 +243,12 @@ pub fn search_models(query: &SearchQuery) -> FerrotorchResult<Vec<HfModelSummary
         .map_err(|e| FerrotorchError::InvalidArgument {
             message: format!("ferrotorch-hub: HuggingFace Hub search failed ({url}): {e}"),
         })?;
-    let summaries: Vec<HfModelSummary> = response.into_json().map_err(|e| {
-        FerrotorchError::InvalidArgument {
-            message: format!("ferrotorch-hub: failed to parse Hub search response: {e}"),
-        }
-    })?;
+    let summaries: Vec<HfModelSummary> =
+        response
+            .into_json()
+            .map_err(|e| FerrotorchError::InvalidArgument {
+                message: format!("ferrotorch-hub: failed to parse Hub search response: {e}"),
+            })?;
     Ok(populate_authors(summaries))
 }
 
@@ -269,11 +270,12 @@ pub fn get_model(repo_id: &str) -> FerrotorchResult<HfModelInfo> {
         .map_err(|e| FerrotorchError::InvalidArgument {
             message: format!("ferrotorch-hub: Hub model lookup failed ({url}): {e}"),
         })?;
-    let mut info: HfModelInfo = response.into_json().map_err(|e| {
-        FerrotorchError::InvalidArgument {
-            message: format!("ferrotorch-hub: failed to parse Hub model response: {e}"),
-        }
-    })?;
+    let mut info: HfModelInfo =
+        response
+            .into_json()
+            .map_err(|e| FerrotorchError::InvalidArgument {
+                message: format!("ferrotorch-hub: failed to parse Hub model response: {e}"),
+            })?;
     if info.author.is_none() {
         info.author = extract_author(&info.model_id);
     }

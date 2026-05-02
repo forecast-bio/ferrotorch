@@ -208,11 +208,7 @@ impl<T: Float> Distribution<T> for Beta<T> {
         // mean = c1 / (c1 + c0)
         let a = self.concentration1.data_vec()?;
         let b = self.concentration0.data_vec()?;
-        let result: Vec<T> = a
-            .iter()
-            .zip(b.iter())
-            .map(|(&x, &y)| x / (x + y))
-            .collect();
+        let result: Vec<T> = a.iter().zip(b.iter()).map(|(&x, &y)| x / (x + y)).collect();
         Tensor::from_storage(
             TensorStorage::cpu(result),
             self.concentration1.shape().to_vec(),

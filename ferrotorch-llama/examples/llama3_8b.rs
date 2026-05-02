@@ -72,8 +72,7 @@ fn main() {
 
     // -- Step 1: parse config --------------------------------------------
     let cfg_path = snapshot.join("config.json");
-    let hf_cfg = HfTransformerConfig::from_file(&cfg_path)
-        .expect("failed to parse config.json");
+    let hf_cfg = HfTransformerConfig::from_file(&cfg_path).expect("failed to parse config.json");
     let cfg = LlamaConfig::from_hf(&hf_cfg).expect("invalid LlamaConfig");
     println!(
         "[llama3_8b] config: hidden={} layers={} heads={} kv={} head_dim={} vocab={} rope_theta={}",
@@ -89,8 +88,8 @@ fn main() {
     // -- Step 2: load tokenizer ------------------------------------------
     let tok_path = snapshot.join("tokenizer.json");
     let tok = load_tokenizer(&tok_path).expect("failed to load tokenizer.json");
-    let prompt_ids = encode(&tok, &prompt, /* add_special_tokens = */ true)
-        .expect("failed to encode prompt");
+    let prompt_ids =
+        encode(&tok, &prompt, /* add_special_tokens = */ true).expect("failed to encode prompt");
     println!(
         "[llama3_8b] prompt tokens ({}): {:?}",
         prompt_ids.len(),
@@ -101,8 +100,8 @@ fn main() {
     let idx_path = snapshot.join("model.safetensors.index.json");
     println!("[llama3_8b] loading weights (this takes a while)…");
     let t_load = Instant::now();
-    let state = load_safetensors_sharded::<bf16>(&idx_path)
-        .expect("failed to load sharded safetensors");
+    let state =
+        load_safetensors_sharded::<bf16>(&idx_path).expect("failed to load sharded safetensors");
     println!(
         "[llama3_8b] loaded {} tensors in {:.1}s",
         state.len(),

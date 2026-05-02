@@ -7,24 +7,30 @@ Top-level re-export crate for the ferrotorch deep learning framework.
 This is the umbrella crate that re-exports all ferrotorch sub-crates through a single dependency. Add `ferrotorch` to your `Cargo.toml` and access everything via submodules:
 
 ### Always included
-- **ferrotorch-core** — Tensor, autograd, differentiable ops (40+), quantization, einops
-- **ferrotorch-nn** — Module trait, 26+ layers (Linear, Conv1d/2d, LSTM, GRU, Attention, norms, activations), losses, LoRA
-- **ferrotorch-optim** — 8 optimizers (SGD, Adam, AdamW, RMSprop, Adagrad, L-BFGS, Muon, K-FAC), gradient clipping, schedulers
-- **ferrotorch-data** — Dataset, DataLoader (parallel via rayon), DistributedSampler, collation, transforms
-- **ferrotorch-vision** — ResNet, VGG, ViT, Swin, ConvNeXt, EfficientNet, YOLO; MNIST/CIFAR datasets; image I/O
+- **ferrotorch-core** — Tensor, autograd, 80+ differentiable ops, complex / sparse / named tensors, FFT, signal, masked, quantization, einops
+- **ferrotorch-nn** — Module trait, 30+ layers (Linear, Conv1d/2d, LSTM, GRU, Attention, norms, activations, lazy modules), losses, LoRA
+- **ferrotorch-optim** — 19 optimizers (SGD, Adam, AdamW, Adamax, NAdam, RAdam, Adagrad, Adadelta, Adafactor, RMSprop, Rprop, ASGD, SparseAdam, L-BFGS, Muon, K-FAC, EMA, SWA), 12+ LR schedulers, gradient clipping
+- **ferrotorch-data** — Dataset, DataLoader (parallel via rayon), DistributedSampler, collation, transforms, NumPy/Arrow interop
+- **ferrotorch-vision** — ResNet, VGG, ViT, Swin, ConvNeXt, EfficientNet, U-Net, YOLO; MNIST/CIFAR/ImageFolder datasets; image I/O
 
 ### Default features (opt-out with `default-features = false`)
 - **ferrotorch-train** — Learner training loop, callbacks, metrics, checkpointing
 - **ferrotorch-serialize** — ONNX export, PyTorch .pt import, safetensors, GGUF
 - **ferrotorch-jit** — Tracing JIT, IR graph, optimization passes, code generation
+- **ferrotorch-jit-script** — `#[script]` proc macro for source-based graph capture
 - **ferrotorch-distributions** — Probability distributions for sampling and VI
 - **ferrotorch-profiler** — Performance profiling with Chrome trace export
 - **ferrotorch-hub** — Model hub for downloading and caching pretrained weights
+- **ferrotorch-tokenize** — HuggingFace tokenizer wrapper (BPE, WordPiece, Unigram)
 
 ### Optional features (opt-in)
-- **`gpu`** — CUDA backend with hand-written PTX kernels and cuBLAS (`cargo add ferrotorch --features gpu`)
+- **`gpu`** — NVIDIA CUDA backend with PTX kernels, cuBLAS, cuSOLVER, cuFFT (`cargo add ferrotorch --features gpu`)
 - **`cubecl`** — Portable GPU via CubeCL: CUDA + WGPU/AMD + ROCm (`--features cubecl`)
-- **`distributed`** — DDP, collective ops, TCP backend (`--features distributed`)
+- **`mps`** — Apple Silicon Metal Performance Shaders backend (`--features mps`)
+- **`xpu`** — Intel Arc / Data Center GPU Max via CubeCL wgpu (`--features xpu`)
+- **`distributed`** — DDP, collective ops, TCP / Gloo backends (`--features distributed`)
+- **`llama`** — Llama 3 model composition + GPU bf16 inference (`--features llama`)
+- **`ml`** — Sklearn-compatible adapter and classic-ML datasets (`--features ml`)
 
 ## Quick start
 
@@ -62,6 +68,10 @@ use ferrotorch::train::*;        // Learner, callbacks
 use ferrotorch::serialize::*;    // ONNX, safetensors
 use ferrotorch::jit::*;          // tracing, IR
 use ferrotorch::distributions::*; // probability distributions
+use ferrotorch::tokenize::*;     // HF tokenizer wrapper
+// feature-gated:
+// use ferrotorch::llama::*;     // Llama 3 model + inferencer
+// use ferrotorch::ml::*;        // sklearn-compatible adapter
 ```
 
 ## Part of ferrotorch

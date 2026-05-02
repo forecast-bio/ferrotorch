@@ -45,10 +45,7 @@ impl<T: Float> HalfNormal<T> {
     pub fn mean_value(&self) -> FerrotorchResult<Vec<T>> {
         let scale_data = self.scale.data_vec()?;
         let sqrt_2_over_pi = T::from((2.0 / std::f64::consts::PI).sqrt()).unwrap();
-        Ok(scale_data
-            .iter()
-            .map(|&s| s * sqrt_2_over_pi)
-            .collect())
+        Ok(scale_data.iter().map(|&s| s * sqrt_2_over_pi).collect())
     }
 
     /// The variance of the distribution: Var[X] = scale^2 * (1 - 2/pi).
@@ -175,11 +172,7 @@ impl<T: Float> Distribution<T> for HalfNormal<T> {
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
         let data = self.mean_value()?;
-        Tensor::from_storage(
-            TensorStorage::cpu(data),
-            self.scale.shape().to_vec(),
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(data), self.scale.shape().to_vec(), false)
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
@@ -195,11 +188,7 @@ impl<T: Float> Distribution<T> for HalfNormal<T> {
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
         let data = self.variance_value()?;
-        Tensor::from_storage(
-            TensorStorage::cpu(data),
-            self.scale.shape().to_vec(),
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(data), self.scale.shape().to_vec(), false)
     }
 }
 
@@ -381,8 +370,7 @@ mod tests {
         let dist = HalfNormal::new(scale).unwrap();
 
         let h = dist.entropy().unwrap();
-        let expected =
-            0.5 * (std::f32::consts::PI / 2.0).ln() + 0.5;
+        let expected = 0.5 * (std::f32::consts::PI / 2.0).ln() + 0.5;
         assert!(
             (h.item().unwrap() - expected).abs() < 1e-5,
             "expected {expected}, got {}",
@@ -446,16 +434,14 @@ mod tests {
         let dist = HalfNormal::new(scalar(1.0f64).unwrap()).unwrap();
         // mean = sqrt(2/pi)
         assert!(
-            (dist.mean().unwrap().item().unwrap() - (2.0_f64 / std::f64::consts::PI).sqrt())
-                .abs()
+            (dist.mean().unwrap().item().unwrap() - (2.0_f64 / std::f64::consts::PI).sqrt()).abs()
                 < 1e-10
         );
         // mode = 0
         assert!(dist.mode().unwrap().item().unwrap().abs() < 1e-12);
         // var = 1 - 2/pi
         assert!(
-            (dist.variance().unwrap().item().unwrap() - (1.0 - 2.0 / std::f64::consts::PI))
-                .abs()
+            (dist.variance().unwrap().item().unwrap() - (1.0 - 2.0 / std::f64::consts::PI)).abs()
                 < 1e-10
         );
     }

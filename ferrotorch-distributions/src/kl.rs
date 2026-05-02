@@ -121,10 +121,7 @@ fn kl_dispatch<T: Float>(
         return kl_exponential_exponential(pe, qe);
     }
     // Gamma-Gamma
-    if let (Some(pg), Some(qg)) = (
-        p.downcast_ref::<Gamma<T>>(),
-        q.downcast_ref::<Gamma<T>>(),
-    ) {
+    if let (Some(pg), Some(qg)) = (p.downcast_ref::<Gamma<T>>(), q.downcast_ref::<Gamma<T>>()) {
         return kl_gamma_gamma(pg, qg);
     }
     // Poisson-Poisson
@@ -449,8 +446,7 @@ fn kl_gamma_scalar<T: Float>(pa: T, pb: T, qa: T, qb: T) -> T {
     let dig_pa = digamma_scalar(pa);
     let ln_gamma_pa = ln_gamma_scalar(pa);
     let ln_gamma_qa = ln_gamma_scalar(qa);
-    (pa - qa) * dig_pa - ln_gamma_pa + ln_gamma_qa + qa * (pb.ln() - qb.ln())
-        + pa * (qb - pb) / pb
+    (pa - qa) * dig_pa - ln_gamma_pa + ln_gamma_qa + qa * (pb.ln() - qb.ln()) + pa * (qb - pb) / pb
 }
 
 /// Lanczos approximation for log Γ(x) — uses the f64 `libm`-style
@@ -506,10 +502,7 @@ fn kl_poisson_poisson<T: Float>(p: &Poisson<T>, q: &Poisson<T>) -> FerrotorchRes
 ///
 /// Since Exp(λ) = Gamma(1, λ), this reduces to the Gamma-Gamma
 /// formula with q_concentration = 1 and q_rate = λ.
-fn kl_gamma_exponential<T: Float>(
-    p: &Gamma<T>,
-    q: &Exponential<T>,
-) -> FerrotorchResult<Tensor<T>> {
+fn kl_gamma_exponential<T: Float>(p: &Gamma<T>, q: &Exponential<T>) -> FerrotorchResult<Tensor<T>> {
     let p_conc = p.concentration().data_vec()?;
     let p_rate = p.rate().data_vec()?;
     let q_rate = q.rate().data_vec()?;
@@ -533,10 +526,7 @@ fn kl_gamma_exponential<T: Float>(
 ///
 /// Exp(λ) = Gamma(1, λ), so this is Gamma-Gamma with
 /// p_concentration = 1 and p_rate = λ.
-fn kl_exponential_gamma<T: Float>(
-    p: &Exponential<T>,
-    q: &Gamma<T>,
-) -> FerrotorchResult<Tensor<T>> {
+fn kl_exponential_gamma<T: Float>(p: &Exponential<T>, q: &Gamma<T>) -> FerrotorchResult<Tensor<T>> {
     let p_rate = p.rate().data_vec()?;
     let q_conc = q.concentration().data_vec()?;
     let q_rate = q.rate().data_vec()?;
@@ -814,7 +804,11 @@ mod tests {
         let p = Laplace::new(scalar(0.0f32).unwrap(), scalar(1.0f32).unwrap()).unwrap();
         let q = Laplace::new(scalar(0.0f32).unwrap(), scalar(1.0f32).unwrap()).unwrap();
         let kl = kl_divergence(&p, &q).unwrap();
-        assert!(kl.item().unwrap().abs() < 1e-5, "got {}", kl.item().unwrap());
+        assert!(
+            kl.item().unwrap().abs() < 1e-5,
+            "got {}",
+            kl.item().unwrap()
+        );
     }
 
     #[test]
@@ -826,10 +820,7 @@ mod tests {
         let kl = kl_divergence(&p, &q).unwrap();
         let v = kl.item().unwrap();
         let expected = 2.0_f32.ln() + 0.5 - 1.0;
-        assert!(
-            (v - expected).abs() < 1e-5,
-            "expected {expected}, got {v}"
-        );
+        assert!((v - expected).abs() < 1e-5, "expected {expected}, got {v}");
     }
 
     #[test]

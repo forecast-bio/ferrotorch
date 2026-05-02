@@ -77,7 +77,6 @@ pub fn get_or_compile(
     Ok(func)
 }
 
-
 #[cfg(test)]
 #[cfg(feature = "cuda")]
 mod tests {

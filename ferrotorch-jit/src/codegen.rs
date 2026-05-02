@@ -1037,13 +1037,11 @@ fn try_jit_compile_cpu_c(graph: &IrGraph) -> FerrotorchResult<Option<CompiledGra
         for src in &sources {
             match src {
                 InputSource::GraphInput(idx) => {
-                    let buf = inputs.get(*idx).ok_or_else(|| {
-                        FerrotorchError::InvalidArgument {
-                            message: format!(
-                                "inductor-jit: graph input {idx} out of range"
-                            ),
-                        }
-                    })?;
+                    let buf = inputs
+                        .get(*idx)
+                        .ok_or_else(|| FerrotorchError::InvalidArgument {
+                            message: format!("inductor-jit: graph input {idx} out of range"),
+                        })?;
                     kernel_inputs.push(buf.as_slice());
                 }
                 InputSource::Constant(data) => {
@@ -1592,8 +1590,7 @@ mod tests {
         if std::env::var("CC")
             .ok()
             .and_then(|cc| {
-                std::env::split_paths(&std::env::var_os("PATH")?)
-                    .find(|p| p.join(&cc).is_file())
+                std::env::split_paths(&std::env::var_os("PATH")?).find(|p| p.join(&cc).is_file())
             })
             .is_some()
         {
@@ -1721,9 +1718,11 @@ mod tests {
             .compile(&g)
             .unwrap();
         assert!(compiled.execute(&[]).is_err());
-        assert!(compiled
-            .execute(&[vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]])
-            .is_err());
+        assert!(
+            compiled
+                .execute(&[vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]])
+                .is_err()
+        );
     }
 
     #[test]
@@ -1771,8 +1770,7 @@ mod tests {
         let mut g = IrGraph::new();
         let a = g.add_input(vec![2, 3]);
         let b = g.add_input(vec![3, 2]);
-        let (_, mm_outs) =
-            g.add_node(IrOpKind::Matmul, vec![a, b], vec![vec![2, 2]]);
+        let (_, mm_outs) = g.add_node(IrOpKind::Matmul, vec![a, b], vec![vec![2, 2]]);
         g.set_outputs(vec![mm_outs[0]]);
 
         let compiled = InductorBackend::new(InductorTarget::CpuC)

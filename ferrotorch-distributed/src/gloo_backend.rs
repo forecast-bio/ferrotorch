@@ -55,10 +55,7 @@ impl GlooBackend {
     /// `gloo-backend` feature is off.
     pub fn new(rank: usize, world_size: usize) -> FerrotorchResult<Self> {
         if !is_gloo_available() {
-            return Err(DistributedError::BackendUnavailable {
-                backend: "gloo",
-            }
-            .into());
+            return Err(DistributedError::BackendUnavailable { backend: "gloo" }.into());
         }
         Ok(Self { rank, world_size })
     }
@@ -102,10 +99,7 @@ mod tests {
     #[test]
     fn gloo_unavailable_without_feature() {
         if !is_gloo_available() {
-            assert!(matches!(
-                GlooBackend::new(0, 2),
-                Err(_)
-            ));
+            assert!(GlooBackend::new(0, 2).is_err());
         }
     }
 

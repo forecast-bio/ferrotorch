@@ -190,10 +190,7 @@ impl<T: Float> DTensor<T> {
     /// the lower-level `crate::collective::*` ops the caller invokes
     /// before / after `redistribute` lands. (This separation keeps the
     /// DTensor API testable without real multi-process launches.)
-    pub fn redistribute(
-        &mut self,
-        target_placements: Vec<Placement>,
-    ) -> FerrotorchResult<()> {
+    pub fn redistribute(&mut self, target_placements: Vec<Placement>) -> FerrotorchResult<()> {
         if target_placements.len() != self.mesh.ndim() {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
@@ -270,13 +267,8 @@ mod tests {
         let mesh = DeviceMesh::new(vec![4], 4).unwrap();
         let local = t(vec![0.0; 4], vec![4]);
         // Tensor is 1-D, but we ask to shard dim 2 — invalid.
-        let err = DTensor::from_local(
-            local,
-            mesh,
-            vec![Placement::Shard(2)],
-            vec![16],
-        )
-        .unwrap_err();
+        let err =
+            DTensor::from_local(local, mesh, vec![Placement::Shard(2)], vec![16]).unwrap_err();
         assert!(matches!(err, FerrotorchError::InvalidArgument { .. }));
     }
 
@@ -321,13 +313,7 @@ mod tests {
     fn numel_uses_global_shape() {
         let mesh = DeviceMesh::new(vec![2], 2).unwrap();
         let local = t(vec![1.0; 4], vec![2, 2]);
-        let dt = DTensor::from_local(
-            local,
-            mesh,
-            vec![Placement::Shard(0)],
-            vec![4, 2],
-        )
-        .unwrap();
+        let dt = DTensor::from_local(local, mesh, vec![Placement::Shard(0)], vec![4, 2]).unwrap();
         assert_eq!(dt.numel(), 8);
         assert_eq!(dt.to_local().numel(), 4);
     }

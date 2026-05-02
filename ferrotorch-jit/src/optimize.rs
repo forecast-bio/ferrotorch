@@ -512,11 +512,7 @@ fn fuse_linear_activation(graph: &mut IrGraph) {
 
         let is_activation = matches!(
             consumer.op,
-            IrOpKind::Relu
-                | IrOpKind::Gelu
-                | IrOpKind::Silu
-                | IrOpKind::Sigmoid
-                | IrOpKind::Tanh
+            IrOpKind::Relu | IrOpKind::Gelu | IrOpKind::Silu | IrOpKind::Sigmoid | IrOpKind::Tanh
         );
 
         if is_activation {
@@ -606,11 +602,17 @@ fn fuse_attention_pattern(graph: &mut IrGraph) {
             let v_input = matmul2_node
                 .and_then(|n| n.inputs.get(1).copied())
                 .unwrap_or(node.inputs[1]);
-            let mm2_outputs = matmul2_node
-                .map(|n| n.outputs.clone())
-                .unwrap_or_default();
+            let mm2_outputs = matmul2_node.map(|n| n.outputs.clone()).unwrap_or_default();
 
-            fusions.push((nid, topo[i + 1], topo[i + 2], topo[i + 3], head_dim, v_input, mm2_outputs));
+            fusions.push((
+                nid,
+                topo[i + 1],
+                topo[i + 2],
+                topo[i + 3],
+                head_dim,
+                v_input,
+                mm2_outputs,
+            ));
         }
     }
 

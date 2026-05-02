@@ -28,9 +28,7 @@ use ferrotorch_core::FerrotorchResult;
 use crate::backend::Backend;
 use crate::collective::ReduceOp;
 use crate::error::DistributedError;
-use crate::nccl_sys::{
-    self, NcclComm, NcclDataType, NcclRedOp, NcclUniqueId,
-};
+use crate::nccl_sys::{self, NcclComm, NcclDataType, NcclRedOp, NcclUniqueId};
 
 // ---------------------------------------------------------------------------
 // NcclBackend
@@ -78,19 +76,13 @@ impl NcclBackend {
     /// # Errors
     ///
     /// Returns an error if NCCL is not available or communicator init fails.
-    pub fn new(
-        rank: usize,
-        world_size: usize,
-        unique_id: NcclUniqueId,
-    ) -> FerrotorchResult<Self> {
-        let comm = nccl_sys::comm_init_rank(
-            world_size as i32,
-            rank as i32,
-            unique_id,
-        )
-        .map_err(|e| DistributedError::Io {
-            message: format!("NCCL comm_init_rank failed: {e}"),
-        })?;
+    pub fn new(rank: usize, world_size: usize, unique_id: NcclUniqueId) -> FerrotorchResult<Self> {
+        let comm =
+            nccl_sys::comm_init_rank(world_size as i32, rank as i32, unique_id).map_err(|e| {
+                DistributedError::Io {
+                    message: format!("NCCL comm_init_rank failed: {e}"),
+                }
+            })?;
 
         // Create a dedicated CUDA stream for NCCL operations.
         // This allows communication to overlap with computation on the
@@ -117,14 +109,12 @@ impl NcclBackend {
         unique_id: NcclUniqueId,
         stream: *mut c_void,
     ) -> FerrotorchResult<Self> {
-        let comm = nccl_sys::comm_init_rank(
-            world_size as i32,
-            rank as i32,
-            unique_id,
-        )
-        .map_err(|e| DistributedError::Io {
-            message: format!("NCCL comm_init_rank failed: {e}"),
-        })?;
+        let comm =
+            nccl_sys::comm_init_rank(world_size as i32, rank as i32, unique_id).map_err(|e| {
+                DistributedError::Io {
+                    message: format!("NCCL comm_init_rank failed: {e}"),
+                }
+            })?;
 
         Ok(Self {
             comm: Mutex::new(comm),
@@ -144,9 +134,7 @@ impl NcclBackend {
         if self.stream.is_null() {
             return Ok(()); // default stream is implicitly synchronized
         }
-        synchronize_stream(self.stream).map_err(|msg| {
-            DistributedError::Io { message: msg }.into()
-        })
+        synchronize_stream(self.stream).map_err(|msg| DistributedError::Io { message: msg }.into())
     }
 
     /// Get the raw NCCL communicator handle (for advanced use).
@@ -184,13 +172,14 @@ impl NcclBackend {
         op: NcclRedOp,
     ) -> FerrotorchResult<()> {
         let comm = *self.lock_comm()?;
-        nccl_sys::all_reduce(sendbuf, recvbuf, count, datatype, op, comm, self.stream)
-            .map_err(|e| {
+        nccl_sys::all_reduce(sendbuf, recvbuf, count, datatype, op, comm, self.stream).map_err(
+            |e| {
                 DistributedError::Io {
                     message: format!("NCCL allreduce failed: {e}"),
                 }
                 .into()
-            })
+            },
+        )
     }
 
     /// GPU broadcast: broadcast `count` elements from `root` to all ranks.
@@ -207,13 +196,14 @@ impl NcclBackend {
         root: i32,
     ) -> FerrotorchResult<()> {
         let comm = *self.lock_comm()?;
-        nccl_sys::broadcast(sendbuf, recvbuf, count, datatype, root, comm, self.stream)
-            .map_err(|e| {
+        nccl_sys::broadcast(sendbuf, recvbuf, count, datatype, root, comm, self.stream).map_err(
+            |e| {
                 DistributedError::Io {
                     message: format!("NCCL broadcast failed: {e}"),
                 }
                 .into()
-            })
+            },
+        )
     }
 
     /// GPU all-gather: each rank sends `sendcount` elements, receives
@@ -230,13 +220,14 @@ impl NcclBackend {
         datatype: NcclDataType,
     ) -> FerrotorchResult<()> {
         let comm = *self.lock_comm()?;
-        nccl_sys::all_gather(sendbuf, recvbuf, sendcount, datatype, comm, self.stream)
-            .map_err(|e| {
+        nccl_sys::all_gather(sendbuf, recvbuf, sendcount, datatype, comm, self.stream).map_err(
+            |e| {
                 DistributedError::Io {
                     message: format!("NCCL all_gather failed: {e}"),
                 }
                 .into()
-            })
+            },
+        )
     }
 
     /// GPU reduce-scatter: reduces then distributes `recvcount` elements
@@ -254,15 +245,13 @@ impl NcclBackend {
         op: NcclRedOp,
     ) -> FerrotorchResult<()> {
         let comm = *self.lock_comm()?;
-        nccl_sys::reduce_scatter(
-            sendbuf, recvbuf, recvcount, datatype, op, comm, self.stream,
-        )
-        .map_err(|e| {
-            DistributedError::Io {
-                message: format!("NCCL reduce_scatter failed: {e}"),
-            }
-            .into()
-        })
+        nccl_sys::reduce_scatter(sendbuf, recvbuf, recvcount, datatype, op, comm, self.stream)
+            .map_err(|e| {
+                DistributedError::Io {
+                    message: format!("NCCL reduce_scatter failed: {e}"),
+                }
+                .into()
+            })
     }
 }
 
@@ -362,9 +351,7 @@ fn create_nccl_stream() -> Option<*mut c_void> {
 }
 
 fn create_stream_from_lib(lib: *mut c_void) -> Option<*mut c_void> {
-    let sym = unsafe {
-        libc::dlsym(lib, b"cudaStreamCreateWithFlags\0".as_ptr() as *const _)
-    };
+    let sym = unsafe { libc::dlsym(lib, b"cudaStreamCreateWithFlags\0".as_ptr() as *const _) };
     if sym.is_null() {
         return None;
     }
@@ -374,11 +361,7 @@ fn create_stream_from_lib(lib: *mut c_void) -> Option<*mut c_void> {
     let create_fn: CudaStreamCreateFn = unsafe { std::mem::transmute(sym) };
     let mut stream: *mut c_void = std::ptr::null_mut();
     let result = unsafe { create_fn(&mut stream, 1) }; // 1 = cudaStreamNonBlocking
-    if result == 0 {
-        Some(stream)
-    } else {
-        None
-    }
+    if result == 0 { Some(stream) } else { None }
 }
 
 /// Synchronize a CUDA stream (blocks until all operations complete).
@@ -392,9 +375,7 @@ fn synchronize_stream(stream: *mut c_void) -> Result<(), String> {
     if lib.is_null() {
         return Err("cudart not found".into());
     }
-    let sym = unsafe {
-        libc::dlsym(lib, b"cudaStreamSynchronize\0".as_ptr() as *const _)
-    };
+    let sym = unsafe { libc::dlsym(lib, b"cudaStreamSynchronize\0".as_ptr() as *const _) };
     if sym.is_null() {
         return Err("cudaStreamSynchronize not found".into());
     }
@@ -419,9 +400,7 @@ fn destroy_stream(stream: *mut c_void) {
     if lib.is_null() {
         return;
     }
-    let sym = unsafe {
-        libc::dlsym(lib, b"cudaStreamDestroy\0".as_ptr() as *const _)
-    };
+    let sym = unsafe { libc::dlsym(lib, b"cudaStreamDestroy\0".as_ptr() as *const _) };
     if sym.is_null() {
         return;
     }

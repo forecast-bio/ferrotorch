@@ -139,8 +139,8 @@ pub fn fft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<Te
     if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         // GPU C2C dispatch via cuFFT (#579), with on-device pad/truncate
         // when `fft_n != input_n` (#605). Fully on-device — no host bounce.
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let buf = input.gpu_handle()?;
 
         // Optional pad/truncate to fft_n.
@@ -230,8 +230,8 @@ pub fn ifft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<T
     if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         // GPU C2C dispatch via cuFFT, with on-device pad/truncate when
         // `fft_n != input_n` (#605).
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let buf = input.gpu_handle()?;
 
         let (transformed_handle, owned);
@@ -308,8 +308,8 @@ pub fn rfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<T
     let batch_size: usize = batch_shape.iter().product::<usize>().max(1);
 
     if input.is_cuda() && fft_n == input_n {
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let buf = input.gpu_handle()?;
         let h = if is_f32::<T>() {
             backend.rfft_r2c_f32(buf, batch_size, fft_n)?
@@ -402,8 +402,8 @@ pub fn irfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<
         // GPU path: input spectrum length matches `output_n / 2 + 1`. The
         // mismatched-`n` case still routes through CPU below; it requires
         // a Hermitian-extension or truncation step that's deferred.
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let buf = input.gpu_handle()?;
         let h = if is_f32::<T>() {
             backend.irfft_c2r_f32(buf, batch_size, output_n)?
@@ -488,8 +488,8 @@ pub fn fft2<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
     // GPU fast path via cufftPlan2d (#634): unbatched (or batch=1) f32/f64.
     if input.is_cuda() && batch_dims == 1 && (is_f32::<T>() || is_f64::<T>()) {
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let h = if is_f32::<T>() {
             backend.fft2_c2c_f32(input.gpu_handle()?, rows, cols, false)?
         } else {
@@ -532,8 +532,8 @@ pub fn ifft2<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let batch_dims: usize = shape[..ndim - 3].iter().product::<usize>().max(1);
 
     if input.is_cuda() && batch_dims == 1 && (is_f32::<T>() || is_f64::<T>()) {
-        let backend = crate::gpu_dispatch::gpu_backend()
-            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let backend =
+            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
         let h = if is_f32::<T>() {
             backend.fft2_c2c_f32(input.gpu_handle()?, rows, cols, true)?
         } else {
@@ -868,14 +868,18 @@ pub fn rfftfreq(n: usize, d: f64) -> FerrotorchResult<Tensor<f64>> {
 ///
 /// If `axes` is `None`, shifts every axis. Matches `torch.fft.fftshift`
 /// (and `numpy.fft.fftshift`).
-pub fn fftshift<T: Float>(input: &Tensor<T>, axes: Option<&[isize]>) -> FerrotorchResult<Tensor<T>> {
+pub fn fftshift<T: Float>(
+    input: &Tensor<T>,
+    axes: Option<&[isize]>,
+) -> FerrotorchResult<Tensor<T>> {
     if input.is_cuda() {
         return Err(FerrotorchError::NotImplementedOnCuda { op: "fftshift" });
     }
     let arr = tensor_to_real_array(input, "fftshift")?;
-    let shifted = ferray_fft::fftshift(&arr, axes).map_err(|e| FerrotorchError::InvalidArgument {
-        message: format!("fftshift: {e}"),
-    })?;
+    let shifted =
+        ferray_fft::fftshift(&arr, axes).map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!("fftshift: {e}"),
+        })?;
     real_array_to_tensor(&shifted)
 }
 

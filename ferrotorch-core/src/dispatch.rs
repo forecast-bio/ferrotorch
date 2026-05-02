@@ -242,7 +242,10 @@ impl DispatchKeySet {
             let top = 15 - bits.leading_zeros() as u8;
             bits &= !(1 << top);
             // Map bit position back to a DispatchKey if valid.
-            DispatchKey::ALL.iter().find(|k| k.priority() == top).copied()
+            DispatchKey::ALL
+                .iter()
+                .find(|k| k.priority() == top)
+                .copied()
         })
     }
 }
@@ -533,7 +536,11 @@ mod tests {
         assert_eq!(d.kernel_count(), 0);
         assert!(!d.has_kernel("add", DispatchKey::Cpu));
 
-        d.register("add", DispatchKey::Cpu, |inputs, _, _| Ok(inputs[0].clone()));
+        d.register(
+            "add",
+            DispatchKey::Cpu,
+            |inputs, _, _| Ok(inputs[0].clone()),
+        );
         assert_eq!(d.kernel_count(), 1);
         assert!(d.has_kernel("add", DispatchKey::Cpu));
         assert!(!d.has_kernel("add", DispatchKey::Cuda));
@@ -561,8 +568,8 @@ mod tests {
 
     #[test]
     fn dispatcher_call_picks_highest_priority_key() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         // Track which kernel was called by name.
         let cpu_count = Arc::new(AtomicUsize::new(0));
@@ -592,8 +599,8 @@ mod tests {
     #[test]
     fn dispatcher_redispatch_chains_through_keys() {
         // Autograd kernel masks itself off and calls down to Cpu.
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let cpu_count = Arc::new(AtomicUsize::new(0));
         let autograd_count = Arc::new(AtomicUsize::new(0));
@@ -626,7 +633,11 @@ mod tests {
         // should still resolve because Autograd has no kernel but
         // Cpu does.
         let mut d = Dispatcher::<f32>::new();
-        d.register("add", DispatchKey::Cpu, |inputs, _, _| Ok(inputs[0].clone()));
+        d.register(
+            "add",
+            DispatchKey::Cpu,
+            |inputs, _, _| Ok(inputs[0].clone()),
+        );
 
         let t = make_tensor(vec![1.0, 2.0], vec![2]);
         let keyset = DispatchKeySet::from([DispatchKey::Autograd, DispatchKey::Cpu]);
@@ -636,8 +647,8 @@ mod tests {
 
     #[test]
     fn dispatcher_call_direct_bypasses_priority() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let cpu_count = Arc::new(AtomicUsize::new(0));
         let cuda_count = Arc::new(AtomicUsize::new(0));
@@ -662,7 +673,8 @@ mod tests {
         assert_eq!(cpu_count.load(Ordering::Relaxed), 0);
 
         // call_direct(Cpu) → forces Cpu kernel.
-        d.call_direct("add", &[t], keyset, DispatchKey::Cpu).unwrap();
+        d.call_direct("add", &[t], keyset, DispatchKey::Cpu)
+            .unwrap();
         assert_eq!(cpu_count.load(Ordering::Relaxed), 1);
         assert_eq!(cuda_count.load(Ordering::Relaxed), 1);
     }
@@ -682,8 +694,8 @@ mod tests {
         // Tracer emits an IR node marker and redispatches.
         // Autograd records a backward marker and redispatches.
         // Cpu does the actual math.
-        use std::sync::Mutex;
         use std::sync::Arc;
+        use std::sync::Mutex;
 
         let log: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -710,11 +722,8 @@ mod tests {
         });
 
         let t = make_tensor(vec![1.0, 2.0], vec![2]);
-        let keyset = DispatchKeySet::from([
-            DispatchKey::Tracer,
-            DispatchKey::Autograd,
-            DispatchKey::Cpu,
-        ]);
+        let keyset =
+            DispatchKeySet::from([DispatchKey::Tracer, DispatchKey::Autograd, DispatchKey::Cpu]);
         d.call("add", &[t], keyset).unwrap();
 
         let final_log = log.lock().unwrap();

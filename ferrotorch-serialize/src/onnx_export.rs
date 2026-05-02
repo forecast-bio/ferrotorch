@@ -1692,7 +1692,10 @@ mod tests {
         let bytes = std::fs::read(&path).unwrap();
         assert!(!bytes.is_empty());
         let as_str = String::from_utf8_lossy(&bytes);
-        assert!(as_str.contains("Relu"), "exported bytes should contain Relu op");
+        assert!(
+            as_str.contains("Relu"),
+            "exported bytes should contain Relu op"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1761,8 +1764,7 @@ mod tests {
             output_shape: vec![4, 10],
         };
 
-        let dir =
-            std::env::temp_dir().join("ferrotorch_test_export_from_program_caller_override");
+        let dir = std::env::temp_dir().join("ferrotorch_test_export_from_program_caller_override");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("override.onnx");
 
@@ -1772,7 +1774,10 @@ mod tests {
 
         let bytes = std::fs::read(&path).unwrap();
         let as_str = String::from_utf8_lossy(&bytes);
-        assert!(as_str.contains("N"), "caller override 'N' should be present");
+        assert!(
+            as_str.contains("N"),
+            "caller override 'N' should be present"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

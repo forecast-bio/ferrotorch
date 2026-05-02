@@ -52,7 +52,11 @@ fn mm_backward_gpu<T: Float>(grad_output: &Tensor<T>, a: &Tensor<T>, b: &Tensor<
             (bt, r)
         };
         let _ = bt_h;
-        Some(Tensor::from_storage(TensorStorage::gpu(result_h), vec![m, k], false)?)
+        Some(Tensor::from_storage(
+            TensorStorage::gpu(result_h),
+            vec![m, k],
+            false,
+        )?)
     } else {
         None
     };
@@ -70,7 +74,11 @@ fn mm_backward_gpu<T: Float>(grad_output: &Tensor<T>, a: &Tensor<T>, b: &Tensor<
             (at, r)
         };
         let _ = at_h;
-        Some(Tensor::from_storage(TensorStorage::gpu(result_h), vec![k, n], false)?)
+        Some(Tensor::from_storage(
+            TensorStorage::gpu(result_h),
+            vec![k, n],
+            false,
+        )?)
     } else {
         None
     };
@@ -108,9 +116,7 @@ impl<T: Float> GradFn<T> for MmBackward<T> {
         }
 
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda {
-                op: "MmBackward",
-            });
+            return Err(FerrotorchError::NotImplementedOnCuda { op: "MmBackward" });
         }
 
         // CPU path.
@@ -121,7 +127,11 @@ impl<T: Float> GradFn<T> for MmBackward<T> {
             let n = grad_output.shape()[1];
             let k = self.b.shape()[0];
             let result = crate::ops::linalg::mm_raw_bt(gc_data, b_data, m, n, k);
-            Some(Tensor::from_storage(TensorStorage::cpu(result), vec![m, k], false)?)
+            Some(Tensor::from_storage(
+                TensorStorage::cpu(result),
+                vec![m, k],
+                false,
+            )?)
         } else {
             None
         };
@@ -133,7 +143,11 @@ impl<T: Float> GradFn<T> for MmBackward<T> {
             let k = self.a.shape()[1];
             let n = grad_output.shape()[1];
             let result = crate::ops::linalg::mm_raw_at(a_data, gc_data, k, m, n);
-            Some(Tensor::from_storage(TensorStorage::cpu(result), vec![k, n], false)?)
+            Some(Tensor::from_storage(
+                TensorStorage::cpu(result),
+                vec![k, n],
+                false,
+            )?)
         } else {
             None
         };
@@ -174,9 +188,7 @@ impl<T: Float> MvBackward<T> {
 impl<T: Float> GradFn<T> for MvBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() || self.a.is_cuda() || self.x.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda {
-                op: "MvBackward",
-            });
+            return Err(FerrotorchError::NotImplementedOnCuda { op: "MvBackward" });
         }
 
         // grad_output is shape (M,) — the upstream gradient on y.
@@ -192,7 +204,11 @@ impl<T: Float> GradFn<T> for MvBackward<T> {
                     outer[i * k + j] = grad_data[i] * x_data[j];
                 }
             }
-            Some(Tensor::from_storage(TensorStorage::cpu(outer), vec![m, k], false)?)
+            Some(Tensor::from_storage(
+                TensorStorage::cpu(outer),
+                vec![m, k],
+                false,
+            )?)
         } else {
             None
         };
@@ -241,9 +257,7 @@ impl<T: Float> DotBackward<T> {
 impl<T: Float> GradFn<T> for DotBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() || self.a.is_cuda() || self.b.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda {
-                op: "DotBackward",
-            });
+            return Err(FerrotorchError::NotImplementedOnCuda { op: "DotBackward" });
         }
         let s = grad_output.item()?;
 
@@ -408,7 +422,11 @@ impl<T: Float> GradFn<T> for MatmulBackward<T> {
                             outer[ki * n + ni] = a_data[ki] * grad_data[ni];
                         }
                     }
-                    Some(Tensor::from_storage(TensorStorage::cpu(outer), vec![k, n], false)?)
+                    Some(Tensor::from_storage(
+                        TensorStorage::cpu(outer),
+                        vec![k, n],
+                        false,
+                    )?)
                 } else {
                     None
                 };
@@ -581,8 +599,16 @@ pub fn mm_differentiable<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchRe
     }
 
     // Materialize non-contiguous views before linalg ops.
-    let a = if a.is_contiguous() { a.clone() } else { a.contiguous()? };
-    let b = if b.is_contiguous() { b.clone() } else { b.contiguous()? };
+    let a = if a.is_contiguous() {
+        a.clone()
+    } else {
+        a.contiguous()?
+    };
+    let b = if b.is_contiguous() {
+        b.clone()
+    } else {
+        b.contiguous()?
+    };
 
     if a.is_cuda() {
         let backend =
@@ -682,7 +708,11 @@ impl<T: Float> GradFn<T> for MmBtBackward<T> {
                 } else {
                     backend.matmul_f32(go_h, b_h, m, n, k)?
                 };
-                Some(Tensor::from_storage(TensorStorage::gpu(result_h), vec![m, k], false)?)
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h),
+                    vec![m, k],
+                    false,
+                )?)
             } else {
                 None
             };
@@ -700,7 +730,11 @@ impl<T: Float> GradFn<T> for MmBtBackward<T> {
                     (got, r)
                 };
                 let _ = got_h;
-                Some(Tensor::from_storage(TensorStorage::gpu(result_h), vec![n, k], false)?)
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h),
+                    vec![n, k],
+                    false,
+                )?)
             } else {
                 None
             };
@@ -709,9 +743,7 @@ impl<T: Float> GradFn<T> for MmBtBackward<T> {
         }
 
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda {
-                op: "MmBtBackward",
-            });
+            return Err(FerrotorchError::NotImplementedOnCuda { op: "MmBtBackward" });
         }
 
         let grad_a = if self.a.requires_grad() {
@@ -727,7 +759,11 @@ impl<T: Float> GradFn<T> for MmBtBackward<T> {
             let n = grad_output.shape()[1];
             let k = self.a.shape()[1];
             let result = crate::ops::linalg::mm_raw_at(gc_data, a_data, n, m, k);
-            Some(Tensor::from_storage(TensorStorage::cpu(result), vec![n, k], false)?)
+            Some(Tensor::from_storage(
+                TensorStorage::cpu(result),
+                vec![n, k],
+                false,
+            )?)
         } else {
             None
         };
@@ -830,7 +866,11 @@ impl<T: Float> GradFn<T> for LinearFusedBackward<T> {
                 } else {
                     backend.matmul_f32(go_h, w_h, m, n, k)?
                 };
-                Some(Tensor::from_storage(TensorStorage::gpu(result_h), vec![m, k], false)?)
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h),
+                    vec![m, k],
+                    false,
+                )?)
             } else {
                 None
             };
@@ -845,7 +885,11 @@ impl<T: Float> GradFn<T> for LinearFusedBackward<T> {
                     let got_h = backend.transpose_2d_f32(go_h, m, n)?;
                     backend.matmul_f32(&got_h, inp_h, n, m, k)?
                 };
-                Some(Tensor::from_storage(TensorStorage::gpu(result_h), vec![n, k], false)?)
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h),
+                    vec![n, k],
+                    false,
+                )?)
             } else {
                 None
             };
@@ -859,10 +903,20 @@ impl<T: Float> GradFn<T> for LinearFusedBackward<T> {
                         } else {
                             backend.sum_axis_f32(go_h, go_shape, 0)?
                         };
-                        Some(Tensor::from_storage(TensorStorage::gpu(summed), vec![n], false)?)
-                    } else { None }
-                } else { None }
-            } else { None };
+                        Some(Tensor::from_storage(
+                            TensorStorage::gpu(summed),
+                            vec![n],
+                            false,
+                        )?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
             let mut grads = vec![grad_input, grad_weight];
             if self.bias.is_some() {
@@ -884,7 +938,11 @@ impl<T: Float> GradFn<T> for LinearFusedBackward<T> {
             let w_data = self.weight.data()?;
             let k = self.weight.shape()[1];
             let result = crate::ops::linalg::mm_raw(gc_data, w_data, m, n, k);
-            Some(Tensor::from_storage(TensorStorage::cpu(result), vec![m, k], false)?)
+            Some(Tensor::from_storage(
+                TensorStorage::cpu(result),
+                vec![m, k],
+                false,
+            )?)
         } else {
             None
         };
@@ -893,7 +951,11 @@ impl<T: Float> GradFn<T> for LinearFusedBackward<T> {
             let a_data = self.input.data()?;
             let k = self.input.shape()[1];
             let result = crate::ops::linalg::mm_raw_at(gc_data, a_data, n, m, k);
-            Some(Tensor::from_storage(TensorStorage::cpu(result), vec![n, k], false)?)
+            Some(Tensor::from_storage(
+                TensorStorage::cpu(result),
+                vec![n, k],
+                false,
+            )?)
         } else {
             None
         };
@@ -909,7 +971,11 @@ impl<T: Float> GradFn<T> for LinearFusedBackward<T> {
                             gb[j] += gc_data[row + j];
                         }
                     }
-                    Some(Tensor::from_storage(TensorStorage::cpu(gb), vec![n], false)?)
+                    Some(Tensor::from_storage(
+                        TensorStorage::cpu(gb),
+                        vec![n],
+                        false,
+                    )?)
                 } else {
                     None
                 }
@@ -1125,8 +1191,16 @@ pub fn matmul_differentiable<T: Float>(
     }
 
     // Materialize non-contiguous views before linalg ops.
-    let a = if a.is_contiguous() { a.clone() } else { a.contiguous()? };
-    let b = if b.is_contiguous() { b.clone() } else { b.contiguous()? };
+    let a = if a.is_contiguous() {
+        a.clone()
+    } else {
+        a.contiguous()?
+    };
+    let b = if b.is_contiguous() {
+        b.clone()
+    } else {
+        b.contiguous()?
+    };
 
     if a.is_cuda() && a.ndim() == 2 && b.ndim() == 2 {
         let backend =
@@ -1204,8 +1278,16 @@ pub fn bmm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
     }
 
     // Materialize non-contiguous views (e.g. from permute/transpose).
-    let a = if a.is_contiguous() { a.clone() } else { a.contiguous()? };
-    let b = if b.is_contiguous() { b.clone() } else { b.contiguous()? };
+    let a = if a.is_contiguous() {
+        a.clone()
+    } else {
+        a.contiguous()?
+    };
+    let b = if b.is_contiguous() {
+        b.clone()
+    } else {
+        b.contiguous()?
+    };
 
     let batch = a.shape()[0];
     let m = a.shape()[1];

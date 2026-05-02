@@ -95,7 +95,10 @@ fn main() {
 
     // Step 3: load weights
     let idx_path = snapshot.join("model.safetensors.index.json");
-    println!("[llama3_70b_gpu] loading CPU bf16 weights from {} shards...", "many");
+    println!(
+        "[llama3_70b_gpu] loading CPU bf16 weights from {} shards...",
+        "many"
+    );
     let t_load = Instant::now();
     let state = load_safetensors_sharded::<half::bf16>(&idx_path)
         .expect("failed to load sharded safetensors");

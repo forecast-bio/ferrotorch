@@ -120,8 +120,7 @@ impl<T: Float> LowRankMultivariateNormal<T> {
         }
         let device = loc.device();
         let cov_t = {
-            let t =
-                Tensor::from_storage(TensorStorage::cpu(cov), vec![d, d], false)?;
+            let t = Tensor::from_storage(TensorStorage::cpu(cov), vec![d, d], false)?;
             if device.is_cuda() { t.to(device)? } else { t }
         };
 

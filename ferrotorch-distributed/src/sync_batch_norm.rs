@@ -325,11 +325,7 @@ impl<T: Float> Module<T> for SyncBatchNorm2d<T> {
                 .unwrap_or(local_count);
             let grad_fn = Arc::new(SyncBatchNorm2dBackward {
                 input: input.clone(),
-                x_hat: Tensor::from_storage(
-                    TensorStorage::cpu(x_hat_data),
-                    shape.clone(),
-                    false,
-                )?,
+                x_hat: Tensor::from_storage(TensorStorage::cpu(x_hat_data), shape.clone(), false)?,
                 weight: weight_tensor,
                 bias: bias_tensor,
                 chan_var: chan_var.iter().map(|v| v.to_f64().unwrap()).collect(),
@@ -467,11 +463,8 @@ impl<T: Float> GradFn<T> for SyncBatchNorm2dBackward<T> {
                 let mut packed: Vec<T> = Vec::with_capacity(2 * channels);
                 packed.extend_from_slice(&local_dl_dx_hat_sum);
                 packed.extend_from_slice(&local_dl_dx_hat_x_hat_sum);
-                let packed_t = Tensor::from_storage(
-                    TensorStorage::cpu(packed),
-                    vec![2 * channels],
-                    false,
-                )?;
+                let packed_t =
+                    Tensor::from_storage(TensorStorage::cpu(packed), vec![2 * channels], false)?;
                 let reduced = allreduce(&packed_t, backend.as_ref(), ReduceOp::Sum)?;
                 let reduced_data = reduced.data()?;
                 for c in 0..channels {
@@ -535,12 +528,8 @@ impl<T: Float> GradFn<T> for SyncBatchNorm2dBackward<T> {
             self.bias.as_ref().and_then(|b| {
                 if b.requires_grad() {
                     Some(
-                        Tensor::from_storage(
-                            TensorStorage::cpu(grad_bias),
-                            vec![channels],
-                            false,
-                        )
-                        .unwrap(),
+                        Tensor::from_storage(TensorStorage::cpu(grad_bias), vec![channels], false)
+                            .unwrap(),
                     )
                 } else {
                     None
@@ -550,7 +539,11 @@ impl<T: Float> GradFn<T> for SyncBatchNorm2dBackward<T> {
             None
         };
 
-        Ok(vec![Some(grad_input_tensor), grad_weight_out, grad_bias_out])
+        Ok(vec![
+            Some(grad_input_tensor),
+            grad_weight_out,
+            grad_bias_out,
+        ])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
@@ -599,10 +592,7 @@ mod tests {
         let s = out_sync.data().unwrap();
         let p = out_plain.data().unwrap();
         for (i, (a, b)) in s.iter().zip(p.iter()).enumerate() {
-            assert!(
-                (a - b).abs() < 1e-5,
-                "out[{i}]: sync={a}, plain={b}"
-            );
+            assert!((a - b).abs() < 1e-5, "out[{i}]: sync={a}, plain={b}");
         }
     }
 
@@ -646,7 +636,11 @@ mod tests {
                 .with_backend(b0_clone);
             sync.train();
             let out = sync.forward(&r0_clone).unwrap();
-            (out.data().unwrap().to_vec(), sync.running_mean(), sync.running_var())
+            (
+                out.data().unwrap().to_vec(),
+                sync.running_mean(),
+                sync.running_var(),
+            )
         });
         let h1 = thread::spawn(move || {
             let mut sync = SyncBatchNorm2d::<f32>::new(3, 1e-5, 0.1, true)
@@ -654,7 +648,11 @@ mod tests {
                 .with_backend(b1_clone);
             sync.train();
             let out = sync.forward(&r1_clone).unwrap();
-            (out.data().unwrap().to_vec(), sync.running_mean(), sync.running_var())
+            (
+                out.data().unwrap().to_vec(),
+                sync.running_mean(),
+                sync.running_var(),
+            )
         });
 
         let (out0, rm0, rv0) = h0.join().unwrap();
@@ -665,10 +663,7 @@ mod tests {
         let mut concat = out0.clone();
         concat.extend_from_slice(&out1);
         for (i, (a, b)) in concat.iter().zip(plain_data.iter()).enumerate() {
-            assert!(
-                (a - b).abs() < 1e-4,
-                "out[{i}]: sync={a}, plain={b}"
-            );
+            assert!((a - b).abs() < 1e-4, "out[{i}]: sync={a}, plain={b}");
         }
 
         // Both ranks should have identical running statistics, and they
@@ -702,7 +697,10 @@ mod tests {
         // After warming up running stats in train mode, eval mode should
         // produce deterministic output independent of the input batch
         // distribution.
-        let input = cpu_tensor(&(0..12).map(|i| i as f32).collect::<Vec<_>>(), &[1, 3, 2, 2]);
+        let input = cpu_tensor(
+            &(0..12).map(|i| i as f32).collect::<Vec<_>>(),
+            &[1, 3, 2, 2],
+        );
         let mut sync = SyncBatchNorm2d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
         sync.train();
         // Warm up.

@@ -85,12 +85,22 @@ fn im2col_cpu(
                     let row_off = col_b + row * col_cols;
 
                     // Compute the safe interior range where no padding check is needed.
-                    let oh_start = if kh < pad_h { (pad_h - kh).div_ceil(stride_h) } else { 0 };
-                    let oh_end = ((height + pad_h).saturating_sub(kh)).min(h_out * stride_h) / stride_h;
+                    let oh_start = if kh < pad_h {
+                        (pad_h - kh).div_ceil(stride_h)
+                    } else {
+                        0
+                    };
+                    let oh_end =
+                        ((height + pad_h).saturating_sub(kh)).min(h_out * stride_h) / stride_h;
                     let oh_end = oh_end.min(h_out);
 
-                    let ow_start = if kw < pad_w { (pad_w - kw).div_ceil(stride_w) } else { 0 };
-                    let ow_end = ((width + pad_w).saturating_sub(kw)).min(w_out * stride_w) / stride_w;
+                    let ow_start = if kw < pad_w {
+                        (pad_w - kw).div_ceil(stride_w)
+                    } else {
+                        0
+                    };
+                    let ow_end =
+                        ((width + pad_w).saturating_sub(kw)).min(w_out * stride_w) / stride_w;
                     let ow_end = ow_end.min(w_out);
 
                     // Padded rows before interior.
@@ -99,8 +109,10 @@ fn im2col_cpu(
                         for ow in 0..w_out {
                             let iw = ow * stride_w + kw;
                             let col = oh * w_out + ow;
-                            cols[row_off + col] = if ih >= pad_h && iw >= pad_w
-                                && (ih - pad_h) < height && (iw - pad_w) < width
+                            cols[row_off + col] = if ih >= pad_h
+                                && iw >= pad_w
+                                && (ih - pad_h) < height
+                                && (iw - pad_w) < width
                             {
                                 input[input_c + (ih - pad_h) * width + (iw - pad_w)]
                             } else {
@@ -149,8 +161,10 @@ fn im2col_cpu(
                         for ow in 0..w_out {
                             let iw = ow * stride_w + kw;
                             let col = oh * w_out + ow;
-                            cols[row_off + col] = if ih >= pad_h && iw >= pad_w
-                                && (ih - pad_h) < height && (iw - pad_w) < width
+                            cols[row_off + col] = if ih >= pad_h
+                                && iw >= pad_w
+                                && (ih - pad_h) < height
+                                && (iw - pad_w) < width
                             {
                                 input[input_c + (ih - pad_h) * width + (iw - pad_w)]
                             } else {

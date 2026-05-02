@@ -142,13 +142,7 @@ pub fn gpu_svd_f32(
     let mut lwork: i32 = 0;
     // SAFETY: dn.cu() is a valid cusolverDnHandle_t, m/n are valid dimensions.
     unsafe {
-        csys::cusolverDnSgesvd_bufferSize(
-            dn.cu(),
-            m as i32,
-            n as i32,
-            &mut lwork,
-        )
-        .result()?;
+        csys::cusolverDnSgesvd_bufferSize(dn.cu(), m as i32, n as i32, &mut lwork).result()?;
     }
 
     let mut d_work = crate::transfer::alloc_zeros_f32(lwork.max(1) as usize, device)?;
@@ -166,17 +160,17 @@ pub fn gpu_svd_f32(
 
         csys::cusolverDnSgesvd(
             dn.cu(),
-            b'S' as i8,   // jobu: thin U
-            b'S' as i8,   // jobvt: thin VT
+            b'S' as i8, // jobu: thin U
+            b'S' as i8, // jobvt: thin VT
             m as i32,
             n as i32,
             a_ptr as *mut f32,
-            m as i32,      // lda = m (column-major)
+            m as i32, // lda = m (column-major)
             s_ptr as *mut f32,
             u_ptr as *mut f32,
-            m as i32,      // ldu = m
+            m as i32, // ldu = m
             vt_ptr as *mut f32,
-            k as i32,      // ldvt = k (for thin SVD)
+            k as i32, // ldvt = k (for thin SVD)
             work_ptr as *mut f32,
             lwork,
             std::ptr::null_mut(), // rwork (unused for real)
@@ -265,13 +259,7 @@ pub fn gpu_svd_f64(
     let mut lwork: i32 = 0;
     // SAFETY: dn.cu() is a valid cusolverDnHandle_t, m/n are valid dimensions.
     unsafe {
-        csys::cusolverDnDgesvd_bufferSize(
-            dn.cu(),
-            m as i32,
-            n as i32,
-            &mut lwork,
-        )
-        .result()?;
+        csys::cusolverDnDgesvd_bufferSize(dn.cu(), m as i32, n as i32, &mut lwork).result()?;
     }
 
     let mut d_work = crate::transfer::alloc_zeros_f64(lwork.max(1) as usize, device)?;
@@ -289,17 +277,17 @@ pub fn gpu_svd_f64(
 
         csys::cusolverDnDgesvd(
             dn.cu(),
-            b'S' as i8,   // jobu: thin U
-            b'S' as i8,   // jobvt: thin VT
+            b'S' as i8, // jobu: thin U
+            b'S' as i8, // jobvt: thin VT
             m as i32,
             n as i32,
             a_ptr as *mut f64,
-            m as i32,      // lda = m (column-major)
+            m as i32, // lda = m (column-major)
             s_ptr as *mut f64,
             u_ptr as *mut f64,
-            m as i32,      // ldu = m
+            m as i32, // ldu = m
             vt_ptr as *mut f64,
-            k as i32,      // ldvt = k (for thin SVD)
+            k as i32, // ldvt = k (for thin SVD)
             work_ptr as *mut f64,
             lwork,
             std::ptr::null_mut(), // rwork (unused for real)
@@ -356,11 +344,7 @@ pub fn gpu_svd_f64(
 ///
 /// Upper-triangular entries are explicitly zeroed.
 #[cfg(feature = "cuda")]
-pub fn gpu_cholesky_f32(
-    data: &[f32],
-    n: usize,
-    device: &GpuDevice,
-) -> GpuResult<Vec<f32>> {
+pub fn gpu_cholesky_f32(data: &[f32], n: usize, device: &GpuDevice) -> GpuResult<Vec<f32>> {
     use cudarc::cusolver::sys as csys;
 
     if n == 0 {
@@ -449,11 +433,7 @@ pub fn gpu_cholesky_f32(
 ///
 /// Upper-triangular entries are explicitly zeroed.
 #[cfg(feature = "cuda")]
-pub fn gpu_cholesky_f64(
-    data: &[f64],
-    n: usize,
-    device: &GpuDevice,
-) -> GpuResult<Vec<f64>> {
+pub fn gpu_cholesky_f64(data: &[f64], n: usize, device: &GpuDevice) -> GpuResult<Vec<f64>> {
     use cudarc::cusolver::sys as csys;
 
     if n == 0 {
@@ -644,7 +624,7 @@ pub fn gpu_solve_f32(
             n as i32,
             ipiv_ptr as *const i32,
             b_ptr as *mut f32,
-            n as i32,  // ldb = n
+            n as i32, // ldb = n
             info_ptr as *mut i32,
         )
         .result()?;
@@ -777,7 +757,7 @@ pub fn gpu_solve_f64(
             n as i32,
             ipiv_ptr as *const i32,
             b_ptr as *mut f64,
-            n as i32,  // ldb = n
+            n as i32, // ldb = n
             info_ptr as *mut i32,
         )
         .result()?;
@@ -1180,9 +1160,21 @@ pub fn gpu_cholesky_f64_dev(
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_cholesky_f32_dev(_a: &CudaBuffer<f32>, _n: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_cholesky_f32_dev(
+    _a: &CudaBuffer<f32>,
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_cholesky_f64_dev(_a: &CudaBuffer<f64>, _n: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_cholesky_f64_dev(
+    _a: &CudaBuffer<f64>,
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ---------------------------------------------------------------------------
 // Device-resident solve: A * X = B   (#632)
@@ -1436,9 +1428,25 @@ pub fn gpu_solve_f64_dev(
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_solve_f32_dev(_a: &CudaBuffer<f32>, _b: &CudaBuffer<f32>, _n: usize, _nrhs: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_solve_f32_dev(
+    _a: &CudaBuffer<f32>,
+    _b: &CudaBuffer<f32>,
+    _n: usize,
+    _nrhs: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_solve_f64_dev(_a: &CudaBuffer<f64>, _b: &CudaBuffer<f64>, _n: usize, _nrhs: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_solve_f64_dev(
+    _a: &CudaBuffer<f64>,
+    _b: &CudaBuffer<f64>,
+    _n: usize,
+    _nrhs: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ---------------------------------------------------------------------------
 // Least-squares: solve min ||A x - b||  via cusolverDn{SS,DD}gels (#630)
@@ -1734,6 +1742,7 @@ impl Drop for DnParamsHandle {
 /// `(W: CudaBuffer<f32>, VR: CudaBuffer<f32>)` where:
 ///   - W has length `2n` interleaved re/im (logical shape `[n, 2]`)
 ///   - VR has length `2 * n * n` row-major (logical shape `[n, n, 2]`)
+///
 /// (#631)
 #[cfg(feature = "cuda")]
 pub fn gpu_eig_f32(
@@ -2761,21 +2770,13 @@ pub fn gpu_svd_f64(
 
 /// Stub — always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_cholesky_f32(
-    _data: &[f32],
-    _n: usize,
-    _device: &GpuDevice,
-) -> GpuResult<Vec<f32>> {
+pub fn gpu_cholesky_f32(_data: &[f32], _n: usize, _device: &GpuDevice) -> GpuResult<Vec<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
 /// Stub — always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_cholesky_f64(
-    _data: &[f64],
-    _n: usize,
-    _device: &GpuDevice,
-) -> GpuResult<Vec<f64>> {
+pub fn gpu_cholesky_f64(_data: &[f64], _n: usize, _device: &GpuDevice) -> GpuResult<Vec<f64>> {
     Err(GpuError::NoCudaFeature)
 }
 

@@ -230,11 +230,7 @@ impl<T: Float> Distribution<T> for Gumbel<T> {
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
         let data = self.mean_value()?;
-        Tensor::from_storage(
-            TensorStorage::cpu(data),
-            self.loc.shape().to_vec(),
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(data), self.loc.shape().to_vec(), false)
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
@@ -243,11 +239,7 @@ impl<T: Float> Distribution<T> for Gumbel<T> {
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
         let data = self.variance_value()?;
-        Tensor::from_storage(
-            TensorStorage::cpu(data),
-            self.loc.shape().to_vec(),
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(data), self.loc.shape().to_vec(), false)
     }
 }
 
@@ -289,10 +281,13 @@ impl<T: Float> GradFn<T> for GumbelRsampleBackward<T> {
         };
 
         // grad_scale = sum(grad_output * (-ln(-ln(u))))
-        let grad_scale_val: T = go.iter().zip(u_data.iter()).fold(zero, |acc, (&g, &u_val)| {
-            let u_safe = u_val.max(eps).min(one - eps);
-            acc + g * (-(-u_safe.ln()).ln())
-        });
+        let grad_scale_val: T = go
+            .iter()
+            .zip(u_data.iter())
+            .fold(zero, |acc, (&g, &u_val)| {
+                let u_safe = u_val.max(eps).min(one - eps);
+                acc + g * (-(-u_safe.ln()).ln())
+            });
         let grad_scale = Tensor::from_storage(
             TensorStorage::cpu(vec![grad_scale_val]),
             self.scale.shape().to_vec(),

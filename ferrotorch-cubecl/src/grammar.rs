@@ -246,10 +246,8 @@ mod cuda_tests {
         let num_classes = 2u32;
         // States: 0 = accept-state-so-far, 1 = REJECT.
         let transitions: Vec<u32> = vec![
-            /* state 0, class 0 ('a') */ 0,
-            /* state 0, class 1 (other) */ 1,
-            /* state 1, class 0 */ 1,
-            /* state 1, class 1 */ 1,
+            /* state 0, class 0 ('a') */ 0, /* state 0, class 1 (other) */ 1,
+            /* state 1, class 0 */ 1, /* state 1, class 1 */ 1,
         ];
 
         let tokens: &[&str] = &[

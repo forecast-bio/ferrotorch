@@ -295,10 +295,7 @@ impl Unflatten {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
                     "Unflatten: unflattened_size {:?} (product={}) doesn't match dim {} size {}",
-                    self.unflattened_size,
-                    expected_size,
-                    self.dim,
-                    shape[self.dim]
+                    self.unflattened_size, expected_size, self.dim, shape[self.dim]
                 ),
             });
         }
@@ -468,18 +465,24 @@ impl CosineSimilarity {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
                     "CosineSimilarity: shapes must match, got {:?} and {:?}",
-                    x1.shape(), x2.shape()
+                    x1.shape(),
+                    x2.shape()
                 ),
             });
         }
         if x1.is_cuda() || x2.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "CosineSimilarity" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "CosineSimilarity",
+            });
         }
 
         let shape = x1.shape();
         if self.dim >= shape.len() {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!("CosineSimilarity: dim {} out of range for shape {:?}", self.dim, shape),
+                message: format!(
+                    "CosineSimilarity: dim {} out of range for shape {:?}",
+                    self.dim, shape
+                ),
             });
         }
 
@@ -557,12 +560,15 @@ impl PairwiseDistance {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
                     "PairwiseDistance: shapes must match, got {:?} and {:?}",
-                    x1.shape(), x2.shape()
+                    x1.shape(),
+                    x2.shape()
                 ),
             });
         }
         if x1.is_cuda() || x2.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "PairwiseDistance" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "PairwiseDistance",
+            });
         }
 
         let shape = x1.shape();

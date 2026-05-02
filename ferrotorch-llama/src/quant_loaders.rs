@@ -65,16 +65,12 @@ pub fn dequantize_gptq_q4(packed: &GptqQ4) -> FerrotorchResult<Vec<f32>> {
 
     if out_features % 8 != 0 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "GPTQ q4: out_features ({out_features}) must be a multiple of 8"
-            ),
+            message: format!("GPTQ q4: out_features ({out_features}) must be a multiple of 8"),
         });
     }
     if in_features % 8 != 0 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "GPTQ q4: in_features ({in_features}) must be a multiple of 8"
-            ),
+            message: format!("GPTQ q4: in_features ({in_features}) must be a multiple of 8"),
         });
     }
     if in_features % group_size != 0 {
@@ -195,9 +191,7 @@ pub fn dequantize_awq_q4(packed: &AwqQ4) -> FerrotorchResult<Vec<f32>> {
 
     if out_features % 8 != 0 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "AWQ q4: out_features ({out_features}) must be a multiple of 8"
-            ),
+            message: format!("AWQ q4: out_features ({out_features}) must be a multiple of 8"),
         });
     }
     if in_features % group_size != 0 {
@@ -246,8 +240,7 @@ pub fn dequantize_awq_q4(packed: &AwqQ4) -> FerrotorchResult<Vec<f32>> {
         for n_block in 0..n_packed {
             let packed_w = qweight[k * n_packed + n_block] as u32;
             let packed_z = qzeros[group * n_packed + n_block] as u32;
-            for shuffle_idx in 0..8 {
-                let lane = AWQ_PACK_ORDER[shuffle_idx];
+            for (shuffle_idx, &lane) in AWQ_PACK_ORDER.iter().enumerate() {
                 let q = ((packed_w >> (4 * lane)) & 0xF) as i32;
                 let z = ((packed_z >> (4 * lane)) & 0xF) as i32;
                 let n = n_block * 8 + shuffle_idx;
@@ -391,7 +384,11 @@ fn unpack_hqq_4bit(packed: &[u8], total: usize) -> FerrotorchResult<Vec<u8>> {
     let mut out = Vec::with_capacity(total);
     for i in 0..total {
         let byte = packed[i / 2];
-        let nibble = if i % 2 == 0 { byte & 0x0F } else { (byte >> 4) & 0x0F };
+        let nibble = if i % 2 == 0 {
+            byte & 0x0F
+        } else {
+            (byte >> 4) & 0x0F
+        };
         out.push(nibble);
     }
     Ok(out)
@@ -412,7 +409,7 @@ fn unpack_hqq_2bit(packed: &[u8], total: usize) -> FerrotorchResult<Vec<u8>> {
     for i in 0..total {
         let byte = packed[i / 4];
         let shift = (i % 4) * 2;
-        out.push(((byte >> shift) & 0x03) as u8);
+        out.push((byte >> shift) & 0x03);
     }
     Ok(out)
 }
@@ -432,7 +429,7 @@ fn unpack_hqq_1bit(packed: &[u8], total: usize) -> FerrotorchResult<Vec<u8>> {
     for i in 0..total {
         let byte = packed[i / 8];
         let shift = i % 8;
-        out.push(((byte >> shift) & 0x01) as u8);
+        out.push((byte >> shift) & 0x01);
     }
     Ok(out)
 }
@@ -495,10 +492,9 @@ mod tests {
         let group_size = 8;
         let qweight_rows = in_features / 8; // 1
         let mut qweight = vec![0i32; qweight_rows * out_features];
-        for n in 0..out_features {
-            // Pack k = 0..8 along the 8 nibbles for this output column.
+        for entry in qweight.iter_mut().take(out_features) {
             let nibbles: [u32; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
-            qweight[n] = pack8(nibbles);
+            *entry = pack8(nibbles);
         }
         let num_groups = in_features / group_size; // 1
         // qzeros: [num_groups, out_features/8] = [1, 1]. Pack 8 ones.
@@ -628,8 +624,8 @@ mod tests {
         let group_size = 8;
         let n_packed = out_features / 8;
         let qweight = vec![pack8([7; 8]); in_features * n_packed];
-        let qzeros = vec![pack8([3; 8]); 1 * n_packed];
-        let scales = vec![1.0f32; 1 * out_features];
+        let qzeros = vec![pack8([3; 8]); n_packed];
+        let scales = vec![1.0f32; out_features];
 
         let packed = AwqQ4 {
             qweight,
@@ -658,8 +654,8 @@ mod tests {
         // Pack the 8 lanes with values 0..8 (low → high in the i32).
         let qweight = vec![pack8([0, 1, 2, 3, 4, 5, 6, 7]); in_features * n_packed];
         // zero = 0 in every lane.
-        let qzeros = vec![pack8([0; 8]); 1 * n_packed];
-        let scales = vec![1.0f32; 1 * out_features];
+        let qzeros = vec![pack8([0; 8]); n_packed];
+        let scales = vec![1.0f32; out_features];
 
         let packed = AwqQ4 {
             qweight,

@@ -27,15 +27,20 @@ impl<T: Float> VonMises<T> {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
                     "VonMises: loc shape {:?} != concentration shape {:?}",
-                    loc.shape(), concentration.shape()
+                    loc.shape(),
+                    concentration.shape()
                 ),
             });
         }
         Ok(Self { loc, concentration })
     }
 
-    pub fn loc(&self) -> &Tensor<T> { &self.loc }
-    pub fn concentration(&self) -> &Tensor<T> { &self.concentration }
+    pub fn loc(&self) -> &Tensor<T> {
+        &self.loc
+    }
+    pub fn concentration(&self) -> &Tensor<T> {
+        &self.concentration
+    }
 }
 
 /// Approximate log of modified Bessel function I_0(x).
@@ -45,15 +50,21 @@ fn log_bessel_i0<T: Float>(x: T) -> T {
     let result = if xf < 3.75 {
         // Small argument: I_0(x) ≈ polynomial
         let t = (xf / 3.75).powi(2);
-        let i0 = 1.0 + t * (3.5156229 + t * (3.0899424 + t * (1.2067492
-            + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))));
+        let i0 = 1.0
+            + t * (3.5156229
+                + t * (3.0899424
+                    + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))));
         i0.ln()
     } else {
         // Large argument: asymptotic expansion
         let t = 3.75 / xf;
-        let factor = 0.39894228 + t * (0.01328592 + t * (0.00225319
-            + t * (-0.00157565 + t * (0.00916281 + t * (-0.02057706
-            + t * (0.02635537 + t * (-0.01647633 + t * 0.00392377)))))));
+        let factor = 0.39894228
+            + t * (0.01328592
+                + t * (0.00225319
+                    + t * (-0.00157565
+                        + t * (0.00916281
+                            + t * (-0.02057706
+                                + t * (0.02635537 + t * (-0.01647633 + t * 0.00392377)))))));
         xf - 0.5 * xf.ln() + factor.ln()
     };
     T::from(result).unwrap()
@@ -91,8 +102,16 @@ impl<T: Float> Distribution<T> for VonMises<T> {
         };
 
         for i in 0..numel {
-            let li = if l_data.len() == 1 { 0 } else { i % l_data.len() };
-            let ki = if k_data.len() == 1 { 0 } else { i % k_data.len() };
+            let li = if l_data.len() == 1 {
+                0
+            } else {
+                i % l_data.len()
+            };
+            let ki = if k_data.len() == 1 {
+                0
+            } else {
+                i % k_data.len()
+            };
             let kappa = k_data[ki];
 
             // Best's algorithm
@@ -109,7 +128,11 @@ impl<T: Float> Distribution<T> for VonMises<T> {
 
                 if c * (two - c) > u2 || c.ln() >= u2.ln() + one - c {
                     let u3 = next_u();
-                    let sign = if u3 > T::from(0.5).unwrap() { one } else { zero - one };
+                    let sign = if u3 > T::from(0.5).unwrap() {
+                        one
+                    } else {
+                        zero - one
+                    };
                     break sign * w.acos() + l_data[li];
                 }
             };
@@ -168,7 +191,11 @@ impl<T: Float> Distribution<T> for VonMises<T> {
             out.push(h);
         }
 
-        Tensor::from_storage(TensorStorage::cpu(out), self.concentration.shape().to_vec(), false)
+        Tensor::from_storage(
+            TensorStorage::cpu(out),
+            self.concentration.shape().to_vec(),
+            false,
+        )
     }
 }
 
@@ -186,7 +213,10 @@ mod tests {
         let s = d.sample(&[500]).unwrap();
         let pi = std::f64::consts::PI;
         for &v in s.data().unwrap() {
-            assert!(v >= -pi && v <= pi, "VonMises sample should be in [-pi,pi], got {v}");
+            assert!(
+                v >= -pi && v <= pi,
+                "VonMises sample should be in [-pi,pi], got {v}"
+            );
         }
     }
 
@@ -194,7 +224,12 @@ mod tests {
     fn test_von_mises_log_prob_at_mode() {
         let d = VonMises::new(scalar(0.0), scalar(5.0)).unwrap();
         let at_mode = Tensor::from_storage(TensorStorage::cpu(vec![0.0]), vec![1], false).unwrap();
-        let away = Tensor::from_storage(TensorStorage::cpu(vec![std::f64::consts::PI]), vec![1], false).unwrap();
+        let away = Tensor::from_storage(
+            TensorStorage::cpu(vec![std::f64::consts::PI]),
+            vec![1],
+            false,
+        )
+        .unwrap();
         let lp_mode = d.log_prob(&at_mode).unwrap().data().unwrap()[0];
         let lp_away = d.log_prob(&away).unwrap().data().unwrap()[0];
         assert!(lp_mode > lp_away, "log_prob should be highest at mode");

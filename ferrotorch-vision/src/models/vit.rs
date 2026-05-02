@@ -533,9 +533,7 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
 // IntermediateFeatures — CL-499
 // ===========================================================================
 
-impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T>
-    for VisionTransformer<T>
-{
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for VisionTransformer<T> {
     fn forward_features(
         &self,
         input: &Tensor<T>,
@@ -616,10 +614,7 @@ impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T>
     }
 
     fn feature_node_names(&self) -> Vec<String> {
-        let mut names = vec![
-            "patch_embed".to_string(),
-            "embedded".to_string(),
-        ];
+        let mut names = vec!["patch_embed".to_string(), "embedded".to_string()];
         for i in 0..self.blocks.len() {
             names.push(format!("block{i}"));
         }

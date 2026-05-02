@@ -12,7 +12,11 @@ use crate::conv::{ConvTranspose1d, ConvTranspose2d, ConvTranspose3d};
 use crate::module::Module;
 use crate::parameter::Parameter;
 
-fn channels_from_input<T: Float>(input: &Tensor<T>, op: &str, expected_ndim: usize) -> FerrotorchResult<usize> {
+fn channels_from_input<T: Float>(
+    input: &Tensor<T>,
+    op: &str,
+    expected_ndim: usize,
+) -> FerrotorchResult<usize> {
     if input.ndim() != expected_ndim {
         return Err(FerrotorchError::ShapeMismatch {
             message: format!(
@@ -93,11 +97,17 @@ impl<T: Float> Module<T> for LazyConvTranspose1d<T> {
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-        self.inner.get_mut().map(|m| m.parameters_mut()).unwrap_or_default()
+        self.inner
+            .get_mut()
+            .map(|m| m.parameters_mut())
+            .unwrap_or_default()
     }
 
     fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-        self.inner.get().map(|m| m.named_parameters()).unwrap_or_default()
+        self.inner
+            .get()
+            .map(|m| m.named_parameters())
+            .unwrap_or_default()
     }
 
     fn train(&mut self) {
@@ -188,11 +198,17 @@ impl<T: Float> Module<T> for LazyConvTranspose2d<T> {
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-        self.inner.get_mut().map(|m| m.parameters_mut()).unwrap_or_default()
+        self.inner
+            .get_mut()
+            .map(|m| m.parameters_mut())
+            .unwrap_or_default()
     }
 
     fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-        self.inner.get().map(|m| m.named_parameters()).unwrap_or_default()
+        self.inner
+            .get()
+            .map(|m| m.named_parameters())
+            .unwrap_or_default()
     }
 
     fn train(&mut self) {
@@ -283,11 +299,17 @@ impl<T: Float> Module<T> for LazyConvTranspose3d<T> {
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-        self.inner.get_mut().map(|m| m.parameters_mut()).unwrap_or_default()
+        self.inner
+            .get_mut()
+            .map(|m| m.parameters_mut())
+            .unwrap_or_default()
     }
 
     fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-        self.inner.get().map(|m| m.named_parameters()).unwrap_or_default()
+        self.inner
+            .get()
+            .map(|m| m.named_parameters())
+            .unwrap_or_default()
     }
 
     fn train(&mut self) {
@@ -320,14 +342,8 @@ mod tests {
 
     #[test]
     fn lazy_conv_transpose2d_explicit_materialize() {
-        let m: LazyConvTranspose2d<f32> = LazyConvTranspose2d::new(
-            8,
-            (3, 3),
-            (1, 1),
-            (1, 1),
-            (0, 0),
-            true,
-        );
+        let m: LazyConvTranspose2d<f32> =
+            LazyConvTranspose2d::new(8, (3, 3), (1, 1), (1, 1), (0, 0), true);
         assert!(!m.is_initialized());
         m.materialize(4).unwrap();
         assert!(m.is_initialized());
@@ -345,28 +361,16 @@ mod tests {
 
     #[test]
     fn lazy_conv_transpose3d_explicit_materialize() {
-        let m: LazyConvTranspose3d<f32> = LazyConvTranspose3d::new(
-            2,
-            (2, 2, 2),
-            (1, 1, 1),
-            (0, 0, 0),
-            (0, 0, 0),
-            false,
-        );
+        let m: LazyConvTranspose3d<f32> =
+            LazyConvTranspose3d::new(2, (2, 2, 2), (1, 1, 1), (0, 0, 0), (0, 0, 0), false);
         m.materialize(3).unwrap();
         assert!(m.is_initialized());
     }
 
     #[test]
     fn lazy_conv_transpose_train_eval_toggle() {
-        let mut m: LazyConvTranspose2d<f32> = LazyConvTranspose2d::new(
-            4,
-            (3, 3),
-            (1, 1),
-            (0, 0),
-            (0, 0),
-            true,
-        );
+        let mut m: LazyConvTranspose2d<f32> =
+            LazyConvTranspose2d::new(4, (3, 3), (1, 1), (0, 0), (0, 0), true);
         assert!(m.is_training());
         m.eval();
         assert!(!m.is_training());

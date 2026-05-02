@@ -10,11 +10,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor};
 
 use crate::module::Module;
-use crate::norm::{BatchNorm1d, BatchNorm2d, BatchNorm3d, InstanceNorm1d, InstanceNorm2d, InstanceNorm3d};
+use crate::norm::{
+    BatchNorm1d, BatchNorm2d, BatchNorm3d, InstanceNorm1d, InstanceNorm2d, InstanceNorm3d,
+};
 use crate::parameter::Parameter;
 
 /// Generic helper: extract the channel dim (dim 1) from input shape `[N, C, ...]`.
-fn channels_from_input<T: Float>(input: &Tensor<T>, op: &str, expected_ndim: usize) -> FerrotorchResult<usize> {
+fn channels_from_input<T: Float>(
+    input: &Tensor<T>,
+    op: &str,
+    expected_ndim: usize,
+) -> FerrotorchResult<usize> {
     if input.ndim() != expected_ndim {
         return Err(FerrotorchError::ShapeMismatch {
             message: format!(
@@ -55,14 +61,18 @@ macro_rules! lazy_batchnorm {
             }
 
             pub fn num_features(&self) -> Option<usize> {
-                self.inner.get().map(|m| m.parameters().first()
-                    .map(|p| p.tensor().shape()[0])
-                    .unwrap_or(0))
+                self.inner.get().map(|m| {
+                    m.parameters()
+                        .first()
+                        .map(|p| p.tensor().shape()[0])
+                        .unwrap_or(0)
+                })
             }
 
             pub fn materialize(&self, num_features: usize) -> FerrotorchResult<()> {
                 if self.inner.get().is_none() {
-                    let inner = $inner::<T>::new(num_features, self.eps, self.momentum, self.affine)?;
+                    let inner =
+                        $inner::<T>::new(num_features, self.eps, self.momentum, self.affine)?;
                     let _ = self.inner.set(inner);
                 }
                 Ok(())
@@ -84,11 +94,17 @@ macro_rules! lazy_batchnorm {
             }
 
             fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-                self.inner.get_mut().map(|m| m.parameters_mut()).unwrap_or_default()
+                self.inner
+                    .get_mut()
+                    .map(|m| m.parameters_mut())
+                    .unwrap_or_default()
             }
 
             fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-                self.inner.get().map(|m| m.named_parameters()).unwrap_or_default()
+                self.inner
+                    .get()
+                    .map(|m| m.named_parameters())
+                    .unwrap_or_default()
             }
 
             fn train(&mut self) {
@@ -165,11 +181,17 @@ macro_rules! lazy_instancenorm {
             }
 
             fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-                self.inner.get_mut().map(|m| m.parameters_mut()).unwrap_or_default()
+                self.inner
+                    .get_mut()
+                    .map(|m| m.parameters_mut())
+                    .unwrap_or_default()
             }
 
             fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-                self.inner.get().map(|m| m.named_parameters()).unwrap_or_default()
+                self.inner
+                    .get()
+                    .map(|m| m.named_parameters())
+                    .unwrap_or_default()
             }
 
             fn train(&mut self) {

@@ -174,12 +174,20 @@ impl<T: Float> ComplexTensor<T> {
 
     /// Pointwise complex add: `(a+bi) + (c+di) = (a+c) + (b+d)i`.
     pub fn add(&self, other: &Self) -> FerrotorchResult<Self> {
-        self.binary(other, |a_re, a_im, b_re, b_im| (a_re + b_re, a_im + b_im), "add")
+        self.binary(
+            other,
+            |a_re, a_im, b_re, b_im| (a_re + b_re, a_im + b_im),
+            "add",
+        )
     }
 
     /// Pointwise complex subtract.
     pub fn sub(&self, other: &Self) -> FerrotorchResult<Self> {
-        self.binary(other, |a_re, a_im, b_re, b_im| (a_re - b_re, a_im - b_im), "sub")
+        self.binary(
+            other,
+            |a_re, a_im, b_re, b_im| (a_re - b_re, a_im - b_im),
+            "sub",
+        )
     }
 
     /// Pointwise complex multiply: `(a+bi)(c+di) = (ac - bd) + (ad + bc)i`.
@@ -406,12 +414,8 @@ mod tests {
 
     #[test]
     fn complex_from_real_zero_imag() {
-        let r = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0_f32, 2.0, 3.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let r = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f32, 2.0, 3.0]), vec![3], false)
+            .unwrap();
         let c = ComplexTensor::from_real(&r).unwrap();
         assert_eq!(c.re(), &[1.0, 2.0, 3.0]);
         assert!(c.im().iter().all(|&x| x == 0.0));
@@ -452,12 +456,8 @@ mod tests {
 
     #[test]
     fn complex_interleaved_rejects_wrong_trailing_dim() {
-        let t = Tensor::from_storage(
-            TensorStorage::cpu(vec![1.0_f32, 2.0, 3.0]),
-            vec![3],
-            false,
-        )
-        .unwrap();
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![1.0_f32, 2.0, 3.0]), vec![3], false)
+            .unwrap();
         let err = ComplexTensor::from_interleaved(&t).unwrap_err();
         assert!(matches!(err, FerrotorchError::InvalidArgument { .. }));
     }
@@ -608,18 +608,12 @@ mod tests {
     #[test]
     fn complex_matmul_against_real_path_when_im_is_zero() {
         // Pure-real complex inputs should give the same answer as a real mm.
-        let a = ComplexTensor::<f64>::from_re_im(
-            vec![1.0, 2.0, 3.0, 4.0],
-            vec![0.0; 4],
-            vec![2, 2],
-        )
-        .unwrap();
-        let b = ComplexTensor::<f64>::from_re_im(
-            vec![5.0, 6.0, 7.0, 8.0],
-            vec![0.0; 4],
-            vec![2, 2],
-        )
-        .unwrap();
+        let a =
+            ComplexTensor::<f64>::from_re_im(vec![1.0, 2.0, 3.0, 4.0], vec![0.0; 4], vec![2, 2])
+                .unwrap();
+        let b =
+            ComplexTensor::<f64>::from_re_im(vec![5.0, 6.0, 7.0, 8.0], vec![0.0; 4], vec![2, 2])
+                .unwrap();
         let c = a.matmul(&b).unwrap();
         // [[1*5+2*7, 1*6+2*8], [3*5+4*7, 3*6+4*8]] = [[19,22],[43,50]]
         assert_eq!(c.re(), &[19.0, 22.0, 43.0, 50.0]);

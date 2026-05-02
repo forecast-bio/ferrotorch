@@ -366,11 +366,12 @@ fn launch_binary(
     }
     let ctx = device.context();
     let stream = device.stream();
-    let f = get_or_compile(ctx, ptx, kernel_name, device.ordinal() as u32)
-        .map_err(|e| {
-            eprintln!("{kernel_name}: {e}");
-            GpuError::PtxCompileFailed { kernel: kernel_name }
-        })?;
+    let f = get_or_compile(ctx, ptx, kernel_name, device.ordinal() as u32).map_err(|e| {
+        eprintln!("{kernel_name}: {e}");
+        GpuError::PtxCompileFailed {
+            kernel: kernel_name,
+        }
+    })?;
 
     let mut out = stream.alloc_zeros::<u16>(n)?;
     let cfg = launch_1d(n);
@@ -416,11 +417,18 @@ pub fn gpu_silu_bf16(
     }
     let ctx = device.context();
     let stream = device.stream();
-    let f = get_or_compile(ctx, SILU_BF16_PTX, "silu_bf16_kernel", device.ordinal() as u32)
-        .map_err(|e| {
-            eprintln!("silu_bf16_kernel: {e}");
-            GpuError::PtxCompileFailed { kernel: "silu_bf16_kernel" }
-        })?;
+    let f = get_or_compile(
+        ctx,
+        SILU_BF16_PTX,
+        "silu_bf16_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|e| {
+        eprintln!("silu_bf16_kernel: {e}");
+        GpuError::PtxCompileFailed {
+            kernel: "silu_bf16_kernel",
+        }
+    })?;
 
     let mut out = stream.alloc_zeros::<u16>(n)?;
     let cfg = launch_1d(n);
@@ -447,11 +455,18 @@ pub fn gpu_relu_bf16(
     }
     let ctx = device.context();
     let stream = device.stream();
-    let f = get_or_compile(ctx, RELU_BF16_PTX, "relu_bf16_kernel", device.ordinal() as u32)
-        .map_err(|e| {
-            eprintln!("relu_bf16_kernel: {e}");
-            GpuError::PtxCompileFailed { kernel: "relu_bf16_kernel" }
-        })?;
+    let f = get_or_compile(
+        ctx,
+        RELU_BF16_PTX,
+        "relu_bf16_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|e| {
+        eprintln!("relu_bf16_kernel: {e}");
+        GpuError::PtxCompileFailed {
+            kernel: "relu_bf16_kernel",
+        }
+    })?;
 
     let mut out = stream.alloc_zeros::<u16>(n)?;
     let cfg = launch_1d(n);
@@ -2196,14 +2211,14 @@ mod tests {
     use super::*;
 
     fn upload_bf16(dev: &GpuDevice, data: &[f32]) -> cudarc::driver::CudaSlice<u16> {
-        let bits: Vec<u16> = data.iter().map(|&x| half::bf16::from_f32(x).to_bits()).collect();
+        let bits: Vec<u16> = data
+            .iter()
+            .map(|&x| half::bf16::from_f32(x).to_bits())
+            .collect();
         dev.stream().clone_htod(&bits).expect("upload bf16")
     }
 
-    fn download_bf16(
-        dev: &GpuDevice,
-        buf: &cudarc::driver::CudaSlice<u16>,
-    ) -> Vec<f32> {
+    fn download_bf16(dev: &GpuDevice, buf: &cudarc::driver::CudaSlice<u16>) -> Vec<f32> {
         let bits = dev.stream().clone_dtoh(buf).expect("download bf16");
         bits.into_iter()
             .map(|b| half::bf16::from_bits(b).to_f32())
@@ -2237,10 +2252,7 @@ mod tests {
             .map(|&x| x * (1.0 / (1.0 + (-x).exp())))
             .collect();
         for (g, e) in si_host.iter().zip(silu_ref.iter()) {
-            assert!(
-                (g - e).abs() < e.abs() * 0.02 + 5e-3,
-                "silu {g} vs {e}",
-            );
+            assert!((g - e).abs() < e.abs() * 0.02 + 5e-3, "silu {g} vs {e}",);
         }
     }
 
@@ -2269,8 +2281,14 @@ mod tests {
         let out = gpu_rmsnorm_bf16(&input, &weight, rows, cols, 1e-5, &dev).expect("rmsnorm");
         let got = download_bf16(&dev, &out);
 
-        let x_bf: Vec<f32> = x.iter().map(|&v| half::bf16::from_f32(v).to_f32()).collect();
-        let w_bf: Vec<f32> = w.iter().map(|&v| half::bf16::from_f32(v).to_f32()).collect();
+        let x_bf: Vec<f32> = x
+            .iter()
+            .map(|&v| half::bf16::from_f32(v).to_f32())
+            .collect();
+        let w_bf: Vec<f32> = w
+            .iter()
+            .map(|&v| half::bf16::from_f32(v).to_f32())
+            .collect();
         let mut expected = Vec::with_capacity(rows * cols);
         for r in 0..rows {
             let row = &x_bf[r * cols..(r + 1) * cols];
@@ -2303,10 +2321,7 @@ mod tests {
         for r in 0..rows {
             let row = &got[r * cols..(r + 1) * cols];
             let s: f32 = row.iter().sum();
-            assert!(
-                (s - 1.0).abs() < 0.05,
-                "row {r} sum = {s}, expected ~1.0",
-            );
+            assert!((s - 1.0).abs() < 0.05, "row {r} sum = {s}, expected ~1.0",);
             for &v in row {
                 assert!(v >= 0.0, "softmax value {v} < 0");
             }
@@ -2318,8 +2333,7 @@ mod tests {
         let dev = GpuDevice::new(0).expect("cuda");
         let rows = 2;
         let cols = 6;
-        let input_f: Vec<f32> =
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5];
+        let input_f: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5];
         let input = upload_bf16(&dev, &input_f);
         let out = gpu_softmax_bf16(&input, rows, cols, &dev).expect("softmax");
         let got = download_bf16(&dev, &out);
@@ -2373,7 +2387,9 @@ mod tests {
         let got = download_bf16(&dev, &out);
         assert_eq!(
             got,
-            vec![10.0, 11.0, 12.0, 30.0, 31.0, 32.0, 20.0, 21.0, 22.0, 40.0, 41.0, 42.0]
+            vec![
+                10.0, 11.0, 12.0, 30.0, 31.0, 32.0, 20.0, 21.0, 22.0, 40.0, 41.0, 42.0
+            ]
         );
     }
 
@@ -2387,7 +2403,9 @@ mod tests {
         let got = download_bf16(&dev, &out);
         assert_eq!(
             got,
-            vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 10.0, 20.0, 30.0, 10.0, 20.0, 30.0]
+            vec![
+                1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 10.0, 20.0, 30.0, 10.0, 20.0, 30.0
+            ]
         );
     }
 
@@ -2405,10 +2423,7 @@ mod tests {
                 if j <= i {
                     assert!((v - 1.0).abs() < 1e-3, "[{i},{j}] = {v}, expected 1.0");
                 } else {
-                    assert!(
-                        v.is_infinite() && v < 0.0,
-                        "[{i},{j}] = {v}, expected -Inf",
-                    );
+                    assert!(v.is_infinite() && v < 0.0, "[{i},{j}] = {v}, expected -Inf",);
                 }
             }
         }
@@ -2535,7 +2550,11 @@ mod tests {
         assert_eq!(got.len(), rows);
         for r in 0..rows {
             let expected = (0..block_size)
-                .map(|i| half::bf16::from_f32(data[r * block_size + i]).to_f32().abs())
+                .map(|i| {
+                    half::bf16::from_f32(data[r * block_size + i])
+                        .to_f32()
+                        .abs()
+                })
                 .fold(0.0f32, f32::max);
             let g = got[r];
             assert!(

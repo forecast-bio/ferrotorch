@@ -71,8 +71,8 @@ fn main() {
     let device = GpuDevice::new(0).expect("CUDA device 0 unavailable");
     println!("[prosparse] uploading weights to VRAM...");
     let t_up = Instant::now();
-    let inferencer = LlamaGpuInferencer::new(cfg, state, device)
-        .expect("failed to build LlamaGpuInferencer");
+    let inferencer =
+        LlamaGpuInferencer::new(cfg, state, device).expect("failed to build LlamaGpuInferencer");
     println!(
         "[prosparse] weights uploaded in {:.1}s",
         t_up.elapsed().as_secs_f64()

@@ -205,10 +205,7 @@ pub trait Module<T: Float>: Send + Sync {
     /// Wrap this module in a [`HookedModule`] and register a forward
     /// pre-hook. See [`Self::with_forward_hook`]. Mirrors
     /// `torch.nn.Module.register_forward_pre_hook`.
-    fn with_forward_pre_hook(
-        self,
-        hook: ForwardPreHook<T>,
-    ) -> (HookedModule<Self, T>, HookHandle)
+    fn with_forward_pre_hook(self, hook: ForwardPreHook<T>) -> (HookedModule<Self, T>, HookHandle)
     where
         Self: Sized,
     {
@@ -220,10 +217,7 @@ pub trait Module<T: Float>: Send + Sync {
     /// Wrap this module in a [`HookedModule`] and register a backward hook.
     /// See [`Self::with_forward_hook`]. Mirrors
     /// `torch.nn.Module.register_backward_hook`.
-    fn with_backward_hook(
-        self,
-        hook: BackwardHook<T>,
-    ) -> (HookedModule<Self, T>, HookHandle)
+    fn with_backward_hook(self, hook: BackwardHook<T>) -> (HookedModule<Self, T>, HookHandle)
     where
         Self: Sized,
     {
@@ -663,7 +657,10 @@ mod tests {
     fn module_load_state_dict_with_buffer() {
         let mut m = ParentModule::<f32>::new().unwrap();
         let mut sd: StateDict<f32> = HashMap::new();
-        sd.insert("weight".into(), ferrotorch_core::ones::<f32>(&[2, 2]).unwrap());
+        sd.insert(
+            "weight".into(),
+            ferrotorch_core::ones::<f32>(&[2, 2]).unwrap(),
+        );
         sd.insert(
             "running_mean".into(),
             ferrotorch_core::from_slice::<f32>(&[7.0, 9.0], &[2]).unwrap(),

@@ -831,10 +831,7 @@ fn standard_attention_bf16<T: Float>(
     }
 
     // Cast back to T (= bf16) for the return.
-    let output_t: Vec<T> = output_f32
-        .iter()
-        .map(|&v| T::from(v).unwrap())
-        .collect();
+    let output_t: Vec<T> = output_f32.iter().map(|&v| T::from(v).unwrap()).collect();
 
     Tensor::from_storage(TensorStorage::cpu(output_t), vec![batch, n_q, d_v], false)
 }

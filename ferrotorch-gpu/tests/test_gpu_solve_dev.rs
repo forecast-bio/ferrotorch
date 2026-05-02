@@ -131,9 +131,7 @@ fn solve_dev_singular_returns_error() {
     let a = cpu_t_f32(&[1.0, 1.0, 1.0, 1.0], &[2, 2])
         .to(Device::Cuda(0))
         .unwrap();
-    let b = cpu_t_f32(&[1.0, 1.0], &[2, 1])
-        .to(Device::Cuda(0))
-        .unwrap();
+    let b = cpu_t_f32(&[1.0, 1.0], &[2, 1]).to(Device::Cuda(0)).unwrap();
     let backend = gpu_backend().expect("CUDA backend registered");
     let result = backend.solve_f32(a.gpu_handle().unwrap(), b.gpu_handle().unwrap(), 2, 1);
     assert!(result.is_err(), "expected error for singular matrix");

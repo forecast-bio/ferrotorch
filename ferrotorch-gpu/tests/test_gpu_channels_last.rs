@@ -36,11 +36,12 @@ fn channels_last_on_cuda_matches_cpu_reference() {
 
     // CPU reference: convert to channels_last on host, then back
     // to standard contiguous so we can compare via data().
-    let cpu_nhwc = cpu.clone().contiguous_in(MemoryFormat::ChannelsLast).unwrap();
-    assert!(cpu_nhwc.is_contiguous_for(MemoryFormat::ChannelsLast));
-    let cpu_round_trip = cpu_nhwc
-        .contiguous_in(MemoryFormat::Contiguous)
+    let cpu_nhwc = cpu
+        .clone()
+        .contiguous_in(MemoryFormat::ChannelsLast)
         .unwrap();
+    assert!(cpu_nhwc.is_contiguous_for(MemoryFormat::ChannelsLast));
+    let cpu_round_trip = cpu_nhwc.contiguous_in(MemoryFormat::Contiguous).unwrap();
     assert!(cpu_round_trip.is_contiguous());
     assert_eq!(cpu_round_trip.data().unwrap(), original.as_slice());
 
@@ -49,16 +50,20 @@ fn channels_last_on_cuda_matches_cpu_reference() {
     let gpu = cpu.to(Device::Cuda(0)).unwrap();
     assert!(gpu.is_cuda());
     let gpu_nhwc = gpu.contiguous_in(MemoryFormat::ChannelsLast).unwrap();
-    assert!(gpu_nhwc.is_cuda(), "channels_last conversion must stay on GPU");
+    assert!(
+        gpu_nhwc.is_cuda(),
+        "channels_last conversion must stay on GPU"
+    );
     assert!(gpu_nhwc.is_contiguous_for(MemoryFormat::ChannelsLast));
 
-    let gpu_round_trip = gpu_nhwc
-        .contiguous_in(MemoryFormat::Contiguous)
-        .unwrap();
+    let gpu_round_trip = gpu_nhwc.contiguous_in(MemoryFormat::Contiguous).unwrap();
     assert!(gpu_round_trip.is_cuda());
     assert!(gpu_round_trip.is_contiguous());
     let gpu_data = gpu_round_trip.cpu().unwrap().data().unwrap().to_vec();
-    assert_eq!(gpu_data, original, "GPU channels_last → contiguous round trip must recover original NCHW data");
+    assert_eq!(
+        gpu_data, original,
+        "GPU channels_last → contiguous round trip must recover original NCHW data"
+    );
 }
 
 #[test]
@@ -76,9 +81,7 @@ fn channels_last_3d_on_cuda_matches_cpu_reference() {
     assert!(gpu_ndhwc.is_cuda());
     assert!(gpu_ndhwc.is_contiguous_for(MemoryFormat::ChannelsLast3d));
 
-    let gpu_round_trip = gpu_ndhwc
-        .contiguous_in(MemoryFormat::Contiguous)
-        .unwrap();
+    let gpu_round_trip = gpu_ndhwc.contiguous_in(MemoryFormat::Contiguous).unwrap();
     let gpu_data = gpu_round_trip.cpu().unwrap().data().unwrap().to_vec();
     assert_eq!(gpu_data, original);
 }

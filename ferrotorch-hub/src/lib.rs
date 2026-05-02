@@ -31,9 +31,11 @@ pub mod registry;
 pub use auth::{hf_token, with_auth};
 pub use cache::{HubCache, default_cache_dir};
 #[cfg(feature = "http")]
-pub use discovery::{HfModelInfo, HfModelSummary, HfRepoFile, SearchQuery, get_model, search_models};
-pub use download::{download_weights, load_pretrained};
+pub use discovery::{
+    HfModelInfo, HfModelSummary, HfRepoFile, SearchQuery, get_model, search_models,
+};
 #[cfg(feature = "http")]
 pub use download::hf_download_model;
+pub use download::{download_weights, load_pretrained};
 pub use hf_config::HfTransformerConfig;
 pub use registry::{ModelInfo, WeightsFormat, get_model_info, list_models};

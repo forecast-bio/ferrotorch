@@ -242,7 +242,11 @@ pub fn hf_download_model(
             message: "hf_download_model: repo must not be empty".into(),
         });
     }
-    let revision = if revision.is_empty() { "main" } else { revision };
+    let revision = if revision.is_empty() {
+        "main"
+    } else {
+        revision
+    };
 
     // Helper to fetch one file from the repo into the cache. `relative` is
     // the path-within-repo (e.g. "config.json", "model-00001-of-00004.safetensors").
@@ -252,9 +256,7 @@ pub fn hf_download_model(
         relative: &str,
         cache: &HubCache,
     ) -> FerrotorchResult<PathBuf> {
-        let url = format!(
-            "https://huggingface.co/{repo}/resolve/{revision}/{relative}"
-        );
+        let url = format!("https://huggingface.co/{repo}/resolve/{revision}/{relative}");
         let response = crate::auth::with_auth(ureq::get(&url))
             .call()
             .map_err(|e| FerrotorchError::InvalidArgument {
@@ -276,10 +278,12 @@ pub fn hf_download_model(
     }
 
     // Helper that probes a URL and returns Some(body) on 200, None on 404.
-    fn fetch_optional(repo: &str, revision: &str, relative: &str) -> FerrotorchResult<Option<Vec<u8>>> {
-        let url = format!(
-            "https://huggingface.co/{repo}/resolve/{revision}/{relative}"
-        );
+    fn fetch_optional(
+        repo: &str,
+        revision: &str,
+        relative: &str,
+    ) -> FerrotorchResult<Option<Vec<u8>>> {
+        let url = format!("https://huggingface.co/{repo}/resolve/{revision}/{relative}");
         let result = crate::auth::with_auth(ureq::get(&url)).call();
         match result {
             Ok(response) => {
@@ -312,7 +316,10 @@ pub fn hf_download_model(
                 message: format!("hf_download_model: malformed index.json: {e}"),
             })?;
         // Persist the index to the cache so the loader can find it later.
-        cache.store(&format!("{repo}/model.safetensors.index.json"), &index_bytes)?;
+        cache.store(
+            &format!("{repo}/model.safetensors.index.json"),
+            &index_bytes,
+        )?;
         // The "weight_map" subobject maps tensor names to shard filenames;
         // we want the unique set of shard filenames.
         let weight_map = index.get("weight_map").and_then(|v| v.as_object()).ok_or(
@@ -340,7 +347,11 @@ pub fn hf_download_model(
     }
 
     // 3. Best-effort tokenizer files (some repos ship them; ignore 404).
-    for opt in &["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"] {
+    for opt in &[
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "special_tokens_map.json",
+    ] {
         let _ = fetch_optional(repo, revision, opt)?;
     }
 
@@ -469,7 +480,8 @@ mod tests {
         let digest = hasher.finalize();
         let got = super::hex_lower(&digest);
         assert_eq!(
-            got, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            got,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
     }
 }

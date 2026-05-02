@@ -28,15 +28,23 @@ impl<T: Float> Weibull<T> {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
                     "Weibull: scale shape {:?} != concentration shape {:?}",
-                    scale.shape(), concentration.shape()
+                    scale.shape(),
+                    concentration.shape()
                 ),
             });
         }
-        Ok(Self { scale, concentration })
+        Ok(Self {
+            scale,
+            concentration,
+        })
     }
 
-    pub fn scale(&self) -> &Tensor<T> { &self.scale }
-    pub fn concentration(&self) -> &Tensor<T> { &self.concentration }
+    pub fn scale(&self) -> &Tensor<T> {
+        &self.scale
+    }
+    pub fn concentration(&self) -> &Tensor<T> {
+        &self.concentration
+    }
 }
 
 impl<T: Float> Distribution<T> for Weibull<T> {
@@ -51,11 +59,20 @@ impl<T: Float> Distribution<T> for Weibull<T> {
 
         let mut out = Vec::with_capacity(numel);
         for i in 0..numel {
-            let si = if s_data.len() == 1 { 0 } else { i % s_data.len() };
-            let ki = if k_data.len() == 1 { 0 } else { i % k_data.len() };
+            let si = if s_data.len() == 1 {
+                0
+            } else {
+                i % s_data.len()
+            };
+            let ki = if k_data.len() == 1 {
+                0
+            } else {
+                i % k_data.len()
+            };
             // x = scale * (-log(1-u))^(1/k)
             let log_term = (one - u_data[i]).max(T::from(1e-30).unwrap()).ln();
-            let val = s_data[si] * (<T as num_traits::Zero>::zero() - log_term).powf(one / k_data[ki]);
+            let val =
+                s_data[si] * (<T as num_traits::Zero>::zero() - log_term).powf(one / k_data[ki]);
             out.push(val);
         }
 
@@ -119,13 +136,13 @@ impl<T: Float> Distribution<T> for Weibull<T> {
         let zero = <T as num_traits::Zero>::zero();
         let one = <T as num_traits::One>::one();
         let mut out = Vec::with_capacity(v.len());
-        for i in 0..v.len() {
+        for (i, &vi) in v.iter().enumerate() {
             let si = if s.len() == 1 { 0 } else { i % s.len() };
             let ki = if k.len() == 1 { 0 } else { i % k.len() };
-            if v[i] < zero {
+            if vi < zero {
                 out.push(zero);
             } else {
-                let x_over_l = v[i] / s[si];
+                let x_over_l = vi / s[si];
                 out.push(one - (zero - x_over_l.powf(k[ki])).exp());
             }
         }
@@ -140,10 +157,10 @@ impl<T: Float> Distribution<T> for Weibull<T> {
         let zero = <T as num_traits::Zero>::zero();
         let one = <T as num_traits::One>::one();
         let mut out = Vec::with_capacity(p.len());
-        for i in 0..p.len() {
+        for (i, &pi) in p.iter().enumerate() {
             let si = if s.len() == 1 { 0 } else { i % s.len() };
             let ki = if k.len() == 1 { 0 } else { i % k.len() };
-            let log_term = (one - p[i]).max(T::from(1e-30).unwrap()).ln();
+            let log_term = (one - pi).max(T::from(1e-30).unwrap()).ln();
             out.push(s[si] * (zero - log_term).powf(one / k[ki]));
         }
         Tensor::from_storage(TensorStorage::cpu(out), q.shape().to_vec(), false)

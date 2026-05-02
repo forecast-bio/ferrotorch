@@ -19,13 +19,11 @@ fn ensure_cuda() {
 }
 
 fn cpu_t_f32(data: Vec<f32>, shape: &[usize]) -> Tensor<f32> {
-    Tensor::from_storage(TensorStorage::cpu(data), shape.to_vec(), false)
-        .expect("cpu tensor f32")
+    Tensor::from_storage(TensorStorage::cpu(data), shape.to_vec(), false).expect("cpu tensor f32")
 }
 
 fn cpu_t_f64(data: Vec<f64>, shape: &[usize]) -> Tensor<f64> {
-    Tensor::from_storage(TensorStorage::cpu(data), shape.to_vec(), false)
-        .expect("cpu tensor f64")
+    Tensor::from_storage(TensorStorage::cpu(data), shape.to_vec(), false).expect("cpu tensor f64")
 }
 
 fn assert_close_f32(a: &[f32], b: &[f32], tol: f32) {
@@ -185,7 +183,10 @@ fn fft_pad_runs_on_gpu_and_matches_cpu() {
 
     let out = fft(&a_gpu, Some(8)).unwrap();
     let ref_out = fft(&a_cpu, Some(8)).unwrap();
-    assert!(out.is_cuda(), "GPU pad/truncate should keep output on device");
+    assert!(
+        out.is_cuda(),
+        "GPU pad/truncate should keep output on device"
+    );
     let out_host = out.cpu().unwrap().data().unwrap().to_vec();
     assert_close_f32(&out_host, ref_out.data().unwrap(), 1e-4);
 }

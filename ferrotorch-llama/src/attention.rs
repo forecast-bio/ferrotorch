@@ -209,11 +209,7 @@ impl<T: Float> Module<T> for LlamaAttention<T> {
             .collect()
     }
 
-    fn load_state_dict(
-        &mut self,
-        state: &StateDict<T>,
-        strict: bool,
-    ) -> FerrotorchResult<()> {
+    fn load_state_dict(&mut self, state: &StateDict<T>, strict: bool) -> FerrotorchResult<()> {
         let extract = |prefix: &str| -> StateDict<T> {
             let expected = format!("{prefix}.");
             state

@@ -95,7 +95,6 @@ impl<T: Float> Adafactor<T> {
     fn param_key(gi: usize, pi: usize) -> String {
         format!("g{gi}_p{pi}")
     }
-
 }
 
 impl<T: Float> Optimizer<T> for Adafactor<T> {
@@ -113,9 +112,7 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                 };
 
                 if tensor.is_cuda() {
-                    return Err(FerrotorchError::NotImplementedOnCuda {
-                        op: "Adafactor",
-                    });
+                    return Err(FerrotorchError::NotImplementedOnCuda { op: "Adafactor" });
                 }
 
                 let grad_data = grad_tensor.data_vec()?;
@@ -125,8 +122,16 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                 let key = Self::param_key(gi, pi);
 
                 let use_factored = shape.len() >= 2;
-                let rows = if use_factored { shape[shape.len() - 2] } else { 0 };
-                let cols = if use_factored { shape[shape.len() - 1] } else { 0 };
+                let rows = if use_factored {
+                    shape[shape.len() - 2]
+                } else {
+                    0
+                };
+                let cols = if use_factored {
+                    shape[shape.len() - 1]
+                } else {
+                    0
+                };
 
                 let state = self.state.entry(key).or_insert_with(|| {
                     let rms = {
@@ -141,9 +146,21 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                     };
                     AdafactorState {
                         step_count: 0,
-                        row_factor: if use_factored { vec![0.0; rows] } else { vec![] },
-                        col_factor: if use_factored { vec![0.0; cols] } else { vec![] },
-                        full_sq: if use_factored { vec![] } else { vec![0.0; numel] },
+                        row_factor: if use_factored {
+                            vec![0.0; rows]
+                        } else {
+                            vec![]
+                        },
+                        col_factor: if use_factored {
+                            vec![0.0; cols]
+                        } else {
+                            vec![]
+                        },
+                        full_sq: if use_factored {
+                            vec![]
+                        } else {
+                            vec![0.0; numel]
+                        },
                         exp_avg: if config.beta1.is_some() {
                             vec![0.0; numel]
                         } else {
@@ -223,21 +240,18 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                         }
 
                         // Reconstruct second moment estimate: v[r,c] = row[r] * col[c] / mean(row)
-                        let row_mean: f64 =
-                            state.row_factor.iter().sum::<f64>() / rows as f64;
+                        let row_mean: f64 = state.row_factor.iter().sum::<f64>() / rows as f64;
                         let row_mean = row_mean.max(1e-30);
 
                         // Compute update.
                         for i in 0..numel {
                             let r = (i / cols) % rows;
                             let c = i % cols;
-                            let v_est =
-                                state.row_factor[r] * state.col_factor[c] / row_mean;
+                            let v_est = state.row_factor[r] * state.col_factor[c] / row_mean;
                             let g = num_traits::ToPrimitive::to_f64(&grad_data[i]).unwrap();
 
                             let update = if let Some(beta1) = config.beta1 {
-                                state.exp_avg[i] =
-                                    beta1 * state.exp_avg[i] + (1.0 - beta1) * g;
+                                state.exp_avg[i] = beta1 * state.exp_avg[i] + (1.0 - beta1) * g;
                                 state.exp_avg[i] / (v_est.sqrt() + 1e-30)
                             } else {
                                 g / (v_est.sqrt() + 1e-30)
@@ -249,13 +263,11 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                     } else {
                         // Non-factored: full second moment.
                         for i in 0..numel {
-                            state.full_sq[i] =
-                                rho * state.full_sq[i] + (1.0 - rho) * grad_sq[i];
+                            state.full_sq[i] = rho * state.full_sq[i] + (1.0 - rho) * grad_sq[i];
 
                             let g = num_traits::ToPrimitive::to_f64(&grad_data[i]).unwrap();
                             let update = if let Some(beta1) = config.beta1 {
-                                state.exp_avg[i] =
-                                    beta1 * state.exp_avg[i] + (1.0 - beta1) * g;
+                                state.exp_avg[i] = beta1 * state.exp_avg[i] + (1.0 - beta1) * g;
                                 state.exp_avg[i] / (state.full_sq[i].sqrt() + 1e-30)
                             } else {
                                 g / (state.full_sq[i].sqrt() + 1e-30)
@@ -327,8 +339,8 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrotorch_core::storage::TensorStorage;
     use ferrotorch_core::Tensor;
+    use ferrotorch_core::storage::TensorStorage;
 
     fn make_param(data: &[f32], shape: &[usize]) -> Parameter<f32> {
         let t =
@@ -358,18 +370,12 @@ mod tests {
 
         for _ in 0..20 {
             // Gradient = param value (minimize sum(x^2)/2).
-            let vals = opt.param_groups[0].params[0]
-                .tensor()
-                .data_vec()
-                .unwrap();
+            let vals = opt.param_groups[0].params[0].tensor().data_vec().unwrap();
             set_grad(&opt.param_groups[0].params[0], &vals);
             opt.step().unwrap();
         }
 
-        let final_vals = opt.param_groups[0].params[0]
-            .tensor()
-            .data_vec()
-            .unwrap();
+        let final_vals = opt.param_groups[0].params[0].tensor().data_vec().unwrap();
         assert!(
             final_vals[0].abs() < 5.0,
             "param[0] should decrease, got {}",
@@ -398,10 +404,7 @@ mod tests {
         set_grad(&opt.param_groups[0].params[0], &grad);
         opt.step().unwrap();
 
-        let updated = opt.param_groups[0].params[0]
-            .tensor()
-            .data_vec()
-            .unwrap();
+        let updated = opt.param_groups[0].params[0].tensor().data_vec().unwrap();
         // All should have decreased (positive gradient with lr > 0).
         for (i, &v) in updated.iter().enumerate() {
             assert!(
@@ -428,10 +431,7 @@ mod tests {
             opt.step().unwrap();
         }
 
-        let vals = opt.param_groups[0].params[0]
-            .tensor()
-            .data_vec()
-            .unwrap();
+        let vals = opt.param_groups[0].params[0].tensor().data_vec().unwrap();
         assert!(vals[0] < 1.0, "should decrease with momentum");
     }
 
@@ -447,10 +447,7 @@ mod tests {
         set_grad(&opt.param_groups[0].params[0], &[1.0]);
         opt.step().unwrap();
 
-        let val = opt.param_groups[0].params[0]
-            .tensor()
-            .data_vec()
-            .unwrap()[0];
+        let val = opt.param_groups[0].params[0].tensor().data_vec().unwrap()[0];
         assert!(val < 10.0, "relative step should still decrease param");
     }
 

@@ -564,11 +564,13 @@ where
             });
         }
         loss.backward()?;
-        let g = p_leaf.grad()?.ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: "per_sample_grad: parameter received no gradient -- check that loss_fn \
+        let g = p_leaf
+            .grad()?
+            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                message: "per_sample_grad: parameter received no gradient -- check that loss_fn \
                       uses the parameter argument and produces a differentiable result"
-                .into(),
-        })?;
+                    .into(),
+            })?;
         grads.push(g);
     }
     // Stack along a new leading axis so the shape is [batch, *param.shape()].
@@ -893,13 +895,7 @@ mod tests {
         let a = t(&[1.0, 2.0], &[2]);
         let b = t(&[1.0, 2.0, 3.0], &[3]);
         let c = t(&[1.0, 2.0], &[2]);
-        let result = vmap3(
-            |x, _y, _z| Ok(x.clone()),
-            0,
-            0,
-            0,
-            0,
-        )(&a, &b, &c);
+        let result = vmap3(|x, _y, _z| Ok(x.clone()), 0, 0, 0, 0)(&a, &b, &c);
         assert!(result.is_err());
     }
 
@@ -908,8 +904,7 @@ mod tests {
         let a = t(&[1.0, 2.0], &[2]);
         let b = t(&[1.0, 2.0], &[2]);
         let c = t(&[1.0, 2.0], &[2]);
-        let result =
-            vmap3(|x, _y, _z| Ok(x.clone()), 5, 0, 0, 0)(&a, &b, &c);
+        let result = vmap3(|x, _y, _z| Ok(x.clone()), 5, 0, 0, 0)(&a, &b, &c);
         assert!(result.is_err());
     }
 
@@ -951,11 +946,7 @@ mod tests {
 
     #[test]
     fn test_vmap_many_empty_inputs_errors() {
-        let result = vmap_many(
-            |slices: &[Tensor<f32>]| Ok(slices[0].clone()),
-            vec![],
-            0,
-        )(&[]);
+        let result = vmap_many(|slices: &[Tensor<f32>]| Ok(slices[0].clone()), vec![], 0)(&[]);
         assert!(result.is_err());
     }
 
@@ -983,8 +974,7 @@ mod tests {
     #[test]
     fn test_vmap_multi_output_single_output_acts_like_vmap() {
         let x = t(&[1.0, 2.0, 3.0, 4.0], &[2, 2]);
-        let outs =
-            vmap_multi_output(|s| Ok(vec![s.clone()]), 0, 0)(&x).unwrap();
+        let outs = vmap_multi_output(|s| Ok(vec![s.clone()]), 0, 0)(&x).unwrap();
         assert_eq!(outs.len(), 1);
         assert_eq!(outs[0].shape(), &[2, 2]);
         assert_eq!(outs[0].data().unwrap(), &[1.0, 2.0, 3.0, 4.0]);
@@ -1002,9 +992,7 @@ mod tests {
         // Outer vmap takes each [3, 4] slice and applies an inner vmap
         // that takes each [4] row and returns it unchanged.
         let result = vmap(
-            |outer_slice| {
-                vmap(|inner_slice| Ok(inner_slice.clone()), 0, 0)(outer_slice)
-            },
+            |outer_slice| vmap(|inner_slice| Ok(inner_slice.clone()), 0, 0)(outer_slice),
             0,
             0,
         )(&x)
@@ -1013,7 +1001,11 @@ mod tests {
         // Element-by-element identity check.
         let r = result.data().unwrap();
         for (i, &v) in r.iter().enumerate() {
-            assert!((v - x_data[i]).abs() < 1e-6, "mismatch at {i}: {v} vs {}", x_data[i]);
+            assert!(
+                (v - x_data[i]).abs() < 1e-6,
+                "mismatch at {i}: {v} vs {}",
+                x_data[i]
+            );
         }
     }
 
@@ -1024,19 +1016,16 @@ mod tests {
         // -original elementwise.
         let x = t(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]);
         let result = vmap(
-            |outer_slice| {
-                vmap(
-                    crate::grad_fns::arithmetic::neg,
-                    0,
-                    0,
-                )(outer_slice)
-            },
+            |outer_slice| vmap(crate::grad_fns::arithmetic::neg, 0, 0)(outer_slice),
             0,
             0,
         )(&x)
         .unwrap();
         assert_eq!(result.shape(), &[2, 3]);
-        assert_eq!(result.data().unwrap(), &[-1.0, -2.0, -3.0, -4.0, -5.0, -6.0]);
+        assert_eq!(
+            result.data().unwrap(),
+            &[-1.0, -2.0, -3.0, -4.0, -5.0, -6.0]
+        );
     }
 
     #[test]
@@ -1080,12 +1069,7 @@ mod tests {
     fn test_per_sample_grad_invalid_dim() {
         let x = t(&[1.0, 2.0], &[2]);
         let p = t(&[0.5], &[1]);
-        let result = per_sample_grad(
-            |_x, _p| Ok(_p.clone()),
-            &x,
-            &p,
-            5,
-        );
+        let result = per_sample_grad(|_x, _p| Ok(_p.clone()), &x, &p, 5);
         assert!(result.is_err());
     }
 
@@ -1094,12 +1078,7 @@ mod tests {
         // loss_fn returns a non-scalar -- should error.
         let x = t(&[1.0, 2.0], &[2]);
         let p = t(&[0.5], &[1]);
-        let result = per_sample_grad(
-            |x: &Tensor<f32>, _p: &Tensor<f32>| Ok(x.clone()),
-            &x,
-            &p,
-            0,
-        );
+        let result = per_sample_grad(|x: &Tensor<f32>, _p: &Tensor<f32>| Ok(x.clone()), &x, &p, 0);
         assert!(result.is_err());
     }
 }

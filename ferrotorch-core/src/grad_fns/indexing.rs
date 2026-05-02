@@ -378,7 +378,9 @@ impl<T: Float> GradFn<T> for GatherBackward<T> {
         }
 
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "gather backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "gather backward",
+            });
         }
 
         let input_shape = self.input.shape();
@@ -450,7 +452,9 @@ impl<T: Float> GradFn<T> for ScatterBackward<T> {
         }
 
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "scatter backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "scatter backward",
+            });
         }
 
         let input_shape = self.input.shape();
@@ -545,7 +549,9 @@ impl<T: Float> GradFn<T> for ScatterAddBackward<T> {
         }
 
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "scatter_add backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "scatter_add backward",
+            });
         }
 
         let input_shape = self.input.shape();
@@ -625,7 +631,9 @@ impl<T: Float> GradFn<T> for WhereCondBackward<T> {
         }
 
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "where_cond backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "where_cond backward",
+            });
         }
 
         let go_data = grad_output.data_vec()?;
@@ -727,9 +735,12 @@ mod first_class_wrappers_tests {
 
     #[test]
     fn masked_fill_bt_replaces_true_positions() {
-        let t =
-            Tensor::from_storage(TensorStorage::cpu(vec![1.0_f32, 2.0, 3.0, 4.0]), vec![4], false)
-                .unwrap();
+        let t = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0_f32, 2.0, 3.0, 4.0]),
+            vec![4],
+            false,
+        )
+        .unwrap();
         let mask = BoolTensor::from_vec(vec![true, false, true, false], vec![4]).unwrap();
         let out = masked_fill_bt(&t, &mask, -1.0).unwrap();
         assert_eq!(out.data().unwrap(), &[-1.0, 2.0, -1.0, 4.0]);

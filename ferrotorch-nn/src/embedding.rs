@@ -456,9 +456,7 @@ impl<T: Float> Module<T> for Embedding<T> {
 
         // CPU path — non-f32 GPU tensors have no GPU kernel, error out.
         if self.weight.tensor().is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda {
-                op: "Embedding",
-            });
+            return Err(FerrotorchError::NotImplementedOnCuda { op: "Embedding" });
         }
         let input_data = input.data_vec()?;
         let cpu_weight = self.weight.tensor().clone();
@@ -634,11 +632,7 @@ impl<T: Float> EmbeddingBag<T> {
     ///
     /// `input`: 1-D tensor of indices [total_indices]
     /// `offsets`: 1-D tensor [num_bags] giving start offsets
-    pub fn forward_bag(
-        &self,
-        input: &Tensor<T>,
-        offsets: &[usize],
-    ) -> FerrotorchResult<Tensor<T>> {
+    pub fn forward_bag(&self, input: &Tensor<T>, offsets: &[usize]) -> FerrotorchResult<Tensor<T>> {
         if input.ndim() != 1 {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!("EmbeddingBag input must be 1-D, got {:?}", input.shape()),
@@ -671,7 +665,11 @@ impl<T: Float> EmbeddingBag<T> {
 
         for b in 0..num_bags {
             let start = offsets[b];
-            let end = if b + 1 < num_bags { offsets[b + 1] } else { total };
+            let end = if b + 1 < num_bags {
+                offsets[b + 1]
+            } else {
+                total
+            };
             let bag_size = end - start;
 
             if bag_size == 0 {
@@ -716,11 +714,7 @@ impl<T: Float> EmbeddingBag<T> {
             }
         }
 
-        Tensor::from_storage(
-            TensorStorage::cpu(output),
-            vec![num_bags, dim],
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(output), vec![num_bags, dim], false)
     }
 
     /// Number of embeddings in the table.
@@ -1254,7 +1248,9 @@ mod tests {
         // Row 5 -> [20,21,22,23]
         assert_eq!(
             sg.values(),
-            &[4.0, 5.0, 6.0, 7.0, 12.0, 13.0, 14.0, 15.0, 20.0, 21.0, 22.0, 23.0]
+            &[
+                4.0, 5.0, 6.0, 7.0, 12.0, 13.0, 14.0, 15.0, 20.0, 21.0, 22.0, 23.0
+            ]
         );
     }
 
@@ -1269,17 +1265,14 @@ mod tests {
             Tensor::from_storage(TensorStorage::cpu(init.clone()), vec![4, 2], true).unwrap(),
         );
 
-        let idx = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.0f32, 2.0]),
-            vec![2],
-            false,
-        )
-        .unwrap();
+        let idx =
+            Tensor::from_storage(TensorStorage::cpu(vec![0.0f32, 2.0]), vec![2], false).unwrap();
         let _ = emb.forward(&idx).unwrap();
 
         // Synthetic gradient: each row is its index repeated.
-        let grad_vec: Vec<f32> =
-            (0..4_usize).flat_map(|r| vec![r as f32, r as f32]).collect();
+        let grad_vec: Vec<f32> = (0..4_usize)
+            .flat_map(|r| vec![r as f32, r as f32])
+            .collect();
         let grad_tensor =
             Tensor::from_storage(TensorStorage::cpu(grad_vec), vec![4, 2], false).unwrap();
         emb.weight.tensor().set_grad(Some(grad_tensor)).unwrap();

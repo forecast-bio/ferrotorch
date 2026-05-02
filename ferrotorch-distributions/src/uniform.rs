@@ -219,12 +219,12 @@ impl<T: Float> Distribution<T> for Uniform<T> {
         let lo = self.low.data_vec()?;
         let hi = self.high.data_vec()?;
         let half = T::from(0.5).unwrap();
-        let result: Vec<T> = lo.iter().zip(hi.iter()).map(|(&l, &h)| half * (l + h)).collect();
-        Tensor::from_storage(
-            TensorStorage::cpu(result),
-            self.low.shape().to_vec(),
-            false,
-        )
+        let result: Vec<T> = lo
+            .iter()
+            .zip(hi.iter())
+            .map(|(&l, &h)| half * (l + h))
+            .collect();
+        Tensor::from_storage(TensorStorage::cpu(result), self.low.shape().to_vec(), false)
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
@@ -240,11 +240,7 @@ impl<T: Float> Distribution<T> for Uniform<T> {
                 d * d * twelfth
             })
             .collect();
-        Tensor::from_storage(
-            TensorStorage::cpu(result),
-            self.low.shape().to_vec(),
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(result), self.low.shape().to_vec(), false)
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
@@ -264,11 +260,7 @@ impl<T: Float> Distribution<T> for Uniform<T> {
             .zip(hi.iter())
             .map(|(&l, &h)| (h - l) * inv_sqrt_12)
             .collect();
-        Tensor::from_storage(
-            TensorStorage::cpu(result),
-            self.low.shape().to_vec(),
-            false,
-        )
+        Tensor::from_storage(TensorStorage::cpu(result), self.low.shape().to_vec(), false)
     }
 }
 

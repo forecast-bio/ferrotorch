@@ -5,7 +5,7 @@
 [![crates.io](https://img.shields.io/crates/v/ferrotorch.svg)](https://crates.io/crates/ferrotorch)
 [![docs.rs](https://docs.rs/ferrotorch/badge.svg)](https://docs.rs/ferrotorch)
 [![license](https://img.shields.io/crates/l/ferrotorch.svg)](https://github.com/dollspace-gay/ferrotorch#license)
-[![tests](https://img.shields.io/badge/tests-3%2C600%2B_passing-brightgreen.svg)](#)
+[![tests](https://img.shields.io/badge/tests-4%2C800%2B_passing-brightgreen.svg)](#)
 
 ---
 
@@ -16,12 +16,15 @@ If you have ever wanted to train a ResNet or a transformer in Rust without pulli
 ## Key Features
 
 - **Pure Rust, no C/C++ FFI** --- the only foreign call is cudarc for the CUDA driver API. Everything else compiles with `cargo build`.
-- **Reverse-mode autograd** with 40+ differentiable operations (including exp, log, sin, cos, clamp), topological-sort backward pass, gradient accumulation, broadcast gradient reduction, checkpointing, and `backward_with_gradient()` for non-scalar tensors.
+- **Reverse-mode autograd** with 80+ differentiable operations (including exp, log, sin, cos, clamp, FFT, eigh, signal processing), topological-sort backward pass, gradient accumulation, broadcast gradient reduction, checkpointing, sparse gradients, and `backward_with_gradient()` for non-scalar tensors.
 - **Operator overloading** --- write `&a + &b`, `&x * &y`, `-z` with natural Rust syntax. All ownership combinations supported.
-- **26+ neural network layers** including Linear, Conv1d/2d, LSTM, GRU, MultiheadAttention, BatchNorm, LayerNorm, RMSNorm, Flatten, Identity, and LLM modules (RoPE, SwiGLU, KV cache, TransformerEncoder/DecoderLayer).
+- **30+ neural network layers** including Linear, Conv1d/2d, LSTM, GRU, MultiheadAttention, BatchNorm, LayerNorm, RMSNorm, Flatten, Identity, lazy modules (`LazyLinear`, `LazyConv2d`), and LLM modules (RoPE, SwiGLU, KV cache, TransformerEncoder/DecoderLayer).
 - **19 optimizers** --- SGD, Adam, AdamW, Adamax, NAdam, RAdam, Adagrad, Adadelta, Adafactor, RMSprop, Rprop, ASGD, SparseAdam, L-BFGS, Muon, NaturalGradient (K-FAC), EMA, SWA — with parameter groups, foreach (on-device) update mode for SGD/AdamW, 12+ LR schedulers, and gradient clipping (`clip_grad_norm`, `clip_grad_value`).
-- **JIT compiler** --- trace a forward pass into a static IR, then run constant folding, dead code elimination, operator fusion, and memory planning. `compile()` API mirrors `torch.compile`.
-- **GPU acceleration** --- unified device-aware tensors (`tensor.cuda()`, `model.to_device(Device::Cuda(0))`) with auto-dispatch to CPU or GPU, f32/f64 dispatch. NVIDIA via cudarc + cuBLAS (81.8x matmul speedup on RTX 3090), AMD/Intel/Apple via CubeCL (WGPU, ROCm, Vulkan, Metal). No separate `GpuTensor` type.
+- **JIT compiler** --- both `trace` (capture-based) and `script` (source-based, in `ferrotorch-jit-script`) frontends. Lower into a static IR, then run constant folding, dead code elimination, operator fusion, and memory planning. `compile()` API mirrors `torch.compile`.
+- **GPU acceleration** --- unified device-aware tensors (`tensor.cuda()`, `model.to_device(Device::Cuda(0))`) with auto-dispatch to CPU or GPU, f32/f64 dispatch. NVIDIA via cudarc + cuBLAS (81.8x matmul speedup on RTX 3090), AMD/Intel/Apple via CubeCL (WGPU, ROCm, Vulkan, Metal), Apple Silicon native via ferrotorch-mps, Intel Arc via ferrotorch-xpu. No separate `GpuTensor` type.
+- **Llama 3 inference stack** --- full GQA + RoPE + SwiGLU decoder, KV cache, GPU bf16 inference, HuggingFace SafeTensors loader, GPTQ/AWQ/HQQ quantized loaders.
+- **Complex tensor support** --- interleaved-real complex storage, complex-aware FFT/eig, autograd through complex math.
+- **Named tensors** --- `NamedTensor<T>` with `refine_names`, `align_to`, `rename` for advisory dim labels.
 - **GPU memory safety** --- pre-OOM hooks, VRAM reservation, budget enforcement, pressure watchdog, and emergency checkpointing. Never lose a training run to a Steam game again.
 - **ONNX export** --- trace a model and emit a standard `.onnx` file loadable by onnxruntime, TensorRT, CoreML. Hand-written protobuf encoder, no external dependency.
 - **Operation fusion** --- chain elementwise ops into a single kernel with PTX codegen. 2-5x GPU speedup for fused chains.
@@ -107,26 +110,32 @@ let history = learner.fit(&train_loader, Some(&val_loader), 50)?;
 
 ## Crate Overview
 
-ferrotorch is a workspace of 16 crates. Use the umbrella crate for convenience, or depend on individual crates for minimal compile times.
+ferrotorch is a workspace of 22 crates. Use the umbrella crate for convenience, or depend on individual crates for minimal compile times.
 
 | Crate | Description |
 |---|---|
 | **ferrotorch** | Top-level re-export crate (`cargo add ferrotorch`) |
-| **ferrotorch-core** | Tensor, autograd engine, 40+ differentiable ops, quantization |
-| **ferrotorch-nn** | Module trait, 26+ layers, losses, activations, `#[derive(Module)]` |
+| **ferrotorch-core** | Tensor, autograd engine, 80+ differentiable ops, complex / sparse / named tensors, FFT, signal, masked, quantization |
+| **ferrotorch-nn** | Module trait, 30+ layers, lazy modules, losses, activations, `#[derive(Module)]` |
 | **ferrotorch-nn-derive** | Proc macro for `#[derive(Module)]` |
 | **ferrotorch-optim** | 19 optimizers (foreach mode for SGD/AdamW), 12+ LR schedulers, gradient clipping, GradScaler |
-| **ferrotorch-data** | Dataset, parallel DataLoader, samplers, transforms, collate_fn |
+| **ferrotorch-data** | Dataset, parallel DataLoader, samplers, transforms, collate_fn, NumPy/Arrow interop |
 | **ferrotorch-train** | Learner, metrics, callbacks, training history, checkpointing |
-| **ferrotorch-vision** | 8 model architectures, MNIST/CIFAR datasets, image I/O |
+| **ferrotorch-vision** | 8 model architectures, MNIST/CIFAR/ImageFolder datasets, image I/O |
 | **ferrotorch-jit** | Tracing, IR graph, optimization passes, codegen backends |
+| **ferrotorch-jit-script** | Script-frontend (Rust-source-to-IR) compiler for ahead-of-time graph lowering |
 | **ferrotorch-serialize** | SafeTensors, PyTorch .pt import, ONNX export, checkpoints |
-| **ferrotorch-gpu** | NVIDIA CUDA backend, cuBLAS, memory guard, pre-OOM hooks |
+| **ferrotorch-gpu** | NVIDIA CUDA backend, cuBLAS, cuSOLVER, cuFFT, memory guard, pre-OOM hooks |
 | **ferrotorch-cubecl** | Portable GPU via CubeCL (NVIDIA, AMD, Intel, Apple) |
-| **ferrotorch-distributed** | DDP, allreduce, broadcast, TCP backend |
-| **ferrotorch-distributions** | 25+ probability distributions (Normal, MultivariateNormal, Bernoulli, Categorical, Beta, Gamma, Concrete relaxations, Independent, MixtureSameFamily, …), KL registry, bijective transforms |
+| **ferrotorch-mps** | Apple Silicon Metal Performance Shaders backend (M-series GPUs) |
+| **ferrotorch-xpu** | Intel Arc / Data Center GPU Max backend via CubeCL wgpu |
+| **ferrotorch-distributed** | DDP, allreduce, broadcast, TCP / Gloo backends |
+| **ferrotorch-distributions** | 25+ probability distributions (Normal, MultivariateNormal, Bernoulli, Categorical, Beta, Gamma, Kumaraswamy, Weibull, Concrete relaxations, Independent, MixtureSameFamily, …), KL registry, bijective transforms |
 | **ferrotorch-hub** | Pretrained model registry, download, and caching |
 | **ferrotorch-profiler** | Operation profiling and Chrome trace export |
+| **ferrotorch-tokenize** | HuggingFace `tokenizers` wrapper (BPE, WordPiece, Unigram) |
+| **ferrotorch-llama** | Llama 3 / Meta LLaMA model composition, GPU bf16 inference, GPTQ/AWQ/HQQ quant loaders |
+| **ferrotorch-ml** | Sklearn-compatible adapter, ferrolearn bridge, classic-ML datasets and metrics |
 
 ## GPU Support
 
@@ -151,6 +160,14 @@ Uses [CubeCL](https://crates.io/crates/cubecl) to compile a single kernel defini
 | `cuda` | NVIDIA CUDA via PTX | NVIDIA |
 | `wgpu` | WGPU (Vulkan / Metal / DX12) | AMD, Intel, Apple |
 | `rocm` | AMD HIP (native) | AMD |
+
+### Apple Silicon native (ferrotorch-mps)
+
+`ferrotorch-mps` targets M-series GPUs through the Metal Performance Shaders framework directly, for users on macOS who want a native Metal path independent of WGPU.
+
+### Intel Arc / DC GPU Max (ferrotorch-xpu)
+
+`ferrotorch-xpu` provides Intel-targeted kernels via CubeCL's wgpu backend, with a dedicated `Device::Xpu(_)` device variant.
 
 ```rust
 use ferrotorch_cubecl::CubeRuntime;
@@ -281,7 +298,7 @@ let resnet = get_model::<f32>("resnet50", 1000)?;
 | **Proc macro** | `#[derive(Module)]` | No (dynamic) | `#[derive(Module)]` | No | No |
 | **LoRA** | Yes (`LoRALinear` + merge) | Via libraries | No | No | Yes |
 | **Einops** | Yes (rearrange/repeat/reduce) | Via library | No | No | No |
-| **Tests** | 2,000+ | Extensive | Growing | Via libtorch | Growing |
+| **Tests** | 4,800+ | Extensive | Growing | Via libtorch | Growing |
 
 ## Installation
 

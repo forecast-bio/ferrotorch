@@ -401,15 +401,16 @@ pub fn interpret_multi<T: Float>(
     // is an Arc clone so this is cheap.
     let mut results = Vec::with_capacity(graph.output_values.len());
     for &output_id in &graph.output_values {
-        let t = values
-            .get(&output_id)
-            .cloned()
-            .ok_or_else(|| FerrotorchError::InvalidArgument {
-                message: format!(
-                    "interpret: output value {:?} was not produced during execution",
-                    output_id
-                ),
-            })?;
+        let t =
+            values
+                .get(&output_id)
+                .cloned()
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "interpret: output value {:?} was not produced during execution",
+                        output_id
+                    ),
+                })?;
         results.push(t);
     }
     Ok(results)
@@ -772,7 +773,10 @@ mod tests {
         let err = interpret::<f32>(&g, &[input]);
         assert!(err.is_err());
         let msg = format!("{}", err.unwrap_err());
-        assert!(msg.contains("interpret_multi"), "expected hint at interpret_multi: {msg}");
+        assert!(
+            msg.contains("interpret_multi"),
+            "expected hint at interpret_multi: {msg}"
+        );
     }
 
     #[test]
@@ -783,11 +787,9 @@ mod tests {
         let mut g = IrGraph::new();
         let x = g.add_input(vec![3]);
         let (_, add_outs) = g.add_node(IrOpKind::Add, vec![x, x], vec![vec![3]]);
-        let (_, sub_outs) =
-            g.add_node(IrOpKind::Sub, vec![add_outs[0], x], vec![vec![3]]);
+        let (_, sub_outs) = g.add_node(IrOpKind::Sub, vec![add_outs[0], x], vec![vec![3]]);
         let (_, mul_outs) = g.add_node(IrOpKind::Mul, vec![x, x], vec![vec![3]]);
-        let (_, plus_outs) =
-            g.add_node(IrOpKind::Add, vec![mul_outs[0], x], vec![vec![3]]);
+        let (_, plus_outs) = g.add_node(IrOpKind::Add, vec![mul_outs[0], x], vec![vec![3]]);
         g.set_outputs(vec![sub_outs[0], plus_outs[0]]);
 
         let input = tensor_1d(&[1.0, 2.0, 3.0]);

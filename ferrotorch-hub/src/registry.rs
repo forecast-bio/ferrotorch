@@ -89,8 +89,7 @@ static MODELS: &[ModelInfo] = &[
     ModelInfo {
         name: "efficientnet_b0",
         description: "EfficientNet-B0 trained on ImageNet-1K (top-1 acc ~77.7%)",
-        weights_url:
-            "https://huggingface.co/ferrotorch/efficientnet_b0/resolve/main/model.safetensors",
+        weights_url: "https://huggingface.co/ferrotorch/efficientnet_b0/resolve/main/model.safetensors",
         weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
         format: WeightsFormat::SafeTensors,
         num_parameters: 5_288_548,
@@ -106,8 +105,7 @@ static MODELS: &[ModelInfo] = &[
     ModelInfo {
         name: "convnext_tiny",
         description: "ConvNeXt Tiny trained on ImageNet-1K (top-1 acc ~82.1%)",
-        weights_url:
-            "https://huggingface.co/ferrotorch/convnext_tiny/resolve/main/model.safetensors",
+        weights_url: "https://huggingface.co/ferrotorch/convnext_tiny/resolve/main/model.safetensors",
         weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
         format: WeightsFormat::SafeTensors,
         num_parameters: 28_589_128,
@@ -134,8 +132,7 @@ static MODELS: &[ModelInfo] = &[
     ModelInfo {
         name: "mobilenet_v2",
         description: "MobileNetV2 trained on ImageNet-1K (top-1 acc ~72.0%)",
-        weights_url:
-            "https://huggingface.co/ferrotorch/mobilenet_v2/resolve/main/model.safetensors",
+        weights_url: "https://huggingface.co/ferrotorch/mobilenet_v2/resolve/main/model.safetensors",
         weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
         format: WeightsFormat::SafeTensors,
         num_parameters: 3_504_872,
@@ -143,8 +140,7 @@ static MODELS: &[ModelInfo] = &[
     ModelInfo {
         name: "mobilenet_v3_small",
         description: "MobileNetV3-Small trained on ImageNet-1K (top-1 acc ~67.7%)",
-        weights_url:
-            "https://huggingface.co/ferrotorch/mobilenet_v3_small/resolve/main/model.safetensors",
+        weights_url: "https://huggingface.co/ferrotorch/mobilenet_v3_small/resolve/main/model.safetensors",
         weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
         format: WeightsFormat::SafeTensors,
         num_parameters: 2_542_856,
@@ -152,8 +148,7 @@ static MODELS: &[ModelInfo] = &[
     ModelInfo {
         name: "densenet121",
         description: "DenseNet-121 trained on ImageNet-1K (top-1 acc ~74.4%)",
-        weights_url:
-            "https://huggingface.co/ferrotorch/densenet121/resolve/main/model.safetensors",
+        weights_url: "https://huggingface.co/ferrotorch/densenet121/resolve/main/model.safetensors",
         weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
         format: WeightsFormat::SafeTensors,
         num_parameters: 7_978_856,
@@ -161,8 +156,7 @@ static MODELS: &[ModelInfo] = &[
     ModelInfo {
         name: "inception_v3",
         description: "Inception v3 trained on ImageNet-1K (top-1 acc ~77.5%)",
-        weights_url:
-            "https://huggingface.co/ferrotorch/inception_v3/resolve/main/model.safetensors",
+        weights_url: "https://huggingface.co/ferrotorch/inception_v3/resolve/main/model.safetensors",
         weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
         format: WeightsFormat::SafeTensors,
         num_parameters: 27_161_264,

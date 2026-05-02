@@ -352,13 +352,11 @@ impl<T: Float> MultiheadAttention<T> {
         if group_size > 1 {
             // [B, Hkv, S, Hd] → [B, Hkv, 1, S, Hd] → expand [B, Hkv, G, S, Hd]
             // → reshape [B, H, S, Hd]
-            k = k
-                .reshape_t(&[batch as isize, nkv as isize, 1, seq_k as isize, hd as isize])?;
+            k = k.reshape_t(&[batch as isize, nkv as isize, 1, seq_k as isize, hd as isize])?;
             k = expand(&k, &[batch, nkv, group_size, seq_k, hd])?;
             k = k.reshape_t(&[batch as isize, nh as isize, seq_k as isize, hd as isize])?;
 
-            v = v
-                .reshape_t(&[batch as isize, nkv as isize, 1, seq_k as isize, hd as isize])?;
+            v = v.reshape_t(&[batch as isize, nkv as isize, 1, seq_k as isize, hd as isize])?;
             v = expand(&v, &[batch, nkv, group_size, seq_k, hd])?;
             v = v.reshape_t(&[batch as isize, nh as isize, seq_k as isize, hd as isize])?;
         }
@@ -389,12 +387,13 @@ impl<T: Float> MultiheadAttention<T> {
                     mask_data[i * seq_k + j] = neg_inf;
                 }
             }
-            let mask = Tensor::from_storage(
-                TensorStorage::cpu(mask_data),
-                vec![1, seq_q, seq_k],
-                false,
-            )?;
-            let mask = if scaled.is_cuda() { mask.to(scaled.device())? } else { mask };
+            let mask =
+                Tensor::from_storage(TensorStorage::cpu(mask_data), vec![1, seq_q, seq_k], false)?;
+            let mask = if scaled.is_cuda() {
+                mask.to(scaled.device())?
+            } else {
+                mask
+            };
             add(&scaled, &mask)?
         } else {
             scaled

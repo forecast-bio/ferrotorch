@@ -199,13 +199,8 @@ impl Autotuner {
     }
 
     /// Register a candidate backend under a given name.
-    pub fn with_candidate(
-        mut self,
-        name: impl Into<String>,
-        backend: Box<dyn Codegen>,
-    ) -> Self {
-        self.candidates
-            .push(AutotuneCandidate::new(name, backend));
+    pub fn with_candidate(mut self, name: impl Into<String>, backend: Box<dyn Codegen>) -> Self {
+        self.candidates.push(AutotuneCandidate::new(name, backend));
         self
     }
 
@@ -262,11 +257,7 @@ impl Autotuner {
     /// On a cache hit, only the winning candidate is re-compiled and
     /// re-benchmarked (so [`AutotuneResult::all_timings`] on a hit
     /// contains only the winner's row).
-    pub fn tune(
-        &self,
-        graph: &IrGraph,
-        inputs: &[Vec<f64>],
-    ) -> FerrotorchResult<AutotuneResult> {
+    pub fn tune(&self, graph: &IrGraph, inputs: &[Vec<f64>]) -> FerrotorchResult<AutotuneResult> {
         if self.candidates.is_empty() {
             return Err(FerrotorchError::InvalidArgument {
                 message: "Autotuner: no candidates registered".into(),

@@ -146,8 +146,7 @@ impl<T: Float> Asgd<T> {
                     None => continue,
                 };
 
-                let param_t =
-                    self.param_groups[gi].params[pi].tensor().clone();
+                let param_t = self.param_groups[gi].params[pi].tensor().clone();
                 let device = param_t.device();
                 let key = Self::param_key(gi, pi);
 
@@ -179,8 +178,7 @@ impl<T: Float> Asgd<T> {
                     };
 
                     // p_new = p * (1 - lambd * eta) - eta * g
-                    let shrink_factor =
-                        f64_scalar_on::<T>(1.0 - config.lambd * eta, device)?;
+                    let shrink_factor = f64_scalar_on::<T>(1.0 - config.lambd * eta, device)?;
                     let eta_t = f64_scalar_on::<T>(eta, device)?;
                     let shrunk = mul(&param_t, &shrink_factor)?;
                     let scaled_grad = mul(&grad, &eta_t)?;
@@ -205,8 +203,8 @@ impl<T: Float> Asgd<T> {
                     // Commit state + schedule updates.
                     let next_step = self.foreach_state[&key].step_count + 1;
                     let step = next_step as f64;
-                    let new_eta = group_lr
-                        / (1.0 + config.lambd * group_lr * step).powf(config.alpha);
+                    let new_eta =
+                        group_lr / (1.0 + config.lambd * group_lr * step).powf(config.alpha);
                     let new_mu = 1.0 / f64::max(1.0, step - config.t0);
 
                     let state = self.foreach_state.get_mut(&key).unwrap();
@@ -692,14 +690,8 @@ mod tests {
             foreach.step().unwrap();
         }
 
-        let l = legacy.param_groups()[0].params[0]
-            .data()
-            .unwrap()
-            .to_vec();
-        let f = foreach.param_groups()[0].params[0]
-            .data()
-            .unwrap()
-            .to_vec();
+        let l = legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = foreach.param_groups()[0].params[0].data().unwrap().to_vec();
         for (a, b) in l.iter().zip(f.iter()) {
             assert!(
                 (a - b).abs() < 1e-4,
@@ -723,30 +715,24 @@ mod tests {
         let mut legacy = Asgd::new(vec![p_legacy.clone()], cfg);
         let mut foreach = Asgd::new(
             vec![p_foreach.clone()],
-            AsgdConfig { foreach: true, ..cfg },
+            AsgdConfig {
+                foreach: true,
+                ..cfg
+            },
         );
 
         for _ in 0..6 {
-            let g = Tensor::from_storage(
-                TensorStorage::cpu(vec![0.3f32, -0.2, 0.1]),
-                vec![3],
-                false,
-            )
-            .unwrap();
+            let g =
+                Tensor::from_storage(TensorStorage::cpu(vec![0.3f32, -0.2, 0.1]), vec![3], false)
+                    .unwrap();
             p_legacy.set_grad(Some(g.clone())).unwrap();
             p_foreach.set_grad(Some(g)).unwrap();
             legacy.step().unwrap();
             foreach.step().unwrap();
         }
 
-        let l = legacy.param_groups()[0].params[0]
-            .data()
-            .unwrap()
-            .to_vec();
-        let f = foreach.param_groups()[0].params[0]
-            .data()
-            .unwrap()
-            .to_vec();
+        let l = legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = foreach.param_groups()[0].params[0].data().unwrap().to_vec();
         for (a, b) in l.iter().zip(f.iter()) {
             assert!(
                 (a - b).abs() < 1e-4,

@@ -357,7 +357,7 @@ mod tests {
             // Belt-and-suspenders: when no feature is compiled, auto() must
             // be None.
             let auto = std::panic::catch_unwind(std::panic::AssertUnwindSafe(CubeRuntime::auto));
-            assert_eq!(auto.ok().flatten().is_some(), false);
+            assert!(auto.ok().flatten().is_none());
         }
     }
 }

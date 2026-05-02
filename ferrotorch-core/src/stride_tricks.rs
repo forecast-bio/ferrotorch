@@ -100,7 +100,7 @@ pub fn as_strided_scatter<T: Float>(
 /// "no positions reached" — the caller should treat that as trivially
 /// in-bounds at any `storage_offset`.
 fn stride_extent(shape: &[usize], stride: &[isize]) -> (i64, i64) {
-    if shape.iter().any(|&d| d == 0) {
+    if shape.contains(&0) {
         return (0, 0);
     }
     let mut min_off: i64 = 0;
@@ -141,7 +141,7 @@ fn validate_bounds(
     }
 
     // Empty view (any dim is zero) — nothing to read or write.
-    if shape.iter().any(|&d| d == 0) {
+    if shape.contains(&0) {
         // Zero-element views are valid even at storage_offset == storage_len.
         if storage_offset > storage_len {
             return Err(FerrotorchError::InvalidArgument {
@@ -268,9 +268,7 @@ impl<T: Float> Tensor<T> {
         let storage_len = self.numel();
         validate_bounds("as_strided_scatter", size, stride, offset, storage_len)?;
 
-        if size.len() != src.shape().len()
-            || size.iter().zip(src.shape()).any(|(a, b)| a != b)
-        {
+        if size.len() != src.shape().len() || size.iter().zip(src.shape()).any(|(a, b)| a != b) {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
                     "as_strided_scatter: src shape {:?} does not match requested view shape {size:?}",
@@ -302,6 +300,7 @@ impl<T: Float> Tensor<T> {
         }
 
         let mut indices = vec![0usize; ndim];
+        #[allow(clippy::needless_range_loop)]
         for src_i in 0..numel {
             let mut flat = offset as i64;
             for d in 0..ndim {
@@ -395,8 +394,7 @@ impl<T: Float> GradFn<T> for AsStridedBackward<T> {
 fn materialize_strided_cuda<T: Float>(view: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     use std::any::TypeId;
 
-    let backend =
-        crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+    let backend = crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
     let storage = view.storage();
     let buf = storage
         .gpu_handle()
@@ -439,8 +437,7 @@ fn scatter_on_cuda<T: Float>(
 ) -> FerrotorchResult<Tensor<T>> {
     use std::any::TypeId;
 
-    let backend =
-        crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+    let backend = crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
     let base_buf = base
         .storage()
         .gpu_handle()
@@ -625,7 +622,10 @@ mod tests {
         let src = t(&[10.0, 20.0, 30.0], &[3]);
         // Write src into positions 0, 2, 4 of dst.
         let out = dst.as_strided_scatter(&src, &[3], &[2], Some(0)).unwrap();
-        assert_eq!(out.data_vec().unwrap(), vec![10.0, 0.0, 20.0, 0.0, 30.0, 0.0]);
+        assert_eq!(
+            out.data_vec().unwrap(),
+            vec![10.0, 0.0, 20.0, 0.0, 30.0, 0.0]
+        );
     }
 
     #[test]
@@ -634,7 +634,10 @@ mod tests {
         let src = t(&[100.0, 200.0], &[2]);
         // Write src into positions 1, 3.
         let out = dst.as_strided_scatter(&src, &[2], &[2], Some(1)).unwrap();
-        assert_eq!(out.data_vec().unwrap(), vec![1.0, 100.0, 3.0, 200.0, 5.0, 6.0]);
+        assert_eq!(
+            out.data_vec().unwrap(),
+            vec![1.0, 100.0, 3.0, 200.0, 5.0, 6.0]
+        );
     }
 
     #[test]
@@ -642,7 +645,9 @@ mod tests {
         // dst is length 6; scatter a 2x3 source via [3, 1] strides starting at 0.
         let dst = zeros::<f64>(&[6]).unwrap();
         let src = t(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]);
-        let out = dst.as_strided_scatter(&src, &[2, 3], &[3, 1], Some(0)).unwrap();
+        let out = dst
+            .as_strided_scatter(&src, &[2, 3], &[3, 1], Some(0))
+            .unwrap();
         assert_eq!(out.data_vec().unwrap(), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
     }
 
@@ -651,7 +656,9 @@ mod tests {
         let dst = zeros::<f64>(&[5]).unwrap();
         let src = t(&[1.0, 2.0, 3.0], &[3]);
         // Requested view is [2] but src is [3] → mismatch.
-        let err = dst.as_strided_scatter(&src, &[2], &[1], Some(0)).unwrap_err();
+        let err = dst
+            .as_strided_scatter(&src, &[2], &[1], Some(0))
+            .unwrap_err();
         assert!(matches!(err, FerrotorchError::ShapeMismatch { .. }));
     }
 

@@ -47,7 +47,9 @@ fn prod_f64_gpu_matches_cpu() {
 #[test]
 fn prod_returns_gpu_tensor() {
     ensure_cuda();
-    let g = cpu_t_f32(&[1.0, 2.0, 3.0], &[3]).to(Device::Cuda(0)).unwrap();
+    let g = cpu_t_f32(&[1.0, 2.0, 3.0], &[3])
+        .to(Device::Cuda(0))
+        .unwrap();
     let p = g.prod_all().unwrap();
     assert!(matches!(p.device(), Device::Cuda(0)));
 }
@@ -58,7 +60,9 @@ fn prod_large_input_no_overflow_for_unit_factors() {
     // tree reduction (>256 blocks → recurse).
     ensure_cuda();
     let n = 10_000;
-    let g = cpu_t_f32(&vec![1.0_f32; n], &[n]).to(Device::Cuda(0)).unwrap();
+    let g = cpu_t_f32(&vec![1.0_f32; n], &[n])
+        .to(Device::Cuda(0))
+        .unwrap();
     let p = g.prod_all().unwrap().cpu().unwrap().item().unwrap();
     assert!((p - 1.0).abs() < 1e-3);
 }

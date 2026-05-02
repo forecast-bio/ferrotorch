@@ -148,12 +148,9 @@ impl<T: Float> AveragedModel<T> {
                 let data = p.data_vec().expect("with_foreach: read parameter data");
                 let shape = p.tensor().shape().to_vec();
                 let device = p.tensor().device();
-                let t = Tensor::from_storage(
-                    ferrotorch_core::TensorStorage::cpu(data),
-                    shape,
-                    false,
-                )
-                .expect("with_foreach: construct averaged tensor");
+                let t =
+                    Tensor::from_storage(ferrotorch_core::TensorStorage::cpu(data), shape, false)
+                        .expect("with_foreach: construct averaged tensor");
                 t.to(device).expect("with_foreach: move to device")
             })
             .collect();
@@ -241,10 +238,7 @@ impl<T: Float> AveragedModel<T> {
     }
 
     /// Foreach (on-device) averaging update. CL-497
-    fn update_parameters_foreach(
-        &mut self,
-        params: &[Parameter<T>],
-    ) -> FerrotorchResult<()> {
+    fn update_parameters_foreach(&mut self, params: &[Parameter<T>]) -> FerrotorchResult<()> {
         use ferrotorch_core::grad_fns::arithmetic::{add, div, mul, sub};
 
         assert_eq!(
@@ -259,9 +253,7 @@ impl<T: Float> AveragedModel<T> {
             if self.n_averaged == 0 {
                 // First update: deep-copy parameter data into the averaged
                 // tensors to avoid aliasing storage.
-                for (avg, param) in
-                    self.averaged_tensors.iter_mut().zip(params.iter())
-                {
+                for (avg, param) in self.averaged_tensors.iter_mut().zip(params.iter()) {
                     let data = param.data_vec()?;
                     let shape = param.tensor().shape().to_vec();
                     let device = param.tensor().device();
@@ -277,9 +269,7 @@ impl<T: Float> AveragedModel<T> {
                 match self.strategy {
                     AveragingStrategy::Swa => {
                         // avg = avg + (param - avg) / (n + 1)
-                        for (avg, param) in
-                            self.averaged_tensors.iter_mut().zip(params.iter())
-                        {
+                        for (avg, param) in self.averaged_tensors.iter_mut().zip(params.iter()) {
                             let param_t = param.tensor().clone();
                             let device = param_t.device();
                             let n_plus_1 =
@@ -292,14 +282,11 @@ impl<T: Float> AveragedModel<T> {
                     }
                     AveragingStrategy::Ema(decay) => {
                         let one_minus_decay = 1.0 - decay;
-                        for (avg, param) in
-                            self.averaged_tensors.iter_mut().zip(params.iter())
-                        {
+                        for (avg, param) in self.averaged_tensors.iter_mut().zip(params.iter()) {
                             let param_t = param.tensor().clone();
                             let device = param_t.device();
                             let decay_t = f64_scalar_on::<T>(decay, device)?;
-                            let one_minus_decay_t =
-                                f64_scalar_on::<T>(one_minus_decay, device)?;
+                            let one_minus_decay_t = f64_scalar_on::<T>(one_minus_decay, device)?;
                             let scaled_avg = mul(&*avg, &decay_t)?;
                             let scaled_param = mul(&param_t, &one_minus_decay_t)?;
                             let new_avg = add(&scaled_avg, &scaled_param)?;
@@ -778,24 +765,26 @@ mod tests {
 
     #[test]
     fn test_averaged_model_swa_foreach_parity() {
-        let p_legacy =
-            Parameter::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4]).unwrap();
-        let p_foreach =
-            Parameter::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4]).unwrap();
+        let p_legacy = Parameter::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4]).unwrap();
+        let p_foreach = Parameter::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4]).unwrap();
 
-        let mut legacy = AveragedModel::new(std::slice::from_ref(&p_legacy), AveragingStrategy::Swa);
+        let mut legacy =
+            AveragedModel::new(std::slice::from_ref(&p_legacy), AveragingStrategy::Swa);
         let mut foreach =
             AveragedModel::new(std::slice::from_ref(&p_foreach), AveragingStrategy::Swa)
                 .with_foreach(std::slice::from_ref(&p_foreach));
 
         for step in 0..5 {
-            let new_vals: Vec<f32> =
-                (0..4).map(|i| 1.0 + i as f32 + step as f32).collect();
+            let new_vals: Vec<f32> = (0..4).map(|i| 1.0 + i as f32 + step as f32).collect();
             no_grad(|| unsafe { p_legacy.tensor().update_data(&new_vals) }).unwrap();
             no_grad(|| unsafe { p_foreach.tensor().update_data(&new_vals) }).unwrap();
 
-            legacy.update_parameters(std::slice::from_ref(&p_legacy)).unwrap();
-            foreach.update_parameters(std::slice::from_ref(&p_foreach)).unwrap();
+            legacy
+                .update_parameters(std::slice::from_ref(&p_legacy))
+                .unwrap();
+            foreach
+                .update_parameters(std::slice::from_ref(&p_foreach))
+                .unwrap();
         }
 
         let l = legacy.averaged_values(0).unwrap();
@@ -815,9 +804,11 @@ mod tests {
 
         let mut legacy =
             AveragedModel::new(std::slice::from_ref(&p_legacy), AveragingStrategy::Ema(0.9));
-        let mut foreach =
-            AveragedModel::new(std::slice::from_ref(&p_foreach), AveragingStrategy::Ema(0.9))
-                .with_foreach(std::slice::from_ref(&p_foreach));
+        let mut foreach = AveragedModel::new(
+            std::slice::from_ref(&p_foreach),
+            AveragingStrategy::Ema(0.9),
+        )
+        .with_foreach(std::slice::from_ref(&p_foreach));
 
         for step in 0..6 {
             let v = 10.0 + step as f32;
@@ -825,8 +816,12 @@ mod tests {
             no_grad(|| unsafe { p_legacy.tensor().update_data(&new_vals) }).unwrap();
             no_grad(|| unsafe { p_foreach.tensor().update_data(&new_vals) }).unwrap();
 
-            legacy.update_parameters(std::slice::from_ref(&p_legacy)).unwrap();
-            foreach.update_parameters(std::slice::from_ref(&p_foreach)).unwrap();
+            legacy
+                .update_parameters(std::slice::from_ref(&p_legacy))
+                .unwrap();
+            foreach
+                .update_parameters(std::slice::from_ref(&p_foreach))
+                .unwrap();
         }
 
         let l = legacy.averaged_values(0).unwrap();
@@ -855,7 +850,15 @@ mod tests {
         // Apply averaged values into param.
         avg.apply_to(std::slice::from_ref(&p)).unwrap();
         let data = p.data().unwrap();
-        assert!((data[0] - 6.0).abs() < 1e-5, "expected 6.0, got {}", data[0]);
-        assert!((data[1] - 12.0).abs() < 1e-5, "expected 12.0, got {}", data[1]);
+        assert!(
+            (data[0] - 6.0).abs() < 1e-5,
+            "expected 6.0, got {}",
+            data[0]
+        );
+        assert!(
+            (data[1] - 12.0).abs() < 1e-5,
+            "expected 12.0, got {}",
+            data[1]
+        );
     }
 }

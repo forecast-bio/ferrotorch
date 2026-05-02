@@ -40,7 +40,11 @@ use crate::transfer::{alloc_zeros_f32, alloc_zeros_f64, cpu_to_gpu, gpu_to_cpu};
 /// Does NOT work for kernels that use `ex2.approx.f32` or `lg2.approx.f32`
 /// (transcendentals) — those need hand-written f64 implementations.
 #[cfg(feature = "cuda")]
-pub(crate) fn ptx_f32_to_f64(f32_ptx: &str, f32_kernel_name: &str, f64_kernel_name: &str) -> String {
+pub(crate) fn ptx_f32_to_f64(
+    f32_ptx: &str,
+    f32_kernel_name: &str,
+    f64_kernel_name: &str,
+) -> String {
     f32_ptx
         // Kernel entry point name
         .replace(f32_kernel_name, f64_kernel_name)
@@ -89,21 +93,30 @@ pub(crate) fn ptx_f32_to_f64(f32_ptx: &str, f32_kernel_name: &str, f64_kernel_na
         // an f64 buffer, hitting CUDA_ERROR_MISALIGNED_ADDRESS. (#575)
         .replace("shl.b64 %off, %off, 2", "shl.b64 %off, %off, 3")
         .replace("shl.b64 %off_in, %off_in, 2", "shl.b64 %off_in, %off_in, 3")
-        .replace("shl.b64 %off_out, %off_out, 2", "shl.b64 %off_out, %off_out, 3")
-        .replace("shl.b64 %off_src, %off_src, 2", "shl.b64 %off_src, %off_src, 3")
-        .replace("shl.b64 %off_dst, %off_dst, 2", "shl.b64 %off_dst, %off_dst, 3")
+        .replace(
+            "shl.b64 %off_out, %off_out, 2",
+            "shl.b64 %off_out, %off_out, 3",
+        )
+        .replace(
+            "shl.b64 %off_src, %off_src, 2",
+            "shl.b64 %off_src, %off_src, 3",
+        )
+        .replace(
+            "shl.b64 %off_dst, %off_dst, 2",
+            "shl.b64 %off_dst, %off_dst, 3",
+        )
         // Atomics
         .replace("atom.global.add.f32", "atom.global.add.f64")
         // Common float hex literals
-        .replace("0f00000000", "0d0000000000000000")     // 0.0
-        .replace("0f3F800000", "0d3FF0000000000000")     // 1.0
-        .replace("0fBF800000", "0dBFF0000000000000")     // -1.0
-        .replace("0f40000000", "0d4000000000000000")     // 2.0
-        .replace("0f3F000000", "0d3FE0000000000000")     // 0.5
-        .replace("0fFF800000", "0dFFF0000000000000")     // -inf
-        .replace("0f7F800000", "0d7FF0000000000000")     // +inf
-        .replace("0f3FB8AA3B", "0d3FF71547652B82FE")     // log2(e)
-        .replace("0f3F317218", "0d3FE62E42FEFA39EF")     // ln(2)
+        .replace("0f00000000", "0d0000000000000000") // 0.0
+        .replace("0f3F800000", "0d3FF0000000000000") // 1.0
+        .replace("0fBF800000", "0dBFF0000000000000") // -1.0
+        .replace("0f40000000", "0d4000000000000000") // 2.0
+        .replace("0f3F000000", "0d3FE0000000000000") // 0.5
+        .replace("0fFF800000", "0dFFF0000000000000") // -inf
+        .replace("0f7F800000", "0d7FF0000000000000") // +inf
+        .replace("0f3FB8AA3B", "0d3FF71547652B82FE") // log2(e)
+        .replace("0f3F317218", "0d3FE62E42FEFA39EF") // ln(2)
 }
 
 /// Helper to get or create a cached f64 PTX string from an f32 source.
@@ -171,7 +184,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `add_vec4_kernel`: vectorized add, 4 elements per thread.
 ///
@@ -331,7 +343,6 @@ DONE:
 }
 ";
 
-
 /// PTX source for `mul_kernel`: `out[i] = a[i] * b[i]`.
 #[cfg(feature = "cuda")]
 pub(crate) const MUL_PTX: &str = "\
@@ -380,7 +391,6 @@ DONE:
 }
 ";
 
-
 /// PTX source for `neg_kernel`: `out[i] = -a[i]`.
 #[cfg(feature = "cuda")]
 pub(crate) const NEG_PTX: &str = "\
@@ -424,7 +434,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `relu_kernel`: `out[i] = max(a[i], 0.0)`.
 #[cfg(feature = "cuda")]
@@ -471,7 +480,6 @@ DONE:
 }
 ";
 
-
 /// PTX source for `scale_kernel`: `out[i] = a[i] * scalar`.
 #[cfg(feature = "cuda")]
 pub(crate) const SCALE_PTX: &str = "\
@@ -517,7 +525,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX for 2D matrix transpose: `out[j * M + i] = in[i * N + j]`.
 /// Thread `tid` maps to output index; computes the corresponding input index.
@@ -574,7 +581,6 @@ DONE:\n\
     ret;\n\
 }\n\
 ";
-
 
 // ---------------------------------------------------------------------------
 // 4D permute (0,2,1,3) PTX kernel — swap dims 1 and 2
@@ -656,7 +662,6 @@ DONE:\n\
     ret;\n\
 }\n\
 ";
-
 
 // ---------------------------------------------------------------------------
 // f32-to-f16 conversion PTX kernel: out_f16[i] = float2half(in_f32[i])
@@ -913,7 +918,6 @@ DONE:
 }
 ";
 
-
 /// PTX for `slice_write_indirect_kernel`: same as `slice_write_kernel` but
 /// reads `pos` from a device pointer. This enables CUDA graph capture — the
 /// graph records the pointer address (fixed), and we update the u32 value
@@ -1088,7 +1092,6 @@ DONE:
 }
 ";
 
-
 // ---------------------------------------------------------------------------
 // Batch embedding lookup PTX kernel
 // ---------------------------------------------------------------------------
@@ -1158,7 +1161,6 @@ DONE:
 }
 ";
 
-
 // ---------------------------------------------------------------------------
 // Scatter-add rows PTX kernel (for embedding backward)
 // ---------------------------------------------------------------------------
@@ -1227,7 +1229,6 @@ DONE:
     ret;
 }
 ";
-
 
 // ---------------------------------------------------------------------------
 // Slice-read PTX kernel: read first `len` rows from [N, max_len, D]
@@ -1302,7 +1303,6 @@ DONE:
     ret;
 }
 ";
-
 
 // ---------------------------------------------------------------------------
 // GELU PTX kernel: gelu(x) = x * sigmoid(1.702 * x)
@@ -3287,7 +3287,6 @@ DONE:
 }
 ";
 
-
 // ---------------------------------------------------------------------------
 // Backward activation kernels
 // ---------------------------------------------------------------------------
@@ -3334,7 +3333,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `abs_backward_kernel`:
 /// `out[i] = input[i] > 0 ? grad[i] : (input[i] < 0 ? -grad[i] : 0)`.
@@ -3399,7 +3397,6 @@ DONE:
 }
 ";
 
-
 /// PTX source for `relu_backward_kernel`: `out[i] = (input[i] > 0) ? grad[i] : 0`.
 /// Takes two inputs: grad (upstream gradient) and input (forward activation input).
 #[cfg(feature = "cuda")]
@@ -3450,7 +3447,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `gelu_backward_kernel`:
 /// `out[i] = grad[i] * (sig + 1.702 * x * sig * (1 - sig))`
@@ -3968,7 +3964,6 @@ DONE:
 }
 ";
 
-
 // ---------------------------------------------------------------------------
 // Scatter-add (1-D) PTX kernel — backward of index_select
 // ---------------------------------------------------------------------------
@@ -4031,7 +4026,6 @@ DONE:
 }
 ";
 
-
 // ---------------------------------------------------------------------------
 // Masked-fill PTX kernel
 // ---------------------------------------------------------------------------
@@ -4089,7 +4083,6 @@ DONE:
 }
 ";
 
-
 // ---------------------------------------------------------------------------
 // Masked-zero PTX kernel — backward of masked_fill
 // ---------------------------------------------------------------------------
@@ -4146,7 +4139,6 @@ DONE:
 }
 ";
 
-
 // ---------------------------------------------------------------------------
 // Sigmoid backward PTX kernel: out[i] = grad[i] * output[i] * (1 - output[i])
 // ---------------------------------------------------------------------------
@@ -4201,7 +4193,6 @@ DONE:
 }
 ";
 
-
 // ---------------------------------------------------------------------------
 // Tanh backward PTX kernel: out[i] = grad[i] * (1 - output[i]^2)
 // ---------------------------------------------------------------------------
@@ -4255,7 +4246,6 @@ DONE:
     ret;
 }
 ";
-
 
 // ---------------------------------------------------------------------------
 // Softmax backward PTX kernel (row-wise, shared-memory dot product)
@@ -4384,7 +4374,6 @@ DONE:\n\
     ret;\n\
 }\n\
 ";
-
 
 // ---------------------------------------------------------------------------
 // LogSoftmax forward PTX kernel (row-wise, shared-memory max + log-sum-exp)
@@ -5166,10 +5155,8 @@ END:
 }
 ";
 
-
 // Thread i: output[i] = sum_{k=0}^{axis_size-1} input[outer_idx * axis_size * inner_size + k * inner_size + inner_idx]
 // where outer_idx = i / inner_size, inner_idx = i % inner_size.
-
 
 /// PTX source for `reduce_prod_kernel`: parallel block-level product
 /// reduction (#524). Mirrors `REDUCE_SUM_PTX` exactly but the
@@ -5452,7 +5439,6 @@ END_MAX:
 }
 ";
 
-
 /// Fused masked-min reduction (#627). Kernel signature:
 ///   `(data, mask_f, n) -> partial_mins`
 /// where `mask_f[i]` is `1.0` for valid entries and `0.0` for masked.
@@ -5660,7 +5646,6 @@ END_MMAX:
 }
 ";
 
-
 /// PTX source for `repeat_along_dim_kernel` (#524). Expands a `[outer,
 /// inner]` tensor into `[outer, repeat_count, inner]` by broadcasting
 /// along the inserted middle axis. Used for the backward of `sum_dim` /
@@ -5737,7 +5722,6 @@ DONE_RAD:
     ret;
 }
 ";
-
 
 /// PTX source for `clamp_backward_kernel` (#524).
 /// VJP for `clamp(x, min, max)`: `out[i] = grad[i]` when `min <= x[i] <= max`,
@@ -5888,7 +5872,6 @@ DONE_PT:
     ret;
 }
 ";
-
 
 #[cfg(feature = "cuda")]
 pub(crate) const SUM_AXIS_PTX: &str = "\
@@ -6050,7 +6033,6 @@ DONE:
 }
 ";
 
-
 /// PTX source for `cumprod_kernel`: prefix product along an axis.
 ///
 /// Thread i processes the scan for outer_idx = i / inner, inner_idx = i % inner.
@@ -6126,7 +6108,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `cummax_kernel`: running maximum along an axis.
 ///
@@ -6214,7 +6195,6 @@ DONE:
 }
 ";
 
-
 /// PTX source for `cummin_kernel`: running minimum along an axis.
 ///
 /// Thread i processes the scan for outer_idx = i / inner, inner_idx = i % inner.
@@ -6298,7 +6278,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `logcumsumexp_kernel`: numerically stable log-cumulative-sum-exp.
 ///
@@ -6740,7 +6719,6 @@ DONE:
 }
 ";
 
-
 // ---------------------------------------------------------------------------
 // LayerNorm backward PTX kernel
 // ---------------------------------------------------------------------------
@@ -7070,7 +7048,6 @@ LNB_DONE:
 }
 ";
 
-
 // ---------------------------------------------------------------------------
 // RMSNorm PTX kernel (row-wise: rms, normalize+scale)
 //
@@ -7206,7 +7183,6 @@ DONE:
     ret;
 }
 ";
-
 
 // ---------------------------------------------------------------------------
 // RMSNorm backward PTX kernel
@@ -7446,7 +7422,6 @@ RNB_DONE:
 }
 ";
 
-
 // ---------------------------------------------------------------------------
 // Softmax PTX kernel (row-wise, numerically stable)
 // ---------------------------------------------------------------------------
@@ -7666,7 +7641,6 @@ END:
 }
 ";
 
-
 /// PTX kernel for MaxPool2d forward: sliding window max.
 ///
 /// One thread per output element. Reads the kernel-sized window from the
@@ -7809,7 +7783,6 @@ END:
 }
 ";
 
-
 /// PTX kernel for AvgPool2d forward: sliding window average.
 ///
 /// One thread per output element. Same structure as MaxPool2d but
@@ -7945,7 +7918,6 @@ END:
     ret;
 }
 ";
-
 
 #[cfg(feature = "cuda")]
 pub(crate) const SOFTMAX_PTX: &str = "\
@@ -8367,7 +8339,6 @@ DONE:\n\
 }\n\
 ";
 
-
 // ---------------------------------------------------------------------------
 // General N-dimensional broadcast binary PTX kernels
 // ---------------------------------------------------------------------------
@@ -8494,7 +8465,6 @@ DONE:
 }
 ";
 
-
 /// PTX for general broadcast sub: `out[i] = a[bcast_a(i)] - b[bcast_b(i)]`.
 #[cfg(feature = "cuda")]
 pub(crate) const BROADCAST_SUB_PTX: &str = "\
@@ -8579,7 +8549,6 @@ DONE:
 }
 ";
 
-
 /// PTX for general broadcast mul: `out[i] = a[bcast_a(i)] * b[bcast_b(i)]`.
 #[cfg(feature = "cuda")]
 pub(crate) const BROADCAST_MUL_PTX: &str = "\
@@ -8663,7 +8632,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `broadcast_div_kernel`: broadcast division, identical structure
 /// to `broadcast_mul_kernel` but uses `div.f32` instead of `mul.f32`.
@@ -8750,7 +8718,6 @@ DONE:
 }
 ";
 
-
 /// PTX source for `strided_split_kernel`: extract a sub-tensor along a given axis.
 ///
 /// Thread `i` computes:
@@ -8830,7 +8797,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `strided_cat_kernel`: write a sub-tensor into a larger tensor
 /// at an offset along an axis.
@@ -8912,7 +8878,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `strided_copy_kernel`: general strided→contiguous
 /// gather with up to 8 dimensions. CL-496.
@@ -9058,7 +9023,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `strided_scatter_kernel`: inverse of `strided_copy_kernel`.
 ///
@@ -9363,7 +9327,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `exp_kernel`: `out[i] = exp(a[i])`.
 #[cfg(feature = "cuda")]
@@ -9706,7 +9669,6 @@ DONE:
 }
 ";
 
-
 /// PTX source for `pow_kernel`: `out[i] = a[i] ^ exponent`.
 /// Uses the identity: x^e = 2^(e * log2(x)).
 #[cfg(feature = "cuda")]
@@ -9921,7 +9883,6 @@ DONE:
     ret;
 }
 ";
-
 
 /// PTX source for `sigmoid_kernel`: `out[i] = 1 / (1 + exp(-a[i]))`.
 #[cfg(feature = "cuda")]
@@ -10834,7 +10795,10 @@ fn try_launch_binary_f64(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, ptx_src, kernel_name, device.ordinal() as u32,
+        ctx,
+        ptx_src,
+        kernel_name,
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => return Ok(None),
@@ -10871,7 +10835,10 @@ fn try_launch_unary_f64(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, ptx_src, kernel_name, device.ordinal() as u32,
+        ctx,
+        ptx_src,
+        kernel_name,
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => return Ok(None),
@@ -10902,7 +10869,11 @@ fn cpu_fallback_binary_f64(
 ) -> GpuResult<CudaBuffer<f64>> {
     let a_host = gpu_to_cpu(a, device)?;
     let b_host = gpu_to_cpu(b, device)?;
-    let result: Vec<f64> = a_host.iter().zip(b_host.iter()).map(|(&x, &y)| op(x, y)).collect();
+    let result: Vec<f64> = a_host
+        .iter()
+        .zip(b_host.iter())
+        .map(|(&x, &y)| op(x, y))
+        .collect();
     cpu_to_gpu(&result, device)
 }
 
@@ -11170,9 +11141,7 @@ pub fn gpu_add(
     // Try vec4 kernel for 4x memory throughput (128-bit loads).
     let n = a.len();
     if n >= 16 && n % 4 == 0 {
-        if let Some(out) = try_launch_binary_vec4(
-            a, b, device, ADD_VEC4_PTX, "add_vec4_kernel",
-        )? {
+        if let Some(out) = try_launch_binary_vec4(a, b, device, ADD_VEC4_PTX, "add_vec4_kernel")? {
             return Ok(out);
         }
     }
@@ -11231,9 +11200,7 @@ pub fn gpu_mul(
 
     let n = a.len();
     if n >= 16 && n % 4 == 0 {
-        if let Some(out) = try_launch_binary_vec4(
-            a, b, device, MUL_VEC4_PTX, "mul_vec4_kernel",
-        )? {
+        if let Some(out) = try_launch_binary_vec4(a, b, device, MUL_VEC4_PTX, "mul_vec4_kernel")? {
             return Ok(out);
         }
     }
@@ -11506,13 +11473,9 @@ pub fn gpu_abs_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, input, device)?;
 
-    if let Some(out) = try_launch_binary(
-        grad,
-        input,
-        device,
-        ABS_BACKWARD_PTX,
-        "abs_backward_kernel",
-    )? {
+    if let Some(out) =
+        try_launch_binary(grad, input, device, ABS_BACKWARD_PTX, "abs_backward_kernel")?
+    {
         return Ok(out);
     }
 
@@ -11603,7 +11566,9 @@ pub fn gpu_gelu_backward_erf(
             let z = x * inv_sqrt_2;
             let az = z.abs();
             let t = 1.0 / (1.0 + 0.3275911 * az);
-            let poly = t * (0.2548296 + t * (-0.2844967 + t * (1.4214137 + t * (-1.453_152 + t * 0.3275911))));
+            let poly = t
+                * (0.2548296
+                    + t * (-0.2844967 + t * (1.4214137 + t * (-1.453_152 + t * 0.3275911))));
             let erf_abs = 1.0 - poly * (-az * az).exp();
             let erf_val = if z >= 0.0 { erf_abs } else { -erf_abs };
             let cdf = 0.5 * (1.0 + erf_val);
@@ -12101,8 +12066,7 @@ pub fn gpu_log_softmax_backward(
                     sum_grad += grad_host[base + c];
                 }
                 for c in 0..cols {
-                    result[base + c] =
-                        grad_host[base + c] - output_host[base + c].exp() * sum_grad;
+                    result[base + c] = grad_host[base + c] - output_host[base + c].exp() * sum_grad;
                 }
             }
             return cpu_to_gpu(&result, device);
@@ -12148,10 +12112,7 @@ pub fn gpu_log_softmax_backward(
 /// sums to a single scalar. For small inputs (< 256 blocks), the second pass
 /// runs on CPU to avoid kernel launch overhead.
 #[cfg(feature = "cuda")]
-pub fn gpu_reduce_sum(
-    a: &CudaBuffer<f32>,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_reduce_sum(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
@@ -12219,10 +12180,7 @@ pub fn gpu_reduce_sum(
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_reduce_sum(
-    _a: &CudaBuffer<f32>,
-    _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_reduce_sum(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
@@ -12230,10 +12188,7 @@ pub fn gpu_reduce_sum(
 /// Two-pass dispatch identical to `gpu_reduce_sum`/`gpu_reduce_min`, with
 /// `1.0` identity and `mul.f32` combiner.
 #[cfg(feature = "cuda")]
-pub fn gpu_reduce_prod(
-    a: &CudaBuffer<f32>,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_reduce_prod(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
@@ -12293,10 +12248,7 @@ pub fn gpu_reduce_prod(
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_reduce_prod(
-    _a: &CudaBuffer<f32>,
-    _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_reduce_prod(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
@@ -12304,10 +12256,7 @@ pub fn gpu_reduce_prod(
 /// dispatch identical to [`gpu_reduce_sum`] but using
 /// [`REDUCE_MIN_PTX`]. (#627)
 #[cfg(feature = "cuda")]
-pub fn gpu_reduce_min(
-    a: &CudaBuffer<f32>,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_reduce_min(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
@@ -12370,20 +12319,14 @@ pub fn gpu_reduce_min(
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_reduce_min(
-    _a: &CudaBuffer<f32>,
-    _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_reduce_min(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
 /// f32 parallel reduction returning the maximum element. Counterpart of
 /// [`gpu_reduce_min`]. (#627)
 #[cfg(feature = "cuda")]
-pub fn gpu_reduce_max(
-    a: &CudaBuffer<f32>,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_reduce_max(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
@@ -12436,7 +12379,10 @@ pub fn gpu_reduce_max(
 
     if num_blocks <= 256 {
         let host_partials = gpu_to_cpu(&partials, device)?;
-        let total = host_partials.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let total = host_partials
+            .iter()
+            .copied()
+            .fold(f32::NEG_INFINITY, f32::max);
         return cpu_to_gpu(&[total], device);
     }
 
@@ -12444,10 +12390,7 @@ pub fn gpu_reduce_max(
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_reduce_max(
-    _a: &CudaBuffer<f32>,
-    _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_reduce_max(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
@@ -12464,7 +12407,10 @@ pub fn gpu_masked_reduce_min(
     use cudarc::driver::PushKernelArg;
 
     if data.len() != mask_f.len() {
-        return Err(GpuError::LengthMismatch { a: data.len(), b: mask_f.len() });
+        return Err(GpuError::LengthMismatch {
+            a: data.len(),
+            b: mask_f.len(),
+        });
     }
     let n = data.len();
     if n == 0 {
@@ -12550,7 +12496,10 @@ pub fn gpu_masked_reduce_max(
     use cudarc::driver::PushKernelArg;
 
     if data.len() != mask_f.len() {
-        return Err(GpuError::LengthMismatch { a: data.len(), b: mask_f.len() });
+        return Err(GpuError::LengthMismatch {
+            a: data.len(),
+            b: mask_f.len(),
+        });
     }
     let n = data.len();
     if n == 0 {
@@ -14059,7 +14008,10 @@ pub fn gpu_dropout_f64(
 
     let ptx = get_f64_ptx(&CACHE, DROPOUT_PTX, "dropout_kernel", "dropout_f64_kernel");
     let f = match crate::module_cache::get_or_compile(
-        ctx, ptx, "dropout_f64_kernel", device.ordinal() as u32,
+        ctx,
+        ptx,
+        "dropout_f64_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
         Err(_) => {
@@ -14099,7 +14051,15 @@ pub fn gpu_dropout_f64(
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_dropout_f64(_input: &CudaBuffer<f64>, _threshold: u32, _scale: f64, _seed: u32, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_dropout_f64(
+    _input: &CudaBuffer<f64>,
+    _threshold: u32,
+    _scale: f64,
+    _seed: u32,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ---------------------------------------------------------------------------
 // Public API -- 2D transpose
@@ -14552,7 +14512,9 @@ pub fn gpu_gelu_erf(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cu
         let z = x * std::f32::consts::FRAC_1_SQRT_2;
         let az = z.abs();
         let t = 1.0 / (1.0 + 0.3275911 * az);
-        let poly = t * (0.254_829_6 + t * (-0.284_496_72 + t * (1.421_413_8 + t * (-1.453_152_1 + t * 1.061_405_4))));
+        let poly = t
+            * (0.254_829_6
+                + t * (-0.284_496_72 + t * (1.421_413_8 + t * (-1.453_152_1 + t * 1.061_405_4))));
         let erf_abs = 1.0 - poly * (-az * az).exp();
         let erf_val = if z < 0.0 { -erf_abs } else { erf_abs };
         x * 0.5 * (1.0 + erf_val)
@@ -14840,10 +14802,7 @@ pub fn gpu_clamp(
         Ok(f) => f,
         Err(_) => {
             let host = gpu_to_cpu(input, device)?;
-            let result: Vec<f32> = host
-                .iter()
-                .map(|&x| x.max(min_val).min(max_val))
-                .collect();
+            let result: Vec<f32> = host.iter().map(|&x| x.max(min_val).min(max_val)).collect();
             return cpu_to_gpu(&result, device);
         }
     };
@@ -14901,7 +14860,13 @@ pub fn gpu_clamp_backward(
             let out: Vec<f32> = g
                 .iter()
                 .zip(x.iter())
-                .map(|(&gi, &xi)| if xi >= min_val && xi <= max_val { gi } else { 0.0 })
+                .map(|(&gi, &xi)| {
+                    if xi >= min_val && xi <= max_val {
+                        gi
+                    } else {
+                        0.0
+                    }
+                })
                 .collect();
             return cpu_to_gpu(&out, device);
         }
@@ -14979,8 +14944,7 @@ pub fn gpu_repeat_along_dim(
             for o in 0..outer {
                 for r in 0..repeat_count {
                     for i in 0..inner {
-                        out[o * (repeat_count * inner) + r * inner + i] =
-                            host[o * inner + i];
+                        out[o * (repeat_count * inner) + r * inner + i] = host[o * inner + i];
                     }
                 }
             }
@@ -15051,8 +15015,7 @@ pub fn gpu_repeat_along_dim_f64(
             for o in 0..outer {
                 for r in 0..repeat_count {
                     for i in 0..inner {
-                        out[o * (repeat_count * inner) + r * inner + i] =
-                            host[o * inner + i];
+                        out[o * (repeat_count * inner) + r * inner + i] = host[o * inner + i];
                     }
                 }
             }
@@ -15079,9 +15042,25 @@ pub fn gpu_repeat_along_dim_f64(
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_repeat_along_dim(_input: &CudaBuffer<f32>, _outer: usize, _rep: usize, _inner: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_repeat_along_dim(
+    _input: &CudaBuffer<f32>,
+    _outer: usize,
+    _rep: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_repeat_along_dim_f64(_input: &CudaBuffer<f64>, _outer: usize, _rep: usize, _inner: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_repeat_along_dim_f64(
+    _input: &CudaBuffer<f64>,
+    _outer: usize,
+    _rep: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ---------------------------------------------------------------------------
 // Public API -- elementwise transcendentals & math ops
@@ -15230,7 +15209,10 @@ pub fn gpu_add_f64(
 ) -> GpuResult<CudaBuffer<f64>> {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     if a.len() != b.len() {
-        return Err(GpuError::LengthMismatch { a: a.len(), b: b.len() });
+        return Err(GpuError::LengthMismatch {
+            a: a.len(),
+            b: b.len(),
+        });
     }
     let ptx = get_f64_ptx(&CACHE, ADD_PTX, "add_kernel", "add_f64_kernel");
     if let Some(out) = try_launch_binary_f64(a, b, device, ptx, "add_f64_kernel")? {
@@ -15248,7 +15230,10 @@ pub fn gpu_sub_f64(
 ) -> GpuResult<CudaBuffer<f64>> {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     if a.len() != b.len() {
-        return Err(GpuError::LengthMismatch { a: a.len(), b: b.len() });
+        return Err(GpuError::LengthMismatch {
+            a: a.len(),
+            b: b.len(),
+        });
     }
     let ptx = get_f64_ptx(&CACHE, SUB_PTX, "sub_kernel", "sub_f64_kernel");
     if let Some(out) = try_launch_binary_f64(a, b, device, ptx, "sub_f64_kernel")? {
@@ -15266,7 +15251,10 @@ pub fn gpu_mul_f64(
 ) -> GpuResult<CudaBuffer<f64>> {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     if a.len() != b.len() {
-        return Err(GpuError::LengthMismatch { a: a.len(), b: b.len() });
+        return Err(GpuError::LengthMismatch {
+            a: a.len(),
+            b: b.len(),
+        });
     }
     let ptx = get_f64_ptx(&CACHE, MUL_PTX, "mul_kernel", "mul_f64_kernel");
     if let Some(out) = try_launch_binary_f64(a, b, device, ptx, "mul_f64_kernel")? {
@@ -15284,7 +15272,10 @@ pub fn gpu_div_f64(
 ) -> GpuResult<CudaBuffer<f64>> {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     if a.len() != b.len() {
-        return Err(GpuError::LengthMismatch { a: a.len(), b: b.len() });
+        return Err(GpuError::LengthMismatch {
+            a: a.len(),
+            b: b.len(),
+        });
     }
     let ptx = get_f64_ptx(&CACHE, DIV_PTX, "div_kernel", "div_f64_kernel");
     if let Some(out) = try_launch_binary_f64(a, b, device, ptx, "div_f64_kernel")? {
@@ -15330,9 +15321,9 @@ pub fn gpu_scale_f64(
     let stream = device.stream();
 
     let ptx = get_f64_ptx(&CACHE, SCALE_PTX, "scale_kernel", "scale_f64_kernel");
-    if let Ok(f) = crate::module_cache::get_or_compile(
-        ctx, ptx, "scale_f64_kernel", device.ordinal() as u32,
-    ) {
+    if let Ok(f) =
+        crate::module_cache::get_or_compile(ctx, ptx, "scale_f64_kernel", device.ordinal() as u32)
+    {
         let mut out = alloc_zeros_f64(n, device)?;
         let cfg = launch_cfg(n)?;
         let n_u32 = n as u32;
@@ -15397,7 +15388,10 @@ pub fn gpu_pow_f64(
     let stream = device.stream();
 
     if let Ok(f) = crate::module_cache::get_or_compile(
-        ctx, POW_F64_PTX, "pow_f64_kernel", device.ordinal() as u32,
+        ctx,
+        POW_F64_PTX,
+        "pow_f64_kernel",
+        device.ordinal() as u32,
     ) {
         let mut out = alloc_zeros_f64(n, device)?;
         let cfg = launch_cfg(n)?;
@@ -15462,16 +15456,19 @@ pub fn gpu_relu_backward_f64(
 ) -> GpuResult<CudaBuffer<f64>> {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     if grad.len() != input.len() {
-        return Err(GpuError::LengthMismatch { a: grad.len(), b: input.len() });
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: input.len(),
+        });
     }
-    let ptx = get_f64_ptx(&CACHE, RELU_BACKWARD_PTX, "relu_backward_kernel", "relu_backward_f64_kernel");
-    if let Some(out) = try_launch_binary_f64(
-        grad,
-        input,
-        device,
-        ptx,
+    let ptx = get_f64_ptx(
+        &CACHE,
+        RELU_BACKWARD_PTX,
+        "relu_backward_kernel",
         "relu_backward_f64_kernel",
-    )? {
+    );
+    if let Some(out) = try_launch_binary_f64(grad, input, device, ptx, "relu_backward_f64_kernel")?
+    {
         return Ok(out);
     }
     cpu_fallback_binary_f64(grad, input, device, |g, x| if x > 0.0 { g } else { 0.0 })
@@ -15486,16 +15483,20 @@ pub fn gpu_sigmoid_backward_f64(
 ) -> GpuResult<CudaBuffer<f64>> {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     if grad.len() != output.len() {
-        return Err(GpuError::LengthMismatch { a: grad.len(), b: output.len() });
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: output.len(),
+        });
     }
-    let ptx = get_f64_ptx(&CACHE, SIGMOID_BACKWARD_PTX, "sigmoid_backward_kernel", "sigmoid_backward_f64_kernel");
-    if let Some(out) = try_launch_binary_f64(
-        grad,
-        output,
-        device,
-        ptx,
+    let ptx = get_f64_ptx(
+        &CACHE,
+        SIGMOID_BACKWARD_PTX,
+        "sigmoid_backward_kernel",
         "sigmoid_backward_f64_kernel",
-    )? {
+    );
+    if let Some(out) =
+        try_launch_binary_f64(grad, output, device, ptx, "sigmoid_backward_f64_kernel")?
+    {
         return Ok(out);
     }
     cpu_fallback_binary_f64(grad, output, device, |g, o| g * o * (1.0 - o))
@@ -15510,16 +15511,19 @@ pub fn gpu_tanh_backward_f64(
 ) -> GpuResult<CudaBuffer<f64>> {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     if grad.len() != output.len() {
-        return Err(GpuError::LengthMismatch { a: grad.len(), b: output.len() });
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: output.len(),
+        });
     }
-    let ptx = get_f64_ptx(&CACHE, TANH_BACKWARD_PTX, "tanh_backward_kernel", "tanh_backward_f64_kernel");
-    if let Some(out) = try_launch_binary_f64(
-        grad,
-        output,
-        device,
-        ptx,
+    let ptx = get_f64_ptx(
+        &CACHE,
+        TANH_BACKWARD_PTX,
+        "tanh_backward_kernel",
         "tanh_backward_f64_kernel",
-    )? {
+    );
+    if let Some(out) = try_launch_binary_f64(grad, output, device, ptx, "tanh_backward_f64_kernel")?
+    {
         return Ok(out);
     }
     cpu_fallback_binary_f64(grad, output, device, |g, o| g * (1.0 - o * o))
@@ -15545,7 +15549,12 @@ pub fn gpu_broadcast_add_f64(
     let out_numel: usize = out_shape.iter().product();
 
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let ptx = get_f64_ptx(&CACHE, BROADCAST_ADD_PTX, "broadcast_add_kernel", "broadcast_add_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        BROADCAST_ADD_PTX,
+        "broadcast_add_kernel",
+        "broadcast_add_f64_kernel",
+    );
     if let Some(out) = try_launch_broadcast_binary_f64(
         a,
         b,
@@ -15579,7 +15588,12 @@ pub fn gpu_broadcast_sub_f64(
     let out_numel: usize = out_shape.iter().product();
 
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let ptx = get_f64_ptx(&CACHE, BROADCAST_SUB_PTX, "broadcast_sub_kernel", "broadcast_sub_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        BROADCAST_SUB_PTX,
+        "broadcast_sub_kernel",
+        "broadcast_sub_f64_kernel",
+    );
     if let Some(out) = try_launch_broadcast_binary_f64(
         a,
         b,
@@ -15613,7 +15627,12 @@ pub fn gpu_broadcast_mul_f64(
     let out_numel: usize = out_shape.iter().product();
 
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let ptx = get_f64_ptx(&CACHE, BROADCAST_MUL_PTX, "broadcast_mul_kernel", "broadcast_mul_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        BROADCAST_MUL_PTX,
+        "broadcast_mul_kernel",
+        "broadcast_mul_f64_kernel",
+    );
     if let Some(out) = try_launch_broadcast_binary_f64(
         a,
         b,
@@ -15647,7 +15666,12 @@ pub fn gpu_broadcast_div_f64(
     let out_numel: usize = out_shape.iter().product();
 
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let ptx = get_f64_ptx(&CACHE, BROADCAST_DIV_PTX, "broadcast_div_kernel", "broadcast_div_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        BROADCAST_DIV_PTX,
+        "broadcast_div_kernel",
+        "broadcast_div_f64_kernel",
+    );
     if let Some(out) = try_launch_broadcast_binary_f64(
         a,
         b,
@@ -15671,10 +15695,7 @@ pub fn gpu_broadcast_div_f64(
 
 /// Full reduce-sum for f64: returns a 1-element buffer containing the sum of all elements.
 #[cfg(feature = "cuda")]
-pub fn gpu_reduce_sum_f64(
-    a: &CudaBuffer<f64>,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f64>> {
+pub fn gpu_reduce_sum_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
     use cudarc::driver::PushKernelArg;
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -15686,7 +15707,12 @@ pub fn gpu_reduce_sum_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, REDUCE_SUM_PTX, "reduce_sum_kernel", "reduce_sum_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        REDUCE_SUM_PTX,
+        "reduce_sum_kernel",
+        "reduce_sum_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -15739,10 +15765,7 @@ pub fn gpu_reduce_sum_f64(
 /// f64 parallel min reduction. Mirrors [`gpu_reduce_min`] but uses
 /// the f64-transformed PTX. (#627)
 #[cfg(feature = "cuda")]
-pub fn gpu_reduce_min_f64(
-    a: &CudaBuffer<f64>,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f64>> {
+pub fn gpu_reduce_min_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
     use cudarc::driver::PushKernelArg;
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -15754,7 +15777,12 @@ pub fn gpu_reduce_min_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, REDUCE_MIN_PTX, "reduce_min_kernel", "reduce_min_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        REDUCE_MIN_PTX,
+        "reduce_min_kernel",
+        "reduce_min_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -15807,10 +15835,7 @@ pub fn gpu_reduce_min_f64(
 /// f64 parallel max reduction. Mirrors [`gpu_reduce_max`] but uses
 /// the f64-transformed PTX. (#627)
 #[cfg(feature = "cuda")]
-pub fn gpu_reduce_max_f64(
-    a: &CudaBuffer<f64>,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f64>> {
+pub fn gpu_reduce_max_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
     use cudarc::driver::PushKernelArg;
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -15822,7 +15847,12 @@ pub fn gpu_reduce_max_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, REDUCE_MAX_PTX, "reduce_max_kernel", "reduce_max_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        REDUCE_MAX_PTX,
+        "reduce_max_kernel",
+        "reduce_max_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -15865,7 +15895,10 @@ pub fn gpu_reduce_max_f64(
 
     if num_blocks <= 256 {
         let host_partials = gpu_to_cpu(&partials, device)?;
-        let total = host_partials.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let total = host_partials
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
         return cpu_to_gpu(&[total], device);
     }
 
@@ -15874,10 +15907,7 @@ pub fn gpu_reduce_max_f64(
 
 /// f64 reduce_prod (#524).
 #[cfg(feature = "cuda")]
-pub fn gpu_reduce_prod_f64(
-    a: &CudaBuffer<f64>,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f64>> {
+pub fn gpu_reduce_prod_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
     use cudarc::driver::PushKernelArg;
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -15889,7 +15919,12 @@ pub fn gpu_reduce_prod_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, REDUCE_PROD_PTX, "reduce_prod_kernel", "reduce_prod_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        REDUCE_PROD_PTX,
+        "reduce_prod_kernel",
+        "reduce_prod_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -15937,12 +15972,21 @@ pub fn gpu_reduce_prod_f64(
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_reduce_prod_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_reduce_prod_f64(
+    _a: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_reduce_min_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_reduce_min_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_reduce_max_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_reduce_max_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// f64 fused masked-min reduction. Mirrors [`gpu_masked_reduce_min`] via
 /// the f64-transformed PTX. (#627)
@@ -15956,7 +16000,10 @@ pub fn gpu_masked_reduce_min_f64(
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
     if data.len() != mask_f.len() {
-        return Err(GpuError::LengthMismatch { a: data.len(), b: mask_f.len() });
+        return Err(GpuError::LengthMismatch {
+            a: data.len(),
+            b: mask_f.len(),
+        });
     }
     let n = data.len();
     if n == 0 {
@@ -16036,7 +16083,10 @@ pub fn gpu_masked_reduce_max_f64(
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
     if data.len() != mask_f.len() {
-        return Err(GpuError::LengthMismatch { a: data.len(), b: mask_f.len() });
+        return Err(GpuError::LengthMismatch {
+            a: data.len(),
+            b: mask_f.len(),
+        });
     }
     let n = data.len();
     if n == 0 {
@@ -16106,13 +16156,37 @@ pub fn gpu_masked_reduce_max_f64(
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_masked_reduce_min(_d: &CudaBuffer<f32>, _m: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_masked_reduce_min(
+    _d: &CudaBuffer<f32>,
+    _m: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_masked_reduce_max(_d: &CudaBuffer<f32>, _m: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_masked_reduce_max(
+    _d: &CudaBuffer<f32>,
+    _m: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_masked_reduce_min_f64(_d: &CudaBuffer<f64>, _m: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_masked_reduce_min_f64(
+    _d: &CudaBuffer<f64>,
+    _m: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_masked_reduce_max_f64(_d: &CudaBuffer<f64>, _m: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_masked_reduce_max_f64(
+    _d: &CudaBuffer<f64>,
+    _m: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// f64 GPU pad/truncate counterpart of [`gpu_pad_truncate_complex_f32`].
 /// (#605)
@@ -16230,7 +16304,12 @@ pub fn gpu_sum_axis_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, SUM_AXIS_PTX, "sum_axis_kernel", "sum_axis_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        SUM_AXIS_PTX,
+        "sum_axis_kernel",
+        "sum_axis_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16277,9 +16356,19 @@ pub fn gpu_sum_axis_f64(
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_reduce_sum_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_reduce_sum_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_sum_axis_f64(_a: &CudaBuffer<f64>, _outer: usize, _axis_size: usize, _inner: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_sum_axis_f64(
+    _a: &CudaBuffer<f64>,
+    _outer: usize,
+    _axis_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ---------------------------------------------------------------------------
 // Public API -- f64 shape ops
@@ -16302,7 +16391,12 @@ pub fn gpu_transpose_2d_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, TRANSPOSE_2D_PTX, "transpose_2d_kernel", "transpose_2d_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        TRANSPOSE_2D_PTX,
+        "transpose_2d_kernel",
+        "transpose_2d_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16361,7 +16455,12 @@ pub fn gpu_permute_0213_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, PERMUTE_0213_PTX, "permute_0213_kernel", "permute_0213_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        PERMUTE_0213_PTX,
+        "permute_0213_kernel",
+        "permute_0213_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16430,7 +16529,12 @@ pub fn gpu_strided_split_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, STRIDED_SPLIT_PTX, "strided_split_kernel", "strided_split_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        STRIDED_SPLIT_PTX,
+        "strided_split_kernel",
+        "strided_split_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16497,7 +16601,12 @@ pub fn gpu_strided_cat_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, STRIDED_CAT_PTX, "strided_cat_kernel", "strided_cat_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        STRIDED_CAT_PTX,
+        "strided_cat_kernel",
+        "strided_cat_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16563,7 +16672,12 @@ pub fn gpu_index_select_1d_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, INDEX_SELECT_1D_PTX, "index_select_1d_kernel", "index_select_1d_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        INDEX_SELECT_1D_PTX,
+        "index_select_1d_kernel",
+        "index_select_1d_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16618,7 +16732,12 @@ pub fn gpu_scatter_add_1d_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, SCATTER_ADD_1D_PTX, "scatter_add_1d_kernel", "scatter_add_1d_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        SCATTER_ADD_1D_PTX,
+        "scatter_add_1d_kernel",
+        "scatter_add_1d_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16674,7 +16793,12 @@ pub fn gpu_masked_fill_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, MASKED_FILL_PTX, "masked_fill_kernel", "masked_fill_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        MASKED_FILL_PTX,
+        "masked_fill_kernel",
+        "masked_fill_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16730,7 +16854,12 @@ pub fn gpu_masked_zero_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, MASKED_ZERO_PTX, "masked_zero_kernel", "masked_zero_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        MASKED_ZERO_PTX,
+        "masked_zero_kernel",
+        "masked_zero_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16785,7 +16914,12 @@ pub fn gpu_slice_write_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, SLICE_WRITE_PTX, "slice_write_kernel", "slice_write_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        SLICE_WRITE_PTX,
+        "slice_write_kernel",
+        "slice_write_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16845,7 +16979,12 @@ pub fn gpu_slice_read_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, SLICE_READ_PTX, "slice_read_kernel", "slice_read_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        SLICE_READ_PTX,
+        "slice_read_kernel",
+        "slice_read_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16907,7 +17046,12 @@ pub fn gpu_embed_lookup_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, EMBED_LOOKUP_PTX, "embed_lookup_kernel", "embed_lookup_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        EMBED_LOOKUP_PTX,
+        "embed_lookup_kernel",
+        "embed_lookup_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -16962,7 +17106,12 @@ pub fn gpu_embed_lookup_batch_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, EMBED_LOOKUP_BATCH_PTX, "embed_lookup_batch_kernel", "embed_lookup_batch_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        EMBED_LOOKUP_BATCH_PTX,
+        "embed_lookup_batch_kernel",
+        "embed_lookup_batch_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -17026,7 +17175,12 @@ pub fn gpu_scatter_add_rows_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, SCATTER_ADD_ROWS_PTX, "scatter_add_rows_kernel", "scatter_add_rows_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        SCATTER_ADD_ROWS_PTX,
+        "scatter_add_rows_kernel",
+        "scatter_add_rows_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -17301,10 +17455,17 @@ pub fn gpu_maxpool2d(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, MAXPOOL2D_PTX, "maxpool2d_forward_kernel", device.ordinal() as u32,
+        ctx,
+        MAXPOOL2D_PTX,
+        "maxpool2d_forward_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => return Err(GpuError::PtxCompileFailed { kernel: "maxpool2d_forward_kernel" }),
+        Err(_) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "maxpool2d_forward_kernel",
+            });
+        }
     };
 
     let mut out = alloc_zeros_f32(total, device)?;
@@ -17319,15 +17480,22 @@ pub fn gpu_maxpool2d(
     let total_u32 = total as u32;
 
     unsafe {
-        stream.launch_builder(&f)
+        stream
+            .launch_builder(&f)
             .arg(input.inner())
             .arg(out.inner_mut())
-            .arg(&batch_u32).arg(&ch_u32)
-            .arg(&h_in_u32).arg(&w_in_u32)
-            .arg(&h_out_u32).arg(&w_out_u32)
-            .arg(&kh_u32).arg(&kw_u32)
-            .arg(&sh_u32).arg(&sw_u32)
-            .arg(&ph_u32).arg(&pw_u32)
+            .arg(&batch_u32)
+            .arg(&ch_u32)
+            .arg(&h_in_u32)
+            .arg(&w_in_u32)
+            .arg(&h_out_u32)
+            .arg(&w_out_u32)
+            .arg(&kh_u32)
+            .arg(&kw_u32)
+            .arg(&sh_u32)
+            .arg(&sw_u32)
+            .arg(&ph_u32)
+            .arg(&pw_u32)
             .arg(&total_u32)
             .launch(cfg)?;
     }
@@ -17339,9 +17507,17 @@ pub fn gpu_maxpool2d(
 #[cfg(not(feature = "cuda"))]
 #[allow(clippy::too_many_arguments)]
 pub fn gpu_maxpool2d(
-    _input: &CudaBuffer<f32>, _batch: usize, _channels: usize,
-    _h_in: usize, _w_in: usize, _kh: usize, _kw: usize,
-    _sh: usize, _sw: usize, _ph: usize, _pw: usize,
+    _input: &CudaBuffer<f32>,
+    _batch: usize,
+    _channels: usize,
+    _h_in: usize,
+    _w_in: usize,
+    _kh: usize,
+    _kw: usize,
+    _sh: usize,
+    _sw: usize,
+    _ph: usize,
+    _pw: usize,
     _device: &GpuDevice,
 ) -> GpuResult<(CudaBuffer<f32>, [usize; 4])> {
     Err(GpuError::NoCudaFeature)
@@ -17374,10 +17550,17 @@ pub fn gpu_avgpool2d(
     let stream = device.stream();
 
     let f = match crate::module_cache::get_or_compile(
-        ctx, AVGPOOL2D_PTX, "avgpool2d_forward_kernel", device.ordinal() as u32,
+        ctx,
+        AVGPOOL2D_PTX,
+        "avgpool2d_forward_kernel",
+        device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => return Err(GpuError::PtxCompileFailed { kernel: "avgpool2d_forward_kernel" }),
+        Err(_) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "avgpool2d_forward_kernel",
+            });
+        }
     };
 
     let mut out = alloc_zeros_f32(total, device)?;
@@ -17392,15 +17575,22 @@ pub fn gpu_avgpool2d(
     let total_u32 = total as u32;
 
     unsafe {
-        stream.launch_builder(&f)
+        stream
+            .launch_builder(&f)
             .arg(input.inner())
             .arg(out.inner_mut())
-            .arg(&batch_u32).arg(&ch_u32)
-            .arg(&h_in_u32).arg(&w_in_u32)
-            .arg(&h_out_u32).arg(&w_out_u32)
-            .arg(&kh_u32).arg(&kw_u32)
-            .arg(&sh_u32).arg(&sw_u32)
-            .arg(&ph_u32).arg(&pw_u32)
+            .arg(&batch_u32)
+            .arg(&ch_u32)
+            .arg(&h_in_u32)
+            .arg(&w_in_u32)
+            .arg(&h_out_u32)
+            .arg(&w_out_u32)
+            .arg(&kh_u32)
+            .arg(&kw_u32)
+            .arg(&sh_u32)
+            .arg(&sw_u32)
+            .arg(&ph_u32)
+            .arg(&pw_u32)
             .arg(&total_u32)
             .launch(cfg)?;
     }
@@ -17412,9 +17602,17 @@ pub fn gpu_avgpool2d(
 #[cfg(not(feature = "cuda"))]
 #[allow(clippy::too_many_arguments)]
 pub fn gpu_avgpool2d(
-    _input: &CudaBuffer<f32>, _batch: usize, _channels: usize,
-    _h_in: usize, _w_in: usize, _kh: usize, _kw: usize,
-    _sh: usize, _sw: usize, _ph: usize, _pw: usize,
+    _input: &CudaBuffer<f32>,
+    _batch: usize,
+    _channels: usize,
+    _h_in: usize,
+    _w_in: usize,
+    _kh: usize,
+    _kw: usize,
+    _sh: usize,
+    _sw: usize,
+    _ph: usize,
+    _pw: usize,
     _device: &GpuDevice,
 ) -> GpuResult<(CudaBuffer<f32>, [usize; 4])> {
     Err(GpuError::NoCudaFeature)
@@ -17735,8 +17933,7 @@ pub fn gpu_rmsnorm(
             for r in 0..rows {
                 let base = r * cols;
                 let slice = &h_in[base..base + cols];
-                let sq_mean: f32 =
-                    slice.iter().map(|&x| x * x).sum::<f32>() / cols as f32;
+                let sq_mean: f32 = slice.iter().map(|&x| x * x).sum::<f32>() / cols as f32;
                 let inv_rms = 1.0 / (sq_mean + eps).sqrt();
                 for c in 0..cols {
                     out[base + c] = slice[c] * inv_rms * h_w[c];
@@ -17819,8 +18016,7 @@ pub fn gpu_rmsnorm_backward(
                 let base = r * cols;
                 let x_slice = &h_in[base..base + cols];
                 let go_slice = &h_go[base..base + cols];
-                let sq_mean: f32 =
-                    x_slice.iter().map(|&x| x * x).sum::<f32>() / n_f;
+                let sq_mean: f32 = x_slice.iter().map(|&x| x * x).sum::<f32>() / n_f;
                 let inv_rms = 1.0 / (sq_mean + eps).sqrt();
                 let inv_rms3 = inv_rms * inv_rms * inv_rms;
                 let mut dot = 0.0f32;
@@ -17830,8 +18026,7 @@ pub fn gpu_rmsnorm_backward(
                 }
                 let coeff = dot * inv_rms3 / n_f;
                 for c in 0..cols {
-                    grad_input[base + c] =
-                        inv_rms * h_w[c] * go_slice[c] - x_slice[c] * coeff;
+                    grad_input[base + c] = inv_rms * h_w[c] * go_slice[c] - x_slice[c] * coeff;
                 }
             }
             let gi = cpu_to_gpu(&grad_input, device)?;
@@ -17995,11 +18190,7 @@ pub fn gpu_scale_into(
 /// the constant gradient tensor without the legacy `vec![go;
 /// numel].to(device)` round-trip.
 #[cfg(feature = "cuda")]
-pub fn gpu_fill_f32(
-    n: usize,
-    scalar: f32,
-    device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_fill_f32(n: usize, scalar: f32, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     use cudarc::driver::PushKernelArg;
 
     let ctx = device.context();
@@ -18648,19 +18839,13 @@ pub fn gpu_gelu(_input: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<Cuda
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_gelu_tanh(
-    _input: &CudaBuffer<f32>,
-    _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_gelu_tanh(_input: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_gelu_erf(
-    _input: &CudaBuffer<f32>,
-    _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_gelu_erf(_input: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
@@ -19030,11 +19215,7 @@ pub fn gpu_abs_backward(
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_fill_f32(
-    _n: usize,
-    _scalar: f32,
-    _device: &GpuDevice,
-) -> GpuResult<CudaBuffer<f32>> {
+pub fn gpu_fill_f32(_n: usize, _scalar: f32, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
@@ -19395,74 +19576,284 @@ pub(crate) fn gpu_f32_to_bf16(_input: &CudaBuffer<f32>, _device: &GpuDevice) -> 
 // ---------------------------------------------------------------------------
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_add_f64(_a: &CudaBuffer<f64>, _b: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_add_f64(
+    _a: &CudaBuffer<f64>,
+    _b: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_sub_f64(_a: &CudaBuffer<f64>, _b: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_sub_f64(
+    _a: &CudaBuffer<f64>,
+    _b: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_mul_f64(_a: &CudaBuffer<f64>, _b: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_mul_f64(
+    _a: &CudaBuffer<f64>,
+    _b: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_div_f64(_a: &CudaBuffer<f64>, _b: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_div_f64(
+    _a: &CudaBuffer<f64>,
+    _b: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_neg_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_neg_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_relu_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_relu_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_scale_f64(_a: &CudaBuffer<f64>, _scalar: f64, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_scale_f64(
+    _a: &CudaBuffer<f64>,
+    _scalar: f64,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_exp_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_exp_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_log_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_log_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_sqrt_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_sqrt_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_pow_f64(_a: &CudaBuffer<f64>, _exponent: f64, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_pow_f64(
+    _a: &CudaBuffer<f64>,
+    _exponent: f64,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_abs_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_abs_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_sigmoid_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_sigmoid_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_tanh_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_tanh_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_relu_backward_f64(_grad: &CudaBuffer<f64>, _input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_relu_backward_f64(
+    _grad: &CudaBuffer<f64>,
+    _input: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_sigmoid_backward_f64(_grad: &CudaBuffer<f64>, _output: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_sigmoid_backward_f64(
+    _grad: &CudaBuffer<f64>,
+    _output: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_tanh_backward_f64(_grad: &CudaBuffer<f64>, _output: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_tanh_backward_f64(
+    _grad: &CudaBuffer<f64>,
+    _output: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_broadcast_add_f64(_a: &CudaBuffer<f64>, _b: &CudaBuffer<f64>, _a_shape: &[usize], _b_shape: &[usize], _out_shape: &[usize], _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_broadcast_add_f64(
+    _a: &CudaBuffer<f64>,
+    _b: &CudaBuffer<f64>,
+    _a_shape: &[usize],
+    _b_shape: &[usize],
+    _out_shape: &[usize],
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_broadcast_sub_f64(_a: &CudaBuffer<f64>, _b: &CudaBuffer<f64>, _a_shape: &[usize], _b_shape: &[usize], _out_shape: &[usize], _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_broadcast_sub_f64(
+    _a: &CudaBuffer<f64>,
+    _b: &CudaBuffer<f64>,
+    _a_shape: &[usize],
+    _b_shape: &[usize],
+    _out_shape: &[usize],
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_broadcast_mul_f64(_a: &CudaBuffer<f64>, _b: &CudaBuffer<f64>, _a_shape: &[usize], _b_shape: &[usize], _out_shape: &[usize], _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_broadcast_mul_f64(
+    _a: &CudaBuffer<f64>,
+    _b: &CudaBuffer<f64>,
+    _a_shape: &[usize],
+    _b_shape: &[usize],
+    _out_shape: &[usize],
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_broadcast_div_f64(_a: &CudaBuffer<f64>, _b: &CudaBuffer<f64>, _a_shape: &[usize], _b_shape: &[usize], _out_shape: &[usize], _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_broadcast_div_f64(
+    _a: &CudaBuffer<f64>,
+    _b: &CudaBuffer<f64>,
+    _a_shape: &[usize],
+    _b_shape: &[usize],
+    _out_shape: &[usize],
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_transpose_2d_f64(_input: &CudaBuffer<f64>, _m: usize, _n: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_transpose_2d_f64(
+    _input: &CudaBuffer<f64>,
+    _m: usize,
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_permute_0213_f64(_input: &CudaBuffer<f64>, _d0: usize, _d1: usize, _d2: usize, _d3: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_permute_0213_f64(
+    _input: &CudaBuffer<f64>,
+    _d0: usize,
+    _d1: usize,
+    _d2: usize,
+    _d3: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_strided_split_f64(_input: &CudaBuffer<f64>, _total_along_axis: usize, _split_offset: usize, _split_size: usize, _inner_size: usize, _n: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_strided_split_f64(
+    _input: &CudaBuffer<f64>,
+    _total_along_axis: usize,
+    _split_offset: usize,
+    _split_size: usize,
+    _inner_size: usize,
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_strided_cat_f64(_input: &CudaBuffer<f64>, _output: &mut CudaBuffer<f64>, _total_along_axis: usize, _cat_offset: usize, _part_size: usize, _inner_size: usize, _n: usize, _device: &GpuDevice) -> GpuResult<()> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_strided_cat_f64(
+    _input: &CudaBuffer<f64>,
+    _output: &mut CudaBuffer<f64>,
+    _total_along_axis: usize,
+    _cat_offset: usize,
+    _part_size: usize,
+    _inner_size: usize,
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<()> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_index_select_1d_f64(_input: &CudaBuffer<f64>, _indices: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_index_select_1d_f64(
+    _input: &CudaBuffer<f64>,
+    _indices: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_scatter_add_1d_f64(_grad_output: &CudaBuffer<f64>, _indices: &CudaBuffer<f32>, _input_len: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_scatter_add_1d_f64(
+    _grad_output: &CudaBuffer<f64>,
+    _indices: &CudaBuffer<f32>,
+    _input_len: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_masked_fill_f64(_input: &CudaBuffer<f64>, _mask: &CudaBuffer<u8>, _value: f64, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_masked_fill_f64(
+    _input: &CudaBuffer<f64>,
+    _mask: &CudaBuffer<u8>,
+    _value: f64,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_masked_zero_f64(_grad: &CudaBuffer<f64>, _mask: &CudaBuffer<u8>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_masked_zero_f64(
+    _grad: &CudaBuffer<f64>,
+    _mask: &CudaBuffer<u8>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_slice_write_f64(_src: &CudaBuffer<f64>, _dst: &mut CudaBuffer<f64>, _n_batch: usize, _d: usize, _max_len: usize, _pos: usize, _device: &GpuDevice) -> GpuResult<()> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_slice_write_f64(
+    _src: &CudaBuffer<f64>,
+    _dst: &mut CudaBuffer<f64>,
+    _n_batch: usize,
+    _d: usize,
+    _max_len: usize,
+    _pos: usize,
+    _device: &GpuDevice,
+) -> GpuResult<()> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_slice_read_f64(_src: &CudaBuffer<f64>, _n_batch: usize, _d: usize, _len: usize, _max_len: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_slice_read_f64(
+    _src: &CudaBuffer<f64>,
+    _n_batch: usize,
+    _d: usize,
+    _len: usize,
+    _max_len: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_embed_lookup_f64(_idx: &CudaBuffer<f32>, _weight: &CudaBuffer<f64>, _d: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_embed_lookup_f64(
+    _idx: &CudaBuffer<f32>,
+    _weight: &CudaBuffer<f64>,
+    _d: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_embed_lookup_batch_f64(_indices: &CudaBuffer<f32>, _weight: &CudaBuffer<f64>, _n: usize, _d: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_embed_lookup_batch_f64(
+    _indices: &CudaBuffer<f32>,
+    _weight: &CudaBuffer<f64>,
+    _n: usize,
+    _d: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_scatter_add_rows_f64(_grad_output: &CudaBuffer<f64>, _indices: &CudaBuffer<f32>, _num_embeddings: usize, _d: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
-
+pub fn gpu_scatter_add_rows_f64(
+    _grad_output: &CudaBuffer<f64>,
+    _indices: &CudaBuffer<f32>,
+    _num_embeddings: usize,
+    _d: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ---------------------------------------------------------------------------
 // Public API -- f64 activation, normalization, scan, and pooling launchers
@@ -19479,8 +19870,13 @@ pub fn gpu_gelu_f64(input: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<Cu
 
 /// GELU (tanh-approx) for f64.
 #[cfg(feature = "cuda")]
-pub fn gpu_gelu_tanh_f64(input: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
-    if let Some(out) = try_launch_unary_f64(input, device, GELU_TANH_F64_PTX, "gelu_tanh_f64_kernel")? {
+pub fn gpu_gelu_tanh_f64(
+    input: &CudaBuffer<f64>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    if let Some(out) =
+        try_launch_unary_f64(input, device, GELU_TANH_F64_PTX, "gelu_tanh_f64_kernel")?
+    {
         return Ok(out);
     }
     cpu_fallback_unary_f64(input, device, |x| {
@@ -19492,7 +19888,8 @@ pub fn gpu_gelu_tanh_f64(input: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResu
 /// GELU (exact erf) for f64.
 #[cfg(feature = "cuda")]
 pub fn gpu_gelu_erf_f64(input: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
-    if let Some(out) = try_launch_unary_f64(input, device, GELU_ERF_F64_PTX, "gelu_erf_f64_kernel")? {
+    if let Some(out) = try_launch_unary_f64(input, device, GELU_ERF_F64_PTX, "gelu_erf_f64_kernel")?
+    {
         return Ok(out);
     }
     cpu_fallback_unary_f64(input, device, |x| {
@@ -19500,7 +19897,9 @@ pub fn gpu_gelu_erf_f64(input: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResul
         let z = x * std::f64::consts::FRAC_1_SQRT_2;
         let az = z.abs();
         let t = 1.0 / (1.0 + 0.3275911 * az);
-        let poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+        let poly = t
+            * (0.254829592
+                + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
         let erf_abs = 1.0 - poly * (-az * az).exp();
         let erf_val = if z >= 0.0 { erf_abs } else { -erf_abs };
         x * 0.5 * (1.0 + erf_val)
@@ -19515,9 +19914,18 @@ pub fn gpu_gelu_backward_f64(
     device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f64>> {
     if grad.len() != input.len() {
-        return Err(GpuError::LengthMismatch { a: grad.len(), b: input.len() });
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: input.len(),
+        });
     }
-    if let Some(out) = try_launch_binary_f64(grad, input, device, GELU_BACKWARD_F64_PTX, "gelu_backward_f64_kernel")? {
+    if let Some(out) = try_launch_binary_f64(
+        grad,
+        input,
+        device,
+        GELU_BACKWARD_F64_PTX,
+        "gelu_backward_f64_kernel",
+    )? {
         return Ok(out);
     }
     cpu_fallback_binary_f64(grad, input, device, |g, x| {
@@ -19534,9 +19942,18 @@ pub fn gpu_gelu_backward_tanh_f64(
     device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f64>> {
     if grad.len() != input.len() {
-        return Err(GpuError::LengthMismatch { a: grad.len(), b: input.len() });
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: input.len(),
+        });
     }
-    if let Some(out) = try_launch_binary_f64(grad, input, device, GELU_BACKWARD_TANH_F64_PTX, "gelu_backward_tanh_f64_kernel")? {
+    if let Some(out) = try_launch_binary_f64(
+        grad,
+        input,
+        device,
+        GELU_BACKWARD_TANH_F64_PTX,
+        "gelu_backward_tanh_f64_kernel",
+    )? {
         return Ok(out);
     }
     cpu_fallback_binary_f64(grad, input, device, |g, x| {
@@ -19557,16 +19974,27 @@ pub fn gpu_gelu_backward_erf_f64(
     device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f64>> {
     if grad.len() != input.len() {
-        return Err(GpuError::LengthMismatch { a: grad.len(), b: input.len() });
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: input.len(),
+        });
     }
-    if let Some(out) = try_launch_binary_f64(grad, input, device, GELU_BACKWARD_ERF_F64_PTX, "gelu_backward_erf_f64_kernel")? {
+    if let Some(out) = try_launch_binary_f64(
+        grad,
+        input,
+        device,
+        GELU_BACKWARD_ERF_F64_PTX,
+        "gelu_backward_erf_f64_kernel",
+    )? {
         return Ok(out);
     }
     cpu_fallback_binary_f64(grad, input, device, |g, x| {
         let z = x * std::f64::consts::FRAC_1_SQRT_2;
         let az = z.abs();
         let t = 1.0 / (1.0 + 0.3275911 * az);
-        let poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+        let poly = t
+            * (0.254829592
+                + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
         let erf_abs = 1.0 - poly * (-az * az).exp();
         let erf_val = if z >= 0.0 { erf_abs } else { -erf_abs };
         let cdf = 0.5 * (1.0 + erf_val);
@@ -19592,9 +20020,18 @@ pub fn gpu_silu_backward_f64(
     device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f64>> {
     if grad.len() != input.len() {
-        return Err(GpuError::LengthMismatch { a: grad.len(), b: input.len() });
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: input.len(),
+        });
     }
-    if let Some(out) = try_launch_binary_f64(grad, input, device, SILU_BACKWARD_F64_PTX, "silu_backward_f64_kernel")? {
+    if let Some(out) = try_launch_binary_f64(
+        grad,
+        input,
+        device,
+        SILU_BACKWARD_F64_PTX,
+        "silu_backward_f64_kernel",
+    )? {
         return Ok(out);
     }
     cpu_fallback_binary_f64(grad, input, device, |g, x| {
@@ -19612,15 +20049,23 @@ pub fn gpu_elu_f64(
 ) -> GpuResult<CudaBuffer<f64>> {
     use cudarc::driver::PushKernelArg;
     let n = input.len();
-    if n == 0 { return cpu_to_gpu(&[], device); }
+    if n == 0 {
+        return cpu_to_gpu(&[], device);
+    }
     let ctx = device.context();
     let stream = device.stream();
-    if let Ok(f) = crate::module_cache::get_or_compile(ctx, ELU_F64_PTX, "elu_f64_kernel", device.ordinal() as u32) {
+    if let Ok(f) = crate::module_cache::get_or_compile(
+        ctx,
+        ELU_F64_PTX,
+        "elu_f64_kernel",
+        device.ordinal() as u32,
+    ) {
         let mut out = alloc_zeros_f64(n, device)?;
         let n_u32 = n as u32;
         let cfg = launch_cfg(n)?;
         unsafe {
-            stream.launch_builder(&f)
+            stream
+                .launch_builder(&f)
                 .arg(input.inner())
                 .arg(out.inner_mut())
                 .arg(&n_u32)
@@ -19630,7 +20075,10 @@ pub fn gpu_elu_f64(
         return Ok(out);
     }
     let host = gpu_to_cpu(input, device)?;
-    let result: Vec<f64> = host.iter().map(|&x| if x > 0.0 { x } else { alpha * (x.exp() - 1.0) }).collect();
+    let result: Vec<f64> = host
+        .iter()
+        .map(|&x| if x > 0.0 { x } else { alpha * (x.exp() - 1.0) })
+        .collect();
     cpu_to_gpu(&result, device)
 }
 
@@ -19644,18 +20092,29 @@ pub fn gpu_elu_backward_f64(
 ) -> GpuResult<CudaBuffer<f64>> {
     use cudarc::driver::PushKernelArg;
     if grad.len() != input.len() {
-        return Err(GpuError::LengthMismatch { a: grad.len(), b: input.len() });
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: input.len(),
+        });
     }
     let n = grad.len();
-    if n == 0 { return cpu_to_gpu(&[], device); }
+    if n == 0 {
+        return cpu_to_gpu(&[], device);
+    }
     let ctx = device.context();
     let stream = device.stream();
-    if let Ok(f) = crate::module_cache::get_or_compile(ctx, ELU_BACKWARD_F64_PTX, "elu_backward_f64_kernel", device.ordinal() as u32) {
+    if let Ok(f) = crate::module_cache::get_or_compile(
+        ctx,
+        ELU_BACKWARD_F64_PTX,
+        "elu_backward_f64_kernel",
+        device.ordinal() as u32,
+    ) {
         let mut out = alloc_zeros_f64(n, device)?;
         let n_u32 = n as u32;
         let cfg = launch_cfg(n)?;
         unsafe {
-            stream.launch_builder(&f)
+            stream
+                .launch_builder(&f)
                 .arg(grad.inner())
                 .arg(input.inner())
                 .arg(out.inner_mut())
@@ -19667,7 +20126,11 @@ pub fn gpu_elu_backward_f64(
     }
     let g_host = gpu_to_cpu(grad, device)?;
     let x_host = gpu_to_cpu(input, device)?;
-    let result: Vec<f64> = g_host.iter().zip(x_host.iter()).map(|(&g, &x)| if x > 0.0 { g } else { g * alpha * x.exp() }).collect();
+    let result: Vec<f64> = g_host
+        .iter()
+        .zip(x_host.iter())
+        .map(|(&g, &x)| if x > 0.0 { g } else { g * alpha * x.exp() })
+        .collect();
     cpu_to_gpu(&result, device)
 }
 
@@ -19688,9 +20151,18 @@ pub fn gpu_mish_backward_f64(
     device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f64>> {
     if grad.len() != input.len() {
-        return Err(GpuError::LengthMismatch { a: grad.len(), b: input.len() });
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: input.len(),
+        });
     }
-    if let Some(out) = try_launch_binary_f64(grad, input, device, MISH_BACKWARD_F64_PTX, "mish_backward_f64_kernel")? {
+    if let Some(out) = try_launch_binary_f64(
+        grad,
+        input,
+        device,
+        MISH_BACKWARD_F64_PTX,
+        "mish_backward_f64_kernel",
+    )? {
         return Ok(out);
     }
     cpu_fallback_binary_f64(grad, input, device, |g, x| {
@@ -19712,16 +20184,21 @@ pub fn gpu_clamp_f64(
     use cudarc::driver::PushKernelArg;
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let n = input.len();
-    if n == 0 { return cpu_to_gpu(&[], device); }
+    if n == 0 {
+        return cpu_to_gpu(&[], device);
+    }
     let ctx = device.context();
     let stream = device.stream();
     let ptx = get_f64_ptx(&CACHE, CLAMP_PTX, "clamp_kernel", "clamp_f64_kernel");
-    if let Ok(f) = crate::module_cache::get_or_compile(ctx, ptx, "clamp_f64_kernel", device.ordinal() as u32) {
+    if let Ok(f) =
+        crate::module_cache::get_or_compile(ctx, ptx, "clamp_f64_kernel", device.ordinal() as u32)
+    {
         let mut out = alloc_zeros_f64(n, device)?;
         let n_u32 = n as u32;
         let cfg = launch_cfg(n)?;
         unsafe {
-            stream.launch_builder(&f)
+            stream
+                .launch_builder(&f)
                 .arg(input.inner())
                 .arg(out.inner_mut())
                 .arg(&n_u32)
@@ -19767,9 +20244,12 @@ pub fn gpu_clamp_backward_f64(
         "clamp_backward_kernel",
         "clamp_backward_f64_kernel",
     );
-    if let Ok(f) =
-        crate::module_cache::get_or_compile(ctx, ptx, "clamp_backward_f64_kernel", device.ordinal() as u32)
-    {
+    if let Ok(f) = crate::module_cache::get_or_compile(
+        ctx,
+        ptx,
+        "clamp_backward_f64_kernel",
+        device.ordinal() as u32,
+    ) {
         let mut out = alloc_zeros_f64(n, device)?;
         let n_u32 = n as u32;
         let cfg = launch_cfg(n)?;
@@ -19792,13 +20272,27 @@ pub fn gpu_clamp_backward_f64(
     let out: Vec<f64> = g
         .iter()
         .zip(x.iter())
-        .map(|(&gi, &xi)| if xi >= min_val && xi <= max_val { gi } else { 0.0 })
+        .map(|(&gi, &xi)| {
+            if xi >= min_val && xi <= max_val {
+                gi
+            } else {
+                0.0
+            }
+        })
         .collect();
     cpu_to_gpu(&out, device)
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_clamp_backward_f64(_grad: &CudaBuffer<f64>, _input: &CudaBuffer<f64>, _min: f64, _max: f64, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_clamp_backward_f64(
+    _grad: &CudaBuffer<f64>,
+    _input: &CudaBuffer<f64>,
+    _min: f64,
+    _max: f64,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 /// Cumulative sum for f64.
 #[cfg(feature = "cuda")]
@@ -19813,16 +20307,21 @@ pub fn gpu_cumsum_f64(
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let total = outer * inner;
     let n = outer * dim_size * inner;
-    if n == 0 { return cpu_to_gpu(&[], device); }
+    if n == 0 {
+        return cpu_to_gpu(&[], device);
+    }
     let ctx = device.context();
     let stream = device.stream();
     let ptx = get_f64_ptx(&CACHE, CUMSUM_PTX, "cumsum_kernel", "cumsum_f64_kernel");
-    if let Ok(f) = crate::module_cache::get_or_compile(ctx, ptx, "cumsum_f64_kernel", device.ordinal() as u32) {
+    if let Ok(f) =
+        crate::module_cache::get_or_compile(ctx, ptx, "cumsum_f64_kernel", device.ordinal() as u32)
+    {
         let mut out = alloc_zeros_f64(n, device)?;
         let cfg = launch_cfg(total)?;
         let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
         unsafe {
-            stream.launch_builder(&f)
+            stream
+                .launch_builder(&f)
                 .arg(input.inner())
                 .arg(out.inner_mut())
                 .arg(&o)
@@ -19833,7 +20332,9 @@ pub fn gpu_cumsum_f64(
         }
         return Ok(out);
     }
-    Err(GpuError::PtxCompileFailed { kernel: "cumsum_f64_kernel" })
+    Err(GpuError::PtxCompileFailed {
+        kernel: "cumsum_f64_kernel",
+    })
 }
 
 /// Cumulative product for f64.
@@ -19849,16 +20350,21 @@ pub fn gpu_cumprod_f64(
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let total = outer * inner;
     let n = outer * dim_size * inner;
-    if n == 0 { return cpu_to_gpu(&[], device); }
+    if n == 0 {
+        return cpu_to_gpu(&[], device);
+    }
     let ctx = device.context();
     let stream = device.stream();
     let ptx = get_f64_ptx(&CACHE, CUMPROD_PTX, "cumprod_kernel", "cumprod_f64_kernel");
-    if let Ok(f) = crate::module_cache::get_or_compile(ctx, ptx, "cumprod_f64_kernel", device.ordinal() as u32) {
+    if let Ok(f) =
+        crate::module_cache::get_or_compile(ctx, ptx, "cumprod_f64_kernel", device.ordinal() as u32)
+    {
         let mut out = alloc_zeros_f64(n, device)?;
         let cfg = launch_cfg(total)?;
         let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
         unsafe {
-            stream.launch_builder(&f)
+            stream
+                .launch_builder(&f)
                 .arg(input.inner())
                 .arg(out.inner_mut())
                 .arg(&o)
@@ -19869,7 +20375,9 @@ pub fn gpu_cumprod_f64(
         }
         return Ok(out);
     }
-    Err(GpuError::PtxCompileFailed { kernel: "cumprod_f64_kernel" })
+    Err(GpuError::PtxCompileFailed {
+        kernel: "cumprod_f64_kernel",
+    })
 }
 
 /// Cumulative max for f64. Returns (values, indices).
@@ -19892,14 +20400,18 @@ pub fn gpu_cummax_f64(
     let ctx = device.context();
     let stream = device.stream();
     let ptx = get_f64_ptx(&CACHE, CUMMAX_PTX, "cummax_kernel", "cummax_f64_kernel");
-    let f = crate::module_cache::get_or_compile(ctx, ptx, "cummax_f64_kernel", device.ordinal() as u32)
-        .map_err(|_| GpuError::PtxCompileFailed { kernel: "cummax_f64_kernel" })?;
+    let f =
+        crate::module_cache::get_or_compile(ctx, ptx, "cummax_f64_kernel", device.ordinal() as u32)
+            .map_err(|_| GpuError::PtxCompileFailed {
+                kernel: "cummax_f64_kernel",
+            })?;
     let mut out = alloc_zeros_f64(n, device)?;
     let mut ind = alloc_zeros_f64(n, device)?;
     let cfg = launch_cfg(total)?;
     let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
     unsafe {
-        stream.launch_builder(&f)
+        stream
+            .launch_builder(&f)
             .arg(input.inner())
             .arg(out.inner_mut())
             .arg(ind.inner_mut())
@@ -19932,14 +20444,18 @@ pub fn gpu_cummin_f64(
     let ctx = device.context();
     let stream = device.stream();
     let ptx = get_f64_ptx(&CACHE, CUMMIN_PTX, "cummin_kernel", "cummin_f64_kernel");
-    let f = crate::module_cache::get_or_compile(ctx, ptx, "cummin_f64_kernel", device.ordinal() as u32)
-        .map_err(|_| GpuError::PtxCompileFailed { kernel: "cummin_f64_kernel" })?;
+    let f =
+        crate::module_cache::get_or_compile(ctx, ptx, "cummin_f64_kernel", device.ordinal() as u32)
+            .map_err(|_| GpuError::PtxCompileFailed {
+                kernel: "cummin_f64_kernel",
+            })?;
     let mut out = alloc_zeros_f64(n, device)?;
     let mut ind = alloc_zeros_f64(n, device)?;
     let cfg = launch_cfg(total)?;
     let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
     unsafe {
-        stream.launch_builder(&f)
+        stream
+            .launch_builder(&f)
             .arg(input.inner())
             .arg(out.inner_mut())
             .arg(ind.inner_mut())
@@ -19964,15 +20480,23 @@ pub fn gpu_logcumsumexp_f64(
     use cudarc::driver::PushKernelArg;
     let total = outer * inner;
     let n = outer * dim_size * inner;
-    if n == 0 { return cpu_to_gpu(&[], device); }
+    if n == 0 {
+        return cpu_to_gpu(&[], device);
+    }
     let ctx = device.context();
     let stream = device.stream();
-    if let Ok(f) = crate::module_cache::get_or_compile(ctx, LOGCUMSUMEXP_F64_PTX, "logcumsumexp_f64_kernel", device.ordinal() as u32) {
+    if let Ok(f) = crate::module_cache::get_or_compile(
+        ctx,
+        LOGCUMSUMEXP_F64_PTX,
+        "logcumsumexp_f64_kernel",
+        device.ordinal() as u32,
+    ) {
         let mut out = alloc_zeros_f64(n, device)?;
         let cfg = launch_cfg(total)?;
         let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
         unsafe {
-            stream.launch_builder(&f)
+            stream
+                .launch_builder(&f)
                 .arg(input.inner())
                 .arg(out.inner_mut())
                 .arg(&o)
@@ -19983,7 +20507,9 @@ pub fn gpu_logcumsumexp_f64(
         }
         return Ok(out);
     }
-    Err(GpuError::PtxCompileFailed { kernel: "logcumsumexp_f64_kernel" })
+    Err(GpuError::PtxCompileFailed {
+        kernel: "logcumsumexp_f64_kernel",
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -20076,7 +20602,10 @@ pub fn gpu_softmax_backward_f64(
 
     validate_device(grad, device)?;
     if grad.len() != output.len() {
-        return Err(GpuError::LengthMismatch { a: grad.len(), b: output.len() });
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: output.len(),
+        });
     }
 
     let total = grad.len();
@@ -20086,7 +20615,12 @@ pub fn gpu_softmax_backward_f64(
     let stream = device.stream();
 
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let ptx = get_f64_ptx(&CACHE, SOFTMAX_BACKWARD_PTX, "softmax_backward_kernel", "softmax_backward_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        SOFTMAX_BACKWARD_PTX,
+        "softmax_backward_kernel",
+        "softmax_backward_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -20223,7 +20757,10 @@ pub fn gpu_log_softmax_backward_f64(
 
     validate_device(grad, device)?;
     if grad.len() != output.len() {
-        return Err(GpuError::LengthMismatch { a: grad.len(), b: output.len() });
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: output.len(),
+        });
     }
 
     let total = grad.len();
@@ -20250,8 +20787,7 @@ pub fn gpu_log_softmax_backward_f64(
                     sum_grad += grad_host[base + c];
                 }
                 for c in 0..cols {
-                    result[base + c] =
-                        grad_host[base + c] - output_host[base + c].exp() * sum_grad;
+                    result[base + c] = grad_host[base + c] - output_host[base + c].exp() * sum_grad;
                 }
             }
             return cpu_to_gpu(&result, device);
@@ -20304,7 +20840,12 @@ pub fn gpu_layernorm_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, LAYERNORM_PTX, "layernorm_kernel", "layernorm_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        LAYERNORM_PTX,
+        "layernorm_kernel",
+        "layernorm_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -20380,7 +20921,12 @@ pub fn gpu_layernorm_backward_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, LAYERNORM_BACKWARD_PTX, "layernorm_backward_kernel", "layernorm_backward_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        LAYERNORM_BACKWARD_PTX,
+        "layernorm_backward_kernel",
+        "layernorm_backward_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -20498,8 +21044,7 @@ pub fn gpu_rmsnorm_f64(
             for r in 0..rows {
                 let base = r * cols;
                 let slice = &h_in[base..base + cols];
-                let sq_mean: f64 =
-                    slice.iter().map(|&x| x * x).sum::<f64>() / cols as f64;
+                let sq_mean: f64 = slice.iter().map(|&x| x * x).sum::<f64>() / cols as f64;
                 let inv_rms = 1.0 / (sq_mean + eps).sqrt();
                 for c in 0..cols {
                     out[base + c] = slice[c] * inv_rms * h_w[c];
@@ -20555,7 +21100,12 @@ pub fn gpu_rmsnorm_backward_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    let ptx = get_f64_ptx(&CACHE, RMSNORM_BACKWARD_PTX, "rmsnorm_backward_kernel", "rmsnorm_backward_f64_kernel");
+    let ptx = get_f64_ptx(
+        &CACHE,
+        RMSNORM_BACKWARD_PTX,
+        "rmsnorm_backward_kernel",
+        "rmsnorm_backward_f64_kernel",
+    );
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx,
@@ -20574,8 +21124,7 @@ pub fn gpu_rmsnorm_backward_f64(
                 let base = r * cols;
                 let x_slice = &h_in[base..base + cols];
                 let go_slice = &h_go[base..base + cols];
-                let sq_mean: f64 =
-                    x_slice.iter().map(|&x| x * x).sum::<f64>() / n_f;
+                let sq_mean: f64 = x_slice.iter().map(|&x| x * x).sum::<f64>() / n_f;
                 let inv_rms = 1.0 / (sq_mean + eps).sqrt();
                 let inv_rms3 = inv_rms * inv_rms * inv_rms;
                 let mut dot = 0.0f64;
@@ -20585,8 +21134,7 @@ pub fn gpu_rmsnorm_backward_f64(
                 }
                 let coeff = dot * inv_rms3 / n_f;
                 for c in 0..cols {
-                    grad_input[base + c] =
-                        inv_rms * h_w[c] * go_slice[c] - x_slice[c] * coeff;
+                    grad_input[base + c] = inv_rms * h_w[c] * go_slice[c] - x_slice[c] * coeff;
                 }
             }
             let gi = cpu_to_gpu(&grad_input, device)?;
@@ -20628,62 +21176,234 @@ pub fn gpu_rmsnorm_backward_f64(
 // ---------------------------------------------------------------------------
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_softmax_f64(_input: &CudaBuffer<f64>, _rows: usize, _cols: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_softmax_f64(
+    _input: &CudaBuffer<f64>,
+    _rows: usize,
+    _cols: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_softmax_backward_f64(_grad: &CudaBuffer<f64>, _output: &CudaBuffer<f64>, _cols: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_softmax_backward_f64(
+    _grad: &CudaBuffer<f64>,
+    _output: &CudaBuffer<f64>,
+    _cols: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_log_softmax_f64(_input: &CudaBuffer<f64>, _cols: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_log_softmax_f64(
+    _input: &CudaBuffer<f64>,
+    _cols: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_log_softmax_backward_f64(_grad: &CudaBuffer<f64>, _output: &CudaBuffer<f64>, _cols: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_log_softmax_backward_f64(
+    _grad: &CudaBuffer<f64>,
+    _output: &CudaBuffer<f64>,
+    _cols: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_layernorm_f64(_input: &CudaBuffer<f64>, _weight: &CudaBuffer<f64>, _bias: &CudaBuffer<f64>, _rows: usize, _cols: usize, _eps: f64, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_layernorm_f64(
+    _input: &CudaBuffer<f64>,
+    _weight: &CudaBuffer<f64>,
+    _bias: &CudaBuffer<f64>,
+    _rows: usize,
+    _cols: usize,
+    _eps: f64,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_layernorm_backward_f64(_input: &CudaBuffer<f64>, _grad_output: &CudaBuffer<f64>, _weight: &CudaBuffer<f64>, _rows: usize, _cols: usize, _eps: f64, _device: &GpuDevice) -> GpuResult<(CudaBuffer<f64>, CudaBuffer<f64>, CudaBuffer<f64>)> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_layernorm_backward_f64(
+    _input: &CudaBuffer<f64>,
+    _grad_output: &CudaBuffer<f64>,
+    _weight: &CudaBuffer<f64>,
+    _rows: usize,
+    _cols: usize,
+    _eps: f64,
+    _device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f64>, CudaBuffer<f64>, CudaBuffer<f64>)> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_rmsnorm_f64(_input: &CudaBuffer<f64>, _weight: &CudaBuffer<f64>, _rows: usize, _cols: usize, _eps: f64, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_rmsnorm_f64(
+    _input: &CudaBuffer<f64>,
+    _weight: &CudaBuffer<f64>,
+    _rows: usize,
+    _cols: usize,
+    _eps: f64,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_rmsnorm_backward_f64(_input: &CudaBuffer<f64>, _grad_output: &CudaBuffer<f64>, _weight: &CudaBuffer<f64>, _rows: usize, _cols: usize, _eps: f64, _device: &GpuDevice) -> GpuResult<(CudaBuffer<f64>, CudaBuffer<f64>)> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_rmsnorm_backward_f64(
+    _input: &CudaBuffer<f64>,
+    _grad_output: &CudaBuffer<f64>,
+    _weight: &CudaBuffer<f64>,
+    _rows: usize,
+    _cols: usize,
+    _eps: f64,
+    _device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f64>, CudaBuffer<f64>)> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ---------------------------------------------------------------------------
 // Non-cuda stubs for new f64 ops
 // ---------------------------------------------------------------------------
 
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_gelu_f64(_input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_gelu_f64(_input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_gelu_tanh_f64(_input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_gelu_tanh_f64(
+    _input: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_gelu_erf_f64(_input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_gelu_erf_f64(
+    _input: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_gelu_backward_f64(_grad: &CudaBuffer<f64>, _input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_gelu_backward_f64(
+    _grad: &CudaBuffer<f64>,
+    _input: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_gelu_backward_tanh_f64(_grad: &CudaBuffer<f64>, _input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_gelu_backward_tanh_f64(
+    _grad: &CudaBuffer<f64>,
+    _input: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_gelu_backward_erf_f64(_grad: &CudaBuffer<f64>, _input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_gelu_backward_erf_f64(
+    _grad: &CudaBuffer<f64>,
+    _input: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_silu_f64(_input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_silu_f64(_input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_silu_backward_f64(_grad: &CudaBuffer<f64>, _input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_silu_backward_f64(
+    _grad: &CudaBuffer<f64>,
+    _input: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_elu_f64(_input: &CudaBuffer<f64>, _alpha: f64, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_elu_f64(
+    _input: &CudaBuffer<f64>,
+    _alpha: f64,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_elu_backward_f64(_grad: &CudaBuffer<f64>, _input: &CudaBuffer<f64>, _alpha: f64, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_elu_backward_f64(
+    _grad: &CudaBuffer<f64>,
+    _input: &CudaBuffer<f64>,
+    _alpha: f64,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_mish_f64(_input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_mish_f64(_input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_mish_backward_f64(_grad: &CudaBuffer<f64>, _input: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_mish_backward_f64(
+    _grad: &CudaBuffer<f64>,
+    _input: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_clamp_f64(_input: &CudaBuffer<f64>, _min: f64, _max: f64, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_clamp_f64(
+    _input: &CudaBuffer<f64>,
+    _min: f64,
+    _max: f64,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_cumsum_f64(_input: &CudaBuffer<f64>, _outer: usize, _dim_size: usize, _inner: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_cumsum_f64(
+    _input: &CudaBuffer<f64>,
+    _outer: usize,
+    _dim_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_cumprod_f64(_input: &CudaBuffer<f64>, _outer: usize, _dim_size: usize, _inner: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_cumprod_f64(
+    _input: &CudaBuffer<f64>,
+    _outer: usize,
+    _dim_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_cummax_f64(_input: &CudaBuffer<f64>, _outer: usize, _dim_size: usize, _inner: usize, _device: &GpuDevice) -> GpuResult<(CudaBuffer<f64>, CudaBuffer<f64>)> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_cummax_f64(
+    _input: &CudaBuffer<f64>,
+    _outer: usize,
+    _dim_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f64>, CudaBuffer<f64>)> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_cummin_f64(_input: &CudaBuffer<f64>, _outer: usize, _dim_size: usize, _inner: usize, _device: &GpuDevice) -> GpuResult<(CudaBuffer<f64>, CudaBuffer<f64>)> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_cummin_f64(
+    _input: &CudaBuffer<f64>,
+    _outer: usize,
+    _dim_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f64>, CudaBuffer<f64>)> {
+    Err(GpuError::NoCudaFeature)
+}
 #[cfg(not(feature = "cuda"))]
-pub fn gpu_logcumsumexp_f64(_input: &CudaBuffer<f64>, _outer: usize, _dim_size: usize, _inner: usize, _device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> { Err(GpuError::NoCudaFeature) }
+pub fn gpu_logcumsumexp_f64(
+    _input: &CudaBuffer<f64>,
+    _outer: usize,
+    _dim_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
 
 // ---------------------------------------------------------------------------
 // Tests -- require a real CUDA GPU
@@ -20940,8 +21660,8 @@ mod tests {
         // Expected output == source (identity copy).
         let data: Vec<f32> = (0..6).map(|i| i as f32).collect();
         let (dev, input) = setup(&data);
-        let out = gpu_strided_copy(&input, &[2, 3], &[3, 1], 0, &dev)
-            .expect("strided_copy identity");
+        let out =
+            gpu_strided_copy(&input, &[2, 3], &[3, 1], 0, &dev).expect("strided_copy identity");
         assert_buf_eq(&out, &dev, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
     }
 
@@ -20955,8 +21675,8 @@ mod tests {
         //   Expected: [[0, 3], [1, 4], [2, 5]] flat = [0, 3, 1, 4, 2, 5]
         let data: Vec<f32> = (0..6).map(|i| i as f32).collect();
         let (dev, input) = setup(&data);
-        let out = gpu_strided_copy(&input, &[3, 2], &[1, 3], 0, &dev)
-            .expect("strided_copy transpose");
+        let out =
+            gpu_strided_copy(&input, &[3, 2], &[1, 3], 0, &dev).expect("strided_copy transpose");
         assert_buf_eq(&out, &dev, &[0.0, 3.0, 1.0, 4.0, 2.0, 5.0]);
     }
 
@@ -20970,8 +21690,7 @@ mod tests {
         //   Expected: [2, 6, 10]
         let data: Vec<f32> = (0..12).map(|i| i as f32).collect();
         let (dev, input) = setup(&data);
-        let out = gpu_strided_copy(&input, &[3], &[4], 2, &dev)
-            .expect("strided_copy col slice");
+        let out = gpu_strided_copy(&input, &[3], &[4], 2, &dev).expect("strided_copy col slice");
         assert_buf_eq(&out, &dev, &[2.0, 6.0, 10.0]);
     }
 
@@ -21009,8 +21728,8 @@ mod tests {
         let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
         let (dev, input) = setup(&data);
         // C-contiguous strides: [12, 4, 2, 1]
-        let out = gpu_strided_copy(&input, &shape, &[12, 4, 2, 1], 0, &dev)
-            .expect("strided_copy 4d");
+        let out =
+            gpu_strided_copy(&input, &shape, &[12, 4, 2, 1], 0, &dev).expect("strided_copy 4d");
         assert_buf_eq(&out, &dev, &data);
     }
 
@@ -21018,13 +21737,7 @@ mod tests {
     fn strided_copy_rejects_too_many_dims() {
         let (dev, input) = setup(&[0.0f32; 16]);
         // 9 dims > STRIDED_COPY_MAX_DIMS (8)
-        let result = gpu_strided_copy(
-            &input,
-            &[1, 1, 1, 1, 1, 1, 1, 1, 16],
-            &[1; 9],
-            0,
-            &dev,
-        );
+        let result = gpu_strided_copy(&input, &[1, 1, 1, 1, 1, 1, 1, 1, 16], &[1; 9], 0, &dev);
         assert!(result.is_err());
     }
 
@@ -21045,8 +21758,7 @@ mod tests {
     #[test]
     fn strided_copy_empty_output() {
         let (dev, input) = setup(&[1.0f32, 2.0, 3.0]);
-        let out = gpu_strided_copy(&input, &[0, 3], &[3, 1], 0, &dev)
-            .expect("strided_copy empty");
+        let out = gpu_strided_copy(&input, &[0, 3], &[3, 1], 0, &dev).expect("strided_copy empty");
         assert_eq!(out.len(), 0);
     }
 

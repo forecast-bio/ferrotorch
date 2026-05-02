@@ -480,7 +480,7 @@ fn test_speed_comparison() {
         for _ in 0..iters {
             f();
         }
-        
+
         start.elapsed().as_secs_f64() / iters as f64 * 1e6
     };
 

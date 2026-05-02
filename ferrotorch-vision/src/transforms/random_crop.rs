@@ -56,8 +56,16 @@ impl<T: Float> Transform<T> for RandomCrop<T> {
             });
         }
 
-        let top = if h == self.crop_h { 0 } else { random_usize(h - self.crop_h) };
-        let left = if w == self.crop_w { 0 } else { random_usize(w - self.crop_w) };
+        let top = if h == self.crop_h {
+            0
+        } else {
+            random_usize(h - self.crop_h)
+        };
+        let left = if w == self.crop_w {
+            0
+        } else {
+            random_usize(w - self.crop_w)
+        };
 
         let data = input.data()?;
         let mut out = Vec::with_capacity(c * self.crop_h * self.crop_w);
@@ -99,7 +107,8 @@ mod tests {
     fn test_random_crop_exact_size() {
         let crop: RandomCrop<f32> = RandomCrop::square(3);
         let data: Vec<f32> = (0..27).map(|i| i as f32).collect();
-        let input = Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 3, 3], false).unwrap();
+        let input =
+            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 3, 3], false).unwrap();
         let out = crop.apply(input).unwrap();
         // Exact size — no cropping needed, should return same data.
         assert_eq!(out.shape(), &[3, 3, 3]);

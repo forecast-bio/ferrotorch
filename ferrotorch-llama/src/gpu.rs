@@ -77,15 +77,15 @@ pub struct ProfiledForwardResult {
 
 /// All the weights that make up one Llama decoder layer, uploaded to GPU.
 pub struct LlamaGpuLayer {
-    pub input_norm: CudaSlice<u16>,      // [hidden]
-    pub q_proj: CudaSlice<u16>,          // [hidden, hidden]
-    pub k_proj: CudaSlice<u16>,          // [n_kv_heads * head_dim, hidden]
-    pub v_proj: CudaSlice<u16>,          // [n_kv_heads * head_dim, hidden]
-    pub o_proj: CudaSlice<u16>,          // [hidden, hidden]
-    pub post_attn_norm: CudaSlice<u16>,  // [hidden]
-    pub gate_proj: CudaSlice<u16>,       // [intermediate, hidden]
-    pub up_proj: CudaSlice<u16>,         // [intermediate, hidden]
-    pub down_proj: CudaSlice<u16>,       // [hidden, intermediate]
+    pub input_norm: CudaSlice<u16>,     // [hidden]
+    pub q_proj: CudaSlice<u16>,         // [hidden, hidden]
+    pub k_proj: CudaSlice<u16>,         // [n_kv_heads * head_dim, hidden]
+    pub v_proj: CudaSlice<u16>,         // [n_kv_heads * head_dim, hidden]
+    pub o_proj: CudaSlice<u16>,         // [hidden, hidden]
+    pub post_attn_norm: CudaSlice<u16>, // [hidden]
+    pub gate_proj: CudaSlice<u16>,      // [intermediate, hidden]
+    pub up_proj: CudaSlice<u16>,        // [intermediate, hidden]
+    pub down_proj: CudaSlice<u16>,      // [hidden, intermediate]
 }
 
 /// A GPU-resident Llama model ready for inference.
@@ -161,15 +161,11 @@ impl LlamaGpuInferencer {
 
         let final_norm = self.forward_core(ids, None)?;
 
-        let logits =
-            gpu_matmul_bf16_bf16_nt(&final_norm, &self.lm_head, seq, hidden, vocab, dev)
-                .map_err(map_gpu_err)?;
+        let logits = gpu_matmul_bf16_bf16_nt(&final_norm, &self.lm_head, seq, hidden, vocab, dev)
+            .map_err(map_gpu_err)?;
 
         // Download just the last-token row of logits and convert bf16 -> f32.
-        let logits_host: Vec<u16> = dev
-            .stream()
-            .clone_dtoh(&logits)
-            .map_err(map_driver_err)?;
+        let logits_host: Vec<u16> = dev.stream().clone_dtoh(&logits).map_err(map_driver_err)?;
         let last_offset = (seq - 1) * vocab;
         let last_row = &logits_host[last_offset..last_offset + vocab];
         Ok(last_row
@@ -241,9 +237,7 @@ impl LlamaGpuInferencer {
         if let Some(k) = bootstrap_k {
             if k == 0 || k > n_layers {
                 return Err(FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "bootstrap_k must be in 1..={n_layers}, got {k}"
-                    ),
+                    message: format!("bootstrap_k must be in 1..={n_layers}, got {k}"),
                 });
             }
         }
@@ -271,9 +265,16 @@ impl LlamaGpuInferencer {
         let mut attn_per_layer: Vec<Vec<f32>> = Vec::with_capacity(n_layers);
         let mut mlp_per_layer: Vec<Vec<f32>> = Vec::with_capacity(n_layers);
         for l in 0..n_layers {
-            attn_per_layer
-                .push(stream.clone_dtoh(&taps.attn_f32[l]).map_err(map_driver_err)?);
-            mlp_per_layer.push(stream.clone_dtoh(&taps.mlp_f32[l]).map_err(map_driver_err)?);
+            attn_per_layer.push(
+                stream
+                    .clone_dtoh(&taps.attn_f32[l])
+                    .map_err(map_driver_err)?,
+            );
+            mlp_per_layer.push(
+                stream
+                    .clone_dtoh(&taps.mlp_f32[l])
+                    .map_err(map_driver_err)?,
+            );
         }
         let mut attn_magnitudes = Vec::with_capacity(seq * n_layers * n_heads);
         let mut mlp_magnitudes = Vec::with_capacity(seq * n_layers * n_mlp_blocks);
@@ -350,9 +351,8 @@ impl LlamaGpuInferencer {
 
         let ids_gpu = dev.stream().clone_htod(ids).map_err(map_driver_err)?;
 
-        let mut hidden_buf =
-            gpu_embedding_gather_bf16(&self.embed_tokens, &ids_gpu, hidden, dev)
-                .map_err(map_gpu_err)?;
+        let mut hidden_buf = gpu_embedding_gather_bf16(&self.embed_tokens, &ids_gpu, hidden, dev)
+            .map_err(map_gpu_err)?;
 
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             let h_norm = gpu_rmsnorm_bf16(
@@ -367,31 +367,19 @@ impl LlamaGpuInferencer {
 
             let q = gpu_matmul_bf16_bf16_nt(&h_norm, &layer.q_proj, seq, hidden, hidden, dev)
                 .map_err(map_gpu_err)?;
-            let k = gpu_matmul_bf16_bf16_nt(
-                &h_norm,
-                &layer.k_proj,
-                seq,
-                hidden,
-                n_kv * head_dim,
-                dev,
-            )
-            .map_err(map_gpu_err)?;
-            let v = gpu_matmul_bf16_bf16_nt(
-                &h_norm,
-                &layer.v_proj,
-                seq,
-                hidden,
-                n_kv * head_dim,
-                dev,
-            )
-            .map_err(map_gpu_err)?;
+            let k =
+                gpu_matmul_bf16_bf16_nt(&h_norm, &layer.k_proj, seq, hidden, n_kv * head_dim, dev)
+                    .map_err(map_gpu_err)?;
+            let v =
+                gpu_matmul_bf16_bf16_nt(&h_norm, &layer.v_proj, seq, hidden, n_kv * head_dim, dev)
+                    .map_err(map_gpu_err)?;
 
             let q_heads = gpu_transpose_to_heads_bf16(&q, n_heads, seq, head_dim, dev)
                 .map_err(map_gpu_err)?;
-            let k_heads = gpu_transpose_to_heads_bf16(&k, n_kv, seq, head_dim, dev)
-                .map_err(map_gpu_err)?;
-            let v_heads = gpu_transpose_to_heads_bf16(&v, n_kv, seq, head_dim, dev)
-                .map_err(map_gpu_err)?;
+            let k_heads =
+                gpu_transpose_to_heads_bf16(&k, n_kv, seq, head_dim, dev).map_err(map_gpu_err)?;
+            let v_heads =
+                gpu_transpose_to_heads_bf16(&v, n_kv, seq, head_dim, dev).map_err(map_gpu_err)?;
 
             let q_rot = gpu_rope_half_bf16(
                 &q_heads,
@@ -416,8 +404,8 @@ impl LlamaGpuInferencer {
             )
             .map_err(map_gpu_err)?;
 
-            let k_full = gpu_repeat_kv_bf16(&k_rot, n_kv, group, seq, head_dim, dev)
-                .map_err(map_gpu_err)?;
+            let k_full =
+                gpu_repeat_kv_bf16(&k_rot, n_kv, group, seq, head_dim, dev).map_err(map_gpu_err)?;
             let v_full = gpu_repeat_kv_bf16(&v_heads, n_kv, group, seq, head_dim, dev)
                 .map_err(map_gpu_err)?;
 
@@ -437,8 +425,8 @@ impl LlamaGpuInferencer {
 
             gpu_causal_mask_bf16(&mut scores, n_heads, seq, seq, dev).map_err(map_gpu_err)?;
 
-            let attn_weights = gpu_softmax_bf16(&scores, n_heads * seq, seq, dev)
-                .map_err(map_gpu_err)?;
+            let attn_weights =
+                gpu_softmax_bf16(&scores, n_heads * seq, seq, dev).map_err(map_gpu_err)?;
 
             let attn_out = gpu_matmul_bf16_bf16_strided_batched(
                 &attn_weights,
@@ -456,20 +444,13 @@ impl LlamaGpuInferencer {
 
             // Attention tap — per-head L-inf magnitude before o_proj.
             if let Some(t) = taps.as_deref_mut() {
-                let a = gpu_block_reduce_max_abs_bf16(
-                    &attn_out,
-                    n_heads * seq,
-                    1,
-                    head_dim,
-                    dev,
-                )
-                .map_err(map_gpu_err)?;
+                let a = gpu_block_reduce_max_abs_bf16(&attn_out, n_heads * seq, 1, head_dim, dev)
+                    .map_err(map_gpu_err)?;
                 t.attn_f32.push(a);
             }
 
-            let attn_flat =
-                gpu_transpose_from_heads_bf16(&attn_out, n_heads, seq, head_dim, dev)
-                    .map_err(map_gpu_err)?;
+            let attn_flat = gpu_transpose_from_heads_bf16(&attn_out, n_heads, seq, head_dim, dev)
+                .map_err(map_gpu_err)?;
 
             let attn_proj =
                 gpu_matmul_bf16_bf16_nt(&attn_flat, &layer.o_proj, seq, hidden, hidden, dev)
@@ -487,12 +468,10 @@ impl LlamaGpuInferencer {
             )
             .map_err(map_gpu_err)?;
 
-            let gate =
-                gpu_matmul_bf16_bf16_nt(&h_norm2, &layer.gate_proj, seq, hidden, ffn, dev)
-                    .map_err(map_gpu_err)?;
-            let up =
-                gpu_matmul_bf16_bf16_nt(&h_norm2, &layer.up_proj, seq, hidden, ffn, dev)
-                    .map_err(map_gpu_err)?;
+            let gate = gpu_matmul_bf16_bf16_nt(&h_norm2, &layer.gate_proj, seq, hidden, ffn, dev)
+                .map_err(map_gpu_err)?;
+            let up = gpu_matmul_bf16_bf16_nt(&h_norm2, &layer.up_proj, seq, hidden, ffn, dev)
+                .map_err(map_gpu_err)?;
 
             let activated_gate = match cfg.hidden_act {
                 LlamaActivation::Silu => gpu_silu_bf16(&gate, dev).map_err(map_gpu_err)?,
@@ -522,9 +501,8 @@ impl LlamaGpuInferencer {
                 }
             }
 
-            let down =
-                gpu_matmul_bf16_bf16_nt(&gated, &layer.down_proj, seq, ffn, hidden, dev)
-                    .map_err(map_gpu_err)?;
+            let down = gpu_matmul_bf16_bf16_nt(&gated, &layer.down_proj, seq, ffn, hidden, dev)
+                .map_err(map_gpu_err)?;
 
             hidden_buf = gpu_add_bf16(&hidden_buf, &down, dev).map_err(map_gpu_err)?;
 
@@ -541,15 +519,9 @@ impl LlamaGpuInferencer {
                 if t.plainact_local {
                     use ferrotorch_gpu::gpu_matmul_bf16_bf16;
                     // z = y_full @ down_proj  → [seq, ffn]
-                    let z = gpu_matmul_bf16_bf16(
-                        &hidden_buf,
-                        &layer.down_proj,
-                        seq,
-                        hidden,
-                        ffn,
-                        dev,
-                    )
-                    .map_err(map_gpu_err)?;
+                    let z =
+                        gpu_matmul_bf16_bf16(&hidden_buf, &layer.down_proj, seq, hidden, ffn, dev)
+                            .map_err(map_gpu_err)?;
                     let act_grad = gpu_mul_bf16(&gated, &z, dev).map_err(map_gpu_err)?;
                     let m = gpu_block_reduce_max_abs_bf16(
                         &act_grad,
@@ -674,11 +646,11 @@ fn upload_bf16_tensor(
     expected_shape: &[usize],
     device: &GpuDevice,
 ) -> FerrotorchResult<CudaSlice<u16>> {
-    let tensor = state.remove(name).ok_or_else(|| {
-        FerrotorchError::InvalidArgument {
+    let tensor = state
+        .remove(name)
+        .ok_or_else(|| FerrotorchError::InvalidArgument {
             message: format!("missing tensor in StateDict: \"{name}\""),
-        }
-    })?;
+        })?;
     if tensor.shape() != expected_shape {
         return Err(FerrotorchError::ShapeMismatch {
             message: format!(
@@ -688,10 +660,7 @@ fn upload_bf16_tensor(
         });
     }
     let bits = bf16_tensor_as_bits(&tensor)?;
-    device
-        .stream()
-        .clone_htod(&bits)
-        .map_err(map_driver_err)
+    device.stream().clone_htod(&bits).map_err(map_driver_err)
 }
 
 /// View a `Tensor<bf16>`'s underlying data as `Vec<u16>` bits.
@@ -760,4 +729,3 @@ fn map_driver_err(e: cudarc::driver::DriverError) -> FerrotorchError {
         message: format!("cuda driver error: {e}"),
     }
 }
-

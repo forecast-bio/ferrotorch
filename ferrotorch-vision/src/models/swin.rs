@@ -566,9 +566,7 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
 // IntermediateFeatures — CL-499
 // ===========================================================================
 
-impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T>
-    for SwinTransformer<T>
-{
+impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for SwinTransformer<T> {
     fn forward_features(
         &self,
         input: &Tensor<T>,
@@ -590,8 +588,7 @@ impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T>
 
         // Transpose [B, C, H, W] -> [B, H*W, C].
         let x_data = x.data_vec()?;
-        let mut seq_data =
-            vec![<T as num_traits::Zero>::zero(); batch * num_tokens * embed_dim];
+        let mut seq_data = vec![<T as num_traits::Zero>::zero(); batch * num_tokens * embed_dim];
         for b in 0..batch {
             for c in 0..embed_dim {
                 for t in 0..num_tokens {

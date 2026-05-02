@@ -245,7 +245,11 @@ impl BoolTensor {
     pub fn to_float<T: Float>(&self) -> FerrotorchResult<Tensor<T>> {
         let one = T::from(1.0).unwrap();
         let zero = T::from(0.0).unwrap();
-        let data: Vec<T> = self.data.iter().map(|&b| if b { one } else { zero }).collect();
+        let data: Vec<T> = self
+            .data
+            .iter()
+            .map(|&b| if b { one } else { zero })
+            .collect();
         Tensor::from_storage(
             crate::storage::TensorStorage::cpu(data),
             self.shape.clone(),
@@ -337,8 +341,7 @@ mod tests {
 
     #[test]
     fn reshape_preserves_data() {
-        let m = BoolTensor::from_vec(vec![true, false, true, false, true, false], vec![6])
-            .unwrap();
+        let m = BoolTensor::from_vec(vec![true, false, true, false, true, false], vec![6]).unwrap();
         let r = m.reshape(&[2, 3]).unwrap();
         assert_eq!(r.shape(), &[2, 3]);
         assert_eq!(r.data(), m.data());
@@ -390,8 +393,14 @@ mod tests {
     fn compare_eq_ne() {
         let a = crate::creation::from_slice::<f32>(&[1.0, 2.0, 3.0], &[3]).unwrap();
         let b = crate::creation::from_slice::<f32>(&[1.0, 5.0, 3.0], &[3]).unwrap();
-        assert_eq!(BoolTensor::eq_t(&a, &b).unwrap().data(), &[true, false, true]);
-        assert_eq!(BoolTensor::ne(&a, &b).unwrap().data(), &[false, true, false]);
+        assert_eq!(
+            BoolTensor::eq_t(&a, &b).unwrap().data(),
+            &[true, false, true]
+        );
+        assert_eq!(
+            BoolTensor::ne(&a, &b).unwrap().data(),
+            &[false, true, false]
+        );
     }
 
     #[test]

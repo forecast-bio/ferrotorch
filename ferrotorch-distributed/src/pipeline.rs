@@ -400,8 +400,7 @@ mod tests {
         let group = SimulatedBackend::create_group(2).unwrap();
         let b: Arc<dyn Backend> = Arc::new(group.into_iter().next().unwrap());
 
-        let pipeline =
-            Pipeline::new(IdentityModule::new(), b, 4, PipelineSchedule::GPipe).unwrap();
+        let pipeline = Pipeline::new(IdentityModule::new(), b, 4, PipelineSchedule::GPipe).unwrap();
         assert_eq!(pipeline.schedule(), PipelineSchedule::GPipe);
         assert_eq!(pipeline.num_microbatches(), 4);
     }

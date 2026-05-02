@@ -270,7 +270,10 @@ mod tests {
         assert_eq!(cfg.num_hidden_layers, expected.num_hidden_layers);
         assert_eq!(cfg.num_attention_heads, expected.num_attention_heads);
         assert_eq!(cfg.num_key_value_heads, expected.num_key_value_heads);
-        assert_eq!(cfg.max_position_embeddings, expected.max_position_embeddings);
+        assert_eq!(
+            cfg.max_position_embeddings,
+            expected.max_position_embeddings
+        );
         assert_eq!(cfg.tie_word_embeddings, expected.tie_word_embeddings);
         assert!((cfg.rope_theta - expected.rope_theta).abs() < 1e-2);
     }
@@ -301,7 +304,10 @@ mod tests {
         assert_eq!(cfg.num_hidden_layers, expected.num_hidden_layers);
         assert_eq!(cfg.num_attention_heads, expected.num_attention_heads);
         assert_eq!(cfg.num_key_value_heads, expected.num_key_value_heads);
-        assert_eq!(cfg.max_position_embeddings, expected.max_position_embeddings);
+        assert_eq!(
+            cfg.max_position_embeddings,
+            expected.max_position_embeddings
+        );
         assert_eq!(cfg.tie_word_embeddings, expected.tie_word_embeddings);
         // HF config stores eps/theta as f32, so expect f32 rounding after
         // widening to f64.

@@ -396,7 +396,8 @@ mod tests {
     #[test]
     fn test_bernoulli_cdf() {
         let dist = Bernoulli::new(scalar(0.3f64).unwrap()).unwrap();
-        let x = ferrotorch_core::creation::from_slice::<f64>(&[-1.0, 0.0, 0.5, 1.0, 2.0], &[5]).unwrap();
+        let x = ferrotorch_core::creation::from_slice::<f64>(&[-1.0, 0.0, 0.5, 1.0, 2.0], &[5])
+            .unwrap();
         let c = dist.cdf(&x).unwrap();
         let d = c.data().unwrap();
         // CDF(<0)=0; CDF([0,1))=1-p=0.7; CDF(>=1)=1
@@ -411,7 +412,8 @@ mod tests {
     fn test_bernoulli_icdf_step_at_one_minus_p() {
         // p=0.3: F(x)=1 if p_q > 0.7, else 0.
         let dist = Bernoulli::new(scalar(0.3f64).unwrap()).unwrap();
-        let q = ferrotorch_core::creation::from_slice::<f64>(&[0.5, 0.7, 0.71, 0.99], &[4]).unwrap();
+        let q =
+            ferrotorch_core::creation::from_slice::<f64>(&[0.5, 0.7, 0.71, 0.99], &[4]).unwrap();
         let x = dist.icdf(&q).unwrap();
         let d = x.data().unwrap();
         // 0.5 -> 0; 0.7 -> 0 (boundary, strict gt); 0.71 -> 1; 0.99 -> 1.

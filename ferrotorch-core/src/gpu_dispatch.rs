@@ -201,11 +201,7 @@ pub trait GpuBackend: Send + Sync {
 
     /// f32 product reduction. Returns a 1-element buffer holding the
     /// product of all elements. (#524)
-    fn prod_f32(
-        &self,
-        _a: &GpuBufferHandle,
-        _len: usize,
-    ) -> FerrotorchResult<GpuBufferHandle> {
+    fn prod_f32(&self, _a: &GpuBufferHandle, _len: usize) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument {
             message: "GPU reduce_prod not implemented for this backend".into(),
         })
@@ -215,22 +211,14 @@ pub trait GpuBackend: Send + Sync {
     /// minimum element of `a`. Default impl returns the
     /// "not yet implemented" error so existing backends compile unchanged
     /// — concrete backends override. (#627)
-    fn min_f32(
-        &self,
-        _a: &GpuBufferHandle,
-        _len: usize,
-    ) -> FerrotorchResult<GpuBufferHandle> {
+    fn min_f32(&self, _a: &GpuBufferHandle, _len: usize) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument {
             message: "GPU reduce_min not implemented for this backend".into(),
         })
     }
 
     /// f32 parallel max reduction. Counterpart of [`Self::min_f32`]. (#627)
-    fn max_f32(
-        &self,
-        _a: &GpuBufferHandle,
-        _len: usize,
-    ) -> FerrotorchResult<GpuBufferHandle> {
+    fn max_f32(&self, _a: &GpuBufferHandle, _len: usize) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument {
             message: "GPU reduce_max not implemented for this backend".into(),
         })
@@ -324,33 +312,21 @@ pub trait GpuBackend: Send + Sync {
     }
 
     /// f64 product reduction. (#524)
-    fn prod_f64(
-        &self,
-        _a: &GpuBufferHandle,
-        _len: usize,
-    ) -> FerrotorchResult<GpuBufferHandle> {
+    fn prod_f64(&self, _a: &GpuBufferHandle, _len: usize) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument {
             message: "f64 GPU reduce_prod not implemented for this backend".into(),
         })
     }
 
     /// f64 parallel min reduction. (#627)
-    fn min_f64(
-        &self,
-        _a: &GpuBufferHandle,
-        _len: usize,
-    ) -> FerrotorchResult<GpuBufferHandle> {
+    fn min_f64(&self, _a: &GpuBufferHandle, _len: usize) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument {
             message: "f64 GPU reduce_min not implemented for this backend".into(),
         })
     }
 
     /// f64 parallel max reduction. (#627)
-    fn max_f64(
-        &self,
-        _a: &GpuBufferHandle,
-        _len: usize,
-    ) -> FerrotorchResult<GpuBufferHandle> {
+    fn max_f64(&self, _a: &GpuBufferHandle, _len: usize) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument {
             message: "f64 GPU reduce_max not implemented for this backend".into(),
         })
@@ -1793,6 +1769,7 @@ pub trait GpuBackend: Send + Sync {
     ///   - eigenvalues: length `2n` interleaved re/im (logical `[n, 2]`)
     ///   - eigenvectors: length `2 * n * n` row-major interleaved
     ///     (logical `[n, n, 2]`)
+    ///
     /// Mirrors `torch.linalg.eig`. (#631)
     fn eig_f32(
         &self,

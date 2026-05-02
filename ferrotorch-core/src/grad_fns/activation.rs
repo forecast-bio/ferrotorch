@@ -61,7 +61,9 @@ impl<T: Float> GradFn<T> for ReluBackward<T> {
         }
 
         if grad_output.is_cuda() || self.input.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "relu backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "relu backward",
+            });
         }
 
         let input_data = self.input.data()?;
@@ -116,9 +118,11 @@ impl<T: Float> GradFn<T> for SigmoidBackward<T> {
         if grad_output.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
             let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
             let result_h = if is_f32::<T>() {
-                backend.sigmoid_backward_f32(grad_output.gpu_handle()?, self.output.gpu_handle()?)?
+                backend
+                    .sigmoid_backward_f32(grad_output.gpu_handle()?, self.output.gpu_handle()?)?
             } else {
-                backend.sigmoid_backward_f64(grad_output.gpu_handle()?, self.output.gpu_handle()?)?
+                backend
+                    .sigmoid_backward_f64(grad_output.gpu_handle()?, self.output.gpu_handle()?)?
             };
             let grad_input = Tensor::from_storage(
                 TensorStorage::gpu(result_h),
@@ -129,7 +133,9 @@ impl<T: Float> GradFn<T> for SigmoidBackward<T> {
         }
 
         if grad_output.is_cuda() || self.output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "sigmoid backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "sigmoid backward",
+            });
         }
 
         let s_data = self.output.data()?;
@@ -197,7 +203,9 @@ impl<T: Float> GradFn<T> for TanhBackward<T> {
         }
 
         if grad_output.is_cuda() || self.output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "tanh backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "tanh backward",
+            });
         }
 
         let t_data = self.output.data()?;
@@ -306,7 +314,9 @@ impl<T: Float> GradFn<T> for GeluBackward<T> {
 
         // Non-f32/f64 CUDA tensors are not supported.
         if grad_output.is_cuda() || self.input.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "gelu backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "gelu backward",
+            });
         }
 
         let input_data = self.input.data()?;
@@ -437,7 +447,9 @@ impl<T: Float> GradFn<T> for SiluBackward<T> {
 
         // Non-f32/f64 CUDA tensors are not supported.
         if grad_output.is_cuda() || self.input.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "silu backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "silu backward",
+            });
         }
 
         let input_data = self.input.data()?;
@@ -520,7 +532,9 @@ impl<T: Float> GradFn<T> for SoftmaxBackward<T> {
 
         // Non-f32/f64 CUDA tensors are not supported.
         if grad_output.is_cuda() || self.output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "softmax backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "softmax backward",
+            });
         }
 
         let s_data = self.output.data()?;
@@ -621,7 +635,9 @@ impl<T: Float> GradFn<T> for LogSoftmaxBackward<T> {
 
         // Non-f32/f64 CUDA tensors are not supported.
         if grad_output.is_cuda() || self.softmax_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "log_softmax backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "log_softmax backward",
+            });
         }
 
         let sm_data = self.softmax_output.data()?;
@@ -1105,11 +1121,8 @@ fn log_softmax_inner<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>>
                 } else {
                     backend.exp_f64(&handle)?
                 };
-                let softmax_tensor = Tensor::from_storage(
-                    TensorStorage::gpu(sm_handle),
-                    shape.to_vec(),
-                    false,
-                )?;
+                let softmax_tensor =
+                    Tensor::from_storage(TensorStorage::gpu(sm_handle), shape.to_vec(), false)?;
                 Tensor::from_operation(
                     TensorStorage::gpu(handle),
                     shape.to_vec(),
@@ -1225,7 +1238,9 @@ impl<T: Float> GradFn<T> for SoftplusBackward<T> {
 
         // Non-f32 CUDA tensors are not supported.
         if grad_output.is_cuda() || self.input.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "softplus backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "softplus backward",
+            });
         }
 
         let input_data = self.input.data()?;
@@ -1366,13 +1381,7 @@ impl<T: Float> GradFn<T> for EluBackward<T> {
         let result: Vec<T> = input_data
             .iter()
             .zip(grad_data.iter())
-            .map(|(&x, &g)| {
-                if x > zero {
-                    g
-                } else {
-                    g * alpha * x.exp()
-                }
-            })
+            .map(|(&x, &g)| if x > zero { g } else { g * alpha * x.exp() })
             .collect();
 
         let grad_input = Tensor::from_storage(
@@ -1490,7 +1499,9 @@ impl<T: Float> GradFn<T> for MishBackward<T> {
 
         // Non-f32/f64 CUDA tensors are not supported.
         if grad_output.is_cuda() || self.input.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda { op: "mish backward" });
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "mish backward",
+            });
         }
 
         let input_data = self.input.data()?;
@@ -1627,10 +1638,7 @@ impl<T: Float> GradFn<T> for LeakyReluBackward<T> {
 }
 
 /// Native `leaky_relu(x; negative_slope) = max(0, x) + negative_slope * min(0, x)`.
-pub fn leaky_relu<T: Float>(
-    input: &Tensor<T>,
-    negative_slope: f64,
-) -> FerrotorchResult<Tensor<T>> {
+pub fn leaky_relu<T: Float>(input: &Tensor<T>, negative_slope: f64) -> FerrotorchResult<Tensor<T>> {
     let zero = <T as num_traits::Zero>::zero();
     let slope = T::from(negative_slope).unwrap();
     let output = unary_map(input, |x| if x > zero { x } else { slope * x })?;
@@ -2073,7 +2081,7 @@ impl<T: Float> GradFn<T> for PReluBackward<T> {
         let mut grad_alpha = zero;
         for (&xv, &gv) in x.iter().zip(g.iter()) {
             if xv < zero {
-                grad_alpha = grad_alpha + gv * xv;
+                grad_alpha += gv * xv;
             }
         }
         let grad_alpha_t =
@@ -2214,11 +2222,8 @@ impl<T: Float> GradFn<T> for GluBackward<T> {
         // keep it bound to surface a future bug if shape walking changes.
         let _ = stride_dim;
 
-        let grad_input = Tensor::from_storage(
-            TensorStorage::cpu(full),
-            self.input.shape().to_vec(),
-            false,
-        )?;
+        let grad_input =
+            Tensor::from_storage(TensorStorage::cpu(full), self.input.shape().to_vec(), false)?;
         Ok(vec![Some(grad_input)])
     }
 
@@ -2257,9 +2262,7 @@ pub fn glu<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResult<Tensor<T>>
     let len_dim = shape[resolved];
     if len_dim % 2 != 0 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "glu: split dim must be even, got {len_dim} along dim {resolved}"
-            ),
+            message: format!("glu: split dim must be even, got {len_dim} along dim {resolved}"),
         });
     }
     let half = len_dim / 2;
@@ -3343,12 +3346,7 @@ mod tests {
     fn prelu_backward_routes_to_input_and_alpha() {
         // Build x and alpha as leaves with grad. Compute prelu, then sum.
         let x = leaf_vec(&[-2.0, 1.0]);
-        let alpha = Tensor::from_storage(
-            TensorStorage::cpu(vec![0.5_f64]),
-            vec![1],
-            true,
-        )
-        .unwrap();
+        let alpha = Tensor::from_storage(TensorStorage::cpu(vec![0.5_f64]), vec![1], true).unwrap();
         let y = prelu(&x, &alpha).unwrap();
 
         // Build a sum scalar so backward sees grad_output = ones.

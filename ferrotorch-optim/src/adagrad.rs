@@ -148,15 +148,15 @@ impl<T: Float> Adagrad<T> {
                     .to_vec();
 
                 // Clone once: grabs fresh Arc, avoids aliasing borrow.
-                let grad_tensor_opt =
-                    self.param_groups[group_idx].params[param_idx].grad()?;
+                let grad_tensor_opt = self.param_groups[group_idx].params[param_idx].grad()?;
                 let grad_tensor = match grad_tensor_opt {
                     Some(g) => g,
                     None => continue,
                 };
 
-                let param_t =
-                    self.param_groups[group_idx].params[param_idx].tensor().clone();
+                let param_t = self.param_groups[group_idx].params[param_idx]
+                    .tensor()
+                    .clone();
                 let device = param_t.device();
 
                 // Ensure the state exists. The sum accumulator is allocated
@@ -757,26 +757,16 @@ mod tests {
         );
 
         for g in grads {
-            let gt = Tensor::from_storage(
-                TensorStorage::cpu(g.to_vec()),
-                vec![init.len()],
-                false,
-            )
-            .unwrap();
+            let gt = Tensor::from_storage(TensorStorage::cpu(g.to_vec()), vec![init.len()], false)
+                .unwrap();
             p_legacy.set_grad(Some(gt.clone())).unwrap();
             p_foreach.set_grad(Some(gt)).unwrap();
             legacy.step().unwrap();
             foreach.step().unwrap();
         }
 
-        let l = legacy.param_groups()[0].params[0]
-            .data()
-            .unwrap()
-            .to_vec();
-        let f = foreach.param_groups()[0].params[0]
-            .data()
-            .unwrap()
-            .to_vec();
+        let l = legacy.param_groups()[0].params[0].data().unwrap().to_vec();
+        let f = foreach.param_groups()[0].params[0].data().unwrap().to_vec();
         (l, f)
     }
 
@@ -784,11 +774,7 @@ mod tests {
     fn test_adagrad_foreach_basic_parity() {
         let g: &[f32] = &[0.1, 0.2, -0.3, 0.4];
         let grads: Vec<&[f32]> = vec![g; 5];
-        let (l, f) = adagrad_run_pair(
-            AdagradConfig::default(),
-            &[1.0, 2.0, 3.0, 4.0],
-            &grads,
-        );
+        let (l, f) = adagrad_run_pair(AdagradConfig::default(), &[1.0, 2.0, 3.0, 4.0], &grads);
         for (a, b) in l.iter().zip(f.iter()) {
             assert!(
                 (a - b).abs() < 1e-5,
