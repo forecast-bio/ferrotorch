@@ -482,9 +482,21 @@ pub fn fft2<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         });
     }
 
-    // FFT along cols (last spatial dim) first, then rows.
     let rows = shape[ndim - 3];
     let cols = shape[ndim - 2];
+    let batch_dims: usize = shape[..ndim - 3].iter().product::<usize>().max(1);
+
+    // GPU fast path via cufftPlan2d (#634): unbatched (or batch=1) f32/f64.
+    if input.is_cuda() && batch_dims == 1 && (is_f32::<T>() || is_f64::<T>()) {
+        let backend = crate::gpu_dispatch::gpu_backend()
+            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let h = if is_f32::<T>() {
+            backend.fft2_c2c_f32(input.gpu_handle()?, rows, cols, false)?
+        } else {
+            backend.fft2_c2c_f64(input.gpu_handle()?, rows, cols, false)?
+        };
+        return Tensor::from_storage(TensorStorage::gpu(h), shape.to_vec(), false);
+    }
 
     // Step 1: FFT along columns (last spatial axis).
     let after_cols = fft(input, Some(cols))?;
@@ -517,6 +529,18 @@ pub fn ifft2<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 
     let rows = shape[ndim - 3];
     let cols = shape[ndim - 2];
+    let batch_dims: usize = shape[..ndim - 3].iter().product::<usize>().max(1);
+
+    if input.is_cuda() && batch_dims == 1 && (is_f32::<T>() || is_f64::<T>()) {
+        let backend = crate::gpu_dispatch::gpu_backend()
+            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        let h = if is_f32::<T>() {
+            backend.fft2_c2c_f32(input.gpu_handle()?, rows, cols, true)?
+        } else {
+            backend.fft2_c2c_f64(input.gpu_handle()?, rows, cols, true)?
+        };
+        return Tensor::from_storage(TensorStorage::gpu(h), shape.to_vec(), false);
+    }
 
     // Step 1: IFFT along columns.
     let after_cols = ifft(input, Some(cols))?;

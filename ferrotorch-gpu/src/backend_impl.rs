@@ -2757,6 +2757,34 @@ impl GpuBackend for CudaBackendImpl {
         Ok(Self::wrap_buffer_f64(out, src.device_ordinal()))
     }
 
+    fn fft2_c2c_f32(
+        &self,
+        a: &GpuBufferHandle,
+        h: usize,
+        w: usize,
+        inverse: bool,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let out = crate::cufft::gpu_fft2_c2c_f32(a_buf, h, w, inverse, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(out, a.device_ordinal()))
+    }
+
+    fn fft2_c2c_f64(
+        &self,
+        a: &GpuBufferHandle,
+        h: usize,
+        w: usize,
+        inverse: bool,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer_f64(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let out = crate::cufft::gpu_fft2_c2c_f64(a_buf, h, w, inverse, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer_f64(out, a.device_ordinal()))
+    }
+
     fn rfft_r2c_f32(
         &self,
         a: &GpuBufferHandle,

@@ -164,6 +164,125 @@ pub fn gpu_fft_c2c_f64(
 }
 
 // ---------------------------------------------------------------------------
+// 2-D complex-to-complex FFT (#634)
+// ---------------------------------------------------------------------------
+//
+// Wraps `cufftPlan2d` for the unbatched 2-D case. Input/output layout:
+// interleaved `[h, w, 2]` (re/im pairs), same convention as the existing
+// 1-D ops. `inverse=true` divides by `h*w` to match torch / numpy.
+
+/// 2-D forward (`inverse=false`) or inverse C2C FFT for f32.
+/// Input layout: `[h, w, 2]` interleaved complex; output same shape.
+pub fn gpu_fft2_c2c_f32(
+    input: &CudaBuffer<f32>,
+    h: usize,
+    w: usize,
+    inverse: bool,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    if h == 0 || w == 0 {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_fft2_c2c_f32",
+            expected: vec![1, 1],
+            got: vec![h, w],
+        });
+    }
+    let total = h * w * 2;
+    if input.len() != total {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_fft2_c2c_f32",
+            expected: vec![h, w, 2],
+            got: vec![input.len()],
+        });
+    }
+
+    let stream = device.stream();
+    let plan = CudaFft::plan_2d(
+        h as i32,
+        w as i32,
+        cufft_sys::cufftType::CUFFT_C2C,
+        stream.clone(),
+    )?;
+
+    let mut tmp = crate::transfer::alloc_zeros_f32(total, device)?;
+    stream.memcpy_dtod(input.inner(), tmp.inner_mut())?;
+    let mut out = crate::transfer::alloc_zeros_f32(total, device)?;
+
+    let direction = if inverse { FftDirection::Inverse } else { FftDirection::Forward };
+    unsafe {
+        let (idata, _isync) = tmp.inner_mut().device_ptr_mut(&stream);
+        let (odata, _osync) = out.inner_mut().device_ptr_mut(&stream);
+        cufft_result::exec_c2c(
+            plan.handle(),
+            idata as *mut cufft_sys::cufftComplex,
+            odata as *mut cufft_sys::cufftComplex,
+            direction as c_int,
+        )?;
+    }
+
+    if inverse {
+        let scale = 1.0_f32 / (h as f32 * w as f32);
+        out = crate::kernels::gpu_scale(&out, scale, device)?;
+    }
+    Ok(out)
+}
+
+/// f64 variant of [`gpu_fft2_c2c_f32`].
+pub fn gpu_fft2_c2c_f64(
+    input: &CudaBuffer<f64>,
+    h: usize,
+    w: usize,
+    inverse: bool,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    if h == 0 || w == 0 {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_fft2_c2c_f64",
+            expected: vec![1, 1],
+            got: vec![h, w],
+        });
+    }
+    let total = h * w * 2;
+    if input.len() != total {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_fft2_c2c_f64",
+            expected: vec![h, w, 2],
+            got: vec![input.len()],
+        });
+    }
+
+    let stream = device.stream();
+    let plan = CudaFft::plan_2d(
+        h as i32,
+        w as i32,
+        cufft_sys::cufftType::CUFFT_Z2Z,
+        stream.clone(),
+    )?;
+
+    let mut tmp = crate::transfer::alloc_zeros_f64(total, device)?;
+    stream.memcpy_dtod(input.inner(), tmp.inner_mut())?;
+    let mut out = crate::transfer::alloc_zeros_f64(total, device)?;
+
+    let direction = if inverse { FftDirection::Inverse } else { FftDirection::Forward };
+    unsafe {
+        let (idata, _isync) = tmp.inner_mut().device_ptr_mut(&stream);
+        let (odata, _osync) = out.inner_mut().device_ptr_mut(&stream);
+        cufft_result::exec_z2z(
+            plan.handle(),
+            idata as *mut cufft_sys::cufftDoubleComplex,
+            odata as *mut cufft_sys::cufftDoubleComplex,
+            direction as c_int,
+        )?;
+    }
+
+    if inverse {
+        let scale = 1.0_f64 / (h as f64 * w as f64);
+        out = crate::kernels::gpu_scale_f64(&out, scale, device)?;
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
 // Real-to-complex (f32)
 // ---------------------------------------------------------------------------
 

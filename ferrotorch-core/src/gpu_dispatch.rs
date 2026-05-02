@@ -1882,6 +1882,34 @@ pub trait GpuBackend: Send + Sync {
             message: "pad_truncate_complex_f64 GPU op not yet implemented".into(),
         })
     }
+
+    /// 2-D complex-to-complex FFT via cufftPlan2d. Input/output layout
+    /// `[h, w, 2]` interleaved complex. `inverse=true` divides by `h*w`.
+    /// (#634)
+    fn fft2_c2c_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _h: usize,
+        _w: usize,
+        _inverse: bool,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "fft2_c2c_f32 GPU op not yet implemented".into(),
+        })
+    }
+
+    /// f64 2-D FFT counterpart. (#634)
+    fn fft2_c2c_f64(
+        &self,
+        _a: &GpuBufferHandle,
+        _h: usize,
+        _w: usize,
+        _inverse: bool,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "fft2_c2c_f64 GPU op not yet implemented".into(),
+        })
+    }
     fn rfft_r2c_f32(
         &self,
         _a: &GpuBufferHandle,
