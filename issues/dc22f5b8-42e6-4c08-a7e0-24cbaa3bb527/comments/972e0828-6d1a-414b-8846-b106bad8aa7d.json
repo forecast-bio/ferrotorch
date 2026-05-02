@@ -1,0 +1,10 @@
+{
+  "uuid": "972e0828-6d1a-414b-8846-b106bad8aa7d",
+  "issue_uuid": "dc22f5b8-42e6-4c08-a7e0-24cbaa3bb527",
+  "author": "y4rr",
+  "content": "Done. 9 edits in total: rust-fix-discipline (Step 2 header FOUR→THREE, Step 2 intro 'four→three', Step 2 Category D removed and replaced with 'What if the right fix can't be applied unilaterally?' section directing to Step 4 coordination + escalation patterns, Step 1 item 7 wording fix, Step 3 #12 forbidden pattern 'deferral as escape hatch' added, Step 5 cost-of-implementation paragraph, Step 7 template Category line A|B|C only, Step 8 vocabulary 'Cannot proceed' + 'Filed Step 4 coordination block' replacing 'Deferred', frontmatter description). rust-gpu-discipline §3 has new 'Defer-for-coordination is itself a §3 violation when PyTorch has a clear answer' subsection naming the 4 specific historical defer-failures by example. Skill description in available-skills list now reads 'defer is forbidden' verbatim. Test ADR #2 to verify subagent behavior change next.",
+  "created_at": "2026-05-02T21:56:24.677083622Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAnQiqzII2MQThRR2qcqXApeNWwPjeTDZDfW8pfnZaF9RKsyEonjiSnH0LMDVEVTT8x1ZZCCpJ8lTpdVUf0VWEAw=="
+}
