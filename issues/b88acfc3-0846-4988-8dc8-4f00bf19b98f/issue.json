@@ -1,0 +1,10 @@
+{
+  "uuid": "b88acfc3-0846-4988-8dc8-4f00bf19b98f",
+  "display_id": 642,
+  "title": "Restore ops/higher_order.rs and migrate cond/scan canonical impl off cond_scan.rs",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-02T17:02:05.252880082Z",
+  "updated_at": "2026-05-02T17:02:05.252880082Z"
+}
