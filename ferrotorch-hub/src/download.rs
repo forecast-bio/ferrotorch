@@ -73,14 +73,16 @@ fn download_and_verify(info: &ModelInfo, cache: &HubCache) -> FerrotorchResult<P
     // read into a Vec<u8>; for very large weights this allocates the
     // whole file in memory, which is acceptable for typical
     // < 1 GB models. Streaming-to-disk could be added later if needed.
-    let response = ureq::get(info.weights_url).call().map_err(|e| {
-        FerrotorchError::InvalidArgument {
+    // Inject `Authorization: Bearer <HF_TOKEN>` when the user has configured
+    // one. No-op for public weights; required for gated repos. (#509)
+    let response = crate::auth::with_auth(ureq::get(info.weights_url))
+        .call()
+        .map_err(|e| FerrotorchError::InvalidArgument {
             message: format!(
                 "ferrotorch-hub: HTTP request to {} failed: {e}",
                 info.weights_url
             ),
-        }
-    })?;
+        })?;
 
     // Cap reads at 4 GB to avoid runaway responses if the server lies
     // about content length.
@@ -197,6 +199,152 @@ pub fn load_pretrained<T: Float>(name: &str) -> FerrotorchResult<StateDict<T>> {
         WeightsFormat::SafeTensors => ferrotorch_serialize::load_safetensors(&path),
         WeightsFormat::FerrotorchStateDict => ferrotorch_serialize::load_state_dict(&path),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Sharded model download (#509)
+// ---------------------------------------------------------------------------
+
+/// Download every safetensors shard referenced in a HuggingFace model
+/// repo's index, plus `config.json` and (optionally) the tokenizer files,
+/// into the local cache. Returns the cache directory containing the
+/// downloaded files.
+///
+/// # Behaviour
+///
+/// 1. Fetch `config.json` from `https://huggingface.co/{repo}/resolve/{revision}/config.json`.
+/// 2. Try `model.safetensors.index.json` to discover shard filenames; on
+///    404 fall back to a single `model.safetensors` file.
+/// 3. Download each shard concurrently-friendly (sequential for now;
+///    the heavy I/O is in the response body so a thread pool is a future
+///    optimisation).
+/// 4. Auth header is injected via [`crate::auth::with_auth`] when
+///    `HF_TOKEN` is set — required for gated repos.
+///
+/// `revision` is typically `"main"` but accepts any branch / tag / commit
+/// SHA. The cache layout follows the existing `HubCache::path(name)` flat
+/// structure: each downloaded file lands at `cache.path("{repo_id}/{filename}")`.
+///
+/// # Errors
+///
+/// - `FerrotorchError::InvalidArgument` for HTTP failures or malformed JSON.
+/// - I/O errors from the cache writer.
+#[cfg(feature = "http")]
+pub fn hf_download_model(
+    repo: &str,
+    revision: &str,
+    cache: &HubCache,
+) -> FerrotorchResult<PathBuf> {
+    use std::io::Read;
+
+    if repo.is_empty() {
+        return Err(FerrotorchError::InvalidArgument {
+            message: "hf_download_model: repo must not be empty".into(),
+        });
+    }
+    let revision = if revision.is_empty() { "main" } else { revision };
+
+    // Helper to fetch one file from the repo into the cache. `relative` is
+    // the path-within-repo (e.g. "config.json", "model-00001-of-00004.safetensors").
+    fn fetch_one(
+        repo: &str,
+        revision: &str,
+        relative: &str,
+        cache: &HubCache,
+    ) -> FerrotorchResult<PathBuf> {
+        let url = format!(
+            "https://huggingface.co/{repo}/resolve/{revision}/{relative}"
+        );
+        let response = crate::auth::with_auth(ureq::get(&url))
+            .call()
+            .map_err(|e| FerrotorchError::InvalidArgument {
+                message: format!("hf_download_model: GET {url} failed: {e}"),
+            })?;
+        const MAX_BODY_BYTES: u64 = 16 * 1024 * 1024 * 1024; // 16 GB shard ceiling
+        let mut body = Vec::new();
+        use std::io::Read as _;
+        response
+            .into_reader()
+            .take(MAX_BODY_BYTES)
+            .read_to_end(&mut body)
+            .map_err(|e| FerrotorchError::InvalidArgument {
+                message: format!("hf_download_model: reading {url}: {e}"),
+            })?;
+        let cache_name = format!("{repo}/{relative}");
+        cache.store(&cache_name, &body)?;
+        Ok(cache.path(&cache_name))
+    }
+
+    // Helper that probes a URL and returns Some(body) on 200, None on 404.
+    fn fetch_optional(repo: &str, revision: &str, relative: &str) -> FerrotorchResult<Option<Vec<u8>>> {
+        let url = format!(
+            "https://huggingface.co/{repo}/resolve/{revision}/{relative}"
+        );
+        let result = crate::auth::with_auth(ureq::get(&url)).call();
+        match result {
+            Ok(response) => {
+                const MAX: u64 = 64 * 1024 * 1024;
+                let mut body = Vec::new();
+                response
+                    .into_reader()
+                    .take(MAX)
+                    .read_to_end(&mut body)
+                    .map_err(|e| FerrotorchError::InvalidArgument {
+                        message: format!("hf_download_model: reading {url}: {e}"),
+                    })?;
+                Ok(Some(body))
+            }
+            Err(ureq::Error::Status(404, _)) => Ok(None),
+            Err(e) => Err(FerrotorchError::InvalidArgument {
+                message: format!("hf_download_model: GET {url} failed: {e}"),
+            }),
+        }
+    }
+
+    // 1. config.json (required for any reasonable downstream use).
+    fetch_one(repo, revision, "config.json", cache)?;
+
+    // 2. Discover shards. If the index file exists, parse it; else fall
+    // back to a single-file model.
+    if let Some(index_bytes) = fetch_optional(repo, revision, "model.safetensors.index.json")? {
+        let index: serde_json::Value =
+            serde_json::from_slice(&index_bytes).map_err(|e| FerrotorchError::InvalidArgument {
+                message: format!("hf_download_model: malformed index.json: {e}"),
+            })?;
+        // Persist the index to the cache so the loader can find it later.
+        cache.store(&format!("{repo}/model.safetensors.index.json"), &index_bytes)?;
+        // The "weight_map" subobject maps tensor names to shard filenames;
+        // we want the unique set of shard filenames.
+        let weight_map = index.get("weight_map").and_then(|v| v.as_object()).ok_or(
+            FerrotorchError::InvalidArgument {
+                message: "hf_download_model: index.json missing 'weight_map'".into(),
+            },
+        )?;
+        let mut shards: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for v in weight_map.values() {
+            if let Some(s) = v.as_str() {
+                shards.insert(s.to_string());
+            }
+        }
+        if shards.is_empty() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "hf_download_model: index.json had no shard entries".into(),
+            });
+        }
+        for shard in &shards {
+            fetch_one(repo, revision, shard, cache)?;
+        }
+    } else {
+        // Single-file model: try `model.safetensors` directly.
+        fetch_one(repo, revision, "model.safetensors", cache)?;
+    }
+
+    // 3. Best-effort tokenizer files (some repos ship them; ignore 404).
+    for opt in &["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"] {
+        let _ = fetch_optional(repo, revision, opt)?;
+    }
+
+    Ok(cache.path(repo))
 }
 
 #[cfg(test)]

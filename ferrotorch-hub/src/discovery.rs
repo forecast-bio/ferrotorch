@@ -238,7 +238,7 @@ fn url_encode(s: &str) -> String {
 pub fn search_models(query: &SearchQuery) -> FerrotorchResult<Vec<HfModelSummary>> {
     const HUB_BASE: &str = "https://huggingface.co";
     let url = format!("{HUB_BASE}{}", query.to_query_string());
-    let response = ureq::get(&url)
+    let response = crate::auth::with_auth(ureq::get(&url))
         .call()
         .map_err(|e| FerrotorchError::InvalidArgument {
             message: format!("ferrotorch-hub: HuggingFace Hub search failed ({url}): {e}"),
@@ -264,7 +264,7 @@ pub fn get_model(repo_id: &str) -> FerrotorchResult<HfModelInfo> {
         });
     }
     let url = format!("https://huggingface.co/api/models/{repo_id}");
-    let response = ureq::get(&url)
+    let response = crate::auth::with_auth(ureq::get(&url))
         .call()
         .map_err(|e| FerrotorchError::InvalidArgument {
             message: format!("ferrotorch-hub: Hub model lookup failed ({url}): {e}"),
