@@ -18,7 +18,7 @@ pub mod state_dict;
 pub use checkpoint::{AsyncCheckpointer, TrainingCheckpoint, load_checkpoint, save_checkpoint};
 pub use gguf::{
     GgmlType, GgufFile, GgufMetadata, GgufTensorInfo, GgufValue, dequantize_gguf_tensor, load_gguf,
-    load_gguf_state_dict, parse_gguf_bytes,
+    load_gguf_mmap, load_gguf_state_dict, load_gguf_state_dict_mmap, parse_gguf_bytes,
 };
 pub use onnx_export::{
     OnnxExportConfig, export_from_program, export_ir_graph_to_onnx, export_onnx,

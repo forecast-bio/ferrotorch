@@ -11,10 +11,12 @@
 //!    `StateDict<f32>`.
 
 use std::collections::HashMap;
+use std::fs::File;
 use std::path::Path;
 
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Tensor, TensorStorage};
 use ferrotorch_nn::StateDict;
+use memmap2::Mmap;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -333,6 +335,37 @@ pub fn load_gguf(path: impl AsRef<Path>) -> FerrotorchResult<GgufFile> {
     })?;
 
     parse_gguf_bytes(&file_bytes)
+}
+
+/// Memory-mapped GGUF loader (#609). Mirrors [`load_gguf`] but uses
+/// `mmap2::Mmap` instead of `std::fs::read` to avoid allocating a heap
+/// buffer for the whole file before parsing.
+///
+/// On large checkpoints (e.g. a 20 GB Llama 70B GGUF) this halves peak
+/// resident-set size at load time: instead of `[file bytes Vec][data
+/// section Vec][decoded tensors]` we have `[mmap region][data section
+/// Vec][decoded tensors]`, with the mmap region only paged in on demand
+/// and dropped before this function returns.
+///
+/// # Safety
+///
+/// The mmap is dropped before the function returns. The header /
+/// metadata / tensor-infos are parsed in place from the mmap region; the
+/// data section is copied into the returned `GgufFile.data: Vec<u8>` so
+/// the GgufFile is fully owned and outlives the mmap. The file must not
+/// be mutated while the mmap is live.
+pub fn load_gguf_mmap(path: impl AsRef<Path>) -> FerrotorchResult<GgufFile> {
+    let path = path.as_ref();
+    let file = File::open(path).map_err(|e| FerrotorchError::InvalidArgument {
+        message: format!("failed to open GGUF file {}: {e}", path.display()),
+    })?;
+    // SAFETY: the mmap is dropped before this function returns. The
+    // returned `GgufFile.data` is a `Vec<u8>` populated from the mmap
+    // region inside `parse_gguf_bytes`, so no borrowed bytes escape.
+    let mmap = unsafe { Mmap::map(&file) }.map_err(|e| FerrotorchError::InvalidArgument {
+        message: format!("failed to mmap GGUF file {}: {e}", path.display()),
+    })?;
+    parse_gguf_bytes(&mmap[..])
 }
 
 /// Parse GGUF from an in-memory byte slice.
@@ -835,6 +868,23 @@ pub fn load_gguf_state_dict(path: impl AsRef<Path>) -> FerrotorchResult<StateDic
     Ok(state)
 }
 
+/// Memory-mapped variant of [`load_gguf_state_dict`] (#609). Same return
+/// contract but uses [`load_gguf_mmap`] to halve peak RSS during the
+/// initial parse.
+pub fn load_gguf_state_dict_mmap(path: impl AsRef<Path>) -> FerrotorchResult<StateDict<f32>> {
+    let file = load_gguf_mmap(path)?;
+    let mut state: StateDict<f32> = HashMap::with_capacity(file.tensors.len());
+
+    let names: Vec<String> = file.tensors.iter().map(|t| t.name.clone()).collect();
+
+    for name in &names {
+        let tensor = dequantize_gguf_tensor(&file, name)?;
+        state.insert(name.clone(), tensor);
+    }
+
+    Ok(state)
+}
+
 // ---------------------------------------------------------------------------
 // Error helper
 // ---------------------------------------------------------------------------
@@ -1175,6 +1225,53 @@ mod tests {
 
         // Clean up.
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_load_gguf_mmap_matches_read_path() {
+        // Same fixture as test_load_gguf_state_dict_f32 but loaded via the
+        // mmap-backed path; values must match byte-for-byte.
+        let values: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut data = Vec::new();
+        for v in &values {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+
+        let bytes = build_gguf(
+            &[],
+            &[("layer.weight", &[2, 3], 0, &data)],
+        );
+
+        let dir = std::env::temp_dir().join("ferrotorch_gguf_mmap_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("mmap.gguf");
+        std::fs::write(&path, &bytes).unwrap();
+
+        // load_gguf_mmap returns the same parsed file as load_gguf.
+        let from_read = load_gguf(&path).unwrap();
+        let from_mmap = load_gguf_mmap(&path).unwrap();
+        assert_eq!(from_read.tensors.len(), from_mmap.tensors.len());
+        assert_eq!(from_read.data, from_mmap.data);
+
+        // Sharded state-dict round-trip is equal too.
+        let dict_read = load_gguf_state_dict(&path).unwrap();
+        let dict_mmap = load_gguf_state_dict_mmap(&path).unwrap();
+        assert_eq!(dict_read.len(), dict_mmap.len());
+        for (k, v_read) in &dict_read {
+            let v_mmap = &dict_mmap[k];
+            assert_eq!(v_read.shape(), v_mmap.shape());
+            assert_eq!(v_read.data().unwrap(), v_mmap.data().unwrap());
+        }
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_load_gguf_mmap_rejects_missing_file() {
+        let path = std::env::temp_dir().join("ferrotorch_gguf_mmap_does_not_exist");
+        let _ = std::fs::remove_file(&path);
+        let err = load_gguf_mmap(&path).unwrap_err();
+        assert!(matches!(err, FerrotorchError::InvalidArgument { .. }));
     }
 
     #[test]
