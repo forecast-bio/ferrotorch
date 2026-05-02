@@ -1,0 +1,10 @@
+{
+  "uuid": "2cd5590b-3c93-44d2-a3e4-a330bdfb3eea",
+  "issue_uuid": "3f2a1737-3db4-46b3-8486-07153b736740",
+  "author": "y4rr",
+  "content": "Session auto-ended (stale after 574 minutes). No handoff notes provided.",
+  "created_at": "2026-05-02T03:21:25.841824640Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAHuP/1veq4vGvVEbbe0u5KODDCRKle5eK0YO8lIWm1CvHuTylOZmpUNMJ+2xse/gQbef9e1L8QEjZBQqtngwjCA=="
+}
