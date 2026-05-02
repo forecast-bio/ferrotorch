@@ -1,0 +1,10 @@
+{
+  "uuid": "b0cdc150-d9e2-4004-b90a-a05a3f8a2f9e",
+  "issue_uuid": "a1380c8f-4c7c-48ad-ae74-9ee91f3581c5",
+  "author": "y4rr",
+  "content": "Copied 20 skills into ~/.claude/skills/. Total now 21 alongside existing rust-gpu-discipline. Stray __pycache__ removed.",
+  "created_at": "2026-05-02T16:08:49.029847803Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvvnPW8Z2q9/ta8zTi51RMpRbR14FJsBbLBfi32uZM+pka8qQJjCcu5IBbokFXp47hZnqPLAcUorzZvdIiC0rAQ=="
+}
