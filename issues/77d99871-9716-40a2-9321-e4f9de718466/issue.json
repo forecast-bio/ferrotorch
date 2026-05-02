@@ -2,9 +2,10 @@
   "uuid": "77d99871-9716-40a2-9321-e4f9de718466",
   "display_id": 562,
   "title": "Crate-by-crate audit: ferrotorch vs pytorch parity gap analysis",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-01T12:32:24.250388463Z",
-  "updated_at": "2026-05-01T12:32:24.250388463Z"
+  "updated_at": "2026-05-02T00:42:24.518944122Z",
+  "closed_at": "2026-05-02T00:42:24.518944122Z"
 }
