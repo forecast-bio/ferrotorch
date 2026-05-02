@@ -1,0 +1,10 @@
+{
+  "uuid": "a70462e1-aa97-441a-8290-5881050f9772",
+  "issue_uuid": "347128dd-e4e4-409e-a190-29f04a7a1f8e",
+  "author": "y4rr",
+  "content": "Done. (1) rust-gpu-discipline §3 rewritten from 'When CPU is genuinely the right answer' (permissive) to 'Device-error policy: PyTorch parity (HARD REQUIREMENT)' — includes PyTorch policy summary, ferrotorch mandatory policy (execute-on-GPU / return-Err / opt-in-fallback), forbidden vs allowed patterns, canonical code shape with FERROTORCH_ENABLE_GPU_FALLBACK env-var pattern modeled on PYTORCH_ENABLE_MPS_FALLBACK, migration policy for existing silent-fallback sites, and honest-reporting vocabulary. (2) Step 2 forbidden-patterns header now points to §3 as the affirmative rule. (3) New rust-fix-discipline skill at ~/.claude/skills/rust-fix-discipline/SKILL.md with 8 steps: read context / pick category (A root-cause / B local / C annotation / D defer) / forbidden fix-mode patterns / coordination boundaries / work-unit scope / verification mandate / per-fix output template / honest reporting vocabulary. Cross-references rust-quality and rust-gpu-discipline as the rule sources. No code changes outside ~/.claude/skills/.",
+  "created_at": "2026-05-02T19:11:18.688925688Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAU1PxWrDIFXucQEUMA4CbdWEkdXfGeaXduhgtzGDkIN0YdJVEbj9Eh6rahtLeLGh6taPMfcUyx3dELVLHYuUNCg=="
+}
