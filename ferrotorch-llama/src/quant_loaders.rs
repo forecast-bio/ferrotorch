@@ -260,6 +260,214 @@ pub fn dequantize_awq_q4(packed: &AwqQ4) -> FerrotorchResult<Vec<f32>> {
     Ok(out)
 }
 
+// ===========================================================================
+// HQQ: Half-Quadratic Quantization (Mobius Labs) (#613)
+// ===========================================================================
+//
+// HQQ packs:
+//   - per-row f16 `scale` and `zero` tensors (half-precision; we accept
+//     them as f32 buffers since callers cast on load)
+//   - packed integer weights at bitwidth ∈ {1, 2, 3, 4, 8}
+//     - 8-bit: stored as `u8`, one int per byte
+//     - 4-bit: 2 nibbles per byte, low nibble first
+//     - 2-bit: 4 ints per byte, lowest 2 bits first
+//     - 1-bit: 8 ints per byte, LSB first
+//     - 3-bit: tightly packed, see comment in unpack_3bit
+//
+// Dequantization formula per element: `(q - zero) * scale`. Layout is
+// row-major `[out_features, in_features]`. `zero` and `scale` are per-row
+// (one f32 per row of the output matrix).
+
+/// A packed HQQ weight tile.
+#[derive(Debug)]
+pub struct HqqWeights {
+    /// Bit-width of the packed integers. Must be in {1, 2, 3, 4, 8}.
+    pub bits: u8,
+    /// Packed integer weights as raw bytes.
+    pub w_q: Vec<u8>,
+    /// Per-row scale (length = out_features). Stored as f32 here; HQQ
+    /// originally ships these as f16 — callers cast on load.
+    pub scale: Vec<f32>,
+    /// Per-row zero point (length = out_features). Same dtype note.
+    pub zero: Vec<f32>,
+    /// Output features (rows of the dequantized matrix).
+    pub out_features: usize,
+    /// Input features (cols of the dequantized matrix).
+    pub in_features: usize,
+}
+
+/// Dequantize an HQQ-packed weight matrix to row-major `f32`. (#613)
+///
+/// Output shape: `[out_features, in_features]`. Each element is computed
+/// as `(q - zero[row]) * scale[row]` where `q` is the unpacked integer
+/// weight at the bitwidth indicated by `packed.bits`.
+///
+/// # Errors
+/// - `bits` not in {1, 2, 3, 4, 8}
+/// - `scale` / `zero` length mismatch with `out_features`
+/// - Packed buffer too short for `out_features × in_features` at the bitwidth
+pub fn dequantize_hqq(packed: &HqqWeights) -> FerrotorchResult<Vec<f32>> {
+    let HqqWeights {
+        bits,
+        w_q,
+        scale,
+        zero,
+        out_features,
+        in_features,
+    } = packed;
+    let bits = *bits;
+    let out_features = *out_features;
+    let in_features = *in_features;
+
+    if !matches!(bits, 1 | 2 | 3 | 4 | 8) {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!("HQQ: bits must be 1/2/3/4/8, got {bits}"),
+        });
+    }
+    if scale.len() != out_features {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "HQQ: scale len {} != out_features {out_features}",
+                scale.len()
+            ),
+        });
+    }
+    if zero.len() != out_features {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "HQQ: zero len {} != out_features {out_features}",
+                zero.len()
+            ),
+        });
+    }
+
+    let total = out_features * in_features;
+    let unpacked = match bits {
+        8 => unpack_hqq_8bit(w_q, total)?,
+        4 => unpack_hqq_4bit(w_q, total)?,
+        2 => unpack_hqq_2bit(w_q, total)?,
+        1 => unpack_hqq_1bit(w_q, total)?,
+        3 => unpack_hqq_3bit(w_q, total)?,
+        _ => unreachable!("bits validated above"),
+    };
+
+    let mut out = Vec::with_capacity(total);
+    for r in 0..out_features {
+        let s = scale[r];
+        let z = zero[r];
+        let row_start = r * in_features;
+        for c in 0..in_features {
+            let q = unpacked[row_start + c] as f32;
+            out.push((q - z) * s);
+        }
+    }
+    Ok(out)
+}
+
+/// 8-bit unpacker: each byte is one weight.
+fn unpack_hqq_8bit(packed: &[u8], total: usize) -> FerrotorchResult<Vec<u8>> {
+    if packed.len() < total {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "HQQ 8-bit: packed buffer too short ({} bytes for {total} weights)",
+                packed.len()
+            ),
+        });
+    }
+    Ok(packed[..total].to_vec())
+}
+
+/// 4-bit unpacker: 2 nibbles per byte, low nibble first.
+fn unpack_hqq_4bit(packed: &[u8], total: usize) -> FerrotorchResult<Vec<u8>> {
+    let needed = total.div_ceil(2);
+    if packed.len() < needed {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "HQQ 4-bit: packed buffer too short ({} bytes for {total} weights, need {needed})",
+                packed.len()
+            ),
+        });
+    }
+    let mut out = Vec::with_capacity(total);
+    for i in 0..total {
+        let byte = packed[i / 2];
+        let nibble = if i % 2 == 0 { byte & 0x0F } else { (byte >> 4) & 0x0F };
+        out.push(nibble);
+    }
+    Ok(out)
+}
+
+/// 2-bit unpacker: 4 ints per byte, lowest 2 bits first.
+fn unpack_hqq_2bit(packed: &[u8], total: usize) -> FerrotorchResult<Vec<u8>> {
+    let needed = total.div_ceil(4);
+    if packed.len() < needed {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "HQQ 2-bit: packed buffer too short ({} bytes for {total} weights, need {needed})",
+                packed.len()
+            ),
+        });
+    }
+    let mut out = Vec::with_capacity(total);
+    for i in 0..total {
+        let byte = packed[i / 4];
+        let shift = (i % 4) * 2;
+        out.push(((byte >> shift) & 0x03) as u8);
+    }
+    Ok(out)
+}
+
+/// 1-bit unpacker: 8 ints per byte, LSB first.
+fn unpack_hqq_1bit(packed: &[u8], total: usize) -> FerrotorchResult<Vec<u8>> {
+    let needed = total.div_ceil(8);
+    if packed.len() < needed {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "HQQ 1-bit: packed buffer too short ({} bytes for {total} weights, need {needed})",
+                packed.len()
+            ),
+        });
+    }
+    let mut out = Vec::with_capacity(total);
+    for i in 0..total {
+        let byte = packed[i / 8];
+        let shift = i % 8;
+        out.push(((byte >> shift) & 0x01) as u8);
+    }
+    Ok(out)
+}
+
+/// 3-bit unpacker: 8 ints per 3 bytes, tightly packed, LSB first across
+/// bytes. The encoding stores 8 × 3-bit = 24 bits per 3-byte group; bit
+/// `i*3` of the i-th weight starts at the bit position computed below.
+fn unpack_hqq_3bit(packed: &[u8], total: usize) -> FerrotorchResult<Vec<u8>> {
+    let group_count = total.div_ceil(8);
+    let needed = group_count * 3;
+    if packed.len() < needed {
+        return Err(FerrotorchError::ShapeMismatch {
+            message: format!(
+                "HQQ 3-bit: packed buffer too short ({} bytes for {total} weights, need {needed})",
+                packed.len()
+            ),
+        });
+    }
+    let mut out = Vec::with_capacity(total);
+    for i in 0..total {
+        let bit_pos = i * 3;
+        let byte_idx = bit_pos / 8;
+        let bit_offset = bit_pos % 8;
+        let mut val: u32 = packed[byte_idx] as u32;
+        if byte_idx + 1 < packed.len() {
+            val |= (packed[byte_idx + 1] as u32) << 8;
+        }
+        if byte_idx + 2 < packed.len() && bit_offset > 5 {
+            val |= (packed[byte_idx + 2] as u32) << 16;
+        }
+        out.push(((val >> bit_offset) & 0x07) as u8);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,6 +719,195 @@ mod tests {
         assert!(matches!(
             dequantize_awq_q4(&p).unwrap_err(),
             FerrotorchError::InvalidArgument { .. }
+        ));
+    }
+
+    // -------------------------------------------------------------------
+    // HQQ tests (#613)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn hqq_8bit_roundtrip() {
+        // Build packed weights: row 0 = [0, 1, 2, 3], row 1 = [10, 20, 30, 40]
+        // scale = [0.5, 0.25], zero = [1.0, 5.0]
+        // Row 0 dequant: (q - 1) * 0.5 → [-0.5, 0.0, 0.5, 1.0]
+        // Row 1 dequant: (q - 5) * 0.25 → [1.25, 3.75, 6.25, 8.75]
+        let packed = HqqWeights {
+            bits: 8,
+            w_q: vec![0, 1, 2, 3, 10, 20, 30, 40],
+            scale: vec![0.5, 0.25],
+            zero: vec![1.0, 5.0],
+            out_features: 2,
+            in_features: 4,
+        };
+        let out = dequantize_hqq(&packed).unwrap();
+        let expected: Vec<f32> = vec![-0.5, 0.0, 0.5, 1.0, 1.25, 3.75, 6.25, 8.75];
+        for (i, (&got, &want)) in out.iter().zip(expected.iter()).enumerate() {
+            assert!((got - want).abs() < 1e-6, "i={i}: got {got}, want {want}");
+        }
+    }
+
+    #[test]
+    fn hqq_4bit_roundtrip() {
+        // 4 weights packed into 2 bytes (low-nibble first):
+        // [0x32, 0x54] = [0,1] from byte 0 (low=2, high=3? wait)
+        // Actually: 0x32 → low_nibble=0x2, high_nibble=0x3 → weights[0..2] = [2, 3]
+        // 0x54 → [4, 5]
+        // So unpacked = [2, 3, 4, 5].
+        // scale=[1.0], zero=[0.0] → dequant = [2, 3, 4, 5]
+        let packed = HqqWeights {
+            bits: 4,
+            w_q: vec![0x32, 0x54],
+            scale: vec![1.0],
+            zero: vec![0.0],
+            out_features: 1,
+            in_features: 4,
+        };
+        let out = dequantize_hqq(&packed).unwrap();
+        assert_eq!(out, vec![2.0, 3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn hqq_2bit_roundtrip() {
+        // 4 weights per byte, lowest 2 bits first.
+        // 0b11_10_01_00 = 0xE4 → weights = [0, 1, 2, 3]
+        let packed = HqqWeights {
+            bits: 2,
+            w_q: vec![0xE4],
+            scale: vec![1.0],
+            zero: vec![0.0],
+            out_features: 1,
+            in_features: 4,
+        };
+        let out = dequantize_hqq(&packed).unwrap();
+        assert_eq!(out, vec![0.0, 1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn hqq_1bit_roundtrip() {
+        // 8 weights per byte, LSB first. 0b10101010 = 0xAA → [0,1,0,1,0,1,0,1]
+        let packed = HqqWeights {
+            bits: 1,
+            w_q: vec![0xAA],
+            scale: vec![1.0],
+            zero: vec![0.0],
+            out_features: 1,
+            in_features: 8,
+        };
+        let out = dequantize_hqq(&packed).unwrap();
+        assert_eq!(out, vec![0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn hqq_3bit_roundtrip_known_pattern() {
+        // 8 weights × 3 bits = 24 bits = 3 bytes per group.
+        // Pack [1, 2, 3, 4, 5, 6, 7, 0]:
+        //   bit positions: 0, 3, 6, 9, 12, 15, 18, 21
+        //   value 1 at bit 0  → byte 0 += 0x01
+        //   value 2 at bit 3  → byte 0 += 0x10
+        //   value 3 at bit 6  → byte 0 += 0xC0 (low 2 bits) + byte 1 += 0x00 (high 1 bit)
+        //   actually 3 = 0b011, at bit 6: byte0 |= 0b11<<6 = 0xC0, byte1 |= 0b0
+        //   Let me just compute it programmatically below.
+        let weights: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 0];
+        let mut bytes = [0u8; 3];
+        for (i, &w) in weights.iter().enumerate() {
+            let bit_pos = i * 3;
+            let byte_idx = bit_pos / 8;
+            let bit_offset = bit_pos % 8;
+            let v = (w as u32) << bit_offset;
+            bytes[byte_idx] |= (v & 0xFF) as u8;
+            if byte_idx + 1 < 3 {
+                bytes[byte_idx + 1] |= ((v >> 8) & 0xFF) as u8;
+            }
+            if byte_idx + 2 < 3 {
+                bytes[byte_idx + 2] |= ((v >> 16) & 0xFF) as u8;
+            }
+        }
+        let packed = HqqWeights {
+            bits: 3,
+            w_q: bytes.to_vec(),
+            scale: vec![1.0],
+            zero: vec![0.0],
+            out_features: 1,
+            in_features: 8,
+        };
+        let out = dequantize_hqq(&packed).unwrap();
+        assert_eq!(out, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 0.0]);
+    }
+
+    #[test]
+    fn hqq_per_row_scale_zero_applied_correctly() {
+        // 2 rows × 8 cols, 8-bit packing.
+        // Row 0: q = [10..18), scale=2.0, zero=10 → [0,2,4,6,8,10,12,14]
+        // Row 1: q = [20..28), scale=0.5, zero=20 → [0,0.5,1,1.5,2,2.5,3,3.5]
+        let mut w_q = Vec::new();
+        for i in 10..18 {
+            w_q.push(i as u8);
+        }
+        for i in 20..28 {
+            w_q.push(i as u8);
+        }
+        let packed = HqqWeights {
+            bits: 8,
+            w_q,
+            scale: vec![2.0, 0.5],
+            zero: vec![10.0, 20.0],
+            out_features: 2,
+            in_features: 8,
+        };
+        let out = dequantize_hqq(&packed).unwrap();
+        for i in 0..8 {
+            assert!((out[i] - (2.0 * i as f32)).abs() < 1e-6);
+            assert!((out[8 + i] - (0.5 * i as f32)).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn hqq_rejects_invalid_bits() {
+        let p = HqqWeights {
+            bits: 5,
+            w_q: vec![],
+            scale: vec![1.0],
+            zero: vec![0.0],
+            out_features: 1,
+            in_features: 1,
+        };
+        assert!(matches!(
+            dequantize_hqq(&p).unwrap_err(),
+            FerrotorchError::InvalidArgument { .. }
+        ));
+    }
+
+    #[test]
+    fn hqq_rejects_short_buffer() {
+        // Need 4 bytes for 8 4-bit weights, give 1.
+        let p = HqqWeights {
+            bits: 4,
+            w_q: vec![0xFF],
+            scale: vec![1.0],
+            zero: vec![0.0],
+            out_features: 1,
+            in_features: 8,
+        };
+        assert!(matches!(
+            dequantize_hqq(&p).unwrap_err(),
+            FerrotorchError::ShapeMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn hqq_rejects_scale_length_mismatch() {
+        let p = HqqWeights {
+            bits: 8,
+            w_q: vec![0; 4],
+            scale: vec![1.0, 2.0, 3.0], // out_features=2 but len=3
+            zero: vec![0.0, 0.0],
+            out_features: 2,
+            in_features: 2,
+        };
+        assert!(matches!(
+            dequantize_hqq(&p).unwrap_err(),
+            FerrotorchError::ShapeMismatch { .. }
         ));
     }
 }
