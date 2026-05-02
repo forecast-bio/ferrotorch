@@ -1,0 +1,11 @@
+{
+  "uuid": "1a67bd94-fd9e-4726-abba-ca17aa9fd49f",
+  "display_id": 636,
+  "title": "GPU hfft/ihfft + fftn/ifftn (3D)",
+  "description": "Spun out from #634 partial close. fft2/ifft2 landed via cufftPlan2d. Remaining cuFFT ops:\n\n- hfft / ihfft (1-D Hermitian FFT) — wire on top of existing rfft/irfft with sign-flip kernel\n- fftn / ifftn (N-D) — cufftPlan3d for 3-D, cufftPlanMany for arbitrary rank with strides\n\nBoth add new cufft.rs functions + dispatch wiring.",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-02T02:36:53.527689762Z",
+  "updated_at": "2026-05-02T02:36:53.527689762Z"
+}
