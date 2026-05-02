@@ -2,11 +2,12 @@
   "uuid": "94a136f1-87a1-4d59-a603-bdf38d7a2c04",
   "display_id": 539,
   "title": "Phase 5 V9: generic TieredBlockStore<T>",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-25T13:50:08.565287309Z",
-  "updated_at": "2026-04-25T13:50:09.823974416Z",
+  "updated_at": "2026-05-02T01:58:19.195944242Z",
+  "closed_at": "2026-05-02T01:58:19.195944242Z",
   "labels": [
     "feature"
   ]
