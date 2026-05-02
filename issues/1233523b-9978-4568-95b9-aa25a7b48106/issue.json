@@ -1,0 +1,10 @@
+{
+  "uuid": "1233523b-9978-4568-95b9-aa25a7b48106",
+  "display_id": 646,
+  "title": "Create ~/.claude/commands/ and install crosslink-guide as slash command",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-02T17:48:20.569421869Z",
+  "updated_at": "2026-05-02T17:48:20.569421869Z"
+}
