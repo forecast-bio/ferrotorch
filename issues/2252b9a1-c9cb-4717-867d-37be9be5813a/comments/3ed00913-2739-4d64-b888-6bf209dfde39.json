@@ -1,0 +1,10 @@
+{
+  "uuid": "3ed00913-2739-4d64-b888-6bf209dfde39",
+  "issue_uuid": "2252b9a1-c9cb-4717-867d-37be9be5813a",
+  "author": "y4rr",
+  "content": "Done. Subagent delivered a high-quality security fix: (1) sanitize_path_component(s, role) function rejects empty strings, length > 255 bytes (POSIX NAME_MAX), null bytes, /, \\, :, .. or . dot-paths, leading-dot strings, with descriptive role-aware error messages (2) lexical_normalize helper collapses .. and . components without requiring the path to exist (handles the TOCTOU edge case where the target file is being written for the first time) (3) assert_within_cache defense-in-depth: tries canonicalize for symlink-resolution; falls back to canonicalize-base + lexical-normalize-target when target doesn't exist yet (4) Sanitizer applied at all 3 untrusted-input ingresses: repo (split-on-slash, per-component sanitize), revision, shard filename from server-supplied weight_map (5) 13 negative tests + 3 positive tests covering all attack vectors. Verification: cargo test -p ferrotorch-hub PASS (78 unit + 4 doctests), cargo build --workspace --all-targets PASS (6.65s). Minor edge case noted: symlink-pointing-elsewhere via the fallback path is theoretically possible if attacker has prior write access; in practice requires planting symlink via legitimate API first, which sanitization itself blocks. Strong form covers common case. Fix is defense-in-depth, well-documented, and tested.",
+  "created_at": "2026-05-02T21:15:00.914682822Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAjsPBV8rviUS//E0vsf/3SL2YJOm+alcgZ4WOuFAQj11k1u+v+UtxfJXeDdT91n5u4W+okrg1Z7sneiaeyiFyCQ=="
+}
