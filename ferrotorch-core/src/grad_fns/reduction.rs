@@ -855,6 +855,30 @@ impl<T: Float> GradFn<T> for MeanDimBackward<T> {
             }
         }
 
+        // f64 GPU path via the new repeat_along_dim kernel + scale (#524).
+        let is_f64 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>();
+        if grad_output.is_cuda() && is_f64 {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                let outer: usize =
+                    input_shape[..self.dim].iter().product::<usize>().max(1);
+                let inner: usize = input_shape[(self.dim + 1)..]
+                    .iter()
+                    .product::<usize>()
+                    .max(1);
+                let repeat_count = dim_size;
+                let expanded =
+                    backend.repeat_along_dim_f64(grad_output.gpu_handle()?, outer, repeat_count, inner)?;
+                // Scale by 1/repeat_count to get the mean's gradient.
+                let scaled = backend.scale_f64(&expanded, 1.0 / repeat_count as f64)?;
+                let grad_input = Tensor::from_storage(
+                    TensorStorage::gpu(scaled),
+                    input_shape.to_vec(),
+                    false,
+                )?;
+                return Ok(vec![Some(grad_input)]);
+            }
+        }
+
         if grad_output.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda { op: "mean_dim backward" });
         }
