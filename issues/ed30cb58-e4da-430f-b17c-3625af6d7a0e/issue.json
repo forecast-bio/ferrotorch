@@ -1,0 +1,10 @@
+{
+  "uuid": "ed30cb58-e4da-430f-b17c-3625af6d7a0e",
+  "display_id": 661,
+  "title": "Workspace fix #2 (real, security): ferrotorch-serialize GGUF parser pre-auth DoS via attacker-controlled Vec::with_capacity",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-02T21:29:56.886093779Z",
+  "updated_at": "2026-05-02T21:29:56.886093779Z"
+}
