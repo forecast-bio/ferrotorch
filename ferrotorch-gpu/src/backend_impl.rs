@@ -2473,20 +2473,22 @@ impl GpuBackend for CudaBackendImpl {
     }
 
     fn cholesky_f32(&self, a: &GpuBufferHandle, n: usize) -> FerrotorchResult<GpuBufferHandle> {
+        // (#632) Device-resident Cholesky: cuSOLVER potrf operates on a
+        // memcpy_dtod clone of A, then a small host-side mask of the
+        // upper triangle.
         let a_buf = Self::unwrap_buffer(a)?;
         let dev = self.device(a.device_ordinal())?;
-        let a_host = crate::transfer::gpu_to_cpu(a_buf, dev).map_err(Self::map_gpu_err)?;
-        let l = crate::cusolver::gpu_cholesky_f32(&a_host, n, dev).map_err(Self::map_gpu_err)?;
-        let l_buf = crate::transfer::cpu_to_gpu(&l, dev).map_err(Self::map_gpu_err)?;
+        let l_buf =
+            crate::cusolver::gpu_cholesky_f32_dev(a_buf, n, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(l_buf, a.device_ordinal()))
     }
 
     fn cholesky_f64(&self, a: &GpuBufferHandle, n: usize) -> FerrotorchResult<GpuBufferHandle> {
+        // (#632) Device-resident Cholesky.
         let a_buf = Self::unwrap_buffer_f64(a)?;
         let dev = self.device(a.device_ordinal())?;
-        let a_host = crate::transfer::gpu_to_cpu(a_buf, dev).map_err(Self::map_gpu_err)?;
-        let l = crate::cusolver::gpu_cholesky_f64(&a_host, n, dev).map_err(Self::map_gpu_err)?;
-        let l_buf = crate::transfer::cpu_to_gpu(&l, dev).map_err(Self::map_gpu_err)?;
+        let l_buf =
+            crate::cusolver::gpu_cholesky_f64_dev(a_buf, n, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer_f64(l_buf, a.device_ordinal()))
     }
 
@@ -2497,16 +2499,15 @@ impl GpuBackend for CudaBackendImpl {
         n: usize,
         nrhs: usize,
     ) -> FerrotorchResult<GpuBufferHandle> {
+        // (#632) Device-resident path: no host bounce; on-device transposes
+        // + cuSOLVER getrf/getrs working on column-major copies.
         let a_buf = Self::unwrap_buffer(a)?;
         let b_buf = Self::unwrap_buffer(b)?;
         let dev = self.device(a.device_ordinal())?;
-        let a_host = crate::transfer::gpu_to_cpu(a_buf, dev).map_err(Self::map_gpu_err)?;
-        let b_host = crate::transfer::gpu_to_cpu(b_buf, dev).map_err(Self::map_gpu_err)?;
         let x =
-            crate::cusolver::gpu_solve_f32(&a_host, &b_host, n, nrhs, dev)
+            crate::cusolver::gpu_solve_f32_dev(a_buf, b_buf, n, nrhs, dev)
                 .map_err(Self::map_gpu_err)?;
-        let x_buf = crate::transfer::cpu_to_gpu(&x, dev).map_err(Self::map_gpu_err)?;
-        Ok(Self::wrap_buffer(x_buf, a.device_ordinal()))
+        Ok(Self::wrap_buffer(x, a.device_ordinal()))
     }
 
     fn solve_f64(
@@ -2516,16 +2517,14 @@ impl GpuBackend for CudaBackendImpl {
         n: usize,
         nrhs: usize,
     ) -> FerrotorchResult<GpuBufferHandle> {
+        // (#632) Device-resident path: no host bounce.
         let a_buf = Self::unwrap_buffer_f64(a)?;
         let b_buf = Self::unwrap_buffer_f64(b)?;
         let dev = self.device(a.device_ordinal())?;
-        let a_host = crate::transfer::gpu_to_cpu(a_buf, dev).map_err(Self::map_gpu_err)?;
-        let b_host = crate::transfer::gpu_to_cpu(b_buf, dev).map_err(Self::map_gpu_err)?;
         let x =
-            crate::cusolver::gpu_solve_f64(&a_host, &b_host, n, nrhs, dev)
+            crate::cusolver::gpu_solve_f64_dev(a_buf, b_buf, n, nrhs, dev)
                 .map_err(Self::map_gpu_err)?;
-        let x_buf = crate::transfer::cpu_to_gpu(&x, dev).map_err(Self::map_gpu_err)?;
-        Ok(Self::wrap_buffer_f64(x_buf, a.device_ordinal()))
+        Ok(Self::wrap_buffer_f64(x, a.device_ordinal()))
     }
 
     fn qr_f32(
