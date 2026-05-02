@@ -2,11 +2,12 @@
   "uuid": "ecbd29c8-60f0-4bc6-9204-9acc897abfc7",
   "display_id": 530,
   "title": "Phase 5 V1: SwiGLU paging via TEAL magnitude detection (no FATReLU)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-25T02:54:50.453634355Z",
-  "updated_at": "2026-04-25T02:54:51.833172414Z",
+  "updated_at": "2026-05-02T01:58:07.774807976Z",
+  "closed_at": "2026-05-02T01:58:07.774807976Z",
   "labels": [
     "feature"
   ]
