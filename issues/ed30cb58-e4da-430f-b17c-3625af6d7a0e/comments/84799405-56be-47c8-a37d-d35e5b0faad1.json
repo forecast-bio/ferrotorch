@@ -1,0 +1,10 @@
+{
+  "uuid": "84799405-56be-47c8-a37d-d35e5b0faad1",
+  "issue_uuid": "ed30cb58-e4da-430f-b17c-3625af6d7a0e",
+  "author": "y4rr",
+  "content": "Applied. ferrotorch-serialize/src/gguf.rs: 4 sites converted from Vec::with_capacity(attacker_u64)/HashMap::with_capacity(attacker_u64) to Vec::new()/HashMap::new() — bounds-checked read_bytes terminates loops naturally on truncated/adversarial input, no DoS surface. 9 new tests covering: 6-byte stub with u64::MAX, oversized-but-truncated buffer, mid-entry truncation, valid minimal GGUF still parses. Verification: cargo test PASS (153 unit + 1 ignored), cargo clippy -D warnings PASS, cargo fmt PASS, cargo build --workspace --all-targets PASS. No new error variants (uses existing InvalidArgument), no new deps, no public API change, no coordination needed. Subagent surfaced 3 additional findings for separate dispatch: (a) read_gguf_string u64-to-usize on 32-bit platforms (low severity), (b) alignment metadata unclamped, (c) n_dims unguarded (allows pathological 4B-iteration loops, though each iter is bounds-checked).",
+  "created_at": "2026-05-02T21:40:10.853604420Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA/AzK6miHP/Z8TZZqg3ainliEayxkZMy/cDgb3V/7qkZWNc/FN23eCRLJ5z2Ce34Jf5vLxg+aTbqoBWsS8PaMCQ=="
+}
