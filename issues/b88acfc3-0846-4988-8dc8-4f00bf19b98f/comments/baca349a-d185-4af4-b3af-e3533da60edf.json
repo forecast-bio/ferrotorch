@@ -1,0 +1,10 @@
+{
+  "uuid": "baca349a-d185-4af4-b3af-e3533da60edf",
+  "issue_uuid": "b88acfc3-0846-4988-8dc8-4f00bf19b98f",
+  "author": "y4rr",
+  "content": "Restored ops/higher_order.rs from git and made it the canonical cond/scan implementation. Applied the backward correctness fix in-place: CondBackward now holds a single 'branch_output' field (was operands+predicate+output_index+branch_outputs Vec), ScanBackward holds a single 'target' field (was carries+xs+outputs Vec + OutputKind enum). Dropped the now-vestigial CondBranch and OutputKind enums — the held tensor encodes the role. Wired into the public API via lib.rs/autograd::mod.rs (autograd::{cond, scan, validate_cond_branches} now re-exports from crate::ops::higher_order). Deleted autograd/cond_scan.rs (640 lines). Ported 4 gradient-value tests adapted to the tensor-predicate API. Total ops::higher_order tests now 24 (20 from the original file + 4 ported gradient-value tests). Public API is now PyTorch-style: cond takes &Tensor<T> (scalar > 0.5 = true) instead of bool. Gates: fmt clean, clippy --all-targets -D warnings clean, 1257 unit + 26 integration tests pass, whole-workspace check clean.",
+  "created_at": "2026-05-02T17:07:20.014980445Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAA8CBhe2zuK2+ilhkUU7SFIntMR6y2KLupaW7JHcDhX0k3A0PZCkX7pNCqbz4QChP5pAY119RWfbn4JewBlmEDQ=="
+}
