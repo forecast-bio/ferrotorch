@@ -3,11 +3,12 @@
   "display_id": 572,
   "title": "Tracking: ferray + ferrolearn integration roadmap (umbrella for #564-#571)",
   "description": "Umbrella issue tracking the phased ferray + ferrolearn integration work. Source audit: docs/audit/16-ferray-ferrolearn-integration.md.\n\nPhase 1 (immediate, ferray subcrates already published):\n- #564 Phase 1A: ferray-fft -> ferrotorch-core::fft (10 missing fft fns)\n- #565 Phase 1B: ferray-linalg eig/lstsq/lu/etc. -> ferrotorch-core::linalg + cuSOLVER GPU dispatch (~25 fns) — biggest single API gap\n- #566 Phase 1C: ferray-window -> ferrotorch-core::signal::windows (torch.signal.windows top-level gap)\n- #567 Phase 1D: ferray-polynomial -> ferrotorch-core::special polynomial families\n- #568 Phase 1E: ferray-stride-tricks -> Tensor::as_strided + as_strided_copy/scatter\n\nPhase 2 (medium, broader features):\n- #569 Phase 2A: ferray-ma -> ferrotorch-core::masked (torch.masked top-level gap)\n- #570 Phase 2B: feature-gated ferray-numpy-interop -> ferrotorch-data Arrow/Polars interop\n\nPhase 3 (new crate, sklearn bridge):\n- #571 Phase 3: create ferrotorch-ml workspace crate (Tensor <-> ndarray adapter for ferrolearn metrics/preprocess/CV/decomposition)\n\nCross-cutting GPU discipline (applies to every phase):\n- Each issue includes explicit /rust-gpu-discipline pre-flight: forbidden patterns, mechanical verification, honest reporting.\n- Forbidden across the board: silent t.to(Cpu) inside compute functions, then back to device. ferray and ferrolearn are CPU-only — that's fine, but the boundary must be visible to the caller.\n- Phase 1B (linalg) is the only phase that REQUIRES new GPU code (cuSOLVER dispatch via existing ferrotorch-gpu::cusolver). The other phases are CPU-with-explicit-error-on-GPU.\n\nPhases can land independently. Recommended order: 1A and 1E first (small, no GPU work), then 1B (biggest impact, needs GPU plumbing), then 1C/1D/2A/2B in parallel, then Phase 3 once the core surface stabilizes.\n\nReference docs/audit/README.md and docs/audit/16-ferray-ferrolearn-integration.md for context.",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-01T13:26:15.871095169Z",
-  "updated_at": "2026-05-01T13:26:17.234813538Z",
+  "updated_at": "2026-05-02T00:41:59.956284951Z",
+  "closed_at": "2026-05-02T00:41:59.956284951Z",
   "labels": [
     "tracking"
   ]
