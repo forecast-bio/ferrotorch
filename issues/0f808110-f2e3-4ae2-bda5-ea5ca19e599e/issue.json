@@ -3,9 +3,10 @@
   "display_id": 630,
   "title": "GPU lstsq via cuSOLVER cusolverDnXgels",
   "description": "Spun out from #604 partial close. Need device-resident gpu_lstsq_f32/f64 wrapping cusolverDnXgels (cuSOLVER 11.0+). Mirrors torch.linalg.lstsq. Inputs (A: m×n, B: m×nrhs) → outputs (X: n×nrhs).",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-02T01:22:27.780714284Z",
-  "updated_at": "2026-05-02T01:22:27.780714284Z"
+  "updated_at": "2026-05-02T02:10:27.140740517Z",
+  "closed_at": "2026-05-02T02:10:27.140740517Z"
 }
