@@ -1,0 +1,10 @@
+{
+  "uuid": "d2d0e1ad-9b40-4fa9-a208-30bdcf6d0b6d",
+  "issue_uuid": "9a2e323a-ede4-4743-83a2-8871823c9333",
+  "author": "y4rr",
+  "content": "Reviewing ferrotorch-gpu against rust-quality + rust-gpu-discipline. Findings to follow in chat — not committing changes from this review.",
+  "created_at": "2026-05-02T18:16:19.965035030Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAeKmeT232QH2ZWPt3c804KQw9blTkZCFq8CfQ2h3rXDO7hLd5lIKl7zt7pnYAuj3FzFEr/r0EJFVdkDYM4Q8LDA=="
+}
