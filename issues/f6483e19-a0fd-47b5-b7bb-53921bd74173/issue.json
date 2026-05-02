@@ -1,0 +1,10 @@
+{
+  "uuid": "f6483e19-a0fd-47b5-b7bb-53921bd74173",
+  "display_id": 640,
+  "title": "Fix autograd cond/scan backward; wire fast_log_f32 into log_softmax CPU; delete dead BroadcastScalarBackward.numel",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-02T16:43:56.470279469Z",
+  "updated_at": "2026-05-02T16:43:56.470279469Z"
+}
