@@ -2,11 +2,12 @@
   "uuid": "92b1ee0e-0138-491c-8890-ad125363ab45",
   "display_id": 532,
   "title": "internal tooling",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-25T04:26:49.451621241Z",
-  "updated_at": "2026-04-25T04:26:50.988543104Z",
+  "updated_at": "2026-05-02T01:58:10.264199771Z",
+  "closed_at": "2026-05-02T01:58:10.264199771Z",
   "labels": [
     "feature"
   ]
