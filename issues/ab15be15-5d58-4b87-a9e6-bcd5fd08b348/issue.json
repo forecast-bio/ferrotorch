@@ -2,11 +2,12 @@
   "uuid": "ab15be15-5d58-4b87-a9e6-bcd5fd08b348",
   "display_id": 608,
   "title": "Distribution properties tail: implement cdf/icdf/mean/etc on remaining 17 distributions",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-01T19:41:26.998355421Z",
-  "updated_at": "2026-05-01T19:41:28.343749870Z",
+  "updated_at": "2026-05-02T00:02:54.326364939Z",
+  "closed_at": "2026-05-02T00:02:54.326364939Z",
   "labels": [
     "feature"
   ]
