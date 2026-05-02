@@ -2,11 +2,12 @@
   "uuid": "7214ed1a-2b4f-47ef-84c0-a7efa5283e91",
   "display_id": 544,
   "title": "ShadowLlm train+save+integrate end-to-end on 1.5M trace",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-04-25T17:18:32.702102940Z",
-  "updated_at": "2026-04-25T17:18:34.071657501Z",
+  "updated_at": "2026-05-02T01:58:24.407864513Z",
+  "closed_at": "2026-05-02T01:58:24.407864513Z",
   "labels": [
     "rust"
   ]
