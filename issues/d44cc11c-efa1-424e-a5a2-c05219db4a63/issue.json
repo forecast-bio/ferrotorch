@@ -1,0 +1,10 @@
+{
+  "uuid": "d44cc11c-efa1-424e-a5a2-c05219db4a63",
+  "display_id": 660,
+  "title": "Phase 1 ADR: [workspace.lints] table baseline + per-crate damage estimate",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-02T21:29:51.653846933Z",
+  "updated_at": "2026-05-02T21:29:51.653846933Z"
+}
