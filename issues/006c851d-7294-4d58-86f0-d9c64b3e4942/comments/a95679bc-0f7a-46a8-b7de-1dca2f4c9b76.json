@@ -1,0 +1,10 @@
+{
+  "uuid": "a95679bc-0f7a-46a8-b7de-1dca2f4c9b76",
+  "issue_uuid": "006c851d-7294-4d58-86f0-d9c64b3e4942",
+  "author": "y4rr",
+  "content": "ADR delivered. Proposes two helpers in new ferrotorch-core/src/cast.rs: cast<T: NumCast>(x: f64) -> FerrotorchResult<T> and to_f64<T: ToPrimitive>(v: T) -> FerrotorchResult<f64>, both reusing FerrotorchError::InvalidArgument (NO new variant — avoids §4 coordination). Re-exported at crate root. Grep-validated ~985 site total, ~845 actual migration sites. Worked example: ferrotorch-distributions/src/normal.rs. Key insight: hot-path inner-loop functions (lgamma_scalar, digamma_scalar in special_fns.rs) should KEEP T::from(literal).expect('invariant: …') instead of migrating, because cascading Result through their signatures would force ~15 distribution functions to all become Result-returning. 4 open questions for user: (1) hot-path signature policy, (2) to_f64 vs to_t generalization, (3) prelude placement, (4) type_name() vs custom dtype_name() in error messages. No applied edits.",
+  "created_at": "2026-05-02T21:39:46.720068625Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGLzS9EvGihKbDLdn2DT4FYuEYLLA/SH5hqAuuT4fHH+CAggJUXSJLYi5YjC5NnCGmneS6sKe/jGXD0BtHhZaBg=="
+}
