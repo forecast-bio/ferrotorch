@@ -1,0 +1,10 @@
+{
+  "uuid": "1056fd34-ef4b-46f3-8084-184f83ef052d",
+  "issue_uuid": "4e3858c5-968b-429c-9c2d-e7493b7a0209",
+  "author": "y4rr",
+  "content": "Fixed all 3 'out of scope' findings from #672 follow-up. #673 (XPU storage redesign): dispatched sonnet subagent — added StorageBuffer::Cubecl variant, CubeStorageHandle trait, real H2D/D2H in TensorStorage::xpu_from_handle, Tensor::data() errors on XPU storage (PyTorch parity). All 13 portable_* ops now route handle-direct when inputs already on device. make_xpu_tensor single-allocation. New test xpu_chained_ops_stay_on_device verifies no host round-trips for intermediates. #674 (polynomial xpu wrappers): added xpu_polynomial! macro + 8 wrappers (chebyshev T/U/V/W, hermite H/He, laguerre L, legendre P) + stubs + 3 tests. Pre-existing no-feature warnings from #673 cleaned up (Arc/TensorStorage/check_xpu_tensor wgpu-gated). All verifications PASS: workspace build, all-features clippy -D warnings (both feature sets), workspace test, fmt. Phase 2 §3-violation cluster on XPU axis fully closed. ADR #663 items 5/6/7/8 still pending.",
+  "created_at": "2026-05-03T02:08:57.468399942Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAy+jrHwo6PRL8Qo/66cPF+lIBDwzSWKb8z4uyPesoS3yDO+ZRiBmZen4KXGvSpBDBzNwKTVlXchthb2OdBQ5jAg=="
+}
