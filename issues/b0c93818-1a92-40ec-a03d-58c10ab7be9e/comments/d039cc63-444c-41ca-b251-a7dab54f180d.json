@@ -1,0 +1,10 @@
+{
+  "uuid": "d039cc63-444c-41ca-b251-a7dab54f180d",
+  "issue_uuid": "b0c93818-1a92-40ec-a03d-58c10ab7be9e",
+  "author": "y4rr",
+  "content": "Audit follow-up #4/5 optim-B (#693) APPROVE — opus 4.7 closed the SAFETY annotation sweep across 16 optim files (excluding adam.rs). 5 patterns established (E1 foreach update_storage, E2 legacy update_data, E3 EMA/SWA apply_*, E4 test-side simulated step with shared module note + 24 per-site one-liners, X1 lbfgs raw-pointer test reborrows). 16 boilerplate sites rewritten (e.g., the 'optimizer step inside no_grad, exclusive access' anti-pattern from adamw.rs:252) → substantive multi-clause invariants naming &mut self/&self provenance, no_grad guard, owned-Vec inputs, device/numel match. 5 sites flagged for follow-up (filed as #694) where invariant is honest but API shape is suspect. 322/322 optim tests PASS, workspace build PASS, fmt clean, optim-scoped clippy clean. Architect-mode running tally: 11 dispatches total, 9 clean APPROVEs (mps, distributions, item 8 with 1 redirect, core-2a, core-2b, vision-A, vision-B, optim-A round 2, optim-B), 2 truncations (core-1, optim-A-1) both resolved via continuation. Crates done: 1/5 mps, 2/5 core, 3/5 vision, 4/5 optim (A+B done; optim-C remaining is the 123-site NumCast cluster). Pattern: opus reliably handles ~50-90 site mechanical-with-judgment sweeps in single round when no architectural cascades are bundled. Next: optim-C (123-site NumCast migration, mirrors vision-A's pattern), then crate 5/5 (ferrotorch-llama).",
+  "created_at": "2026-05-03T17:22:44.699830139Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAv3vGTOrwh3YEL+cTwnWzUFTjBJOTiYEVeHIfAtMOQ8rzW+On7d+ijgPdGDU0YzUNxMYC2xJ1vq49AVaSkYDFAw=="
+}
