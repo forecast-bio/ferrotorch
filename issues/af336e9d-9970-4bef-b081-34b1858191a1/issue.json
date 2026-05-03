@@ -6,5 +6,8 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-03T21:02:28.669733472Z",
-  "updated_at": "2026-05-03T21:02:28.669733472Z"
+  "updated_at": "2026-05-03T21:02:29.945004813Z",
+  "labels": [
+    "rust,gpu,audit-followup,gpu-discipline"
+  ]
 }
