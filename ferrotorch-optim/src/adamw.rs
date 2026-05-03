@@ -10,7 +10,9 @@
 //! (ICLR 2019).
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -22,6 +24,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for the [`AdamW`] optimizer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct AdamWConfig {
     /// Learning rate (default: 0.001).
     pub lr: f64,
@@ -181,22 +184,23 @@ impl<T: Float> AdamW<T> {
                         grad_tensor.clone()
                     };
 
-                    // Initialize state if first step.
-                    let next_step = {
-                        let st = self.foreach_state.entry(key.clone()).or_insert_with(|| {
-                            AdamWForeachState {
+                    // Initialize state if first step. Use `Entry::Vacant`
+                    // + explicit `?` propagation rather than
+                    // `or_insert_with` (whose closure cannot return
+                    // `Result`); a fallible zeros / .to(device) here
+                    // would otherwise have to panic.
+                    let next_step = match self.foreach_state.entry(key.clone()) {
+                        Entry::Vacant(slot) => {
+                            let exp_avg = zeros::<T>(param_t.shape())?.to(device)?;
+                            let exp_avg_sq = zeros::<T>(param_t.shape())?.to(device)?;
+                            slot.insert(AdamWForeachState {
                                 step_count: 0,
-                                exp_avg: zeros::<T>(param_t.shape())
-                                    .expect("zeros allocation")
-                                    .to(device)
-                                    .expect("zeros to device"),
-                                exp_avg_sq: zeros::<T>(param_t.shape())
-                                    .expect("zeros allocation")
-                                    .to(device)
-                                    .expect("zeros to device"),
-                            }
-                        });
-                        st.step_count + 1
+                                exp_avg,
+                                exp_avg_sq,
+                            });
+                            1
+                        }
+                        Entry::Occupied(slot) => slot.get().step_count + 1,
                     };
 
                     // Read current moment tensors.
@@ -204,16 +208,16 @@ impl<T: Float> AdamW<T> {
                     let exp_avg_sq_old = self.foreach_state[&key].exp_avg_sq.clone();
 
                     // exp_avg = beta1 * exp_avg + (1 - beta1) * grad
-                    let beta1_t = scalar(T::from(beta1).unwrap())?.to(device)?;
-                    let one_minus_beta1 = scalar(T::from(1.0 - beta1).unwrap())?.to(device)?;
+                    let beta1_t = scalar(cast::<f64, T>(beta1)?)?.to(device)?;
+                    let one_minus_beta1 = scalar(cast::<f64, T>(1.0 - beta1)?)?.to(device)?;
                     let exp_avg_new = add(
                         &mul(&exp_avg_old, &beta1_t)?,
                         &mul(&grad, &one_minus_beta1)?,
                     )?;
 
                     // exp_avg_sq = beta2 * exp_avg_sq + (1 - beta2) * grad^2
-                    let beta2_t = scalar(T::from(beta2).unwrap())?.to(device)?;
-                    let one_minus_beta2 = scalar(T::from(1.0 - beta2).unwrap())?.to(device)?;
+                    let beta2_t = scalar(cast::<f64, T>(beta2)?)?.to(device)?;
+                    let one_minus_beta2 = scalar(cast::<f64, T>(1.0 - beta2)?)?.to(device)?;
                     let grad_sq = mul(&grad, &grad)?;
                     let exp_avg_sq_new = add(
                         &mul(&exp_avg_sq_old, &beta2_t)?,
@@ -223,22 +227,22 @@ impl<T: Float> AdamW<T> {
                     // Bias-corrected moments. m_hat = exp_avg / (1 - beta1^t)
                     let bc1 = 1.0 - beta1.powi(next_step as i32);
                     let bc2 = 1.0 - beta2.powi(next_step as i32);
-                    let inv_bc1 = scalar(T::from(1.0 / bc1).unwrap())?.to(device)?;
-                    let inv_bc2 = scalar(T::from(1.0 / bc2).unwrap())?.to(device)?;
+                    let inv_bc1 = scalar(cast::<f64, T>(1.0 / bc1)?)?.to(device)?;
+                    let inv_bc2 = scalar(cast::<f64, T>(1.0 / bc2)?)?.to(device)?;
                     let m_hat = mul(&exp_avg_new, &inv_bc1)?;
                     let v_hat = mul(&exp_avg_sq_new, &inv_bc2)?;
 
                     // sqrt(v_hat) + eps
                     let sqrt_v = sqrt(&v_hat)?;
-                    let eps_t = scalar(T::from(config.eps).unwrap())?.to(device)?;
+                    let eps_t = scalar(cast::<f64, T>(config.eps)?)?.to(device)?;
                     let denom = add(&sqrt_v, &eps_t)?;
                     let update = div(&m_hat, &denom)?;
 
                     // Decoupled weight decay: param *= (1 - lr * wd)
                     // Then param -= lr * update.
-                    let decay_factor = T::from(1.0 - group_lr * group_wd).unwrap();
+                    let decay_factor = cast::<f64, T>(1.0 - group_lr * group_wd)?;
                     let decay_t = scalar(decay_factor)?.to(device)?;
-                    let lr_t = scalar(T::from(group_lr).unwrap())?.to(device)?;
+                    let lr_t = scalar(cast::<f64, T>(group_lr)?)?.to(device)?;
 
                     let decayed = mul(param_t, &decay_t)?;
                     let scaled_update = mul(&update, &lr_t)?;
@@ -246,12 +250,42 @@ impl<T: Float> AdamW<T> {
 
                     // Commit param update.
                     let (storage, _) = new_param.into_storage_and_shape()?;
-                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    // SAFETY: `update_storage` requires exclusive access to
+                    // the parameter's storage Arc.
+                    //  1. The enclosing `step_foreach` is called from
+                    //     `Optimizer::step` under `&mut self` on the AdamW,
+                    //     so no other clone of this optimiser is concurrently
+                    //     iterating its param groups.
+                    //  2. This entire block runs inside the `no_grad` closure
+                    //     started further up (see `no_grad(|| { ... })?` that
+                    //     wraps the foreach loop), preventing any autograd
+                    //     `grad_fn` from cloning `param_t`'s storage Arc.
+                    //  3. `param_t` was cloned from the parameter once at the
+                    //     top of this iteration; the only outstanding
+                    //     references into the original storage are the
+                    //     gradient tensor and the temporaries (`decayed`,
+                    //     `scaled_update`, `new_param`) that were just
+                    //     produced as owned tensors with their own storage,
+                    //     and `new_param` was just consumed by
+                    //     `into_storage_and_shape`.
+                    //  4. `new_param` was produced by ops dispatched on the
+                    //     parameter's `device`, so the new `storage` matches
+                    //     the parameter's device; numel matches because
+                    //     `mul`/`sub` preserve shape.
                     unsafe { param_t.update_storage(storage)? };
 
-                    // Commit state ONLY after the parameter update succeeded,
-                    // matching the legacy path's failure semantics.
-                    let st = self.foreach_state.get_mut(&key).unwrap();
+                    // Commit state ONLY after the parameter update
+                    // succeeded, matching the legacy path's failure
+                    // semantics. The slot was just inserted (or
+                    // pre-existed) above by the `Entry::Vacant`/`Occupied`
+                    // match — `&mut self` ensures no concurrent mutation.
+                    let st = self.foreach_state.get_mut(&key).ok_or_else(|| {
+                        FerrotorchError::Internal {
+                            message: format!(
+                                "adamw foreach: state slot for {key} disappeared mid-step"
+                            ),
+                        }
+                    })?;
                     st.step_count = next_step;
                     st.exp_avg = exp_avg_new;
                     st.exp_avg_sq = exp_avg_sq_new;
@@ -297,13 +331,13 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                 let param_data: Vec<f64> = tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let mut grad_data: Vec<f64> = grad_tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
 
                 // Maximize: negate gradient. CL-321
                 if config.maximize {
@@ -364,9 +398,9 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                         let v_hat = exp_avg_sq_new[i] / bc2;
                         let decayed = param_data[i] * decay_factor;
                         let updated = decayed - group_lr * m_hat / (v_hat.sqrt() + config.eps);
-                        T::from(updated).unwrap()
+                        cast::<f64, T>(updated)
                     })
-                    .collect();
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
 
                 // ----------------------------------------------------------
                 // Write the parameter update. Only commit state AFTER this

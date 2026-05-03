@@ -25,6 +25,7 @@
 //!
 //! # CL-321
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -212,7 +213,7 @@ impl<T: Float> AveragedModel<T> {
             match self.strategy {
                 AveragingStrategy::Swa => {
                     // avg = avg + (param - avg) / (n + 1)
-                    let n_plus_1 = T::from(self.n_averaged + 1).unwrap();
+                    let n_plus_1 = cast::<u64, T>(self.n_averaged + 1)?;
                     for (avg, param) in self.averaged_params.iter_mut().zip(params.iter()) {
                         let param_data = param.data()?;
                         for (a, &p) in avg.iter_mut().zip(param_data.iter()) {
@@ -221,8 +222,8 @@ impl<T: Float> AveragedModel<T> {
                     }
                 }
                 AveragingStrategy::Ema(decay) => {
-                    let decay_t = T::from(decay).unwrap();
-                    let one_minus_decay_t = T::from(1.0 - decay).unwrap();
+                    let decay_t = cast::<f64, T>(decay)?;
+                    let one_minus_decay_t = cast::<f64, T>(1.0 - decay)?;
                     for (avg, param) in self.averaged_params.iter_mut().zip(params.iter()) {
                         let param_data = param.data()?;
                         for (a, &p) in avg.iter_mut().zip(param_data.iter()) {
@@ -312,7 +313,36 @@ impl<T: Float> AveragedModel<T> {
                 for (avg, param) in self.averaged_tensors.iter().zip(params.iter()) {
                     let avg_clone = avg.clone();
                     let (storage, _) = avg_clone.into_storage_and_shape()?;
-                    // SAFETY: inside no_grad, exclusive access.
+                    // SAFETY: `update_storage` swaps the parameter's storage
+                    // Arc; sole-writer required.
+                    //  1. `apply_to(&self, params)` borrows `self` shared,
+                    //     but the *exclusivity* requirement is on the
+                    //     parameter's storage, not on this SWA instance.
+                    //     The caller passes `params: &[Parameter<T>]`
+                    //     (a shared slice) and is responsible for not
+                    //     holding any other live handle that observes
+                    //     `params[i].tensor()`'s storage during this call —
+                    //     the same contract as `update_data`/`update_storage`
+                    //     on the underlying `Tensor`.
+                    //  2. We are inside `no_grad`, so no autograd `grad_fn`
+                    //     records a clone of the param's storage Arc as
+                    //     part of this swap.
+                    //  3. `avg_clone` is a fresh clone of the averaged
+                    //     tensor, disjoint from any parameter's storage;
+                    //     `into_storage_and_shape` consumes `avg_clone` and
+                    //     yields the storage we install into the param.
+                    //  4. `self.averaged_tensors[i]` was constructed on the
+                    //     parameter's device in `update_parameters_foreach`
+                    //     so device + numel match.
+                    //
+                    // FOLLOW-UP: `apply_to(&self, ..)` mutates parameter
+                    // storage through a shared receiver, mirroring the
+                    // `update_data(&self)` shape on `Tensor`. Consider
+                    // tightening this to `&mut self` (or threading a
+                    // dedicated `ParameterMut` handle) so the caller
+                    // contract is enforced by the borrow checker rather
+                    // than documented prose. Same shape applies to the
+                    // legacy path below.
                     unsafe { param.tensor().update_storage(storage)? };
                 }
                 Ok::<(), ferrotorch_core::FerrotorchError>(())
@@ -323,6 +353,18 @@ impl<T: Float> AveragedModel<T> {
         assert_eq!(params.len(), self.averaged_params.len());
 
         for (avg, param) in self.averaged_params.iter().zip(params.iter()) {
+            // SAFETY: `update_data` writes through `Arc::as_ptr`. Same
+            // contract as the foreach branch above:
+            //  1. The caller of `apply_to` is responsible for ensuring no
+            //     other handle observes the parameter's storage during
+            //     this call (we receive `params: &[Parameter<T>]` shared,
+            //     so the borrow checker enforces no concurrent mutation
+            //     through `Parameter`'s safe API; the unsafe path bypasses
+            //     this and relies on the documented contract on
+            //     `Tensor::update_data`).
+            //  2. The `no_grad` closure suppresses `grad_fn` recording.
+            //  3. `avg: &Vec<T>` borrows from `self.averaged_params` and
+            //     is disjoint from any parameter's storage.
             no_grad(|| unsafe { param.tensor().update_data(avg) })?;
         }
 
@@ -457,6 +499,27 @@ mod tests {
     use super::*;
     use crate::optimizer::{OptimizerState, ParamGroup};
 
+    // ---- SAFETY note shared by all `update_data` test sites below --------
+    //
+    // Each test that uses `no_grad(|| unsafe { p.tensor().update_data(&[..]) })`
+    // is simulating "an optimizer step has changed the parameter" before
+    // driving SWA logic. The call requires sole-writer access to `p`'s
+    // storage:
+    //  1. Each `Parameter<T>` is constructed locally in the test (e.g. via
+    //     `Parameter::from_slice`/`Parameter::zeros`); the only outstanding
+    //     handles are `p` itself plus the shared slices passed to SWA
+    //     methods (`std::slice::from_ref(&p)`, `&[p]`).
+    //  2. The `no_grad` closure suppresses autograd `grad_fn` recording for
+    //     the write — no node retains a clone of the storage Arc.
+    //  3. `AveragedModel` keeps its averaged state in disjoint
+    //     `Vec<T>` / `Tensor<T>` storages and never aliases parameter
+    //     storage.
+    //  4. Each test runs single-threaded relative to its own parameters;
+    //     `cargo test` may schedule tests in parallel, but each test owns
+    //     its own `Parameter`s.
+    // Per-site comments below cite this block by name where they need to
+    // point out anything site-specific.
+
     // -----------------------------------------------------------------------
     // Mock optimizer for scheduler tests
     // -----------------------------------------------------------------------
@@ -514,6 +577,7 @@ mod tests {
         let mut avg = AveragedModel::new(std::slice::from_ref(&p), AveragingStrategy::Swa);
 
         // Change param before first update.
+        // SAFETY: see test-module note above; `p` is local to this test.
         no_grad(|| unsafe { p.tensor().update_data(&[10.0f32, 20.0, 30.0]) }).unwrap();
         avg.update_parameters(&[p]).unwrap();
 
@@ -530,11 +594,13 @@ mod tests {
         let mut avg = AveragedModel::new(std::slice::from_ref(&p), AveragingStrategy::Swa);
 
         // Update 1: param = 1
+        // SAFETY: see test-module note above; `p` is local to this test.
         no_grad(|| unsafe { p.tensor().update_data(&[1.0f32]) }).unwrap();
         avg.update_parameters(std::slice::from_ref(&p)).unwrap();
         assert!((avg.averaged_params()[0][0] - 1.0).abs() < 1e-6);
 
         // Update 2: param = 3
+        // SAFETY: see test-module note above; `p` is local to this test.
         no_grad(|| unsafe { p.tensor().update_data(&[3.0f32]) }).unwrap();
         avg.update_parameters(std::slice::from_ref(&p)).unwrap();
         // avg = 1 + (3 - 1) / 2 = 2
@@ -545,6 +611,7 @@ mod tests {
         );
 
         // Update 3: param = 6
+        // SAFETY: see test-module note above; `p` is local to this test.
         no_grad(|| unsafe { p.tensor().update_data(&[6.0f32]) }).unwrap();
         avg.update_parameters(&[p]).unwrap();
         // avg = 2 + (6 - 2) / 3 = 10/3 ≈ 3.333
@@ -581,11 +648,13 @@ mod tests {
         let mut avg = AveragedModel::new(std::slice::from_ref(&p), AveragingStrategy::Ema(0.5));
 
         // Update 1 (first call copies): avg = 10
+        // SAFETY: see test-module note above; `p` is local to this test.
         no_grad(|| unsafe { p.tensor().update_data(&[10.0f32]) }).unwrap();
         avg.update_parameters(std::slice::from_ref(&p)).unwrap();
         assert!((avg.averaged_params()[0][0] - 10.0).abs() < 1e-6);
 
         // Update 2: avg = 0.5 * 10 + 0.5 * 20 = 15
+        // SAFETY: see test-module note above; `p` is local to this test.
         no_grad(|| unsafe { p.tensor().update_data(&[20.0f32]) }).unwrap();
         avg.update_parameters(&[p]).unwrap();
         assert!(
@@ -607,6 +676,7 @@ mod tests {
         // Update with [1, 2], then [3, 4].
         avg.update_parameters(std::slice::from_ref(&p)).unwrap();
 
+        // SAFETY: see test-module note above; `p` is local to this test.
         no_grad(|| unsafe { p.tensor().update_data(&[3.0f32, 4.0]) }).unwrap();
         avg.update_parameters(std::slice::from_ref(&p)).unwrap();
         // avg = [1, 2] + ([3, 4] - [1, 2]) / 2 = [2, 3]
@@ -776,7 +846,10 @@ mod tests {
 
         for step in 0..5 {
             let new_vals: Vec<f32> = (0..4).map(|i| 1.0 + i as f32 + step as f32).collect();
+            // SAFETY: see test-module note above; `p_legacy` and `p_foreach`
+            // are disjoint local parameters with their own storage Arcs.
             no_grad(|| unsafe { p_legacy.tensor().update_data(&new_vals) }).unwrap();
+            // SAFETY: see test-module note above; `p_foreach` is local.
             no_grad(|| unsafe { p_foreach.tensor().update_data(&new_vals) }).unwrap();
 
             legacy
@@ -813,7 +886,10 @@ mod tests {
         for step in 0..6 {
             let v = 10.0 + step as f32;
             let new_vals = vec![v, v + 1.0, v + 2.0];
+            // SAFETY: see test-module note above; `p_legacy` and `p_foreach`
+            // are disjoint local parameters with their own storage Arcs.
             no_grad(|| unsafe { p_legacy.tensor().update_data(&new_vals) }).unwrap();
+            // SAFETY: see test-module note above; `p_foreach` is local.
             no_grad(|| unsafe { p_foreach.tensor().update_data(&new_vals) }).unwrap();
 
             legacy
@@ -844,6 +920,7 @@ mod tests {
         avg.update_parameters(std::slice::from_ref(&p)).unwrap();
 
         // Step 2: param = [2, 4]. avg = 10 + (2 - 10)/2 = 6; 20 + (4-20)/2 = 12
+        // SAFETY: see test-module note above; `p` is local to this test.
         no_grad(|| unsafe { p.tensor().update_data(&[2.0f32, 4.0]) }).unwrap();
         avg.update_parameters(std::slice::from_ref(&p)).unwrap();
 

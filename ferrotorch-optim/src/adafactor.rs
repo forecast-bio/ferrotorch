@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -19,6 +20,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for the Adafactor optimizer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct AdafactorConfig {
     /// Learning rate (default: None = use relative step size).
     pub lr: Option<f64>,
@@ -197,8 +199,8 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                     // Weight decay.
                     if config.weight_decay != 0.0 {
                         for slot in &mut new_param[..numel] {
-                            let p = num_traits::ToPrimitive::to_f64(slot).unwrap();
-                            *slot = T::from(p * (1.0 - lr * config.weight_decay)).unwrap();
+                            let p = cast::<T, f64>(*slot)?;
+                            *slot = cast::<f64, T>(p * (1.0 - lr * config.weight_decay))?;
                         }
                     }
 
@@ -257,8 +259,8 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                                 g / (v_est.sqrt() + 1e-30)
                             };
 
-                            let p = num_traits::ToPrimitive::to_f64(&new_param[i]).unwrap();
-                            new_param[i] = T::from(p - lr * update).unwrap();
+                            let p = cast::<T, f64>(new_param[i])?;
+                            new_param[i] = cast::<f64, T>(p - lr * update)?;
                         }
                     } else {
                         // Non-factored: full second moment.
@@ -273,8 +275,8 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                                 g / (state.full_sq[i].sqrt() + 1e-30)
                             };
 
-                            let p = num_traits::ToPrimitive::to_f64(&new_param[i]).unwrap();
-                            new_param[i] = T::from(p - lr * update).unwrap();
+                            let p = cast::<T, f64>(new_param[i])?;
+                            new_param[i] = cast::<f64, T>(p - lr * update)?;
                         }
                     }
 
@@ -288,6 +290,20 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                         .sum();
                     state.rms = (sum_sq / numel as f64).sqrt();
 
+                    // SAFETY: `update_data` writes through `Arc::as_ptr`;
+                    // sole-writer required.
+                    //  1. `Adafactor::step(&mut self)` is the unique mutable
+                    //     handle to this optimiser; the per-(gi, pi) loop is
+                    //     sequential.
+                    //  2. The closure body sits inside the `no_grad` closure
+                    //     started above (line 195), so no autograd `grad_fn`
+                    //     will clone the storage Arc as a side effect.
+                    //  3. The earlier `param.data_vec()` read returned an
+                    //     owned `Vec<T>` (`param_data`) which was cloned
+                    //     into `new_param`; both are owned `Vec`s
+                    //     independent of the parameter's storage. No live
+                    //     `&[T]` / `&mut [T]` borrow into the storage
+                    //     remains.
                     unsafe { param.tensor().update_data(&new_param)? };
                     Ok(())
                 })?;

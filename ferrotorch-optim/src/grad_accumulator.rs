@@ -16,6 +16,7 @@
 //! ```
 
 use ferrotorch_core::grad_fns::arithmetic;
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor, scalar};
 
 /// Manages gradient accumulation across multiple micro-batches.
@@ -65,7 +66,7 @@ impl GradientAccumulator {
     ///
     /// Returns `loss / accumulation_steps`.
     pub fn scale_loss<T: Float>(&self, loss: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        let scale = scalar(T::from(1.0 / self.accumulation_steps as f64).unwrap())?;
+        let scale = scalar(cast::<f64, T>(1.0 / self.accumulation_steps as f64)?)?;
         arithmetic::mul(loss, &scale)
     }
 

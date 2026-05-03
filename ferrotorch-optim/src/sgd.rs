@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -25,6 +26,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Configuration for the SGD optimizer.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SgdConfig {
     /// Learning rate.
     pub lr: f64,
@@ -188,7 +190,7 @@ impl<T: Float> Sgd<T> {
                         grad = neg(&grad)?;
                     }
                     if group_wd > 0.0 {
-                        let wd_t = scalar(T::from(group_wd).unwrap())?.to(device)?;
+                        let wd_t = scalar(cast::<f64, T>(group_wd)?)?.to(device)?;
                         let weighted = mul(param_t, &wd_t)?;
                         grad = add(&grad, &weighted)?;
                     }
@@ -202,9 +204,9 @@ impl<T: Float> Sgd<T> {
                             grad.clone()
                         } else {
                             // buf = momentum * buf + (1 - dampening) * grad
-                            let mom_t = scalar(T::from(momentum).unwrap())?.to(device)?;
+                            let mom_t = scalar(cast::<f64, T>(momentum)?)?.to(device)?;
                             let damp_coeff =
-                                scalar(T::from(1.0 - dampening).unwrap())?.to(device)?;
+                                scalar(cast::<f64, T>(1.0 - dampening)?)?.to(device)?;
                             let prev_buf = self
                                 .foreach_buffers
                                 .get(&key)
@@ -220,7 +222,7 @@ impl<T: Float> Sgd<T> {
 
                         if nesterov {
                             // grad = grad + momentum * buf
-                            let mom_t = scalar(T::from(momentum).unwrap())?.to(device)?;
+                            let mom_t = scalar(cast::<f64, T>(momentum)?)?.to(device)?;
                             let mom_buf = mul(&buf, &mom_t)?;
                             add(&grad, &mom_buf)?
                         } else {
@@ -231,15 +233,34 @@ impl<T: Float> Sgd<T> {
                     };
 
                     // Step 3: param = param - lr * effective_grad
-                    let lr_t = scalar(T::from(group_lr).unwrap())?.to(device)?;
+                    let lr_t = scalar(cast::<f64, T>(group_lr)?)?.to(device)?;
                     let scaled = mul(&effective_grad, &lr_t)?;
                     let new_param = sub(param_t, &scaled)?;
 
                     // Commit by swapping the underlying storage on the same
                     // device. update_storage is GPU-native — no round-trip.
                     let (storage, _) = new_param.into_storage_and_shape()?;
-                    // SAFETY: optimizer step runs inside no_grad with exclusive
-                    // access to the parameter, so no aliasing references exist.
+                    // SAFETY: Replacing the param tensor's storage requires
+                    // that no other live handle observe the storage during
+                    // the swap.
+                    //  1. `Sgd::step_foreach` is reachable only from
+                    //     `Optimizer::step(&mut self)`, so this `Sgd<T>`
+                    //     instance is uniquely borrowed for the whole step.
+                    //  2. The enclosing block runs inside `no_grad(...)`
+                    //     (started above the per-param loop), so no
+                    //     `grad_fn` is being recorded that could clone the
+                    //     parameter's storage Arc.
+                    //  3. `param_t` was cloned from `param.tensor()` at the
+                    //     top of this iteration; the temporaries built from
+                    //     it (`scaled`, `new_param`) hold their own
+                    //     independent storage and `new_param` was just
+                    //     consumed by `into_storage_and_shape`, so no live
+                    //     `&mut` / `&` borrow into the parameter's storage
+                    //     remains.
+                    //  4. The new `storage` was produced by
+                    //     `mul`/`sub` dispatched on `param_t`'s device, so
+                    //     device + numel match `param_t`'s tensor view
+                    //     (numel is also re-checked inside `update_storage`).
                     unsafe { param_t.update_storage(storage)? };
                     Ok::<(), ferrotorch_core::FerrotorchError>(())
                 })?;
@@ -281,15 +302,16 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
 
                 // Maximize: negate gradient. CL-321
                 if self.config.maximize {
+                    let zero_t = cast::<f64, T>(0.0)?;
                     for g in grad_data.iter_mut() {
-                        *g = T::from(0.0).unwrap() - *g;
+                        *g = zero_t - *g;
                     }
                 }
 
                 // Weight decay: grad = grad + weight_decay * param
                 let wd = group_wd;
                 if wd > 0.0 {
-                    let wd_t = T::from(wd).unwrap();
+                    let wd_t = cast::<f64, T>(wd)?;
                     for (g, &p) in grad_data.iter_mut().zip(param_data.iter()) {
                         *g += wd_t * p;
                     }
@@ -305,8 +327,8 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
                         self.momentum_buffers.insert(key.clone(), grad_data.clone());
                     } else {
                         // buf = momentum * buf + (1 - dampening) * grad
-                        let mom_t = T::from(momentum).unwrap();
-                        let damp_coeff = T::from(1.0 - dampening).unwrap();
+                        let mom_t = cast::<f64, T>(momentum)?;
+                        let damp_coeff = cast::<f64, T>(1.0 - dampening)?;
                         let buf = self.momentum_buffers.get_mut(&key).unwrap();
                         for (b, &g) in buf.iter_mut().zip(grad_data.iter()) {
                             *b = mom_t * *b + damp_coeff * g;
@@ -319,7 +341,7 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
 
                     if nesterov {
                         // grad = grad + momentum * buf
-                        let mom_t = T::from(momentum).unwrap();
+                        let mom_t = cast::<f64, T>(momentum)?;
                         let mut nesterov_grad = grad_data.clone();
                         for (ng, &b) in nesterov_grad.iter_mut().zip(buf.iter()) {
                             *ng += mom_t * b;
@@ -334,7 +356,7 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
                 };
 
                 // param = param - lr * grad
-                let lr_t = T::from(group_lr).unwrap();
+                let lr_t = cast::<f64, T>(group_lr)?;
                 let new_data: Vec<T> = param_data
                     .iter()
                     .zip(effective_grad.iter())
@@ -343,8 +365,24 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
 
                 // Write updated values back (works on CPU and GPU).
                 no_grad(|| {
-                    // SAFETY: Optimizer step runs inside no_grad() with exclusive
-                    // access to parameters, so no aliasing references exist.
+                    // SAFETY: `update_data` writes through `Arc::as_ptr` and
+                    // requires exclusive access to the parameter's storage.
+                    //  1. We are inside `Optimizer::step(&mut self)`, so no
+                    //     other thread or other clone of `Sgd<T>` is iterating
+                    //     these params concurrently. The legacy CPU loop is
+                    //     single-threaded.
+                    //  2. The `no_grad` guard prevents any autograd
+                    //     `grad_fn` from being recorded as part of this
+                    //     write, so no graph node will retain a clone of the
+                    //     storage Arc.
+                    //  3. The earlier `param.data_vec()` (line 280) returned
+                    //     an owned `Vec<T>`, and `new_data` is a fresh `Vec`
+                    //     built from owned data. No live `&[T]` / `&mut [T]`
+                    //     into `param.tensor()`'s storage exists at this
+                    //     point — the only borrow we could shadow would be
+                    //     from another iteration of this loop, but the loop
+                    //     is sequential and `gi`/`pi` index distinct
+                    //     parameters.
                     unsafe { param.tensor().update_data(&new_data) }
                 })?;
             }
@@ -407,7 +445,10 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
         self.step_count.clear();
         for (key, entry) in state {
             if let Some(buf_data) = entry.get("momentum_buffer") {
-                let buf: Vec<T> = buf_data.iter().map(|&v| T::from(v).unwrap()).collect();
+                let buf: Vec<T> = buf_data
+                    .iter()
+                    .map(|&v| cast::<f64, T>(v))
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
                 self.momentum_buffers.insert(key.clone(), buf);
             }
             if let Some(step_data) = entry.get("step") {

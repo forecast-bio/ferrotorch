@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -17,6 +18,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for [`Rmsprop`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RmspropConfig {
     /// Learning rate (default: 0.01).
     pub lr: f64,
@@ -191,14 +193,14 @@ impl<T: Float> Rmsprop<T> {
                         grad_tensor.clone()
                     };
                     if group_wd > 0.0 {
-                        let wd_t = scalar(T::from(group_wd).unwrap())?.to(device)?;
+                        let wd_t = scalar(cast::<f64, T>(group_wd)?)?.to(device)?;
                         let weighted = mul(&param_t, &wd_t)?;
                         grad = add(&grad, &weighted)?;
                     }
 
-                    let alpha_t = scalar(T::from(alpha).unwrap())?.to(device)?;
-                    let one_minus_alpha_t = scalar(T::from(1.0 - alpha).unwrap())?.to(device)?;
-                    let eps_t = scalar(T::from(eps).unwrap())?.to(device)?;
+                    let alpha_t = scalar(cast::<f64, T>(alpha)?)?.to(device)?;
+                    let one_minus_alpha_t = scalar(cast::<f64, T>(1.0 - alpha)?)?.to(device)?;
+                    let eps_t = scalar(cast::<f64, T>(eps)?)?.to(device)?;
 
                     // square_avg = alpha * square_avg + (1 - alpha) * g^2
                     let sq_old = self.foreach_state[&key].square_avg.clone();
@@ -227,10 +229,10 @@ impl<T: Float> Rmsprop<T> {
                     };
 
                     // Compute update and momentum buffer.
-                    let lr_t = scalar(T::from(group_lr).unwrap())?.to(device)?;
+                    let lr_t = scalar(cast::<f64, T>(group_lr)?)?.to(device)?;
 
                     let (new_param, momentum_buf_new) = if momentum > 0.0 {
-                        let momentum_t = scalar(T::from(momentum).unwrap())?.to(device)?;
+                        let momentum_t = scalar(cast::<f64, T>(momentum)?)?.to(device)?;
                         let buf_old = self.foreach_state[&key]
                             .momentum_buf
                             .as_ref()
@@ -252,7 +254,24 @@ impl<T: Float> Rmsprop<T> {
 
                     // Commit param update and state.
                     let (storage, _) = new_param.into_storage_and_shape()?;
-                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    // SAFETY: `update_storage` swaps the storage Arc; this
+                    // is sound when no other live handle observes the old
+                    // storage during the swap.
+                    //  1. Reachable only from `Rmsprop::step_foreach`, which
+                    //     is called from `Optimizer::step(&mut self)` — sole
+                    //     mutator of this optimiser.
+                    //  2. The enclosing block runs inside the `no_grad`
+                    //     closure that wraps the foreach loop, so no
+                    //     `grad_fn` records a clone of `param_t`'s storage.
+                    //  3. `param_t` is a per-iteration clone of the
+                    //     parameter's `Tensor`; the temporaries built from
+                    //     it (`scaled`, `grad_over_avg`, `new_param`,
+                    //     etc.) hold their own storage, and `new_param` was
+                    //     just consumed by `into_storage_and_shape`. No live
+                    //     borrow into the original storage remains.
+                    //  4. New `storage` was produced by tensor ops on
+                    //     `param_t`'s device, so device + numel match (numel
+                    //     re-checked inside `update_storage`).
                     unsafe { param_t.update_storage(storage)? };
 
                     let state = self.foreach_state.get_mut(&key).unwrap();
@@ -288,16 +307,16 @@ impl<T: Float> Optimizer<T> for Rmsprop<T> {
         let momentum = self.config.momentum;
         let centered = self.config.centered;
 
-        let alpha_t = T::from(alpha).unwrap();
-        let one_minus_alpha = T::from(1.0 - alpha).unwrap();
-        let eps_t = T::from(eps).unwrap();
-        let momentum_t = T::from(momentum).unwrap();
+        let alpha_t = cast::<f64, T>(alpha)?;
+        let one_minus_alpha = cast::<f64, T>(1.0 - alpha)?;
+        let eps_t = cast::<f64, T>(eps)?;
+        let momentum_t = cast::<f64, T>(momentum)?;
 
         no_grad(|| {
             for (gi, group) in self.param_groups.iter().enumerate() {
-                let lr_t = T::from(group.lr).unwrap();
-                let wd_t = T::from(group.weight_decay).unwrap();
-                let zero = T::from(0.0).unwrap();
+                let lr_t = cast::<f64, T>(group.lr)?;
+                let wd_t = cast::<f64, T>(group.weight_decay)?;
+                let zero = cast::<f64, T>(0.0)?;
 
                 for (pi, param) in group.params.iter().enumerate() {
                     let grad_opt = param.grad()?;
@@ -313,7 +332,7 @@ impl<T: Float> Optimizer<T> for Rmsprop<T> {
                     // Maximize: negate gradient. CL-321
                     let maximize = self.config.maximize;
                     if maximize {
-                        let neg = T::from(-1.0).unwrap();
+                        let neg = cast::<f64, T>(-1.0)?;
                         for g in grad_data.iter_mut() {
                             *g = *g * neg;
                         }
@@ -385,8 +404,19 @@ impl<T: Float> Optimizer<T> for Rmsprop<T> {
                             .collect()
                     };
 
-                    // SAFETY: Optimizer step runs inside no_grad() with exclusive
-                    // access to parameters, so no aliasing references exist.
+                    // SAFETY: We are inside the `no_grad` closure that wraps
+                    // the legacy step body (started at the top of `step`),
+                    // and inside `Optimizer::step(&mut self)`, so:
+                    //  1. No `grad_fn` is being constructed that could hold
+                    //     a clone of `param.tensor()`'s storage Arc.
+                    //  2. No other handle to this `Rmsprop<T>` exists during
+                    //     the step.
+                    //  3. The per-(gi, pi) loop is sequential; the only
+                    //     borrows we previously took into the parameter were
+                    //     `param.data_vec()` and `grad_tensor.data_vec()`,
+                    //     both of which returned owned `Vec<T>` values that
+                    //     have already been consumed (or shadowed) by this
+                    //     point. `new_values` is a fresh owned `Vec<T>`.
                     unsafe { param.tensor().update_data(&new_values)? };
                 }
             }
@@ -475,18 +505,31 @@ impl<T: Float> Optimizer<T> for Rmsprop<T> {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
 
-            let sq = entry
-                .get("square_avg")
-                .map(|v| v.iter().map(|&x| T::from(x).unwrap()).collect())
-                .unwrap_or_default();
+            let sq: Vec<T> = match entry.get("square_avg") {
+                Some(v) => v
+                    .iter()
+                    .map(|&x| cast::<f64, T>(x))
+                    .collect::<FerrotorchResult<Vec<T>>>()?,
+                None => Vec::new(),
+            };
 
-            let ga = entry
-                .get("grad_avg")
-                .map(|v| v.iter().map(|&x| T::from(x).unwrap()).collect());
+            let ga: Option<Vec<T>> = match entry.get("grad_avg") {
+                Some(v) => Some(
+                    v.iter()
+                        .map(|&x| cast::<f64, T>(x))
+                        .collect::<FerrotorchResult<Vec<T>>>()?,
+                ),
+                None => None,
+            };
 
-            let mb = entry
-                .get("momentum_buf")
-                .map(|v| v.iter().map(|&x| T::from(x).unwrap()).collect());
+            let mb: Option<Vec<T>> = match entry.get("momentum_buf") {
+                Some(v) => Some(
+                    v.iter()
+                        .map(|&x| cast::<f64, T>(x))
+                        .collect::<FerrotorchResult<Vec<T>>>()?,
+                ),
+                None => None,
+            };
 
             self.state.insert(
                 (gi, pi),

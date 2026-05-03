@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -15,6 +16,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for the SparseAdam optimizer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct SparseAdamConfig {
     /// Learning rate (default: 0.001).
     pub lr: f64,
@@ -133,10 +135,27 @@ impl<T: Float> Optimizer<T> for SparseAdam<T> {
 
                         // Parameter update.
                         let update = lr * m_hat / (v_hat.sqrt() + eps);
-                        let p = num_traits::ToPrimitive::to_f64(&param_data[i]).unwrap();
-                        param_data[i] = T::from(p - update).unwrap();
+                        let p = cast::<T, f64>(param_data[i])?;
+                        param_data[i] = cast::<f64, T>(p - update)?;
                     }
 
+                    // SAFETY: `update_data` mutates the parameter's storage
+                    // through `Arc::as_ptr`. Conditions:
+                    //  1. `SparseAdam::step(&mut self)` holds the only
+                    //     mutable handle to this optimiser; the per-(gi, pi)
+                    //     loop is sequential.
+                    //  2. We are inside the enclosing `no_grad` closure that
+                    //     wraps the inner update body, so no autograd
+                    //     `grad_fn` will retain a clone of the storage Arc.
+                    //  3. SparseAdam refuses to run on CUDA tensors (early
+                    //     return at line 97), so the storage is CPU-only;
+                    //     the only handle into it that this iteration ever
+                    //     held was `tensor.data_vec()` returning the owned
+                    //     `Vec<T>` `param_data`, and that owned `Vec` is
+                    //     what we now write back. `tensor()` itself returns
+                    //     `&Tensor<T>` borrowed from `param`, but no
+                    //     `&[T]` / `&mut [T]` slice into the storage is
+                    //     live during the call.
                     unsafe { param.tensor().update_data(&param_data)? };
                     Ok(())
                 })?;

@@ -8,8 +8,10 @@
 
 use std::any::TypeId;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 use ferrotorch_core::gpu_dispatch::{GpuBufferHandle, gpu_backend};
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -22,6 +24,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for the Adam optimizer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct AdamConfig {
     /// Learning rate (default: 0.001).
     pub lr: f64,
@@ -171,37 +174,34 @@ impl<T: Float> Adam<T> {
                         grad_tensor.clone()
                     };
                     if group_wd > 0.0 {
-                        let wd_t = scalar(T::from(group_wd).unwrap())?.to(device)?;
+                        let wd_t = scalar(cast::<f64, T>(group_wd)?)?.to(device)?;
                         let weighted = mul(param_t, &wd_t)?;
                         grad = add(&grad, &weighted)?;
                     }
 
-                    // Initialize state on first step.
-                    let next_step = {
-                        let st = self.foreach_state.entry(key.clone()).or_insert_with(|| {
-                            AdamForeachState {
+                    // Initialize state on first step. Use `Entry::Vacant` +
+                    // explicit `?` propagation rather than `or_insert_with`
+                    // (whose closure cannot return `Result`); a fallible
+                    // zeros / .to(device) here would otherwise have to
+                    // panic.
+                    let next_step = match self.foreach_state.entry(key.clone()) {
+                        Entry::Vacant(slot) => {
+                            let exp_avg = zeros::<T>(param_t.shape())?.to(device)?;
+                            let exp_avg_sq = zeros::<T>(param_t.shape())?.to(device)?;
+                            let max_exp_avg_sq = if config.amsgrad {
+                                Some(zeros::<T>(param_t.shape())?.to(device)?)
+                            } else {
+                                None
+                            };
+                            slot.insert(AdamForeachState {
                                 step_count: 0,
-                                exp_avg: zeros::<T>(param_t.shape())
-                                    .expect("zeros allocation")
-                                    .to(device)
-                                    .expect("zeros to device"),
-                                exp_avg_sq: zeros::<T>(param_t.shape())
-                                    .expect("zeros allocation")
-                                    .to(device)
-                                    .expect("zeros to device"),
-                                max_exp_avg_sq: if config.amsgrad {
-                                    Some(
-                                        zeros::<T>(param_t.shape())
-                                            .expect("zeros allocation")
-                                            .to(device)
-                                            .expect("zeros to device"),
-                                    )
-                                } else {
-                                    None
-                                },
-                            }
-                        });
-                        st.step_count + 1
+                                exp_avg,
+                                exp_avg_sq,
+                                max_exp_avg_sq,
+                            });
+                            1
+                        }
+                        Entry::Occupied(slot) => slot.get().step_count + 1,
                     };
 
                     // Read current moment tensors.
@@ -209,16 +209,16 @@ impl<T: Float> Adam<T> {
                     let exp_avg_sq_old = self.foreach_state[&key].exp_avg_sq.clone();
 
                     // exp_avg = beta1 * exp_avg + (1 - beta1) * grad
-                    let beta1_t = scalar(T::from(beta1).unwrap())?.to(device)?;
-                    let one_minus_beta1 = scalar(T::from(1.0 - beta1).unwrap())?.to(device)?;
+                    let beta1_t = scalar(cast::<f64, T>(beta1)?)?.to(device)?;
+                    let one_minus_beta1 = scalar(cast::<f64, T>(1.0 - beta1)?)?.to(device)?;
                     let exp_avg_new = add(
                         &mul(&exp_avg_old, &beta1_t)?,
                         &mul(&grad, &one_minus_beta1)?,
                     )?;
 
                     // exp_avg_sq = beta2 * exp_avg_sq + (1 - beta2) * grad^2
-                    let beta2_t = scalar(T::from(beta2).unwrap())?.to(device)?;
-                    let one_minus_beta2 = scalar(T::from(1.0 - beta2).unwrap())?.to(device)?;
+                    let beta2_t = scalar(cast::<f64, T>(beta2)?)?.to(device)?;
+                    let one_minus_beta2 = scalar(cast::<f64, T>(1.0 - beta2)?)?.to(device)?;
                     let grad_sq = mul(&grad, &grad)?;
                     let exp_avg_sq_new = add(
                         &mul(&exp_avg_sq_old, &beta2_t)?,
@@ -228,8 +228,8 @@ impl<T: Float> Adam<T> {
                     // Bias-correction factors.
                     let bc1 = 1.0 - beta1.powi(next_step as i32);
                     let bc2 = 1.0 - beta2.powi(next_step as i32);
-                    let inv_bc1 = scalar(T::from(1.0 / bc1).unwrap())?.to(device)?;
-                    let inv_bc2 = scalar(T::from(1.0 / bc2).unwrap())?.to(device)?;
+                    let inv_bc1 = scalar(cast::<f64, T>(1.0 / bc1)?)?.to(device)?;
+                    let inv_bc2 = scalar(cast::<f64, T>(1.0 / bc2)?)?.to(device)?;
 
                     let m_hat = mul(&exp_avg_new, &inv_bc1)?;
 
@@ -238,7 +238,11 @@ impl<T: Float> Adam<T> {
                         let old_max = self.foreach_state[&key]
                             .max_exp_avg_sq
                             .as_ref()
-                            .expect("amsgrad state")
+                            .ok_or_else(|| FerrotorchError::Internal {
+                                message:
+                                    "adam foreach: amsgrad enabled but max_exp_avg_sq slot empty"
+                                        .to_string(),
+                            })?
                             .clone();
                         let corrected_v = mul(&exp_avg_sq_new, &inv_bc2)?;
                         let new_max = elemwise_max(&old_max, &corrected_v, device)?;
@@ -249,22 +253,53 @@ impl<T: Float> Adam<T> {
 
                     // sqrt(v_hat) + eps
                     let sqrt_v = sqrt(&v_hat)?;
-                    let eps_t = scalar(T::from(config.eps).unwrap())?.to(device)?;
+                    let eps_t = scalar(cast::<f64, T>(config.eps)?)?.to(device)?;
                     let denom = add(&sqrt_v, &eps_t)?;
                     let update = div(&m_hat, &denom)?;
 
                     // param = param - lr * update
-                    let lr_t = scalar(T::from(group_lr).unwrap())?.to(device)?;
+                    let lr_t = scalar(cast::<f64, T>(group_lr)?)?.to(device)?;
                     let scaled_update = mul(&update, &lr_t)?;
                     let new_param = sub(param_t, &scaled_update)?;
 
                     // Commit parameter update.
                     let (storage, _) = new_param.into_storage_and_shape()?;
-                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    // SAFETY: `update_storage` requires exclusive access to
+                    // the parameter tensor's `Arc<TensorStorage<T>>`. We
+                    // satisfy that here:
+                    //   1. `step_foreach` borrows `&mut self` on the
+                    //      optimizer for the entire iteration, so no other
+                    //      method on this optimizer instance can run in
+                    //      parallel.
+                    //   2. We are inside `no_grad()`, so no autograd graph
+                    //      is being recorded — no `grad_fn` clone of this
+                    //      storage is being constructed concurrently.
+                    //   3. All reads of the parameter tensor's data
+                    //      (`exp_avg_old`, `exp_avg_sq_old`, `m_hat`,
+                    //      `denom`, `update`, `new_param`) computed earlier
+                    //      in this iteration produced *new* tensors via
+                    //      tensor ops; once `new_param.into_storage_and_shape()`
+                    //      consumed `new_param`, no live `&` to this
+                    //      tensor's storage exists.
+                    //   4. The new storage shares this tensor's element
+                    //      count and device (it was produced by tensor ops
+                    //      on `param_t`), so the `update_storage` length
+                    //      check passes.
                     unsafe { param_t.update_storage(storage)? };
 
                     // Commit state after the parameter update succeeded.
-                    let st = self.foreach_state.get_mut(&key).unwrap();
+                    // The slot was inserted (or pre-existed) above by the
+                    // `Entry::Vacant`/`Occupied` match — out-of-scope of
+                    // this re-read can only happen if state mutation
+                    // races with the optimizer step, which `&mut self`
+                    // forbids.
+                    let st = self.foreach_state.get_mut(&key).ok_or_else(|| {
+                        FerrotorchError::Internal {
+                            message: format!(
+                                "adam foreach: state slot for {key} disappeared mid-step"
+                            ),
+                        }
+                    })?;
                     st.step_count = next_step;
                     st.exp_avg = exp_avg_new;
                     st.exp_avg_sq = exp_avg_sq_new;
@@ -318,48 +353,102 @@ impl<T: Float> Optimizer<T> for Adam<T> {
 
                 if use_gpu {
                     let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+                    let ordinal = match tensor.device() {
+                        ferrotorch_core::Device::Cuda(o) => o,
+                        _ => 0,
+                    };
 
-                    // Lazy-init GPU state.
-                    let state = self.state.entry(key.clone()).or_insert_with(|| {
-                        let ordinal = match tensor.device() {
-                            ferrotorch_core::Device::Cuda(o) => o,
-                            _ => 0,
-                        };
-                        let gpu_m = backend
-                            .alloc_zeros(numel, std::mem::size_of::<f32>(), ordinal)
-                            .ok();
-                        let gpu_v = backend
-                            .alloc_zeros(numel, std::mem::size_of::<f32>(), ordinal)
-                            .ok();
-                        AdamParamState {
-                            step_count: 0,
-                            exp_avg: Vec::new(),
-                            exp_avg_sq: Vec::new(),
-                            max_exp_avg_sq: None,
-                            gpu_exp_avg: gpu_m,
-                            gpu_exp_avg_sq: gpu_v,
+                    // Lazy-init GPU state. `or_insert_with` cannot propagate
+                    // `Err` from a fallible allocation; use an explicit
+                    // Vacant/Occupied match so an OOM at first step
+                    // bubbles out instead of being swallowed into `None` and
+                    // silently routing to the CPU path.
+                    //
+                    // First: ensure the slot exists (and is GPU-populated)
+                    // OR decide what to do when alloc fails. Doing this in
+                    // a separate pre-step keeps borrow scopes simple — the
+                    // compute branch later borrows `state` mutably without
+                    // overlapping the alloc-decision borrow.
+                    if !self.state.contains_key(&key) {
+                        let gpu_m = backend.alloc_zeros(numel, std::mem::size_of::<f32>(), ordinal);
+                        let gpu_v = backend.alloc_zeros(numel, std::mem::size_of::<f32>(), ordinal);
+                        match (gpu_m, gpu_v) {
+                            (Ok(m), Ok(v)) => {
+                                self.state.insert(
+                                    key.clone(),
+                                    AdamParamState {
+                                        step_count: 0,
+                                        exp_avg: Vec::new(),
+                                        exp_avg_sq: Vec::new(),
+                                        max_exp_avg_sq: None,
+                                        gpu_exp_avg: Some(m),
+                                        gpu_exp_avg_sq: Some(v),
+                                    },
+                                );
+                            }
+                            (Err(e), _) | (_, Err(e)) => {
+                                // Match PyTorch parity: GPU op failure is
+                                // `Err` by default. Opt-in CPU fallback
+                                // only when the user has explicitly set
+                                // `FERROTORCH_ENABLE_GPU_FALLBACK`.
+                                // Default refuses silent backend
+                                // degradation.
+                                if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+                                    tracing::warn!(
+                                        target: "ferrotorch::gpu_fallback",
+                                        kernel = "fused_adam_f32",
+                                        error = %e,
+                                        "Adam GPU state allocation failed; falling back to \
+                                         CPU. Unset FERROTORCH_ENABLE_GPU_FALLBACK to make \
+                                         this an error instead.",
+                                    );
+                                    // Re-acquire `key` for the CPU path
+                                    // below to use, and skip the GPU
+                                    // compute branch.
+                                    // (Fall-through into the CPU branch.)
+                                } else {
+                                    return Err(FerrotorchError::Internal {
+                                        message: format!(
+                                            "fused_adam_f32: GPU state alloc failed: {e:?} \
+                                             (set FERROTORCH_ENABLE_GPU_FALLBACK=1 to opt \
+                                             into a CPU fallback)"
+                                        ),
+                                    });
+                                }
+                            }
                         }
-                    });
+                    }
 
-                    state.step_count += 1;
-                    let step = state.step_count;
-                    let bc1 = 1.0 - (beta1 as f32).powi(step as i32);
-                    let bc2 = 1.0 - (beta2 as f32).powi(step as i32);
+                    if let Some(state) = self.state.get_mut(&key) {
+                        state.step_count += 1;
+                        let step = state.step_count;
+                        let bc1 = 1.0 - (beta1 as f32).powi(step as i32);
+                        let bc2 = 1.0 - (beta2 as f32).powi(step as i32);
 
-                    if let (Some(gpu_m), Some(gpu_v)) =
-                        (&mut state.gpu_exp_avg, &mut state.gpu_exp_avg_sq)
-                    {
+                        // Both moments are guaranteed `Some` by the
+                        // Vacant-branch insertion above. If somehow they
+                        // are `None` (e.g. a future bug or
+                        // load_state_dict dropping them), surface that as
+                        // `Internal` rather than silently downgrading.
+                        let gpu_m = state.gpu_exp_avg.as_mut().ok_or_else(|| {
+                            FerrotorchError::Internal {
+                                message: "fused_adam_f32: gpu_exp_avg missing post-init"
+                                    .to_string(),
+                            }
+                        })?;
+                        let gpu_v = state.gpu_exp_avg_sq.as_mut().ok_or_else(|| {
+                            FerrotorchError::Internal {
+                                message: "fused_adam_f32: gpu_exp_avg_sq missing post-init"
+                                    .to_string(),
+                            }
+                        })?;
+
                         no_grad(|| {
-                            // SAFETY: Optimizer step runs inside no_grad() with
-                            // exclusive access to parameters; no aliasing.
-                            unsafe {
-                                let storage_ptr = std::sync::Arc::as_ptr(tensor.inner_storage_arc())
-                                    as *mut ferrotorch_core::TensorStorage<T>;
-                                let storage = &mut *storage_ptr;
-                                let param_handle = storage
-                                    .gpu_handle_mut()
-                                    .ok_or(FerrotorchError::DeviceUnavailable)?;
-
+                            // No `unsafe` here: `with_gpu_handle_mut` is
+                            // the safe wrapper that centralizes the
+                            // `Arc::as_ptr -> *mut TensorStorage<T>`
+                            // pointer cast inside `ferrotorch-core`.
+                            tensor.with_gpu_handle_mut(|param_handle| {
                                 backend.fused_adam_f32(
                                     param_handle,
                                     grad_tensor.gpu_handle()?,
@@ -373,11 +462,12 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                                     bc2,
                                     group_wd as f32,
                                 )
-                            }
+                            })
                         })?;
                         continue;
                     }
-                    // Fall through to CPU path if GPU alloc failed.
+                    // GPU state alloc failed and FERROTORCH_ENABLE_GPU_FALLBACK
+                    // was set: fall through to the CPU path below.
                 }
 
                 // ---- CPU path (or f64 / AMSGrad / maximize) ----
@@ -385,13 +475,13 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                 let param_data: Vec<f64> = tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let mut grad_data: Vec<f64> = grad_tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
 
                 // Maximize: negate gradient. CL-321
                 if config.maximize {
@@ -459,13 +549,27 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                             corrected_sq.sqrt() + config.eps
                         };
                         let updated = param_data[i] - group_lr * corrected_avg / denom;
-                        T::from(updated).unwrap()
+                        cast::<f64, T>(updated)
                     })
-                    .collect();
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
 
                 no_grad(|| {
-                    // SAFETY: Optimizer step runs inside no_grad() with exclusive
-                    // access to parameters, so no aliasing references exist.
+                    // SAFETY: `update_data` requires exclusive access to the
+                    // parameter tensor's `Arc<TensorStorage<T>>` for the
+                    // duration of the call. We satisfy that here:
+                    //   1. `Adam::step` borrows `&mut self` on the
+                    //      optimizer for the entire step, so no other
+                    //      method can run on this optimizer instance.
+                    //   2. We are inside `no_grad()` — no autograd graph
+                    //      is being constructed, so no `grad_fn` is taking
+                    //      a parallel `Arc` clone of this storage.
+                    //   3. All reads of the parameter's data
+                    //      (`param_data` above) and gradient (`grad_data`)
+                    //      have already completed and were copied into
+                    //      owned `Vec<f64>` workspaces — there is no live
+                    //      `&[T]` into the storage at the call site.
+                    //   4. `new_values.len() == numel == tensor.numel()` so
+                    //      the inner length check passes.
                     unsafe { param.tensor().update_data(&new_values) }
                 })?;
             }
@@ -520,26 +624,24 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                     if let (Ok(m_bytes), Ok(v_bytes)) =
                         (backend.gpu_to_cpu(gpu_m), backend.gpu_to_cpu(gpu_v))
                     {
-                        let m_f32: &[f32] = unsafe {
-                            std::slice::from_raw_parts(
-                                m_bytes.as_ptr() as *const f32,
-                                m_bytes.len() / 4,
-                            )
-                        };
-                        let v_f32: &[f32] = unsafe {
-                            std::slice::from_raw_parts(
-                                v_bytes.as_ptr() as *const f32,
-                                v_bytes.len() / 4,
-                            )
-                        };
-                        entry.insert(
-                            "exp_avg".to_string(),
-                            m_f32.iter().map(|&x| x as f64).collect(),
-                        );
-                        entry.insert(
-                            "exp_avg_sq".to_string(),
-                            v_f32.iter().map(|&x| x as f64).collect(),
-                        );
+                        // Decode bytes -> f32 -> f64 without `unsafe`.
+                        // The raw `slice::from_raw_parts` reinterpretation
+                        // we used to do here had two distinct hazards
+                        // (alignment of the byte buffer and partial-length
+                        // truncation) that `f32::from_ne_bytes` over fixed
+                        // 4-byte windows sidesteps entirely; this also
+                        // matches PyTorch's behavior of native-endian f32
+                        // serialization.
+                        let m_f64: Vec<f64> = m_bytes
+                            .chunks_exact(4)
+                            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]) as f64)
+                            .collect();
+                        let v_f64: Vec<f64> = v_bytes
+                            .chunks_exact(4)
+                            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]) as f64)
+                            .collect();
+                        entry.insert("exp_avg".to_string(), m_f64);
+                        entry.insert("exp_avg_sq".to_string(), v_f64);
                         out.insert(key.clone(), entry);
                         continue;
                     }

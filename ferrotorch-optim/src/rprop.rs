@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -26,6 +27,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for the [`Rprop`] optimizer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct RpropConfig {
     /// Initial learning rate / step size (default: 0.01).
     pub lr: f64,
@@ -120,13 +122,13 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
                 let param_data: Vec<f64> = tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let grad_data: Vec<f64> = grad_tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
 
                 let numel = param_data.len();
 
@@ -178,10 +180,23 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
                         state.prev_grad[i] = effective_grad;
 
                         let updated = param_data[i] - sign_g * state.step_size[i];
-                        T::from(updated).unwrap()
+                        cast::<f64, T>(updated)
                     })
-                    .collect();
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
 
+                // SAFETY: `update_data` writes through `Arc::as_ptr` and
+                // requires sole-writer access to the parameter's storage.
+                //  1. `Rprop::step(&mut self)` is the unique mutable handle
+                //     to this optimiser; the per-(gi, pi) loop is sequential
+                //     so no two iterations alias the same parameter.
+                //  2. The `no_grad` closure suppresses `grad_fn` recording,
+                //     so no autograd node will clone the storage Arc as
+                //     part of this write.
+                //  3. The earlier `param.data_vec()` and `grad.data_vec()`
+                //     reads returned owned `Vec<T>` / `Vec<f64>` values now
+                //     consumed by the per-element update loop. `new_values`
+                //     is a fresh owned `Vec<T>` independent of the
+                //     parameter's storage.
                 no_grad(|| unsafe { param.tensor().update_data(&new_values) })?;
             }
         }

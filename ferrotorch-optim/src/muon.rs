@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -19,6 +20,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Configuration for the [`Muon`] optimizer.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct MuonConfig {
     /// Learning rate (default: 0.02).
     pub lr: f64,
@@ -220,13 +222,13 @@ impl<T: Float> Optimizer<T> for Muon<T> {
                 let param_data: Vec<f64> = param
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let mut grad_data: Vec<f64> = grad_tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let shape = param.shape().to_vec();
 
                 // Maximize: negate gradient. CL-321
@@ -290,12 +292,29 @@ impl<T: Float> Optimizer<T> for Muon<T> {
                 let new_data: Vec<T> = param_data
                     .iter()
                     .zip(effective_grad.iter())
-                    .map(|(&p, &g)| T::from(p - group_lr * g).unwrap())
-                    .collect();
+                    .map(|(&p, &g)| cast::<f64, T>(p - group_lr * g))
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
 
                 no_grad(|| {
-                    // SAFETY: Optimizer step runs inside no_grad() with exclusive
-                    // access to parameters, so no aliasing references exist.
+                    // SAFETY: `update_data` mutates the parameter's storage
+                    // via `Arc::as_ptr`; soundness depends on a single
+                    // exclusive writer.
+                    //  1. Muon::step is called via `Optimizer::step(&mut
+                    //     self)`, ruling out concurrent invocations through
+                    //     this optimiser handle.
+                    //  2. The closure body sits inside `no_grad`, so this
+                    //     write does not record a `grad_fn` that would
+                    //     retain a clone of the storage Arc.
+                    //  3. All of the inputs we read from the parameter
+                    //     earlier in the iteration (`param_data`,
+                    //     `processed_grad`) were materialised as owned
+                    //     `Vec<T>` values via `data_vec()`; no live `&[T]`
+                    //     into the param's storage remains. `new_data` is a
+                    //     fresh `Vec<T>` produced by the iterator chain
+                    //     above.
+                    //  4. The per-parameter loop iterates `(gi, pi)` keys
+                    //     sequentially, so two iterations cannot hold
+                    //     overlapping borrows.
                     unsafe { param.tensor().update_data(&new_data) }
                 })?;
             }

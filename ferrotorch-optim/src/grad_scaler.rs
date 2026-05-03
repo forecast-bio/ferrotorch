@@ -12,6 +12,7 @@
 //! This mirrors the behaviour of `torch.cuda.amp.GradScaler`.
 
 use ferrotorch_core::grad_fns::arithmetic::mul;
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor, scalar};
 
 use crate::optimizer::Optimizer;
@@ -22,6 +23,7 @@ use crate::optimizer::Optimizer;
 
 /// Configuration for [`GradScaler`].
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct GradScalerConfig {
     /// Initial loss-scale factor (default: 65536.0).
     pub init_scale: f64,
@@ -142,7 +144,7 @@ impl<T: Float> GradScaler<T> {
         if !self.config.enabled {
             return Ok(loss.clone());
         }
-        let scale_tensor = scalar(T::from(self.scale_factor).unwrap())?;
+        let scale_tensor = scalar(cast::<f64, T>(self.scale_factor)?)?;
         mul(loss, &scale_tensor)
     }
 
@@ -166,7 +168,7 @@ impl<T: Float> GradScaler<T> {
         }
 
         self.found_inf = false;
-        let inv_scale = T::from(1.0 / self.scale_factor).unwrap();
+        let inv_scale = cast::<f64, T>(1.0 / self.scale_factor)?;
         let is_f32 = TypeId::of::<T>() == TypeId::of::<f32>();
 
         for group in optimizer.param_groups() {

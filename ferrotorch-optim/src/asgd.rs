@@ -11,6 +11,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -23,6 +24,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for the [`Asgd`] optimizer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct AsgdConfig {
     /// Learning rate (default: 0.01).
     pub lr: f64,
@@ -197,7 +199,24 @@ impl<T: Float> Asgd<T> {
 
                     // Commit param.
                     let (storage, _) = new_param.into_storage_and_shape()?;
-                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    // SAFETY: `update_storage` swaps the storage Arc; sole
+                    // writer guarantees:
+                    //  1. `step_foreach` is the body of
+                    //     `Optimizer::step(&mut self)` for this `Asgd<T>`,
+                    //     so no other thread/task is iterating these params.
+                    //  2. The foreach loop is wrapped in `no_grad`, so no
+                    //     autograd `grad_fn` will retain a clone of
+                    //     `param_t`'s storage Arc.
+                    //  3. `param_t` is the per-iteration clone of the
+                    //     parameter's `Tensor`; tensor ops earlier
+                    //     (`shrunk`, `scaled_grad`, `new_param`) produced
+                    //     independent storage, and `new_param` was just
+                    //     consumed by `into_storage_and_shape`. No live
+                    //     borrow into the parameter's existing storage
+                    //     remains.
+                    //  4. New `storage` was produced by ops dispatched on
+                    //     `param_t`'s device, so device + numel match the
+                    //     parameter's tensor view.
                     unsafe { param_t.update_storage(storage)? };
 
                     // Commit state + schedule updates.
@@ -248,13 +267,13 @@ impl<T: Float> Optimizer<T> for Asgd<T> {
                 let param_data: Vec<f64> = tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let mut grad_data: Vec<f64> = grad_tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
 
                 let numel = param_data.len();
 
@@ -301,9 +320,20 @@ impl<T: Float> Optimizer<T> for Asgd<T> {
 
                 let new_values: Vec<T> = new_param_data
                     .iter()
-                    .map(|&v| T::from(v).unwrap())
-                    .collect();
+                    .map(|&v| cast::<f64, T>(v))
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
 
+                // SAFETY: `update_data` writes through `Arc::as_ptr` and
+                // requires the parameter's storage to have no live aliases.
+                //  1. `Asgd::step(&mut self)` holds the only mutable borrow
+                //     on this optimiser; the per-(gi, pi) loop is sequential.
+                //  2. The `no_grad` closure ensures no `grad_fn` is recorded
+                //     for this write.
+                //  3. The earlier reads from this parameter's tensor
+                //     (`tensor.data_vec()`, `grad_tensor.data_vec()`)
+                //     returned owned `Vec<f64>` values that are no longer
+                //     borrowed at this point. `new_values` is a fresh
+                //     `Vec<T>` independent of the parameter's storage.
                 no_grad(|| unsafe { param.tensor().update_data(&new_values) })?;
             }
         }

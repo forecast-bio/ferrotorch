@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -26,6 +27,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for the [`Adadelta`] optimizer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct AdadeltaConfig {
     /// Coefficient that scales the delta before it is applied to parameters
     /// (default: 1.0). Note: unlike Adam-family optimizers, the default is 1.0.
@@ -195,7 +197,22 @@ impl<T: Float> Adadelta<T> {
 
                     // Commit.
                     let (storage, _) = new_param.into_storage_and_shape()?;
-                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    // SAFETY: `update_storage` swaps the storage Arc; sole
+                    // writer guarantees:
+                    //  1. `step_foreach` is the body of
+                    //     `Optimizer::step(&mut self)` for this `Adadelta<T>`,
+                    //     so no other thread/task is iterating these params.
+                    //  2. The foreach loop is wrapped in `no_grad`, so no
+                    //     autograd `grad_fn` will retain a clone of
+                    //     `param_t`'s storage Arc.
+                    //  3. `param_t` is the per-iteration clone of the
+                    //     parameter's `Tensor`; tensor temporaries
+                    //     (`scaled`, `new_param`) hold independent storage
+                    //     and `new_param` was just consumed by
+                    //     `into_storage_and_shape`. No live borrow into
+                    //     the existing storage remains.
+                    //  4. New `storage` was produced by ops dispatched on
+                    //     `param_t`'s device, so device + numel match.
                     unsafe { param_t.update_storage(storage)? };
 
                     let state = self.foreach_state.get_mut(&key).unwrap();
@@ -239,13 +256,13 @@ impl<T: Float> Optimizer<T> for Adadelta<T> {
                 let param_data: Vec<f64> = tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let mut grad_data: Vec<f64> = grad_tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
 
                 let numel = param_data.len();
 
@@ -285,10 +302,22 @@ impl<T: Float> Optimizer<T> for Adadelta<T> {
 
                         // p_t = p_{t-1} - lr * delta
                         let updated = param_data[i] - group_lr * delta;
-                        T::from(updated).unwrap()
+                        cast::<f64, T>(updated)
                     })
-                    .collect();
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
 
+                // SAFETY: `update_data` writes through `Arc::as_ptr` and
+                // requires sole-writer access to the parameter's storage.
+                //  1. `Adadelta::step(&mut self)` holds the only mutable
+                //     borrow on this optimiser; the per-(gi, pi) loop is
+                //     sequential.
+                //  2. The `no_grad` closure suppresses `grad_fn` recording
+                //     for this write — no autograd node will keep a clone
+                //     of the storage Arc.
+                //  3. The earlier reads (`tensor.data_vec()` at line 244,
+                //     `grad_tensor.data_vec()` at line 248) returned owned
+                //     `Vec<f64>` values that have already been consumed.
+                //     `new_values` is a fresh owned `Vec<T>`.
                 no_grad(|| unsafe { param.tensor().update_data(&new_values) })?;
             }
         }

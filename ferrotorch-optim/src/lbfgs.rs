@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -38,6 +39,7 @@ pub enum LineSearchFn {
 
 /// Hyperparameters for the L-BFGS optimizer.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct LbfgsConfig {
     /// Learning rate / step size (default: 1.0).
     pub lr: f64,
@@ -154,7 +156,11 @@ impl<T: Float> Lbfgs<T> {
                 let tensor = param.tensor();
                 let data = tensor.data_vec()?;
                 shapes.push(tensor.shape().to_vec());
-                flat.extend(data.iter().map(|&v| v.to_f64().unwrap()));
+                let cast_data: Vec<f64> = data
+                    .iter()
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
+                flat.extend(cast_data);
             }
         }
         Ok((flat, shapes))
@@ -172,10 +178,14 @@ impl<T: Float> Lbfgs<T> {
                 match tensor.grad()? {
                     Some(g) => {
                         let g_data = g.data_vec()?;
+                        let cast_g: Vec<f64> = g_data
+                            .iter()
+                            .map(|&v| cast::<T, f64>(v))
+                            .collect::<FerrotorchResult<Vec<f64>>>()?;
                         if negate {
-                            flat.extend(g_data.iter().map(|&v| -v.to_f64().unwrap()));
+                            flat.extend(cast_g.iter().map(|&v| -v));
                         } else {
-                            flat.extend(g_data.iter().map(|&v| v.to_f64().unwrap()));
+                            flat.extend(cast_g);
                         }
                     }
                     None => {
@@ -205,11 +215,32 @@ impl<T: Float> Lbfgs<T> {
                 };
 
                 let slice = &flat[offset..offset + numel];
-                let new_data: Vec<T> = slice.iter().map(|&v| T::from(v).unwrap()).collect();
+                let new_data: Vec<T> = slice
+                    .iter()
+                    .map(|&v| cast::<f64, T>(v))
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
 
                 no_grad(|| {
-                    // SAFETY: Optimizer step runs inside no_grad() with exclusive
-                    // access to parameters, so no aliasing references exist.
+                    // SAFETY: `update_data` writes through `Arc::as_ptr` to
+                    // the parameter's storage; sole-writer required.
+                    //  1. `scatter_params(&mut self, ..)` is called from
+                    //     L-BFGS internals (`take_step`, `step`,
+                    //     `step_with_closure`) which all hold `&mut self`
+                    //     on the Lbfgs optimizer, so no other handle into
+                    //     this optimizer can be running.
+                    //  2. The `no_grad` closure suppresses `grad_fn`
+                    //     recording for the write — no autograd node will
+                    //     retain a clone of the storage Arc.
+                    //  3. The flat `flat: &[f64]` argument is borrowed
+                    //     immutably; we materialised `new_data: Vec<T>` from
+                    //     it as an owned vector before this call, and the
+                    //     parameter's storage was previously read only via
+                    //     `gather_flat_grad` / `gather_flat` (returning
+                    //     owned `Vec<f64>`s), so no live `&[T]` / `&mut [T]`
+                    //     slice into the parameter's storage exists at this
+                    //     point.
+                    //  4. `(gi, pi)` indexing iterates each parameter
+                    //     exactly once per scatter call.
                     unsafe {
                         self.param_groups[gi].params[pi]
                             .tensor()
@@ -1156,8 +1187,30 @@ mod tests {
             let param_ptr = &opt.param_groups[0].params[0] as *const Parameter<f64>;
 
             opt.step_with_closure(|| {
-                // SAFETY: step_with_closure scatters new param values before
-                // calling the closure, so the tensor data is valid.
+                // SAFETY: We dereference the raw pointer `param_ptr` to read
+                // the parameter's `Tensor<f64>` via `.tensor().clone()`.
+                // The pointee is `opt.param_groups[0].params[0]: Parameter<f64>`.
+                //  - Liveness: `opt` is on the enclosing function's stack and
+                //    is not moved/dropped between the pointer take and the
+                //    deref; the closure runs synchronously inside
+                //    `step_with_closure`, so `opt` outlives this read.
+                //  - Validity of the parameter slot: `step_with_closure`
+                //    scatters new flat values into the existing `Parameter`
+                //    handles before invoking the closure (it does not
+                //    replace the `Parameter` themselves), so the address at
+                //    `params[0]` remains valid for reads and the underlying
+                //    `Tensor`'s storage Arc is intact.
+                //  - Aliasing: this is a test-only escape hatch. A shared
+                //    `&Parameter<f64>` is reborrowed concurrently with
+                //    `step_with_closure`'s `&mut self` on `opt`. The
+                //    optimizer's `&mut self` does not actually mutate the
+                //    `Parameter` slot during the closure (only the
+                //    underlying tensor data via `update_data`), so under
+                //    Tree Borrows this read is sound, but it is on the
+                //    boundary of stacked borrows. FOLLOW-UP: replace this
+                //    test scaffolding with a Parameter clone passed by
+                //    value into the closure (Parameter wraps `Arc<Inner>`,
+                //    so the clone shares the same storage cheaply).
                 let x = unsafe { &*param_ptr }.tensor().clone();
                 let loss = pow(&x, 2.0).unwrap();
                 loss.backward().unwrap();
@@ -1202,6 +1255,24 @@ mod tests {
             let py_ptr = &opt.param_groups[0].params[1] as *const Parameter<f64>;
 
             opt.step_with_closure(|| {
+                // SAFETY: same justification as the quadratic test above —
+                // `px_ptr` and `py_ptr` are raw pointers into
+                // `opt.param_groups[0].params[{0,1}]`, both of which:
+                //  - point into `opt`, which lives on this stack frame and
+                //    is not dropped/moved before the closure returns;
+                //  - reference distinct slots (`params[0]` vs. `params[1]`),
+                //    so deref-of-`px_ptr` and deref-of-`py_ptr` do not
+                //    alias each other;
+                //  - point at `Parameter` slots whose addresses are stable
+                //    across `step_with_closure` (it scatters new flat values
+                //    into the existing parameters; it does not relocate
+                //    them).
+                // Aliasing caveat (same as quadratic): each shared reborrow
+                // is concurrent with `step_with_closure`'s `&mut self` on
+                // `opt`. The optimizer does not mutate the `Parameter` slot
+                // through that `&mut`, only the underlying tensor data. See
+                // the FOLLOW-UP note above (replace with cloned Parameter
+                // captured by value).
                 let x = unsafe { &*px_ptr }.tensor().clone();
                 let y = unsafe { &*py_ptr }.tensor().clone();
 

@@ -29,6 +29,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -40,6 +41,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for the K-FAC optimizer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct KfacConfig {
     /// Learning rate (default: 0.001).
     pub lr: f64,
@@ -187,13 +189,13 @@ impl<T: Float> Kfac<T> {
         let a_data: Vec<f64> = input_activation
             .data()?
             .iter()
-            .map(|&v| v.to_f64().unwrap())
-            .collect();
+            .map(|&v| cast::<T, f64>(v))
+            .collect::<FerrotorchResult<Vec<f64>>>()?;
         let g_data: Vec<f64> = output_gradient
             .data()?
             .iter()
-            .map(|&v| v.to_f64().unwrap())
-            .collect();
+            .map(|&v| cast::<T, f64>(v))
+            .collect::<FerrotorchResult<Vec<f64>>>()?;
 
         let batch_f = batch as f64;
 
@@ -345,13 +347,13 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
                 let param_data: Vec<f64> = tensor
                     .data()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let mut grad_data: Vec<f64> = grad_tensor
                     .data()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let shape = tensor.shape().to_vec();
 
                 // Maximize: negate gradient. CL-321
@@ -435,9 +437,9 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
                 let new_param_data: Vec<T> = (0..numel)
                     .map(|i| {
                         let updated = param_data[i] - group_lr * effective_grad[i];
-                        T::from(updated).unwrap()
+                        cast::<f64, T>(updated)
                     })
-                    .collect();
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
 
                 // Write updated parameter data inside no_grad.
                 let shape_clone = shape.clone();

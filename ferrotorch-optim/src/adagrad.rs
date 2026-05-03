@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -17,6 +18,7 @@ use crate::optimizer::{
 /// Reference: Duchi, Hazan & Singer, "Adaptive Subgradient Methods for
 /// Online Learning and Stochastic Optimization", JMLR 2011.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AdagradConfig {
     /// Base learning rate. Default: `0.01`.
     pub lr: f64,
@@ -121,7 +123,7 @@ impl<T: Float> Adagrad<T> {
         let key = (group_idx, param_idx);
         if !self.state.contains_key(&key) {
             let numel: usize = shape.iter().product();
-            let init_val = T::from(self.config.initial_accumulator_value).unwrap();
+            let init_val = cast::<f64, T>(self.config.initial_accumulator_value)?;
             let sum_data = vec![init_val; numel];
             let sum = Tensor::from_storage(TensorStorage::cpu(sum_data), shape.to_vec(), false)?;
             self.state
@@ -180,7 +182,7 @@ impl<T: Float> Adagrad<T> {
                         grad_tensor.clone()
                     };
                     if weight_decay > 0.0 {
-                        let wd_t = scalar(T::from(weight_decay).unwrap())?.to(device)?;
+                        let wd_t = scalar(cast::<f64, T>(weight_decay)?)?.to(device)?;
                         let weighted = mul(&param_t, &wd_t)?;
                         grad = add(&grad, &weighted)?;
                     }
@@ -195,8 +197,8 @@ impl<T: Float> Adagrad<T> {
                     let clr = lr / (1.0 + (next_step as f64 - 1.0) * lr_decay);
 
                     // param = param - clr * grad / (sqrt(sum) + eps)
-                    let clr_t = scalar(T::from(clr).unwrap())?.to(device)?;
-                    let eps_t = scalar(T::from(eps).unwrap())?.to(device)?;
+                    let clr_t = scalar(cast::<f64, T>(clr)?)?.to(device)?;
+                    let eps_t = scalar(cast::<f64, T>(eps)?)?.to(device)?;
                     let denom = add(&sqrt(&sum_new)?, &eps_t)?;
                     let scaled_grad = mul(&grad, &clr_t)?;
                     let update = div(&scaled_grad, &denom)?;
@@ -204,7 +206,26 @@ impl<T: Float> Adagrad<T> {
 
                     // Commit parameter and state.
                     let (storage, _) = new_param.into_storage_and_shape()?;
-                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    // SAFETY: `update_storage` requires the caller to hold
+                    // exclusive access to the parameter's storage Arc.
+                    // Conditions here:
+                    //  1. We are inside `Optimizer::step` (`&mut self`), so no
+                    //     other clone of `Adagrad<T>` can be running.
+                    //  2. The enclosing closure is wrapped in `no_grad`, so no
+                    //     autograd graph is being constructed and no `grad_fn`
+                    //     holds a clone of the parameter tensor.
+                    //  3. `param_t` is a fresh clone of the param's `Tensor`
+                    //     held only in this iteration of the param loop; all
+                    //     prior reads (`param_t.clone()`, the gradient
+                    //     materialisation above) borrowed by value into
+                    //     freshly-allocated tensors that are about to drop —
+                    //     no live borrow into this storage exists.
+                    //  4. `new_param.into_storage_and_shape()` consumed
+                    //     `new_param`, so the only remaining handle to
+                    //     `storage` is local.
+                    // The new storage is on the same device (it was produced
+                    // by ops dispatched on `device`) and has matching numel
+                    // (verified internally by `update_storage`).
                     unsafe { param_t.update_storage(storage)? };
 
                     let state = self.state.get_mut(&state_key).unwrap();
@@ -249,7 +270,7 @@ impl<T: Float> Optimizer<T> for Adagrad<T> {
 
                 // Maximize: negate gradient. CL-321
                 if self.config.maximize {
-                    let neg = T::from(-1.0).unwrap();
+                    let neg = cast::<f64, T>(-1.0)?;
                     for g in grad_vec.iter_mut() {
                         *g = *g * neg;
                     }
@@ -267,42 +288,64 @@ impl<T: Float> Optimizer<T> for Adagrad<T> {
                 let numel = param_vec.len();
 
                 // Compute updated values inside no_grad to prevent graph tracking.
-                let (new_param_data, new_sum_data) = no_grad(|| {
-                    let mut grad_buf = grad_vec;
+                let (new_param_data, new_sum_data) =
+                    no_grad(|| -> FerrotorchResult<(Vec<T>, Vec<T>)> {
+                        let mut grad_buf = grad_vec;
 
-                    // L2 regularization: grad = grad + weight_decay * param.
-                    if weight_decay > 0.0 {
-                        let wd = T::from(weight_decay).unwrap();
-                        for i in 0..numel {
-                            grad_buf[i] += wd * param_vec[i];
+                        // L2 regularization: grad = grad + weight_decay * param.
+                        if weight_decay > 0.0 {
+                            let wd = cast::<f64, T>(weight_decay)?;
+                            for i in 0..numel {
+                                grad_buf[i] += wd * param_vec[i];
+                            }
                         }
-                    }
 
-                    // Accumulate squared gradients: sum += grad^2.
-                    let mut new_sum = sum_vec;
-                    for i in 0..numel {
-                        new_sum[i] += grad_buf[i] * grad_buf[i];
-                    }
+                        // Accumulate squared gradients: sum += grad^2.
+                        let mut new_sum = sum_vec;
+                        for i in 0..numel {
+                            new_sum[i] += grad_buf[i] * grad_buf[i];
+                        }
 
-                    // Update parameters: param = param - clr * grad / (sqrt(sum) + eps).
-                    let clr_t = T::from(clr).unwrap();
-                    let eps_t = T::from(eps).unwrap();
-                    let mut new_param: Vec<T> = Vec::with_capacity(numel);
-                    for i in 0..numel {
-                        let denom = new_sum[i].sqrt() + eps_t;
-                        new_param.push(param_vec[i] - clr_t * grad_buf[i] / denom);
-                    }
+                        // Update parameters: param = param - clr * grad / (sqrt(sum) + eps).
+                        let clr_t = cast::<f64, T>(clr)?;
+                        let eps_t = cast::<f64, T>(eps)?;
+                        let mut new_param: Vec<T> = Vec::with_capacity(numel);
+                        for i in 0..numel {
+                            let denom = new_sum[i].sqrt() + eps_t;
+                            new_param.push(param_vec[i] - clr_t * grad_buf[i] / denom);
+                        }
 
-                    (new_param, new_sum)
-                });
+                        Ok((new_param, new_sum))
+                    })?;
 
                 // Write back the updated sum accumulator.
-                // SAFETY: Optimizer owns the state tensors exclusively.
+                // SAFETY: `state.sum` is the per-parameter `Tensor<T>` held in
+                // `self.state`, which is reachable only through `&mut self`.
+                // No autograd graph references it: the optimiser constructs
+                // it via `Tensor::from_storage(.., requires_grad=false)`, and
+                // the new_sum_data Vec was just produced inside the `no_grad`
+                // closure above, so no `grad_fn` could have cloned its Arc.
+                // No live `&[T]` / `&mut [T]` borrow into `state.sum`'s
+                // storage exists at this point — `state.sum.data_vec()` (line
+                // 286) returned an owned `Vec<T>` that is now consumed.
                 unsafe { state.sum.update_data(&new_sum_data)? };
 
                 // Write back the updated parameter tensor (works on CPU and GPU).
-                // SAFETY: Optimizer step runs inside no_grad() with exclusive
-                // access to parameters, so no aliasing references exist.
+                // SAFETY: Same exclusivity argument as the `state.sum` write
+                // above, applied to the parameter tensor:
+                //  1. `&mut self` on `Optimizer::step` precludes concurrent
+                //     mutation through any other handle on this optimizer.
+                //  2. The parameter's `Tensor<T>` is held by `Parameter<T>`,
+                //     whose only reachable clones are inside `param_groups`;
+                //     iteration is sequential by `(group_idx, param_idx)` so
+                //     no other iteration of this loop holds a clone.
+                //  3. The previous `data_vec()` (line 268) and the closure's
+                //     output (line 290) produced owned `Vec<T>` values; no
+                //     live borrow into the param's storage remains.
+                //  4. The legacy CPU path runs no autograd ops in the
+                //     enclosing scope, so even outside `no_grad` no `grad_fn`
+                //     could clone the storage Arc between the closure exit
+                //     and this write.
                 unsafe {
                     self.param_groups[group_idx].params[param_idx]
                         .tensor()
@@ -399,7 +442,7 @@ impl<T: Float> Optimizer<T> for Adagrad<T> {
                 f64_vec_to_tensor::<T>(sum_data, &shape)?
             } else {
                 let numel: usize = shape.iter().product();
-                let init = T::from(self.config.initial_accumulator_value).unwrap();
+                let init = cast::<f64, T>(self.config.initial_accumulator_value)?;
                 Tensor::from_storage(TensorStorage::cpu(vec![init; numel]), shape.clone(), false)?
             };
 

@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -24,6 +25,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for the [`NAdam`] optimizer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct NAdamConfig {
     /// Learning rate (default: 0.002).
     pub lr: f64,
@@ -224,7 +226,22 @@ impl<T: Float> NAdam<T> {
 
                     // Commit.
                     let (storage, _) = new_param.into_storage_and_shape()?;
-                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    // SAFETY: `update_storage` swaps the storage Arc; sole
+                    // writer guarantees:
+                    //  1. `step_foreach` runs under
+                    //     `Optimizer::step(&mut self)` for this `Nadam<T>`,
+                    //     so no other thread/task is iterating these params.
+                    //  2. The foreach loop is wrapped in `no_grad`, so no
+                    //     autograd `grad_fn` will retain a clone of
+                    //     `param_t`'s storage Arc.
+                    //  3. `param_t` is the per-iteration clone of the
+                    //     parameter's `Tensor`; tensor temporaries
+                    //     (`decayed`, `scaled_update`, `new_param`,
+                    //     `update`) hold independent storage and `new_param`
+                    //     was just consumed by `into_storage_and_shape`.
+                    //     No live borrow into the existing storage remains.
+                    //  4. New `storage` was produced by ops dispatched on
+                    //     `param_t`'s device, so device + numel match.
                     unsafe { param_t.update_storage(storage)? };
 
                     let state = self.foreach_state.get_mut(&key).unwrap();
@@ -270,13 +287,13 @@ impl<T: Float> Optimizer<T> for NAdam<T> {
                 let param_data: Vec<f64> = tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let mut grad_data: Vec<f64> = grad_tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
 
                 let numel = param_data.len();
 
@@ -345,10 +362,21 @@ impl<T: Float> Optimizer<T> for NAdam<T> {
                         let denom = v_hat.sqrt() + config.eps;
                         let decayed = param_data[i] * decay_factor;
                         let updated = decayed - group_lr * m_hat / denom;
-                        T::from(updated).unwrap()
+                        cast::<f64, T>(updated)
                     })
-                    .collect();
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
 
+                // SAFETY: `update_data` writes through `Arc::as_ptr` and
+                // requires the parameter's storage to have no live aliases.
+                //  1. `Nadam::step(&mut self)` is the unique mutable handle
+                //     to this optimiser; the per-(gi, pi) loop is sequential.
+                //  2. The `no_grad` closure prevents `grad_fn` recording, so
+                //     no autograd node will clone the storage Arc.
+                //  3. The earlier `tensor.data_vec()` and
+                //     `grad_tensor.data_vec()` calls returned owned
+                //     `Vec<f64>` values now consumed by the moment-update
+                //     loops. `new_values` is a fresh `Vec<T>` independent
+                //     of the parameter's storage.
                 no_grad(|| unsafe { param.tensor().update_data(&new_values) })?;
             }
         }

@@ -12,6 +12,7 @@
 //!
 //! # CL-321
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -188,8 +189,8 @@ impl<T: Float> ExponentialMovingAverage<T> {
 
         let decay = self.effective_decay();
         let one_minus_decay = 1.0 - decay;
-        let decay_t = T::from(decay).unwrap();
-        let one_minus_decay_t = T::from(one_minus_decay).unwrap();
+        let decay_t = cast::<f64, T>(decay)?;
+        let one_minus_decay_t = cast::<f64, T>(one_minus_decay)?;
 
         for (shadow, param) in self.shadow_params.iter_mut().zip(params.iter()) {
             let param_data = param.data()?;
@@ -268,7 +269,37 @@ impl<T: Float> ExponentialMovingAverage<T> {
                 for (shadow, param) in self.shadow_tensors.iter().zip(params.iter()) {
                     let shadow_clone = shadow.clone();
                     let (storage, _) = shadow_clone.into_storage_and_shape()?;
-                    // SAFETY: inside no_grad with exclusive access.
+                    // SAFETY: `update_storage` swaps the parameter's
+                    // storage Arc; sole-writer required.
+                    //  1. `apply_shadow(&mut self, params: &[Parameter<T>])`
+                    //     receives `params` by shared slice. The caller
+                    //     gives up access while this method runs (no
+                    //     concurrent `update`/`apply_shadow`/`restore` is
+                    //     possible because each takes `&mut self`).
+                    //  2. The body runs inside `no_grad`, so no autograd
+                    //     `grad_fn` retains a clone of the parameter's
+                    //     storage Arc during the swap.
+                    //  3. `shadow_clone` is a fresh `Tensor::clone` that
+                    //     shares the *shadow* tensor's Arc, not the
+                    //     parameter's. `into_storage_and_shape` consumes
+                    //     `shadow_clone` and yields a `TensorStorage<T>`
+                    //     with refcount 1 (because the original
+                    //     `self.shadow_tensors[i]` retains its own clone of
+                    //     the same Arc — see below FOLLOW-UP).
+                    //  4. The shadow tensor was constructed in
+                    //     `with_foreach` via `Tensor::from_storage(.., false)`
+                    //     and `.to(device)`, so it lives on the same device
+                    //     as the parameter (caller invariant) and has the
+                    //     same numel.
+                    //
+                    // FOLLOW-UP: `shadow_clone.into_storage_and_shape()`
+                    // calls `Arc::try_unwrap`-equivalent, which can fail
+                    // when `self.shadow_tensors[i]` keeps a second strong
+                    // reference. Verify in core that
+                    // `into_storage_and_shape` deep-copies in the
+                    // refcount>1 path; otherwise we'd be installing an Arc
+                    // that the EMA still points at, which would alias the
+                    // parameter's storage with the shadow's.
                     unsafe { param.tensor().update_storage(storage)? };
                 }
                 Ok::<(), ferrotorch_core::FerrotorchError>(())
@@ -276,6 +307,19 @@ impl<T: Float> ExponentialMovingAverage<T> {
         } else {
             // Write shadow values into parameters.
             for (shadow, param) in self.shadow_params.iter().zip(params.iter()) {
+                // SAFETY: `update_data` writes through `Arc::as_ptr`;
+                // sole-writer required.
+                //  1. `apply_shadow(&mut self, ..)` is the unique mutable
+                //     handle on this `Ema<T>` for the duration of the call.
+                //  2. The closure runs inside `no_grad`, suppressing
+                //     `grad_fn` recording for the write.
+                //  3. `shadow: &Vec<T>` borrows from `self.shadow_params`,
+                //     which is disjoint from any parameter's storage.
+                //  4. We just iterated `params` to produce
+                //     `self.backup_params` (line 260) via
+                //     `p.data().unwrap_or_default().to_vec()`, which copies
+                //     into owned `Vec<T>` and drops the borrow before
+                //     reaching this loop.
                 no_grad(|| unsafe { param.tensor().update_data(shadow) })?;
             }
         }
@@ -296,6 +340,17 @@ impl<T: Float> ExponentialMovingAverage<T> {
         assert_eq!(params.len(), self.backup_params.len());
 
         for (backup, param) in self.backup_params.iter().zip(params.iter()) {
+            // SAFETY: `update_data` writes through `Arc::as_ptr`;
+            // sole-writer required.
+            //  1. `restore(&mut self, ..)` holds the only mutable handle to
+            //     this EMA, so no other restore/apply_shadow is in flight.
+            //  2. The `no_grad` closure suppresses `grad_fn` recording for
+            //     this write.
+            //  3. `backup` borrows from `self.backup_params`, which is
+            //     disjoint from any parameter's storage (it was populated
+            //     in `apply_shadow` from owned `Vec<T>` copies).
+            //  4. `params` is a shared slice; the caller cannot mutate the
+            //     parameters while we hold this slice.
             no_grad(|| unsafe { param.tensor().update_data(backup) })?;
         }
 
@@ -327,6 +382,31 @@ impl<T: Float> ExponentialMovingAverage<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- SAFETY note shared by all `update_data` test sites below --------
+    //
+    // Each test sets up one or two `Parameter<T>` values on the test stack,
+    // then calls `no_grad(|| unsafe { p.tensor().update_data(&[..]) })` to
+    // simulate "an optimizer step has changed the parameter" before driving
+    // the EMA logic. The simulated step must hold sole-writer semantics on
+    // `p`'s storage, which we rely on as follows:
+    //
+    //  1. Each `Parameter<T>` is constructed locally in the test (e.g. via
+    //     `Parameter::from_slice` / `Parameter::zeros`). The only handles
+    //     held are `p` itself and the shared slices passed to EMA methods
+    //     (`std::slice::from_ref(&p)`), which are dropped between
+    //     `update_data` calls.
+    //  2. The `no_grad` closure suppresses autograd graph construction for
+    //     the write, so no `grad_fn` retains a clone of the storage Arc.
+    //  3. EMA stores its shadow copies in independent `Vec<T>` (or
+    //     independent `Tensor<T>` storages, populated by deep-copy in
+    //     `with_foreach`); EMA does not retain any aliasing reference into
+    //     `p`'s storage.
+    //  4. Each test runs single-threaded; `cargo test` may run multiple
+    //     tests in parallel, but each test owns its own `Parameter`s.
+    //
+    // The per-site comments below cite this block by name where they need
+    // to point out anything site-specific.
 
     // -----------------------------------------------------------------------
     // Construction
@@ -362,6 +442,8 @@ mod tests {
         let mut ema = ExponentialMovingAverage::new(std::slice::from_ref(&p), 0.9);
 
         // Simulate optimizer step changing params.
+        // SAFETY: see test-module note above. `p` was just constructed by
+        // `Parameter::from_slice` and is held only by this stack frame.
         ferrotorch_core::no_grad(|| unsafe { p.tensor().update_data(&[3.0f32, 4.0]) }).unwrap();
 
         ema.update(&[p]).unwrap();
@@ -379,6 +461,7 @@ mod tests {
 
         // Update 1: param = 1.0
         // shadow = 0.5 * 0.0 + 0.5 * 1.0 = 0.5
+        // SAFETY: see test-module note above; `p` is local to this test.
         ferrotorch_core::no_grad(|| unsafe { p.tensor().update_data(&[1.0f32]) }).unwrap();
         ema.update(std::slice::from_ref(&p)).unwrap();
         assert!((ema.shadow_params()[0][0] - 0.5).abs() < 1e-6);
@@ -400,6 +483,7 @@ mod tests {
         let mut ema = ExponentialMovingAverage::new(std::slice::from_ref(&p), 0.5);
 
         // Update once with param = [0.0, 0.0]
+        // SAFETY: see test-module note above; `p` is local to this test.
         ferrotorch_core::no_grad(|| unsafe { p.tensor().update_data(&[0.0f32, 0.0]) }).unwrap();
         ema.update(std::slice::from_ref(&p)).unwrap();
         // shadow = 0.5 * [10, 20] + 0.5 * [0, 0] = [5, 10]
@@ -436,6 +520,7 @@ mod tests {
             ExponentialMovingAverage::new(std::slice::from_ref(&p), 0.999).with_decay_warmup(true);
 
         // Step 0: effective_decay = min(0.999, 1/10) = 0.1
+        // SAFETY: see test-module note above; `p` is local to this test.
         ferrotorch_core::no_grad(|| unsafe { p.tensor().update_data(&[10.0f32]) }).unwrap();
         ema.update(std::slice::from_ref(&p)).unwrap();
 
@@ -467,7 +552,10 @@ mod tests {
         let mut ema = ExponentialMovingAverage::new(&[p1.clone(), p2.clone()], 0.0);
 
         // decay = 0: shadow = 0 * shadow + 1 * param = param (immediate copy)
+        // SAFETY: see test-module note above; `p1`, `p2` are disjoint local
+        // parameters with their own storage Arcs.
         ferrotorch_core::no_grad(|| unsafe { p1.tensor().update_data(&[10.0f32, 20.0]) }).unwrap();
+        // SAFETY: see test-module note above; `p2` is local to this test.
         ferrotorch_core::no_grad(|| unsafe { p2.tensor().update_data(&[30.0f32]) }).unwrap();
         ema.update(&[p1, p2]).unwrap();
 
@@ -484,6 +572,7 @@ mod tests {
         let p = Parameter::from_slice(&[5.0f32], &[1]).unwrap();
         let mut ema = ExponentialMovingAverage::new(std::slice::from_ref(&p), 1.0);
 
+        // SAFETY: see test-module note above; `p` is local to this test.
         ferrotorch_core::no_grad(|| unsafe { p.tensor().update_data(&[100.0f32]) }).unwrap();
         ema.update(&[p]).unwrap();
 
@@ -507,8 +596,12 @@ mod tests {
         // Simulate parameter updates across 5 steps with varying values.
         for step in 0..5 {
             let new_vals: Vec<f32> = (0..4).map(|i| 1.0 + i as f32 + step as f32 * 0.5).collect();
+            // SAFETY: see test-module note above; `p_legacy` and `p_foreach`
+            // are disjoint local parameters with their own storage Arcs;
+            // `new_vals` is an owned `Vec<f32>` independent of either.
             ferrotorch_core::no_grad(|| unsafe { p_legacy.tensor().update_data(&new_vals) })
                 .unwrap();
+            // SAFETY: see test-module note above; `p_foreach` is local.
             ferrotorch_core::no_grad(|| unsafe { p_foreach.tensor().update_data(&new_vals) })
                 .unwrap();
 
@@ -540,8 +633,11 @@ mod tests {
         for step in 0..8 {
             let v = 10.0 + step as f32;
             let new_vals = vec![v, v + 1.0, v + 2.0];
+            // SAFETY: see test-module note above; `p_legacy` and `p_foreach`
+            // are disjoint local parameters.
             ferrotorch_core::no_grad(|| unsafe { p_legacy.tensor().update_data(&new_vals) })
                 .unwrap();
+            // SAFETY: see test-module note above; `p_foreach` is local.
             ferrotorch_core::no_grad(|| unsafe { p_foreach.tensor().update_data(&new_vals) })
                 .unwrap();
 
@@ -568,6 +664,7 @@ mod tests {
             .with_foreach(std::slice::from_ref(&p));
 
         // Update once with param = [0.0, 0.0].
+        // SAFETY: see test-module note above; `p` is local to this test.
         ferrotorch_core::no_grad(|| unsafe { p.tensor().update_data(&[0.0f32, 0.0]) }).unwrap();
         ema.update(std::slice::from_ref(&p)).unwrap();
         // shadow = 0.5 * [10, 20] + 0.5 * [0, 0] = [5, 10]

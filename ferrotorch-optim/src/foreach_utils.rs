@@ -7,6 +7,7 @@
 
 use ferrotorch_core::creation::scalar;
 use ferrotorch_core::grad_fns::arithmetic::{abs, add, mul, sub};
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{Device, FerrotorchResult, Float, Tensor};
 
 /// Broadcast-free elementwise `max(a, b)` computed as
@@ -20,7 +21,7 @@ pub fn elemwise_max<T: Float>(
     let abs_diff = abs(&diff)?;
     let sum_ab = add(a, b)?;
     let sum_plus_abs = add(&sum_ab, &abs_diff)?;
-    let half = scalar(T::from(0.5).unwrap())?.to(device)?;
+    let half = scalar(cast::<f64, T>(0.5)?)?.to(device)?;
     mul(&sum_plus_abs, &half)
 }
 
@@ -34,5 +35,5 @@ pub fn scalar_on<T: Float>(value: T, device: Device) -> FerrotorchResult<Tensor<
 /// Convenience: convert an `f64` hyperparameter into a scalar on the device.
 #[inline]
 pub fn f64_scalar_on<T: Float>(value: f64, device: Device) -> FerrotorchResult<Tensor<T>> {
-    scalar_on(T::from(value).unwrap(), device)
+    scalar_on(cast::<f64, T>(value)?, device)
 }

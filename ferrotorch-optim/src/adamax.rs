@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -21,6 +22,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for the [`Adamax`] optimizer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct AdamaxConfig {
     /// Learning rate (default: 0.002).
     pub lr: f64,
@@ -187,7 +189,23 @@ impl<T: Float> Adamax<T> {
 
                     // Commit.
                     let (storage, _) = new_param.into_storage_and_shape()?;
-                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    // SAFETY: `update_storage` requires sole-writer
+                    // semantics on the parameter's storage Arc.
+                    //  1. `step_foreach` is invoked from `Optimizer::step`
+                    //     under `&mut self`, ruling out concurrent steps.
+                    //  2. The whole foreach body is wrapped in `no_grad`, so
+                    //     no `grad_fn` retains a clone of `param_t`'s
+                    //     storage Arc during this swap.
+                    //  3. `param_t` is a per-iteration clone of the
+                    //     parameter's `Tensor`; the temporaries derived
+                    //     from it (`update`, `scaled`, `new_param`) own
+                    //     independent storage, and `new_param` was just
+                    //     consumed by `into_storage_and_shape`. No live
+                    //     borrow into the parameter's existing storage
+                    //     remains.
+                    //  4. The new `storage` was produced by ops on
+                    //     `param_t`'s device with shape preserved — same
+                    //     device and numel as the existing tensor view.
                     unsafe { param_t.update_storage(storage)? };
 
                     let state = self.foreach_state.get_mut(&key).unwrap();
@@ -231,13 +249,13 @@ impl<T: Float> Optimizer<T> for Adamax<T> {
                 let param_data: Vec<f64> = tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let mut grad_data: Vec<f64> = grad_tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
 
                 let numel = param_data.len();
 
@@ -278,10 +296,25 @@ impl<T: Float> Optimizer<T> for Adamax<T> {
                 let new_values: Vec<T> = (0..numel)
                     .map(|i| {
                         let updated = param_data[i] - clr * state.exp_avg[i] / state.exp_inf[i];
-                        T::from(updated).unwrap()
+                        cast::<f64, T>(updated)
                     })
-                    .collect();
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
 
+                // SAFETY: `update_data` mutates the parameter's storage via
+                // `Arc::as_ptr`; safe here because:
+                //  1. `Adamax::step(&mut self)` holds the only live mutable
+                //     borrow on this optimiser; the per-(gi, pi) loop is
+                //     sequential, so no two iterations alias the same
+                //     parameter storage.
+                //  2. The `no_grad` closure suppresses `grad_fn`
+                //     construction during the write — no autograd node will
+                //     clone the storage Arc as part of this update.
+                //  3. The earlier reads from this parameter
+                //     (`tensor.data_vec()` line 232 and
+                //     `grad_tensor.data_vec()` line 237) returned owned
+                //     `Vec<f64>` values that have already been consumed by
+                //     the moment-update loops. `new_values` is a fresh
+                //     `Vec<T>` independent of the parameter's storage.
                 no_grad(|| unsafe { param.tensor().update_data(&new_values) })?;
             }
         }

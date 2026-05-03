@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -25,6 +26,7 @@ use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 /// Hyperparameters for the [`RAdam`] optimizer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct RAdamConfig {
     /// Learning rate (default: 0.001).
     pub lr: f64,
@@ -219,7 +221,23 @@ impl<T: Float> RAdam<T> {
 
                     // Commit.
                     let (storage, _) = new_param.into_storage_and_shape()?;
-                    // SAFETY: optimizer step inside no_grad, exclusive access.
+                    // SAFETY: `update_storage` swaps the storage Arc; sole
+                    // writer guarantees:
+                    //  1. `step_foreach` runs under
+                    //     `Optimizer::step(&mut self)` for this `Radam<T>`,
+                    //     so no other thread/task is iterating these params.
+                    //  2. The foreach loop body sits inside `no_grad`, so no
+                    //     autograd `grad_fn` will retain a clone of
+                    //     `param_t`'s storage Arc during this swap.
+                    //  3. `param_t` is a per-iteration clone of the
+                    //     parameter's `Tensor`; tensor temporaries
+                    //     (`m_hat`, `decayed`, `scaled`, `new_param`) own
+                    //     independent storage and `new_param` was just
+                    //     consumed by `into_storage_and_shape`. No live
+                    //     borrow into the parameter's existing storage
+                    //     remains.
+                    //  4. New `storage` was produced by ops dispatched on
+                    //     `param_t`'s device, so device + numel match.
                     unsafe { param_t.update_storage(storage)? };
 
                     let state = self.foreach_state.get_mut(&key).unwrap();
@@ -266,13 +284,13 @@ impl<T: Float> Optimizer<T> for RAdam<T> {
                 let param_data: Vec<f64> = tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
                 let mut grad_data: Vec<f64> = grad_tensor
                     .data_vec()?
                     .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect();
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
 
                 let numel = param_data.len();
 
@@ -339,9 +357,9 @@ impl<T: Float> Optimizer<T> for RAdam<T> {
                                 bc2.sqrt() / (state.exp_avg_sq[i].sqrt() + config.eps);
                             let decayed = param_data[i] * decay_factor;
                             let updated = decayed - group_lr * m_hat * rect * adaptive_lr;
-                            T::from(updated).unwrap()
+                            cast::<f64, T>(updated)
                         })
-                        .collect()
+                        .collect::<FerrotorchResult<Vec<T>>>()?
                 } else {
                     // Variance is not tractable: fall back to un-adapted step.
                     // theta_t = theta_t - lr * m_hat
@@ -350,11 +368,21 @@ impl<T: Float> Optimizer<T> for RAdam<T> {
                             let m_hat = state.exp_avg[i] / bc1;
                             let decayed = param_data[i] * decay_factor;
                             let updated = decayed - group_lr * m_hat;
-                            T::from(updated).unwrap()
+                            cast::<f64, T>(updated)
                         })
-                        .collect()
+                        .collect::<FerrotorchResult<Vec<T>>>()?
                 };
 
+                // SAFETY: `update_data` writes through `Arc::as_ptr` and
+                // requires sole-writer access to the parameter's storage.
+                //  1. `Radam::step(&mut self)` is the unique mutable handle
+                //     to this optimiser; the per-(gi, pi) loop is sequential.
+                //  2. The `no_grad` closure prevents `grad_fn` recording, so
+                //     no autograd node will clone the storage Arc.
+                //  3. The earlier `tensor.data_vec()` and
+                //     `grad_tensor.data_vec()` reads returned owned
+                //     `Vec<f64>` values that have been consumed. `new_values`
+                //     is a fresh owned `Vec<T>`.
                 no_grad(|| unsafe { param.tensor().update_data(&new_values) })?;
             }
         }
