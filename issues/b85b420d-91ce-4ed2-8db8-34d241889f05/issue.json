@@ -6,5 +6,8 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-03T20:49:52.043883650Z",
-  "updated_at": "2026-05-03T20:49:52.043883650Z"
+  "updated_at": "2026-05-03T20:49:53.409919299Z",
+  "labels": [
+    "rust,commit,audit-followup"
+  ]
 }
