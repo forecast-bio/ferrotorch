@@ -53,6 +53,12 @@ pub mod jit {
     pub use ferrotorch_jit::*;
 }
 
+/// `#[script]` proc macro for source-based graph capture.
+#[cfg(feature = "jit-script")]
+pub mod jit_script {
+    pub use ferrotorch_jit_script::*;
+}
+
 /// Probability distributions for sampling and variational inference.
 #[cfg(feature = "distributions")]
 pub mod distributions {
@@ -71,6 +77,12 @@ pub mod hub {
     pub use ferrotorch_hub::*;
 }
 
+/// HuggingFace tokenizer wrapper (BPE, WordPiece, Unigram).
+#[cfg(feature = "tokenize")]
+pub mod tokenize {
+    pub use ferrotorch_tokenize::*;
+}
+
 /// CUDA GPU backend with PTX kernels and cuBLAS.
 #[cfg(feature = "gpu")]
 pub mod gpu {
@@ -83,8 +95,32 @@ pub mod cubecl {
     pub use ferrotorch_cubecl::*;
 }
 
+/// Apple Silicon Metal Performance Shaders backend.
+#[cfg(feature = "mps")]
+pub mod mps {
+    pub use ferrotorch_mps::*;
+}
+
+/// Intel Arc / Data Center GPU Max via CubeCL wgpu.
+#[cfg(feature = "xpu")]
+pub mod xpu {
+    pub use ferrotorch_xpu::*;
+}
+
 /// Distributed training: DDP, collective ops, TCP backend.
 #[cfg(feature = "distributed")]
 pub mod distributed {
     pub use ferrotorch_distributed::*;
+}
+
+/// Llama 3 model composition and (with `llama-cuda`) GPU bf16 inference.
+#[cfg(feature = "llama")]
+pub mod llama {
+    pub use ferrotorch_llama::*;
+}
+
+/// Sklearn-compatible adapter and classic-ML datasets.
+#[cfg(feature = "ml")]
+pub mod ml {
+    pub use ferrotorch_ml::*;
 }

@@ -205,6 +205,154 @@ pub fn load_pretrained<T: Float>(name: &str) -> FerrotorchResult<StateDict<T>> {
 // Sharded model download (#509)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Path-component sanitizer
+// ---------------------------------------------------------------------------
+
+/// Maximum allowed byte length for any single path component (repo, revision,
+/// shard filename).  255 is the POSIX `NAME_MAX` for most file systems.
+const MAX_COMPONENT_BYTES: usize = 255;
+
+/// Validate that `s` is safe to use as a single path component in a cache
+/// key or URL segment.
+///
+/// A *safe* component:
+/// - Is non-empty.
+/// - Is no longer than [`MAX_COMPONENT_BYTES`] bytes (POSIX `NAME_MAX`).
+/// - Contains no null bytes (`\0`).
+/// - Contains no `/` or `\` separators (would escape the intended directory).
+/// - Contains no `:` (Windows ADS; also illegal in filenames on some systems).
+/// - Is not `..` or `.` (directory traversal).
+/// - Does not begin with `.` (hidden files — we conservatively reject these
+///   to block both `..` prefix variants and unintended dotfiles; callers that
+///   genuinely need dotfile names can bypass this function, which is `pub(crate)`).
+///
+/// Because this function accepts `&str`, valid UTF-8 is already guaranteed by
+/// Rust's type system; no additional encoding check is necessary.
+///
+/// # Errors
+///
+/// Returns `FerrotorchError::InvalidArgument` describing the specific rejection
+/// reason, so callers surface actionable diagnostics.
+pub(crate) fn sanitize_path_component(s: &str, role: &str) -> FerrotorchResult<()> {
+    if s.is_empty() {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!("hf_download_model: {role} must not be empty"),
+        });
+    }
+    if s.len() > MAX_COMPONENT_BYTES {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "hf_download_model: {role} is too long ({} bytes; max {MAX_COMPONENT_BYTES})",
+                s.len()
+            ),
+        });
+    }
+    if s.contains('\0') {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!("hf_download_model: {role} contains a null byte"),
+        });
+    }
+    if s.contains('/') || s.contains('\\') {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "hf_download_model: {role} contains a path separator ('/' or '\\'): {s:?}"
+            ),
+        });
+    }
+    if s.contains(':') {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "hf_download_model: {role} contains a colon (potential Windows ADS / illegal character): {s:?}"
+            ),
+        });
+    }
+    if s == ".." || s == "." {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!("hf_download_model: {role} is a dot-path component ({s:?})"),
+        });
+    }
+    if s.starts_with('.') {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "hf_download_model: {role} starts with '.' (hidden/dotfile components are not allowed): {s:?}"
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Collapse `..` and `.` components in a path lexically, without requiring
+/// the path to exist on disk.  This is intentionally conservative: if a `..`
+/// component would escape the root (i.e. the stack underflows), that component
+/// is silently dropped — which is safe because it means the path was already
+/// at the root and a `..` would escape it, a condition that the caller's
+/// containment check below will catch.
+fn lexical_normalize(p: &std::path::Path) -> std::path::PathBuf {
+    use std::path::{Component, PathBuf};
+    let mut out = PathBuf::new();
+    for component in p.components() {
+        match component {
+            Component::CurDir => {}             // `.` — skip
+            Component::ParentDir => {            // `..` — pop one level
+                out.pop();
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Verify that `full_path` is contained within `base`.
+///
+/// After building a cache path from sanitized components we do a final
+/// defense-in-depth check that guards against TOCTOU and any edge cases the
+/// component sanitizer might miss (e.g. unicode normalization, symlinks).
+///
+/// Strategy:
+/// 1. Try `std::fs::canonicalize` on both paths (strongest form — resolves
+///    symlinks).  If both succeed, use the canonicalized forms for the check.
+/// 2. If `full_path` doesn't exist yet (common: the shard file hasn't been
+///    written), fall back to canonicalizing `base` only (it should exist) and
+///    then lexically normalizing `full_path` via [`lexical_normalize`].  The
+///    lexical normalization collapses any `..` components that survived
+///    sanitization, making the fallback reliable even when the target file is
+///    not yet on disk.
+///
+/// # Errors
+///
+/// Returns `FerrotorchError::InvalidArgument` if containment cannot be
+/// confirmed.  The write is always refused in that case.
+fn assert_within_cache(base: &std::path::Path, full_path: &std::path::Path) -> FerrotorchResult<()> {
+    // Strong form: both paths exist and can be canonicalized (symlinks resolved).
+    if let (Ok(b), Ok(p)) = (std::fs::canonicalize(base), std::fs::canonicalize(full_path)) {
+        if !p.starts_with(&b) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "hf_download_model: resolved path {p:?} escapes cache directory {b:?} \
+                     (path traversal blocked)"
+                ),
+            });
+        }
+        return Ok(());
+    }
+
+    // Fallback: `full_path` doesn't exist yet.  Canonicalize `base` (which
+    // must exist) and lexically normalize `full_path` to collapse any `..`.
+    let base_norm = std::fs::canonicalize(base).unwrap_or_else(|_| lexical_normalize(base));
+    let path_norm = lexical_normalize(full_path);
+
+    if !path_norm.starts_with(&base_norm) {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "hf_download_model: path {full_path:?} (normalized: {path_norm:?}) escapes \
+                 cache directory {base:?} (path traversal blocked)"
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// Download every safetensors shard referenced in a HuggingFace model
 /// repo's index, plus `config.json` and (optionally) the tokenizer files,
 /// into the local cache. Returns the cache directory containing the
@@ -225,9 +373,19 @@ pub fn load_pretrained<T: Float>(name: &str) -> FerrotorchResult<StateDict<T>> {
 /// SHA. The cache layout follows the existing `HubCache::path(name)` flat
 /// structure: each downloaded file lands at `cache.path("{repo_id}/{filename}")`.
 ///
+/// # Security
+///
+/// `repo`, `revision`, and any shard filenames parsed from the server's
+/// `model.safetensors.index.json` are validated by
+/// [`sanitize_path_component`] before being used in cache keys or URLs.
+/// In addition, the final resolved path is verified to lie within
+/// `cache_dir` before any write is attempted.  This guards against path
+/// traversal attacks from a malicious or compromised HuggingFace response.
+///
 /// # Errors
 ///
-/// - `FerrotorchError::InvalidArgument` for HTTP failures or malformed JSON.
+/// - `FerrotorchError::InvalidArgument` for HTTP failures, malformed JSON,
+///   or path-traversal attempts in any server-supplied filename.
 /// - I/O errors from the cache writer.
 #[cfg(feature = "http")]
 pub fn hf_download_model(
@@ -237,19 +395,30 @@ pub fn hf_download_model(
 ) -> FerrotorchResult<PathBuf> {
     use std::io::Read;
 
-    if repo.is_empty() {
-        return Err(FerrotorchError::InvalidArgument {
-            message: "hf_download_model: repo must not be empty".into(),
-        });
+    // --- Sanitize caller-supplied inputs (defense-in-depth: these are not
+    //     server-controlled but still flow into cache paths and URLs). ---
+    //
+    // Note: `repo` legitimately contains a single `/` separator
+    // (e.g. "meta-llama/Llama-3-8B"), so we split on `/` and validate each
+    // component individually instead of rejecting the whole string.
+    {
+        let parts: Vec<&str> = repo.split('/').collect();
+        if parts.is_empty() || repo.is_empty() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "hf_download_model: repo must not be empty".into(),
+            });
+        }
+        for part in &parts {
+            sanitize_path_component(part, "repo component")?;
+        }
     }
-    let revision = if revision.is_empty() {
-        "main"
-    } else {
-        revision
-    };
+    let revision = if revision.is_empty() { "main" } else { revision };
+    sanitize_path_component(revision, "revision")?;
 
     // Helper to fetch one file from the repo into the cache. `relative` is
     // the path-within-repo (e.g. "config.json", "model-00001-of-00004.safetensors").
+    // PRECONDITION: callers must have already run `sanitize_path_component` on
+    // every component of `repo`, `revision`, and `relative` before calling this.
     fn fetch_one(
         repo: &str,
         revision: &str,
@@ -273,8 +442,13 @@ pub fn hf_download_model(
                 message: format!("hf_download_model: reading {url}: {e}"),
             })?;
         let cache_name = format!("{repo}/{relative}");
+        // Defense-in-depth: verify the resolved path is still inside cache_dir
+        // before writing. Guards against TOCTOU and any edge cases the
+        // component sanitizer might miss (e.g. unicode normalization).
+        let final_path = cache.path(&cache_name);
+        assert_within_cache(cache.cache_dir(), &final_path)?;
         cache.store(&cache_name, &body)?;
-        Ok(cache.path(&cache_name))
+        Ok(final_path)
     }
 
     // Helper that probes a URL and returns Some(body) on 200, None on 404.
@@ -330,6 +504,14 @@ pub fn hf_download_model(
         let mut shards: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for v in weight_map.values() {
             if let Some(s) = v.as_str() {
+                // *** SECURITY: sanitize every server-supplied shard filename
+                // before inserting it into the download set. `s` comes from
+                // parsing `model.safetensors.index.json` returned by the
+                // HuggingFace server; a malicious or compromised response
+                // could contain `"../../.bashrc"` or similar.  Reject any
+                // component that contains path separators, `..`, null bytes,
+                // leading dots, colons, or exceeds the name length limit. ***
+                sanitize_path_component(s, "shard filename")?;
                 shards.insert(s.to_string());
             }
         }
@@ -483,5 +665,154 @@ mod tests {
             got,
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // sanitize_path_component — security regression tests
+    // Each case covers a distinct attack vector; all must return Err.
+    // -----------------------------------------------------------------------
+
+    /// Helper: assert that sanitize_path_component returns an error for `s`
+    /// and that the error message contains `needle` for useful diagnostics.
+    fn assert_rejected(s: &str, role: &str, needle: &str) {
+        let result = super::sanitize_path_component(s, role);
+        assert!(
+            result.is_err(),
+            "expected Err for {:?} (role={role:?}), got Ok",
+            s
+        );
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains(needle),
+            "error for {:?} should contain {needle:?}, got: {msg}",
+            s
+        );
+    }
+
+    #[test]
+    fn sanitize_rejects_empty_string() {
+        assert_rejected("", "shard", "must not be empty");
+    }
+
+    #[test]
+    fn sanitize_rejects_dotdot() {
+        assert_rejected("..", "shard", "dot-path");
+    }
+
+    #[test]
+    fn sanitize_rejects_single_dot() {
+        assert_rejected(".", "shard", "dot-path");
+    }
+
+    #[test]
+    fn sanitize_rejects_leading_slash() {
+        assert_rejected("/etc/passwd", "shard", "path separator");
+    }
+
+    #[test]
+    fn sanitize_rejects_embedded_slash() {
+        assert_rejected("foo/bar", "shard", "path separator");
+    }
+
+    #[test]
+    fn sanitize_rejects_backslash() {
+        assert_rejected("foo\\bar", "shard", "path separator");
+    }
+
+    #[test]
+    fn sanitize_rejects_null_byte() {
+        assert_rejected("foo\0bar", "shard", "null byte");
+    }
+
+    #[test]
+    fn sanitize_rejects_dotdot_embedded() {
+        // "foo/../../../etc/passwd" — slash catches this, but confirm.
+        assert_rejected("foo/../../../etc/passwd", "shard", "path separator");
+    }
+
+    #[test]
+    fn sanitize_rejects_dotdot_at_start_with_slash() {
+        assert_rejected("../../.bashrc", "shard", "path separator");
+    }
+
+    #[test]
+    fn sanitize_rejects_leading_dot() {
+        assert_rejected(".hidden", "shard", "starts with '.'");
+    }
+
+    #[test]
+    fn sanitize_rejects_colon() {
+        assert_rejected("foo:bar", "shard", "colon");
+    }
+
+    #[test]
+    fn sanitize_rejects_windows_ads() {
+        // Windows Alternate Data Streams: "file.txt:secret"
+        assert_rejected("model.safetensors:secret", "shard", "colon");
+    }
+
+    #[test]
+    fn sanitize_rejects_overlong_string() {
+        let long = "a".repeat(super::MAX_COMPONENT_BYTES + 1);
+        assert_rejected(&long, "shard", "too long");
+    }
+
+    #[test]
+    fn sanitize_accepts_normal_shard_filename() {
+        // A typical HuggingFace shard filename should be accepted.
+        let ok = super::sanitize_path_component(
+            "model-00001-of-00004.safetensors",
+            "shard",
+        );
+        assert!(
+            ok.is_ok(),
+            "expected Ok for normal shard filename, got: {:?}",
+            ok
+        );
+    }
+
+    #[test]
+    fn sanitize_accepts_normal_revision() {
+        for rev in &["main", "v1.0", "abc123def456", "feature-branch"] {
+            let ok = super::sanitize_path_component(rev, "revision");
+            assert!(ok.is_ok(), "expected Ok for revision {rev:?}, got: {:?}", ok);
+        }
+    }
+
+    #[test]
+    fn sanitize_accepts_max_length_string() {
+        let exactly_max = "a".repeat(super::MAX_COMPONENT_BYTES);
+        let ok = super::sanitize_path_component(&exactly_max, "shard");
+        assert!(ok.is_ok(), "expected Ok for exactly-max-length string");
+    }
+
+    // -----------------------------------------------------------------------
+    // assert_within_cache — verify the path-containment guard
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn within_cache_rejects_escaped_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        // Construct a path that lexically escapes the cache dir.
+        let escaped = cache_dir.join("..").join("outside.txt");
+        let result = super::assert_within_cache(cache_dir, &escaped);
+        assert!(
+            result.is_err(),
+            "expected Err for escaped path, got Ok"
+        );
+    }
+
+    #[test]
+    fn within_cache_accepts_subpath() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        // Create the sub-path so canonicalize works.
+        let sub = cache_dir.join("meta-llama").join("model.safetensors");
+        std::fs::create_dir_all(sub.parent().unwrap()).unwrap();
+        std::fs::write(&sub, b"fake").unwrap();
+        // The cache dir itself exists now; both can be canonicalized.
+        let result = super::assert_within_cache(cache_dir, &sub);
+        assert!(result.is_ok(), "expected Ok for sub-path, got: {:?}", result);
     }
 }

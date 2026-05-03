@@ -1,7 +1,7 @@
 //! FLOPS estimation for common tensor operations.
 //!
 //! Each estimator counts multiply-accumulates (MACs) as 2 FLOPs (one
-//! multiply + one add), matching the convention used by PyTorch's
+//! multiply + one add), matching the convention used by `PyTorch`'s
 //! `torch.profiler` and the TensorFlow Profiler. The estimates are
 //! shape-driven and ignore numerical effects (e.g. masked entries in
 //! attention, sparse zeros) — they represent the dense compute cost.
@@ -12,11 +12,32 @@
 /// Estimate the number of floating-point operations for an op given
 /// its name and input shapes.
 ///
-/// Returns `None` when:
-/// - The op name is not recognized
-/// - The input shapes are missing or wrong-shape for the op
-/// - The op's FLOPS depend on values not present in the shape (e.g.
-///   number of unique elements for a unique() op)
+/// Each multiply-accumulate (MAC) is counted as 2 FLOPs, matching the
+/// convention used by `PyTorch`'s profiler and `TensorFlow` Profiler.
+/// The estimates are shape-driven and represent dense compute cost,
+/// ignoring numerical effects such as sparsity or masking.
+///
+/// # Returns
+///
+/// Returns `Some(flops)` when the op is recognized and the shapes are
+/// sufficient to compute an estimate. Returns `None` when:
+/// - The op name is not recognized.
+/// - The input shapes are missing or have the wrong rank for the op.
+/// - The FLOP count depends on runtime values not available from shapes
+///   (e.g. number of unique elements for a `unique()` op).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_profiler::flops;
+///
+/// // 2D matrix multiply [4, 5] @ [5, 6]: 2 * 4 * 6 * 5 = 240 FLOPs
+/// assert_eq!(flops::estimate("matmul", &[vec![4, 5], vec![5, 6]]), Some(240));
+///
+/// // Unrecognized op
+/// assert_eq!(flops::estimate("my_custom_op", &[vec![3, 4]]), None);
+/// ```
+#[must_use]
 pub fn estimate(op_name: &str, input_shapes: &[Vec<usize>]) -> Option<u64> {
     match op_name {
         // Elementwise binary ops: one FLOP per output element.
@@ -120,11 +141,11 @@ fn matmul_flops(shapes: &[Vec<usize>]) -> Option<u64> {
     Some(2 * batch as u64 * m as u64 * n_dim as u64 * k1 as u64)
 }
 
-/// Conv FLOPS = 2 * C_out * C_in * (kernel volume) * (output spatial
+/// Conv FLOPS = 2 * `C_out` * `C_in` * (kernel volume) * (output spatial
 /// volume). The estimator infers the output spatial size from the
 /// input spatial size assuming kernel/stride/padding are part of the
 /// op tag — for the standard ops we approximate by using the input
-/// spatial dims (correct for stride=1, padding='same').
+/// spatial dims (correct for stride=1, `padding='same'`).
 fn conv_nd_flops(shapes: &[Vec<usize>], n_spatial: usize) -> Option<u64> {
     if shapes.len() < 2 {
         return None;
@@ -210,7 +231,7 @@ mod tests {
         // Input [1, 3, 32, 32], weight [16, 3, 3, 3]
         // FLOPS = 2 * 1 * 16 * 3 * 9 * 1024 = 884736
         let shapes = vec![vec![1, 3, 32, 32], vec![16, 3, 3, 3]];
-        assert_eq!(estimate("conv2d", &shapes), Some(884736));
+        assert_eq!(estimate("conv2d", &shapes), Some(884_736));
     }
 
     #[test]
@@ -237,7 +258,7 @@ mod tests {
     fn test_layer_norm_estimate() {
         let shapes = vec![vec![32, 768]];
         // 8 FLOPS per element * 32 * 768 = 196608
-        assert_eq!(estimate("layer_norm", &shapes), Some(196608));
+        assert_eq!(estimate("layer_norm", &shapes), Some(196_608));
     }
 
     #[test]

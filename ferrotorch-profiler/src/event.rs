@@ -19,7 +19,7 @@ impl std::fmt::Display for DeviceType {
 }
 
 /// Category for memory allocation/free events. Mirrors the broad
-/// categories used by PyTorch's memory profiler so users can tell where
+/// categories used by `PyTorch`'s memory profiler so users can tell where
 /// VRAM is going. CL-333.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum MemoryCategory {
@@ -70,7 +70,7 @@ pub struct ProfileEvent {
     /// `record_memory` is off or the event is not a memory event.
     pub memory_bytes: Option<i64>,
     /// Memory category for memory events (Activations, Parameters,
-    /// OptimizerState, Gradients, Other). `None` for non-memory events.
+    /// `OptimizerState`, Gradients, Other). `None` for non-memory events.
     /// CL-333.
     pub memory_category: Option<MemoryCategory>,
     /// OS thread id that recorded this event.

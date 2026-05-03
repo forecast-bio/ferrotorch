@@ -13,16 +13,34 @@ categories.workspace = true
 readme = "README.md"
 
 [features]
-default = ["train", "serialize", "jit", "distributions", "profiler", "hub"]
+default = [
+    "train",
+    "serialize",
+    "jit",
+    "jit-script",
+    "distributions",
+    "profiler",
+    "hub",
+    "tokenize",
+]
 train = ["dep:ferrotorch-train"]
 serialize = ["dep:ferrotorch-serialize"]
 jit = ["dep:ferrotorch-jit"]
+jit-script = ["dep:ferrotorch-jit-script"]
 distributions = ["dep:ferrotorch-distributions"]
 profiler = ["dep:ferrotorch-profiler"]
 hub = ["dep:ferrotorch-hub"]
+tokenize = ["dep:ferrotorch-tokenize"]
 gpu = ["dep:ferrotorch-gpu"]
 cubecl = ["dep:ferrotorch-cubecl"]
+mps = ["dep:ferrotorch-mps"]
+xpu = ["dep:ferrotorch-xpu"]
 distributed = ["dep:ferrotorch-distributed"]
+llama = ["dep:ferrotorch-llama"]
+# Convenience: enable Llama 3 with CUDA bf16 inference. Pulls in `gpu` and the
+# llama crate's own `cuda` feature, which depends on ferrotorch-gpu + cudarc.
+llama-cuda = ["llama", "gpu", "ferrotorch-llama/cuda"]
+ml = ["dep:ferrotorch-ml"]
 
 [dependencies]
 # Global allocator
@@ -39,14 +57,20 @@ ferrotorch-vision = { workspace = true }
 ferrotorch-train = { workspace = true, optional = true }
 ferrotorch-serialize = { workspace = true, optional = true }
 ferrotorch-jit = { workspace = true, optional = true }
+ferrotorch-jit-script = { workspace = true, optional = true }
 ferrotorch-distributions = { workspace = true, optional = true }
 ferrotorch-profiler = { workspace = true, optional = true }
 ferrotorch-hub = { workspace = true, optional = true }
+ferrotorch-tokenize = { workspace = true, optional = true }
 
 # Optional (require CUDA or special hardware)
 ferrotorch-gpu = { workspace = true, optional = true }
 ferrotorch-cubecl = { workspace = true, optional = true }
+ferrotorch-mps = { workspace = true, optional = true }
+ferrotorch-xpu = { workspace = true, optional = true }
 ferrotorch-distributed = { workspace = true, optional = true }
+ferrotorch-llama = { workspace = true, optional = true }
+ferrotorch-ml = { workspace = true, optional = true }
 
 [[test]]
 name = "gpu_training"

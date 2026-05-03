@@ -57,7 +57,7 @@ fn main() -> FerrotorchResult<()> {
     // runs without downloading real MNIST files.
     let num_samples = 1000;
     let batch_size = 32;
-    let train_dataset = Mnist::<f32>::synthetic(Split::Train, num_samples);
+    let train_dataset = Mnist::<f32>::synthetic(Split::Train, num_samples)?;
     let train_loader = DataLoader::new(Arc::new(train_dataset), batch_size)
         .shuffle(true)
         .seed(42);
@@ -183,7 +183,7 @@ fn sync_grads_to_optimizer(
     optimizer: &mut Adam<f32>,
 ) -> FerrotorchResult<()> {
     let model_params: Vec<&Parameter<f32>> = model.parameters();
-    let opt_params = &optimizer.param_groups()[0].params;
+    let opt_params = optimizer.param_groups()[0].params();
 
     for (mp, op) in model_params.iter().zip(opt_params.iter()) {
         if let Some(grad) = mp.grad()? {
@@ -204,7 +204,7 @@ fn sync_params_from_optimizer(
     model: &mut Sequential<f32>,
     optimizer: &Adam<f32>,
 ) -> FerrotorchResult<()> {
-    let opt_params = &optimizer.param_groups()[0].params;
+    let opt_params = optimizer.param_groups()[0].params();
 
     // Collect updated tensors first to avoid borrow overlap.
     let updated_tensors: Vec<_> = opt_params.iter().map(|p| p.tensor().clone()).collect();

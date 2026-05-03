@@ -204,10 +204,8 @@ mod tests {
 
     #[test]
     fn test_amp_context_disabled() {
-        let config = GradScalerConfig {
-            enabled: false,
-            ..Default::default()
-        };
+        let mut config = GradScalerConfig::default();
+        config.enabled = false;
         let ctx = AmpContext::<f32>::new(AutocastDtype::BF16, config);
         assert!(!ctx.is_enabled());
     }
@@ -241,13 +239,9 @@ mod tests {
 
     #[test]
     fn test_scaler_state_dict_roundtrip() {
-        let ctx = AmpContext::<f32>::new(
-            AutocastDtype::F16,
-            GradScalerConfig {
-                init_scale: 1024.0,
-                ..Default::default()
-            },
-        );
+        let mut cfg = GradScalerConfig::default();
+        cfg.init_scale = 1024.0;
+        let ctx = AmpContext::<f32>::new(AutocastDtype::F16, cfg);
 
         let state = ctx.scaler_state_dict();
         assert!((state.scale_factor - 1024.0).abs() < 1e-6);
@@ -262,13 +256,9 @@ mod tests {
 
     #[test]
     fn test_scaler_accessor() {
-        let ctx = AmpContext::<f32>::new(
-            AutocastDtype::F16,
-            GradScalerConfig {
-                init_scale: 512.0,
-                ..Default::default()
-            },
-        );
+        let mut cfg = GradScalerConfig::default();
+        cfg.init_scale = 512.0;
+        let ctx = AmpContext::<f32>::new(AutocastDtype::F16, cfg);
         assert!((ctx.scaler().get_scale() - 512.0).abs() < 1e-6);
     }
 

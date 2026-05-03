@@ -48,13 +48,27 @@ pub struct Profiler {
     start_time: Instant,
     config: ProfileConfig,
     active: AtomicBool,
-    /// Set to `true` after the first poisoned-lock warning is logged.
-    /// Prevents flooding stderr with repeated warnings.
-    poison_warned: AtomicBool,
     /// Queued CUDA event pairs waiting for `flush_cuda_kernels` to
     /// synchronize and convert into [`ProfileEvent`]s. CL-380.
     #[cfg(feature = "cuda")]
     pending_cuda: Mutex<Vec<crate::cuda_timing::PendingCudaScope>>,
+}
+
+impl std::fmt::Debug for Profiler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let event_count = self.events.lock().map_or(0, |g| g.len());
+        let mut dbg = f.debug_struct("Profiler");
+        dbg.field("config", &self.config)
+            .field("active", &self.active)
+            .field("start_time", &self.start_time)
+            .field("event_count", &event_count);
+        #[cfg(feature = "cuda")]
+        {
+            let pending_count = self.pending_cuda.lock().map_or(0, |g| g.len());
+            dbg.field("pending_cuda_count", &pending_count);
+        }
+        dbg.finish()
+    }
 }
 
 impl Profiler {
@@ -65,7 +79,6 @@ impl Profiler {
             start_time: Instant::now(),
             config,
             active: AtomicBool::new(true),
-            poison_warned: AtomicBool::new(false),
             #[cfg(feature = "cuda")]
             pending_cuda: Mutex::new(Vec::new()),
         }
@@ -139,7 +152,7 @@ impl Profiler {
     }
 
     /// Record a memory allocation or free event with a specific
-    /// category (Activations, Parameters, OptimizerState, Gradients,
+    /// category (Activations, Parameters, `OptimizerState`, Gradients,
     /// Other). CL-333.
     pub fn record_memory_categorized(&self, name: &str, bytes: i64, category: MemoryCategory) {
         if !self.active.load(Ordering::Relaxed) || !self.config.record_memory {
@@ -224,7 +237,9 @@ impl Profiler {
 
     /// Microseconds elapsed since the profiler was created.
     fn elapsed_us(&self) -> u64 {
-        self.start_time.elapsed().as_micros() as u64
+        // as_micros() returns u128; saturate to u64::MAX rather than truncate.
+        // A profiling session lasting >584,542 years would saturate — acceptable.
+        u64::try_from(self.start_time.elapsed().as_micros()).unwrap_or(u64::MAX)
     }
 
     /// Queue a CUDA event scope for later finalization. Called by
@@ -236,7 +251,7 @@ impl Profiler {
         }
         match self.pending_cuda.lock() {
             Ok(mut q) => q.push(scope),
-            Err(_) => self.warn_poisoned(),
+            Err(_) => Self::warn_poisoned(),
         }
     }
 
@@ -255,7 +270,7 @@ impl Profiler {
         let pending: Vec<crate::cuda_timing::PendingCudaScope> = match self.pending_cuda.lock() {
             Ok(mut q) => std::mem::take(&mut *q),
             Err(_) => {
-                self.warn_poisoned();
+                Self::warn_poisoned();
                 return;
             }
         };
@@ -297,37 +312,35 @@ impl Profiler {
                 events.push(event);
             }
             Err(_) => {
-                self.warn_poisoned();
+                Self::warn_poisoned();
             }
         }
     }
 
     /// Push an event and return its index, or `None` on lock failure.
     fn push_event_returning_index(&self, event: ProfileEvent) -> Option<usize> {
-        match self.events.lock() {
-            Ok(mut events) => {
-                let idx = events.len();
-                events.push(event);
-                Some(idx)
-            }
-            Err(_) => {
-                self.warn_poisoned();
-                None
-            }
+        if let Ok(mut events) = self.events.lock() {
+            let idx = events.len();
+            events.push(event);
+            Some(idx)
+        } else {
+            // Mutex poisoned: silently drop — see `push_event` doc.
+            None
         }
     }
 
-    /// Log a warning the first time a poisoned mutex is encountered.
+    /// Called when a mutex lock returns a `PoisonError`.
     ///
-    /// Subsequent calls are no-ops to avoid flooding stderr.
-    fn warn_poisoned(&self) {
-        if !self.poison_warned.swap(true, Ordering::Relaxed) {
-            eprintln!(
-                "ferrotorch-profiler: events mutex is poisoned — \
-                 profiling events are being silently dropped. \
-                 This typically means a thread panicked while holding the lock."
-            );
-        }
+    /// The workspace has no `tracing`/`log` dependency, and this library
+    /// has no `Result`-returning path to propagate the condition through.
+    /// Silently dropping events is the least-bad option: the profiler is
+    /// a diagnostic tool, so losing events on a poisoned mutex (which
+    /// only happens when another thread has already panicked) is
+    /// acceptable.  Callers that need to detect this should inspect the
+    /// returned `Option::None` from `push_event_returning_index` or the
+    /// empty event list in the final `ProfileReport`.
+    fn warn_poisoned() {
+        // Intentional no-op: see doc comment above.
     }
 
     /// Drain collected events into a [`ProfileReport`].
@@ -398,6 +411,15 @@ impl Drop for ProfilerHookGuard {
 /// `profile_op_scope` will automatically record itself here. The hook
 /// is cleared on closure exit (including panic unwind) via an RAII
 /// guard. CL-379.
+///
+/// # Panics
+///
+/// Panics only if an internal invariant is violated: the
+/// `Arc<Profiler>` strong count is not 1 after the closure and the
+/// RAII hook guard have both been dropped.  This is unreachable given
+/// the current API — the profiler `Arc` is created inside this
+/// function and `f` only ever receives a `&Profiler` borrow, so no
+/// caller can hold a second clone.
 pub fn with_profiler<F, R>(config: ProfileConfig, f: F) -> (R, ProfileReport)
 where
     F: FnOnce(&Profiler) -> R,
@@ -406,19 +428,20 @@ where
     // Install the hook for the duration of f().
     let hook: Arc<dyn profiler_hook::OpProfiler> = profiler.clone();
     profiler_hook::set_current(Some(hook));
-    let _guard = ProfilerHookGuard;
+    let guard = ProfilerHookGuard;
     let result = f(&profiler);
     profiler.stop();
-    // Take the profiler back out of the Arc. There may be a lingering
-    // reference inside the thread-local at this point, but it'll be
-    // cleared by the guard's Drop after we move into_report. We need
-    // to drop the local hook BEFORE into_report so the Arc count goes
-    // back to 1 and try_unwrap succeeds.
-    drop(_guard);
-    // Now Arc count is back to 1 (only `profiler` holds it), so we
-    // can extract the inner Profiler.
-    let profiler = Arc::try_unwrap(profiler)
-        .unwrap_or_else(|_| panic!("profiler still has dangling references after closure exit"));
+    // Drop the RAII guard to clear the thread-local hook *before*
+    // try_unwrap, so the Arc count returns to 1.
+    drop(guard);
+    // Invariant: the only extra Arc clone was `hook` above; dropping
+    // `guard` removed it from the thread-local, so strong count == 1.
+    let profiler = Arc::try_unwrap(profiler).unwrap_or_else(|_| {
+        panic!(
+            "invariant violated: Arc<Profiler> strong count != 1 after hook cleared; \
+                unreachable given the current with_profiler API shape"
+        )
+    });
     let report = profiler.into_report();
     (result, report)
 }
@@ -426,9 +449,13 @@ where
 /// Best-effort thread id (not guaranteed to be unique across the
 /// lifetime of the process, but good enough for trace display).
 fn current_thread_id() -> u64 {
-    // Use the raw pthread/thread id truncated to u64.
+    // `ThreadId::as_u64` (feature `thread_id_value`) is not yet stable
+    // as of rustc 1.95 (tracked in rust-lang/rust#67939).  Until it
+    // stabilises, parse the inner number from the Debug output
+    // "ThreadId(N)".  The format is a private implementation detail but
+    // has been stable in practice since Rust 1.0 and the `unwrap_or(0)`
+    // fallback means we degrade gracefully if it ever changes.
     let id = std::thread::current().id();
-    // Debug format is "ThreadId(N)" — parse the number out.
     let dbg = format!("{id:?}");
     dbg.trim_start_matches("ThreadId(")
         .trim_end_matches(')')

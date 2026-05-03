@@ -44,6 +44,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `ferrotorch-ml::metrics` 2-D probability scoring metrics: `brier_score_loss` (binary, mean squared error of predicted probabilities), `d2_brier_score` (skill score relative to the null model), `top_k_accuracy_score` (true label is in top-K predicted classes; `[N, n_classes]` 2-D scores), `zero_one_loss` (with `normalize` flag for fraction-vs-count), `average_precision_score` (area under precision-recall curve). 9 new tests including known-value Brier checks and top-1/top-K parity vs argmax (#599)
 
 ### Fixed
+- Restore fast_log_f32; wire into vlog_f32 to fix +inf/NaN bug (#641)
+- Fix autograd cond/scan backward; wire fast_log_f32 into log_softmax CPU; delete dead BroadcastScalarBackward.numel (#640)
+- ferrotorch umbrella: expose jit-script/tokenize/mps/xpu/llama/ml features to match README (#639)
 - Flaky `test_cuda_rng_fork_join` (and `test_cuda_rng_next_seed`) under workspace-parallel: both touch the process-global `cuda_rng::RNG_STATE` mutex and raced against each other when scheduled on different threads. Serialized via a static test-local lock matching the pattern from #602 (#599)
 
 ### Added
@@ -305,6 +308,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- Restore ops/higher_order.rs and migrate cond/scan canonical impl off cond_scan.rs (#642)
+- Copy crosslink-porting skills into ~/.claude/skills (#638)
 - Closed audit / tracking issues whose deliverables already shipped: #562 (`docs/audit/01-15-*.md` cover the crate-by-crate gap analysis), #563 (`docs/audit/16-ferray-ferrolearn-integration.md` covers the integration audit), #572 (umbrella tracking #564-#571 — every phased subitem closed).
 - Closed previously-shipped issues #414 (gap-analysis result already in tracker comments) and #504 (Adagrad fully implemented in `ferrotorch-optim/src/adagrad.rs` with foreach on-device path, weight_decay, lr_decay, initial_accumulator_value, eps, maximize, plus 24 tests; was already re-exported from lib.rs).
 - GPU strided_scatter kernel for as_strided_scatter (CPU-only today) (#574)

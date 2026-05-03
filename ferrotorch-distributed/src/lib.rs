@@ -37,9 +37,11 @@
 //!
 //! - **GPU collectives** ([`gpu_collective`], requires `gpu` feature) —
 //!   [`gpu_allreduce`](gpu_collective::gpu_allreduce) and
-//!   [`gpu_broadcast`](gpu_collective::gpu_broadcast) transfer GPU tensors
-//!   to CPU, run the standard TCP collective, and copy back. Portable
-//!   alternative to NCCL.
+//!   [`gpu_broadcast`](gpu_collective::gpu_broadcast) route through NCCL
+//!   when the `nccl` feature is enabled, or through an opt-in host
+//!   round-trip when `FERROTORCH_ENABLE_GPU_FALLBACK=1` is set. Without
+//!   either, they return `Err` (PyTorch parity). See [`gpu_collective`]
+//!   for details.
 //!
 //! # Quick start
 //!

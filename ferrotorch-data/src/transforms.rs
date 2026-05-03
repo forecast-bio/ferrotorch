@@ -86,24 +86,44 @@ impl<T: Float> Normalize<T> {
     /// `mean` and `std` are given as `f64` slices for ergonomic construction
     /// (matching PyTorch's convention). They are cast to `T` internally.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `mean.len() != std.len()`.
-    pub fn new(mean: Vec<f64>, std: Vec<f64>) -> Self {
-        assert_eq!(
-            mean.len(),
-            std.len(),
-            "Normalize: mean and std must have the same length"
-        );
+    /// Returns an error if any value in `mean` or `std` is out of range for
+    /// `T` (e.g., an `f64` value that overflows `f32`), or if `mean.len() !=
+    /// std.len()`.
+    pub fn new(mean: Vec<f64>, std: Vec<f64>) -> FerrotorchResult<Self> {
+        if mean.len() != std.len() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "Normalize: mean and std must have the same length ({} vs {})",
+                    mean.len(),
+                    std.len()
+                ),
+            });
+        }
         let mean = mean
             .iter()
-            .map(|&v| <T as NumCast>::from(v).unwrap())
-            .collect();
+            .enumerate()
+            .map(|(i, &v)| {
+                <T as NumCast>::from(v).ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "Normalize: mean[{i}] = {v} is out of range for the target type"
+                    ),
+                })
+            })
+            .collect::<FerrotorchResult<Vec<T>>>()?;
         let std = std
             .iter()
-            .map(|&v| <T as NumCast>::from(v).unwrap())
-            .collect();
-        Self { mean, std }
+            .enumerate()
+            .map(|(i, &v)| {
+                <T as NumCast>::from(v).ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "Normalize: std[{i}] = {v} is out of range for the target type"
+                    ),
+                })
+            })
+            .collect::<FerrotorchResult<Vec<T>>>()?;
+        Ok(Self { mean, std })
     }
 }
 
@@ -165,9 +185,9 @@ impl<T: Float> Transform<T> for ToTensor {
     }
 }
 
-// SAFETY: `ToTensor` is a zero-size unit struct with no mutable state.
-unsafe impl Send for ToTensor {}
-unsafe impl Sync for ToTensor {}
+// `ToTensor` is a zero-size unit struct with no fields, so the compiler
+// automatically derives `Send + Sync`. The explicit `unsafe impl` blocks
+// that were here were unnecessary and have been removed.
 
 // ---------------------------------------------------------------------------
 // RandomHorizontalFlip — flip along the last dimension
@@ -248,7 +268,11 @@ impl<T: Float> Transform<T> for RandomHorizontalFlip<T> {
 
         let shape = input.shape().to_vec();
         let data = input.data()?;
-        let last_dim = *shape.last().unwrap();
+        // SAFETY: shape is non-empty — the `ndim() == 0` guard above returns
+        // early with Err, so we have at least one dimension here.
+        let last_dim = *shape
+            .last()
+            .expect("invariant: shape is non-empty after ndim guard");
 
         if last_dim <= 1 {
             // Nothing to flip.
@@ -389,8 +413,8 @@ mod tests {
         .unwrap();
 
         let compose = Compose::new(vec![
-            Box::new(Normalize::<f64>::new(vec![1.0], vec![1.0])),
-            Box::new(Normalize::<f64>::new(vec![2.0], vec![1.0])),
+            Box::new(Normalize::<f64>::new(vec![1.0], vec![1.0]).unwrap()),
+            Box::new(Normalize::<f64>::new(vec![2.0], vec![1.0]).unwrap()),
         ]);
 
         let out = compose.apply(t).unwrap();
@@ -422,7 +446,7 @@ mod tests {
         let data = vec![2.0, 4.0, 6.0, 10.0, 20.0, 30.0];
         let t = Tensor::<f64>::from_storage(TensorStorage::cpu(data), vec![2, 3], false).unwrap();
 
-        let norm = Normalize::<f64>::new(vec![4.0, 20.0], vec![2.0, 10.0]);
+        let norm = Normalize::<f64>::new(vec![4.0, 20.0], vec![2.0, 10.0]).unwrap();
         let out = norm.apply(t).unwrap();
         let d = out.data().unwrap();
 
@@ -440,7 +464,7 @@ mod tests {
         let data = vec![1.0, 2.0, 3.0];
         let t = Tensor::<f64>::from_storage(TensorStorage::cpu(data), vec![1, 3], false).unwrap();
 
-        let norm = Normalize::<f64>::new(vec![0.0], vec![1.0]);
+        let norm = Normalize::<f64>::new(vec![0.0], vec![1.0]).unwrap();
         let out = norm.apply(t).unwrap();
         let d = out.data().unwrap();
         assert!((d[0] - 1.0).abs() < 1e-10);
@@ -450,10 +474,14 @@ mod tests {
 
     #[test]
     fn test_normalize_channel_mismatch() {
+        // `new` itself now returns Err when mean.len() != std.len().
+        // This tests input validation in the constructor.
+        assert!(Normalize::<f32>::new(vec![0.0, 0.0], vec![1.0]).is_err());
+        // When lengths match but the input tensor's channel count differs, apply() returns Err.
         let t =
             Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0, 2.0, 3.0]), vec![3], false)
                 .unwrap();
-        let norm = Normalize::<f32>::new(vec![0.0, 0.0], vec![1.0, 1.0]);
+        let norm = Normalize::<f32>::new(vec![0.0, 0.0], vec![1.0, 1.0]).unwrap();
         assert!(norm.apply(t).is_err());
     }
 

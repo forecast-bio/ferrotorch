@@ -52,7 +52,7 @@ fn test_mlp_training_cpu() {
         loss.backward().unwrap();
 
         let model_params: Vec<&Parameter<f32>> = model.parameters();
-        let opt_params = &optimizer.param_groups()[0].params;
+        let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();
@@ -93,13 +93,9 @@ fn test_transformer_training_cpu() {
     all_params.extend(mlp_down.parameters().into_iter().cloned());
     all_params.extend(ln.parameters().into_iter().cloned());
 
-    let mut optimizer = AdamW::new(
-        all_params,
-        AdamWConfig {
-            lr: 1e-3,
-            ..Default::default()
-        },
-    );
+    let mut adamw_cfg = AdamWConfig::default();
+    adamw_cfg.lr = 1e-3;
+    let mut optimizer = AdamW::new(all_params, adamw_cfg);
 
     let mut first_loss = 0.0f32;
     let mut last_loss = 0.0f32;
@@ -169,7 +165,7 @@ fn test_transformer_training_cpu() {
             p.extend(ln.parameters());
             p
         };
-        let opt_params = &optimizer.param_groups()[0].params;
+        let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in all_model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();
@@ -233,7 +229,7 @@ fn test_cnn_training_cpu() {
             p.extend(linear.parameters());
             p
         };
-        let opt_params = &optimizer.param_groups()[0].params;
+        let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in all_model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();
@@ -267,13 +263,9 @@ fn test_lstm_training_cpu() {
     all_params.extend(lstm.parameters().into_iter().cloned());
     all_params.extend(output_proj.parameters().into_iter().cloned());
 
-    let mut optimizer = Adam::new(
-        all_params,
-        AdamConfig {
-            lr: 1e-3,
-            ..Default::default()
-        },
-    );
+    let mut adam_cfg = AdamConfig::default();
+    adam_cfg.lr = 1e-3;
+    let mut optimizer = Adam::new(all_params, adam_cfg);
     let ce_loss = CrossEntropyLoss::new(Reduction::Mean, 0.0);
 
     let mut first_loss = 0.0f32;
@@ -321,7 +313,7 @@ fn test_lstm_training_cpu() {
             p.extend(output_proj.parameters());
             p
         };
-        let opt_params = &optimizer.param_groups()[0].params;
+        let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in all_model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();
@@ -359,13 +351,9 @@ fn test_vae_training_cpu() {
     all_params.extend(dec_fc1.parameters().into_iter().cloned());
     all_params.extend(dec_fc2.parameters().into_iter().cloned());
 
-    let mut optimizer = Adam::new(
-        all_params,
-        AdamConfig {
-            lr: 1e-3,
-            ..Default::default()
-        },
-    );
+    let mut adam_cfg = AdamConfig::default();
+    adam_cfg.lr = 1e-3;
+    let mut optimizer = Adam::new(all_params, adam_cfg);
 
     let mut first_loss = 0.0f32;
     let mut last_loss = 0.0f32;
@@ -431,7 +419,7 @@ fn test_vae_training_cpu() {
             p.extend(dec_fc2.parameters());
             p
         };
-        let opt_params = &optimizer.param_groups()[0].params;
+        let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in all_model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();
@@ -598,15 +586,11 @@ fn test_pythia_architecture_cpu() {
     let param_count: usize = all_params.iter().map(|p| p.tensor().numel()).sum();
     eprintln!("Pythia-test parameter count: {param_count}");
 
-    let mut optimizer = AdamW::new(
-        all_params,
-        AdamWConfig {
-            lr: 1e-3,
-            betas: (0.9, 0.95), // Pythia uses beta2=0.95
-            weight_decay: 0.01,
-            ..Default::default()
-        },
-    );
+    let mut adamw_cfg = AdamWConfig::default();
+    adamw_cfg.lr = 1e-3;
+    adamw_cfg.betas = (0.9, 0.95); // Pythia uses beta2=0.95
+    adamw_cfg.weight_decay = 0.01;
+    let mut optimizer = AdamW::new(all_params, adamw_cfg);
 
     let ce_loss = CrossEntropyLoss::new(Reduction::Mean, 0.0);
 
@@ -675,7 +659,7 @@ fn test_pythia_architecture_cpu() {
         all_model_params.extend(final_ln.parameters());
         all_model_params.extend(lm_head.parameters());
 
-        let opt_params = &optimizer.param_groups()[0].params;
+        let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in all_model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();

@@ -118,7 +118,7 @@ fn philox_dropout_mask<T: Float>(
     rng_state: &GpuRngState,
 ) -> Vec<T> {
     let zero = <T as num_traits::Zero>::zero();
-    let derived_seed = (rng_state.counter ^ rng_state.seed) as u32;
+    let derived_seed = (rng_state.counter() ^ rng_state.seed()) as u32;
 
     (0..numel)
         .map(|i| {

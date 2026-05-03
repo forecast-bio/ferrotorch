@@ -11,9 +11,10 @@
 //! use ferrotorch_tokenize::{load_tokenizer, encode, decode};
 //!
 //! // Llama 3 ships a `tokenizer.json` alongside its weights.
-//! let tok = load_tokenizer("/path/to/tokenizer.json").unwrap();
-//! let ids = encode(&tok, "Hello, world!", /* add_special_tokens = */ true).unwrap();
-//! let text = decode(&tok, &ids, /* skip_special_tokens = */ false).unwrap();
+//! let tok = load_tokenizer("/path/to/tokenizer.json")?;
+//! let ids = encode(&tok, "Hello, world!", /* add_special_tokens = */ true)?;
+//! let text = decode(&tok, &ids, /* skip_special_tokens = */ false)?;
+//! # Ok::<(), ferrotorch_core::FerrotorchError>(())
 //! ```
 //!
 //! # Scope
@@ -38,6 +39,12 @@ pub use tokenizers::Tokenizer;
 /// This accepts any format that `tokenizers::Tokenizer::from_file`
 /// supports — which is the full HF tokenizer format including BPE,
 /// WordPiece, Unigram, pre/post processors, and added tokens.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] if the file does not exist,
+/// cannot be read, or is not a valid HuggingFace tokenizer JSON (parse
+/// errors, unknown model types, etc.).
 pub fn load_tokenizer(path: impl AsRef<Path>) -> FerrotorchResult<Tokenizer> {
     let path = path.as_ref();
     Tokenizer::from_file(path).map_err(|e| FerrotorchError::InvalidArgument {
@@ -50,6 +57,11 @@ pub fn load_tokenizer(path: impl AsRef<Path>) -> FerrotorchResult<Tokenizer> {
 /// `add_special_tokens` controls whether BOS / EOS and other
 /// template-defined special tokens are inserted (Llama 3 prepends
 /// `<|begin_of_text|>` / `128000` when true).
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] if the tokenizer's underlying
+/// model or post-processor rejects the input.
 pub fn encode(
     tokenizer: &Tokenizer,
     text: &str,
@@ -64,14 +76,21 @@ pub fn encode(
 }
 
 /// Encode a batch of texts in parallel.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] if the underlying tokenizer
+/// rejects any text in the batch.
 pub fn encode_batch(
     tokenizer: &Tokenizer,
     texts: &[&str],
     add_special_tokens: bool,
 ) -> FerrotorchResult<Vec<Vec<u32>>> {
-    let owned: Vec<String> = texts.iter().map(|s| (*s).to_string()).collect();
+    // `tokenizers::Tokenizer::encode_batch` accepts any `E: Into<EncodeInput>`.
+    // `&str` satisfies that chain via `InputSequence`, so we pass the slice
+    // entries directly and avoid a `Vec<String>` intermediate allocation.
     let encodings = tokenizer
-        .encode_batch(owned, add_special_tokens)
+        .encode_batch(texts.to_vec(), add_special_tokens)
         .map_err(|e| FerrotorchError::InvalidArgument {
             message: format!("tokenizer encode_batch failed: {e}"),
         })?;
@@ -84,6 +103,11 @@ pub fn encode_batch(
 /// Decode a sequence of token ids back to text.
 ///
 /// `skip_special_tokens` drops BOS / EOS / pad tokens from the output.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] if the tokenizer's decoder
+/// rejects the id sequence (e.g. out-of-range ids on some tokenizer types).
 pub fn decode(
     tokenizer: &Tokenizer,
     ids: &[u32],
@@ -124,7 +148,13 @@ pub fn id_to_token(tokenizer: &Tokenizer, id: u32) -> Option<String> {
 /// fields the template may reference (`name`, `tool_calls`, `tool_call_id`).
 /// We model the optional fields as a free-form `serde_json::Value` map so
 /// the renderer can pass any extra keys straight to Jinja.
-#[derive(Debug, Clone, serde::Serialize)]
+///
+/// Fields are intentionally `pub` to allow direct construction from parsed
+/// JSON or deserialized data. The struct is `#[non_exhaustive]` so that
+/// adding new fields (e.g. `tool_call_id`) is a non-breaking change;
+/// use [`ChatMessage::new`] as the canonical constructor.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
 pub struct ChatMessage {
     /// Conventional roles: `"system"`, `"user"`, `"assistant"`, `"tool"`.
     pub role: String,
@@ -162,6 +192,12 @@ impl ChatMessage {
 ///
 /// Use [`apply_chat_template_to_ids`] when you also want to tokenize the
 /// rendered string in one call.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] if the template string is not
+/// valid Jinja2, if a template variable is missing, or if the template calls
+/// `raise_exception(msg)` (propagated as an error with `msg` in the message).
 pub fn apply_chat_template(
     template: &str,
     messages: &[ChatMessage],
@@ -218,6 +254,12 @@ pub fn apply_chat_template(
 ///
 /// Returns the rendered string and the encoded token ids so the caller can
 /// log / inspect the prompt.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] if the template fails to
+/// render (see [`apply_chat_template`]) or if the rendered string fails to
+/// encode (see [`encode`]).
 pub fn apply_chat_template_to_ids(
     tokenizer: &Tokenizer,
     template: &str,
@@ -245,6 +287,13 @@ pub fn apply_chat_template_to_ids(
 /// template as `chat_template: [{name, template}]` (multiple templates,
 /// keyed by name); this loader returns the first one in that case to
 /// match what `transformers.AutoTokenizer` does by default.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] if the file cannot be read
+/// (not found, permission denied, I/O error), if the content is not valid
+/// JSON, or if the `chat_template` field exists but is neither a string nor
+/// an array of `{name, template}` objects.
 pub fn load_chat_template(
     tokenizer_config_path: impl AsRef<Path>,
 ) -> FerrotorchResult<Option<String>> {

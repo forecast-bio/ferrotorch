@@ -12,10 +12,16 @@ keywords.workspace = true
 categories.workspace = true
 readme = "README.md"
 
+[features]
+# Enable CUDA-gated tests that require a real GPU and ferrotorch-gpu initialised.
+# Usage: cargo test -p ferrotorch-nn --features cuda
+cuda = ["dep:ferrotorch-gpu"]
+
 [dependencies]
 ferrotorch-core = { workspace = true }
 ferrotorch-nn-derive = { workspace = true }
 num-traits = { workspace = true }
 half = { workspace = true }
+ferrotorch-gpu = { workspace = true, optional = true }
 
 [dev-dependencies]

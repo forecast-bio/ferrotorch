@@ -140,16 +140,28 @@ impl PendingCudaScope {
     /// only relative durations.
     pub(crate) fn finalize(self, profiler_epoch_us: u64) -> ProfileEvent {
         // Block until the end event has been reached on the GPU.
-        // If the synchronization or elapsed_ms query fails, fall
-        // back to a zero-duration event so the user still sees the
-        // op name in their trace rather than losing it entirely.
-        let _ = self.end.synchronize();
-        let duration_us = match self.start.elapsed_ms(&self.end) {
-            Ok(ms) if ms > 0.0 => (ms * 1000.0).round() as u64,
-            _ => 0,
+        // Errors are structured: a failed synchronize or elapsed_ms
+        // query appends " [timing_error]" to the event name so callers
+        // can distinguish a genuine <1 µs kernel from a failed query.
+        // Per rust-gpu-discipline §3, silent zero is forbidden — this
+        // makes the failure visible in the trace without losing the op.
+        let sync_ok = self.end.synchronize().is_ok();
+        let (duration_us, timing_failed) = if sync_ok {
+            match self.start.elapsed_ms(&self.end) {
+                Ok(ms) if ms > 0.0 => ((ms * 1000.0).round() as u64, false),
+                Ok(_) => (0, false), // genuine sub-µs kernel
+                Err(_) => (0, true), // elapsed_ms query failed
+            }
+        } else {
+            (0, true) // synchronize failed
+        };
+        let name = if timing_failed {
+            format!("{} [timing_error]", self.name)
+        } else {
+            self.name
         };
         ProfileEvent {
-            name: self.name,
+            name,
             category: self.category,
             // start_us is anchored to "when stop() was called"; the
             // exact value isn't meaningful for ordering analysis

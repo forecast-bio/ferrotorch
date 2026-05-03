@@ -3,7 +3,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
-use ferrotorch_core::{Device, FerrotorchResult};
+use ferrotorch_core::{Device, FerrotorchError, FerrotorchResult};
 use rayon::prelude::*;
 
 use crate::dataset::Dataset;
@@ -342,24 +342,29 @@ impl<D: Dataset> DataLoader<D> {
     /// Each call to `next()` returns a single collated `D::Sample` produced
     /// by the collation function set via [`with_collate`](DataLoader::with_collate).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if no collation function has been set. Use [`iter`](DataLoader::iter)
-    /// for the uncollated path.
-    pub fn iter_collated(&self, epoch: usize) -> CollatedIter<'_, D>
+    /// Returns `Err(FerrotorchError::InvalidArgument)` if no collation
+    /// function has been set. Use [`iter`](DataLoader::iter) for the
+    /// uncollated path, or call [`with_collate`](DataLoader::with_collate)
+    /// first.
+    pub fn iter_collated(&self, epoch: usize) -> FerrotorchResult<CollatedIter<'_, D>>
     where
         D: 'static,
         D::Sample: 'static,
     {
-        let collate_fn = self
-            .collate_fn
-            .as_ref()
-            .expect("iter_collated called without a collate_fn — use with_collate() first");
+        let collate_fn =
+            self.collate_fn
+                .as_ref()
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: "iter_collated called without a collate_fn — use with_collate() first"
+                        .into(),
+                })?;
 
-        CollatedIter {
+        Ok(CollatedIter {
             inner: self.iter(epoch),
             collate_fn: collate_fn.as_ref(),
-        }
+        })
     }
 
     /// Return the number of batches that will be produced for one epoch.
@@ -884,36 +889,53 @@ where
 
     /// Push more work items to the queue until we hit max_in_flight or
     /// exhaust the plan.
-    fn refill_work_queue(&mut self) {
+    ///
+    /// Returns `Err(LockPoisoned)` if the work queue mutex is poisoned
+    /// (i.e., a worker panicked while holding the lock).
+    fn refill_work_queue(&mut self) -> FerrotorchResult<()> {
         while self.in_flight_count < self.max_in_flight
             && self.next_dispatch_seq < self.total_batches
         {
             let seq = self.next_dispatch_seq;
             let indices = self.batch_plans[seq].clone();
             {
-                let mut queue = self.work_queue.lock().unwrap();
+                let mut queue =
+                    self.work_queue
+                        .lock()
+                        .map_err(|e| FerrotorchError::LockPoisoned {
+                            message: format!("MultiWorkerIter work queue poisoned: {e}"),
+                        })?;
                 queue.push_back(Some(WorkItem { seq, indices }));
             }
             self.work_cv.notify_one();
             self.next_dispatch_seq += 1;
             self.in_flight_count += 1;
         }
+        Ok(())
     }
 
     /// Signal all workers to exit by pushing one `None` sentinel per
     /// worker and notifying all waiters.
-    fn close_work_queue(&mut self) {
+    ///
+    /// Returns `Err(LockPoisoned)` if the work queue mutex is poisoned.
+    fn close_work_queue(&mut self) -> FerrotorchResult<()> {
         if self.closed {
-            return;
+            return Ok(());
         }
         {
-            let mut queue = self.work_queue.lock().unwrap();
+            let mut queue = self
+                .work_queue
+                .lock()
+                .map_err(|e| FerrotorchError::LockPoisoned {
+                    message: format!("MultiWorkerIter work queue poisoned on close: {e}"),
+                })?;
             for _ in 0..self.worker_handles.len() {
                 queue.push_back(None);
             }
         }
         self.work_cv.notify_all();
         self.closed = true;
+        Ok(())
     }
 }
 
@@ -927,18 +949,27 @@ where
         // Iteration done — close the work queue so workers exit and
         // return None. Idempotent across multiple next() calls.
         if self.next_yield_seq >= self.total_batches {
-            self.close_work_queue();
+            // Ignore close errors here: if the mutex is poisoned at this
+            // point the workers are already dead, so we just stop.
+            let _ = self.close_work_queue();
             return None;
         }
 
-        // Keep the workers busy.
-        self.refill_work_queue();
+        // Keep the workers busy; propagate lock-poison as an Err batch.
+        if let Err(e) = self.refill_work_queue() {
+            return Some(Err(e));
+        }
 
         // Serve out-of-order results from the reorder buffer first.
         loop {
             if let Some(top) = self.reorder_buf.peek() {
                 if top.seq == self.next_yield_seq {
-                    let entry = self.reorder_buf.pop().unwrap();
+                    // SAFETY: peek() returned Some, so pop() cannot return
+                    // None — the heap is non-empty.
+                    let entry = self
+                        .reorder_buf
+                        .pop()
+                        .expect("invariant: heap non-empty after peek");
                     self.next_yield_seq += 1;
                     return Some(entry.batch);
                 }
@@ -949,7 +980,9 @@ where
                     self.in_flight_count -= 1;
                     self.reorder_buf.push(SeqEntry { seq, batch });
                     // Dispatch more work as soon as a slot frees up.
-                    self.refill_work_queue();
+                    if let Err(e) = self.refill_work_queue() {
+                        return Some(Err(e));
+                    }
                 }
                 Err(_) => {
                     // Channel closed unexpectedly — no more batches.
@@ -972,8 +1005,10 @@ impl<D: Dataset> Drop for MultiWorkerIter<D> {
         // Close the queue if the consumer dropped us before
         // exhausting the iterator.
         if !self.closed {
-            {
-                let mut queue = self.work_queue.lock().unwrap();
+            // If the mutex is poisoned (a worker panicked while holding
+            // it) we can't push sentinels, but notify_all() still wakes
+            // waiting threads so they can observe the broken state.
+            if let Ok(mut queue) = self.work_queue.lock() {
                 for _ in 0..self.worker_handles.len() {
                     queue.push_back(None);
                 }
@@ -1008,12 +1043,33 @@ fn worker_loop<D: Dataset + 'static>(
     loop {
         // Pop one work item or shutdown sentinel.
         let item_opt: Option<WorkItem> = {
-            let mut guard = queue.lock().unwrap();
+            // If the mutex is poisoned, send a LockPoisoned error back
+            // to the dispatcher and exit cleanly rather than panicking.
+            let mut guard = match queue.lock() {
+                Ok(g) => g,
+                Err(e) => {
+                    let _ = tx.send(WorkResult {
+                        seq: usize::MAX,
+                        batch: Err(FerrotorchError::LockPoisoned {
+                            message: format!("worker queue mutex poisoned: {e}"),
+                        }),
+                    });
+                    return;
+                }
+            };
             loop {
                 if let Some(front) = guard.pop_front() {
                     break front;
                 }
-                guard = cv.wait(guard).unwrap();
+                // If the condvar wait returns a poisoned guard, extract
+                // it anyway — the poison is on the mutex, and we've
+                // already handled the lock-acquire case above; here the
+                // guard came from a prior successful lock so we can
+                // continue with the (possibly stale) state.
+                guard = match cv.wait(guard) {
+                    Ok(g) => g,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
             }
         };
 
@@ -1310,7 +1366,11 @@ mod tests {
         let loader = DataLoader::new(make_dataset(6), 3)
             .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
 
-        let collated: Vec<i32> = loader.iter_collated(0).map(|r| r.unwrap()).collect();
+        let collated: Vec<i32> = loader
+            .iter_collated(0)
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
         // Sequential: [0,1,2] -> 3, [3,4,5] -> 12
         assert_eq!(collated, vec![3, 12]);
     }
@@ -1320,7 +1380,11 @@ mod tests {
         let loader = DataLoader::new(make_dataset(5), 3)
             .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
 
-        let collated: Vec<i32> = loader.iter_collated(0).map(|r| r.unwrap()).collect();
+        let collated: Vec<i32> = loader
+            .iter_collated(0)
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
         // [0,1,2] -> 3, [3,4] -> 7
         assert_eq!(collated, vec![3, 7]);
     }
@@ -1331,7 +1395,11 @@ mod tests {
             .drop_last(true)
             .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
 
-        let collated: Vec<i32> = loader.iter_collated(0).map(|r| r.unwrap()).collect();
+        let collated: Vec<i32> = loader
+            .iter_collated(0)
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
         // Only [0,1,2] -> 3 (partial batch [3,4] dropped)
         assert_eq!(collated, vec![3]);
     }
@@ -1350,7 +1418,7 @@ mod tests {
         let loader = DataLoader::new(make_dataset(10), 3)
             .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
 
-        let it = loader.iter_collated(0);
+        let it = loader.iter_collated(0).unwrap();
         assert_eq!(it.len(), 4); // ceil(10/3) = 4
     }
 
@@ -1362,17 +1430,18 @@ mod tests {
             })
         });
 
-        let results: Vec<_> = loader.iter_collated(0).collect();
+        let results: Vec<_> = loader.iter_collated(0).unwrap().collect();
         assert_eq!(results.len(), 2);
         assert!(results[0].is_err());
         assert!(results[1].is_err());
     }
 
     #[test]
-    #[should_panic(expected = "iter_collated called without a collate_fn")]
-    fn test_collated_iter_panics_without_collate_fn() {
+    fn test_collated_iter_err_without_collate_fn() {
+        // iter_collated now returns Err instead of panicking when no
+        // collate_fn is set — callers can handle the misuse gracefully.
         let loader = DataLoader::new(make_dataset(5), 3);
-        let _ = loader.iter_collated(0);
+        assert!(loader.iter_collated(0).is_err());
     }
 
     #[test]
@@ -1798,7 +1867,11 @@ mod tests {
                 })
             });
 
-        let collated: Vec<DeviceSample> = loader.iter_collated(0).map(|r| r.unwrap()).collect();
+        let collated: Vec<DeviceSample> = loader
+            .iter_collated(0)
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
         assert_eq!(collated.len(), 2);
         // Device transfer happens before collation.
         assert_eq!(collated[0].device, Device::Cuda(0));

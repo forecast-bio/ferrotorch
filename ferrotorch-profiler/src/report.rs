@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::Path;
 
 use ferrotorch_core::FerrotorchResult;
@@ -53,6 +54,7 @@ struct OpAccum {
 ///
 /// Provides human-readable tables, Chrome trace JSON export, and
 /// programmatic access to per-operation summaries.
+#[derive(Debug, Clone)]
 pub struct ProfileReport {
     events: Vec<ProfileEvent>,
 }
@@ -64,16 +66,19 @@ impl ProfileReport {
     }
 
     /// All recorded events, in insertion order.
+    #[must_use]
     pub fn events(&self) -> &[ProfileEvent] {
         &self.events
     }
 
     /// Total profiled time (sum of all event durations) in microseconds.
+    #[must_use]
     pub fn total_time_us(&self) -> u64 {
         self.events.iter().map(|e| e.duration_us).sum()
     }
 
     /// Whether any events were recorded with CUDA timing.
+    #[must_use]
     pub fn has_gpu_events(&self) -> bool {
         self.events
             .iter()
@@ -83,6 +88,7 @@ impl ProfileReport {
     /// Sum of estimated FLOPS across all events that had a FLOPS
     /// estimate. Events with `flops == None` (op not recognized,
     /// shapes not recorded) are skipped. CL-333.
+    #[must_use]
     pub fn total_flops(&self) -> u64 {
         self.events.iter().filter_map(|e| e.flops).sum()
     }
@@ -92,8 +98,14 @@ impl ProfileReport {
     /// (i.e. multiply by 1e6 from MFLOPS, which is what dividing by
     /// microseconds gives you). Returns 0 when there are no events
     /// or no time elapsed. CL-333.
+    #[must_use]
     pub fn flops_per_second(&self) -> f64 {
+        // u64 → f64 loses precision above 2^53; for FLOP counts in the
+        // petaFLOP range (≫ 2^53) the result is approximate, which is
+        // acceptable for a profiling estimate.
+        #[allow(clippy::cast_precision_loss)]
         let total = self.total_flops() as f64;
+        #[allow(clippy::cast_precision_loss)]
         let elapsed_us = self.total_time_us() as f64;
         if elapsed_us > 0.0 {
             total * 1_000_000.0 / elapsed_us
@@ -106,6 +118,7 @@ impl ProfileReport {
     /// `(category, net_bytes)` pairs. Allocations are positive, frees
     /// are negative; the result is the running net allocation per
     /// category. CL-333.
+    #[must_use]
     pub fn memory_by_category(&self) -> Vec<(crate::event::MemoryCategory, i64)> {
         let mut totals: HashMap<crate::event::MemoryCategory, i64> = HashMap::new();
         for event in &self.events {
@@ -120,11 +133,13 @@ impl ProfileReport {
     }
 
     /// Whether any events have a non-empty stack trace. CL-333.
+    #[must_use]
     pub fn has_stack_traces(&self) -> bool {
         self.events.iter().any(|e| e.stack_trace.is_some())
     }
 
     /// Top operations sorted by cumulative time (descending).
+    #[must_use]
     pub fn top_ops(&self, n: usize) -> Vec<OpSummary> {
         // Per-op accumulator.
         let mut map: HashMap<&str, OpAccum> = HashMap::new();
@@ -216,6 +231,7 @@ impl ProfileReport {
     /// | relu    |    10 | CPU    |         1000 |       100 |     150 |            0 |         0 |
     /// +---------+-------+--------+--------------+-----------+---------+--------------+-----------+
     /// ```
+    #[must_use]
     pub fn table(&self, top_n: usize) -> String {
         let ops = self.top_ops(top_n);
         if ops.is_empty() {
@@ -225,14 +241,14 @@ impl ProfileReport {
         let has_gpu = self.has_gpu_events();
 
         if has_gpu {
-            self.table_with_gpu(&ops)
+            Self::table_with_gpu(&ops)
         } else {
-            self.table_cpu_only(&ops)
+            Self::table_cpu_only(&ops)
         }
     }
 
     /// Render a CPU-only table (legacy format, backwards compatible).
-    fn table_cpu_only(&self, ops: &[OpSummary]) -> String {
+    fn table_cpu_only(ops: &[OpSummary]) -> String {
         let hdr = ["Op", "Count", "Total us", "Avg us", "Max us"];
         let rows: Vec<[String; 5]> = ops
             .iter()
@@ -309,7 +325,7 @@ impl ProfileReport {
     }
 
     /// Render a table with separate CPU and GPU columns.
-    fn table_with_gpu(&self, ops: &[OpSummary]) -> String {
+    fn table_with_gpu(ops: &[OpSummary]) -> String {
         let hdr = [
             "Op",
             "Count",
@@ -371,9 +387,9 @@ impl ProfileReport {
         let header = {
             let mut s = String::from("|");
             // First column (Op) is left-aligned, rest are right-aligned.
-            s.push_str(&format!(" {:<w$} |", hdr[0], w = widths[0]));
+            let _ = write!(s, " {:<w$} |", hdr[0], w = widths[0]);
             for i in 1..9 {
-                s.push_str(&format!(" {:>w$} |", hdr[i], w = widths[i]));
+                let _ = write!(s, " {:>w$} |", hdr[i], w = widths[i]);
             }
             s
         };
@@ -387,9 +403,9 @@ impl ProfileReport {
         out.push('\n');
         for row in &rows {
             let mut line = String::from("|");
-            line.push_str(&format!(" {:<w$} |", row[0], w = widths[0]));
+            let _ = write!(line, " {:<w$} |", row[0], w = widths[0]);
             for i in 1..9 {
-                line.push_str(&format!(" {:>w$} |", row[i], w = widths[i]));
+                let _ = write!(line, " {:>w$} |", row[i], w = widths[i]);
             }
             out.push_str(&line);
             out.push('\n');
@@ -402,6 +418,7 @@ impl ProfileReport {
     ///
     /// Each event becomes an `"X"` (complete) trace event. GPU events include
     /// a `"device":"CUDA"` arg.
+    #[must_use]
     pub fn chrome_trace_json(&self) -> String {
         let mut buf = String::from("{\"traceEvents\":[");
         for (i, event) in self.events.iter().enumerate() {
@@ -411,7 +428,8 @@ impl ProfileReport {
             let shapes_str = format_shapes(&event.input_shapes);
             let device_str = event.device_type.to_string();
             // Manually construct JSON to avoid pulling in serde_json.
-            buf.push_str(&format!(
+            let _ = write!(
+                buf,
                 "{{\"name\":{},\"cat\":{},\"ph\":\"X\",\"ts\":{},\"dur\":{},\
                  \"pid\":1,\"tid\":{},\"args\":{{\"shapes\":{},\"device\":{}}}}}",
                 json_string(&event.name),
@@ -421,13 +439,18 @@ impl ProfileReport {
                 event.thread_id,
                 json_string(&shapes_str),
                 json_string(&device_str),
-            ));
+            );
         }
         buf.push_str("]}");
         buf
     }
 
     /// Write Chrome trace JSON to a file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if the file cannot be
+    /// written (e.g. permission denied, path is a directory).
     pub fn save_chrome_trace(&self, path: impl AsRef<Path>) -> FerrotorchResult<()> {
         let json = self.chrome_trace_json();
         std::fs::write(path.as_ref(), json).map_err(|e| {
@@ -437,10 +460,10 @@ impl ProfileReport {
         })
     }
 
-    /// Export this profile report to a TensorBoard-readable directory
+    /// Export this profile report to a `TensorBoard`-readable directory
     /// layout under `logdir`. CL-381.
     ///
-    /// TensorBoard's PyTorch Profiler plugin (available via
+    /// `TensorBoard`'s `PyTorch` Profiler plugin (available via
     /// `tensorboard --logdir <path>` with the `torch_tb_profiler`
     /// package installed) reads Chrome-format trace files from a
     /// specific directory structure:
@@ -462,13 +485,18 @@ impl ProfileReport {
     ///
     /// # Arguments
     ///
-    /// - `logdir` — TensorBoard log directory root. Must exist or be
+    /// - `logdir` — `TensorBoard` log directory root. Must exist or be
     ///   createable (this method creates it if missing).
     /// - `run_id` — label for this profiling run, becomes the
     ///   intermediate directory name under `plugins/profile/`. Pass
     ///   `None` to use `"run0"`.
     /// - `hostname` — hostname label baked into the filename. Pass
     ///   `None` to auto-detect.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ferrotorch_core::FerrotorchError::InvalidArgument`] if the
+    /// target directory cannot be created or the trace file cannot be written.
     pub fn save_tensorboard_trace(
         &self,
         logdir: impl AsRef<Path>,
@@ -480,31 +508,36 @@ impl ProfileReport {
         let logdir = logdir.as_ref();
         let run_id = run_id.unwrap_or("run0");
         let default_hostname;
-        let hostname = match hostname {
-            Some(h) => h,
-            None => {
-                default_hostname = detect_hostname();
-                &default_hostname
-            }
+        let hostname = if let Some(h) = hostname {
+            h
+        } else {
+            default_hostname = detect_hostname();
+            &default_hostname
         };
 
         // Build the target directory: {logdir}/plugins/profile/{run_id}/
         let target_dir = logdir.join("plugins").join("profile").join(run_id);
         std::fs::create_dir_all(&target_dir).map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!("save_tensorboard_trace: failed to create {target_dir:?}: {e}"),
+            message: format!(
+                "save_tensorboard_trace: failed to create {}: {e}",
+                target_dir.display()
+            ),
         })?;
 
         let filename = format!("{hostname}.pt.trace.json");
         let target_file = target_dir.join(filename);
         let json = self.chrome_trace_json();
         std::fs::write(&target_file, json).map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!("save_tensorboard_trace: failed to write {target_file:?}: {e}"),
+            message: format!(
+                "save_tensorboard_trace: failed to write {}: {e}",
+                target_file.display()
+            ),
         })?;
         Ok(target_file)
     }
 }
 
-/// Best-effort hostname lookup for the TensorBoard trace filename.
+/// Best-effort hostname lookup for the `TensorBoard` trace filename.
 /// Checks common environment variables; falls back to `"localhost"`
 /// when none are set. Avoids the `hostname` crate dependency for a
 /// feature that doesn't need exact hostnames.
@@ -551,7 +584,7 @@ fn json_string(s: &str) -> String {
             '\r' => buf.push_str("\\r"),
             '\t' => buf.push_str("\\t"),
             c if (c as u32) < 0x20 => {
-                buf.push_str(&format!("\\u{:04x}", c as u32));
+                let _ = write!(buf, "\\u{:04x}", c as u32);
             }
             _ => buf.push(c),
         }
@@ -590,7 +623,7 @@ mod tests {
         assert_eq!(json_string("a\nb"), "\"a\\nb\"");
     }
 
-    /// Both detect_hostname tests mutate the same set of env vars,
+    /// Both `detect_hostname` tests mutate the same set of env vars,
     /// so they must not run concurrently. Cargo runs tests in
     /// parallel by default, so we serialize them through this
     /// process-wide lock. The previous version of these tests
@@ -599,8 +632,14 @@ mod tests {
     static HOSTNAME_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
+    // SAFETY: all env-var mutations in this module are serialized via
+    // HOSTNAME_TEST_LOCK, so no other test thread touches these vars
+    // while the lock is held.
+    #[allow(unsafe_code)]
     fn test_detect_hostname_fallback() {
-        let _g = HOSTNAME_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = HOSTNAME_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Defensive check: when the common env vars are unset we fall
         // back to "localhost". Setting them all to empty strings
         // should also trigger the fallback since we reject empty
@@ -608,8 +647,7 @@ mod tests {
         let original = std::env::var("HOSTNAME").ok();
         let original_computer = std::env::var("COMPUTERNAME").ok();
         let original_host = std::env::var("HOST").ok();
-        // SAFETY: serialized via HOSTNAME_TEST_LOCK above; no other
-        // thread touches these env vars while the lock is held.
+        // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
         unsafe {
             std::env::remove_var("HOSTNAME");
             std::env::remove_var("COMPUTERNAME");
@@ -619,25 +657,33 @@ mod tests {
         assert_eq!(h, "localhost");
         // Restore to avoid affecting other tests.
         if let Some(v) = original {
+            // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
             unsafe { std::env::set_var("HOSTNAME", v) };
         }
         if let Some(v) = original_computer {
+            // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
             unsafe { std::env::set_var("COMPUTERNAME", v) };
         }
         if let Some(v) = original_host {
+            // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
             unsafe { std::env::set_var("HOST", v) };
         }
     }
 
     #[test]
+    #[allow(unsafe_code)]
     fn test_detect_hostname_uses_env_var() {
-        let _g = HOSTNAME_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = HOSTNAME_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let original = std::env::var("HOSTNAME").ok();
+        // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
         unsafe {
             std::env::set_var("HOSTNAME", "my-test-host");
         }
         assert_eq!(detect_hostname(), "my-test-host");
         // Restore.
+        // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
         match original {
             Some(v) => unsafe { std::env::set_var("HOSTNAME", v) },
             None => unsafe { std::env::remove_var("HOSTNAME") },

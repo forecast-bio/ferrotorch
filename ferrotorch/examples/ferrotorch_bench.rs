@@ -101,7 +101,7 @@ fn main() -> FerrotorchResult<()> {
 
         // Sync grads to optimizer
         let model_params: Vec<&Parameter<f32>> = mlp.parameters();
-        let opt_params = &optimizer.param_groups()[0].params;
+        let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();
@@ -187,7 +187,7 @@ fn main() -> FerrotorchResult<()> {
         loss.backward().unwrap();
 
         let model_params: Vec<&Parameter<f32>> = mlp_large.parameters();
-        let opt_params = &opt_large.param_groups()[0].params;
+        let opt_params = opt_large.param_groups()[0].params();
         for (mp, op) in model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();

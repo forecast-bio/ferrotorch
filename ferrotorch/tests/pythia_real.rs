@@ -201,14 +201,13 @@ fn test_pythia_70m_training_benchmark() {
         param_count as f64 / 1e6
     );
 
+    let mut adamw_cfg = AdamWConfig::default();
+    adamw_cfg.lr = 1e-4;
+    adamw_cfg.betas = (0.9, 0.95);
+    adamw_cfg.weight_decay = 0.01;
     let mut optimizer = AdamW::new(
         model.parameters().into_iter().cloned().collect(),
-        AdamWConfig {
-            lr: 1e-4,
-            betas: (0.9, 0.95),
-            weight_decay: 0.01,
-            ..Default::default()
-        },
+        adamw_cfg,
     );
 
     let ce_loss = CrossEntropyLoss::new(Reduction::Mean, 0.0);
@@ -238,7 +237,7 @@ fn test_pythia_70m_training_benchmark() {
 
         // Sync grads
         let model_params = model.parameters();
-        let opt_params = &optimizer.param_groups()[0].params;
+        let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();

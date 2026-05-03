@@ -1,3 +1,7 @@
+#![warn(clippy::all, clippy::pedantic)]
+#![warn(missing_debug_implementations, rust_2018_idioms)]
+#![deny(unsafe_code)]
+#![allow(clippy::module_name_repetitions)] // ProfileConfig, ProfileEvent, etc. are intentional
 //! Operation profiling for ferrotorch.
 //!
 //! Provides [`Profiler`] for recording operation timings, memory events, and
@@ -28,8 +32,11 @@ mod profiler;
 mod report;
 pub mod schedule;
 
+// `CudaKernelScope` is the public API for users who want to time a GPU kernel
+// region. `PendingCudaScope` is an internal queue type used by `Profiler`;
+// it has no meaningful public contract and is not re-exported.
 #[cfg(feature = "cuda")]
-pub use cuda_timing::{CudaKernelScope, PendingCudaScope};
+pub use cuda_timing::CudaKernelScope;
 pub use event::{MemoryCategory, ProfileEvent};
 pub use profiler::{ProfileConfig, Profiler, with_profiler};
 pub use report::{OpSummary, ProfileReport};

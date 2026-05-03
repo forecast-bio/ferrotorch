@@ -211,12 +211,11 @@ fn test_mlp_training_converges() {
         Box::new(Linear::new(64, 5, true).unwrap()),
     ]);
 
+    let mut adam_cfg = AdamConfig::default();
+    adam_cfg.lr = 1e-3;
     let mut optimizer = Adam::new(
         model.parameters().into_iter().cloned().collect(),
-        AdamConfig {
-            lr: 1e-3,
-            ..Default::default()
-        },
+        adam_cfg,
     );
 
     let ce = CrossEntropyLoss::new(Reduction::Mean, 0.0);
@@ -239,7 +238,7 @@ fn test_mlp_training_converges() {
         loss.backward().unwrap();
 
         let model_params: Vec<&Parameter<f32>> = model.parameters();
-        let opt_params = &optimizer.param_groups()[0].params;
+        let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();
@@ -284,13 +283,9 @@ fn test_autoencoder_reconstruction() {
     all_params.extend(encoder.parameters().into_iter().cloned());
     all_params.extend(decoder.parameters().into_iter().cloned());
 
-    let mut optimizer = Adam::new(
-        all_params,
-        AdamConfig {
-            lr: 1e-3,
-            ..Default::default()
-        },
-    );
+    let mut adam_cfg = AdamConfig::default();
+    adam_cfg.lr = 1e-3;
+    let mut optimizer = Adam::new(all_params, adam_cfg);
 
     let mut losses = Vec::new();
 
@@ -315,7 +310,7 @@ fn test_autoencoder_reconstruction() {
         let dec_params: Vec<&Parameter<f32>> = decoder.parameters();
         let all_model_params: Vec<&Parameter<f32>> =
             enc_params.into_iter().chain(dec_params).collect();
-        let opt_params = &optimizer.param_groups()[0].params;
+        let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in all_model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();
@@ -360,13 +355,9 @@ fn test_transformer_block_training() {
     all_params.extend(out_proj.parameters().into_iter().cloned());
     all_params.extend(ln.parameters().into_iter().cloned());
 
-    let mut optimizer = AdamW::new(
-        all_params,
-        AdamWConfig {
-            lr: 3e-3,
-            ..Default::default()
-        },
-    );
+    let mut adamw_cfg = AdamWConfig::default();
+    adamw_cfg.lr = 3e-3;
+    let mut optimizer = AdamW::new(all_params, adamw_cfg);
     let mut losses = Vec::new();
 
     // Use fixed input/target so loss can decrease (random data each step is harder)
@@ -421,7 +412,7 @@ fn test_transformer_block_training() {
             .chain(out_proj.parameters())
             .chain(ln.parameters())
             .collect();
-        let opt_params = &optimizer.param_groups()[0].params;
+        let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in model_params.iter().zip(opt_params.iter()) {
             if let Some(g) = mp.grad().unwrap() {
                 op.set_grad(Some(g)).unwrap();

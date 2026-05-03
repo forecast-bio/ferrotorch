@@ -57,6 +57,8 @@ ferrotorch-hub = { version = "0.4.5", path = "ferrotorch-hub" }
 ferrotorch-tokenize = { version = "0.4.5", path = "ferrotorch-tokenize" }
 ferrotorch-llama = { version = "0.4.5", path = "ferrotorch-llama" }
 ferrotorch-ml = { version = "0.4.5", path = "ferrotorch-ml" }
+ferrotorch-jit-script = { version = "0.4.5", path = "ferrotorch-jit-script" }
+ferrotorch-mps = { version = "0.4.5", path = "ferrotorch-mps" }
 
 # ferray ecosystem
 ferray-core = { version = "0.3", features = ["bf16"] }
@@ -95,3 +97,4 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
 rustfft = "6.2"
 tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
+tracing = "0.1"

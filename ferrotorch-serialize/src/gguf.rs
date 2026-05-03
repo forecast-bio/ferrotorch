@@ -310,7 +310,12 @@ fn read_gguf_value(reader: &mut Reader<'_>, vtype: GgufValueType) -> FerrotorchR
         GgufValueType::Array => {
             let elem_type = GgufValueType::from_u32(reader.read_u32()?)?;
             let count = reader.read_u64()? as usize;
-            let mut items = Vec::with_capacity(count);
+            // Do not pre-allocate `count` entries: `count` is attacker-controlled
+            // (raw u64 from file) and could be u64::MAX, causing an immediate OOM
+            // before any bytes are consumed.  Vec::new() + push lets the
+            // bounds-checked `read_gguf_value` / `read_bytes` return Err when the
+            // buffer is exhausted, terminating the loop naturally.
+            let mut items = Vec::new();
             for _ in 0..count {
                 items.push(read_gguf_value(reader, elem_type)?);
             }
@@ -394,7 +399,13 @@ pub fn parse_gguf_bytes(data: &[u8]) -> FerrotorchResult<GgufFile> {
     let metadata_kv_count = r.read_u64()? as usize;
 
     // -- Metadata --
-    let mut entries = HashMap::with_capacity(metadata_kv_count);
+    // Do not pre-allocate `metadata_kv_count` entries: the count is an
+    // attacker-controlled raw u64 from the file header.  A 6-byte stub with
+    // metadata_kv_count = u64::MAX would OOM the process before a single byte
+    // of real metadata is read.  HashMap::new() + insert lets the
+    // bounds-checked `read_gguf_string` / `read_bytes` return Err when the
+    // buffer is exhausted.
+    let mut entries = HashMap::new();
     for _ in 0..metadata_kv_count {
         let key = r.read_gguf_string()?;
         let vtype = GgufValueType::from_u32(r.read_u32()?)?;
@@ -410,11 +421,15 @@ pub fn parse_gguf_bytes(data: &[u8]) -> FerrotorchResult<GgufFile> {
     };
 
     // -- Tensor infos --
-    let mut tensors = Vec::with_capacity(tensor_count);
+    // Same rationale: tensor_count is a raw u64 from the header; do not
+    // pre-allocate.
+    let mut tensors = Vec::new();
     for _ in 0..tensor_count {
         let name = r.read_gguf_string()?;
+        // n_dims is a u32 from the file, max ~4 billion; also not pre-allocated
+        // to avoid attacker-controlled allocation.
         let n_dims = r.read_u32()? as usize;
-        let mut dims = Vec::with_capacity(n_dims);
+        let mut dims = Vec::new();
         for _ in 0..n_dims {
             dims.push(r.read_u64()?);
         }
@@ -1429,5 +1444,168 @@ mod tests {
         // NaN.
         let nan = f16_to_f32(0x01, 0x7C);
         assert!(nan.is_nan());
+    }
+
+    // ---------------------------------------------------------------------------
+    // Security regression tests: attacker-controlled count DoS vectors.
+    //
+    // All of these must return Err quickly (< 1 ms) without allocating large
+    // amounts of memory.  The pre-fix code would attempt Vec::with_capacity(
+    // u64::MAX as usize) or HashMap::with_capacity(u64::MAX as usize) and
+    // either OOM or abort before reading a single metadata byte.
+    // ---------------------------------------------------------------------------
+
+    /// Build a raw GGUF stub with the header only: magic, version, and the two
+    /// raw u64 counts.  No metadata or tensor bytes follow — the parser must
+    /// fail on the first read inside the loop.
+    fn build_gguf_header_stub(tensor_count: u64, metadata_kv_count: u64) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&GGUF_MAGIC.to_le_bytes()); // 4 bytes
+        buf.extend_from_slice(&3u32.to_le_bytes()); // version = 3, 4 bytes
+        buf.extend_from_slice(&tensor_count.to_le_bytes()); // 8 bytes
+        buf.extend_from_slice(&metadata_kv_count.to_le_bytes()); // 8 bytes
+        // Total: 24 bytes.  No metadata or tensor data follows.
+        buf
+    }
+
+    /// A 6-byte stub (magic only, truncated) — must fail at version read.
+    #[test]
+    fn test_dos_truncated_after_magic() {
+        let buf: Vec<u8> = GGUF_MAGIC.to_le_bytes().to_vec(); // 4 bytes
+        let result = parse_gguf_bytes(&buf);
+        assert!(
+            result.is_err(),
+            "expected Err for truncated-after-magic stub"
+        );
+    }
+
+    /// metadata_kv_count = u64::MAX, 0 tensors, no metadata bytes.
+    /// The parser must return Err on the first `read_gguf_string` attempt, not OOM.
+    #[test]
+    fn test_dos_metadata_count_u64_max() {
+        let buf = build_gguf_header_stub(0, u64::MAX);
+        let result = parse_gguf_bytes(&buf);
+        assert!(
+            result.is_err(),
+            "expected Err for metadata_kv_count=u64::MAX stub, got Ok"
+        );
+        // Must not have OOMed; we reach this line.
+    }
+
+    /// tensor_count = u64::MAX, 0 metadata entries, no tensor bytes.
+    /// The parser must return Err on the first `read_gguf_string` for the tensor
+    /// name, not OOM.
+    #[test]
+    fn test_dos_tensor_count_u64_max() {
+        let buf = build_gguf_header_stub(u64::MAX, 0);
+        let result = parse_gguf_bytes(&buf);
+        assert!(
+            result.is_err(),
+            "expected Err for tensor_count=u64::MAX stub, got Ok"
+        );
+    }
+
+    /// Both counts are u64::MAX.
+    #[test]
+    fn test_dos_both_counts_u64_max() {
+        let buf = build_gguf_header_stub(u64::MAX, u64::MAX);
+        let result = parse_gguf_bytes(&buf);
+        assert!(
+            result.is_err(),
+            "expected Err for both counts=u64::MAX stub"
+        );
+    }
+
+    /// Large but not MAX: metadata_kv_count = 100_000, but the buffer only
+    /// contains the 24-byte header.  Must fail on the first loop iteration.
+    #[test]
+    fn test_dos_metadata_count_large_truncated_buffer() {
+        let buf = build_gguf_header_stub(0, 100_000);
+        let result = parse_gguf_bytes(&buf);
+        assert!(
+            result.is_err(),
+            "expected Err: 100k metadata entries claimed but buffer has only 24 bytes"
+        );
+    }
+
+    /// Large but not MAX: tensor_count = 100_000, but the buffer only contains
+    /// the 24-byte header.  Must fail on the first loop iteration.
+    #[test]
+    fn test_dos_tensor_count_large_truncated_buffer() {
+        let buf = build_gguf_header_stub(100_000, 0);
+        let result = parse_gguf_bytes(&buf);
+        assert!(
+            result.is_err(),
+            "expected Err: 100k tensors claimed but buffer has only 24 bytes"
+        );
+    }
+
+    /// Truncated mid-entry: buffer contains a valid 1-entry header and the start
+    /// of a metadata key string (length field present, but the key bytes are cut).
+    #[test]
+    fn test_dos_truncated_mid_metadata_entry() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        buf.extend_from_slice(&3u32.to_le_bytes());
+        buf.extend_from_slice(&0u64.to_le_bytes()); // tensor_count = 0
+        buf.extend_from_slice(&1u64.to_le_bytes()); // metadata_kv_count = 1
+        // Metadata entry: write key length = 100 but provide 0 key bytes.
+        buf.extend_from_slice(&100u64.to_le_bytes()); // key len = 100
+        // No key bytes follow — truncated mid-string.
+        let result = parse_gguf_bytes(&buf);
+        assert!(
+            result.is_err(),
+            "expected Err for truncated mid-metadata-key"
+        );
+    }
+
+    /// Array value with u64::MAX element count — must fail fast inside
+    /// `read_gguf_value`, not OOM.
+    #[test]
+    fn test_dos_array_value_count_u64_max() {
+        // Build a valid header with 1 metadata entry whose value is an Array.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        buf.extend_from_slice(&3u32.to_le_bytes());
+        buf.extend_from_slice(&0u64.to_le_bytes()); // tensor_count = 0
+        buf.extend_from_slice(&1u64.to_le_bytes()); // metadata_kv_count = 1
+        // Key: "x"
+        buf.extend_from_slice(&1u64.to_le_bytes()); // key len = 1
+        buf.push(b'x');
+        // Value type = Array (9)
+        buf.extend_from_slice(&9u32.to_le_bytes());
+        // Array element type = Uint32 (4)
+        buf.extend_from_slice(&4u32.to_le_bytes());
+        // Array count = u64::MAX — the DoS vector
+        buf.extend_from_slice(&u64::MAX.to_le_bytes());
+        // No element bytes follow — truncated.
+        let result = parse_gguf_bytes(&buf);
+        assert!(
+            result.is_err(),
+            "expected Err for Array count=u64::MAX, got Ok"
+        );
+    }
+
+    /// Regression: a well-formed minimal GGUF still parses correctly after the fix.
+    #[test]
+    fn test_valid_minimal_gguf_still_parses_after_fix() {
+        let values: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        let mut data = Vec::new();
+        for v in &values {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        let uint32_val = 32u32.to_le_bytes();
+        let bytes = build_gguf(
+            &[("llama.block_count", 4, &uint32_val)],
+            &[("embed.weight", &[4], 0, &data)],
+        );
+        let file = parse_gguf_bytes(&bytes).expect("valid GGUF must parse successfully");
+        assert_eq!(file.version, 3);
+        assert_eq!(
+            file.metadata.entries.get("llama.block_count"),
+            Some(&GgufValue::Uint32(32))
+        );
+        assert_eq!(file.tensors.len(), 1);
+        assert_eq!(file.tensors[0].name, "embed.weight");
     }
 }

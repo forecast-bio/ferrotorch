@@ -83,6 +83,7 @@ impl ProfileSchedule {
     /// # Panics
     ///
     /// Panics if `active` is zero (there must be at least one active step).
+    #[must_use]
     pub fn new(wait: u64, warmup: u64, active: u64, repeat: u64) -> Self {
         assert!(active > 0, "ProfileSchedule: `active` must be > 0");
         assert!(repeat > 0, "ProfileSchedule: `repeat` must be > 0");
@@ -113,21 +114,25 @@ impl ProfileSchedule {
     }
 
     /// Current phase of the schedule.
+    #[must_use]
     pub fn phase(&self) -> SchedulePhase {
         self.phase
     }
 
     /// Whether the profiler should be recording events right now.
+    #[must_use]
     pub fn is_active(&self) -> bool {
         self.phase == SchedulePhase::Active
     }
 
     /// Current step within the current cycle.
+    #[must_use]
     pub fn current_step(&self) -> u64 {
         self.current_step
     }
 
     /// Current cycle (0-based).
+    #[must_use]
     pub fn current_cycle(&self) -> u64 {
         self.current_cycle
     }
@@ -279,13 +284,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "`active` must be > 0")]
     fn zero_active_panics() {
-        ProfileSchedule::new(1, 1, 0, 1);
+        let _ = ProfileSchedule::new(1, 1, 0, 1);
     }
 
     #[test]
     #[should_panic(expected = "`repeat` must be > 0")]
     fn zero_repeat_panics() {
-        ProfileSchedule::new(0, 0, 1, 0);
+        let _ = ProfileSchedule::new(0, 0, 1, 0);
     }
 
     #[test]
