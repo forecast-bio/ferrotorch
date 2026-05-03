@@ -38,7 +38,7 @@ thread_local! {
 
 /// Returns `true` when the current thread is inside a [`with_fusion`] scope.
 pub fn is_fusion_enabled() -> bool {
-    FUSION_ENABLED.with(|f| f.get())
+    FUSION_ENABLED.with(std::cell::Cell::get)
 }
 
 /// Execute `f` with operation fusion enabled on the current thread.
@@ -257,9 +257,8 @@ impl FusedChain {
             ) {
                 return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
                     message: format!(
-                        "generate_ptx: binary op '{}' in unary FusedChain requires a second \
-                         input pointer and cannot be lowered to a single-input PTX kernel",
-                        op
+                        "generate_ptx: binary op '{op}' in unary FusedChain requires a second \
+                         input pointer and cannot be lowered to a single-input PTX kernel"
                     ),
                 });
             }
@@ -512,9 +511,8 @@ DONE:
             ) {
                 return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
                     message: format!(
-                        "generate_c: binary op '{}' in unary FusedChain requires a \
-                         second input and cannot be lowered to a single-input C loop",
-                        op
+                        "generate_c: binary op '{op}' in unary FusedChain requires a \
+                         second input and cannot be lowered to a single-input C loop"
                     ),
                 });
             }
@@ -566,13 +564,13 @@ DONE:
                     body_lines.push("        val = logf(val);".into());
                 }
                 FusedOp::Pow(p) => {
-                    body_lines.push(format!("        val = powf(val, {:.17}f);", p));
+                    body_lines.push(format!("        val = powf(val, {p:.17}f);"));
                 }
                 FusedOp::ScalarMul(s) => {
-                    body_lines.push(format!("        val = val * {:.17}f;", s));
+                    body_lines.push(format!("        val = val * {s:.17}f;"));
                 }
                 FusedOp::ScalarAdd(s) => {
-                    body_lines.push(format!("        val = val + {:.17}f;", s));
+                    body_lines.push(format!("        val = val + {s:.17}f;"));
                 }
             }
         }
@@ -843,9 +841,8 @@ fn validate_identifier(name: &str) -> FerrotorchResult<()> {
     if !first.is_ascii_alphabetic() && first != '_' {
         return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
             message: format!(
-                "identifier '{}' has invalid first character '{}'; \
-                 must match [a-zA-Z_][a-zA-Z0-9_]*",
-                name, first
+                "identifier '{name}' has invalid first character '{first}'; \
+                 must match [a-zA-Z_][a-zA-Z0-9_]*"
             ),
         });
     }
@@ -854,9 +851,8 @@ fn validate_identifier(name: &str) -> FerrotorchResult<()> {
         if !ch.is_ascii_alphanumeric() && ch != '_' {
             return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
                 message: format!(
-                    "identifier '{}' contains invalid character '{}'; \
-                     must match [a-zA-Z_][a-zA-Z0-9_]*",
-                    name, ch
+                    "identifier '{name}' contains invalid character '{ch}'; \
+                     must match [a-zA-Z_][a-zA-Z0-9_]*"
                 ),
             });
         }
@@ -901,9 +897,8 @@ fn apply_op_inplace<T: Float>(op: &FusedOp, data: &mut [T]) -> FerrotorchResult<
         FusedOp::Add | FusedOp::Sub | FusedOp::Mul | FusedOp::Div => {
             return Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
                 message: format!(
-                    "apply_op_inplace: binary op '{}' in unary FusedChain requires a second \
-                     operand and cannot be applied in-place on a single tensor",
-                    op
+                    "apply_op_inplace: binary op '{op}' in unary FusedChain requires a second \
+                     operand and cannot be applied in-place on a single tensor"
                 ),
             });
         }
@@ -1149,7 +1144,7 @@ mod tests {
         let result = chain.execute_cpu(&input).unwrap();
         assert_eq!(result.len(), expected.len());
         for (got, exp) in result.iter().zip(&expected) {
-            assert!((got - exp).abs() < 1e-6, "got {got}, expected {exp}",);
+            assert!((got - exp).abs() < 1e-6, "got {got}, expected {exp}");
         }
     }
 
@@ -1170,17 +1165,17 @@ mod tests {
         // Sequential.
         let mut sequential = input.clone();
         // scalar_add(2)
-        for x in sequential.iter_mut() {
+        for x in &mut sequential {
             *x += 2.0;
         }
         // relu
-        for x in sequential.iter_mut() {
+        for x in &mut sequential {
             if *x < 0.0 {
                 *x = 0.0;
             }
         }
         // neg
-        for x in sequential.iter_mut() {
+        for x in &mut sequential {
             *x = -*x;
         }
 
@@ -1357,7 +1352,7 @@ mod tests {
 
         assert_eq!(result_data.len(), expected.len());
         for (got, exp) in result_data.iter().zip(&expected) {
-            assert!((got - exp).abs() < 1e-6, "got {got}, expected {exp}",);
+            assert!((got - exp).abs() < 1e-6, "got {got}, expected {exp}");
         }
         assert_eq!(result.shape(), &[5]);
     }

@@ -132,46 +132,40 @@ pub fn find_fusion_groups(graph: &IrGraph) -> Vec<FusionGroup> {
 
         let op_kind = classify_op(&node.op);
 
-        match op_kind {
-            FusionGroupKind::Elementwise => {
-                // Try to merge into a producer's group
-                let producer_group = find_mergeable_group(
-                    node,
-                    &node_to_group,
-                    &value_producer,
-                    &node_map,
-                    &groups,
-                    &graph.output_values,
-                    &value_consumers,
-                );
+        if op_kind == FusionGroupKind::Elementwise {
+            // Try to merge into a producer's group
+            let producer_group = find_mergeable_group(
+                node,
+                &node_to_group,
+                &value_producer,
+                &node_map,
+                &groups,
+                &graph.output_values,
+                &value_consumers,
+            );
 
-                match producer_group {
-                    Some(gidx) => {
-                        groups[gidx].node_ids.push(nid);
-                        groups[gidx].ops.push(node.op.clone());
-                        node_to_group.insert(nid, gidx);
-                    }
-                    None => {
-                        let gidx = groups.len();
-                        groups.push(GroupBuilder {
-                            node_ids: vec![nid],
-                            ops: vec![node.op.clone()],
-                            kind: FusionGroupKind::Elementwise,
-                        });
-                        node_to_group.insert(nid, gidx);
-                    }
-                }
-            }
-            _ => {
-                // Non-fusible: create a standalone group
+            if let Some(gidx) = producer_group {
+                groups[gidx].node_ids.push(nid);
+                groups[gidx].ops.push(node.op.clone());
+                node_to_group.insert(nid, gidx);
+            } else {
                 let gidx = groups.len();
                 groups.push(GroupBuilder {
                     node_ids: vec![nid],
                     ops: vec![node.op.clone()],
-                    kind: op_kind,
+                    kind: FusionGroupKind::Elementwise,
                 });
                 node_to_group.insert(nid, gidx);
             }
+        } else {
+            // Non-fusible: create a standalone group
+            let gidx = groups.len();
+            groups.push(GroupBuilder {
+                node_ids: vec![nid],
+                ops: vec![node.op.clone()],
+                kind: op_kind,
+            });
+            node_to_group.insert(nid, gidx);
         }
     }
 
@@ -185,7 +179,7 @@ pub fn find_fusion_groups(graph: &IrGraph) -> Vec<FusionGroup> {
                 .flat_map(|&nid| {
                     node_map
                         .get(&nid)
-                        .map(|n| n.outputs.to_vec())
+                        .map(|n| n.outputs.clone())
                         .unwrap_or_default()
                 })
                 .collect()
@@ -219,14 +213,11 @@ pub fn find_fusion_groups(graph: &IrGraph) -> Vec<FusionGroup> {
             for &v in &node.outputs {
                 if seen_outputs.insert(v) {
                     let is_graph_output = graph_outputs.contains(&v);
-                    let consumed_outside = value_consumers
-                        .get(&v)
-                        .map(|consumers| {
-                            consumers
-                                .iter()
-                                .any(|&cid| node_to_group.get(&cid) != Some(&gidx))
-                        })
-                        .unwrap_or(false);
+                    let consumed_outside = value_consumers.get(&v).is_some_and(|consumers| {
+                        consumers
+                            .iter()
+                            .any(|&cid| node_to_group.get(&cid) != Some(&gidx))
+                    });
 
                     if is_graph_output || consumed_outside {
                         external_outputs.push(v);
@@ -255,6 +246,11 @@ struct GroupBuilder {
 }
 
 /// Classify an `IrOpKind` into a `FusionGroupKind`.
+//
+// Multiple arms map to `FusionGroupKind::Elementwise`. They're kept separate
+// (rather than merged) so each block of the IR taxonomy — unary, binary,
+// fused — is documented and visually distinct in the source.
+#[allow(clippy::match_same_arms)]
 fn classify_op(op: &IrOpKind) -> FusionGroupKind {
     match op {
         // Elementwise unary
@@ -352,8 +348,7 @@ fn find_mergeable_group(
             let would_create_cycle = node.outputs.iter().any(|&out_val| {
                 value_consumers
                     .get(&out_val)
-                    .map(|cs| cs.iter().any(|&c| group_node_set.contains(&c)))
-                    .unwrap_or(false)
+                    .is_some_and(|cs| cs.iter().any(|&c| group_node_set.contains(&c)))
             });
 
             if !would_create_cycle {
@@ -374,7 +369,7 @@ fn find_mergeable_group(
 /// For each group:
 /// - Elementwise groups -> single fused loop
 /// - Reduction groups -> accumulator + loop
-/// - MatMul groups -> triple loop nest
+/// - `MatMul` groups -> triple loop nest
 /// - Opaque groups -> individual lowering
 ///
 /// # Arguments
@@ -406,7 +401,7 @@ fn lower_group(
             if group.ops.len() == 1 {
                 let numel = estimate_numel_for_inputs(&group.external_inputs, graph);
                 let in_names = make_input_names(group.external_inputs.len());
-                let in_refs: Vec<&str> = in_names.iter().map(|s| s.as_str()).collect();
+                let in_refs: Vec<&str> = in_names.iter().map(std::string::String::as_str).collect();
                 codegen_ir::lower_to_loops(&group.ops, &in_refs, "out", numel)
             } else {
                 vec![LoopIR::Comment(format!(
@@ -437,7 +432,7 @@ fn lower_elementwise_group(
 ) -> Vec<LoopIR> {
     let numel = estimate_numel_for_inputs(&group.external_inputs, graph);
     let in_names = make_input_names(group.external_inputs.len());
-    let in_refs: Vec<&str> = in_names.iter().map(|s| s.as_str()).collect();
+    let in_refs: Vec<&str> = in_names.iter().map(std::string::String::as_str).collect();
 
     codegen_ir::lower_to_loops(&group.ops, &in_refs, "out", numel)
 }

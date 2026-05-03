@@ -331,8 +331,7 @@ impl IrGraph {
         self.nodes
             .iter()
             .find(|n| n.id == producer_id)
-            .map(|n| matches!(n.op, IrOpKind::Constant { .. }))
-            .unwrap_or(false)
+            .is_some_and(|n| matches!(n.op, IrOpKind::Constant { .. }))
     }
 
     /// Remove a node from the graph (for dead code elimination).
@@ -405,7 +404,7 @@ mod tests {
         let mut g = IrGraph::new();
 
         let x = g.add_input(vec![4]);
-        let (_input_node_id, _) = (IrNodeId(0), ()); // Input node is id 0.
+        let (_input_node_id, ()) = (IrNodeId(0), ()); // Input node is id 0.
 
         let (add_node_id, add_outs) = g.add_node(IrOpKind::Add, vec![x, x], vec![vec![4]]);
         let (relu_node_id, relu_outs) =

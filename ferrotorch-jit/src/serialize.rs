@@ -459,8 +459,7 @@ impl IrGraph {
         if magic != MAGIC {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
-                    "IR deserialize: invalid magic bytes {:?} (expected {:?})",
-                    magic, MAGIC
+                    "IR deserialize: invalid magic bytes {magic:?} (expected {MAGIC:?})"
                 ),
             });
         }

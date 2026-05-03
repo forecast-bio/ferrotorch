@@ -74,13 +74,13 @@ fn map_name_to_op(name: &str, output_shape: &[usize]) -> FerrotorchResult<IrOpKi
 
 /// A single autograd operation discovered during the backward BFS.
 struct OpRecord {
-    /// TensorId of the tensor produced by this operation.
+    /// `TensorId` of the tensor produced by this operation.
     output_id: TensorId,
     /// Shape of the output tensor.
     output_shape: Vec<usize>,
     /// `GradFn::name()` for this operation.
     name: &'static str,
-    /// TensorIds of the inputs to this operation (from `GradFn::inputs()`).
+    /// `TensorIds` of the inputs to this operation (from `GradFn::inputs()`).
     input_ids: Vec<TensorId>,
     /// Shapes of the input tensors.
     input_shapes: Vec<Vec<usize>>,
@@ -251,9 +251,8 @@ where
             .map(|cid| {
                 *tensor_to_ir.get(cid).unwrap_or_else(|| {
                     panic!(
-                        "BUG: tensor {:?} not found in tensor_to_ir map \
-                         during IR construction",
-                        cid
+                        "BUG: tensor {cid:?} not found in tensor_to_ir map \
+                         during IR construction"
                     )
                 })
             })

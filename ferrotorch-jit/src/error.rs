@@ -50,6 +50,20 @@ pub enum JitError {
         shape: Vec<Vec<usize>>,
         message: String,
     },
+
+    /// The requested GPU backend is not yet wired to a real GPU runtime in
+    /// this build of ferrotorch-jit. Analogous to `PyTorch`'s `NotImplementedError`
+    /// for (op, device) combinations that have no registered kernel.
+    ///
+    /// Callers that want opt-in CPU fallback should catch this variant and
+    /// re-dispatch to a CPU backend of their choosing. Per `rust-gpu-discipline`
+    /// §3, silent fallback is forbidden; opt-in is the only acceptable form.
+    #[error(
+        "GPU backend unavailable for target '{target}': {reason} \
+         (ferrotorch-jit does not yet wire generated {target} source to a GPU runtime; \
+         use a CPU InductorTarget or a ferrotorch-gpu backend instead)"
+    )]
+    GpuBackendUnavailable { target: String, reason: String },
 }
 
 impl From<JitError> for FerrotorchError {

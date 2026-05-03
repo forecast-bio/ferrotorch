@@ -31,7 +31,7 @@ pub struct AotGraphPair {
     /// intermediate tensors needed by the backward graph.
     pub forward: IrGraph,
 
-    /// The backward graph. Takes saved intermediates + grad_output and
+    /// The backward graph. Takes saved intermediates + `grad_output` and
     /// produces gradients for each original input.
     pub backward: IrGraph,
 
@@ -112,7 +112,7 @@ pub fn decompose_forward_backward(forward_graph: &IrGraph) -> FerrotorchResult<A
     // set without coupling to per-op rules.
     for node in &forward_graph.nodes {
         match &node.op {
-            IrOpKind::Input { .. } | IrOpKind::Output | IrOpKind::Constant { .. } => continue,
+            IrOpKind::Input { .. } | IrOpKind::Output | IrOpKind::Constant { .. } => {}
             _ => {
                 for &input_val in &node.inputs {
                     saved_value_ids.insert(input_val);
@@ -251,13 +251,13 @@ pub fn decompose_forward_backward(forward_graph: &IrGraph) -> FerrotorchResult<A
                     *saved_to_backward
                         .get(&a)
                         .ok_or_else(|| JitError::UnsupportedOp {
-                            op: format!("Mul backward: missing saved input {:?}", a),
+                            op: format!("Mul backward: missing saved input {a:?}"),
                         })?;
                 let saved_b =
                     *saved_to_backward
                         .get(&b)
                         .ok_or_else(|| JitError::UnsupportedOp {
-                            op: format!("Mul backward: missing saved input {:?}", b),
+                            op: format!("Mul backward: missing saved input {b:?}"),
                         })?;
                 let grad_a = backward
                     .add_node(
@@ -368,9 +368,8 @@ pub fn decompose_forward_backward(forward_graph: &IrGraph) -> FerrotorchResult<A
             other => {
                 return Err(JitError::UnsupportedOp {
                     op: format!(
-                        "AOT backward decomposition does not support {:?}; \
-                         cannot silently produce incorrect gradients",
-                        other
+                        "AOT backward decomposition does not support {other:?}; \
+                         cannot silently produce incorrect gradients"
                     ),
                 }
                 .into());

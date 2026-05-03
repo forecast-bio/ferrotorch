@@ -5,7 +5,7 @@ use crate::graph::{IrGraph, IrNodeId, IrValueId};
 /// Result of memory planning: buffer slot assignments for each IR value.
 #[derive(Debug, Clone)]
 pub struct MemoryPlan {
-    /// Map from IrValueId to buffer slot index.
+    /// Map from `IrValueId` to buffer slot index.
     pub assignments: HashMap<IrValueId, usize>,
     /// Size of each buffer slot in elements.
     pub slot_sizes: Vec<usize>,
@@ -44,18 +44,13 @@ struct LiveInterval {
 
 /// Compute the number of elements a value occupies (product of shape dims).
 fn value_num_elements(graph: &IrGraph, value: IrValueId) -> usize {
-    graph
-        .values
-        .iter()
-        .find(|v| v.id == value)
-        .map(|v| {
-            if v.shape.is_empty() {
-                1
-            } else {
-                v.shape.iter().product()
-            }
-        })
-        .unwrap_or(1)
+    graph.values.iter().find(|v| v.id == value).map_or(1, |v| {
+        if v.shape.is_empty() {
+            1
+        } else {
+            v.shape.iter().product()
+        }
+    })
 }
 
 /// Analyze the IR graph and produce a memory plan that maximizes buffer reuse.
@@ -185,19 +180,16 @@ pub fn plan_memory(graph: &IrGraph) -> MemoryPlan {
             }
         }
 
-        match best_slot {
-            Some(slot_idx) => {
-                assignments.insert(val_id, slot_idx);
-                // Update the occupancy to reflect the new value's lifetime.
-                slot_occupancy[slot_idx] = interval.last_use;
-            }
-            None => {
-                // Allocate a new slot.
-                let slot_idx = slot_sizes.len();
-                slot_sizes.push(size);
-                slot_occupancy.push(interval.last_use);
-                assignments.insert(val_id, slot_idx);
-            }
+        if let Some(slot_idx) = best_slot {
+            assignments.insert(val_id, slot_idx);
+            // Update the occupancy to reflect the new value's lifetime.
+            slot_occupancy[slot_idx] = interval.last_use;
+        } else {
+            // Allocate a new slot.
+            let slot_idx = slot_sizes.len();
+            slot_sizes.push(size);
+            slot_occupancy.push(interval.last_use);
+            assignments.insert(val_id, slot_idx);
         }
     }
 
@@ -232,11 +224,11 @@ mod tests {
     /// so buffer slots can be reused for non-overlapping lifetimes.
     ///
     /// With shape [100], each value is 100 elements.
-    /// Values: input(v0), relu_out(v1), sigmoid_out(v2).
+    /// Values: input(v0), `relu_out(v1)`, `sigmoid_out(v2)`.
     /// Liveness (topo indices: Input=0, Relu=1, Sigmoid=2):
-    ///   v0: born=0, last_use=1  (consumed by relu at topo index 1)
-    ///   v1: born=1, last_use=2  (consumed by sigmoid at topo index 2)
-    ///   v2: born=2, last_use=2  (graph output, pinned to last topo index = 2)
+    ///   v0: born=0, `last_use=1`  (consumed by relu at topo index 1)
+    ///   v1: born=1, `last_use=2`  (consumed by sigmoid at topo index 2)
+    ///   v2: born=2, `last_use=2`  (graph output, pinned to last topo index = 2)
     ///
     /// Allocation order (by birth): v0, v1, v2.
     ///   v0 -> slot 0 (new, size 100)
@@ -359,7 +351,7 @@ mod tests {
 
         // Savings should be meaningful.
         let pct = plan.savings_percent();
-        assert!(pct > 20.0, "expected savings > 20%, got {:.1}%", pct);
+        assert!(pct > 20.0, "expected savings > 20%, got {pct:.1}%");
     }
 
     /// Empty graph produces an empty plan.
@@ -372,7 +364,11 @@ mod tests {
         assert_eq!(plan.num_slots, 0);
         assert_eq!(plan.naive_total, 0);
         assert_eq!(plan.planned_total, 0);
-        assert_eq!(plan.savings_percent(), 0.0);
+        // Bit-exact: with no allocations, savings is constructed as 0.0.
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(plan.savings_percent(), 0.0);
+        }
     }
 
     /// Values with different sizes: a small value can be placed in a larger

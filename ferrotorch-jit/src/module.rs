@@ -354,7 +354,7 @@ impl<T: Float> AotCompiledModule<T> {
         Ok(output)
     }
 
-    /// Execute the backward pass using saved intermediates and grad_output.
+    /// Execute the backward pass using saved intermediates and `grad_output`.
     ///
     /// # Arguments
     ///

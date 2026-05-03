@@ -139,8 +139,7 @@ impl ShapeSignature {
     pub fn symbolic_dims_for(&self, input_index: usize) -> &[SymbolicDim] {
         self.entries
             .get(input_index)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+            .map_or(&[], std::vec::Vec::as_slice)
     }
 
     /// Returns `true` if dim `dim` of input `input_index` is declared
@@ -311,7 +310,7 @@ impl<T: Float> SymbolicTracedModule<T> {
     /// Run the underlying graph with the given inputs, after passing
     /// them through the guard.
     pub fn forward_symbolic(&self, inputs: &[Tensor<T>]) -> FerrotorchResult<Tensor<T>> {
-        let shape_refs: Vec<&[usize]> = inputs.iter().map(|t| t.shape()).collect();
+        let shape_refs: Vec<&[usize]> = inputs.iter().map(ferrotorch_core::Tensor::shape).collect();
         self.guard.check(&shape_refs)?;
         interpret(self.inner.graph(), inputs)
     }
@@ -353,7 +352,7 @@ pub(crate) fn patch_reshape_for_symbolic_dims(
         return;
     }
 
-    for node in graph.nodes.iter_mut() {
+    for node in &mut graph.nodes {
         if let IrOpKind::Reshape { shape } = &mut node.op {
             // Count how many positions in the reshape target match any
             // symbolic value.

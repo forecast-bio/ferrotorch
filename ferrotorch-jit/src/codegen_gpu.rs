@@ -15,6 +15,7 @@
 use crate::codegen_ir::{BinOpKind, Expr, LoopIR, UnaryOpKind};
 
 /// A GPU code generator targeting CUDA C and PTX output.
+#[derive(Debug)]
 pub struct GpuCodegen;
 
 // ===========================================================================
@@ -376,6 +377,10 @@ fn emit_cuda_expr_replace(expr: &Expr, old_var: &str, new_var: &str) -> String {
 }
 
 /// Format an f64 value as a CUDA float literal.
+//
+// Exact float comparison is intentional: only bit-identical `0.0` / `1.0`
+// emit the canonical short literal.
+#[allow(clippy::float_cmp)]
 fn format_f32_cuda(v: f64) -> String {
     if v == 0.0 {
         "0.0f".into()
@@ -388,7 +393,7 @@ fn format_f32_cuda(v: f64) -> String {
     } else if v.is_nan() {
         "NAN".into()
     } else {
-        format!("{}f", v)
+        format!("{v}f")
     }
 }
 
@@ -565,10 +570,8 @@ fn analyze_ptx_needs_recursive(
             }
             LoopIR::Store { value, .. }
             | LoopIR::Assign { value, .. }
-            | LoopIR::Let { value, .. } => {
-                count_expr_regs(value, extra, needs_zero);
-            }
-            LoopIR::Accumulate { value, .. } => {
+            | LoopIR::Let { value, .. }
+            | LoopIR::Accumulate { value, .. } => {
                 count_expr_regs(value, extra, needs_zero);
             }
             LoopIR::If {
@@ -745,7 +748,7 @@ fn emit_ptx_expr_to_reg(out: &mut String, expr: &Expr, dest: &str) {
         }
         Expr::UnaryOp { op, operand } => {
             emit_ptx_expr_to_reg(out, operand, dest);
-            emit_ptx_unary_op(out, op, dest);
+            emit_ptx_unary_op(out, *op, dest);
         }
         Expr::FnCall { name, args } => {
             if name == "powf" && args.len() == 2 {
@@ -767,7 +770,7 @@ fn emit_ptx_expr_to_reg(out: &mut String, expr: &Expr, dest: &str) {
 }
 
 /// Emit PTX for a unary operation on a register.
-fn emit_ptx_unary_op(out: &mut String, op: &UnaryOpKind, reg: &str) {
+fn emit_ptx_unary_op(out: &mut String, op: UnaryOpKind, reg: &str) {
     match op {
         UnaryOpKind::Neg => {
             out.push_str(&format!("    neg.f32 {reg}, {reg};\n"));
@@ -838,7 +841,7 @@ fn emit_ptx_unary_op(out: &mut String, op: &UnaryOpKind, reg: &str) {
 fn emit_ptx_op(out: &mut String, expr: &Expr) {
     match expr {
         Expr::UnaryOp { op, .. } => {
-            emit_ptx_unary_op(out, op, "%val");
+            emit_ptx_unary_op(out, *op, "%val");
         }
         Expr::BinOp { op, lhs, rhs } => {
             // Binary op where lhs is typically %val
@@ -874,10 +877,10 @@ fn emit_ptx_op(out: &mut String, expr: &Expr) {
     }
 }
 
-/// Map a variable name to a PTX register.
+/// Map a variable name to a PTX register. Defaults to `%val` for any
+/// name other than the reserved `"acc"` accumulator register.
 fn ptx_var_to_reg(name: &str) -> &str {
     match name {
-        "val" => "%val",
         "acc" => "%acc",
         _ => "%val",
     }
@@ -978,7 +981,7 @@ mod tests {
 
         assert!(src.contains("const float* __restrict__ in0"));
         assert!(src.contains("const float* __restrict__ in1"));
-        assert!(src.contains("+"));
+        assert!(src.contains('+'));
     }
 
     #[test]

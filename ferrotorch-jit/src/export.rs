@@ -27,7 +27,7 @@ use crate::trace;
 /// A single dimension in an [`InputSpec`] — either a fixed integer
 /// size or a symbolic (dynamic) dimension with an optional range.
 ///
-/// Mirrors PyTorch's `torch.export.Dim` / `SymInt` for dynamic shape
+/// Mirrors `PyTorch`'s `torch.export.Dim` / `SymInt` for dynamic shape
 /// support. Produced by [`export`] (all dims are [`DimSpec::Static`])
 /// or [`export_with_dynamic_shapes`] (selected dims are
 /// [`DimSpec::Dynamic`]). CL-396.
@@ -102,7 +102,7 @@ impl InputSpec {
 
     /// Returns `true` if any dimension in this spec is dynamic.
     pub fn has_dynamic_dims(&self) -> bool {
-        self.shape.iter().any(|d| d.is_dynamic())
+        self.shape.iter().any(DimSpec::is_dynamic)
     }
 
     /// Number of dimensions (rank).
@@ -551,7 +551,7 @@ impl ExportedProgram {
                 format!(
                     "[{}]",
                     s.iter()
-                        .map(|d| d.to_string())
+                        .map(std::string::ToString::to_string)
                         .collect::<Vec<_>>()
                         .join(",")
                 )
@@ -564,7 +564,7 @@ impl ExportedProgram {
             "\"output_shape\":[{}]",
             self.output_shape
                 .iter()
-                .map(|d| d.to_string())
+                .map(std::string::ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(",")
         ));
@@ -807,9 +807,7 @@ fn unescape_json_string(s: &str) -> String {
     while let Some(ch) = chars.next() {
         if ch == '\\' {
             match chars.next() {
-                Some('"') => out.push('"'),
-                Some('\\') => out.push('\\'),
-                Some('/') => out.push('/'),
+                Some(c @ ('"' | '\\' | '/')) => out.push(c),
                 Some('n') => out.push('\n'),
                 Some('r') => out.push('\r'),
                 Some('t') => out.push('\t'),
@@ -851,9 +849,9 @@ fn unescape_json_string(s: &str) -> String {
 /// Extract a usize value for a given key from JSON.
 ///
 /// Uses exact key matching with `"key":` delimiter to avoid false matches
-/// (e.g., "num_graph_nodes" should not match "extra_num_graph_nodes").
+/// (e.g., "`num_graph_nodes`" should not match "`extra_num_graph_nodes`").
 fn extract_json_usize(json: &str, key: &str) -> FerrotorchResult<usize> {
-    let pattern = format!("\"{}\":", key);
+    let pattern = format!("\"{key}\":");
     let start = json
         .find(&pattern)
         .ok_or_else(|| FerrotorchError::InvalidArgument {
@@ -872,7 +870,7 @@ fn extract_json_usize(json: &str, key: &str) -> FerrotorchResult<usize> {
 
 /// Extract a flat array of usize values from JSON.
 fn extract_json_array(json: &str, key: &str) -> FerrotorchResult<Vec<usize>> {
-    let pattern = format!("\"{}\":[", key);
+    let pattern = format!("\"{key}\":[");
     let start = json
         .find(&pattern)
         .ok_or_else(|| FerrotorchError::InvalidArgument {
@@ -903,7 +901,7 @@ fn extract_json_array(json: &str, key: &str) -> FerrotorchResult<Vec<usize>> {
 
 /// Extract nested arrays (e.g., `[[2,3],[4]]`) from JSON.
 fn extract_json_nested_arrays(json: &str, key: &str) -> FerrotorchResult<Vec<Vec<usize>>> {
-    let pattern = format!("\"{}\":[", key);
+    let pattern = format!("\"{key}\":[");
     let start = json
         .find(&pattern)
         .ok_or_else(|| FerrotorchError::InvalidArgument {
@@ -968,7 +966,7 @@ fn extract_json_nested_arrays(json: &str, key: &str) -> FerrotorchResult<Vec<Vec
 
 /// Extract an array of JSON strings from JSON.
 fn extract_json_string_array(json: &str, key: &str) -> FerrotorchResult<Vec<String>> {
-    let pattern = format!("\"{}\":[", key);
+    let pattern = format!("\"{key}\":[");
     let start = json
         .find(&pattern)
         .ok_or_else(|| FerrotorchError::InvalidArgument {
@@ -1197,7 +1195,7 @@ mod tests {
                 assert_eq!(*min, Some(1));
                 assert_eq!(*max, Some(64));
             }
-            _ => panic!("expected dynamic dim 0"),
+            DimSpec::Static(_) => panic!("expected dynamic dim 0"),
         }
         assert_eq!(parsed.input_specs[0].shape[1], DimSpec::Static(10));
 

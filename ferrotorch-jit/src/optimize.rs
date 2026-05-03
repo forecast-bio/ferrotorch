@@ -4,6 +4,12 @@ use crate::graph::{IrGraph, IrNode, IrNodeId, IrOpKind, IrValue, IrValueId};
 use crate::memory_plan::{self, MemoryPlan};
 
 /// Configuration controlling which optimization passes are applied.
+//
+// Four bools mirror the four optimisation passes the compiler can run.
+// This is an intentional config-of-toggles shape (matches PyTorch's
+// `inductor.config.*` style); collapsing to bitflags would obscure the
+// per-pass meaning at every call site.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct OptimizationConfig {
     pub constant_folding: bool,
@@ -213,12 +219,11 @@ pub fn constant_fold(graph: &mut IrGraph) {
             let mut constant_inputs: Vec<(Vec<f64>, Vec<usize>)> = Vec::new();
             let mut all_constant = true;
             for &val_id in &inputs_val_ids {
-                match get_constant_data(graph, val_id) {
-                    Some(pair) => constant_inputs.push(pair),
-                    None => {
-                        all_constant = false;
-                        break;
-                    }
+                if let Some(pair) = get_constant_data(graph, val_id) {
+                    constant_inputs.push(pair);
+                } else {
+                    all_constant = false;
+                    break;
                 }
             }
             if !all_constant {
@@ -474,7 +479,7 @@ pub fn pattern_fuse(graph: &mut IrGraph) {
     fuse_attention_pattern(graph);
 }
 
-/// Fuse Linear → Activation into FusedLinearActivation.
+/// Fuse Linear → Activation into `FusedLinearActivation`.
 ///
 /// Detects chains of `Linear → Relu/Gelu/Silu/Sigmoid/Tanh` and
 /// replaces them with a single `FusedLinearActivation` node.
@@ -543,7 +548,7 @@ fn fuse_linear_activation(graph: &mut IrGraph) {
     }
 }
 
-/// Detect the scaled dot-product attention pattern and replace with FusedAttention.
+/// Detect the scaled dot-product attention pattern and replace with `FusedAttention`.
 ///
 /// Pattern: `Matmul(Q, K^T) → Mul(scale) → Softmax → Matmul(_, V)`
 /// This is a heuristic detector — it looks for the sequence in topo order.
@@ -595,8 +600,7 @@ fn fuse_attention_pattern(graph: &mut IrGraph) {
                 .inputs
                 .first()
                 .and_then(|&vid| graph.values.iter().find(|v| v.id == vid))
-                .map(|v| *v.shape.last().unwrap_or(&64))
-                .unwrap_or(64);
+                .map_or(64, |v| *v.shape.last().unwrap_or(&64));
 
             // Collect data before mutating.
             let v_input = matmul2_node

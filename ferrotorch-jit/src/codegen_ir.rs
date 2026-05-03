@@ -394,8 +394,7 @@ fn lower_single_op(
         // Anything else: emit a comment noting it cannot be lowered
         _ => {
             vec![LoopIR::Comment(format!(
-                "unsupported op for loop lowering: {:?}",
-                op
+                "unsupported op for loop lowering: {op:?}"
             ))]
         }
     }
@@ -423,10 +422,7 @@ fn lower_unary_elementwise(
                 value: expr,
             }],
         }],
-        None => vec![LoopIR::Comment(format!(
-            "failed to lower unary op: {:?}",
-            op
-        ))],
+        None => vec![LoopIR::Comment(format!("failed to lower unary op: {op:?}"))],
     }
 }
 
@@ -442,8 +438,7 @@ fn lower_binary_elementwise(
         Some(b) => b,
         None => {
             return vec![LoopIR::Comment(format!(
-                "failed to lower binary op: {:?}",
-                op
+                "failed to lower binary op: {op:?}"
             ))];
         }
     };
@@ -587,8 +582,7 @@ fn lower_fused_elementwise(
                 }
                 None => {
                     body.push(LoopIR::Comment(format!(
-                        "skipped unsupported binary op: {:?}",
-                        op
+                        "skipped unsupported binary op: {op:?}"
                     )));
                 }
             }
@@ -603,8 +597,7 @@ fn lower_fused_elementwise(
                 }
                 None => {
                     body.push(LoopIR::Comment(format!(
-                        "skipped unsupported unary op: {:?}",
-                        op
+                        "skipped unsupported unary op: {op:?}"
                     )));
                 }
             }

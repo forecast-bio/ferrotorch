@@ -155,13 +155,13 @@ impl<T: Float> SegmentedModule<T> {
 /// An operation discovered during BFS traversal, annotated with whether it
 /// maps to a known IR op.
 struct AnnotatedOp {
-    /// TensorId of the tensor produced by this operation.
+    /// `TensorId` of the tensor produced by this operation.
     output_id: TensorId,
     /// Shape of the output tensor.
     output_shape: Vec<usize>,
     /// `GradFn::name()` for this operation.
     name: &'static str,
-    /// TensorIds of the inputs to this operation.
+    /// `TensorIds` of the inputs to this operation.
     input_ids: Vec<TensorId>,
     /// Shapes of the input tensors.
     input_shapes: Vec<Vec<usize>>,
@@ -283,9 +283,8 @@ where
                 return Err(JitError::GraphBreak {
                     op: name.to_string(),
                     reason: format!(
-                        "unsupported operation '{}' encountered during tracing \
-                         and fullgraph mode is enabled",
-                        name
+                        "unsupported operation '{name}' encountered during tracing \
+                         and fullgraph mode is enabled"
                     ),
                 }
                 .into());
@@ -397,9 +396,9 @@ fn build_ir_graph<T: Float>(
             .input_ids
             .iter()
             .map(|cid| {
-                *tensor_to_ir.get(cid).unwrap_or_else(|| {
-                    panic!("BUG: tensor {:?} not found in tensor_to_ir map", cid)
-                })
+                *tensor_to_ir
+                    .get(cid)
+                    .unwrap_or_else(|| panic!("BUG: tensor {cid:?} not found in tensor_to_ir map"))
             })
             .collect();
 
@@ -550,9 +549,8 @@ fn build_ir_graph_from_run<T: Float>(
             .map(|cid| {
                 *tensor_to_ir.get(cid).unwrap_or_else(|| {
                     panic!(
-                        "BUG: tensor {:?} not found in tensor_to_ir map during \
-                         segment IR construction",
-                        cid
+                        "BUG: tensor {cid:?} not found in tensor_to_ir map during \
+                         segment IR construction"
                     )
                 })
             })
@@ -947,12 +945,12 @@ mod tests {
         g.set_outputs(vec![add_outs[0]]);
 
         let compiled: GraphSegment<f32> = GraphSegment::Compiled(TracedModule::new(g));
-        let debug_str = format!("{:?}", compiled);
+        let debug_str = format!("{compiled:?}");
         assert!(debug_str.contains("Compiled"));
 
         let eager: GraphSegment<f32> =
             GraphSegment::Eager(Arc::new(|input: &Tensor<f32>| Ok(input.clone())));
-        let debug_str = format!("{:?}", eager);
+        let debug_str = format!("{eager:?}");
         assert!(debug_str.contains("Eager"));
     }
 

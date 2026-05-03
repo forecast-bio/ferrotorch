@@ -89,7 +89,7 @@ impl std::fmt::Debug for CompiledGraph {
 // ---------------------------------------------------------------------------
 
 /// A backend that compiles an IR graph into an executable [`CompiledGraph`].
-pub trait Codegen: Send + Sync {
+pub trait Codegen: std::fmt::Debug + Send + Sync {
     /// Compile the given IR graph.
     fn compile(&self, graph: &IrGraph) -> FerrotorchResult<CompiledGraph>;
 
@@ -106,6 +106,7 @@ pub trait Codegen: Send + Sync {
 /// This is the simplest backend: it captures the graph and, on each
 /// invocation, converts the flat `f64` inputs to tensors, runs the
 /// interpreter, and extracts the output data.
+#[derive(Debug)]
 pub struct InterpreterBackend;
 
 impl Codegen for InterpreterBackend {
@@ -144,7 +145,7 @@ impl Codegen for InterpreterBackend {
         })
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "interpreter"
     }
 }
@@ -164,6 +165,7 @@ impl Codegen for InterpreterBackend {
 ///
 /// For graphs it cannot natively compile, it falls back to the
 /// [`InterpreterBackend`].
+#[derive(Debug)]
 pub struct NativeBackend;
 
 /// A single elementwise f64 operation that can be composed.
@@ -188,7 +190,7 @@ impl Codegen for NativeBackend {
         }
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "native"
     }
 }
@@ -233,7 +235,7 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
         /// composed operation pipeline.
         Computed(Vec<ElementwiseOp>),
         /// Binary operation on two different inputs, optionally followed
-        /// by a unary chain. Stores: (lhs_input_idx, rhs_input_idx, binary_op, unary_chain).
+        /// by a unary chain. Stores: (`lhs_input_idx`, `rhs_input_idx`, `binary_op`, `unary_chain`).
         BinaryComputed {
             lhs_input: usize,
             rhs_input: usize,
@@ -393,8 +395,7 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
                     }
 
                     // Computed op Computed (same pipeline base — self-op on transformed value).
-                    (ValueKind::Input(_), ValueKind::Constant(cdata))
-                    | (ValueKind::Computed(_), ValueKind::Constant(cdata)) => {
+                    (ValueKind::Input(_) | ValueKind::Computed(_), ValueKind::Constant(cdata)) => {
                         let cdata = cdata.clone();
                         let mut ops = match lhs_kind {
                             ValueKind::Input(_) => Vec::new(),
@@ -412,8 +413,7 @@ fn try_compile_native(graph: &IrGraph) -> Option<CompiledGraph> {
                     }
 
                     // Constant op Input/Computed (reversed operand order).
-                    (ValueKind::Constant(cdata), ValueKind::Input(_))
-                    | (ValueKind::Constant(cdata), ValueKind::Computed(_)) => {
+                    (ValueKind::Constant(cdata), ValueKind::Input(_) | ValueKind::Computed(_)) => {
                         let cdata = cdata.clone();
                         let mut ops = match rhs_kind {
                             ValueKind::Input(_) => Vec::new(),
@@ -737,10 +737,7 @@ fn resolve_output_shape(graph: &IrGraph) -> FerrotorchResult<Vec<usize>> {
         .find(|v| v.id == output_id)
         .map(|v| v.shape.clone())
         .ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!(
-                "codegen: output value {:?} not found in graph values",
-                output_id
-            ),
+            message: format!("codegen: output value {output_id:?} not found in graph values"),
         })
 }
 
@@ -751,11 +748,13 @@ fn resolve_output_shape(graph: &IrGraph) -> FerrotorchResult<Vec<usize>> {
 /// The target for the inductor-style code generator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InductorTarget {
-    /// Emit Rust source code with SIMD-friendly patterns.
+    /// Emit Rust source code with SIMD-friendly patterns. The
+    /// [`InductorBackend::compile`] path JIT-compiles single-fusion-group
+    /// elementwise graphs in-process via cranelift (see
+    /// [`crate::codegen_jit`]); other graphs fall back to the
+    /// [`InterpreterBackend`].
     CpuRust,
-    /// Emit C source code with OpenMP SIMD/parallel pragmas.
-    CpuC,
-    /// Emit PTX assembly targeting sm_52.
+    /// Emit PTX assembly targeting `sm_52`.
     GpuPtx,
     /// Emit CUDA C source code.
     GpuCuda,
@@ -780,6 +779,7 @@ pub enum InductorTarget {
 ///
 /// [`dag_fusion`]: crate::dag_fusion
 /// [`codegen_ir::LoopIR`]: crate::codegen_ir::LoopIR
+#[derive(Debug)]
 pub struct InductorBackend {
     /// The target to generate code for.
     pub target: InductorTarget,
@@ -820,9 +820,6 @@ impl InductorBackend {
                 InductorTarget::CpuRust => {
                     crate::codegen_cpu::CpuCodegen::generate_rust_source(loops, &fn_name)
                 }
-                InductorTarget::CpuC => {
-                    crate::codegen_cpu::CpuCodegen::generate_c_source(loops, &fn_name, num_inputs)
-                }
                 InductorTarget::GpuCuda => crate::codegen_gpu::GpuCodegen::generate_cuda_source(
                     loops, &fn_name, num_inputs,
                 ),
@@ -844,11 +841,6 @@ impl InductorBackend {
                 InductorTarget::CpuRust => {
                     crate::codegen_cpu::CpuCodegen::generate_rust_source(&[], "kernel_identity")
                 }
-                InductorTarget::CpuC => crate::codegen_cpu::CpuCodegen::generate_c_source(
-                    &[],
-                    "kernel_identity",
-                    num_graph_inputs.max(1),
-                ),
                 InductorTarget::GpuCuda => crate::codegen_gpu::GpuCodegen::generate_cuda_source(
                     &[],
                     "kernel_identity",
@@ -870,18 +862,49 @@ impl InductorBackend {
 
 impl Codegen for InductorBackend {
     fn compile(&self, graph: &IrGraph) -> FerrotorchResult<CompiledGraph> {
-        // For the CpuC target, attempt the real JIT path: generate C,
-        // shell out to the system C compiler, load the resulting shared
-        // library, and dispatch to it on every `execute` call.  Graphs
-        // that are a single elementwise fusion group are fully JIT'd;
-        // anything else falls back to the interpreter.
-        if self.target == InductorTarget::CpuC {
-            if let Some(compiled) = try_jit_compile_cpu_c(graph)? {
+        // For the CpuRust target, attempt the real JIT path: lower the fusion
+        // group's LoopIR into cranelift IR and JIT-compile in-process into
+        // mapped executable pages, then dispatch to it on every `execute`
+        // call. Graphs that are a single elementwise fusion group are fully
+        // JIT'd; anything else falls back to the interpreter.
+        if self.target == InductorTarget::CpuRust {
+            if let Some(compiled) = try_jit_compile_cpu_rust(graph)? {
                 return Ok(compiled);
             }
         }
 
-        // Fallback: generate source for inspection, then interpret.
+        // GPU targets: ferrotorch-jit generates GPU source strings (CUDA C /
+        // PTX) but does not yet wire them to a real GPU runtime executor.
+        // Silently routing GPU-targeted compile() to the CPU interpreter
+        // violates rust-gpu-discipline §3 (PyTorch parity): PyTorch's Inductor
+        // falls back to eager-GPU, not to a CPU interpreter.  Since we have no
+        // eager-GPU executor wired through the JIT path yet, returning Err is
+        // the correct policy answer — the caller learns their GPU compile target
+        // was not honored rather than silently getting CPU semantics.
+        //
+        // Callers that want opt-in CPU fallback may catch
+        // JitError::GpuBackendUnavailable and re-dispatch to a CPU target.
+        if self.target == InductorTarget::GpuCuda {
+            return Err(crate::error::JitError::GpuBackendUnavailable {
+                target: "GpuCuda".to_string(),
+                reason: "no GPU runtime executor is wired through ferrotorch-jit compile()"
+                    .to_string(),
+            }
+            .into());
+        }
+        if self.target == InductorTarget::GpuPtx {
+            return Err(crate::error::JitError::GpuBackendUnavailable {
+                target: "GpuPtx".to_string(),
+                reason: "no GPU runtime executor is wired through ferrotorch-jit compile()"
+                    .to_string(),
+            }
+            .into());
+        }
+
+        // CpuRust target with a graph the JIT path can't handle: generate
+        // source for inspection, then fall back to the interpreter. The JIT
+        // path above takes the fast path for single-fusion-group elementwise
+        // graphs; this fallback covers the long tail.
         let _sources = self.generate(graph)?;
         InterpreterBackend.compile(graph)
     }
@@ -889,7 +912,6 @@ impl Codegen for InductorBackend {
     fn name(&self) -> &str {
         match self.target {
             InductorTarget::CpuRust => "inductor-cpu-rust",
-            InductorTarget::CpuC => "inductor-cpu-c",
             InductorTarget::GpuPtx => "inductor-gpu-ptx",
             InductorTarget::GpuCuda => "inductor-gpu-cuda",
         }
@@ -897,7 +919,7 @@ impl Codegen for InductorBackend {
 }
 
 // ---------------------------------------------------------------------------
-// JIT compile path for CpuC
+// JIT compile path for CpuRust
 // ---------------------------------------------------------------------------
 
 /// Resolve how an `external_input` of a fusion group is supplied at
@@ -912,7 +934,7 @@ enum InputSource {
 }
 
 /// Attempt to JIT-compile the graph to a native shared library via the
-/// CpuC target. Returns `Ok(Some(..))` on a successful JIT compile,
+/// `CpuRust` target. Returns `Ok(Some(..))` on a successful JIT compile,
 /// `Ok(None)` if the graph shape is unsupported, or `Err(..)` if the
 /// compile pipeline itself failed.
 ///
@@ -921,7 +943,7 @@ enum InputSource {
 /// - Exactly one fusion group, of kind `Elementwise`
 /// - Exactly one graph output, which is the group's sole external output
 /// - All external inputs are either graph inputs or graph constants
-fn try_jit_compile_cpu_c(graph: &IrGraph) -> FerrotorchResult<Option<CompiledGraph>> {
+fn try_jit_compile_cpu_rust(graph: &IrGraph) -> FerrotorchResult<Option<CompiledGraph>> {
     use crate::dag_fusion::{FusionGroupKind, find_fusion_groups, fuse_dag};
     use crate::graph::IrOpKind;
 
@@ -945,6 +967,26 @@ fn try_jit_compile_cpu_c(graph: &IrGraph) -> FerrotorchResult<Option<CompiledGra
     if group.external_inputs.is_empty() {
         // A group with no external inputs is pathological; bail.
         return Ok(None);
+    }
+
+    // Bail if any node in the group uses the same value more than once in
+    // its input list (e.g., `Add(x, x)`). `fuse_dag` emits per-position
+    // buffer slots (`in0`, `in1`, …) keyed by node-input index, but
+    // `external_inputs` is deduplicated by value-id — so a duplicate ref
+    // would produce a kernel reading `inputs[k]` for `k >= num_inputs`.
+    // The interpreter handles aliasing correctly; the JIT path doesn't yet.
+    for &nid in &group.node_ids {
+        let node = graph.nodes.iter().find(|n| n.id == nid).ok_or_else(|| {
+            FerrotorchError::InvalidArgument {
+                message: format!("inductor-jit: group node {nid:?} not found"),
+            }
+        })?;
+        let mut seen = std::collections::HashSet::new();
+        for &v in &node.inputs {
+            if !seen.insert(v) {
+                return Ok(None);
+            }
+        }
     }
 
     // Map each external_input to its runtime source.
@@ -992,17 +1034,22 @@ fn try_jit_compile_cpu_c(graph: &IrGraph) -> FerrotorchResult<Option<CompiledGra
         return Ok(None);
     }
 
-    // Lower the group to LoopIR and emit C source.
+    // Lower the group to LoopIR and JIT-compile via cranelift (in-process,
+    // no subprocess, no shared library). The fusion-group's external_inputs
+    // count drives the trampoline shape inside `compile_loop_ir_kernel`.
     let loops_per_group = fuse_dag(&groups, graph);
     let kernel_loops = &loops_per_group[0];
-    let fn_name = "kernel_0";
     let num_inputs = group.external_inputs.len();
-    let kernel_source =
-        crate::codegen_cpu::CpuCodegen::generate_c_source(kernel_loops, fn_name, num_inputs);
 
-    // Compile through the JIT pipeline (with cache).
-    let kernel =
-        crate::codegen_jit::compile_c_kernel(&kernel_source, fn_name, num_inputs, output_len)?;
+    // Bail to interpreter if the JIT codegen doesn't yet support some
+    // construct in this LoopIR (e.g. `If`, modulus). The orchestrator
+    // (this function) returns Ok(None) in that case rather than Err so
+    // the caller knows to use the interpreter path.
+    if !crate::codegen_jit::jit_supports(kernel_loops) {
+        return Ok(None);
+    }
+
+    let kernel = crate::codegen_jit::compile_loop_ir_kernel(kernel_loops, num_inputs, output_len)?;
 
     // Capture everything we need for the execute closure.
     let num_graph_inputs = graph.input_values.len();
@@ -1381,7 +1428,7 @@ mod tests {
         g.set_outputs(vec![x]);
 
         let compiled = NativeBackend.compile(&g).unwrap();
-        let debug_str = format!("{:?}", compiled);
+        let debug_str = format!("{compiled:?}");
         assert!(debug_str.contains("CompiledGraph"));
         assert!(debug_str.contains("num_inputs: 1"));
     }
@@ -1395,10 +1442,6 @@ mod tests {
         assert_eq!(
             InductorBackend::new(InductorTarget::CpuRust).name(),
             "inductor-cpu-rust"
-        );
-        assert_eq!(
-            InductorBackend::new(InductorTarget::CpuC).name(),
-            "inductor-cpu-c"
         );
         assert_eq!(
             InductorBackend::new(InductorTarget::GpuPtx).name(),
@@ -1424,6 +1467,53 @@ mod tests {
         assert_close(&result, &[2.0, 4.0, 6.0], 1e-10);
     }
 
+    /// `compile()` on `GpuCuda` must return `Err` — not silently fall back to the
+    /// CPU interpreter. Per `rust-gpu-discipline` §3: `PyTorch`'s Inductor falls
+    /// back to eager-GPU; we have no eager-GPU executor wired here, so `Err` is
+    /// the correct PyTorch-parity answer.  Behavioural change: this is now a
+    /// returned error (`FerrotorchError::InvalidArgument`), not silent CPU execution.
+    #[test]
+    fn test_inductor_compile_gpu_cuda_returns_err() {
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4]);
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![4]]);
+        g.set_outputs(vec![relu_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::GpuCuda);
+        let result = backend.compile(&g);
+        assert!(
+            result.is_err(),
+            "compile() on GpuCuda must return Err, not silently use the CPU interpreter"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("GpuCuda"),
+            "error message should name the target 'GpuCuda', got: {msg}"
+        );
+    }
+
+    /// `compile()` on `GpuPtx` must return `Err` — symmetric with `GpuCuda`.
+    /// Per `rust-gpu-discipline` §3 and ADR #663 item 6.
+    #[test]
+    fn test_inductor_compile_gpu_ptx_returns_err() {
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4]);
+        let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![4]]);
+        g.set_outputs(vec![neg_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::GpuPtx);
+        let result = backend.compile(&g);
+        assert!(
+            result.is_err(),
+            "compile() on GpuPtx must return Err, not silently use the CPU interpreter"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("GpuPtx"),
+            "error message should name the target 'GpuPtx', got: {msg}"
+        );
+    }
+
     #[test]
     fn test_inductor_generate_rust() {
         let mut g = IrGraph::new();
@@ -1439,23 +1529,6 @@ mod tests {
         let src = &sources[0];
         assert!(src.contains("pub unsafe fn"));
         assert!(src.contains("for "));
-    }
-
-    #[test]
-    fn test_inductor_generate_c() {
-        let mut g = IrGraph::new();
-        let x = g.add_input(vec![4]);
-        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![4]]);
-        g.set_outputs(vec![relu_outs[0]]);
-
-        let backend = InductorBackend::new(InductorTarget::CpuC);
-        let sources = backend.generate(&g).unwrap();
-
-        assert!(!sources.is_empty());
-        let src = &sources[0];
-        assert!(src.contains("#include <math.h>"));
-        assert!(src.contains("void kernel_0"));
-        assert!(src.contains("restrict"));
     }
 
     #[test]
@@ -1561,57 +1634,40 @@ mod tests {
         let (_, sig_outs) = g.add_node(IrOpKind::Sigmoid, vec![relu_outs[0]], vec![vec![4]]);
         g.set_outputs(vec![sig_outs[0]]);
 
-        // Test all four targets
+        // Test all three targets
         for target in [
             InductorTarget::CpuRust,
-            InductorTarget::CpuC,
             InductorTarget::GpuCuda,
             InductorTarget::GpuPtx,
         ] {
             let backend = InductorBackend::new(target);
             let sources = backend.generate(&g).unwrap();
-            assert!(!sources.is_empty(), "no sources generated for {:?}", target);
-            assert!(!sources[0].is_empty(), "empty source for {:?}", target);
+            assert!(!sources.is_empty(), "no sources generated for {target:?}");
+            assert!(!sources[0].is_empty(), "empty source for {target:?}");
         }
     }
 
     // -----------------------------------------------------------------------
-    // Inductor CpuC JIT tests
+    // Inductor CpuRust JIT tests
     //
-    // These exercise the real end-to-end path: C source is generated,
-    // handed to the system C compiler, loaded as a shared library, and
-    // invoked via FFI on every `execute` call. They skip gracefully when
-    // no C compiler is available on the host.
+    // These exercise the real end-to-end path: LoopIR is lowered into
+    // cranelift IR, JIT-compiled in-process to executable memory pages, and
+    // invoked via FFI on every `execute` call. No subprocess, no shared
+    // library, no `dlopen` — and therefore no host-toolchain probe is
+    // needed: cranelift is bundled into the binary at build time.
     // -----------------------------------------------------------------------
 
-    fn have_c_compiler() -> bool {
-        // Private to codegen_jit, but reflected here via an env probe on
-        // the standard names the module checks.
-        if std::env::var("CC")
-            .ok()
-            .and_then(|cc| {
-                std::env::split_paths(&std::env::var_os("PATH")?).find(|p| p.join(&cc).is_file())
-            })
-            .is_some()
-        {
-            return true;
-        }
-        if let Some(path) = std::env::var_os("PATH") {
-            for dir in std::env::split_paths(&path) {
-                for cand in ["cc", "gcc", "clang"] {
-                    if dir.join(cand).is_file() {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
+    /// In-process cranelift JIT has no runtime toolchain dependency, so
+    /// these tests always run. The `have_rustc` shim from the previous
+    /// rustc-shellout pipeline is no longer needed; this constant kept for
+    /// minimal diff at call sites.
+    const fn have_rustc() -> bool {
+        true
     }
 
     #[test]
-    fn test_inductor_cpuc_jit_unary_chain() {
-        if !have_c_compiler() {
-            eprintln!("skipping JIT test: no C compiler");
+    fn test_inductor_cpurust_jit_unary_chain() {
+        if !have_rustc() {
             return;
         }
         // y = relu(neg(x))
@@ -1621,7 +1677,7 @@ mod tests {
         let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![neg_outs[0]], vec![vec![5]]);
         g.set_outputs(vec![relu_outs[0]]);
 
-        let compiled = InductorBackend::new(InductorTarget::CpuC)
+        let compiled = InductorBackend::new(InductorTarget::CpuRust)
             .compile(&g)
             .unwrap();
         assert_eq!(compiled.num_inputs(), 1);
@@ -1634,8 +1690,8 @@ mod tests {
     }
 
     #[test]
-    fn test_inductor_cpuc_jit_two_input_add() {
-        if !have_c_compiler() {
+    fn test_inductor_cpurust_jit_two_input_add() {
+        if !have_rustc() {
             return;
         }
         // y = a + b
@@ -1645,7 +1701,7 @@ mod tests {
         let (_, add_outs) = g.add_node(IrOpKind::Add, vec![a, b], vec![vec![4]]);
         g.set_outputs(vec![add_outs[0]]);
 
-        let compiled = InductorBackend::new(InductorTarget::CpuC)
+        let compiled = InductorBackend::new(InductorTarget::CpuRust)
             .compile(&g)
             .unwrap();
         assert_eq!(compiled.num_inputs(), 2);
@@ -1656,8 +1712,8 @@ mod tests {
     }
 
     #[test]
-    fn test_inductor_cpuc_jit_matches_interpreter() {
-        if !have_c_compiler() {
+    fn test_inductor_cpurust_jit_matches_interpreter() {
+        if !have_rustc() {
             return;
         }
         // y = sigmoid(tanh(neg(x)))
@@ -1675,7 +1731,7 @@ mod tests {
             .unwrap()
             .execute(std::slice::from_ref(&input))
             .unwrap();
-        let jit = InductorBackend::new(InductorTarget::CpuC)
+        let jit = InductorBackend::new(InductorTarget::CpuRust)
             .compile(&g)
             .unwrap()
             .execute(&[input])
@@ -1685,8 +1741,8 @@ mod tests {
     }
 
     #[test]
-    fn test_inductor_cpuc_jit_constant_input() {
-        if !have_c_compiler() {
+    fn test_inductor_cpurust_jit_constant_input() {
+        if !have_rustc() {
             return;
         }
         // y = x + [10, 20, 30]  — one graph input + one constant
@@ -1696,7 +1752,7 @@ mod tests {
         let (_, add_outs) = g.add_node(IrOpKind::Add, vec![x, c], vec![vec![3]]);
         g.set_outputs(vec![add_outs[0]]);
 
-        let compiled = InductorBackend::new(InductorTarget::CpuC)
+        let compiled = InductorBackend::new(InductorTarget::CpuRust)
             .compile(&g)
             .unwrap();
         assert_eq!(compiled.num_inputs(), 1);
@@ -1705,8 +1761,8 @@ mod tests {
     }
 
     #[test]
-    fn test_inductor_cpuc_jit_rejects_wrong_input_count() {
-        if !have_c_compiler() {
+    fn test_inductor_cpurust_jit_rejects_wrong_input_count() {
+        if !have_rustc() {
             return;
         }
         let mut g = IrGraph::new();
@@ -1714,7 +1770,7 @@ mod tests {
         let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![3]]);
         g.set_outputs(vec![neg_outs[0]]);
 
-        let compiled = InductorBackend::new(InductorTarget::CpuC)
+        let compiled = InductorBackend::new(InductorTarget::CpuRust)
             .compile(&g)
             .unwrap();
         assert!(compiled.execute(&[]).is_err());
@@ -1726,8 +1782,8 @@ mod tests {
     }
 
     #[test]
-    fn test_inductor_cpuc_jit_rejects_wrong_input_shape() {
-        if !have_c_compiler() {
+    fn test_inductor_cpurust_jit_rejects_wrong_input_shape() {
+        if !have_rustc() {
             return;
         }
         let mut g = IrGraph::new();
@@ -1735,7 +1791,7 @@ mod tests {
         let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![4]]);
         g.set_outputs(vec![neg_outs[0]]);
 
-        let compiled = InductorBackend::new(InductorTarget::CpuC)
+        let compiled = InductorBackend::new(InductorTarget::CpuRust)
             .compile(&g)
             .unwrap();
         // Graph declares 4-element input; supplying 3 is an error.
@@ -1743,8 +1799,8 @@ mod tests {
     }
 
     #[test]
-    fn test_inductor_cpuc_jit_reduction_falls_back_to_interpreter() {
-        if !have_c_compiler() {
+    fn test_inductor_cpurust_jit_reduction_falls_back_to_interpreter() {
+        if !have_rustc() {
             return;
         }
         // x -> sum (single reduction, not elementwise) → JIT path not taken
@@ -1754,7 +1810,7 @@ mod tests {
         let (_, sum_outs) = g.add_node(IrOpKind::Sum, vec![x], vec![vec![1]]);
         g.set_outputs(vec![sum_outs[0]]);
 
-        let compiled = InductorBackend::new(InductorTarget::CpuC)
+        let compiled = InductorBackend::new(InductorTarget::CpuRust)
             .compile(&g)
             .unwrap();
         let out = compiled.execute(&[vec![1.0, 2.0, 3.0, 4.0]]).unwrap();
@@ -1762,8 +1818,8 @@ mod tests {
     }
 
     #[test]
-    fn test_inductor_cpuc_jit_matmul_falls_back_to_interpreter() {
-        if !have_c_compiler() {
+    fn test_inductor_cpurust_jit_matmul_falls_back_to_interpreter() {
+        if !have_rustc() {
             return;
         }
         // Matmul is not elementwise → falls back to the interpreter.
@@ -1773,7 +1829,7 @@ mod tests {
         let (_, mm_outs) = g.add_node(IrOpKind::Matmul, vec![a, b], vec![vec![2, 2]]);
         g.set_outputs(vec![mm_outs[0]]);
 
-        let compiled = InductorBackend::new(InductorTarget::CpuC)
+        let compiled = InductorBackend::new(InductorTarget::CpuRust)
             .compile(&g)
             .unwrap();
         // Simple matmul: [[1,2,3],[4,5,6]] @ [[1,2],[3,4],[5,6]]
@@ -1789,8 +1845,8 @@ mod tests {
     }
 
     #[test]
-    fn test_inductor_cpuc_jit_repeated_execution() {
-        if !have_c_compiler() {
+    fn test_inductor_cpurust_jit_repeated_execution() {
+        if !have_rustc() {
             return;
         }
         // Compile once, run many times — each call should produce the
@@ -1800,7 +1856,7 @@ mod tests {
         let (_, neg_outs) = g.add_node(IrOpKind::Neg, vec![x], vec![vec![3]]);
         g.set_outputs(vec![neg_outs[0]]);
 
-        let compiled = InductorBackend::new(InductorTarget::CpuC)
+        let compiled = InductorBackend::new(InductorTarget::CpuRust)
             .compile(&g)
             .unwrap();
 

@@ -17,7 +17,16 @@ ferrotorch-core = { workspace = true }
 ferrotorch-nn = { workspace = true }
 num-traits = { workspace = true }
 thiserror = { workspace = true }
-libloading = "0.8"
-tempfile = { workspace = true }
+# In-process JIT: lowers LoopIR → cranelift SSA → executable memory pages.
+# No subprocess, no shared library on disk, no foreign toolchain at runtime.
+cranelift-jit = "0.131"
+cranelift-frontend = "0.131"
+cranelift-module = "0.131"
+cranelift-codegen = "0.131"
+cranelift-native = "0.131"
+# Pure-Rust math intrinsics (exp/log/sin/cos/...) made available to the JIT
+# via cranelift's symbol resolution.
+libm = "0.2"
 
 [dev-dependencies]
+tempfile = { workspace = true }

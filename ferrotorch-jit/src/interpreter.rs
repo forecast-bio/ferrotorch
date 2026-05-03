@@ -407,8 +407,7 @@ pub fn interpret_multi<T: Float>(
                 .cloned()
                 .ok_or_else(|| FerrotorchError::InvalidArgument {
                     message: format!(
-                        "interpret: output value {:?} was not produced during execution",
-                        output_id
+                        "interpret: output value {output_id:?} was not produced during execution"
                     ),
                 })?;
         results.push(t);
@@ -428,7 +427,7 @@ fn get_value<T: Float>(
     values
         .get(&id)
         .ok_or_else(|| FerrotorchError::InvalidArgument {
-            message: format!("interpret: value {:?} not found", id),
+            message: format!("interpret: value {id:?} not found"),
         })
 }
 
@@ -462,6 +461,12 @@ fn get_binary_inputs<'a, T: Float>(
 }
 
 /// Store a result tensor in all output value slots of a node.
+//
+// `tensor` is intentionally taken by value: most callers move a freshly
+// computed result here, and the function clones once per output slot.
+// Taking `&Tensor` would require every caller to add `&`, churn for no
+// behavioural change.
+#[allow(clippy::needless_pass_by_value)]
 fn set_outputs<T: Float>(
     values: &mut HashMap<IrValueId, Tensor<T>>,
     outputs: &[IrValueId],
@@ -487,7 +492,7 @@ fn apply_elementwise_op<T: Float>(input: &Tensor<T>, op: &IrOpKind) -> Ferrotorc
         IrOpKind::Exp => transcendental::exp(input),
         IrOpKind::Log => transcendental::log(input),
         _ => Err(FerrotorchError::InvalidArgument {
-            message: format!("interpret: unsupported op in FusedElementwise: {:?}", op),
+            message: format!("interpret: unsupported op in FusedElementwise: {op:?}"),
         }),
     }
 }

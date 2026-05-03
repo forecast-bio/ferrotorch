@@ -100,6 +100,7 @@ impl AutotuneKey {
 // ---------------------------------------------------------------------------
 
 /// A named candidate backend for the autotuner to benchmark.
+#[derive(Debug)]
 pub struct AutotuneCandidate {
     name: String,
     backend: Box<dyn Codegen>,
@@ -165,6 +166,7 @@ impl AutotuneResult {
 
 /// A configurable kernel autotuner that benchmarks candidate backends
 /// and caches the winner keyed by graph fingerprint + input shapes.
+#[derive(Debug)]
 pub struct Autotuner {
     candidates: Vec<AutotuneCandidate>,
     iterations: usize,
