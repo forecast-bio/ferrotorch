@@ -1,0 +1,10 @@
+{
+  "uuid": "0bab25df-9ddf-442a-b1a7-246cd38f8edb",
+  "display_id": 695,
+  "title": "Audit follow-up #4/5 optim-C: 123-site NumCast unwrap migration to ferrotorch_core::numeric_cast::cast (mirrors vision-A)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-03T17:56:51.441035827Z",
+  "updated_at": "2026-05-03T17:56:51.441035827Z"
+}
