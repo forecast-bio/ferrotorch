@@ -1,0 +1,10 @@
+{
+  "uuid": "c928a5ff-d12f-4fe2-9111-7eb018912d32",
+  "display_id": 677,
+  "title": "ferrotorch-jit: documentation pass — write rustdoc for ~150 undocumented pub items (lift #![allow(missing_docs)])",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-03T03:10:00.395713662Z",
+  "updated_at": "2026-05-03T03:10:00.395713662Z"
+}
