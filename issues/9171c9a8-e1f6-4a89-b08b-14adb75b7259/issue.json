@@ -1,0 +1,10 @@
+{
+  "uuid": "9171c9a8-e1f6-4a89-b08b-14adb75b7259",
+  "display_id": 702,
+  "title": "fork_rng / join_rng pub fn signature change to GpuResult (rng.rs:442, 464)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-03T21:32:08.411028496Z",
+  "updated_at": "2026-05-03T21:32:08.411028496Z"
+}
