@@ -1,0 +1,10 @@
+{
+  "uuid": "7d9379c3-698e-4559-884b-3d47b7667afe",
+  "display_id": 689,
+  "title": "Audit follow-up #3/5: ferrotorch-vision full findings — NumCast unwrap cluster + assert! in pub constructors + RwLock expect",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-03T08:52:57.902127810Z",
+  "updated_at": "2026-05-03T08:52:57.902127810Z"
+}
