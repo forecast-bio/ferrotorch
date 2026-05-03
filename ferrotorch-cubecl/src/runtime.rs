@@ -177,6 +177,37 @@ impl CubeRuntime {
         cfg!(any(feature = "cuda", feature = "rocm", feature = "wgpu"))
     }
 
+    /// Read `n` `f32` values from a device-resident handle back to host memory.
+    ///
+    /// This is the single readback point for callers (e.g. `ferrotorch-xpu`)
+    /// that receive a `(cubecl::server::Handle, Vec<usize>)` from a
+    /// `portable_*` op and need CPU-resident data. Dispatches to the correct
+    /// backend client. ADR #663 item 4.
+    #[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
+    pub fn read_f32s(
+        &self,
+        handle: cubecl::server::Handle,
+        n: usize,
+    ) -> ferrotorch_core::FerrotorchResult<Vec<f32>> {
+        use cubecl::prelude::*;
+        let bytes = match &self.client {
+            #[cfg(feature = "wgpu")]
+            CubeClient::Wgpu(c) => c.read_one(handle),
+            #[cfg(feature = "cuda")]
+            CubeClient::Cuda(c) => c.read_one(handle),
+            #[cfg(feature = "rocm")]
+            CubeClient::Rocm(c) => c.read_one(handle),
+        }
+        .map_err(|e| ferrotorch_core::FerrotorchError::InvalidArgument {
+            message: format!("cubecl read_one failed: {e}"),
+        })?;
+        // SAFETY: `bytes` came from a `client.empty(n * size_of::<f32>())`
+        // buffer filled by a `#[cube]` kernel writing `f32` values. The byte
+        // length is `n * 4` by construction. `f32::from_bytes` reinterprets
+        // the slice as `&[f32]` (same alignment on all supported backends).
+        Ok(f32::from_bytes(&bytes)[..n].to_vec())
+    }
+
     // ---------------------------------------------------------------------
     // Backend client construction
     // ---------------------------------------------------------------------

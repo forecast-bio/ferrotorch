@@ -5,10 +5,13 @@
 //! runtime it is launched with.
 //!
 //! The public helpers in this module take a `ComputeClient<R>` and host
-//! slices, upload the inputs, dispatch the kernel, and read the result back
-//! to the host. They are intentionally runtime-generic so that `ops.rs` can
-//! match on the enum of available clients (Wgpu / Cuda / Rocm) and call the
-//! same helper for each branch.
+//! slices, upload the inputs, and dispatch the kernel. They return a
+//! `(cubecl::server::Handle, usize)` pair — the on-device result buffer plus
+//! its element count — **without reading back to the host**. Callers that
+//! need CPU-resident data are responsible for calling
+//! `client.read_one(handle)` themselves. This mirrors the idiom established
+//! by `quant.rs` and `grammar.rs`: keep data device-resident and let the
+//! boundary crate decide when to read back. ADR #663 item 4.
 
 use cubecl::prelude::*;
 
@@ -388,8 +391,14 @@ fn elementwise_launch_dims(n: u32) -> (CubeCount, CubeDim) {
 // Unary + binary helpers shared by every elementwise op
 // ---------------------------------------------------------------------------
 
-/// Upload `x`, launch `launcher`, read back the result.
-fn run_unary<R, L>(client: &ComputeClient<R>, x: &[f32], launcher: L) -> Vec<f32>
+/// Upload `x`, launch `launcher`, return the on-device result handle and
+/// element count.  No host readback is performed; the caller decides when
+/// to call `client.read_one`. ADR #663 item 4.
+fn run_unary<R, L>(
+    client: &ComputeClient<R>,
+    x: &[f32],
+    launcher: L,
+) -> (cubecl::server::Handle, usize)
 where
     R: Runtime,
     L: FnOnce(&ComputeClient<R>, CubeCount, CubeDim, ArrayArg<R>, ArrayArg<R>),
@@ -405,12 +414,17 @@ where
     let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), n) };
     launcher(client, count, dim, in_arg, out_arg);
 
-    let bytes = client.read_one(out_handle).expect("cubecl read_one failed");
-    f32::from_bytes(&bytes)[..n].to_vec()
+    (out_handle, n)
 }
 
-/// Upload `a` and `b`, launch `launcher`, read back the result.
-fn run_binary<R, L>(client: &ComputeClient<R>, a: &[f32], b: &[f32], launcher: L) -> Vec<f32>
+/// Upload `a` and `b`, launch `launcher`, return the on-device result handle
+/// and element count.  No host readback is performed. ADR #663 item 4.
+fn run_binary<R, L>(
+    client: &ComputeClient<R>,
+    a: &[f32],
+    b: &[f32],
+    launcher: L,
+) -> (cubecl::server::Handle, usize)
 where
     R: Runtime,
     L: FnOnce(&ComputeClient<R>, CubeCount, CubeDim, ArrayArg<R>, ArrayArg<R>, ArrayArg<R>),
@@ -429,19 +443,91 @@ where
     let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), n) };
     launcher(client, count, dim, a_arg, b_arg, out_arg);
 
-    let bytes = client.read_one(out_handle).expect("cubecl read_one failed");
-    f32::from_bytes(&bytes)[..n].to_vec()
+    (out_handle, n)
+}
+
+// ---------------------------------------------------------------------------
+// Handle-direct helpers — no host upload for already device-resident data
+// ---------------------------------------------------------------------------
+
+/// Run a unary kernel against a pre-uploaded device handle.
+///
+/// Accepts a `cubecl::server::Handle` that already points to GPU memory;
+/// no `create_from_slice` is called. Used by the XPU path after #673 so
+/// inputs that are already device-resident don't round-trip through host.
+fn run_unary_handle<R, L>(
+    client: &ComputeClient<R>,
+    x_handle: cubecl::server::Handle,
+    n: usize,
+    launcher: L,
+) -> (cubecl::server::Handle, usize)
+where
+    R: Runtime,
+    L: FnOnce(&ComputeClient<R>, CubeCount, CubeDim, ArrayArg<R>, ArrayArg<R>),
+{
+    let size_bytes = n * std::mem::size_of::<f32>();
+    let out_handle = client.empty(size_bytes);
+    let (count, dim) = elementwise_launch_dims(n as u32);
+    // SAFETY: `x_handle` and `out_handle` were allocated by this `client`
+    // with exactly `n` f32 elements each. The kernel reads `n` elements from
+    // `x_handle` and writes `n` elements to `out_handle`.
+    let in_arg = unsafe { ArrayArg::from_raw_parts(x_handle, n) };
+    let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), n) };
+    launcher(client, count, dim, in_arg, out_arg);
+    (out_handle, n)
+}
+
+/// Run a binary kernel against two pre-uploaded device handles.
+///
+/// Same as `run_unary_handle` but for two inputs. No host upload. Issue #673.
+fn run_binary_handle<R, L>(
+    client: &ComputeClient<R>,
+    a_handle: cubecl::server::Handle,
+    b_handle: cubecl::server::Handle,
+    n: usize,
+    launcher: L,
+) -> (cubecl::server::Handle, usize)
+where
+    R: Runtime,
+    L: FnOnce(&ComputeClient<R>, CubeCount, CubeDim, ArrayArg<R>, ArrayArg<R>, ArrayArg<R>),
+{
+    let size_bytes = n * std::mem::size_of::<f32>();
+    let out_handle = client.empty(size_bytes);
+    let (count, dim) = elementwise_launch_dims(n as u32);
+    // SAFETY: `a_handle`, `b_handle`, and `out_handle` were allocated by this
+    // `client` with exactly `n` f32 elements each. The kernel reads from the
+    // first two and writes to the third.
+    let a_arg = unsafe { ArrayArg::from_raw_parts(a_handle, n) };
+    let b_arg = unsafe { ArrayArg::from_raw_parts(b_handle, n) };
+    let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), n) };
+    launcher(client, count, dim, a_arg, b_arg, out_arg);
+    (out_handle, n)
 }
 
 // Per-kernel `run_*` helpers: each one is just a thin wrapper around
 // `run_unary` / `run_binary` that plugs in the generated
 // `kernel_*::launch_unchecked` symbol. Two macros stamp them out.
+// Each also gains a `*_handle` variant (no H2D upload) for the XPU path.
 
 macro_rules! define_unary_runner {
-    ($run_fn:ident, $kernel:ident) => {
-        #[doc = concat!("Upload `x`, run `", stringify!($kernel), "`, read back the result.")]
-        pub fn $run_fn<R: Runtime>(client: &ComputeClient<R>, x: &[f32]) -> Vec<f32> {
+    ($run_fn:ident, $run_fn_handle:ident, $kernel:ident) => {
+        #[doc = concat!("Upload `x`, run `", stringify!($kernel), "`, return on-device handle + element count. ADR #663 item 4.")]
+        pub fn $run_fn<R: Runtime>(
+            client: &ComputeClient<R>,
+            x: &[f32],
+        ) -> (cubecl::server::Handle, usize) {
             run_unary::<R, _>(client, x, |client, count, dim, input, output| unsafe {
+                $kernel::launch_unchecked::<f32, R>(client, count, dim, input, output);
+            })
+        }
+
+        #[doc = concat!("Run `", stringify!($kernel), "` on a pre-uploaded device handle; no H2D upload. Issue #673.")]
+        pub fn $run_fn_handle<R: Runtime>(
+            client: &ComputeClient<R>,
+            x_handle: cubecl::server::Handle,
+            n: usize,
+        ) -> (cubecl::server::Handle, usize) {
+            run_unary_handle::<R, _>(client, x_handle, n, |client, count, dim, input, output| unsafe {
                 $kernel::launch_unchecked::<f32, R>(client, count, dim, input, output);
             })
         }
@@ -449,33 +535,49 @@ macro_rules! define_unary_runner {
 }
 
 macro_rules! define_binary_runner {
-    ($run_fn:ident, $kernel:ident) => {
-        #[doc = concat!("Upload `a` and `b`, run `", stringify!($kernel), "`, read back the result.")]
-        pub fn $run_fn<R: Runtime>(client: &ComputeClient<R>, a: &[f32], b: &[f32]) -> Vec<f32> {
+    ($run_fn:ident, $run_fn_handle:ident, $kernel:ident) => {
+        #[doc = concat!("Upload `a` and `b`, run `", stringify!($kernel), "`, return on-device handle + element count. ADR #663 item 4.")]
+        pub fn $run_fn<R: Runtime>(
+            client: &ComputeClient<R>,
+            a: &[f32],
+            b: &[f32],
+        ) -> (cubecl::server::Handle, usize) {
             run_binary::<R, _>(client, a, b, |client, count, dim, a, b, out| unsafe {
+                $kernel::launch_unchecked::<f32, R>(client, count, dim, a, b, out);
+            })
+        }
+
+        #[doc = concat!("Run `", stringify!($kernel), "` on pre-uploaded device handles; no H2D upload. Issue #673.")]
+        pub fn $run_fn_handle<R: Runtime>(
+            client: &ComputeClient<R>,
+            a_handle: cubecl::server::Handle,
+            b_handle: cubecl::server::Handle,
+            n: usize,
+        ) -> (cubecl::server::Handle, usize) {
+            run_binary_handle::<R, _>(client, a_handle, b_handle, n, |client, count, dim, a, b, out| unsafe {
                 $kernel::launch_unchecked::<f32, R>(client, count, dim, a, b, out);
             })
         }
     };
 }
 
-// Binary ops
-define_binary_runner!(run_add, kernel_add);
-define_binary_runner!(run_sub, kernel_sub);
-define_binary_runner!(run_mul, kernel_mul);
-define_binary_runner!(run_div, kernel_div);
+// Binary ops — slice-upload variant + handle-direct variant (issue #673)
+define_binary_runner!(run_add, run_add_handle, kernel_add);
+define_binary_runner!(run_sub, run_sub_handle, kernel_sub);
+define_binary_runner!(run_mul, run_mul_handle, kernel_mul);
+define_binary_runner!(run_div, run_div_handle, kernel_div);
 
-// Unary ops
-define_unary_runner!(run_relu, kernel_relu);
-define_unary_runner!(run_neg, kernel_neg);
-define_unary_runner!(run_abs, kernel_abs);
-define_unary_runner!(run_exp, kernel_exp);
-define_unary_runner!(run_ln, kernel_ln);
-define_unary_runner!(run_sqrt, kernel_sqrt);
-define_unary_runner!(run_sin, kernel_sin);
-define_unary_runner!(run_cos, kernel_cos);
-define_unary_runner!(run_tanh, kernel_tanh);
-define_unary_runner!(run_sigmoid, kernel_sigmoid);
+// Unary ops — slice-upload variant + handle-direct variant (issue #673)
+define_unary_runner!(run_relu, run_relu_handle, kernel_relu);
+define_unary_runner!(run_neg, run_neg_handle, kernel_neg);
+define_unary_runner!(run_abs, run_abs_handle, kernel_abs);
+define_unary_runner!(run_exp, run_exp_handle, kernel_exp);
+define_unary_runner!(run_ln, run_ln_handle, kernel_ln);
+define_unary_runner!(run_sqrt, run_sqrt_handle, kernel_sqrt);
+define_unary_runner!(run_sin, run_sin_handle, kernel_sin);
+define_unary_runner!(run_cos, run_cos_handle, kernel_cos);
+define_unary_runner!(run_tanh, run_tanh_handle, kernel_tanh);
+define_unary_runner!(run_sigmoid, run_sigmoid_handle, kernel_sigmoid);
 
 // ---------------------------------------------------------------------------
 // Polynomial runners — unary + scalar `n` (degree). (#577)
@@ -483,7 +585,13 @@ define_unary_runner!(run_sigmoid, kernel_sigmoid);
 
 /// Run a unary polynomial kernel taking an extra `n: u32` (degree) scalar.
 /// Same pattern as `run_unary` but threads through a single scalar argument.
-fn run_unary_with_n<R, L>(client: &ComputeClient<R>, x: &[f32], n: u32, launcher: L) -> Vec<f32>
+/// Returns the on-device handle and element count; no host readback. ADR #663.
+fn run_unary_with_n<R, L>(
+    client: &ComputeClient<R>,
+    x: &[f32],
+    n: u32,
+    launcher: L,
+) -> (cubecl::server::Handle, usize)
 where
     R: Runtime,
     L: FnOnce(&ComputeClient<R>, CubeCount, CubeDim, ArrayArg<R>, ArrayArg<R>, u32),
@@ -499,14 +607,17 @@ where
     let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), count_elems) };
     launcher(client, count, dim, in_arg, out_arg, n);
 
-    let bytes = client.read_one(out_handle).expect("cubecl read_one failed");
-    f32::from_bytes(&bytes)[..count_elems].to_vec()
+    (out_handle, count_elems)
 }
 
 macro_rules! define_unary_with_n_runner {
     ($run_fn:ident, $kernel:ident) => {
-        #[doc = concat!("Upload `x`, run `", stringify!($kernel), "` with degree `n`, read back the result.")]
-        pub fn $run_fn<R: Runtime>(client: &ComputeClient<R>, x: &[f32], n: u32) -> Vec<f32> {
+        #[doc = concat!("Upload `x`, run `", stringify!($kernel), "` with degree `n`, return on-device handle + element count. ADR #663 item 4.")]
+        pub fn $run_fn<R: Runtime>(
+            client: &ComputeClient<R>,
+            x: &[f32],
+            n: u32,
+        ) -> (cubecl::server::Handle, usize) {
             run_unary_with_n::<R, _>(
                 client,
                 x,
@@ -535,10 +646,12 @@ define_unary_with_n_runner!(run_hermite_he, kernel_hermite_he);
 define_unary_with_n_runner!(run_laguerre_l, kernel_laguerre_l);
 define_unary_with_n_runner!(run_legendre_p, kernel_legendre_p);
 
-/// Upload `a` and `b`, run `kernel_matmul_naive`, read back the result.
+/// Upload `a` and `b`, run `kernel_matmul_naive`, return the on-device result
+/// handle and element count (`m * n`).  No host readback is performed.
 ///
 /// `a` is `[m * k]` row-major, `b` is `[k * n]` row-major, output is
 /// `[m * n]` row-major. The caller is responsible for verifying sizes.
+/// ADR #663 item 4.
 pub fn run_matmul<R: Runtime>(
     client: &ComputeClient<R>,
     a: &[f32],
@@ -546,7 +659,7 @@ pub fn run_matmul<R: Runtime>(
     m: usize,
     k: usize,
     n: usize,
-) -> Vec<f32> {
+) -> (cubecl::server::Handle, usize) {
     debug_assert_eq!(a.len(), m * k);
     debug_assert_eq!(b.len(), k * n);
     let out_len = m * n;
@@ -571,6 +684,5 @@ pub fn run_matmul<R: Runtime>(
         );
     }
 
-    let bytes = client.read_one(out_handle).expect("cubecl read_one failed");
-    f32::from_bytes(&bytes)[..out_len].to_vec()
+    (out_handle, out_len)
 }

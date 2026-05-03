@@ -33,9 +33,13 @@ pub mod kernels;
 pub mod ops;
 pub mod quant;
 pub mod runtime;
+pub mod storage;
 
 // Re-export runtime types.
 pub use runtime::{CubeClient, CubeDevice, CubeRuntime};
+
+// Re-export storage handle types and upload/wrapping helpers.
+pub use storage::{CubeclStorageHandle, cubecl_handle_of, upload_f32, wrap_kernel_output};
 
 // Re-export quantized-weight dequantization API.
 pub use quant::{
