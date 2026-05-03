@@ -102,6 +102,7 @@ impl<T: Float> Categorical<T> {
 
 impl<T: Float> Distribution<T> for Categorical<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "Categorical::sample")?;
         let device = self.probs.device();
         let numel: usize = shape.iter().product();
         let u = creation::rand::<T>(shape)?;
@@ -142,6 +143,7 @@ impl<T: Float> Distribution<T> for Categorical<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs, value], "Categorical::log_prob")?;
         // log_prob = log(probs[index])
         let device = self.probs.device();
         let probs_data = self.probs.data_vec()?;
@@ -174,6 +176,7 @@ impl<T: Float> Distribution<T> for Categorical<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "Categorical::entropy")?;
         // entropy = -sum(p * log(p))
         let device = self.probs.device();
         let probs_data = self.probs.data_vec()?;

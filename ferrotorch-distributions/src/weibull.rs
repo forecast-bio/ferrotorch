@@ -50,6 +50,10 @@ impl<T: Float> Weibull<T> {
 impl<T: Float> Distribution<T> for Weibull<T> {
     #[allow(clippy::needless_range_loop)]
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.scale, &self.concentration],
+            "Weibull::sample",
+        )?;
         let u = creation::rand::<T>(shape)?;
         let u_data = u.data()?;
         let s_data = self.scale.data()?;
@@ -87,6 +91,10 @@ impl<T: Float> Distribution<T> for Weibull<T> {
 
     #[allow(clippy::needless_range_loop)]
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.scale, &self.concentration, value],
+            "Weibull::log_prob",
+        )?;
         let v = value.data()?;
         let s = self.scale.data()?;
         let k = self.concentration.data()?;
@@ -113,6 +121,10 @@ impl<T: Float> Distribution<T> for Weibull<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.scale, &self.concentration],
+            "Weibull::entropy",
+        )?;
         // H = euler_gamma * (1 - 1/k) + log(lambda/k) + 1
         let s = self.scale.data()?;
         let k = self.concentration.data()?;
@@ -129,6 +141,10 @@ impl<T: Float> Distribution<T> for Weibull<T> {
     }
 
     fn cdf(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.scale, &self.concentration, value],
+            "Weibull::cdf",
+        )?;
         // F(x; lambda, k) = 1 - exp(-(x/lambda)^k) for x >= 0
         let v = value.data()?;
         let s = self.scale.data()?;
@@ -150,6 +166,10 @@ impl<T: Float> Distribution<T> for Weibull<T> {
     }
 
     fn icdf(&self, q: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.scale, &self.concentration, q],
+            "Weibull::icdf",
+        )?;
         // F^{-1}(p) = lambda * (-log(1 - p))^(1/k)
         let p = q.data()?;
         let s = self.scale.data()?;
@@ -167,6 +187,10 @@ impl<T: Float> Distribution<T> for Weibull<T> {
     }
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.scale, &self.concentration],
+            "Weibull::mean",
+        )?;
         // E[X] = lambda * Gamma(1 + 1/k)
         let s = self.scale.data()?;
         let k = self.concentration.data()?;
@@ -181,6 +205,10 @@ impl<T: Float> Distribution<T> for Weibull<T> {
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.scale, &self.concentration],
+            "Weibull::mode",
+        )?;
         // mode = lambda * ((k-1)/k)^(1/k) for k > 1, else 0.
         let s = self.scale.data()?;
         let k = self.concentration.data()?;
@@ -198,6 +226,10 @@ impl<T: Float> Distribution<T> for Weibull<T> {
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.scale, &self.concentration],
+            "Weibull::variance",
+        )?;
         // Var[X] = lambda^2 * (Gamma(1 + 2/k) - Gamma(1 + 1/k)^2)
         let s = self.scale.data()?;
         let k = self.concentration.data()?;

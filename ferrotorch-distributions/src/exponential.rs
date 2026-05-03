@@ -43,6 +43,7 @@ impl<T: Float> Exponential<T> {
 
 impl<T: Float> Distribution<T> for Exponential<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate], "Exponential::sample")?;
         let device = self.rate.device();
         let u = creation::rand::<T>(shape)?;
         let u_data = u.data_vec()?;
@@ -67,6 +68,7 @@ impl<T: Float> Distribution<T> for Exponential<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate], "Exponential::rsample")?;
         let device = self.rate.device();
         let u = creation::rand::<T>(shape)?;
         let u_data = u.data_vec()?;
@@ -100,6 +102,7 @@ impl<T: Float> Distribution<T> for Exponential<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate, value], "Exponential::log_prob")?;
         // log_prob = log(rate) - rate * x
         let device = self.rate.device();
         let rate_data = self.rate.data_vec()?;
@@ -120,6 +123,7 @@ impl<T: Float> Distribution<T> for Exponential<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate], "Exponential::entropy")?;
         // entropy = 1 - log(rate)
         let device = self.rate.device();
         let rate_data = self.rate.data_vec()?;
@@ -140,6 +144,7 @@ impl<T: Float> Distribution<T> for Exponential<T> {
     }
 
     fn cdf(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate, value], "Exponential::cdf")?;
         // cdf(x) = 1 - exp(-rate * x) for x >= 0; 0 for x < 0.
         let val = value.data_vec()?;
         let rate_data = self.rate.data_vec()?;
@@ -158,6 +163,7 @@ impl<T: Float> Distribution<T> for Exponential<T> {
     }
 
     fn icdf(&self, q: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate, q], "Exponential::icdf")?;
         // icdf(p) = -ln(1 - p) / rate, for p in [0, 1).
         let q_data = q.data_vec()?;
         let rate_data = self.rate.data_vec()?;
@@ -171,6 +177,7 @@ impl<T: Float> Distribution<T> for Exponential<T> {
     }
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate], "Exponential::mean")?;
         // 1 / rate
         let rate_data = self.rate.data_vec()?;
         let one = <T as num_traits::One>::one();
@@ -183,6 +190,7 @@ impl<T: Float> Distribution<T> for Exponential<T> {
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate], "Exponential::mode")?;
         // Mode of exponential is 0.
         let zero = <T as num_traits::Zero>::zero();
         let n: usize = self.rate.shape().iter().product();
@@ -194,6 +202,7 @@ impl<T: Float> Distribution<T> for Exponential<T> {
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate], "Exponential::variance")?;
         // 1 / rate^2
         let rate_data = self.rate.data_vec()?;
         let one = <T as num_traits::One>::one();

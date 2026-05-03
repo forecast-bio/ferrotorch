@@ -12,8 +12,18 @@ keywords.workspace = true
 categories.workspace = true
 readme = "README.md"
 
+[features]
+# Enable CUDA-gated tests that require a real GPU and ferrotorch-gpu
+# initialised. Mirrors ferrotorch-nn's shape (item 8). The fallback gate
+# itself works without this feature; the feature only unlocks tests that
+# need to construct CUDA tensors.
+# Usage: cargo test -p ferrotorch-distributions --features cuda
+cuda = ["dep:ferrotorch-gpu"]
+
 [dependencies]
 ferrotorch-core = { workspace = true }
+ferrotorch-gpu = { workspace = true, optional = true }
 num-traits = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]

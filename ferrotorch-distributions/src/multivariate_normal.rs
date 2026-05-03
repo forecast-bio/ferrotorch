@@ -138,6 +138,10 @@ impl<T: Float> MultivariateNormal<T> {
 
 impl<T: Float> Distribution<T> for MultivariateNormal<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale_tril],
+            "MultivariateNormal::sample",
+        )?;
         let device = self.loc.device();
         let n: usize = shape.iter().product();
         let d = self.d;
@@ -173,6 +177,10 @@ impl<T: Float> Distribution<T> for MultivariateNormal<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale_tril],
+            "MultivariateNormal::rsample",
+        )?;
         let device = self.loc.device();
         let n: usize = shape.iter().product();
         let d = self.d;
@@ -220,6 +228,10 @@ impl<T: Float> Distribution<T> for MultivariateNormal<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale_tril, value],
+            "MultivariateNormal::log_prob",
+        )?;
         // log_prob = -0.5 * (d*log(2*pi) + mahal^2) - sum(log(diag(L)))
         //
         // mahal^2 = (x - mu)^T Sigma^{-1} (x - mu)
@@ -291,6 +303,10 @@ impl<T: Float> Distribution<T> for MultivariateNormal<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.scale_tril],
+            "MultivariateNormal::entropy",
+        )?;
         // H = 0.5 * d * (1 + log(2*pi)) + sum(log(diag(L)))
         let device = self.loc.device();
         let d = self.d;

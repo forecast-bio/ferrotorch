@@ -68,6 +68,10 @@ impl<T: Float> Beta<T> {
 
 impl<T: Float> Distribution<T> for Beta<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.concentration1, &self.concentration0],
+            "Beta::sample",
+        )?;
         let device = self.concentration1.device();
         let ones = ferrotorch_core::creation::scalar(<T as num_traits::One>::one())?;
         let gamma_a = crate::Gamma::new(self.concentration1.clone(), ones.clone())?;
@@ -101,6 +105,10 @@ impl<T: Float> Distribution<T> for Beta<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.concentration1, &self.concentration0],
+            "Beta::rsample",
+        )?;
         let device = self.concentration1.device();
         let ones = ferrotorch_core::creation::scalar(<T as num_traits::One>::one())?;
         let gamma_a = crate::Gamma::new(self.concentration1.clone(), ones.clone())?;
@@ -147,6 +155,10 @@ impl<T: Float> Distribution<T> for Beta<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.concentration1, &self.concentration0, value],
+            "Beta::log_prob",
+        )?;
         // log_prob = (a-1)*log(x) + (b-1)*log(1-x) - lbeta(a, b)
         // where lbeta(a, b) = lgamma(a) + lgamma(b) - lgamma(a+b)
         let device = self.concentration1.device();
@@ -174,6 +186,10 @@ impl<T: Float> Distribution<T> for Beta<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.concentration1, &self.concentration0],
+            "Beta::entropy",
+        )?;
         // entropy = lbeta(a, b) - (a-1)*digamma(a) - (b-1)*digamma(b)
         //         + (a+b-2)*digamma(a+b)
         let device = self.concentration1.device();
@@ -205,6 +221,10 @@ impl<T: Float> Distribution<T> for Beta<T> {
     }
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.concentration1, &self.concentration0],
+            "Beta::mean",
+        )?;
         // mean = c1 / (c1 + c0)
         let a = self.concentration1.data_vec()?;
         let b = self.concentration0.data_vec()?;
@@ -217,6 +237,10 @@ impl<T: Float> Distribution<T> for Beta<T> {
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.concentration1, &self.concentration0],
+            "Beta::mode",
+        )?;
         // Mode = (c1 - 1) / (c1 + c0 - 2) when c1, c0 > 1; NaN otherwise.
         let a = self.concentration1.data_vec()?;
         let b = self.concentration0.data_vec()?;
@@ -242,6 +266,10 @@ impl<T: Float> Distribution<T> for Beta<T> {
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.concentration1, &self.concentration0],
+            "Beta::variance",
+        )?;
         // var = c1 * c0 / ((c1 + c0)^2 * (c1 + c0 + 1))
         let a = self.concentration1.data_vec()?;
         let b = self.concentration0.data_vec()?;

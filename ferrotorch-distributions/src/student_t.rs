@@ -186,6 +186,10 @@ fn sample_chi2<T: Float>(df_values: &[T], n: usize) -> FerrotorchResult<Vec<T>> 
 
 impl<T: Float> Distribution<T> for StudentT<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.df, &self.loc, &self.scale],
+            "StudentT::sample",
+        )?;
         let device = self.loc.device();
         let df_data = self.df.data_vec()?;
         let loc_data = self.loc.data_vec()?;
@@ -216,6 +220,10 @@ impl<T: Float> Distribution<T> for StudentT<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.df, &self.loc, &self.scale],
+            "StudentT::rsample",
+        )?;
         let device = self.loc.device();
         let df_data = self.df.data_vec()?;
         let loc_data = self.loc.data_vec()?;
@@ -264,6 +272,10 @@ impl<T: Float> Distribution<T> for StudentT<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.df, &self.loc, &self.scale, value],
+            "StudentT::log_prob",
+        )?;
         // log_prob = lgamma((df+1)/2) - lgamma(df/2)
         //          - 0.5 * ln(df * pi) - ln(scale)
         //          - (df+1)/2 * ln(1 + ((x - loc)/scale)^2 / df)
@@ -300,12 +312,13 @@ impl<T: Float> Distribution<T> for StudentT<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.df, &self.scale], "StudentT::entropy")?;
         // entropy = (df + 1)/2 * (digamma((df+1)/2) - digamma(df/2))
         //         + ln(sqrt(df) * B(df/2, 1/2))
         //         + ln(scale)
         // where B(a, b) = Gamma(a)*Gamma(b) / Gamma(a+b)
         // Simplifying: ln(sqrt(df) * B(df/2, 1/2))
-        //   = 0.5*ln(df) + lgamma(df/2) + lgamma(1/2) - lgamma((df+1)/2)
+        //   = 0.5*ln(df) + lgamma(df/2) + 0.5*ln(pi) - lgamma((df+1)/2)
         //   = 0.5*ln(df) + lgamma(df/2) + 0.5*ln(pi) - lgamma((df+1)/2)
         let device = self.df.device();
         let df_data = self.df.data_vec()?;

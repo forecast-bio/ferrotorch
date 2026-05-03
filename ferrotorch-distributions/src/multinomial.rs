@@ -119,6 +119,7 @@ impl<T: Float> Multinomial<T> {
 
 impl<T: Float> Distribution<T> for Multinomial<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "Multinomial::sample")?;
         let device = self.probs.device();
         let n: usize = shape.iter().product();
         let k = self.num_categories;
@@ -173,6 +174,7 @@ impl<T: Float> Distribution<T> for Multinomial<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs, value], "Multinomial::log_prob")?;
         // log_prob = lgamma(n+1) - sum(lgamma(x_k+1)) + sum(x_k * log(p_k))
         let device = self.probs.device();
         let k = self.num_categories;
@@ -229,6 +231,7 @@ impl<T: Float> Distribution<T> for Multinomial<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "Multinomial::entropy")?;
         // Use the exact formula:
         // H = lgamma(n+1) + n * H_cat - sum_x P(x) * sum_k lgamma(x_k + 1)
         // For large n this is expensive, so we use the approximation:

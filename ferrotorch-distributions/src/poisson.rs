@@ -51,6 +51,7 @@ impl<T: Float> Poisson<T> {
 
 impl<T: Float> Distribution<T> for Poisson<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate], "Poisson::sample")?;
         // Knuth's algorithm for Poisson sampling.
         // For each sample, draw U ~ Uniform(0,1) repeatedly until product < exp(-lambda).
         let device = self.rate.device();
@@ -110,6 +111,7 @@ impl<T: Float> Distribution<T> for Poisson<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate, value], "Poisson::log_prob")?;
         // log_prob = k * ln(lambda) - lambda - lgamma(k + 1)
         let device = self.rate.device();
         let rate_data = self.rate.data_vec()?;
@@ -131,6 +133,7 @@ impl<T: Float> Distribution<T> for Poisson<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate], "Poisson::entropy")?;
         // No simple closed-form for Poisson entropy. Use the approximation:
         // H ~ 0.5 * ln(2 * pi * e * lambda) - 1/(12*lambda) - 1/(24*lambda^2)
         // This is accurate for lambda >= 1. For small lambda, we compute exactly.
@@ -189,6 +192,7 @@ impl<T: Float> Distribution<T> for Poisson<T> {
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.rate], "Poisson::mode")?;
         // Mode = floor(rate); for integer rate, both rate-1 and rate are
         // modes — torch returns floor(rate).
         let rate_data = self.rate.data_vec()?;

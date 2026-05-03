@@ -73,6 +73,10 @@ fn log_bessel_i0<T: Float>(x: T) -> T {
 impl<T: Float> Distribution<T> for VonMises<T> {
     #[allow(clippy::needless_range_loop)]
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.concentration],
+            "VonMises::sample",
+        )?;
         // Best's algorithm for Von Mises sampling.
         let l_data = self.loc.data()?;
         let k_data = self.concentration.data()?;
@@ -153,6 +157,10 @@ impl<T: Float> Distribution<T> for VonMises<T> {
 
     #[allow(clippy::needless_range_loop)]
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.concentration, value],
+            "VonMises::log_prob",
+        )?;
         let v = value.data()?;
         let l = self.loc.data()?;
         let k = self.concentration.data()?;
@@ -173,6 +181,7 @@ impl<T: Float> Distribution<T> for VonMises<T> {
 
     #[allow(clippy::needless_range_loop)]
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.concentration], "VonMises::entropy")?;
         // H = log(2*pi*I_0(kappa)) - kappa * I_1(kappa)/I_0(kappa)
         // Approximate I_1/I_0 ≈ 1 - 1/(2*kappa) for large kappa.
         let k = self.concentration.data()?;

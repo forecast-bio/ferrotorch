@@ -93,6 +93,7 @@ impl<T: Float> LogNormal<T> {
 
 impl<T: Float> Distribution<T> for LogNormal<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "LogNormal::sample")?;
         // sample = exp(Normal(loc, scale).sample())
         let device = self.loc.device();
         let eps = creation::randn::<T>(shape)?;
@@ -115,6 +116,10 @@ impl<T: Float> Distribution<T> for LogNormal<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale],
+            "LogNormal::rsample",
+        )?;
         let device = self.loc.device();
         let eps = creation::randn::<T>(shape)?;
         let loc_data = self.loc.data_vec()?;
@@ -150,6 +155,10 @@ impl<T: Float> Distribution<T> for LogNormal<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale, value],
+            "LogNormal::log_prob",
+        )?;
         // log_prob = Normal(loc, scale).log_prob(ln(value)) - ln(value)
         // = -0.5 * ((ln(x) - loc) / scale)^2 - ln(scale) - 0.5*ln(2*pi) - ln(x)
         let device = self.loc.device();
@@ -181,6 +190,10 @@ impl<T: Float> Distribution<T> for LogNormal<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale],
+            "LogNormal::entropy",
+        )?;
         // entropy = loc + 0.5 + ln(scale * sqrt(2*pi))
         //         = loc + 0.5 + ln(scale) + 0.5 * ln(2*pi)
         let device = self.scale.device();
@@ -209,16 +222,22 @@ impl<T: Float> Distribution<T> for LogNormal<T> {
     }
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "LogNormal::mean")?;
         let data = self.mean_value()?;
         Tensor::from_storage(TensorStorage::cpu(data), self.loc.shape().to_vec(), false)
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale],
+            "LogNormal::variance",
+        )?;
         let data = self.variance_value()?;
         Tensor::from_storage(TensorStorage::cpu(data), self.loc.shape().to_vec(), false)
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "LogNormal::mode")?;
         // Mode = exp(loc - scale^2)
         let loc_data = self.loc.data_vec()?;
         let scale_data = self.scale.data_vec()?;

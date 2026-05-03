@@ -40,6 +40,7 @@ impl<T: Float> Bernoulli<T> {
 
 impl<T: Float> Distribution<T> for Bernoulli<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "Bernoulli::sample")?;
         // sample = (rand < probs) as float
         let device = self.probs.device();
         let u = creation::rand::<T>(shape)?;
@@ -70,6 +71,7 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs, value], "Bernoulli::log_prob")?;
         // log_prob = x * log(p) + (1 - x) * log(1 - p)
         let device = self.probs.device();
         let probs_data = self.probs.data_vec()?;
@@ -97,6 +99,7 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "Bernoulli::entropy")?;
         // entropy = -p * log(p) - (1-p) * log(1-p)
         let device = self.probs.device();
         let probs_data = self.probs.data_vec()?;
@@ -124,6 +127,7 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
     }
 
     fn cdf(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs, value], "Bernoulli::cdf")?;
         // For x < 0: 0; for 0 <= x < 1: 1 - p; for x >= 1: 1.
         let val = value.data_vec()?;
         let probs_data = self.probs.data_vec()?;
@@ -150,6 +154,7 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "Bernoulli::mode")?;
         // Mode is 1 if p > 0.5 else 0 (NaN for p == 0.5 is the strict
         // convention; we use 0 to keep a valid finite answer).
         let probs_data = self.probs.data_vec()?;
@@ -168,6 +173,7 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "Bernoulli::variance")?;
         // p * (1 - p)
         let probs_data = self.probs.data_vec()?;
         let one = <T as num_traits::One>::one();
@@ -180,6 +186,7 @@ impl<T: Float> Distribution<T> for Bernoulli<T> {
     }
 
     fn icdf(&self, q: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs, q], "Bernoulli::icdf")?;
         // Generalized inverse of the step CDF: F^{-1}(p) = 1 if p > 1-prob,
         // else 0 (matches torch's piecewise definition for discrete dists).
         // Equivalently: 1 if p > 1 - prob.

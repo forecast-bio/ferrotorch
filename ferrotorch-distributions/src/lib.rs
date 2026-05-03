@@ -51,6 +51,7 @@ mod cauchy;
 pub mod constraints;
 mod dirichlet;
 mod exponential;
+pub(crate) mod fallback;
 mod gamma;
 mod gumbel;
 mod half_normal;

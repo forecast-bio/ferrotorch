@@ -49,6 +49,7 @@ impl<T: Float> Kumaraswamy<T> {
 impl<T: Float> Distribution<T> for Kumaraswamy<T> {
     #[allow(clippy::needless_range_loop)]
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.a, &self.b], "Kumaraswamy::sample")?;
         let u = creation::rand::<T>(shape)?;
         let u_data = u.data()?;
         let a_data = self.a.data()?;
@@ -87,6 +88,10 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
 
     #[allow(clippy::needless_range_loop)]
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.a, &self.b, value],
+            "Kumaraswamy::log_prob",
+        )?;
         let v = value.data()?;
         let a = self.a.data()?;
         let b = self.b.data()?;
@@ -114,6 +119,7 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.a, &self.b], "Kumaraswamy::entropy")?;
         // H = (1 - 1/b) + (1 - 1/a) * H_b - log(a) - log(b)
         // where H_b = digamma(b+1) + euler_gamma (harmonic number approximation)
         // Simplified: H ≈ (1-1/a)*(digamma(b+1)+euler) + (1-1/b) - ln(a*b)
@@ -151,6 +157,7 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
     }
 
     fn cdf(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.a, &self.b, value], "Kumaraswamy::cdf")?;
         // F(x) = 1 - (1 - x^a)^b for x in [0, 1].
         let v = value.data()?;
         let a = self.a.data()?;
@@ -173,6 +180,7 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
     }
 
     fn icdf(&self, q: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.a, &self.b, q], "Kumaraswamy::icdf")?;
         // F^{-1}(p) = (1 - (1 - p)^(1/b))^(1/a)
         let p = q.data()?;
         let a = self.a.data()?;
@@ -189,6 +197,7 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
     }
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.a, &self.b], "Kumaraswamy::mean")?;
         // E[X] = b * Beta(1 + 1/a, b)
         // = b * Gamma(1+1/a) * Gamma(b) / Gamma(1+1/a+b)
         // = exp( ln(b) + lgamma(1+1/a) + lgamma(b) - lgamma(1+1/a+b) )
@@ -205,6 +214,7 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.a, &self.b], "Kumaraswamy::mode")?;
         // For a > 1 and b >= 1: mode = ((a-1) / (a*b - 1))^(1/a)
         // For other parameter combinations the mode is at 0 or 1; we return
         // 0 as a defensive default to match the torch convention of returning
@@ -230,6 +240,7 @@ impl<T: Float> Distribution<T> for Kumaraswamy<T> {
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.a, &self.b], "Kumaraswamy::variance")?;
         // m1 = b * Beta(1 + 1/a, b)
         // m2 = b * Beta(1 + 2/a, b)
         // Var = m2 - m1^2

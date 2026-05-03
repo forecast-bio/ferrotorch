@@ -94,6 +94,7 @@ fn gumbel_icdf<T: Float>(u: T, loc: T, scale: T) -> T {
 
 impl<T: Float> Distribution<T> for Gumbel<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "Gumbel::sample")?;
         let device = self.loc.device();
         let u = creation::rand::<T>(shape)?;
         let u_data = u.data_vec()?;
@@ -116,6 +117,7 @@ impl<T: Float> Distribution<T> for Gumbel<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "Gumbel::rsample")?;
         let device = self.loc.device();
         let u = creation::rand::<T>(shape)?;
         let u_data = u.data_vec()?;
@@ -151,6 +153,10 @@ impl<T: Float> Distribution<T> for Gumbel<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale, value],
+            "Gumbel::log_prob",
+        )?;
         // log_prob = -(z + exp(-z)) - ln(scale)
         // where z = (x - loc) / scale
         let device = self.loc.device();
@@ -177,6 +183,7 @@ impl<T: Float> Distribution<T> for Gumbel<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "Gumbel::entropy")?;
         // entropy = 1 + ln(scale) + euler_gamma
         let device = self.scale.device();
         let scale_data = self.scale.data_vec()?;
@@ -201,6 +208,10 @@ impl<T: Float> Distribution<T> for Gumbel<T> {
     }
 
     fn cdf(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale, value],
+            "Gumbel::cdf",
+        )?;
         // cdf(x) = exp(-exp(-(x - loc) / scale))
         let val = value.data_vec()?;
         let loc_data = self.loc.data_vec()?;
@@ -215,6 +226,7 @@ impl<T: Float> Distribution<T> for Gumbel<T> {
     }
 
     fn icdf(&self, q: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale, q], "Gumbel::icdf")?;
         // icdf(p) = loc - scale * ln(-ln(p))
         let q_data = q.data_vec()?;
         let loc_data = self.loc.data_vec()?;
@@ -229,6 +241,7 @@ impl<T: Float> Distribution<T> for Gumbel<T> {
     }
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "Gumbel::mean")?;
         let data = self.mean_value()?;
         Tensor::from_storage(TensorStorage::cpu(data), self.loc.shape().to_vec(), false)
     }
@@ -238,6 +251,7 @@ impl<T: Float> Distribution<T> for Gumbel<T> {
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "Gumbel::variance")?;
         let data = self.variance_value()?;
         Tensor::from_storage(TensorStorage::cpu(data), self.loc.shape().to_vec(), false)
     }

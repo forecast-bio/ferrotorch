@@ -59,6 +59,7 @@ impl<T: Float> Uniform<T> {
 
 impl<T: Float> Distribution<T> for Uniform<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.low, &self.high], "Uniform::sample")?;
         let device = self.low.device();
         let u = creation::rand::<T>(shape)?;
         let low_data = self.low.data_vec()?;
@@ -80,6 +81,7 @@ impl<T: Float> Distribution<T> for Uniform<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.low, &self.high], "Uniform::rsample")?;
         let device = self.low.device();
         let u = creation::rand::<T>(shape)?;
         let low_data = self.low.data_vec()?;
@@ -114,6 +116,10 @@ impl<T: Float> Distribution<T> for Uniform<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.low, &self.high, value],
+            "Uniform::log_prob",
+        )?;
         // log_prob = -log(high - low) if low <= x < high, else -inf
         let device = self.low.device();
         let low_data = self.low.data_vec()?;
@@ -156,6 +162,7 @@ impl<T: Float> Distribution<T> for Uniform<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.low, &self.high], "Uniform::entropy")?;
         // entropy = log(high - low)
         let device = self.low.device();
         let low_data = self.low.data_vec()?;
@@ -177,6 +184,10 @@ impl<T: Float> Distribution<T> for Uniform<T> {
     }
 
     fn cdf(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.low, &self.high, value],
+            "Uniform::cdf",
+        )?;
         // cdf(x) = 0 if x < low; (x - low) / (high - low) if low <= x < high; 1 if x >= high.
         let val = value.data_vec()?;
         let lo = self.low.data_vec()?;
@@ -201,6 +212,7 @@ impl<T: Float> Distribution<T> for Uniform<T> {
     }
 
     fn icdf(&self, q: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.low, &self.high, q], "Uniform::icdf")?;
         // icdf(p) = low + (high - low) * p (assumes p in [0, 1])
         let q_data = q.data_vec()?;
         let lo = self.low.data_vec()?;
@@ -215,6 +227,7 @@ impl<T: Float> Distribution<T> for Uniform<T> {
     }
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.low, &self.high], "Uniform::mean")?;
         // (low + high) / 2
         let lo = self.low.data_vec()?;
         let hi = self.high.data_vec()?;
@@ -228,6 +241,7 @@ impl<T: Float> Distribution<T> for Uniform<T> {
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.low, &self.high], "Uniform::variance")?;
         // (high - low)^2 / 12
         let lo = self.low.data_vec()?;
         let hi = self.high.data_vec()?;
@@ -251,6 +265,7 @@ impl<T: Float> Distribution<T> for Uniform<T> {
     }
 
     fn stddev(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.low, &self.high], "Uniform::stddev")?;
         // sqrt(Var) = (high - low) / sqrt(12)
         let lo = self.low.data_vec()?;
         let hi = self.high.data_vec()?;

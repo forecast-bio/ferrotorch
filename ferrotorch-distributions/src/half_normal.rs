@@ -62,6 +62,7 @@ impl<T: Float> HalfNormal<T> {
 
 impl<T: Float> Distribution<T> for HalfNormal<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "HalfNormal::sample")?;
         let device = self.scale.device();
         let eps = creation::randn::<T>(shape)?;
         let eps_data = eps.data_vec()?;
@@ -82,6 +83,7 @@ impl<T: Float> Distribution<T> for HalfNormal<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "HalfNormal::rsample")?;
         let device = self.scale.device();
         let eps = creation::randn::<T>(shape)?;
         let eps_data = eps.data_vec()?;
@@ -112,6 +114,7 @@ impl<T: Float> Distribution<T> for HalfNormal<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale, value], "HalfNormal::log_prob")?;
         // PDF = sqrt(2 / (pi * scale^2)) * exp(-x^2 / (2 * scale^2))  for x >= 0
         // log_prob = 0.5 * ln(2/pi) - ln(scale) - x^2 / (2 * scale^2)
         //
@@ -145,6 +148,7 @@ impl<T: Float> Distribution<T> for HalfNormal<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "HalfNormal::entropy")?;
         // entropy = 0.5 * ln(pi * scale^2 / 2) + 0.5
         //         = 0.5 * ln(pi/2) + ln(scale) + 0.5
         let device = self.scale.device();
@@ -171,11 +175,13 @@ impl<T: Float> Distribution<T> for HalfNormal<T> {
     }
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "HalfNormal::mean")?;
         let data = self.mean_value()?;
         Tensor::from_storage(TensorStorage::cpu(data), self.scale.shape().to_vec(), false)
     }
 
     fn mode(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "HalfNormal::mode")?;
         // Mode of HalfNormal is 0.
         let zero = <T as num_traits::Zero>::zero();
         let n: usize = self.scale.shape().iter().product();
@@ -187,6 +193,7 @@ impl<T: Float> Distribution<T> for HalfNormal<T> {
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "HalfNormal::variance")?;
         let data = self.variance_value()?;
         Tensor::from_storage(TensorStorage::cpu(data), self.scale.shape().to_vec(), false)
     }

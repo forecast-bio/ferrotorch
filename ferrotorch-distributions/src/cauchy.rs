@@ -68,6 +68,7 @@ impl<T: Float> Cauchy<T> {
 
 impl<T: Float> Distribution<T> for Cauchy<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "Cauchy::sample")?;
         let device = self.loc.device();
         let u = creation::rand::<T>(shape)?;
         let u_data = u.data_vec()?;
@@ -97,6 +98,7 @@ impl<T: Float> Distribution<T> for Cauchy<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "Cauchy::rsample")?;
         let device = self.loc.device();
         let u = creation::rand::<T>(shape)?;
         let u_data = u.data_vec()?;
@@ -138,6 +140,10 @@ impl<T: Float> Distribution<T> for Cauchy<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale, value],
+            "Cauchy::log_prob",
+        )?;
         // log_prob = -ln(pi) - ln(scale) - ln(1 + ((x - loc) / scale)^2)
         let device = self.loc.device();
         let loc_data = self.loc.data_vec()?;
@@ -165,6 +171,7 @@ impl<T: Float> Distribution<T> for Cauchy<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "Cauchy::entropy")?;
         // entropy = ln(4 * pi * scale)
         let device = self.scale.device();
         let scale_data = self.scale.data_vec()?;
@@ -188,6 +195,10 @@ impl<T: Float> Distribution<T> for Cauchy<T> {
     }
 
     fn cdf(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale, value],
+            "Cauchy::cdf",
+        )?;
         // cdf(x) = 1/2 + atan((x - loc) / scale) / pi
         let val = value.data_vec()?;
         let loc_data = self.loc.data_vec()?;
@@ -204,6 +215,7 @@ impl<T: Float> Distribution<T> for Cauchy<T> {
     }
 
     fn icdf(&self, q: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale, q], "Cauchy::icdf")?;
         // icdf(p) = loc + scale * tan(pi * (p - 1/2))
         let q_data = q.data_vec()?;
         let loc_data = self.loc.data_vec()?;
@@ -220,6 +232,7 @@ impl<T: Float> Distribution<T> for Cauchy<T> {
     }
 
     fn mean(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc], "Cauchy::mean")?;
         // Mean is undefined; return NaN to match torch.
         let n: usize = self.loc.shape().iter().product();
         let nan = T::from(f64::NAN).unwrap();
@@ -235,6 +248,7 @@ impl<T: Float> Distribution<T> for Cauchy<T> {
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc], "Cauchy::variance")?;
         // Variance is undefined; return +∞ to match torch.
         let n: usize = self.loc.shape().iter().product();
         let inf = T::from(f64::INFINITY).unwrap();

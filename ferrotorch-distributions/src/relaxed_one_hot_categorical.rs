@@ -104,6 +104,10 @@ impl<T: Float> RelaxedOneHotCategorical<T> {
 
 impl<T: Float> Distribution<T> for RelaxedOneHotCategorical<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.probs],
+            "RelaxedOneHotCategorical::sample",
+        )?;
         relaxed_one_hot_sample(
             self.temperature,
             &self.normalized,
@@ -115,6 +119,10 @@ impl<T: Float> Distribution<T> for RelaxedOneHotCategorical<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.probs],
+            "RelaxedOneHotCategorical::rsample",
+        )?;
         // See RelaxedBernoulli rsample doc for the gradient-flow caveat.
         relaxed_one_hot_sample(
             self.temperature,
@@ -127,6 +135,10 @@ impl<T: Float> Distribution<T> for RelaxedOneHotCategorical<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.probs, value],
+            "RelaxedOneHotCategorical::log_prob",
+        )?;
         // Concrete log density on the simplex (Maddison et al. 2017, eqn 26):
         //
         //   log p(z; alpha, lambda) = log((K-1)!) + (K-1) * log(lambda)

@@ -46,6 +46,7 @@ impl<T: Float> Pareto<T> {
 impl<T: Float> Distribution<T> for Pareto<T> {
     #[allow(clippy::needless_range_loop)]
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale, &self.alpha], "Pareto::sample")?;
         let u = creation::rand::<T>(shape)?;
         let u_data = u.data()?;
         let s_data = self.scale.data()?;
@@ -84,6 +85,10 @@ impl<T: Float> Distribution<T> for Pareto<T> {
 
     #[allow(clippy::needless_range_loop)]
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.scale, &self.alpha, value],
+            "Pareto::log_prob",
+        )?;
         let v = value.data()?;
         let s = self.scale.data()?;
         let a = self.alpha.data()?;
@@ -107,6 +112,7 @@ impl<T: Float> Distribution<T> for Pareto<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale, &self.alpha], "Pareto::entropy")?;
         // H = log(scale/alpha) + 1 + 1/alpha
         let s = self.scale.data()?;
         let a = self.alpha.data()?;

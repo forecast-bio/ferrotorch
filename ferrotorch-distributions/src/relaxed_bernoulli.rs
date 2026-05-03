@@ -80,6 +80,7 @@ impl<T: Float> RelaxedBernoulli<T> {
 
 impl<T: Float> Distribution<T> for RelaxedBernoulli<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "RelaxedBernoulli::sample")?;
         // sample uses the same Concrete forward pass as rsample but without
         // an autograd graph (since "sample" is non-differentiable by API
         // contract). The math is identical.
@@ -87,6 +88,7 @@ impl<T: Float> Distribution<T> for RelaxedBernoulli<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "RelaxedBernoulli::rsample")?;
         // rsample uses the same forward pass; differentiation flows through
         // the surrounding tensor ops if the user constructs them downstream.
         // Note: a fully autograd-aware rsample requires the random Logistic
@@ -99,6 +101,10 @@ impl<T: Float> Distribution<T> for RelaxedBernoulli<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.probs, value],
+            "RelaxedBernoulli::log_prob",
+        )?;
         // The Concrete log density (Maddison et al. 2017, eqn 21):
         //   log p(z; alpha, lambda) = log(lambda) + log(alpha)
         //       + (-lambda - 1) * log(z)

@@ -167,6 +167,10 @@ fn kl_dispatch<T: Float>(
 ///
 /// where var_ratio = (scale1/scale2)^2
 fn kl_normal_normal<T: Float>(p: &Normal<T>, q: &Normal<T>) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.loc(), p.scale(), q.loc(), q.scale()],
+        "kl_divergence(Normal, Normal)",
+    )?;
     let p_loc = p.loc().data_vec()?;
     let p_scale = p.scale().data_vec()?;
     let q_loc = q.loc().data_vec()?;
@@ -197,6 +201,10 @@ fn kl_bernoulli_bernoulli<T: Float>(
     p: &Bernoulli<T>,
     q: &Bernoulli<T>,
 ) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.probs(), q.probs()],
+        "kl_divergence(Bernoulli, Bernoulli)",
+    )?;
     let p_probs = p.probs().data_vec()?;
     let q_probs = q.probs().data_vec()?;
 
@@ -224,6 +232,10 @@ fn kl_bernoulli_bernoulli<T: Float>(
 ///
 /// = log((b2-a2) / (b1-a1)) if [a1,b1] subset of [a2,b2], else infinity
 fn kl_uniform_uniform<T: Float>(p: &Uniform<T>, q: &Uniform<T>) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.low(), p.high(), q.low(), q.high()],
+        "kl_divergence(Uniform, Uniform)",
+    )?;
     let p_low = p.low().data_vec()?;
     let p_high = p.high().data_vec()?;
     let q_low = q.low().data_vec()?;
@@ -253,6 +265,10 @@ fn kl_categorical_categorical<T: Float>(
     p: &Categorical<T>,
     q: &Categorical<T>,
 ) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.probs(), q.probs()],
+        "kl_divergence(Categorical, Categorical)",
+    )?;
     let p_probs = p.probs().data_vec()?;
     let q_probs = q.probs().data_vec()?;
 
@@ -295,6 +311,10 @@ fn kl_categorical_categorical<T: Float>(
 /// effectively. We compute the analytical formula unconditionally (as
 /// PyTorch does for some cross-family pairs).
 fn kl_normal_uniform<T: Float>(p: &Normal<T>, q: &Uniform<T>) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.loc(), p.scale(), q.low(), q.high()],
+        "kl_divergence(Normal, Uniform)",
+    )?;
     let p_loc = p.loc().data_vec()?;
     let p_scale = p.scale().data_vec()?;
     let q_low = q.low().data_vec()?;
@@ -324,6 +344,10 @@ fn kl_normal_uniform<T: Float>(p: &Normal<T>, q: &Uniform<T>) -> FerrotorchResul
 ///
 /// where H(Uniform(a,b)) = log(b-a).
 fn kl_uniform_normal<T: Float>(p: &Uniform<T>, q: &Normal<T>) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.low(), p.high(), q.loc(), q.scale()],
+        "kl_divergence(Uniform, Normal)",
+    )?;
     let p_low = p.low().data_vec()?;
     let p_high = p.high().data_vec()?;
     let q_loc = q.loc().data_vec()?;
@@ -365,6 +389,10 @@ fn kl_uniform_normal<T: Float>(p: &Uniform<T>, q: &Normal<T>) -> FerrotorchResul
 /// Derived from integrating the Laplace log-density. Reduces to 0 when
 /// the two distributions are identical.
 fn kl_laplace_laplace<T: Float>(p: &Laplace<T>, q: &Laplace<T>) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.loc(), p.scale(), q.loc(), q.scale()],
+        "kl_divergence(Laplace, Laplace)",
+    )?;
     let p_loc = p.loc().data_vec()?;
     let p_scale = p.scale().data_vec()?;
     let q_loc = q.loc().data_vec()?;
@@ -395,6 +423,10 @@ fn kl_exponential_exponential<T: Float>(
     p: &Exponential<T>,
     q: &Exponential<T>,
 ) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.rate(), q.rate()],
+        "kl_divergence(Exponential, Exponential)",
+    )?;
     let p_rate = p.rate().data_vec()?;
     let q_rate = q.rate().data_vec()?;
     let one = T::from(1.0).unwrap();
@@ -418,6 +450,10 @@ fn kl_exponential_exponential<T: Float>(
 /// Reduces to 0 when the two distributions are identical (verified by
 /// `test_kl_gamma_gamma_same`).
 fn kl_gamma_gamma<T: Float>(p: &Gamma<T>, q: &Gamma<T>) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.concentration(), p.rate(), q.concentration(), q.rate()],
+        "kl_divergence(Gamma, Gamma)",
+    )?;
     let p_conc = p.concentration().data_vec()?;
     let p_rate = p.rate().data_vec()?;
     let q_conc = q.concentration().data_vec()?;
@@ -486,6 +522,10 @@ fn ln_gamma_f64(x: f64) -> f64 {
 ///
 /// = λ1 * (log λ1 - log λ2) - λ1 + λ2
 fn kl_poisson_poisson<T: Float>(p: &Poisson<T>, q: &Poisson<T>) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.rate(), q.rate()],
+        "kl_divergence(Poisson, Poisson)",
+    )?;
     let p_rate = p.rate().data_vec()?;
     let q_rate = q.rate().data_vec()?;
 
@@ -503,6 +543,10 @@ fn kl_poisson_poisson<T: Float>(p: &Poisson<T>, q: &Poisson<T>) -> FerrotorchRes
 /// Since Exp(λ) = Gamma(1, λ), this reduces to the Gamma-Gamma
 /// formula with q_concentration = 1 and q_rate = λ.
 fn kl_gamma_exponential<T: Float>(p: &Gamma<T>, q: &Exponential<T>) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.concentration(), p.rate(), q.rate()],
+        "kl_divergence(Gamma, Exponential)",
+    )?;
     let p_conc = p.concentration().data_vec()?;
     let p_rate = p.rate().data_vec()?;
     let q_rate = q.rate().data_vec()?;
@@ -527,6 +571,10 @@ fn kl_gamma_exponential<T: Float>(p: &Gamma<T>, q: &Exponential<T>) -> Ferrotorc
 /// Exp(λ) = Gamma(1, λ), so this is Gamma-Gamma with
 /// p_concentration = 1 and p_rate = λ.
 fn kl_exponential_gamma<T: Float>(p: &Exponential<T>, q: &Gamma<T>) -> FerrotorchResult<Tensor<T>> {
+    crate::fallback::check_gpu_fallback_opt_in(
+        &[p.rate(), q.concentration(), q.rate()],
+        "kl_divergence(Exponential, Gamma)",
+    )?;
     let p_rate = p.rate().data_vec()?;
     let q_conc = q.concentration().data_vec()?;
     let q_rate = q.rate().data_vec()?;

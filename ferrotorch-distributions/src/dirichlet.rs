@@ -121,6 +121,7 @@ fn sample_standard_normal<T: Float>() -> T {
 
 impl<T: Float> Distribution<T> for Dirichlet<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.concentration], "Dirichlet::sample")?;
         let device = self.concentration.device();
         let n: usize = shape.iter().product();
         let k = self.k;
@@ -152,6 +153,7 @@ impl<T: Float> Distribution<T> for Dirichlet<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.concentration], "Dirichlet::rsample")?;
         let device = self.concentration.device();
         let n: usize = shape.iter().product();
         let k = self.k;
@@ -198,6 +200,10 @@ impl<T: Float> Distribution<T> for Dirichlet<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.concentration, value],
+            "Dirichlet::log_prob",
+        )?;
         // log_prob = sum((alpha_k - 1) * log(x_k)) + lgamma(sum(alpha)) - sum(lgamma(alpha_k))
         let device = self.concentration.device();
         let k = self.k;
@@ -254,6 +260,7 @@ impl<T: Float> Distribution<T> for Dirichlet<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.concentration], "Dirichlet::entropy")?;
         // H = sum(lgamma(alpha_k)) - lgamma(sum(alpha))
         //     - (K - sum(alpha)) * digamma(sum(alpha))
         //     - sum((alpha_k - 1) * digamma(alpha_k))

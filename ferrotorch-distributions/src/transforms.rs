@@ -59,18 +59,21 @@ pub struct ExpTransform;
 
 impl<T: Float> Transform<T> for ExpTransform {
     fn forward(&self, x: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[x], "ExpTransform::forward")?;
         let data = x.data_vec()?;
         let result: Vec<T> = data.iter().map(|&v| v.exp()).collect();
         Tensor::from_storage(TensorStorage::cpu(result), x.shape().to_vec(), false)
     }
 
     fn inverse(&self, y: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[y], "ExpTransform::inverse")?;
         let data = y.data_vec()?;
         let result: Vec<T> = data.iter().map(|&v| v.ln()).collect();
         Tensor::from_storage(TensorStorage::cpu(result), y.shape().to_vec(), false)
     }
 
     fn log_abs_det_jacobian(&self, x: &Tensor<T>, _y: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[x], "ExpTransform::log_abs_det_jacobian")?;
         // log|d(exp(x))/dx| = log(exp(x)) = x
         let data = x.data_vec()?;
         Tensor::from_storage(TensorStorage::cpu(data), x.shape().to_vec(), false)
@@ -105,18 +108,21 @@ impl<T: Float> AffineTransform<T> {
 
 impl<T: Float> Transform<T> for AffineTransform<T> {
     fn forward(&self, x: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[x], "AffineTransform::forward")?;
         let data = x.data_vec()?;
         let result: Vec<T> = data.iter().map(|&v| self.loc + self.scale * v).collect();
         Tensor::from_storage(TensorStorage::cpu(result), x.shape().to_vec(), false)
     }
 
     fn inverse(&self, y: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[y], "AffineTransform::inverse")?;
         let data = y.data_vec()?;
         let result: Vec<T> = data.iter().map(|&v| (v - self.loc) / self.scale).collect();
         Tensor::from_storage(TensorStorage::cpu(result), y.shape().to_vec(), false)
     }
 
     fn log_abs_det_jacobian(&self, x: &Tensor<T>, _y: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[x], "AffineTransform::log_abs_det_jacobian")?;
         // log|d(loc + scale*x)/dx| = log|scale| (broadcast to input shape)
         let log_abs_scale = if self.scale > T::from(0.0).unwrap() {
             self.scale.ln()
@@ -169,12 +175,14 @@ fn sigmoid<T: Float>(x: T) -> T {
 
 impl<T: Float> Transform<T> for SigmoidTransform {
     fn forward(&self, x: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[x], "SigmoidTransform::forward")?;
         let data = x.data_vec()?;
         let result: Vec<T> = data.iter().map(|&v| sigmoid(v)).collect();
         Tensor::from_storage(TensorStorage::cpu(result), x.shape().to_vec(), false)
     }
 
     fn inverse(&self, y: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[y], "SigmoidTransform::inverse")?;
         // logit(y) = log(y) - log(1 - y)
         let data = y.data_vec()?;
         let eps = T::from(1e-7).unwrap();
@@ -190,6 +198,7 @@ impl<T: Float> Transform<T> for SigmoidTransform {
     }
 
     fn log_abs_det_jacobian(&self, x: &Tensor<T>, _y: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[x], "SigmoidTransform::log_abs_det_jacobian")?;
         // log|d(sigma(x))/dx| = -softplus(-x) - softplus(x)
         let data = x.data_vec()?;
         let result: Vec<T> = data
@@ -220,12 +229,14 @@ pub struct TanhTransform;
 
 impl<T: Float> Transform<T> for TanhTransform {
     fn forward(&self, x: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[x], "TanhTransform::forward")?;
         let data = x.data_vec()?;
         let result: Vec<T> = data.iter().map(|&v| v.tanh()).collect();
         Tensor::from_storage(TensorStorage::cpu(result), x.shape().to_vec(), false)
     }
 
     fn inverse(&self, y: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[y], "TanhTransform::inverse")?;
         // atanh(y) = 0.5 * log((1+y)/(1-y))
         let data = y.data_vec()?;
         let half = T::from(0.5).unwrap();
@@ -238,6 +249,7 @@ impl<T: Float> Transform<T> for TanhTransform {
     }
 
     fn log_abs_det_jacobian(&self, x: &Tensor<T>, _y: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[x], "TanhTransform::log_abs_det_jacobian")?;
         // Numerically stable formula from TensorFlow Probability:
         // log(1 - tanh(x)^2) = 2 * (log(2) - x - softplus(-2*x))
         let data = x.data_vec()?;
@@ -268,12 +280,14 @@ pub struct SoftplusTransform;
 
 impl<T: Float> Transform<T> for SoftplusTransform {
     fn forward(&self, x: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[x], "SoftplusTransform::forward")?;
         let data = x.data_vec()?;
         let result: Vec<T> = data.iter().map(|&v| softplus(v)).collect();
         Tensor::from_storage(TensorStorage::cpu(result), x.shape().to_vec(), false)
     }
 
     fn inverse(&self, y: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[y], "SoftplusTransform::inverse")?;
         // inverse of softplus: log(exp(y) - 1) = log(-expm1(-y)) + y
         let data = y.data_vec()?;
         let one = T::from(1.0).unwrap();
@@ -293,6 +307,10 @@ impl<T: Float> Transform<T> for SoftplusTransform {
     }
 
     fn log_abs_det_jacobian(&self, x: &Tensor<T>, _y: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[x],
+            "SoftplusTransform::log_abs_det_jacobian",
+        )?;
         // d(softplus(x))/dx = sigmoid(x)
         // log|sigmoid(x)| = -softplus(-x)
         let data = x.data_vec()?;
@@ -356,6 +374,7 @@ impl<T: Float> Transform<T> for ComposeTransform<T> {
     }
 
     fn log_abs_det_jacobian(&self, x: &Tensor<T>, _y: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[x], "ComposeTransform::log_abs_det_jacobian")?;
         if self.transforms.is_empty() {
             // Identity: zero log-det-Jacobian.
             let data = x.data_vec()?;
@@ -452,6 +471,7 @@ impl<T: Float> Distribution<T> for TransformedDistribution<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[value], "TransformedDistribution::log_prob")?;
         // Invert transforms to get back to the base space, accumulating
         // log-det-Jacobian corrections along the way.
         let mut y = value.clone();

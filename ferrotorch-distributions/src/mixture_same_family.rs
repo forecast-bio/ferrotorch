@@ -85,6 +85,10 @@ impl<T: Float, D: Distribution<T>> MixtureSameFamily<T, D> {
 
 impl<T: Float, D: Distribution<T>> Distribution<T> for MixtureSameFamily<T, D> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[self.mixing.probs()],
+            "MixtureSameFamily::sample",
+        )?;
         // Two-step sampling:
         //   1. Draw a component index per-output from the mixing Categorical.
         //   2. Draw a sample from each chosen component.
@@ -146,6 +150,10 @@ impl<T: Float, D: Distribution<T>> Distribution<T> for MixtureSameFamily<T, D> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[self.mixing.probs(), value],
+            "MixtureSameFamily::log_prob",
+        )?;
         // log_prob(x) = logsumexp_k( log mixing_probs[k] + log p_k(x) )
         //
         // We compute the per-component log_probs by replicating value K

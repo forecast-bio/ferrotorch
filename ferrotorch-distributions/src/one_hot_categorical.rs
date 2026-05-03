@@ -93,6 +93,7 @@ impl<T: Float> OneHotCategorical<T> {
 
 impl<T: Float> Distribution<T> for OneHotCategorical<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "OneHotCategorical::sample")?;
         // Output shape: [shape..., K], one-hot along the last dim.
         let device = self.probs.device();
         let n: usize = shape.iter().product();
@@ -139,6 +140,10 @@ impl<T: Float> Distribution<T> for OneHotCategorical<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.probs, value],
+            "OneHotCategorical::log_prob",
+        )?;
         // value: [..., K] where each row is a one-hot (or arbitrary
         // non-negative weights — we compute sum_k value[k] * log(probs[k])).
         // Returns shape [...] with the K dim removed.
@@ -181,6 +186,7 @@ impl<T: Float> Distribution<T> for OneHotCategorical<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.probs], "OneHotCategorical::entropy")?;
         // H = -sum_k p_k * log(p_k). Same as Categorical.
         let zero = <T as num_traits::Zero>::zero();
         let eps = T::from(1e-30).unwrap();

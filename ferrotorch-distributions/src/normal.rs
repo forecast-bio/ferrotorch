@@ -60,6 +60,7 @@ impl<T: Float> Normal<T> {
 
 impl<T: Float> Distribution<T> for Normal<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "Normal::sample")?;
         let device = self.loc.device();
         let eps = creation::randn::<T>(shape)?;
         let loc_data = self.loc.data_vec()?;
@@ -81,6 +82,7 @@ impl<T: Float> Distribution<T> for Normal<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "Normal::rsample")?;
         let device = self.loc.device();
         let eps = creation::randn::<T>(shape)?;
         let loc_data = self.loc.data_vec()?;
@@ -115,6 +117,10 @@ impl<T: Float> Distribution<T> for Normal<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale, value],
+            "Normal::log_prob",
+        )?;
         // log_prob = -0.5 * ((x - loc) / scale)^2 - log(scale) - 0.5 * log(2*pi)
         let device = self.loc.device();
         let loc_data = self.loc.data_vec()?;
@@ -156,6 +162,7 @@ impl<T: Float> Distribution<T> for Normal<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "Normal::entropy")?;
         // entropy = 0.5 + 0.5 * log(2*pi) + log(scale)
         let device = self.scale.device();
         let scale_data = self.scale.data_vec()?;
@@ -181,6 +188,10 @@ impl<T: Float> Distribution<T> for Normal<T> {
     }
 
     fn cdf(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale, value],
+            "Normal::cdf",
+        )?;
         // cdf(x) = 0.5 * (1 + erf((x - loc) / (scale * sqrt(2))))
         let val_data = value.data_vec()?;
         let loc_data = self.loc.data_vec()?;
@@ -203,6 +214,7 @@ impl<T: Float> Distribution<T> for Normal<T> {
     }
 
     fn icdf(&self, q: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale, q], "Normal::icdf")?;
         // icdf(p) = loc + scale * sqrt(2) * erfinv(2p - 1)
         let q_data = q.data_vec()?;
         let two = T::from(2.0).unwrap();
@@ -232,6 +244,7 @@ impl<T: Float> Distribution<T> for Normal<T> {
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "Normal::variance")?;
         let scale_data = self.scale.data_vec()?;
         let out: Vec<T> = scale_data.iter().map(|&s| s * s).collect();
         Tensor::from_storage(TensorStorage::cpu(out), self.scale.shape().to_vec(), false)

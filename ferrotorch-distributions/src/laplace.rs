@@ -83,6 +83,7 @@ fn laplace_icdf_sample<T: Float>(u01: T, loc: T, scale: T) -> T {
 
 impl<T: Float> Distribution<T> for Laplace<T> {
     fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "Laplace::sample")?;
         let device = self.loc.device();
         let u = creation::rand::<T>(shape)?;
         let u_data = u.data_vec()?;
@@ -105,6 +106,7 @@ impl<T: Float> Distribution<T> for Laplace<T> {
     }
 
     fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale], "Laplace::rsample")?;
         let device = self.loc.device();
         let u = creation::rand::<T>(shape)?;
         let u_data = u.data_vec()?;
@@ -140,6 +142,10 @@ impl<T: Float> Distribution<T> for Laplace<T> {
     }
 
     fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale, value],
+            "Laplace::log_prob",
+        )?;
         // log_prob = -log(2 * scale) - |x - loc| / scale
         let device = self.loc.device();
         let loc_data = self.loc.data_vec()?;
@@ -163,6 +169,7 @@ impl<T: Float> Distribution<T> for Laplace<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "Laplace::entropy")?;
         // entropy = 1 + log(2 * scale)
         let device = self.scale.device();
         let scale_data = self.scale.data_vec()?;
@@ -184,6 +191,10 @@ impl<T: Float> Distribution<T> for Laplace<T> {
     }
 
     fn cdf(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(
+            &[&self.loc, &self.scale, value],
+            "Laplace::cdf",
+        )?;
         // cdf(x) = 0.5 + 0.5 * sign(x - loc) * (1 - exp(-|x - loc| / scale))
         let val = value.data_vec()?;
         let loc_data = self.loc.data_vec()?;
@@ -211,6 +222,7 @@ impl<T: Float> Distribution<T> for Laplace<T> {
     }
 
     fn icdf(&self, q: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.loc, &self.scale, q], "Laplace::icdf")?;
         // icdf(p) = loc - scale * sign(p - 0.5) * ln(1 - 2|p - 0.5|)
         let q_data = q.data_vec()?;
         let loc_data = self.loc.data_vec()?;
@@ -247,6 +259,7 @@ impl<T: Float> Distribution<T> for Laplace<T> {
     }
 
     fn variance(&self) -> FerrotorchResult<Tensor<T>> {
+        crate::fallback::check_gpu_fallback_opt_in(&[&self.scale], "Laplace::variance")?;
         // 2 * scale^2
         let scale_data = self.scale.data_vec()?;
         let two = T::from(2.0).unwrap();
