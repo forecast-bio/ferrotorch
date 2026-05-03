@@ -1,0 +1,10 @@
+{
+  "uuid": "cf199331-4202-4818-92db-19fa6ea35125",
+  "issue_uuid": "8e92f63b-2ca3-49be-929d-583a899dda27",
+  "author": "y4rr",
+  "content": "Audit follow-up #4/5 optim-C2 (#697) APPROVE — opus 4.7 closed the remaining NumCast unwrap migration in optim's bottom-18 files. 45 of 48 sites migrated to ferrotorch_core::numeric_cast::cast<>?; 3 sites in differentiable.rs flagged as already-correct via Step 1 #6 severity reassessment (audit was wrong — lines 69/136/139 already use T::from(x).ok_or_else(...)?). 0 function signatures changed (all sites in Result-returning frames). 0 new trait-signature blocks (optimizer.rs's 2 sites verified to be in pub(crate) helpers, NOT trait surface). #696-tracked Optimizer::state_dict impl sites preserved (sgd.rs:1 + rmsprop.rs:3 remain — exactly as predicted). Discipline highlight: SECOND architect-error catch in optim series (first was optim-A's ..Default::default() factual error). Both via rust-fix-discipline Step 1 #6, both surfaced honestly with the architecturally-correct alternative. Optim-A/B protections verified UNCHANGED (FERROTORCH_ENABLE_GPU_FALLBACK at adam.rs:396, ParamGroup encapsulation, lint baseline, *Config #[non_exhaustive], optim-B SAFETY comments). cargo build --workspace PASS, 322/322 optim tests PASS. ferrotorch-optim audit FULLY CLOSED across 4 dispatches (A + B + C1 + C2). Architect-mode running tally: 13 dispatches, 11 clean APPROVEs (mps, distributions, item 8 with 1 redirect, core-2a, core-2b, vision-A, vision-B, optim-A round 2, optim-B, optim-C1, optim-C2), 2 truncations resolved via continuation (core-1, optim-A-1). Crates done: 1/5 mps, 2/5 core, 3/5 vision, 4/5 optim — DONE. Final crate: 5/5 (ferrotorch-llama).",
+  "created_at": "2026-05-03T18:39:41.335500815Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAejz9ecs1Aw6TwtVKjrzS5sUYznu7JBZZYXv6Hr2eEGmDjxyWc6ahH+MwcMqPMLHt/A+fjhm+1zeXaBD9S/QzCg=="
+}
