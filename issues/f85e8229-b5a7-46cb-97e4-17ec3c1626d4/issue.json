@@ -1,0 +1,10 @@
+{
+  "uuid": "f85e8229-b5a7-46cb-97e4-17ec3c1626d4",
+  "display_id": 690,
+  "title": "Audit follow-up #3/5 vision-B: assert!→Result + RwLock + synthetic helpers + lint baseline + Debug derives + pub fields + cosmetic",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-03T15:26:03.448243568Z",
+  "updated_at": "2026-05-03T15:26:03.448243568Z"
+}
