@@ -16,53 +16,30 @@ use crate::tensor::{GradFn, Tensor};
 // cond — conditional subgraph execution
 // ===========================================================================
 
-/// Which branch was taken during the forward pass.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CondBranch {
-    True,
-    False,
-}
-
 /// Backward node for `cond`.
 ///
-/// Gradients flow only through the branch that was actually executed during
-/// the forward pass. The other branch receives zero gradients. This matches
-/// PyTorch's `torch.cond` semantics: the untaken branch is never evaluated,
-/// so no gradient information exists for it.
+/// Holds the raw branch output (which already carries the branch function's
+/// grad_fn chain). Routes the upstream gradient to it; the autograd engine
+/// continues traversal through the branch's grad chain to compute per-operand
+/// gradients correctly — even for non-identity branches like
+/// `&ops[0] * &ops[1]`.
+///
+/// Earlier versions held the operands directly and returned identity grads to
+/// each one; that bypassed the branch function's grad_fn chain and produced
+/// wrong gradients for any branch that wasn't a pure pass-through. The dead
+/// `branch` and `operands` fields were the structural evidence of that gap.
 #[derive(Debug)]
 struct CondBackward<T: Float> {
-    /// Which branch was taken (kept for debugging/introspection).
-    #[allow(dead_code)]
-    branch: CondBranch,
-    /// The output tensors from the taken branch (these have their own grad_fns
-    /// if the branch function used differentiable ops).
-    branch_outputs: Vec<Tensor<T>>,
-    /// The original operands passed to cond — kept alive so the autograd
-    /// graph retains references to them for the backward traversal.
-    #[allow(dead_code)]
-    operands: Vec<Tensor<T>>,
-    /// Index of this output in the result vector.
-    output_index: usize,
+    branch_output: Tensor<T>,
 }
 
 impl<T: Float> GradFn<T> for CondBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        // The branch_outputs[output_index] is the tensor whose backward we need
-        // to invoke. Since cond's outputs are wrappers around the branch outputs,
-        // we propagate the gradient to the corresponding branch output.
-        //
-        // We return one gradient per operand. The branch function's own autograd
-        // graph handles routing gradients from branch_outputs back to the operands.
-        // Here we just need to connect the gradient to the branch output tensor.
-        let _branch_out = &self.branch_outputs[self.output_index];
-
-        // The autograd engine will follow the grad_fn chain on the branch
-        // output tensor. We just pass the gradient through to it.
         Ok(vec![Some(grad_output.clone())])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
-        vec![&self.branch_outputs[self.output_index]]
+        vec![&self.branch_output]
     }
 
     fn name(&self) -> &'static str {
@@ -122,13 +99,13 @@ where
     }
 
     let pred_val = pred.data()?[0];
-    let threshold = T::from(0.5).unwrap();
+    let threshold = T::from(0.5).expect("Float trait guarantees from(0.5) succeeds");
     let take_true = pred_val > threshold;
 
-    let (branch, branch_outputs) = if take_true {
-        (CondBranch::True, true_fn(operands))
+    let branch_outputs = if take_true {
+        true_fn(operands)
     } else {
-        (CondBranch::False, false_fn(operands))
+        false_fn(operands)
     };
 
     // Check if any operand requires grad.
@@ -138,19 +115,16 @@ where
         return Ok(branch_outputs);
     }
 
-    // Wrap each branch output with a CondBackward grad_fn so gradients
-    // flow through the taken branch back to the operands.
-    let operands_vec: Vec<Tensor<T>> = operands.to_vec();
+    // Wrap each branch output with a CondBackward holding that output. The
+    // autograd engine, on backward, will traverse into the output's own
+    // grad_fn chain (whatever differentiable ops the branch composed) and
+    // route gradients back to the operands correctly.
     let mut result = Vec::with_capacity(branch_outputs.len());
-
-    for (i, out) in branch_outputs.iter().enumerate() {
+    for out in &branch_outputs {
         let data = out.data_vec()?;
         let shape = out.shape().to_vec();
         let grad_fn = Arc::new(CondBackward {
-            branch,
-            branch_outputs: branch_outputs.clone(),
-            operands: operands_vec.clone(),
-            output_index: i,
+            branch_output: out.clone(),
         });
         let wrapped = Tensor::from_operation(TensorStorage::cpu(data), shape, grad_fn)?;
         result.push(wrapped);
@@ -198,70 +172,33 @@ pub fn validate_cond_branches<T: Float>(
 // scan — sequential state accumulation
 // ===========================================================================
 
-/// Backward node for scan.
+/// Backward node for one wrapped scan tensor — either a step output or the
+/// final carry. Holds the single raw tensor whose grad_fn chain the autograd
+/// engine should traverse.
 ///
-/// Stores all intermediate carries and inputs so that gradients can flow
-/// backward through the entire scan sequence. Each step's backward is
-/// unrolled in reverse order.
+/// Each wrapped output / final carry gets its own `ScanBackward` instance.
+/// The held `target` tensor was produced by the user's step function (e.g.
+/// `crate::grad_fns::arithmetic::add(carry, x)`) and so already carries the
+/// correct grad chain. We just route the upstream gradient to it; the
+/// engine's topo walk handles the rest, unrolling each step in reverse and
+/// ultimately reaching `init_carry` and every `xs[i]`.
+///
+/// Earlier versions held `Vec<carries>`, `Vec<xs>`, `Vec<outputs>` plus an
+/// `OutputKind { FinalCarry, StepOutput(usize) }` enum to disambiguate which
+/// instance was which. The held tensor already encodes the role — the enum
+/// and the Vec storage were both vestigial.
 #[derive(Debug)]
 struct ScanBackward<T: Float> {
-    /// All intermediate carries: carries[0] = init, carries[i+1] = carry after step i.
-    carries: Vec<Tensor<T>>,
-    /// The input tensors at each step — kept alive so the autograd graph
-    /// retains references for the backward traversal.
-    #[allow(dead_code)]
-    xs: Vec<Tensor<T>>,
-    /// The output tensors produced at each step.
-    outputs: Vec<Tensor<T>>,
-    /// Which output in the result vector this backward node corresponds to.
-    /// If `FinalCarry`, this is the final_carry backward.
-    output_index: OutputKind,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum OutputKind {
-    /// This backward node is for the final carry.
-    FinalCarry,
-    /// This backward node is for step output at the given index.
-    StepOutput(usize),
+    target: Tensor<T>,
 }
 
 impl<T: Float> GradFn<T> for ScanBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        // For scan's backward, we need to propagate gradients through the
-        // step function's autograd graph. The step function created tensors
-        // with their own grad_fns when it ran during forward.
-        //
-        // The autograd engine handles this: it will follow the grad_fn chain
-        // from each output/carry tensor back through the step function's ops.
-        //
-        // For FinalCarry: gradient goes to the last carry (carries[n]).
-        // For StepOutput(i): gradient goes to outputs[i].
-        match self.output_index {
-            OutputKind::FinalCarry => {
-                // Pass gradient to the last carry. The autograd engine will
-                // follow the grad_fn chain on carries.last().
-                let _last_carry = self.carries.last().unwrap();
-                Ok(vec![Some(grad_output.clone())])
-            }
-            OutputKind::StepOutput(_i) => {
-                // Pass gradient to the i-th step output.
-                Ok(vec![Some(grad_output.clone())])
-            }
-        }
+        Ok(vec![Some(grad_output.clone())])
     }
 
     fn inputs(&self) -> Vec<&Tensor<T>> {
-        match self.output_index {
-            OutputKind::FinalCarry => {
-                // The final carry depends on the last carry in the chain.
-                vec![self.carries.last().unwrap()]
-            }
-            OutputKind::StepOutput(i) => {
-                // Step output i depends on the output tensor from step i.
-                vec![&self.outputs[i]]
-            }
-        }
+        vec![&self.target]
     }
 
     fn name(&self) -> &'static str {
@@ -310,60 +247,45 @@ where
         return Ok((init.clone(), Vec::new()));
     }
 
-    let mut carries: Vec<Tensor<T>> = Vec::with_capacity(xs.len() + 1);
-    carries.push(init.clone());
-
     let mut outputs: Vec<Tensor<T>> = Vec::with_capacity(xs.len());
-
     let mut current_carry = init.clone();
 
     for x in xs {
         let (new_carry, output) = fn_step(&current_carry, x);
-        carries.push(new_carry.clone());
         outputs.push(output);
         current_carry = new_carry;
     }
 
-    // Check if we need autograd.
-    let any_requires_grad = is_grad_enabled()
-        && (init.requires_grad()
-            || xs.iter().any(|x| x.requires_grad())
-            || carries.iter().any(|c| c.requires_grad())
-            || outputs.iter().any(|o| o.requires_grad()));
+    // Check if we need autograd. We don't need to inspect intermediate carries
+    // here — if `init` or any `xs[i]` requires grad, the grad chain on each
+    // step's outputs / new_carry will reflect that automatically (the step
+    // function builds it).
+    let any_requires_grad =
+        is_grad_enabled() && (init.requires_grad() || xs.iter().any(|x| x.requires_grad()));
 
     if !any_requires_grad {
         return Ok((current_carry, outputs));
     }
 
-    // Wrap the final carry with a ScanBackward grad_fn.
-    let final_carry_data = current_carry.data_vec()?;
-    let final_carry_shape = current_carry.shape().to_vec();
-
+    // Wrap the final carry: route the gradient to the *raw* final carry
+    // (i.e. the new_carry produced by the last fn_step call), not to init.
     let final_carry_wrapped = Tensor::from_operation(
-        TensorStorage::cpu(final_carry_data),
-        final_carry_shape,
+        TensorStorage::cpu(current_carry.data_vec()?),
+        current_carry.shape().to_vec(),
         Arc::new(ScanBackward {
-            carries: carries.clone(),
-            xs: xs.to_vec(),
-            outputs: outputs.clone(),
-            output_index: OutputKind::FinalCarry,
+            target: current_carry.clone(),
         }),
     )?;
 
-    // Wrap each step output with a ScanBackward grad_fn.
+    // Wrap each step output: route the gradient to the raw step output. Its
+    // grad_fn chain (from `fn_step`) routes back through each step.
     let mut wrapped_outputs = Vec::with_capacity(outputs.len());
-    for (i, out) in outputs.iter().enumerate() {
-        let out_data = out.data_vec()?;
-        let out_shape = out.shape().to_vec();
-
+    for out in &outputs {
         let wrapped = Tensor::from_operation(
-            TensorStorage::cpu(out_data),
-            out_shape,
+            TensorStorage::cpu(out.data_vec()?),
+            out.shape().to_vec(),
             Arc::new(ScanBackward {
-                carries: carries.clone(),
-                xs: xs.to_vec(),
-                outputs: outputs.clone(),
-                output_index: OutputKind::StepOutput(i),
+                target: out.clone(),
             }),
         )?;
         wrapped_outputs.push(wrapped);
@@ -934,5 +856,150 @@ mod tests {
         assert!((outputs[2].data().unwrap()[0] - 0.657).abs() < eps);
         assert!((outputs[3].data().unwrap()[0] - 0.7599).abs() < eps);
         assert!((final_carry.data().unwrap()[0] - 0.7599).abs() < eps);
+    }
+
+    // -----------------------------------------------------------------------
+    // Gradient-value tests for cond and scan.
+    //
+    // The previous CondBackward / ScanBackward held operands / xs / carries
+    // directly and returned identity grads, bypassing the branch / step
+    // function's own grad chain. That happened to be correct for trivial
+    // identity branches but produced wrong gradients for any real op
+    // (e.g. multiplication: ∂(a*b)/∂a = b, not 1). These tests pin the
+    // analytically-correct VJPs so a regression in routing fails immediately.
+    // -----------------------------------------------------------------------
+
+    fn assert_close(actual: &[f32], expected: &[f32], tol: f32) {
+        assert_eq!(actual.len(), expected.len(), "length mismatch");
+        for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
+            assert!((a - e).abs() < tol, "index {i}: got {a}, expected {e}");
+        }
+    }
+
+    #[test]
+    fn test_cond_grad_flows_through_mul_branch() {
+        // pred > 0.5 → mul branch. y = a * b, L = sum(y). dL/da = b, dL/db = a.
+        let pred =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0]), vec![], false).unwrap();
+        let a =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![2.0, 3.0]), vec![2], true).unwrap();
+        let b =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![5.0, 7.0]), vec![2], true).unwrap();
+
+        let result = cond(
+            &pred,
+            |ops| vec![crate::grad_fns::arithmetic::mul(&ops[0], &ops[1]).unwrap()],
+            |ops| vec![crate::grad_fns::arithmetic::add(&ops[0], &ops[1]).unwrap()],
+            &[a.clone(), b.clone()],
+        )
+        .unwrap();
+
+        let loss = crate::grad_fns::reduction::sum(&result[0]).unwrap();
+        loss.backward().unwrap();
+
+        let ga = a.grad().unwrap().expect("a should have grad");
+        let gb = b.grad().unwrap().expect("b should have grad");
+        assert_close(ga.data().unwrap(), &[5.0, 7.0], 1e-6); // grad a == b
+        assert_close(gb.data().unwrap(), &[2.0, 3.0], 1e-6); // grad b == a
+    }
+
+    #[test]
+    fn test_cond_false_branch_grad_flows_through_add() {
+        // pred <= 0.5 → add branch. y = a + b, L = sum(y). dL/da = dL/db = 1.
+        let pred =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.0]), vec![], false).unwrap();
+        let a =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![2.0, 3.0]), vec![2], true).unwrap();
+        let b =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![5.0, 7.0]), vec![2], true).unwrap();
+
+        let result = cond(
+            &pred,
+            |ops| vec![crate::grad_fns::arithmetic::mul(&ops[0], &ops[1]).unwrap()],
+            |ops| vec![crate::grad_fns::arithmetic::add(&ops[0], &ops[1]).unwrap()],
+            &[a.clone(), b.clone()],
+        )
+        .unwrap();
+
+        let loss = crate::grad_fns::reduction::sum(&result[0]).unwrap();
+        loss.backward().unwrap();
+
+        let ga = a.grad().unwrap().expect("a should have grad");
+        let gb = b.grad().unwrap().expect("b should have grad");
+        assert_close(ga.data().unwrap(), &[1.0, 1.0], 1e-6);
+        assert_close(gb.data().unwrap(), &[1.0, 1.0], 1e-6);
+    }
+
+    #[test]
+    fn test_scan_grad_flows_through_step_function() {
+        // step(carry, x) -> (carry + x, carry * x).
+        // For init = 0, xs = [3, 5]:
+        //   step 0: new_carry = 0 + 3 = 3, output = 0 * 3 = 0
+        //   step 1: new_carry = 3 + 5 = 8, output = 3 * 5 = 15
+        // L = sum(out0) + sum(out1) = 0 + 15 = 15.
+        // dL/dx0 = x1 = 5, dL/dx1 = init + x0 = 3.
+        let init =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.0]), vec![1], true).unwrap();
+        let x0 = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![3.0]), vec![1], true).unwrap();
+        let x1 = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![5.0]), vec![1], true).unwrap();
+
+        let (_final_carry, outputs) = scan(
+            |carry, x| {
+                let new_carry = crate::grad_fns::arithmetic::add(carry, x).unwrap();
+                let output = crate::grad_fns::arithmetic::mul(carry, x).unwrap();
+                (new_carry, output)
+            },
+            &init,
+            &[x0.clone(), x1.clone()],
+        )
+        .unwrap();
+
+        let s0 = crate::grad_fns::reduction::sum(&outputs[0]).unwrap();
+        let s1 = crate::grad_fns::reduction::sum(&outputs[1]).unwrap();
+        let loss = crate::grad_fns::arithmetic::add(&s0, &s1).unwrap();
+        loss.backward().unwrap();
+
+        let gx0 = x0.grad().unwrap().expect("x0 should have grad");
+        let gx1 = x1.grad().unwrap().expect("x1 should have grad");
+        assert_close(gx0.data().unwrap(), &[5.0], 1e-6);
+        assert_close(gx1.data().unwrap(), &[3.0], 1e-6);
+    }
+
+    #[test]
+    fn test_scan_grad_flows_through_final_carry() {
+        // step(carry, x) -> (carry + x, detached).
+        // final_carry = init + x0 + x1. L = sum(final_carry).
+        // dL/d(init) = dL/dx0 = dL/dx1 = 1.
+        let init =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![0.0]), vec![1], true).unwrap();
+        let x0 = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![2.0]), vec![1], true).unwrap();
+        let x1 = Tensor::<f32>::from_storage(TensorStorage::cpu(vec![3.0]), vec![1], true).unwrap();
+
+        let (final_carry, _outputs) = scan(
+            |carry, x| {
+                let new_carry = crate::grad_fns::arithmetic::add(carry, x).unwrap();
+                // Detached output isolates the carry path for this test.
+                let output = Tensor::from_storage(
+                    TensorStorage::cpu(new_carry.data().unwrap().to_vec()),
+                    new_carry.shape().to_vec(),
+                    false,
+                )
+                .unwrap();
+                (new_carry, output)
+            },
+            &init,
+            &[x0.clone(), x1.clone()],
+        )
+        .unwrap();
+
+        let loss = crate::grad_fns::reduction::sum(&final_carry).unwrap();
+        loss.backward().unwrap();
+
+        let ginit = init.grad().unwrap().expect("init should have grad");
+        let gx0 = x0.grad().unwrap().expect("x0 should have grad");
+        let gx1 = x1.grad().unwrap().expect("x1 should have grad");
+        assert_close(ginit.data().unwrap(), &[1.0], 1e-6);
+        assert_close(gx0.data().unwrap(), &[1.0], 1e-6);
+        assert_close(gx1.data().unwrap(), &[1.0], 1e-6);
     }
 }

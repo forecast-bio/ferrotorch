@@ -19,16 +19,63 @@ use crate::error::{FerrotorchError, FerrotorchResult};
 /// checkpoint module can save/restore GPU RNG state without depending on the
 /// GPU crate directly. The GPU backend implementation is responsible for
 /// converting this to/from its internal representation (e.g., `PhiloxState`).
+///
+/// Fields are crate-private; construct via [`GpuRngState::new`] and read via
+/// the [`Self::counter`], [`Self::seed`], [`Self::offset`], [`Self::device`]
+/// accessors. Encapsulation lets the layout evolve (e.g. add a Philox-key
+/// pair) without a workspace-wide breaking change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GpuRngState {
     /// RNG counter value.
-    pub counter: u64,
+    pub(crate) counter: u64,
     /// RNG seed.
-    pub seed: u64,
+    pub(crate) seed: u64,
     /// Offset within the current random number group.
-    pub offset: u64,
+    pub(crate) offset: u64,
     /// Device ordinal this state belongs to.
-    pub device: usize,
+    pub(crate) device: usize,
+}
+
+impl GpuRngState {
+    /// Construct a new RNG state snapshot.
+    #[inline]
+    #[must_use]
+    pub fn new(counter: u64, seed: u64, offset: u64, device: usize) -> Self {
+        Self {
+            counter,
+            seed,
+            offset,
+            device,
+        }
+    }
+
+    /// RNG counter value at the time of the snapshot.
+    #[inline]
+    #[must_use]
+    pub fn counter(&self) -> u64 {
+        self.counter
+    }
+
+    /// RNG seed used by this generator.
+    #[inline]
+    #[must_use]
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    /// Offset within the current random number group.
+    #[inline]
+    #[must_use]
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    /// Device ordinal this RNG state belongs to.
+    #[inline]
+    #[must_use]
+    pub fn device(&self) -> usize {
+        self.device
+    }
 }
 
 /// Opaque handle to GPU memory.
@@ -1605,13 +1652,14 @@ pub trait GpuBackend: Send + Sync {
     }
 
     /// Check if a GPU buffer contains any inf or NaN values.
-    fn has_inf_nan_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<bool> {
-        // Default: download to CPU and scan
-        let bytes = self.gpu_to_cpu(a)?;
-        let floats: &[f32] =
-            unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const f32, bytes.len() / 4) };
-        Ok(floats.iter().any(|v| !v.is_finite()))
-    }
+    ///
+    /// Required method (no default impl): backends must provide an
+    /// implementation rather than silently fall back to a host-readback
+    /// scan. The previous default impl made the host detour invisible at
+    /// the call site, hiding a synchronous device-to-host round-trip behind
+    /// a trait-method default. Removing it forces the badness to be visible
+    /// at each backend's impl site.
+    fn has_inf_nan_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<bool>;
 
     // GPU RNG state management (for gradient checkpointing)
     /// Save the current GPU RNG state for a device. Used by checkpoint to

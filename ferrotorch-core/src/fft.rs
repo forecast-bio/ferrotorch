@@ -27,6 +27,7 @@ use rustfft::num_complex::Complex;
 
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
+use crate::numeric_cast::cast;
 use crate::storage::TensorStorage;
 use crate::tensor::Tensor;
 
@@ -47,13 +48,13 @@ fn is_f64<T: Float>() -> bool {
 // ---------------------------------------------------------------------------
 
 /// Convert Complex<f64> back to flat [re, im, re, im, ...] in type T.
-fn complex_to_pairs<T: Float>(data: &[Complex<f64>]) -> Vec<T> {
+fn complex_to_pairs<T: Float>(data: &[Complex<f64>]) -> FerrotorchResult<Vec<T>> {
     let mut out = Vec::with_capacity(data.len() * 2);
     for c in data {
-        out.push(T::from(c.re).unwrap());
-        out.push(T::from(c.im).unwrap());
+        out.push(cast(c.re)?);
+        out.push(cast(c.im)?);
     }
-    out
+    Ok(out)
 }
 
 /// Execute 1-D FFT (forward or inverse) along the last axis of shape `batch_shape`.
@@ -185,7 +186,7 @@ pub fn fft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<Te
 
     fft_1d_last_axis(&mut complex_data, batch_shape, fft_n, false);
 
-    let result_data = complex_to_pairs::<T>(&complex_data);
+    let result_data = complex_to_pairs::<T>(&complex_data)?;
     let mut out_shape = batch_shape.to_vec();
     out_shape.push(fft_n);
     out_shape.push(2);
@@ -275,7 +276,7 @@ pub fn ifft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<T
 
     fft_1d_last_axis(&mut complex_data, batch_shape, fft_n, true);
 
-    let result_data = complex_to_pairs::<T>(&complex_data);
+    let result_data = complex_to_pairs::<T>(&complex_data)?;
     let mut out_shape = batch_shape.to_vec();
     out_shape.push(fft_n);
     out_shape.push(2);
@@ -351,8 +352,8 @@ pub fn rfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<T
         let offset = b * fft_n;
         for i in 0..half_n {
             let c = complex_data[offset + i];
-            result_data.push(T::from(c.re).unwrap());
-            result_data.push(T::from(c.im).unwrap());
+            result_data.push(cast(c.re)?);
+            result_data.push(cast(c.im)?);
         }
     }
 
@@ -451,8 +452,8 @@ pub fn irfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<
     // Extract real parts.
     let result_data: Vec<T> = complex_data
         .iter()
-        .map(|c| T::from(c.re).unwrap())
-        .collect();
+        .map(|c| cast(c.re))
+        .collect::<FerrotorchResult<_>>()?;
 
     let mut out_shape = batch_shape.to_vec();
     out_shape.push(output_n);
@@ -569,7 +570,7 @@ fn fft_2d_row_pass<T: Float>(
     let data = input.data_vec()?;
 
     // Transpose [batch, rows, cols, 2] -> [batch, cols, rows, 2] so rows become the last spatial dim.
-    let mut transposed = vec![T::from(0.0).unwrap(); data.len()];
+    let mut transposed = vec![<T as num_traits::Zero>::zero(); data.len()];
     for b in 0..batch_size {
         let base = b * rows * cols * 2;
         for r in 0..rows {
@@ -598,7 +599,7 @@ fn fft_2d_row_pass<T: Float>(
 
     // Transpose back [batch, cols, rows, 2] -> [batch, rows, cols, 2].
     let t_data = transformed.data_vec()?;
-    let mut result = vec![T::from(0.0).unwrap(); t_data.len()];
+    let mut result = vec![<T as num_traits::Zero>::zero(); t_data.len()];
     for b in 0..batch_size {
         let base = b * rows * cols * 2;
         for c in 0..cols {
@@ -690,8 +691,8 @@ fn complex_array_to_tensor<T: Float>(
     let total: usize = shape.iter().product();
     let mut out_data: Vec<T> = Vec::with_capacity(total * 2);
     for c in arr.iter() {
-        out_data.push(T::from(c.re).unwrap());
-        out_data.push(T::from(c.im).unwrap());
+        out_data.push(cast(c.re)?);
+        out_data.push(cast(c.im)?);
     }
     let mut out_shape = shape;
     out_shape.push(2);
@@ -703,7 +704,10 @@ fn real_array_to_tensor<T: Float>(
     arr: &FerrayArray<f64, FerrayIxDyn>,
 ) -> FerrotorchResult<Tensor<T>> {
     let shape = arr.shape().to_vec();
-    let out_data: Vec<T> = arr.iter().map(|&v| T::from(v).unwrap()).collect();
+    let out_data: Vec<T> = arr
+        .iter()
+        .map(|&v| cast(v))
+        .collect::<FerrotorchResult<_>>()?;
     Tensor::from_storage(TensorStorage::cpu(out_data), shape, false)
 }
 

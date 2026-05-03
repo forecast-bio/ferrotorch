@@ -609,9 +609,10 @@ pub fn repeat<T: Float>(
     }
 
     // Identify new axes (on right but not left).
-    let _new_axes: Vec<&String> = right_names
+    let _new_axes: Vec<&str> = right_names
         .iter()
         .filter(|n| !left_names.contains(n))
+        .map(String::as_str)
         .collect();
 
     // Build the right elementary shape and the output shape.
@@ -684,9 +685,10 @@ pub fn reduce<T: Float>(
     }
 
     // Identify reduced axes (on left but not right).
-    let reduced_axes: Vec<&String> = left_names
+    let reduced_axes: Vec<&str> = left_names
         .iter()
         .filter(|n| !right_names.contains(n))
+        .map(String::as_str)
         .collect();
 
     if reduced_axes.is_empty() {
@@ -751,9 +753,9 @@ pub fn reduce<T: Float>(
     // Build the sequence of kept names in left order, then check it matches
     // the sequence of right_names that are kept (= all right names, since
     // every right axis is kept by construction).
-    let kept_in_left_order: Vec<&String> = kept_left_positions
+    let kept_in_left_order: Vec<&str> = kept_left_positions
         .iter()
-        .map(|&i| &left_names[i])
+        .map(|&i| left_names[i].as_str())
         .collect();
     let kept_order_matches = kept_in_left_order.len() == right_names.len()
         && kept_in_left_order
@@ -836,7 +838,7 @@ pub fn reduce<T: Float>(
     // Compute how many elements are reduced per output element.
     let reduce_count: usize = reduced_axes
         .iter()
-        .map(|name| sizes.get(name.as_str()).unwrap())
+        .map(|name| sizes.get(*name).unwrap())
         .product();
 
     let init_val = match reduction {

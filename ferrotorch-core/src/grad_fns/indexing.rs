@@ -27,6 +27,11 @@ fn upload_f32_to_gpu(
     ordinal: usize,
 ) -> FerrotorchResult<crate::gpu_dispatch::GpuBufferHandle> {
     let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+    // SAFETY: `data: &[f32]` is borrowed for the duration of this function
+    // and is fully initialized (f32 has no padding, no niches). Reading its
+    // bytes as &[u8] of length `data.len() * 4` (== `data.len() *
+    // size_of::<f32>()`) is sound and matches the actual byte size of the
+    // underlying allocation; the resulting slice does not outlive `data`.
     let bytes: &[u8] =
         unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4) };
     backend.cpu_to_gpu(bytes, 4, ordinal)

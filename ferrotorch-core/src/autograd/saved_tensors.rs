@@ -69,8 +69,14 @@ where
     let unpack = Arc::new(unpack) as UnpackHook<T>;
 
     if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
-        // SAFETY: T is f32, transmute the Arc types.
+        // SAFETY: TypeId equality above proves T == f32 at runtime, so
+        // PackHook<T> and PackHook<f32> are the same concrete type
+        // (Arc<dyn Fn(Tensor<T>) -> ...>). The transmute is a no-op
+        // reinterpretation of the Arc's vtable+data pointers; the underlying
+        // Fn was authored as Fn(Tensor<T>) and is identical in layout to
+        // Fn(Tensor<f32>) under T==f32. No new aliasing — `pack` is moved.
         let pack_f32: PackHook<f32> = unsafe { std::mem::transmute(pack) };
+        // SAFETY: same as pack_f32 above (T == f32 by TypeId guard).
         let unpack_f32: UnpackHook<f32> = unsafe { std::mem::transmute(unpack) };
 
         let prev = HOOKS_F32.with(|h| h.borrow_mut().replace((pack_f32, unpack_f32)));
@@ -78,7 +84,13 @@ where
         HOOKS_F32.with(|h| *h.borrow_mut() = prev);
         result
     } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+        // SAFETY: TypeId equality above proves T == f64 at runtime, so
+        // PackHook<T> and PackHook<f64> are the same concrete type. The
+        // transmute is a no-op reinterpretation of the Arc's vtable+data
+        // pointers; the underlying Fn(Tensor<T>) is identical in layout to
+        // Fn(Tensor<f64>) under T==f64.
         let pack_f64: PackHook<f64> = unsafe { std::mem::transmute(pack) };
+        // SAFETY: same as pack_f64 above (T == f64 by TypeId guard).
         let unpack_f64: UnpackHook<f64> = unsafe { std::mem::transmute(unpack) };
 
         let prev = HOOKS_F64.with(|h| h.borrow_mut().replace((pack_f64, unpack_f64)));
@@ -100,10 +112,15 @@ pub fn pack_saved_tensor<T: Float>(tensor: Tensor<T>) -> FerrotorchResult<Tensor
         HOOKS_F32.with(|h| {
             let guard = h.borrow();
             if let Some((ref pack, _)) = *guard {
-                // SAFETY: T is f32.
+                // SAFETY: TypeId equality above proves T == f32, so Tensor<T>
+                // and Tensor<f32> are the same concrete type and the
+                // transmute is a no-op layout reinterpret. `tensor` is moved
+                // (not aliased) into the new binding.
                 let t_f32: Tensor<f32> =
                     unsafe { std::mem::transmute::<Tensor<T>, Tensor<f32>>(tensor) };
                 let result = pack(t_f32)?;
+                // SAFETY: T == f32 by the same TypeId guard, so Tensor<f32>
+                // and Tensor<T> are identical types; transmute is a no-op.
                 Ok(unsafe { std::mem::transmute::<Tensor<f32>, Tensor<T>>(result) })
             } else {
                 Ok(tensor)
@@ -113,9 +130,13 @@ pub fn pack_saved_tensor<T: Float>(tensor: Tensor<T>) -> FerrotorchResult<Tensor
         HOOKS_F64.with(|h| {
             let guard = h.borrow();
             if let Some((ref pack, _)) = *guard {
+                // SAFETY: TypeId equality above proves T == f64, so Tensor<T>
+                // and Tensor<f64> are the same concrete type and the
+                // transmute is a no-op layout reinterpret. `tensor` is moved.
                 let t_f64: Tensor<f64> =
                     unsafe { std::mem::transmute::<Tensor<T>, Tensor<f64>>(tensor) };
                 let result = pack(t_f64)?;
+                // SAFETY: T == f64 by the same TypeId guard; transmute is a no-op.
                 Ok(unsafe { std::mem::transmute::<Tensor<f64>, Tensor<T>>(result) })
             } else {
                 Ok(tensor)
@@ -135,9 +156,13 @@ pub fn unpack_saved_tensor<T: Float>(tensor: Tensor<T>) -> FerrotorchResult<Tens
         HOOKS_F32.with(|h| {
             let guard = h.borrow();
             if let Some((_, ref unpack)) = *guard {
+                // SAFETY: TypeId equality above proves T == f32, so Tensor<T>
+                // and Tensor<f32> are the same concrete type; transmute is a
+                // no-op layout reinterpret. `tensor` is moved into t_f32.
                 let t_f32: Tensor<f32> =
                     unsafe { std::mem::transmute::<Tensor<T>, Tensor<f32>>(tensor) };
                 let result = unpack(t_f32)?;
+                // SAFETY: T == f32 by the same TypeId guard; transmute is a no-op.
                 Ok(unsafe { std::mem::transmute::<Tensor<f32>, Tensor<T>>(result) })
             } else {
                 Ok(tensor)
@@ -147,9 +172,13 @@ pub fn unpack_saved_tensor<T: Float>(tensor: Tensor<T>) -> FerrotorchResult<Tens
         HOOKS_F64.with(|h| {
             let guard = h.borrow();
             if let Some((_, ref unpack)) = *guard {
+                // SAFETY: TypeId equality above proves T == f64, so Tensor<T>
+                // and Tensor<f64> are the same concrete type; transmute is a
+                // no-op layout reinterpret. `tensor` is moved into t_f64.
                 let t_f64: Tensor<f64> =
                     unsafe { std::mem::transmute::<Tensor<T>, Tensor<f64>>(tensor) };
                 let result = unpack(t_f64)?;
+                // SAFETY: T == f64 by the same TypeId guard; transmute is a no-op.
                 Ok(unsafe { std::mem::transmute::<Tensor<f64>, Tensor<T>>(result) })
             } else {
                 Ok(tensor)

@@ -106,6 +106,11 @@ pub fn simd_exp_f64(input: &Tensor<f64>) -> FerrotorchResult<Tensor<f64>> {
 #[inline]
 unsafe fn transmute_vec_f32_to_t<T: Float>(v: Vec<f32>) -> Vec<T> {
     let mut v = std::mem::ManuallyDrop::new(v);
+    // SAFETY: caller's contract guarantees T == f32 (size_of::<T>() == 4),
+    // so f32 and T have identical layout (size, align, niches). The Vec was
+    // placed in ManuallyDrop on the line above, so the pointer/len/capacity
+    // we pass here are no longer owned by any other Vec — reconstructing a
+    // Vec<T> from them transfers ownership to the new Vec without double-free.
     unsafe { Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity()) }
 }
 
@@ -113,6 +118,11 @@ unsafe fn transmute_vec_f32_to_t<T: Float>(v: Vec<f32>) -> Vec<T> {
 #[inline]
 unsafe fn transmute_vec_f64_to_t<T: Float>(v: Vec<f64>) -> Vec<T> {
     let mut v = std::mem::ManuallyDrop::new(v);
+    // SAFETY: caller's contract guarantees T == f64 (size_of::<T>() == 8),
+    // so f64 and T have identical layout (size, align, niches). The Vec was
+    // placed in ManuallyDrop on the line above, so the pointer/len/capacity
+    // we pass here are no longer owned by any other Vec — reconstructing a
+    // Vec<T> from them transfers ownership to the new Vec without double-free.
     unsafe { Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity()) }
 }
 
@@ -127,8 +137,14 @@ pub fn fast_add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
         let b_data = b.data()?;
         let n = a_data.len();
         if std::mem::size_of::<T>() == 4 {
+            // SAFETY: size_of::<T>() == 4 holds in this branch. `Float` is
+            // bounded to f32/f64/bf16/f16 in this crate; only f32 has size 4,
+            // so T == f32 and the cast preserves alignment, length, and
+            // initialization. `a_data` is borrowed for the duration of `n`
+            // elements, so the resulting slice does not outlive its source.
             let a_f32: &[f32] =
                 unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+            // SAFETY: same invariant as a_f32 above (T == f32 by size guard).
             let b_f32: &[f32] =
                 unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
             let mut out = pool_alloc_cpu_uninit_f32(n);
@@ -148,11 +164,22 @@ pub fn fast_add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             } else {
                 ferray_ufunc::kernels::simd_f32::add_f32(a_f32, b_f32, &mut out);
             }
+            // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+            // T == f32 (only Float impl with that size); satisfies
+            // transmute_vec_f32_to_t's documented contract.
+            // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+            // T == f32 (only Float impl with that size); satisfies
+            // transmute_vec_f32_to_t's documented contract.
             let result = unsafe { transmute_vec_f32_to_t(out) };
             return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
         } else if std::mem::size_of::<T>() == 8 {
+            // SAFETY: size_of::<T>() == 8 holds in this branch. Among the
+            // Float-bounded types in this crate (f32/f64/bf16/f16), only f64
+            // has size 8, so T == f64 and the cast preserves layout. `a_data`
+            // is borrowed for `n` elements; the slice does not outlive it.
             let a_f64: &[f64] =
                 unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+            // SAFETY: same invariant as a_f64 above (T == f64 by size guard).
             let b_f64: &[f64] =
                 unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
             let mut out = pool_alloc_cpu_uninit_f64(n);
@@ -172,6 +199,9 @@ pub fn fast_add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             } else {
                 ferray_ufunc::kernels::simd_f64::add_f64(a_f64, b_f64, &mut out);
             }
+            // SAFETY: enclosing branch guards on size_of::<T>() == 8, so
+            // T == f64 (only Float impl with that size); satisfies
+            // transmute_vec_f64_to_t's documented contract.
             let result = unsafe { transmute_vec_f64_to_t(out) };
             return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
         }
@@ -186,8 +216,14 @@ pub fn fast_mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
         let b_data = b.data()?;
         let n = a_data.len();
         if std::mem::size_of::<T>() == 4 {
+            // SAFETY: enclosing branch asserts size_of::<T>() == 4. The
+            // crate-internal `Float` trait is implemented for f32/f64/bf16/f16;
+            // only f32 has size 4, so T == f32 and the cast preserves layout
+            // and alignment. `a_data` outlives this slice (it borrows a_data's
+            // buffer for n elements, all initialized as part of a Tensor<T>).
             let a_f32: &[f32] =
                 unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+            // SAFETY: identical reasoning to a_f32 above (T == f32 by size_of guard).
             let b_f32: &[f32] =
                 unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
             let mut out = pool_alloc_cpu_uninit_f32(n);
@@ -207,11 +243,23 @@ pub fn fast_mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             } else {
                 ferray_ufunc::kernels::simd_f32::mul_f32(a_f32, b_f32, &mut out);
             }
+            // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+            // T == f32 (only Float impl with that size); satisfies
+            // transmute_vec_f32_to_t's documented contract.
+            // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+            // T == f32 (only Float impl with that size); satisfies
+            // transmute_vec_f32_to_t's documented contract.
             let result = unsafe { transmute_vec_f32_to_t(out) };
             return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
         } else if std::mem::size_of::<T>() == 8 {
+            // SAFETY: enclosing branch asserts size_of::<T>() == 8. The
+            // crate-internal `Float` trait is implemented for f32/f64/bf16/f16;
+            // only f64 has size 8, so T == f64 and the cast preserves layout
+            // and alignment. `a_data` outlives this slice (n initialized
+            // f64-sized elements borrowed from a_data's buffer).
             let a_f64: &[f64] =
                 unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+            // SAFETY: identical reasoning to a_f64 above (T == f64 by size_of guard).
             let b_f64: &[f64] =
                 unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
             let mut out = pool_alloc_cpu_uninit_f64(n);
@@ -231,6 +279,9 @@ pub fn fast_mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             } else {
                 ferray_ufunc::kernels::simd_f64::mul_f64(a_f64, b_f64, &mut out);
             }
+            // SAFETY: enclosing branch guards on size_of::<T>() == 8, so
+            // T == f64 (only Float impl with that size); satisfies
+            // transmute_vec_f64_to_t's documented contract.
             let result = unsafe { transmute_vec_f64_to_t(out) };
             return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
         }
@@ -248,8 +299,14 @@ pub fn fast_sub<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
         let b_data = b.data()?;
         let n = a_data.len();
         if std::mem::size_of::<T>() == 4 {
+            // SAFETY: enclosing branch asserts size_of::<T>() == 4. The
+            // crate-internal `Float` trait is implemented for f32/f64/bf16/f16;
+            // only f32 has size 4, so T == f32 and the cast preserves layout
+            // and alignment. `a_data` outlives this slice (it borrows a_data's
+            // buffer for n elements, all initialized as part of a Tensor<T>).
             let a_f32: &[f32] =
                 unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+            // SAFETY: identical reasoning to a_f32 above (T == f32 by size_of guard).
             let b_f32: &[f32] =
                 unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
             let mut out = pool_alloc_cpu_uninit_f32(n);
@@ -271,11 +328,23 @@ pub fn fast_sub<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
                     out[i] = a_f32[i] - b_f32[i];
                 }
             }
+            // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+            // T == f32 (only Float impl with that size); satisfies
+            // transmute_vec_f32_to_t's documented contract.
+            // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+            // T == f32 (only Float impl with that size); satisfies
+            // transmute_vec_f32_to_t's documented contract.
             let result = unsafe { transmute_vec_f32_to_t(out) };
             return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
         } else if std::mem::size_of::<T>() == 8 {
+            // SAFETY: enclosing branch asserts size_of::<T>() == 8. The
+            // crate-internal `Float` trait is implemented for f32/f64/bf16/f16;
+            // only f64 has size 8, so T == f64 and the cast preserves layout
+            // and alignment. `a_data` outlives this slice (n initialized
+            // f64-sized elements borrowed from a_data's buffer).
             let a_f64: &[f64] =
                 unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+            // SAFETY: identical reasoning to a_f64 above (T == f64 by size_of guard).
             let b_f64: &[f64] =
                 unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
             let mut out = pool_alloc_cpu_uninit_f64(n);
@@ -297,6 +366,9 @@ pub fn fast_sub<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
                     out[i] = a_f64[i] - b_f64[i];
                 }
             }
+            // SAFETY: enclosing branch guards on size_of::<T>() == 8, so
+            // T == f64 (only Float impl with that size); satisfies
+            // transmute_vec_f64_to_t's documented contract.
             let result = unsafe { transmute_vec_f64_to_t(out) };
             return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
         }
@@ -311,8 +383,14 @@ pub fn fast_div<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
         let b_data = b.data()?;
         let n = a_data.len();
         if std::mem::size_of::<T>() == 4 {
+            // SAFETY: enclosing branch asserts size_of::<T>() == 4. The
+            // crate-internal `Float` trait is implemented for f32/f64/bf16/f16;
+            // only f32 has size 4, so T == f32 and the cast preserves layout
+            // and alignment. `a_data` outlives this slice (it borrows a_data's
+            // buffer for n elements, all initialized as part of a Tensor<T>).
             let a_f32: &[f32] =
                 unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+            // SAFETY: identical reasoning to a_f32 above (T == f32 by size_of guard).
             let b_f32: &[f32] =
                 unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
             let mut out = pool_alloc_cpu_uninit_f32(n);
@@ -334,11 +412,23 @@ pub fn fast_div<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
                     out[i] = a_f32[i] / b_f32[i];
                 }
             }
+            // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+            // T == f32 (only Float impl with that size); satisfies
+            // transmute_vec_f32_to_t's documented contract.
+            // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+            // T == f32 (only Float impl with that size); satisfies
+            // transmute_vec_f32_to_t's documented contract.
             let result = unsafe { transmute_vec_f32_to_t(out) };
             return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
         } else if std::mem::size_of::<T>() == 8 {
+            // SAFETY: enclosing branch asserts size_of::<T>() == 8. The
+            // crate-internal `Float` trait is implemented for f32/f64/bf16/f16;
+            // only f64 has size 8, so T == f64 and the cast preserves layout
+            // and alignment. `a_data` outlives this slice (n initialized
+            // f64-sized elements borrowed from a_data's buffer).
             let a_f64: &[f64] =
                 unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+            // SAFETY: identical reasoning to a_f64 above (T == f64 by size_of guard).
             let b_f64: &[f64] =
                 unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
             let mut out = pool_alloc_cpu_uninit_f64(n);
@@ -360,6 +450,9 @@ pub fn fast_div<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
                     out[i] = a_f64[i] / b_f64[i];
                 }
             }
+            // SAFETY: enclosing branch guards on size_of::<T>() == 8, so
+            // T == f64 (only Float impl with that size); satisfies
+            // transmute_vec_f64_to_t's documented contract.
             let result = unsafe { transmute_vec_f64_to_t(out) };
             return Tensor::from_storage(TensorStorage::cpu(result), a.shape().to_vec(), false);
         }
@@ -403,14 +496,18 @@ fn vexp_f32(x: f32) -> f32 {
 /// Normalizes mantissa to [sqrt(2)/2, sqrt(2)) for better polynomial
 /// conditioning, then evaluates a degree-7 minimax polynomial for
 /// ln((1+s)/(1-s)) where s = (m-1)/(m+1).
+///
+/// The polynomial body is only valid for finite positive inputs. For NaN, ±∞,
+/// zero, or negatives, delegate to [`fast_log_f32`] which returns the IEEE-754
+/// correct value via `f32::ln()`. Without this guard, +∞ → ~88.7 (the
+/// polynomial's exponent path treats it as a finite number with biased
+/// exponent 255), and NaN → arbitrary finite garbage (the bit-level mantissa
+/// extraction produces a normal float that the polynomial happily evaluates).
 #[inline(always)]
 fn vlog_f32(x: f32) -> f32 {
     const LN2: f32 = std::f32::consts::LN_2;
-    if x <= 0.0 {
-        if x == 0.0 {
-            return f32::NEG_INFINITY;
-        }
-        return f32::NAN;
+    if !(x > 0.0 && x.is_finite()) {
+        return fast_log_f32(x);
     }
 
     let bits = x.to_bits();
@@ -446,6 +543,10 @@ pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
     let n = data.len();
     if std::mem::size_of::<T>() == 4 {
+        // SAFETY: enclosing branch asserts size_of::<T>() == 4. Among the
+        // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
+        // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
+        // and contains exactly `n` initialized T-sized elements.
         let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
@@ -464,6 +565,9 @@ pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 *o = vexp_f32(x);
             }
         }
+        // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+        // T == f32 (only Float impl with that size); satisfies
+        // transmute_vec_f32_to_t's documented contract.
         let result = unsafe { transmute_vec_f32_to_t(out) };
         return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
     }
@@ -482,6 +586,10 @@ pub fn fast_log<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
     let n = data.len();
     if std::mem::size_of::<T>() == 4 {
+        // SAFETY: enclosing branch asserts size_of::<T>() == 4. Among the
+        // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
+        // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
+        // and contains exactly `n` initialized T-sized elements.
         let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
@@ -500,6 +608,9 @@ pub fn fast_log<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 *o = vlog_f32(x);
             }
         }
+        // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+        // T == f32 (only Float impl with that size); satisfies
+        // transmute_vec_f32_to_t's documented contract.
         let result = unsafe { transmute_vec_f32_to_t(out) };
         return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
     }
@@ -531,13 +642,14 @@ fn fast_exp_f32(x: f32) -> f32 {
     x_clamped.exp()
 }
 
-/// Fast f32 log — single-element with special-case guards.
+/// Edge-case-correct scalar f32 log.
 ///
-/// Guards negative, zero, NaN, and +inf inputs before delegating to
-/// `f32::ln()`. The explicit checks prevent undefined polynomial results
-/// for out-of-domain inputs.
+/// Used by [`vlog_f32`] as the slow-path fallback for non-finite or
+/// non-positive inputs. The polynomial in `vlog_f32` produces wrong values
+/// for NaN and `+∞`; this function delegates to `f32::ln()` (libm-backed)
+/// after explicit guards so each special case maps to its IEEE-754 result:
+/// `0.0 → −∞`, negatives → `NaN`, `NaN → NaN`, `+∞ → +∞`.
 #[inline(always)]
-#[allow(dead_code)] // used by fused ops (log-softmax) and edge-case tests
 fn fast_log_f32(x: f32) -> f32 {
     if x <= 0.0 {
         return if x == 0.0 {
@@ -548,10 +660,10 @@ fn fast_log_f32(x: f32) -> f32 {
     }
     if x.is_nan() {
         return f32::NAN;
-    } // NaN passthrough
+    }
     if x == f32::INFINITY {
         return f32::INFINITY;
-    } // +inf passthrough
+    }
     x.ln()
 }
 
@@ -564,6 +676,10 @@ pub fn fast_sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
     let data = input.data()?;
     let n = data.len();
     if std::mem::size_of::<T>() == 4 {
+        // SAFETY: enclosing branch asserts size_of::<T>() == 4. Among the
+        // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
+        // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
+        // and contains exactly `n` initialized T-sized elements.
         let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
@@ -582,6 +698,9 @@ pub fn fast_sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
                 out[i] = 1.0 / (1.0 + fast_exp_f32(-inp[i]));
             }
         }
+        // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+        // T == f32 (only Float impl with that size); satisfies
+        // transmute_vec_f32_to_t's documented contract.
         let result = unsafe { transmute_vec_f32_to_t(out) };
         return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
     }
@@ -596,6 +715,10 @@ pub fn fast_tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
     let n = data.len();
     if std::mem::size_of::<T>() == 4 {
+        // SAFETY: enclosing branch asserts size_of::<T>() == 4. Among the
+        // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
+        // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
+        // and contains exactly `n` initialized T-sized elements.
         let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
@@ -618,6 +741,9 @@ pub fn fast_tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 out[i] = (e2x - 1.0) / (e2x + 1.0);
             }
         }
+        // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+        // T == f32 (only Float impl with that size); satisfies
+        // transmute_vec_f32_to_t's documented contract.
         let result = unsafe { transmute_vec_f32_to_t(out) };
         return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
     }
@@ -636,6 +762,10 @@ pub fn fast_sin<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
     let n = data.len();
     if std::mem::size_of::<T>() == 4 {
+        // SAFETY: enclosing branch asserts size_of::<T>() == 4. Among the
+        // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
+        // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
+        // and contains exactly `n` initialized T-sized elements.
         let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
@@ -654,6 +784,9 @@ pub fn fast_sin<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 out[i] = inp[i].sin();
             }
         }
+        // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+        // T == f32 (only Float impl with that size); satisfies
+        // transmute_vec_f32_to_t's documented contract.
         let result = unsafe { transmute_vec_f32_to_t(out) };
         return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
     }
@@ -669,6 +802,10 @@ pub fn fast_cos<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
     let n = data.len();
     if std::mem::size_of::<T>() == 4 {
+        // SAFETY: enclosing branch asserts size_of::<T>() == 4. Among the
+        // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
+        // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
+        // and contains exactly `n` initialized T-sized elements.
         let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
@@ -687,6 +824,9 @@ pub fn fast_cos<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 out[i] = inp[i].cos();
             }
         }
+        // SAFETY: enclosing branch guards on size_of::<T>() == 4, so
+        // T == f32 (only Float impl with that size); satisfies
+        // transmute_vec_f32_to_t's documented contract.
         let result = unsafe { transmute_vec_f32_to_t(out) };
         return Tensor::from_storage(TensorStorage::cpu(result), input.shape().to_vec(), false);
     }
@@ -1395,6 +1535,34 @@ mod tests {
             result.is_infinite() && result > 0.0,
             "fast_log_f32(+inf) should be +inf, got {result}"
         );
+    }
+
+    // --- Regression tests for vlog_f32 edge cases via fast_log_f32 wiring ---
+    //
+    // The polynomial body in vlog_f32 produces incorrect values for non-finite
+    // or non-positive inputs (e.g. +inf → ~88.7, NaN → arbitrary finite garbage).
+    // These tests pin the IEEE-754-correct values that the fast_log_f32 fallback
+    // is responsible for delivering — a regression in the guard would fail here.
+
+    #[test]
+    fn test_vlog_f32_handles_pos_inf() {
+        let result = vlog_f32(f32::INFINITY);
+        assert!(
+            result.is_infinite() && result > 0.0,
+            "vlog_f32(+inf) must be +inf, got {result}"
+        );
+    }
+
+    #[test]
+    fn test_vlog_f32_handles_nan() {
+        let result = vlog_f32(f32::NAN);
+        assert!(result.is_nan(), "vlog_f32(NaN) must be NaN, got {result}");
+    }
+
+    #[test]
+    fn test_vlog_f32_handles_zero_and_negative() {
+        assert_eq!(vlog_f32(0.0), f32::NEG_INFINITY);
+        assert!(vlog_f32(-1.0).is_nan());
     }
 
     // --- Edge-case tests for fast_sigmoid ---

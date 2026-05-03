@@ -245,6 +245,11 @@ fn mean_inner<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 let sum_handle = backend.sum_f32(input.gpu_handle()?, input.numel())?;
                 let n = input.numel() as f32;
                 let inv_n_data = [1.0f32 / n];
+                // SAFETY: `inv_n_data` is a stack array of one f32 (length 1,
+                // initialized just above), borrowed for this scope. Reading
+                // its 4 bytes (1 * size_of::<f32>()) as &[u8] is sound: f32
+                // has no padding, no niches, and the requested length matches
+                // the actual byte size of the array.
                 let inv_n_bytes: &[u8] = unsafe {
                     std::slice::from_raw_parts(
                         inv_n_data.as_ptr() as *const u8,
@@ -257,6 +262,11 @@ fn mean_inner<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 let sum_handle = backend.sum_f64(input.gpu_handle()?, input.numel())?;
                 let n = input.numel() as f64;
                 let inv_n_data = [1.0f64 / n];
+                // SAFETY: `inv_n_data` is a stack array of one f64 (length 1,
+                // initialized just above), borrowed for this scope. Reading
+                // its 8 bytes (1 * size_of::<f64>()) as &[u8] is sound: f64
+                // has no padding, no niches, and the requested length matches
+                // the actual byte size of the array.
                 let inv_n_bytes: &[u8] = unsafe {
                     std::slice::from_raw_parts(
                         inv_n_data.as_ptr() as *const u8,

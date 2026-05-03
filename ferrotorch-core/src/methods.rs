@@ -291,9 +291,15 @@ impl<T: Float> Tensor<T> {
 
     // --- Utility ---
 
-    /// Print the tensor and return self for chaining.
+    /// Log the tensor's `Display` form and return `self` for chaining.
+    ///
+    /// Emits a `tracing::info!` event on target `ferrotorch::tensor`. Behaviour
+    /// change vs. earlier versions: this no longer writes directly to stdout —
+    /// callers must install a `tracing` subscriber (e.g. `tracing_subscriber`)
+    /// to see the output. Library code should not write to stdout; downstream
+    /// consumers control logging policy.
     pub fn print(&self) -> &Self {
-        println!("{self}");
+        tracing::info!(target: "ferrotorch::tensor", "{self}");
         self
     }
 }

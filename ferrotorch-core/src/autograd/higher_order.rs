@@ -463,7 +463,6 @@ impl<T: Float> crate::tensor::GradFn<T> for IndexSelectBackward<T> {
                 self.input.shape().to_vec(),
                 std::sync::Arc::new(BroadcastScalarBackward {
                     scalar_input: grad_output.clone(),
-                    numel,
                 }),
             )?;
 
@@ -500,8 +499,6 @@ impl<T: Float> crate::tensor::GradFn<T> for IndexSelectBackward<T> {
 #[derive(Debug)]
 struct BroadcastScalarBackward<T: Float> {
     scalar_input: Tensor<T>,
-    #[allow(dead_code)]
-    numel: usize,
 }
 
 impl<T: Float> crate::tensor::GradFn<T> for BroadcastScalarBackward<T> {

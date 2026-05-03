@@ -158,6 +158,12 @@ impl<T: Float> Tensor<T> {
             if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
                 let sum_handle = backend.add_f32(self.gpu_handle()?, other.gpu_handle()?)?;
                 let storage = crate::storage::TensorStorage::gpu(sum_handle);
+                // SAFETY: check_inplace_allowed at the top of this method
+                // already proved `self` has no grad_fn and is not a leaf with
+                // requires_grad, so no autograd machinery references this
+                // storage. `&self` plus `Float: 'static` ensure no concurrent
+                // reader/writer can hold a borrow across this point on this
+                // thread, satisfying update_storage's exclusive-access contract.
                 unsafe { self.update_storage(storage)? };
                 return Ok(self);
             }
@@ -168,6 +174,10 @@ impl<T: Float> Tensor<T> {
         for (a, &b) in data.iter_mut().zip(other_data.iter()) {
             *a += b;
         }
+        // SAFETY: check_inplace_allowed at the top of this method ensures
+        // `self` is not part of the autograd graph and is not a leaf with
+        // requires_grad, so no aliasing live borrows or grad_fn references
+        // exist; satisfies update_data's exclusive-access contract.
         unsafe { self.update_data(&data)? };
         Ok(self)
     }
@@ -194,6 +204,11 @@ impl<T: Float> Tensor<T> {
             if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
                 let handle = backend.sub_f32(self.gpu_handle()?, other.gpu_handle()?)?;
                 let storage = crate::storage::TensorStorage::gpu(handle);
+                // SAFETY: check_inplace_allowed at the top of `sub_` already
+                // proved `self` has no grad_fn and is not a requires_grad leaf,
+                // so no autograd reference holds the storage. Single-threaded
+                // `&self` access satisfies update_storage's exclusive-access
+                // contract.
                 unsafe { self.update_storage(storage)? };
                 return Ok(self);
             }
@@ -204,6 +219,9 @@ impl<T: Float> Tensor<T> {
         for (a, &b) in data.iter_mut().zip(other_data.iter()) {
             *a = *a - b;
         }
+        // SAFETY: check_inplace_allowed at the top of `sub_` ensures `self`
+        // is not part of the autograd graph; satisfies update_data's
+        // exclusive-access contract.
         unsafe { self.update_data(&data)? };
         Ok(self)
     }
@@ -230,6 +248,10 @@ impl<T: Float> Tensor<T> {
             if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
                 let handle = backend.mul_f32(self.gpu_handle()?, other.gpu_handle()?)?;
                 let storage = crate::storage::TensorStorage::gpu(handle);
+                // SAFETY: check_inplace_allowed at the top of `mul_` already
+                // proved `self` has no grad_fn and is not a requires_grad leaf;
+                // single-threaded `&self` satisfies update_storage's
+                // exclusive-access contract.
                 unsafe { self.update_storage(storage)? };
                 return Ok(self);
             }
@@ -240,6 +262,9 @@ impl<T: Float> Tensor<T> {
         for (a, &b) in data.iter_mut().zip(other_data.iter()) {
             *a = *a * b;
         }
+        // SAFETY: check_inplace_allowed at the top of `mul_` ensures `self`
+        // is not part of the autograd graph; satisfies update_data's
+        // exclusive-access contract.
         unsafe { self.update_data(&data)? };
         Ok(self)
     }
@@ -266,6 +291,10 @@ impl<T: Float> Tensor<T> {
             if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
                 let handle = backend.div_f32(self.gpu_handle()?, other.gpu_handle()?)?;
                 let storage = crate::storage::TensorStorage::gpu(handle);
+                // SAFETY: check_inplace_allowed at the top of `div_` already
+                // proved `self` has no grad_fn and is not a requires_grad leaf;
+                // single-threaded `&self` satisfies update_storage's
+                // exclusive-access contract.
                 unsafe { self.update_storage(storage)? };
                 return Ok(self);
             }
@@ -276,6 +305,9 @@ impl<T: Float> Tensor<T> {
         for (a, &b) in data.iter_mut().zip(other_data.iter()) {
             *a = *a / b;
         }
+        // SAFETY: check_inplace_allowed at the top of `div_` ensures `self`
+        // is not part of the autograd graph; satisfies update_data's
+        // exclusive-access contract.
         unsafe { self.update_data(&data)? };
         Ok(self)
     }

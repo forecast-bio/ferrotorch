@@ -619,6 +619,9 @@ impl<T: Float> Tensor<T> {
         if self.inner.storage.is_gpu() {
             return Err(FerrotorchError::GpuTensorNotAccessible);
         }
+        if self.inner.storage.is_cubecl() {
+            return Err(FerrotorchError::GpuTensorNotAccessible);
+        }
         if self.inner.storage.is_meta() {
             return Err(FerrotorchError::InvalidArgument {
                 message: "cannot read data from a meta tensor; meta tensors carry shape only. \
@@ -670,7 +673,7 @@ impl<T: Float> Tensor<T> {
                     .into(),
             });
         }
-        if self.is_cuda() {
+        if self.is_cuda() || self.inner.storage.is_cubecl() {
             let cpu_tensor = self.cpu()?;
             Ok(cpu_tensor.data()?.to_vec())
         } else if self.is_contiguous() {
@@ -780,6 +783,13 @@ impl<T: Float> Tensor<T> {
                 let backend =
                     crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
                 let cpu_data = contiguous_self.data()?;
+                // SAFETY: `cpu_data` is a borrow into the contiguous CPU
+                // storage of contiguous_self, guaranteed to live for the
+                // duration of this scope. Reinterpreting as `&[u8]` is sound
+                // because every value of T is fully initialized (it's a
+                // numeric Float type with no padding bytes); the byte length
+                // is computed from `size_of_val(cpu_data) = cpu_data.len() *
+                // size_of::<T>()`, which matches the underlying allocation.
                 let bytes = unsafe {
                     std::slice::from_raw_parts(
                         cpu_data.as_ptr() as *const u8,
@@ -802,6 +812,18 @@ impl<T: Float> Tensor<T> {
                     crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
                 let handle = self.gpu_handle()?;
                 let bytes = backend.gpu_to_cpu(handle)?;
+                // SAFETY: `bytes` is a `Vec<u8>` returned by gpu_to_cpu
+                // containing the raw bytes of a Tensor<T>'s GPU storage —
+                // those bytes were originally written by an upload of T-sized
+                // values (cpu_to_gpu uploads bytes of T). Wrapping `bytes` in
+                // ManuallyDrop prevents its destructor from running, then we
+                // reconstruct a Vec<T> from the same allocation: ptr/len/cap
+                // are from the now-orphaned Vec<u8> with len/cap divided by
+                // size_of::<T>(). This requires bytes.len() and bytes.capacity()
+                // to be multiples of size_of::<T>() and the allocator layout to
+                // be compatible. The ferrotorch-gpu backend guarantees both
+                // (it allocates Vec<u8> with size_of::<T>()-aligned, T-multiple
+                // length and capacity for D2H readbacks).
                 let data: Vec<T> = unsafe {
                     let mut bytes = std::mem::ManuallyDrop::new(bytes);
                     let len = bytes.len() / std::mem::size_of::<T>();
@@ -823,29 +845,52 @@ impl<T: Float> Tensor<T> {
                 let cpu = self.to(Device::Cpu)?;
                 cpu.to(Device::Cuda(b))
             }
-            // CPU → XPU: zero-copy retag. XPU storage is a CPU `Vec<T>`
-            // today; the device marker drives op dispatch through
-            // ferrotorch-xpu. CL-452.
-            (Device::Cpu, Device::Xpu(ordinal)) => {
-                let contiguous_self = if !self.is_contiguous() {
-                    crate::methods::contiguous_t(self)?
-                } else {
-                    self.clone()
-                };
-                let data = contiguous_self.data()?.to_vec();
-                let storage = TensorStorage::xpu(data, ordinal);
-                if needs_grad_fn {
-                    let grad_fn = Arc::new(ToDeviceBackward {
-                        source: self.clone(),
-                    });
-                    Tensor::from_operation(storage, self.shape().to_vec(), grad_fn)
-                } else {
-                    Tensor::from_storage(storage, self.shape().to_vec(), self.requires_grad())
-                }
-            }
-            // XPU → CPU: retag back as CPU storage. Zero-copy. CL-452.
+            // CPU → XPU: requires a CubeRuntime owned by ferrotorch-xpu.
+            // Core cannot perform the H2D upload here. Use
+            // `ferrotorch_xpu::XpuDevice::upload(tensor)` or
+            // `tensor.to(Device::Xpu(n))` via the xpu crate's integration.
+            // Issue #673.
+            (Device::Cpu, Device::Xpu(_)) => Err(FerrotorchError::InvalidArgument {
+                message: "CPU→XPU transfer requires a CubeRuntime. \
+                              Use ferrotorch_xpu::make_xpu_tensor or \
+                              ferrotorch_xpu::XpuDevice::upload instead. Issue #673."
+                    .into(),
+            }),
+            // XPU → CPU: real D2H readback via the CubeStorageHandle.
+            // This is the explicit transfer path — mirrors PyTorch's
+            // `.cpu()` which requires a synchronous D2H copy. Issue #673.
             (Device::Xpu(_), Device::Cpu) => {
-                let data = self.data()?.to_vec();
+                let handle = self.inner.storage.cubecl_handle().ok_or_else(|| {
+                    FerrotorchError::InvalidArgument {
+                        message: "XPU→CPU transfer: storage does not contain a CubeCL handle. \
+                                  This tensor may have been created before issue #673 was applied."
+                            .into(),
+                    }
+                })?;
+                // f32 readback only for now — T=f32 is the only supported XPU dtype.
+                let host_f32 = handle.read_to_host()?;
+                // SAFETY: `T` on XPU is always `f32` (the only dtype the cubecl
+                // kernels support). `host_f32` contains exactly `handle.len()`
+                // f32 values. We transmute via bytecast rather than assuming
+                // T=f32 at the type level, so this is gated at runtime.
+                let data: Vec<T> = {
+                    if std::mem::size_of::<T>() != std::mem::size_of::<f32>() {
+                        return Err(FerrotorchError::InvalidArgument {
+                            message: format!(
+                                "XPU→CPU: expected f32 storage (size 4), got size {}; \
+                                 only f32 XPU tensors are supported. Issue #673.",
+                                std::mem::size_of::<T>()
+                            ),
+                        });
+                    }
+                    // SAFETY: T and f32 have the same size (checked above).
+                    // Both are plain-data numeric types with no padding.
+                    // The bytes came from a cubecl kernel that wrote f32 values.
+                    unsafe {
+                        let mut md = std::mem::ManuallyDrop::new(host_f32);
+                        Vec::from_raw_parts(md.as_mut_ptr() as *mut T, md.len(), md.capacity())
+                    }
+                };
                 let storage = TensorStorage::cpu(data);
                 if needs_grad_fn {
                     let grad_fn = Arc::new(ToDeviceBackward {
@@ -969,6 +1014,12 @@ impl<T: Float> Tensor<T> {
         self.device().is_cuda()
     }
 
+    /// Returns `true` if this tensor is on an XPU (CubeCL / Intel GPU) device.
+    #[inline]
+    pub fn is_xpu(&self) -> bool {
+        matches!(self.device(), crate::device::Device::Xpu(_))
+    }
+
     /// Get the GPU buffer handle. Returns `Err` for CPU tensors.
     pub fn gpu_handle(&self) -> FerrotorchResult<&crate::gpu_dispatch::GpuBufferHandle> {
         self.inner
@@ -1045,6 +1096,12 @@ impl<T: Float> Tensor<T> {
                 Device::Cuda(o) => o,
                 _ => unreachable!(),
             };
+            // SAFETY: `new_data: &[T]` is borrowed for the duration of this
+            // function and is fully initialized (it's a slice of T values
+            // with no padding bytes — T is a numeric Float type). Reading
+            // its bytes via reinterpretation is sound; the requested length
+            // `size_of_val(new_data) = new_data.len() * size_of::<T>()`
+            // matches the actual byte size of the underlying allocation.
             let bytes: &[u8] = unsafe {
                 std::slice::from_raw_parts(
                     new_data.as_ptr() as *const u8,
@@ -1103,6 +1160,64 @@ impl<T: Float> Tensor<T> {
         drop(old);
 
         Ok(())
+    }
+
+    /// Run `f` with mutable access to this tensor's underlying
+    /// [`GpuBufferHandle`], in-place.
+    ///
+    /// This is a safe wrapper for the optimizer fast-path that fuses the
+    /// parameter update directly into a GPU kernel: the kernel needs an
+    /// `&mut GpuBufferHandle` aliased into the param tensor's storage, but
+    /// `Tensor` is `Arc`-shared so a naïve `&self -> &mut Storage` route
+    /// requires `unsafe` at every call site. By centralizing the
+    /// `Arc::as_ptr -> *mut TensorStorage<T>` cast inside this single
+    /// method and returning `Err(FerrotorchError::DeviceUnavailable)` for
+    /// non-GPU storage, callers do not need to write any `unsafe` of their
+    /// own.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::DeviceUnavailable`] when this tensor's
+    /// storage is not GPU-resident.
+    ///
+    /// # Safety contract (encapsulated)
+    ///
+    /// This method is **safe** because the caller cannot violate any
+    /// invariant exposed through it: the closure receives a fresh
+    /// `&mut GpuBufferHandle` whose lifetime is bounded by the body of
+    /// this method, and no other reference to the storage can be created
+    /// concurrently from within the closure (the closure is `FnOnce`).
+    /// The only remaining hazard is concurrent access to the same `Arc`
+    /// from another thread — `Tensor` is not `Sync` for storage mutation
+    /// purposes, and the optimizer step that drives this method holds
+    /// `&mut self` on the outer `Optimizer` for the whole step, so no
+    /// other handle can be observing or mutating this storage during the
+    /// call. This is the same exclusive-access guarantee that
+    /// [`update_data`] and [`update_storage`] depend on; this method
+    /// simply lets the optimizer mutate the GPU handle in place rather
+    /// than swap the entire `TensorStorage`.
+    pub fn with_gpu_handle_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gpu_dispatch::GpuBufferHandle) -> FerrotorchResult<R>,
+    ) -> FerrotorchResult<R> {
+        let storage_ptr = Arc::as_ptr(&self.inner.storage) as *mut TensorStorage<T>;
+        // SAFETY: We materialize a single `&mut TensorStorage<T>` for the
+        // duration of the call. The storage lives behind `Arc`, but the
+        // optimizer-step caller holds `&mut self` on the outer optimizer
+        // for the whole step, so no other handle into this storage can be
+        // observed or mutated concurrently — neither this thread (the
+        // closure is `FnOnce` and consumes the `&mut` borrow chain) nor
+        // any other thread (the storage is not exposed to a sharing
+        // primitive that would let another thread reach it during the
+        // optimizer step). The resulting `&mut GpuBufferHandle` reborrows
+        // out of that exclusive `&mut TensorStorage<T>` and shares its
+        // lifetime, so the borrow checker enforces non-aliasing within
+        // the closure body. No reference produced here outlives the call.
+        let storage: &mut TensorStorage<T> = unsafe { &mut *storage_ptr };
+        let handle = storage
+            .gpu_handle_mut()
+            .ok_or(FerrotorchError::DeviceUnavailable)?;
+        f(handle)
     }
 
     /// Detach this tensor from the computation graph, returning a new

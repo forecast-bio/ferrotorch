@@ -649,10 +649,9 @@ impl PerChannelMinMaxObserver {
         }
         let actual_channels = shape[self.axis];
         if actual_channels != self.num_channels {
-            eprintln!(
-                "WARNING: PerChannelMinMaxObserver expected {} channels on axis {}, got {}",
-                self.num_channels, self.axis, actual_channels
-            );
+            // The `Err` below carries the same information as the previous
+            // `eprintln!` (channel count, axis, observed value); duplicating
+            // it on stderr is `print_stderr` noise per `rust-quality` §4.
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
                     "PerChannelMinMaxObserver expected {} channels on axis {}, got {}",
@@ -680,12 +679,11 @@ impl PerChannelMinMaxObserver {
 impl Observer for PerChannelMinMaxObserver {
     fn observe(&mut self, data: &[f32]) {
         // Without shape info, we treat data as [num_channels, N] where N = len / num_channels.
+        // If `data` isn't divisible by `num_channels`, skip silently — the
+        // caller can use the shape-aware `observe_with_shape` if they need a
+        // reportable error. The previous `eprintln!` was unactionable noise
+        // and is forbidden by `rust-quality` §4 (`print_stderr` lint).
         if data.len() % self.num_channels != 0 {
-            eprintln!(
-                "WARNING: PerChannelMinMaxObserver data length {} not divisible by {} channels",
-                data.len(),
-                self.num_channels
-            );
             return;
         }
         let per_channel = data.len() / self.num_channels;

@@ -28,5 +28,6 @@ num-traits = { workspace = true }
 rustfft = { workspace = true }
 faer = "0.24"
 rustc-hash = "2"
+tracing = { workspace = true }
 
 [dev-dependencies]

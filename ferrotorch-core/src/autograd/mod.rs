@@ -2,7 +2,6 @@ pub mod anomaly;
 pub mod autocast;
 pub mod autocast_ops;
 pub mod checkpoint;
-pub mod cond_scan;
 pub mod fixed_point;
 pub mod forward_ad;
 pub mod grad_penalty;
@@ -21,7 +20,10 @@ pub use autocast_ops::{
     AutocastCategory, AutocastEvent, autocast_category, autocast_guard, autocast_log,
     drain_autocast_events, should_cast_to_reduced, should_keep_full_precision,
 };
-pub use cond_scan::{cond, scan, validate_cond_branches};
+// Control-flow primitives (`cond`, `scan`, `validate_cond_branches`) live
+// in `crate::ops::higher_order`; re-exported here for the legacy
+// `autograd::{cond, scan, validate_cond_branches}` import path.
+pub use crate::ops::higher_order::{cond, scan, validate_cond_branches};
 pub use fixed_point::fixed_point;
 pub use forward_ad::{
     DualTensor, dual_add, dual_cos, dual_div, dual_exp, dual_log, dual_matmul, dual_mul, dual_neg,

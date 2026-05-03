@@ -310,6 +310,13 @@ pub fn mm_raw<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize
             // bf16 fast path with f32 accumulator. Summing up to
             // DIRECT_MM_THRESHOLD bf16 values in bf16 loses ~7 bits of
             // precision per dot; accumulating in f32 preserves them.
+            // SAFETY: is_bf16::<T>() returned true (TypeId::of::<T>() ==
+            // TypeId::of::<half::bf16>()), so T == half::bf16. This satisfies
+            // the contracts of as_bf16_slice (T == bf16) and write_f32_as_bf16
+            // (dst is bf16-layout). All get_unchecked calls index in [0, m*k),
+            // [0, k*n), or [0, m*n), which are within the allocated buffers
+            // of length m*k, k*n, m*n respectively (acc and result are
+            // explicitly sized m*n; a_data/b_data are guaranteed by caller).
             unsafe {
                 let a_bf16 = as_bf16_slice(a_data);
                 let b_bf16 = as_bf16_slice(b_data);
@@ -329,6 +336,11 @@ pub fn mm_raw<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize
                 write_f32_as_bf16(&mut result, &acc);
             }
         } else {
+            // SAFETY: a_data has length m*k and b_data has length k*n by
+            // function contract; result was allocated with `vec![zero; m*n]`.
+            // Index arithmetic `i*k + p` with i<m, p<k stays in [0, m*k);
+            // `p*n + j` with p<k, j<n stays in [0, k*n); `i*n + j` stays in
+            // [0, m*n). All get_unchecked accesses are in bounds.
             unsafe {
                 for i in 0..m {
                     let a_row = i * k;
@@ -350,8 +362,16 @@ pub fn mm_raw<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize
         // faer supports arbitrary strides natively and auto-vectorises with AVX/SSE.
         let mut result = vec![zero; m * n];
         if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            // SAFETY: TypeId guard above proves T == f32, so &[T] and &[f32]
+            // have identical layout (size, alignment, niche). The cast is a
+            // no-op reinterpretation; lifetimes are tied to a_data/b_data/result.
             let a_f32 = unsafe { &*(a_data as *const [T] as *const [f32]) };
+            // SAFETY: same as a_f32 above (T == f32 by the TypeId guard).
             let b_f32 = unsafe { &*(b_data as *const [T] as *const [f32]) };
+            // SAFETY: same as a_f32 above (T == f32 by the TypeId guard).
+            // `result` was just allocated and is not aliased by a_data/b_data
+            // (which are immutable borrows from the caller), so producing a
+            // unique &mut [f32] view is sound.
             let c_f32 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f32]) };
             let a_mat = faer::mat::MatRef::from_row_major_slice(a_f32, m, k);
             let b_mat = faer::mat::MatRef::from_row_major_slice(b_f32, k, n);
@@ -366,8 +386,14 @@ pub fn mm_raw<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: usize
                 par,
             );
         } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+            // SAFETY: TypeId guard above proves T == f64, so &[T] and &[f64]
+            // have identical layout; the cast is a layout-preserving reinterpret.
             let a_f64 = unsafe { &*(a_data as *const [T] as *const [f64]) };
+            // SAFETY: same as a_f64 above (T == f64 by the TypeId guard).
             let b_f64 = unsafe { &*(b_data as *const [T] as *const [f64]) };
+            // SAFETY: T == f64 by the TypeId guard. `result` was just allocated
+            // and is not aliased by the immutable a_data/b_data borrows, so the
+            // produced &mut [f64] is unique for the duration of this block.
             let c_f64 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f64]) };
             let a_mat = faer::mat::MatRef::from_row_major_slice(a_f64, m, k);
             let b_mat = faer::mat::MatRef::from_row_major_slice(b_f64, k, n);
@@ -421,6 +447,11 @@ pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
         let mut result = vec![zero; m * n];
         if is_bf16::<T>() {
             // bf16 fast path with f32 accumulator (see note in `mm_raw`).
+            // SAFETY: is_bf16::<T>() returned true so T == half::bf16, which
+            // satisfies as_bf16_slice and write_f32_as_bf16 contracts. A is
+            // (M,K) and B is (N,K), so a_row+p < m*k and b_row+p < n*k for
+            // i<m, j<n, p<k. acc_buf and result both have length m*n, so
+            // r_row+j = i*n+j < m*n. All get_unchecked accesses are in bounds.
             unsafe {
                 let a_bf16 = as_bf16_slice(a_data);
                 let b_bf16 = as_bf16_slice(b_data);
@@ -441,6 +472,10 @@ pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
                 write_f32_as_bf16(&mut result, &acc_buf);
             }
         } else {
+            // SAFETY: A is (M,K) and B is (N,K) row-major (function contract);
+            // result was allocated with `vec![zero; m*n]`. Index arithmetic
+            // i*k+p < m*k for i<m,p<k; j*k+p < n*k for j<n,p<k; i*n+j < m*n.
+            // All get_unchecked accesses are in bounds for the respective slices.
             unsafe {
                 for i in 0..m {
                     let a_row = i * k;
@@ -463,8 +498,14 @@ pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
         // B is (N,K) row-major. Wrap as (N,K) MatRef then .transpose() to get (K,N).
         let mut result = vec![zero; m * n];
         if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            // SAFETY: TypeId guard above proves T == f32, so &[T] and &[f32]
+            // have identical layout; the cast is a layout-preserving reinterpret.
             let a_f32 = unsafe { &*(a_data as *const [T] as *const [f32]) };
+            // SAFETY: same as a_f32 above (T == f32 by the TypeId guard).
             let b_f32 = unsafe { &*(b_data as *const [T] as *const [f32]) };
+            // SAFETY: T == f32 by the TypeId guard. `result` was just allocated
+            // and is not aliased by the immutable a_data/b_data borrows, so the
+            // produced &mut [f32] is unique for the duration of this block.
             let c_f32 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f32]) };
             let a_mat = faer::mat::MatRef::from_row_major_slice(a_f32, m, k);
             // B is (N,K) row-major; transpose gives (K,N) view — zero copy.
@@ -480,8 +521,14 @@ pub fn mm_raw_bt<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
                 par,
             );
         } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+            // SAFETY: TypeId guard above proves T == f64, so &[T] and &[f64]
+            // have identical layout; the cast is a layout-preserving reinterpret.
             let a_f64 = unsafe { &*(a_data as *const [T] as *const [f64]) };
+            // SAFETY: same as a_f64 above (T == f64 by the TypeId guard).
             let b_f64 = unsafe { &*(b_data as *const [T] as *const [f64]) };
+            // SAFETY: T == f64 by the TypeId guard. `result` was just allocated
+            // and is not aliased by the immutable a_data/b_data borrows, so the
+            // produced &mut [f64] is unique for the duration of this block.
             let c_f64 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f64]) };
             let a_mat = faer::mat::MatRef::from_row_major_slice(a_f64, m, k);
             let b_mat = faer::mat::MatRef::from_row_major_slice(b_f64, n, k).transpose();
@@ -532,6 +579,12 @@ pub fn mm_raw_at<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
         let mut result = vec![zero; m * n];
         if is_bf16::<T>() {
             // bf16 fast path with f32 accumulator (see note in `mm_raw`).
+            // SAFETY: is_bf16::<T>() returned true so T == half::bf16,
+            // satisfying as_bf16_slice and write_f32_as_bf16 contracts.
+            // A is (K,M) and B is (K,N), so for p<k, i<m, j<n we have
+            // a_row+i = p*m+i < k*m and b_row+j = p*n+j < k*n. acc_buf and
+            // result both have length m*n, so r_row+j = i*n+j < m*n. All
+            // get_unchecked accesses are in bounds.
             unsafe {
                 let a_bf16 = as_bf16_slice(a_data);
                 let b_bf16 = as_bf16_slice(b_data);
@@ -551,6 +604,10 @@ pub fn mm_raw_at<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
                 write_f32_as_bf16(&mut result, &acc_buf);
             }
         } else {
+            // SAFETY: A is (K,M) and B is (K,N) row-major (function contract);
+            // result was allocated with `vec![zero; m*n]`. p*m+i < k*m for
+            // p<k,i<m; p*n+j < k*n for p<k,j<n; i*n+j < m*n for i<m,j<n.
+            // All get_unchecked accesses are in bounds.
             unsafe {
                 for p in 0..k {
                     let a_row = p * m;
@@ -572,8 +629,14 @@ pub fn mm_raw_at<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
         // A is (K,M) row-major. Wrap as (K,M) MatRef then .transpose() to get (M,K).
         let mut result = vec![zero; m * n];
         if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            // SAFETY: TypeId guard above proves T == f32, so &[T] and &[f32]
+            // have identical layout; the cast is a layout-preserving reinterpret.
             let a_f32 = unsafe { &*(a_data as *const [T] as *const [f32]) };
+            // SAFETY: same as a_f32 above (T == f32 by the TypeId guard).
             let b_f32 = unsafe { &*(b_data as *const [T] as *const [f32]) };
+            // SAFETY: T == f32 by the TypeId guard. `result` was just allocated
+            // and is not aliased by the immutable a_data/b_data borrows, so the
+            // produced &mut [f32] is unique for the duration of this block.
             let c_f32 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f32]) };
             // A is (K,M) row-major; transpose gives (M,K) view — zero copy.
             let a_mat = faer::mat::MatRef::from_row_major_slice(a_f32, k, m).transpose();
@@ -589,8 +652,14 @@ pub fn mm_raw_at<T: Float>(a_data: &[T], b_data: &[T], m: usize, k: usize, n: us
                 par,
             );
         } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+            // SAFETY: TypeId guard above proves T == f64, so &[T] and &[f64]
+            // have identical layout; the cast is a layout-preserving reinterpret.
             let a_f64 = unsafe { &*(a_data as *const [T] as *const [f64]) };
+            // SAFETY: same as a_f64 above (T == f64 by the TypeId guard).
             let b_f64 = unsafe { &*(b_data as *const [T] as *const [f64]) };
+            // SAFETY: T == f64 by the TypeId guard. `result` was just allocated
+            // and is not aliased by the immutable a_data/b_data borrows, so the
+            // produced &mut [f64] is unique for the duration of this block.
             let c_f64 = unsafe { &mut *(result.as_mut_slice() as *mut [T] as *mut [f64]) };
             let a_mat = faer::mat::MatRef::from_row_major_slice(a_f64, k, m).transpose();
             let b_mat = faer::mat::MatRef::from_row_major_slice(b_f64, k, n);

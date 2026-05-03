@@ -213,6 +213,16 @@ pub fn pool_return_cpu<T: 'static>(mut v: Vec<T>) {
         }
 
         // Keep the allocation, ensure correct length for reuse.
+        // SAFETY: `len = v.len()` was captured at function entry (line above
+        // the early return), so this is a no-op when the caller hasn't
+        // changed v's length, and a defensive restore otherwise. The pool's
+        // bucket key is `(len, TypeId::of::<T>())`, so consumers that pop
+        // this Vec receive exactly `len` elements; they were initialized
+        // either by the original `vec![T::default(); len]` allocation in
+        // pool_alloc_cpu (or `vec![0.0; len]` in the f32/f64 variants) or
+        // by user writes via `as_mut_slice` while the Vec was outstanding.
+        // `len <= v.capacity()` because v was originally allocated with
+        // capacity == len and capacity never shrinks below in-use length.
         unsafe { v.set_len(len) };
 
         bucket.push(Box::new(v));
