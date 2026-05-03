@@ -367,9 +367,9 @@ fn launch_binary(
     let ctx = device.context();
     let stream = device.stream();
     let f = get_or_compile(ctx, ptx, kernel_name, device.ordinal() as u32).map_err(|e| {
-        eprintln!("{kernel_name}: {e}");
         GpuError::PtxCompileFailed {
             kernel: kernel_name,
+            source: e,
         }
     })?;
 
@@ -423,11 +423,9 @@ pub fn gpu_silu_bf16(
         "silu_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("silu_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "silu_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "silu_bf16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<u16>(n)?;
@@ -461,11 +459,9 @@ pub fn gpu_relu_bf16(
         "relu_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("relu_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "relu_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "relu_bf16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<u16>(n)?;
@@ -503,11 +499,9 @@ pub fn gpu_fatrelu_bf16(
         "fatrelu_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("fatrelu_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "fatrelu_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "fatrelu_bf16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<u16>(n)?;
@@ -612,11 +606,9 @@ pub fn gpu_embedding_gather_bf16(
         "embedding_gather_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("embedding_gather_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "embedding_gather_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "embedding_gather_bf16_kernel",
+        source: e,
     })?;
 
     let total = n_tokens * dim;
@@ -745,11 +737,9 @@ pub fn gpu_embedding_gather_bf16_to_f32(
         "embedding_gather_bf16_to_f32_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("embedding_gather_bf16_to_f32_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "embedding_gather_bf16_to_f32_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "embedding_gather_bf16_to_f32_kernel",
+        source: e,
     })?;
 
     let total = n_tokens * dim;
@@ -957,11 +947,9 @@ pub fn gpu_rmsnorm_bf16(
         "rmsnorm_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("rmsnorm_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "rmsnorm_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "rmsnorm_bf16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<u16>(rows * cols)?;
@@ -1200,11 +1188,9 @@ pub fn gpu_softmax_bf16(
         "softmax_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("softmax_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "softmax_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "softmax_bf16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<u16>(rows * cols)?;
@@ -1406,11 +1392,9 @@ pub fn gpu_rope_half_bf16(
         "rope_half_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("rope_half_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "rope_half_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "rope_half_bf16_kernel",
+        source: e,
     })?;
 
     let half_dim = head_dim / 2;
@@ -1600,11 +1584,9 @@ pub fn gpu_transpose_to_heads_bf16(
         "transpose_to_heads_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("transpose_to_heads_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "transpose_to_heads_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "transpose_to_heads_bf16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<u16>(total)?;
@@ -1649,11 +1631,9 @@ pub fn gpu_transpose_from_heads_bf16(
         "transpose_from_heads_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("transpose_from_heads_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "transpose_from_heads_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "transpose_from_heads_bf16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<u16>(total)?;
@@ -1773,11 +1753,9 @@ pub fn gpu_repeat_kv_bf16(
         "repeat_kv_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("repeat_kv_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "repeat_kv_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "repeat_kv_bf16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<u16>(total_out)?;
@@ -1891,11 +1869,9 @@ pub fn gpu_causal_mask_bf16(
         "causal_mask_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("causal_mask_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "causal_mask_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "causal_mask_bf16_kernel",
+        source: e,
     })?;
 
     let cfg = launch_1d(total);
@@ -1991,11 +1967,9 @@ pub fn gpu_scale_bf16(
         "scale_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("scale_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "scale_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "scale_bf16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<u16>(n)?;
@@ -2173,11 +2147,9 @@ pub fn gpu_block_reduce_max_abs_bf16(
         "block_reduce_max_abs_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|e| {
-        eprintln!("block_reduce_max_abs_bf16_kernel: {e}");
-        GpuError::PtxCompileFailed {
-            kernel: "block_reduce_max_abs_bf16_kernel",
-        }
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "block_reduce_max_abs_bf16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<f32>(rows * n_blocks)?;

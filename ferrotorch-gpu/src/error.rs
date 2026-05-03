@@ -55,8 +55,22 @@ pub enum GpuError {
     #[cfg(feature = "cuda")]
     Fft(cudarc::cufft::result::CufftError),
 
-    /// PTX kernel compilation failed (e.g. unsupported GPU architecture).
-    PtxCompileFailed { kernel: &'static str },
+    /// PTX kernel compilation failed (e.g. unsupported GPU architecture, or
+    /// invalid PTX rejected by the JIT). Preserves the underlying cudarc error
+    /// so callers can diagnose specifically *why* the JIT rejected the kernel.
+    #[cfg(feature = "cuda")]
+    PtxCompileFailed {
+        kernel: &'static str,
+        source: cudarc::driver::DriverError,
+    },
+
+    /// The op is not supported on this device for this dtype combination.
+    /// Mirrors PyTorch's `NotImplementedError: <op> not implemented for 'CUDA'`
+    /// for unsupported (op, dtype, device) combinations.
+    Unsupported {
+        op: &'static str,
+        dtype: &'static str,
+    },
 
     /// An operation was attempted in an invalid state (e.g., capture on a
     /// sealed pool, or cuSOLVER reported a negative info value).
@@ -131,8 +145,13 @@ impl fmt::Display for GpuError {
             #[cfg(feature = "cuda")]
             GpuError::Fft(e) => write!(f, "cuFFT error: {e}"),
 
-            GpuError::PtxCompileFailed { kernel } => {
-                write!(f, "PTX kernel compilation failed: {kernel}")
+            #[cfg(feature = "cuda")]
+            GpuError::PtxCompileFailed { kernel, source } => {
+                write!(f, "PTX kernel compilation failed for `{kernel}`: {source}")
+            }
+
+            GpuError::Unsupported { op, dtype } => {
+                write!(f, "{op} not implemented for '{dtype}' on CUDA")
             }
 
             GpuError::InvalidState { message } => {
@@ -153,6 +172,8 @@ impl std::error::Error for GpuError {
             GpuError::Solver(e) => Some(e),
             #[cfg(feature = "cuda")]
             GpuError::Fft(e) => Some(e),
+            #[cfg(feature = "cuda")]
+            GpuError::PtxCompileFailed { source, .. } => Some(source),
             _ => None,
         }
     }

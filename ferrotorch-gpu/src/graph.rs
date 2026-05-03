@@ -331,11 +331,9 @@ pub fn is_stream_capturing(stream: &Arc<CudaStream>) -> GpuResult<bool> {
 #[cfg(feature = "cuda")]
 pub fn end_capture(stream: &Arc<CudaStream>) -> GpuResult<CapturedGraph> {
     let flags = cudarc::driver::sys::CUgraphInstantiate_flags_enum::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH;
-    let graph = stream
-        .end_capture(flags)?
-        .ok_or(GpuError::PtxCompileFailed {
-            kernel: "CUDA graph capture returned null",
-        })?;
+    let graph = stream.end_capture(flags)?.ok_or(GpuError::InvalidState {
+        message: "CUDA graph capture returned null".to_string(),
+    })?;
     Ok(CapturedGraph {
         graph,
         pool: None,

@@ -296,6 +296,24 @@ impl GpuBackend for CudaBackendImpl {
         self.cpu_to_gpu(&bytes, elem_size, handle.device_ordinal())
     }
 
+    fn has_inf_nan_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<bool> {
+        // TODO #687: replace with a real GPU reduction kernel.
+        // The trait used to provide this body as a default impl, which made
+        // the synchronous device-to-host readback invisible at every call
+        // site. Moving the body here keeps behaviour identical but makes the
+        // host-readback explicit at the backend impl, where a real GPU
+        // kernel can be slotted in.
+        let bytes = self.gpu_to_cpu(a)?;
+        // SAFETY: gpu_to_cpu returns a byte buffer whose layout is exactly
+        // `bytes.len() / 4` consecutive `f32` values (4-byte little-endian
+        // IEEE 754). The pointer comes from a `Vec<u8>` which is
+        // 4-byte-aligned for f32 on every platform we support, and the
+        // resulting slice's lifetime is bounded by `bytes`.
+        let floats: &[f32] =
+            unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast::<f32>(), bytes.len() / 4) };
+        Ok(floats.iter().any(|v| !v.is_finite()))
+    }
+
     fn alloc_zeros(
         &self,
         len: usize,
@@ -1755,12 +1773,12 @@ impl GpuBackend for CudaBackendImpl {
         let result = crate::kernels::gpu_dropout(a_buf, threshold, scale, derived_seed, dev)
             .map_err(Self::map_gpu_err)?;
 
-        let gpu_rng_state = GpuRngState {
-            counter: rng_state.counter,
-            seed: rng_state.seed,
-            offset: rng_state.offset,
-            device: device_ordinal,
-        };
+        let gpu_rng_state = GpuRngState::new(
+            rng_state.counter,
+            rng_state.seed,
+            rng_state.offset,
+            device_ordinal,
+        );
 
         Ok((Self::wrap_buffer(result, device_ordinal), gpu_rng_state))
     }
@@ -1807,12 +1825,12 @@ impl GpuBackend for CudaBackendImpl {
         let result = crate::kernels::gpu_dropout_f64(a_buf, threshold, scale, derived_seed, dev)
             .map_err(Self::map_gpu_err)?;
 
-        let gpu_rng_state = GpuRngState {
-            counter: rng_state.counter,
-            seed: rng_state.seed,
-            offset: rng_state.offset,
-            device: device_ordinal,
-        };
+        let gpu_rng_state = GpuRngState::new(
+            rng_state.counter,
+            rng_state.seed,
+            rng_state.offset,
+            device_ordinal,
+        );
 
         Ok((Self::wrap_buffer_f64(result, device_ordinal), gpu_rng_state))
     }
@@ -2459,12 +2477,12 @@ impl GpuBackend for CudaBackendImpl {
             }
         })?;
         let state = mgr.get_rng_state(device);
-        Ok(GpuRngState {
-            counter: state.counter,
-            seed: state.seed,
-            offset: state.offset,
+        Ok(GpuRngState::new(
+            state.counter,
+            state.seed,
+            state.offset,
             device,
-        })
+        ))
     }
 
     fn restore_rng_state(&self, state: GpuRngState) -> FerrotorchResult<()> {
@@ -2474,11 +2492,11 @@ impl GpuBackend for CudaBackendImpl {
             }
         })?;
         mgr.set_rng_state(
-            state.device,
+            state.device(),
             crate::rng::PhiloxState {
-                counter: state.counter,
-                seed: state.seed,
-                offset: state.offset,
+                counter: state.counter(),
+                seed: state.seed(),
+                offset: state.offset(),
             },
         );
         Ok(())

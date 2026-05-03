@@ -1,13 +1,9 @@
 //! Custom PTX CUDA kernels for elementwise GPU operations.
 //!
-//! Each operation has two code paths:
-//!
-//! 1. **PTX kernel** -- a hand-written PTX string that is loaded into the CUDA
-//!    driver at runtime via [`cudarc`]. This is the fast path and runs entirely
-//!    on the GPU.
-//! 2. **CPU fallback** -- copies data to the host, performs the operation with
-//!    standard Rust iterators, and copies the result back. Correct but slow;
-//!    used when the PTX module cannot be loaded (e.g. architecture mismatch).
+//! Each operation attempts to run a PTX kernel on the GPU. If the PTX module
+//! cannot be loaded (e.g. architecture mismatch), the function returns
+//! `Err(GpuError::PtxCompileFailed { kernel })` per the PyTorch-parity device
+//! error policy. There is no silent CPU fallback.
 //!
 //! # Supported operations
 //!
@@ -1112,7 +1108,7 @@ pub(crate) const EMBED_LOOKUP_BATCH_PTX: &str = "\
     .param .u32 D,
     .param .u32 total
 ) {
-    .reg .u32 %tid, %bid, %bdim, %D_reg, %total_reg;
+    .reg .u32 %my_tid, %bid, %bdim, %D_reg, %total_reg;
     .reg .u32 %row, %col, %src_idx;
     .reg .u64 %idx_addr, %w, %out, %off;
     .reg .f32 %idx_f, %val;
@@ -1126,15 +1122,15 @@ pub(crate) const EMBED_LOOKUP_BATCH_PTX: &str = "\
 
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
-    mov.u32 %tid, %tid.x;
-    mad.lo.u32 %tid, %bid, %bdim, %tid;
+    mov.u32 %my_tid, %tid.x;
+    mad.lo.u32 %my_tid, %bid, %bdim, %my_tid;
 
-    setp.ge.u32 %p, %tid, %total_reg;
+    setp.ge.u32 %p, %my_tid, %total_reg;
     @%p bra DONE;
 
     // row = tid / D, col = tid % D
-    div.u32 %row, %tid, %D_reg;
-    rem.u32 %col, %tid, %D_reg;
+    div.u32 %row, %my_tid, %D_reg;
+    rem.u32 %col, %my_tid, %D_reg;
 
     // Read indices[row] (f32 -> u32)
     cvt.u64.u32 %off, %row;
@@ -1151,7 +1147,7 @@ pub(crate) const EMBED_LOOKUP_BATCH_PTX: &str = "\
     ld.global.f32 %val, [%off];
 
     // Write to out[tid]
-    cvt.u64.u32 %off, %tid;
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
     add.u64 %off, %out, %off;
     st.global.f32 [%off], %val;
@@ -1181,7 +1177,7 @@ pub(crate) const SCATTER_ADD_ROWS_PTX: &str = "\
     .param .u32 D,
     .param .u32 total
 ) {
-    .reg .u32 %tid, %bid, %bdim, %D_reg, %total_reg;
+    .reg .u32 %my_tid, %bid, %bdim, %D_reg, %total_reg;
     .reg .u32 %row, %col, %dst_idx;
     .reg .u64 %go, %idx_addr, %gw, %off;
     .reg .f32 %idx_f, %grad_val, %dummy;
@@ -1195,18 +1191,18 @@ pub(crate) const SCATTER_ADD_ROWS_PTX: &str = "\
 
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
-    mov.u32 %tid, %tid.x;
-    mad.lo.u32 %tid, %bid, %bdim, %tid;
+    mov.u32 %my_tid, %tid.x;
+    mad.lo.u32 %my_tid, %bid, %bdim, %my_tid;
 
-    setp.ge.u32 %p, %tid, %total_reg;
+    setp.ge.u32 %p, %my_tid, %total_reg;
     @%p bra DONE;
 
     // row = tid / D, col = tid % D
-    div.u32 %row, %tid, %D_reg;
-    rem.u32 %col, %tid, %D_reg;
+    div.u32 %row, %my_tid, %D_reg;
+    rem.u32 %col, %my_tid, %D_reg;
 
     // Read grad_output[tid]
-    cvt.u64.u32 %off, %tid;
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
     add.u64 %off, %go, %off;
     ld.global.f32 %grad_val, [%off];
@@ -5074,8 +5070,8 @@ pub(crate) const REDUCE_SUM_PTX: &str = "\
     .param .u64 out_ptr,
     .param .u32 n
 ) {
-    .reg .u32 %tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
-    .reg .u64 %in, %out, %off;
+    .reg .u32 %my_tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
+    .reg .u64 %in, %out, %off, %sbase, %saddr;
     .reg .f32 %sum, %other;
     .reg .pred %p, %ptid;
 
@@ -5083,14 +5079,15 @@ pub(crate) const REDUCE_SUM_PTX: &str = "\
     ld.param.u64 %out, [out_ptr];
     ld.param.u32 %n_reg, [n];
 
-    mov.u32 %tid, %tid.x;
+    mov.u32 %my_tid, %tid.x;
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
     mov.u32 %gdim, %nctaid.x;
+    mov.u64 %sbase, sdata;
 
     // Grid-stride accumulation: each thread sums multiple elements.
     // idx = bid * bdim + tid; stride = bdim * gdim
-    mad.lo.u32 %idx, %bid, %bdim, %tid;
+    mad.lo.u32 %idx, %bid, %bdim, %my_tid;
     mul.lo.u32 %stride, %bdim, %gdim;
     mov.f32 %sum, 0f00000000;
 
@@ -5108,9 +5105,10 @@ GRID_LOOP:
 
 GRID_DONE:
     // Write thread's partial sum to shared memory.
-    cvt.u64.u32 %off, %tid;
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    st.shared.f32 [sdata + %off], %sum;
+    add.u64 %saddr, %sbase, %off;
+    st.shared.f32 [%saddr], %sum;
     bar.sync 0;
 
     // Tree reduction in shared memory.
@@ -5119,20 +5117,22 @@ TREE_LOOP:
     setp.lt.u32 %p, %half, 1;
     @%p bra TREE_DONE;
 
-    setp.ge.u32 %ptid, %tid, %half;
+    setp.ge.u32 %ptid, %my_tid, %half;
     @%ptid bra TREE_SKIP;
 
     // Load partner's value from sdata[tid + half].
-    add.u32 %idx, %tid, %half;
+    add.u32 %idx, %my_tid, %half;
     cvt.u64.u32 %off, %idx;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %other, [sdata + %off];
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %other, [%saddr];
     // Load own value.
-    cvt.u64.u32 %off, %tid;
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %sum, [sdata + %off];
+    add.u64 %saddr, %sbase, %off;
+    ld.shared.f32 %sum, [%saddr];
     add.f32 %sum, %sum, %other;
-    st.shared.f32 [sdata + %off], %sum;
+    st.shared.f32 [%saddr], %sum;
 
 TREE_SKIP:
     bar.sync 0;
@@ -5141,7 +5141,7 @@ TREE_SKIP:
 
 TREE_DONE:
     // Thread 0 writes block result.
-    setp.ne.u32 %ptid, %tid, 0;
+    setp.ne.u32 %ptid, %my_tid, 0;
     @%ptid bra END;
 
     ld.shared.f32 %sum, [sdata];
@@ -5175,8 +5175,8 @@ pub(crate) const REDUCE_PROD_PTX: &str = "\
     .param .u64 out_ptr,
     .param .u32 n
 ) {
-    .reg .u32 %tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
-    .reg .u64 %in, %out, %off;
+    .reg .u32 %my_tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
+    .reg .u64 %in, %out, %off, %saddr;
     .reg .f32 %acc, %other;
     .reg .pred %p, %ptid;
 
@@ -5184,12 +5184,12 @@ pub(crate) const REDUCE_PROD_PTX: &str = "\
     ld.param.u64 %out, [out_ptr];
     ld.param.u32 %n_reg, [n];
 
-    mov.u32 %tid, %tid.x;
+    mov.u32 %my_tid, %tid.x;
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
     mov.u32 %gdim, %nctaid.x;
 
-    mad.lo.u32 %idx, %bid, %bdim, %tid;
+    mad.lo.u32 %idx, %bid, %bdim, %my_tid;
     mul.lo.u32 %stride, %bdim, %gdim;
     mov.f32 %acc, 0f3F800000;        // 1.0 (multiplicative identity)
 
@@ -5206,9 +5206,11 @@ GRID_LOOP_PROD:
     bra GRID_LOOP_PROD;
 
 GRID_DONE_PROD:
-    cvt.u64.u32 %off, %tid;
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    st.shared.f32 [sdata + %off], %acc;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    st.shared.f32 [%saddr], %acc;
     bar.sync 0;
 
     mov.u32 %half, 128;
@@ -5216,18 +5218,24 @@ TREE_LOOP_PROD:
     setp.lt.u32 %p, %half, 1;
     @%p bra TREE_DONE_PROD;
 
-    setp.ge.u32 %ptid, %tid, %half;
+    setp.ge.u32 %ptid, %my_tid, %half;
     @%ptid bra TREE_SKIP_PROD;
 
-    add.u32 %idx, %tid, %half;
+    add.u32 %idx, %my_tid, %half;
     cvt.u64.u32 %off, %idx;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %other, [sdata + %off];
-    cvt.u64.u32 %off, %tid;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    ld.shared.f32 %other, [%saddr];
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %acc, [sdata + %off];
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    ld.shared.f32 %acc, [%saddr];
     mul.f32 %acc, %acc, %other;
-    st.shared.f32 [sdata + %off], %acc;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    st.shared.f32 [%saddr], %acc;
 
 TREE_SKIP_PROD:
     bar.sync 0;
@@ -5235,10 +5243,11 @@ TREE_SKIP_PROD:
     bra TREE_LOOP_PROD;
 
 TREE_DONE_PROD:
-    setp.ne.u32 %ptid, %tid, 0;
+    setp.ne.u32 %ptid, %my_tid, 0;
     @%ptid bra END_PROD;
 
-    ld.shared.f32 %acc, [sdata];
+    mov.u64 %saddr, sdata;
+    ld.shared.f32 %acc, [%saddr];
     cvt.u64.u32 %off, %bid;
     shl.b64 %off, %off, 2;
     add.u64 %out, %out, %off;
@@ -5271,8 +5280,8 @@ pub(crate) const REDUCE_MIN_PTX: &str = "\
     .param .u64 out_ptr,
     .param .u32 n
 ) {
-    .reg .u32 %tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
-    .reg .u64 %in, %out, %off;
+    .reg .u32 %my_tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
+    .reg .u64 %in, %out, %off, %saddr;
     .reg .f32 %acc, %other;
     .reg .pred %p, %ptid;
 
@@ -5280,12 +5289,12 @@ pub(crate) const REDUCE_MIN_PTX: &str = "\
     ld.param.u64 %out, [out_ptr];
     ld.param.u32 %n_reg, [n];
 
-    mov.u32 %tid, %tid.x;
+    mov.u32 %my_tid, %tid.x;
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
     mov.u32 %gdim, %nctaid.x;
 
-    mad.lo.u32 %idx, %bid, %bdim, %tid;
+    mad.lo.u32 %idx, %bid, %bdim, %my_tid;
     mul.lo.u32 %stride, %bdim, %gdim;
     // accumulator init = +inf
     mov.f32 %acc, 0f7F800000;
@@ -5303,9 +5312,11 @@ GRID_LOOP_MIN:
     bra GRID_LOOP_MIN;
 
 GRID_DONE_MIN:
-    cvt.u64.u32 %off, %tid;
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    st.shared.f32 [sdata + %off], %acc;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    st.shared.f32 [%saddr], %acc;
     bar.sync 0;
 
     mov.u32 %half, 128;
@@ -5313,18 +5324,24 @@ TREE_LOOP_MIN:
     setp.lt.u32 %p, %half, 1;
     @%p bra TREE_DONE_MIN;
 
-    setp.ge.u32 %ptid, %tid, %half;
+    setp.ge.u32 %ptid, %my_tid, %half;
     @%ptid bra TREE_SKIP_MIN;
 
-    add.u32 %idx, %tid, %half;
+    add.u32 %idx, %my_tid, %half;
     cvt.u64.u32 %off, %idx;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %other, [sdata + %off];
-    cvt.u64.u32 %off, %tid;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    ld.shared.f32 %other, [%saddr];
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %acc, [sdata + %off];
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    ld.shared.f32 %acc, [%saddr];
     min.f32 %acc, %acc, %other;
-    st.shared.f32 [sdata + %off], %acc;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    st.shared.f32 [%saddr], %acc;
 
 TREE_SKIP_MIN:
     bar.sync 0;
@@ -5332,10 +5349,11 @@ TREE_SKIP_MIN:
     bra TREE_LOOP_MIN;
 
 TREE_DONE_MIN:
-    setp.ne.u32 %ptid, %tid, 0;
+    setp.ne.u32 %ptid, %my_tid, 0;
     @%ptid bra END_MIN;
 
-    ld.shared.f32 %acc, [sdata];
+    mov.u64 %saddr, sdata;
+    ld.shared.f32 %acc, [%saddr];
     cvt.u64.u32 %off, %bid;
     shl.b64 %off, %off, 2;
     add.u64 %out, %out, %off;
@@ -5364,8 +5382,8 @@ pub(crate) const REDUCE_MAX_PTX: &str = "\
     .param .u64 out_ptr,
     .param .u32 n
 ) {
-    .reg .u32 %tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
-    .reg .u64 %in, %out, %off;
+    .reg .u32 %my_tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
+    .reg .u64 %in, %out, %off, %saddr;
     .reg .f32 %acc, %other;
     .reg .pred %p, %ptid;
 
@@ -5373,12 +5391,12 @@ pub(crate) const REDUCE_MAX_PTX: &str = "\
     ld.param.u64 %out, [out_ptr];
     ld.param.u32 %n_reg, [n];
 
-    mov.u32 %tid, %tid.x;
+    mov.u32 %my_tid, %tid.x;
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
     mov.u32 %gdim, %nctaid.x;
 
-    mad.lo.u32 %idx, %bid, %bdim, %tid;
+    mad.lo.u32 %idx, %bid, %bdim, %my_tid;
     mul.lo.u32 %stride, %bdim, %gdim;
     // accumulator init = -inf
     mov.f32 %acc, 0fFF800000;
@@ -5396,9 +5414,11 @@ GRID_LOOP_MAX:
     bra GRID_LOOP_MAX;
 
 GRID_DONE_MAX:
-    cvt.u64.u32 %off, %tid;
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    st.shared.f32 [sdata + %off], %acc;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    st.shared.f32 [%saddr], %acc;
     bar.sync 0;
 
     mov.u32 %half, 128;
@@ -5406,18 +5426,24 @@ TREE_LOOP_MAX:
     setp.lt.u32 %p, %half, 1;
     @%p bra TREE_DONE_MAX;
 
-    setp.ge.u32 %ptid, %tid, %half;
+    setp.ge.u32 %ptid, %my_tid, %half;
     @%ptid bra TREE_SKIP_MAX;
 
-    add.u32 %idx, %tid, %half;
+    add.u32 %idx, %my_tid, %half;
     cvt.u64.u32 %off, %idx;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %other, [sdata + %off];
-    cvt.u64.u32 %off, %tid;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    ld.shared.f32 %other, [%saddr];
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %acc, [sdata + %off];
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    ld.shared.f32 %acc, [%saddr];
     max.f32 %acc, %acc, %other;
-    st.shared.f32 [sdata + %off], %acc;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    st.shared.f32 [%saddr], %acc;
 
 TREE_SKIP_MAX:
     bar.sync 0;
@@ -5425,10 +5451,11 @@ TREE_SKIP_MAX:
     bra TREE_LOOP_MAX;
 
 TREE_DONE_MAX:
-    setp.ne.u32 %ptid, %tid, 0;
+    setp.ne.u32 %ptid, %my_tid, 0;
     @%ptid bra END_MAX;
 
-    ld.shared.f32 %acc, [sdata];
+    mov.u64 %saddr, sdata;
+    ld.shared.f32 %acc, [%saddr];
     cvt.u64.u32 %off, %bid;
     shl.b64 %off, %off, 2;
     add.u64 %out, %out, %off;
@@ -5460,8 +5487,8 @@ pub(crate) const MASKED_REDUCE_MIN_PTX: &str = "\
     .param .u64 out_ptr,
     .param .u32 n
 ) {
-    .reg .u32 %tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
-    .reg .u64 %dat, %msk, %out, %off;
+    .reg .u32 %my_tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
+    .reg .u64 %dat, %msk, %out, %off, %saddr;
     .reg .f32 %acc, %d, %m, %sentinel, %val;
     .reg .pred %p, %ptid, %p_valid;
 
@@ -5470,12 +5497,12 @@ pub(crate) const MASKED_REDUCE_MIN_PTX: &str = "\
     ld.param.u64 %out, [out_ptr];
     ld.param.u32 %n_reg, [n];
 
-    mov.u32 %tid, %tid.x;
+    mov.u32 %my_tid, %tid.x;
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
     mov.u32 %gdim, %nctaid.x;
 
-    mad.lo.u32 %idx, %bid, %bdim, %tid;
+    mad.lo.u32 %idx, %bid, %bdim, %my_tid;
     mul.lo.u32 %stride, %bdim, %gdim;
     mov.f32 %acc, 0f7F800000;        // +inf
     mov.f32 %sentinel, 0f7F800000;
@@ -5503,9 +5530,11 @@ GRID_LOOP_MMIN:
     bra GRID_LOOP_MMIN;
 
 GRID_DONE_MMIN:
-    cvt.u64.u32 %off, %tid;
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    st.shared.f32 [sdata + %off], %acc;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    st.shared.f32 [%saddr], %acc;
     bar.sync 0;
 
     mov.u32 %half, 128;
@@ -5513,18 +5542,24 @@ TREE_LOOP_MMIN:
     setp.lt.u32 %p, %half, 1;
     @%p bra TREE_DONE_MMIN;
 
-    setp.ge.u32 %ptid, %tid, %half;
+    setp.ge.u32 %ptid, %my_tid, %half;
     @%ptid bra TREE_SKIP_MMIN;
 
-    add.u32 %idx, %tid, %half;
+    add.u32 %idx, %my_tid, %half;
     cvt.u64.u32 %off, %idx;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %val, [sdata + %off];
-    cvt.u64.u32 %off, %tid;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    ld.shared.f32 %val, [%saddr];
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %acc, [sdata + %off];
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    ld.shared.f32 %acc, [%saddr];
     min.f32 %acc, %acc, %val;
-    st.shared.f32 [sdata + %off], %acc;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    st.shared.f32 [%saddr], %acc;
 
 TREE_SKIP_MMIN:
     bar.sync 0;
@@ -5532,10 +5567,11 @@ TREE_SKIP_MMIN:
     bra TREE_LOOP_MMIN;
 
 TREE_DONE_MMIN:
-    setp.ne.u32 %ptid, %tid, 0;
+    setp.ne.u32 %ptid, %my_tid, 0;
     @%ptid bra END_MMIN;
 
-    ld.shared.f32 %acc, [sdata];
+    mov.u64 %saddr, sdata;
+    ld.shared.f32 %acc, [%saddr];
     cvt.u64.u32 %off, %bid;
     shl.b64 %off, %off, 2;
     add.u64 %out, %out, %off;
@@ -5561,8 +5597,8 @@ pub(crate) const MASKED_REDUCE_MAX_PTX: &str = "\
     .param .u64 out_ptr,
     .param .u32 n
 ) {
-    .reg .u32 %tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
-    .reg .u64 %dat, %msk, %out, %off;
+    .reg .u32 %my_tid, %bid, %bdim, %gdim, %n_reg, %idx, %stride, %half;
+    .reg .u64 %dat, %msk, %out, %off, %saddr;
     .reg .f32 %acc, %d, %m, %sentinel, %val;
     .reg .pred %p, %ptid, %p_valid;
 
@@ -5571,12 +5607,12 @@ pub(crate) const MASKED_REDUCE_MAX_PTX: &str = "\
     ld.param.u64 %out, [out_ptr];
     ld.param.u32 %n_reg, [n];
 
-    mov.u32 %tid, %tid.x;
+    mov.u32 %my_tid, %tid.x;
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
     mov.u32 %gdim, %nctaid.x;
 
-    mad.lo.u32 %idx, %bid, %bdim, %tid;
+    mad.lo.u32 %idx, %bid, %bdim, %my_tid;
     mul.lo.u32 %stride, %bdim, %gdim;
     mov.f32 %acc, 0fFF800000;        // -inf
     mov.f32 %sentinel, 0fFF800000;
@@ -5603,9 +5639,11 @@ GRID_LOOP_MMAX:
     bra GRID_LOOP_MMAX;
 
 GRID_DONE_MMAX:
-    cvt.u64.u32 %off, %tid;
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    st.shared.f32 [sdata + %off], %acc;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    st.shared.f32 [%saddr], %acc;
     bar.sync 0;
 
     mov.u32 %half, 128;
@@ -5613,18 +5651,24 @@ TREE_LOOP_MMAX:
     setp.lt.u32 %p, %half, 1;
     @%p bra TREE_DONE_MMAX;
 
-    setp.ge.u32 %ptid, %tid, %half;
+    setp.ge.u32 %ptid, %my_tid, %half;
     @%ptid bra TREE_SKIP_MMAX;
 
-    add.u32 %idx, %tid, %half;
+    add.u32 %idx, %my_tid, %half;
     cvt.u64.u32 %off, %idx;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %val, [sdata + %off];
-    cvt.u64.u32 %off, %tid;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    ld.shared.f32 %val, [%saddr];
+    cvt.u64.u32 %off, %my_tid;
     shl.b64 %off, %off, 2;
-    ld.shared.f32 %acc, [sdata + %off];
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    ld.shared.f32 %acc, [%saddr];
     max.f32 %acc, %acc, %val;
-    st.shared.f32 [sdata + %off], %acc;
+    mov.u64 %saddr, sdata;
+    add.u64 %saddr, %saddr, %off;
+    st.shared.f32 [%saddr], %acc;
 
 TREE_SKIP_MMAX:
     bar.sync 0;
@@ -5632,10 +5676,11 @@ TREE_SKIP_MMAX:
     bra TREE_LOOP_MMAX;
 
 TREE_DONE_MMAX:
-    setp.ne.u32 %ptid, %tid, 0;
+    setp.ne.u32 %ptid, %my_tid, 0;
     @%ptid bra END_MMAX;
 
-    ld.shared.f32 %acc, [sdata];
+    mov.u64 %saddr, sdata;
+    ld.shared.f32 %acc, [%saddr];
     cvt.u64.u32 %off, %bid;
     shl.b64 %off, %off, 2;
     add.u64 %out, %out, %off;
@@ -7480,7 +7525,7 @@ pub(crate) const BATCHNORM_FORWARD_PTX: &str = "\
     .param .u32 total_per_ch,
     .param .u32 training
 ) {
-    .reg .u32 %tid, %bid, %bdim, %ch, %n_ch, %sp, %tpc, %idx, %train;
+    .reg .u32 %my_tid, %bid, %bdim, %ch, %n_ch, %sp, %tpc, %idx, %train;
     .reg .u64 %in, %out, %w, %b, %rm, %rv, %sm, %si, %off64, %tmp64;
     .reg .f32 %sum, %sqsum, %val, %mean, %var, %invstd;
     .reg .f32 %gamma, %beta, %eps_reg, %mom, %other;
@@ -7504,7 +7549,7 @@ pub(crate) const BATCHNORM_FORWARD_PTX: &str = "\
     ld.param.u32 %train, [training];
 
     mov.u32 %bid, %ctaid.x;
-    mov.u32 %tid, %tid.x;
+    mov.u32 %my_tid, %tid.x;
     mov.u32 %bdim, %ntid.x;
     mov.u32 %ch, %bid;
     mov.f32 %one, 0f3F800000;
@@ -7519,7 +7564,7 @@ pub(crate) const BATCHNORM_FORWARD_PTX: &str = "\
     mov.f32 %sqsum, 0f00000000;
 
     // Grid-stride loop over B*spatial for this channel
-    mov.u32 %idx, %tid;
+    mov.u32 %idx, %my_tid;
 PASS1_LOOP:
     setp.ge.u32 %p, %idx, %tpc;
     @%p bra PASS1_DONE;
@@ -7549,7 +7594,7 @@ PASS1_LOOP:
 
 PASS1_DONE:
     // Store to shared memory for block reduction
-    cvt.u64.u32 %off64, %tid;
+    cvt.u64.u32 %off64, %my_tid;
     shl.b64 %off64, %off64, 2;
     st.shared.f32 [smem_sum + %off64], %sum;
     st.shared.f32 [smem_sq + %off64], %sqsum;
@@ -7560,14 +7605,14 @@ PASS1_DONE:
 REDUCE_LOOP:
     setp.lt.u32 %p, %half, 1;
     @%p bra REDUCE_DONE;
-    setp.ge.u32 %p, %tid, %half;
+    setp.ge.u32 %p, %my_tid, %half;
     @%p bra REDUCE_SKIP;
 
-    add.u32 %idx, %tid, %half;
+    add.u32 %idx, %my_tid, %half;
     cvt.u64.u32 %off64, %idx;
     shl.b64 %off64, %off64, 2;
     ld.shared.f32 %other, [smem_sum + %off64];
-    cvt.u64.u32 %tmp64, %tid;
+    cvt.u64.u32 %tmp64, %my_tid;
     shl.b64 %tmp64, %tmp64, 2;
     ld.shared.f32 %sum, [smem_sum + %tmp64];
     add.f32 %sum, %sum, %other;
@@ -7585,7 +7630,7 @@ REDUCE_SKIP:
 
 REDUCE_DONE:
     // Thread 0 computes mean and invstd
-    setp.ne.u32 %ptid0, %tid, 0;
+    setp.ne.u32 %ptid0, %my_tid, 0;
 
     @%ptid0 bra WAIT_STATS;
 
@@ -7668,7 +7713,7 @@ pub(crate) const MAXPOOL2D_PTX: &str = "\
     .param .u32 pw,
     .param .u32 total
 ) {
-    .reg .u32 %tid, %bid, %bdim, %gdim, %idx, %stride, %total_reg;
+    .reg .u32 %my_tid, %bid, %bdim, %gdim, %idx, %stride, %total_reg;
     .reg .u32 %b_idx, %c_idx, %oh, %ow, %rem, %ih, %iw, %tmp;
     .reg .u32 %i, %j, %h_in_reg, %w_in_reg, %kh_reg, %kw_reg;
     .reg .u32 %sh_reg, %sw_reg, %ph_reg, %pw_reg, %h_out_reg, %w_out_reg;
@@ -7695,9 +7740,9 @@ pub(crate) const MAXPOOL2D_PTX: &str = "\
 
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
-    mov.u32 %tid, %tid.x;
+    mov.u32 %my_tid, %tid.x;
     mov.u32 %gdim, %nctaid.x;
-    mad.lo.u32 %idx, %bid, %bdim, %tid;
+    mad.lo.u32 %idx, %bid, %bdim, %my_tid;
     mul.lo.u32 %stride, %bdim, %gdim;
 
     // -inf for max initialization
@@ -7810,7 +7855,7 @@ pub(crate) const AVGPOOL2D_PTX: &str = "\
     .param .u32 pw,
     .param .u32 total
 ) {
-    .reg .u32 %tid, %bid, %bdim, %gdim, %idx, %stride, %total_reg;
+    .reg .u32 %my_tid, %bid, %bdim, %gdim, %idx, %stride, %total_reg;
     .reg .u32 %b_idx, %c_idx, %oh, %ow, %rem, %ih, %iw, %tmp, %count;
     .reg .u32 %i, %j, %h_in_reg, %w_in_reg, %kh_reg, %kw_reg;
     .reg .u32 %sh_reg, %sw_reg, %ph_reg, %pw_reg, %h_out_reg, %w_out_reg;
@@ -7837,9 +7882,9 @@ pub(crate) const AVGPOOL2D_PTX: &str = "\
 
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
-    mov.u32 %tid, %tid.x;
+    mov.u32 %my_tid, %tid.x;
     mov.u32 %gdim, %nctaid.x;
-    mad.lo.u32 %idx, %bid, %bdim, %tid;
+    mad.lo.u32 %idx, %bid, %bdim, %my_tid;
     mul.lo.u32 %stride, %bdim, %gdim;
 
 LOOP:
@@ -10296,7 +10341,7 @@ pub(crate) const FUSED_GRU_FORWARD_PTX: &str = "\
     .param .u32 hsz,
     .param .u32 total
 ) {
-    .reg .u32 %tid, %bid, %bdim, %gdim, %total_reg, %hsz_reg;
+    .reg .u32 %my_tid, %bid, %bdim, %gdim, %total_reg, %hsz_reg;
     .reg .u32 %idx, %stride, %offset3, %offset5, %hmod, %batch_idx;
     .reg .u64 %ig, %hg, %b1, %b2, %hx, %hy, %ws;
     .reg .u64 %off64, %tmp64;
@@ -10318,9 +10363,9 @@ pub(crate) const FUSED_GRU_FORWARD_PTX: &str = "\
 
     mov.u32 %bid, %ctaid.x;
     mov.u32 %bdim, %ntid.x;
-    mov.u32 %tid, %tid.x;
+    mov.u32 %my_tid, %tid.x;
     mov.u32 %gdim, %nctaid.x;
-    mad.lo.u32 %idx, %bid, %bdim, %tid;
+    mad.lo.u32 %idx, %bid, %bdim, %my_tid;
     mul.lo.u32 %stride, %bdim, %gdim;
     mov.f32 %one, 0f3F800000;
 
@@ -10558,7 +10603,7 @@ fn try_launch_binary(
     device: &GpuDevice,
     ptx_src: &'static str,
     kernel_name: &'static str,
-) -> GpuResult<Option<CudaBuffer<f32>>> {
+) -> GpuResult<CudaBuffer<f32>> {
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
@@ -10566,8 +10611,7 @@ fn try_launch_binary(
     let stream = device.stream();
 
     // Attempt to load the kernel (cached after first compilation).
-    // If it fails (e.g. unsupported arch), return None so the caller
-    // can use the CPU fallback.
+    // Propagate the DriverError so callers can diagnose why the JIT rejected it.
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx_src,
@@ -10575,7 +10619,12 @@ fn try_launch_binary(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: kernel_name,
+                source: e,
+            });
+        }
     };
 
     let mut out = alloc_zeros_f32(n, device)?;
@@ -10595,13 +10644,13 @@ fn try_launch_binary(
             .launch(cfg)?;
     }
 
-    Ok(Some(out))
+    Ok(out)
 }
 
 /// Try to launch a vectorized (vec4) binary PTX kernel.
 ///
 /// Each thread processes 4 elements using 128-bit loads/stores.
-/// `n` must be divisible by 4. Returns `Ok(None)` if compilation fails.
+/// `n` must be divisible by 4. Propagates the DriverError if compilation fails.
 #[cfg(feature = "cuda")]
 fn try_launch_binary_vec4(
     a: &CudaBuffer<f32>,
@@ -10609,7 +10658,7 @@ fn try_launch_binary_vec4(
     device: &GpuDevice,
     ptx_src: &'static str,
     kernel_name: &'static str,
-) -> GpuResult<Option<CudaBuffer<f32>>> {
+) -> GpuResult<CudaBuffer<f32>> {
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
@@ -10624,7 +10673,12 @@ fn try_launch_binary_vec4(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: kernel_name,
+                source: e,
+            });
+        }
     };
 
     let mut out = alloc_zeros_f32(n, device)?;
@@ -10640,18 +10694,18 @@ fn try_launch_binary_vec4(
             .launch(cfg)?;
     }
 
-    Ok(Some(out))
+    Ok(out)
 }
 
-/// Try to launch a unary PTX kernel. Returns `Ok(Some(buf))` on success,
-/// `Ok(None)` if the PTX module failed to load.
+/// Try to launch a unary PTX kernel. Returns `Ok(buf)` on success,
+/// `Err(GpuError::PtxCompileFailed)` if the PTX module failed to load.
 #[cfg(feature = "cuda")]
 fn try_launch_unary(
     a: &CudaBuffer<f32>,
     device: &GpuDevice,
     ptx_src: &'static str,
     kernel_name: &'static str,
-) -> GpuResult<Option<CudaBuffer<f32>>> {
+) -> GpuResult<CudaBuffer<f32>> {
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
@@ -10659,6 +10713,7 @@ fn try_launch_unary(
     let stream = device.stream();
 
     // Attempt to load the kernel (cached after first compilation).
+    // Propagate the DriverError so callers can diagnose why the JIT rejected it.
     let f = match crate::module_cache::get_or_compile(
         ctx,
         ptx_src,
@@ -10666,7 +10721,12 @@ fn try_launch_unary(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: kernel_name,
+                source: e,
+            });
+        }
     };
 
     let mut out = alloc_zeros_f32(n, device)?;
@@ -10684,7 +10744,7 @@ fn try_launch_unary(
             .launch(cfg)?;
     }
 
-    Ok(Some(out))
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -10692,7 +10752,7 @@ fn try_launch_unary(
 // ---------------------------------------------------------------------------
 
 /// Launch a binary PTX kernel into a pre-allocated output buffer.
-/// Returns `Ok(true)` on success, `Ok(false)` if the PTX module failed to load.
+/// Returns `Ok(())` on success, `Err(GpuError::PtxCompileFailed)` if the PTX module failed to load.
 #[cfg(feature = "cuda")]
 fn try_launch_binary_into(
     a: &CudaBuffer<f32>,
@@ -10701,7 +10761,7 @@ fn try_launch_binary_into(
     device: &GpuDevice,
     ptx_src: &'static str,
     kernel_name: &'static str,
-) -> GpuResult<bool> {
+) -> GpuResult<()> {
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
@@ -10715,7 +10775,12 @@ fn try_launch_binary_into(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => return Ok(false),
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: kernel_name,
+                source: e,
+            });
+        }
     };
 
     let cfg = launch_cfg(n)?;
@@ -10731,11 +10796,11 @@ fn try_launch_binary_into(
             .launch(cfg)?;
     }
 
-    Ok(true)
+    Ok(())
 }
 
 /// Launch a unary PTX kernel into a pre-allocated output buffer.
-/// Returns `Ok(true)` on success, `Ok(false)` if the PTX module failed to load.
+/// Returns `Ok(())` on success, `Err(GpuError::PtxCompileFailed)` if the PTX module failed to load.
 #[cfg(feature = "cuda")]
 fn try_launch_unary_into(
     a: &CudaBuffer<f32>,
@@ -10743,7 +10808,7 @@ fn try_launch_unary_into(
     device: &GpuDevice,
     ptx_src: &'static str,
     kernel_name: &'static str,
-) -> GpuResult<bool> {
+) -> GpuResult<()> {
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
@@ -10757,7 +10822,12 @@ fn try_launch_unary_into(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => return Ok(false),
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: kernel_name,
+                source: e,
+            });
+        }
     };
 
     let cfg = launch_cfg(n)?;
@@ -10772,7 +10842,7 @@ fn try_launch_unary_into(
             .launch(cfg)?;
     }
 
-    Ok(true)
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -10787,7 +10857,7 @@ fn try_launch_binary_f64(
     device: &GpuDevice,
     ptx_src: &'static str,
     kernel_name: &'static str,
-) -> GpuResult<Option<CudaBuffer<f64>>> {
+) -> GpuResult<CudaBuffer<f64>> {
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
@@ -10801,7 +10871,12 @@ fn try_launch_binary_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: kernel_name,
+                source: e,
+            });
+        }
     };
 
     let mut out = alloc_zeros_f64(n, device)?;
@@ -10817,7 +10892,7 @@ fn try_launch_binary_f64(
             .arg(&n_u32)
             .launch(cfg)?;
     }
-    Ok(Some(out))
+    Ok(out)
 }
 
 /// Try to launch a unary f64 PTX kernel.
@@ -10827,7 +10902,7 @@ fn try_launch_unary_f64(
     device: &GpuDevice,
     ptx_src: &'static str,
     kernel_name: &'static str,
-) -> GpuResult<Option<CudaBuffer<f64>>> {
+) -> GpuResult<CudaBuffer<f64>> {
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
@@ -10841,7 +10916,12 @@ fn try_launch_unary_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: kernel_name,
+                source: e,
+            });
+        }
     };
 
     let mut out = alloc_zeros_f64(n, device)?;
@@ -10856,37 +10936,7 @@ fn try_launch_unary_f64(
             .arg(&n_u32)
             .launch(cfg)?;
     }
-    Ok(Some(out))
-}
-
-/// CPU fallback for f64 binary ops.
-#[cfg(feature = "cuda")]
-fn cpu_fallback_binary_f64(
-    a: &CudaBuffer<f64>,
-    b: &CudaBuffer<f64>,
-    device: &GpuDevice,
-    op: fn(f64, f64) -> f64,
-) -> GpuResult<CudaBuffer<f64>> {
-    let a_host = gpu_to_cpu(a, device)?;
-    let b_host = gpu_to_cpu(b, device)?;
-    let result: Vec<f64> = a_host
-        .iter()
-        .zip(b_host.iter())
-        .map(|(&x, &y)| op(x, y))
-        .collect();
-    cpu_to_gpu(&result, device)
-}
-
-/// CPU fallback for f64 unary ops.
-#[cfg(feature = "cuda")]
-fn cpu_fallback_unary_f64(
-    a: &CudaBuffer<f64>,
-    device: &GpuDevice,
-    op: fn(f64) -> f64,
-) -> GpuResult<CudaBuffer<f64>> {
-    let a_host = gpu_to_cpu(a, device)?;
-    let result: Vec<f64> = a_host.iter().map(|&x| op(x)).collect();
-    cpu_to_gpu(&result, device)
+    Ok(out)
 }
 
 /// Try to launch a general N-dimensional broadcast binary f64 PTX kernel.
@@ -10904,7 +10954,7 @@ fn try_launch_broadcast_binary_f64(
     device: &GpuDevice,
     ptx_src: &'static str,
     kernel_name: &'static str,
-) -> GpuResult<Option<CudaBuffer<f64>>> {
+) -> GpuResult<CudaBuffer<f64>> {
     use cudarc::driver::PushKernelArg;
 
     let ndim = out_shape.len();
@@ -10918,7 +10968,12 @@ fn try_launch_broadcast_binary_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: kernel_name,
+                source: e,
+            });
+        }
     };
 
     // Upload stride/shape metadata as small device buffers.
@@ -10945,41 +11000,7 @@ fn try_launch_broadcast_binary_f64(
             .launch(cfg)?;
     }
 
-    Ok(Some(out))
-}
-
-/// CPU fallback for f64 broadcast binary ops.
-#[cfg(feature = "cuda")]
-fn cpu_fallback_broadcast_binary_f64(
-    a: &CudaBuffer<f64>,
-    b: &CudaBuffer<f64>,
-    a_shape: &[usize],
-    b_shape: &[usize],
-    out_shape: &[usize],
-    device: &GpuDevice,
-    op: fn(f64, f64) -> f64,
-) -> GpuResult<CudaBuffer<f64>> {
-    let a_host = gpu_to_cpu(a, device)?;
-    let b_host = gpu_to_cpu(b, device)?;
-    let out_numel: usize = out_shape.iter().product();
-
-    let a_str = broadcast_strides(a_shape, out_shape);
-    let b_str = broadcast_strides(b_shape, out_shape);
-
-    let mut result = Vec::with_capacity(out_numel);
-    for i in 0..out_numel {
-        let mut remaining = i;
-        let mut a_idx = 0usize;
-        let mut b_idx = 0usize;
-        for d in (0..out_shape.len()).rev() {
-            let coord = remaining % out_shape[d];
-            remaining /= out_shape[d];
-            a_idx += coord * a_str[d] as usize;
-            b_idx += coord * b_str[d] as usize;
-        }
-        result.push(op(a_host[a_idx], b_host[b_idx]));
-    }
-    cpu_to_gpu(&result, device)
+    Ok(out)
 }
 
 /// Try to launch a general N-dimensional broadcast binary PTX kernel.
@@ -11000,7 +11021,7 @@ fn try_launch_broadcast_binary(
     device: &GpuDevice,
     ptx_src: &'static str,
     kernel_name: &'static str,
-) -> GpuResult<Option<CudaBuffer<f32>>> {
+) -> GpuResult<CudaBuffer<f32>> {
     use cudarc::driver::PushKernelArg;
 
     let ndim = out_shape.len();
@@ -11014,7 +11035,12 @@ fn try_launch_broadcast_binary(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: kernel_name,
+                source: e,
+            });
+        }
     };
 
     // Upload stride/shape metadata as small device buffers.
@@ -11043,7 +11069,7 @@ fn try_launch_broadcast_binary(
             .launch(cfg)?;
     }
 
-    Ok(Some(out))
+    Ok(out)
 }
 
 /// Compute broadcast strides for a tensor shape relative to an output shape.
@@ -11081,39 +11107,6 @@ fn broadcast_strides(in_shape: &[usize], out_shape: &[usize]) -> Vec<u32> {
 }
 
 // ---------------------------------------------------------------------------
-// CPU fallback helpers
-// ---------------------------------------------------------------------------
-
-/// CPU fallback for binary ops: copy both inputs to host, apply `op`, copy
-/// the result back.
-#[cfg(feature = "cuda")]
-fn cpu_fallback_binary(
-    a: &CudaBuffer<f32>,
-    b: &CudaBuffer<f32>,
-    device: &GpuDevice,
-    op: fn(f32, f32) -> f32,
-) -> GpuResult<CudaBuffer<f32>> {
-    let a_host = gpu_to_cpu(a, device)?;
-    let b_host = gpu_to_cpu(b, device)?;
-    let result: Vec<f32> = a_host
-        .iter()
-        .zip(b_host.iter())
-        .map(|(&x, &y)| op(x, y))
-        .collect();
-    cpu_to_gpu(&result, device)
-}
-
-/// CPU fallback for unary ops.
-#[cfg(feature = "cuda")]
-fn cpu_fallback_unary(
-    a: &CudaBuffer<f32>,
-    device: &GpuDevice,
-    op: fn(f32) -> f32,
-) -> GpuResult<CudaBuffer<f32>> {
-    let a_host = gpu_to_cpu(a, device)?;
-    let result: Vec<f32> = a_host.iter().map(|&x| op(x)).collect();
-    cpu_to_gpu(&result, device)
-}
 
 // ---------------------------------------------------------------------------
 // Public API -- binary ops
@@ -11121,7 +11114,7 @@ fn cpu_fallback_unary(
 
 /// Elementwise addition: `out[i] = a[i] + b[i]`.
 ///
-/// Attempts to run a PTX kernel on the GPU. Falls back to a CPU round-trip
+/// Attempts to run a PTX kernel on the GPU. Returns `Err(GpuError::PtxCompileFailed)`
 /// if the PTX module cannot be loaded.
 ///
 /// # Errors
@@ -11141,21 +11134,19 @@ pub fn gpu_add(
     // Try vec4 kernel for 4x memory throughput (128-bit loads).
     let n = a.len();
     if n >= 16 && n % 4 == 0 {
-        if let Some(out) = try_launch_binary_vec4(a, b, device, ADD_VEC4_PTX, "add_vec4_kernel")? {
-            return Ok(out);
+        match try_launch_binary_vec4(a, b, device, ADD_VEC4_PTX, "add_vec4_kernel") {
+            Ok(out) => return Ok(out),
+            Err(GpuError::PtxCompileFailed { .. }) => {}
+            Err(e) => return Err(e),
         }
     }
 
-    if let Some(out) = try_launch_binary(a, b, device, ADD_PTX, "add_kernel")? {
-        return Ok(out);
-    }
-
-    cpu_fallback_binary(a, b, device, |x, y| x + y)
+    try_launch_binary(a, b, device, ADD_PTX, "add_kernel")
 }
 
 /// Elementwise subtraction: `out[i] = a[i] - b[i]`.
 ///
-/// Attempts to run a PTX kernel on the GPU. Falls back to a CPU round-trip
+/// Attempts to run a PTX kernel on the GPU. Returns `Err(GpuError::PtxCompileFailed)`
 /// if the PTX module cannot be loaded.
 ///
 /// # Errors
@@ -11172,16 +11163,12 @@ pub fn gpu_sub(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(a, b, device)?;
 
-    if let Some(out) = try_launch_binary(a, b, device, SUB_PTX, "sub_kernel")? {
-        return Ok(out);
-    }
-
-    cpu_fallback_binary(a, b, device, |x, y| x - y)
+    try_launch_binary(a, b, device, SUB_PTX, "sub_kernel")
 }
 
 /// Elementwise multiplication: `out[i] = a[i] * b[i]`.
 ///
-/// Attempts to run a PTX kernel on the GPU. Falls back to a CPU round-trip
+/// Attempts to run a PTX kernel on the GPU. Returns `Err(GpuError::PtxCompileFailed)`
 /// if the PTX module cannot be loaded.
 ///
 /// # Errors
@@ -11200,16 +11187,14 @@ pub fn gpu_mul(
 
     let n = a.len();
     if n >= 16 && n % 4 == 0 {
-        if let Some(out) = try_launch_binary_vec4(a, b, device, MUL_VEC4_PTX, "mul_vec4_kernel")? {
-            return Ok(out);
+        match try_launch_binary_vec4(a, b, device, MUL_VEC4_PTX, "mul_vec4_kernel") {
+            Ok(out) => return Ok(out),
+            Err(GpuError::PtxCompileFailed { .. }) => {}
+            Err(e) => return Err(e),
         }
     }
 
-    if let Some(out) = try_launch_binary(a, b, device, MUL_PTX, "mul_kernel")? {
-        return Ok(out);
-    }
-
-    cpu_fallback_binary(a, b, device, |x, y| x * y)
+    try_launch_binary(a, b, device, MUL_PTX, "mul_kernel")
 }
 
 // ---------------------------------------------------------------------------
@@ -11238,7 +11223,7 @@ pub fn gpu_broadcast_add(
     let shape_u32: Vec<u32> = out_shape.iter().map(|&d| d as u32).collect();
     let out_numel: usize = out_shape.iter().product();
 
-    if let Some(out) = try_launch_broadcast_binary(
+    try_launch_broadcast_binary(
         a,
         b,
         &a_str,
@@ -11248,12 +11233,7 @@ pub fn gpu_broadcast_add(
         device,
         BROADCAST_ADD_PTX,
         "broadcast_add_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    // CPU fallback for broadcast.
-    cpu_fallback_broadcast_binary(a, b, a_shape, b_shape, out_shape, device, |x, y| x + y)
+    )
 }
 
 /// Broadcast subtraction: `out[i] = a[bcast_a(i)] - b[bcast_b(i)]`.
@@ -11271,7 +11251,7 @@ pub fn gpu_broadcast_sub(
     let shape_u32: Vec<u32> = out_shape.iter().map(|&d| d as u32).collect();
     let out_numel: usize = out_shape.iter().product();
 
-    if let Some(out) = try_launch_broadcast_binary(
+    try_launch_broadcast_binary(
         a,
         b,
         &a_str,
@@ -11281,11 +11261,7 @@ pub fn gpu_broadcast_sub(
         device,
         BROADCAST_SUB_PTX,
         "broadcast_sub_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    cpu_fallback_broadcast_binary(a, b, a_shape, b_shape, out_shape, device, |x, y| x - y)
+    )
 }
 
 /// Broadcast multiplication: `out[i] = a[bcast_a(i)] * b[bcast_b(i)]`.
@@ -11303,7 +11279,7 @@ pub fn gpu_broadcast_mul(
     let shape_u32: Vec<u32> = out_shape.iter().map(|&d| d as u32).collect();
     let out_numel: usize = out_shape.iter().product();
 
-    if let Some(out) = try_launch_broadcast_binary(
+    try_launch_broadcast_binary(
         a,
         b,
         &a_str,
@@ -11313,11 +11289,7 @@ pub fn gpu_broadcast_mul(
         device,
         BROADCAST_MUL_PTX,
         "broadcast_mul_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    cpu_fallback_broadcast_binary(a, b, a_shape, b_shape, out_shape, device, |x, y| x * y)
+    )
 }
 
 /// Broadcast division: `out[i] = a[bcast_a(i)] / b[bcast_b(i)]`.
@@ -11335,7 +11307,7 @@ pub fn gpu_broadcast_div(
     let shape_u32: Vec<u32> = out_shape.iter().map(|&d| d as u32).collect();
     let out_numel: usize = out_shape.iter().product();
 
-    if let Some(out) = try_launch_broadcast_binary(
+    try_launch_broadcast_binary(
         a,
         b,
         &a_str,
@@ -11345,46 +11317,7 @@ pub fn gpu_broadcast_div(
         device,
         BROADCAST_DIV_PTX,
         "broadcast_div_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    cpu_fallback_broadcast_binary(a, b, a_shape, b_shape, out_shape, device, |x, y| x / y)
-}
-
-/// CPU fallback for broadcast binary ops — downloads, applies op with
-/// broadcast indexing, re-uploads.
-#[cfg(feature = "cuda")]
-fn cpu_fallback_broadcast_binary(
-    a: &CudaBuffer<f32>,
-    b: &CudaBuffer<f32>,
-    a_shape: &[usize],
-    b_shape: &[usize],
-    out_shape: &[usize],
-    device: &GpuDevice,
-    op: fn(f32, f32) -> f32,
-) -> GpuResult<CudaBuffer<f32>> {
-    let a_host = gpu_to_cpu(a, device)?;
-    let b_host = gpu_to_cpu(b, device)?;
-    let out_numel: usize = out_shape.iter().product();
-
-    let a_str = broadcast_strides(a_shape, out_shape);
-    let b_str = broadcast_strides(b_shape, out_shape);
-
-    let mut result = Vec::with_capacity(out_numel);
-    for i in 0..out_numel {
-        let mut remaining = i;
-        let mut a_idx = 0usize;
-        let mut b_idx = 0usize;
-        for d in (0..out_shape.len()).rev() {
-            let coord = remaining % out_shape[d];
-            remaining /= out_shape[d];
-            a_idx += coord * a_str[d] as usize;
-            b_idx += coord * b_str[d] as usize;
-        }
-        result.push(op(a_host[a_idx], b_host[b_idx]));
-    }
-    cpu_to_gpu(&result, device)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -11393,7 +11326,7 @@ fn cpu_fallback_broadcast_binary(
 
 /// Elementwise negation: `out[i] = -a[i]`.
 ///
-/// Attempts to run a PTX kernel on the GPU. Falls back to a CPU round-trip
+/// Attempts to run a PTX kernel on the GPU. Returns `Err(GpuError::PtxCompileFailed)`
 /// if the PTX module cannot be loaded.
 ///
 /// # Errors
@@ -11405,16 +11338,12 @@ fn cpu_fallback_broadcast_binary(
 pub fn gpu_neg(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
 
-    if let Some(out) = try_launch_unary(a, device, NEG_PTX, "neg_kernel")? {
-        return Ok(out);
-    }
-
-    cpu_fallback_unary(a, device, |x| -x)
+    try_launch_unary(a, device, NEG_PTX, "neg_kernel")
 }
 
 /// Elementwise ReLU: `out[i] = max(a[i], 0.0)`.
 ///
-/// Attempts to run a PTX kernel on the GPU. Falls back to a CPU round-trip
+/// Attempts to run a PTX kernel on the GPU. Returns `Err(GpuError::PtxCompileFailed)`
 /// if the PTX module cannot be loaded.
 ///
 /// # Errors
@@ -11426,11 +11355,7 @@ pub fn gpu_neg(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<
 pub fn gpu_relu(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
 
-    if let Some(out) = try_launch_unary(a, device, RELU_PTX, "relu_kernel")? {
-        return Ok(out);
-    }
-
-    cpu_fallback_unary(a, device, |x| x.max(0.0))
+    try_launch_unary(a, device, RELU_PTX, "relu_kernel")
 }
 
 /// ReLU backward: `out[i] = (input[i] > 0) ? grad[i] : 0`.
@@ -11442,25 +11367,13 @@ pub fn gpu_relu_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, input, device)?;
 
-    if let Some(out) = try_launch_binary(
+    try_launch_binary(
         grad,
         input,
         device,
         RELU_BACKWARD_PTX,
         "relu_backward_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    // CPU fallback
-    let grad_host = gpu_to_cpu(grad, device)?;
-    let input_host = gpu_to_cpu(input, device)?;
-    let result: Vec<f32> = grad_host
-        .iter()
-        .zip(input_host.iter())
-        .map(|(&g, &x)| if x > 0.0 { g } else { 0.0 })
-        .collect();
-    cpu_to_gpu(&result, device)
+    )
 }
 
 /// Elementwise backward for `|x|`: `out[i] = grad[i] * sign(input[i])`
@@ -11473,29 +11386,7 @@ pub fn gpu_abs_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, input, device)?;
 
-    if let Some(out) =
-        try_launch_binary(grad, input, device, ABS_BACKWARD_PTX, "abs_backward_kernel")?
-    {
-        return Ok(out);
-    }
-
-    // CPU fallback
-    let grad_host = gpu_to_cpu(grad, device)?;
-    let input_host = gpu_to_cpu(input, device)?;
-    let result: Vec<f32> = grad_host
-        .iter()
-        .zip(input_host.iter())
-        .map(|(&g, &x)| {
-            if x > 0.0 {
-                g
-            } else if x < 0.0 {
-                -g
-            } else {
-                0.0
-            }
-        })
-        .collect();
-    cpu_to_gpu(&result, device)
+    try_launch_binary(grad, input, device, ABS_BACKWARD_PTX, "abs_backward_kernel")
 }
 
 /// GELU backward: `out[i] = grad[i] * (sig + 1.702 * x * sig * (1 - sig))`
@@ -11508,29 +11399,13 @@ pub fn gpu_gelu_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, input, device)?;
 
-    if let Some(out) = try_launch_binary(
+    try_launch_binary(
         grad,
         input,
         device,
         GELU_BACKWARD_PTX,
         "gelu_backward_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    // CPU fallback
-    let grad_host = gpu_to_cpu(grad, device)?;
-    let input_host = gpu_to_cpu(input, device)?;
-    let result: Vec<f32> = grad_host
-        .iter()
-        .zip(input_host.iter())
-        .map(|(&g, &x)| {
-            let k: f32 = 1.702;
-            let sig = 1.0 / (1.0 + (-k * x).exp());
-            g * (sig + k * x * sig * (1.0 - sig))
-        })
-        .collect();
-    cpu_to_gpu(&result, device)
+    )
 }
 
 /// GELU backward (exact erf mode):
@@ -11544,39 +11419,13 @@ pub fn gpu_gelu_backward_erf(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, input, device)?;
 
-    if let Some(out) = try_launch_binary(
+    try_launch_binary(
         grad,
         input,
         device,
         GELU_BACKWARD_ERF_PTX,
         "gelu_backward_erf_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    // CPU fallback — Abramowitz & Stegun erf approximation (|ε| < 1.5e-7)
-    let grad_host = gpu_to_cpu(grad, device)?;
-    let input_host = gpu_to_cpu(input, device)?;
-    let inv_sqrt_2: f32 = std::f32::consts::FRAC_1_SQRT_2;
-    let inv_sqrt_2pi: f32 = 1.0 / (2.0 * std::f32::consts::PI).sqrt();
-    let result: Vec<f32> = grad_host
-        .iter()
-        .zip(input_host.iter())
-        .map(|(&g, &x)| {
-            let z = x * inv_sqrt_2;
-            let az = z.abs();
-            let t = 1.0 / (1.0 + 0.3275911 * az);
-            let poly = t
-                * (0.2548296
-                    + t * (-0.2844967 + t * (1.4214137 + t * (-1.453_152 + t * 0.3275911))));
-            let erf_abs = 1.0 - poly * (-az * az).exp();
-            let erf_val = if z >= 0.0 { erf_abs } else { -erf_abs };
-            let cdf = 0.5 * (1.0 + erf_val);
-            let pdf = inv_sqrt_2pi * (-0.5 * x * x).exp();
-            g * (cdf + x * pdf)
-        })
-        .collect();
-    cpu_to_gpu(&result, device)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -11608,15 +11457,11 @@ pub fn gpu_index_select_1d(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback.
-            let input_host = gpu_to_cpu(input, device)?;
-            let indices_host = gpu_to_cpu(indices, device)?;
-            let result: Vec<f32> = indices_host
-                .iter()
-                .map(|&idx_f| input_host[idx_f as usize])
-                .collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "gelu_backward_erf_kernel",
+                source: e,
+            });
         }
     };
 
@@ -11670,15 +11515,11 @@ pub fn gpu_scatter_add_1d(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback.
-            let go_host = gpu_to_cpu(grad_output, device)?;
-            let idx_host = gpu_to_cpu(indices, device)?;
-            let mut result = vec![0.0f32; input_len];
-            for (i, &idx_f) in idx_host.iter().enumerate() {
-                result[idx_f as usize] += go_host[i];
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "gelu_backward_erf_kernel",
+                source: e,
+            });
         }
     };
 
@@ -11729,16 +11570,11 @@ pub fn gpu_masked_fill(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback.
-            let input_host = gpu_to_cpu(input, device)?;
-            let mask_host = gpu_to_cpu(mask, device)?;
-            let result: Vec<f32> = input_host
-                .iter()
-                .zip(mask_host.iter())
-                .map(|(&x, &m)| if m >= 0.5 { value } else { x })
-                .collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "masked_fill_kernel",
+                source: e,
+            });
         }
     };
 
@@ -11776,20 +11612,7 @@ pub fn gpu_masked_zero(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, mask, device)?;
 
-    if let Some(out) = try_launch_binary(grad, mask, device, MASKED_ZERO_PTX, "masked_zero_kernel")?
-    {
-        return Ok(out);
-    }
-
-    // CPU fallback.
-    let grad_host = gpu_to_cpu(grad, device)?;
-    let mask_host = gpu_to_cpu(mask, device)?;
-    let result: Vec<f32> = grad_host
-        .iter()
-        .zip(mask_host.iter())
-        .map(|(&g, &m)| if m >= 0.5 { 0.0 } else { g })
-        .collect();
-    cpu_to_gpu(&result, device)
+    try_launch_binary(grad, mask, device, MASKED_ZERO_PTX, "masked_zero_kernel")
 }
 
 // ---------------------------------------------------------------------------
@@ -11807,25 +11630,13 @@ pub fn gpu_sigmoid_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, output, device)?;
 
-    if let Some(out) = try_launch_binary(
+    try_launch_binary(
         grad,
         output,
         device,
         SIGMOID_BACKWARD_PTX,
         "sigmoid_backward_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    // CPU fallback
-    let grad_host = gpu_to_cpu(grad, device)?;
-    let output_host = gpu_to_cpu(output, device)?;
-    let result: Vec<f32> = grad_host
-        .iter()
-        .zip(output_host.iter())
-        .map(|(&g, &o)| g * o * (1.0 - o))
-        .collect();
-    cpu_to_gpu(&result, device)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -11843,25 +11654,13 @@ pub fn gpu_tanh_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, output, device)?;
 
-    if let Some(out) = try_launch_binary(
+    try_launch_binary(
         grad,
         output,
         device,
         TANH_BACKWARD_PTX,
         "tanh_backward_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    // CPU fallback
-    let grad_host = gpu_to_cpu(grad, device)?;
-    let output_host = gpu_to_cpu(output, device)?;
-    let result: Vec<f32> = grad_host
-        .iter()
-        .zip(output_host.iter())
-        .map(|(&g, &o)| g * (1.0 - o * o))
-        .collect();
-    cpu_to_gpu(&result, device)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -11899,22 +11698,11 @@ pub fn gpu_softmax_backward(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let grad_host = gpu_to_cpu(grad, device)?;
-            let output_host = gpu_to_cpu(output, device)?;
-            let mut result = vec![0.0f32; total];
-            for r in 0..rows {
-                let base = r * cols;
-                let mut dot = 0.0f32;
-                for c in 0..cols {
-                    dot += grad_host[base + c] * output_host[base + c];
-                }
-                for c in 0..cols {
-                    result[base + c] = output_host[base + c] * (grad_host[base + c] - dot);
-                }
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "softmax_backward_kernel",
+                source: e,
+            });
         }
     };
 
@@ -11976,26 +11764,11 @@ pub fn gpu_log_softmax(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let host = gpu_to_cpu(input, device)?;
-            let mut out = vec![0.0f32; total];
-            for r in 0..rows {
-                let base = r * cols;
-                let mut max_v = f32::NEG_INFINITY;
-                for c in 0..cols {
-                    max_v = max_v.max(host[base + c]);
-                }
-                let mut sum_exp = 0.0f32;
-                for c in 0..cols {
-                    sum_exp += (host[base + c] - max_v).exp();
-                }
-                let log_sum_exp = max_v + sum_exp.ln();
-                for c in 0..cols {
-                    out[base + c] = host[base + c] - log_sum_exp;
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "log_softmax_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12054,22 +11827,11 @@ pub fn gpu_log_softmax_backward(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let grad_host = gpu_to_cpu(grad, device)?;
-            let output_host = gpu_to_cpu(output, device)?;
-            let mut result = vec![0.0f32; total];
-            for r in 0..rows {
-                let base = r * cols;
-                let mut sum_grad = 0.0f32;
-                for c in 0..cols {
-                    sum_grad += grad_host[base + c];
-                }
-                for c in 0..cols {
-                    result[base + c] = grad_host[base + c] - output_host[base + c].exp() * sum_grad;
-                }
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "log_softmax_backward_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12130,11 +11892,11 @@ pub fn gpu_reduce_sum(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cuda
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let host = gpu_to_cpu(a, device)?;
-            let total: f32 = host.iter().sum();
-            return cpu_to_gpu(&[total], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "reduce_sum_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12206,10 +11968,11 @@ pub fn gpu_reduce_prod(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cud
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(a, device)?;
-            let total: f32 = host.iter().product();
-            return cpu_to_gpu(&[total], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "reduce_prod_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12274,10 +12037,11 @@ pub fn gpu_reduce_min(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cuda
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(a, device)?;
-            let total = host.iter().copied().fold(f32::INFINITY, f32::min);
-            return cpu_to_gpu(&[total], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "reduce_min_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12344,10 +12108,11 @@ pub fn gpu_reduce_max(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cuda
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(a, device)?;
-            let total = host.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            return cpu_to_gpu(&[total], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "reduce_max_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12427,16 +12192,11 @@ pub fn gpu_masked_reduce_min(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // PTX-compile-failure fallback only.
-            let dh = gpu_to_cpu(data, device)?;
-            let mh = gpu_to_cpu(mask_f, device)?;
-            let mut acc = f32::INFINITY;
-            for (&d, &m) in dh.iter().zip(mh.iter()) {
-                let v = if m != 0.0 { d } else { f32::INFINITY };
-                acc = acc.min(v);
-            }
-            return cpu_to_gpu(&[acc], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "masked_reduce_min_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12516,15 +12276,11 @@ pub fn gpu_masked_reduce_max(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let dh = gpu_to_cpu(data, device)?;
-            let mh = gpu_to_cpu(mask_f, device)?;
-            let mut acc = f32::NEG_INFINITY;
-            for (&d, &m) in dh.iter().zip(mh.iter()) {
-                let v = if m != 0.0 { d } else { f32::NEG_INFINITY };
-                acc = acc.max(v);
-            }
-            return cpu_to_gpu(&[acc], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "masked_reduce_max_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12606,17 +12362,11 @@ pub fn gpu_pad_truncate_complex_f32(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(src, device)?;
-            let mut out = vec![0.0_f32; batch * dst_n * 2];
-            for b in 0..batch {
-                let copy_n = src_n.min(dst_n);
-                for k in 0..copy_n {
-                    out[(b * dst_n + k) * 2] = host[(b * src_n + k) * 2];
-                    out[(b * dst_n + k) * 2 + 1] = host[(b * src_n + k) * 2 + 1];
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "pad_truncate_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12677,20 +12427,11 @@ pub fn gpu_sum_axis(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let host = gpu_to_cpu(a, device)?;
-            let mut result = vec![0.0f32; total_output];
-            for (i, out) in result.iter_mut().enumerate() {
-                let outer_idx = i / inner;
-                let inner_idx = i % inner;
-                let mut sum = 0.0f32;
-                for k in 0..axis_size {
-                    sum += host[outer_idx * axis_size * inner + k * inner + inner_idx];
-                }
-                *out = sum;
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "sum_axis_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12756,22 +12497,11 @@ pub fn gpu_cumsum(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let host = gpu_to_cpu(input, device)?;
-            let mut result = vec![0.0f32; total];
-            for i in 0..num_threads {
-                let outer_idx = i / inner;
-                let inner_idx = i % inner;
-                let base = outer_idx * dim_size * inner + inner_idx;
-                let mut acc = 0.0f32;
-                for k in 0..dim_size {
-                    let idx = base + k * inner;
-                    acc += host[idx];
-                    result[idx] = acc;
-                }
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "cumsum_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12830,22 +12560,11 @@ pub fn gpu_cumprod(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let host = gpu_to_cpu(input, device)?;
-            let mut result = vec![0.0f32; total];
-            for i in 0..num_threads {
-                let outer_idx = i / inner;
-                let inner_idx = i % inner;
-                let base = outer_idx * dim_size * inner + inner_idx;
-                let mut acc = 1.0f32;
-                for k in 0..dim_size {
-                    let idx = base + k * inner;
-                    acc *= host[idx];
-                    result[idx] = acc;
-                }
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "cumprod_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12904,27 +12623,11 @@ pub fn gpu_cummax(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let mut vals = vec![0.0f32; total];
-            let mut idxs = vec![0.0f32; total];
-            for i in 0..num_threads {
-                let outer_idx = i / inner;
-                let inner_idx = i % inner;
-                let base = outer_idx * dim_size * inner + inner_idx;
-                let mut acc = f32::NEG_INFINITY;
-                let mut best = 0u32;
-                for k in 0..dim_size {
-                    let idx = base + k * inner;
-                    if host[idx] > acc {
-                        acc = host[idx];
-                        best = k as u32;
-                    }
-                    vals[idx] = acc;
-                    idxs[idx] = best as f32;
-                }
-            }
-            return Ok((cpu_to_gpu(&vals, device)?, cpu_to_gpu(&idxs, device)?));
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "cummax_kernel",
+                source: e,
+            });
         }
     };
 
@@ -12985,27 +12688,11 @@ pub fn gpu_cummin(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let mut vals = vec![0.0f32; total];
-            let mut idxs = vec![0.0f32; total];
-            for i in 0..num_threads {
-                let outer_idx = i / inner;
-                let inner_idx = i % inner;
-                let base = outer_idx * dim_size * inner + inner_idx;
-                let mut acc = f32::INFINITY;
-                let mut best = 0u32;
-                for k in 0..dim_size {
-                    let idx = base + k * inner;
-                    if host[idx] < acc {
-                        acc = host[idx];
-                        best = k as u32;
-                    }
-                    vals[idx] = acc;
-                    idxs[idx] = best as f32;
-                }
-            }
-            return Ok((cpu_to_gpu(&vals, device)?, cpu_to_gpu(&idxs, device)?));
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "cummin_kernel",
+                source: e,
+            });
         }
     };
 
@@ -13066,24 +12753,11 @@ pub fn gpu_logcumsumexp(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let host = gpu_to_cpu(input, device)?;
-            let mut result = vec![0.0f32; total];
-            for i in 0..num_threads {
-                let outer_idx = i / inner;
-                let inner_idx = i % inner;
-                let base = outer_idx * dim_size * inner + inner_idx;
-                let mut acc = f32::NEG_INFINITY;
-                for k in 0..dim_size {
-                    let idx = base + k * inner;
-                    let x = host[idx];
-                    let m = acc.max(x);
-                    acc = m + ((acc - m).exp() + (x - m).exp()).ln();
-                    result[idx] = acc;
-                }
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "logcumsumexp_kernel",
+                source: e,
+            });
         }
     };
 
@@ -13150,20 +12824,11 @@ pub fn gpu_strided_split(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let host = gpu_to_cpu(input, device)?;
-            let outer = n / (split_size * inner_size);
-            let mut result = vec![0.0f32; n];
-            for (i, out) in result.iter_mut().enumerate() {
-                let outer_idx = i / (split_size * inner_size);
-                let within = i % (split_size * inner_size);
-                let src_idx =
-                    outer_idx * total_along_axis * inner_size + split_offset * inner_size + within;
-                *out = host[src_idx];
-            }
-            let _ = outer;
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "strided_split_kernel",
+                source: e,
+            });
         }
     };
 
@@ -13240,19 +12905,11 @@ pub fn gpu_strided_cat(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let host_in = gpu_to_cpu(input, device)?;
-            let mut host_out = gpu_to_cpu(output, device)?;
-            for (i, &val) in host_in.iter().enumerate().take(n) {
-                let outer_idx = i / (part_size * inner_size);
-                let within = i % (part_size * inner_size);
-                let dst_idx =
-                    outer_idx * total_along_axis * inner_size + cat_offset * inner_size + within;
-                host_out[dst_idx] = val;
-            }
-            *output = cpu_to_gpu(&host_out, device)?;
-            return Ok(());
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "strided_cat_kernel",
+                source: e,
+            });
         }
     };
 
@@ -13426,23 +13083,11 @@ pub fn gpu_strided_copy(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback — decode indices on the host.
-            let host = gpu_to_cpu(input, device)?;
-            let mut result = vec![0.0f32; n];
-            for (i, slot) in result.iter_mut().enumerate() {
-                let mut flat = i as u32;
-                let mut src_idx = src_offset as u32;
-                for d in 0..STRIDED_COPY_MAX_DIMS {
-                    let os = out_stride[d];
-                    let ss = src_stride[d];
-                    let coord = flat / os;
-                    flat -= coord * os;
-                    src_idx += coord * ss;
-                }
-                *slot = host[src_idx as usize];
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "strided_copy_kernel",
+                source: e,
+            });
         }
     };
 
@@ -13517,22 +13162,11 @@ pub fn gpu_strided_copy_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let mut result = vec![0.0f64; n];
-            for (i, slot) in result.iter_mut().enumerate() {
-                let mut flat = i as u32;
-                let mut src_idx = src_offset as u32;
-                for d in 0..STRIDED_COPY_MAX_DIMS {
-                    let os = out_stride[d];
-                    let ss = src_stride[d];
-                    let coord = flat / os;
-                    flat -= coord * os;
-                    src_idx += coord * ss;
-                }
-                *slot = host[src_idx as usize];
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "strided_copy_kernel",
+                source: e,
+            });
         }
     };
 
@@ -13634,28 +13268,11 @@ pub fn gpu_strided_scatter(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback — pull both buffers to host, scatter, push dst back.
-            // Matches the strided_copy fallback so behaviour is identical when
-            // PTX compilation is unavailable.
-            let host_src = gpu_to_cpu(src, device)?;
-            let mut host_dst = gpu_to_cpu(dst, device)?;
-            for (i, &v) in host_src.iter().enumerate().take(n) {
-                let mut flat = i as u32;
-                let mut dst_idx = dst_offset as u32;
-                for d in 0..STRIDED_COPY_MAX_DIMS {
-                    let is = in_decode_stride[d];
-                    let ds = dst_stride_padded[d];
-                    let coord = flat / is;
-                    flat -= coord * is;
-                    dst_idx += coord * ds;
-                }
-                host_dst[dst_idx as usize] = v;
-            }
-            let new_dst = cpu_to_gpu(&host_dst, device)?;
-            // Copy the new contents into the caller-supplied `dst` slot.
-            stream.memcpy_dtod(new_dst.inner(), dst.inner_mut())?;
-            return Ok(());
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "strided_scatter_kernel",
+                source: e,
+            });
         }
     };
 
@@ -13724,24 +13341,11 @@ pub fn gpu_strided_scatter_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host_src = gpu_to_cpu(src, device)?;
-            let mut host_dst = gpu_to_cpu(dst, device)?;
-            for (i, &v) in host_src.iter().enumerate().take(n) {
-                let mut flat = i as u32;
-                let mut dst_idx = dst_offset as u32;
-                for d in 0..STRIDED_COPY_MAX_DIMS {
-                    let is = in_decode_stride[d];
-                    let ds = dst_stride_padded[d];
-                    let coord = flat / is;
-                    flat -= coord * is;
-                    dst_idx += coord * ds;
-                }
-                host_dst[dst_idx as usize] = v;
-            }
-            let new_dst = cpu_to_gpu(&host_dst, device)?;
-            stream.memcpy_dtod(new_dst.inner(), dst.inner_mut())?;
-            return Ok(());
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "strided_scatter_f64_kernel",
+                source: e,
+            });
         }
     };
 
@@ -13807,11 +13411,11 @@ pub fn gpu_scale(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let host = gpu_to_cpu(a, device)?;
-            let result: Vec<f32> = host.iter().map(|&x| x * scalar).collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "scale_kernel",
+                source: e,
+            });
         }
     };
 
@@ -13860,28 +13464,11 @@ pub fn gpu_softmax(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback.
-            let host = gpu_to_cpu(input, device)?;
-            let mut out = vec![0.0f32; host.len()];
-            for r in 0..rows {
-                let base = r * cols;
-                let mut max_v = f32::NEG_INFINITY;
-                for c in 0..cols {
-                    max_v = max_v.max(host[base + c]);
-                }
-                let mut sum = 0.0f32;
-                for c in 0..cols {
-                    let e = (host[base + c] - max_v).exp();
-                    out[base + c] = e;
-                    sum += e;
-                }
-                let inv = 1.0 / sum;
-                for c in 0..cols {
-                    out[base + c] *= inv;
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "softmax_kernel",
+                source: e,
+            });
         }
     };
 
@@ -13950,24 +13537,11 @@ pub fn gpu_dropout(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback.
-            let host = gpu_to_cpu(input, device)?;
-            // Stateless per-element hash matching the GPU kernel: each element
-            // independently computes its own pseudorandom value from (tid, seed)
-            // with no state carried between elements.
-            let result: Vec<f32> = host
-                .iter()
-                .enumerate()
-                .map(|(i, &x)| {
-                    let mut r = (i as u32).wrapping_mul(2654435761) ^ seed;
-                    r ^= r << 13;
-                    r ^= r >> 17;
-                    r ^= r << 5;
-                    if r < threshold { 0.0 } else { x * scale }
-                })
-                .collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "dropout_kernel",
+                source: e,
+            });
         }
     };
 
@@ -14014,20 +13588,11 @@ pub fn gpu_dropout_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let result: Vec<f64> = host
-                .iter()
-                .enumerate()
-                .map(|(i, &x)| {
-                    let mut r = (i as u32).wrapping_mul(2654435761) ^ seed;
-                    r ^= r << 13;
-                    r ^= r >> 17;
-                    r ^= r << 5;
-                    if r < threshold { 0.0 } else { x * scale }
-                })
-                .collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "dropout_kernel",
+                source: e,
+            });
         }
     };
 
@@ -14088,16 +13653,11 @@ pub fn gpu_transpose_2d(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback.
-            let host = gpu_to_cpu(input, device)?;
-            let mut out = vec![0.0f32; total];
-            for i in 0..m {
-                for j in 0..n {
-                    out[j * m + i] = host[i * n + j];
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "transpose_2d_kernel",
+                source: e,
+            });
         }
     };
 
@@ -14151,22 +13711,11 @@ pub fn gpu_permute_0213(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback.
-            let host = gpu_to_cpu(input, device)?;
-            let mut out = vec![0.0f32; total];
-            for i0 in 0..d0 {
-                for i1 in 0..d1 {
-                    for i2 in 0..d2 {
-                        for i3 in 0..d3 {
-                            let in_idx = ((i0 * d1 + i1) * d2 + i2) * d3 + i3;
-                            let out_idx = ((i0 * d2 + i2) * d1 + i1) * d3 + i3;
-                            out[out_idx] = host[in_idx];
-                        }
-                    }
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "permute_0213_kernel",
+                source: e,
+            });
         }
     };
 
@@ -14306,14 +13855,11 @@ pub fn gpu_embed_lookup(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback.
-            let idx_host = gpu_to_cpu(idx, device)?;
-            let weight_host = gpu_to_cpu(weight, device)?;
-            let row = idx_host[0] as usize;
-            let start = row * d;
-            let out = weight_host[start..start + d].to_vec();
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "embed_lookup_kernel",
+                source: e,
+            });
         }
     };
 
@@ -14363,18 +13909,11 @@ pub fn gpu_slice_write(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback.
-            let src_host = gpu_to_cpu(src, device)?;
-            let mut dst_host = gpu_to_cpu(dst, device)?;
-            for b in 0..n_batch {
-                for di in 0..d {
-                    dst_host[b * max_len * d + pos * d + di] = src_host[b * d + di];
-                }
-            }
-            let new_dst = cpu_to_gpu(&dst_host, device)?;
-            *dst = new_dst;
-            return Ok(());
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "slice_write_kernel",
+                source: e,
+            });
         }
     };
 
@@ -14426,17 +13965,11 @@ pub fn gpu_slice_read(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(src, device)?;
-            let mut out = vec![0.0f32; total];
-            for b in 0..n_batch {
-                for r in 0..len {
-                    for di in 0..d {
-                        out[b * len * d + r * d + di] = host[b * max_len * d + r * d + di];
-                    }
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "slice_read_kernel",
+                source: e,
+            });
         }
     };
 
@@ -14470,13 +14003,7 @@ pub fn gpu_slice_read(
 #[cfg(feature = "cuda")]
 pub fn gpu_gelu(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(input, device)?;
-    if let Some(out) = try_launch_unary(input, device, GELU_PTX, "gelu_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary(input, device, |x| {
-        let s = 1.0 / (1.0 + (-1.702 * x).exp());
-        x * s
-    })
+    try_launch_unary(input, device, GELU_PTX, "gelu_kernel")
 }
 
 /// Elementwise GELU activation on GPU using the tanh approximation:
@@ -14486,15 +14013,7 @@ pub fn gpu_gelu(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBu
 #[cfg(feature = "cuda")]
 pub fn gpu_gelu_tanh(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(input, device)?;
-    if let Some(out) = try_launch_unary(input, device, GELU_TANH_PTX, "gelu_tanh_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary(input, device, |x| {
-        let sqrt_2_over_pi: f32 = 0.797_884_6;
-        let c: f32 = 0.044715;
-        let inner = sqrt_2_over_pi * (x + c * x * x * x);
-        0.5 * x * (1.0 + inner.tanh())
-    })
+    try_launch_unary(input, device, GELU_TANH_PTX, "gelu_tanh_kernel")
 }
 
 /// Elementwise GELU activation on GPU using exact erf:
@@ -14504,21 +14023,7 @@ pub fn gpu_gelu_tanh(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<C
 #[cfg(feature = "cuda")]
 pub fn gpu_gelu_erf(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(input, device)?;
-    if let Some(out) = try_launch_unary(input, device, GELU_ERF_PTX, "gelu_erf_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary(input, device, |x| {
-        // Abramowitz & Stegun 7.1.26 erf approximation (matches PTX kernel)
-        let z = x * std::f32::consts::FRAC_1_SQRT_2;
-        let az = z.abs();
-        let t = 1.0 / (1.0 + 0.3275911 * az);
-        let poly = t
-            * (0.254_829_6
-                + t * (-0.284_496_72 + t * (1.421_413_8 + t * (-1.453_152_1 + t * 1.061_405_4))));
-        let erf_abs = 1.0 - poly * (-az * az).exp();
-        let erf_val = if z < 0.0 { -erf_abs } else { erf_abs };
-        x * 0.5 * (1.0 + erf_val)
-    })
+    try_launch_unary(input, device, GELU_ERF_PTX, "gelu_erf_kernel")
 }
 
 /// GELU backward for the tanh approximation mode.
@@ -14531,33 +14036,13 @@ pub fn gpu_gelu_backward_tanh(
     device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, input, device)?;
-    if let Some(out) = try_launch_binary(
+    try_launch_binary(
         grad,
         input,
         device,
         GELU_BACKWARD_TANH_PTX,
         "gelu_backward_tanh_kernel",
-    )? {
-        return Ok(out);
-    }
-    // CPU fallback
-    let grad_host = gpu_to_cpu(grad, device)?;
-    let input_host = gpu_to_cpu(input, device)?;
-    let result: Vec<f32> = grad_host
-        .iter()
-        .zip(input_host.iter())
-        .map(|(&g, &x)| {
-            let sqrt_2_over_pi: f32 = 0.797_884_6;
-            let c: f32 = 0.044715;
-            let c3: f32 = 0.134145;
-            let u = sqrt_2_over_pi * (x + c * x * x * x);
-            let t = u.tanh();
-            let dt = 1.0 - t * t;
-            let d_inner = sqrt_2_over_pi * (1.0 + c3 * x * x);
-            g * (0.5 * (1.0 + t) + 0.5 * x * dt * d_inner)
-        })
-        .collect();
-    cpu_to_gpu(&result, device)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -14568,13 +14053,7 @@ pub fn gpu_gelu_backward_tanh(
 #[cfg(feature = "cuda")]
 pub fn gpu_silu(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(input, device)?;
-    if let Some(out) = try_launch_unary(input, device, SILU_PTX, "silu_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary(input, device, |x| {
-        let sig = 1.0 / (1.0 + (-x).exp());
-        x * sig
-    })
+    try_launch_unary(input, device, SILU_PTX, "silu_kernel")
 }
 
 /// SiLU backward: `out[i] = grad[i] * (sig + x * sig * (1 - sig))`
@@ -14587,28 +14066,13 @@ pub fn gpu_silu_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, input, device)?;
 
-    if let Some(out) = try_launch_binary(
+    try_launch_binary(
         grad,
         input,
         device,
         SILU_BACKWARD_PTX,
         "silu_backward_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    // CPU fallback
-    let grad_host = gpu_to_cpu(grad, device)?;
-    let input_host = gpu_to_cpu(input, device)?;
-    let result: Vec<f32> = grad_host
-        .iter()
-        .zip(input_host.iter())
-        .map(|(&g, &x)| {
-            let sig = 1.0 / (1.0 + (-x).exp());
-            g * (sig + x * sig * (1.0 - sig))
-        })
-        .collect();
-    cpu_to_gpu(&result, device)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -14639,13 +14103,11 @@ pub fn gpu_elu(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let result: Vec<f32> = host
-                .iter()
-                .map(|&x| if x > 0.0 { x } else { alpha * (x.exp() - 1.0) })
-                .collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "elu_kernel",
+                source: e,
+            });
         }
     };
 
@@ -14691,15 +14153,11 @@ pub fn gpu_elu_backward(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let grad_host = gpu_to_cpu(grad, device)?;
-            let input_host = gpu_to_cpu(input, device)?;
-            let result: Vec<f32> = grad_host
-                .iter()
-                .zip(input_host.iter())
-                .map(|(&g, &x)| if x > 0.0 { g } else { g * alpha * x.exp() })
-                .collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "elu_backward_kernel",
+                source: e,
+            });
         }
     };
 
@@ -14729,13 +14187,7 @@ pub fn gpu_elu_backward(
 #[cfg(feature = "cuda")]
 pub fn gpu_mish(input: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(input, device)?;
-    if let Some(out) = try_launch_unary(input, device, MISH_PTX, "mish_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary(input, device, |x| {
-        let sp = if x > 20.0 { x } else { (1.0 + x.exp()).ln() };
-        x * sp.tanh()
-    })
+    try_launch_unary(input, device, MISH_PTX, "mish_kernel")
 }
 
 /// Mish backward:
@@ -14749,30 +14201,13 @@ pub fn gpu_mish_backward(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(grad, input, device)?;
 
-    if let Some(out) = try_launch_binary(
+    try_launch_binary(
         grad,
         input,
         device,
         MISH_BACKWARD_PTX,
         "mish_backward_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    // CPU fallback
-    let grad_host = gpu_to_cpu(grad, device)?;
-    let input_host = gpu_to_cpu(input, device)?;
-    let result: Vec<f32> = grad_host
-        .iter()
-        .zip(input_host.iter())
-        .map(|(&g, &x)| {
-            let sp = if x > 20.0 { x } else { (1.0 + x.exp()).ln() };
-            let t = sp.tanh();
-            let sig = 1.0 / (1.0 + (-x).exp());
-            g * (t + x * sig * (1.0 - t * t))
-        })
-        .collect();
-    cpu_to_gpu(&result, device)
+    )
 }
 
 /// Elementwise clamp: `out[i] = max(min_val, min(max_val, x[i]))`.
@@ -14800,10 +14235,11 @@ pub fn gpu_clamp(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let result: Vec<f32> = host.iter().map(|&x| x.max(min_val).min(max_val)).collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "clamp_kernel",
+                source: e,
+            });
         }
     };
 
@@ -14854,21 +14290,11 @@ pub fn gpu_clamp_backward(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let g = gpu_to_cpu(grad, device)?;
-            let x = gpu_to_cpu(input, device)?;
-            let out: Vec<f32> = g
-                .iter()
-                .zip(x.iter())
-                .map(|(&gi, &xi)| {
-                    if xi >= min_val && xi <= max_val {
-                        gi
-                    } else {
-                        0.0
-                    }
-                })
-                .collect();
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "clamp_backward_kernel",
+                source: e,
+            });
         }
     };
 
@@ -14937,18 +14363,11 @@ pub fn gpu_repeat_along_dim(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // PTX-compile-failure fallback: walk on host.
-            let host = gpu_to_cpu(input, device)?;
-            let mut out = vec![0.0_f32; total];
-            for o in 0..outer {
-                for r in 0..repeat_count {
-                    for i in 0..inner {
-                        out[o * (repeat_count * inner) + r * inner + i] = host[o * inner + i];
-                    }
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "repeat_along_dim_kernel",
+                source: e,
+            });
         }
     };
 
@@ -15009,17 +14428,11 @@ pub fn gpu_repeat_along_dim_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let mut out = vec![0.0_f64; total];
-            for o in 0..outer {
-                for r in 0..repeat_count {
-                    for i in 0..inner {
-                        out[o * (repeat_count * inner) + r * inner + i] = host[o * inner + i];
-                    }
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "repeat_along_dim_kernel",
+                source: e,
+            });
         }
     };
 
@@ -15075,49 +14488,28 @@ pub fn gpu_div(
 ) -> GpuResult<CudaBuffer<f32>> {
     validate_binary(a, b, device)?;
 
-    if let Some(out) = try_launch_binary(a, b, device, DIV_PTX, "div_kernel")? {
-        return Ok(out);
-    }
-
-    // CPU fallback
-    let a_host = gpu_to_cpu(a, device)?;
-    let b_host = gpu_to_cpu(b, device)?;
-    let result: Vec<f32> = a_host
-        .iter()
-        .zip(b_host.iter())
-        .map(|(&x, &y)| x / y)
-        .collect();
-    cpu_to_gpu(&result, device)
+    try_launch_binary(a, b, device, DIV_PTX, "div_kernel")
 }
 
 /// Elementwise exponential: `out[i] = exp(a[i])`.
 #[cfg(feature = "cuda")]
 pub fn gpu_exp(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
-    if let Some(out) = try_launch_unary(a, device, EXP_PTX, "exp_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary(a, device, |x| x.exp())
+    try_launch_unary(a, device, EXP_PTX, "exp_kernel")
 }
 
 /// Elementwise natural log: `out[i] = ln(a[i])`.
 #[cfg(feature = "cuda")]
 pub fn gpu_log(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
-    if let Some(out) = try_launch_unary(a, device, LOG_PTX, "log_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary(a, device, |x| x.ln())
+    try_launch_unary(a, device, LOG_PTX, "log_kernel")
 }
 
 /// Elementwise square root: `out[i] = sqrt(a[i])`.
 #[cfg(feature = "cuda")]
 pub fn gpu_sqrt(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
-    if let Some(out) = try_launch_unary(a, device, SQRT_PTX, "sqrt_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary(a, device, |x| x.sqrt())
+    try_launch_unary(a, device, SQRT_PTX, "sqrt_kernel")
 }
 
 /// Elementwise power: `out[i] = a[i] ^ exponent`.
@@ -15142,10 +14534,11 @@ pub fn gpu_pow(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(a, device)?;
-            let result: Vec<f32> = host.iter().map(|&x| x.powf(exponent)).collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "pow_kernel",
+                source: e,
+            });
         }
     };
 
@@ -15170,30 +14563,21 @@ pub fn gpu_pow(
 #[cfg(feature = "cuda")]
 pub fn gpu_abs(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
-    if let Some(out) = try_launch_unary(a, device, ABS_PTX, "abs_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary(a, device, |x| x.abs())
+    try_launch_unary(a, device, ABS_PTX, "abs_kernel")
 }
 
 /// Elementwise sigmoid: `out[i] = 1 / (1 + exp(-a[i]))`.
 #[cfg(feature = "cuda")]
 pub fn gpu_sigmoid(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
-    if let Some(out) = try_launch_unary(a, device, SIGMOID_PTX, "sigmoid_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary(a, device, |x| 1.0 / (1.0 + (-x).exp()))
+    try_launch_unary(a, device, SIGMOID_PTX, "sigmoid_kernel")
 }
 
 /// Elementwise tanh: `out[i] = tanh(a[i])`.
 #[cfg(feature = "cuda")]
 pub fn gpu_tanh(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     validate_unary(a, device)?;
-    if let Some(out) = try_launch_unary(a, device, TANH_PTX, "tanh_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary(a, device, |x| x.tanh())
+    try_launch_unary(a, device, TANH_PTX, "tanh_kernel")
 }
 
 // ---------------------------------------------------------------------------
@@ -15215,10 +14599,7 @@ pub fn gpu_add_f64(
         });
     }
     let ptx = get_f64_ptx(&CACHE, ADD_PTX, "add_kernel", "add_f64_kernel");
-    if let Some(out) = try_launch_binary_f64(a, b, device, ptx, "add_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(a, b, device, |x, y| x + y)
+    try_launch_binary_f64(a, b, device, ptx, "add_f64_kernel")
 }
 
 /// Elementwise f64 subtraction: `out[i] = a[i] - b[i]`.
@@ -15236,10 +14617,7 @@ pub fn gpu_sub_f64(
         });
     }
     let ptx = get_f64_ptx(&CACHE, SUB_PTX, "sub_kernel", "sub_f64_kernel");
-    if let Some(out) = try_launch_binary_f64(a, b, device, ptx, "sub_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(a, b, device, |x, y| x - y)
+    try_launch_binary_f64(a, b, device, ptx, "sub_f64_kernel")
 }
 
 /// Elementwise f64 multiplication: `out[i] = a[i] * b[i]`.
@@ -15257,10 +14635,7 @@ pub fn gpu_mul_f64(
         });
     }
     let ptx = get_f64_ptx(&CACHE, MUL_PTX, "mul_kernel", "mul_f64_kernel");
-    if let Some(out) = try_launch_binary_f64(a, b, device, ptx, "mul_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(a, b, device, |x, y| x * y)
+    try_launch_binary_f64(a, b, device, ptx, "mul_f64_kernel")
 }
 
 /// Elementwise f64 division: `out[i] = a[i] / b[i]`.
@@ -15278,10 +14653,7 @@ pub fn gpu_div_f64(
         });
     }
     let ptx = get_f64_ptx(&CACHE, DIV_PTX, "div_kernel", "div_f64_kernel");
-    if let Some(out) = try_launch_binary_f64(a, b, device, ptx, "div_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(a, b, device, |x, y| x / y)
+    try_launch_binary_f64(a, b, device, ptx, "div_f64_kernel")
 }
 
 /// Elementwise f64 negation: `out[i] = -a[i]`.
@@ -15289,10 +14661,7 @@ pub fn gpu_div_f64(
 pub fn gpu_neg_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let ptx = get_f64_ptx(&CACHE, NEG_PTX, "neg_kernel", "neg_f64_kernel");
-    if let Some(out) = try_launch_unary_f64(a, device, ptx, "neg_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(a, device, |x| -x)
+    try_launch_unary_f64(a, device, ptx, "neg_f64_kernel")
 }
 
 /// Elementwise f64 ReLU: `out[i] = max(a[i], 0.0)`.
@@ -15300,10 +14669,7 @@ pub fn gpu_neg_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuf
 pub fn gpu_relu_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let ptx = get_f64_ptx(&CACHE, RELU_PTX, "relu_kernel", "relu_f64_kernel");
-    if let Some(out) = try_launch_unary_f64(a, device, ptx, "relu_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(a, device, |x| x.max(0.0))
+    try_launch_unary_f64(a, device, ptx, "relu_f64_kernel")
 }
 
 /// Elementwise f64 scale: `out[i] = a[i] * scalar`.
@@ -15348,19 +14714,13 @@ pub fn gpu_scale_f64(
 /// Elementwise f64 exp: `out[i] = exp(a[i])`.
 #[cfg(feature = "cuda")]
 pub fn gpu_exp_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
-    if let Some(out) = try_launch_unary_f64(a, device, EXP_F64_PTX, "exp_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(a, device, |x| x.exp())
+    try_launch_unary_f64(a, device, EXP_F64_PTX, "exp_f64_kernel")
 }
 
 /// Elementwise f64 log: `out[i] = ln(a[i])`.
 #[cfg(feature = "cuda")]
 pub fn gpu_log_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
-    if let Some(out) = try_launch_unary_f64(a, device, LOG_F64_PTX, "log_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(a, device, |x| x.ln())
+    try_launch_unary_f64(a, device, LOG_F64_PTX, "log_f64_kernel")
 }
 
 /// Elementwise f64 sqrt: `out[i] = sqrt(a[i])`.
@@ -15368,10 +14728,7 @@ pub fn gpu_log_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuf
 pub fn gpu_sqrt_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let ptx = get_f64_ptx(&CACHE, SQRT_PTX, "sqrt_kernel", "sqrt_f64_kernel");
-    if let Some(out) = try_launch_unary_f64(a, device, ptx, "sqrt_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(a, device, |x| x.sqrt())
+    try_launch_unary_f64(a, device, ptx, "sqrt_f64_kernel")
 }
 
 /// Elementwise f64 pow: `out[i] = a[i] ^ exponent`.
@@ -15419,28 +14776,19 @@ pub fn gpu_pow_f64(
 pub fn gpu_abs_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let ptx = get_f64_ptx(&CACHE, ABS_PTX, "abs_kernel", "abs_f64_kernel");
-    if let Some(out) = try_launch_unary_f64(a, device, ptx, "abs_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(a, device, |x| x.abs())
+    try_launch_unary_f64(a, device, ptx, "abs_f64_kernel")
 }
 
 /// Elementwise f64 sigmoid: `out[i] = 1 / (1 + exp(-a[i]))`.
 #[cfg(feature = "cuda")]
 pub fn gpu_sigmoid_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
-    if let Some(out) = try_launch_unary_f64(a, device, SIGMOID_F64_PTX, "sigmoid_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(a, device, |x| 1.0 / (1.0 + (-x).exp()))
+    try_launch_unary_f64(a, device, SIGMOID_F64_PTX, "sigmoid_f64_kernel")
 }
 
 /// Elementwise f64 tanh: `out[i] = tanh(a[i])`.
 #[cfg(feature = "cuda")]
 pub fn gpu_tanh_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
-    if let Some(out) = try_launch_unary_f64(a, device, TANH_F64_PTX, "tanh_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(a, device, |x| x.tanh())
+    try_launch_unary_f64(a, device, TANH_F64_PTX, "tanh_f64_kernel")
 }
 
 // ---------------------------------------------------------------------------
@@ -15467,11 +14815,7 @@ pub fn gpu_relu_backward_f64(
         "relu_backward_kernel",
         "relu_backward_f64_kernel",
     );
-    if let Some(out) = try_launch_binary_f64(grad, input, device, ptx, "relu_backward_f64_kernel")?
-    {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(grad, input, device, |g, x| if x > 0.0 { g } else { 0.0 })
+    try_launch_binary_f64(grad, input, device, ptx, "relu_backward_f64_kernel")
 }
 
 /// Sigmoid backward (f64): `out[i] = grad[i] * output[i] * (1 - output[i])`.
@@ -15494,12 +14838,7 @@ pub fn gpu_sigmoid_backward_f64(
         "sigmoid_backward_kernel",
         "sigmoid_backward_f64_kernel",
     );
-    if let Some(out) =
-        try_launch_binary_f64(grad, output, device, ptx, "sigmoid_backward_f64_kernel")?
-    {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(grad, output, device, |g, o| g * o * (1.0 - o))
+    try_launch_binary_f64(grad, output, device, ptx, "sigmoid_backward_f64_kernel")
 }
 
 /// Tanh backward (f64): `out[i] = grad[i] * (1 - output[i]^2)`.
@@ -15522,11 +14861,7 @@ pub fn gpu_tanh_backward_f64(
         "tanh_backward_kernel",
         "tanh_backward_f64_kernel",
     );
-    if let Some(out) = try_launch_binary_f64(grad, output, device, ptx, "tanh_backward_f64_kernel")?
-    {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(grad, output, device, |g, o| g * (1.0 - o * o))
+    try_launch_binary_f64(grad, output, device, ptx, "tanh_backward_f64_kernel")
 }
 
 // ---------------------------------------------------------------------------
@@ -15555,7 +14890,7 @@ pub fn gpu_broadcast_add_f64(
         "broadcast_add_kernel",
         "broadcast_add_f64_kernel",
     );
-    if let Some(out) = try_launch_broadcast_binary_f64(
+    try_launch_broadcast_binary_f64(
         a,
         b,
         &a_str,
@@ -15565,11 +14900,7 @@ pub fn gpu_broadcast_add_f64(
         device,
         ptx,
         "broadcast_add_f64_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    cpu_fallback_broadcast_binary_f64(a, b, a_shape, b_shape, out_shape, device, |x, y| x + y)
+    )
 }
 
 /// Broadcast subtraction (f64): `out[i] = a[bcast_a(i)] - b[bcast_b(i)]`.
@@ -15594,7 +14925,7 @@ pub fn gpu_broadcast_sub_f64(
         "broadcast_sub_kernel",
         "broadcast_sub_f64_kernel",
     );
-    if let Some(out) = try_launch_broadcast_binary_f64(
+    try_launch_broadcast_binary_f64(
         a,
         b,
         &a_str,
@@ -15604,11 +14935,7 @@ pub fn gpu_broadcast_sub_f64(
         device,
         ptx,
         "broadcast_sub_f64_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    cpu_fallback_broadcast_binary_f64(a, b, a_shape, b_shape, out_shape, device, |x, y| x - y)
+    )
 }
 
 /// Broadcast multiplication (f64): `out[i] = a[bcast_a(i)] * b[bcast_b(i)]`.
@@ -15633,7 +14960,7 @@ pub fn gpu_broadcast_mul_f64(
         "broadcast_mul_kernel",
         "broadcast_mul_f64_kernel",
     );
-    if let Some(out) = try_launch_broadcast_binary_f64(
+    try_launch_broadcast_binary_f64(
         a,
         b,
         &a_str,
@@ -15643,11 +14970,7 @@ pub fn gpu_broadcast_mul_f64(
         device,
         ptx,
         "broadcast_mul_f64_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    cpu_fallback_broadcast_binary_f64(a, b, a_shape, b_shape, out_shape, device, |x, y| x * y)
+    )
 }
 
 /// Broadcast division (f64): `out[i] = a[bcast_a(i)] / b[bcast_b(i)]`.
@@ -15672,7 +14995,7 @@ pub fn gpu_broadcast_div_f64(
         "broadcast_div_kernel",
         "broadcast_div_f64_kernel",
     );
-    if let Some(out) = try_launch_broadcast_binary_f64(
+    try_launch_broadcast_binary_f64(
         a,
         b,
         &a_str,
@@ -15682,11 +15005,7 @@ pub fn gpu_broadcast_div_f64(
         device,
         ptx,
         "broadcast_div_f64_kernel",
-    )? {
-        return Ok(out);
-    }
-
-    cpu_fallback_broadcast_binary_f64(a, b, a_shape, b_shape, out_shape, device, |x, y| x / y)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -15720,10 +15039,11 @@ pub fn gpu_reduce_sum_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(a, device)?;
-            let total: f64 = host.iter().sum();
-            return cpu_to_gpu(&[total], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "reduce_sum_kernel",
+                source: e,
+            });
         }
     };
 
@@ -15790,10 +15110,11 @@ pub fn gpu_reduce_min_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(a, device)?;
-            let total = host.iter().copied().fold(f64::INFINITY, f64::min);
-            return cpu_to_gpu(&[total], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "reduce_min_kernel",
+                source: e,
+            });
         }
     };
 
@@ -15860,10 +15181,11 @@ pub fn gpu_reduce_max_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(a, device)?;
-            let total = host.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            return cpu_to_gpu(&[total], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "reduce_max_kernel",
+                source: e,
+            });
         }
     };
 
@@ -15932,10 +15254,11 @@ pub fn gpu_reduce_prod_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(a, device)?;
-            let total: f64 = host.iter().product();
-            return cpu_to_gpu(&[total], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "reduce_prod_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16026,15 +15349,11 @@ pub fn gpu_masked_reduce_min_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let dh = gpu_to_cpu(data, device)?;
-            let mh = gpu_to_cpu(mask_f, device)?;
-            let mut acc = f64::INFINITY;
-            for (&d, &m) in dh.iter().zip(mh.iter()) {
-                let v = if m != 0.0 { d } else { f64::INFINITY };
-                acc = acc.min(v);
-            }
-            return cpu_to_gpu(&[acc], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "masked_reduce_min_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16109,15 +15428,11 @@ pub fn gpu_masked_reduce_max_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let dh = gpu_to_cpu(data, device)?;
-            let mh = gpu_to_cpu(mask_f, device)?;
-            let mut acc = f64::NEG_INFINITY;
-            for (&d, &m) in dh.iter().zip(mh.iter()) {
-                let v = if m != 0.0 { d } else { f64::NEG_INFINITY };
-                acc = acc.max(v);
-            }
-            return cpu_to_gpu(&[acc], device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "masked_reduce_max_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16243,17 +15558,11 @@ pub fn gpu_pad_truncate_complex_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(src, device)?;
-            let mut out = vec![0.0_f64; batch * dst_n * 2];
-            for b in 0..batch {
-                let copy_n = src_n.min(dst_n);
-                for k in 0..copy_n {
-                    out[(b * dst_n + k) * 2] = host[(b * src_n + k) * 2];
-                    out[(b * dst_n + k) * 2 + 1] = host[(b * src_n + k) * 2 + 1];
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "pad_truncate_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16317,19 +15626,11 @@ pub fn gpu_sum_axis_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(a, device)?;
-            let mut result = vec![0.0f64; total_output];
-            for (i, out) in result.iter_mut().enumerate() {
-                let outer_idx = i / inner;
-                let inner_idx = i % inner;
-                let mut sum = 0.0f64;
-                for k in 0..axis_size {
-                    sum += host[outer_idx * axis_size * inner + k * inner + inner_idx];
-                }
-                *out = sum;
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "sum_axis_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16404,15 +15705,11 @@ pub fn gpu_transpose_2d_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let mut out = vec![0.0f64; total];
-            for i in 0..m {
-                for j in 0..n {
-                    out[j * m + i] = host[i * n + j];
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "transpose_2d_f64_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16468,21 +15765,11 @@ pub fn gpu_permute_0213_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let mut out = vec![0.0f64; total];
-            for i0 in 0..d0 {
-                for i1 in 0..d1 {
-                    for i2 in 0..d2 {
-                        for i3 in 0..d3 {
-                            let in_idx = ((i0 * d1 + i1) * d2 + i2) * d3 + i3;
-                            let out_idx = ((i0 * d2 + i2) * d1 + i1) * d3 + i3;
-                            out[out_idx] = host[in_idx];
-                        }
-                    }
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "permute_0213_f64_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16542,17 +15829,11 @@ pub fn gpu_strided_split_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let mut result = vec![0.0f64; n];
-            for (i, out) in result.iter_mut().enumerate() {
-                let outer_idx = i / (split_size * inner_size);
-                let within = i % (split_size * inner_size);
-                let src_idx =
-                    outer_idx * total_along_axis * inner_size + split_offset * inner_size + within;
-                *out = host[src_idx];
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "strided_split_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16614,18 +15895,11 @@ pub fn gpu_strided_cat_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host_in = gpu_to_cpu(input, device)?;
-            let mut host_out = gpu_to_cpu(output, device)?;
-            for (i, &val) in host_in.iter().enumerate().take(n) {
-                let outer_idx = i / (part_size * inner_size);
-                let within = i % (part_size * inner_size);
-                let dst_idx =
-                    outer_idx * total_along_axis * inner_size + cat_offset * inner_size + within;
-                host_out[dst_idx] = val;
-            }
-            *output = cpu_to_gpu(&host_out, device)?;
-            return Ok(());
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "strided_cat_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16685,14 +15959,11 @@ pub fn gpu_index_select_1d_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let input_host = gpu_to_cpu(input, device)?;
-            let indices_host = gpu_to_cpu(indices, device)?;
-            let result: Vec<f64> = indices_host
-                .iter()
-                .map(|&idx_f| input_host[idx_f as usize])
-                .collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "index_select_1d_f64_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16745,14 +16016,11 @@ pub fn gpu_scatter_add_1d_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let go_host = gpu_to_cpu(grad_output, device)?;
-            let idx_host = gpu_to_cpu(indices, device)?;
-            let mut result = vec![0.0f64; input_len];
-            for (i, &idx_f) in idx_host.iter().enumerate() {
-                result[idx_f as usize] += go_host[i];
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "scatter_add_1d_f64_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16806,15 +16074,11 @@ pub fn gpu_masked_fill_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let input_host = gpu_to_cpu(input, device)?;
-            let mask_host = gpu_to_cpu(mask, device)?;
-            let result: Vec<f64> = input_host
-                .iter()
-                .zip(mask_host.iter())
-                .map(|(&x, &m)| if m != 0 { value } else { x })
-                .collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "masked_fill_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16867,15 +16131,11 @@ pub fn gpu_masked_zero_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let grad_host = gpu_to_cpu(grad, device)?;
-            let mask_host = gpu_to_cpu(mask, device)?;
-            let result: Vec<f64> = grad_host
-                .iter()
-                .zip(mask_host.iter())
-                .map(|(&g, &m)| if m != 0 { 0.0 } else { g })
-                .collect();
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "masked_zero_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16927,17 +16187,11 @@ pub fn gpu_slice_write_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let src_host = gpu_to_cpu(src, device)?;
-            let mut dst_host = gpu_to_cpu(dst, device)?;
-            for b in 0..n_batch {
-                for di in 0..d {
-                    dst_host[b * max_len * d + pos * d + di] = src_host[b * d + di];
-                }
-            }
-            let new_dst = cpu_to_gpu(&dst_host, device)?;
-            *dst = new_dst;
-            return Ok(());
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "slice_write_kernel",
+                source: e,
+            });
         }
     };
 
@@ -16992,17 +16246,11 @@ pub fn gpu_slice_read_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(src, device)?;
-            let mut out = vec![0.0f64; total];
-            for b in 0..n_batch {
-                for r in 0..len {
-                    for di in 0..d {
-                        out[b * len * d + r * d + di] = host[b * max_len * d + r * d + di];
-                    }
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "slice_read_kernel",
+                source: e,
+            });
         }
     };
 
@@ -17059,13 +16307,11 @@ pub fn gpu_embed_lookup_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let idx_host = gpu_to_cpu(idx, device)?;
-            let weight_host = gpu_to_cpu(weight, device)?;
-            let row = idx_host[0] as usize;
-            let start = row * d;
-            let out = weight_host[start..start + d].to_vec();
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "embed_lookup_kernel",
+                source: e,
+            });
         }
     };
 
@@ -17119,16 +16365,11 @@ pub fn gpu_embed_lookup_batch_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let idx_host = gpu_to_cpu(indices, device)?;
-            let weight_host = gpu_to_cpu(weight, device)?;
-            let mut out = Vec::with_capacity(total);
-            for &idx_f in &idx_host {
-                let row = idx_f as usize;
-                let start = row * d;
-                out.extend_from_slice(&weight_host[start..start + d]);
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "embed_lookup_batch_kernel",
+                source: e,
+            });
         }
     };
 
@@ -17188,17 +16429,11 @@ pub fn gpu_scatter_add_rows_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let go_host = gpu_to_cpu(grad_output, device)?;
-            let idx_host = gpu_to_cpu(indices, device)?;
-            let mut result = vec![0.0f64; num_embeddings * d];
-            for (i, &idx_f) in idx_host.iter().enumerate() {
-                let row = idx_f as usize;
-                for j in 0..d {
-                    result[row * d + j] += go_host[i * d + j];
-                }
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "scatter_add_rows_kernel",
+                source: e,
+            });
         }
     };
 
@@ -17266,29 +16501,11 @@ pub fn gpu_fused_adam(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback: download, compute, upload.
-            let mut p_host = gpu_to_cpu(param, device)?;
-            let g_host = gpu_to_cpu(grad, device)?;
-            let mut m_host = gpu_to_cpu(exp_avg, device)?;
-            let mut v_host = gpu_to_cpu(exp_avg_sq, device)?;
-
-            for i in 0..n {
-                let mut g = g_host[i];
-                if weight_decay > 0.0 {
-                    g += weight_decay * p_host[i];
-                }
-                m_host[i] = beta1 * m_host[i] + (1.0 - beta1) * g;
-                v_host[i] = beta2 * v_host[i] + (1.0 - beta2) * g * g;
-                let m_hat = m_host[i] / bc1;
-                let v_hat = v_host[i] / bc2;
-                p_host[i] -= lr * m_hat / (v_hat.sqrt() + eps);
-            }
-
-            *param = cpu_to_gpu(&p_host, device)?;
-            *exp_avg = cpu_to_gpu(&m_host, device)?;
-            *exp_avg_sq = cpu_to_gpu(&v_host, device)?;
-            return Ok(());
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "fused_adam_kernel",
+                source: e,
+            });
         }
     };
 
@@ -17378,9 +16595,10 @@ pub fn gpu_fused_gru_forward(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
+        Err(e) => {
             return Err(GpuError::PtxCompileFailed {
                 kernel: "fused_gru_forward_kernel",
+                source: e,
             });
         }
     };
@@ -17461,9 +16679,10 @@ pub fn gpu_maxpool2d(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
+        Err(e) => {
             return Err(GpuError::PtxCompileFailed {
                 kernel: "maxpool2d_forward_kernel",
+                source: e,
             });
         }
     };
@@ -17556,9 +16775,10 @@ pub fn gpu_avgpool2d(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
+        Err(e) => {
             return Err(GpuError::PtxCompileFailed {
                 kernel: "avgpool2d_forward_kernel",
+                source: e,
             });
         }
     };
@@ -17708,29 +16928,10 @@ pub fn gpu_layernorm(
     ) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("ferrotorch-gpu: LayerNorm PTX compilation failed ({e:?}), CPU fallback");
-            std::fs::write("/tmp/layernorm_debug.ptx", LAYERNORM_PTX).ok();
-            eprintln!(
-                "ferrotorch-gpu: dumped PTX to /tmp/layernorm_debug.ptx ({} bytes)",
-                LAYERNORM_PTX.len()
-            );
-            let h_in = gpu_to_cpu(input, device)?;
-            let h_w = gpu_to_cpu(weight, device)?;
-            let h_b = gpu_to_cpu(bias, device)?;
-            let mut out = vec![0.0f32; rows * cols];
-            for r in 0..rows {
-                let base = r * cols;
-                let slice = &h_in[base..base + cols];
-                let mean: f32 = slice.iter().sum::<f32>() / cols as f32;
-                let var: f32 =
-                    slice.iter().map(|&x| (x - mean) * (x - mean)).sum::<f32>() / cols as f32;
-                let inv_std = 1.0 / (var + eps).sqrt();
-                for c in 0..cols {
-                    let normed = (slice[c] - mean) * inv_std;
-                    out[base + c] = h_w[c] * normed + h_b[c];
-                }
-            }
-            return cpu_to_gpu(&out, device);
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "layernorm_kernel",
+                source: e,
+            });
         }
     };
 
@@ -17796,48 +16997,11 @@ pub fn gpu_layernorm_backward(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let h_in = gpu_to_cpu(input, device)?;
-            let h_go = gpu_to_cpu(grad_output, device)?;
-            let h_w = gpu_to_cpu(weight, device)?;
-            let mut grad_input = vec![0.0f32; rows * cols];
-            let mut grad_weight = vec![0.0f32; cols];
-            let mut grad_bias = vec![0.0f32; cols];
-            let n_f = cols as f32;
-            for r in 0..rows {
-                let base = r * cols;
-                let x_slice = &h_in[base..base + cols];
-                let go_slice = &h_go[base..base + cols];
-                let mean: f32 = x_slice.iter().sum::<f32>() / n_f;
-                let var: f32 = x_slice
-                    .iter()
-                    .map(|&x| (x - mean) * (x - mean))
-                    .sum::<f32>()
-                    / n_f;
-                let inv_std = 1.0 / (var + eps).sqrt();
-                let mut sum1 = 0.0f32;
-                let mut sum2 = 0.0f32;
-                for c in 0..cols {
-                    let x_hat = (x_slice[c] - mean) * inv_std;
-                    let dl = go_slice[c] * h_w[c];
-                    sum1 += dl;
-                    sum2 += dl * x_hat;
-                    grad_weight[c] += go_slice[c] * x_hat;
-                    grad_bias[c] += go_slice[c];
-                }
-                let m1 = sum1 / n_f;
-                let m2 = sum2 / n_f;
-                for c in 0..cols {
-                    let x_hat = (x_slice[c] - mean) * inv_std;
-                    let dl = go_slice[c] * h_w[c];
-                    grad_input[base + c] = inv_std * (dl - m1 - x_hat * m2);
-                }
-            }
-            let gi = cpu_to_gpu(&grad_input, device)?;
-            let gw = cpu_to_gpu(&grad_weight, device)?;
-            let gb = cpu_to_gpu(&grad_bias, device)?;
-            return Ok((gi, gw, gb));
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "layernorm_backward_kernel",
+                source: e,
+            });
         }
     };
 
@@ -17921,25 +17085,10 @@ pub fn gpu_rmsnorm(
     ) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("ferrotorch-gpu: RMSNorm PTX compilation failed ({e:?}), CPU fallback");
-            std::fs::write("/tmp/rmsnorm_debug.ptx", RMSNORM_PTX).ok();
-            eprintln!(
-                "ferrotorch-gpu: dumped PTX to /tmp/rmsnorm_debug.ptx ({} bytes)",
-                RMSNORM_PTX.len()
-            );
-            let h_in = gpu_to_cpu(input, device)?;
-            let h_w = gpu_to_cpu(weight, device)?;
-            let mut out = vec![0.0f32; rows * cols];
-            for r in 0..rows {
-                let base = r * cols;
-                let slice = &h_in[base..base + cols];
-                let sq_mean: f32 = slice.iter().map(|&x| x * x).sum::<f32>() / cols as f32;
-                let inv_rms = 1.0 / (sq_mean + eps).sqrt();
-                for c in 0..cols {
-                    out[base + c] = slice[c] * inv_rms * h_w[c];
-                }
-            }
-            return cpu_to_gpu(&out, device);
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "rmsnorm_kernel",
+                source: e,
+            });
         }
     };
 
@@ -18004,34 +17153,11 @@ pub fn gpu_rmsnorm_backward(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback
-            let h_in = gpu_to_cpu(input, device)?;
-            let h_go = gpu_to_cpu(grad_output, device)?;
-            let h_w = gpu_to_cpu(weight, device)?;
-            let mut grad_input = vec![0.0f32; rows * cols];
-            let mut grad_weight = vec![0.0f32; cols];
-            let n_f = cols as f32;
-            for r in 0..rows {
-                let base = r * cols;
-                let x_slice = &h_in[base..base + cols];
-                let go_slice = &h_go[base..base + cols];
-                let sq_mean: f32 = x_slice.iter().map(|&x| x * x).sum::<f32>() / n_f;
-                let inv_rms = 1.0 / (sq_mean + eps).sqrt();
-                let inv_rms3 = inv_rms * inv_rms * inv_rms;
-                let mut dot = 0.0f32;
-                for c in 0..cols {
-                    dot += go_slice[c] * x_slice[c] * h_w[c];
-                    grad_weight[c] += go_slice[c] * x_slice[c] * inv_rms;
-                }
-                let coeff = dot * inv_rms3 / n_f;
-                for c in 0..cols {
-                    grad_input[base + c] = inv_rms * h_w[c] * go_slice[c] - x_slice[c] * coeff;
-                }
-            }
-            let gi = cpu_to_gpu(&grad_input, device)?;
-            let gw = cpu_to_gpu(&grad_weight, device)?;
-            return Ok((gi, gw));
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "rmsnorm_backward_kernel",
+                source: e,
+            });
         }
     };
 
@@ -18115,12 +17241,7 @@ pub fn gpu_add_into(
             got: vec![out.len()],
         });
     }
-    if try_launch_binary_into(a, b, out, device, ADD_PTX, "add_kernel")? {
-        return Ok(());
-    }
-    Err(GpuError::PtxCompileFailed {
-        kernel: "add_kernel",
-    })
+    try_launch_binary_into(a, b, out, device, ADD_PTX, "add_kernel")
 }
 
 /// Elementwise mul into pre-allocated output: `out[i] = a[i] * b[i]`.
@@ -18139,12 +17260,7 @@ pub fn gpu_mul_into(
             got: vec![out.len()],
         });
     }
-    if try_launch_binary_into(a, b, out, device, MUL_PTX, "mul_kernel")? {
-        return Ok(());
-    }
-    Err(GpuError::PtxCompileFailed {
-        kernel: "mul_kernel",
-    })
+    try_launch_binary_into(a, b, out, device, MUL_PTX, "mul_kernel")
 }
 
 /// Scalar multiply into pre-allocated output: `out[i] = a[i] * scalar`.
@@ -18166,8 +17282,9 @@ pub fn gpu_scale_into(
         "scale_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
+    .map_err(|e| GpuError::PtxCompileFailed {
         kernel: "scale_kernel",
+        source: e,
     })?;
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
@@ -18201,8 +17318,9 @@ pub fn gpu_fill_f32(n: usize, scalar: f32, device: &GpuDevice) -> GpuResult<Cuda
         "fill_f32_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
-        kernel: "fill_f32_kernel",
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "scale_kernel",
+        source: e,
     })?;
 
     let mut out = alloc_zeros_f32(n, device)?;
@@ -18265,12 +17383,7 @@ pub fn gpu_gelu_into(
     device: &GpuDevice,
 ) -> GpuResult<()> {
     validate_unary(a, device)?;
-    if try_launch_unary_into(a, out, device, GELU_PTX, "gelu_kernel")? {
-        return Ok(());
-    }
-    Err(GpuError::PtxCompileFailed {
-        kernel: "gelu_kernel",
-    })
+    try_launch_unary_into(a, out, device, GELU_PTX, "gelu_kernel")
 }
 
 /// Embedding lookup into pre-allocated output.
@@ -18291,8 +17404,9 @@ pub fn gpu_embed_lookup_into(
         "embed_lookup_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
+    .map_err(|e| GpuError::PtxCompileFailed {
         kernel: "embed_lookup_kernel",
+        source: e,
     })?;
     let cfg = launch_cfg(d)?;
     let d_u32 = d as u32;
@@ -18340,17 +17454,11 @@ pub fn gpu_embed_lookup_batch(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback.
-            let idx_host = gpu_to_cpu(indices, device)?;
-            let weight_host = gpu_to_cpu(weight, device)?;
-            let mut out = Vec::with_capacity(total);
-            for &idx_f in &idx_host {
-                let row = idx_f as usize;
-                let start = row * d;
-                out.extend_from_slice(&weight_host[start..start + d]);
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "embed_lookup_batch_kernel",
+                source: e,
+            });
         }
     };
 
@@ -18409,18 +17517,11 @@ pub fn gpu_scatter_add_rows(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            // CPU fallback.
-            let go_host = gpu_to_cpu(grad_output, device)?;
-            let idx_host = gpu_to_cpu(indices, device)?;
-            let mut result = vec![0.0f32; num_embeddings * d];
-            for (i, &idx_f) in idx_host.iter().enumerate() {
-                let row = idx_f as usize;
-                for j in 0..d {
-                    result[row * d + j] += go_host[i * d + j];
-                }
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "scatter_add_rows_kernel",
+                source: e,
+            });
         }
     };
 
@@ -18462,8 +17563,9 @@ pub fn gpu_transpose_2d_into(
         "transpose_2d_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
-        kernel: "transpose_2d_kernel",
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "scatter_add_rows_kernel",
+        source: e,
     })?;
     let cfg = launch_cfg(total)?;
     let m_u32 = m as u32;
@@ -18503,8 +17605,9 @@ pub fn gpu_permute_0213_into(
         "permute_0213_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
+    .map_err(|e| GpuError::PtxCompileFailed {
         kernel: "permute_0213_kernel",
+        source: e,
     })?;
     let cfg = launch_cfg(total)?;
     let (d0u, d1u, d2u, d3u, tu) = (d0 as u32, d1 as u32, d2 as u32, d3 as u32, total as u32);
@@ -18541,8 +17644,9 @@ pub fn gpu_softmax_into(
         "softmax_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
+    .map_err(|e| GpuError::PtxCompileFailed {
         kernel: "softmax_kernel",
+        source: e,
     })?;
     let block_size = 256u32;
     let grid_size = rows as u32;
@@ -18587,8 +17691,9 @@ pub fn gpu_layernorm_into(
         "layernorm_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
+    .map_err(|e| GpuError::PtxCompileFailed {
         kernel: "layernorm_kernel",
+        source: e,
     })?;
     let block_size = 256u32;
     let grid_size = rows as u32;
@@ -18636,8 +17741,9 @@ pub fn gpu_slice_read_into(
         "slice_read_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
+    .map_err(|e| GpuError::PtxCompileFailed {
         kernel: "slice_read_kernel",
+        source: e,
     })?;
     let cfg = launch_cfg(total)?;
     let total_u32 = total as u32;
@@ -18679,8 +17785,9 @@ pub fn gpu_small_matmul_into(
         "small_matmul_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
+    .map_err(|e| GpuError::PtxCompileFailed {
         kernel: "small_matmul_kernel",
+        source: e,
     })?;
     let cfg = launch_cfg(total)?;
     let (m_u32, k_u32, n_u32, total_u32) = (m as u32, k as u32, n as u32, total as u32);
@@ -18725,8 +17832,9 @@ pub fn gpu_slice_write_indirect(
         "slice_write_indirect_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
+    .map_err(|e| GpuError::PtxCompileFailed {
         kernel: "slice_write_indirect_kernel",
+        source: e,
     })?;
     let cfg = launch_cfg(total)?;
     let n_u32 = total as u32;
@@ -18767,8 +17875,9 @@ pub fn gpu_causal_mask_indirect(
         "causal_mask_indirect_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
+    .map_err(|e| GpuError::PtxCompileFailed {
         kernel: "causal_mask_indirect_kernel",
+        source: e,
     })?;
     let cfg = launch_cfg(total)?;
     let max_pos_u32 = max_pos as u32;
@@ -19490,8 +18599,9 @@ pub(crate) fn gpu_f32_to_f16(
         "f32_to_f16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
+    .map_err(|e| GpuError::PtxCompileFailed {
         kernel: "f32_to_f16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<u16>(n)?;
@@ -19545,8 +18655,9 @@ pub(crate) fn gpu_f32_to_bf16(
         "f32_to_bf16_kernel",
         device.ordinal() as u32,
     )
-    .map_err(|_| GpuError::PtxCompileFailed {
+    .map_err(|e| GpuError::PtxCompileFailed {
         kernel: "f32_to_bf16_kernel",
+        source: e,
     })?;
 
     let mut out = stream.alloc_zeros::<u16>(n)?;
@@ -19862,10 +18973,7 @@ pub fn gpu_scatter_add_rows_f64(
 /// GELU (sigmoid-approx) for f64.
 #[cfg(feature = "cuda")]
 pub fn gpu_gelu_f64(input: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
-    if let Some(out) = try_launch_unary_f64(input, device, GELU_F64_PTX, "gelu_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(input, device, |x| x * (1.0 / (1.0 + (-1.702 * x).exp())))
+    try_launch_unary_f64(input, device, GELU_F64_PTX, "gelu_f64_kernel")
 }
 
 /// GELU (tanh-approx) for f64.
@@ -19874,36 +18982,13 @@ pub fn gpu_gelu_tanh_f64(
     input: &CudaBuffer<f64>,
     device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f64>> {
-    if let Some(out) =
-        try_launch_unary_f64(input, device, GELU_TANH_F64_PTX, "gelu_tanh_f64_kernel")?
-    {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(input, device, |x| {
-        let inner = (2.0_f64 / std::f64::consts::PI).sqrt() * (x + 0.044715 * x * x * x);
-        0.5 * x * (1.0 + inner.tanh())
-    })
+    try_launch_unary_f64(input, device, GELU_TANH_F64_PTX, "gelu_tanh_f64_kernel")
 }
 
 /// GELU (exact erf) for f64.
 #[cfg(feature = "cuda")]
 pub fn gpu_gelu_erf_f64(input: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
-    if let Some(out) = try_launch_unary_f64(input, device, GELU_ERF_F64_PTX, "gelu_erf_f64_kernel")?
-    {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(input, device, |x| {
-        // Approximate erf via Abramowitz & Stegun
-        let z = x * std::f64::consts::FRAC_1_SQRT_2;
-        let az = z.abs();
-        let t = 1.0 / (1.0 + 0.3275911 * az);
-        let poly = t
-            * (0.254829592
-                + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
-        let erf_abs = 1.0 - poly * (-az * az).exp();
-        let erf_val = if z >= 0.0 { erf_abs } else { -erf_abs };
-        x * 0.5 * (1.0 + erf_val)
-    })
+    try_launch_unary_f64(input, device, GELU_ERF_F64_PTX, "gelu_erf_f64_kernel")
 }
 
 /// GELU backward (sigmoid-approx) for f64.
@@ -19919,19 +19004,13 @@ pub fn gpu_gelu_backward_f64(
             b: input.len(),
         });
     }
-    if let Some(out) = try_launch_binary_f64(
+    try_launch_binary_f64(
         grad,
         input,
         device,
         GELU_BACKWARD_F64_PTX,
         "gelu_backward_f64_kernel",
-    )? {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(grad, input, device, |g, x| {
-        let sig = 1.0 / (1.0 + (-1.702 * x).exp());
-        g * (sig + 1.702 * x * sig * (1.0 - sig))
-    })
+    )
 }
 
 /// GELU backward (tanh-approx) for f64.
@@ -19947,23 +19026,13 @@ pub fn gpu_gelu_backward_tanh_f64(
             b: input.len(),
         });
     }
-    if let Some(out) = try_launch_binary_f64(
+    try_launch_binary_f64(
         grad,
         input,
         device,
         GELU_BACKWARD_TANH_F64_PTX,
         "gelu_backward_tanh_f64_kernel",
-    )? {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(grad, input, device, |g, x| {
-        let s2pi = (2.0_f64 / std::f64::consts::PI).sqrt();
-        let c = 0.044715_f64;
-        let u = s2pi * (x + c * x * x * x);
-        let t = u.tanh();
-        let d = 0.5 * (1.0 + t) + 0.5 * x * (1.0 - t * t) * s2pi * (1.0 + 3.0 * c * x * x);
-        g * d
-    })
+    )
 }
 
 /// GELU backward (exact erf) for f64.
@@ -19979,37 +19048,19 @@ pub fn gpu_gelu_backward_erf_f64(
             b: input.len(),
         });
     }
-    if let Some(out) = try_launch_binary_f64(
+    try_launch_binary_f64(
         grad,
         input,
         device,
         GELU_BACKWARD_ERF_F64_PTX,
         "gelu_backward_erf_f64_kernel",
-    )? {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(grad, input, device, |g, x| {
-        let z = x * std::f64::consts::FRAC_1_SQRT_2;
-        let az = z.abs();
-        let t = 1.0 / (1.0 + 0.3275911 * az);
-        let poly = t
-            * (0.254829592
-                + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
-        let erf_abs = 1.0 - poly * (-az * az).exp();
-        let erf_val = if z >= 0.0 { erf_abs } else { -erf_abs };
-        let cdf = 0.5 * (1.0 + erf_val);
-        let pdf = (-x * x / 2.0).exp() / (2.0 * std::f64::consts::PI).sqrt();
-        g * (cdf + x * pdf)
-    })
+    )
 }
 
 /// SiLU for f64.
 #[cfg(feature = "cuda")]
 pub fn gpu_silu_f64(input: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
-    if let Some(out) = try_launch_unary_f64(input, device, SILU_F64_PTX, "silu_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(input, device, |x| x / (1.0 + (-x).exp()))
+    try_launch_unary_f64(input, device, SILU_F64_PTX, "silu_f64_kernel")
 }
 
 /// SiLU backward for f64.
@@ -20025,19 +19076,13 @@ pub fn gpu_silu_backward_f64(
             b: input.len(),
         });
     }
-    if let Some(out) = try_launch_binary_f64(
+    try_launch_binary_f64(
         grad,
         input,
         device,
         SILU_BACKWARD_F64_PTX,
         "silu_backward_f64_kernel",
-    )? {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(grad, input, device, |g, x| {
-        let sig = 1.0 / (1.0 + (-x).exp());
-        g * (sig + x * sig * (1.0 - sig))
-    })
+    )
 }
 
 /// ELU for f64.
@@ -20137,10 +19182,7 @@ pub fn gpu_elu_backward_f64(
 /// Mish for f64.
 #[cfg(feature = "cuda")]
 pub fn gpu_mish_f64(input: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<CudaBuffer<f64>> {
-    if let Some(out) = try_launch_unary_f64(input, device, MISH_F64_PTX, "mish_f64_kernel")? {
-        return Ok(out);
-    }
-    cpu_fallback_unary_f64(input, device, |x| x * (1.0_f64 + x.exp()).ln().tanh())
+    try_launch_unary_f64(input, device, MISH_F64_PTX, "mish_f64_kernel")
 }
 
 /// Mish backward for f64.
@@ -20156,21 +19198,13 @@ pub fn gpu_mish_backward_f64(
             b: input.len(),
         });
     }
-    if let Some(out) = try_launch_binary_f64(
+    try_launch_binary_f64(
         grad,
         input,
         device,
         MISH_BACKWARD_F64_PTX,
         "mish_backward_f64_kernel",
-    )? {
-        return Ok(out);
-    }
-    cpu_fallback_binary_f64(grad, input, device, |g, x| {
-        let sp = (1.0_f64 + x.exp()).ln();
-        let t = sp.tanh();
-        let sig = 1.0 / (1.0 + (-x).exp());
-        g * (t + x * sig * (1.0 - t * t))
-    })
+    )
 }
 
 /// Clamp for f64.
@@ -20313,28 +19347,35 @@ pub fn gpu_cumsum_f64(
     let ctx = device.context();
     let stream = device.stream();
     let ptx = get_f64_ptx(&CACHE, CUMSUM_PTX, "cumsum_kernel", "cumsum_f64_kernel");
-    if let Ok(f) =
-        crate::module_cache::get_or_compile(ctx, ptx, "cumsum_f64_kernel", device.ordinal() as u32)
-    {
-        let mut out = alloc_zeros_f64(n, device)?;
-        let cfg = launch_cfg(total)?;
-        let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
-        unsafe {
-            stream
-                .launch_builder(&f)
-                .arg(input.inner())
-                .arg(out.inner_mut())
-                .arg(&o)
-                .arg(&d)
-                .arg(&i)
-                .arg(&t)
-                .launch(cfg)?;
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        ptx,
+        "cumsum_f64_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "cumsum_f64_kernel",
+                source: e,
+            });
         }
-        return Ok(out);
+    };
+    let mut out = alloc_zeros_f64(n, device)?;
+    let cfg = launch_cfg(total)?;
+    let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(&o)
+            .arg(&d)
+            .arg(&i)
+            .arg(&t)
+            .launch(cfg)?;
     }
-    Err(GpuError::PtxCompileFailed {
-        kernel: "cumsum_f64_kernel",
-    })
+    Ok(out)
 }
 
 /// Cumulative product for f64.
@@ -20356,28 +19397,35 @@ pub fn gpu_cumprod_f64(
     let ctx = device.context();
     let stream = device.stream();
     let ptx = get_f64_ptx(&CACHE, CUMPROD_PTX, "cumprod_kernel", "cumprod_f64_kernel");
-    if let Ok(f) =
-        crate::module_cache::get_or_compile(ctx, ptx, "cumprod_f64_kernel", device.ordinal() as u32)
-    {
-        let mut out = alloc_zeros_f64(n, device)?;
-        let cfg = launch_cfg(total)?;
-        let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
-        unsafe {
-            stream
-                .launch_builder(&f)
-                .arg(input.inner())
-                .arg(out.inner_mut())
-                .arg(&o)
-                .arg(&d)
-                .arg(&i)
-                .arg(&t)
-                .launch(cfg)?;
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        ptx,
+        "cumprod_f64_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "cumprod_f64_kernel",
+                source: e,
+            });
         }
-        return Ok(out);
+    };
+    let mut out = alloc_zeros_f64(n, device)?;
+    let cfg = launch_cfg(total)?;
+    let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(&o)
+            .arg(&d)
+            .arg(&i)
+            .arg(&t)
+            .launch(cfg)?;
     }
-    Err(GpuError::PtxCompileFailed {
-        kernel: "cumprod_f64_kernel",
-    })
+    Ok(out)
 }
 
 /// Cumulative max for f64. Returns (values, indices).
@@ -20402,8 +19450,9 @@ pub fn gpu_cummax_f64(
     let ptx = get_f64_ptx(&CACHE, CUMMAX_PTX, "cummax_kernel", "cummax_f64_kernel");
     let f =
         crate::module_cache::get_or_compile(ctx, ptx, "cummax_f64_kernel", device.ordinal() as u32)
-            .map_err(|_| GpuError::PtxCompileFailed {
-                kernel: "cummax_f64_kernel",
+            .map_err(|e| GpuError::PtxCompileFailed {
+                kernel: "cummax_kernel",
+                source: e,
             })?;
     let mut out = alloc_zeros_f64(n, device)?;
     let mut ind = alloc_zeros_f64(n, device)?;
@@ -20446,8 +19495,9 @@ pub fn gpu_cummin_f64(
     let ptx = get_f64_ptx(&CACHE, CUMMIN_PTX, "cummin_kernel", "cummin_f64_kernel");
     let f =
         crate::module_cache::get_or_compile(ctx, ptx, "cummin_f64_kernel", device.ordinal() as u32)
-            .map_err(|_| GpuError::PtxCompileFailed {
-                kernel: "cummin_f64_kernel",
+            .map_err(|e| GpuError::PtxCompileFailed {
+                kernel: "cummin_kernel",
+                source: e,
             })?;
     let mut out = alloc_zeros_f64(n, device)?;
     let mut ind = alloc_zeros_f64(n, device)?;
@@ -20485,31 +19535,35 @@ pub fn gpu_logcumsumexp_f64(
     }
     let ctx = device.context();
     let stream = device.stream();
-    if let Ok(f) = crate::module_cache::get_or_compile(
+    let f = match crate::module_cache::get_or_compile(
         ctx,
         LOGCUMSUMEXP_F64_PTX,
         "logcumsumexp_f64_kernel",
         device.ordinal() as u32,
     ) {
-        let mut out = alloc_zeros_f64(n, device)?;
-        let cfg = launch_cfg(total)?;
-        let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
-        unsafe {
-            stream
-                .launch_builder(&f)
-                .arg(input.inner())
-                .arg(out.inner_mut())
-                .arg(&o)
-                .arg(&d)
-                .arg(&i)
-                .arg(&t)
-                .launch(cfg)?;
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "logcumsumexp_f64_kernel",
+                source: e,
+            });
         }
-        return Ok(out);
+    };
+    let mut out = alloc_zeros_f64(n, device)?;
+    let cfg = launch_cfg(total)?;
+    let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(&o)
+            .arg(&d)
+            .arg(&i)
+            .arg(&t)
+            .launch(cfg)?;
     }
-    Err(GpuError::PtxCompileFailed {
-        kernel: "logcumsumexp_f64_kernel",
-    })
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -20541,27 +19595,11 @@ pub fn gpu_softmax_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let mut out = vec![0.0f64; host.len()];
-            for r in 0..rows {
-                let base = r * cols;
-                let mut max_v = f64::NEG_INFINITY;
-                for c in 0..cols {
-                    max_v = max_v.max(host[base + c]);
-                }
-                let mut sum = 0.0f64;
-                for c in 0..cols {
-                    let e = (host[base + c] - max_v).exp();
-                    out[base + c] = e;
-                    sum += e;
-                }
-                let inv = 1.0 / sum;
-                for c in 0..cols {
-                    out[base + c] *= inv;
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "softmax_f64_kernel",
+                source: e,
+            });
         }
     };
 
@@ -20628,21 +19666,11 @@ pub fn gpu_softmax_backward_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let grad_host = gpu_to_cpu(grad, device)?;
-            let output_host = gpu_to_cpu(output, device)?;
-            let mut result = vec![0.0f64; total];
-            for r in 0..rows {
-                let base = r * cols;
-                let mut dot = 0.0f64;
-                for c in 0..cols {
-                    dot += grad_host[base + c] * output_host[base + c];
-                }
-                for c in 0..cols {
-                    result[base + c] = output_host[base + c] * (grad_host[base + c] - dot);
-                }
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "softmax_backward_kernel",
+                source: e,
+            });
         }
     };
 
@@ -20696,25 +19724,11 @@ pub fn gpu_log_softmax_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let host = gpu_to_cpu(input, device)?;
-            let mut out = vec![0.0f64; total];
-            for r in 0..rows {
-                let base = r * cols;
-                let mut max_v = f64::NEG_INFINITY;
-                for c in 0..cols {
-                    max_v = max_v.max(host[base + c]);
-                }
-                let mut sum_exp = 0.0f64;
-                for c in 0..cols {
-                    sum_exp += (host[base + c] - max_v).exp();
-                }
-                let log_sum_exp = max_v + sum_exp.ln();
-                for c in 0..cols {
-                    out[base + c] = host[base + c] - log_sum_exp;
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "softmax_backward_kernel",
+                source: e,
+            });
         }
     };
 
@@ -20776,21 +19790,11 @@ pub fn gpu_log_softmax_backward_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let grad_host = gpu_to_cpu(grad, device)?;
-            let output_host = gpu_to_cpu(output, device)?;
-            let mut result = vec![0.0f64; total];
-            for r in 0..rows {
-                let base = r * cols;
-                let mut sum_grad = 0.0f64;
-                for c in 0..cols {
-                    sum_grad += grad_host[base + c];
-                }
-                for c in 0..cols {
-                    result[base + c] = grad_host[base + c] - output_host[base + c].exp() * sum_grad;
-                }
-            }
-            return cpu_to_gpu(&result, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "log_softmax_backward_f64_kernel",
+                source: e,
+            });
         }
     };
 
@@ -20853,24 +19857,11 @@ pub fn gpu_layernorm_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let h_in = gpu_to_cpu(input, device)?;
-            let h_w = gpu_to_cpu(weight, device)?;
-            let h_b = gpu_to_cpu(bias, device)?;
-            let mut out = vec![0.0f64; rows * cols];
-            for r in 0..rows {
-                let base = r * cols;
-                let slice = &h_in[base..base + cols];
-                let mean: f64 = slice.iter().sum::<f64>() / cols as f64;
-                let var: f64 =
-                    slice.iter().map(|&x| (x - mean) * (x - mean)).sum::<f64>() / cols as f64;
-                let inv_std = 1.0 / (var + eps).sqrt();
-                for c in 0..cols {
-                    let normed = (slice[c] - mean) * inv_std;
-                    out[base + c] = h_w[c] * normed + h_b[c];
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "layernorm_kernel",
+                source: e,
+            });
         }
     };
 
@@ -20934,47 +19925,11 @@ pub fn gpu_layernorm_backward_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let h_in = gpu_to_cpu(input, device)?;
-            let h_go = gpu_to_cpu(grad_output, device)?;
-            let h_w = gpu_to_cpu(weight, device)?;
-            let mut grad_input = vec![0.0f64; rows * cols];
-            let mut grad_weight = vec![0.0f64; cols];
-            let mut grad_bias = vec![0.0f64; cols];
-            let n_f = cols as f64;
-            for r in 0..rows {
-                let base = r * cols;
-                let x_slice = &h_in[base..base + cols];
-                let go_slice = &h_go[base..base + cols];
-                let mean: f64 = x_slice.iter().sum::<f64>() / n_f;
-                let var: f64 = x_slice
-                    .iter()
-                    .map(|&x| (x - mean) * (x - mean))
-                    .sum::<f64>()
-                    / n_f;
-                let inv_std = 1.0 / (var + eps).sqrt();
-                let mut sum1 = 0.0f64;
-                let mut sum2 = 0.0f64;
-                for c in 0..cols {
-                    let x_hat = (x_slice[c] - mean) * inv_std;
-                    let dl = go_slice[c] * h_w[c];
-                    sum1 += dl;
-                    sum2 += dl * x_hat;
-                    grad_weight[c] += go_slice[c] * x_hat;
-                    grad_bias[c] += go_slice[c];
-                }
-                let m1 = sum1 / n_f;
-                let m2 = sum2 / n_f;
-                for c in 0..cols {
-                    let x_hat = (x_slice[c] - mean) * inv_std;
-                    let dl = go_slice[c] * h_w[c];
-                    grad_input[base + c] = inv_std * (dl - m1 - x_hat * m2);
-                }
-            }
-            let gi = cpu_to_gpu(&grad_input, device)?;
-            let gw = cpu_to_gpu(&grad_weight, device)?;
-            let gb = cpu_to_gpu(&grad_bias, device)?;
-            return Ok((gi, gw, gb));
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "layernorm_backward_kernel",
+                source: e,
+            });
         }
     };
 
@@ -21037,20 +19992,11 @@ pub fn gpu_rmsnorm_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let h_in = gpu_to_cpu(input, device)?;
-            let h_w = gpu_to_cpu(weight, device)?;
-            let mut out = vec![0.0f64; rows * cols];
-            for r in 0..rows {
-                let base = r * cols;
-                let slice = &h_in[base..base + cols];
-                let sq_mean: f64 = slice.iter().map(|&x| x * x).sum::<f64>() / cols as f64;
-                let inv_rms = 1.0 / (sq_mean + eps).sqrt();
-                for c in 0..cols {
-                    out[base + c] = slice[c] * inv_rms * h_w[c];
-                }
-            }
-            return cpu_to_gpu(&out, device);
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "rmsnorm_kernel",
+                source: e,
+            });
         }
     };
 
@@ -21113,33 +20059,11 @@ pub fn gpu_rmsnorm_backward_f64(
         device.ordinal() as u32,
     ) {
         Ok(f) => f,
-        Err(_) => {
-            let h_in = gpu_to_cpu(input, device)?;
-            let h_go = gpu_to_cpu(grad_output, device)?;
-            let h_w = gpu_to_cpu(weight, device)?;
-            let mut grad_input = vec![0.0f64; rows * cols];
-            let mut grad_weight = vec![0.0f64; cols];
-            let n_f = cols as f64;
-            for r in 0..rows {
-                let base = r * cols;
-                let x_slice = &h_in[base..base + cols];
-                let go_slice = &h_go[base..base + cols];
-                let sq_mean: f64 = x_slice.iter().map(|&x| x * x).sum::<f64>() / n_f;
-                let inv_rms = 1.0 / (sq_mean + eps).sqrt();
-                let inv_rms3 = inv_rms * inv_rms * inv_rms;
-                let mut dot = 0.0f64;
-                for c in 0..cols {
-                    dot += go_slice[c] * x_slice[c] * h_w[c];
-                    grad_weight[c] += go_slice[c] * x_slice[c] * inv_rms;
-                }
-                let coeff = dot * inv_rms3 / n_f;
-                for c in 0..cols {
-                    grad_input[base + c] = inv_rms * h_w[c] * go_slice[c] - x_slice[c] * coeff;
-                }
-            }
-            let gi = cpu_to_gpu(&grad_input, device)?;
-            let gw = cpu_to_gpu(&grad_weight, device)?;
-            return Ok((gi, gw));
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "rmsnorm_backward_kernel",
+                source: e,
+            });
         }
     };
 
