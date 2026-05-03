@@ -1,0 +1,10 @@
+{
+  "uuid": "f526565f-5a2b-49d4-9511-20f33d3dc29a",
+  "display_id": 671,
+  "title": "Install ptxas (CUDA toolkit) locally to diagnose REDUCE_SUM_PTX JIT failure (#670 follow-up)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-03T00:31:28.212544533Z",
+  "updated_at": "2026-05-03T00:31:28.212544533Z"
+}
