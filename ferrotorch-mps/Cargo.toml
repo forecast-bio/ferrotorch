@@ -11,12 +11,6 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[features]
-# Enable the actual Metal backend. Requires the `metal` crate which only
-# builds on macOS / iOS. Off by default so non-Apple platforms can still
-# depend on this crate (they just get the host-fallback / unavailable path).
-metal-backend = []
-
 [dependencies]
 ferrotorch-core = { workspace = true }
 

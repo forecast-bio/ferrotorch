@@ -1,158 +1,188 @@
-//! Apple Silicon Metal Performance Shaders (MPS) backend skeleton. (#451)
+//! Apple Silicon Metal Performance Shaders (MPS) backend marker crate. (#451)
 //!
-//! This crate ships the platform-detection and `Device::Mps(_)`
-//! plumbing that any caller can use unconditionally. The actual Metal
-//! kernel layer is gated behind the `metal-backend` feature, which is
-//! intentionally **off by default** so non-Apple platforms (Linux, the
-//! workspace's primary CI target) build this crate cleanly and just see
-//! the "unavailable" path at runtime.
+//! This crate ships only the `Device::Mps(_)` marker plumbing — the
+//! platform-detection surface, the `MpsDevice` ordinal handle, and the
+//! initialization entry point. **No Metal kernels live here yet** and no
+//! Metal dependency is wired (`metal` / `objc2-metal` are deliberately
+//! absent). All entry points return [`FerrotorchError::DeviceUnavailable`]
+//! on every platform until the kernel layer lands; see issue #451 for the
+//! tracking plan.
 //!
-//! # Status
+//! # Why every entry point is unavailable
 //!
-//! - `is_mps_available()` — runtime check; returns `false` unless
-//!   `metal-backend` is enabled AND the platform is macOS/iOS.
-//! - `MpsDevice` — opaque handle for an MPS device ordinal. Construction
-//!   on non-Metal builds returns an error; on Metal builds it's still
-//!   stubbed (the kernel layer needs the `metal` crate dependency to
-//!   land — that's a follow-up because adding `metal` requires a macOS
-//!   CI runner to verify).
-//! - `Device::Mps(_)` integration in `ferrotorch-core` is in place. Tensor
-//!   construction with `Device::Mps(_)` returns an explicit error
-//!   directing callers to enable the metal-backend feature.
+//! ferrotorch is a `PyTorch` reimplementation. `PyTorch`'s MPS backend
+//! executes real Metal compute on Apple Silicon. Until ferrotorch ships
+//! that — MSL kernels for each `GpuBackend` trait method, a macOS CI
+//! runner to validate them, and the `objc2-metal` dep to launch them —
+//! the honest implementation of a skeleton is *"explicitly unavailable
+//! everywhere,"* not *"platform-conditional silent success."* That avoids
+//! the `init_*` lying-success stub anti-pattern (a function whose name
+//! implies success-with-side-effect actually returns `Ok(())` without
+//! doing the registration, then every downstream op fails).
 //!
-//! # Why a skeleton crate
+//! # API surface that already works
 //!
-//! Adding the full Metal layer is a 2000+ LOC effort and needs:
-//! 1. A macOS CI runner to validate kernel correctness.
-//! 2. The `metal` / `objc2-metal` crate dep (macOS-only build).
-//! 3. PTX-equivalent kernel definitions in MSL (Metal Shading Language)
-//!    for every op in the `GpuBackend` trait surface (~80 fns today).
+//! - [`Device::Mps(_)`](ferrotorch_core::Device::Mps) variant in
+//!   `ferrotorch-core` is in place; tensor construction with that device
+//!   variant returns an explicit error directing callers to the MPS
+//!   backend.
+//! - This crate's [`MpsDevice`] type carries the ordinal and implements
+//!   the standard derives (`Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`,
+//!   `Hash`) plus `Display` (`mps:{ordinal}`), so callers can plumb MPS
+//!   device handles through generic code today even though no kernel
+//!   will run.
 //!
-//! This crate establishes the API contract so downstream code can already
-//! write `Device::Mps(0)` paths; the kernel layer can land incrementally
-//! without breaking the public API.
+//! # When the kernel layer lands
+//!
+//! Issue #451 tracks the work. At that point [`is_mps_available`],
+//! [`mps_device_count`], [`MpsDevice::new`], and [`init_mps_backend`]
+//! gain real macOS-conditional bodies (gated by an actual `metal`
+//! dependency, validated by macOS CI). The signatures here are stable
+//! so that change is purely additive.
+
+#![warn(clippy::all, clippy::pedantic)]
+#![deny(unsafe_code, rust_2018_idioms, missing_debug_implementations)]
+// Pedantic lints we explicitly accept across this crate. Each allow names a
+// concrete reason — the alternative would be churn-for-zero-benefit or a
+// worse API. Add to this list only with a one-line justification.
+#![allow(
+    // The crate's name is `ferrotorch-mps` and its types naturally repeat the
+    // `Mps` token (`MpsDevice`, `mps_device_count`, `init_mps_backend`); the
+    // repetition is the disambiguator that prevents glob-import collisions
+    // with sibling backends like `ferrotorch-gpu`.
+    clippy::module_name_repetitions,
+)]
+#![deny(missing_docs)]
+
+use core::fmt;
 
 use ferrotorch_core::{FerrotorchError, FerrotorchResult};
 
-/// Returns `true` if this build can run MPS kernels (macOS/iOS + the
-/// `metal-backend` feature). Always `false` on Linux / Windows.
+/// Returns `true` if this build can run MPS kernels.
+///
+/// Always returns `false` until the kernel layer (#451) lands. There is no
+/// platform-conditional path here — that would be a lying-success stub
+/// because no kernels are wired regardless of platform.
+#[must_use]
 pub fn is_mps_available() -> bool {
-    #[cfg(all(feature = "metal-backend", any(target_os = "macos", target_os = "ios")))]
-    {
-        true
-    }
-    #[cfg(not(all(feature = "metal-backend", any(target_os = "macos", target_os = "ios"))))]
-    {
-        false
-    }
+    false
 }
 
 /// An opaque handle for an Apple-Silicon Metal device.
 ///
-/// `MpsDevice::new(ordinal)` only succeeds when [`is_mps_available`]
-/// returns `true`. Otherwise it returns an error pointing the caller
-/// at the feature flag and platform requirements.
-#[derive(Debug, Clone)]
+/// `MpsDevice` is `Copy` because it wraps a single `usize`. Construction
+/// always fails with [`FerrotorchError::DeviceUnavailable`] until the
+/// kernel layer (#451) lands; the type is exported now so downstream
+/// generic code can name it in signatures and trait bounds today.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MpsDevice {
     ordinal: usize,
 }
 
 impl MpsDevice {
     /// Try to construct a device handle for the given ordinal.
-    pub fn new(ordinal: usize) -> FerrotorchResult<Self> {
-        if !is_mps_available() {
-            return Err(FerrotorchError::DeviceUnavailable);
-        }
-        Ok(Self { ordinal })
+    ///
+    /// # Errors
+    ///
+    /// Always returns [`FerrotorchError::DeviceUnavailable`] until the MPS
+    /// kernel layer lands (issue #451).
+    pub fn new(_ordinal: usize) -> FerrotorchResult<Self> {
+        Err(FerrotorchError::DeviceUnavailable)
+    }
+
+    /// Number of MPS devices the system reports.
+    ///
+    /// Always `0` until the kernel layer (#451) lands. Provided as an
+    /// associated function in addition to the free [`mps_device_count`]
+    /// for callers that prefer the type-anchored spelling.
+    #[must_use]
+    pub fn count() -> usize {
+        0
     }
 
     /// Device ordinal (0 = system default GPU).
+    #[must_use]
     pub fn ordinal(&self) -> usize {
         self.ordinal
     }
 }
 
-/// Number of MPS devices the system reports. Returns 0 when the backend
-/// is unavailable. Apple Silicon machines have exactly one integrated
-/// GPU, so this is `0` (no MPS) or `1` in practice.
-pub fn device_count() -> usize {
-    if is_mps_available() {
-        // Real Metal dispatch would call `MTLCopyAllDevices()`; for now
-        // assume the system default GPU exists.
-        1
-    } else {
-        0
+impl fmt::Display for MpsDevice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "mps:{}", self.ordinal)
     }
 }
 
-/// Initialize the MPS backend. On non-Apple platforms or when the
-/// `metal-backend` feature is off this returns `DeviceUnavailable`.
+/// Number of MPS devices the system reports.
 ///
-/// On Apple platforms with the feature enabled, the kernel layer
-/// (`MpsBackendImpl`) is registered with `gpu_dispatch::set_gpu_backend`.
-/// That layer is tracked by the kernel-implementation follow-up issue
-/// — see #451 comment for the work plan.
+/// Renamed from `device_count` to `mps_device_count` to avoid colliding
+/// with `ferrotorch_gpu::device_count` when both backends are re-exported
+/// via the `ferrotorch::{gpu, mps}` namespaces. Mirrors `PyTorch`'s
+/// module-scoped `torch.cuda.device_count()` / `torch.mps.device_count()`
+/// idiom rather than the type-anchored Rust idiom.
+///
+/// Always returns `0` until the kernel layer (#451) lands.
+#[must_use]
+pub fn mps_device_count() -> usize {
+    0
+}
+
+/// Initialize the MPS backend.
+///
+/// # Errors
+///
+/// Always returns [`FerrotorchError::DeviceUnavailable`] until the MPS
+/// kernel layer lands. The previous implementation returned `Ok(())`
+/// without registering any backend, then every downstream op failed with
+/// `DeviceUnavailable` from the empty dispatch table — a lying-success
+/// stub. Returning the error here is the honest shape: the dispatcher
+/// reports no implementation rather than carrying a fake registration.
+///
+/// `FerrotorchError::DeviceUnavailable` is a unit variant in
+/// `ferrotorch-core` and does not carry a structured message; the
+/// pointer to the tracking issue (#451) lives in this crate's docs and
+/// in the `FerrotorchError::DeviceUnavailable` `Display` text. Adding a
+/// new error variant just to carry the message would be a workspace-level
+/// coordination event (cross-crate `match` surface change) that this
+/// dispatch is explicitly forbidden from making.
 pub fn init_mps_backend() -> FerrotorchResult<()> {
-    if !is_mps_available() {
-        return Err(FerrotorchError::DeviceUnavailable);
-    }
-    // The kernel layer (MpsBackendImpl, MSL-compiled compute pipelines
-    // for each GpuBackend trait method) lands separately — its
-    // implementation requires a macOS CI runner and ~80 MSL kernels
-    // that this Linux-hosted workspace can't validate. Until that
-    // lands the init succeeds (the platform check passed) and any
-    // subsequent op dispatch returns `DeviceUnavailable` from the
-    // global gpu_backend lookup.
-    Ok(())
+    Err(FerrotorchError::DeviceUnavailable)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{FerrotorchError, MpsDevice, init_mps_backend, is_mps_available, mps_device_count};
 
     #[test]
-    fn is_mps_available_returns_false_without_feature() {
-        // On the workspace's CI (Linux, no metal-backend feature), this
-        // must be false. The test passes on macOS too if the feature is
-        // off (default).
-        if !cfg!(all(
-            feature = "metal-backend",
-            any(target_os = "macos", target_os = "ios")
-        )) {
-            assert!(!is_mps_available());
-        }
+    fn is_mps_available_is_always_false() {
+        assert!(!is_mps_available());
     }
 
     #[test]
-    fn mps_device_construction_unavailable_on_non_apple() {
-        if !is_mps_available() {
-            assert!(matches!(
-                MpsDevice::new(0),
-                Err(FerrotorchError::DeviceUnavailable)
-            ));
-        }
+    fn mps_device_new_always_unavailable() {
+        assert!(matches!(
+            MpsDevice::new(0),
+            Err(FerrotorchError::DeviceUnavailable)
+        ));
     }
 
     #[test]
-    fn device_count_zero_when_unavailable() {
-        if !is_mps_available() {
-            assert_eq!(device_count(), 0);
-        }
+    fn mps_device_count_is_zero() {
+        assert_eq!(mps_device_count(), 0);
+        assert_eq!(MpsDevice::count(), 0);
     }
 
     #[test]
-    fn init_returns_unavailable_when_no_metal_backend() {
-        if !is_mps_available() {
-            assert!(matches!(
-                init_mps_backend(),
-                Err(FerrotorchError::DeviceUnavailable)
-            ));
-        }
+    fn init_mps_backend_always_unavailable() {
+        assert!(matches!(
+            init_mps_backend(),
+            Err(FerrotorchError::DeviceUnavailable)
+        ));
     }
 
     #[test]
     fn device_mps_marker_round_trips() {
-        // Ferrotorch-core exposes Device::Mps(_) regardless of MPS
+        // ferrotorch-core exposes Device::Mps(_) regardless of MPS
         // availability — the variant just doesn't do anything useful
         // without the backend.
         let d = ferrotorch_core::Device::Mps(0);
