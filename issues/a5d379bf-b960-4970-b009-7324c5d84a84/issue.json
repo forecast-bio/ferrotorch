@@ -1,0 +1,10 @@
+{
+  "uuid": "a5d379bf-b960-4970-b009-7324c5d84a84",
+  "display_id": 675,
+  "title": "ADR #663 item 6: ferrotorch-jit Category A migration — silent CPU fallback to GpuError::Unsupported / explicit Err",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-03T02:31:22.772598291Z",
+  "updated_at": "2026-05-03T02:31:22.772598291Z"
+}
