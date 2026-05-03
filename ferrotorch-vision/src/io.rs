@@ -5,15 +5,21 @@
 
 use std::path::Path;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use image::{ImageBuffer, Rgb, Rgba};
-use num_traits::NumCast;
 
 /// Raw image data in HWC (height, width, channels) u8 format.
 ///
 /// This is an intermediate representation between on-disk image files and
 /// ferrotorch tensors. Use [`read_image`] to load from disk and
 /// [`read_image_as_tensor`] to go directly to a `Tensor`.
+///
+/// Marked `#[non_exhaustive]` so future format extensions (e.g. a stride
+/// field for non-tightly-packed images) can land without breaking
+/// struct-literal construction in this crate's tests.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RawImage {
     /// Pixel data in row-major HWC order, values in `[0, 255]`.
     pub data: Vec<u8>,
@@ -76,11 +82,14 @@ pub fn read_image_rgba(path: impl AsRef<Path>) -> FerrotorchResult<RawImage> {
 ///
 /// ```no_run
 /// use ferrotorch_vision::io::read_image_as_tensor;
-/// use ferrotorch_core::Tensor;
+/// use ferrotorch_core::{FerrotorchResult, Tensor};
 ///
-/// let tensor: Tensor<f32> = read_image_as_tensor("photo.jpg").unwrap();
-/// assert_eq!(tensor.ndim(), 3);
-/// assert_eq!(tensor.shape()[0], 3); // C=3 (RGB)
+/// fn load() -> FerrotorchResult<()> {
+///     let tensor: Tensor<f32> = read_image_as_tensor("photo.jpg")?;
+///     assert_eq!(tensor.ndim(), 3);
+///     assert_eq!(tensor.shape()[0], 3); // C=3 (RGB)
+///     Ok(())
+/// }
 /// ```
 ///
 /// # Errors
@@ -99,7 +108,7 @@ pub fn raw_image_to_tensor<T: Float>(raw: &RawImage) -> FerrotorchResult<Tensor<
     let w = raw.width as usize;
     let c = raw.channels as usize;
 
-    let scale: T = <T as NumCast>::from(255.0).unwrap();
+    let scale: T = cast::<f64, T>(255.0)?;
     let mut output = vec![<T as num_traits::Zero>::zero(); c * h * w];
 
     for row in 0..h {
@@ -107,7 +116,7 @@ pub fn raw_image_to_tensor<T: Float>(raw: &RawImage) -> FerrotorchResult<Tensor<
             for ch in 0..c {
                 let src_idx = row * w * c + col * c + ch;
                 let dst_idx = ch * h * w + row * w + col;
-                let pixel: T = <T as NumCast>::from(raw.data[src_idx]).unwrap();
+                let pixel: T = cast::<u8, T>(raw.data[src_idx])?;
                 output[dst_idx] = pixel / scale;
             }
         }
@@ -208,7 +217,7 @@ pub fn tensor_to_raw_image<T: Float>(tensor: &Tensor<T>) -> FerrotorchResult<Raw
 
     if c != 3 && c != 4 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("tensor_to_raw_image: expected 3 or 4 channels, got {}", c,),
+            message: format!("tensor_to_raw_image: expected 3 or 4 channels, got {c}"),
         });
     }
 
@@ -225,7 +234,7 @@ pub fn tensor_to_raw_image<T: Float>(tensor: &Tensor<T>) -> FerrotorchResult<Raw
                 let dst_idx = row * w * c + col * c + ch;
                 // Clamp to [0, 1], scale to [0, 255].
                 let val = data_slice[src_idx].max(zero).min(one);
-                let byte: f64 = <f64 as NumCast>::from(val).unwrap() * scale;
+                let byte: f64 = cast::<T, f64>(val)? * scale;
                 output[dst_idx] = byte.round() as u8;
             }
         }

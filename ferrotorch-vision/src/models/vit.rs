@@ -340,6 +340,10 @@ impl<T: Float> VisionTransformer<T> {
     /// * `depth` -- number of transformer encoder blocks.
     /// * `num_heads` -- number of attention heads per block.
     /// * `mlp_ratio` -- ratio of MLP hidden dim to embed_dim.
+    // justification: ViT constructor mirrors the original Dosovitskiy et al.
+    // hyperparameter set; bundling into a config struct hides the canonical
+    // [image_size, patch_size, in_ch, num_classes, embed_dim, depth,
+    // num_heads, mlp_ratio] ordering shared with timm/torchvision call sites.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         image_size: usize,

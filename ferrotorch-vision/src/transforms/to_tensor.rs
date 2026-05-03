@@ -1,6 +1,6 @@
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
-use num_traits::NumCast;
 
 /// Convert an image-like tensor from `[H, W, C]` layout with values in
 /// `[0, 255]` to `[C, H, W]` layout with values in `[0.0, 1.0]`.
@@ -46,7 +46,7 @@ impl<T: Float> Transform<T> for VisionToTensor<T> {
         let w = shape[1];
         let c = shape[2];
 
-        let scale: T = <T as NumCast>::from(255.0).unwrap();
+        let scale: T = cast::<f64, T>(255.0)?;
         let data = input.data_vec()?;
 
         // Transpose HWC -> CHW and divide by 255.

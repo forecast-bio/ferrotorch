@@ -29,20 +29,35 @@ impl<T: Float> RandomResizedCrop<T> {
     /// * `scale` — range of area fraction `(lo, hi)` relative to the input,
     ///   e.g. `(0.08, 1.0)`.
     /// * `ratio` — range of aspect ratio `(lo, hi)`, e.g. `(3.0/4.0, 4.0/3.0)`.
-    pub fn new(height: usize, width: usize, scale: (f64, f64), ratio: (f64, f64)) -> Self {
-        assert!(
-            scale.0 > 0.0 && scale.0 <= scale.1 && scale.1 <= 1.0,
-            "RandomResizedCrop: scale must satisfy 0 < lo <= hi <= 1, got ({}, {})",
-            scale.0,
-            scale.1,
-        );
-        assert!(
-            ratio.0 > 0.0 && ratio.0 <= ratio.1,
-            "RandomResizedCrop: ratio must satisfy 0 < lo <= hi, got ({}, {})",
-            ratio.0,
-            ratio.1,
-        );
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if `scale` is not
+    /// `(0, 1] × (0, 1]` with `lo <= hi`, or `ratio` is not positive with
+    /// `lo <= hi`.
+    pub fn new(
+        height: usize,
+        width: usize,
+        scale: (f64, f64),
+        ratio: (f64, f64),
+    ) -> FerrotorchResult<Self> {
+        if !(scale.0 > 0.0 && scale.0 <= scale.1 && scale.1 <= 1.0) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "RandomResizedCrop: scale must satisfy 0 < lo <= hi <= 1, got ({}, {})",
+                    scale.0, scale.1,
+                ),
+            });
+        }
+        if !(ratio.0 > 0.0 && ratio.0 <= ratio.1) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "RandomResizedCrop: ratio must satisfy 0 < lo <= hi, got ({}, {})",
+                    ratio.0, ratio.1,
+                ),
+            });
+        }
+        Ok(Self {
             height,
             width,
             scale_lo: scale.0,
@@ -50,7 +65,7 @@ impl<T: Float> RandomResizedCrop<T> {
             ratio_lo: ratio.0,
             ratio_hi: ratio.1,
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 }
 
@@ -182,7 +197,7 @@ mod tests {
     fn test_random_resized_crop_output_shape() {
         let data: Vec<f64> = (0..300).map(|i| i as f64).collect();
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 10, 10], false).unwrap();
-        let rrc = RandomResizedCrop::<f64>::new(5, 5, (0.08, 1.0), (0.75, 1.333));
+        let rrc = RandomResizedCrop::<f64>::new(5, 5, (0.08, 1.0), (0.75, 1.333)).unwrap();
         let out = rrc.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 5, 5]);
     }
@@ -193,7 +208,7 @@ mod tests {
         // and resize to target.
         let data: Vec<f64> = (0..48).map(|i| i as f64).collect();
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 4, 4], false).unwrap();
-        let rrc = RandomResizedCrop::<f64>::new(2, 2, (1.0, 1.0), (1.0, 1.0));
+        let rrc = RandomResizedCrop::<f64>::new(2, 2, (1.0, 1.0), (1.0, 1.0)).unwrap();
         let out = rrc.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 2, 2]);
     }
@@ -203,7 +218,7 @@ mod tests {
         let data: Vec<f64> = (0..75).map(|i| i as f64).collect();
         let t =
             Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 5, 5], false).unwrap();
-        let rrc = RandomResizedCrop::<f64>::new(3, 3, (0.5, 1.0), (0.75, 1.333));
+        let rrc = RandomResizedCrop::<f64>::new(3, 3, (0.5, 1.0), (0.75, 1.333)).unwrap();
         let out = rrc.apply(t).unwrap();
         let out_data = out.data().unwrap();
         let original: std::collections::HashSet<u64> = data.iter().map(|&v| v.to_bits()).collect();
@@ -219,7 +234,7 @@ mod tests {
     fn test_random_resized_crop_rejects_non_3d() {
         let data = vec![1.0_f64; 8];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 4], false).unwrap();
-        let rrc = RandomResizedCrop::<f64>::new(2, 2, (0.08, 1.0), (0.75, 1.333));
+        let rrc = RandomResizedCrop::<f64>::new(2, 2, (0.08, 1.0), (0.75, 1.333)).unwrap();
         assert!(rrc.apply(t).is_err());
     }
 
@@ -227,7 +242,7 @@ mod tests {
     fn test_random_resized_crop_multichannel() {
         let data: Vec<f64> = (0..192).map(|i| i as f64).collect();
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 8, 8], false).unwrap();
-        let rrc = RandomResizedCrop::<f64>::new(4, 4, (0.2, 0.8), (0.75, 1.333));
+        let rrc = RandomResizedCrop::<f64>::new(4, 4, (0.2, 0.8), (0.75, 1.333)).unwrap();
         let out = rrc.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);
         assert_eq!(out.numel(), 48);

@@ -17,21 +17,29 @@ impl<T: Float> RandomVerticalFlip<T> {
     /// Create a new `RandomVerticalFlip` with the given probability.
     ///
     /// `p` must be in `[0.0, 1.0]`.
-    pub fn new(p: f64) -> Self {
-        assert!(
-            (0.0..=1.0).contains(&p),
-            "RandomVerticalFlip: p must be in [0.0, 1.0], got {p}"
-        );
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if `p` is outside `[0, 1]`
+    /// or non-finite.
+    pub fn new(p: f64) -> FerrotorchResult<Self> {
+        if !(0.0..=1.0).contains(&p) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("RandomVerticalFlip: p must be in [0.0, 1.0], got {p}"),
+            });
+        }
+        Ok(Self {
             p,
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 }
 
 impl<T: Float> Default for RandomVerticalFlip<T> {
     fn default() -> Self {
-        Self::new(0.5)
+        // The default p=0.5 is in [0, 1], so `new` never returns Err here;
+        // unwrap documents the invariant rather than guarding a real path.
+        Self::new(0.5).expect("invariant: default p=0.5 is in [0, 1]")
     }
 }
 
@@ -93,7 +101,7 @@ mod tests {
         //   1 2
         let data = vec![1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 3, 2], false).unwrap();
-        let flip = RandomVerticalFlip::<f64>::new(1.0);
+        let flip = RandomVerticalFlip::<f64>::new(1.0).unwrap();
         let out = flip.apply(t).unwrap();
         assert_eq!(out.shape(), &[1, 3, 2]);
         let d = out.data().unwrap();
@@ -104,7 +112,7 @@ mod tests {
     fn test_random_vertical_flip_never() {
         let data = vec![1.0_f64, 2.0, 3.0, 4.0];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 2, 2], false).unwrap();
-        let flip = RandomVerticalFlip::<f64>::new(0.0);
+        let flip = RandomVerticalFlip::<f64>::new(0.0).unwrap();
         let out = flip.apply(t).unwrap();
         assert_eq!(out.data().unwrap(), &[1.0, 2.0, 3.0, 4.0]);
     }
@@ -116,7 +124,7 @@ mod tests {
         // Flipped: Ch0: [3,4,1,2], Ch1: [7,8,5,6]
         let data = vec![1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 2, 2], false).unwrap();
-        let flip = RandomVerticalFlip::<f64>::new(1.0);
+        let flip = RandomVerticalFlip::<f64>::new(1.0).unwrap();
         let out = flip.apply(t).unwrap();
         assert_eq!(
             out.data().unwrap(),
@@ -128,7 +136,7 @@ mod tests {
     fn test_random_vertical_flip_rejects_non_3d() {
         let data = vec![1.0_f64, 2.0, 3.0, 4.0];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 2], false).unwrap();
-        let flip = RandomVerticalFlip::<f64>::new(0.5);
+        let flip = RandomVerticalFlip::<f64>::new(0.5).unwrap();
         assert!(flip.apply(t).is_err());
     }
 
@@ -137,7 +145,7 @@ mod tests {
         // Single row: flip is a no-op.
         let data = vec![1.0_f64, 2.0, 3.0];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 1, 3], false).unwrap();
-        let flip = RandomVerticalFlip::<f64>::new(1.0);
+        let flip = RandomVerticalFlip::<f64>::new(1.0).unwrap();
         let out = flip.apply(t).unwrap();
         assert_eq!(out.data().unwrap(), &[1.0, 2.0, 3.0]);
     }

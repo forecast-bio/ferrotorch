@@ -21,11 +21,16 @@
 
 use std::path::Path;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Dataset;
 
 /// A single MNIST sample: a 1x28x28 grayscale image and its digit label.
+///
+/// Marked `#[non_exhaustive]` so future per-sample metadata can be added
+/// without breaking struct-literal construction outside this crate.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct MnistSample<T: Float> {
     /// Grayscale image tensor with shape `[1, 28, 28]`, values in `[0, 1]`.
     pub image: Tensor<T>,
@@ -72,7 +77,13 @@ impl<T: Float> Mnist<T> {
     /// Each image is filled with random values in `[0, 1]` and assigned a
     /// random label in `0..10`. This is useful for smoke-testing data
     /// pipelines and training loops without needing the real dataset files.
-    pub fn synthetic(split: Split, num_samples: usize) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if the generated `f64`
+    /// pixel values cannot be cast to the target float type `T` (in practice
+    /// this never happens for IEEE 754 floats given values in `[0, 1]`).
+    pub fn synthetic(split: Split, num_samples: usize) -> FerrotorchResult<Self> {
         let mut images = Vec::with_capacity(num_samples);
         let mut labels = Vec::with_capacity(num_samples);
 
@@ -90,15 +101,14 @@ impl<T: Float> Mnist<T> {
             for _ in 0..numel {
                 state = xorshift64(state);
                 let f = (state as f64) / (u64::MAX as f64);
-                data.push(T::from(f).unwrap());
+                data.push(cast::<f64, T>(f)?);
             }
             let storage = TensorStorage::cpu(data);
             let tensor = Tensor::from_storage(
                 storage,
                 vec![Self::CHANNELS, Self::HEIGHT, Self::WIDTH],
                 false,
-            )
-            .expect("synthetic MNIST tensor creation should not fail");
+            )?;
             images.push(tensor);
 
             state = xorshift64(state);
@@ -106,11 +116,11 @@ impl<T: Float> Mnist<T> {
             labels.push(label);
         }
 
-        Self {
+        Ok(Self {
             images,
             labels,
             split,
-        }
+        })
     }
 
     /// Load MNIST from IDX files in `root`.
@@ -247,8 +257,8 @@ impl<T: Float> Mnist<T> {
 
             let data: Vec<T> = raw_pixels
                 .iter()
-                .map(|&b| T::from(b as f64 * inv_255).unwrap())
-                .collect();
+                .map(|&b| cast::<f64, T>(b as f64 * inv_255))
+                .collect::<FerrotorchResult<Vec<T>>>()?;
 
             let storage = TensorStorage::cpu(data);
             let tensor = Tensor::from_storage(storage, vec![Self::CHANNELS, rows, cols], false)?;
@@ -319,27 +329,27 @@ mod tests {
 
     #[test]
     fn test_synthetic_train_len() {
-        let ds = Mnist::<f32>::synthetic(Split::Train, 100);
+        let ds = Mnist::<f32>::synthetic(Split::Train, 100).unwrap();
         assert_eq!(ds.len(), 100);
         assert!(!ds.is_empty());
     }
 
     #[test]
     fn test_synthetic_test_len() {
-        let ds = Mnist::<f32>::synthetic(Split::Test, 50);
+        let ds = Mnist::<f32>::synthetic(Split::Test, 50).unwrap();
         assert_eq!(ds.len(), 50);
     }
 
     #[test]
     fn test_synthetic_empty() {
-        let ds = Mnist::<f32>::synthetic(Split::Train, 0);
+        let ds = Mnist::<f32>::synthetic(Split::Train, 0).unwrap();
         assert!(ds.is_empty());
         assert_eq!(ds.len(), 0);
     }
 
     #[test]
     fn test_sample_image_shape() {
-        let ds = Mnist::<f32>::synthetic(Split::Train, 10);
+        let ds = Mnist::<f32>::synthetic(Split::Train, 10).unwrap();
         let sample = ds.get(0).unwrap();
         assert_eq!(sample.image.shape(), &[1, 28, 28]);
         assert_eq!(sample.image.numel(), 28 * 28);
@@ -347,7 +357,7 @@ mod tests {
 
     #[test]
     fn test_sample_image_values_in_range() {
-        let ds = Mnist::<f32>::synthetic(Split::Train, 5);
+        let ds = Mnist::<f32>::synthetic(Split::Train, 5).unwrap();
         for i in 0..5 {
             let sample = ds.get(i).unwrap();
             let data = sample.image.data().unwrap();
@@ -359,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_label_range() {
-        let ds = Mnist::<f32>::synthetic(Split::Train, 200);
+        let ds = Mnist::<f32>::synthetic(Split::Train, 200).unwrap();
         for i in 0..200 {
             let sample = ds.get(i).unwrap();
             assert!(sample.label < 10, "label out of range: {}", sample.label);
@@ -368,22 +378,22 @@ mod tests {
 
     #[test]
     fn test_out_of_bounds() {
-        let ds = Mnist::<f32>::synthetic(Split::Train, 10);
+        let ds = Mnist::<f32>::synthetic(Split::Train, 10).unwrap();
         assert!(ds.get(10).is_err());
         assert!(ds.get(100).is_err());
     }
 
     #[test]
     fn test_split_accessor() {
-        let train = Mnist::<f32>::synthetic(Split::Train, 1);
-        let test = Mnist::<f32>::synthetic(Split::Test, 1);
+        let train = Mnist::<f32>::synthetic(Split::Train, 1).unwrap();
+        let test = Mnist::<f32>::synthetic(Split::Test, 1).unwrap();
         assert_eq!(train.split(), Split::Train);
         assert_eq!(test.split(), Split::Test);
     }
 
     #[test]
     fn test_f64_support() {
-        let ds = Mnist::<f64>::synthetic(Split::Train, 5);
+        let ds = Mnist::<f64>::synthetic(Split::Train, 5).unwrap();
         let sample = ds.get(0).unwrap();
         assert_eq!(sample.image.shape(), &[1, 28, 28]);
         let data = sample.image.data().unwrap();
@@ -394,8 +404,8 @@ mod tests {
 
     #[test]
     fn test_train_test_different_data() {
-        let train = Mnist::<f32>::synthetic(Split::Train, 5);
-        let test = Mnist::<f32>::synthetic(Split::Test, 5);
+        let train = Mnist::<f32>::synthetic(Split::Train, 5).unwrap();
+        let test = Mnist::<f32>::synthetic(Split::Test, 5).unwrap();
         // Different seeds should produce different first samples.
         let t0 = train.get(0).unwrap();
         let e0 = test.get(0).unwrap();

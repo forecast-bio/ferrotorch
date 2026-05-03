@@ -1,8 +1,8 @@
 // CL-332: Vision Transforms & Augmentation — RandomGaussianBlur
 use super::rng::random_f64;
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
-use num_traits::NumCast;
 
 /// Apply Gaussian blur with a random sigma to a `[C, H, W]` tensor.
 ///
@@ -24,23 +24,33 @@ impl<T: Float> RandomGaussianBlur<T> {
     ///
     /// * `kernel_size` — must be odd and >= 1.
     /// * `sigma` — `(lo, hi)`, the range from which sigma is sampled.
-    pub fn new(kernel_size: usize, sigma: (f64, f64)) -> Self {
-        assert!(
-            kernel_size >= 1 && kernel_size % 2 == 1,
-            "RandomGaussianBlur: kernel_size must be odd and >= 1, got {kernel_size}"
-        );
-        assert!(
-            sigma.0 > 0.0 && sigma.0 <= sigma.1,
-            "RandomGaussianBlur: sigma must satisfy 0 < lo <= hi, got ({}, {})",
-            sigma.0,
-            sigma.1,
-        );
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if `kernel_size` is even
+    /// or zero, or if `sigma` is not positive with `lo <= hi`.
+    pub fn new(kernel_size: usize, sigma: (f64, f64)) -> FerrotorchResult<Self> {
+        if !(kernel_size >= 1 && kernel_size % 2 == 1) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "RandomGaussianBlur: kernel_size must be odd and >= 1, got {kernel_size}"
+                ),
+            });
+        }
+        if !(sigma.0 > 0.0 && sigma.0 <= sigma.1) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "RandomGaussianBlur: sigma must satisfy 0 < lo <= hi, got ({}, {})",
+                    sigma.0, sigma.1,
+                ),
+            });
+        }
+        Ok(Self {
             kernel_size,
             sigma_lo: sigma.0,
             sigma_hi: sigma.1,
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 }
 
@@ -139,7 +149,7 @@ impl<T: Float> Transform<T> for RandomGaussianBlur<T> {
             let blurred = blur_cols(&blurred_h, h, w, &kernel);
 
             for &v in &blurred {
-                output.push(<T as NumCast>::from(v).unwrap());
+                output.push(cast::<f64, T>(v)?);
             }
         }
 
@@ -156,7 +166,7 @@ mod tests {
     fn test_gaussian_blur_output_shape() {
         let data: Vec<f64> = vec![0.5; 48]; // 3x4x4
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 4, 4], false).unwrap();
-        let blur = RandomGaussianBlur::<f64>::new(3, (0.1, 2.0));
+        let blur = RandomGaussianBlur::<f64>::new(3, (0.1, 2.0)).unwrap();
         let out = blur.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);
     }
@@ -168,7 +178,7 @@ mod tests {
         // that have full kernel support (kernel_size=3 => 1-pixel border).
         let data: Vec<f64> = vec![0.7; 75]; // 3x5x5
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 5, 5], false).unwrap();
-        let blur = RandomGaussianBlur::<f64>::new(3, (1.0, 1.0));
+        let blur = RandomGaussianBlur::<f64>::new(3, (1.0, 1.0)).unwrap();
         let out = blur.apply(t).unwrap();
         let d = out.data().unwrap();
         let (h, w) = (5, 5);
@@ -191,7 +201,7 @@ mod tests {
         let mut data = vec![0.0_f64; 25]; // 1x5x5
         data[12] = 1.0; // center
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 5, 5], false).unwrap();
-        let blur = RandomGaussianBlur::<f64>::new(5, (1.0, 1.0));
+        let blur = RandomGaussianBlur::<f64>::new(5, (1.0, 1.0)).unwrap();
         let out = blur.apply(t).unwrap();
         let d = out.data().unwrap();
         // Center should still be the brightest but less than 1.0.
@@ -233,7 +243,7 @@ mod tests {
     fn test_gaussian_blur_rejects_non_3d() {
         let data = vec![0.5_f64; 4];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 2], false).unwrap();
-        let blur = RandomGaussianBlur::<f64>::new(3, (0.1, 2.0));
+        let blur = RandomGaussianBlur::<f64>::new(3, (0.1, 2.0)).unwrap();
         assert!(blur.apply(t).is_err());
     }
 
@@ -241,7 +251,7 @@ mod tests {
     fn test_gaussian_blur_f32() {
         let data: Vec<f32> = vec![0.5; 12]; // 3x2x2
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 2, 2], false).unwrap();
-        let blur = RandomGaussianBlur::<f32>::new(3, (0.5, 1.5));
+        let blur = RandomGaussianBlur::<f32>::new(3, (0.5, 1.5)).unwrap();
         let out = blur.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 2, 2]);
     }

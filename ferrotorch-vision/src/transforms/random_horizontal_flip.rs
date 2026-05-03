@@ -14,21 +14,28 @@ pub struct RandomHorizontalFlip<T: Float> {
 }
 
 impl<T: Float> RandomHorizontalFlip<T> {
-    pub fn new(p: f64) -> Self {
-        assert!(
-            (0.0..=1.0).contains(&p),
-            "RandomHorizontalFlip: p must be in [0.0, 1.0], got {p}"
-        );
-        Self {
+    /// Create a new `RandomHorizontalFlip` with the given probability.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if `p` is outside `[0, 1]`.
+    pub fn new(p: f64) -> FerrotorchResult<Self> {
+        if !(0.0..=1.0).contains(&p) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("RandomHorizontalFlip: p must be in [0.0, 1.0], got {p}"),
+            });
+        }
+        Ok(Self {
             p,
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 }
 
 impl<T: Float> Default for RandomHorizontalFlip<T> {
     fn default() -> Self {
-        Self::new(0.5)
+        // Default p=0.5 is in [0, 1]; expect documents the invariant.
+        Self::new(0.5).expect("invariant: default p=0.5 is in [0, 1]")
     }
 }
 
@@ -72,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_horizontal_flip_shape() {
-        let flip: RandomHorizontalFlip<f32> = RandomHorizontalFlip::new(1.0);
+        let flip: RandomHorizontalFlip<f32> = RandomHorizontalFlip::new(1.0).unwrap();
         let input = Tensor::from_storage(
             TensorStorage::cpu(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]),
             vec![1, 2, 3],
@@ -87,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_horizontal_flip_zero_prob() {
-        let flip: RandomHorizontalFlip<f32> = RandomHorizontalFlip::new(0.0);
+        let flip: RandomHorizontalFlip<f32> = RandomHorizontalFlip::new(0.0).unwrap();
         let input = Tensor::from_storage(
             TensorStorage::cpu(vec![1.0f32, 2.0, 3.0]),
             vec![1, 1, 3],

@@ -21,18 +21,31 @@ pub struct VisionNormalize<T: Float> {
 
 impl<T: Float> VisionNormalize<T> {
     /// Create a new `VisionNormalize` with the given per-channel mean and std.
-    pub fn new(mean: [f64; 3], std: [f64; 3]) -> Self {
-        Self {
-            inner: Normalize::new(mean.to_vec(), std.to_vec()),
-        }
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from [`Normalize::new`] — most commonly when an
+    /// element of `mean` or `std` cannot be represented in `T` (e.g. a value
+    /// outside `f32` range when `T = f32`).
+    pub fn new(mean: [f64; 3], std: [f64; 3]) -> FerrotorchResult<Self> {
+        Ok(Self {
+            inner: Normalize::new(mean.to_vec(), std.to_vec())?,
+        })
     }
 
     /// Create a `VisionNormalize` using ImageNet statistics.
     ///
     /// Mean: `[0.485, 0.456, 0.406]`
     /// Std:  `[0.229, 0.224, 0.225]`
+    ///
+    /// # Panics
+    ///
+    /// Cannot fail in practice: the ImageNet constants are within both `f32`
+    /// and `f64` range. The `.expect` documents the invariant rather than
+    /// guarding a real panic path.
     pub fn imagenet() -> Self {
         Self::new(IMAGENET_MEAN, IMAGENET_STD)
+            .expect("invariant: ImageNet constants are within Float range")
     }
 }
 
@@ -101,7 +114,7 @@ mod tests {
         // val=1.0 => (1.0 - 0.5) / 0.5 = 1.0 for all channels
         let data = vec![1.0_f64; 3];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 1, 1], false).unwrap();
-        let norm = VisionNormalize::<f64>::new([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]);
+        let norm = VisionNormalize::<f64>::new([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]).unwrap();
         let out = norm.apply(t).unwrap();
         let d = out.data().unwrap();
         for &val in d {

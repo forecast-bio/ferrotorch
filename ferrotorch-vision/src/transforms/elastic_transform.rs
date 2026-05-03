@@ -10,9 +10,9 @@
 //! Mirrors `torchvision.transforms.v2.ElasticTransform`. CL-458.
 
 use super::rng::random_f64;
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
-use num_traits::NumCast;
 
 /// Elastic deformation via a Gaussian-smoothed random displacement field.
 ///
@@ -31,23 +31,26 @@ pub struct ElasticTransform<T: Float> {
 impl<T: Float> ElasticTransform<T> {
     /// Create a new `ElasticTransform`.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `alpha < 0` or `sigma <= 0`.
-    pub fn new(alpha: f64, sigma: f64) -> Self {
-        assert!(
-            alpha >= 0.0,
-            "ElasticTransform: alpha must be >= 0, got {alpha}"
-        );
-        assert!(
-            sigma > 0.0,
-            "ElasticTransform: sigma must be > 0, got {sigma}"
-        );
-        Self {
+    /// Returns [`FerrotorchError::InvalidArgument`] if `alpha < 0` or
+    /// `sigma <= 0`.
+    pub fn new(alpha: f64, sigma: f64) -> FerrotorchResult<Self> {
+        if alpha < 0.0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("ElasticTransform: alpha must be >= 0, got {alpha}"),
+            });
+        }
+        if sigma <= 0.0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("ElasticTransform: sigma must be > 0, got {sigma}"),
+            });
+        }
+        Ok(Self {
             alpha,
             sigma,
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 }
 
@@ -182,7 +185,7 @@ impl<T: Float> Transform<T> for ElasticTransform<T> {
                     let src_y = row as f64 + dy_field[row * w + col];
                     let src_x = col as f64 + dx_field[row * w + col];
                     let val = bilinear_sample(&ch_data, h, w, src_y, src_x);
-                    output.push(<T as NumCast>::from(val).unwrap());
+                    output.push(cast::<f64, T>(val)?);
                 }
             }
         }
@@ -200,7 +203,7 @@ mod tests {
     fn test_elastic_output_shape_preserved() {
         let t: Tensor<f32> =
             Tensor::from_storage(TensorStorage::cpu(vec![0.5; 48]), vec![3, 4, 4], false).unwrap();
-        let et = ElasticTransform::<f32>::new(5.0, 1.5);
+        let et = ElasticTransform::<f32>::new(5.0, 1.5).unwrap();
         let out = et.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);
     }
@@ -210,7 +213,7 @@ mod tests {
         let data: Vec<f32> = (0..12).map(|i| i as f32).collect();
         let t: Tensor<f32> =
             Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 2, 2], false).unwrap();
-        let et = ElasticTransform::<f32>::new(0.0, 1.0);
+        let et = ElasticTransform::<f32>::new(0.0, 1.0).unwrap();
         let out = et.apply(t).unwrap();
         assert_eq!(out.data().unwrap(), data.as_slice());
     }
@@ -224,7 +227,7 @@ mod tests {
         let t: Tensor<f64> =
             Tensor::from_storage(TensorStorage::cpu(vec![0.7; 100]), vec![1, 10, 10], false)
                 .unwrap();
-        let et = ElasticTransform::<f64>::new(10.0, 2.0);
+        let et = ElasticTransform::<f64>::new(10.0, 2.0).unwrap();
         let out = et.apply(t).unwrap();
         for &v in out.data().unwrap() {
             assert!((v - 0.7).abs() < 1e-10, "expected 0.7, got {v}");
@@ -235,7 +238,7 @@ mod tests {
     fn test_elastic_rejects_non_3d() {
         let t: Tensor<f32> =
             Tensor::from_storage(TensorStorage::cpu(vec![1.0; 4]), vec![2, 2], false).unwrap();
-        let et = ElasticTransform::<f32>::new(1.0, 0.5);
+        let et = ElasticTransform::<f32>::new(1.0, 0.5).unwrap();
         assert!(et.apply(t).is_err());
     }
 
@@ -243,20 +246,28 @@ mod tests {
     fn test_elastic_rejects_zero_dim() {
         let t: Tensor<f32> =
             Tensor::from_storage(TensorStorage::cpu(vec![]), vec![3, 0, 4], false).unwrap();
-        let et = ElasticTransform::<f32>::new(1.0, 0.5);
+        let et = ElasticTransform::<f32>::new(1.0, 0.5).unwrap();
         assert!(et.apply(t).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "alpha must be >= 0")]
-    fn test_elastic_negative_alpha_panics() {
-        let _ = ElasticTransform::<f32>::new(-1.0, 1.0);
+    fn test_elastic_negative_alpha_errors() {
+        let err = match ElasticTransform::<f32>::new(-1.0, 1.0) {
+            Err(e) => e,
+            Ok(_) => panic!("expected error for negative alpha"),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("alpha must be >= 0"), "got: {msg}");
     }
 
     #[test]
-    #[should_panic(expected = "sigma must be > 0")]
-    fn test_elastic_zero_sigma_panics() {
-        let _ = ElasticTransform::<f32>::new(1.0, 0.0);
+    fn test_elastic_zero_sigma_errors() {
+        let err = match ElasticTransform::<f32>::new(1.0, 0.0) {
+            Err(e) => e,
+            Ok(_) => panic!("expected error for zero sigma"),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("sigma must be > 0"), "got: {msg}");
     }
 
     #[test]

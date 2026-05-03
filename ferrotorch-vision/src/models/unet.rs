@@ -26,7 +26,7 @@ use ferrotorch_core::grad_fns::activation::relu;
 use ferrotorch_core::grad_fns::shape::cat;
 use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::tensor::{GradFn, Tensor};
-use ferrotorch_core::{FerrotorchResult, Float};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float};
 
 use ferrotorch_nn::Conv2d;
 use ferrotorch_nn::module::Module;
@@ -114,7 +114,13 @@ impl<T: Float> GradFn<T> for UpsampleNearest2xBackward<T> {
 /// participates in the autograd graph so gradients flow through the decoder.
 fn upsample_nearest_2x<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape();
-    assert_eq!(shape.len(), 4, "upsample_nearest_2x: expected 4-D tensor");
+    if shape.len() != 4 {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "upsample_nearest_2x: expected 4-D tensor [B, C, H, W], got shape {shape:?}"
+            ),
+        });
+    }
 
     let batch = shape[0];
     let channels = shape[1];

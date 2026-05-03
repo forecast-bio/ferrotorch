@@ -87,6 +87,11 @@ impl<T: Float> InceptionModule<T> {
     ///
     /// The total output channels are
     /// `branch1x1 + branch3x3 + branch_double + pool_proj`.
+    // justification: Inception module mirrors the original Szegedy et al.
+    // Inception block — each of the 4 branches has its own per-branch
+    // channel hyperparameter, plus the input-channel count. Bundling into
+    // a config struct hides the canonical [in, b1x1, b3x3r, b3x3, bdr, bd, pp]
+    // ordering that papers, tests, and torchvision all share.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         in_ch: usize,

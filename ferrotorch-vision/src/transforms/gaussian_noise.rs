@@ -5,9 +5,9 @@
 //! CL-458.
 
 use super::rng::random_f64;
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
-use num_traits::NumCast;
 
 /// Add i.i.d. Gaussian noise `N(mean, std^2)` to every element of a
 /// `[C, H, W]` image tensor.
@@ -24,16 +24,21 @@ impl<T: Float> GaussianNoise<T> {
     /// Create a new `GaussianNoise` transform with the given mean and
     /// standard deviation.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `std < 0`. Zero is allowed (and is a no-op).
-    pub fn new(mean: f64, std: f64) -> Self {
-        assert!(std >= 0.0, "GaussianNoise: std must be >= 0, got {std}");
-        Self {
+    /// Returns [`FerrotorchError::InvalidArgument`] if `std < 0`. Zero is
+    /// allowed (and is a no-op).
+    pub fn new(mean: f64, std: f64) -> FerrotorchResult<Self> {
+        if std < 0.0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("GaussianNoise: std must be >= 0, got {std}"),
+            });
+        }
+        Ok(Self {
             mean,
             std,
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 }
 
@@ -61,7 +66,7 @@ impl<T: Float> Transform<T> for GaussianNoise<T> {
             // Degenerate: adding N(mean, 0) is just a constant shift.
             // Return a new tensor with the shift baked in.
             let data = input.data()?;
-            let mean_t: T = <T as NumCast>::from(self.mean).unwrap();
+            let mean_t: T = cast::<f64, T>(self.mean)?;
             let out: Vec<T> = data.iter().map(|&v| v + mean_t).collect();
             return Tensor::from_storage(TensorStorage::cpu(out), shape, false);
         }
@@ -70,7 +75,7 @@ impl<T: Float> Transform<T> for GaussianNoise<T> {
         let mut out = Vec::with_capacity(data.len());
         for &v in data {
             let noise = self.mean + self.std * standard_normal_sample();
-            let noise_t: T = <T as NumCast>::from(noise).unwrap();
+            let noise_t: T = cast::<f64, T>(noise)?;
             out.push(v + noise_t);
         }
         Tensor::from_storage(TensorStorage::cpu(out), shape, false)
@@ -86,7 +91,7 @@ mod tests {
     fn test_gaussian_noise_output_shape_preserved() {
         let t: Tensor<f32> =
             Tensor::from_storage(TensorStorage::cpu(vec![0.5; 48]), vec![3, 4, 4], false).unwrap();
-        let noise = GaussianNoise::<f32>::new(0.0, 0.1);
+        let noise = GaussianNoise::<f32>::new(0.0, 0.1).unwrap();
         let out = noise.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);
     }
@@ -100,7 +105,7 @@ mod tests {
             false,
         )
         .unwrap();
-        let noise = GaussianNoise::<f32>::new(0.5, 0.0);
+        let noise = GaussianNoise::<f32>::new(0.5, 0.0).unwrap();
         let out = noise.apply(t).unwrap();
         let d = out.data().unwrap();
         assert_eq!(d, &[1.5, 2.5, 3.5, 4.5]);
@@ -114,7 +119,7 @@ mod tests {
             false,
         )
         .unwrap();
-        let noise = GaussianNoise::<f64>::new(0.0, 0.0);
+        let noise = GaussianNoise::<f64>::new(0.0, 0.0).unwrap();
         let out = noise.apply(t).unwrap();
         assert_eq!(out.data().unwrap(), &[0.3, -0.7, 2.1]);
     }
@@ -128,7 +133,7 @@ mod tests {
         let zeros: Vec<f64> = vec![0.0; 10_000];
         let t: Tensor<f64> =
             Tensor::from_storage(TensorStorage::cpu(zeros), vec![1, 100, 100], false).unwrap();
-        let noise = GaussianNoise::<f64>::new(0.0, 0.5);
+        let noise = GaussianNoise::<f64>::new(0.0, 0.5).unwrap();
         let out = noise.apply(t).unwrap();
         let d = out.data().unwrap();
         let mean: f64 = d.iter().sum::<f64>() / d.len() as f64;
@@ -144,13 +149,17 @@ mod tests {
     fn test_gaussian_noise_rejects_non_3d() {
         let t: Tensor<f32> =
             Tensor::from_storage(TensorStorage::cpu(vec![1.0, 2.0]), vec![2], false).unwrap();
-        let noise = GaussianNoise::<f32>::new(0.0, 0.1);
+        let noise = GaussianNoise::<f32>::new(0.0, 0.1).unwrap();
         assert!(noise.apply(t).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "std must be >= 0")]
-    fn test_gaussian_noise_negative_std_panics() {
-        let _ = GaussianNoise::<f32>::new(0.0, -1.0);
+    fn test_gaussian_noise_negative_std_errors() {
+        let err = match GaussianNoise::<f32>::new(0.0, -1.0) {
+            Err(e) => e,
+            Ok(_) => panic!("expected error for negative std"),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("std must be >= 0"), "got: {msg}");
     }
 }

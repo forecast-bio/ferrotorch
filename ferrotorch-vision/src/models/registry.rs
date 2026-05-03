@@ -265,31 +265,55 @@ pub static REGISTRY: LazyLock<RwLock<ModelRegistry<f32>>> =
 // ---------------------------------------------------------------------------
 
 /// Return all registered model names from the global registry.
-pub fn list_models() -> Vec<String> {
-    REGISTRY
-        .read()
-        .expect("model registry lock poisoned")
-        .list_models()
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::Internal`] if the global `RwLock` has been
+/// poisoned by a panic in another thread holding the write lock. In
+/// practice this only happens if `register_model` panicked mid-write,
+/// which would indicate a bug elsewhere; callers can safely treat this
+/// as a fatal error.
+pub fn list_models() -> FerrotorchResult<Vec<String>> {
+    let guard = REGISTRY.read().map_err(|_| FerrotorchError::Internal {
+        message: "ferrotorch-vision: model registry RwLock is poisoned".into(),
+    })?;
+    Ok(guard.list_models())
 }
 
 /// Construct an `f32` model by name from the global registry.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] if `name` is unknown, or
+/// [`FerrotorchError::Internal`] if the global registry `RwLock` is
+/// poisoned. Errors from the model constructor itself (e.g. failed
+/// pretrained-weight download) are propagated unchanged.
 pub fn get_model(
     name: &str,
     pretrained: bool,
     num_classes: usize,
 ) -> FerrotorchResult<Box<dyn Module<f32>>> {
-    REGISTRY
-        .read()
-        .expect("model registry lock poisoned")
-        .get_model(name, pretrained, num_classes)
+    let guard = REGISTRY.read().map_err(|_| FerrotorchError::Internal {
+        message: "ferrotorch-vision: model registry RwLock is poisoned".into(),
+    })?;
+    guard.get_model(name, pretrained, num_classes)
 }
 
 /// Register a custom `f32` model constructor in the global registry.
-pub fn register_model(name: impl Into<String>, constructor: ModelConstructor<f32>) {
-    REGISTRY
-        .write()
-        .expect("model registry lock poisoned")
-        .register_model(name, constructor);
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::Internal`] if the global registry `RwLock`
+/// is poisoned (see [`list_models`]).
+pub fn register_model(
+    name: impl Into<String>,
+    constructor: ModelConstructor<f32>,
+) -> FerrotorchResult<()> {
+    let mut guard = REGISTRY.write().map_err(|_| FerrotorchError::Internal {
+        message: "ferrotorch-vision: model registry RwLock is poisoned".into(),
+    })?;
+    guard.register_model(name, constructor);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -337,7 +361,7 @@ mod tests {
 
     #[test]
     fn test_list_models_contains_resnets() {
-        let names = list_models();
+        let names = list_models().unwrap();
         assert!(names.contains(&"resnet18".to_string()));
         assert!(names.contains(&"resnet34".to_string()));
         assert!(names.contains(&"resnet50".to_string()));
@@ -357,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_list_models_is_sorted() {
-        let names = list_models();
+        let names = list_models().unwrap();
         let mut sorted = names.clone();
         sorted.sort();
         assert_eq!(names, sorted);
@@ -421,7 +445,7 @@ mod tests {
         // pretrained=false must never touch the network or hub cache.
         // We can't easily prove "no network" here, but we can verify
         // the path completes successfully for every registered model.
-        for name in list_models() {
+        for name in list_models().unwrap() {
             let result = get_model(&name, false, 10);
             assert!(
                 result.is_ok(),
@@ -442,10 +466,11 @@ mod tests {
                     training: true,
                 }))
             }),
-        );
+        )
+        .unwrap();
 
         // Verify it shows up in the listing.
-        let names = list_models();
+        let names = list_models().unwrap();
         assert!(names.contains(&"dummy_test_model".to_string()));
 
         // Verify we can construct it.

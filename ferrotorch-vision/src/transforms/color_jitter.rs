@@ -1,8 +1,8 @@
 // CL-332: Vision Transforms & Augmentation — ColorJitter
 use super::rng::random_f64;
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
-use num_traits::NumCast;
 
 /// Randomly adjust the brightness, contrast, saturation, and hue of an image.
 ///
@@ -35,30 +35,44 @@ impl<T: Float> ColorJitter<T> {
     /// * `contrast` — same convention.
     /// * `saturation` — same convention.
     /// * `hue` — in `[0, 0.5)`. Hue shift sampled from `[-hue, +hue]`.
-    pub fn new(brightness: f64, contrast: f64, saturation: f64, hue: f64) -> Self {
-        assert!(
-            brightness >= 0.0,
-            "ColorJitter: brightness must be >= 0, got {brightness}"
-        );
-        assert!(
-            contrast >= 0.0,
-            "ColorJitter: contrast must be >= 0, got {contrast}"
-        );
-        assert!(
-            saturation >= 0.0,
-            "ColorJitter: saturation must be >= 0, got {saturation}"
-        );
-        assert!(
-            (0.0..0.5).contains(&hue) || hue == 0.0,
-            "ColorJitter: hue must be in [0, 0.5), got {hue}"
-        );
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if any of `brightness`,
+    /// `contrast`, `saturation` is negative, or if `hue` is outside `[0, 0.5)`.
+    pub fn new(
+        brightness: f64,
+        contrast: f64,
+        saturation: f64,
+        hue: f64,
+    ) -> FerrotorchResult<Self> {
+        if brightness < 0.0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("ColorJitter: brightness must be >= 0, got {brightness}"),
+            });
+        }
+        if contrast < 0.0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("ColorJitter: contrast must be >= 0, got {contrast}"),
+            });
+        }
+        if saturation < 0.0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("ColorJitter: saturation must be >= 0, got {saturation}"),
+            });
+        }
+        if !((0.0..0.5).contains(&hue) || hue == 0.0) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("ColorJitter: hue must be in [0, 0.5), got {hue}"),
+            });
+        }
+        Ok(Self {
             brightness,
             contrast,
             saturation,
             hue,
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 }
 
@@ -164,7 +178,7 @@ impl<T: Float> Transform<T> for ColorJitter<T> {
         let mut output = Vec::with_capacity(data.len());
         for v in r.iter().chain(g.iter()).chain(b.iter()) {
             let clamped = v.clamp(0.0, 1.0);
-            output.push(<T as NumCast>::from(clamped).unwrap());
+            output.push(cast::<f64, T>(clamped)?);
         }
 
         let storage = TensorStorage::cpu(output);
@@ -236,7 +250,7 @@ mod tests {
     fn test_color_jitter_output_shape() {
         let data: Vec<f64> = vec![0.5; 48]; // 3x4x4
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 4, 4], false).unwrap();
-        let jitter = ColorJitter::<f64>::new(0.2, 0.2, 0.2, 0.1);
+        let jitter = ColorJitter::<f64>::new(0.2, 0.2, 0.2, 0.1).unwrap();
         let out = jitter.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);
     }
@@ -247,7 +261,7 @@ mod tests {
         let data: Vec<f64> = (0..12).map(|i| i as f64 / 12.0).collect();
         let t =
             Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![3, 2, 2], false).unwrap();
-        let jitter = ColorJitter::<f64>::new(0.0, 0.0, 0.0, 0.0);
+        let jitter = ColorJitter::<f64>::new(0.0, 0.0, 0.0, 0.0).unwrap();
         let out = jitter.apply(t).unwrap();
         let d = out.data().unwrap();
         for (a, b) in d.iter().zip(data.iter()) {
@@ -260,7 +274,7 @@ mod tests {
         // Even with extreme parameters, output should be in [0, 1].
         let data: Vec<f64> = vec![0.9; 12]; // 3x2x2
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 2, 2], false).unwrap();
-        let jitter = ColorJitter::<f64>::new(0.9, 0.9, 0.9, 0.4);
+        let jitter = ColorJitter::<f64>::new(0.9, 0.9, 0.9, 0.4).unwrap();
         let out = jitter.apply(t).unwrap();
         for &val in out.data().unwrap() {
             assert!(
@@ -275,7 +289,7 @@ mod tests {
         // 1-channel tensor should be rejected.
         let data = vec![0.5_f64; 4];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 2, 2], false).unwrap();
-        let jitter = ColorJitter::<f64>::new(0.2, 0.2, 0.2, 0.1);
+        let jitter = ColorJitter::<f64>::new(0.2, 0.2, 0.2, 0.1).unwrap();
         assert!(jitter.apply(t).is_err());
     }
 
@@ -308,7 +322,7 @@ mod tests {
         let g = vec![0.4; 4];
         let b = vec![0.3; 4];
         let t = rgb_tensor(&r, &g, &b);
-        let jitter = ColorJitter::<f64>::new(0.3, 0.0, 0.0, 0.0);
+        let jitter = ColorJitter::<f64>::new(0.3, 0.0, 0.0, 0.0).unwrap();
         let out = jitter.apply(t).unwrap();
         let d = out.data().unwrap();
         // All R pixels should have the same value (scaled by the same factor).
@@ -322,7 +336,7 @@ mod tests {
     fn test_color_jitter_f32() {
         let data: Vec<f32> = vec![0.5; 12];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 2, 2], false).unwrap();
-        let jitter = ColorJitter::<f32>::new(0.2, 0.2, 0.2, 0.1);
+        let jitter = ColorJitter::<f32>::new(0.2, 0.2, 0.2, 0.1).unwrap();
         let out = jitter.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 2, 2]);
         for &val in out.data().unwrap() {

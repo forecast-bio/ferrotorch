@@ -21,13 +21,19 @@
 //! assert!(s.label < 100);
 //! ```
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Dataset;
 
 use super::mnist::Split;
 
 /// A single CIFAR sample: a 3x32x32 RGB image and its class label.
+///
+/// Marked `#[non_exhaustive]` so future per-sample metadata (e.g. fine
+/// labels for CIFAR-100, sample index) can be added without breaking
+/// struct-literal construction outside this crate.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CifarSample<T: Float> {
     /// RGB image tensor with shape `[3, 32, 32]`, values in `[0, 1]`.
     pub image: Tensor<T>,
@@ -55,6 +61,7 @@ const CHANNELS: usize = 3;
 /// Construction modes:
 ///
 /// - [`Cifar10::synthetic`]: generates random images and labels for testing.
+#[derive(Debug)]
 pub struct Cifar10<T: Float> {
     images: Vec<Tensor<T>>,
     labels: Vec<u8>,
@@ -76,19 +83,25 @@ impl<T: Float> Cifar10<T> {
     ///
     /// Each image is filled with random values in `[0, 1]` and assigned a
     /// random label in `0..10`.
-    pub fn synthetic(split: Split, num_samples: usize) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if the generated `f64`
+    /// pixel values cannot be cast to the target float type `T` (in practice
+    /// this never happens for IEEE 754 floats given values in `[0, 1]`).
+    pub fn synthetic(split: Split, num_samples: usize) -> FerrotorchResult<Self> {
         let (images, labels) = generate_synthetic::<T>(
             split,
             num_samples,
             Self::NUM_CLASSES,
             0xc1fa_0010_0001,
             0xc1fa_0010_0002,
-        );
-        Self {
+        )?;
+        Ok(Self {
             images,
             labels,
             split,
-        }
+        })
     }
 
     /// Which split this dataset represents.
@@ -128,6 +141,7 @@ impl<T: Float + 'static> Dataset for Cifar10<T> {
 /// Construction modes:
 ///
 /// - [`Cifar100::synthetic`]: generates random images and labels for testing.
+#[derive(Debug)]
 pub struct Cifar100<T: Float> {
     images: Vec<Tensor<T>>,
     labels: Vec<u8>,
@@ -149,19 +163,25 @@ impl<T: Float> Cifar100<T> {
     ///
     /// Each image is filled with random values in `[0, 1]` and assigned a
     /// random label in `0..100`.
-    pub fn synthetic(split: Split, num_samples: usize) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if the generated `f64`
+    /// pixel values cannot be cast to the target float type `T` (in practice
+    /// this never happens for IEEE 754 floats given values in `[0, 1]`).
+    pub fn synthetic(split: Split, num_samples: usize) -> FerrotorchResult<Self> {
         let (images, labels) = generate_synthetic::<T>(
             split,
             num_samples,
             Self::NUM_CLASSES,
             0xc1fa_0100_0001,
             0xc1fa_0100_0002,
-        );
-        Self {
+        )?;
+        Ok(Self {
             images,
             labels,
             split,
-        }
+        })
     }
 
     /// Which split this dataset represents.
@@ -203,7 +223,7 @@ fn generate_synthetic<T: Float>(
     num_classes: usize,
     seed_train: u64,
     seed_test: u64,
-) -> (Vec<Tensor<T>>, Vec<u8>) {
+) -> FerrotorchResult<(Vec<Tensor<T>>, Vec<u8>)> {
     let mut images = Vec::with_capacity(num_samples);
     let mut labels = Vec::with_capacity(num_samples);
 
@@ -219,11 +239,10 @@ fn generate_synthetic<T: Float>(
         for _ in 0..numel {
             state = xorshift64(state);
             let f = (state as f64) / (u64::MAX as f64);
-            data.push(T::from(f).unwrap());
+            data.push(cast::<f64, T>(f)?);
         }
         let storage = TensorStorage::cpu(data);
-        let tensor = Tensor::from_storage(storage, vec![CHANNELS, HEIGHT, WIDTH], false)
-            .expect("synthetic CIFAR tensor creation should not fail");
+        let tensor = Tensor::from_storage(storage, vec![CHANNELS, HEIGHT, WIDTH], false)?;
         images.push(tensor);
 
         state = xorshift64(state);
@@ -231,7 +250,7 @@ fn generate_synthetic<T: Float>(
         labels.push(label);
     }
 
-    (images, labels)
+    Ok((images, labels))
 }
 
 /// xorshift64 PRNG step.
@@ -253,27 +272,27 @@ mod tests {
 
     #[test]
     fn test_cifar10_synthetic_train_len() {
-        let ds = Cifar10::<f32>::synthetic(Split::Train, 100);
+        let ds = Cifar10::<f32>::synthetic(Split::Train, 100).unwrap();
         assert_eq!(ds.len(), 100);
         assert!(!ds.is_empty());
     }
 
     #[test]
     fn test_cifar10_synthetic_test_len() {
-        let ds = Cifar10::<f32>::synthetic(Split::Test, 50);
+        let ds = Cifar10::<f32>::synthetic(Split::Test, 50).unwrap();
         assert_eq!(ds.len(), 50);
     }
 
     #[test]
     fn test_cifar10_synthetic_empty() {
-        let ds = Cifar10::<f32>::synthetic(Split::Train, 0);
+        let ds = Cifar10::<f32>::synthetic(Split::Train, 0).unwrap();
         assert!(ds.is_empty());
         assert_eq!(ds.len(), 0);
     }
 
     #[test]
     fn test_cifar10_sample_image_shape() {
-        let ds = Cifar10::<f32>::synthetic(Split::Train, 10);
+        let ds = Cifar10::<f32>::synthetic(Split::Train, 10).unwrap();
         let sample = ds.get(0).unwrap();
         assert_eq!(sample.image.shape(), &[3, 32, 32]);
         assert_eq!(sample.image.numel(), 3 * 32 * 32);
@@ -281,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_cifar10_sample_values_in_range() {
-        let ds = Cifar10::<f32>::synthetic(Split::Train, 5);
+        let ds = Cifar10::<f32>::synthetic(Split::Train, 5).unwrap();
         for i in 0..5 {
             let sample = ds.get(i).unwrap();
             let data = sample.image.data().unwrap();
@@ -293,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_cifar10_label_range() {
-        let ds = Cifar10::<f32>::synthetic(Split::Train, 200);
+        let ds = Cifar10::<f32>::synthetic(Split::Train, 200).unwrap();
         for i in 0..200 {
             let sample = ds.get(i).unwrap();
             assert!(sample.label < 10, "label out of range: {}", sample.label);
@@ -302,23 +321,23 @@ mod tests {
 
     #[test]
     fn test_cifar10_out_of_bounds() {
-        let ds = Cifar10::<f32>::synthetic(Split::Train, 10);
+        let ds = Cifar10::<f32>::synthetic(Split::Train, 10).unwrap();
         assert!(ds.get(10).is_err());
         assert!(ds.get(100).is_err());
     }
 
     #[test]
     fn test_cifar10_split_accessor() {
-        let train = Cifar10::<f32>::synthetic(Split::Train, 1);
-        let test = Cifar10::<f32>::synthetic(Split::Test, 1);
+        let train = Cifar10::<f32>::synthetic(Split::Train, 1).unwrap();
+        let test = Cifar10::<f32>::synthetic(Split::Test, 1).unwrap();
         assert_eq!(train.split(), Split::Train);
         assert_eq!(test.split(), Split::Test);
     }
 
     #[test]
     fn test_cifar10_train_test_different() {
-        let train = Cifar10::<f32>::synthetic(Split::Train, 5);
-        let test = Cifar10::<f32>::synthetic(Split::Test, 5);
+        let train = Cifar10::<f32>::synthetic(Split::Train, 5).unwrap();
+        let test = Cifar10::<f32>::synthetic(Split::Test, 5).unwrap();
         let t0 = train.get(0).unwrap();
         let e0 = test.get(0).unwrap();
         let t_data = t0.image.data().unwrap();
@@ -328,7 +347,7 @@ mod tests {
 
     #[test]
     fn test_cifar10_f64() {
-        let ds = Cifar10::<f64>::synthetic(Split::Train, 3);
+        let ds = Cifar10::<f64>::synthetic(Split::Train, 3).unwrap();
         let sample = ds.get(0).unwrap();
         assert_eq!(sample.image.shape(), &[3, 32, 32]);
     }
@@ -346,20 +365,20 @@ mod tests {
 
     #[test]
     fn test_cifar100_synthetic_len() {
-        let ds = Cifar100::<f32>::synthetic(Split::Train, 80);
+        let ds = Cifar100::<f32>::synthetic(Split::Train, 80).unwrap();
         assert_eq!(ds.len(), 80);
     }
 
     #[test]
     fn test_cifar100_sample_shape() {
-        let ds = Cifar100::<f32>::synthetic(Split::Test, 5);
+        let ds = Cifar100::<f32>::synthetic(Split::Test, 5).unwrap();
         let sample = ds.get(0).unwrap();
         assert_eq!(sample.image.shape(), &[3, 32, 32]);
     }
 
     #[test]
     fn test_cifar100_label_range() {
-        let ds = Cifar100::<f32>::synthetic(Split::Train, 500);
+        let ds = Cifar100::<f32>::synthetic(Split::Train, 500).unwrap();
         for i in 0..500 {
             let sample = ds.get(i).unwrap();
             assert!(sample.label < 100, "label out of range: {}", sample.label);
@@ -368,15 +387,15 @@ mod tests {
 
     #[test]
     fn test_cifar100_out_of_bounds() {
-        let ds = Cifar100::<f32>::synthetic(Split::Train, 10);
+        let ds = Cifar100::<f32>::synthetic(Split::Train, 10).unwrap();
         assert!(ds.get(10).is_err());
     }
 
     #[test]
     fn test_cifar100_different_from_cifar10() {
         // CIFAR-100 and CIFAR-10 use different seeds, so data should differ.
-        let c10 = Cifar10::<f32>::synthetic(Split::Train, 5);
-        let c100 = Cifar100::<f32>::synthetic(Split::Train, 5);
+        let c10 = Cifar10::<f32>::synthetic(Split::Train, 5).unwrap();
+        let c100 = Cifar100::<f32>::synthetic(Split::Train, 5).unwrap();
         let d10 = c10.get(0).unwrap().image.data().unwrap().to_vec();
         let d100 = c100.get(0).unwrap().image.data().unwrap().to_vec();
         assert_ne!(

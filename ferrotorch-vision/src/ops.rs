@@ -11,6 +11,7 @@ use ferrotorch_core::grad_fns::activation as act;
 use ferrotorch_core::grad_fns::arithmetic;
 use ferrotorch_core::grad_fns::reduction as red;
 use ferrotorch_core::grad_fns::transcendental as trans;
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 /// Box format conventions accepted by [`box_convert`].
@@ -55,9 +56,9 @@ pub fn box_convert<T: Float>(
     }
     let n = boxes.shape()[0];
     let data = boxes.data_vec()?;
-    let mut out = vec![T::from(0.0).unwrap(); n * 4];
+    let mut out = vec![cast::<f64, T>(0.0)?; n * 4];
 
-    let half = T::from(0.5).unwrap();
+    let half: T = cast::<f64, T>(0.5)?;
     for i in 0..n {
         let a = data[i * 4];
         let b = data[i * 4 + 1];
@@ -98,7 +99,7 @@ pub fn box_area<T: Float>(boxes: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     check_boxes_shape(boxes, "box_area")?;
     let n = boxes.shape()[0];
     let data = boxes.data_vec()?;
-    let mut out = vec![T::from(0.0).unwrap(); n];
+    let mut out = vec![cast::<f64, T>(0.0)?; n];
     for i in 0..n {
         let x1 = data[i * 4];
         let y1 = data[i * 4 + 1];
@@ -118,7 +119,7 @@ pub fn box_iou<T: Float>(boxes1: &Tensor<T>, boxes2: &Tensor<T>) -> FerrotorchRe
     let m = boxes2.shape()[0];
     let a = boxes1.data_vec()?;
     let b = boxes2.data_vec()?;
-    let zero = T::from(0.0).unwrap();
+    let zero: T = cast::<f64, T>(0.0)?;
     let mut out = vec![zero; n * m];
 
     for i in 0..n {
@@ -158,9 +159,9 @@ pub fn clip_boxes_to_image<T: Float>(
     check_boxes_shape(boxes, "clip_boxes_to_image")?;
     let n = boxes.shape()[0];
     let data = boxes.data_vec()?;
-    let zero = T::from(0.0).unwrap();
-    let h = T::from(size[0] as f64).unwrap();
-    let w = T::from(size[1] as f64).unwrap();
+    let zero: T = cast::<f64, T>(0.0)?;
+    let h: T = cast::<usize, T>(size[0])?;
+    let w: T = cast::<usize, T>(size[1])?;
     let mut out = vec![zero; n * 4];
     for i in 0..n {
         out[i * 4] = clamp_t(data[i * 4], zero, w);
@@ -181,7 +182,7 @@ pub fn remove_small_boxes<T: Float>(
     check_boxes_shape(boxes, "remove_small_boxes")?;
     let n = boxes.shape()[0];
     let data = boxes.data_vec()?;
-    let min_t = T::from(min_size).unwrap();
+    let min_t: T = cast::<f64, T>(min_size)?;
     let mut keep = Vec::new();
     for i in 0..n {
         let w = data[i * 4 + 2] - data[i * 4];
@@ -222,8 +223,8 @@ pub fn nms<T: Float>(
     }
     let data = boxes.data_vec()?;
     let scores_data = scores.data_vec()?;
-    let thr = T::from(iou_threshold).unwrap();
-    let zero = T::from(0.0).unwrap();
+    let thr: T = cast::<f64, T>(iou_threshold)?;
+    let zero: T = cast::<f64, T>(0.0)?;
 
     // Indices sorted by score descending.
     let mut order: Vec<usize> = (0..n).collect();
@@ -300,18 +301,18 @@ pub fn batched_nms<T: Float>(
     // Trick from torchvision: shift each box by class_id * (max_coord + 1)
     // so different-class boxes never overlap, then run a single NMS.
     let data = boxes.data_vec()?;
-    let mut max_coord: T = T::from(0.0).unwrap();
+    let mut max_coord: T = cast::<f64, T>(0.0)?;
     for v in &data {
         if *v > max_coord {
             max_coord = *v;
         }
     }
-    let one = T::from(1.0).unwrap();
+    let one: T = cast::<f64, T>(1.0)?;
     let offset_unit = max_coord + one;
 
-    let mut shifted = vec![T::from(0.0).unwrap(); 4 * n];
+    let mut shifted = vec![cast::<f64, T>(0.0)?; 4 * n];
     for i in 0..n {
-        let off = T::from(idxs[i] as f64).unwrap() * offset_unit;
+        let off: T = cast::<u32, T>(idxs[i])? * offset_unit;
         shifted[i * 4] = data[i * 4] + off;
         shifted[i * 4 + 1] = data[i * 4 + 1] + off;
         shifted[i * 4 + 2] = data[i * 4 + 2] + off;
@@ -359,7 +360,7 @@ pub fn sigmoid_focal_loss<T: Float>(
         });
     }
 
-    let one = ferrotorch_core::scalar(T::from(1.0).unwrap())?;
+    let one = ferrotorch_core::scalar(cast::<f64, T>(1.0)?)?;
 
     // Numerically stable BCE-with-logits.
     let neg_t = arithmetic::neg(targets)?;
@@ -384,9 +385,9 @@ pub fn sigmoid_focal_loss<T: Float>(
 
     // Optional alpha balancing.
     if alpha >= 0.0 {
-        let alpha_s = ferrotorch_core::scalar(T::from(alpha).unwrap())?;
+        let alpha_s = ferrotorch_core::scalar(cast::<f64, T>(alpha)?)?;
         let alpha_targets = arithmetic::mul(&alpha_s, targets)?;
-        let one_minus_alpha = ferrotorch_core::scalar(T::from(1.0 - alpha).unwrap())?;
+        let one_minus_alpha = ferrotorch_core::scalar(cast::<f64, T>(1.0 - alpha)?)?;
         let oma_omt = arithmetic::mul(&one_minus_alpha, &one_minus_t)?;
         let alpha_t = arithmetic::add(&alpha_targets, &oma_omt)?;
         loss = arithmetic::mul(&loss, &alpha_t)?;
@@ -421,7 +422,7 @@ pub fn focal_loss<T: Float>(
             ),
         });
     }
-    let one = ferrotorch_core::scalar(T::from(1.0).unwrap())?;
+    let one = ferrotorch_core::scalar(cast::<f64, T>(1.0)?)?;
     let one_minus_p = arithmetic::sub(&one, inputs)?;
     let one_minus_t = arithmetic::sub(&one, targets)?;
     let p_t1 = arithmetic::mul(inputs, targets)?;
@@ -429,7 +430,7 @@ pub fn focal_loss<T: Float>(
     let p_t = arithmetic::add(&p_t1, &p_t2)?;
 
     // Add tiny eps to keep log finite at p_t = 0.
-    let eps = ferrotorch_core::scalar(T::from(1e-12).unwrap())?;
+    let eps = ferrotorch_core::scalar(cast::<f64, T>(1e-12)?)?;
     let p_t_eps = arithmetic::add(&p_t, &eps)?;
     let log_p_t = trans::log(&p_t_eps)?;
     let neg_log = arithmetic::neg(&log_p_t)?;
@@ -439,9 +440,9 @@ pub fn focal_loss<T: Float>(
 
     let mut loss = arithmetic::mul(&neg_log, &modulator)?;
     if alpha >= 0.0 {
-        let alpha_s = ferrotorch_core::scalar(T::from(alpha).unwrap())?;
+        let alpha_s = ferrotorch_core::scalar(cast::<f64, T>(alpha)?)?;
         let alpha_t = arithmetic::mul(&alpha_s, targets)?;
-        let one_minus_alpha = ferrotorch_core::scalar(T::from(1.0 - alpha).unwrap())?;
+        let one_minus_alpha = ferrotorch_core::scalar(cast::<f64, T>(1.0 - alpha)?)?;
         let oma_omt = arithmetic::mul(&one_minus_alpha, &one_minus_t)?;
         let alpha_balance = arithmetic::add(&alpha_t, &oma_omt)?;
         loss = arithmetic::mul(&loss, &alpha_balance)?;
@@ -486,8 +487,8 @@ pub fn generalized_box_iou<T: Float>(
     let m = boxes2.shape()[0];
     let a = boxes1.data_vec()?;
     let b = boxes2.data_vec()?;
-    let zero = T::from(0.0).unwrap();
-    let one = T::from(1.0).unwrap();
+    let zero: T = cast::<f64, T>(0.0)?;
+    let one: T = cast::<f64, T>(1.0)?;
     let mut out = vec![zero; n * m];
 
     for i in 0..n {
@@ -546,8 +547,8 @@ pub fn distance_box_iou<T: Float>(
     let m = boxes2.shape()[0];
     let a = boxes1.data_vec()?;
     let b = boxes2.data_vec()?;
-    let zero = T::from(0.0).unwrap();
-    let two = T::from(2.0).unwrap();
+    let zero: T = cast::<f64, T>(0.0)?;
+    let two: T = cast::<f64, T>(2.0)?;
     let mut out = vec![zero; n * m];
 
     for i in 0..n {
@@ -614,11 +615,11 @@ pub fn complete_box_iou<T: Float>(
     let m = boxes2.shape()[0];
     let a = boxes1.data_vec()?;
     let b = boxes2.data_vec()?;
-    let zero = T::from(0.0).unwrap();
-    let one = T::from(1.0).unwrap();
-    let two = T::from(2.0).unwrap();
-    let four_over_pi_sq = T::from(4.0 / (std::f64::consts::PI * std::f64::consts::PI)).unwrap();
-    let eps = T::from(1e-7).unwrap();
+    let zero: T = cast::<f64, T>(0.0)?;
+    let one: T = cast::<f64, T>(1.0)?;
+    let two: T = cast::<f64, T>(2.0)?;
+    let four_over_pi_sq: T = cast::<f64, T>(4.0 / (std::f64::consts::PI * std::f64::consts::PI))?;
+    let eps: T = cast::<f64, T>(1e-7)?;
     let mut out = vec![zero; n * m];
 
     for i in 0..n {
@@ -687,13 +688,19 @@ pub fn complete_box_iou<T: Float>(
 /// Out-of-bounds samples return 0 (matches torchvision's `roi_align` border
 /// behavior for `aligned=true`).
 #[inline]
-fn bilinear_sample<T: Float>(feature_map: &[T], h: usize, w: usize, y: T, x: T) -> T {
-    let zero = T::from(0.0).unwrap();
-    let h_f = T::from(h as f64).unwrap();
-    let w_f = T::from(w as f64).unwrap();
-    let neg_one = T::from(-1.0).unwrap();
+fn bilinear_sample<T: Float>(
+    feature_map: &[T],
+    h: usize,
+    w: usize,
+    y: T,
+    x: T,
+) -> FerrotorchResult<T> {
+    let zero: T = cast::<f64, T>(0.0)?;
+    let h_f: T = cast::<usize, T>(h)?;
+    let w_f: T = cast::<usize, T>(w)?;
+    let neg_one: T = cast::<f64, T>(-1.0)?;
     if y < neg_one || y > h_f || x < neg_one || x > w_f {
-        return zero;
+        return Ok(zero);
     }
     let y = max_t(y, zero);
     let x = max_t(x, zero);
@@ -705,9 +712,9 @@ fn bilinear_sample<T: Float>(feature_map: &[T], h: usize, w: usize, y: T, x: T) 
     let y_high = (y_low + 1).min(h.saturating_sub(1));
     let x_high = (x_low + 1).min(w.saturating_sub(1));
 
-    let ly = y - T::from(y_low as f64).unwrap();
-    let lx = x - T::from(x_low as f64).unwrap();
-    let one = T::from(1.0).unwrap();
+    let ly = y - cast::<usize, T>(y_low)?;
+    let lx = x - cast::<usize, T>(x_low)?;
+    let one: T = cast::<f64, T>(1.0)?;
     let hy = one - ly;
     let hx = one - lx;
 
@@ -716,7 +723,7 @@ fn bilinear_sample<T: Float>(feature_map: &[T], h: usize, w: usize, y: T, x: T) 
     let v3 = feature_map[y_high * w + x_low];
     let v4 = feature_map[y_high * w + x_high];
 
-    hy * (hx * v1 + lx * v2) + ly * (hx * v3 + lx * v4)
+    Ok(hy * (hx * v1 + lx * v2) + ly * (hx * v3 + lx * v4))
 }
 
 /// Region of Interest Align: bilinear feature extraction per RoI.
@@ -736,6 +743,11 @@ fn bilinear_sample<T: Float>(feature_map: &[T], h: usize, w: usize, y: T, x: T) 
 ///
 /// Returns `[K, C, out_h, out_w]`. Empty boxes (`x2 < x1 || y2 < y1`) yield
 /// all-zero output for that row. (#610)
+// justification: 5 args today, but the signature mirrors torchvision's
+// `roi_align(input, boxes, output_size, spatial_scale, sampling_ratio)`
+// and is on a near-term path to gain `aligned: bool` for parity. Keeping
+// the allow documents that the arg count is intentional rather than a
+// missed refactor.
 #[allow(clippy::too_many_arguments)]
 pub fn roi_align<T: Float>(
     input: &Tensor<T>,
@@ -775,9 +787,9 @@ pub fn roi_align<T: Float>(
 
     let in_data = input.data_vec()?;
     let box_data = boxes.data_vec()?;
-    let scale = T::from(spatial_scale).unwrap();
-    let zero = T::from(0.0).unwrap();
-    let half = T::from(0.5).unwrap();
+    let scale: T = cast::<f64, T>(spatial_scale)?;
+    let zero: T = cast::<f64, T>(0.0)?;
+    let half: T = cast::<f64, T>(0.5)?;
 
     let mut out = vec![zero; k * c * out_h * out_w];
 
@@ -799,8 +811,8 @@ pub fn roi_align<T: Float>(
         let roi_w = max_t(x2 - x1, zero);
         let roi_h = max_t(y2 - y1, zero);
 
-        let bin_h = roi_h / T::from(out_h as f64).unwrap();
-        let bin_w = roi_w / T::from(out_w as f64).unwrap();
+        let bin_h = roi_h / cast::<usize, T>(out_h)?;
+        let bin_w = roi_w / cast::<usize, T>(out_w)?;
 
         // Effective grid resolution per bin.
         let grid_h = if sampling_ratio > 0 {
@@ -817,7 +829,7 @@ pub fn roi_align<T: Float>(
                 .ceil()
                 .max(1.0) as usize
         };
-        let grid_count = T::from((grid_h * grid_w) as f64).unwrap();
+        let grid_count: T = cast::<usize, T>(grid_h * grid_w)?;
 
         for ch in 0..c {
             let fm_offset = (batch_idx * c + ch) * h * w;
@@ -825,20 +837,19 @@ pub fn roi_align<T: Float>(
 
             for ph in 0..out_h {
                 for pw in 0..out_w {
-                    let ph_f = T::from(ph as f64).unwrap();
-                    let pw_f = T::from(pw as f64).unwrap();
+                    let ph_f: T = cast::<usize, T>(ph)?;
+                    let pw_f: T = cast::<usize, T>(pw)?;
                     let mut sum = zero;
                     for iy in 0..grid_h {
                         let y = y1
                             + ph_f * bin_h
-                            + (T::from(iy as f64).unwrap() + half) * bin_h
-                                / T::from(grid_h as f64).unwrap();
+                            + (cast::<usize, T>(iy)? + half) * bin_h / cast::<usize, T>(grid_h)?;
                         for ix in 0..grid_w {
                             let x = x1
                                 + pw_f * bin_w
-                                + (T::from(ix as f64).unwrap() + half) * bin_w
-                                    / T::from(grid_w as f64).unwrap();
-                            sum += bilinear_sample(fm, h, w, y, x);
+                                + (cast::<usize, T>(ix)? + half) * bin_w
+                                    / cast::<usize, T>(grid_w)?;
+                            sum += bilinear_sample(fm, h, w, y, x)?;
                         }
                     }
                     let avg = if grid_count > zero {
@@ -898,7 +909,7 @@ pub fn roi_pool<T: Float>(
 
     let in_data = input.data_vec()?;
     let box_data = boxes.data_vec()?;
-    let zero = T::from(0.0).unwrap();
+    let zero: T = cast::<f64, T>(0.0)?;
     let mut out = vec![zero; k * c * out_h * out_w];
 
     for i in 0..k {

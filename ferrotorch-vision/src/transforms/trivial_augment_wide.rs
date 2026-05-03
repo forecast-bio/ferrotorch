@@ -17,9 +17,9 @@
 //! Mirrors `torchvision.transforms.v2.TrivialAugmentWide`. CL-458.
 
 use super::rng::random_usize;
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
-use num_traits::NumCast;
 
 /// TrivialAugmentWide data augmentation.
 ///
@@ -37,7 +37,9 @@ pub struct TrivialAugmentWide<T: Float> {
 
 impl<T: Float> Default for TrivialAugmentWide<T> {
     fn default() -> Self {
-        Self::new(31)
+        // Default 31 is > 0, so `new` cannot return Err — the expect
+        // documents the invariant rather than a real panic path.
+        Self::new(31).expect("invariant: default num_magnitude_bins=31 is > 0")
     }
 }
 
@@ -45,18 +47,20 @@ impl<T: Float> TrivialAugmentWide<T> {
     /// Create a new `TrivialAugmentWide` with the given number of
     /// discrete magnitude levels.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `num_magnitude_bins` is 0.
-    pub fn new(num_magnitude_bins: usize) -> Self {
-        assert!(
-            num_magnitude_bins > 0,
-            "TrivialAugmentWide: num_magnitude_bins must be > 0"
-        );
-        Self {
+    /// Returns [`FerrotorchError::InvalidArgument`] if `num_magnitude_bins`
+    /// is 0.
+    pub fn new(num_magnitude_bins: usize) -> FerrotorchResult<Self> {
+        if num_magnitude_bins == 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "TrivialAugmentWide: num_magnitude_bins must be > 0".into(),
+            });
+        }
+        Ok(Self {
             num_magnitude_bins,
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 }
 
@@ -100,33 +104,40 @@ impl Op {
 /// Apply the selected op with a strength sampled uniformly from its
 /// canonical range. The canonical ranges are taken from the
 /// torchvision TrivialAugmentWide op space.
-fn apply_op<T: Float>(data: &[T], h: usize, w: usize, c: usize, op: Op, num_bins: usize) -> Vec<T> {
+fn apply_op<T: Float>(
+    data: &[T],
+    h: usize,
+    w: usize,
+    c: usize,
+    op: Op,
+    num_bins: usize,
+) -> FerrotorchResult<Vec<T>> {
     // Sample a magnitude level in [0, num_bins), then map to the op's
     // canonical range.
     let level = random_usize(num_bins);
     let level_f = level as f64 / (num_bins - 1).max(1) as f64;
 
-    match op {
+    let result = match op {
         Op::Identity => data.to_vec(),
         Op::Brightness => {
             // brightness factor in [0.01, 1.99]. A factor of 1 is the
             // identity, <1 darkens, >1 brightens.
             let factor = 0.01 + 1.98 * level_f;
-            let f_t: T = <T as NumCast>::from(factor).unwrap();
+            let f_t: T = cast::<f64, T>(factor)?;
             data.iter().map(|&v| v * f_t).collect()
         }
         Op::Contrast => {
             // contrast factor in [0.01, 1.99]. Contrast blends each
             // pixel with the mean-gray image: out = mean + f*(in - mean).
             let factor = 0.01 + 1.98 * level_f;
-            let f_t: T = <T as NumCast>::from(factor).unwrap();
+            let f_t: T = cast::<f64, T>(factor)?;
             // Per-channel mean.
             let mut out = Vec::with_capacity(data.len());
             for ch in 0..c {
                 let ch_slice = &data[ch * h * w..(ch + 1) * h * w];
                 let mean_f64: f64 =
                     ch_slice.iter().map(|v| v.to_f64().unwrap()).sum::<f64>() / (h * w) as f64;
-                let mean_t: T = <T as NumCast>::from(mean_f64).unwrap();
+                let mean_t: T = cast::<f64, T>(mean_f64)?;
                 for &v in ch_slice {
                     out.push(mean_t + f_t * (v - mean_t));
                 }
@@ -138,7 +149,7 @@ fn apply_op<T: Float>(data: &[T], h: usize, w: usize, c: usize, op: Op, num_bins
             // image with a box-blurred version; factor > 1 increases
             // edge contrast, factor < 1 softens.
             let factor = 0.01 + 1.98 * level_f;
-            let f_t: T = <T as NumCast>::from(factor).unwrap();
+            let f_t: T = cast::<f64, T>(factor)?;
             let mut out = Vec::with_capacity(data.len());
             for ch in 0..c {
                 let ch_slice: Vec<f64> = data[ch * h * w..(ch + 1) * h * w]
@@ -147,8 +158,8 @@ fn apply_op<T: Float>(data: &[T], h: usize, w: usize, c: usize, op: Op, num_bins
                     .collect();
                 let blurred = box_blur_3x3(&ch_slice, h, w);
                 for i in 0..h * w {
-                    let orig: T = <T as NumCast>::from(ch_slice[i]).unwrap();
-                    let blur: T = <T as NumCast>::from(blurred[i]).unwrap();
+                    let orig: T = cast::<f64, T>(ch_slice[i])?;
+                    let blur: T = cast::<f64, T>(blurred[i])?;
                     // out = blur + factor * (orig - blur)
                     out.push(blur + f_t * (orig - blur));
                 }
@@ -165,15 +176,15 @@ fn apply_op<T: Float>(data: &[T], h: usize, w: usize, c: usize, op: Op, num_bins
                 .map(|&v| {
                     let vf = v.to_f64().unwrap();
                     let quantized = (vf * scale).round() / scale;
-                    <T as NumCast>::from(quantized).unwrap()
+                    cast::<f64, T>(quantized)
                 })
-                .collect()
+                .collect::<FerrotorchResult<Vec<T>>>()?
         }
         Op::Solarize => {
             // threshold in [0, 1]. Invert pixels above the threshold.
             let threshold = level_f;
-            let one = T::from(1.0).unwrap();
-            let thr_t: T = <T as NumCast>::from(threshold).unwrap();
+            let one: T = cast::<f64, T>(1.0)?;
+            let thr_t: T = cast::<f64, T>(threshold)?;
             data.iter()
                 .map(|&v| if v >= thr_t { one - v } else { v })
                 .collect()
@@ -202,7 +213,7 @@ fn apply_op<T: Float>(data: &[T], h: usize, w: usize, c: usize, op: Op, num_bins
                     } else {
                         vf
                     };
-                    out.push(<T as NumCast>::from(stretched).unwrap());
+                    out.push(cast::<f64, T>(stretched)?);
                 }
             }
             out
@@ -231,7 +242,7 @@ fn apply_op<T: Float>(data: &[T], h: usize, w: usize, c: usize, op: Op, num_bins
                 for &v in ch_slice {
                     let vf = v.to_f64().unwrap().clamp(0.0, 1.0);
                     let idx = (vf * (BINS as f64 - 1.0)).round() as usize;
-                    out.push(<T as NumCast>::from(cdf[idx]).unwrap());
+                    out.push(cast::<f64, T>(cdf[idx])?);
                 }
             }
             out
@@ -288,7 +299,8 @@ fn apply_op<T: Float>(data: &[T], h: usize, w: usize, c: usize, op: Op, num_bins
             }
             out
         }
-    }
+    };
+    Ok(result)
 }
 
 /// Simple 3x3 box blur with zero padding, single channel.
@@ -338,7 +350,7 @@ impl<T: Float> Transform<T> for TrivialAugmentWide<T> {
         let op = Op::ALL[op_idx];
 
         let data = input.data()?;
-        let out = apply_op(data, h, w, c, op, self.num_magnitude_bins);
+        let out = apply_op(data, h, w, c, op, self.num_magnitude_bins)?;
         Tensor::from_storage(TensorStorage::cpu(out), shape, false)
     }
 }
@@ -352,7 +364,7 @@ mod tests {
     fn test_trivial_augment_output_shape_preserved() {
         let t: Tensor<f32> =
             Tensor::from_storage(TensorStorage::cpu(vec![0.5; 48]), vec![3, 4, 4], false).unwrap();
-        let aug = TrivialAugmentWide::<f32>::new(31);
+        let aug = TrivialAugmentWide::<f32>::new(31).unwrap();
         let out = aug.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 4, 4]);
     }
@@ -364,23 +376,27 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "num_magnitude_bins must be > 0")]
-    fn test_trivial_augment_zero_bins_panics() {
-        let _ = TrivialAugmentWide::<f32>::new(0);
+    fn test_trivial_augment_zero_bins_errors() {
+        let err = match TrivialAugmentWide::<f32>::new(0) {
+            Err(e) => e,
+            Ok(_) => panic!("expected error for num_magnitude_bins=0"),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("num_magnitude_bins must be > 0"), "got: {msg}");
     }
 
     #[test]
     fn test_trivial_augment_rejects_non_3d() {
         let t: Tensor<f32> =
             Tensor::from_storage(TensorStorage::cpu(vec![0.5; 4]), vec![2, 2], false).unwrap();
-        let aug = TrivialAugmentWide::<f32>::new(31);
+        let aug = TrivialAugmentWide::<f32>::new(31).unwrap();
         assert!(aug.apply(t).is_err());
     }
 
     #[test]
     fn test_op_identity_returns_input_unchanged() {
         let data: Vec<f32> = (0..12).map(|i| i as f32 * 0.1).collect();
-        let out = apply_op(&data, 2, 2, 3, Op::Identity, 31);
+        let out = apply_op(&data, 2, 2, 3, Op::Identity, 31).unwrap();
         assert_eq!(out, data);
     }
 
@@ -388,7 +404,7 @@ mod tests {
     fn test_op_horizontal_flip_reverses_columns() {
         // Single channel 1x3: [1, 2, 3] -> [3, 2, 1]
         let data = vec![1.0_f32, 2.0, 3.0];
-        let out = apply_op(&data, 1, 3, 1, Op::HorizontalFlip, 31);
+        let out = apply_op(&data, 1, 3, 1, Op::HorizontalFlip, 31).unwrap();
         assert_eq!(out, vec![3.0, 2.0, 1.0]);
     }
 
@@ -400,7 +416,7 @@ mod tests {
         // We can't control the sampled level directly, but we can check
         // that brightness produces a non-negative valid output and preserves
         // length.
-        let out = apply_op(&data, 2, 2, 1, Op::Brightness, 2);
+        let out = apply_op(&data, 2, 2, 1, Op::Brightness, 2).unwrap();
         assert_eq!(out.len(), 4);
         for &v in &out {
             assert!(v.is_finite());
@@ -411,7 +427,7 @@ mod tests {
     fn test_op_posterize_preserves_length() {
         vision_manual_seed(42);
         let data: Vec<f32> = (0..9).map(|i| i as f32 / 8.0).collect();
-        let out = apply_op(&data, 3, 3, 1, Op::Posterize, 7);
+        let out = apply_op(&data, 3, 3, 1, Op::Posterize, 7).unwrap();
         assert_eq!(out.len(), 9);
         for &v in &out {
             assert!(
@@ -430,7 +446,7 @@ mod tests {
         let data = vec![0.2_f32, 0.5, 0.8, 1.0];
         // Use num_bins=1 so level_f = 0 / 0 = 0 (guarded by .max(1))
         // which means threshold=0 and all pixels get inverted.
-        let out = apply_op(&data, 2, 2, 1, Op::Solarize, 1);
+        let out = apply_op(&data, 2, 2, 1, Op::Solarize, 1).unwrap();
         // Threshold = 0, all pixels >= 0, all inverted.
         let expected = [0.8, 0.5, 0.2, 0.0_f32];
         for (i, (&o, e)) in out.iter().zip(expected.iter()).enumerate() {
@@ -442,7 +458,7 @@ mod tests {
     fn test_op_auto_contrast_stretches_range() {
         // A channel with values [0.3, 0.5, 0.7] should stretch to [0, 0.5, 1].
         let data = vec![0.3_f64, 0.5, 0.7];
-        let out = apply_op(&data, 1, 3, 1, Op::AutoContrast, 31);
+        let out = apply_op(&data, 1, 3, 1, Op::AutoContrast, 31).unwrap();
         assert!((out[0] - 0.0).abs() < 1e-10);
         assert!((out[1] - 0.5).abs() < 1e-10);
         assert!((out[2] - 1.0).abs() < 1e-10);
@@ -453,7 +469,7 @@ mod tests {
         // If min == max (constant channel), auto-contrast leaves it
         // alone (avoids divide-by-zero).
         let data = vec![0.4_f64; 5];
-        let out = apply_op(&data, 1, 5, 1, Op::AutoContrast, 31);
+        let out = apply_op(&data, 1, 5, 1, Op::AutoContrast, 31).unwrap();
         for &v in &out {
             assert!((v - 0.4).abs() < 1e-10);
         }
@@ -464,7 +480,7 @@ mod tests {
         // After equalization, values should be in [0, 1] and preserve
         // relative ordering.
         let data: Vec<f64> = (0..100).map(|i| i as f64 / 99.0).collect();
-        let out = apply_op(&data, 10, 10, 1, Op::Equalize, 31);
+        let out = apply_op(&data, 10, 10, 1, Op::Equalize, 31).unwrap();
         for &v in &out {
             assert!((0.0..=1.0).contains(&v));
         }

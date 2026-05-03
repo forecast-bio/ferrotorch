@@ -25,7 +25,12 @@ use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor};
 use ferrotorch_data::Dataset;
 
 /// One sample produced by [`ImageFolder`]: a CHW image tensor + class index.
+///
+/// Marked `#[non_exhaustive]` so future per-sample metadata (e.g. file
+/// path) can be added without breaking struct-literal construction outside
+/// this crate.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ImageSample<T: Float> {
     /// Image tensor with shape `[C, H, W]`, values in `[0, 1]`.
     pub image: Tensor<T>,
@@ -163,6 +168,9 @@ pub struct FolderSample<S> {
     pub label: u32,
 }
 
+// `loader` is a generic `Fn` closure that doesn't implement `Debug`; we
+// intentionally omit it from the printed representation.
+#[allow(clippy::missing_fields_in_debug)]
 impl<S, F> std::fmt::Debug for DatasetFolder<S, F>
 where
     F: Fn(&Path) -> FerrotorchResult<S>,

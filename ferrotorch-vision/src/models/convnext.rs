@@ -20,7 +20,7 @@
 
 use ferrotorch_core::grad_fns::arithmetic::add;
 use ferrotorch_core::grad_fns::shape::reshape;
-use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use ferrotorch_nn::activation::GELU;
 use ferrotorch_nn::conv::Conv2d;
@@ -329,8 +329,22 @@ impl<T: Float> ConvNeXt<T> {
     /// * `dims` -- channel count per stage, e.g., `[96, 192, 384, 768]`.
     /// * `num_classes` -- number of output classes.
     pub fn new(depths: &[usize], dims: &[usize], num_classes: usize) -> FerrotorchResult<Self> {
-        assert_eq!(depths.len(), 4, "ConvNeXt expects 4 stages");
-        assert_eq!(dims.len(), 4, "ConvNeXt expects 4 channel dimensions");
+        if depths.len() != 4 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "ConvNeXt expects 4 stages (depths.len() == 4), got {}",
+                    depths.len()
+                ),
+            });
+        }
+        if dims.len() != 4 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "ConvNeXt expects 4 channel dimensions (dims.len() == 4), got {}",
+                    dims.len()
+                ),
+            });
+        }
 
         // Patchify stem: Conv2d(3, dims[0], 4, 4) + LayerNorm.
         let stem_conv = Conv2d::new(3, dims[0], (4, 4), (4, 4), (0, 0), false)?;

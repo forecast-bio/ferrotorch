@@ -18,6 +18,7 @@
 //! - Head: adaptive average pool -> `LayerNorm(768)` -> `Linear(768, num_classes)`
 
 use ferrotorch_core::grad_fns::arithmetic::add;
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage};
 
 use ferrotorch_nn::activation::GELU;
@@ -461,7 +462,7 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
         let final_tokens = spatial_h * spatial_w;
         let mut pooled = vec![<T as num_traits::Zero>::zero(); batch * self.final_dim];
 
-        let inv_tokens = T::from(1.0).unwrap() / T::from(final_tokens).unwrap();
+        let inv_tokens = cast::<f64, T>(1.0)? / cast::<usize, T>(final_tokens)?;
         for b in 0..batch {
             for c in 0..self.final_dim {
                 let mut sum = <T as num_traits::Zero>::zero();
@@ -619,7 +620,7 @@ impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for Swi
         let x_data = x.data_vec()?;
         let final_tokens = spatial_h * spatial_w;
         let mut pooled = vec![<T as num_traits::Zero>::zero(); batch * self.final_dim];
-        let inv_tokens = T::from(1.0).unwrap() / T::from(final_tokens).unwrap();
+        let inv_tokens = cast::<f64, T>(1.0)? / cast::<usize, T>(final_tokens)?;
         for b in 0..batch {
             for c in 0..self.final_dim {
                 let mut sum = <T as num_traits::Zero>::zero();

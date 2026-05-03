@@ -1,8 +1,8 @@
 // CL-332: Vision Transforms & Augmentation — RandomRotation
 use super::rng::random_f64;
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_data::Transform;
-use num_traits::NumCast;
 
 /// Rotate a `[C, H, W]` tensor by a random angle using bilinear interpolation.
 ///
@@ -21,24 +21,35 @@ impl<T: Float> RandomRotation<T> {
     ///
     /// The actual rotation angle for each application is sampled uniformly from
     /// `[-degrees, +degrees]`.
-    pub fn new(degrees: f64) -> Self {
-        assert!(
-            degrees >= 0.0,
-            "RandomRotation: degrees must be non-negative, got {degrees}"
-        );
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if `degrees` is negative.
+    pub fn new(degrees: f64) -> FerrotorchResult<Self> {
+        if degrees < 0.0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("RandomRotation: degrees must be non-negative, got {degrees}"),
+            });
+        }
+        Ok(Self {
             degrees,
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 }
 
 /// Bilinear interpolation sample from a single channel stored in row-major
 /// order with dimensions `(h, w)`. Returns zero for out-of-bounds coordinates.
-fn bilinear_sample<T: Float>(data: &[T], h: usize, w: usize, y: f64, x: f64) -> T {
+fn bilinear_sample<T: Float>(
+    data: &[T],
+    h: usize,
+    w: usize,
+    y: f64,
+    x: f64,
+) -> FerrotorchResult<T> {
     let zero = <T as num_traits::Zero>::zero();
     if x < 0.0 || y < 0.0 {
-        return zero;
+        return Ok(zero);
     }
 
     let x0 = x.floor() as usize;
@@ -47,7 +58,7 @@ fn bilinear_sample<T: Float>(data: &[T], h: usize, w: usize, y: f64, x: f64) -> 
     let y1 = y0 + 1;
 
     if x0 >= w || y0 >= h {
-        return zero;
+        return Ok(zero);
     }
 
     let dx: f64 = x - x0 as f64;
@@ -63,12 +74,12 @@ fn bilinear_sample<T: Float>(data: &[T], h: usize, w: usize, y: f64, x: f64) -> 
     };
 
     // Bilinear weights.
-    let w00 = <T as NumCast>::from((1.0 - dx) * (1.0 - dy)).unwrap();
-    let w10 = <T as NumCast>::from(dx * (1.0 - dy)).unwrap();
-    let w01 = <T as NumCast>::from((1.0 - dx) * dy).unwrap();
-    let w11 = <T as NumCast>::from(dx * dy).unwrap();
+    let w00: T = cast::<f64, T>((1.0 - dx) * (1.0 - dy))?;
+    let w10: T = cast::<f64, T>(dx * (1.0 - dy))?;
+    let w01: T = cast::<f64, T>((1.0 - dx) * dy)?;
+    let w11: T = cast::<f64, T>(dx * dy)?;
 
-    v00 * w00 + v10 * w10 + v01 * w01 + v11 * w11
+    Ok(v00 * w00 + v10 * w10 + v01 * w01 + v11 * w11)
 }
 
 impl<T: Float> Transform<T> for RandomRotation<T> {
@@ -113,7 +124,7 @@ impl<T: Float> Transform<T> for RandomRotation<T> {
                     let dy = oy as f64 - cy;
                     let sx = cos_a * dx + sin_a * dy + cx;
                     let sy = -sin_a * dx + cos_a * dy + cy;
-                    output.push(bilinear_sample(ch_data, h, w, sy, sx));
+                    output.push(bilinear_sample(ch_data, h, w, sy, sx)?);
                 }
             }
         }
@@ -131,7 +142,7 @@ mod tests {
     fn test_random_rotation_output_shape() {
         let data: Vec<f64> = (0..75).map(|i| i as f64).collect();
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![3, 5, 5], false).unwrap();
-        let rot = RandomRotation::<f64>::new(30.0);
+        let rot = RandomRotation::<f64>::new(30.0).unwrap();
         let out = rot.apply(t).unwrap();
         assert_eq!(out.shape(), &[3, 5, 5]);
     }
@@ -142,7 +153,7 @@ mod tests {
         let data: Vec<f64> = (0..12).map(|i| i as f64).collect();
         let t =
             Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![1, 3, 4], false).unwrap();
-        let rot = RandomRotation::<f64>::new(0.0);
+        let rot = RandomRotation::<f64>::new(0.0).unwrap();
         let out = rot.apply(t).unwrap();
         assert_eq!(out.data().unwrap(), &data);
     }
@@ -154,7 +165,7 @@ mod tests {
         let mut data = vec![0.0_f64; 25];
         data[12] = 100.0; // center of 5x5
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![1, 5, 5], false).unwrap();
-        let rot = RandomRotation::<f64>::new(45.0);
+        let rot = RandomRotation::<f64>::new(45.0).unwrap();
         let out = rot.apply(t).unwrap();
         let d = out.data().unwrap();
         // Center pixel (index 12) should still be close to 100.
@@ -169,20 +180,20 @@ mod tests {
     fn test_random_rotation_rejects_non_3d() {
         let data = vec![1.0_f64; 4];
         let t = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 2], false).unwrap();
-        let rot = RandomRotation::<f64>::new(10.0);
+        let rot = RandomRotation::<f64>::new(10.0).unwrap();
         assert!(rot.apply(t).is_err());
     }
 
     #[test]
     fn test_bilinear_sample_exact_pixel() {
         let data = vec![1.0_f64, 2.0, 3.0, 4.0]; // 2x2
-        let val = bilinear_sample(&data, 2, 2, 0.0, 0.0);
+        let val = bilinear_sample(&data, 2, 2, 0.0, 0.0).unwrap();
         assert!((val - 1.0).abs() < 1e-10);
-        let val = bilinear_sample(&data, 2, 2, 0.0, 1.0);
+        let val = bilinear_sample(&data, 2, 2, 0.0, 1.0).unwrap();
         assert!((val - 2.0).abs() < 1e-10);
-        let val = bilinear_sample(&data, 2, 2, 1.0, 0.0);
+        let val = bilinear_sample(&data, 2, 2, 1.0, 0.0).unwrap();
         assert!((val - 3.0).abs() < 1e-10);
-        let val = bilinear_sample(&data, 2, 2, 1.0, 1.0);
+        let val = bilinear_sample(&data, 2, 2, 1.0, 1.0).unwrap();
         assert!((val - 4.0).abs() < 1e-10);
     }
 
@@ -190,16 +201,16 @@ mod tests {
     fn test_bilinear_sample_midpoint() {
         let data = vec![0.0_f64, 2.0, 4.0, 6.0]; // 2x2
         // Midpoint (0.5, 0.5) should be average of all 4: (0+2+4+6)/4 = 3
-        let val = bilinear_sample(&data, 2, 2, 0.5, 0.5);
+        let val = bilinear_sample(&data, 2, 2, 0.5, 0.5).unwrap();
         assert!((val - 3.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_bilinear_sample_out_of_bounds() {
         let data = vec![1.0_f64, 2.0, 3.0, 4.0]; // 2x2
-        let val = bilinear_sample(&data, 2, 2, -1.0, 0.0);
+        let val = bilinear_sample(&data, 2, 2, -1.0, 0.0).unwrap();
         assert!((val - 0.0).abs() < 1e-10);
-        let val = bilinear_sample(&data, 2, 2, 0.0, -1.0);
+        let val = bilinear_sample(&data, 2, 2, 0.0, -1.0).unwrap();
         assert!((val - 0.0).abs() < 1e-10);
     }
 }
