@@ -1,0 +1,10 @@
+{
+  "uuid": "9e8fa5ca-9e3b-4222-b117-c8e213139192",
+  "display_id": 706,
+  "title": "tensor_bridge.rs cpu_fallback else arms (add/sub/mul/neg/relu): silent CPU round-trip per §3",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-03T23:11:13.865173299Z",
+  "updated_at": "2026-05-03T23:11:13.865173299Z"
+}
