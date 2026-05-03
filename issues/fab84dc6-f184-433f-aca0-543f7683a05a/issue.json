@@ -1,0 +1,10 @@
+{
+  "uuid": "fab84dc6-f184-433f-aca0-543f7683a05a",
+  "display_id": 705,
+  "title": "ferrotorch-gpu/backend_impl.rs:190/199/2648 pre-existing sub-3-line SAFETY blocks need substantiation",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-03T22:32:42.665035990Z",
+  "updated_at": "2026-05-03T22:32:42.665035990Z"
+}
