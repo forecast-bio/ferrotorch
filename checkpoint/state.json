@@ -138,16 +138,12 @@
     "677": {
       "agent_id": "y4rr",
       "claimed_at": "2026-05-03T03:10:04.350864151Z"
-    },
-    "679": {
-      "agent_id": "y4rr",
-      "claimed_at": "2026-05-03T03:53:37.065850210Z"
     }
   },
   "issues": {},
   "watermark": {
-    "timestamp": "2026-05-03T03:53:37.065850210Z",
+    "timestamp": "2026-05-03T04:06:45.161308965Z",
     "agent_id": "y4rr",
-    "agent_seq": 359
+    "agent_seq": 360
   }
 }
