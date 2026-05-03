@@ -1,0 +1,10 @@
+{
+  "uuid": "0cce9832-dcab-4b3a-beb5-3f4d6ef28389",
+  "issue_uuid": "f85e8229-b5a7-46cb-97e4-17ec3c1626d4",
+  "author": "y4rr",
+  "content": "Audit follow-up #3/5 vision-B (#690) APPROVE — opus 4.7 closed the remaining vision audit findings: 11 pub transform ctors + ConvNeXt's 2 assert_eq! migrated to FerrotorchResult; 3 RwLock-using pub fns in registry.rs migrated to Result; 4 value-type structs (RawImage/CifarSample/MnistSample/ImageSample) given #[non_exhaustive] (pub fields PRESERVED — correct discipline answer per Step 3 #9); Debug derives on RawImage/Cifar10/Cifar100; lint baseline mirrors jit shape; doctest unwrap converted to ?-propagated; too_many_arguments justifications added. cargo build --workspace PASS, 333/333 vision tests PASS, clippy --no-deps PASS. Cascade was trivial — 0 external callers of vision::list_models/get_model/register_model (different fully-qualified paths in ferrotorch-hub); transform constructors only used inside vision's own factory wrappers + test code. 5 #[should_panic] tests rewritten as match { Err => check_msg }. Architect-mode running tally: 8 dispatches total, 7 clean APPROVEs (mps, distributions, item 8 with 1 redirect, core-2a, core-2b, vision-A, vision-B), 1 truncation+split (core-1). Crates done: 1/5 mps, 2/5 core, 3/5 vision (BOTH halves). Next: crate 4/5 (ferrotorch-optim — Arc::as_ptr aliasing dance in adam.rs needs rigorous SAFETY justification, pub config fields, ParamGroup pub Vec).",
+  "created_at": "2026-05-03T15:51:20.833897797Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAl2+SIHTvbV4sAdm/nnLe0xWi3CGYLuDG6nzJEB9cpnoR5mtAum5co2N7AdR5JRr4g1Z8xGRw/g65VWfaW8sJCg=="
+}
