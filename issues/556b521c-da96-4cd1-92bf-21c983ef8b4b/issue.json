@@ -6,5 +6,8 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-03T18:59:15.148153367Z",
-  "updated_at": "2026-05-03T18:59:15.148153367Z"
+  "updated_at": "2026-05-03T18:59:16.611011375Z",
+  "labels": [
+    "rust,llama,audit-followup"
+  ]
 }
