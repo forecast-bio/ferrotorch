@@ -15,14 +15,25 @@ use crate::config::LlamaConfig;
 use crate::layer::LlamaDecoderLayer;
 
 /// Decoder stack: `Embedding` → `N × LlamaDecoderLayer` → final `RMSNorm`.
+#[derive(Debug)]
 pub struct LlamaModel<T: Float> {
+    /// Token embedding layer (vocab → hidden).
     pub embed_tokens: Embedding<T>,
+    /// One [`LlamaDecoderLayer`] per `num_hidden_layers` in the config.
     pub layers: Vec<LlamaDecoderLayer<T>>,
+    /// Final RMSNorm applied before the LM head.
     pub norm: RMSNorm<T>,
     training: bool,
 }
 
 impl<T: Float> LlamaModel<T> {
+    /// Build a randomly-initialized decoder stack for the given config.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying [`FerrotorchError`] if any sub-module
+    /// fails to construct (typically a `ShapeMismatch` on bad config
+    /// dimensions).
     pub fn new(cfg: &LlamaConfig) -> FerrotorchResult<Self> {
         cfg.validate()?;
         let embed_tokens = Embedding::new(cfg.vocab_size, cfg.hidden_size, None)?;
@@ -155,15 +166,26 @@ impl<T: Float> Module<T> for LlamaModel<T> {
 }
 
 /// Llama language-model head: [`LlamaModel`] + `lm_head: Linear`.
+#[derive(Debug)]
 pub struct LlamaForCausalLM<T: Float> {
+    /// Underlying decoder stack (embeddings + layers + final norm).
     pub model: LlamaModel<T>,
+    /// Vocabulary projection: `[hidden] → [vocab_size]`. No bias for
+    /// any Llama variant.
     pub lm_head: Linear<T>,
+    /// Frozen copy of the configuration used to construct this model.
     pub config: LlamaConfig,
     training: bool,
 }
 
 impl<T: Float> LlamaForCausalLM<T> {
     /// Build a randomly-initialized Llama model for the given config.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying [`FerrotorchError`] if config validation
+    /// fails or any sub-module ([`LlamaModel`] / `Linear` `lm_head`)
+    /// fails to construct.
     pub fn new(cfg: LlamaConfig) -> FerrotorchResult<Self> {
         cfg.validate()?;
         let model = LlamaModel::new(&cfg)?;
@@ -179,6 +201,24 @@ impl<T: Float> LlamaForCausalLM<T> {
 
     /// Forward pass from token ids `[1, seq_len]` (u32) to logits
     /// `[1, seq_len, vocab_size]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] when `ids` is
+    /// empty, or when a token id is not representable as the model's
+    /// element type `T` (only happens for absurdly large vocabularies
+    /// against narrow float types — e.g. a vocab_size > 65 504 with
+    /// `T = bf16`). Otherwise propagates whatever the embedding /
+    /// decoder-stack / lm-head forward passes return (e.g.
+    /// `ShapeMismatch` if the upstream tensor construction rejects
+    /// the seq-length-derived shape).
+    ///
+    /// # Panics
+    ///
+    /// Does not panic. Out-of-range token ids and other
+    /// non-representable conversions are returned as
+    /// [`FerrotorchError::InvalidArgument`] via
+    /// [`ferrotorch_core::numeric_cast::cast`].
     pub fn forward_from_ids(&self, ids: &[u32]) -> FerrotorchResult<Tensor<T>> {
         if ids.is_empty() {
             return Err(FerrotorchError::InvalidArgument {
@@ -186,7 +226,12 @@ impl<T: Float> LlamaForCausalLM<T> {
             });
         }
         // Embedding.forward takes a 1-D tensor of float-encoded indices.
-        let idx_data: Vec<T> = ids.iter().map(|&i| T::from(i as f64).unwrap()).collect();
+        // Direct u32 -> T cast: skips the historical f64 round-trip; the
+        // helper returns Err for any token id not representable in T.
+        let idx_data: Vec<T> = ids
+            .iter()
+            .map(|&i| ferrotorch_core::numeric_cast::cast::<u32, T>(i))
+            .collect::<FerrotorchResult<Vec<T>>>()?;
         let seq_len = ids.len();
         let hidden = self.config.hidden_size;
         let idx_tensor = ferrotorch_core::Tensor::from_storage(
@@ -224,6 +269,13 @@ impl<T: Float> LlamaForCausalLM<T> {
     /// localised. When `tie_word_embeddings` is set in the config,
     /// `lm_head.weight` is copied from `model.embed_tokens.weight` if
     /// absent from the state dict.
+    ///
+    /// # Errors
+    ///
+    /// Forwards whatever each sub-module's `load_state_dict` returns
+    /// — typically [`FerrotorchError::ShapeMismatch`] if a checkpoint
+    /// tensor has the wrong shape, or [`FerrotorchError::InvalidArgument`]
+    /// in `strict` mode when a required tensor is missing.
     pub fn load_hf_state_dict(
         &mut self,
         hf_state: &StateDict<T>,

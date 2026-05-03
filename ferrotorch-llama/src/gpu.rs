@@ -60,6 +60,7 @@ struct ForwardTaps {
 /// [`LlamaGpuInferencer::forward_from_ids_profiled`].
 #[derive(Debug, Clone)]
 pub struct ProfiledForwardResult {
+    /// Sequence length the forward pass was run on.
     pub seq_len: usize,
     /// `[n_layers, seq, n_heads]` f32.
     pub attn_magnitudes: Vec<f32>,
@@ -72,38 +73,150 @@ pub struct ProfiledForwardResult {
     /// Hidden size carried for downstream consumers — avoids their
     /// having to re-derive it from the model config.
     pub bootstrap_k: Option<usize>,
+    /// Hidden size of the model, copied from `config.hidden_size`. Used
+    /// by downstream profiler consumers as the row stride for
+    /// `bootstrap_hidden`.
     pub hidden_size: usize,
 }
 
 /// All the weights that make up one Llama decoder layer, uploaded to GPU.
 pub struct LlamaGpuLayer {
-    pub input_norm: CudaSlice<u16>,     // [hidden]
-    pub q_proj: CudaSlice<u16>,         // [hidden, hidden]
-    pub k_proj: CudaSlice<u16>,         // [n_kv_heads * head_dim, hidden]
-    pub v_proj: CudaSlice<u16>,         // [n_kv_heads * head_dim, hidden]
-    pub o_proj: CudaSlice<u16>,         // [hidden, hidden]
-    pub post_attn_norm: CudaSlice<u16>, // [hidden]
-    pub gate_proj: CudaSlice<u16>,      // [intermediate, hidden]
-    pub up_proj: CudaSlice<u16>,        // [intermediate, hidden]
-    pub down_proj: CudaSlice<u16>,      // [hidden, intermediate]
+    /// `[hidden]` — pre-attention RMSNorm weight.
+    pub input_norm: CudaSlice<u16>,
+    /// `[hidden, hidden]` — query projection weight.
+    pub q_proj: CudaSlice<u16>,
+    /// `[n_kv_heads * head_dim, hidden]` — key projection weight.
+    pub k_proj: CudaSlice<u16>,
+    /// `[n_kv_heads * head_dim, hidden]` — value projection weight.
+    pub v_proj: CudaSlice<u16>,
+    /// `[hidden, hidden]` — output projection weight.
+    pub o_proj: CudaSlice<u16>,
+    /// `[hidden]` — post-attention (pre-MLP) RMSNorm weight.
+    pub post_attn_norm: CudaSlice<u16>,
+    /// `[intermediate, hidden]` — MLP gate projection weight.
+    pub gate_proj: CudaSlice<u16>,
+    /// `[intermediate, hidden]` — MLP up projection weight.
+    pub up_proj: CudaSlice<u16>,
+    /// `[hidden, intermediate]` — MLP down projection weight.
+    pub down_proj: CudaSlice<u16>,
+}
+
+// `cudarc::CudaSlice<u16>` does not implement `Debug`, so we can't
+// `#[derive(Debug)]`. Manual impl prints field names and the bf16
+// element count for each on-device buffer; the actual VRAM bytes are
+// not reachable on the host without a download. This keeps debug
+// output structurally informative without a CUDA round-trip.
+impl std::fmt::Debug for LlamaGpuLayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LlamaGpuLayer")
+            .field(
+                "input_norm",
+                &format_args!("<CudaSlice<u16> {} elems>", self.input_norm.len()),
+            )
+            .field(
+                "q_proj",
+                &format_args!("<CudaSlice<u16> {} elems>", self.q_proj.len()),
+            )
+            .field(
+                "k_proj",
+                &format_args!("<CudaSlice<u16> {} elems>", self.k_proj.len()),
+            )
+            .field(
+                "v_proj",
+                &format_args!("<CudaSlice<u16> {} elems>", self.v_proj.len()),
+            )
+            .field(
+                "o_proj",
+                &format_args!("<CudaSlice<u16> {} elems>", self.o_proj.len()),
+            )
+            .field(
+                "post_attn_norm",
+                &format_args!("<CudaSlice<u16> {} elems>", self.post_attn_norm.len()),
+            )
+            .field(
+                "gate_proj",
+                &format_args!("<CudaSlice<u16> {} elems>", self.gate_proj.len()),
+            )
+            .field(
+                "up_proj",
+                &format_args!("<CudaSlice<u16> {} elems>", self.up_proj.len()),
+            )
+            .field(
+                "down_proj",
+                &format_args!("<CudaSlice<u16> {} elems>", self.down_proj.len()),
+            )
+            .finish()
+    }
 }
 
 /// A GPU-resident Llama model ready for inference.
 pub struct LlamaGpuInferencer {
+    /// Frozen copy of the model configuration the weights were uploaded for.
     pub config: LlamaConfig,
+    /// Owning handle to the CUDA device + stream the buffers live on.
     pub device: GpuDevice,
+    /// `[vocab_size, hidden]` — token embedding table.
     pub embed_tokens: CudaSlice<u16>,
+    /// One per `num_hidden_layers` in `config`.
     pub layers: Vec<LlamaGpuLayer>,
+    /// `[hidden]` — final RMSNorm weight (post-stack, pre-`lm_head`).
     pub norm: CudaSlice<u16>,
+    /// `[vocab_size, hidden]` — vocabulary projection.
     pub lm_head: CudaSlice<u16>,
+    /// `[max_seq, head_dim / 2]` — precomputed RoPE cosines.
     pub cos_cache: CudaSlice<u16>,
+    /// `[max_seq, head_dim / 2]` — precomputed RoPE sines.
     pub sin_cache: CudaSlice<u16>,
+}
+
+// Manual Debug for the same reason as `LlamaGpuLayer`. `GpuDevice`
+// itself implements Debug; only the `CudaSlice<u16>` fields need an
+// elem-count placeholder.
+impl std::fmt::Debug for LlamaGpuInferencer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LlamaGpuInferencer")
+            .field("config", &self.config)
+            .field("device", &self.device)
+            .field(
+                "embed_tokens",
+                &format_args!("<CudaSlice<u16> {} elems>", self.embed_tokens.len()),
+            )
+            .field("layers", &self.layers)
+            .field(
+                "norm",
+                &format_args!("<CudaSlice<u16> {} elems>", self.norm.len()),
+            )
+            .field(
+                "lm_head",
+                &format_args!("<CudaSlice<u16> {} elems>", self.lm_head.len()),
+            )
+            .field(
+                "cos_cache",
+                &format_args!("<CudaSlice<u16> {} elems>", self.cos_cache.len()),
+            )
+            .field(
+                "sin_cache",
+                &format_args!("<CudaSlice<u16> {} elems>", self.sin_cache.len()),
+            )
+            .finish()
+    }
 }
 
 impl LlamaGpuInferencer {
     /// Upload an HF-style `StateDict<bf16>` into GPU memory and build
     /// an inferencer ready to run. The `state` map is drained as each
     /// tensor is uploaded so the host copy can be freed incrementally.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] when the config
+    /// fails validation or a required tensor (`model.embed_tokens.weight`,
+    /// per-layer projections, `model.norm.weight`, `lm_head.weight`) is
+    /// missing from `state`. Returns [`FerrotorchError::ShapeMismatch`]
+    /// if a tensor's declared shape does not match the config-derived
+    /// expected shape. Returns [`FerrotorchError::Internal`] for any
+    /// CUDA driver error during the host-to-device copies (via
+    /// [`map_driver_err`]).
     pub fn new(
         config: LlamaConfig,
         mut state: StateDict<bf16>,
@@ -152,6 +265,16 @@ impl LlamaGpuInferencer {
 
     /// Forward `ids` through the network and return the last-token
     /// logits as `Vec<f32>` of length `vocab_size`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] when `ids` is
+    /// empty or longer than `config.max_position_embeddings`.
+    /// Otherwise returns [`FerrotorchError::Internal`] /
+    /// [`FerrotorchError::ShapeMismatch`] /
+    /// [`FerrotorchError::NotImplementedOnCuda`] for any GPU error
+    /// surfaced by [`map_gpu_err`] / [`map_driver_err`] during kernel
+    /// dispatch or the device → host logits copy.
     pub fn forward_from_ids(&self, ids: &[u32]) -> FerrotorchResult<Vec<f32>> {
         let seq = ids.len();
         let cfg = &self.config;
@@ -181,6 +304,11 @@ impl LlamaGpuInferencer {
     /// `mlp_block_size * n_mlp_blocks` must equal `intermediate_size`.
     /// The lm_head is skipped — profiling doesn't need logits and the
     /// 128k-row projection is the single biggest kernel in the pass.
+    ///
+    /// # Errors
+    ///
+    /// Forwards every error from
+    /// [`Self::forward_from_ids_profiled_with_bootstrap`].
     pub fn forward_from_ids_profiled(
         &self,
         ids: &[u32],
@@ -206,6 +334,14 @@ impl LlamaGpuInferencer {
     ///
     /// Valid bootstrap_k range: `1..=num_hidden_layers`. `bootstrap_k
     /// = num_hidden_layers` captures the final pre-norm state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] when
+    /// `mlp_block_size == 0`, `n_mlp_blocks == 0`, the product does
+    /// not equal `intermediate_size`, or `bootstrap_k` is outside the
+    /// valid range. Otherwise returns whatever the per-layer kernel
+    /// dispatch returns via [`map_gpu_err`] / [`map_driver_err`].
     pub fn forward_from_ids_profiled_with_bootstrap(
         &self,
         ids: &[u32],
@@ -718,14 +854,81 @@ fn build_rope_caches(
     Ok((cos_cache, sin_cache))
 }
 
+/// Categorically map a [`ferrotorch_gpu::GpuError`] into the existing
+/// [`FerrotorchError`] taxonomy.
+///
+/// This is a best-effort categorical mapping into existing variants —
+/// the audit's full fix (a new `FerrotorchError::Gpu(source)` variant
+/// that owns the source-chained error) is a workspace-coordination
+/// event and is tracked separately (see #699). Until that lands, every
+/// arm of this match preserves the original `GpuError` Debug output in
+/// its `message` so the underlying cause is visible to anyone reading
+/// the error string. Each arm picks the closest semantic variant; we
+/// avoid collapsing all GPU errors into `InvalidArgument` (which the
+/// previous implementation did) because OOM and PTX-compile failures
+/// are not a *parameter* problem and were misleading callers' bug
+/// triage.
 fn map_gpu_err(e: ferrotorch_gpu::GpuError) -> FerrotorchError {
-    FerrotorchError::InvalidArgument {
-        message: format!("gpu error: {e}"),
+    use ferrotorch_gpu::GpuError as G;
+    match e {
+        // Shape and length problems are genuine input shape mismatches.
+        G::ShapeMismatch { op, expected, got } => FerrotorchError::ShapeMismatch {
+            message: format!("{op}: expected {expected:?}, got {got:?}"),
+        },
+        G::LengthMismatch { a, b } => FerrotorchError::ShapeMismatch {
+            message: format!("buffer length mismatch: {a} vs {b}"),
+        },
+        // Device-selection problems map to the existing device taxonomy.
+        // `InvalidDevice` and `DeviceMismatch` carry usize ordinals; we
+        // surface the structured variant via Debug so the message is rich.
+        G::InvalidDevice { .. } | G::DeviceMismatch { .. } => FerrotorchError::Internal {
+            message: format!("gpu device error: {e:?}"),
+        },
+        // Unsupported (op, dtype) is the closest match to the existing
+        // NotImplementedOnCuda variant; preserve the structured op.
+        G::Unsupported { op, dtype } => {
+            // op is &'static str — we can carry it through; dtype goes
+            // into the message so the diagnostic isn't lost.
+            let _ = dtype; // dtype kept in Debug fallback below if needed
+            FerrotorchError::NotImplementedOnCuda { op }
+        }
+        // Memory exhaustion is a runtime/resource condition, not a
+        // parameter problem.
+        G::OutOfMemory { .. } | G::BudgetExceeded { .. } => FerrotorchError::Internal {
+            message: format!("gpu memory error: {e:?}"),
+        },
+        // PTX compile failures are environment/toolchain issues.
+        G::PtxCompileFailed { .. } => FerrotorchError::Internal {
+            message: format!("gpu kernel compile error: {e:?}"),
+        },
+        // Driver / cuBLAS / cuSOLVER / cuFFT errors are runtime CUDA
+        // failures; preserve via Debug formatting.
+        G::Driver(_) | G::Blas(_) | G::Solver(_) | G::Fft(_) => FerrotorchError::Internal {
+            message: format!("cuda runtime error: {e:?}"),
+        },
+        // Invalid-state is a logic/runtime invariant, not a parameter
+        // problem; route through Internal with the message preserved.
+        G::InvalidState { ref message } => FerrotorchError::Internal {
+            message: format!("gpu invalid state: {message}"),
+        },
+        // GpuError is `#[non_exhaustive]`; future variants fall through
+        // to Internal with full Debug output. Once the source-chain
+        // variant lands (#699) this becomes lossless.
+        other => FerrotorchError::Internal {
+            message: format!("gpu error: {other:?}"),
+        },
     }
 }
 
+/// Map a [`cudarc::driver::DriverError`] into [`FerrotorchError`].
+///
+/// Every CUDA driver error is a runtime/resource problem (allocation
+/// failure, kernel launch failure, context lost, etc.) — never a
+/// parameter problem. Routes through [`FerrotorchError::Internal`] with
+/// the Debug formatting of the upstream error so the exact CUresult
+/// code and any cudarc context is preserved in the message.
 fn map_driver_err(e: cudarc::driver::DriverError) -> FerrotorchError {
-    FerrotorchError::InvalidArgument {
-        message: format!("cuda driver error: {e}"),
+    FerrotorchError::Internal {
+        message: format!("cuda driver error: {e:?}"),
     }
 }

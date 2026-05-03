@@ -36,46 +36,28 @@ use super::schema::{Schema, SchemaError};
 use super::state::{JsonGrammar, StepError};
 
 /// Errors raised by the high-level processor API.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum GrammarError {
     /// The JSON Schema document failed to compile.
-    Schema(SchemaError),
+    #[error("schema compile error: {0}")]
+    Schema(#[from] SchemaError),
     /// The tokenizer produced an invalid step (e.g. tried to emit a
     /// disallowed token).
-    Step(StepError),
+    #[error("grammar step error: {0}")]
+    Step(#[from] StepError),
     /// `step_token` was called with an out-of-range token id.
+    #[error("token id {0} out of range")]
     InvalidTokenId(u32),
 }
-
-impl From<SchemaError> for GrammarError {
-    fn from(e: SchemaError) -> Self {
-        Self::Schema(e)
-    }
-}
-
-impl From<StepError> for GrammarError {
-    fn from(e: StepError) -> Self {
-        Self::Step(e)
-    }
-}
-
-impl std::fmt::Display for GrammarError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Schema(e) => write!(f, "schema compile error: {e}"),
-            Self::Step(e) => write!(f, "grammar step error: {e}"),
-            Self::InvalidTokenId(id) => write!(f, "token id {id} out of range"),
-        }
-    }
-}
-
-impl std::error::Error for GrammarError {}
 
 /// Per-token allow mask. Stored as `Vec<u32>` so it can be uploaded directly
 /// to the GPU as `Array<u32>` via
 /// [`ferrotorch_cubecl::apply_token_mask_to_gpu`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenMask {
+    /// Per-token allow flag (length = vocab size). `1` means the token is
+    /// permitted at the current grammar state; `0` means it is masked out.
     pub allow: Vec<u32>,
 }
 
@@ -99,6 +81,7 @@ impl TokenMask {
 /// Construction parses the schema; `compute_mask` derives the per-step
 /// allow mask; `step_token` advances the grammar state to reflect the
 /// sampler's choice.
+#[derive(Debug)]
 pub struct JsonSchemaProcessor {
     grammar: JsonGrammar,
     vocab: Vec<String>,
@@ -106,6 +89,13 @@ pub struct JsonSchemaProcessor {
 
 impl JsonSchemaProcessor {
     /// Build a processor from a JSON Schema document and a vocabulary.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GrammarError::Schema`] (wrapping a [`SchemaError`])
+    /// when the schema document fails to compile — typically because
+    /// of an unsupported keyword (`oneOf` / `$ref` / etc.) or a
+    /// malformed `type` / `properties` / `enum` payload.
     pub fn new(schema: &Value, vocab: Vec<String>) -> Result<Self, GrammarError> {
         let schema = Schema::from_json_schema(schema)?;
         Ok(Self {
@@ -158,6 +148,15 @@ impl JsonSchemaProcessor {
     }
 
     /// Advance the grammar state by one chosen token id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GrammarError::InvalidTokenId`] when `token_id` does
+    /// not index into the wrapped vocabulary, or [`GrammarError::Step`]
+    /// (wrapping a [`StepError`]) when one of the token's characters
+    /// is not accepted by the current grammar state — that's typically
+    /// a bug in the caller (it sampled a token without consulting the
+    /// allow mask).
     pub fn step_token(&mut self, token_id: u32) -> Result<(), GrammarError> {
         let idx = token_id as usize;
         let tok = self

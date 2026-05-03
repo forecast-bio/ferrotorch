@@ -27,11 +27,18 @@ use ferrotorch_nn::{
 use crate::config::LlamaConfig;
 
 /// Llama multi-head / grouped-query attention block.
+#[derive(Debug)]
 pub struct LlamaAttention<T: Float> {
+    /// Query projection. Maps `[B, S, hidden]` to `[B, S, hidden]`.
     pub q_proj: Linear<T>,
+    /// Key projection. Maps `[B, S, hidden]` to `[B, S, num_kv_heads * head_dim]`.
     pub k_proj: Linear<T>,
+    /// Value projection. Same shape contract as `k_proj`.
     pub v_proj: Linear<T>,
+    /// Output projection. Maps `[B, S, hidden]` back to `[B, S, hidden]`.
     pub o_proj: Linear<T>,
+    /// Half-rotation rotary positional embedding applied to Q and K
+    /// before the attention scores matmul.
     pub rope: RotaryPositionEmbedding<T>,
     num_heads: usize,
     num_kv_heads: usize,
@@ -41,6 +48,13 @@ pub struct LlamaAttention<T: Float> {
 
 impl<T: Float> LlamaAttention<T> {
     /// Build a randomly-initialized attention block for the given config.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying [`FerrotorchError`] if config validation
+    /// fails or any of the four `Linear` projections / RoPE table fails
+    /// to construct (typically a `ShapeMismatch` on a degenerate
+    /// `hidden_size` / `num_heads` / `head_dim` combination).
     pub fn new(cfg: &LlamaConfig) -> FerrotorchResult<Self> {
         cfg.validate()?;
         let head_dim = cfg.head_dim();
@@ -65,12 +79,15 @@ impl<T: Float> LlamaAttention<T> {
         })
     }
 
+    /// Number of query heads in this attention block.
     pub fn num_heads(&self) -> usize {
         self.num_heads
     }
+    /// Number of key/value heads (`<= num_heads` for grouped-query attention).
     pub fn num_kv_heads(&self) -> usize {
         self.num_kv_heads
     }
+    /// Per-head feature dimension; equals `hidden_size / num_heads`.
     pub fn head_dim(&self) -> usize {
         self.head_dim
     }

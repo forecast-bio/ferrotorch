@@ -33,33 +33,25 @@ use std::collections::BTreeSet;
 use super::schema::Schema;
 
 /// Reasons the grammar may reject a character.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum StepError {
     /// `c` is not a valid next character at the current state.
-    UnexpectedChar { got: char, expected: Vec<char> },
+    #[error("unexpected {got:?} at this point; valid next chars: {expected:?}")]
+    UnexpectedChar {
+        /// The character that was rejected.
+        got: char,
+        /// Characters that would have been valid at this state.
+        expected: Vec<char>,
+    },
     /// The grammar is already complete; further characters are not allowed.
+    #[error("grammar is already complete")]
     AlreadyComplete,
     /// The input would advance into an unsupported branch (e.g. a string
     /// escape sequence).
+    #[error("unsupported by grammar subset: {0}")]
     Unsupported(&'static str),
 }
-
-impl std::fmt::Display for StepError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnexpectedChar { got, expected } => {
-                write!(
-                    f,
-                    "unexpected {got:?} at this point; valid next chars: {expected:?}"
-                )
-            }
-            Self::AlreadyComplete => write!(f, "grammar is already complete"),
-            Self::Unsupported(reason) => write!(f, "unsupported by grammar subset: {reason}"),
-        }
-    }
-}
-
-impl std::error::Error for StepError {}
 
 /// Per-frame phase: where we are inside the current schema value.
 #[derive(Debug, Clone)]
@@ -205,9 +197,15 @@ pub enum BooleanEmissionStage {
     /// We've already emitted some prefix of `"true"`. `remaining` is the
     /// suffix still to emit (always non-empty; complete is unreachable
     /// here since the grammar reports `done` for that case).
-    PartialTrue { remaining: &'static str },
+    PartialTrue {
+        /// Characters of `"true"` not yet emitted.
+        remaining: &'static str,
+    },
     /// Same as `PartialTrue` but for `"false"`.
-    PartialFalse { remaining: &'static str },
+    PartialFalse {
+        /// Characters of `"false"` not yet emitted.
+        remaining: &'static str,
+    },
 }
 
 /// Stage of `Schema::Null` emission. Mirrors `BooleanEmissionStage` for
@@ -218,7 +216,10 @@ pub enum NullEmissionStage {
     Start,
     /// Some prefix of `"null"` has been emitted. `remaining` is the
     /// suffix still to match.
-    Partial { remaining: &'static str },
+    Partial {
+        /// Characters of `"null"` not yet emitted.
+        remaining: &'static str,
+    },
 }
 
 /// Stage of single-frame `Schema::Integer` emission. The grammar's
@@ -278,7 +279,10 @@ pub enum StringEnumEmissionStage<'a> {
     /// Inside the quoted body, having emitted some prefix of one of the
     /// allowed values. `partial` is the chars between the opening `'"'`
     /// and the cursor; an empty `partial` is the just-opened state.
-    InBody { partial: &'a str },
+    InBody {
+        /// Characters emitted between the opening `'"'` and the cursor.
+        partial: &'a str,
+    },
 }
 
 /// Stage of single-frame `Schema::Nullable(_)` emission. The grammar
@@ -294,7 +298,10 @@ pub enum NullableEmissionStage<'a> {
     /// `Phase::Start` with a `Schema::Nullable(inner)`. The DFA must
     /// accept any prefix of `"null"` plus any prefix accepted by
     /// `inner`'s start state.
-    Start { inner: &'a Schema },
+    Start {
+        /// The non-null branch's schema.
+        inner: &'a Schema,
+    },
 }
 
 impl JsonGrammar {
@@ -665,7 +672,9 @@ impl JsonGrammar {
 /// candidate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectKeyEmissionStage<'a> {
+    /// Characters of the in-progress key emitted between the opening `'"'` and the cursor.
     pub partial: &'a str,
+    /// Set of property names still consistent with `partial` (not yet seen and prefix-matched).
     pub candidates: &'a [String],
 }
 
@@ -691,6 +700,14 @@ impl JsonGrammar {
 
     /// Advance the state by one character. Returns an error if the character
     /// is not a valid next emission. The state is left unchanged on error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StepError::AlreadyComplete`] if the grammar has
+    /// already accepted a complete value, [`StepError::UnexpectedChar`]
+    /// if `c` is not in the current valid-next-chars set, or
+    /// [`StepError::Unsupported`] if the character would advance into
+    /// an unsupported branch (e.g. a JSON string escape).
     pub fn step_char(&mut self, c: char) -> Result<(), StepError> {
         if self.done {
             return Err(StepError::AlreadyComplete);
@@ -710,6 +727,10 @@ impl JsonGrammar {
 
     /// Convenience: feed a string of characters one at a time. Stops at the
     /// first error.
+    ///
+    /// # Errors
+    ///
+    /// Forwards the first [`StepError`] returned by [`Self::step_char`].
     pub fn step_str(&mut self, s: &str) -> Result<(), StepError> {
         for c in s.chars() {
             self.step_char(c)?;
@@ -971,9 +992,22 @@ impl JsonGrammar {
             ) => {
                 debug_assert_eq!(c, ':');
                 // Push a child frame for the property's value.
+                //
+                // Invariant: `current_key` was set on the
+                // `Phase::ObjectKey -> Phase::ObjectColon` transition
+                // (line ~973) only after the guard at line ~967
+                // (`candidates.iter().any(|k| k == &partial)`) succeeded.
+                // `candidates` is constructed at line ~936 as the
+                // not-yet-seen subset of *this same frame's*
+                // `Schema::Object { properties, .. }` keys, so
+                // `current_key in properties` holds by construction.
                 let prop_schema = properties
                     .get(current_key)
-                    .expect("ObjectColon current_key must exist in properties")
+                    .expect(
+                        "invariant: ObjectColon.current_key was previously matched against \
+                         this frame's Schema::Object.properties keys at the line ~967 guard \
+                         (candidates.iter().any) — `properties.get(current_key)` is therefore Some",
+                    )
                     .clone();
                 let mut keys_seen = keys_seen.clone();
                 keys_seen.insert(current_key.clone());
@@ -1066,11 +1100,37 @@ fn valid_next_chars_for(frame: &Frame, parent: Option<&Frame>) -> Vec<char> {
         (Schema::StringEnum(_), Phase::StringChars { partial, allowed }) => {
             // Only chars that could extend `partial` toward a known enum
             // value (or close the string if partial equals a value).
-            let allowed = allowed.as_ref().expect("StringEnum has allowed list");
+            //
+            // Invariant: this match arm is gated on
+            // `Schema::StringEnum`. The only path that constructs a
+            // `Phase::StringChars` from a `Schema::StringEnum` frame
+            // (apply_step `(Schema::StringEnum(values), Phase::Start)`,
+            // line ~755) initialises `allowed: Some(values.clone())`.
+            // The `allowed: None` variant is only produced by the
+            // `Schema::String` arm (~750), which never reaches here.
+            let allowed = allowed.as_ref().expect(
+                "invariant: Phase::StringChars constructed from Schema::StringEnum always sets \
+                 allowed = Some(values.clone()) — see apply_step (Schema::StringEnum, Phase::Start) \
+                 around line 755; the None variant is unique to Schema::String",
+            );
             let mut next: BTreeSet<char> = BTreeSet::new();
             for v in allowed {
                 if v.starts_with(partial.as_str()) && v.len() > partial.len() {
-                    let next_c = v[partial.len()..].chars().next().unwrap();
+                    // Invariant: `v.len() > partial.len()` (just checked
+                    // on the line above) means the slice
+                    // `&v[partial.len()..]` has at least one byte;
+                    // since `v` is a `String` and the slice starts at a
+                    // char boundary by construction (we only push whole
+                    // chars into `partial` — see apply_step's
+                    // (Schema::String | Schema::StringEnum, StringChars)
+                    // branch around line 790), `chars().next()` returns
+                    // `Some`.
+                    let next_c = v[partial.len()..].chars().next().expect(
+                        "invariant: v.len() > partial.len() guarantees the suffix slice is \
+                         non-empty, and partial only ever contains whole chars (see apply_step \
+                         StringChars accumulation around line 790), so the slice begins at a char \
+                         boundary",
+                    );
                     next.insert(next_c);
                 }
             }
@@ -1142,7 +1202,18 @@ fn valid_next_chars_for(frame: &Frame, parent: Option<&Frame>) -> Vec<char> {
         (Schema::Null, Phase::Start) => vec!['n'],
         (Schema::Boolean, Phase::Literal { remaining })
         | (Schema::Null, Phase::Literal { remaining }) => {
-            vec![remaining.chars().next().expect("non-empty remaining")]
+            // Invariant: `Phase::Literal` is *never* observable with
+            // `remaining = ""`. The Boolean/Null branch in apply_step
+            // (around line 895) checks `new_remaining.is_empty()` and
+            // pops the frame in that case rather than leaving an empty
+            // `Phase::Literal` on the stack. Initial construction
+            // (lines ~889 and ~893) seeds with "rue"/"alse"/"ull",
+            // none of which are empty.
+            vec![remaining.chars().next().expect(
+                "invariant: Phase::Literal with empty `remaining` is never observable — \
+                 apply_step (Schema::Boolean | Schema::Null, Phase::Literal) at line ~895 pops \
+                 the frame instead of leaving an empty literal on the stack",
+            )]
         }
 
         (Schema::Nullable(inner), Phase::Start) => {
@@ -1196,7 +1267,18 @@ fn valid_next_chars_for(frame: &Frame, parent: Option<&Frame>) -> Vec<char> {
             let mut next: BTreeSet<char> = BTreeSet::new();
             for k in candidates {
                 if k.starts_with(partial.as_str()) && k.len() > partial.len() {
-                    next.insert(k[partial.len()..].chars().next().unwrap());
+                    // Invariant: `k.len() > partial.len()` (just
+                    // checked) means `&k[partial.len()..]` is
+                    // non-empty. `partial` is built up character-by-
+                    // character via `partial.push(c)` in apply_step's
+                    // `(Schema::Object { .. }, Phase::ObjectKey { .. })`
+                    // branch (line ~978), so `partial.len()` is on a
+                    // char boundary of `k` (when `k.starts_with(partial)`).
+                    next.insert(k[partial.len()..].chars().next().expect(
+                        "invariant: k.len() > partial.len() makes the suffix slice non-empty, \
+                         and partial is accumulated via push(c) on whole chars in apply_step \
+                         ObjectKey (line ~978), so the slice begins at a char boundary",
+                    ));
                 }
             }
             // Allow closing the key string only if partial matches one of the

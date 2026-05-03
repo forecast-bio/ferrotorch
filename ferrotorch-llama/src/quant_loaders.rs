@@ -30,13 +30,24 @@ use ferrotorch_core::{FerrotorchError, FerrotorchResult};
 /// pass `None` when the checkpoint was saved with `act_order=False`
 /// (the common case).
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct GptqQ4 {
+    /// Packed int4 weights along the K (in_features) axis. Shape
+    /// `[K / 8, N]` int32, 8 nibbles per i32.
     pub qweight: Vec<i32>,
+    /// Packed int4 zero-points along the N (out_features) axis. Shape
+    /// `[K / G, N / 8]` int32, 8 nibbles per i32.
     pub qzeros: Vec<i32>,
+    /// Per-group, per-out-channel f32 scales. Shape `[K / G, N]`.
     pub scales: Vec<f32>,
+    /// Optional `act_order=True` permutation table. Length `K` when
+    /// present; `None` for the common `act_order=False` case.
     pub g_idx: Option<Vec<i32>>,
+    /// `K` — input feature count of the underlying linear weight.
     pub in_features: usize,
+    /// `N` — output feature count of the underlying linear weight.
     pub out_features: usize,
+    /// `G` — quantization group size along the K axis.
     pub group_size: usize,
 }
 
@@ -161,12 +172,20 @@ pub fn dequantize_gptq_q4(packed: &GptqQ4) -> FerrotorchResult<Vec<f32>> {
 /// from out_channels in a specific order so that runtime dequantize
 /// kernels can load consecutive weights in cache-friendly stripes.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct AwqQ4 {
+    /// Packed int4 weights, shape `[in_features, out_features / 8]`
+    /// int32 with the AWQ shuffle order applied (see [`AWQ_PACK_ORDER`]).
     pub qweight: Vec<i32>,
+    /// Packed int4 zero-points, shape `[num_groups, out_features / 8]` int32.
     pub qzeros: Vec<i32>,
+    /// Per-group, per-out-channel f32 scales, shape `[num_groups, out_features]`.
     pub scales: Vec<f32>,
+    /// `K` — input feature count of the underlying linear weight.
     pub in_features: usize,
+    /// `N` — output feature count of the underlying linear weight.
     pub out_features: usize,
+    /// `G` — quantization group size along the K axis.
     pub group_size: usize,
 }
 
@@ -176,6 +195,13 @@ const AWQ_PACK_ORDER: [usize; 8] = [0, 4, 1, 5, 2, 6, 3, 7];
 
 /// Dequantize a 4-bit AWQ weight matrix to row-major `f32` of shape
 /// `[out_features, in_features]`.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] when
+/// `out_features % 8 != 0`, when `in_features % group_size != 0`, or
+/// when any of `qweight` / `qzeros` / `scales` has the wrong length
+/// for the declared shape.
 pub fn dequantize_awq_q4(packed: &AwqQ4) -> FerrotorchResult<Vec<f32>> {
     let AwqQ4 {
         qweight,
@@ -273,6 +299,7 @@ pub fn dequantize_awq_q4(packed: &AwqQ4) -> FerrotorchResult<Vec<f32>> {
 
 /// A packed HQQ weight tile.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct HqqWeights {
     /// Bit-width of the packed integers. Must be in {1, 2, 3, 4, 8}.
     pub bits: u8,

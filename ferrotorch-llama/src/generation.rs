@@ -94,6 +94,19 @@ impl GenerationConfig {
 
 /// Generate up to `config.max_new_tokens` new tokens after `prompt_ids`.
 /// Returns the generated tokens only (the prompt is not included).
+///
+/// Thin wrapper around [`generate_with_streamer`] with a no-op streamer.
+///
+/// # Errors
+///
+/// Forwards every error from [`generate_with_streamer`] verbatim. See
+/// that function's `# Errors` section for the full taxonomy.
+///
+/// # Panics
+///
+/// Does not panic. Non-finite logits and other non-representable
+/// conversions are returned as [`FerrotorchError::InvalidArgument`]
+/// via [`ferrotorch_core::numeric_cast::cast`].
 pub fn generate<T: Float>(
     model: &LlamaForCausalLM<T>,
     prompt_ids: &[u32],
@@ -104,6 +117,31 @@ pub fn generate<T: Float>(
 
 /// `generate` with a streaming callback. The callback is invoked once
 /// per new token, in order. Return `false` to stop early.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] for any of the
+/// validation failures detected before the first forward pass:
+/// - empty `prompt_ids`,
+/// - `config.temperature < 0.0`,
+/// - `config.top_p` outside `[0, 1]`,
+/// - `config.repetition_penalty <= 0.0`,
+/// - the model returns a logits tensor whose shape is not `[1, S, V]`,
+/// - a token id is not representable as `T` (forwarded from
+///   [`LlamaForCausalLM::forward_from_ids`]),
+/// - a logit value is not representable as `f64` (e.g. a `T` value for
+///   which `T::to_f64` returns `None`).
+///
+/// Otherwise propagates whatever the underlying
+/// [`LlamaForCausalLM::forward_from_ids`] returns at each generation
+/// step (e.g. `ShapeMismatch`, `DeviceUnavailable`, `Internal` for GPU
+/// runtime errors via [`crate::gpu`]'s `map_gpu_err`/`map_driver_err`).
+///
+/// # Panics
+///
+/// Does not panic. Token-id and logit-value conversion failures are
+/// returned as [`FerrotorchError::InvalidArgument`] via
+/// [`ferrotorch_core::numeric_cast::cast`].
 pub fn generate_with_streamer<T: Float>(
     model: &LlamaForCausalLM<T>,
     prompt_ids: &[u32],
@@ -156,8 +194,8 @@ pub fn generate_with_streamer<T: Float>(
         let last_offset = (seq_len - 1) * vocab;
         let mut logits: Vec<f64> = data[last_offset..last_offset + vocab]
             .iter()
-            .map(|v| v.to_f64().unwrap())
-            .collect();
+            .map(|&v| ferrotorch_core::numeric_cast::cast::<T, f64>(v))
+            .collect::<FerrotorchResult<Vec<f64>>>()?;
 
         if (config.repetition_penalty - 1.0).abs() > f64::EPSILON {
             apply_repetition_penalty(&mut logits, &ids, config.repetition_penalty);
@@ -348,6 +386,21 @@ impl Default for BeamSearchConfig {
 /// Memory and compute are `num_beams ×` the corresponding cost of greedy
 /// decoding. Each step we run `num_beams` forward passes (one per beam)
 /// and then a top-`num_beams × vocab` argmax. (#612)
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] for input validation
+/// failures (empty `prompt_ids`, `num_beams == 0`, `length_penalty <= 0`),
+/// when the model returns logits whose shape is not `[1, S, V]`, or
+/// when a logit value cannot be cast to `f64`. Otherwise propagates
+/// whatever [`LlamaForCausalLM::forward_from_ids`] returns at each
+/// step.
+///
+/// # Panics
+///
+/// Does not panic. Logit-value conversion failures are returned as
+/// [`FerrotorchError::InvalidArgument`] via
+/// [`ferrotorch_core::numeric_cast::cast`].
 pub fn beam_search<T: Float>(
     model: &LlamaForCausalLM<T>,
     prompt_ids: &[u32],
@@ -419,8 +472,8 @@ pub fn beam_search<T: Float>(
             let last_offset = (seq_len - 1) * vocab;
             let logits: Vec<f64> = data[last_offset..last_offset + vocab]
                 .iter()
-                .map(|v| v.to_f64().unwrap())
-                .collect();
+                .map(|&v| ferrotorch_core::numeric_cast::cast::<T, f64>(v))
+                .collect::<FerrotorchResult<Vec<f64>>>()?;
 
             // Softmax → log-prob in the numerically-stable way.
             let max_logit = logits.iter().copied().fold(f64::NEG_INFINITY, f64::max);

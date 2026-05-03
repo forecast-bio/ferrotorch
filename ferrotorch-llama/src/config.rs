@@ -115,6 +115,14 @@ impl LlamaConfig {
     ///
     /// Validates the config first; downstream construction expects all
     /// invariants (head divisibility, positive sizes) to already hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] when:
+    /// - The HF config fails its own validation (negative or zero
+    ///   sizes, head-count divisibility violations).
+    /// - `hidden_act` is not one of `"silu"` / `"swish"` / `"relu"` /
+    ///   `"fatrelu"`.
     pub fn from_hf(hf: &HfTransformerConfig) -> FerrotorchResult<Self> {
         hf.validate()?;
         let hidden_act = match hf.hidden_act.as_str() {
@@ -157,6 +165,12 @@ impl LlamaConfig {
 
     /// Enforce invariants the model layer relies on. Called by every
     /// `LlamaConfig`-consuming constructor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] when any size is
+    /// zero, when `hidden_size % num_attention_heads != 0`, or when
+    /// `num_attention_heads % num_key_value_heads != 0`.
     pub fn validate(&self) -> FerrotorchResult<()> {
         if self.vocab_size == 0
             || self.hidden_size == 0

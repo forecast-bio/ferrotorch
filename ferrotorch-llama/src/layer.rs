@@ -18,15 +18,27 @@ use crate::config::LlamaConfig;
 use crate::mlp::LlamaMLP;
 
 /// One decoder layer: RMSNorm → attention → residual → RMSNorm → MLP → residual.
+#[derive(Debug)]
 pub struct LlamaDecoderLayer<T: Float> {
+    /// Pre-attention RMSNorm.
     pub input_layernorm: RMSNorm<T>,
+    /// Multi-head / grouped-query attention block.
     pub self_attn: LlamaAttention<T>,
+    /// Pre-MLP RMSNorm (applied after the attention residual add).
     pub post_attention_layernorm: RMSNorm<T>,
+    /// Gated MLP (SwiGLU-shaped, with the activation chosen by config).
     pub mlp: LlamaMLP<T>,
     training: bool,
 }
 
 impl<T: Float> LlamaDecoderLayer<T> {
+    /// Build a randomly-initialized decoder layer for the given config.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying [`FerrotorchError`] if any sub-module
+    /// (RMSNorm, attention, MLP) fails to construct — typically a
+    /// `ShapeMismatch` on bad config dimensions.
     pub fn new(cfg: &LlamaConfig) -> FerrotorchResult<Self> {
         cfg.validate()?;
         Ok(Self {

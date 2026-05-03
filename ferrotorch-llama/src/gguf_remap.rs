@@ -57,6 +57,12 @@ fn translate_layer_key(name: &str) -> Option<String> {
 /// matching `load_hf_state_dict`'s semantics (HF state dicts can carry
 /// quantization scales / unrelated metadata that the model does not consume).
 /// If `strict` is true, any unrecognised key produces an error instead.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError::InvalidArgument`] when `strict` is true
+/// and the input contains a key that does not map to a known Llama
+/// parameter via [`gguf_key_to_hf`].
 pub fn gguf_to_hf_state_dict<T: Float + Clone>(
     state: &StateDict<T>,
     strict: bool,

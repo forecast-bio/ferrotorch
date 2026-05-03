@@ -707,9 +707,34 @@ fn compile_linear_literal(literal: &str) -> CompiledDfa {
 /// (processor, vocab) and cached on the call site since vocabularies are
 /// large (Llama-3 = 128k entries).
 pub struct PackedVocab {
+    /// Per-token offsets into `chars`. `offsets[i] .. offsets[i+1]` is
+    /// token `i`'s codepoint slice. Length = `vocab.len() + 1`.
     pub offsets: Vec<u32>,
+    /// Flat codepoint storage (one `u32` per Unicode scalar). Total
+    /// length = sum of token char-lengths.
     pub chars: Vec<u32>,
+    /// Longest token's char count, used as the kernel's bounded-loop cap.
     pub max_token_len: u32,
+}
+
+// Manual Debug — printing the full `offsets` (`vocab_size + 1` entries)
+// or `chars` (token-summed) for a 128k-entry vocabulary makes Debug
+// output unusable. Show only the lengths plus `max_token_len`, which
+// is enough to reason about the upload size and per-step kernel cost.
+impl std::fmt::Debug for PackedVocab {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PackedVocab")
+            .field(
+                "offsets",
+                &format_args!("<Vec<u32> {} entries>", self.offsets.len()),
+            )
+            .field(
+                "chars",
+                &format_args!("<Vec<u32> {} entries>", self.chars.len()),
+            )
+            .field("max_token_len", &self.max_token_len)
+            .finish()
+    }
 }
 
 impl PackedVocab {

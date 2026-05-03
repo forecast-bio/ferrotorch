@@ -38,6 +38,7 @@ half = { workspace = true, optional = true }
 num-traits = { workspace = true }
 serde_json = { workspace = true }
 bytemuck = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 ferrotorch-tokenize = { workspace = true }

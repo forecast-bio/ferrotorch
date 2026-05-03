@@ -20,15 +20,28 @@ use crate::config::{LlamaActivation, LlamaConfig};
 /// - [`LlamaActivation::Silu`]: standard SwiGLU (`silu(gate) * up`)
 /// - [`LlamaActivation::Relu`]: ReluLLaMA (`relu(gate) * up`)
 /// - [`LlamaActivation::FatRelu`]: ProSparse (`fatrelu(gate, θ) * up`)
+#[derive(Debug)]
 pub struct LlamaMLP<T: Float> {
+    /// Gate projection: `[hidden] → [intermediate]`.
     pub gate_proj: Linear<T>,
+    /// Up projection: `[hidden] → [intermediate]`. Multiplied
+    /// element-wise with the activated gate.
     pub up_proj: Linear<T>,
+    /// Down projection: `[intermediate] → [hidden]`. Reduces back
+    /// to the residual stream's width.
     pub down_proj: Linear<T>,
     hidden_act: LlamaActivation,
     training: bool,
 }
 
 impl<T: Float> LlamaMLP<T> {
+    /// Build a randomly-initialized MLP block for the given config.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying [`FerrotorchError`] if any of the three
+    /// `Linear` sub-modules fails to construct — typically a
+    /// `ShapeMismatch` on bad config dimensions.
     pub fn new(cfg: &LlamaConfig) -> FerrotorchResult<Self> {
         cfg.validate()?;
         Ok(Self {
@@ -45,7 +58,9 @@ impl<T: Float> LlamaMLP<T> {
             LlamaActivation::Silu => silu(gate),
             LlamaActivation::Relu => relu(gate),
             LlamaActivation::FatRelu(threshold) => {
-                let t = T::from(threshold).unwrap();
+                // Fallible cast: returns Err if `threshold` is not
+                // representable in T (e.g. NaN-flavoured threshold).
+                let t = ferrotorch_core::numeric_cast::cast::<f64, T>(threshold)?;
                 let zero = <T as num_traits::Zero>::zero();
                 let data: Vec<T> = gate
                     .data_vec()?

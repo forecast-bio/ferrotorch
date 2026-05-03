@@ -26,35 +26,27 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Errors raised while compiling a JSON-Schema document into a [`Schema`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum SchemaError {
     /// The schema's `type` is missing, malformed, or refers to an unsupported
     /// type (e.g. only `string`, `number`, `integer`, `boolean`, `null`,
     /// `object`, `array` are supported).
+    #[error("unsupported type: {0}")]
     UnsupportedType(String),
     /// A composition keyword (`oneOf` / `anyOf` / `allOf` / `$ref`) was used.
+    #[error("unsupported schema keyword: {0}")]
     Unsupported(&'static str),
     /// `properties.<name>` was not a sub-schema object.
+    #[error("malformed property `{0}`")]
     MalformedProperty(String),
     /// `enum` value list contained mixed or non-string/non-number values.
+    #[error("malformed `enum` value list")]
     MalformedEnum,
     /// Generic "this isn't a schema-shaped JSON value" error.
+    #[error("value is not a JSON-Schema object")]
     NotASchema,
 }
-
-impl std::fmt::Display for SchemaError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnsupportedType(t) => write!(f, "unsupported type: {t}"),
-            Self::Unsupported(k) => write!(f, "unsupported schema keyword: {k}"),
-            Self::MalformedProperty(p) => write!(f, "malformed property `{p}`"),
-            Self::MalformedEnum => write!(f, "malformed `enum` value list"),
-            Self::NotASchema => write!(f, "value is not a JSON-Schema object"),
-        }
-    }
-}
-
-impl std::error::Error for SchemaError {}
 
 /// One concrete JSON-shaped type the constrained decoder will produce.
 #[derive(Debug, Clone, PartialEq)]
@@ -63,11 +55,17 @@ pub enum Schema {
     /// `properties` are rejected; keys listed in `required` must appear at
     /// least once.
     Object {
+        /// Map from property name to the property's sub-schema.
         properties: BTreeMap<String, Schema>,
+        /// Subset of `properties.keys()` that must appear in any
+        /// conforming value (a value missing one of these is invalid).
         required: BTreeSet<String>,
     },
     /// An array of values all matching `item`.
-    Array { item: Box<Schema> },
+    Array {
+        /// Sub-schema every element must match (homogeneous arrays only).
+        item: Box<Schema>,
+    },
     /// A JSON string of arbitrary content (no length / pattern constraint).
     String,
     /// A finite set of allowed string values.
@@ -89,6 +87,14 @@ impl Schema {
     /// Parse a JSON-Schema document into a [`Schema`]. Returns `Err` for
     /// any unsupported feature so the caller can decide between erroring
     /// out and falling back to unconstrained sampling.
+    ///
+    /// # Errors
+    ///
+    /// Returns the matching [`SchemaError`] variant for any malformed
+    /// or unsupported input: missing `type`, unsupported composition
+    /// keyword (`oneOf` / `anyOf` / `allOf` / `$ref`), unsupported
+    /// primitive type, malformed `properties` / `required` payloads,
+    /// or a malformed `enum` value list.
     pub fn from_json_schema(value: &serde_json::Value) -> Result<Self, SchemaError> {
         let map = value.as_object().ok_or(SchemaError::NotASchema)?;
 

@@ -95,10 +95,7 @@ fn main() {
 
     // Step 3: load weights
     let idx_path = snapshot.join("model.safetensors.index.json");
-    println!(
-        "[llama3_70b_gpu] loading CPU bf16 weights from {} shards...",
-        "many"
-    );
+    println!("[llama3_70b_gpu] loading CPU bf16 weights from many shards...");
     let t_load = Instant::now();
     let state = load_safetensors_sharded::<half::bf16>(&idx_path)
         .expect("failed to load sharded safetensors");
@@ -113,8 +110,8 @@ fn main() {
     let device = GpuDevice::new(0).expect("CUDA device 0 unavailable");
     println!("[llama3_70b_gpu] uploading weights to VRAM (this is ~140 GB; may take minutes)...");
     let t_up = Instant::now();
-    let inferencer = LlamaGpuInferencer::new(cfg.clone(), state, device)
-        .expect("failed to build LlamaGpuInferencer");
+    let inferencer =
+        LlamaGpuInferencer::new(cfg, state, device).expect("failed to build LlamaGpuInferencer");
     println!(
         "[llama3_70b_gpu] weights uploaded in {:.1}s",
         t_up.elapsed().as_secs_f64()
