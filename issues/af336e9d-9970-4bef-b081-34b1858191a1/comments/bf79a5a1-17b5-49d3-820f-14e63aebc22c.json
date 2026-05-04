@@ -1,0 +1,10 @@
+{
+  "uuid": "bf79a5a1-17b5-49d3-820f-14e63aebc22c",
+  "issue_uuid": "af336e9d-9970-4bef-b081-34b1858191a1",
+  "author": "y4rr",
+  "content": "ferrotorch-gpu audit response COMPLETE — 7 dispatches across 7 waves (gpu-A foundation, gpu-B bf16, gpu-C 5-file SAFETY, gpu-C-extension matmul UB + sub-3-line spine, gpu-E cusolver, gpu-D1+D2 kernels.rs SAFETY × 114, gpu-F silent-fallback policy migration). Architect-mode tally: 23 dispatches, 21 clean APPROVEs across the gpu wave + the prior 5-crate sweep. ferrotorch-gpu fully aligned with rust-gpu-discipline §3 PyTorch parity: 227 SAFETY substantiations across 6 files, full crate now SAFETY-clean modulo #707; thiserror migration on GpuError; PhiloxState/MemoryHook/MemoryStats encapsulation; 11 silent-fallback sites migrated to opt-in pattern (FERROTORCH_ENABLE_GPU_FALLBACK + tracing::warn + Err default); cargo build/test/clippy/workspace all PASS at 261/261 baseline. Tracked follow-ups: #702 fork_rng/join_rng signature change (Step 4 coord), #703 missing_docs sweep, #707 weak pre-existing SAFETY blocks (3 in backend_impl + 22 in cusolver), #708 wrong-kernel-name sweep (5+ sites), #709 reduce-kernel u32 truncation. Closed: #704 (matmul UB), #705 (3 backend_impl sub-3-line SAFETY blocks), #706 (tensor_bridge.rs cpu_fallback sites migrated by gpu-F). Architect/audit-error catches in this gpu wave: 5 (gpu-B audit eprintln miscount, gpu-A missing_docs overspec, gpu-C #704+#705 surfacing, gpu-D1 audit f64 fallback line cite reassessment, gpu-D2 line 19771 deliberate consistency upgrade). 4 of 5 §3-violator crates remaining unaudited: ferrotorch-cubecl, ferrotorch-xpu, ferrotorch-jit, ferrotorch-distributed.",
+  "created_at": "2026-05-04T03:54:12.130358255Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAj791t4LY7iyCBfwEunT/w4wm7+O4K+KqMkcB2MPUIBMuBRCrqdYwMehfTlh2B77zF0yFQV7Z20+KomcolYN6Ag=="
+}
