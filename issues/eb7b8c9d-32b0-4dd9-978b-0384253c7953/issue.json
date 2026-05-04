@@ -2,11 +2,12 @@
   "uuid": "eb7b8c9d-32b0-4dd9-978b-0384253c7953",
   "display_id": 717,
   "title": "ferrotorch-cubecl: ArrayArg::from_raw_parts lacks runtime byte-capacity validation (release-build UB on size mismatch)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-04T16:22:21.914374383Z",
-  "updated_at": "2026-05-04T16:22:23.297632710Z",
+  "updated_at": "2026-05-04T19:29:40.874594693Z",
+  "closed_at": "2026-05-04T19:29:40.874594693Z",
   "labels": [
     "rust,cubecl,latent-ub,follow-up"
   ]
