@@ -6,5 +6,8 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-04T21:17:53.420491965Z",
-  "updated_at": "2026-05-04T21:17:53.420491965Z"
+  "updated_at": "2026-05-04T21:17:54.783459618Z",
+  "labels": [
+    "rust,meta,audit-followup"
+  ]
 }
