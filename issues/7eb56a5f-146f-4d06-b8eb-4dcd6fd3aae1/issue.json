@@ -1,0 +1,10 @@
+{
+  "uuid": "7eb56a5f-146f-4d06-b8eb-4dcd6fd3aae1",
+  "display_id": 720,
+  "title": "audit follow-up: ferrotorch-jit — interpreter NumCast + tracing panics + IrValue dtype doc + IR encapsulation",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T18:40:09.400360491Z",
+  "updated_at": "2026-05-04T18:40:09.400360491Z"
+}
