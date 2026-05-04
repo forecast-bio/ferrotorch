@@ -2,11 +2,12 @@
   "uuid": "3678ea78-aedf-41d8-a6dc-6a9a8440c67c",
   "display_id": 708,
   "title": "kernels.rs:11743 wrong kernel name in PtxCompileFailed error (copy-paste from gelu_backward_erf into gpu_scatter_add_1d)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-04T01:34:22.381823225Z",
-  "updated_at": "2026-05-04T01:34:23.683278291Z",
+  "updated_at": "2026-05-04T04:34:04.475506564Z",
+  "closed_at": "2026-05-04T04:34:04.475506564Z",
   "labels": [
     "rust,gpu,bug,follow-up"
   ]
