@@ -6,5 +6,8 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-04T04:29:34.674078570Z",
-  "updated_at": "2026-05-04T04:29:34.674078570Z"
+  "updated_at": "2026-05-04T04:29:35.972241951Z",
+  "labels": [
+    "rust,follow-up-sweep"
+  ]
 }
