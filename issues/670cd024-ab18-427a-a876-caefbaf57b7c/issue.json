@@ -2,11 +2,12 @@
   "uuid": "670cd024-ab18-427a-a876-caefbaf57b7c",
   "display_id": 722,
   "title": "commit xpu+jit bundle",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-04T18:49:55.105773740Z",
-  "updated_at": "2026-05-04T18:49:56.510087700Z",
+  "updated_at": "2026-05-04T18:50:26.570659878Z",
+  "closed_at": "2026-05-04T18:50:26.570659878Z",
   "labels": [
     "rust,commit"
   ]
