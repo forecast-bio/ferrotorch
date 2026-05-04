@@ -1,0 +1,10 @@
+{
+  "uuid": "218d920c-cd6e-4445-9c57-16db9c19ae5e",
+  "display_id": 741,
+  "title": "audit follow-up: ferrotorch-nn — unsafe SAFETY + clip_grad CPU detour + bf16 cast panics + lints + pub fields + .expect + doctests + repeated allows",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T22:34:09.142453101Z",
+  "updated_at": "2026-05-04T22:34:09.142453101Z"
+}
