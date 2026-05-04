@@ -7,8 +7,9 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-04T22:17:47.560776216Z",
-  "updated_at": "2026-05-04T22:17:48.887751294Z",
+  "updated_at": "2026-05-04T22:17:50.176274553Z",
   "labels": [
-    "hub"
+    "hub",
+    "security"
   ]
 }
