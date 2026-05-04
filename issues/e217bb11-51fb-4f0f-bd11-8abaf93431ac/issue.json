@@ -1,0 +1,10 @@
+{
+  "uuid": "e217bb11-51fb-4f0f-bd11-8abaf93431ac",
+  "display_id": 744,
+  "title": "audit follow-up: ferrotorch-serialize — CRITICAL gguf DoS + 12 unsafe SAFETY + cast unwrap on untrusted input + lints + dead_code + pub fields + &String + integration tests",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T23:37:08.946503238Z",
+  "updated_at": "2026-05-04T23:37:08.946503238Z"
+}
