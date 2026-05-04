@@ -2,11 +2,12 @@
   "uuid": "d4f90a49-2cca-4aea-a1f4-5912be5042d1",
   "display_id": 707,
   "title": "ferrotorch-gpu/cusolver.rs: 22 pre-existing weak SAFETY blocks (1-2 lines) need substantiation",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-04T00:01:12.252988371Z",
-  "updated_at": "2026-05-04T00:01:13.557473603Z",
+  "updated_at": "2026-05-04T05:12:37.026510371Z",
+  "closed_at": "2026-05-04T05:12:37.026510371Z",
   "labels": [
     "rust,gpu,safety-quality,follow-up"
   ]
