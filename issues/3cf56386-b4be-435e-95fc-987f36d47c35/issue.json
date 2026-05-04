@@ -6,5 +6,8 @@
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-04T15:44:11.712946826Z",
-  "updated_at": "2026-05-04T15:44:11.712946826Z"
+  "updated_at": "2026-05-04T15:44:24.496621555Z",
+  "labels": [
+    "rust,coordination,follow-up"
+  ]
 }
