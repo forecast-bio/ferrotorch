@@ -1,0 +1,11 @@
+{
+  "uuid": "acdf8fea-c637-4708-b671-f5da91997fef",
+  "display_id": 739,
+  "title": "Populate real SHA-256 hashes in ferrotorch-hub registry (audit follow-up)",
+  "description": "Follow-up from audit #738 closure (ferrotorch-hub finding #6).\n\nAfter landing the fail-fast SHA-256 policy in download::download_and_verify, every entry in registry.rs that still uses the all-zero placeholder hash will refuse to download with InvalidArgument. The placeholders were intentional during initial wiring but are now blocking. To restore download capability for each model:\n\n1. Upload the canonical safetensors weight to https://huggingface.co/ferrotorch/<model> for each registry entry (resnet18/34/50, vgg11/16, vit_b_16, efficientnet_b0, swin_tiny, convnext_tiny, unet, yolo, mobilenet_v2, mobilenet_v3_small, densenet121, inception_v3 — 15 models).\n2. Compute SHA-256 of the uploaded artefact.\n3. Replace the all-zero placeholder string in the corresponding ModelInfo entry with the real 64-char hex digest.\n4. Add an integration test that downloads, verifies, and matches the hash for at least one entry.\n\nUntil this is done, ferrotorch_hub::load_pretrained returns Err for the affected models — that is the deliberate policy after the audit's #6 finding (silent integrity bypass).",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T22:17:47.560776216Z",
+  "updated_at": "2026-05-04T22:17:47.560776216Z"
+}
