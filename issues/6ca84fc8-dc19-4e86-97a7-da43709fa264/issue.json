@@ -1,0 +1,10 @@
+{
+  "uuid": "6ca84fc8-dc19-4e86-97a7-da43709fa264",
+  "display_id": 709,
+  "title": "kernels.rs reduce kernels saturating_add(n as u32, BLOCK-1) silently truncates for n > u32::MAX",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T01:34:28.445576659Z",
+  "updated_at": "2026-05-04T01:34:28.445576659Z"
+}
