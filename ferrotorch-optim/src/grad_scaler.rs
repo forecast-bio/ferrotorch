@@ -51,6 +51,43 @@ impl Default for GradScalerConfig {
     }
 }
 
+impl GradScalerConfig {
+    /// Set the initial loss-scale factor.
+    #[must_use]
+    pub fn with_init_scale(mut self, init_scale: f64) -> Self {
+        self.init_scale = init_scale;
+        self
+    }
+
+    /// Set the factor by which the scale grows on healthy intervals.
+    #[must_use]
+    pub fn with_growth_factor(mut self, growth_factor: f64) -> Self {
+        self.growth_factor = growth_factor;
+        self
+    }
+
+    /// Set the factor by which the scale shrinks when inf/NaN is detected.
+    #[must_use]
+    pub fn with_backoff_factor(mut self, backoff_factor: f64) -> Self {
+        self.backoff_factor = backoff_factor;
+        self
+    }
+
+    /// Set the number of consecutive healthy steps before growing the scale.
+    #[must_use]
+    pub fn with_growth_interval(mut self, growth_interval: usize) -> Self {
+        self.growth_interval = growth_interval;
+        self
+    }
+
+    /// Enable or disable gradient scaling. When `false`, all methods are pass-through no-ops.
+    #[must_use]
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
 // ---------------------------------------------------------------------------
 // GradScalerState (for serialization)
 // ---------------------------------------------------------------------------
@@ -396,8 +433,8 @@ mod tests {
             self.param_groups.push(group);
         }
 
-        fn state_dict(&self) -> OptimizerState {
-            OptimizerState::new()
+        fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
+            Ok(OptimizerState::new())
         }
 
         fn load_state_dict(&mut self, _state: &OptimizerState) -> FerrotorchResult<()> {

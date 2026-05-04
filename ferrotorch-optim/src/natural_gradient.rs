@@ -74,6 +74,50 @@ impl Default for KfacConfig {
     }
 }
 
+impl KfacConfig {
+    /// Set the learning rate.
+    #[must_use]
+    pub fn with_lr(mut self, lr: f64) -> Self {
+        self.lr = lr;
+        self
+    }
+
+    /// Set the Tikhonov damping added to Kronecker factors before inversion.
+    #[must_use]
+    pub fn with_damping(mut self, damping: f64) -> Self {
+        self.damping = damping;
+        self
+    }
+
+    /// Set the momentum coefficient for the preconditioned gradient.
+    #[must_use]
+    pub fn with_momentum(mut self, momentum: f64) -> Self {
+        self.momentum = momentum;
+        self
+    }
+
+    /// Set how often (in steps) to recompute the Kronecker factor inverses.
+    #[must_use]
+    pub fn with_update_freq(mut self, update_freq: usize) -> Self {
+        self.update_freq = update_freq;
+        self
+    }
+
+    /// Set the weight decay coefficient for L2 regularization.
+    #[must_use]
+    pub fn with_weight_decay(mut self, weight_decay: f64) -> Self {
+        self.weight_decay = weight_decay;
+        self
+    }
+
+    /// Set the maximize flag (when `true`, negate the gradient to maximize).
+    #[must_use]
+    pub fn with_maximize(mut self, maximize: bool) -> Self {
+        self.maximize = maximize;
+        self
+    }
+}
+
 // ---------------------------------------------------------------------------
 // KroneckerFactors
 // ---------------------------------------------------------------------------
@@ -488,7 +532,7 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
         self.param_groups.push(group);
     }
 
-    fn state_dict(&self) -> OptimizerState {
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
 
         // Serialize step count as a pseudo-entry.
@@ -511,7 +555,7 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
             out.insert(name.clone(), entry);
         }
 
-        out
+        Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
@@ -952,7 +996,9 @@ mod tests {
         kfac.step().unwrap();
 
         // Save state.
-        let saved = kfac.state_dict();
+        let saved = kfac
+            .state_dict()
+            .expect("kfac state_dict must succeed in test");
         assert!(!saved.is_empty());
         assert!(saved.contains_key("__kfac_meta__"));
         assert!(saved.contains_key(&key));
@@ -974,7 +1020,9 @@ mod tests {
         assert_eq!(kfac2.step_count, 1);
         assert!(kfac2.factors.contains_key(&key));
 
-        let loaded = kfac2.state_dict();
+        let loaded = kfac2
+            .state_dict()
+            .expect("kfac state_dict round-trip must succeed in test");
         assert_eq!(loaded[&key]["a_factor"], saved[&key]["a_factor"]);
         assert_eq!(loaded[&key]["g_factor"], saved[&key]["g_factor"]);
     }

@@ -324,7 +324,7 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
                 let _ = std::fs::create_dir_all(dir);
                 let checkpoint = TrainingCheckpoint {
                     model_state: self.model.state_dict(),
-                    optimizer_state: self.optimizer.state_dict(),
+                    optimizer_state: self.optimizer.state_dict()?,
                     epoch: self.epoch,
                     step: self.step,
                 };
@@ -496,8 +496,8 @@ mod tests {
             &mut []
         }
         fn add_param_group(&mut self, _group: ferrotorch_optim::ParamGroup<f32>) {}
-        fn state_dict(&self) -> ferrotorch_optim::OptimizerState {
-            Default::default()
+        fn state_dict(&self) -> FerrotorchResult<ferrotorch_optim::OptimizerState> {
+            Ok(Default::default())
         }
         fn load_state_dict(
             &mut self,

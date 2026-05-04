@@ -62,6 +62,57 @@ impl Default for AdamConfig {
     }
 }
 
+impl AdamConfig {
+    /// Set the learning rate.
+    #[must_use]
+    pub fn with_lr(mut self, lr: f64) -> Self {
+        self.lr = lr;
+        self
+    }
+
+    /// Set the exponential decay rates for the first and second moment estimates.
+    #[must_use]
+    pub fn with_betas(mut self, betas: (f64, f64)) -> Self {
+        self.betas = betas;
+        self
+    }
+
+    /// Set the term added to the denominator for numerical stability.
+    #[must_use]
+    pub fn with_eps(mut self, eps: f64) -> Self {
+        self.eps = eps;
+        self
+    }
+
+    /// Set the weight decay coefficient for L2 regularization.
+    #[must_use]
+    pub fn with_weight_decay(mut self, weight_decay: f64) -> Self {
+        self.weight_decay = weight_decay;
+        self
+    }
+
+    /// Enable or disable the AMSGrad variant.
+    #[must_use]
+    pub fn with_amsgrad(mut self, amsgrad: bool) -> Self {
+        self.amsgrad = amsgrad;
+        self
+    }
+
+    /// Set the maximize flag (when `true`, negate the gradient to maximize).
+    #[must_use]
+    pub fn with_maximize(mut self, maximize: bool) -> Self {
+        self.maximize = maximize;
+        self
+    }
+
+    /// Enable or disable the on-device tensor-op (foreach) update path.
+    #[must_use]
+    pub fn with_foreach(mut self, foreach: bool) -> Self {
+        self.foreach = foreach;
+        self
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Per-parameter state
 // ---------------------------------------------------------------------------
@@ -612,7 +663,7 @@ impl<T: Float> Optimizer<T> for Adam<T> {
         self.param_groups.push(group);
     }
 
-    fn state_dict(&self) -> OptimizerState {
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
         for (key, pstate) in &self.state {
             let mut entry = HashMap::new();
@@ -655,7 +706,7 @@ impl<T: Float> Optimizer<T> for Adam<T> {
             }
             out.insert(key.clone(), entry);
         }
-        out
+        Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
@@ -837,7 +888,9 @@ mod tests {
         }
 
         // Save state.
-        let saved = opt.state_dict();
+        let saved = opt
+            .state_dict()
+            .expect("adam state_dict must succeed in test");
         assert!(
             !saved.is_empty(),
             "state dict should be non-empty after steps"
@@ -860,7 +913,9 @@ mod tests {
         let mut opt2 = Adam::new(vec![p2], AdamConfig::default());
         opt2.load_state_dict(&saved).unwrap();
 
-        let loaded = opt2.state_dict();
+        let loaded = opt2
+            .state_dict()
+            .expect("adam state_dict round-trip must succeed in test");
         assert_eq!(loaded[&key]["step_count"], saved[&key]["step_count"]);
         assert_eq!(loaded[&key]["exp_avg"], saved[&key]["exp_avg"]);
         assert_eq!(loaded[&key]["exp_avg_sq"], saved[&key]["exp_avg_sq"]);
@@ -891,7 +946,9 @@ mod tests {
         }
 
         // Verify state contains max_exp_avg_sq.
-        let saved = opt.state_dict();
+        let saved = opt
+            .state_dict()
+            .expect("adam amsgrad state_dict must succeed in test");
         let key = Adam::<f64>::param_key(0, 0);
         assert!(saved[&key].contains_key("max_exp_avg_sq"));
 

@@ -57,6 +57,50 @@ impl Default for RAdamConfig {
     }
 }
 
+impl RAdamConfig {
+    /// Set the learning rate.
+    #[must_use]
+    pub fn with_lr(mut self, lr: f64) -> Self {
+        self.lr = lr;
+        self
+    }
+
+    /// Set the exponential decay rates for the first and second moment estimates.
+    #[must_use]
+    pub fn with_betas(mut self, betas: (f64, f64)) -> Self {
+        self.betas = betas;
+        self
+    }
+
+    /// Set the term added to the denominator for numerical stability.
+    #[must_use]
+    pub fn with_eps(mut self, eps: f64) -> Self {
+        self.eps = eps;
+        self
+    }
+
+    /// Set the weight decay coefficient.
+    #[must_use]
+    pub fn with_weight_decay(mut self, weight_decay: f64) -> Self {
+        self.weight_decay = weight_decay;
+        self
+    }
+
+    /// Enable or disable decoupled weight decay (AdamW-style instead of L2).
+    #[must_use]
+    pub fn with_decoupled_weight_decay(mut self, decoupled_weight_decay: bool) -> Self {
+        self.decoupled_weight_decay = decoupled_weight_decay;
+        self
+    }
+
+    /// Enable or disable the on-device tensor-op (foreach) update path.
+    #[must_use]
+    pub fn with_foreach(mut self, foreach: bool) -> Self {
+        self.foreach = foreach;
+        self
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Per-parameter state
 // ---------------------------------------------------------------------------
@@ -424,7 +468,7 @@ impl<T: Float> Optimizer<T> for RAdam<T> {
         self.param_groups.push(group);
     }
 
-    fn state_dict(&self) -> OptimizerState {
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
         for (key, ps) in &self.state {
             let mut entry = HashMap::new();
@@ -433,7 +477,7 @@ impl<T: Float> Optimizer<T> for RAdam<T> {
             entry.insert("exp_avg_sq".to_string(), ps.exp_avg_sq.clone());
             out.insert(key.clone(), entry);
         }
-        out
+        Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
@@ -582,7 +626,9 @@ mod tests {
             opt.zero_grad().unwrap();
         }
 
-        let saved = opt.state_dict();
+        let saved = opt
+            .state_dict()
+            .expect("radam state_dict must succeed in test");
         assert!(!saved.is_empty());
 
         let key = RAdam::<f64>::param_key(0, 0);
@@ -592,7 +638,9 @@ mod tests {
         let mut opt2 = RAdam::new(vec![p2], RAdamConfig::default());
         opt2.load_state_dict(&saved).unwrap();
 
-        let loaded = opt2.state_dict();
+        let loaded = opt2
+            .state_dict()
+            .expect("radam state_dict round-trip must succeed in test");
         assert_eq!(loaded[&key]["step_count"], saved[&key]["step_count"]);
         assert_eq!(loaded[&key]["exp_avg"], saved[&key]["exp_avg"]);
     }

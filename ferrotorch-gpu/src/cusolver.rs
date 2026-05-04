@@ -140,7 +140,20 @@ pub fn gpu_svd_f32(
 
     // Query workspace size.
     let mut lwork: i32 = 0;
-    // SAFETY: dn.cu() is a valid cusolverDnHandle_t, m/n are valid dimensions.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 129 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle's lifetime is tied to `dn`, which lives for the rest of this
+    //   function — the FFI call is synchronous and completes before drop.
+    // - `m`, `n` were validated at line 121 (early-return on `m == 0 || n == 0`)
+    //   and are non-negative `usize`s narrowed to `i32`. The LAPACK ABI for
+    //   Sgesvd_bufferSize requires `m, n >= 0`.
+    // - `&mut lwork` is a stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in elements (not bytes) per the upstream `Sgesvd_bufferSize` ABI.
+    //   This signature does not take a matrix pointer — only the dimensions.
+    // - This is a pure query: cuSOLVER inspects `m`, `n` only and returns the
+    //   size of the workspace required for a subsequent Sgesvd call with
+    //   matching dimensions (issued at line 161).
     unsafe {
         csys::cusolverDnSgesvd_bufferSize(dn.cu(), m as i32, n as i32, &mut lwork).result()?;
     }
@@ -148,8 +161,43 @@ pub fn gpu_svd_f32(
     let mut d_work = crate::transfer::alloc_zeros_f32(lwork.max(1) as usize, device)?;
 
     // cuSOLVER Sgesvd: jobu='S' (thin U), jobvt='S' (thin VT).
-    // SAFETY: All device pointers are valid allocations of the required sizes.
-    // The handle and stream are valid. We synchronize and check devInfo after.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 129 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle is alive until `dn` is dropped at function exit; this call
+    //   completes before that.
+    // - `m`, `n` were validated at line 121 (early-return on `m == 0 || n == 0`)
+    //   and `k = m.min(n)` (line 125). `lda = m as i32`, `ldu = m as i32`,
+    //   and `ldvt = k as i32` (thin SVD) match the column-major leading
+    //   dimensions required by the LAPACK ABI (lda >= max(1, m), etc.).
+    // - jobu='S' / jobvt='S' = thin SVD: U is m×k, VT is k×n. Output buffer
+    //   sizes match: `d_u = m*k` (line 137), `d_vt = k*n` (line 138).
+    // - `a_ptr` points to the `m*n` f32 column-major input buffer alloc'd at
+    //   line 133 by `upload_f32`; cuSOLVER may overwrite its contents per
+    //   the Sgesvd contract.
+    // - `s_ptr` points to `d_s`, a `k`-element f32 buffer alloc'd at line 136;
+    //   cuSOLVER writes the singular values (sorted descending).
+    // - `u_ptr` points to `d_u`, an `m*k` f32 buffer alloc'd at line 137;
+    //   cuSOLVER writes U in column-major.
+    // - `vt_ptr` points to `d_vt`, a `k*n` f32 buffer alloc'd at line 138;
+    //   cuSOLVER writes V^T in column-major.
+    // - `work_ptr` points to `d_work`, a workspace of `lwork.max(1)` f32
+    //   elements alloc'd at line 148 from the `Sgesvd_bufferSize` query at
+    //   line 145. `.max(1)` guards the rare zero-size case; cuSOLVER receives
+    //   the queried `lwork` so the buffer is at least the size it claimed.
+    // - `rwork = ptr::null_mut()`: only used for complex types per upstream
+    //   docs; for real f32 it must be NULL.
+    // - `info_ptr` points to `d_info`, a single-element i32 buffer alloc'd
+    //   at line 139; cuSOLVER writes the status code asynchronously on
+    //   `stream`. We synchronize at line 182 and branch on non-zero via
+    //   `read_dev_info` at line 185.
+    // - The six `_sync` guards keep `CudaSlice` borrows alive across the FFI
+    //   call so no concurrent reuse can occur on `stream` for the duration
+    //   of the launch.
+    // - Column-major contract: `d_a` came from `transpose_f32` at line 132
+    //   per file docstring (line 9-11); cuSOLVER's LAPACK-style Sgesvd
+    //   requires column-major; outputs are also column-major and converted
+    //   to row-major in the host code below.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (s_ptr, _s_sync) = d_s.inner_mut().device_ptr_mut(&stream);
@@ -257,7 +305,20 @@ pub fn gpu_svd_f64(
 
     // Query workspace size.
     let mut lwork: i32 = 0;
-    // SAFETY: dn.cu() is a valid cusolverDnHandle_t, m/n are valid dimensions.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 246 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle's lifetime is tied to `dn`, which lives for the rest of this
+    //   function — the FFI call is synchronous and completes before drop.
+    // - `m`, `n` were validated at line 238 (early-return on `m == 0 || n == 0`)
+    //   and are non-negative `usize`s narrowed to `i32`. The LAPACK ABI for
+    //   Dgesvd_bufferSize requires `m, n >= 0`.
+    // - `&mut lwork` is a stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in elements (not bytes) per the upstream `Dgesvd_bufferSize` ABI.
+    //   This signature does not take a matrix pointer — only the dimensions.
+    // - This is a pure query: cuSOLVER inspects `m`, `n` only and returns the
+    //   size of the workspace required for a subsequent Dgesvd call with
+    //   matching dimensions (issued at line 278).
     unsafe {
         csys::cusolverDnDgesvd_bufferSize(dn.cu(), m as i32, n as i32, &mut lwork).result()?;
     }
@@ -265,8 +326,43 @@ pub fn gpu_svd_f64(
     let mut d_work = crate::transfer::alloc_zeros_f64(lwork.max(1) as usize, device)?;
 
     // cuSOLVER Dgesvd: jobu='S' (thin U), jobvt='S' (thin VT).
-    // SAFETY: All device pointers are valid allocations of the required sizes.
-    // The handle and stream are valid. We synchronize and check devInfo after.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 246 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle is alive until `dn` is dropped at function exit; this call
+    //   completes before that.
+    // - `m`, `n` were validated at line 238 (early-return on `m == 0 || n == 0`)
+    //   and `k = m.min(n)` (line 242). `lda = m as i32`, `ldu = m as i32`,
+    //   and `ldvt = k as i32` (thin SVD) match the column-major leading
+    //   dimensions required by the LAPACK ABI (lda >= max(1, m), etc.).
+    // - jobu='S' / jobvt='S' = thin SVD: U is m×k, VT is k×n. Output buffer
+    //   sizes match: `d_u = m*k` (line 254), `d_vt = k*n` (line 255).
+    // - `a_ptr` points to the `m*n` f64 column-major input buffer alloc'd at
+    //   line 250 by `upload_f64`; cuSOLVER may overwrite its contents per
+    //   the Dgesvd contract.
+    // - `s_ptr` points to `d_s`, a `k`-element f64 buffer alloc'd at line 253;
+    //   cuSOLVER writes the singular values (sorted descending).
+    // - `u_ptr` points to `d_u`, an `m*k` f64 buffer alloc'd at line 254;
+    //   cuSOLVER writes U in column-major.
+    // - `vt_ptr` points to `d_vt`, a `k*n` f64 buffer alloc'd at line 255;
+    //   cuSOLVER writes V^T in column-major.
+    // - `work_ptr` points to `d_work`, a workspace of `lwork.max(1)` f64
+    //   elements alloc'd at line 265 from the `Dgesvd_bufferSize` query at
+    //   line 262. `.max(1)` guards the rare zero-size case; cuSOLVER receives
+    //   the queried `lwork` so the buffer is at least the size it claimed.
+    // - `rwork = ptr::null_mut()`: only used for complex types per upstream
+    //   docs; for real f64 it must be NULL.
+    // - `info_ptr` points to `d_info`, a single-element i32 buffer alloc'd
+    //   at line 256; cuSOLVER writes the status code asynchronously on
+    //   `stream`. We synchronize at line 299 and branch on non-zero via
+    //   `read_dev_info` at line 302.
+    // - The six `_sync` guards keep `CudaSlice` borrows alive across the FFI
+    //   call so no concurrent reuse can occur on `stream` for the duration
+    //   of the launch.
+    // - Column-major contract: `d_a` came from `transpose_f64` at line 249
+    //   per file docstring (line 9-11); cuSOLVER's LAPACK-style Dgesvd
+    //   requires column-major; outputs are also column-major and converted
+    //   to row-major in the host code below.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (s_ptr, _s_sync) = d_s.inner_mut().device_ptr_mut(&stream);
@@ -361,7 +457,28 @@ pub fn gpu_cholesky_f32(data: &[f32], n: usize, device: &GpuDevice) -> GpuResult
 
     // Query workspace size.
     let mut lwork: i32 = 0;
-    // SAFETY: dn.cu() is valid, d_a points to n*n f32 elements.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 355 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle's lifetime is tied to `dn`, which lives for the rest of this
+    //   function — the FFI call is synchronous and completes before drop.
+    // - `n` was validated at line 350 (early-return on `n == 0`) and is a
+    //   non-negative `usize` narrowed to `i32`; `lda = n as i32` matches the
+    //   column-major leading dimension required by the LAPACK ABI
+    //   (lda >= max(1, n)).
+    // - `CUBLAS_FILL_MODE_LOWER` matches the fill mode used in the actual
+    //   Spotrf call at line 387, ensuring the workspace size cuSOLVER returns
+    //   is correct for the routine that consumes it.
+    // - `a_ptr` points to the `n*n` f32 column-major buffer allocated at
+    //   line 359 by `upload_f32` from `col_major` (the row→col transpose at
+    //   line 358). This is a query-only call: cuSOLVER inspects `n`, `lda`,
+    //   and the fill mode only — it does not touch the matrix data, so the
+    //   `device_ptr_mut` borrow is harmless.
+    // - `&mut lwork` is a stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in elements (not bytes) per the upstream `Spotrf_bufferSize` ABI.
+    // - Column-major contract: `d_a` came from `transpose_f32` at line 358
+    //   per file docstring at line 9-11; cuSOLVER's LAPACK-style Spotrf
+    //   requires this layout.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnSpotrf_bufferSize(
@@ -377,8 +494,35 @@ pub fn gpu_cholesky_f32(data: &[f32], n: usize, device: &GpuDevice) -> GpuResult
 
     let mut d_work = crate::transfer::alloc_zeros_f32(lwork.max(1) as usize, device)?;
 
-    // SAFETY: All device pointers are valid. We use LOWER fill mode.
-    // devInfo is checked after synchronization.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 355 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle outlives this call because `dn` lives until function exit.
+    // - `n` was validated at line 350 (early-return on `n == 0`) and is a
+    //   non-negative `usize` narrowed to `i32`. `lda = n as i32` matches the
+    //   column-major leading dimension required by the LAPACK ABI
+    //   (lda >= max(1, n)).
+    // - `CUBLAS_FILL_MODE_LOWER` instructs cuSOLVER to read/write only the
+    //   lower triangle; the upper triangle is left untouched (we explicitly
+    //   zero it in host code at lines 420-425 after download).
+    // - `a_ptr` points to the `n*n` f32 column-major buffer allocated at
+    //   line 359 by `upload_f32` from `col_major` (the row→col transpose at
+    //   line 358). cuSOLVER overwrites the lower triangle in place with the
+    //   Cholesky factor L (so A = L * L^T).
+    // - `work_ptr` points to `d_work`, a workspace of `lwork.max(1)` f32
+    //   elements alloc'd at line 378 from the `Spotrf_bufferSize` query at
+    //   line 367. `.max(1)` guards the rare zero-size case; cuSOLVER receives
+    //   the queried `lwork` so the buffer is at least the size it claimed.
+    // - `info_ptr` points to `d_info`, a single-element i32 buffer alloc'd
+    //   at line 360; cuSOLVER writes the status code asynchronously on
+    //   `stream`. We synchronize at line 400 and branch on non-zero via
+    //   `read_dev_info` at line 402 (positive-definiteness detection).
+    // - The three `_sync` guards keep `CudaSlice` borrows alive across the
+    //   FFI call so no concurrent reuse of these device pointers can occur
+    //   on `stream` for the duration of the launch.
+    // - Column-major contract: `d_a` came from `transpose_f32` at line 358
+    //   per file docstring (line 9-11); cuSOLVER's LAPACK-style Spotrf
+    //   requires column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
@@ -450,7 +594,28 @@ pub fn gpu_cholesky_f64(data: &[f64], n: usize, device: &GpuDevice) -> GpuResult
 
     // Query workspace size.
     let mut lwork: i32 = 0;
-    // SAFETY: dn.cu() is valid, d_a points to n*n f64 elements.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 444 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle's lifetime is tied to `dn`, which lives for the rest of this
+    //   function — the FFI call is synchronous and completes before drop.
+    // - `n` was validated at line 439 (early-return on `n == 0`) and is a
+    //   non-negative `usize` narrowed to `i32`; `lda = n as i32` matches the
+    //   column-major leading dimension required by the LAPACK ABI
+    //   (lda >= max(1, n)).
+    // - `CUBLAS_FILL_MODE_LOWER` matches the fill mode used in the actual
+    //   Dpotrf call at line 476, ensuring the workspace size cuSOLVER returns
+    //   is correct for the routine that consumes it.
+    // - `a_ptr` points to the `n*n` f64 column-major buffer allocated at
+    //   line 448 by `upload_f64` from `col_major` (the row→col transpose at
+    //   line 447). This is a query-only call: cuSOLVER inspects `n`, `lda`,
+    //   and the fill mode only — it does not touch the matrix data, so the
+    //   `device_ptr_mut` borrow is harmless.
+    // - `&mut lwork` is a stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in elements (not bytes) per the upstream `Dpotrf_bufferSize` ABI.
+    // - Column-major contract: `d_a` came from `transpose_f64` at line 447
+    //   per file docstring at line 9-11; cuSOLVER's LAPACK-style Dpotrf
+    //   requires this layout.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnDpotrf_bufferSize(
@@ -466,8 +631,35 @@ pub fn gpu_cholesky_f64(data: &[f64], n: usize, device: &GpuDevice) -> GpuResult
 
     let mut d_work = crate::transfer::alloc_zeros_f64(lwork.max(1) as usize, device)?;
 
-    // SAFETY: All device pointers are valid. We use LOWER fill mode.
-    // devInfo is checked after synchronization.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 444 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle outlives this call because `dn` lives until function exit.
+    // - `n` was validated at line 439 (early-return on `n == 0`) and is a
+    //   non-negative `usize` narrowed to `i32`. `lda = n as i32` matches the
+    //   column-major leading dimension required by the LAPACK ABI
+    //   (lda >= max(1, n)).
+    // - `CUBLAS_FILL_MODE_LOWER` instructs cuSOLVER to read/write only the
+    //   lower triangle; the upper triangle is left untouched (we explicitly
+    //   zero it in host code at lines 509-513 after download).
+    // - `a_ptr` points to the `n*n` f64 column-major buffer allocated at
+    //   line 448 by `upload_f64` from `col_major` (the row→col transpose at
+    //   line 447). cuSOLVER overwrites the lower triangle in place with the
+    //   Cholesky factor L (so A = L * L^T).
+    // - `work_ptr` points to `d_work`, a workspace of `lwork.max(1)` f64
+    //   elements alloc'd at line 467 from the `Dpotrf_bufferSize` query at
+    //   line 456. `.max(1)` guards the rare zero-size case; cuSOLVER receives
+    //   the queried `lwork` so the buffer is at least the size it claimed.
+    // - `info_ptr` points to `d_info`, a single-element i32 buffer alloc'd
+    //   at line 449; cuSOLVER writes the status code asynchronously on
+    //   `stream`. We synchronize at line 489 and branch on non-zero via
+    //   `read_dev_info` at line 491 (positive-definiteness detection).
+    // - The three `_sync` guards keep `CudaSlice` borrows alive across the
+    //   FFI call so no concurrent reuse of these device pointers can occur
+    //   on `stream` for the duration of the launch.
+    // - Column-major contract: `d_a` came from `transpose_f64` at line 447
+    //   per file docstring (line 9-11); cuSOLVER's LAPACK-style Dpotrf
+    //   requires column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
@@ -555,7 +747,25 @@ pub fn gpu_solve_f32(
 
     // Query workspace for getrf.
     let mut lwork: i32 = 0;
-    // SAFETY: dn.cu() is valid, d_a contains n*n f32 elements.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 543 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle's lifetime is tied to `dn`, which lives for the rest of this
+    //   function — the FFI call is synchronous and completes before drop.
+    // - `n` was validated at line 538 (early-return on `n == 0`) and is a
+    //   non-negative `usize` narrowed to `i32`; `lda = n as i32` matches the
+    //   column-major leading dimension required by the LAPACK ABI
+    //   (lda >= max(1, n)).
+    // - `a_ptr` points to the `n*n` f32 column-major buffer allocated at
+    //   line 547 by `upload_f32` from `a_col` (the row→col transposed input
+    //   at line 546). This is a query-only call: cuSOLVER inspects `m`, `n`,
+    //   `lda` only and does not touch the matrix data, so the
+    //   `device_ptr_mut` borrow is harmless.
+    // - `&mut lwork` is a stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in elements (not bytes) per the upstream `Sgetrf_bufferSize` ABI.
+    // - Column-major contract: `d_a` came from `transpose_f32` at line 546
+    //   per file docstring at line 9-11; cuSOLVER's LAPACK-style Sgetrf
+    //   requires this layout.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnSgetrf_bufferSize(
@@ -572,7 +782,34 @@ pub fn gpu_solve_f32(
     let mut d_work = crate::transfer::alloc_zeros_f32(lwork.max(1) as usize, device)?;
 
     // LU factorization: A = P * L * U.
-    // SAFETY: All device pointers are valid allocations of the required sizes.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 543 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle outlives this call because `dn` lives until function exit.
+    // - `n` was validated at line 538 (early-return on `n == 0`) and is a
+    //   non-negative `usize` narrowed to `i32`. `lda = n as i32` matches the
+    //   column-major leading dimension required by the LAPACK ABI
+    //   (lda >= max(1, n)).
+    // - `a_ptr` points to the `n*n` f32 column-major buffer allocated at
+    //   line 547 by `upload_f32` from `a_col` (the row→col transpose at
+    //   line 546). cuSOLVER overwrites it in place with the LU factors:
+    //   L below the diagonal (unit diagonal implicit), U on and above.
+    // - `work_ptr` points to `d_work`, a workspace of `lwork.max(1)` f32
+    //   elements alloc'd at line 572 from the `Sgetrf_bufferSize` query at
+    //   line 561. `.max(1)` guards the rare zero-size case; cuSOLVER receives
+    //   the queried `lwork` so the buffer is at least the size it claimed.
+    // - `ipiv_ptr` points to `d_ipiv`, an `n`-element i32 buffer alloc'd at
+    //   line 553; cuSOLVER writes the 1-based row-permutation indices.
+    // - `info_ptr` points to `d_info`, a single-element i32 buffer alloc'd
+    //   at line 554; cuSOLVER writes the status code asynchronously on
+    //   `stream`. We synchronize at line 595 and branch on non-zero via
+    //   `read_dev_info` at line 597 (singular-matrix detection).
+    // - The four `_sync` guards keep `CudaSlice` borrows alive across the
+    //   FFI call so no concurrent reuse of these device pointers can occur
+    //   on `stream` for the duration of the launch.
+    // - Column-major contract: `d_a` came from `transpose_f32` at line 546
+    //   per file docstring (line 9-11); cuSOLVER's LAPACK-style Sgetrf
+    //   requires column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
@@ -607,8 +844,37 @@ pub fn gpu_solve_f32(
     // Reset devInfo for getrs.
     let mut d_info2 = alloc_zeros_i32(1, device)?;
 
-    // SAFETY: d_a now contains the LU factors, d_ipiv the pivot indices,
-    // d_b will be overwritten with the solution X. All are properly sized.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 543 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle is alive until `dn` is dropped at function exit; this call
+    //   completes before that.
+    // - `n`, `nrhs` were validated at line 538 (early-return on `n == 0`)
+    //   and are non-negative `usize`s narrowed to `i32`. `lda = n as i32`
+    //   and `ldb = n as i32` match the column-major leading dimensions
+    //   required by the LAPACK ABI (lda >= max(1, n), ldb >= max(1, n)).
+    // - `a_ptr` points to the `n*n` f32 column-major buffer allocated at
+    //   line 547 by `upload_f32` and overwritten in place by Sgetrf at
+    //   line 582 with the LU factors (L below diag with unit diagonal,
+    //   U on/above diag). Passed read-only here (`device_ptr`, not
+    //   `device_ptr_mut`) — Sgetrs reads the factorization.
+    // - `ipiv_ptr` points to `d_ipiv`, an `n`-element i32 buffer alloc'd at
+    //   line 553 and filled by Sgetrf at line 582 with 1-based row-permutation
+    //   indices; passed read-only here.
+    // - `b_ptr` points to `d_b`, an `n*nrhs` f32 column-major buffer alloc'd
+    //   at line 551 by `upload_f32` from `b_col` (the row→col transpose at
+    //   line 550); cuSOLVER overwrites it in place with the solution X.
+    // - `info_ptr` points to `d_info2`, a *fresh* single-element i32 buffer
+    //   alloc'd at line 608 (the earlier `d_info` at line 554 was already
+    //   read by Sgetrf's check at line 597); cuSOLVER writes the status
+    //   asynchronously on `stream`. We synchronize at line 633 and branch
+    //   on non-zero via `read_dev_info` at line 635.
+    // - The four `_sync` guards keep `CudaSlice` borrows alive across the
+    //   FFI call so no concurrent reuse can occur on `stream` for the
+    //   duration of the launch.
+    // - Column-major contract: both `d_a` (LU from Sgetrf) and `d_b` (RHS)
+    //   originated from `transpose_f32` at lines 546/550 per file docstring
+    //   (line 9-11); cuSOLVER's LAPACK-style Sgetrs requires column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner().device_ptr(&stream);
         let (ipiv_ptr, _ipiv_sync) = d_ipiv.inner().device_ptr(&stream);
@@ -688,7 +954,25 @@ pub fn gpu_solve_f64(
 
     // Query workspace for getrf.
     let mut lwork: i32 = 0;
-    // SAFETY: dn.cu() is valid, d_a contains n*n f64 elements.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 676 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle's lifetime is tied to `dn`, which lives for the rest of this
+    //   function — the FFI call is synchronous and completes before drop.
+    // - `n` was validated at line 671 (early-return on `n == 0`) and is a
+    //   non-negative `usize` narrowed to `i32`; `lda = n as i32` matches the
+    //   column-major leading dimension required by the LAPACK ABI
+    //   (lda >= max(1, n)).
+    // - `a_ptr` points to the `n*n` f64 column-major buffer allocated at
+    //   line 680 by `upload_f64` from `a_col` (the row→col transposed input
+    //   at line 679). This is a query-only call: cuSOLVER inspects `m`, `n`,
+    //   `lda` only and does not touch the matrix data, so the
+    //   `device_ptr_mut` borrow is harmless.
+    // - `&mut lwork` is a stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in elements (not bytes) per the upstream `Dgetrf_bufferSize` ABI.
+    // - Column-major contract: `d_a` came from `transpose_f64` at line 679
+    //   per file docstring at line 9-11; cuSOLVER's LAPACK-style Dgetrf
+    //   requires this layout.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnDgetrf_bufferSize(
@@ -705,7 +989,34 @@ pub fn gpu_solve_f64(
     let mut d_work = crate::transfer::alloc_zeros_f64(lwork.max(1) as usize, device)?;
 
     // LU factorization: A = P * L * U.
-    // SAFETY: All device pointers are valid allocations of the required sizes.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 676 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle outlives this call because `dn` lives until function exit.
+    // - `n` was validated at line 671 (early-return on `n == 0`) and is a
+    //   non-negative `usize` narrowed to `i32`. `lda = n as i32` matches the
+    //   column-major leading dimension required by the LAPACK ABI
+    //   (lda >= max(1, n)).
+    // - `a_ptr` points to the `n*n` f64 column-major buffer allocated at
+    //   line 680 by `upload_f64` from `a_col` (the row→col transpose at
+    //   line 679). cuSOLVER overwrites it in place with the LU factors:
+    //   L below the diagonal (unit diagonal implicit), U on and above.
+    // - `work_ptr` points to `d_work`, a workspace of `lwork.max(1)` f64
+    //   elements alloc'd at line 705 from the `Dgetrf_bufferSize` query at
+    //   line 694. `.max(1)` guards the rare zero-size case; cuSOLVER receives
+    //   the queried `lwork` so the buffer is at least the size it claimed.
+    // - `ipiv_ptr` points to `d_ipiv`, an `n`-element i32 buffer alloc'd at
+    //   line 686; cuSOLVER writes the 1-based row-permutation indices.
+    // - `info_ptr` points to `d_info`, a single-element i32 buffer alloc'd
+    //   at line 687; cuSOLVER writes the status code asynchronously on
+    //   `stream`. We synchronize at line 728 and branch on non-zero via
+    //   `read_dev_info` at line 730 (singular-matrix detection).
+    // - The four `_sync` guards keep `CudaSlice` borrows alive across the
+    //   FFI call so no concurrent reuse of these device pointers can occur
+    //   on `stream` for the duration of the launch.
+    // - Column-major contract: `d_a` came from `transpose_f64` at line 679
+    //   per file docstring (line 9-11); cuSOLVER's LAPACK-style Dgetrf
+    //   requires column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
@@ -740,8 +1051,37 @@ pub fn gpu_solve_f64(
     // Reset devInfo for getrs.
     let mut d_info2 = alloc_zeros_i32(1, device)?;
 
-    // SAFETY: d_a now contains the LU factors, d_ipiv the pivot indices,
-    // d_b will be overwritten with the solution X. All are properly sized.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 676 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle is alive until `dn` is dropped at function exit; this call
+    //   completes before that.
+    // - `n`, `nrhs` were validated at line 671 (early-return on `n == 0`)
+    //   and are non-negative `usize`s narrowed to `i32`. `lda = n as i32`
+    //   and `ldb = n as i32` match the column-major leading dimensions
+    //   required by the LAPACK ABI (lda >= max(1, n), ldb >= max(1, n)).
+    // - `a_ptr` points to the `n*n` f64 column-major buffer allocated at
+    //   line 680 by `upload_f64` and overwritten in place by Dgetrf at
+    //   line 715 with the LU factors (L below diag with unit diagonal,
+    //   U on/above diag). Passed read-only here (`device_ptr`, not
+    //   `device_ptr_mut`) — Dgetrs reads the factorization.
+    // - `ipiv_ptr` points to `d_ipiv`, an `n`-element i32 buffer alloc'd at
+    //   line 686 and filled by Dgetrf at line 715 with 1-based row-permutation
+    //   indices; passed read-only here.
+    // - `b_ptr` points to `d_b`, an `n*nrhs` f64 column-major buffer alloc'd
+    //   at line 684 by `upload_f64` from `b_col` (the row→col transpose at
+    //   line 683); cuSOLVER overwrites it in place with the solution X.
+    // - `info_ptr` points to `d_info2`, a *fresh* single-element i32 buffer
+    //   alloc'd at line 741 (the earlier `d_info` at line 687 was already
+    //   read by Dgetrf's check at line 730); cuSOLVER writes the status
+    //   asynchronously on `stream`. We synchronize at line 766 and branch
+    //   on non-zero via `read_dev_info` at line 768.
+    // - The four `_sync` guards keep `CudaSlice` borrows alive across the
+    //   FFI call so no concurrent reuse can occur on `stream` for the
+    //   duration of the launch.
+    // - Column-major contract: both `d_a` (LU from Dgetrf) and `d_b` (RHS)
+    //   originated from `transpose_f64` at lines 679/683 per file docstring
+    //   (line 9-11); cuSOLVER's LAPACK-style Dgetrs requires column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner().device_ptr(&stream);
         let (ipiv_ptr, _ipiv_sync) = d_ipiv.inner().device_ptr(&stream);
@@ -2540,7 +2880,25 @@ pub fn gpu_qr_f32(
 
     // Query workspace for geqrf.
     let mut lwork: i32 = 0;
-    // SAFETY: dn.cu() is valid, d_a contains m*n f32 elements.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 2533 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle's lifetime is tied to `dn`, which lives for the rest of this
+    //   function — the FFI call is synchronous and completes before drop.
+    // - `m`, `n` were validated at line 2527 (early-return on `m == 0 || n == 0`)
+    //   and are non-negative `usize`s narrowed to `i32`; `lda = m as i32`
+    //   matches the column-major leading dimension required by the LAPACK ABI
+    //   (lda >= max(1, m)).
+    // - `a_ptr` points to the `m*n` f32 column-major buffer allocated at
+    //   line 2537 by `upload_f32` from the `col_major` transpose at line 2536.
+    //   This is a query-only call: cuSOLVER inspects `m`, `n`, `lda` only and
+    //   does not touch the matrix data, so the `device_ptr_mut` borrow is
+    //   harmless even though no kernel is launched.
+    // - `&mut lwork` is a stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in elements (not bytes) per the upstream `Sgeqrf_bufferSize` ABI.
+    // - Column-major contract: `d_a` came from `transpose_f32` at line 2536
+    //   (row→col conversion) per file docstring at line 9-11; cuSOLVER's
+    //   LAPACK-style Sgeqrf requires this layout.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnSgeqrf_bufferSize(
@@ -2557,8 +2915,35 @@ pub fn gpu_qr_f32(
     let mut d_work = crate::transfer::alloc_zeros_f32(lwork.max(1) as usize, device)?;
 
     // Compute QR factorization (Householder form).
-    // SAFETY: All device pointers are valid. d_a is overwritten in-place
-    // with Householder reflectors (lower triangle) and R (upper triangle).
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 2533 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle is alive until `dn` is dropped at function exit, comfortably
+    //   outliving the synchronous FFI call.
+    // - `m`, `n` were validated at line 2527 (early-return on `m == 0 || n == 0`)
+    //   and `lda = m as i32` matches the column-major leading dimension
+    //   required by the LAPACK ABI (lda >= max(1, m)).
+    // - `a_ptr` points to the `m*n` f32 column-major buffer allocated at
+    //   line 2537 by `upload_f32` from `col_major` (the row→col transposed
+    //   input). cuSOLVER overwrites it in place: lower triangle holds
+    //   Householder reflectors, upper triangle holds R.
+    // - `tau_ptr` points to `d_tau`, a `k`-element (k = min(m,n), line 2531)
+    //   f32 buffer allocated at line 2538; cuSOLVER writes the scalar factors
+    //   of the elementary reflectors.
+    // - `work_ptr` points to `d_work`, a workspace of `lwork.max(1)` f32
+    //   elements alloc'd at line 2557 from the `Sgeqrf_bufferSize` query at
+    //   line 2546. `.max(1)` guards the rare zero-size case; cuSOLVER receives
+    //   the queried `lwork` so the buffer is at least the size it requested.
+    // - `info_ptr` points to `d_info`, a single-element i32 buffer alloc'd
+    //   at line 2539; cuSOLVER writes the status code asynchronously on
+    //   `stream`. We synchronize at line 2582 and branch on non-zero via
+    //   `read_dev_info` at line 2584.
+    // - The four `_sync` guards keep `CudaSlice` borrows alive across the
+    //   FFI call so no concurrent reuse of these device pointers can occur
+    //   on `stream` for the duration of the launch.
+    // - Column-major contract: `d_a` came from `transpose_f32` at line 2536
+    //   per file docstring (line 9-11); cuSOLVER's LAPACK-style Sgeqrf
+    //   requires column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (tau_ptr, _tau_sync) = d_tau.inner_mut().device_ptr_mut(&stream);
@@ -2608,7 +2993,31 @@ pub fn gpu_qr_f32(
     // Sorgqr overwrites d_a in-place: the first k columns become Q (m-by-k, column-major).
     let mut lwork_orgqr: i32 = 0;
 
-    // SAFETY: dn.cu() is valid, d_a and d_tau contain valid QR factorization data.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 2533 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle outlives this query because `dn` lives until function exit.
+    // - `m`, `k` were validated/derived upstream: `m` is the row count from
+    //   the function signature (line 2521) — non-zero because we early-return
+    //   on `m == 0 || n == 0` at line 2527; `k = m.min(n)` (line 2531) and
+    //   `lda = m as i32` matches the column-major leading dimension required
+    //   by the LAPACK ABI (lda >= max(1, m)).
+    // - `a_ptr` points to the `m*n` f32 column-major buffer allocated at
+    //   line 2537 by `upload_f32` and overwritten in place by Sgeqrf at
+    //   line 2568 with Householder vectors (lower triangle) and R (upper
+    //   triangle); passed read-only here for the bufferSize inspection.
+    // - `tau_ptr` points to `d_tau`, a `k`-element f32 buffer allocated at
+    //   line 2538 and populated with reflector scalars by Sgeqrf at line
+    //   2568; passed read-only here.
+    // - `&mut lwork_orgqr` is a stack-resident `i32`; cuSOLVER writes the
+    //   workspace size in elements (not bytes) per the upstream
+    //   `Sorgqr_bufferSize` ABI documentation.
+    // - This is a query-only call: it inspects `m`, `k`, `lda` only and does
+    //   not read or modify the matrix data, so the read-only `device_ptr`
+    //   borrow does not race with any concurrent stream activity.
+    // - Column-major contract: `d_a` originated from `transpose_f32` at line
+    //   2536 (row→col) per file docstring (line 9-11); the LAPACK ABI requires
+    //   column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner().device_ptr(&stream);
         let (tau_ptr, _tau_sync) = d_tau.inner().device_ptr(&stream);
@@ -2628,8 +3037,40 @@ pub fn gpu_qr_f32(
     let mut d_work2 = crate::transfer::alloc_zeros_f32(lwork_orgqr.max(1) as usize, device)?;
     let mut d_info2 = alloc_zeros_i32(1, device)?;
 
-    // SAFETY: d_a contains the Householder reflectors from geqrf, d_tau the
-    // scalar factors. Sorgqr overwrites the first k columns of d_a with Q.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 2533 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle is alive until `dn` is dropped at function exit; this call
+    //   completes before that.
+    // - `m`, `k` were validated/derived upstream: `m` is the row count
+    //   (line 2521 signature, non-zero by the line 2527 early-return);
+    //   `k = m.min(n)` (line 2531) is the number of Householder reflectors
+    //   written by Sgeqrf at line 2568. `lda = m as i32` matches the
+    //   column-major leading dimension required by the LAPACK ABI
+    //   (lda >= max(1, m)).
+    // - `a_ptr` points to the `m*n` f32 column-major buffer allocated at
+    //   line 2537 by `upload_f32`; its lower triangle currently holds the
+    //   Householder vectors written by Sgeqrf (line 2568). cuSOLVER
+    //   overwrites the first `k` columns with the explicit Q factor.
+    // - `tau_ptr` points to `d_tau`, a `k`-element f32 buffer allocated at
+    //   line 2538 and filled by Sgeqrf (line 2568) with the scalar factors
+    //   of the elementary reflectors; passed read-only here.
+    // - `work_ptr` points to `d_work2`, a workspace of `lwork_orgqr.max(1)`
+    //   f32 elements allocated at line 2628 from the `Sorgqr_bufferSize`
+    //   query at line 2615. `.max(1)` guards the rare zero-size case;
+    //   cuSOLVER receives the queried `lwork_orgqr` so the buffer is at
+    //   least the size it claimed to need.
+    // - `info_ptr` points to `d_info2`, a single-element i32 buffer alloc'd
+    //   at line 2629; cuSOLVER writes the status code asynchronously on
+    //   `stream`. We synchronize at line 2654 and branch on non-zero via
+    //   `read_dev_info` at line 2656.
+    // - The four `_sync` guards (`_a_sync`, `_tau_sync`, `_work_sync`,
+    //   `_info_sync`) keep the `CudaSlice` borrows alive across the FFI
+    //   call so no concurrent reuse of these device pointers can occur on
+    //   `stream` for the duration of the launch.
+    // - Column-major contract: `d_a` was produced by `transpose_f32` at
+    //   line 2536 (row→col conversion) per file docstring (line 9-11);
+    //   cuSOLVER's LAPACK-style Sorgqr requires column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (tau_ptr, _tau_sync) = d_tau.inner().device_ptr(&stream);
@@ -2707,7 +3148,25 @@ pub fn gpu_qr_f64(
 
     // Query workspace for geqrf.
     let mut lwork: i32 = 0;
-    // SAFETY: dn.cu() is valid, d_a contains m*n f64 elements.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 2700 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle's lifetime is tied to `dn`, which lives for the rest of this
+    //   function — the FFI call is synchronous and completes before drop.
+    // - `m`, `n` were validated at line 2694 (early-return on `m == 0 || n == 0`)
+    //   and are non-negative `usize`s narrowed to `i32`; `lda = m as i32`
+    //   matches the column-major leading dimension required by the LAPACK ABI
+    //   (lda >= max(1, m)).
+    // - `a_ptr` points to the `m*n` f64 column-major buffer allocated at
+    //   line 2704 by `upload_f64` from the `col_major` transpose at line 2703.
+    //   This is a query-only call: cuSOLVER inspects `m`, `n`, `lda` only and
+    //   does not touch the matrix data, so the `device_ptr_mut` borrow is
+    //   harmless even though no kernel is launched.
+    // - `&mut lwork` is a stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in elements (not bytes) per the upstream `Dgeqrf_bufferSize` ABI.
+    // - Column-major contract: `d_a` came from `transpose_f64` at line 2703
+    //   (row→col conversion) per file docstring at line 9-11; cuSOLVER's
+    //   LAPACK-style Dgeqrf requires this layout.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnDgeqrf_bufferSize(
@@ -2724,8 +3183,35 @@ pub fn gpu_qr_f64(
     let mut d_work = crate::transfer::alloc_zeros_f64(lwork.max(1) as usize, device)?;
 
     // Compute QR factorization (Householder form).
-    // SAFETY: All device pointers are valid. d_a is overwritten in-place
-    // with Householder reflectors (lower triangle) and R (upper triangle).
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 2700 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle is alive until `dn` is dropped at function exit, comfortably
+    //   outliving the synchronous FFI call.
+    // - `m`, `n` were validated at line 2694 (early-return on `m == 0 || n == 0`)
+    //   and `lda = m as i32` matches the column-major leading dimension
+    //   required by the LAPACK ABI (lda >= max(1, m)).
+    // - `a_ptr` points to the `m*n` f64 column-major buffer allocated at
+    //   line 2704 by `upload_f64` from `col_major` (the row→col transposed
+    //   input). cuSOLVER overwrites it in place: lower triangle holds
+    //   Householder reflectors, upper triangle holds R.
+    // - `tau_ptr` points to `d_tau`, a `k`-element (k = min(m,n), line 2698)
+    //   f64 buffer allocated at line 2705; cuSOLVER writes the scalar factors
+    //   of the elementary reflectors.
+    // - `work_ptr` points to `d_work`, a workspace of `lwork.max(1)` f64
+    //   elements alloc'd at line 2724 from the `Dgeqrf_bufferSize` query at
+    //   line 2713. `.max(1)` guards the rare zero-size case; cuSOLVER receives
+    //   the queried `lwork` so the buffer is at least the size it requested.
+    // - `info_ptr` points to `d_info`, a single-element i32 buffer alloc'd
+    //   at line 2706; cuSOLVER writes the status code asynchronously on
+    //   `stream`. We synchronize at line 2749 and branch on non-zero via
+    //   `read_dev_info` at line 2751.
+    // - The four `_sync` guards keep `CudaSlice` borrows alive across the
+    //   FFI call so no concurrent reuse of these device pointers can occur
+    //   on `stream` for the duration of the launch.
+    // - Column-major contract: `d_a` came from `transpose_f64` at line 2703
+    //   per file docstring (line 9-11); cuSOLVER's LAPACK-style Dgeqrf
+    //   requires column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (tau_ptr, _tau_sync) = d_tau.inner_mut().device_ptr_mut(&stream);
@@ -2775,7 +3261,31 @@ pub fn gpu_qr_f64(
     // Dorgqr overwrites d_a in-place: the first k columns become Q (m-by-k, column-major).
     let mut lwork_orgqr: i32 = 0;
 
-    // SAFETY: dn.cu() is valid, d_a and d_tau contain valid QR factorization data.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 2700 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle outlives this query because `dn` lives until function exit.
+    // - `m`, `k` were validated/derived upstream: `m` is the row count from
+    //   the function signature (line 2691) — non-zero because we early-return
+    //   on `m == 0 || n == 0` at line 2694; `k = m.min(n)` (line 2698) and
+    //   `lda = m as i32` matches the column-major leading dimension required
+    //   by the LAPACK ABI (lda >= max(1, m)).
+    // - `a_ptr` points to the `m*n` f64 column-major buffer allocated at
+    //   line 2704 by `upload_f64` and overwritten in place by Dgeqrf at
+    //   line 2735 with Householder vectors (lower triangle) and R (upper
+    //   triangle); passed read-only here for the bufferSize inspection.
+    // - `tau_ptr` points to `d_tau`, a `k`-element f64 buffer allocated at
+    //   line 2705 and populated with reflector scalars by Dgeqrf at line
+    //   2735; passed read-only here.
+    // - `&mut lwork_orgqr` is a stack-resident `i32`; cuSOLVER writes the
+    //   workspace size in elements (not bytes) per the upstream
+    //   `Dorgqr_bufferSize` ABI documentation.
+    // - This is a query-only call: it inspects `m`, `k`, `lda` only and does
+    //   not read or modify the matrix data, so the read-only `device_ptr`
+    //   borrow does not race with any concurrent stream activity.
+    // - Column-major contract: `d_a` originated from `transpose_f64` at line
+    //   2703 (row→col) per file docstring (line 9-11); the LAPACK ABI requires
+    //   column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner().device_ptr(&stream);
         let (tau_ptr, _tau_sync) = d_tau.inner().device_ptr(&stream);
@@ -2795,8 +3305,39 @@ pub fn gpu_qr_f64(
     let mut d_work2 = crate::transfer::alloc_zeros_f64(lwork_orgqr.max(1) as usize, device)?;
     let mut d_info2 = alloc_zeros_i32(1, device)?;
 
-    // SAFETY: d_a contains the Householder reflectors from geqrf, d_tau the
-    // scalar factors. Dorgqr overwrites the first k columns of d_a with Q.
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 2700 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle is alive until `dn` is dropped at function exit; this call
+    //   completes before that.
+    // - `m`, `k` were validated/derived upstream: `m` is the original row
+    //   count (line 2691 signature), `k = m.min(n)` (line 2698) is the
+    //   number of Householder reflectors written by Dgeqrf at line 2735.
+    //   `lda = m as i32` is the column-major leading dimension required by
+    //   the LAPACK ABI (lda >= max(1, m)).
+    // - `a_ptr` points to the `m*n` f64 column-major buffer allocated at
+    //   line 2704 by `upload_f64`; its lower triangle currently holds the
+    //   Householder vectors written by Dgeqrf (line 2735). cuSOLVER
+    //   overwrites the first `k` columns with the explicit Q factor.
+    // - `tau_ptr` points to `d_tau`, a `k`-element f64 buffer allocated at
+    //   line 2705 and filled by Dgeqrf (line 2735) with the scalar factors
+    //   of the elementary reflectors; passed read-only here.
+    // - `work_ptr` points to `d_work2`, a workspace of `lwork_orgqr.max(1)`
+    //   f64 elements allocated at line 2795 from the `Dorgqr_bufferSize`
+    //   query at line 2782. `.max(1)` guards the rare zero-size case;
+    //   cuSOLVER receives the queried `lwork_orgqr` so the buffer is at
+    //   least the size it claimed to need.
+    // - `info_ptr` points to `d_info2`, a single-element i32 buffer alloc'd
+    //   at line 2796; cuSOLVER writes the status code asynchronously on
+    //   `stream`. We synchronize at line 2821 and branch on non-zero via
+    //   `read_dev_info` at line 2823.
+    // - The four `_sync` guards (`_a_sync`, `_tau_sync`, `_work_sync`,
+    //   `_info_sync`) keep the `CudaSlice` borrows alive across the FFI
+    //   call so no concurrent reuse of these device pointers can occur on
+    //   `stream` for the duration of the launch.
+    // - Column-major contract: `d_a` was produced by `transpose_f64` at
+    //   line 2703 (row→col conversion) per file docstring (line 9-11);
+    //   cuSOLVER's LAPACK-style Dorgqr requires column-major.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (tau_ptr, _tau_sync) = d_tau.inner().device_ptr(&stream);

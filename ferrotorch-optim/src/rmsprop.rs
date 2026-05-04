@@ -57,6 +57,64 @@ impl Default for RmspropConfig {
     }
 }
 
+impl RmspropConfig {
+    /// Set the learning rate.
+    #[must_use]
+    pub fn with_lr(mut self, lr: f64) -> Self {
+        self.lr = lr;
+        self
+    }
+
+    /// Set the smoothing constant / decay rate for the running average of squared gradients.
+    #[must_use]
+    pub fn with_alpha(mut self, alpha: f64) -> Self {
+        self.alpha = alpha;
+        self
+    }
+
+    /// Set the term added to the denominator for numerical stability.
+    #[must_use]
+    pub fn with_eps(mut self, eps: f64) -> Self {
+        self.eps = eps;
+        self
+    }
+
+    /// Set the L2 penalty coefficient.
+    #[must_use]
+    pub fn with_weight_decay(mut self, weight_decay: f64) -> Self {
+        self.weight_decay = weight_decay;
+        self
+    }
+
+    /// Set the momentum factor.
+    #[must_use]
+    pub fn with_momentum(mut self, momentum: f64) -> Self {
+        self.momentum = momentum;
+        self
+    }
+
+    /// Enable or disable centered RMSprop (normalize by an estimate of the gradient variance).
+    #[must_use]
+    pub fn with_centered(mut self, centered: bool) -> Self {
+        self.centered = centered;
+        self
+    }
+
+    /// Set the maximize flag (when `true`, negate the gradient to maximize).
+    #[must_use]
+    pub fn with_maximize(mut self, maximize: bool) -> Self {
+        self.maximize = maximize;
+        self
+    }
+
+    /// Enable or disable the on-device tensor-op (foreach) update path.
+    #[must_use]
+    pub fn with_foreach(mut self, foreach: bool) -> Self {
+        self.foreach = foreach;
+        self
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Per-parameter state
 // ---------------------------------------------------------------------------
@@ -459,34 +517,34 @@ impl<T: Float> Optimizer<T> for Rmsprop<T> {
         self.param_groups.push(group);
     }
 
-    fn state_dict(&self) -> OptimizerState {
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
         for (&(gi, pi), pstate) in &self.state {
             let key = format!("group{gi}_param{pi}");
             let mut entry = HashMap::new();
-            entry.insert(
-                "square_avg".to_string(),
-                pstate
-                    .square_avg
-                    .iter()
-                    .map(|&v| v.to_f64().unwrap())
-                    .collect(),
-            );
+            let square_avg: Vec<f64> = pstate
+                .square_avg
+                .iter()
+                .map(|&v| cast::<T, f64>(v))
+                .collect::<FerrotorchResult<Vec<f64>>>()?;
+            entry.insert("square_avg".to_string(), square_avg);
             if let Some(ref ga) = pstate.grad_avg {
-                entry.insert(
-                    "grad_avg".to_string(),
-                    ga.iter().map(|&v| v.to_f64().unwrap()).collect(),
-                );
+                let grad_avg: Vec<f64> = ga
+                    .iter()
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
+                entry.insert("grad_avg".to_string(), grad_avg);
             }
             if let Some(ref mb) = pstate.momentum_buf {
-                entry.insert(
-                    "momentum_buf".to_string(),
-                    mb.iter().map(|&v| v.to_f64().unwrap()).collect(),
-                );
+                let momentum_buf: Vec<f64> = mb
+                    .iter()
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
+                entry.insert("momentum_buf".to_string(), momentum_buf);
             }
             out.insert(key, entry);
         }
-        out
+        Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
@@ -757,7 +815,9 @@ mod tests {
             opt.step().unwrap();
         }
 
-        let sd = opt.state_dict();
+        let sd = opt
+            .state_dict()
+            .expect("rmsprop state_dict must succeed in test");
         assert!(!sd.is_empty(), "state_dict should not be empty after steps");
 
         // Create a fresh optimizer and load the state.
@@ -774,7 +834,9 @@ mod tests {
         opt2.load_state_dict(&sd).unwrap();
 
         // Verify internal state was restored.
-        let sd2 = opt2.state_dict();
+        let sd2 = opt2
+            .state_dict()
+            .expect("rmsprop state_dict round-trip must succeed in test");
         assert_eq!(sd.len(), sd2.len());
         for (key, entry) in &sd {
             let entry2 = sd2.get(key).expect("key should exist after load");

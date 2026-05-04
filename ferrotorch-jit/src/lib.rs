@@ -51,9 +51,9 @@
     // their consume-and-return pattern; `#[must_use]` is noise.
     clippy::return_self_not_must_use,
 )]
-// `missing_docs` is held at warn while the crate-wide rustdoc pass is
-// tracked in a follow-up issue; flip to deny once that pass lands.
-#![allow(missing_docs)]
+// `missing_docs` flipped from `allow` to `deny` as part of the workspace-wide
+// rustdoc pass (#677).
+#![deny(missing_docs)]
 
 pub mod aot_autograd;
 pub mod autotune;

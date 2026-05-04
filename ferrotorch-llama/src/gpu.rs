@@ -857,17 +857,18 @@ fn build_rope_caches(
 /// Categorically map a [`ferrotorch_gpu::GpuError`] into the existing
 /// [`FerrotorchError`] taxonomy.
 ///
-/// This is a best-effort categorical mapping into existing variants —
-/// the audit's full fix (a new `FerrotorchError::Gpu(source)` variant
-/// that owns the source-chained error) is a workspace-coordination
-/// event and is tracked separately (see #699). Until that lands, every
-/// arm of this match preserves the original `GpuError` Debug output in
-/// its `message` so the underlying cause is visible to anyone reading
-/// the error string. Each arm picks the closest semantic variant; we
-/// avoid collapsing all GPU errors into `InvalidArgument` (which the
-/// previous implementation did) because OOM and PTX-compile failures
-/// are not a *parameter* problem and were misleading callers' bug
-/// triage.
+/// Clean-analog `GpuError` variants (shape / length / unsupported)
+/// keep their existing categorical mappings into matching
+/// `FerrotorchError` variants — those preserve callers' ability to
+/// `matches!(err, FerrotorchError::ShapeMismatch { .. })` for
+/// pre-existing branches. The remaining lossy variants
+/// (`InvalidDevice`, `DeviceMismatch`, `OutOfMemory`,
+/// `BudgetExceeded`, `PtxCompileFailed`, `Driver`, `Blas`, `Solver`,
+/// `Fft`, `InvalidState`, plus future `#[non_exhaustive]` additions)
+/// route through `FerrotorchError::Gpu { source }` so callers can
+/// downcast back to the original [`ferrotorch_gpu::GpuError`] via
+/// [`std::error::Error::source`] +
+/// [`downcast_ref`](std::error::Error::downcast_ref). Tracks #699.
 fn map_gpu_err(e: ferrotorch_gpu::GpuError) -> FerrotorchError {
     use ferrotorch_gpu::GpuError as G;
     match e {
@@ -878,44 +879,31 @@ fn map_gpu_err(e: ferrotorch_gpu::GpuError) -> FerrotorchError {
         G::LengthMismatch { a, b } => FerrotorchError::ShapeMismatch {
             message: format!("buffer length mismatch: {a} vs {b}"),
         },
-        // Device-selection problems map to the existing device taxonomy.
-        // `InvalidDevice` and `DeviceMismatch` carry usize ordinals; we
-        // surface the structured variant via Debug so the message is rich.
-        G::InvalidDevice { .. } | G::DeviceMismatch { .. } => FerrotorchError::Internal {
-            message: format!("gpu device error: {e:?}"),
-        },
-        // Unsupported (op, dtype) is the closest match to the existing
+        // Unsupported (op, dtype) maps to the existing
         // NotImplementedOnCuda variant; preserve the structured op.
-        G::Unsupported { op, dtype } => {
-            // op is &'static str — we can carry it through; dtype goes
-            // into the message so the diagnostic isn't lost.
-            let _ = dtype; // dtype kept in Debug fallback below if needed
-            FerrotorchError::NotImplementedOnCuda { op }
-        }
-        // Memory exhaustion is a runtime/resource condition, not a
-        // parameter problem.
-        G::OutOfMemory { .. } | G::BudgetExceeded { .. } => FerrotorchError::Internal {
-            message: format!("gpu memory error: {e:?}"),
+        // dtype is dropped from the categorical message but the source
+        // chain isn't preserved here — callers that want dtype must
+        // route through their own GpuError before reaching this layer.
+        G::Unsupported { op, dtype: _ } => FerrotorchError::NotImplementedOnCuda { op },
+        // Lossy variants: route through the new source-chained Gpu
+        // variant so callers can downcast back to GpuError. The wildcard
+        // arm below covers any future `#[non_exhaustive]` additions.
+        e @ (G::InvalidDevice { .. }
+        | G::DeviceMismatch { .. }
+        | G::OutOfMemory { .. }
+        | G::BudgetExceeded { .. }
+        | G::PtxCompileFailed { .. }
+        | G::Driver(_)
+        | G::Blas(_)
+        | G::Solver(_)
+        | G::Fft(_)
+        | G::InvalidState { .. }) => FerrotorchError::Gpu {
+            source: Box::new(e),
         },
-        // PTX compile failures are environment/toolchain issues.
-        G::PtxCompileFailed { .. } => FerrotorchError::Internal {
-            message: format!("gpu kernel compile error: {e:?}"),
-        },
-        // Driver / cuBLAS / cuSOLVER / cuFFT errors are runtime CUDA
-        // failures; preserve via Debug formatting.
-        G::Driver(_) | G::Blas(_) | G::Solver(_) | G::Fft(_) => FerrotorchError::Internal {
-            message: format!("cuda runtime error: {e:?}"),
-        },
-        // Invalid-state is a logic/runtime invariant, not a parameter
-        // problem; route through Internal with the message preserved.
-        G::InvalidState { ref message } => FerrotorchError::Internal {
-            message: format!("gpu invalid state: {message}"),
-        },
-        // GpuError is `#[non_exhaustive]`; future variants fall through
-        // to Internal with full Debug output. Once the source-chain
-        // variant lands (#699) this becomes lossless.
-        other => FerrotorchError::Internal {
-            message: format!("gpu error: {other:?}"),
+        // GpuError is `#[non_exhaustive]`; future variants are routed
+        // through Gpu source-chain by default rather than stringified.
+        other => FerrotorchError::Gpu {
+            source: Box::new(other),
         },
     }
 }
@@ -924,11 +912,12 @@ fn map_gpu_err(e: ferrotorch_gpu::GpuError) -> FerrotorchError {
 ///
 /// Every CUDA driver error is a runtime/resource problem (allocation
 /// failure, kernel launch failure, context lost, etc.) — never a
-/// parameter problem. Routes through [`FerrotorchError::Internal`] with
-/// the Debug formatting of the upstream error so the exact CUresult
-/// code and any cudarc context is preserved in the message.
+/// parameter problem. Routes through [`FerrotorchError::Gpu`] so
+/// callers can recover the original `DriverError` via
+/// [`std::error::Error::source`] +
+/// [`downcast_ref::<cudarc::driver::DriverError>`](std::error::Error::downcast_ref).
 fn map_driver_err(e: cudarc::driver::DriverError) -> FerrotorchError {
-    FerrotorchError::Internal {
-        message: format!("cuda driver error: {e:?}"),
+    FerrotorchError::Gpu {
+        source: Box::new(e),
     }
 }

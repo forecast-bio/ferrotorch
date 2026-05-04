@@ -56,6 +56,64 @@ impl Default for AdafactorConfig {
     }
 }
 
+impl AdafactorConfig {
+    /// Set the learning rate (None = use relative step size).
+    #[must_use]
+    pub fn with_lr(mut self, lr: Option<f64>) -> Self {
+        self.lr = lr;
+        self
+    }
+
+    /// Set the coefficient for computing running averages of gradient (None = no first moment).
+    #[must_use]
+    pub fn with_beta1(mut self, beta1: Option<f64>) -> Self {
+        self.beta1 = beta1;
+        self
+    }
+
+    /// Set the decay rate for second moment row/column factors.
+    #[must_use]
+    pub fn with_decay_rate(mut self, decay_rate: f64) -> Self {
+        self.decay_rate = decay_rate;
+        self
+    }
+
+    /// Set the numerical stability epsilon for second moment.
+    #[must_use]
+    pub fn with_eps_sq(mut self, eps_sq: f64) -> Self {
+        self.eps_sq = eps_sq;
+        self
+    }
+
+    /// Set the numerical stability epsilon for the final update.
+    #[must_use]
+    pub fn with_eps_rms(mut self, eps_rms: f64) -> Self {
+        self.eps_rms = eps_rms;
+        self
+    }
+
+    /// Set the weight decay coefficient.
+    #[must_use]
+    pub fn with_weight_decay(mut self, weight_decay: f64) -> Self {
+        self.weight_decay = weight_decay;
+        self
+    }
+
+    /// Enable or disable relative step sizes.
+    #[must_use]
+    pub fn with_relative_step(mut self, relative_step: bool) -> Self {
+        self.relative_step = relative_step;
+        self
+    }
+
+    /// Enable or disable warmup initialization.
+    #[must_use]
+    pub fn with_warmup_init(mut self, warmup_init: bool) -> Self {
+        self.warmup_init = warmup_init;
+        self
+    }
+}
+
 #[derive(Debug)]
 struct AdafactorState {
     step_count: u64,
@@ -343,8 +401,8 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
         self.param_groups.push(group);
     }
 
-    fn state_dict(&self) -> OptimizerState {
-        OptimizerState::default()
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
+        Ok(OptimizerState::default())
     }
 
     fn load_state_dict(&mut self, _state: &OptimizerState) -> FerrotorchResult<()> {

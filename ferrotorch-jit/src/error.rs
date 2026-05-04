@@ -11,43 +11,87 @@ use ferrotorch_core::error::FerrotorchError;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum JitError {
+    /// Generic tracing-pipeline failure carrying a free-form diagnostic.
     #[error("tracing error: {message}")]
-    TracingError { message: String },
+    TracingError {
+        /// Human-readable description of the failure.
+        message: String,
+    },
 
+    /// Tracing encountered control flow that depends on a runtime tensor
+    /// value; only static control flow is supported.
     #[error(
         "data-dependent control flow detected at op '{op}': tracing requires static control flow"
     )]
-    DataDependentControlFlow { op: String },
+    DataDependentControlFlow {
+        /// Name of the op that triggered the data-dependent branch.
+        op: String,
+    },
 
+    /// The op encountered during tracing has no JIT lowering.
     #[error("unsupported operation during tracing: {op}")]
-    UnsupportedOp { op: String },
+    UnsupportedOp {
+        /// Name of the unsupported op.
+        op: String,
+    },
 
+    /// Inputs at call time disagreed with the shapes captured during tracing.
     #[error("shape mismatch: traced with {traced:?}, called with {actual:?}")]
     ShapeMismatch {
+        /// Shape recorded when the graph was traced.
         traced: Vec<usize>,
+        /// Shape supplied at the failing call site.
         actual: Vec<usize>,
     },
 
+    /// Backend code generation failed.
     #[error("codegen error: {message}")]
-    CodegenError { message: String },
+    CodegenError {
+        /// Human-readable description of the codegen failure.
+        message: String,
+    },
 
+    /// Serialising or deserialising a compiled artifact failed.
     #[error("serialization error: {message}")]
-    SerializationError { message: String },
+    SerializationError {
+        /// Human-readable description of the serialization failure.
+        message: String,
+    },
 
+    /// A traced op forced the JIT to fall back to eager execution
+    /// (graph break).
     #[error("graph break at op '{op}': {reason}")]
-    GraphBreak { op: String, reason: String },
+    GraphBreak {
+        /// Name of the op that caused the break.
+        op: String,
+        /// Why the op cannot be captured in the graph.
+        reason: String,
+    },
 
+    /// An op blocks export mode (which requires `fullgraph` capture).
     #[error(
         "export error at op '{op}': {reason} (export mode requires fullgraph — no graph breaks allowed)"
     )]
-    ExportError { op: String, reason: String },
+    ExportError {
+        /// Name of the op that blocked export.
+        op: String,
+        /// Why the op cannot be exported.
+        reason: String,
+    },
 
+    /// An invalid argument was supplied to the JIT API.
     #[error("parameter error: {message}")]
-    ParameterError { message: String },
+    ParameterError {
+        /// Human-readable description of the bad parameter.
+        message: String,
+    },
 
+    /// Dynamic recompilation for a new input shape failed.
     #[error("recompilation failed for shape {shape:?}: {message}")]
     RecompilationError {
+        /// Per-input shapes that triggered the recompilation attempt.
         shape: Vec<Vec<usize>>,
+        /// Human-readable description of the failure.
         message: String,
     },
 
@@ -63,7 +107,12 @@ pub enum JitError {
          (ferrotorch-jit does not yet wire generated {target} source to a GPU runtime; \
          use a CPU InductorTarget or a ferrotorch-gpu backend instead)"
     )]
-    GpuBackendUnavailable { target: String, reason: String },
+    GpuBackendUnavailable {
+        /// Name of the requested GPU target (e.g. `"cuda"`, `"wgpu"`).
+        target: String,
+        /// Why the runtime for this target is not wired up in this build.
+        reason: String,
+    },
 }
 
 impl From<JitError> for FerrotorchError {

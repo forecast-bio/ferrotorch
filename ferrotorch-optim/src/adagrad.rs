@@ -53,6 +53,57 @@ impl Default for AdagradConfig {
     }
 }
 
+impl AdagradConfig {
+    /// Set the base learning rate.
+    #[must_use]
+    pub fn with_lr(mut self, lr: f64) -> Self {
+        self.lr = lr;
+        self
+    }
+
+    /// Set the learning rate decay applied per step.
+    #[must_use]
+    pub fn with_lr_decay(mut self, lr_decay: f64) -> Self {
+        self.lr_decay = lr_decay;
+        self
+    }
+
+    /// Set the L2 penalty (weight decay).
+    #[must_use]
+    pub fn with_weight_decay(mut self, weight_decay: f64) -> Self {
+        self.weight_decay = weight_decay;
+        self
+    }
+
+    /// Set the initial value for the accumulator.
+    #[must_use]
+    pub fn with_initial_accumulator_value(mut self, initial_accumulator_value: f64) -> Self {
+        self.initial_accumulator_value = initial_accumulator_value;
+        self
+    }
+
+    /// Set the small constant for numerical stability.
+    #[must_use]
+    pub fn with_eps(mut self, eps: f64) -> Self {
+        self.eps = eps;
+        self
+    }
+
+    /// Set the maximize flag (when `true`, negate the gradient to maximize).
+    #[must_use]
+    pub fn with_maximize(mut self, maximize: bool) -> Self {
+        self.maximize = maximize;
+        self
+    }
+
+    /// Enable or disable the on-device tensor-op (foreach) update path.
+    #[must_use]
+    pub fn with_foreach(mut self, foreach: bool) -> Self {
+        self.foreach = foreach;
+        self
+    }
+}
+
 /// Per-parameter state maintained by Adagrad.
 #[derive(Debug)]
 struct AdagradParamState<T: Float> {
@@ -392,7 +443,7 @@ impl<T: Float> Optimizer<T> for Adagrad<T> {
         self.param_groups.push(group);
     }
 
-    fn state_dict(&self) -> OptimizerState {
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = HashMap::new();
         for (&(gi, pi), s) in &self.state {
             let key = format!("group{gi}_param{pi}");
@@ -408,7 +459,7 @@ impl<T: Float> Optimizer<T> for Adagrad<T> {
 
             out.insert(key, param_state);
         }
-        out
+        Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
@@ -712,7 +763,9 @@ mod tests {
 
         // Take a step to populate state.
         opt.step().unwrap();
-        let saved = opt.state_dict();
+        let saved = opt
+            .state_dict()
+            .expect("adagrad state_dict must succeed in test");
 
         // Create a fresh optimizer and load state.
         let param2 = Parameter::from_slice(&[1.0f32, 2.0, 3.0], &[3]).unwrap();

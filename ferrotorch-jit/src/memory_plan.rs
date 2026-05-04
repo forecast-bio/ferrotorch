@@ -1,3 +1,10 @@
+//! Static memory planning for the IR graph.
+//!
+//! Computes buffer-slot assignments by analysing per-value liveness ranges
+//! over a topological execution order, so non-overlapping values share the
+//! same slot. The resulting [`MemoryPlan`] feeds backend allocators that
+//! preallocate one buffer per slot instead of one per IR value.
+
 use std::collections::HashMap;
 
 use crate::graph::{IrGraph, IrNodeId, IrValueId};

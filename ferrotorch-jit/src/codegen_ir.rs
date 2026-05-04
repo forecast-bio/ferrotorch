@@ -31,19 +31,39 @@ pub enum Expr {
     IntConst(i64),
     /// Binary operation.
     BinOp {
+        /// The binary operator.
         op: BinOpKind,
+        /// Left-hand operand expression.
         lhs: Box<Expr>,
+        /// Right-hand operand expression.
         rhs: Box<Expr>,
     },
     /// Unary operation.
-    UnaryOp { op: UnaryOpKind, operand: Box<Expr> },
+    UnaryOp {
+        /// The unary operator.
+        op: UnaryOpKind,
+        /// The single operand expression.
+        operand: Box<Expr>,
+    },
     /// Named function call (e.g. `expf`, `logf`).
-    FnCall { name: String, args: Vec<Expr> },
+    FnCall {
+        /// Function identifier as it appears in the emitted source.
+        name: String,
+        /// Positional arguments.
+        args: Vec<Expr>,
+    },
     /// Indexed load: `buffer[index]`.
-    Index { buffer: String, index: Box<Expr> },
+    Index {
+        /// Name of the buffer being indexed.
+        buffer: String,
+        /// Linear-index expression.
+        index: Box<Expr>,
+    },
     /// Cast expression (used for index <-> float conversions).
     Cast {
+        /// Target type name as a backend-source string (e.g. `"f32"`, `"i64"`).
         target_type: String,
+        /// Expression being cast.
         operand: Box<Expr>,
     },
 }
@@ -51,25 +71,40 @@ pub enum Expr {
 /// Binary operator kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOpKind {
+    /// `lhs + rhs`.
     Add,
+    /// `lhs - rhs`.
     Sub,
+    /// `lhs * rhs`.
     Mul,
+    /// `lhs / rhs`.
     Div,
+    /// `lhs % rhs`.
     Mod,
 }
 
 /// Unary operator kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOpKind {
+    /// Arithmetic negation.
     Neg,
+    /// Natural exponential.
     Exp,
+    /// Natural logarithm.
     Log,
+    /// Square root.
     Sqrt,
+    /// Absolute value.
     Abs,
+    /// Logistic sigmoid.
     Sigmoid,
+    /// Hyperbolic tangent.
     Tanh,
+    /// Rectified linear unit.
     Relu,
+    /// Gaussian error linear unit.
     Gelu,
+    /// Sigmoid-weighted linear unit.
     Silu,
 }
 
@@ -85,27 +120,52 @@ pub enum UnaryOpKind {
 pub enum LoopIR {
     /// A loop: `for var in start..end { body }`.
     Loop {
+        /// Name of the induction variable.
         var: String,
+        /// Inclusive lower bound expression.
         start: Expr,
+        /// Exclusive upper bound expression.
         end: Expr,
+        /// Statements executed for each iteration.
         body: Vec<LoopIR>,
     },
     /// Store a value to an output buffer: `buffer[index] = value`.
     Store {
+        /// Name of the destination buffer.
         buffer: String,
+        /// Linear index into the buffer.
         index: Expr,
+        /// Value expression to write.
         value: Expr,
     },
     /// Declare and initialise a local variable: `let var = value`.
-    Let { var: String, value: Expr },
+    Let {
+        /// Name of the local being declared.
+        var: String,
+        /// Initialiser expression.
+        value: Expr,
+    },
     /// Assign to an existing local: `var = value`.
-    Assign { var: String, value: Expr },
+    Assign {
+        /// Name of the local being reassigned.
+        var: String,
+        /// New value expression.
+        value: Expr,
+    },
     /// Accumulate: `var += value`.
-    Accumulate { var: String, value: Expr },
+    Accumulate {
+        /// Name of the accumulator local.
+        var: String,
+        /// Value expression added to the accumulator.
+        value: Expr,
+    },
     /// Conditional: `if condition { then_body } else { else_body }`.
     If {
+        /// Boolean predicate expression.
         condition: Expr,
+        /// Statements executed when `condition` is true.
         then_body: Vec<LoopIR>,
+        /// Statements executed when `condition` is false (may be empty).
         else_body: Vec<LoopIR>,
     },
     /// A comment in the generated code (useful for debugging).

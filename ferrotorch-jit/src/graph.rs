@@ -1,3 +1,11 @@
+//! High-level IR graph used as the JIT's frontend representation.
+//!
+//! Each captured op becomes an [`IrNode`] and each tensor edge an
+//! [`IrValue`]; the [`IrGraph`] container threads them with an explicit
+//! input/output value list. Optimisation passes ([`mod@crate::optimize`],
+//! [`mod@crate::fusion`]) and the lowering path to
+//! [`mod@crate::codegen_ir`] consume this representation.
+
 /// A unique identifier for IR values (edges in the graph).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IrValueId(pub usize);
@@ -11,68 +19,110 @@ pub struct IrNodeId(pub usize);
 #[derive(Debug, Clone, PartialEq)]
 pub enum IrOpKind {
     // Inputs/outputs
+    /// Graph input placeholder; `index` is the position in the captured
+    /// argument list.
     Input {
+        /// Position of this input in the captured argument list.
         index: usize,
     },
+    /// Compile-time constant value embedded in the graph.
     Constant {
+        /// Flat row-major data buffer (always stored as `f64` and
+        /// down-cast at codegen).
         data: Vec<f64>,
+        /// Shape of the constant tensor.
         shape: Vec<usize>,
     },
+    /// Graph output marker; consumes the value to expose via the trace API.
     Output,
 
     // Arithmetic
+    /// Element-wise addition.
     Add,
+    /// Element-wise subtraction.
     Sub,
+    /// Element-wise multiplication.
     Mul,
+    /// Element-wise division.
     Div,
+    /// Element-wise negation.
     Neg,
     /// Raise each element to a fixed exponent. Special-cased separately from
     /// other unary ops because it carries an `exponent` parameter that must be
     /// preserved through optimization passes and codegen.
     Pow {
+        /// Constant exponent applied element-wise.
         exponent: f64,
     },
+    /// Element-wise square root.
     Sqrt,
+    /// Element-wise absolute value.
     Abs,
+    /// Element-wise natural exponential.
     Exp,
+    /// Element-wise natural logarithm.
     Log,
 
     // Reduction
+    /// Sum reduction over all elements.
     Sum,
+    /// Arithmetic-mean reduction over all elements.
     Mean,
+    /// Product reduction over all elements.
     Prod,
 
     // Linalg
+    /// Generalized matrix multiplication (broadcast-aware).
     Matmul,
+    /// 2-D matrix multiply (`[m, k] @ [k, n] -> [m, n]`).
     Mm,
+    /// Matrix-vector multiply (`[m, k] @ [k] -> [m]`).
     Mv,
+    /// Vector dot product.
     Dot,
+    /// Transpose the last two axes.
     Transpose,
     /// Fused linear: `output = input @ weight^T + bias`.
     /// Inputs: `[input, weight]` or `[input, weight, bias]`.
     Linear,
 
     // Activation
+    /// `max(0, x)`.
     Relu,
+    /// Logistic sigmoid `1 / (1 + exp(-x))`.
     Sigmoid,
+    /// Hyperbolic tangent.
     Tanh,
+    /// Gaussian error linear unit.
     Gelu,
+    /// Sigmoid-weighted linear unit (`x * sigmoid(x)`).
     Silu,
+    /// Softmax over the last axis.
     Softmax,
+    /// Log-softmax over the last axis.
     LogSoftmax,
 
     // Shape
+    /// Reshape to the given shape; one entry may be `-1` for inferred.
     Reshape {
+        /// Target shape (one entry may be `-1` to infer).
         shape: Vec<isize>,
     },
+    /// Collapse all axes into a single dimension.
     Flatten,
+    /// Remove a length-1 axis at `axis`.
     Squeeze {
+        /// Axis to remove (must currently be length 1).
         axis: usize,
     },
+    /// Insert a length-1 axis at `axis`.
     Unsqueeze {
+        /// Axis at which to insert the new length-1 dimension.
         axis: usize,
     },
+    /// Concatenate inputs along `axis`.
     Cat {
+        /// Axis along which inputs are concatenated.
         axis: usize,
     },
 
@@ -85,13 +135,17 @@ pub enum IrOpKind {
     Scan,
 
     // Fused (created by optimization)
+    /// Fused element-wise op chain produced by the elementwise fusion pass.
+    /// `ops` stores the constituent operations in evaluation order.
     FusedElementwise {
+        /// Constituent element-wise ops, applied in order to each element.
         ops: Vec<IrOpKind>,
     },
 
     /// Fused Linear + activation: `activation(input @ weight^T + bias)`.
     /// Created by pattern fusion when Linear is followed by an activation.
     FusedLinearActivation {
+        /// The activation applied after the linear transform.
         activation: Box<IrOpKind>,
     },
 
@@ -99,6 +153,7 @@ pub enum IrOpKind {
     /// `softmax(Q @ K^T / sqrt(d_k)) @ V`.
     /// Created by pattern fusion when the SDPA pattern is detected.
     FusedAttention {
+        /// Head dimension `d_k` used for the `1 / sqrt(d_k)` scale.
         head_dim: usize,
     },
 }
@@ -106,26 +161,37 @@ pub enum IrOpKind {
 /// An IR value — an edge in the graph carrying shape/dtype metadata.
 #[derive(Debug, Clone)]
 pub struct IrValue {
+    /// Stable identifier for this value (edge).
     pub id: IrValueId,
+    /// Shape of the tensor flowing along this edge.
     pub shape: Vec<usize>,
+    /// Node that produces this value, or `None` if it is a graph input.
     pub producer: Option<IrNodeId>, // None for graph inputs
 }
 
 /// An IR node — a single operation in the graph.
 #[derive(Debug, Clone)]
 pub struct IrNode {
+    /// Stable identifier for this node.
     pub id: IrNodeId,
+    /// The operation kind this node performs.
     pub op: IrOpKind,
+    /// Input value IDs (edges) consumed by this node.
     pub inputs: Vec<IrValueId>,
+    /// Output value IDs (edges) produced by this node.
     pub outputs: Vec<IrValueId>,
 }
 
 /// The complete IR graph.
 #[derive(Debug, Clone)]
 pub struct IrGraph {
+    /// All nodes in the graph, indexed by [`IrNodeId`].
     pub nodes: Vec<IrNode>,
+    /// All values (edges) in the graph, indexed by [`IrValueId`].
     pub values: Vec<IrValue>,
+    /// Value IDs that act as graph inputs, in declaration order.
     pub input_values: Vec<IrValueId>,
+    /// Value IDs that act as graph outputs, in declaration order.
     pub output_values: Vec<IrValueId>,
     pub(crate) next_value_id: usize,
     pub(crate) next_node_id: usize,

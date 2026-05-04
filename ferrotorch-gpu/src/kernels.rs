@@ -5466,6 +5466,67 @@ END_MAX:
 }
 ";
 
+/// PTX source for `has_inf_nan_f32_kernel` (#687).
+///
+/// One thread inspects one f32 element. If its IEEE-754 exponent field is
+/// all-ones (`0x7F80_0000`), the element is non-finite (Inf or NaN — both
+/// share the all-ones exponent; mantissa zero gives Inf, non-zero gives
+/// NaN), and the thread sets the single-byte device-resident flag via
+/// `atom.global.or.b32`. The flag buffer must be pre-zeroed by the caller
+/// (`alloc_zeros::<u32>(1, ...)`); a non-zero result on host indicates at
+/// least one non-finite element was observed. The atomic guarantees races
+/// between concurrent writers compose correctly.
+///
+/// The bound check `setp.ge.u32 %p, %r_tid, %n_reg; @%p bra DONE` skips
+/// threads with `tid >= n` so OOB reads cannot occur.
+///
+/// Replaces the host-readback in `gpu_has_inf_nan` (#687): instead of
+/// downloading the full buffer (`n * 4` bytes) and scanning on CPU, this
+/// kernel produces a single 4-byte flag, reducing host-traffic by a factor
+/// of `n` and eliminating the per-element CPU loop.
+#[cfg(feature = "cuda")]
+pub(crate) const HAS_INF_NAN_F32_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry has_inf_nan_f32_kernel(
+    .param .u64 a_ptr,
+    .param .u32 n,
+    .param .u64 flag_ptr
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %bits, %exp_mask, %old;
+    .reg .u64 %a, %flag, %off;
+    .reg .pred %p;
+
+    ld.param.u64 %a, [a_ptr];
+    ld.param.u32 %n_reg, [n];
+    ld.param.u64 %flag, [flag_ptr];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %off, %a, %off;
+    ld.global.u32 %bits, [%off];
+
+    and.b32 %exp_mask, %bits, 0x7F800000;
+    setp.ne.u32 %p, %exp_mask, 0x7F800000;
+    @%p bra DONE;
+
+    atom.global.or.b32 %old, [%flag], 1;
+
+DONE:
+    ret;
+}
+";
+
 /// Fused masked-min reduction (#627). Kernel signature:
 ///   `(data, mask_f, n) -> partial_mins`
 /// where `mask_f[i]` is `1.0` for valid entries and `0.0` for masked.
@@ -11659,7 +11720,7 @@ pub fn gpu_index_select_1d(
         Ok(f) => f,
         Err(e) => {
             return Err(GpuError::PtxCompileFailed {
-                kernel: "gelu_backward_erf_kernel",
+                kernel: "index_select_1d_kernel",
                 source: e,
             });
         }
@@ -11739,7 +11800,7 @@ pub fn gpu_scatter_add_1d(
         Ok(f) => f,
         Err(e) => {
             return Err(GpuError::PtxCompileFailed {
-                kernel: "gelu_backward_erf_kernel",
+                kernel: "scatter_add_1d_kernel",
                 source: e,
             });
         }
@@ -12212,6 +12273,13 @@ pub fn gpu_reduce_sum(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cuda
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_reduce_sum",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[0.0f32], device);
     }
@@ -12310,6 +12378,13 @@ pub fn gpu_reduce_prod(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cud
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_reduce_prod",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[1.0_f32], device);
     }
@@ -12403,6 +12478,13 @@ pub fn gpu_reduce_min(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cuda
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_reduce_min",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[f32::INFINITY], device);
     }
@@ -12496,6 +12578,13 @@ pub fn gpu_reduce_max(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cuda
     use cudarc::driver::PushKernelArg;
 
     let n = a.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_reduce_max",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[f32::NEG_INFINITY], device);
     }
@@ -12599,6 +12688,13 @@ pub fn gpu_masked_reduce_min(
         });
     }
     let n = data.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_masked_reduce_min",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[f32::INFINITY], device);
     }
@@ -12703,6 +12799,13 @@ pub fn gpu_masked_reduce_max(
         });
     }
     let n = data.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_masked_reduce_max",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[f32::NEG_INFINITY], device);
     }
@@ -16210,6 +16313,13 @@ pub fn gpu_reduce_sum_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
     let n = a.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_reduce_sum_f64",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[0.0f64], device);
     }
@@ -16307,6 +16417,13 @@ pub fn gpu_reduce_min_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
     let n = a.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_reduce_min_f64",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[f64::INFINITY], device);
     }
@@ -16400,6 +16517,13 @@ pub fn gpu_reduce_max_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
     let n = a.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_reduce_max_f64",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[f64::NEG_INFINITY], device);
     }
@@ -16494,6 +16618,13 @@ pub fn gpu_reduce_prod_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
     let n = a.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_reduce_prod_f64",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[1.0_f64], device);
     }
@@ -16611,6 +16742,13 @@ pub fn gpu_masked_reduce_min_f64(
         });
     }
     let n = data.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_masked_reduce_min_f64",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[f64::INFINITY], device);
     }
@@ -16715,6 +16853,13 @@ pub fn gpu_masked_reduce_max_f64(
         });
     }
     let n = data.len();
+    if n > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_masked_reduce_max_f64",
+            expected: vec![u32::MAX as usize],
+            got: vec![n],
+        });
+    }
     if n == 0 {
         return cpu_to_gpu(&[f64::NEG_INFINITY], device);
     }
@@ -18131,7 +18276,7 @@ pub fn gpu_scatter_add_rows_f64(
         Ok(f) => f,
         Err(e) => {
             return Err(GpuError::PtxCompileFailed {
-                kernel: "scatter_add_rows_kernel",
+                kernel: "scatter_add_rows_f64_kernel",
                 source: e,
             });
         }
@@ -19331,7 +19476,7 @@ pub fn gpu_fill_f32(n: usize, scalar: f32, device: &GpuDevice) -> GpuResult<Cuda
         device.ordinal() as u32,
     )
     .map_err(|e| GpuError::PtxCompileFailed {
-        kernel: "scale_kernel",
+        kernel: "fill_f32_kernel",
         source: e,
     })?;
 
@@ -19375,24 +19520,39 @@ pub fn gpu_fill_f32(n: usize, scalar: f32, device: &GpuDevice) -> GpuResult<Cuda
     Ok(out)
 }
 
-/// Check whether a GPU buffer contains any inf or NaN values.
+/// Check whether a GPU buffer contains any inf or NaN values (#687).
 ///
-/// Downloads the buffer contents to the host and scans for non-finite
-/// values. This is correct for any buffer size and requires no custom
-/// reduction kernel.
+/// Launches the [`HAS_INF_NAN_F32_PTX`] reduction kernel: every thread
+/// inspects one f32 element, and on observing an Inf or NaN exponent
+/// pattern (`(bits & 0x7F80_0000) == 0x7F80_0000`) atomically OR-sets a
+/// single-element device-resident flag. The host then reads back exactly
+/// 4 bytes — the flag — instead of the entire buffer (`n * 4` bytes).
 ///
-/// For a future optimization, a dedicated GPU reduction kernel could be
-/// used to produce a single boolean flag on device, avoiding the full
-/// download. The current approach is already much faster than the old
-/// per-element CPU loop in `unscale_()` because the scaling itself
-/// runs on GPU — only the inf/NaN check touches the host.
+/// This replaces the prior implementation that synchronously downloaded
+/// the whole buffer and scanned on CPU. For a 1M-element f32 buffer the
+/// host transfer drops from 4 MiB to 4 bytes, eliminating the
+/// `O(n)`-bytes-per-call host roundtrip in mixed-precision training's
+/// `unscale_()` hot path.
+///
+/// Empty buffers short-circuit to `Ok(false)` without a launch.
+///
+/// On PTX compile failure, the default behaviour is to return
+/// [`GpuError::PtxCompileFailed`] per the §3 PyTorch-parity device-error
+/// policy. Callers who explicitly opt in by setting the
+/// `FERROTORCH_ENABLE_GPU_FALLBACK` environment variable get the legacy
+/// host-readback path with a `tracing::warn!` per call.
 ///
 /// # Errors
 ///
 /// - [`GpuError::DeviceMismatch`] if `a` and `device` refer to different CUDA devices.
+/// - [`GpuError::PtxCompileFailed`] if the JIT rejects [`HAS_INF_NAN_F32_PTX`]
+///   and `FERROTORCH_ENABLE_GPU_FALLBACK` is unset.
+/// - [`GpuError::ShapeMismatch`] if `a.len() > u32::MAX` (via [`launch_cfg`]).
 /// - [`GpuError::Driver`] on CUDA runtime errors.
 #[cfg(feature = "cuda")]
 pub fn gpu_has_inf_nan(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<bool> {
+    use cudarc::driver::PushKernelArg;
+
     let n = a.len();
     if n == 0 {
         return Ok(false);
@@ -19400,8 +19560,93 @@ pub fn gpu_has_inf_nan(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<boo
 
     validate_unary(a, device)?;
 
-    let host: Vec<f32> = crate::transfer::gpu_to_cpu(a, device)?;
-    Ok(host.iter().any(|v| !v.is_finite()))
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        HAS_INF_NAN_F32_PTX,
+        "has_inf_nan_f32_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            // §3 opt-in fallback per gpu-F's canonical device-error policy:
+            // default-off, env-gated, single `tracing::warn!` per call. Mirrors
+            // PyTorch's `PYTORCH_ENABLE_MPS_FALLBACK` shape verbatim.
+            if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+                tracing::warn!(
+                    target: "ferrotorch::gpu_fallback",
+                    kernel = "has_inf_nan_f32_kernel",
+                    error = %e,
+                    "PTX compile failed; falling back to host-readback. \
+                     Unset FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+                );
+                let host: Vec<f32> = crate::transfer::gpu_to_cpu(a, device)?;
+                return Ok(host.iter().any(|v| !v.is_finite()));
+            }
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "has_inf_nan_f32_kernel",
+                source: e,
+            });
+        }
+    };
+
+    // Allocate the 1-element flag, zero-initialised. `alloc_zeros::<u32>` is
+    // mandatory (not `alloc::<u32>`): the kernel only writes the flag via
+    // `atom.global.or.b32`, so a stale non-zero would produce a false-positive.
+    let mut flag = crate::transfer::alloc_zeros::<u32>(1, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+
+    // SAFETY:
+    // - `f` is a valid `CudaFunction` for `has_inf_nan_f32_kernel`,
+    //   resolved via `module_cache::get_or_compile` immediately above
+    //   for `HAS_INF_NAN_F32_PTX`. Compile failure is intercepted by
+    //   the surrounding `match` and either falls back (opt-in) or
+    //   returns `GpuError::PtxCompileFailed`, so reaching this line
+    //   implies a successfully JIT-compiled function whose entry-point
+    //   ABI is exactly `(a_ptr: u64, n: u32, flag_ptr: u64)` — three
+    //   args, matching the three `.arg(...)` calls below.
+    // - `a: &CudaBuffer<f32>` was confirmed on `device` by the
+    //   `validate_unary(a, device)?` guard at line 19497 (helper
+    //   defined at line 10570), so `a.inner()` produces a `CudaSlice`
+    //   on the same context as `stream`. The shared borrow lasts for
+    //   the duration of the kernel launch; the kernel reads `a[i]`
+    //   for `i in [0, n)` only, gated by the PTX bound check
+    //   `setp.ge.u32 %p, %r_tid, %n_reg; @%p bra DONE` (in
+    //   `HAS_INF_NAN_F32_PTX`). No writes to `a`.
+    // - `flag` was freshly allocated this call via
+    //   `alloc_zeros::<u32>(1, device)?` (helper defined at
+    //   transfer.rs:132), so it cannot alias `a` (different
+    //   allocation, different element type) and is exclusively
+    //   borrowed mutably through `flag.inner_mut()` for the launch.
+    //   Length is 1, so the only legal `[%flag]` access is the one
+    //   atomic OR — which the kernel's single
+    //   `atom.global.or.b32 %old, [%flag], 1` instruction performs.
+    //   Concurrent threads racing on the flag compose correctly under
+    //   the atomic; no other thread is reading `flag` during the
+    //   kernel.
+    // - `n_u32 = n as u32` cannot truncate: `launch_cfg(n)?` (defined
+    //   at line 10523) returns `Err(GpuError::ShapeMismatch)` when
+    //   `n > u32::MAX`, short-circuiting via `?` before this cast.
+    // - All three arg references (`a.inner()`, `&n_u32`,
+    //   `flag.inner_mut()`) outlive the `.launch(cfg)?` builder
+    //   chain. cudarc copies scalar params and queues the launch on
+    //   `stream`; stream sync to the host happens implicitly via the
+    //   subsequent `gpu_to_cpu(&flag, device)?` clone-dtoh.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a.inner())
+            .arg(&n_u32)
+            .arg(flag.inner_mut())
+            .launch(cfg)?;
+    }
+
+    // Read back exactly 4 bytes (the flag) — NOT the whole buffer.
+    let host: Vec<u32> = crate::transfer::gpu_to_cpu(&flag, device)?;
+    Ok(host[0] != 0)
 }
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
@@ -19675,7 +19920,7 @@ pub fn gpu_transpose_2d_into(
         device.ordinal() as u32,
     )
     .map_err(|e| GpuError::PtxCompileFailed {
-        kernel: "scatter_add_rows_kernel",
+        kernel: "transpose_2d_kernel",
         source: e,
     })?;
     let cfg = launch_cfg(total)?;
@@ -22345,7 +22590,7 @@ pub fn gpu_softmax_backward_f64(
         Ok(f) => f,
         Err(e) => {
             return Err(GpuError::PtxCompileFailed {
-                kernel: "softmax_backward_kernel",
+                kernel: "softmax_backward_f64_kernel",
                 source: e,
             });
         }
@@ -22430,7 +22675,7 @@ pub fn gpu_log_softmax_f64(
         Ok(f) => f,
         Err(e) => {
             return Err(GpuError::PtxCompileFailed {
-                kernel: "softmax_backward_kernel",
+                kernel: "log_softmax_f64_kernel",
                 source: e,
             });
         }
@@ -23573,5 +23818,59 @@ mod tests {
             .expect("strided_copy_f64 transpose");
         let host = gpu_to_cpu(&out, &dev).expect("gpu_to_cpu f64");
         assert_eq!(host, vec![0.0, 3.0, 1.0, 4.0, 2.0, 5.0]);
+    }
+
+    // -- has_inf_nan_f32 (#687) ---------------------------------------------
+    //
+    // These tests exercise the real PTX reduction kernel
+    // `has_inf_nan_f32_kernel` end-to-end on the active CUDA device. They
+    // construct GPU buffers (not host buffers), call `gpu_has_inf_nan`, and
+    // assert against the expected boolean — the work is genuinely on the
+    // GPU, not behind a stub. Each test re-creates the device because the
+    // buffer-pool state is global and we want each test to be hermetic.
+
+    #[test]
+    fn has_inf_nan_f32_all_finite_returns_false() {
+        let host = vec![1.0_f32, 2.0, 3.0, -4.5, 0.0];
+        let (dev, buf) = setup(&host);
+        assert!(!gpu_has_inf_nan(&buf, &dev).expect("kernel must succeed"));
+    }
+
+    #[test]
+    fn has_inf_nan_f32_with_nan_returns_true() {
+        let host = vec![1.0_f32, f32::NAN, 3.0];
+        let (dev, buf) = setup(&host);
+        assert!(gpu_has_inf_nan(&buf, &dev).expect("kernel must succeed"));
+    }
+
+    #[test]
+    fn has_inf_nan_f32_with_inf_returns_true() {
+        let host = vec![1.0_f32, f32::INFINITY, 3.0];
+        let (dev, buf) = setup(&host);
+        assert!(gpu_has_inf_nan(&buf, &dev).expect("kernel must succeed"));
+    }
+
+    #[test]
+    fn has_inf_nan_f32_with_neg_inf_returns_true() {
+        let host = vec![1.0_f32, f32::NEG_INFINITY, 3.0];
+        let (dev, buf) = setup(&host);
+        assert!(gpu_has_inf_nan(&buf, &dev).expect("kernel must succeed"));
+    }
+
+    #[test]
+    fn has_inf_nan_f32_empty_buffer_returns_false() {
+        let dev = GpuDevice::new(0).expect("CUDA device 0");
+        let buf = crate::transfer::alloc_zeros_f32(0, &dev).expect("alloc empty");
+        assert!(!gpu_has_inf_nan(&buf, &dev).expect("must short-circuit"));
+    }
+
+    #[test]
+    fn has_inf_nan_f32_large_finite_returns_false() {
+        // Cover the case where the kernel runs across many blocks (n > BLOCK
+        // size = 256) so the bound check and atomic-or both exercise the
+        // multi-block path.
+        let host: Vec<f32> = (0..10_000).map(|i| i as f32 * 0.5).collect();
+        let (dev, buf) = setup(&host);
+        assert!(!gpu_has_inf_nan(&buf, &dev).expect("kernel must succeed"));
     }
 }

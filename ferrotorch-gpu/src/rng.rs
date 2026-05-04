@@ -490,9 +490,17 @@ pub fn cuda_rng_manager() -> &'static Mutex<CudaRngManager> {
 /// # Returns
 ///
 /// A vector of `PhiloxState` in the same order as `devices`.
-pub fn fork_rng(devices: &[usize]) -> Vec<PhiloxState> {
-    let mut mgr = CUDA_RNG_MANAGER.lock().unwrap();
-    devices.iter().map(|&d| mgr.get_rng_state(d)).collect()
+///
+/// # Errors
+///
+/// Returns [`GpuError::InvalidState`] if the global RNG manager mutex is
+/// poisoned (would only happen if a prior caller panicked while holding
+/// the lock).
+pub fn fork_rng(devices: &[usize]) -> GpuResult<Vec<PhiloxState>> {
+    let mut mgr = CUDA_RNG_MANAGER.lock().map_err(|e| GpuError::InvalidState {
+        message: format!("CUDA RNG manager mutex poisoned: {e}"),
+    })?;
+    Ok(devices.iter().map(|&d| mgr.get_rng_state(d)).collect())
 }
 
 /// Restore RNG states for multiple devices from a previous [`fork_rng`] call.
@@ -502,21 +510,26 @@ pub fn fork_rng(devices: &[usize]) -> Vec<PhiloxState> {
 /// * `devices` — slice of device ordinals (must match the `fork_rng` call)
 /// * `states` — vector of `PhiloxState` to restore, in device order
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if `devices.len() != states.len()`.
-pub fn join_rng(devices: &[usize], states: Vec<PhiloxState>) {
-    assert_eq!(
-        devices.len(),
-        states.len(),
-        "join_rng: devices.len() ({}) != states.len() ({})",
-        devices.len(),
-        states.len()
-    );
-    let mut mgr = CUDA_RNG_MANAGER.lock().unwrap();
+/// - Returns [`GpuError::ShapeMismatch`] if `devices.len() != states.len()`.
+/// - Returns [`GpuError::InvalidState`] if the global RNG manager mutex is
+///   poisoned.
+pub fn join_rng(devices: &[usize], states: Vec<PhiloxState>) -> GpuResult<()> {
+    if devices.len() != states.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "join_rng",
+            expected: vec![devices.len()],
+            got: vec![states.len()],
+        });
+    }
+    let mut mgr = CUDA_RNG_MANAGER.lock().map_err(|e| GpuError::InvalidState {
+        message: format!("CUDA RNG manager mutex poisoned: {e}"),
+    })?;
     for (&device, state) in devices.iter().zip(states) {
         mgr.set_rng_state(device, state);
     }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1707,7 +1720,7 @@ mod tests {
         }
 
         let devices = &[10, 11];
-        let states = fork_rng(devices);
+        let states = fork_rng(devices).expect("fork_rng must succeed in test");
 
         // Advance the generators
         {
@@ -1719,7 +1732,7 @@ mod tests {
         }
 
         // Restore
-        join_rng(devices, states);
+        join_rng(devices, states).expect("join_rng must succeed in test");
 
         // Verify restoration
         {
@@ -1732,10 +1745,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "devices.len()")]
-    fn fork_join_length_mismatch_panics() {
+    fn fork_join_length_mismatch_returns_shape_mismatch() {
         let states = vec![PhiloxState::new(0, 0)];
-        join_rng(&[0, 1], states);
+        let result = join_rng(&[0, 1], states);
+        assert!(matches!(
+            result,
+            Err(GpuError::ShapeMismatch {
+                op: "join_rng",
+                ..
+            })
+        ));
     }
 
     // -----------------------------------------------------------------------

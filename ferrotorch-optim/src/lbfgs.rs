@@ -81,6 +81,62 @@ impl LbfgsConfig {
     fn effective_max_eval(&self) -> usize {
         self.max_eval.unwrap_or(self.max_iter * 5 / 4)
     }
+
+    /// Set the learning rate / step size.
+    #[must_use]
+    pub fn with_lr(mut self, lr: f64) -> Self {
+        self.lr = lr;
+        self
+    }
+
+    /// Set the maximum number of iterations per `step()` call.
+    #[must_use]
+    pub fn with_max_iter(mut self, max_iter: usize) -> Self {
+        self.max_iter = max_iter;
+        self
+    }
+
+    /// Set the maximum number of function evaluations per `step()` call.
+    #[must_use]
+    pub fn with_max_eval(mut self, max_eval: Option<usize>) -> Self {
+        self.max_eval = max_eval;
+        self
+    }
+
+    /// Set the termination tolerance on the gradient infinity norm.
+    #[must_use]
+    pub fn with_tolerance_grad(mut self, tolerance_grad: f64) -> Self {
+        self.tolerance_grad = tolerance_grad;
+        self
+    }
+
+    /// Set the termination tolerance on the function value change.
+    #[must_use]
+    pub fn with_tolerance_change(mut self, tolerance_change: f64) -> Self {
+        self.tolerance_change = tolerance_change;
+        self
+    }
+
+    /// Set the number of curvature pairs to keep.
+    #[must_use]
+    pub fn with_history_size(mut self, history_size: usize) -> Self {
+        self.history_size = history_size;
+        self
+    }
+
+    /// Set the line search function.
+    #[must_use]
+    pub fn with_line_search_fn(mut self, line_search_fn: Option<LineSearchFn>) -> Self {
+        self.line_search_fn = line_search_fn;
+        self
+    }
+
+    /// Set the maximize flag (when `true`, negate the gradient to maximize).
+    #[must_use]
+    pub fn with_maximize(mut self, maximize: bool) -> Self {
+        self.maximize = maximize;
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -682,7 +738,7 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
         self.param_groups.push(group);
     }
 
-    fn state_dict(&self) -> OptimizerState {
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
 
         // Serialize each curvature pair under its index key.
@@ -721,7 +777,7 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
             out.insert("prev_grad".to_string(), entry);
         }
 
-        out
+        Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
@@ -1018,7 +1074,9 @@ mod tests {
         }
 
         // Save state.
-        let saved = opt.state_dict();
+        let saved = opt
+            .state_dict()
+            .expect("lbfgs state_dict must succeed in test");
         assert!(
             !saved.is_empty(),
             "state dict should be non-empty after steps"
@@ -1041,7 +1099,9 @@ mod tests {
         let mut opt2 = Lbfgs::new(vec![p2x, p2y], LbfgsConfig::default());
         opt2.load_state_dict(&saved).unwrap();
 
-        let loaded = opt2.state_dict();
+        let loaded = opt2
+            .state_dict()
+            .expect("lbfgs state_dict round-trip must succeed in test");
         assert_eq!(loaded["meta"]["n_iter"], saved["meta"]["n_iter"]);
         assert_eq!(loaded["meta"]["history_len"], saved["meta"]["history_len"]);
 
@@ -1174,44 +1234,20 @@ mod tests {
             },
         );
 
-        // We need a shared reference to the parameter that the closure can
-        // access independently of &mut opt. Clone the tensor each iteration
-        // by reading through a raw pointer — safe because step_with_closure
-        // only mutates params between closure calls, not during.
-        //
-        // The idiomatic way: extract the param pointer before the loop.
-        // step_with_closure sets params internally, so we read from the
-        // param_groups after each scatter.
+        // The closure needs to read the live parameter value but cannot hold
+        // `&opt` because `step_with_closure` takes `&mut self`. We clone the
+        // `Parameter` once per iteration and move the clone into the closure.
+        // `Parameter` wraps `Arc<Tensor<Arc<TensorInner>>>`, so the clone
+        // shares the same storage Arc as `opt.param_groups[0].params[0]`;
+        // when `step_with_closure` scatters new flat values into the
+        // parameter via `update_data`/`update_storage` (which mutate through
+        // `Arc::as_ptr`), the cloned `Parameter` observes those mutations
+        // because it points at the same `Arc<TensorInner>`. This is the
+        // safe equivalent of the previous raw-pointer read.
         for _ in 0..steps {
-            // Read current param value BEFORE the mutable borrow.
-            let param_ptr = &opt.param_groups[0].params[0] as *const Parameter<f64>;
-
-            opt.step_with_closure(|| {
-                // SAFETY: We dereference the raw pointer `param_ptr` to read
-                // the parameter's `Tensor<f64>` via `.tensor().clone()`.
-                // The pointee is `opt.param_groups[0].params[0]: Parameter<f64>`.
-                //  - Liveness: `opt` is on the enclosing function's stack and
-                //    is not moved/dropped between the pointer take and the
-                //    deref; the closure runs synchronously inside
-                //    `step_with_closure`, so `opt` outlives this read.
-                //  - Validity of the parameter slot: `step_with_closure`
-                //    scatters new flat values into the existing `Parameter`
-                //    handles before invoking the closure (it does not
-                //    replace the `Parameter` themselves), so the address at
-                //    `params[0]` remains valid for reads and the underlying
-                //    `Tensor`'s storage Arc is intact.
-                //  - Aliasing: this is a test-only escape hatch. A shared
-                //    `&Parameter<f64>` is reborrowed concurrently with
-                //    `step_with_closure`'s `&mut self` on `opt`. The
-                //    optimizer's `&mut self` does not actually mutate the
-                //    `Parameter` slot during the closure (only the
-                //    underlying tensor data via `update_data`), so under
-                //    Tree Borrows this read is sound, but it is on the
-                //    boundary of stacked borrows. FOLLOW-UP: replace this
-                //    test scaffolding with a Parameter clone passed by
-                //    value into the closure (Parameter wraps `Arc<Inner>`,
-                //    so the clone shares the same storage cheaply).
-                let x = unsafe { &*param_ptr }.tensor().clone();
+            let param = opt.param_groups[0].params[0].clone();
+            opt.step_with_closure(move || {
+                let x = param.tensor().clone();
                 let loss = pow(&x, 2.0).unwrap();
                 loss.backward().unwrap();
                 loss.item()
@@ -1251,30 +1287,18 @@ mod tests {
         );
 
         for _ in 0..5000 {
-            let px_ptr = &opt.param_groups[0].params[0] as *const Parameter<f64>;
-            let py_ptr = &opt.param_groups[0].params[1] as *const Parameter<f64>;
+            // Same construction as `run_quadratic_with_closure`: clone each
+            // `Parameter` once per iteration and move the clones into the
+            // closure. The clones share the same `Arc<TensorInner>` as
+            // `opt.param_groups[0].params[{0,1}]`, so writes performed by
+            // `step_with_closure` through `update_data`/`update_storage`
+            // are observed by these reads.
+            let px_clone = opt.param_groups[0].params[0].clone();
+            let py_clone = opt.param_groups[0].params[1].clone();
 
-            opt.step_with_closure(|| {
-                // SAFETY: same justification as the quadratic test above —
-                // `px_ptr` and `py_ptr` are raw pointers into
-                // `opt.param_groups[0].params[{0,1}]`, both of which:
-                //  - point into `opt`, which lives on this stack frame and
-                //    is not dropped/moved before the closure returns;
-                //  - reference distinct slots (`params[0]` vs. `params[1]`),
-                //    so deref-of-`px_ptr` and deref-of-`py_ptr` do not
-                //    alias each other;
-                //  - point at `Parameter` slots whose addresses are stable
-                //    across `step_with_closure` (it scatters new flat values
-                //    into the existing parameters; it does not relocate
-                //    them).
-                // Aliasing caveat (same as quadratic): each shared reborrow
-                // is concurrent with `step_with_closure`'s `&mut self` on
-                // `opt`. The optimizer does not mutate the `Parameter` slot
-                // through that `&mut`, only the underlying tensor data. See
-                // the FOLLOW-UP note above (replace with cloned Parameter
-                // captured by value).
-                let x = unsafe { &*px_ptr }.tensor().clone();
-                let y = unsafe { &*py_ptr }.tensor().clone();
+            opt.step_with_closure(move || {
+                let x = px_clone.tensor().clone();
+                let y = py_clone.tensor().clone();
 
                 let one =
                     Tensor::from_storage(TensorStorage::cpu(vec![1.0_f64]), vec![], false).unwrap();

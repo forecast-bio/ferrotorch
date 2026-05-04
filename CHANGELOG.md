@@ -44,6 +44,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `ferrotorch-ml::metrics` 2-D probability scoring metrics: `brier_score_loss` (binary, mean squared error of predicted probabilities), `d2_brier_score` (skill score relative to the null model), `top_k_accuracy_score` (true label is in top-K predicted classes; `[N, n_classes]` 2-D scores), `zero_one_loss` (with `normalize` flag for fraction-vs-count), `average_precision_score` (area under precision-recall curve). 9 new tests including known-value Brier checks and top-1/top-K parity vs argmax (#599)
 
 ### Fixed
+- ferrotorch-gpu: replace explicit host-readback has_inf_nan_f32 with real GPU kernel (#687)
+- ferrotorch-jit: documentation pass — write rustdoc for ~150 undocumented pub items (lift #![allow(missing_docs)]) (#677)
+- ferrotorch-optim follow-up: 5 SAFETY-flagged API-shape concerns from optim-B sweep (swa::apply_to(&self) mutation, lbfgs raw-ptr test scaffolding x3, ema::apply_shadow Arc-refcount) (#694)
+- ferrotorch-optim follow-up: change Optimizer::state_dict trait method to return FerrotorchResult<OptimizerState> (workspace-coordination — affects trait + 24 implementors + all consumers; closes 4 trait-blocked .to_f64().unwrap() sites in rmsprop/sgd state_dict impls) (#696)
 - Restore fast_log_f32; wire into vlog_f32 to fix +inf/NaN bug (#641)
 - Fix autograd cond/scan backward; wire fast_log_f32 into log_softmax CPU; delete dead BroadcastScalarBackward.numel (#640)
 - ferrotorch umbrella: expose jit-script/tokenize/mps/xpu/llama/ml features to match README (#639)
@@ -308,6 +312,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- address tracked follow-ups (#708, #709, #707, #702, #687, #692, #694, #696, #699, #703, #677) (#711)
+- FerrotorchError::Gpu source-chain variant (coordination from #698 llama-A) (#699)
+- ferrotorch-gpu missing_docs + missing_debug_implementations sweep (#703)
+- ferrotorch-optim follow-up: add with_* builder methods to all 17 *Config types (eliminate verbose mutate-after-default at call sites) (#692)
+- fork_rng / join_rng pub fn signature change to GpuResult (rng.rs:442, 464) (#702)
+- ferrotorch-gpu/cusolver.rs: 22 pre-existing weak SAFETY blocks (1-2 lines) need substantiation (#707)
+- kernels.rs reduce kernels saturating_add(n as u32, BLOCK-1) silently truncates for n > u32::MAX (#709)
+- kernels.rs:11743 wrong kernel name in PtxCompileFailed error (copy-paste from gelu_backward_erf into gpu_scatter_add_1d) (#708)
 - tensor_bridge.rs cpu_fallback else arms (add/sub/mul/neg/relu): silent CPU round-trip per §3 (#706)
 - Restore ops/higher_order.rs and migrate cond/scan canonical impl off cond_scan.rs (#642)
 - Copy crosslink-porting skills into ~/.claude/skills (#638)

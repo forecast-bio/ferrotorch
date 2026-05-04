@@ -32,6 +32,12 @@ use crate::interpreter;
 /// Type alias for a compiled execution closure.
 type CompiledExecFn = Box<dyn Fn(&[Vec<f64>]) -> FerrotorchResult<Vec<f64>> + Send + Sync>;
 
+/// A compiled IR graph plus shape metadata, ready to execute on flat `f64`
+/// inputs.
+///
+/// Constructed by [`Codegen::compile`]; the resulting closure takes one flat
+/// `Vec<f64>` per graph input and returns the flat output buffer, avoiding
+/// per-execution graph traversal.
 pub struct CompiledGraph {
     /// The compiled execution function.
     execute: CompiledExecFn,

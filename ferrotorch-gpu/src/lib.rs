@@ -8,12 +8,11 @@
 // gpu-B..gpu-F dispatches.
 #![warn(clippy::all, clippy::pedantic)]
 #![deny(rust_2018_idioms)]
-// `missing_debug_implementations` and `missing_docs` are held at `allow`
-// while the workspace-wide rustdoc / `Debug` follow-up is tracked separately.
-// Promoting either here unilaterally would impose a documentation sweep on
-// the frozen-file gpu-B..gpu-F dispatches that own those files.
+// `missing_debug_implementations` is held at `allow` while the workspace-wide
+// `Debug` follow-up is tracked separately. `missing_docs` flipped from `allow`
+// to `deny` as part of the workspace-wide rustdoc pass (#703).
 #![allow(missing_debug_implementations)]
-#![allow(missing_docs)]
+#![deny(missing_docs)]
 // Pedantic lints we explicitly accept across this crate. Each allow names a
 // concrete reason — the alternative would be churn-for-zero-benefit or a
 // worse API. Mirrors the ferrotorch-core baseline; add to this list only with

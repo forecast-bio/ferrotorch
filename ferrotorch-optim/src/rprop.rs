@@ -48,6 +48,29 @@ impl Default for RpropConfig {
     }
 }
 
+impl RpropConfig {
+    /// Set the initial learning rate / step size.
+    #[must_use]
+    pub fn with_lr(mut self, lr: f64) -> Self {
+        self.lr = lr;
+        self
+    }
+
+    /// Set the multiplicative decrease and increase factors `(eta_minus, eta_plus)`.
+    #[must_use]
+    pub fn with_etas(mut self, etas: (f64, f64)) -> Self {
+        self.etas = etas;
+        self
+    }
+
+    /// Set the minimum and maximum allowed step sizes.
+    #[must_use]
+    pub fn with_step_sizes(mut self, step_sizes: (f64, f64)) -> Self {
+        self.step_sizes = step_sizes;
+        self
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Per-parameter state
 // ---------------------------------------------------------------------------
@@ -238,7 +261,7 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
         self.param_groups.push(group);
     }
 
-    fn state_dict(&self) -> OptimizerState {
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
         for (key, ps) in &self.state {
             let mut entry = HashMap::new();
@@ -247,7 +270,7 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
             entry.insert("step_size".to_string(), ps.step_size.clone());
             out.insert(key.clone(), entry);
         }
-        out
+        Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
@@ -426,7 +449,9 @@ mod tests {
             opt.zero_grad().unwrap();
         }
 
-        let saved = opt.state_dict();
+        let saved = opt
+            .state_dict()
+            .expect("rprop state_dict must succeed in test");
         let key = Rprop::<f64>::param_key(0, 0);
         assert_eq!(saved[&key]["step_count"][0] as u64, 3);
         assert!(saved[&key].contains_key("prev_grad"));
@@ -436,7 +461,9 @@ mod tests {
         let mut opt2 = Rprop::new(vec![p2], RpropConfig::default());
         opt2.load_state_dict(&saved).unwrap();
 
-        let loaded = opt2.state_dict();
+        let loaded = opt2
+            .state_dict()
+            .expect("rprop state_dict round-trip must succeed in test");
         assert_eq!(loaded[&key]["step_count"], saved[&key]["step_count"]);
         assert_eq!(loaded[&key]["prev_grad"], saved[&key]["prev_grad"]);
         assert_eq!(loaded[&key]["step_size"], saved[&key]["step_size"]);

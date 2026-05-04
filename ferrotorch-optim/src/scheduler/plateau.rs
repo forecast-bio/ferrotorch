@@ -206,8 +206,8 @@ mod tests {
             &mut []
         }
         fn add_param_group(&mut self, _group: crate::optimizer::ParamGroup<f32>) {}
-        fn state_dict(&self) -> crate::optimizer::OptimizerState {
-            Default::default()
+        fn state_dict(&self) -> ferrotorch_core::FerrotorchResult<crate::optimizer::OptimizerState> {
+            Ok(Default::default())
         }
         fn load_state_dict(
             &mut self,

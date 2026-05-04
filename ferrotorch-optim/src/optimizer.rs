@@ -90,7 +90,15 @@ pub trait Optimizer<T: Float> {
     fn add_param_group(&mut self, group: ParamGroup<T>);
 
     /// Export optimizer state for checkpointing.
-    fn state_dict(&self) -> OptimizerState;
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if a numeric conversion (e.g. `T -> f64`) fails for a
+    /// concrete element type. Most implementations are infallible and always
+    /// return `Ok`; the fallible signature exists so impls that downcast
+    /// generic `T` values to `f64` (e.g. SGD's momentum buffers, RMSprop's
+    /// running averages) can propagate cast failures instead of panicking.
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState>;
 
     /// Load optimizer state from a checkpoint.
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()>;

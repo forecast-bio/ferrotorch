@@ -388,21 +388,12 @@ impl GpuBackend for CudaBackendImpl {
     }
 
     fn has_inf_nan_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<bool> {
-        // TODO #687: replace with a real GPU reduction kernel.
-        // The trait used to provide this body as a default impl, which made
-        // the synchronous device-to-host readback invisible at every call
-        // site. Moving the body here keeps behaviour identical but makes the
-        // host-readback explicit at the backend impl, where a real GPU
-        // kernel can be slotted in.
-        let bytes = self.gpu_to_cpu(a)?;
-        // SAFETY: gpu_to_cpu returns a byte buffer whose layout is exactly
-        // `bytes.len() / 4` consecutive `f32` values (4-byte little-endian
-        // IEEE 754). The pointer comes from a `Vec<u8>` which is
-        // 4-byte-aligned for f32 on every platform we support, and the
-        // resulting slice's lifetime is bounded by `bytes`.
-        let floats: &[f32] =
-            unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast::<f32>(), bytes.len() / 4) };
-        Ok(floats.iter().any(|v| !v.is_finite()))
+        // #687: dispatch to the real GPU reduction kernel. The kernel writes
+        // a single 4-byte flag on device; only that flag is read back to host,
+        // not the whole buffer.
+        let buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        crate::kernels::gpu_has_inf_nan(buf, dev).map_err(Self::map_gpu_err)
     }
 
     fn alloc_zeros(

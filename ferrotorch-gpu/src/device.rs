@@ -31,6 +31,12 @@ pub struct GpuDevice {
 
 #[cfg(feature = "cuda")]
 impl GpuDevice {
+    /// Initialize the CUDA device at the given ordinal.
+    ///
+    /// Creates a fresh `CudaContext`, takes its default stream, and
+    /// constructs a cached `CudaBlas` handle bound to that stream so
+    /// subsequent matmul/bmm ops reuse it instead of paying the
+    /// `cuModuleLoadData` cost per call.
     pub fn new(ordinal: usize) -> GpuResult<Self> {
         let ctx = CudaContext::new(ordinal)?;
         let stream = ctx.default_stream();
@@ -57,6 +63,10 @@ impl GpuDevice {
         })
     }
 
+    /// The shared `CudaContext` underlying this device.
+    ///
+    /// Required by `cudarc::driver::CudaModule` loaders and other low-level
+    /// APIs that need a context handle separate from the stream.
     #[inline]
     pub fn context(&self) -> &Arc<CudaContext> {
         &self.ctx
@@ -87,6 +97,7 @@ impl GpuDevice {
         &self.blas
     }
 
+    /// The 0-based ordinal of this CUDA device, as reported by the driver.
     #[inline]
     pub fn ordinal(&self) -> usize {
         self.ordinal

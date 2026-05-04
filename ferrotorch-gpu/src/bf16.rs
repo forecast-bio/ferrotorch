@@ -666,6 +666,14 @@ DONE:
 }
 ";
 
+/// Gather rows from a bf16 embedding table by integer indices on the GPU.
+///
+/// Launches the `embedding_gather_bf16_kernel` PTX entry point: one CUDA
+/// block per token, copying `dim` bf16 elements from `weight[indices[i]]`
+/// to `out[i]`. Returns an empty allocation when `indices` is empty or
+/// `dim == 0`. Caller is responsible for ensuring every `indices[i]` is
+/// in range; out-of-range gathers produce garbage but are memory-safe
+/// (see SAFETY block in the launch site).
 pub fn gpu_embedding_gather_bf16(
     weight: &cudarc::driver::CudaSlice<u16>,
     indices: &cudarc::driver::CudaSlice<u32>,
@@ -1057,6 +1065,15 @@ DONE:
 }
 ";
 
+/// Apply RMSNorm to a bf16 `[rows, cols]` row-major tensor on the GPU.
+///
+/// Launches the `rmsnorm_bf16_kernel` PTX entry point: one CUDA block
+/// per row, computing
+/// `out[r, c] = (input[r, c] / sqrt(mean(x^2) + eps)) * weight[c]`
+/// with all reductions performed in f32 and rounded back to bf16 with
+/// round-to-nearest-even. Returns an empty allocation when
+/// `rows == 0 || cols == 0`. Errors with [`GpuError::ShapeMismatch`]
+/// if `input.len() < rows * cols` or `weight.len() < cols`.
 pub fn gpu_rmsnorm_bf16(
     input: &cudarc::driver::CudaSlice<u16>,
     weight: &cudarc::driver::CudaSlice<u16>,
@@ -1332,6 +1349,13 @@ DONE:
 }
 ";
 
+/// Apply row-wise softmax to a bf16 `[rows, cols]` row-major tensor on the GPU.
+///
+/// Launches the `softmax_bf16_kernel` PTX entry point: one CUDA block per
+/// row, computing the numerically stable `exp(x - max) / sum(exp(x - max))`
+/// in f32 and rounding the result back to bf16 with round-to-nearest-even.
+/// Returns an empty allocation when `rows == 0 || cols == 0`. Errors with
+/// [`GpuError::ShapeMismatch`] if `input.len() < rows * cols`.
 pub fn gpu_softmax_bf16(
     input: &cudarc::driver::CudaSlice<u16>,
     rows: usize,
@@ -1550,6 +1574,15 @@ DONE:
 }
 ";
 
+/// Apply rotary position embedding (RoPE, half-rotation form) to a bf16
+/// `[num_heads, seq_len, head_dim]` tensor on the GPU.
+///
+/// Launches the `rope_half_bf16_kernel` PTX entry point: each thread
+/// rotates a complementary `(x[d], x[d + head_dim/2])` pair using
+/// precomputed `cos_cache` / `sin_cache` indexed at `seq_offset + s`.
+/// `seq_offset` is the absolute starting position used during incremental
+/// decode. Errors with [`GpuError::ShapeMismatch`] when `head_dim` is zero
+/// or odd, or when `input` is shorter than `num_heads * seq_len * head_dim`.
 #[allow(clippy::too_many_arguments)]
 pub fn gpu_rope_half_bf16(
     input: &cudarc::driver::CudaSlice<u16>,
@@ -1782,6 +1815,14 @@ DONE:
 }
 ";
 
+/// Permute a bf16 `[seq_len, num_heads, head_dim]` tensor to
+/// `[num_heads, seq_len, head_dim]` (multi-head attention layout) on the GPU.
+///
+/// Launches the `transpose_to_heads_bf16_kernel` PTX entry point: one
+/// thread per output element copies the bijective mapping
+/// `(s, h, d) -> (h, s, d)`. Returns an empty allocation when the total
+/// element count is zero. Errors with [`GpuError::ShapeMismatch`] when
+/// `input.len() < num_heads * seq_len * head_dim`.
 pub fn gpu_transpose_to_heads_bf16(
     input: &cudarc::driver::CudaSlice<u16>,
     num_heads: usize,
@@ -1855,6 +1896,15 @@ pub fn gpu_transpose_to_heads_bf16(
     Ok(out)
 }
 
+/// Inverse of [`gpu_transpose_to_heads_bf16`]: permute a bf16
+/// `[num_heads, seq_len, head_dim]` tensor back to
+/// `[seq_len, num_heads, head_dim]` on the GPU.
+///
+/// Launches the `transpose_from_heads_bf16_kernel` PTX entry point with
+/// the inverse bijective mapping `(h, s, d) -> (s, h, d)`. Returns an
+/// empty allocation when the total element count is zero. Errors with
+/// [`GpuError::ShapeMismatch`] when `input.len() < num_heads * seq_len
+/// * head_dim`.
 pub fn gpu_transpose_from_heads_bf16(
     input: &cudarc::driver::CudaSlice<u16>,
     num_heads: usize,
@@ -2001,6 +2051,16 @@ DONE:
 }
 ";
 
+/// Replicate each KV head `group_size` times to broadcast a grouped-query
+/// attention KV tensor up to the query-head count, in bf16, on the GPU.
+///
+/// Launches the `repeat_kv_bf16_kernel` PTX entry point on a flattened
+/// `[num_kv_heads * group_size, seq_len, head_dim]` output: each output
+/// thread reads from `input[h_in, s, d]` where `h_in = h_out / group_size`,
+/// duplicating each KV head across consecutive query-head slots. Returns
+/// an empty allocation when the output element count is zero. Errors with
+/// [`GpuError::ShapeMismatch`] when `input.len() < num_kv_heads * seq_len
+/// * head_dim`.
 pub fn gpu_repeat_kv_bf16(
     input: &cudarc::driver::CudaSlice<u16>,
     num_kv_heads: usize,
@@ -2146,6 +2206,14 @@ DONE:
 }
 ";
 
+/// Apply an in-place causal attention mask to a bf16 `[batch, seq_q, seq_k]`
+/// scores tensor on the GPU.
+///
+/// Launches the `causal_mask_bf16_kernel` PTX entry point: one thread per
+/// `(b, i, j)` writes the bf16 bit pattern `0xFF80` (negative infinity)
+/// to positions where `j > i`, leaving the lower triangle (and diagonal)
+/// untouched. No-op when `total = batch * seq_q * seq_k` is zero. Errors
+/// with [`GpuError::ShapeMismatch`] when `buf.len() < total`.
 pub fn gpu_causal_mask_bf16(
     buf: &mut cudarc::driver::CudaSlice<u16>,
     batch: usize,
@@ -2278,6 +2346,14 @@ DONE:
 }
 ";
 
+/// Multiply every element of a bf16 buffer by an f32 scalar on the GPU,
+/// returning a fresh allocation.
+///
+/// Launches the `scale_bf16_kernel` PTX entry point: each thread converts
+/// its element to f32, multiplies by `scale`, and rounds the product back
+/// to bf16 with round-to-nearest-even. Used to fold `1 / sqrt(head_dim)`
+/// into attention scores. Returns an empty allocation when `input` is
+/// empty.
 pub fn gpu_scale_bf16(
     input: &cudarc::driver::CudaSlice<u16>,
     scale: f32,

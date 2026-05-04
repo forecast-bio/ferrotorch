@@ -73,26 +73,43 @@ where
 #[derive(Debug, Clone, PartialEq)]
 pub enum FusedOp {
     // Binary elementwise (applied with a second tensor or broadcast scalar).
+    /// Element-wise addition with a second operand.
     Add,
+    /// Element-wise subtraction with a second operand.
     Sub,
+    /// Element-wise multiplication with a second operand.
     Mul,
+    /// Element-wise division with a second operand.
     Div,
 
     // Unary elementwise.
+    /// Arithmetic negation `-x`.
     Neg,
+    /// Rectified linear unit `max(0, x)`.
     Relu,
+    /// Logistic sigmoid `1 / (1 + exp(-x))`.
     Sigmoid,
+    /// Hyperbolic tangent.
     Tanh,
+    /// Gaussian error linear unit.
     Gelu,
+    /// Sigmoid-weighted linear unit (`x * sigmoid(x)`).
     Silu,
+    /// Element-wise square root.
     Sqrt,
+    /// Element-wise absolute value.
     Abs,
+    /// Element-wise natural exponential.
     Exp,
+    /// Element-wise natural logarithm.
     Log,
 
     // Parameterised unary ops.
+    /// Element-wise power with a fixed `f64` exponent.
     Pow(f64),
+    /// Multiply each element by an `f64` constant captured at trace time.
     ScalarMul(f64),
+    /// Add an `f64` constant captured at trace time to each element.
     ScalarAdd(f64),
 }
 

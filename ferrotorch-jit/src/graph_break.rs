@@ -82,6 +82,12 @@ fn is_known_op(name: &str) -> bool {
 /// Type alias for an eager-mode fallback closure.
 type EagerFn<T> = Arc<dyn Fn(&Tensor<T>) -> FerrotorchResult<Tensor<T>> + Send + Sync>;
 
+/// A single segment of a graph-broken execution pipeline.
+///
+/// Each segment is either a compiled IR subgraph
+/// ([`GraphSegment::Compiled`]) or an eager-mode fallback closure
+/// ([`GraphSegment::Eager`]); a [`SegmentedModule`] runs them sequentially
+/// to handle ops the JIT could not capture.
 pub enum GraphSegment<T: Float> {
     /// A compiled IR subgraph.
     Compiled(TracedModule<T>),

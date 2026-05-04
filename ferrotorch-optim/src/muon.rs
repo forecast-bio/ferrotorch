@@ -73,6 +73,48 @@ impl MuonConfig {
         self.weight_decay = weight_decay;
         self
     }
+
+    /// Set the learning rate.
+    #[must_use]
+    pub fn with_lr(mut self, lr: f64) -> Self {
+        self.lr = lr;
+        self
+    }
+
+    /// Set the momentum factor.
+    #[must_use]
+    pub fn with_momentum(mut self, momentum: f64) -> Self {
+        self.momentum = momentum;
+        self
+    }
+
+    /// Enable or disable Nesterov momentum.
+    #[must_use]
+    pub fn with_nesterov(mut self, nesterov: bool) -> Self {
+        self.nesterov = nesterov;
+        self
+    }
+
+    /// Set the number of Newton-Schulz iterations for orthogonalization.
+    #[must_use]
+    pub fn with_ns_steps(mut self, ns_steps: usize) -> Self {
+        self.ns_steps = ns_steps;
+        self
+    }
+
+    /// Set the weight decay (L2 penalty) applied to parameters.
+    #[must_use]
+    pub fn with_weight_decay(mut self, weight_decay: f64) -> Self {
+        self.weight_decay = weight_decay;
+        self
+    }
+
+    /// Set the maximize flag (when `true`, negate the gradient to maximize).
+    #[must_use]
+    pub fn with_maximize(mut self, maximize: bool) -> Self {
+        self.maximize = maximize;
+        self
+    }
 }
 
 impl Default for MuonConfig {
@@ -358,7 +400,7 @@ impl<T: Float> Optimizer<T> for Muon<T> {
         self.param_groups.push(group);
     }
 
-    fn state_dict(&self) -> OptimizerState {
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut state = OptimizerState::new();
         for (key, buf) in &self.momentum_buffers {
             let mut entry = HashMap::new();
@@ -368,7 +410,7 @@ impl<T: Float> Optimizer<T> for Muon<T> {
             }
             state.insert(key.clone(), entry);
         }
-        state
+        Ok(state)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
@@ -591,7 +633,9 @@ mod tests {
             .unwrap();
         muon.step().unwrap();
 
-        let state = muon.state_dict();
+        let state = muon
+            .state_dict()
+            .expect("muon state_dict must succeed in test");
         assert!(!state.is_empty());
         assert!(state.contains_key("0_0"));
 

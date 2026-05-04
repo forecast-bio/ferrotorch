@@ -283,23 +283,29 @@ impl<T: Float> ExponentialMovingAverage<T> {
                     //     shares the *shadow* tensor's Arc, not the
                     //     parameter's. `into_storage_and_shape` consumes
                     //     `shadow_clone` and yields a `TensorStorage<T>`
-                    //     with refcount 1 (because the original
-                    //     `self.shadow_tensors[i]` retains its own clone of
-                    //     the same Arc — see below FOLLOW-UP).
+                    //     that is *not* aliased with the shadow tensor:
+                    //     verified at `ferrotorch-core/src/tensor.rs:716`
+                    //     (`into_storage_and_shape`), all refcount>1 paths
+                    //     route through `try_clone_subregion` /`try_clone`
+                    //     (`storage.rs:367`), which deep-copies the
+                    //     underlying buffer (Vec::clone for CPU,
+                    //     `backend.clone_buffer` for GPU,
+                    //     `h.clone_handle()` for Cubecl). Specifically:
+                    //     - `Arc::try_unwrap(self.inner) == Err(arc_inner)`
+                    //       (refcount>1 inner) → `arc_inner.storage
+                    //       .try_clone_subregion(...)` (tensor.rs:753-759).
+                    //     - `Arc::try_unwrap(self.inner) == Ok(inner)` and
+                    //       `Arc::try_unwrap(inner.storage) ==
+                    //       Err(arc_storage)` (shared storage Arc) →
+                    //       `arc_storage.try_clone_subregion(...)`
+                    //       (tensor.rs:746-750).
+                    //     So the storage installed into the parameter is
+                    //     never aliased with `self.shadow_tensors[i]`.
                     //  4. The shadow tensor was constructed in
                     //     `with_foreach` via `Tensor::from_storage(.., false)`
                     //     and `.to(device)`, so it lives on the same device
                     //     as the parameter (caller invariant) and has the
                     //     same numel.
-                    //
-                    // FOLLOW-UP: `shadow_clone.into_storage_and_shape()`
-                    // calls `Arc::try_unwrap`-equivalent, which can fail
-                    // when `self.shadow_tensors[i]` keeps a second strong
-                    // reference. Verify in core that
-                    // `into_storage_and_shape` deep-copies in the
-                    // refcount>1 path; otherwise we'd be installing an Arc
-                    // that the EMA still points at, which would alias the
-                    // parameter's storage with the shadow's.
                     unsafe { param.tensor().update_storage(storage)? };
                 }
                 Ok::<(), ferrotorch_core::FerrotorchError>(())

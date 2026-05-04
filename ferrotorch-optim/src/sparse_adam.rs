@@ -36,6 +36,29 @@ impl Default for SparseAdamConfig {
     }
 }
 
+impl SparseAdamConfig {
+    /// Set the learning rate.
+    #[must_use]
+    pub fn with_lr(mut self, lr: f64) -> Self {
+        self.lr = lr;
+        self
+    }
+
+    /// Set the exponential decay rates for the first and second moment estimates.
+    #[must_use]
+    pub fn with_betas(mut self, betas: (f64, f64)) -> Self {
+        self.betas = betas;
+        self
+    }
+
+    /// Set the numerical stability term added to the denominator.
+    #[must_use]
+    pub fn with_eps(mut self, eps: f64) -> Self {
+        self.eps = eps;
+        self
+    }
+}
+
 #[derive(Debug)]
 struct SparseAdamState {
     step_count: u64,
@@ -195,8 +218,8 @@ impl<T: Float> Optimizer<T> for SparseAdam<T> {
         self.param_groups.push(group);
     }
 
-    fn state_dict(&self) -> OptimizerState {
-        OptimizerState::default()
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
+        Ok(OptimizerState::default())
     }
 
     fn load_state_dict(&mut self, _state: &OptimizerState) -> FerrotorchResult<()> {

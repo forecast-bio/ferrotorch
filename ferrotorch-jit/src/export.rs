@@ -613,9 +613,13 @@ impl ExportedProgram {
 /// Metadata extracted from an [`ExportedProgram`] JSON representation.
 #[derive(Debug, Clone)]
 pub struct ExportedProgramMetadata {
+    /// Number of nodes in the exported IR graph.
     pub num_graph_nodes: usize,
+    /// Per-input shape recorded at trace time, in declaration order.
     pub input_shapes: Vec<Vec<usize>>,
+    /// Shape of the single graph output recorded at trace time.
     pub output_shape: Vec<usize>,
+    /// Names of the model parameters captured in the state dict.
     pub state_dict_keys: Vec<String>,
 }
 

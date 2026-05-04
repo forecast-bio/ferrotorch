@@ -100,6 +100,55 @@ impl SgdConfig {
         self.nesterov = nesterov;
         self
     }
+
+    /// Set the learning rate.
+    #[must_use]
+    pub fn with_lr(mut self, lr: f64) -> Self {
+        self.lr = lr;
+        self
+    }
+
+    /// Set the momentum factor.
+    #[must_use]
+    pub fn with_momentum(mut self, momentum: f64) -> Self {
+        self.momentum = momentum;
+        self
+    }
+
+    /// Set the dampening factor for momentum.
+    #[must_use]
+    pub fn with_dampening(mut self, dampening: f64) -> Self {
+        self.dampening = dampening;
+        self
+    }
+
+    /// Set the weight decay (L2 penalty).
+    #[must_use]
+    pub fn with_weight_decay(mut self, weight_decay: f64) -> Self {
+        self.weight_decay = weight_decay;
+        self
+    }
+
+    /// Enable or disable Nesterov momentum.
+    #[must_use]
+    pub fn with_nesterov(mut self, nesterov: bool) -> Self {
+        self.nesterov = nesterov;
+        self
+    }
+
+    /// Set the maximize flag (when `true`, negate the gradient to maximize).
+    #[must_use]
+    pub fn with_maximize(mut self, maximize: bool) -> Self {
+        self.maximize = maximize;
+        self
+    }
+
+    /// Enable or disable the on-device tensor-op (foreach) update path.
+    #[must_use]
+    pub fn with_foreach(mut self, foreach: bool) -> Self {
+        self.foreach = foreach;
+        self
+    }
 }
 
 impl Default for SgdConfig {
@@ -426,18 +475,21 @@ impl<T: Float> Optimizer<T> for Sgd<T> {
         self.param_groups.push(group);
     }
 
-    fn state_dict(&self) -> OptimizerState {
+    fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut state = OptimizerState::new();
         for (key, buf) in &self.momentum_buffers {
             let mut entry = HashMap::new();
-            let f64_buf: Vec<f64> = buf.iter().map(|&v| v.to_f64().unwrap()).collect();
+            let f64_buf: Vec<f64> = buf
+                .iter()
+                .map(|&v| cast::<T, f64>(v))
+                .collect::<FerrotorchResult<Vec<f64>>>()?;
             entry.insert("momentum_buffer".to_string(), f64_buf);
             if let Some(&steps) = self.step_count.get(key) {
                 entry.insert("step".to_string(), vec![steps as f64]);
             }
             state.insert(key.clone(), entry);
         }
-        state
+        Ok(state)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
@@ -720,7 +772,9 @@ mod tests {
         sgd.step().unwrap();
 
         // Serialize.
-        let state = sgd.state_dict();
+        let state = sgd
+            .state_dict()
+            .expect("sgd state_dict must succeed in test");
         assert!(!state.is_empty());
         assert!(state.contains_key("0_0"));
         let entry = &state["0_0"];

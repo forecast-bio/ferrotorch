@@ -1,3 +1,10 @@
+//! IR graph optimisation passes.
+//!
+//! Runs the configurable pipeline (constant folding, dead-code elimination,
+//! operator fusion, memory planning) over an [`IrGraph`] before codegen.
+//! Each pass is gated by a flag on [`OptimizationConfig`] so callers can
+//! mirror `PyTorch`'s `inductor.config.*` toggles.
+
 use std::collections::{HashMap, HashSet};
 
 use crate::graph::{IrGraph, IrNode, IrNodeId, IrOpKind, IrValue, IrValueId};
@@ -12,9 +19,14 @@ use crate::memory_plan::{self, MemoryPlan};
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct OptimizationConfig {
+    /// Fold subgraphs whose inputs are all compile-time constants.
     pub constant_folding: bool,
+    /// Remove nodes whose outputs are not consumed by any output value.
     pub dead_code_elimination: bool,
+    /// Run pattern-driven operator fusion (Linear+activation, SDPA, etc.).
     pub operator_fusion: bool,
+    /// Compute a static memory plan (buffer reuse across non-overlapping
+    /// liveness ranges) for the optimised graph.
     pub memory_planning: bool,
 }
 

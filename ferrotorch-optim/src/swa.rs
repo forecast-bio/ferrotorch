@@ -306,7 +306,14 @@ impl<T: Float> AveragedModel<T> {
     /// Copy the averaged parameter values into the given parameters.
     ///
     /// Use this after training to load the averaged weights for inference.
-    pub fn apply_to(&self, params: &[Parameter<T>]) -> FerrotorchResult<()> {
+    ///
+    /// Takes `&mut self` even though it does not mutate `self`'s data: the
+    /// `&mut` receiver is a borrow-checker-enforced witness that no other
+    /// caller is concurrently observing the parameter storage that this
+    /// method writes to via `update_data` / `update_storage`. This is the
+    /// borrow-checker analog of the `sole-writer` contract documented on
+    /// the unsafe blocks below.
+    pub fn apply_to(&mut self, params: &[Parameter<T>]) -> FerrotorchResult<()> {
         if self.foreach {
             assert_eq!(params.len(), self.averaged_tensors.len());
             no_grad(|| {
@@ -315,15 +322,14 @@ impl<T: Float> AveragedModel<T> {
                     let (storage, _) = avg_clone.into_storage_and_shape()?;
                     // SAFETY: `update_storage` swaps the parameter's storage
                     // Arc; sole-writer required.
-                    //  1. `apply_to(&self, params)` borrows `self` shared,
-                    //     but the *exclusivity* requirement is on the
-                    //     parameter's storage, not on this SWA instance.
-                    //     The caller passes `params: &[Parameter<T>]`
-                    //     (a shared slice) and is responsible for not
-                    //     holding any other live handle that observes
-                    //     `params[i].tensor()`'s storage during this call —
-                    //     the same contract as `update_data`/`update_storage`
-                    //     on the underlying `Tensor`.
+                    //  1. `apply_to(&mut self, params)` takes `&mut self`,
+                    //     so the borrow checker enforces that no other
+                    //     `apply_to` / `update_parameters` call on this
+                    //     `AveragedModel` runs concurrently. The caller
+                    //     still owes the `Tensor::update_storage` contract
+                    //     on the parameter side: no other live handle may
+                    //     observe `params[i].tensor()`'s storage during
+                    //     this call.
                     //  2. We are inside `no_grad`, so no autograd `grad_fn`
                     //     records a clone of the param's storage Arc as
                     //     part of this swap.
@@ -334,15 +340,6 @@ impl<T: Float> AveragedModel<T> {
                     //  4. `self.averaged_tensors[i]` was constructed on the
                     //     parameter's device in `update_parameters_foreach`
                     //     so device + numel match.
-                    //
-                    // FOLLOW-UP: `apply_to(&self, ..)` mutates parameter
-                    // storage through a shared receiver, mirroring the
-                    // `update_data(&self)` shape on `Tensor`. Consider
-                    // tightening this to `&mut self` (or threading a
-                    // dedicated `ParameterMut` handle) so the caller
-                    // contract is enforced by the borrow checker rather
-                    // than documented prose. Same shape applies to the
-                    // legacy path below.
                     unsafe { param.tensor().update_storage(storage)? };
                 }
                 Ok::<(), ferrotorch_core::FerrotorchError>(())
@@ -355,13 +352,12 @@ impl<T: Float> AveragedModel<T> {
         for (avg, param) in self.averaged_params.iter().zip(params.iter()) {
             // SAFETY: `update_data` writes through `Arc::as_ptr`. Same
             // contract as the foreach branch above:
-            //  1. The caller of `apply_to` is responsible for ensuring no
-            //     other handle observes the parameter's storage during
-            //     this call (we receive `params: &[Parameter<T>]` shared,
-            //     so the borrow checker enforces no concurrent mutation
-            //     through `Parameter`'s safe API; the unsafe path bypasses
-            //     this and relies on the documented contract on
-            //     `Tensor::update_data`).
+            //  1. `apply_to(&mut self, ..)` takes `&mut self`, so the
+            //     borrow checker enforces that no other `apply_to` /
+            //     `update_parameters` call runs concurrently. The caller
+            //     still owes the `Tensor::update_data` contract on the
+            //     parameter side: no other live handle may observe the
+            //     parameter's storage during this call.
             //  2. The `no_grad` closure suppresses `grad_fn` recording.
             //  3. `avg: &Vec<T>` borrows from `self.averaged_params` and
             //     is disjoint from any parameter's storage.
@@ -559,8 +555,8 @@ mod tests {
             // any test tries to add a group, it's a bug in the test.
             panic!("MockOptimizer::add_param_group called — this mock holds no real param groups");
         }
-        fn state_dict(&self) -> OptimizerState {
-            Default::default()
+        fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
+            Ok(Default::default())
         }
         fn load_state_dict(&mut self, _state: &OptimizerState) -> FerrotorchResult<()> {
             Ok(())
