@@ -6,5 +6,8 @@
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-04T21:16:08.524716084Z",
-  "updated_at": "2026-05-04T21:16:08.524716084Z"
+  "updated_at": "2026-05-04T21:16:09.952945690Z",
+  "labels": [
+    "rust,ml,doc-quality,follow-up"
+  ]
 }
