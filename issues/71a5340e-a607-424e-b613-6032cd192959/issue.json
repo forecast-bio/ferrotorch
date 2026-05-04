@@ -1,0 +1,10 @@
+{
+  "uuid": "71a5340e-a607-424e-b613-6032cd192959",
+  "display_id": 738,
+  "title": "audit follow-up: ferrotorch-hub — CRITICAL path traversal + eprintln + SAFETY + lints + Debug + SHA256 policy + encapsulation + Errors",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T22:07:04.708003277Z",
+  "updated_at": "2026-05-04T22:07:04.708003277Z"
+}
