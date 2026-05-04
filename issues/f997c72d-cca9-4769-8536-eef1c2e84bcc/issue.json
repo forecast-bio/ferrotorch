@@ -2,11 +2,12 @@
   "uuid": "f997c72d-cca9-4769-8536-eef1c2e84bcc",
   "display_id": 724,
   "title": "workspace 2024-edition unsafe-op-in-unsafe-fn cleanup pass (39 clippy hits in ferrotorch-distributed/nccl_backend under --features nccl)",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-04T19:12:09.113255506Z",
-  "updated_at": "2026-05-04T19:12:10.816071949Z",
+  "updated_at": "2026-05-04T20:38:22.309218557Z",
+  "closed_at": "2026-05-04T20:38:22.309218557Z",
   "labels": [
     "rust,workspace,2024-edition,follow-up"
   ]
