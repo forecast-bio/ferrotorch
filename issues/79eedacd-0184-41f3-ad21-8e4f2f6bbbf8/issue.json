@@ -2,11 +2,12 @@
   "uuid": "79eedacd-0184-41f3-ad21-8e4f2f6bbbf8",
   "display_id": 725,
   "title": "cubecl bundle: #717 + #718 handle byte-capacity validation",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-04T19:21:38.495440539Z",
-  "updated_at": "2026-05-04T19:21:40.000402572Z",
+  "updated_at": "2026-05-04T19:29:36.575546562Z",
+  "closed_at": "2026-05-04T19:29:36.575546562Z",
   "labels": [
     "rust,cubecl,follow-up"
   ]
