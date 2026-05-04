@@ -1,0 +1,10 @@
+{
+  "uuid": "fe1cf22f-6f7d-4b7b-8a00-e4e03bde58cd",
+  "display_id": 718,
+  "title": "ferrotorch-cubecl: run_binary_handle lacks runtime byte-capacity debug_assert for pre-uploaded handles",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T16:22:28.415422838Z",
+  "updated_at": "2026-05-04T16:22:28.415422838Z"
+}
