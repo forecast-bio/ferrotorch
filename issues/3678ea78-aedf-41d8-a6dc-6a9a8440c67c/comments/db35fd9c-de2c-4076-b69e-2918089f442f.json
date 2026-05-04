@@ -1,0 +1,10 @@
+{
+  "uuid": "db35fd9c-de2c-4076-b69e-2918089f442f",
+  "issue_uuid": "3678ea78-aedf-41d8-a6dc-6a9a8440c67c",
+  "author": "y4rr",
+  "content": "gpu-D2 surfaced 3 additional sibling copy-paste-error sites: gpu_fill_f32 reports kernel: 'scale_kernel' instead of 'fill_f32_kernel'; gpu_transpose_2d_into reports kernel: 'scatter_add_rows_kernel' instead of 'transpose_2d_kernel'; gpu_log_softmax_f64 reports kernel: 'softmax_backward_kernel' instead of 'log_softmax_f64_kernel'. Combined with original site at gpu_scatter_add_1d:11743 (plus likely gpu_index_select_1d sibling), cluster is now 5+ known wrong-kernel-name PtxCompileFailed sites. Recommend single sweep dispatch after gpu-F.",
+  "created_at": "2026-05-04T02:24:02.774489497Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPXndaPlCvklcZvadRkTqe7NELV6o29NIPwFp3HPQz30Q0/vX9FeoRlb4Q6ckDT9wytv4Uk0gFRyRATrH6lSCDA=="
+}
