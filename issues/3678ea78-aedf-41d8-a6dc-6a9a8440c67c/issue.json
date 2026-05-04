@@ -6,5 +6,8 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-04T01:34:22.381823225Z",
-  "updated_at": "2026-05-04T01:34:22.381823225Z"
+  "updated_at": "2026-05-04T01:34:23.683278291Z",
+  "labels": [
+    "rust,gpu,bug,follow-up"
+  ]
 }
