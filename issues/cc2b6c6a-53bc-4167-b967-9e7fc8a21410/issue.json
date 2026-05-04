@@ -1,0 +1,10 @@
+{
+  "uuid": "cc2b6c6a-53bc-4167-b967-9e7fc8a21410",
+  "display_id": 719,
+  "title": "audit follow-up: ferrotorch-xpu — dtype monomorphism + lints baseline + shape-bypass",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T16:29:20.532859438Z",
+  "updated_at": "2026-05-04T16:29:20.532859438Z"
+}
