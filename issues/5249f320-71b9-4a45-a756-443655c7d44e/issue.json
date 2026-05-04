@@ -1,0 +1,10 @@
+{
+  "uuid": "5249f320-71b9-4a45-a756-443655c7d44e",
+  "display_id": 733,
+  "title": "ferrotorch (meta): write real GPU integration tests (cpu_training.rs renamed; gpu_training.rs slot reserved for actual GPU training loop)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T21:29:01.467451179Z",
+  "updated_at": "2026-05-04T21:29:01.467451179Z"
+}
