@@ -158,8 +158,32 @@ pub enum IrOpKind {
     },
 }
 
-/// An IR value — an edge in the graph carrying shape/dtype metadata.
+/// An IR value — an edge in the graph carrying shape metadata.
+///
+/// Each `IrValue` represents a tensor flowing between IR nodes, identified by
+/// a stable `IrValueId` and annotated with its `shape`.
+///
+/// # Limitations
+///
+/// `IrValue` does **not** currently carry a dtype field. The interpreter
+/// dispatches on the caller-supplied `T: Float` (so it executes correctly for
+/// any `Float`-typed inputs), but the **GPU codegen path is hard-coded to
+/// `f32`** — see [`crate::codegen_gpu`] (`float __restrict__` / `.reg .f32`
+/// emissions). Tracing an `f64` graph and lowering it through the GPU backend
+/// will silently produce a kernel that operates on `f32` operands, which is
+/// almost never what callers want.
+///
+/// Adding a real per-edge dtype is tracked as a follow-up (cascades through
+/// every GPU codegen site and the interpreter's type-erased entry point); see
+/// crosslink follow-up issue #721. Until then, prefer the CPU/interpreter
+/// backends for non-`f32` graphs.
+///
+/// `#[non_exhaustive]` reserves the right to add fields (notably `dtype`
+/// once the GPU codegen cascade is resolved) without a major-version bump.
+/// External crates must construct values through the [`IrGraph`] builder
+/// methods rather than struct-literal syntax.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct IrValue {
     /// Stable identifier for this value (edge).
     pub id: IrValueId,
@@ -170,7 +194,12 @@ pub struct IrValue {
 }
 
 /// An IR node — a single operation in the graph.
+///
+/// `#[non_exhaustive]` reserves the right to add fields without a major-version
+/// bump. External crates must construct nodes through the [`IrGraph`] builder
+/// methods (e.g. [`IrGraph::add_node`]) rather than struct-literal syntax.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct IrNode {
     /// Stable identifier for this node.
     pub id: IrNodeId,
@@ -183,7 +212,13 @@ pub struct IrNode {
 }
 
 /// The complete IR graph.
+///
+/// `#[non_exhaustive]` reserves the right to add fields without a major-version
+/// bump. External crates must construct graphs through [`IrGraph::new`] and
+/// the builder methods ([`IrGraph::add_input`], [`IrGraph::add_node`],
+/// [`IrGraph::set_outputs`], etc.) rather than struct-literal syntax.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct IrGraph {
     /// All nodes in the graph, indexed by [`IrNodeId`].
     pub nodes: Vec<IrNode>,

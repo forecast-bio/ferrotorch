@@ -139,7 +139,10 @@ pub fn interpret_multi<T: Float>(
                 data,
                 shape: cshape,
             } => {
-                let converted: Vec<T> = data.iter().map(|&v| T::from(v).unwrap()).collect();
+                let converted: Vec<T> = data
+                    .iter()
+                    .map(|&v| ferrotorch_core::numeric_cast::cast::<f64, T>(v))
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
                 let tensor =
                     Tensor::from_storage(TensorStorage::cpu(converted), cshape.clone(), false)?;
                 for &out_id in &node.outputs {

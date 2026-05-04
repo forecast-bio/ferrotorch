@@ -28,6 +28,37 @@
 //! - `wgpu` (default): enables the cubecl wgpu runtime. Without this
 //!   feature [`XpuDevice::new`] returns
 //!   [`FerrotorchError::DeviceUnavailable`].
+//!
+//! # Dtype scope
+//!
+//! All ops in this crate operate on `Tensor<f32>`. The underlying
+//! [`ferrotorch_cubecl::ops::portable_*`] surface is itself
+//! `Tensor<f32>`-only — generification of the xpu wrappers requires a
+//! cubecl-level refactor first (tracked separately). Issue #719.
+
+#![warn(clippy::all, clippy::pedantic)]
+#![deny(rust_2018_idioms, missing_debug_implementations)]
+// Rustdoc coverage is being swept workspace-wide in a separate dispatch;
+// matches the ferrotorch-cubecl / ferrotorch-gpu / ferrotorch-jit precedent.
+#![allow(missing_docs)]
+// Pedantic lints we explicitly accept across this crate. Each allow names a
+// concrete reason. Mirrors the ferrotorch-cubecl baseline so the wgpu-facing
+// surface here has the same posture as the cubecl crate it dispatches into.
+#![allow(
+    // Doc prose includes `CubeCL`, `XPU`, `H2D`, etc. — surrounding every such
+    // word in backticks would hurt readability for technical prose.
+    clippy::doc_markdown,
+    // `#[must_use]` on every getter is churn for marginal value; existing
+    // callers already use the returned values.
+    clippy::must_use_candidate,
+    // Math kernels naturally use single-character names (a, b for binary
+    // operands; m, k, n for matmul dims when surfaced); requiring longer
+    // names hurts readability.
+    clippy::many_single_char_names,
+    // Test fixtures convert small integers via `as f32`; exact for the
+    // `0..8` ranges we use, and matches the ferrotorch-cubecl precedent.
+    clippy::cast_precision_loss,
+)]
 
 #[cfg(feature = "wgpu")]
 use std::sync::Arc;
@@ -63,6 +94,14 @@ impl XpuDevice {
     ///
     /// Without the `wgpu` feature this returns
     /// [`FerrotorchError::DeviceUnavailable`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::DeviceUnavailable`] when the `wgpu`
+    /// feature is disabled or no wgpu adapter is available on this host.
+    /// Propagates any error from
+    /// [`ferrotorch_cubecl::CubeRuntime::new`] (e.g. driver / surface
+    /// initialisation failures).
     pub fn new(ordinal: usize) -> FerrotorchResult<Self> {
         #[cfg(feature = "wgpu")]
         {
@@ -119,6 +158,11 @@ impl core::fmt::Display for XpuDevice {
 // ---------------------------------------------------------------------------
 
 /// Verify that a tensor lives on the XPU device managed by `xpu`.
+///
+/// `f32`-only by intent: every public op in this crate dispatches through
+/// [`ferrotorch_cubecl::ops::portable_*`], which is itself `Tensor<f32>`-only.
+/// Generification here would not compile against the cubecl surface.
+/// Widening to other dtypes is a cubecl-level refactor (issue #719).
 #[cfg(feature = "wgpu")]
 fn check_xpu_tensor(t: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<()> {
     let actual = t.device();
@@ -137,6 +181,17 @@ fn check_xpu_tensor(t: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<()> {
 /// This is the single H2D upload point for user-facing construction.
 /// It allocates a device buffer directly — no intermediate CPU tensor.
 /// Issue #673: eliminates the double-allocation from the pre-#673 path.
+///
+/// # Errors
+///
+/// Returns any error propagated from
+/// [`ferrotorch_cubecl::upload_f32`] (e.g. device buffer allocation
+/// failure). Returns any error from [`Tensor::from_storage`] when the
+/// shape is invalid relative to `data.len()`.
+// `Vec<f32>` is part of the established public API; existing callers move
+// owned data in. Switching to `&[f32]` is a semver-minor signature change
+// out of scope for this dispatch.
+#[allow(clippy::needless_pass_by_value)]
 #[cfg(feature = "wgpu")]
 pub fn make_xpu_tensor(
     data: Vec<f32>,
@@ -148,6 +203,13 @@ pub fn make_xpu_tensor(
     Tensor::from_storage(storage, shape.to_vec(), false)
 }
 
+/// Build a fresh XPU tensor — unavailable because the `wgpu` feature is
+/// not enabled.
+///
+/// # Errors
+///
+/// Always returns [`FerrotorchError::DeviceUnavailable`]. Enable the
+/// `wgpu` feature to get a real implementation.
 #[cfg(not(feature = "wgpu"))]
 pub fn make_xpu_tensor(
     _data: Vec<f32>,
@@ -515,7 +577,8 @@ mod tests {
 
     /// Build a device-resident XPU tensor from a slice.
     fn xpu_tensor(data: &[f32], xpu: &XpuDevice) -> Tensor<f32> {
-        make_xpu_tensor(data.to_vec(), &[data.len()], xpu).unwrap()
+        make_xpu_tensor(data.to_vec(), &[data.len()], xpu)
+            .expect("make_xpu_tensor must succeed for a constructed XpuDevice + valid shape")
     }
 
     #[test]
@@ -536,9 +599,23 @@ mod tests {
         // data() must error — tensor is device-resident.
         assert!(t.data().is_err(), "data() must return Err for XPU tensors");
         // .cpu() then .data() must succeed.
-        let host = t.cpu().unwrap();
+        let host = t.cpu().expect("cpu() readback must succeed for an XPU tensor");
         assert_eq!(host.device(), Device::Cpu);
-        assert_eq!(host.data().unwrap(), &[1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(
+            host.data().expect("CPU tensor data() must succeed"),
+            &[1.0, 2.0, 3.0, 4.0]
+        );
+    }
+
+    /// Read an XPU result tensor back to a `Vec<f32>`, with descriptive
+    /// `expect` messages so a panic on the test path names which step
+    /// failed.
+    fn read_back(t: &Tensor<f32>) -> Vec<f32> {
+        t.cpu()
+            .expect("cpu() readback must succeed for an XPU tensor")
+            .data()
+            .expect("CPU tensor data() must succeed")
+            .to_vec()
     }
 
     #[test]
@@ -546,13 +623,12 @@ mod tests {
         let Some(xpu) = xpu() else { return };
         let a = xpu_tensor(&[1.0, 2.0, 3.0, 4.0], &xpu);
         let b = xpu_tensor(&[10.0, 20.0, 30.0, 40.0], &xpu);
-        let c = xpu_add(&a, &b, &xpu).unwrap();
+        let c = xpu_add(&a, &b, &xpu).expect("xpu_add must succeed");
         assert_eq!(c.device(), Device::Xpu(0), "result must stay on XPU");
         assert_eq!(c.shape(), &[4]);
         // Must error directly; only readable via .cpu().
         assert!(c.data().is_err(), "data() must return Err on XPU result");
-        let data = c.cpu().unwrap().data().unwrap().to_vec();
-        assert_eq!(data, &[11.0, 22.0, 33.0, 44.0]);
+        assert_eq!(read_back(&c), &[11.0, 22.0, 33.0, 44.0]);
     }
 
     #[test]
@@ -561,66 +637,92 @@ mod tests {
         let a = xpu_tensor(&[10.0, 20.0, 30.0], &xpu);
         let b = xpu_tensor(&[2.0, 4.0, 5.0], &xpu);
 
-        let s = xpu_sub(&a, &b, &xpu).unwrap();
-        assert_eq!(s.cpu().unwrap().data().unwrap(), &[8.0, 16.0, 25.0]);
+        let s = xpu_sub(&a, &b, &xpu).expect("xpu_sub must succeed");
+        assert_eq!(read_back(&s), &[8.0, 16.0, 25.0]);
 
-        let m = xpu_mul(&a, &b, &xpu).unwrap();
-        assert_eq!(m.cpu().unwrap().data().unwrap(), &[20.0, 80.0, 150.0]);
+        let m = xpu_mul(&a, &b, &xpu).expect("xpu_mul must succeed");
+        assert_eq!(read_back(&m), &[20.0, 80.0, 150.0]);
 
-        let d = xpu_div(&a, &b, &xpu).unwrap();
-        assert_eq!(d.cpu().unwrap().data().unwrap(), &[5.0, 5.0, 6.0]);
+        let d = xpu_div(&a, &b, &xpu).expect("xpu_div must succeed");
+        assert_eq!(read_back(&d), &[5.0, 5.0, 6.0]);
     }
 
     #[test]
     fn xpu_matmul_runs_on_gpu() {
         let Some(xpu) = xpu() else { return };
-        let a = make_xpu_tensor(vec![1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &xpu).unwrap();
-        let b = make_xpu_tensor(vec![7.0_f32, 8.0, 9.0, 10.0, 11.0, 12.0], &[3, 2], &xpu).unwrap();
+        let a = make_xpu_tensor(vec![1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &xpu)
+            .expect("make_xpu_tensor [2,3] must succeed");
+        let b = make_xpu_tensor(vec![7.0_f32, 8.0, 9.0, 10.0, 11.0, 12.0], &[3, 2], &xpu)
+            .expect("make_xpu_tensor [3,2] must succeed");
 
-        let c = xpu_matmul(&a, &b, &xpu).unwrap();
+        let c = xpu_matmul(&a, &b, &xpu).expect("xpu_matmul must succeed for valid 2-D shapes");
         assert_eq!(c.shape(), &[2, 2]);
         assert_eq!(c.device(), Device::Xpu(0));
-        let data = c.cpu().unwrap().data().unwrap().to_vec();
+        let data = read_back(&c);
         assert!((data[0] - 58.0).abs() < 1e-4);
         assert!((data[1] - 64.0).abs() < 1e-4);
         assert!((data[2] - 139.0).abs() < 1e-4);
         assert!((data[3] - 154.0).abs() < 1e-4);
     }
 
+    /// Regression: `xpu_matmul` must reject non-2-D inputs with a
+    /// structured error rather than silently producing garbage or
+    /// falling back to CPU. Validation lives in
+    /// [`ferrotorch_cubecl::ops::portable_matmul`] (`check_matmul_shapes`)
+    /// and is propagated through the `xpu_binary!` macro via `?`.
+    #[test]
+    fn xpu_matmul_rejects_non_2d_inputs() {
+        let Some(xpu) = xpu() else { return };
+        // 1-D × 1-D: not 2-D matmul.
+        let a1d = xpu_tensor(&[1.0, 2.0, 3.0], &xpu);
+        let b1d = xpu_tensor(&[4.0, 5.0, 6.0], &xpu);
+        let err = xpu_matmul(&a1d, &b1d, &xpu).expect_err("1-D × 1-D matmul must error");
+        assert!(
+            matches!(err, FerrotorchError::ShapeMismatch { .. }),
+            "expected ShapeMismatch, got {err:?}"
+        );
+
+        // 3-D × 3-D (batched): not currently supported by xpu_matmul; must
+        // error rather than silently dispatch the wrong shape.
+        let a3d = make_xpu_tensor((0..8).map(|i| i as f32).collect(), &[2, 2, 2], &xpu)
+            .expect("make_xpu_tensor [2,2,2] must succeed");
+        let b3d = make_xpu_tensor((0..8).map(|i| i as f32).collect(), &[2, 2, 2], &xpu)
+            .expect("make_xpu_tensor [2,2,2] must succeed");
+        let err = xpu_matmul(&a3d, &b3d, &xpu).expect_err("3-D × 3-D matmul must error");
+        assert!(
+            matches!(err, FerrotorchError::ShapeMismatch { .. }),
+            "expected ShapeMismatch for batched matmul, got {err:?}"
+        );
+    }
+
     #[test]
     fn xpu_unary_kernels_run_on_gpu() {
         let Some(xpu) = xpu() else { return };
         let a = xpu_tensor(&[-3.0, -1.0, 0.0, 1.0, 3.0], &xpu);
-        let n = xpu_neg(&a, &xpu).unwrap();
-        assert_eq!(
-            n.cpu().unwrap().data().unwrap(),
-            &[3.0, 1.0, 0.0, -1.0, -3.0]
-        );
+        let n = xpu_neg(&a, &xpu).expect("xpu_neg must succeed");
+        assert_eq!(read_back(&n), &[3.0, 1.0, 0.0, -1.0, -3.0]);
 
-        let abs = xpu_abs(&a, &xpu).unwrap();
-        assert_eq!(
-            abs.cpu().unwrap().data().unwrap(),
-            &[3.0, 1.0, 0.0, 1.0, 3.0]
-        );
+        let abs = xpu_abs(&a, &xpu).expect("xpu_abs must succeed");
+        assert_eq!(read_back(&abs), &[3.0, 1.0, 0.0, 1.0, 3.0]);
 
-        let r = xpu_relu(&a, &xpu).unwrap();
-        assert_eq!(r.cpu().unwrap().data().unwrap(), &[0.0, 0.0, 0.0, 1.0, 3.0]);
+        let r = xpu_relu(&a, &xpu).expect("xpu_relu must succeed");
+        assert_eq!(read_back(&r), &[0.0, 0.0, 0.0, 1.0, 3.0]);
     }
 
     #[test]
     fn xpu_transcendentals_run_on_gpu() {
         let Some(xpu) = xpu() else { return };
         let a = xpu_tensor(&[0.0, 1.0, 2.0], &xpu);
-        let e = xpu_exp(&a, &xpu).unwrap();
-        let ed = e.cpu().unwrap().data().unwrap().to_vec();
+        let e = xpu_exp(&a, &xpu).expect("xpu_exp must succeed");
+        let ed = read_back(&e);
         let expected: Vec<f32> = [0.0, 1.0, 2.0].iter().map(|x: &f32| x.exp()).collect();
         for (a, b) in ed.iter().zip(expected.iter()) {
             assert!((a - b).abs() < 1e-3, "exp parity: got {a}, expected {b}");
         }
 
         let input_ln = xpu_tensor(&[1.0, std::f32::consts::E, 10.0], &xpu);
-        let l = xpu_ln(&input_ln, &xpu).unwrap();
-        let ld = l.cpu().unwrap().data().unwrap().to_vec();
+        let l = xpu_ln(&input_ln, &xpu).expect("xpu_ln must succeed");
+        let ld = read_back(&l);
         let exp_l: Vec<f32> = [1.0_f32, std::f32::consts::E, 10.0]
             .iter()
             .map(|x| x.ln())
@@ -634,8 +736,9 @@ mod tests {
     fn xpu_add_rejects_cpu_input() {
         let Some(xpu) = xpu() else { return };
         let a = xpu_tensor(&[1.0, 2.0], &xpu);
-        let b = ferrotorch_core::tensor(&[1.0_f32, 2.0]).unwrap();
-        let err = xpu_add(&a, &b, &xpu).unwrap_err();
+        let b = ferrotorch_core::tensor(&[1.0_f32, 2.0])
+            .expect("CPU tensor construction must succeed");
+        let err = xpu_add(&a, &b, &xpu).expect_err("CPU operand must be rejected");
         assert!(matches!(err, FerrotorchError::DeviceMismatch { .. }));
     }
 
@@ -643,8 +746,9 @@ mod tests {
     fn xpu_add_rejects_cuda_input_against_xpu_device() {
         let Some(xpu) = xpu() else { return };
         let a = xpu_tensor(&[1.0, 2.0], &xpu);
-        let b = ferrotorch_core::tensor(&[1.0_f32, 2.0]).unwrap();
-        let err = xpu_add(&a, &b, &xpu).unwrap_err();
+        let b = ferrotorch_core::tensor(&[1.0_f32, 2.0])
+            .expect("CPU tensor construction must succeed");
+        let err = xpu_add(&a, &b, &xpu).expect_err("non-XPU operand must be rejected");
         assert!(matches!(err, FerrotorchError::DeviceMismatch { .. }));
     }
 
@@ -655,12 +759,11 @@ mod tests {
         let Some(xpu) = xpu() else { return };
         let a = xpu_tensor(&[1.0, 2.0, 3.0], &xpu);
         let b = xpu_tensor(&[10.0, 20.0, 30.0], &xpu);
-        let c = xpu_add(&a, &b, &xpu).unwrap();
+        let c = xpu_add(&a, &b, &xpu).expect("first xpu_add must succeed");
         assert_eq!(c.device(), Device::Xpu(0));
-        let d = xpu_add(&c, &a, &xpu).unwrap();
+        let d = xpu_add(&c, &a, &xpu).expect("chained xpu_add must succeed");
         assert_eq!(d.device(), Device::Xpu(0));
-        let result = d.cpu().unwrap().data().unwrap().to_vec();
-        assert_eq!(result, &[12.0, 24.0, 36.0]);
+        assert_eq!(read_back(&d), &[12.0, 24.0, 36.0]);
     }
 
     #[test]
@@ -668,9 +771,10 @@ mod tests {
         // T_3(x) = 4x^3 - 3x. At x = [0, 0.5, 1, -1] → [0, -1, 1, -1].
         let Some(xpu) = xpu() else { return };
         let a = xpu_tensor(&[0.0, 0.5, 1.0, -1.0], &xpu);
-        let r = xpu_chebyshev_polynomial_t(&a, 3, &xpu).unwrap();
+        let r = xpu_chebyshev_polynomial_t(&a, 3, &xpu)
+            .expect("xpu_chebyshev_polynomial_t must succeed");
         assert_eq!(r.device(), Device::Xpu(0));
-        let data = r.cpu().unwrap().data().unwrap().to_vec();
+        let data = read_back(&r);
         for (got, want) in data.iter().zip(&[0.0_f32, -1.0, 1.0, -1.0]) {
             assert!(
                 (got - want).abs() < 1e-4,
@@ -684,8 +788,9 @@ mod tests {
         // P_2(x) = (3x^2 - 1)/2. At x = [0, 1, -1] → [-0.5, 1, 1].
         let Some(xpu) = xpu() else { return };
         let a = xpu_tensor(&[0.0, 1.0, -1.0], &xpu);
-        let r = xpu_legendre_polynomial_p(&a, 2, &xpu).unwrap();
-        let data = r.cpu().unwrap().data().unwrap().to_vec();
+        let r = xpu_legendre_polynomial_p(&a, 2, &xpu)
+            .expect("xpu_legendre_polynomial_p must succeed");
+        let data = read_back(&r);
         for (got, want) in data.iter().zip(&[-0.5_f32, 1.0, 1.0]) {
             assert!(
                 (got - want).abs() < 1e-4,
@@ -697,8 +802,10 @@ mod tests {
     #[test]
     fn xpu_polynomial_rejects_cpu_input() {
         let Some(xpu) = xpu() else { return };
-        let a = ferrotorch_core::tensor(&[0.0_f32, 0.5, 1.0]).unwrap();
-        let err = xpu_chebyshev_polynomial_t(&a, 2, &xpu).unwrap_err();
+        let a = ferrotorch_core::tensor(&[0.0_f32, 0.5, 1.0])
+            .expect("CPU tensor construction must succeed");
+        let err = xpu_chebyshev_polynomial_t(&a, 2, &xpu)
+            .expect_err("CPU operand must be rejected");
         assert!(matches!(err, FerrotorchError::DeviceMismatch { .. }));
     }
 }
@@ -709,7 +816,8 @@ mod no_backend_tests {
 
     #[test]
     fn xpu_device_new_errors_without_wgpu() {
-        let err = XpuDevice::new(0).unwrap_err();
+        let err = XpuDevice::new(0)
+            .expect_err("XpuDevice::new must error when the wgpu feature is disabled");
         assert!(matches!(err, FerrotorchError::DeviceUnavailable));
         assert!(!XpuDevice::is_available());
     }

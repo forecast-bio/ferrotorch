@@ -402,11 +402,18 @@ fn build_ir_graph<T: Float>(
             .input_ids
             .iter()
             .map(|cid| {
-                *tensor_to_ir
+                tensor_to_ir
                     .get(cid)
-                    .unwrap_or_else(|| panic!("BUG: tensor {cid:?} not found in tensor_to_ir map"))
+                    .copied()
+                    .ok_or_else(|| FerrotorchError::Internal {
+                        message: format!(
+                            "build_ir_graph: tensor {cid:?} not found in tensor_to_ir map; \
+                             the BFS traversal did not visit every input referenced by a \
+                             recorded op (malformed annotated trace)"
+                        ),
+                    })
             })
-            .collect();
+            .collect::<FerrotorchResult<Vec<_>>>()?;
 
         let ir_op = map_name_to_op(op.name, &op.output_shape)?;
         let (_, out_ids) = graph.add_node(ir_op, ir_inputs, vec![op.output_shape.clone()]);
@@ -553,14 +560,19 @@ fn build_ir_graph_from_run<T: Float>(
             .input_ids
             .iter()
             .map(|cid| {
-                *tensor_to_ir.get(cid).unwrap_or_else(|| {
-                    panic!(
-                        "BUG: tensor {cid:?} not found in tensor_to_ir map during \
-                         segment IR construction"
-                    )
-                })
+                tensor_to_ir
+                    .get(cid)
+                    .copied()
+                    .ok_or_else(|| FerrotorchError::Internal {
+                        message: format!(
+                            "build_ir_graph_from_run: tensor {cid:?} not found in \
+                             tensor_to_ir map during segment IR construction; the \
+                             external-input pre-pass at lines 535-554 should have \
+                             registered every external input but did not (malformed run)"
+                        ),
+                    })
             })
-            .collect();
+            .collect::<FerrotorchResult<Vec<_>>>()?;
 
         let ir_op = map_name_to_op(op.name, &op.output_shape)?;
         let (_, out_ids) = graph.add_node(ir_op, ir_inputs, vec![op.output_shape.clone()]);

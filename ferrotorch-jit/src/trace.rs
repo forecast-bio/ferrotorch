@@ -249,14 +249,18 @@ where
             .input_ids
             .iter()
             .map(|cid| {
-                *tensor_to_ir.get(cid).unwrap_or_else(|| {
-                    panic!(
-                        "BUG: tensor {cid:?} not found in tensor_to_ir map \
-                         during IR construction"
-                    )
-                })
+                tensor_to_ir
+                    .get(cid)
+                    .copied()
+                    .ok_or_else(|| FerrotorchError::Internal {
+                        message: format!(
+                            "trace: tensor {cid:?} not found in tensor_to_ir map \
+                             during IR construction; the autograd BFS did not visit \
+                             every input referenced by a recorded op (malformed trace)"
+                        ),
+                    })
             })
-            .collect();
+            .collect::<FerrotorchResult<Vec<_>>>()?;
 
         let ir_op = map_name_to_op(op.name, &op.output_shape)?;
 
