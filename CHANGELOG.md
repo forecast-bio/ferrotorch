@@ -312,6 +312,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- audit follow-up: ferrotorch-jit — interpreter NumCast + tracing panics + IrValue dtype doc + IR encapsulation (#720)
+- audit follow-up: ferrotorch-cubecl §3 PyTorch parity — host-readback per op + 28 unsafe SAFETY (#714)
+- audit follow-up: ferrotorch-xpu — dtype monomorphism + lints baseline + shape-bypass (#719)
 - address tracked follow-ups (#708, #709, #707, #702, #687, #692, #694, #696, #699, #703, #677) (#711)
 - FerrotorchError::Gpu source-chain variant (coordination from #698 llama-A) (#699)
 - ferrotorch-gpu missing_docs + missing_debug_implementations sweep (#703)
