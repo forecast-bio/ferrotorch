@@ -1,0 +1,10 @@
+{
+  "uuid": "ea3f66ac-957b-4490-b4eb-7b2c9582601f",
+  "display_id": 743,
+  "title": "audit follow-up: ferrotorch-train — cast unwrap in train loop + assert input validation + silent TB errors + println + lints + non_exhaustive + Errors docs",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T23:21:07.823553457Z",
+  "updated_at": "2026-05-04T23:21:07.823553457Z"
+}
