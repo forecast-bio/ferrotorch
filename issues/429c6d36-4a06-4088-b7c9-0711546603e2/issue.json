@@ -6,5 +6,8 @@
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-04T21:58:17.852239262Z",
-  "updated_at": "2026-05-04T21:58:17.852239262Z"
+  "updated_at": "2026-05-04T21:58:20.110886997Z",
+  "labels": [
+    "rust,nn-derive,test-coverage,follow-up"
+  ]
 }
