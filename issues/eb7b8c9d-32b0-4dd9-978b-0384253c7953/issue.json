@@ -6,5 +6,8 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-04T16:22:21.914374383Z",
-  "updated_at": "2026-05-04T16:22:21.914374383Z"
+  "updated_at": "2026-05-04T16:22:23.297632710Z",
+  "labels": [
+    "rust,cubecl,latent-ub,follow-up"
+  ]
 }
