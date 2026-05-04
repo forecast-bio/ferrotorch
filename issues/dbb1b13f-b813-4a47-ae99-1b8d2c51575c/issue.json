@@ -1,0 +1,10 @@
+{
+  "uuid": "dbb1b13f-b813-4a47-ae99-1b8d2c51575c",
+  "display_id": 723,
+  "title": "audit follow-up: ferrotorch-distributed — 25 SAFETY + fsdp expects + collective NumCast + Drop SAFETY",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T18:53:51.132138904Z",
+  "updated_at": "2026-05-04T18:53:51.132138904Z"
+}
