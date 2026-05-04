@@ -1,0 +1,10 @@
+{
+  "uuid": "429c6d36-4a06-4088-b7c9-0711546603e2",
+  "display_id": 736,
+  "title": "ferrotorch-nn-derive: trybuild compile-fail tests for proc-macro error paths",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T21:58:17.852239262Z",
+  "updated_at": "2026-05-04T21:58:17.852239262Z"
+}
