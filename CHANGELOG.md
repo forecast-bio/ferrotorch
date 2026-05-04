@@ -312,6 +312,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- fold auto-changelog after #726 close (#727)
 - commit 4-followup progress (#726)
 - ferrotorch-cubecl polynomial families: dispatch_unary_with_n! has no handle variant — host-roundtrips on every call (chebyshev/hermite/laguerre/legendre) (#715)
 - ferrotorch-gpu/jit: 36 pre-existing rustdoc intra-doc-link warnings (broken/private item links) block cargo doc -- -D warnings (#712)
