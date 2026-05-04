@@ -308,6 +308,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- tensor_bridge.rs cpu_fallback else arms (add/sub/mul/neg/relu): silent CPU round-trip per §3 (#706)
 - Restore ops/higher_order.rs and migrate cond/scan canonical impl off cond_scan.rs (#642)
 - Copy crosslink-porting skills into ~/.claude/skills (#638)
 - Closed audit / tracking issues whose deliverables already shipped: #562 (`docs/audit/01-15-*.md` cover the crate-by-crate gap analysis), #563 (`docs/audit/16-ferray-ferrolearn-integration.md` covers the integration audit), #572 (umbrella tracking #564-#571 — every phased subitem closed).

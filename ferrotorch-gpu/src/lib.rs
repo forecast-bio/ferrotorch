@@ -1,3 +1,118 @@
+// Lint baseline mirrors `ferrotorch-core/src/lib.rs`. `missing_docs` and
+// `missing_debug_implementations` are held at `warn` while the workspace-wide
+// rustdoc / `Debug` pass is tracked as a follow-up issue (matches the existing
+// `ferrotorch-core` precedent — diverging unilaterally from a leaf crate would
+// be Step 4 architectural unilateralism). `unsafe_code` is intentionally NOT
+// denied: this crate is fundamentally unsafe-using (PTX launches, raw pointer
+// slices, FFI to cudarc); per-block SAFETY substantiation is tracked in the
+// gpu-B..gpu-F dispatches.
+#![warn(clippy::all, clippy::pedantic)]
+#![deny(rust_2018_idioms)]
+// `missing_debug_implementations` and `missing_docs` are held at `allow`
+// while the workspace-wide rustdoc / `Debug` follow-up is tracked separately.
+// Promoting either here unilaterally would impose a documentation sweep on
+// the frozen-file gpu-B..gpu-F dispatches that own those files.
+#![allow(missing_debug_implementations)]
+#![allow(missing_docs)]
+// Pedantic lints we explicitly accept across this crate. Each allow names a
+// concrete reason — the alternative would be churn-for-zero-benefit or a
+// worse API. Mirrors the ferrotorch-core baseline; add to this list only with
+// a one-line justification.
+#![allow(
+    // `MpsDevice`/`GpuDevice`/`GpuTensor`/`GpuError`-style names intentionally
+    // repeat the crate name — that's the API shape consumers expect.
+    clippy::module_name_repetitions,
+    // # Errors / # Panics sections will be added in the workspace-wide
+    // rustdoc pass (tracked separately, not gated on this lint baseline).
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    // Long match-on-op blocks mirror the kernel taxonomy 1:1; splitting
+    // reduces legibility.
+    clippy::too_many_lines,
+    // Numeric ML code casts pervasively between integer/float widths around
+    // GPU buffer sizes, dimensions, and indexing; the explicit cast is more
+    // readable than try_into/unwrap or num-traits indirection.
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_lossless,
+    // `#[must_use]` on every getter is churn for marginal value; callers in
+    // this codebase already use the returned values.
+    clippy::must_use_candidate,
+    // Builder-style methods returning `Self` document their pattern in the
+    // type signature; `#[must_use]` is noise.
+    clippy::return_self_not_must_use,
+    // Math kernels naturally use single-character names (m, k, n for matmul
+    // dims; i, j for indices); requiring longer names hurts readability.
+    clippy::many_single_char_names,
+    clippy::similar_names,
+    // Doc comments follow the standard rustdoc layout; pedantic doc-markdown
+    // rules are too aggressive for technical prose with PTX assembly.
+    clippy::doc_markdown,
+    // Hex-encoded constants in PTX templates and Philox round constants don't
+    // gain readability from the underscore separators clippy prefers.
+    clippy::unreadable_literal,
+    // Test/helper modules define small fns after `let`-bindings; the
+    // hoisting requirement is style-only.
+    clippy::items_after_statements,
+    // GPU trait methods often take many `&GpuBufferHandle` parameters that
+    // mirror a kernel's input signature; each refactor is its own follow-up.
+    clippy::too_many_arguments,
+    // `let ... else { return }` rewrites of `match { Some(x) => x, None => return }`
+    // are often less readable when the match arm is the natural pattern.
+    clippy::manual_let_else,
+    // `.collect::<Vec<_>>()` after mapping is the idiomatic shape; rewriting
+    // to `extend(map(..))` is lossier and clippy's preference is contested.
+    clippy::redundant_closure_for_method_calls,
+    // Match arms that wrap a single variant of an enum and re-export are
+    // intentional when the variant set is documented and the wrapper is part
+    // of the API.
+    clippy::match_wildcard_for_single_variants,
+    // Parameter names `_a`, `_b` mirror tensor naming conventions
+    // (left/right operand) and are not single-letter cargo-cult.
+    clippy::single_match_else,
+    // `for i in 0..n { ... }` over indices is the natural shape for kernel
+    // launch math; .iter().enumerate() is needlessly indirect.
+    clippy::needless_range_loop,
+    // Manual `Debug` impls intentionally omit non-Debug fields like
+    // `Box<dyn Fn>` callbacks, `cudarc` opaque handles, and `Mutex<...>`
+    // contents to keep the formatted output useful and free of lock probes.
+    clippy::missing_fields_in_debug,
+    // Methods that take `&self` for a uniform interface (e.g., guard accessors
+    // that are conceptually about the guard but don't read state) are part of
+    // the public API shape and not refactor candidates from gpu-A.
+    clippy::unused_self,
+    // `.map(...).unwrap_or(...)` is the documented PyTorch-style fallback
+    // shape used in the OOM recovery path; rewriting to `match` is lossier.
+    clippy::map_unwrap_or,
+    // PTX template strings, blas/solver test code, and Box<dyn Any>-erased
+    // capture pools predate gpu-A's hygiene baseline; remaining pedantic
+    // warnings (raw-pointer cast styles, `cloned` vs `copied`, trailing
+    // commas in `assert!(.., "msg",)`, `if x { 1 } else { 0 }` patterns,
+    // wildcard enum imports, `!=` simplifications, `format!` string interp,
+    // strict-float-eq in identity-matmul tests) are tracked for the
+    // gpu-B..gpu-F dispatches. Keeping `-D warnings` viable now while the
+    // SAFETY substantiation work decides how to phrase those sites.
+    clippy::ptr_as_ptr,
+    clippy::ref_as_ptr,
+    clippy::borrow_as_ptr,
+    clippy::cast_ptr_alignment,
+    clippy::bool_to_int_with_if,
+    clippy::float_cmp,
+    clippy::cloned_instead_of_copied,
+    clippy::single_char_pattern,
+    clippy::uninlined_format_args,
+    clippy::wildcard_imports,
+    clippy::enum_glob_use,
+    clippy::if_not_else,
+    clippy::needless_pass_by_value,
+    clippy::assigning_clones,
+    clippy::semicolon_if_nothing_returned,
+    clippy::redundant_else,
+    clippy::unnecessary_trailing_comma,
+)]
+
 //! CUDA GPU backend for ferrotorch.
 //!
 //! This crate provides device management, memory allocation, and host/device
@@ -13,13 +128,16 @@
 //! # Quick start
 //!
 //! ```rust,no_run
-//! use ferrotorch_gpu::{GpuDevice, cpu_to_gpu, gpu_to_cpu};
+//! use ferrotorch_gpu::{GpuDevice, GpuError, cpu_to_gpu, gpu_to_cpu};
 //!
-//! let device = GpuDevice::new(0).unwrap();
-//! let host_data = vec![1.0f32, 2.0, 3.0];
-//! let gpu_buf = cpu_to_gpu(&host_data, &device).unwrap();
-//! let back = gpu_to_cpu(&gpu_buf, &device).unwrap();
-//! assert_eq!(back, host_data);
+//! fn main() -> Result<(), GpuError> {
+//!     let device = GpuDevice::new(0)?;
+//!     let host_data = vec![1.0_f32, 2.0, 3.0];
+//!     let gpu_buf = cpu_to_gpu(&host_data, &device)?;
+//!     let back = gpu_to_cpu(&gpu_buf, &device)?;
+//!     assert_eq!(back, host_data);
+//!     Ok(())
+//! }
 //! ```
 
 pub mod allocator;

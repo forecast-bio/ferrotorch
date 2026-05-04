@@ -164,6 +164,27 @@ where
     let stream = device.stream();
 
     // Allocate pinned host memory and copy data into it.
+    // SAFETY:
+    // - `CudaContext::alloc_pinned` (cudarc 0.19.4 src/driver/safe/core.rs:1346)
+    //   is `unsafe` because the returned `PinnedHostSlice<T>` contains
+    //   uninitialized memory after `cuMemAllocHost`/`cuMemHostAlloc`
+    //   (CUDA driver API). The caller's obligation is to fully initialize
+    //   the slice before any read.
+    // - We initialize every element on the very next line via
+    //   `pinned.as_mut_slice()?.copy_from_slice(data)`. The `copy_from_slice`
+    //   contract requires source and destination to have equal lengths;
+    //   `pinned` was allocated with `data.len()` elements (line 167), so the
+    //   length precondition holds and every element of the pinned region
+    //   is overwritten before the subsequent `clone_htod` read on line 171.
+    // - `T: DeviceRepr + ValidAsZeroBits + Copy` (function bound on line
+    //   161-162) guarantees the bit layout is suitable for both pinned host
+    //   memory and DMA transfer to device.
+    // - `ctx` is a valid `Arc<CudaContext>` obtained from `device.context()`
+    //   on line 163; cudarc upholds the bind-to-thread invariant inside
+    //   `alloc_pinned` (line 1350 of upstream).
+    // - Lifetime: `pinned` is owned by this stack frame and explicitly
+    //   `drop`-ped on line 174 after `clone_htod` consumes it as `&pinned`,
+    //   so the pinned allocation outlives every read.
     let mut pinned = unsafe { ctx.alloc_pinned::<T>(data.len())? };
     pinned.as_mut_slice()?.copy_from_slice(data);
 

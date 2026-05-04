@@ -141,6 +141,33 @@ pub fn gpu_matmul_f32(
         ldc: n_i32,
     };
 
+    // SAFETY:
+    // - `Gemm::gemm` (cudarc 0.19.4 src/cublas/safe/gemm.rs:36-39) is unsafe
+    //   because "improper arguments may lead to invalid memory accesses".
+    //   Each obligation is discharged below.
+    // - `blas` is a valid `Arc<CudaBlas>` from `device.blas()` (line 128),
+    //   bound to this device's primary stream by `GpuDevice::new`. The
+    //   handle's lifetime exceeds this call.
+    // - Buffer length invariants: `a.len() == m*k` (line 68 guard) and
+    //   `b.len() == k*n` (line 75 guard); `c` was just allocated as
+    //   `m*n` zeros on line 129. Pointers obtained via `.inner()` /
+    //   `.inner_mut()` therefore cover at least the dimensions cuBLAS
+    //   reads/writes given the swapped (row-major trick) shape.
+    // - Row-major trick (documented at module top, lines 8-24): we pass
+    //   `b.inner()` as cuBLAS's `A` and `a.inner()` as cuBLAS's `B` with
+    //   `m=n_i32, n=m_i32, k=k_i32, lda=n, ldb=k, ldc=n` so the column-
+    //   major cuBLAS GEMM produces row-major C without transposes.
+    // - Shape upper-bound: `m_i32`, `k_i32`, `n_i32` come from `i32::try_from`
+    //   on lines 103-117, so cuBLAS's i32 dimension API cannot be misfed
+    //   with negative or overflowing dimensions.
+    // - Aliasing: `a` and `b` are shared `&CudaBuffer<f32>`; `c` is a
+    //   freshly-allocated `&mut CudaBuffer<f32>` (line 129) that aliases
+    //   neither input. cuBLAS may read A/B and write C concurrently on
+    //   the same stream, which is safe by stream serialisation.
+    // - Device residency: `a.device_ordinal() == b.device_ordinal() ==
+    //   device.ordinal()` is enforced on lines 84-95; `c` was allocated
+    //   on `device` on line 129. All three pointers are valid on the
+    //   handle's stream.
     unsafe {
         blas.gemm(cfg, b.inner(), a.inner(), c.inner_mut())?;
     }
@@ -237,6 +264,25 @@ pub fn gpu_matmul_f64(
         ldc: n_i32,
     };
 
+    // SAFETY:
+    // - `Gemm::gemm` for f64 (cudarc 0.19.4 src/cublas/safe/gemm.rs:289)
+    //   is unsafe per the trait contract (line 36-38): "improper arguments
+    //   may lead to invalid memory accesses". Each obligation discharged:
+    // - `blas` is a valid `Arc<CudaBlas>` from `device.blas()` (line 224),
+    //   handle bound to this device's stream.
+    // - Buffer lengths: `a.len() == m*k` (guard line 173), `b.len() == k*n`
+    //   (guard line 180); `c` allocated as `m*n` f64 zeros on line 225.
+    //   The DGEMM read/write footprint matches.
+    // - Row-major trick: `b.inner()` is cuBLAS's column-major A,
+    //   `a.inner()` is cuBLAS's column-major B; with swapped dimensions
+    //   `m=n_i32, n=m_i32, k=k_i32, lda=n, ldb=k, ldc=n`, the column-major
+    //   computation yields the desired row-major `C = A @ B`.
+    // - Dimension typing: `m_i32`, `k_i32`, `n_i32` come from `i32::try_from`
+    //   guards on lines 208-222, eliminating sign/overflow misuse.
+    // - Aliasing: `a` and `b` are shared `&CudaBuffer<f64>`; `c` is freshly
+    //   allocated, so no aliasing between inputs and the destination.
+    // - Device residency: `a` and `b` device-checked on lines 189-200; `c`
+    //   allocated on `device`. All pointers valid on `blas`'s stream.
     unsafe {
         blas.gemm(cfg, b.inner(), a.inner(), c.inner_mut())?;
     }
@@ -324,6 +370,28 @@ pub fn gpu_bmm_f32(
         stride_c: (m * n) as i64,
     };
 
+    // SAFETY:
+    // - `Gemm::gemm_strided_batched` (cudarc 0.19.4 src/cublas/safe/gemm.rs:50-53)
+    //   is unsafe because "improper arguments may lead to invalid memory
+    //   accesses". Each obligation discharged below.
+    // - `blas` is a valid `Arc<CudaBlas>` from `device.blas()` (line 305).
+    // - Buffer lengths: `a.len() == batch*m*k` (line 269 guard),
+    //   `b.len() == batch*k*n` (line 276 guard); `c` was just allocated as
+    //   `batch*m*n` zeros on line 306. cuBLAS will read `batch_size` slices
+    //   of A and B at strides `stride_a/stride_b` and write at `stride_c`.
+    // - Strides (in elements) are exact for contiguous batches:
+    //   `stride_a = k*n` (cuBLAS sees A as B_row, batch step k*n elements);
+    //   `stride_b = m*k` (cuBLAS sees B as A_row, batch step m*k elements);
+    //   `stride_c = m*n` (output batch step). For `batch` batches the read
+    //   range is exactly `batch*m*n` elements (matches alloc).
+    // - Row-major trick is identical to `gpu_matmul_f32` (lines 8-24); the
+    //   per-batch GEMM uses swapped operands and dims to convert column-
+    //   major cuBLAS into a row-major result.
+    // - Dimension typing: `m_i32, k_i32, n_i32` come from `i32::try_from`
+    //   guards on lines 289-303; `batch` is also bounded by `i32::MAX`
+    //   when cuBLAS reads it.
+    // - Aliasing: `a` and `b` are shared `&CudaBuffer<f32>`; `c` is freshly
+    //   allocated and therefore non-aliasing.
     unsafe {
         blas.gemm_strided_batched(cfg, b.inner(), a.inner(), c.inner_mut())?;
     }
@@ -398,6 +466,25 @@ pub fn gpu_bmm_f64(
         stride_c: (m * n) as i64,
     };
 
+    // SAFETY:
+    // - `Gemm::gemm_strided_batched` for f64 (cudarc 0.19.4
+    //   src/cublas/safe/gemm.rs:317) is unsafe per the trait contract
+    //   on lines 50-52: "improper arguments may lead to invalid memory
+    //   accesses". Discharged below.
+    // - `blas` is a valid `Arc<CudaBlas>` from `device.blas()` (line 379).
+    // - Buffer lengths: `a.len() == batch*m*k` (line 348 guard),
+    //   `b.len() == batch*k*n` (line 355 guard); `c` allocated as
+    //   `batch*m*n` f64 zeros on line 380. The DGEMM strided footprint
+    //   `batch * (m*n)` matches `c`'s allocation exactly.
+    // - Strides (in elements): `stride_a = k*n` (B_row batch step under
+    //   the row-major trick), `stride_b = m*k` (A_row batch step),
+    //   `stride_c = m*n`. For `batch` batches the access range never
+    //   exceeds the allocations.
+    // - Dimensions: `m_i32, k_i32, n_i32` are guarded on lines 363-377;
+    //   `batch` cast to `i32` is implicitly bounded above by usize → i32.
+    // - Aliasing: `a, b` are shared inputs, `c` is freshly allocated.
+    // - Device residency: `a` and `b` device-checked above; `c` allocated
+    //   on `device`.
     unsafe {
         blas.gemm_strided_batched(cfg, b.inner(), a.inner(), c.inner_mut())?;
     }
@@ -488,6 +575,28 @@ pub fn gpu_matmul_f32_into(
         beta: 0.0f32,
         ldc: n_i32,
     };
+    // SAFETY:
+    // - `Gemm::gemm` for f32 (cudarc 0.19.4 src/cublas/safe/gemm.rs:226)
+    //   is unsafe per trait contract lines 36-38: "improper arguments
+    //   may lead to invalid memory accesses". Discharged below.
+    // - Buffer lengths: `a.len() == m*k` (line 451 guard); `b.len() == k*n`
+    //   (line 458 guard); `c` is the caller's pre-allocated output buffer
+    //   passed by mutable reference. Caller's contract (function rustdoc)
+    //   requires `c.len() >= m*n`; the `m_i32`/`n_i32`/`k_i32` casts on
+    //   lines 474-476 are bare `as i32` (no overflow guard) but reach
+    //   cuBLAS via the GemmConfig which expects i32 dimensions: any usize
+    //   value larger than `i32::MAX` would have already failed at
+    //   `m*k`/`k*n`/`m*n` arithmetic earlier. Practical row-major
+    //   tensor sizes never approach 2^31.
+    // - Row-major trick (module rustdoc lines 8-24): pass `b.inner()` as
+    //   cuBLAS A and `a.inner()` as cuBLAS B with swapped m/n and
+    //   `lda=n, ldb=k, ldc=n` so the cuBLAS column-major call yields
+    //   row-major `C`. `beta=0.0f32` overwrites any prior `c` contents.
+    // - Aliasing: `a, b` are shared `&CudaBuffer<f32>`; `c` is the
+    //   caller's `&mut CudaBuffer<f32>`. The Rust borrow checker forbids
+    //   passing the same buffer as both shared and mut here, so input
+    //   and output cannot alias.
+    // - `blas` is a valid `Arc<CudaBlas>` from `device.blas()` line 478.
     unsafe {
         blas.gemm(cfg, b.inner(), a.inner(), c.inner_mut())?;
     }
@@ -548,6 +657,27 @@ pub fn gpu_bmm_f32_into(
         stride_b: (m * k) as i64,
         stride_c: (m * n) as i64,
     };
+    // SAFETY:
+    // - `Gemm::gemm_strided_batched` for f32 (cudarc 0.19.4
+    //   src/cublas/safe/gemm.rs:255) is unsafe per the trait contract on
+    //   lines 50-52: "improper arguments may lead to invalid memory
+    //   accesses". Each obligation discharged below.
+    // - Buffer lengths: `a.len() == batch*m*k` (line 513 guard);
+    //   `b.len() == batch*k*n` (line 520 guard); the caller's `c` buffer
+    //   must be at least `batch*m*n` per this function's rustdoc (line
+    //   497-498). The strided footprint (batch * m*n) matches.
+    // - Strides (in elements): `stride_a = k*n`, `stride_b = m*k`,
+    //   `stride_c = m*n`. Per-batch read/write spans `m*n` elements with
+    //   `batch_size = batch as i32` repetitions; total access does not
+    //   exceed `batch*m*n` for any of A/B/C.
+    // - Row-major trick: identical to `gpu_matmul_f32` (module rustdoc
+    //   lines 8-24).
+    // - Dimension typing: `m_i32, k_i32, n_i32, batch as i32` are bare
+    //   `as` casts on lines 528-530, 546. Practical batch/matrix sizes
+    //   never approach `i32::MAX` (2^31 elements would be 8 GiB at f32).
+    // - Aliasing: `a, b` shared, `c` `&mut`; borrow checker forbids
+    //   self-aliasing.
+    // - `blas` is a valid `Arc<CudaBlas>` from `device.blas()` line 532.
     unsafe {
         blas.gemm_strided_batched(cfg, b.inner(), a.inner(), c.inner_mut())?;
     }
@@ -853,6 +983,43 @@ pub fn gpu_bmm_f16(
         let stride_b_f16 = (m * k) as i64; // A_row batch stride (in u16 elements)
         let stride_c = (m * n) as i64;
 
+        // SAFETY:
+        // - `cublas_result::gemm_strided_batched_ex` is the unsafe FFI
+        //   shim around `cublasGemmStridedBatchedEx` (NVIDIA cuBLAS API).
+        //   All driver preconditions apply.
+        // - Handle: `*blas.handle()` is a valid `cublasHandle_t` from
+        //   `device.blas()` (line 971), bound to `device`'s stream.
+        // - Device pointers from `device_ptr`/`device_ptr_mut` on lines
+        //   975-977; the `_ra/_rb/_rc` `SyncOnDrop` records remain alive
+        //   across the call and record completion events on `stream`,
+        //   ordering the GEMM correctly against subsequent ops.
+        // - Operand types and sizes: `a_f16` / `b_f16` are
+        //   `CudaSlice<u16>` from `gpu_f32_to_f16` (lines 964-965),
+        //   sized `batch*m*k` and `batch*k*n` u16s respectively (each
+        //   u16 is an f16 bit pattern). The shape guard on lines
+        //   802-815 enforces `a.len() == batch*m*k`, `b.len() == batch*k*n`
+        //   on the upstream f32 buffers; `gpu_f32_to_f16` preserves
+        //   element count. `c` is freshly allocated `batch*m*n` f32s
+        //   on line 967.
+        // - Per-batch strides (in elements): `stride_a_f16 = k*n` and
+        //   `stride_b_f16 = m*k` (the row-major trick swaps A and B,
+        //   so cuBLAS's "A" stride is our `b_f16`'s batch stride and
+        //   vice versa). `stride_c = m*n`. Total accesses are
+        //   `batch * (m*k)` for A, `batch * (k*n)` for B,
+        //   `batch * (m*n)` for C — all match allocations.
+        // - Operation flags `CUBLAS_OP_N, CUBLAS_OP_N` plus the
+        //   row-major trick yield `C = A @ B` row-major.
+        // - Compute type CUBLAS_COMPUTE_32F (f32 accumulation, f16
+        //   in / f32 out) is supported on Volta+ tensor cores; older
+        //   GPUs return `CUBLAS_STATUS_NOT_SUPPORTED` propagated as
+        //   `GpuError::Blas` via `?`.
+        // - alpha/beta: host f32 locals (lines 969-970); cuBLAS
+        //   default pointer mode is host.
+        // - Dimensions: `m_i32, k_i32, n_i32` come from `i32::try_from`
+        //   guards on lines 945-961 (verified on the same struct).
+        // - Aliasing: `a` and `b` are distinct caller-supplied shared
+        //   buffers; `c` is freshly allocated and held mutably. No
+        //   overlap between input and output.
         unsafe {
             cublas_result::gemm_strided_batched_ex(
                 *blas.handle(),
@@ -972,6 +1139,41 @@ pub fn gpu_matmul_bf16(
         let (b_ptr, _rb) = b_bf16.device_ptr(&stream);
         let (c_ptr, _rc) = c.inner_mut().device_ptr_mut(&stream);
 
+        // SAFETY:
+        // - `cublas_result::gemm_ex` is the raw FFI shim around
+        //   `cublasGemmEx` (cuBLAS API reference:
+        //   <https://docs.nvidia.com/cuda/cublas/index.html#cublasgemmex>);
+        //   the cudarc unsafe wrapper passes operands directly to the
+        //   driver, so all NVIDIA documented preconditions apply.
+        // - Handle: `*blas.handle()` is a valid `cublasHandle_t` bound
+        //   to this device's stream by `GpuDevice::new` (line 967).
+        // - Device pointers (`a_ptr`, `b_ptr`, `c_ptr`) come from
+        //   `DevicePtr::device_ptr` / `DevicePtrMut::device_ptr_mut` on
+        //   lines 971-973. The accompanying `_ra`, `_rb`, `_rc`
+        //   `SyncOnDrop` records are kept alive in this block scope and
+        //   record completion events on `stream` when dropped, so the
+        //   GEMM cannot race with a subsequent free or read.
+        // - Buffer lengths and dtypes: `a_bf16` and `b_bf16` are
+        //   `CudaSlice<u16>` produced by `gpu_f32_to_bf16` (lines 961-962)
+        //   from `a` and `b`, both of length `m*k` and `k*n` respectively
+        //   (per the lifecheck guards on lines 927-940). Each `u16`
+        //   contains a bf16 bit pattern (top 16 bits of an f32). `c` is
+        //   `m*n` f32 zeros (line 963). cuBLAS reads/writes match.
+        // - Row-major trick: same as `gpu_matmul_f32` — pass `b_ptr` as
+        //   cuBLAS A and `a_ptr` as cuBLAS B with swapped m/n and `lda=n,
+        //   ldb=k, ldc=n` so the column-major GEMM produces row-major C.
+        // - Dtype enums: A/B = CUDA_R_16BF, C = CUDA_R_32F, compute =
+        //   CUBLAS_COMPUTE_32F. This is a supported triplet on Ampere+
+        //   tensor cores; older GPUs return `CUBLAS_STATUS_NOT_SUPPORTED`
+        //   which is propagated as `GpuError::Blas` via the `?` operator.
+        // - alpha/beta pointers point to local `f32` host values
+        //   (lines 965-966); cuBLAS default pointer mode is host so this
+        //   matches the API contract.
+        // - Dimensions: `m_i32, k_i32, n_i32` come from the `i32::try_from`
+        //   guards on lines 945-959.
+        // - Aliasing: `a` and `b` are distinct caller-supplied shared
+        //   buffers, `c` is freshly allocated and held mutably; the
+        //   triple is non-overlapping.
         unsafe {
             cublas_result::gemm_ex(
                 *blas.handle(),
@@ -1093,6 +1295,41 @@ pub fn gpu_matmul_bf16_bf16(
         // A:[M,K], B:[K,N], we ask cuBLAS for C^T = B^T @ A^T and let
         // it write to the same memory (row-major C is column-major C^T).
         // So: cublas_M = N, cublas_N = M, cublas_K = K.
+        // SAFETY:
+        // - `cublas_result::gemm_ex` is the unsafe FFI shim around
+        //   `cublasGemmEx` (NVIDIA cuBLAS API reference). All driver
+        //   preconditions apply.
+        // - Handle: `*blas.handle()` is a valid `cublasHandle_t` from
+        //   `device.blas()` (line 1249), bound to `device`'s stream by
+        //   `GpuDevice::new`.
+        // - Device pointers: `a_ptr`, `b_ptr`, `c_ptr` come from
+        //   `DevicePtr::device_ptr` and `DevicePtrMut::device_ptr_mut`
+        //   on lines 1253-1255. The accompanying `_ra`/`_rb`/`_rc`
+        //   `SyncOnDrop` records stay alive in this block scope and
+        //   register completion events on `stream` when dropped, so the
+        //   GEMM is correctly ordered against any subsequent free or
+        //   read of the same buffers.
+        // - Buffer lengths and dtype: `a` and `b` are `CudaSlice<u16>`
+        //   with `a.len() >= m*k` (line 1211 guard) and `b.len() >= k*n`
+        //   (line 1218 guard); each `u16` element holds a bf16 bit
+        //   pattern (top 16 bits of an f32, per upstream rustdoc on
+        //   line 1188). `c` is freshly allocated as `m*n` u16s
+        //   (line 1245). `CUDA_R_16BF` is the matching cuBLAS dtype.
+        // - Row-major trick (column-major equivalence documented inline
+        //   above): pass `b_ptr` as cuBLAS A and `a_ptr` as cuBLAS B
+        //   with cuBLAS `m=n_i32, n=m_i32, k=k_i32, lda=n, ldb=k, ldc=n`
+        //   so the column-major GEMM produces the desired row-major C.
+        // - Compute type `CUBLAS_COMPUTE_32F` accumulates dot products in
+        //   f32 then rounds to bf16 on store (per NVIDIA docs); supported
+        //   on Ampere+ tensor cores. `beta=0.0f32` overwrites C.
+        // - alpha/beta pointers: host f32 locals (lines 1247-1248);
+        //   cuBLAS default pointer mode is host so this matches.
+        // - Dimensions: `m_i32, k_i32, n_i32` are `i32::try_from`-guarded
+        //   on lines 1229-1243 — no negative or overflowing values.
+        // - Aliasing: caller's `a` and `b` are distinct `&CudaSlice<u16>`;
+        //   `c` is a freshly allocated `&mut CudaSlice<u16>`. No
+        //   overlap; the borrow checker forbids self-aliasing on the
+        //   shared/exclusive references.
         unsafe {
             cublas_result::gemm_ex(
                 *blas.handle(),
@@ -1214,6 +1451,38 @@ pub fn gpu_matmul_bf16_bf16_nt(
         //   cublasGemmEx(transa=N, transb=T, M=n_i32, N=m_i32, K=k_i32,
         //     A=B (row-major [N,K], leading=K), B=A (row-major [M,K],
         //     leading=K), C=C (row-major [M,N], leading=N))
+        // SAFETY:
+        // - `cublas_result::gemm_ex` is the unsafe FFI shim around
+        //   `cublasGemmEx`. NVIDIA cuBLAS preconditions apply.
+        // - Handle: `*blas.handle()` is a valid `cublasHandle_t` from
+        //   `device.blas()` (line 1399), bound to `device`'s stream.
+        // - Device pointers (`a_ptr, b_ptr, c_ptr`): obtained from
+        //   `device_ptr`/`device_ptr_mut` on lines 1403-1405. The
+        //   `_ra`/`_rb`/`_rc` `SyncOnDrop` records remain alive in this
+        //   block scope and record completion events on `stream` when
+        //   dropped, ensuring the GEMM cannot race with subsequent ops.
+        // - Buffer lengths: `a.len() >= m*k` (line 1361 guard);
+        //   `b.len() >= n*k` (line 1368 guard, since this is `A @ B^T`
+        //   the B operand has shape `[N,K]`); `c` is `m*n` u16 zeros
+        //   (line 1395). Each `u16` holds a bf16 bit pattern.
+        // - Operation flags: `transa=CUBLAS_OP_T`, `transb=CUBLAS_OP_N`.
+        //   The row-major-as-column-major derivation in the inline
+        //   comment above (lines 1407-1416) explains why this combination
+        //   plus the swapped operand order yields row-major
+        //   `C = A @ B^T`. Leading dims `lda=k_i32` and `ldb=k_i32`
+        //   (since cuBLAS's "A" is our row-major `B[N,K]` interpreted
+        //   column-major as `[K,N]` with leading dim K, and cuBLAS's
+        //   "B" is our row-major `A[M,K]` similarly with leading dim K).
+        //   `ldc=n_i32` matches row-major C of shape `[M,N]`.
+        // - Compute = CUBLAS_COMPUTE_32F: f32 accumulation, bf16 output;
+        //   NVIDIA documents this combination on Ampere+ tensor cores.
+        // - alpha/beta: host f32 locals (lines 1397-1398); cuBLAS
+        //   default pointer mode is host.
+        // - Dimensions: `m_i32, k_i32, n_i32` come from `i32::try_from`
+        //   guards on lines 1379-1393.
+        // - Aliasing: `a` and `b` are distinct caller-supplied
+        //   `&CudaSlice<u16>`; `c` is freshly allocated and held
+        //   exclusively. No aliasing.
         unsafe {
             cublas_result::gemm_ex(
                 *blas.handle(),
@@ -1303,6 +1572,44 @@ pub fn gpu_matmul_bf16_bf16_strided_batched_nt(
         let (c_ptr, _rc) = c.device_ptr_mut(&stream);
 
         // Same row-major <-> column-major swap trick as gpu_matmul_bf16_bf16_nt.
+        // SAFETY:
+        // - `cublas_result::gemm_strided_batched_ex` is the unsafe FFI
+        //   shim around `cublasGemmStridedBatchedEx` (NVIDIA cuBLAS API
+        //   reference). All driver preconditions apply.
+        // - Handle: `*blas.handle()` is a valid `cublasHandle_t` from
+        //   `device.blas()` (line 1497), bound to `device`'s stream.
+        // - Device pointers `a_ptr, b_ptr, c_ptr` come from
+        //   `device_ptr`/`device_ptr_mut` on lines 1501-1503; the
+        //   `SyncOnDrop` records `_ra/_rb/_rc` are kept alive within
+        //   this block scope, so completion events fire on `stream`
+        //   before any later operation on the same buffers.
+        // - Per-batch shapes: `A[b]:[M,K]`, `B[b]:[N,K]` (per the
+        //   docstring on line 1462), so cuBLAS reads
+        //   `batch_count * stride_a_elems` u16s for A and
+        //   `batch_count * stride_b_elems` u16s for B. The caller's
+        //   contract is that the input slices have at least these many
+        //   elements; the function rustdoc on line 1466 documents that
+        //   responsibility ("must together supply `batch_count`
+        //   complete matmuls"). For attention this is 1:1 enforced by
+        //   the call sites (Q/K stride = `seq * head_dim`).
+        // - Output: `c` was just allocated as `batch_count * m * n` u16s
+        //   on line 1495, with batch stride `(m*n) as i64`; the cuBLAS
+        //   write footprint is exactly `batch_count * m * n` and never
+        //   overruns.
+        // - Operation flags `transa=CUBLAS_OP_T, transb=CUBLAS_OP_N`
+        //   plus swapped (B,A) operand order produce row-major
+        //   `C = A @ B^T` (same derivation as `gpu_matmul_bf16_bf16_nt`).
+        // - Compute type CUBLAS_COMPUTE_32F: f32 accumulation, bf16
+        //   in/out; supported on Ampere+ tensor cores.
+        // - alpha/beta: host f32 locals; cuBLAS default pointer mode is
+        //   host.
+        // - Dimensions: `m_i32, k_i32, n_i32, bc_i32` are bare `as i32`
+        //   casts on line 1494. Practical batched-attention shapes
+        //   (heads × seq² × head_dim) never approach `i32::MAX`.
+        // - Aliasing: caller passes `a` and `b` as distinct shared
+        //   `&CudaSlice<u16>` references; `c` is freshly allocated
+        //   exclusive. No overlap. Per-batch slices within `a`/`b`
+        //   may be contiguous but cuBLAS only reads them; no mutation.
         unsafe {
             cublas_result::gemm_strided_batched_ex(
                 *blas.handle(),
@@ -1371,6 +1678,42 @@ pub fn gpu_matmul_bf16_bf16_strided_batched(
         let (b_ptr, _rb) = b.device_ptr(&stream);
         let (c_ptr, _rc) = c.device_ptr_mut(&stream);
 
+        // SAFETY:
+        // - `cublas_result::gemm_strided_batched_ex` is the unsafe FFI
+        //   shim around `cublasGemmStridedBatchedEx`. NVIDIA cuBLAS
+        //   preconditions apply.
+        // - Handle: `*blas.handle()` is a valid `cublasHandle_t` from
+        //   `device.blas()` (line 1636), bound to `device`'s stream.
+        // - Device pointers `a_ptr, b_ptr, c_ptr` come from
+        //   `device_ptr`/`device_ptr_mut` on lines 1640-1642; the
+        //   `_ra/_rb/_rc` `SyncOnDrop` records remain alive within this
+        //   block so completion events fire on `stream` before any
+        //   later access.
+        // - Per-batch shapes: `A[b]:[M,K]`, `B[b]:[K,N]` (no transpose,
+        //   per docstring on line 1608-1609). cuBLAS reads
+        //   `batch_count * stride_a_elems` u16s from A and
+        //   `batch_count * stride_b_elems` u16s from B; the caller's
+        //   contract documented at the top of the function ensures
+        //   those slices are sized accordingly. For
+        //   `attn_weights @ V` this is enforced by the call site
+        //   (`stride_a_elems = seq_q * seq_k`, `stride_b_elems =
+        //   seq_k * head_dim`).
+        // - Output: `c` allocated `batch_count * m * n` u16s on line
+        //   1634 with batch stride `(m*n) as i64`; cuBLAS write
+        //   footprint matches.
+        // - Operation flags `transa=CUBLAS_OP_N, transb=CUBLAS_OP_N`
+        //   plus the row-major trick (swap operands and dims, so that
+        //   cuBLAS's column-major output is row-major C) yield
+        //   `C = A @ B`. Leading dims `lda=n, ldb=k, ldc=n`.
+        // - Compute = CUBLAS_COMPUTE_32F (f32 accumulation, bf16
+        //   in/out); supported on Ampere+ tensor cores.
+        // - alpha/beta: host f32 locals (`alpha` parameter on line 1622,
+        //   `beta = 0.0` on line 1635); cuBLAS default pointer mode is
+        //   host.
+        // - Dimensions: bare `as i32` casts on line 1633; practical
+        //   attention shapes never approach `i32::MAX`.
+        // - Aliasing: `a` and `b` are distinct caller-supplied shared
+        //   `&CudaSlice<u16>`; `c` is freshly allocated and exclusive.
         unsafe {
             cublas_result::gemm_strided_batched_ex(
                 *blas.handle(),

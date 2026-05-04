@@ -10631,9 +10631,32 @@ fn try_launch_binary(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
-    // SAFETY: The kernel reads `n` f32 values from `a` and `b`, writes `n`
-    // f32 values to `out`. All three buffers are device-resident and at
-    // least `n` elements long. The grid covers exactly `n` threads.
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx_src, kernel_name, ...)`
+    //   call earlier in this fn for the binary kernel `kernel_name`;
+    //   the entry-point ABI is `(a_ptr, b_ptr, out_ptr, n)` as shown by
+    //   the reference `ADD_PTX` constant at line 138 (params `a_ptr,
+    //   b_ptr, out_ptr, n`). Failure to compile is caught by the
+    //   surrounding `match` and returned as `GpuError::PtxCompileFailed`.
+    // - `a` and `b` are non-aliased `CudaBuffer<f32>` values both of
+    //   length `n` and on `device`. The helper documents (and callers
+    //   honour) that the caller pre-validates via `validate_binary`
+    //   (defined at line 10546), which enforces `a.len() == b.len()`
+    //   and same-device ordinals.
+    // - `out` was freshly allocated this call via `alloc_zeros_f32(n,
+    //   device)?` immediately above, so it cannot alias `a` or `b` and
+    //   is exclusively borrowed mutably through `out.inner_mut()`.
+    // - The kernel's PTX bound check `setp.ge.u32 %p, %r_tid, %n_reg;
+    //   @%p bra DONE;` (see `ADD_PTX` at line 164) skips threads with
+    //   `tid >= n`, so reads of `a[i]` / `b[i]` and writes to `out[i]`
+    //   stay within `[0, n)` for every buffer.
+    // - `n_u32 = n as u32` is safe because `launch_cfg(n)` (definition
+    //   at line 10523) returns `Err(GpuError::ShapeMismatch)` when
+    //   `n > u32::MAX`, short-circuiting the `?` above.
+    // - All four arg references live for the duration of the
+    //   `.launch(cfg)?` call; cudarc's `LaunchAsync` queues the kernel
+    //   on `stream` and stream-sync is the caller's responsibility.
     unsafe {
         stream
             .launch_builder(&f)
@@ -10684,6 +10707,28 @@ fn try_launch_binary_vec4(
     let mut out = alloc_zeros_f32(n, device)?;
     let cfg = launch_cfg(n4 as usize)?;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx_src, kernel_name, ...)`
+    //   call earlier in this fn for the vectorized binary kernel
+    //   `kernel_name`; ABI is `(a_ptr, b_ptr, out_ptr, n4)` per the
+    //   reference `ADD_VEC4_PTX` at line 189.
+    // - The vec4 kernel processes 4 f32 elements per thread via
+    //   `ld.global.v4.f32` 128-bit loads; its bound check `setp.ge.u32
+    //   %p, %r_tid, %n4_reg` (see `ADD_VEC4_PTX` line 215) skips
+    //   threads with `tid >= n4`. Reading `4 * n4 == n - (n % 4)` f32
+    //   elements requires `n` divisible by 4, which the helper's
+    //   contract (rustdoc above) requires the caller to enforce.
+    // - `a` and `b` are caller-validated to be on `device` and same
+    //   length; `out` is freshly allocated by `alloc_zeros_f32(n,
+    //   device)?` immediately above this block, so it cannot alias the
+    //   inputs and is exclusively borrowed via `out.inner_mut()`.
+    // - `n4` fits in `u32` because it is computed as `(n / 4) as u32`
+    //   and `launch_cfg(n4 as usize)?` immediately above this block
+    //   re-validates the cast against `u32::MAX`.
+    // - The grid covers `n4` threads exactly; each either processes
+    //   its 4-element strip or short-circuits via the `@%p bra DONE`
+    //   bound check.
     unsafe {
         stream
             .launch_builder(&f)
@@ -10733,8 +10778,28 @@ fn try_launch_unary(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
-    // SAFETY: The kernel reads `n` f32 values from `a` and writes `n` f32
-    // values to `out`. Both buffers are device-resident with length >= n.
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx_src, kernel_name, ...)`
+    //   call earlier in this fn; the unary entry-point ABI is `(in_ptr,
+    //   out_ptr, n)`, matching the reference `RELU_PTX` at line 436.
+    // - `a` is caller-validated to live on `device`; callers gate this
+    //   helper on `validate_unary` (definition at line 10570) which
+    //   checks `a.device_ordinal() == device.ordinal()`.
+    // - `out` was freshly allocated via `alloc_zeros_f32(n, device)?`
+    //   immediately above this block with length `n == a.len()`, so
+    //   the two buffers cannot alias and `out.inner_mut()` is the
+    //   only mutable borrow live for the launch.
+    // - The kernel's per-thread bound check `setp.ge.u32 %p, %r_tid,
+    //   %n_reg; @%p bra DONE` (pattern shared with `ADD_PTX` at line
+    //   164) ensures every load from `a` and store to `out` is in
+    //   `[0, n)`.
+    // - `n_u32 = n as u32` is safe because `launch_cfg(n)?` (definition
+    //   at line 10523) returns `Err(GpuError::ShapeMismatch)` when
+    //   `n > u32::MAX` and short-circuits the `?` immediately above.
+    // - All three arg refs live for the duration of the
+    //   `.launch(cfg)?` call; the cudarc launch is asynchronous on
+    //   `stream` and sync is the caller's responsibility.
     unsafe {
         stream
             .launch_builder(&f)
@@ -10786,6 +10851,26 @@ fn try_launch_binary_into(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx_src, kernel_name, ...)`
+    //   call earlier in this fn; the binary `(a_ptr, b_ptr, out_ptr,
+    //   n)` ABI matches the reference `ADD_PTX` at line 138.
+    // - `a`, `b`, and `out` are all caller-supplied. `out: &mut
+    //   CudaBuffer<f32>` is exclusively borrowed for the duration of
+    //   this call, so it cannot alias `a` or `b` per Rust's
+    //   `&` / `&mut` exclusivity rules. The helper's rustdoc
+    //   immediately above this fn requires the caller to pre-validate
+    //   same-device and same-length for `a`, `b`, and `out`.
+    // - `n` is taken from `a.len()` at the top of this fn; the kernel
+    //   reads `a[i]` and `b[i]` and writes `out[i]` only for
+    //   `i in [0, n)`, guarded by the PTX bound check `@%p bra DONE`
+    //   (`ADD_PTX` line 165) so out-of-range threads short-circuit.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523) which returns `Err` if `n > u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the four arg refs all
+    //   live to the trailing `?` and the launch is async-safe —
+    //   caller syncs.
     unsafe {
         stream
             .launch_builder(&f)
@@ -10833,6 +10918,25 @@ fn try_launch_unary_into(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx_src, kernel_name, ...)`
+    //   call earlier in this fn; the unary `(in_ptr, out_ptr, n)` ABI
+    //   matches the reference `RELU_PTX` at line 436.
+    // - `a: &CudaBuffer<f32>` and `out: &mut CudaBuffer<f32>` are
+    //   passed in by the caller; the `&mut` borrow on `out` proves it
+    //   does not alias `a` per Rust's borrow rules (no simultaneous
+    //   `&` and `&mut` to the same place).
+    // - `n = a.len()` is taken at the top of this fn; the helper's
+    //   rustdoc immediately above this fn requires the caller to size
+    //   `out` to at least `n` and validate device ordinals before
+    //   calling.
+    // - The kernel reads `a[i]` and writes `out[i]` only for
+    //   `i in [0, n)` per the PTX bound check (`ADD_PTX` line 164,
+    //   pattern shared by all unary PTX entry points).
+    // - `n_u32 = n as u32` is safe: `launch_cfg(n)?` (definition at
+    //   line 10523) returns `Err(GpuError::ShapeMismatch)` if
+    //   `n > u32::MAX`, short-circuiting the `?` immediately above.
     unsafe {
         stream
             .launch_builder(&f)
@@ -10883,6 +10987,27 @@ fn try_launch_binary_f64(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx_src, kernel_name, ...)`
+    //   call earlier in this fn for the f64 binary kernel
+    //   `kernel_name`; ABI is `(a_ptr, b_ptr, out_ptr, n)`. f64 PTX is
+    //   the f32 source mechanically rewritten to `f64`/`u64`-stride
+    //   form by `get_f64_ptx`, so element offsets are computed as
+    //   `tid * 8` instead of `tid * 4`.
+    // - `a` and `b` are non-aliased `CudaBuffer<f64>` values both of
+    //   length `n` on `device`; callers route through this helper
+    //   after their own length-equality check (e.g. `gpu_add_f64` —
+    //   the binary checks `a.len() != b.len()` and returns
+    //   `LengthMismatch` before delegating).
+    // - `out` was freshly allocated this call via `alloc_zeros_f64(n,
+    //   device)?` immediately above, so it cannot alias `a` or `b`.
+    // - The kernel's PTX bound check `setp.ge.u32 %p, %r_tid, %n_reg;
+    //   @%p bra DONE` skips OOB threads, keeping all loads / stores
+    //   in `[0, n)` for each f64 buffer.
+    // - `n_u32 = n as u32` fits in u32 because `launch_cfg(n)?`
+    //   (definition at line 10523) returns `Err` when
+    //   `n > u32::MAX`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -10928,6 +11053,27 @@ fn try_launch_unary_f64(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx_src, kernel_name, ...)`
+    //   call earlier in this fn for the f64 unary kernel
+    //   `kernel_name`; ABI is `(in_ptr, out_ptr, n)`. The f64 source
+    //   is produced by `get_f64_ptx` from the f32 PTX template
+    //   (e.g. the f32 `RELU_PTX` at line 436).
+    // - `a: &CudaBuffer<f64>` with `n = a.len()` taken at the top of
+    //   this fn; callers (e.g. `gpu_relu_f64`) own the validation
+    //   contract that `a` is same-device as `device`.
+    // - `out` is freshly allocated by `alloc_zeros_f64(n, device)?`
+    //   immediately above this block with length `n`, so it cannot
+    //   alias `a`. `out.inner_mut()` is the only mutable borrow live
+    //   for the launch.
+    // - The PTX kernel applies its bound check `setp.ge.u32 %p,
+    //   %r_tid, %n_reg; @%p bra DONE` (pattern shared with `ADD_PTX`
+    //   line 164) so reads / writes stay within `[0, n)` for both
+    //   buffers.
+    // - `n_u32 = n as u32` fits in u32 because `launch_cfg(n)?`
+    //   (definition at line 10523) returns `Err` when
+    //   `n > u32::MAX`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -10986,6 +11132,34 @@ fn try_launch_broadcast_binary_f64(
     let n_u32 = out_numel as u32;
     let ndim_u32 = ndim as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx_src, kernel_name, ...)`
+    //   call earlier in this fn for the f64 broadcast binary kernel
+    //   `kernel_name`; the entry-point ABI is `(a_ptr, b_ptr, out_ptr,
+    //   a_strides, b_strides, out_shape, n, ndim)` (8 args), matching
+    //   the f32 reference `BROADCAST_ADD_PTX` at line 8410.
+    // - `a_str_buf`, `b_str_buf`, and `shape_buf` are u32 device
+    //   buffers freshly built immediately above this block by
+    //   `cpu_to_gpu`, each of length `ndim == out_shape.len()`. The
+    //   kernel reads exactly `ndim` u32 values from each.
+    // - `a` and `b` are caller-supplied `&CudaBuffer<f64>`; the kernel
+    //   reads them at indices computed via the broadcast strides
+    //   (zero-strides on broadcast dims), which callers built via
+    //   `broadcast_strides` (line 11282) so the stride-collapsed
+    //   offsets stay in `[0, a.len())` and `[0, b.len())`.
+    // - `out` was freshly allocated by `alloc_zeros_f64(out_numel,
+    //   device)?` immediately above with `out_numel` elements; it
+    //   cannot alias the inputs and the kernel writes exactly
+    //   `out[i]` for `i in [0, out_numel)`.
+    // - The PTX bound check `setp.ge.u32 %p, %r_tid, %n_reg; @%p bra
+    //   DONE` guards `tid >= n` so threads beyond `out_numel` return
+    //   without touching memory.
+    // - `n_u32 = out_numel as u32` is bounded by
+    //   `launch_cfg(out_numel)?` (definition at line 10523) which
+    //   errors if `out_numel > u32::MAX`; `ndim_u32` is at most the
+    //   strided-copy max-dim cap, which the caller enforces upstream.
+    // - All eight arg refs live for the duration of the launch.
     unsafe {
         stream
             .launch_builder(&f)
@@ -11053,8 +11227,34 @@ fn try_launch_broadcast_binary(
     let n_u32 = out_numel as u32;
     let ndim_u32 = ndim as u32;
 
-    // SAFETY: Kernel reads from a, b using broadcast indices computed from
-    // the stride/shape buffers. Output buffer has out_numel elements.
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx_src, kernel_name, ...)`
+    //   call earlier in this fn for the f32 broadcast binary kernel
+    //   `kernel_name`; the entry-point ABI matches the reference
+    //   `BROADCAST_ADD_PTX` at line 8410: `(a_ptr, b_ptr, out_ptr,
+    //   a_strides, b_strides, out_shape, n, ndim)` (8 args).
+    // - `a_str_buf`, `b_str_buf`, `shape_buf` were freshly built
+    //   immediately above this block from caller-supplied `&[u32]`
+    //   slices via `cpu_to_gpu`; each holds `ndim == out_shape.len()`
+    //   u32 values, which is what the kernel iterates over.
+    // - `a` and `b` are caller-supplied `&CudaBuffer<f32>`; the kernel
+    //   reads them at indices computed by collapsing `out_shape`
+    //   strides against `a_strides` / `b_strides`. Broadcast (size-1)
+    //   dims have stride 0 in the caller-supplied stride arrays
+    //   (built by `broadcast_strides` at line 11171), so the
+    //   resulting linear offset stays in `[0, a.len())` and
+    //   `[0, b.len())`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(out_numel,
+    //   device)?` immediately above with `out_numel` elements; it
+    //   cannot alias `a` or `b` and is exclusively borrowed via
+    //   `out.inner_mut()` until launch dispatch returns.
+    // - The PTX bound check `setp.ge.u32 %p, %r_tid, %n_reg; @%p bra
+    //   DONE` ensures threads with `tid >= n` short-circuit without
+    //   touching memory.
+    // - `n_u32 = out_numel as u32` is bounded to fit in u32 by
+    //   `launch_cfg(out_numel)?` (definition at line 10523);
+    //   `ndim_u32` is the upstream-validated rank.
     unsafe {
         stream
             .launch_builder(&f)
@@ -11469,6 +11669,28 @@ pub fn gpu_index_select_1d(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, INDEX_SELECT_1D_PTX,
+    //   "index_select_1d_kernel", ...)` call earlier in this fn; the
+    //   entry-point ABI is `(input_ptr, indices_ptr, out_ptr, n)`.
+    // - `input` is on `device` (validated by `validate_unary` at the
+    //   top of this fn — definition at line 10570). `indices` is
+    //   caller-supplied; gather indices encoded as f32 are read by the
+    //   kernel and converted to integer offsets into `input`.
+    // - `n = indices.len()` taken at the top of this fn; `out` was
+    //   freshly allocated by `alloc_zeros_f32(n, device)?` immediately
+    //   above with length `n`, so it cannot alias `input` or
+    //   `indices`. `out.inner_mut()` is the only mutable borrow live
+    //   for the launch.
+    // - The kernel writes `out[i] = input[indices[i]]` for
+    //   `i in [0, n)`; the PTX bound check `setp.ge.u32 %p, %r_tid,
+    //   %n_reg; @%p bra DONE` skips OOB threads. Caller is
+    //   responsible for ensuring `indices[i] < input.len()` (mirrors
+    //   PyTorch's `Tensor::index_select` user contract; out-of-range
+    //   gather indices are undefined behaviour at the kernel level).
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523) which errors when `n > u32::MAX`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -11527,6 +11749,28 @@ pub fn gpu_scatter_add_1d(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, SCATTER_ADD_1D_PTX,
+    //   "scatter_add_1d_kernel", ...)` call earlier in this fn; the
+    //   entry-point ABI is `(grad_ptr, idx_ptr, out_ptr, n)`.
+    // - `grad_output` is on `device` (validated by `validate_unary` at
+    //   the top of this fn — definition at line 10570). `indices` is
+    //   caller-supplied and same-length as `grad_output` per the
+    //   scatter-add contract; `n = grad_output.len()` is taken above.
+    // - `out` was freshly allocated by `alloc_zeros_f32(input_len,
+    //   device)?` immediately above with length `input_len`, so it
+    //   cannot alias `grad_output` or `indices`. Concurrent writers
+    //   accumulate via atomic-add (rustdoc above describes the
+    //   atomic-add concurrency model), so the kernel's writes to
+    //   `out[indices[i]]` are race-free.
+    // - The PTX bound check `setp.ge.u32 %p, %r_tid, %n_reg; @%p bra
+    //   DONE` skips threads with `tid >= n`, keeping reads of
+    //   `grad_output[i]` and `indices[i]` within `[0, n)`. Caller is
+    //   responsible for ensuring `indices[i] < input_len` so atomic
+    //   writes target a valid `out` element.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523) which errors when `n > u32::MAX`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -11582,6 +11826,28 @@ pub fn gpu_masked_fill(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, MASKED_FILL_PTX,
+    //   "masked_fill_kernel", ...)` call earlier in this fn; ABI is
+    //   `(input_ptr, mask_ptr, out_ptr, value, n)`.
+    // - `input` and `mask` are validated to be on `device` and same
+    //   length by `validate_binary` (definition at line 10546) at the
+    //   top of this fn (`a.len() == b.len()`, same-device ordinals).
+    //   `n = input.len()`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(n, device)?`
+    //   immediately above; no aliasing with `input` or `mask`, and
+    //   `out.inner_mut()` is the only mutable borrow live for the
+    //   launch.
+    // - `value` is passed by reference to a local `f32` variable (the
+    //   `value: f32` parameter on this fn) which lives for the full
+    //   call frame, covering the asynchronous launch.
+    // - The kernel reads `input[i]` and `mask[i]` and writes
+    //   `out[i] = mask[i] >= 0.5 ? value : input[i]` for
+    //   `i in [0, n)`; PTX bound check `setp.ge.u32 %p, %r_tid,
+    //   %n_reg; @%p bra DONE` skips OOB threads.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523) which errors when `n > u32::MAX`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -11717,6 +11983,30 @@ pub fn gpu_softmax_backward(
         shared_mem_bytes: 256 * 4,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, SOFTMAX_BACKWARD_PTX,
+    //   "softmax_backward_kernel", ...)` call earlier in this fn; ABI
+    //   is `(grad_ptr, output_ptr, out_ptr, rows, cols)`. The kernel
+    //   uses 256 bytes (256 f32) of shared memory per block for the
+    //   row-reduction (matching `shared_mem_bytes: 256 * 4`).
+    // - `grad` and `output` are validated to be on `device` and same
+    //   length by `validate_binary` (definition at line 10546) at the
+    //   top of this fn. `total = grad.len()`, `rows = total / cols`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` immediately above with `total` elements; no aliasing
+    //   with `grad`/`output`, and `out.inner_mut()` is the only live
+    //   mutable borrow.
+    // - The grid is `(rows, 1, 1)` blocks × `(256, 1, 1)` threads:
+    //   one block per row computes `out[row*cols .. row*cols+cols]`
+    //   from `grad[row*cols..]` and `output[row*cols..]`. With
+    //   `total == rows * cols`, every access lands in `[0, total)`.
+    // - `rows_u32 = rows as u32` and `cols_u32 = cols as u32` cannot
+    //   overflow because the launch grid `(rows as u32).max(1)`
+    //   already requires `rows <= u32::MAX` to construct
+    //   `LaunchConfig`; in practice `rows * cols == total <=
+    //   u32::MAX` is the binding bound. `total` was previously
+    //   bounded by allocation success.
     unsafe {
         stream
             .launch_builder(&f)
@@ -11783,6 +12073,28 @@ pub fn gpu_log_softmax(
         shared_mem_bytes: 256 * 4,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, LOG_SOFTMAX_PTX,
+    //   "log_softmax_kernel", ...)` call earlier in this fn; ABI is
+    //   `(input_ptr, out_ptr, rows, cols)`. The kernel uses 256 f32
+    //   (1024 bytes) of shared memory per block for max + sum-exp
+    //   reduction (matching `shared_mem_bytes: 256 * 4`).
+    // - `input` is on `device` (validated by `validate_unary` at the
+    //   top of this fn — definition at line 10570). `total =
+    //   input.len()`, `rows = total / cols`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` immediately above; no aliasing with `input` and
+    //   `out.inner_mut()` is the only live mutable borrow.
+    // - Grid `(rows, 1, 1)` × block `(256, 1, 1)`: one block per row
+    //   reads `input[row*cols..row*cols+cols]` and writes
+    //   `out[row*cols..row*cols+cols]`. With `total == rows * cols`,
+    //   every access lands in `[0, total)`.
+    // - `rows_u32` / `cols_u32` casts: launch-grid construction
+    //   already cast `rows as u32`, so any overflow would already
+    //   have produced a wrong grid; in practice both are < u32::MAX
+    //   because `total = rows * cols` was already bounded by
+    //   buffer allocation success.
     unsafe {
         stream
             .launch_builder(&f)
@@ -11846,6 +12158,28 @@ pub fn gpu_log_softmax_backward(
         shared_mem_bytes: 256 * 4,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, LOG_SOFTMAX_BACKWARD_PTX,
+    //   "log_softmax_backward_kernel", ...)` call earlier in this fn;
+    //   ABI is `(grad_ptr, output_ptr, out_ptr, rows, cols)`. The
+    //   kernel uses 256 f32 (1024 bytes) of shared memory per block
+    //   for the per-row sum-of-grads reduction (matching
+    //   `shared_mem_bytes: 256 * 4`).
+    // - `grad` and `output` are validated to be on `device` and same
+    //   length by `validate_binary` (definition at line 10546) at the
+    //   top of this fn. `total = grad.len()`, `rows = total / cols`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` immediately above; no aliasing, exclusive
+    //   `out.inner_mut()` borrow during the launch.
+    // - Grid `(rows, 1, 1)` × block `(256, 1, 1)`: one block per row
+    //   reads/writes `[row*cols .. row*cols+cols]` of each buffer.
+    //   With `total == rows * cols`, every access lands in
+    //   `[0, total)`.
+    // - `rows_u32` / `cols_u32` casts are valid because the caller's
+    //   `total` already fit in usize and was bounded by allocation
+    //   success; the launch grid's `(rows as u32).max(1)` cast is
+    //   the binding bound on `rows`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -11915,6 +12249,28 @@ pub fn gpu_reduce_sum(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cuda
         shared_mem_bytes: 0, // Statically allocated in PTX
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, REDUCE_SUM_PTX,
+    //   "reduce_sum_kernel", ...)` call earlier in this fn; ABI is
+    //   `(input_ptr, partials_ptr, n)`.
+    // - `a` is caller-supplied; the `n == 0` early-return above this
+    //   block guarantees `n > 0` here, and `n_u32 = n as u32` is safe
+    //   because `num_blocks` was computed from `n as u32` so `n <=
+    //   u32::MAX` is implied (`saturating_add` would not produce a
+    //   meaningful grid otherwise).
+    // - `partials` was freshly allocated by
+    //   `alloc_zeros_f32(num_blocks as usize, device)?` immediately
+    //   above with `num_blocks` elements; no aliasing with `a`, and
+    //   `partials.inner_mut()` is the only live mutable borrow.
+    // - The kernel pattern: each block reduces a contiguous slice of
+    //   `a` (with grid-stride loop for `n > num_blocks * BLOCK`)
+    //   using shared-memory tree reduction (statically allocated in
+    //   PTX, hence `shared_mem_bytes: 0` here), and writes one f32
+    //   to `partials[block_id]`. The `num_blocks <= 1024` cap above
+    //   ensures `block_id < partials.len()`. The read pattern stays
+    //   in `[0, n)` thanks to the grid-stride loop's bound check.
+    // - All three arg refs live to the trailing `?`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -11990,6 +12346,30 @@ pub fn gpu_reduce_prod(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cud
         shared_mem_bytes: 0,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, REDUCE_PROD_PTX,
+    //   "reduce_prod_kernel", ...)` call earlier in this fn; ABI is
+    //   `(input_ptr, partials_ptr, n)`. The combiner is `mul.f32`
+    //   with identity 1.0 (the sentinel used to pre-init `partials`).
+    // - `a` is caller-supplied; `n == a.len()`, with `n > 0`
+    //   guaranteed by the early-return for the zero-element case
+    //   above this fn.
+    // - `partials` was freshly built above by `cpu_to_gpu(&vec![1.0;
+    //   num_blocks], device)?` with `num_blocks` elements (capped at
+    //   1024 by the `min(1024)` clamp); no aliasing with `a`, and
+    //   `partials.inner_mut()` is the only live mutable borrow.
+    // - The kernel reads `a[i]` for `i in [0, n)` via grid-stride
+    //   loop with a per-thread bound check, and writes one f32 to
+    //   `partials[block_id]` via shared-memory tree reduction
+    //   (statically allocated, hence `shared_mem_bytes: 0`).
+    // - `n_u32 = n as u32` is implicitly bounded by the
+    //   `(n as u32).saturating_add(BLOCK - 1)` cast above
+    //   (saturating-add caps at u32::MAX, but a saturated
+    //   `num_blocks` only means the kernel processes the first
+    //   u32::MAX elements via the grid-stride loop; for a strictly
+    //   correct `n > u32::MAX` we'd need wider arithmetic — caller's
+    //   responsibility per the rustdoc on the related `gpu_reduce_sum`).
     unsafe {
         stream
             .launch_builder(&f)
@@ -12060,6 +12440,28 @@ pub fn gpu_reduce_min(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cuda
         shared_mem_bytes: 0,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, REDUCE_MIN_PTX,
+    //   "reduce_min_kernel", ...)` call earlier in this fn; ABI is
+    //   `(input_ptr, partials_ptr, n)`. The combiner is `min.f32`
+    //   with identity `+INF` (matching the partials sentinel above).
+    // - `a` is caller-supplied with `n == a.len()`; `n > 0` is
+    //   ensured by the early-return for the zero-element case above
+    //   this fn.
+    // - `partials` was freshly built above by `cpu_to_gpu(&vec![+INF;
+    //   num_blocks], device)?` with `num_blocks` elements (capped at
+    //   1024); no aliasing with `a`, and `partials.inner_mut()` is
+    //   the only live mutable borrow.
+    // - The kernel reads `a[i]` for `i in [0, n)` via a grid-stride
+    //   loop with per-thread bound check, and writes one f32 to
+    //   `partials[block_id]` via shared-memory tree reduction.
+    //   The `min(1024)` cap on `num_blocks` ensures `block_id <
+    //   partials.len()`.
+    // - `n_u32 = n as u32` is fine for the n <= u32::MAX domain;
+    //   sentinel pre-initialisation guarantees correctness even if
+    //   `num_blocks` saturates (untouched partials stay at +INF, the
+    //   identity).
     unsafe {
         stream
             .launch_builder(&f)
@@ -12129,6 +12531,25 @@ pub fn gpu_reduce_max(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cuda
         shared_mem_bytes: 0,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, REDUCE_MAX_PTX,
+    //   "reduce_max_kernel", ...)` call earlier in this fn; ABI is
+    //   `(input_ptr, partials_ptr, n)`. Combiner is `max.f32`
+    //   with identity `-INF` (matching the partials sentinel above).
+    // - `a` is caller-supplied with `n == a.len()`; `n > 0` enforced
+    //   by the early-return for the zero-element case above this fn.
+    // - `partials` was freshly built above by `cpu_to_gpu(&vec![-INF;
+    //   num_blocks], device)?` with `num_blocks` elements (capped at
+    //   1024); no aliasing with `a`. `partials.inner_mut()` is the
+    //   only live mutable borrow.
+    // - The kernel reads `a[i]` for `i in [0, n)` via grid-stride
+    //   loop with bound check, and writes one f32 to
+    //   `partials[block_id]` via shared-memory tree reduction.
+    //   `block_id < num_blocks <= 1024 == partials.len()`.
+    // - `n_u32 = n as u32` is bounded for `n <= u32::MAX`; sentinel
+    //   pre-init makes the kernel safe even when `num_blocks`
+    //   saturates because untouched partials stay at -INF (identity).
     unsafe {
         stream
             .launch_builder(&f)
@@ -12215,6 +12636,26 @@ pub fn gpu_masked_reduce_min(
         shared_mem_bytes: 0,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, MASKED_REDUCE_MIN_PTX,
+    //   "masked_reduce_min_kernel", ...)` call earlier in this fn;
+    //   ABI is `(data_ptr, mask_ptr, partials_ptr, n)`. The combiner
+    //   is `min.f32(data[i] when mask>=0.5 else +INF)` with identity
+    //   `+INF`.
+    // - `data` and `mask_f` were length-validated equal at the top of
+    //   this fn (`data.len() != mask_f.len()` returns `LengthMismatch`).
+    //   `n = data.len()`; `n > 0` enforced by the early-return for
+    //   the zero-element case above.
+    // - `partials` was freshly built above by `cpu_to_gpu(&vec![+INF;
+    //   num_blocks], ...)?` with `num_blocks` elements (capped at
+    //   1024); cannot alias `data` or `mask_f`. `partials.inner_mut()`
+    //   is the only live mutable borrow.
+    // - Kernel reads `data[i]` and `mask_f[i]` for `i in [0, n)` via
+    //   grid-stride loop with bound check, writes one f32 per block
+    //   to `partials[block_id]` via shared-memory tree reduction.
+    // - `n_u32` cast valid for `n <= u32::MAX`; sentinel pre-init
+    //   keeps untouched partials at the +INF identity.
     unsafe {
         stream
             .launch_builder(&f)
@@ -12297,6 +12738,27 @@ pub fn gpu_masked_reduce_max(
         shared_mem_bytes: 0,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, MASKED_REDUCE_MAX_PTX,
+    //   "masked_reduce_max_kernel", ...)` call earlier in this fn;
+    //   ABI is `(data_ptr, mask_ptr, partials_ptr, n)`. Combiner is
+    //   `max.f32(data[i] when mask>=0.5 else -INF)` with identity
+    //   `-INF` (matching the partials sentinel above).
+    // - `data` and `mask_f` were length-validated equal at the top of
+    //   this fn (`data.len() != mask_f.len()` returns `LengthMismatch`).
+    //   `n = data.len()` and `n > 0` per the early-return for the
+    //   zero-element case above.
+    // - `partials` was freshly built above by `cpu_to_gpu(&vec![-INF;
+    //   num_blocks], ...)?` with `num_blocks` (capped at 1024)
+    //   elements; cannot alias `data` or `mask_f`. Exclusive
+    //   mutable borrow via `partials.inner_mut()`.
+    // - Kernel reads `data[i]` and `mask_f[i]` for `i in [0, n)` via
+    //   grid-stride loop with bound check, writes one f32 per block
+    //   to `partials[block_id]`; `block_id < partials.len()`
+    //   guaranteed by the `min(1024)` clamp.
+    // - `n_u32 = n as u32` is bounded for `n <= u32::MAX`; sentinel
+    //   pre-init keeps untouched partials at the -INF identity.
     unsafe {
         stream
             .launch_builder(&f)
@@ -12376,6 +12838,30 @@ pub fn gpu_pad_truncate_complex_f32(
     let src_n_u32 = src_n as u32;
     let dst_n_u32 = dst_n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, PAD_TRUNCATE_PTX,
+    //   "pad_truncate_kernel", ...)` call earlier in this fn; ABI is
+    //   `(src_ptr, out_ptr, batch, src_n, dst_n)`.
+    // - `src.len() == batch * src_n * 2` was verified at the top of
+    //   this fn (returns `ShapeMismatch` otherwise); `total_pairs =
+    //   batch * dst_n` is checked nonzero (early-return for zero).
+    // - `out` was freshly allocated by `alloc_zeros_f32(batch * dst_n
+    //   * 2, device)?` immediately above; its `2 * total_pairs` f32
+    //   slots cover every (batch, dst_n, complex-pair) triple. No
+    //   aliasing with `src`; `out.inner_mut()` is the exclusive
+    //   mutable borrow.
+    // - The kernel maps thread `i in [0, total_pairs)` to (b, d) via
+    //   `b = i / dst_n`, `d = i % dst_n`. For `d < src_n` it copies
+    //   `src[(b * src_n + d) * 2 ..]` (real and imaginary parts);
+    //   for `d >= src_n` it writes zeros (zero-padding). Bound on
+    //   the read side: `(b * src_n + d) * 2 + 1 < src.len()`
+    //   because `d < src_n` and `b < batch`.
+    // - `batch_u32`, `src_n_u32`, `dst_n_u32` casts: `total_pairs ==
+    //   batch * dst_n` was bounded to fit `u32` by `launch_cfg(...)`
+    //   immediately above (definition at line 10523); individual
+    //   `batch`, `src_n`, `dst_n` are caller-supplied `usize` and
+    //   the caller is responsible for keeping each below u32::MAX.
     unsafe {
         stream
             .launch_builder(&f)
@@ -12442,6 +12928,31 @@ pub fn gpu_sum_axis(
     let inner_u32 = inner as u32;
     let total_u32 = total_output as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, SUM_AXIS_PTX,
+    //   "sum_axis_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_ptr, outer, axis_size, inner, total)`.
+    // - `a` is on `device` (validated by `validate_unary` at the top
+    //   of this fn — definition at line 10570). Caller is responsible
+    //   for ensuring `a.len() >= outer * axis_size * inner` (matches
+    //   the addressing pattern below).
+    // - `total_output = outer * inner`; `out` was freshly allocated
+    //   by `alloc_zeros_f32(total_output, device)?` immediately
+    //   above. No aliasing with `a`; exclusive `out.inner_mut()`.
+    // - Thread `i in [0, total_output)` computes
+    //   `out[i] = sum_{k=0}^{axis_size-1} a[outer_idx * axis_size *
+    //   inner + k * inner + inner_idx]` where `outer_idx = i / inner`,
+    //   `inner_idx = i % inner`. The sum-loop runs `axis_size` reads
+    //   per output, all in `[0, outer * axis_size * inner) <=
+    //   [0, a.len())`. Bound check `tid >= total` short-circuits OOB
+    //   threads.
+    // - `outer_u32`, `axis_size_u32`, `inner_u32`, `total_u32`:
+    //   `total_u32 = total_output as u32` is bounded by
+    //   `launch_cfg(total_output)?` (definition at line 10523) which
+    //   errors if it exceeds `u32::MAX`; the other three are caller-
+    //   supplied `usize` and the caller is responsible for keeping
+    //   each within u32 range.
     unsafe {
         stream
             .launch_builder(&f)
@@ -12512,6 +13023,31 @@ pub fn gpu_cumsum(
     let inner_u32 = inner as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, CUMSUM_PTX,
+    //   "cumsum_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_ptr, outer, dim_size, inner, total)`.
+    // - `input` is on `device` (validated by `validate_unary` at the
+    //   top of this fn — definition at line 10570). Caller ensures
+    //   `input.len() == total == outer * dim_size * inner` (matches
+    //   the kernel's per-thread sequential-scan addressing).
+    // - `out` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` immediately above with `total` elements; no
+    //   aliasing with `input`. Exclusive `out.inner_mut()` borrow.
+    // - Grid covers `num_threads = outer * inner` threads (line
+    //   10523's `launch_cfg`). Thread `i` computes (outer_idx,
+    //   inner_idx) and sequentially scans `dim_size` elements,
+    //   reading `input[base + k*inner]` and writing `out[base +
+    //   k*inner]` for `k in [0, dim_size)`, where `base =
+    //   outer_idx * dim_size * inner + inner_idx`. Maximum offset
+    //   `(outer-1) * dim_size * inner + (dim_size-1) * inner +
+    //   (inner-1) < total`.
+    // - `outer_u32`, `dim_size_u32`, `inner_u32`, `total_u32`:
+    //   `launch_cfg(num_threads)?` ensures `num_threads <= u32::MAX`;
+    //   caller is responsible for keeping each individual dim within
+    //   u32 range so the kernel's index arithmetic doesn't overflow
+    //   `u32`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -12575,6 +13111,26 @@ pub fn gpu_cumprod(
     let inner_u32 = inner as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, CUMPROD_PTX,
+    //   "cumprod_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_ptr, outer, dim_size, inner, total)`. Combiner
+    //   is `mul.f32` along the scan axis with identity 1.0.
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570) and has length `outer * dim_size
+    //   * inner == total`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` immediately above with `total` elements; no
+    //   aliasing with `input`. Exclusive `out.inner_mut()` borrow.
+    // - Grid covers `num_threads = outer * inner` threads. Each
+    //   thread computes one (outer_idx, inner_idx) sequential scan
+    //   of `dim_size` elements; addressing is identical to
+    //   `gpu_cumsum`, so all reads and writes stay in `[0, total)`.
+    // - `outer_u32`, `dim_size_u32`, `inner_u32`, `total_u32`:
+    //   `launch_cfg(num_threads)?` (definition at line 10523)
+    //   bounds `num_threads` in u32; caller is responsible for
+    //   per-dim u32 bounds.
     unsafe {
         stream
             .launch_builder(&f)
@@ -12639,6 +13195,32 @@ pub fn gpu_cummax(
     let inner_u32 = inner as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, CUMMAX_PTX,
+    //   "cummax_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_val_ptr, out_idx_ptr, outer, dim_size, inner,
+    //   total)`. Combiner is `max.f32` along the scan axis (with
+    //   argmax tracking written to `out_idx` as f32-encoded
+    //   indices).
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570); length is `outer * dim_size *
+    //   inner == total`.
+    // - `out` and `out_idx` were freshly allocated by two distinct
+    //   `alloc_zeros_f32(total, device)?` calls immediately above,
+    //   so they do not alias each other or `input`. Each is held
+    //   under its own `&mut` binding, so `out.inner_mut()` and
+    //   `out_idx.inner_mut()` are non-aliasing exclusive borrows.
+    // - Grid covers `num_threads = outer * inner` threads. Each
+    //   thread sequentially scans `dim_size` elements writing both
+    //   buffers at `base + k*inner` for `k in [0, dim_size)`;
+    //   addressing parallels `gpu_cumsum`, so all five buffer
+    //   accesses (one read from `input`, two writes to `out` /
+    //   `out_idx`) stay in `[0, total)`.
+    // - `outer_u32`, `dim_size_u32`, `inner_u32`, `total_u32`:
+    //   `launch_cfg(num_threads)?` (definition at line 10523)
+    //   bounds `num_threads` in u32; caller's responsibility for
+    //   per-dim u32 bounds.
     unsafe {
         stream
             .launch_builder(&f)
@@ -12704,6 +13286,28 @@ pub fn gpu_cummin(
     let inner_u32 = inner as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, CUMMIN_PTX,
+    //   "cummin_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_val_ptr, out_idx_ptr, outer, dim_size, inner,
+    //   total)`. Combiner is `min.f32` with argmin tracking.
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570); length is `outer * dim_size *
+    //   inner == total`.
+    // - `out` and `out_idx` were freshly allocated by two distinct
+    //   `alloc_zeros_f32(total, device)?` calls immediately above
+    //   and are held under separate `&mut` bindings; the two
+    //   `.inner_mut()` borrows do not alias each other or `input`.
+    // - Grid covers `num_threads = outer * inner` threads. Each
+    //   sequentially scans `dim_size` elements writing both buffers
+    //   at `base + k*inner` for `k in [0, dim_size)`; identical
+    //   addressing to `gpu_cummax`, so all accesses stay in
+    //   `[0, total)`.
+    // - `outer_u32`, `dim_size_u32`, `inner_u32`, `total_u32`:
+    //   `launch_cfg(num_threads)?` (definition at line 10523)
+    //   bounds `num_threads` in u32; caller is responsible for
+    //   per-dim u32 bounds.
     unsafe {
         stream
             .launch_builder(&f)
@@ -12768,6 +13372,27 @@ pub fn gpu_logcumsumexp(
     let inner_u32 = inner as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, LOGCUMSUMEXP_PTX,
+    //   "logcumsumexp_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_ptr, outer, dim_size, inner, total)`.
+    //   Combiner is the numerically-stable
+    //   `m + log(exp(acc - m) + exp(x - m))` recurrence.
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570) and has `outer * dim_size * inner
+    //   == total` elements.
+    // - `out` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` immediately above; no aliasing with `input`.
+    //   Exclusive `out.inner_mut()` borrow.
+    // - Grid covers `num_threads = outer * inner` threads. Each
+    //   sequentially scans `dim_size` elements via the same
+    //   addressing as `gpu_cumsum`, so reads and writes stay in
+    //   `[0, total)`.
+    // - `outer_u32`, `dim_size_u32`, `inner_u32`, `total_u32`:
+    //   `launch_cfg(num_threads)?` (definition at line 10523)
+    //   bounds `num_threads` in u32; caller is responsible for
+    //   per-dim u32 bounds.
     unsafe {
         stream
             .launch_builder(&f)
@@ -12840,6 +13465,32 @@ pub fn gpu_strided_split(
     let inner_u32 = inner_size as u32;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, STRIDED_SPLIT_PTX,
+    //   "strided_split_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_ptr, total_along_axis, split_offset, split_size,
+    //   inner_size, n)`.
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570). Caller is responsible for sizing
+    //   `input` to cover `outer * total_along_axis * inner_size`
+    //   elements; the kernel's read pattern stays within that
+    //   region.
+    // - `out` was freshly allocated by `alloc_zeros_f32(n, device)?`
+    //   immediately above with `n = outer * split_size * inner_size`
+    //   elements; no aliasing with `input`. Exclusive
+    //   `out.inner_mut()` borrow.
+    // - Thread `i in [0, n)` decodes `(outer_idx, split_idx,
+    //   inner_idx)` from `i` via `inner_size` and `split_size`, then
+    //   writes `out[i] = input[outer_idx * total_along_axis *
+    //   inner_size + (split_offset + split_idx) * inner_size +
+    //   inner_idx]`. With `split_offset + split_size <=
+    //   total_along_axis` (caller contract), every read is in
+    //   `[0, input.len())`. Bound check `tid >= n` guards OOB.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523); the other casts are caller-supplied
+    //   per-axis dimensions and the caller is responsible for u32
+    //   range.
     unsafe {
         stream
             .launch_builder(&f)
@@ -12920,6 +13571,28 @@ pub fn gpu_strided_cat(
     let inner_u32 = inner_size as u32;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, STRIDED_CAT_PTX,
+    //   "strided_cat_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_ptr, total_along_axis, cat_offset, part_size,
+    //   inner_size, n)`.
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570). `output: &mut CudaBuffer<f32>` is
+    //   exclusively borrowed for the duration of this call; no
+    //   aliasing with `input`. The fn's `# Safety` rustdoc above
+    //   documents that the caller must size `output` large enough
+    //   to hold the written region and ensure non-overlapping writes
+    //   when chaining cat segments.
+    // - Thread `i in [0, n)` reads `input[i]` (a contiguous
+    //   `outer * part_size * inner_size = n` chunk) and writes it
+    //   into `output[outer_idx * total_along_axis * inner_size +
+    //   (cat_offset + part_idx) * inner_size + inner_idx]`. Caller
+    //   contract `cat_offset + part_size <= total_along_axis` keeps
+    //   the destination index in `[0, output.len())`.
+    // - `n_u32 = n as u32` bounded by `launch_cfg(n)?` (definition
+    //   at line 10523); the other casts are caller-supplied per-axis
+    //   dims, caller is responsible for u32 range.
     unsafe {
         stream
             .launch_builder(&f)
@@ -13096,6 +13769,37 @@ pub fn gpu_strided_copy(
     let src_offset_u32 = src_offset as u32;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, STRIDED_COPY_PTX,
+    //   "strided_copy_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_ptr, src_offset, n, out_stride[0..8],
+    //   src_stride[0..8])` — 20 args, with 8-dim unrolled strides
+    //   matching `STRIDED_COPY_MAX_DIMS = 8` (defined at line
+    //   13596).
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570). `out_stride` and `src_stride` are
+    //   `[u32; 8]` arrays returned by `pad_strided_copy_params`
+    //   (definition at line 13586) which validates rank
+    //   `<= STRIDED_COPY_MAX_DIMS`, rejects negative source strides
+    //   that would wrap on `as u32`, and pads unused trailing dims
+    //   with sentinels (`out_stride[d] = n+1` makes
+    //   `flat / out_stride[d] == 0`; `src_stride[d] = 0` zeroes the
+    //   source-offset contribution) so unused dims are no-ops.
+    // - `out` was freshly allocated by `alloc_zeros_f32(n, device)?`
+    //   immediately above with `n = product(out_shape)` elements;
+    //   no aliasing with `input`. Exclusive `out.inner_mut()` borrow.
+    // - Each thread `i in [0, n)` decodes a multi-dim index from `i`
+    //   using `out_stride`, then computes a source offset using
+    //   `src_stride` and `src_offset`. With negative strides
+    //   pre-rejected and the rank capped, the source offset is a
+    //   well-defined u32 lookup into `input`. PTX bound check
+    //   `tid >= n` short-circuits OOB threads. Caller is responsible
+    //   for ensuring the resulting source offset stays inside
+    //   `input.len()` (matches `as_strided` semantics in PyTorch).
+    // - `n_u32 = n as u32` bounded by `launch_cfg(n)?` (definition
+    //   at line 10523); the 16 `&out_stride[i]` / `&src_stride[i]`
+    //   refs and the two `u32` refs all live to the trailing `?`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -13175,6 +13879,32 @@ pub fn gpu_strided_copy_f64(
     let src_offset_u32 = src_offset as u32;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx, "strided_copy_f64_kernel",
+    //   ...)` call earlier in this fn; the f64 PTX is mechanically
+    //   produced by `get_f64_ptx` from `STRIDED_COPY_PTX`. ABI is the
+    //   same 20-arg shape as the f32 kernel: `(in_ptr, out_ptr,
+    //   src_offset, n, out_stride[0..8], src_stride[0..8])`.
+    // - `input` is on `device` (validated by `validate_device` at the
+    //   top of this fn — definition at line 10582; the f64 path uses
+    //   the generic device-only check, length is implicitly bounded
+    //   by `pad_strided_copy_params`).
+    // - `out_stride` / `src_stride` are `[u32; 8]` arrays returned by
+    //   `pad_strided_copy_params` (definition at line 13586) which
+    //   validates rank, rejects negative strides, and pads trailing
+    //   dims with no-op sentinels.
+    // - `out` was freshly allocated by `alloc_zeros_f64(n, device)?`
+    //   immediately above with `n = product(out_shape)` f64
+    //   elements; no aliasing with `input`. Exclusive
+    //   `out.inner_mut()` borrow.
+    // - Thread `i in [0, n)` performs the same gather as the f32
+    //   kernel, but with f64 offsets (`tid * 8`). Caller is
+    //   responsible for ensuring the resulting source offset stays
+    //   inside `input.len()`.
+    // - `n_u32 = n as u32` bounded by `launch_cfg(n)?` (definition
+    //   at line 10523); all 18 stride/offset/n refs live to the
+    //   trailing `?`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -13280,6 +14010,32 @@ pub fn gpu_strided_scatter(
     let dst_offset_u32 = dst_offset as u32;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, STRIDED_SCATTER_PTX,
+    //   "strided_scatter_kernel", ...)` call earlier in this fn; ABI
+    //   is `(src_ptr, dst_ptr, dst_offset, n, in_decode_stride[0..8],
+    //   dst_stride_padded[0..8])` — 20 args, 8-dim unrolled.
+    // - `src` and `dst` are both validated to be on `device` by the
+    //   two `validate_device` calls at the top of this fn (definition
+    //   at line 10582). `dst: &mut CudaBuffer<f32>` is exclusively
+    //   borrowed for this call, so it cannot alias `src`.
+    // - `in_decode_stride` is the contiguous decode stride for the
+    //   `src` side and `dst_stride_padded` is the user-supplied
+    //   strided-view stride for `dst`, both produced by
+    //   `pad_strided_copy_params` (definition at line 13586) which
+    //   validates rank, rejects negative strides, and pads unused
+    //   dims with no-op sentinels.
+    // - Each thread `i in [0, n)` reads `src[i]` (contiguous) and
+    //   writes `dst[dst_offset + dst_offset_for_index(i)]`. With
+    //   negative strides rejected and rank capped, the destination
+    //   offset is well-defined. Caller's contract (the rustdoc
+    //   above) requires `dst` to be large enough to hold every
+    //   addressed position; non-view positions in `dst` stay
+    //   untouched (in-place semantics, mirrors PyTorch's
+    //   `as_strided_scatter`).
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523).
     unsafe {
         stream
             .launch_builder(&f)
@@ -13353,6 +14109,28 @@ pub fn gpu_strided_scatter_f64(
     let dst_offset_u32 = dst_offset as u32;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, STRIDED_SCATTER_F64_PTX,
+    //   "strided_scatter_f64_kernel", ...)` call earlier in this fn;
+    //   ABI is the same 20-arg shape as the f32 kernel: `(src_ptr,
+    //   dst_ptr, dst_offset, n, in_decode_stride[0..8],
+    //   dst_stride_padded[0..8])`.
+    // - `src` and `dst` are both validated to be on `device` by the
+    //   two `validate_device` calls at the top of this fn (definition
+    //   at line 10582). `dst: &mut CudaBuffer<f64>` is exclusively
+    //   borrowed; cannot alias `src`.
+    // - `in_decode_stride` and `dst_stride_padded` are `[u32; 8]`
+    //   arrays from `pad_strided_copy_params` (definition at line
+    //   13586), which validates rank, rejects negative strides, and
+    //   pads unused dims with no-op sentinels.
+    // - Each thread `i in [0, n)` reads `src[i]` and writes
+    //   `dst[dst_offset + computed_offset]` (in-place semantics,
+    //   mirrors PyTorch `as_strided_scatter`); caller is responsible
+    //   for `dst` being large enough to hold every addressed
+    //   position.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523).
     unsafe {
         stream
             .launch_builder(&f)
@@ -13423,6 +14201,23 @@ pub fn gpu_scale(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, SCALE_PTX, "scale_kernel",
+    //   ...)` call earlier in this fn; ABI is `(in_ptr, out_ptr,
+    //   scalar, n)`.
+    // - `a` is on `device` (validated by `validate_unary` — definition
+    //   at line 10570). `n = a.len()`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(n, device)?`
+    //   immediately above with length `n`; cannot alias `a`.
+    //   Exclusive `out.inner_mut()` borrow.
+    // - `scalar` is passed by reference to the local `f32` parameter
+    //   on this fn; the local lives for the full call frame.
+    // - The kernel writes `out[i] = a[i] * scalar` for `i in [0, n)`;
+    //   PTX bound check `setp.ge.u32 %p, %r_tid, %n_reg; @%p bra
+    //   DONE` (matching `ADD_PTX` line 164) skips OOB threads.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523) which errors if `n > u32::MAX`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -13483,6 +14278,28 @@ pub fn gpu_softmax(
         shared_mem_bytes: 256 * 4, // sdata[256] f32
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, SOFTMAX_PTX, "softmax_kernel",
+    //   ...)` call earlier in this fn; ABI is `(in_ptr, out_ptr, rows,
+    //   cols)`. Kernel uses 256 f32 (1024 bytes) of shared memory per
+    //   block for max + sum-exp reductions (matching
+    //   `shared_mem_bytes: 256 * 4`).
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570). Caller's contract is `input.len()
+    //   == rows * cols`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(rows * cols,
+    //   device)?` immediately above; cannot alias `input`. Exclusive
+    //   `out.inner_mut()` borrow.
+    // - Grid `(rows, 1, 1)` × block `(256, 1, 1)`: one block per row
+    //   reads `input[row*cols .. row*cols+cols]` (in two passes for
+    //   max-then-sum) and writes `out[row*cols .. row*cols+cols]`.
+    //   Every access is in `[0, rows*cols)`.
+    // - `rows_u32 = rows as u32`, `cols_u32 = cols as u32`: launch-grid
+    //   construction already cast `rows as u32`, bounding `rows`.
+    //   Caller's responsibility for `cols <= u32::MAX` and
+    //   `rows * cols <= usize::MAX` (the allocation already
+    //   succeeded, bounding the product).
     unsafe {
         stream
             .launch_builder(&f)
@@ -13549,6 +14366,28 @@ pub fn gpu_dropout(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, DROPOUT_PTX,
+    //   "dropout_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_ptr, n, threshold, scale, seed)`.
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570); `n = input.len()`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(n, device)?`
+    //   immediately above; cannot alias `input`. Exclusive
+    //   `out.inner_mut()` borrow.
+    // - `threshold: u32`, `scale: f32`, `seed: u32` are passed by
+    //   reference to local variables on this fn's parameter slots,
+    //   each living for the full call frame including the async
+    //   launch.
+    // - Per-thread `i in [0, n)`: reads `input[i]`, hashes the
+    //   thread id with the seed (xorshift mixing of `tid *
+    //   2654435761 ^ seed` per the rustdoc above), and writes
+    //   `out[i] = (hash >= threshold) ? input[i] * scale : 0.0`. PTX
+    //   bound check `setp.ge.u32 %p, %r_tid, %n_reg; @%p bra DONE`
+    //   skips OOB threads.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523) which errors if `n > u32::MAX`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -13600,6 +14439,29 @@ pub fn gpu_dropout_f64(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx, "dropout_f64_kernel",
+    //   ...)` call earlier in this fn; the f64 PTX is mechanically
+    //   produced by `get_f64_ptx` from `DROPOUT_PTX`. ABI matches the
+    //   f32 dropout: `(in_ptr, out_ptr, n, threshold, scale, seed)`
+    //   with `scale` widened to f64.
+    // - `input` is caller-supplied `&CudaBuffer<f64>`; the f64 path
+    //   omits the explicit `validate_unary` check that the f32 path
+    //   uses (caller's responsibility — same pattern as other f64
+    //   helpers like `gpu_pow_f64`). `n = input.len()`.
+    // - `out` was freshly allocated by `alloc_zeros_f64(n, device)?`
+    //   immediately above; cannot alias `input`. Exclusive
+    //   `out.inner_mut()` borrow.
+    // - `threshold: u32`, `scale: f64`, `seed: u32` are passed by
+    //   reference to fn-parameter locals; lifetimes cover the
+    //   asynchronous launch.
+    // - Per-thread `i in [0, n)`: hashes `tid ^ seed`, compares to
+    //   `threshold`, writes `out[i] = (hash >= threshold) ?
+    //   input[i] * scale : 0.0` (with f64 arithmetic). PTX bound
+    //   check skips OOB threads.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523) which errors if `n > u32::MAX`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -13667,6 +14529,27 @@ pub fn gpu_transpose_2d(
     let n_u32 = n as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, TRANSPOSE_2D_PTX,
+    //   "transpose_2d_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_ptr, m, n, total)`.
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570). Caller's contract is `input.len()
+    //   == m * n == total`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` immediately above; cannot alias `input`. Exclusive
+    //   `out.inner_mut()` borrow.
+    // - Thread `i in [0, total)` decodes `(row, col) = (i / n, i % n)`
+    //   from the input layout `[M, N]` and writes
+    //   `out[col * m + row] = input[row * n + col]`. Both indices
+    //   are bounded by `total - 1` so the access is in
+    //   `[0, total)`. PTX bound check skips OOB threads.
+    // - `total_u32 = total as u32` is bounded by `launch_cfg(total)?`
+    //   (definition at line 10523); `m_u32`, `n_u32` are caller-
+    //   supplied and the caller is responsible for u32 range (the
+    //   product `m * n == total` is already u32-bounded by
+    //   `launch_cfg`).
     unsafe {
         stream
             .launch_builder(&f)
@@ -13727,6 +14610,27 @@ pub fn gpu_permute_0213(
     let d3_u32 = d3 as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, PERMUTE_0213_PTX,
+    //   "permute_0213_kernel", ...)` call earlier in this fn; ABI is
+    //   `(in_ptr, out_ptr, d0, d1, d2, d3, total)`.
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570). Caller's contract is `input.len()
+    //   == d0 * d1 * d2 * d3 == total`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` immediately above with `total` elements; cannot
+    //   alias `input`. Exclusive `out.inner_mut()` borrow.
+    // - Each thread `i in [0, total)` decodes the source coords
+    //   `(b, h, s, dh)` and writes
+    //   `out[((b*d2 + h)*d1 + s)*d3 + dh] = input[((b*d1 + s)*d2 +
+    //   h)*d3 + dh]`. Both indices are bounded by `total` because
+    //   each axis index is < its dim size and the strides multiply
+    //   out to `total`.
+    // - `total_u32 = total as u32` bounded by `launch_cfg(total)?`
+    //   (definition at line 10523); `d0_u32 .. d3_u32` are caller-
+    //   supplied with the implicit constraint that their product
+    //   `total` already fits u32.
     unsafe {
         stream
             .launch_builder(&f)
@@ -13786,6 +14690,31 @@ pub fn gpu_small_matmul(
     let n_u32 = n as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, SMALL_MATMUL_PTX,
+    //   "small_matmul_kernel", ...)` call earlier in this fn; ABI is
+    //   `(a_ptr, b_ptr, c_ptr, m, k, n, total)`. (The Err arm of that
+    //   match falls back to `crate::blas::gpu_matmul_f32` and never
+    //   reaches this block.)
+    // - `a` and `b` are caller-supplied `&CudaBuffer<f32>`; the
+    //   matmul contract is `a.len() == m * k`, `b.len() == k * n`.
+    //   This fn does not validate explicitly — caller's
+    //   responsibility (consistent with the small-matmul fast-path
+    //   contract documented in the rustdoc above).
+    // - `c` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` (where `total = m * n`) immediately above; cannot
+    //   alias `a` or `b`. Exclusive `c.inner_mut()` borrow.
+    // - Thread `i in [0, total)` decodes `(row, col) = (i / n, i %
+    //   n)` and writes `c[row*n + col] = sum_{p=0..k} a[row*k + p]
+    //   * b[p*n + col]`. The reads land in
+    //   `a[0..m*k] = a[0..a.len())` and `b[0..k*n] = b[0..b.len())`.
+    //   PTX bound check skips OOB threads.
+    // - `total_u32 = total as u32` bounded by `launch_cfg(total)?`
+    //   (definition at line 10523); `m_u32`, `k_u32`, `n_u32` are
+    //   caller-supplied with the constraint that their pairwise
+    //   products fit u32 (the buffer-len validation already implies
+    //   this).
     unsafe {
         stream
             .launch_builder(&f)
@@ -13867,6 +14796,26 @@ pub fn gpu_embed_lookup(
     let cfg = launch_cfg(d)?;
     let d_u32 = d as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, EMBED_LOOKUP_PTX,
+    //   "embed_lookup_kernel", ...)` call earlier in this fn; ABI is
+    //   `(idx_ptr, weight_ptr, out_ptr, d)`.
+    // - `idx` is a 1-element `&CudaBuffer<f32>` (single token id
+    //   encoded as f32; rustdoc above documents the layout).
+    //   `weight` is `[V, D]` flat, both caller-supplied; this fn
+    //   does not call `validate_unary` (kernel-launch fast-path for
+    //   inference).
+    // - `out` was freshly allocated by `alloc_zeros_f32(d, device)?`
+    //   immediately above with `d` elements; cannot alias `idx` or
+    //   `weight`. Exclusive `out.inner_mut()` borrow.
+    // - Per-thread `i in [0, d)`: reads `idx[0]` (broadcast across
+    //   the grid), gathers `weight[idx[0] * d + i]`, writes
+    //   `out[i]`. Caller's contract is `idx[0] < V` (out-of-range
+    //   indices are UB at the kernel level — mirrors PyTorch's
+    //   `Embedding.forward` user contract).
+    // - `d_u32 = d as u32` bounded by `launch_cfg(d)?` (definition
+    //   at line 10523).
     unsafe {
         stream
             .launch_builder(&f)
@@ -13923,6 +14872,25 @@ pub fn gpu_slice_write(
     let max_len_u32 = max_len as u32;
     let pos_u32 = pos as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, SLICE_WRITE_PTX,
+    //   "slice_write_kernel", ...)` call earlier in this fn; ABI is
+    //   `(src_ptr, dst_ptr, total, d, max_len, pos)`.
+    // - `src` is `&CudaBuffer<f32>` of shape `[N, D]` flat;
+    //   `dst: &mut CudaBuffer<f32>` of shape `[N, max_len, D]` flat,
+    //   exclusively borrowed for this call so cannot alias `src`.
+    //   This fn does not validate `src.len() == n_batch * d` or
+    //   `dst.len() == n_batch * max_len * d` (KV-cache fast path —
+    //   caller's contract per the rustdoc above).
+    // - Thread `i in [0, total)` where `total = n_batch * d` decodes
+    //   `(b, dim_idx) = (i / d, i % d)` and writes
+    //   `dst[(b * max_len + pos) * d + dim_idx] = src[b * d +
+    //   dim_idx]`. Caller's contract `pos < max_len` keeps the
+    //   destination index in `[0, dst.len())`.
+    // - `n_u32 = total as u32` bounded by `launch_cfg(total)?`
+    //   (definition at line 10523); the other casts are caller-
+    //   supplied dims, caller is responsible for u32 range.
     unsafe {
         stream
             .launch_builder(&f)
@@ -13980,6 +14948,26 @@ pub fn gpu_slice_read(
     let len_u32 = len as u32;
     let max_len_u32 = max_len as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, SLICE_READ_PTX,
+    //   "slice_read_kernel", ...)` call earlier in this fn; ABI is
+    //   `(src_ptr, out_ptr, total, d, len, max_len)`.
+    // - `src` is `&CudaBuffer<f32>` of shape `[N, max_len, D]` flat
+    //   (KV-cache backing buffer); caller's contract is `src.len()
+    //   >= n_batch * max_len * d`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` immediately above with `total = n_batch * len * d`
+    //   elements; cannot alias `src`. Exclusive `out.inner_mut()`
+    //   borrow.
+    // - Thread `i in [0, total)` decodes `(b, t, dim_idx)` from
+    //   `total / (len * d)` etc., and writes `out[b*len*d + t*d +
+    //   dim_idx] = src[b*max_len*d + t*d + dim_idx]`. Caller's
+    //   contract `len <= max_len` keeps the source index in
+    //   `[0, src.len())`.
+    // - `total_u32 = total as u32` bounded by `launch_cfg(total)?`
+    //   (definition at line 10523); the other casts are caller-
+    //   supplied dims, caller is responsible for u32 range.
     unsafe {
         stream
             .launch_builder(&f)
@@ -14115,6 +15103,24 @@ pub fn gpu_elu(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ELU_PTX, "elu_kernel",
+    //   ...)` call earlier in this fn; ABI is `(in_ptr, out_ptr, n,
+    //   alpha)`.
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570). `n = input.len()`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(n, device)?`
+    //   immediately above; cannot alias `input`. Exclusive
+    //   `out.inner_mut()` borrow.
+    // - `alpha` is passed by reference to the local `f32` parameter
+    //   on this fn; the local lives for the full call frame
+    //   including the asynchronous launch.
+    // - The kernel writes `out[i] = input[i] > 0 ? input[i] :
+    //   alpha * (exp(input[i]) - 1.0)` for `i in [0, n)`; PTX bound
+    //   check skips OOB threads.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523) which errors if `n > u32::MAX`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -14165,6 +15171,24 @@ pub fn gpu_elu_backward(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ELU_BACKWARD_PTX,
+    //   "elu_backward_kernel", ...)` call earlier in this fn; ABI is
+    //   `(grad_ptr, in_ptr, out_ptr, n, alpha)`.
+    // - `grad` and `input` are validated to be on `device` and same
+    //   length by `validate_binary` (definition at line 10546) at
+    //   the top of this fn; `n = grad.len()`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(n, device)?`
+    //   immediately above; cannot alias `grad` or `input`. Exclusive
+    //   `out.inner_mut()` borrow.
+    // - `alpha` is passed by reference to the local `f32` parameter
+    //   on this fn; lifetimes cover the asynchronous launch.
+    // - The kernel writes `out[i] = input[i] > 0 ? grad[i] :
+    //   grad[i] * alpha * exp(input[i])` for `i in [0, n)`; PTX
+    //   bound check skips OOB threads.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523) which errors if `n > u32::MAX`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -14247,6 +15271,24 @@ pub fn gpu_clamp(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, CLAMP_PTX, "clamp_kernel",
+    //   ...)` call earlier in this fn; ABI is `(in_ptr, out_ptr, n,
+    //   min_val, max_val)`.
+    // - `input` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570). `n = input.len()`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(n, device)?`
+    //   immediately above; cannot alias `input`. Exclusive
+    //   `out.inner_mut()` borrow.
+    // - `min_val` and `max_val` are passed by reference to the
+    //   local `f32` parameters; lifetimes cover the asynchronous
+    //   launch.
+    // - The kernel writes `out[i] = max(min_val, min(max_val,
+    //   input[i]))` for `i in [0, n)`; PTX bound check skips OOB
+    //   threads.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523).
     unsafe {
         stream
             .launch_builder(&f)
@@ -14302,6 +15344,26 @@ pub fn gpu_clamp_backward(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, CLAMP_BACKWARD_PTX,
+    //   "clamp_backward_kernel", ...)` call earlier in this fn; ABI
+    //   is `(grad_ptr, in_ptr, out_ptr, min_val, max_val, n)`.
+    // - `grad` and `input` were length-checked equal at the top of
+    //   this fn (`grad.len() != input.len()` returns
+    //   `LengthMismatch`). Both are caller-guaranteed to be on
+    //   `device` (no explicit `validate_*` here — caller's
+    //   contract). `n = input.len()`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(n, device)?`
+    //   immediately above; cannot alias `grad` or `input`. Exclusive
+    //   `out.inner_mut()` borrow.
+    // - `min_val` and `max_val` are passed by reference to the local
+    //   `f32` parameters; lifetimes cover the asynchronous launch.
+    // - The kernel writes `out[i] = (min_val <= input[i] <= max_val)
+    //   ? grad[i] : 0` for `i in [0, n)`; PTX bound check skips OOB
+    //   threads.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523).
     unsafe {
         stream
             .launch_builder(&f)
@@ -14376,6 +15438,27 @@ pub fn gpu_repeat_along_dim(
     let outer_u32 = outer as u32;
     let rep_u32 = repeat_count as u32;
     let inner_u32 = inner as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, REPEAT_ALONG_DIM_PTX,
+    //   "repeat_along_dim_kernel", ...)` call earlier in this fn;
+    //   ABI is `(in_ptr, out_ptr, outer, repeat_count, inner)`.
+    // - `input.len() == outer * inner` was verified at the top of
+    //   this fn (returns `ShapeMismatch` otherwise). `total = outer
+    //   * repeat_count * inner` and the early-return for `total ==
+    //   0` ensures the launch only fires for non-empty grids.
+    // - `out` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` immediately above with `total` elements; cannot
+    //   alias `input`. Exclusive `out.inner_mut()` borrow.
+    // - Thread `i in [0, total)` decodes `(outer_idx, rep_idx,
+    //   inner_idx)` from `i` via `inner` and `repeat_count` and
+    //   writes `out[i] = input[outer_idx * inner + inner_idx]`. The
+    //   read is in `[0, outer * inner) == [0, input.len())`. PTX
+    //   bound check guards `tid >= total`.
+    // - `outer_u32`, `rep_u32`, `inner_u32`: caller-supplied dims.
+    //   The grid uses `total` threads, bounded by `launch_cfg(total)?`
+    //   (definition at line 10523) which errors on `total >
+    //   u32::MAX`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -14441,6 +15524,26 @@ pub fn gpu_repeat_along_dim_f64(
     let outer_u32 = outer as u32;
     let rep_u32 = repeat_count as u32;
     let inner_u32 = inner as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, ptx, "repeat_along_dim_f64_kernel",
+    //   ...)` call earlier in this fn; the f64 PTX is mechanically
+    //   produced by `get_f64_ptx` from `REPEAT_ALONG_DIM_PTX`. ABI
+    //   matches the f32 kernel: `(in_ptr, out_ptr, outer,
+    //   repeat_count, inner)`, with element offsets sized for f64.
+    // - `input.len() == outer * inner` was verified at the top of
+    //   this fn (returns `ShapeMismatch` otherwise). `total = outer
+    //   * repeat_count * inner` and the early-return for `total ==
+    //   0` ensures the launch only fires for non-empty grids.
+    // - `out` was freshly allocated by `alloc_zeros_f64(total,
+    //   device)?` immediately above with `total` f64 elements;
+    //   cannot alias `input`. Exclusive `out.inner_mut()` borrow.
+    // - Thread `i in [0, total)` decodes `(outer_idx, rep_idx,
+    //   inner_idx)` and writes `out[i] = input[outer_idx * inner +
+    //   inner_idx]`; the read is in `[0, input.len())`. PTX bound
+    //   check guards `tid >= total`.
+    // - `outer_u32`, `rep_u32`, `inner_u32`: grid is `total` threads,
+    //   bounded by `launch_cfg(total)?` (definition at line 10523).
     unsafe {
         stream
             .launch_builder(&f)
@@ -14546,6 +15649,23 @@ pub fn gpu_pow(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, POW_PTX, "pow_kernel",
+    //   ...)` call earlier in this fn; ABI is `(in_ptr, out_ptr,
+    //   exponent, n)`.
+    // - `a` is on `device` (validated by `validate_unary` —
+    //   definition at line 10570). `n = a.len()`.
+    // - `out` was freshly allocated by `alloc_zeros_f32(n, device)?`
+    //   immediately above; cannot alias `a`. Exclusive
+    //   `out.inner_mut()` borrow.
+    // - `exponent` is passed by reference to the local `f32`
+    //   parameter on this fn; lifetimes cover the asynchronous
+    //   launch.
+    // - The kernel writes `out[i] = pow(a[i], exponent)` for
+    //   `i in [0, n)`; PTX bound check skips OOB threads.
+    // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?` (definition
+    //   at line 10523).
     unsafe {
         stream
             .launch_builder(&f)
@@ -14687,28 +15807,63 @@ pub fn gpu_scale_f64(
     let stream = device.stream();
 
     let ptx = get_f64_ptx(&CACHE, SCALE_PTX, "scale_kernel", "scale_f64_kernel");
-    if let Ok(f) =
-        crate::module_cache::get_or_compile(ctx, ptx, "scale_f64_kernel", device.ordinal() as u32)
+    match crate::module_cache::get_or_compile(ctx, ptx, "scale_f64_kernel", device.ordinal() as u32)
     {
-        let mut out = alloc_zeros_f64(n, device)?;
-        let cfg = launch_cfg(n)?;
-        let n_u32 = n as u32;
+        Ok(f) => {
+            let mut out = alloc_zeros_f64(n, device)?;
+            let cfg = launch_cfg(n)?;
+            let n_u32 = n as u32;
 
-        unsafe {
-            stream
-                .launch_builder(&f)
-                .arg(a.inner())
-                .arg(out.inner_mut())
-                .arg(&scalar)
-                .arg(&n_u32)
-                .launch(cfg)?;
+            // SAFETY:
+            // - `f` is a valid PTX `CudaFunction` from the matching
+            //   `Ok(f)` arm of the `if let Ok(f) =
+            //   module_cache::get_or_compile(...)` above; the f64 PTX
+            //   was produced by `get_f64_ptx` from `SCALE_PTX`. ABI is
+            //   `(in_ptr, out_ptr, scalar, n)`. (The `else` branch
+            //   below this block is gpu-F territory — silent CPU
+            //   fallback that this dispatch leaves intact.)
+            // - `a` is caller-supplied `&CudaBuffer<f64>`; `n = a.len()`.
+            //   The f64 path omits `validate_unary` — caller's contract.
+            // - `out` was freshly allocated by `alloc_zeros_f64(n,
+            //   device)?` in this `Ok` arm; cannot alias `a`. Exclusive
+            //   `out.inner_mut()` borrow.
+            // - `scalar: f64` is passed by reference to the fn parameter
+            //   local; lifetime covers the asynchronous launch.
+            // - The kernel writes `out[i] = a[i] * scalar` for
+            //   `i in [0, n)` (with f64 8-byte stride); PTX bound check
+            //   skips OOB threads.
+            // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?`
+            //   (definition at line 10523).
+            unsafe {
+                stream
+                    .launch_builder(&f)
+                    .arg(a.inner())
+                    .arg(out.inner_mut())
+                    .arg(&scalar)
+                    .arg(&n_u32)
+                    .launch(cfg)?;
+            }
+            Ok(out)
         }
-        return Ok(out);
+        Err(e) => {
+            if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+                tracing::warn!(
+                    target: "ferrotorch::gpu_fallback",
+                    kernel = "scale_f64_kernel",
+                    error = %e,
+                    "PTX compile failed; falling back to CPU. Unset \
+                     FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+                );
+                let a_host = gpu_to_cpu(a, device)?;
+                let result: Vec<f64> = a_host.iter().map(|&x| x * scalar).collect();
+                return cpu_to_gpu(&result, device);
+            }
+            Err(GpuError::PtxCompileFailed {
+                kernel: "scale_f64_kernel",
+                source: e,
+            })
+        }
     }
-
-    let a_host = gpu_to_cpu(a, device)?;
-    let result: Vec<f64> = a_host.iter().map(|&x| x * scalar).collect();
-    cpu_to_gpu(&result, device)
 }
 
 /// Elementwise f64 exp: `out[i] = exp(a[i])`.
@@ -14744,31 +15899,67 @@ pub fn gpu_pow_f64(
     let ctx = device.context();
     let stream = device.stream();
 
-    if let Ok(f) = crate::module_cache::get_or_compile(
+    match crate::module_cache::get_or_compile(
         ctx,
         POW_F64_PTX,
         "pow_f64_kernel",
         device.ordinal() as u32,
     ) {
-        let mut out = alloc_zeros_f64(n, device)?;
-        let cfg = launch_cfg(n)?;
-        let n_u32 = n as u32;
+        Ok(f) => {
+            let mut out = alloc_zeros_f64(n, device)?;
+            let cfg = launch_cfg(n)?;
+            let n_u32 = n as u32;
 
-        unsafe {
-            stream
-                .launch_builder(&f)
-                .arg(a.inner())
-                .arg(out.inner_mut())
-                .arg(&exponent)
-                .arg(&n_u32)
-                .launch(cfg)?;
+            // SAFETY:
+            // - `f` is a valid PTX `CudaFunction` from the matching
+            //   `Ok(f)` arm of the `if let Ok(f) =
+            //   module_cache::get_or_compile(...)` above; the kernel is
+            //   the precompiled `POW_F64_PTX`. ABI is `(in_ptr, out_ptr,
+            //   exponent, n)`. (The `else` branch below this block is
+            //   gpu-F territory — silent CPU fallback that this
+            //   dispatch leaves intact.)
+            // - `a` is caller-supplied `&CudaBuffer<f64>`; `n = a.len()`.
+            //   The f64 path omits `validate_unary` — caller's contract.
+            // - `out` was freshly allocated by `alloc_zeros_f64(n,
+            //   device)?` in this `Ok` arm; cannot alias `a`. Exclusive
+            //   `out.inner_mut()` borrow.
+            // - `exponent: f64` is passed by reference to the fn-parameter
+            //   local; lifetime covers the asynchronous launch.
+            // - The kernel writes `out[i] = pow(a[i], exponent)` for
+            //   `i in [0, n)` (f64 8-byte stride); PTX bound check skips
+            //   OOB threads.
+            // - `n_u32 = n as u32` is bounded by `launch_cfg(n)?`
+            //   (definition at line 10523).
+            unsafe {
+                stream
+                    .launch_builder(&f)
+                    .arg(a.inner())
+                    .arg(out.inner_mut())
+                    .arg(&exponent)
+                    .arg(&n_u32)
+                    .launch(cfg)?;
+            }
+            Ok(out)
         }
-        return Ok(out);
+        Err(e) => {
+            if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+                tracing::warn!(
+                    target: "ferrotorch::gpu_fallback",
+                    kernel = "pow_f64_kernel",
+                    error = %e,
+                    "PTX compile failed; falling back to CPU. Unset \
+                     FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+                );
+                let a_host = gpu_to_cpu(a, device)?;
+                let result: Vec<f64> = a_host.iter().map(|&x| x.powf(exponent)).collect();
+                return cpu_to_gpu(&result, device);
+            }
+            Err(GpuError::PtxCompileFailed {
+                kernel: "pow_f64_kernel",
+                source: e,
+            })
+        }
     }
-
-    let a_host = gpu_to_cpu(a, device)?;
-    let result: Vec<f64> = a_host.iter().map(|&x| x.powf(exponent)).collect();
-    cpu_to_gpu(&result, device)
 }
 
 /// Elementwise f64 abs: `out[i] = |a[i]|`.
@@ -15060,6 +16251,32 @@ pub fn gpu_reduce_sum_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<
         shared_mem_bytes: 0,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `reduce_sum_kernel` returned by `module_cache::get_or_compile`
+    //   at lines 16195-16208 (Err short-circuits via the `?`-ladder
+    //   in the `Err` arm); its `(in_ptr, partials_ptr, n)` ABI matches
+    //   `REDUCE_SUM_PTX` extended via `ptx_f32_to_f64` (line 16189).
+    // - `a: &CudaBuffer<f64>` is the caller-supplied input; `partials:
+    //   &mut CudaBuffer<f64>` was alloc'd at line 16214 via
+    //   `alloc_zeros_f64(num_blocks, device)?` and is exclusively owned
+    //   by this function until the launch returns. The `&mut`
+    //   borrow on `partials` precludes aliasing `a` per Rust's borrow
+    //   rules.
+    // - `n = a.len()` (line 16181); the kernel reads `a[i]` only for
+    //   `i in [0, n)` per the PTX strided loop bound (`@%p bra END`
+    //   pattern shared by `REDUCE_SUM_PTX`). `partials` has
+    //   `num_blocks` elements (allocator at 16214) and the kernel
+    //   writes one element per block, with `num_blocks <= 1024`
+    //   capped at line 16212.
+    // - `n_u32 = n as u32` (line 16215) cannot truncate: the `n == 0`
+    //   early-return at line 16182 and the kernel never accepts more
+    //   than `u32::MAX` threads — `num_blocks` was computed by
+    //   saturating arithmetic at line 16211 then capped to 1024.
+    // - cudarc enqueues the launch on `stream`; the three argument
+    //   references (`a.inner()`, `partials.inner_mut()`, `&n_u32`) all
+    //   live until the trailing `?`, and stream synchronization is
+    //   the caller's responsibility.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15131,6 +16348,28 @@ pub fn gpu_reduce_min_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<
         shared_mem_bytes: 0,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `reduce_min_kernel` returned by `module_cache::get_or_compile`
+    //   at lines 16266-16279; its `(in_ptr, partials_ptr, n)` ABI
+    //   matches `REDUCE_MIN_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 16260).
+    // - `a: &CudaBuffer<f64>` is the caller-supplied input. `partials:
+    //   &mut CudaBuffer<f64>` was uploaded at line 16285 via
+    //   `cpu_to_gpu(&vec![f64::INFINITY; num_blocks], device)?`,
+    //   exclusively owned by this fn for the duration of the launch.
+    //   The `&mut` borrow precludes aliasing `a` per Rust's borrow
+    //   rules.
+    // - `n = a.len()` (line 16252); the kernel reads `a[i]` only for
+    //   `i in [0, n)` per the PTX strided loop bound. `partials` has
+    //   `num_blocks` elements (line 16285) and the kernel writes one
+    //   element per block.
+    // - `n_u32 = n as u32` cannot truncate: the `n == 0` early-return
+    //   at line 16253 handles the empty case, and `num_blocks` was
+    //   capped to 1024 at line 16283.
+    // - cudarc enqueues the launch on `stream`; the three arg refs
+    //   live until the trailing `?`. Stream sync is the caller's
+    //   responsibility.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15202,6 +16441,27 @@ pub fn gpu_reduce_max_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<
         shared_mem_bytes: 0,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `reduce_max_kernel` returned by `module_cache::get_or_compile`
+    //   at lines 16337-16350; its `(in_ptr, partials_ptr, n)` ABI
+    //   matches `REDUCE_MAX_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 16331).
+    // - `a: &CudaBuffer<f64>` is the caller-supplied input. `partials:
+    //   &mut CudaBuffer<f64>` was uploaded at line 16356 via
+    //   `cpu_to_gpu(&vec![f64::NEG_INFINITY; num_blocks], device)?`,
+    //   exclusively owned for the duration of the launch. The `&mut`
+    //   borrow precludes aliasing `a`.
+    // - `n = a.len()` (line 16323); the kernel reads `a[i]` only for
+    //   `i in [0, n)` per the PTX strided loop bound. `partials` has
+    //   `num_blocks` elements (line 16356) and the kernel writes one
+    //   element per block, with `num_blocks <= 1024` (line 16354).
+    // - `n_u32 = n as u32` (line 16357) cannot truncate: the
+    //   `n == 0` early-return at line 16324 handles empty input;
+    //   `num_blocks` was capped to 1024.
+    // - cudarc enqueues the launch on `stream`; the three arg refs
+    //   live until the trailing `?`. Stream sync is the caller's
+    //   responsibility.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15274,6 +16534,28 @@ pub fn gpu_reduce_prod_f64(a: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult
         shared_mem_bytes: 0,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `reduce_prod_kernel` returned by `module_cache::get_or_compile`
+    //   at lines 16410-16423; its `(in_ptr, partials_ptr, n)` ABI
+    //   matches `REDUCE_PROD_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 16404).
+    // - `a: &CudaBuffer<f64>` is the caller-supplied input. `partials:
+    //   &mut CudaBuffer<f64>` was uploaded at line 16428 via
+    //   `cpu_to_gpu(&vec![1.0_f64; num_blocks], device)?`, exclusively
+    //   owned for the duration of the launch. The `&mut` borrow
+    //   precludes aliasing `a`.
+    // - `n = a.len()` (line 16396); the kernel reads `a[i]` only for
+    //   `i in [0, n)` per the PTX strided loop bound (`@%p bra END`
+    //   pattern). `partials` has `num_blocks` elements; the kernel
+    //   writes one element per block, with `num_blocks <= 1024`
+    //   (line 16427).
+    // - `n_u32 = n as u32` (line 16429) cannot truncate: the
+    //   `n == 0` early-return at line 16397 handles empty input;
+    //   `num_blocks` was capped to 1024.
+    // - cudarc enqueues the launch on `stream`; the three arg refs
+    //   live until the trailing `?`. Stream sync is caller's
+    //   responsibility.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15370,6 +16652,31 @@ pub fn gpu_masked_reduce_min_f64(
         shared_mem_bytes: 0,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `masked_reduce_min_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 16505-16518; its
+    //   `(data_ptr, mask_ptr, partials_ptr, n)` ABI matches
+    //   `MASKED_REDUCE_MIN_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 16499).
+    // - `data: &CudaBuffer<f64>` and `mask_f: &CudaBuffer<f64>` are
+    //   caller-supplied; the length-equality precondition `data.len()
+    //   == mask_f.len()` is enforced at line 16485 (returns
+    //   `LengthMismatch` error otherwise).
+    // - `partials: &mut CudaBuffer<f64>` was uploaded at line 16524
+    //   via `cpu_to_gpu(&vec![f64::INFINITY; num_blocks], device)?`,
+    //   exclusively owned for the duration of the launch. The `&mut`
+    //   borrow precludes aliasing `data` or `mask_f`.
+    // - `n = data.len()` (line 16491); the kernel reads `data[i]` and
+    //   `mask_f[i]` only for `i in [0, n)` per the PTX strided loop
+    //   bound. `partials` has `num_blocks` elements; one written per
+    //   block.
+    // - `n_u32 = n as u32` (line 16525) cannot truncate: empty
+    //   short-circuit at line 16492; `num_blocks` capped to 1024 at
+    //   line 16522.
+    // - cudarc enqueues the launch on `stream`; the four arg refs
+    //   live until the trailing `?`. Stream sync is caller's
+    //   responsibility.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15449,6 +16756,30 @@ pub fn gpu_masked_reduce_max_f64(
         shared_mem_bytes: 0,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `masked_reduce_max_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 16584-16597; its
+    //   `(data_ptr, mask_ptr, partials_ptr, n)` ABI matches
+    //   `MASKED_REDUCE_MAX_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 16578).
+    // - `data: &CudaBuffer<f64>` and `mask_f: &CudaBuffer<f64>` are
+    //   caller-supplied; the length-equality precondition is
+    //   enforced at line 16564 (returns `LengthMismatch` otherwise).
+    // - `partials: &mut CudaBuffer<f64>` was uploaded at line 16603
+    //   via `cpu_to_gpu(&vec![f64::NEG_INFINITY; num_blocks],
+    //   device)?`, exclusively owned for the duration of the launch.
+    //   The `&mut` borrow precludes aliasing `data` or `mask_f`.
+    // - `n = data.len()` (line 16570); the kernel reads `data[i]` and
+    //   `mask_f[i]` only for `i in [0, n)` per the PTX strided loop
+    //   bound. `partials` has `num_blocks` elements; one written per
+    //   block.
+    // - `n_u32 = n as u32` (line 16604) cannot truncate: empty
+    //   short-circuit at line 16571; `num_blocks` capped to 1024 at
+    //   line 16601.
+    // - cudarc enqueues the launch on `stream`; the four arg refs
+    //   live until the trailing `?`. Stream sync is caller's
+    //   responsibility.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15572,6 +16903,35 @@ pub fn gpu_pad_truncate_complex_f64(
     let src_n_u32 = src_n as u32;
     let dst_n_u32 = dst_n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `pad_truncate_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 16714-16727; its
+    //   `(src_ptr, out_ptr, batch, src_n, dst_n)` ABI matches
+    //   `PAD_TRUNCATE_PTX` rewritten by `ptx_f32_to_f64` plus the
+    //   `+4 -> +8` complex-pair offset patch at lines 16708-16709.
+    // - `src: &CudaBuffer<f64>` is the caller-supplied input; its
+    //   length was validated at line 16679 to equal
+    //   `batch * src_n * 2` (matches the complex-pair stride the
+    //   kernel uses) — `ShapeMismatch` is returned otherwise.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 16729 via
+    //   `alloc_zeros_f64(batch * dst_n * 2, device)?` (matches the
+    //   destination complex-pair stride) and is exclusively owned
+    //   for the duration of the launch. The `&mut` borrow precludes
+    //   aliasing `src`.
+    // - `total_pairs = batch * dst_n` was checked at line 16687 to be
+    //   non-zero. The kernel writes `out[2*i]` and `out[2*i+1]` only
+    //   for `i in [0, total_pairs)` per the PTX strided loop bound;
+    //   `out` size `batch * dst_n * 2` covers both. Reads of `src`
+    //   are bounded by `src_n` (per kernel logic) and the
+    //   `batch * src_n * 2` allocation guarantee.
+    // - `batch_u32`, `src_n_u32`, `dst_n_u32` cannot truncate:
+    //   `launch_cfg(total_pairs)?` (line 16730) returns `Err` if
+    //   `total_pairs > u32::MAX` (and `batch <= total_pairs`,
+    //   `dst_n <= total_pairs`); `src_n_u32 = src.len() / (batch * 2)`
+    //   so it shares the `src.len() <= u32::MAX` bound implicitly.
+    // - cudarc enqueues the launch on `stream`; the five arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15641,6 +17001,30 @@ pub fn gpu_sum_axis_f64(
     let inner_u32 = inner as u32;
     let total_u32 = total_output as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `sum_axis_kernel` returned by `module_cache::get_or_compile`
+    //   at lines 16782-16795; its `(in_ptr, out_ptr, outer,
+    //   axis_size, inner, total)` ABI matches `SUM_AXIS_PTX`
+    //   rewritten by `ptx_f32_to_f64` (line 16776).
+    // - `a: &CudaBuffer<f64>` is the caller-supplied input; the
+    //   kernel reads `a[((o * axis_size) + k) * inner + i]` for
+    //   `(o, i)` in the cartesian product and `k in [0, axis_size)`,
+    //   which is bounded by the `outer * axis_size * inner` length
+    //   the caller is contracted to provide via the function args
+    //   `outer`, `axis_size`, `inner`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 16797 via
+    //   `alloc_zeros_f64(total_output, device)?` where
+    //   `total_output = outer * inner` (line 16772). The `&mut`
+    //   borrow precludes aliasing `a`.
+    // - `outer_u32`, `axis_size_u32`, `inner_u32`, `total_u32` cannot
+    //   truncate: `launch_cfg(total_output)?` at line 16798 returns
+    //   `Err` if `total_output > u32::MAX`; `outer * inner =
+    //   total_output` implies both factors fit in u32; `axis_size`
+    //   is part of the caller's contract that `a.len() = outer *
+    //   axis_size * inner <= u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the six arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15719,6 +17103,30 @@ pub fn gpu_transpose_2d_f64(
     let n_u32 = n as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `transpose_2d_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 16861-16874; its
+    //   `(in_ptr, out_ptr, m, n, total)` ABI matches
+    //   `TRANSPOSE_2D_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 16855).
+    // - `input: &CudaBuffer<f64>` is the caller-supplied input;
+    //   `validate_device(input, device)?` at line 16849 confirms
+    //   it lives on `device` (helper at line 10582).
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 16876 via
+    //   `alloc_zeros_f64(total, device)?` where `total = m * n`
+    //   (line 16851). The `&mut` borrow precludes aliasing `input`.
+    // - The kernel reads `input[i]` and writes `out[i]` only for
+    //   `i in [0, total)` per the PTX bound check (`@%p bra DONE`
+    //   pattern, `total = m * n` covers both `[m, n]` source and
+    //   `[n, m]` destination).
+    // - `m_u32`, `n_u32`, `total_u32` cannot truncate:
+    //   `launch_cfg(total)?` (line 16877) returns `Err` if
+    //   `total > u32::MAX`, and `m, n <= total` follows from
+    //   `total = m * n` with both `>= 1` (or `total = 0` short-
+    //   circuited via empty allocator).
+    // - cudarc enqueues the launch on `stream`; the five arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15781,6 +17189,30 @@ pub fn gpu_permute_0213_f64(
     let d3_u32 = d3 as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `permute_0213_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 16921-16934; its
+    //   `(in_ptr, out_ptr, d0, d1, d2, d3, total)` ABI matches
+    //   `PERMUTE_0213_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 16915).
+    // - `input: &CudaBuffer<f64>` is the caller-supplied input;
+    //   `validate_device(input, device)?` at line 16909 confirms
+    //   device match (helper at line 10582).
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 16936 via
+    //   `alloc_zeros_f64(total, device)?` where
+    //   `total = d0 * d1 * d2 * d3` (line 16911). The `&mut` borrow
+    //   precludes aliasing `input`.
+    // - The kernel reads `input[i]` and writes `out[i]` only for
+    //   `i in [0, total)` per the PTX bound check; the permutation
+    //   `[d0, d1, d2, d3] -> [d0, d2, d1, d3]` preserves total
+    //   element count.
+    // - `d0_u32`, `d1_u32`, `d2_u32`, `d3_u32`, `total_u32` cannot
+    //   truncate: `launch_cfg(total)?` (line 16937) returns `Err`
+    //   if `total > u32::MAX`, and each dim is bounded above by
+    //   `total`.
+    // - cudarc enqueues the launch on `stream`; the seven arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15845,6 +17277,35 @@ pub fn gpu_strided_split_f64(
     let inner_u32 = inner_size as u32;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `strided_split_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 16985-16998; its
+    //   `(in_ptr, out_ptr, total_along_axis, split_offset,
+    //   split_size, inner_size, n)` ABI matches `STRIDED_SPLIT_PTX`
+    //   rewritten by `ptx_f32_to_f64` (line 16979).
+    // - `input: &CudaBuffer<f64>` is the caller-supplied input;
+    //   `validate_device(input, device)?` at line 16974 confirms
+    //   device match. The caller must size `input` to cover
+    //   `total_along_axis * inner_size` elements per the strided
+    //   read pattern (function-arg contract).
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 17000 via
+    //   `alloc_zeros_f64(n, device)?` where `n` is the caller-
+    //   declared output element count (function arg). The `&mut`
+    //   borrow precludes aliasing `input`.
+    // - The kernel writes `out[i]` only for `i in [0, n)` per the
+    //   PTX bound check; reads of `input` are bounded by the
+    //   strided index `(out_outer * total_along_axis + split_offset
+    //   + k) * inner_size + inner_idx` whose validity follows from
+    //   `split_offset + split_size <= total_along_axis` (caller
+    //   contract) and the input length above.
+    // - `total_ax_u32`, `offset_u32`, `split_sz_u32`, `inner_u32`,
+    //   `n_u32` cannot truncate: `launch_cfg(n)?` (line 17001)
+    //   returns `Err` if `n > u32::MAX`; the other dims must fit
+    //   in u32 since `n = batch * split_size * inner_size` and
+    //   `total_along_axis >= split_size`.
+    // - cudarc enqueues the launch on `stream`; the seven arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15910,6 +17371,35 @@ pub fn gpu_strided_cat_f64(
     let inner_u32 = inner_size as u32;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `strided_cat_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17051-17064; its
+    //   `(in_ptr, out_ptr, total_along_axis, cat_offset, part_size,
+    //   inner_size, n)` ABI matches `STRIDED_CAT_PTX` rewritten by
+    //   `ptx_f32_to_f64` (line 17045).
+    // - `input: &CudaBuffer<f64>` is the caller-supplied source;
+    //   `validate_device(input, device)?` at line 17040 confirms
+    //   device match. The caller must size `input` to cover `n`
+    //   elements (one per output write, one per input read).
+    // - `output: &mut CudaBuffer<f64>` is the caller-supplied
+    //   destination buffer (passed by `&mut` ensuring exclusivity)
+    //   that must have at least `cat_offset + part_size <=
+    //   total_along_axis` valid axis space; the caller contract is
+    //   that `output` was alloc'd with size at least
+    //   `batch * total_along_axis * inner_size` covering the
+    //   write region.
+    // - The kernel writes `output[(o * total_along_axis +
+    //   cat_offset + k) * inner_size + i]` for `n` thread indices
+    //   per the PTX bound check; the strided write region cannot
+    //   alias `input` because `output` is `&mut` and Rust borrow
+    //   rules forbid simultaneous `&` to it.
+    // - `total_ax_u32`, `offset_u32`, `part_sz_u32`, `inner_u32`,
+    //   `n_u32` cannot truncate: `launch_cfg(n)?` (line 17066)
+    //   returns `Err` if `n > u32::MAX`; the other dims fit since
+    //   `n = batch * part_size * inner_size`.
+    // - cudarc enqueues the launch on `stream`; the seven arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -15971,6 +17461,34 @@ pub fn gpu_index_select_1d_f64(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `index_select_1d_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17115-17128; its
+    //   `(in_ptr, idx_ptr, out_ptr, n)` ABI matches
+    //   `INDEX_SELECT_1D_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 17109).
+    // - `input: &CudaBuffer<f64>` is the gather source;
+    //   `validate_device(input, device)?` at line 17103 confirms
+    //   device match. The caller is contracted (per fn doc) to
+    //   ensure all values in `indices` are valid offsets into
+    //   `input`.
+    // - `indices: &CudaBuffer<f32>` carries the gather indices;
+    //   the kernel reads `indices[i]` for `i in [0, n)` where
+    //   `n = indices.len()` (line 17105).
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 17130 via
+    //   `alloc_zeros_f64(n, device)?`. The `&mut` borrow precludes
+    //   aliasing `input` or `indices`.
+    // - The kernel writes `out[i]` only for `i in [0, n)` per the
+    //   PTX bound check (`@%p bra DONE` pattern); reads of
+    //   `input[indices[i] as usize]` are subject to the caller's
+    //   index-in-range contract — out-of-range causes UB but no
+    //   memory-safety hazard if the caller respects the contract.
+    // - `n_u32 = n as u32` (line 17132) cannot truncate:
+    //   `launch_cfg(n)?` (line 17131) returns `Err` if
+    //   `n > u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the four arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16028,6 +17546,35 @@ pub fn gpu_scatter_add_1d_f64(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `scatter_add_1d_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17172-17185; its
+    //   `(grad_ptr, idx_ptr, out_ptr, n)` ABI matches
+    //   `SCATTER_ADD_1D_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 17166).
+    // - `grad_output: &CudaBuffer<f64>` is the source gradient;
+    //   `validate_device(grad_output, device)?` at line 17160
+    //   confirms device match.
+    // - `indices: &CudaBuffer<f32>` is the destination index map;
+    //   per the fn rustdoc the kernel atomically increments
+    //   `out[indices[i] as usize]` for `i in [0, n)` where
+    //   `n = grad_output.len()` (line 17162).
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 17187 via
+    //   `alloc_zeros_f64(input_len, device)?` — the caller is
+    //   contracted to provide `input_len` as the upper bound for
+    //   any `indices[i]` value. The `&mut` borrow precludes
+    //   aliasing `grad_output` or `indices`.
+    // - The kernel uses `atomicAdd` semantics (per PTX); duplicate
+    //   indices accumulate correctly. Reads of `grad_output[i]`
+    //   and `indices[i]` are bounded by `n`; writes to
+    //   `out[indices[i]]` rely on caller contract that index is
+    //   `< input_len`.
+    // - `n_u32 = n as u32` (line 17189) cannot truncate:
+    //   `launch_cfg(n)?` (line 17188) returns `Err` if
+    //   `n > u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the four arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16086,6 +17633,33 @@ pub fn gpu_masked_fill_f64(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `masked_fill_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17230-17243; its
+    //   `(in_ptr, mask_ptr, out_ptr, value, n)` ABI matches
+    //   `MASKED_FILL_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 17224).
+    // - `input: &CudaBuffer<f64>` is the source;
+    //   `validate_device(input, device)?` at line 17218 confirms
+    //   device match. `mask: &CudaBuffer<u8>` carries u8 nonzero/
+    //   zero flags; the caller is contracted (per fn doc) to size
+    //   `mask` to `input.len()`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 17245 via
+    //   `alloc_zeros_f64(n, device)?` where `n = input.len()`
+    //   (line 17220). The `&mut` borrow precludes aliasing
+    //   `input` or `mask`.
+    // - The kernel reads `input[i]` and `mask[i]` and writes
+    //   `out[i]` only for `i in [0, n)` per the PTX bound check.
+    //   `value: f64` is passed by-reference; cudarc copies the
+    //   value into the launch parameter buffer before the kernel
+    //   begins.
+    // - `n_u32 = n as u32` (line 17247) cannot truncate:
+    //   `launch_cfg(n)?` (line 17246) returns `Err` if
+    //   `n > u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the five arg refs
+    //   (including `&value`) live until the trailing `?`. Stream
+    //   sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16143,6 +17717,30 @@ pub fn gpu_masked_zero_f64(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `masked_zero_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17287-17300; its
+    //   `(grad_ptr, mask_ptr, out_ptr, n)` ABI matches
+    //   `MASKED_ZERO_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 17281).
+    // - `grad: &CudaBuffer<f64>` is the gradient source;
+    //   `validate_device(grad, device)?` at line 17275 confirms
+    //   device match. `mask: &CudaBuffer<u8>` carries the zero-
+    //   mask flags; the caller is contracted to size `mask` to
+    //   `grad.len()`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 17302 via
+    //   `alloc_zeros_f64(n, device)?` where `n = grad.len()`
+    //   (line 17277). The `&mut` borrow precludes aliasing
+    //   `grad` or `mask`.
+    // - The kernel reads `grad[i]` and `mask[i]` and writes
+    //   `out[i]` only for `i in [0, n)` per the PTX bound check;
+    //   `out[i] = mask[i] != 0 ? 0.0 : grad[i]`.
+    // - `n_u32 = n as u32` (line 17304) cannot truncate:
+    //   `launch_cfg(n)?` (line 17303) returns `Err` if
+    //   `n > u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the four arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16201,6 +17799,33 @@ pub fn gpu_slice_write_f64(
     let max_len_u32 = max_len as u32;
     let pos_u32 = pos as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `slice_write_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17343-17356; its
+    //   `(src_ptr, dst_ptr, n_total, d, max_len, pos)` ABI matches
+    //   `SLICE_WRITE_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 17337).
+    // - `src: &CudaBuffer<f64>` is the source `[n_batch, d]`
+    //   buffer; the caller is contracted to size `src` to
+    //   `n_batch * d` (= `total` from line 17333).
+    // - `dst: &mut CudaBuffer<f64>` is the destination `[n_batch,
+    //   max_len, d]` buffer with `pos` selected as the row
+    //   coordinate. The `&mut` borrow precludes aliasing `src`
+    //   per Rust borrow rules. The caller is contracted to size
+    //   `dst` to `n_batch * max_len * d` and to ensure
+    //   `pos < max_len`.
+    // - The kernel writes `dst[(b * max_len + pos) * d + j]` for
+    //   `(b, j)` in `[0, n_batch) x [0, d)` (i.e., `total` thread
+    //   indices) per the PTX bound check; reads of `src[b * d + j]`
+    //   are bounded by `total`.
+    // - `n_u32 = total as u32`, `d_u32`, `max_len_u32`, `pos_u32`
+    //   cannot truncate: `launch_cfg(total)?` (line 17358) returns
+    //   `Err` if `total > u32::MAX`; `d <= total`, `max_len`/`pos`
+    //   fit per `dst.len() = n_batch * max_len * d <= u32::MAX`
+    //   per allocator pool limits.
+    // - cudarc enqueues the launch on `stream`; the six arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16261,6 +17886,33 @@ pub fn gpu_slice_read_f64(
     let len_u32 = len as u32;
     let max_len_u32 = max_len as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `slice_read_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17402-17415; its
+    //   `(src_ptr, out_ptr, total, d, len, max_len)` ABI matches
+    //   `SLICE_READ_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 17396).
+    // - `src: &CudaBuffer<f64>` is the source `[n_batch, max_len,
+    //   d]` buffer; the caller is contracted (per fn doc) to size
+    //   `src` to `n_batch * max_len * d` and to ensure
+    //   `len <= max_len`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 17417 via
+    //   `alloc_zeros_f64(total, device)?` where
+    //   `total = n_batch * len * d` (line 17392). The `&mut`
+    //   borrow precludes aliasing `src`.
+    // - The kernel writes `out[(b * len + l) * d + j]` for
+    //   `(b, l, j)` in the cartesian product (i.e., `total`
+    //   thread indices) per the PTX bound check; reads of
+    //   `src[(b * max_len + l) * d + j]` for `l < len` are
+    //   bounded by `n_batch * max_len * d` (caller contract).
+    // - `total_u32`, `d_u32`, `len_u32`, `max_len_u32` cannot
+    //   truncate: `launch_cfg(total)?` (line 17418) returns `Err`
+    //   if `total > u32::MAX`; `d <= total`, `len <= max_len`,
+    //   and `max_len * n_batch * d <= u32::MAX` (caller's
+    //   responsibility per allocator).
+    // - cudarc enqueues the launch on `stream`; the six arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16319,6 +17971,29 @@ pub fn gpu_embed_lookup_f64(
     let cfg = launch_cfg(d)?;
     let d_u32 = d as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `embed_lookup_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17463-17476; its
+    //   `(idx_ptr, weight_ptr, out_ptr, d)` ABI matches
+    //   `EMBED_LOOKUP_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 17457).
+    // - `idx: &CudaBuffer<f32>` is a 1-element token-id buffer
+    //   (caller contract: `idx.len() == 1`). `weight:
+    //   &CudaBuffer<f64>` is the embedding table `[V, D]`; the
+    //   caller must size it to at least `(token_id + 1) * d`
+    //   per the gather pattern.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 17478 via
+    //   `alloc_zeros_f64(d, device)?` for the `[D]` output. The
+    //   `&mut` borrow precludes aliasing `idx` or `weight`.
+    // - The kernel reads `idx[0]` once (token id) and copies
+    //   `weight[token_id * d + j]` into `out[j]` for
+    //   `j in [0, d)` per the PTX bound check.
+    // - `d_u32 = d as u32` (line 17480) cannot truncate:
+    //   `launch_cfg(d)?` (line 17479) returns `Err` if
+    //   `d > u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the four arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16378,6 +18053,31 @@ pub fn gpu_embed_lookup_batch_f64(
     let d_u32 = d as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `embed_lookup_batch_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17521-17534; its
+    //   `(indices_ptr, weight_ptr, out_ptr, d, total)` ABI matches
+    //   `EMBED_LOOKUP_BATCH_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 17515).
+    // - `indices: &CudaBuffer<f32>` is the token-id batch
+    //   (caller contract: `indices.len() == n`). `weight:
+    //   &CudaBuffer<f64>` is the `[V, D]` embedding table; the
+    //   caller is contracted to ensure `max(indices) < V`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 17536 via
+    //   `alloc_zeros_f64(total, device)?` where
+    //   `total = n * d` (line 17507). The `&mut` borrow precludes
+    //   aliasing `indices` or `weight`.
+    // - The kernel writes `out[i * d + j]` for one thread per
+    //   `(i, j)` in `[0, n) x [0, d)` (i.e., `total` thread
+    //   indices) per the PTX bound check; reads of
+    //   `weight[indices[i] * d + j]` rely on the caller index-
+    //   range contract.
+    // - `d_u32`, `total_u32` cannot truncate:
+    //   `launch_cfg(total)?` (line 17537) returns `Err` if
+    //   `total > u32::MAX`; `d <= total`.
+    // - cudarc enqueues the launch on `stream`; the five arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16442,6 +18142,31 @@ pub fn gpu_scatter_add_rows_f64(
     let d_u32 = d as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `scatter_add_rows_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17585-17598; its
+    //   `(grad_ptr, idx_ptr, out_ptr, d, total)` ABI matches
+    //   `SCATTER_ADD_ROWS_PTX` rewritten by `ptx_f32_to_f64`
+    //   (line 17579).
+    // - `grad_output: &CudaBuffer<f64>` is the upstream gradient
+    //   `[N, D]`; `indices: &CudaBuffer<f32>` carries the
+    //   destination row indices. `n = indices.len()` (line 17569);
+    //   the caller is contracted to ensure `grad_output.len() ==
+    //   n * d` and `max(indices) < num_embeddings`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd at line 17600 via
+    //   `alloc_zeros_f64(num_embeddings * d, device)?`. The `&mut`
+    //   borrow precludes aliasing `grad_output` or `indices`.
+    // - The kernel uses `atomicAdd` (per the PTX) to accumulate
+    //   `grad_output[i * d + j]` into `out[indices[i] * d + j]`
+    //   for `(i, j)` in `[0, n) x [0, d)` — `total = n * d`
+    //   thread indices per the PTX bound check; duplicate indices
+    //   accumulate correctly.
+    // - `d_u32`, `total_u32` cannot truncate:
+    //   `launch_cfg(total)?` (line 17601) returns `Err` if
+    //   `total > u32::MAX`; `d <= total`.
+    // - cudarc enqueues the launch on `stream`; the five arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16512,6 +18237,38 @@ pub fn gpu_fused_adam(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `fused_adam_kernel`
+    //   returned by `module_cache::get_or_compile` at lines
+    //   17657-17670; its `(param, grad, exp_avg, exp_avg_sq,
+    //   beta1, beta2, lr, eps, bc1, bc2, weight_decay, n)` ABI
+    //   matches `FUSED_ADAM_PTX`.
+    // - `param: &mut CudaBuffer<f32>`, `exp_avg: &mut
+    //   CudaBuffer<f32>`, and `exp_avg_sq: &mut CudaBuffer<f32>`
+    //   are three distinct exclusively-borrowed buffers; Rust's
+    //   borrow rules guarantee they cannot alias each other or
+    //   `grad`. Each is in-place mutated by the kernel.
+    // - `grad: &CudaBuffer<f32>` is the read-only gradient. The
+    //   length-equality precondition `grad.len() == param.len()
+    //   == exp_avg.len() == exp_avg_sq.len() == n` is enforced at
+    //   line 17647 (returns `LengthMismatch` otherwise).
+    // - All four buffers were alloc'd by the caller before this
+    //   call (the optimizer's persistent state); their `CudaSlice`
+    //   handles live for the duration of the launch since the
+    //   `&mut`/`&` borrows are bound to the call frame.
+    // - The kernel reads `grad[i]` and reads/writes `param[i]`,
+    //   `exp_avg[i]`, `exp_avg_sq[i]` only for `i in [0, n)` per
+    //   the PTX bound check (`@%p bra DONE` pattern). Scalar
+    //   args (`beta1`..`weight_decay`, all `f32`) are passed
+    //   by-reference; cudarc copies values into the launch param
+    //   buffer before the kernel begins.
+    // - `n_u32 = n as u32` (line 17673) cannot truncate:
+    //   `launch_cfg(n)?` (line 17672) returns `Err` if
+    //   `n > u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the twelve arg
+    //   refs live until the trailing `?`. Stream sync is the
+    //   caller's responsibility (typically the optimizer's step
+    //   batch boundary).
     unsafe {
         stream
             .launch_builder(&f)
@@ -16610,6 +18367,42 @@ pub fn gpu_fused_gru_forward(
     let hsz_u32 = hsz as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for
+    //   `fused_gru_forward_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17751-17764; its
+    //   nine-argument ABI `(input_gates, hidden_gates, bias_ih,
+    //   bias_hh, hx, hy, workspace, hsz, total)` matches
+    //   `FUSED_GRU_FORWARD_PTX`.
+    // - `input_gates: &CudaBuffer<f32>`, `hidden_gates:
+    //   &CudaBuffer<f32>`, `bias_ih: &CudaBuffer<f32>`, `bias_hh:
+    //   &CudaBuffer<f32>`, `hx: &CudaBuffer<f32>` are five
+    //   read-only inputs supplied by the caller. The caller's
+    //   contract (per fn rustdoc, lines 17723-17732) is:
+    //   `input_gates.len() == hidden_gates.len() == batch * 3 *
+    //   hsz`, `bias_ih.len() == bias_hh.len() == 3 * hsz`,
+    //   `hx.len() == batch * hsz`, where `batch = total / hsz`
+    //   (line 17746). The kernel is read-only over these.
+    // - `hy: &mut CudaBuffer<f32>` was alloc'd at line 17766 via
+    //   `alloc_zeros_f32(total, device)?` for the `[batch, hsz]`
+    //   new hidden state. `workspace: &mut CudaBuffer<f32>` was
+    //   alloc'd at line 17767 via `alloc_zeros_f32(batch * 5 *
+    //   hsz, device)?` for the `[batch, 5*hsz]` saved-for-
+    //   backward buffer. Both are exclusively owned by this fn;
+    //   Rust borrow rules guarantee they cannot alias each other
+    //   or any of the read-only inputs.
+    // - The kernel writes `hy[i]` for `i in [0, total)` (one
+    //   thread per output element) and writes the 5 sub-blocks
+    //   of `workspace` indexed at `(b * 5 + slot) * hsz + j` per
+    //   the PTX layout; both regions are bounded by their
+    //   respective allocations above.
+    // - `hsz_u32`, `total_u32` cannot truncate:
+    //   `launch_cfg(total)?` (line 17769) returns `Err` if
+    //   `total > u32::MAX`; `hsz <= total` since `total = batch
+    //   * hsz`.
+    // - cudarc enqueues the launch on `stream`; the nine arg refs
+    //   live until the trailing `?`. Stream sync is the caller's
+    //   responsibility before any read of `hy` or `workspace`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16698,6 +18491,38 @@ pub fn gpu_maxpool2d(
     let (ph_u32, pw_u32) = (ph as u32, pw as u32);
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for
+    //   `maxpool2d_forward_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17835-17848; its
+    //   ABI `(input_ptr, out_ptr, batch, channels, h_in, w_in,
+    //   h_out, w_out, kh, kw, sh, sw, ph, pw, total)` matches
+    //   `MAXPOOL2D_PTX`.
+    // - `input: &CudaBuffer<f32>` is the source `[batch,
+    //   channels, h_in, w_in]` activation; the caller is
+    //   contracted to size `input` to `batch * channels * h_in *
+    //   w_in` and the output dims are computed at lines 17828-
+    //   17829 from the standard pooling formula `(h_in + 2*ph -
+    //   kh) / sh + 1` (likewise for w).
+    // - `out: &mut CudaBuffer<f32>` was alloc'd at line 17850 via
+    //   `alloc_zeros_f32(total, device)?` where `total = batch *
+    //   channels * h_out * w_out` (line 17830). The `&mut`
+    //   borrow precludes aliasing `input`.
+    // - The kernel runs one thread per output element (`total`
+    //   threads) per the PTX bound check; each thread computes
+    //   `out[idx]` from the `kh x kw` window in `input` at the
+    //   strided/padded position derived from `(b, c, oh, ow)`,
+    //   bounded by `[0, h_in)` and `[0, w_in)` after pad
+    //   subtraction.
+    // - `batch_u32`, `ch_u32`, `h_in_u32`, `w_in_u32`, `h_out_
+    //   u32`, `w_out_u32`, `kh_u32`, `kw_u32`, `sh_u32`, `sw_u32`,
+    //   `ph_u32`, `pw_u32`, `total_u32` cannot truncate:
+    //   `launch_cfg(total)?` (line 17851) returns `Err` if
+    //   `total > u32::MAX`; the per-axis dims fit since they
+    //   multiply to `<= total`.
+    // - cudarc enqueues the launch on `stream`; the fifteen arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16794,6 +18619,34 @@ pub fn gpu_avgpool2d(
     let (ph_u32, pw_u32) = (ph as u32, pw as u32);
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for
+    //   `avgpool2d_forward_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 17931-17944; its
+    //   ABI `(input_ptr, out_ptr, batch, channels, h_in, w_in,
+    //   h_out, w_out, kh, kw, sh, sw, ph, pw, total)` matches
+    //   `AVGPOOL2D_PTX`.
+    // - `input: &CudaBuffer<f32>` is the source `[batch,
+    //   channels, h_in, w_in]` activation; the caller is
+    //   contracted to size `input` to `batch * channels * h_in *
+    //   w_in`. Output dims are computed at lines 17924-17925
+    //   from `(h_in + 2*ph - kh) / sh + 1` (likewise for w).
+    // - `out: &mut CudaBuffer<f32>` was alloc'd at line 17946 via
+    //   `alloc_zeros_f32(total, device)?` where `total = batch *
+    //   channels * h_out * w_out` (line 17926). The `&mut`
+    //   borrow precludes aliasing `input`.
+    // - The kernel runs one thread per output element (`total`
+    //   threads) per the PTX bound check; each thread averages
+    //   the `kh x kw` window in `input` (with padded positions
+    //   contributing 0 per standard avgpool semantics), bounded
+    //   by `[0, h_in)` and `[0, w_in)` after pad subtraction.
+    // - The fifteen u32 args cannot truncate:
+    //   `launch_cfg(total)?` (line 17947) returns `Err` if
+    //   `total > u32::MAX`; the per-axis dims fit since they
+    //   multiply to `<= total`.
+    // - cudarc enqueues the launch on `stream`; the fifteen arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -16945,6 +18798,40 @@ pub fn gpu_layernorm(
         shared_mem_bytes: 256 * 4,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `layernorm_kernel`
+    //   returned by `module_cache::get_or_compile` at lines
+    //   18083-18096; its ABI `(input_ptr, out_ptr, weight_ptr,
+    //   bias_ptr, rows, cols, eps)` matches `LAYERNORM_PTX`.
+    // - `input: &CudaBuffer<f32>` is the row-major `[rows, cols]`
+    //   activation; `validate_unary(input, device)?` at line
+    //   18078 confirms device match. The caller is contracted
+    //   (per fn doc) to size `input` to `rows * cols`.
+    // - `weight: &CudaBuffer<f32>` and `bias: &CudaBuffer<f32>`
+    //   are per-column affine parameters (length `cols`); both
+    //   shared-borrowed (read-only).
+    // - `out: &mut CudaBuffer<f32>` was alloc'd at line 18098 via
+    //   `alloc_zeros_f32(rows * cols, device)?`. The `&mut`
+    //   borrow precludes aliasing `input`, `weight`, or `bias`
+    //   per Rust borrow rules.
+    // - One block per row (`rows` blocks, line 18103), 256
+    //   threads per block (line 18104), 256 * 4 bytes shared
+    //   memory (line 18105) for the per-row mean/var reduction.
+    //   The kernel reads `input[row * cols + j]`, `weight[j]`,
+    //   `bias[j]` and writes `out[row * cols + j]` for `row in
+    //   [0, rows)` and `j in [0, cols)`, bounded by the PTX
+    //   per-thread loop with stride `blockDim.x` capped at
+    //   `cols`.
+    // - `rows_u32`, `cols_u32` cannot truncate from i.e. the
+    //   `rows as u32` cast: the grid_dim is a `u32` field so any
+    //   `rows > u32::MAX` would already truncate the grid; the
+    //   caller's contract (and pool allocator) ensures
+    //   `rows * cols <= u32::MAX`. `eps: f32` is passed by-
+    //   reference; cudarc copies it into the launch parameter
+    //   buffer.
+    // - cudarc enqueues the launch on `stream`; the seven arg
+    //   refs live until the trailing `?`. Stream sync is the
+    //   caller's responsibility.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17018,6 +18905,42 @@ pub fn gpu_layernorm_backward(
         shared_mem_bytes: 256 * 4,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for
+    //   `layernorm_backward_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 18153-18166; its
+    //   ABI `(input, grad_out, weight, grad_in, grad_w, grad_b,
+    //   rows, cols, eps)` matches `LAYERNORM_BACKWARD_PTX`.
+    // - `input: &CudaBuffer<f32>` is the saved-for-backward
+    //   activation `[rows, cols]`; `grad_output:
+    //   &CudaBuffer<f32>` is the upstream gradient `[rows, cols]`;
+    //   `weight: &CudaBuffer<f32>` is the per-col scale `[cols]`.
+    //   `validate_unary(input, device)?` at line 18148 confirms
+    //   `input` lives on `device`. The caller's contract is
+    //   `input.len() == grad_output.len() == rows * cols` and
+    //   `weight.len() == cols`.
+    // - `grad_in: &mut CudaBuffer<f32>` was alloc'd at line 18168
+    //   for the `[rows, cols]` input gradient. `grad_w: &mut
+    //   CudaBuffer<f32>` (line 18169) and `grad_b: &mut
+    //   CudaBuffer<f32>` (line 18170) are zero-initialized
+    //   accumulators of length `cols` for cross-batch atomic
+    //   reductions. All three `&mut` borrows are distinct;
+    //   Rust borrow rules guarantee no aliasing between them or
+    //   with `input`, `grad_output`, `weight`.
+    // - One block per row (line 18176), 256 threads per block,
+    //   256*4 bytes shared memory (line 18178) for per-row
+    //   gradient reductions. The kernel reads `input[row*cols
+    //   +j]`, `grad_output[row*cols+j]`, `weight[j]` and writes
+    //   `grad_in[row*cols+j]` directly; `grad_w` and `grad_b`
+    //   are accumulated via `atomicAdd` so concurrent block
+    //   updates compose correctly.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid_dim is u32-
+    //   typed; the caller's contract ensures `rows * cols <=
+    //   u32::MAX`. `eps: f32` is passed by-reference.
+    // - cudarc enqueues the launch on `stream`; the nine arg
+    //   refs live until the trailing `?`. Stream sync is the
+    //   caller's responsibility before reading any of the three
+    //   gradient buffers.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17102,6 +19025,34 @@ pub fn gpu_rmsnorm(
         shared_mem_bytes: 256 * 4,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `rmsnorm_kernel`
+    //   returned by `module_cache::get_or_compile` at lines
+    //   18240-18253; its ABI `(input_ptr, out_ptr, weight_ptr,
+    //   rows, cols, eps)` matches `RMSNORM_PTX`. RMSNorm has no
+    //   bias and no mean-centering vs. LayerNorm.
+    // - `input: &CudaBuffer<f32>` is the row-major `[rows, cols]`
+    //   activation; `validate_unary(input, device)?` at line
+    //   18235 confirms device match. `weight: &CudaBuffer<f32>`
+    //   is the per-column scale `[cols]`. The caller is
+    //   contracted to size `input` to `rows * cols` and `weight`
+    //   to `cols`.
+    // - `out: &mut CudaBuffer<f32>` was alloc'd at line 18255 via
+    //   `alloc_zeros_f32(rows * cols, device)?`. The `&mut`
+    //   borrow precludes aliasing `input` or `weight`.
+    // - One block per row (line 18260), 256 threads per block
+    //   (line 18261), 256*4 bytes shared memory (line 18262) for
+    //   the per-row mean-of-squares reduction. The kernel reads
+    //   `input[row*cols+j]`, `weight[j]` and writes `out[row*
+    //   cols+j]` for `row in [0, rows)` and `j in [0, cols)`,
+    //   bounded by the PTX per-thread loop with stride
+    //   `blockDim.x` capped at `cols`.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid_dim is
+    //   u32-typed; the caller contract ensures `rows * cols <=
+    //   u32::MAX`. `eps: f32` is passed by-reference.
+    // - cudarc enqueues the launch on `stream`; the six arg refs
+    //   live until the trailing `?`. Stream sync is the caller's
+    //   responsibility.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17173,6 +19124,41 @@ pub fn gpu_rmsnorm_backward(
         shared_mem_bytes: 256 * 4,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for
+    //   `rmsnorm_backward_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 18309-18322; its
+    //   ABI `(input, grad_out, weight, grad_in, grad_w, rows,
+    //   cols, eps)` matches `RMSNORM_BACKWARD_PTX`.
+    // - `input: &CudaBuffer<f32>` is the saved-for-backward
+    //   activation `[rows, cols]`; `grad_output:
+    //   &CudaBuffer<f32>` is the upstream gradient `[rows, cols]`;
+    //   `weight: &CudaBuffer<f32>` is the per-col scale `[cols]`.
+    //   `validate_unary(input, device)?` at line 18304 confirms
+    //   `input` lives on `device`. The caller's contract is
+    //   `input.len() == grad_output.len() == rows * cols` and
+    //   `weight.len() == cols`.
+    // - `grad_in: &mut CudaBuffer<f32>` was alloc'd at line 18324
+    //   for the `[rows, cols]` input gradient. `grad_w: &mut
+    //   CudaBuffer<f32>` (line 18325) is the zero-initialized
+    //   accumulator of length `cols` for cross-batch atomic
+    //   reduction. Both `&mut` borrows are distinct and exclusive
+    //   per Rust borrow rules — no aliasing with each other or
+    //   with `input`, `grad_output`, `weight`.
+    // - One block per row (line 18331), 256 threads per block,
+    //   256*4 bytes shared memory (line 18333) for per-row
+    //   gradient reductions. The kernel reads `input[row*cols+
+    //   j]`, `grad_output[row*cols+j]`, `weight[j]` and writes
+    //   `grad_in[row*cols+j]` directly; `grad_w` is accumulated
+    //   via `atomicAdd` so concurrent block updates compose
+    //   correctly.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid_dim is u32-
+    //   typed; the caller contract ensures `rows * cols <=
+    //   u32::MAX`. `eps: f32` is passed by-reference.
+    // - cudarc enqueues the launch on `stream`; the eight arg
+    //   refs live until the trailing `?`. Stream sync is the
+    //   caller's responsibility before reading the gradient
+    //   buffers.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17288,6 +19274,32 @@ pub fn gpu_scale_into(
     })?;
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `scale_kernel`
+    //   returned by `module_cache::get_or_compile` at line 18439
+    //   (mapped via `.map_err(|e| GpuError::PtxCompileFailed { ...
+    //   })?`); its `(in_ptr, out_ptr, scalar, n)` ABI matches
+    //   `SCALE_PTX`.
+    // - `a: &CudaBuffer<f32>` is the source; `validate_unary(a,
+    //   device)?` at line 18435 confirms device match. `n =
+    //   a.len()` (line 18436).
+    // - `out: &mut CudaBuffer<f32>` is a caller-supplied pre-
+    //   allocated output buffer (used in CUDA-graph capture per
+    //   the section header at line 18380); the `&mut` borrow
+    //   precludes aliasing `a`. The caller is contracted to size
+    //   `out` to at least `n` elements.
+    // - The kernel reads `a[i]` and writes `out[i]` only for `i
+    //   in [0, n)` per the PTX bound check (`@%p bra DONE`
+    //   pattern shared by the PTX). `scalar: f32` is passed by-
+    //   reference; cudarc copies it into the launch parameter
+    //   buffer.
+    // - `n_u32 = n as u32` (line 18450) cannot truncate:
+    //   `launch_cfg(n)?` (line 18449) returns `Err` if
+    //   `n > u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the four arg
+    //   refs live until the trailing `?`. Stream sync is the
+    //   caller's responsibility (often deferred until graph end
+    //   for capture variants).
     unsafe {
         stream
             .launch_builder(&f)
@@ -17329,6 +19341,29 @@ pub fn gpu_fill_f32(n: usize, scalar: f32, device: &GpuDevice) -> GpuResult<Cuda
     }
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `fill_f32_kernel`
+    //   returned by `module_cache::get_or_compile` at lines
+    //   18475-18484 (the `.map_err` reports `kernel:
+    //   "scale_kernel"` — a known wrong-kernel-name copy-paste
+    //   bug, sibling to #708; substantiation only here, surfaced
+    //   in Category A list); its `(out_ptr, scalar, n)` ABI
+    //   matches `FILL_F32_PTX`.
+    // - `out: &mut CudaBuffer<f32>` was alloc'd at line 18486 via
+    //   `alloc_zeros_f32(n, device)?` for the buffer being
+    //   filled. The `&mut` borrow ensures exclusive ownership for
+    //   the duration of the launch; `n == 0` early-exit at line
+    //   18487 ensures the launch only runs when there's work to
+    //   do.
+    // - The kernel writes `out[i] = scalar` for `i in [0, n)`
+    //   per the PTX bound check; reads only `scalar` (passed
+    //   by-reference, cudarc copies into launch param buffer).
+    // - `n_u32 = n as u32` (line 18491) cannot truncate:
+    //   `launch_cfg(n)?` (line 18490) returns `Err` if `n >
+    //   u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the three arg
+    //   refs live until the trailing `?`. Stream sync is the
+    //   caller's responsibility before reading `out`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17410,6 +19445,30 @@ pub fn gpu_embed_lookup_into(
     })?;
     let cfg = launch_cfg(d)?;
     let d_u32 = d as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `embed_lookup_kernel`
+    //   resolved by `module_cache::get_or_compile` at lines
+    //   18561-18570; its `(idx_ptr, weight_ptr, out_ptr, d)` ABI
+    //   matches `EMBED_LOOKUP_PTX`.
+    // - `idx: &CudaBuffer<f32>` is the 1-element token-id buffer
+    //   (caller contract: `idx.len() == 1`). `weight:
+    //   &CudaBuffer<f32>` is the embedding table `[V, D]`
+    //   (caller contract: `weight.len() >= max_id * d`).
+    // - `out: &mut CudaBuffer<f32>` is the caller-supplied pre-
+    //   allocated `[D]` output (graph-capture variant per the
+    //   `_into` section header at line 18380). The `&mut` borrow
+    //   precludes aliasing `idx` or `weight`. The caller is
+    //   contracted to size `out` to at least `d` elements.
+    // - The kernel reads `idx[0]` once and copies `weight[
+    //   token_id * d + j]` into `out[j]` for `j in [0, d)` per
+    //   the PTX bound check; out-of-range `token_id` is the
+    //   caller's responsibility.
+    // - `d_u32 = d as u32` (line 18572) cannot truncate:
+    //   `launch_cfg(d)?` (line 18571) returns `Err` if `d >
+    //   u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the four arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17467,6 +19526,32 @@ pub fn gpu_embed_lookup_batch(
     let d_u32 = d as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for
+    //   `embed_lookup_batch_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 18610-18623; its
+    //   `(indices_ptr, weight_ptr, out_ptr, d, total)` ABI
+    //   matches `EMBED_LOOKUP_BATCH_PTX`.
+    // - `indices: &CudaBuffer<f32>` is the token-id batch
+    //   (caller contract: `indices.len() == n`). `weight:
+    //   &CudaBuffer<f32>` is the embedding table `[V, D]`
+    //   (caller contract: `max(indices) < V`).
+    // - `out: &mut CudaBuffer<f32>` was alloc'd at line 18625 via
+    //   `alloc_zeros_f32(total, device)?` where `total = n * d`
+    //   (line 18602). The `&mut` borrow precludes aliasing
+    //   `indices` or `weight`. The `total == 0` early-return at
+    //   line 18603 ensures the launch only runs when there's
+    //   work.
+    // - The kernel writes `out[i * d + j]` for `(i, j)` in
+    //   `[0, n) x [0, d)` (i.e., `total` thread indices) per the
+    //   PTX bound check; reads of `weight[indices[i] * d + j]`
+    //   rely on the caller index-range contract.
+    // - `d_u32`, `total_u32` cannot truncate:
+    //   `launch_cfg(total)?` (line 18626) returns `Err` if
+    //   `total > u32::MAX`; `d <= total`.
+    // - cudarc enqueues the launch on `stream`; the five arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17530,6 +19615,32 @@ pub fn gpu_scatter_add_rows(
     let d_u32 = d as u32;
     let total_u32 = total as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for
+    //   `scatter_add_rows_kernel` returned by
+    //   `module_cache::get_or_compile` at lines 18673-18686; its
+    //   `(grad_ptr, idx_ptr, out_ptr, d, total)` ABI matches
+    //   `SCATTER_ADD_ROWS_PTX`.
+    // - `grad_output: &CudaBuffer<f32>` is the upstream gradient
+    //   `[N, D]` (caller contract: `grad_output.len() == n * d`).
+    //   `indices: &CudaBuffer<f32>` carries destination row
+    //   indices (caller contract: `n = indices.len()`,
+    //   `max(indices) < num_embeddings`).
+    // - `out: &mut CudaBuffer<f32>` was alloc'd at line 18688 via
+    //   `alloc_zeros_f32(num_embeddings * d, device)?`. The
+    //   `&mut` borrow precludes aliasing `grad_output` or
+    //   `indices`. The `total == 0` early-return at line 18666
+    //   ensures the launch only runs when there's work.
+    // - The kernel uses `atomicAdd` (per PTX) to accumulate
+    //   `grad_output[i * d + j]` into `out[indices[i] * d + j]`
+    //   for `(i, j)` in `[0, n) x [0, d)` — `total = n * d`
+    //   thread indices; duplicate indices accumulate correctly.
+    // - `d_u32`, `total_u32` cannot truncate:
+    //   `launch_cfg(total)?` (line 18689) returns `Err` if
+    //   `total > u32::MAX`; `d <= total`.
+    // - cudarc enqueues the launch on `stream`; the five arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17571,6 +19682,30 @@ pub fn gpu_transpose_2d_into(
     let m_u32 = m as u32;
     let n_u32 = n as u32;
     let total_u32 = total as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `transpose_2d_kernel`
+    //   resolved by `module_cache::get_or_compile` at lines
+    //   18720-18729 (the `.map_err` reports `kernel:
+    //   "scatter_add_rows_kernel"` — a known wrong-kernel-name
+    //   copy-paste bug, sibling to #708; substantiation only here,
+    //   surfaced in Category A list); its `(in_ptr, out_ptr, m, n,
+    //   total)` ABI matches `TRANSPOSE_2D_PTX`.
+    // - `a: &CudaBuffer<f32>` is the source `[m, n]` matrix
+    //   (caller contract: `a.len() >= m * n`). `out: &mut
+    //   CudaBuffer<f32>` is the caller-supplied pre-allocated
+    //   `[n, m]` output (graph-capture variant per the `_into`
+    //   section header at line 18380); the `&mut` borrow
+    //   precludes aliasing `a`.
+    // - The kernel reads `a[i]` and writes the transposed
+    //   `out[i]` only for `i in [0, total)` per the PTX bound
+    //   check; `total = m * n` covers both [m, n] source and
+    //   [n, m] destination element counts.
+    // - `m_u32`, `n_u32`, `total_u32` cannot truncate:
+    //   `launch_cfg(total)?` (line 18730) returns `Err` if
+    //   `total > u32::MAX`; `m <= total`, `n <= total`.
+    // - cudarc enqueues the launch on `stream`; the five arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17611,6 +19746,27 @@ pub fn gpu_permute_0213_into(
     })?;
     let cfg = launch_cfg(total)?;
     let (d0u, d1u, d2u, d3u, tu) = (d0 as u32, d1 as u32, d2 as u32, d3 as u32, total as u32);
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `permute_0213_kernel`
+    //   resolved by `module_cache::get_or_compile` at lines
+    //   18762-18771; its `(in_ptr, out_ptr, d0, d1, d2, d3, total)`
+    //   ABI matches `PERMUTE_0213_PTX`.
+    // - `a: &CudaBuffer<f32>` is the source `[d0, d1, d2, d3]`
+    //   tensor (caller contract: `a.len() >= total = d0*d1*d2*d3`).
+    //   `out: &mut CudaBuffer<f32>` is the caller-supplied pre-
+    //   allocated `[d0, d2, d1, d3]` output (graph-capture
+    //   variant per the `_into` section header); the `&mut`
+    //   borrow precludes aliasing `a`.
+    // - The kernel reads `a[i]` and writes the permuted `out[i]`
+    //   only for `i in [0, total)` per the PTX bound check; the
+    //   permutation `[d0, d1, d2, d3] -> [d0, d2, d1, d3]`
+    //   preserves total element count.
+    // - `d0u`, `d1u`, `d2u`, `d3u`, `tu` cannot truncate:
+    //   `launch_cfg(total)?` (line 18772) returns `Err` if
+    //   `total > u32::MAX`; each dim is bounded by `total`.
+    // - cudarc enqueues the launch on `stream`; the seven arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17657,6 +19813,31 @@ pub fn gpu_softmax_into(
     };
     let rows_u32 = rows as u32;
     let cols_u32 = cols as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `softmax_kernel`
+    //   resolved by `module_cache::get_or_compile` at lines
+    //   18801-18810; its `(in_ptr, out_ptr, rows, cols)` ABI
+    //   matches `SOFTMAX_PTX`.
+    // - `a: &CudaBuffer<f32>` is the row-major `[rows, cols]`
+    //   activation (caller contract: `a.len() >= rows * cols`).
+    //   `out: &mut CudaBuffer<f32>` is the caller-supplied pre-
+    //   allocated `[rows, cols]` output (graph-capture variant
+    //   per the `_into` section header); the `&mut` borrow
+    //   precludes aliasing `a`.
+    // - One block per row (grid `rows`), `block_size = 256`
+    //   threads per block, `cols * 4` bytes shared memory for the
+    //   per-row max+sum reduction. The kernel reads `a[row*cols
+    //   +j]` and writes `out[row*cols+j]` for `row in [0, rows)`
+    //   and `j in [0, cols)`, bounded by the PTX per-thread loop
+    //   with stride `blockDim.x` capped at `cols`.
+    // - `rows_u32`, `cols_u32`, and `(cols as u32) * 4` shared-
+    //   mem bytes cannot truncate: grid_dim and shared_mem_bytes
+    //   are u32-typed; the caller contract ensures `rows * cols
+    //   <= u32::MAX` and `cols * 4 <= u32::MAX` (i.e., `cols <
+    //   2^30`, far above realistic activation widths).
+    // - cudarc enqueues the launch on `stream`; the four arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17704,6 +19885,35 @@ pub fn gpu_layernorm_into(
     };
     let rows_u32 = rows as u32;
     let cols_u32 = cols as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `layernorm_kernel`
+    //   resolved by `module_cache::get_or_compile` at lines
+    //   18848-18857; its `(input_ptr, out_ptr, weight_ptr,
+    //   bias_ptr, rows, cols, eps)` ABI matches `LAYERNORM_PTX`.
+    // - `input: &CudaBuffer<f32>` is the row-major `[rows, cols]`
+    //   activation; `weight: &CudaBuffer<f32>` and `bias:
+    //   &CudaBuffer<f32>` are per-column affine parameters
+    //   (length `cols`). The caller is contracted to size
+    //   `input` to `rows * cols` and `weight`/`bias` to `cols`.
+    // - `out: &mut CudaBuffer<f32>` is the caller-supplied pre-
+    //   allocated `[rows, cols]` output (graph-capture variant
+    //   per the `_into` section header at line 18380); the
+    //   `&mut` borrow precludes aliasing `input`, `weight`, or
+    //   `bias`.
+    // - One block per row (grid `rows`), `block_size = 256`
+    //   threads per block, `cols * 4` bytes shared memory for
+    //   the per-row mean/var reduction. The kernel reads
+    //   `input[row*cols+j]`, `weight[j]`, `bias[j]` and writes
+    //   `out[row*cols+j]` for `row in [0, rows)` and `j in [0,
+    //   cols)`, bounded by the PTX per-thread loop with stride
+    //   `blockDim.x`.
+    // - `rows_u32`, `cols_u32`, `(cols as u32) * 4` cannot
+    //   truncate: grid_dim and shared_mem_bytes are u32-typed;
+    //   caller contract ensures `rows * cols <= u32::MAX` and
+    //   `cols < 2^30`. `eps: f32` is passed by-reference.
+    // - cudarc enqueues the launch on `stream`; the seven arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17750,6 +19960,30 @@ pub fn gpu_slice_read_into(
     let d_u32 = d as u32;
     let len_u32 = len as u32;
     let max_len_u32 = max_len as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `slice_read_kernel`
+    //   resolved by `module_cache::get_or_compile` at lines
+    //   18898-18907; its `(src_ptr, out_ptr, total, d, len,
+    //   max_len)` ABI matches `SLICE_READ_PTX`.
+    // - `src: &CudaBuffer<f32>` is the source `[n_batch, max_len,
+    //   d]` buffer (caller contract: size = `n_batch * max_len *
+    //   d`, `len <= max_len`). `out: &mut CudaBuffer<f32>` is
+    //   the caller-supplied pre-allocated `[n_batch, len, d]`
+    //   output (graph-capture variant per the `_into` section
+    //   header); the `&mut` borrow precludes aliasing `src`.
+    // - The kernel writes `out[(b * len + l) * d + j]` for
+    //   `(b, l, j)` in the cartesian product (`total` thread
+    //   indices) per the PTX bound check; reads of
+    //   `src[(b * max_len + l) * d + j]` for `l < len` are
+    //   bounded by `n_batch * max_len * d` (caller contract).
+    // - `total_u32`, `d_u32`, `len_u32`, `max_len_u32` cannot
+    //   truncate: `launch_cfg(total)?` (line 18908) returns
+    //   `Err` if `total > u32::MAX`; `d <= total`, `len <=
+    //   max_len`, `max_len * n_batch * d <= u32::MAX` per
+    //   allocator pool limits.
+    // - cudarc enqueues the launch on `stream`; the six arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17791,6 +20025,31 @@ pub fn gpu_small_matmul_into(
     })?;
     let cfg = launch_cfg(total)?;
     let (m_u32, k_u32, n_u32, total_u32) = (m as u32, k as u32, n as u32, total as u32);
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `small_matmul_kernel`
+    //   resolved by `module_cache::get_or_compile` at lines
+    //   18942-18951; its `(a_ptr, b_ptr, out_ptr, m, k, n, total)`
+    //   ABI matches `SMALL_MATMUL_PTX`.
+    // - `a: &CudaBuffer<f32>` is the `[m, k]` left matrix; `b:
+    //   &CudaBuffer<f32>` is the `[k, n]` right matrix (caller
+    //   contracts: `a.len() >= m*k`, `b.len() >= k*n`). `out:
+    //   &mut CudaBuffer<f32>` is the caller-supplied pre-
+    //   allocated `[m, n]` output (graph-capture variant per the
+    //   `_into` section header); the `&mut` borrow precludes
+    //   aliasing `a` or `b`.
+    // - The kernel runs one thread per output element (`total =
+    //   m * n` threads) per the PTX bound check; each thread
+    //   computes `out[i*n+j] = sum_k a[i*k+kk] * b[kk*n+j]`,
+    //   reads of `a` and `b` bounded by `m*k` and `k*n`
+    //   respectively (caller contract).
+    // - `m_u32`, `k_u32`, `n_u32`, `total_u32` cannot truncate:
+    //   `launch_cfg(total)?` (line 18952) returns `Err` if
+    //   `total > u32::MAX`; `m <= total`, `n <= total`, and
+    //   `k <= max(a.len()/m, b.len()/n) <= u32::MAX` (caller
+    //   contract on the input buffer sizes).
+    // - cudarc enqueues the launch on `stream`; the seven arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -17840,6 +20099,37 @@ pub fn gpu_slice_write_indirect(
     let n_u32 = total as u32;
     let d_u32 = d as u32;
     let max_len_u32 = max_len as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for
+    //   `slice_write_indirect_kernel` resolved by
+    //   `module_cache::get_or_compile` at lines 18989-18998; its
+    //   `(src_ptr, dst_ptr, n_total, d, max_len, pos_ptr)` ABI
+    //   matches `SLICE_WRITE_INDIRECT_PTX`. Unlike the direct
+    //   variant (line 17321), the row index is read from device
+    //   memory at kernel time — required for CUDA-graph capture
+    //   where launch parameters must not change at replay.
+    // - `src: &CudaBuffer<f32>` is the source `[n_batch, d]`
+    //   buffer (caller contract: `src.len() >= n_batch * d`).
+    //   `dst: &mut CudaBuffer<f32>` is the destination
+    //   `[n_batch, max_len, d]` buffer (caller contract:
+    //   `dst.len() >= n_batch * max_len * d`); the `&mut` borrow
+    //   precludes aliasing `src` or `pos_ptr`.
+    // - `pos_ptr: &cudarc::driver::CudaSlice<u32>` is a single-
+    //   element device-resident position counter. The kernel
+    //   reads `*pos_ptr` once at launch and writes `dst[(b *
+    //   max_len + *pos_ptr) * d + j]` for `(b, j)` in `[0,
+    //   n_batch) x [0, d)` (i.e., `total = n_batch * d` thread
+    //   indices); the caller is contracted to ensure `*pos_ptr <
+    //   max_len` at kernel time.
+    // - `n_u32 = total as u32`, `d_u32`, `max_len_u32` cannot
+    //   truncate: `launch_cfg(total)?` (line 18999) returns
+    //   `Err` if `total > u32::MAX`; `d <= total`, `max_len`
+    //   bounded by `dst.len() / (n_batch * d) <= u32::MAX`
+    //   (allocator pool limits).
+    // - cudarc enqueues the launch on `stream`; the six arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's (typically deferred to graph end during
+    //   capture).
     unsafe {
         stream
             .launch_builder(&f)
@@ -17882,6 +20172,34 @@ pub fn gpu_causal_mask_indirect(
     let cfg = launch_cfg(total)?;
     let max_pos_u32 = max_pos as u32;
     let total_u32 = total as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for
+    //   `causal_mask_indirect_kernel` resolved by
+    //   `module_cache::get_or_compile` at lines 19032-19041; its
+    //   `(total_len_ptr, out_ptr, max_pos, total)` ABI matches
+    //   `CAUSAL_MASK_INDIRECT_PTX`.
+    // - `total_len_ptr: &cudarc::driver::CudaSlice<u32>` is a
+    //   single-element device-resident sequence-length counter.
+    //   The kernel reads `*total_len_ptr` once at launch and
+    //   writes `out[h, col] = 0.0` if `col < *total_len_ptr`,
+    //   else `-1e9`.
+    // - `out: &mut CudaBuffer<f32>` is the caller-supplied pre-
+    //   allocated `[n_head, max_pos]` mask buffer (graph-capture
+    //   variant); the `&mut` borrow precludes aliasing
+    //   `total_len_ptr`. The caller is contracted to size `out`
+    //   to at least `n_head * max_pos = total` (line 19029).
+    // - The kernel runs one thread per output element (`total =
+    //   n_head * max_pos` threads) per the PTX bound check;
+    //   each thread writes exactly one `f32` to `out`. Reads of
+    //   `total_len_ptr` are indirect through the device pointer
+    //   only.
+    // - `max_pos_u32`, `total_u32` cannot truncate:
+    //   `launch_cfg(total)?` (line 19042) returns `Err` if
+    //   `total > u32::MAX`; `max_pos <= total` since `total =
+    //   n_head * max_pos`.
+    // - cudarc enqueues the launch on `stream`; the four arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's (typically deferred to graph end).
     unsafe {
         stream
             .launch_builder(&f)
@@ -18608,9 +20926,33 @@ pub(crate) fn gpu_f32_to_f16(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
-    // SAFETY: The kernel reads `n` f32 values from `input` and writes `n`
-    // u16 values (f16 bit patterns) to `out`. Both buffers are device-resident
-    // and correctly sized. The grid is configured to cover exactly `n` threads.
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `f32_to_f16_kernel`
+    //   resolved by `module_cache::get_or_compile` at lines
+    //   19756-19765 (returns `PtxCompileFailed` on Err); its
+    //   `(input_ptr, out_ptr, n)` ABI matches `F32_TO_F16_PTX`.
+    //   The kernel uses `cvt.rn.f16.f32` (PTX round-to-nearest-
+    //   even) per the function rustdoc at line 19732.
+    // - `input: &CudaBuffer<f32>` is the source `[n]` f32 buffer
+    //   (caller contract: `input.len() == n`).
+    // - `out: &mut cudarc::driver::CudaSlice<u16>` was alloc'd at
+    //   line 19767 via `stream.alloc_zeros::<u16>(n)?` for the
+    //   `[n]` u16 (f16 bit-pattern) destination. The `&mut` borrow
+    //   precludes aliasing `input` per Rust borrow rules. The
+    //   `n == 0` early-return at line 19748 ensures the launch
+    //   only runs when there's work.
+    // - The kernel reads `input[i]` (one f32 lane) and writes
+    //   `out[i]` (one u16 lane) only for `i in [0, n)` per the
+    //   PTX bound check (`@%p bra DONE` pattern shared by the
+    //   strided launch). f16 is a valid bit pattern in u16 — the
+    //   caller does not interpret bits as signaling NaN; that's
+    //   the consumer's contract.
+    // - `n_u32 = n as u32` (line 19769) cannot truncate:
+    //   `launch_cfg(n)?` (line 19768) returns `Err` if
+    //   `n > u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the three arg
+    //   refs live until the trailing `?`. Stream sync is the
+    //   caller's responsibility before reading `out`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -18664,6 +21006,32 @@ pub(crate) fn gpu_f32_to_bf16(
     let cfg = launch_cfg(n)?;
     let n_u32 = n as u32;
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `f32_to_bf16_kernel`
+    //   resolved by `module_cache::get_or_compile` at lines
+    //   19812-19821 (returns `PtxCompileFailed` on Err); its
+    //   `(input_ptr, out_ptr, n)` ABI matches `F32_TO_BF16_PTX`.
+    //   The kernel uses bit-manipulation round-to-nearest-even
+    //   per the function rustdoc at line 19794 (no special bf16
+    //   hardware required, sm_52+).
+    // - `input: &CudaBuffer<f32>` is the source `[n]` f32 buffer
+    //   (caller contract: `input.len() == n`).
+    // - `out: &mut cudarc::driver::CudaSlice<u16>` was alloc'd at
+    //   line 19823 via `stream.alloc_zeros::<u16>(n)?` for the
+    //   `[n]` u16 (bf16 bit-pattern) destination. The `&mut`
+    //   borrow precludes aliasing `input`. The `n == 0` early-
+    //   return at line 19804 ensures the launch only runs when
+    //   there's work.
+    // - The kernel reads `input[i]` (one f32 lane) and writes
+    //   `out[i]` (one u16 lane = upper 16 bits of f32 with RNE
+    //   rounding) only for `i in [0, n)` per the PTX bound
+    //   check.
+    // - `n_u32 = n as u32` (line 19825) cannot truncate:
+    //   `launch_cfg(n)?` (line 19824) returns `Err` if
+    //   `n > u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the three arg
+    //   refs live until the trailing `?`. Stream sync is the
+    //   caller's responsibility before reading `out`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -19099,32 +21467,70 @@ pub fn gpu_elu_f64(
     }
     let ctx = device.context();
     let stream = device.stream();
-    if let Ok(f) = crate::module_cache::get_or_compile(
+    match crate::module_cache::get_or_compile(
         ctx,
         ELU_F64_PTX,
         "elu_f64_kernel",
         device.ordinal() as u32,
     ) {
-        let mut out = alloc_zeros_f64(n, device)?;
-        let n_u32 = n as u32;
-        let cfg = launch_cfg(n)?;
-        unsafe {
-            stream
-                .launch_builder(&f)
-                .arg(input.inner())
-                .arg(out.inner_mut())
-                .arg(&n_u32)
-                .arg(&alpha)
-                .launch(cfg)?;
+        Ok(f) => {
+            let mut out = alloc_zeros_f64(n, device)?;
+            let n_u32 = n as u32;
+            let cfg = launch_cfg(n)?;
+            // SAFETY:
+            // - `f` is a valid PTX `CudaFunction` for `elu_f64_kernel`
+            //   resolved by `module_cache::get_or_compile` in the
+            //   `if let Ok(f)` arm directly above (the silent CPU
+            //   fallback in the implicit `else` is the policy concern
+            //   tracked by gpu-F, NOT this dispatch's scope); its
+            //   `(in_ptr, out_ptr, n, alpha)` ABI matches `ELU_F64_PTX`.
+            // - `input: &CudaBuffer<f64>` is the source. `out: &mut
+            //   CudaBuffer<f64>` was alloc'd in this scope via
+            //   `alloc_zeros_f64(n, device)?`. The `&mut` borrow
+            //   precludes aliasing `input`. The `n == 0` early-return
+            //   above ensures the launch only runs when there's work.
+            // - `n = input.len()`; the kernel reads `input[i]` and
+            //   writes `out[i]` only for `i in [0, n)` per the PTX
+            //   bound check. `alpha: f64` is passed by-reference;
+            //   cudarc copies it into the launch parameter buffer.
+            // - `n_u32 = n as u32` cannot truncate: `launch_cfg(n)?`
+            //   returns `Err` if `n > u32::MAX`.
+            // - cudarc enqueues the launch on `stream`; the four arg
+            //   refs live until the trailing `?`. Stream sync is
+            //   caller's.
+            unsafe {
+                stream
+                    .launch_builder(&f)
+                    .arg(input.inner())
+                    .arg(out.inner_mut())
+                    .arg(&n_u32)
+                    .arg(&alpha)
+                    .launch(cfg)?;
+            }
+            Ok(out)
         }
-        return Ok(out);
+        Err(e) => {
+            if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+                tracing::warn!(
+                    target: "ferrotorch::gpu_fallback",
+                    kernel = "elu_f64_kernel",
+                    error = %e,
+                    "PTX compile failed; falling back to CPU. Unset \
+                     FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+                );
+                let host = gpu_to_cpu(input, device)?;
+                let result: Vec<f64> = host
+                    .iter()
+                    .map(|&x| if x > 0.0 { x } else { alpha * (x.exp() - 1.0) })
+                    .collect();
+                return cpu_to_gpu(&result, device);
+            }
+            Err(GpuError::PtxCompileFailed {
+                kernel: "elu_f64_kernel",
+                source: e,
+            })
+        }
     }
-    let host = gpu_to_cpu(input, device)?;
-    let result: Vec<f64> = host
-        .iter()
-        .map(|&x| if x > 0.0 { x } else { alpha * (x.exp() - 1.0) })
-        .collect();
-    cpu_to_gpu(&result, device)
 }
 
 /// ELU backward for f64.
@@ -19148,35 +21554,76 @@ pub fn gpu_elu_backward_f64(
     }
     let ctx = device.context();
     let stream = device.stream();
-    if let Ok(f) = crate::module_cache::get_or_compile(
+    match crate::module_cache::get_or_compile(
         ctx,
         ELU_BACKWARD_F64_PTX,
         "elu_backward_f64_kernel",
         device.ordinal() as u32,
     ) {
-        let mut out = alloc_zeros_f64(n, device)?;
-        let n_u32 = n as u32;
-        let cfg = launch_cfg(n)?;
-        unsafe {
-            stream
-                .launch_builder(&f)
-                .arg(grad.inner())
-                .arg(input.inner())
-                .arg(out.inner_mut())
-                .arg(&n_u32)
-                .arg(&alpha)
-                .launch(cfg)?;
+        Ok(f) => {
+            let mut out = alloc_zeros_f64(n, device)?;
+            let n_u32 = n as u32;
+            let cfg = launch_cfg(n)?;
+            // SAFETY:
+            // - `f` is a valid PTX `CudaFunction` for
+            //   `elu_backward_f64_kernel` resolved in the `if let
+            //   Ok(f)` arm directly above (the silent CPU fallback
+            //   below is gpu-F territory, not this dispatch's); its
+            //   `(grad_ptr, input_ptr, out_ptr, n, alpha)` ABI matches
+            //   `ELU_BACKWARD_F64_PTX`.
+            // - `grad: &CudaBuffer<f64>` and `input: &CudaBuffer<f64>`
+            //   are caller-supplied; the length-equality precondition
+            //   `grad.len() == input.len()` is enforced earlier in
+            //   this fn (returns `LengthMismatch` otherwise).
+            //   `n = grad.len()`; the `n == 0` early-return above
+            //   ensures the launch only runs when there's work.
+            // - `out: &mut CudaBuffer<f64>` was alloc'd via
+            //   `alloc_zeros_f64(n, device)?`. The `&mut` borrow
+            //   precludes aliasing `grad` or `input`.
+            // - The kernel reads `grad[i]`, `input[i]` and writes
+            //   `out[i]` only for `i in [0, n)` per the PTX bound
+            //   check. `alpha: f64` is passed by-reference.
+            // - `n_u32 = n as u32` cannot truncate: `launch_cfg(n)?`
+            //   returns `Err` if `n > u32::MAX`.
+            // - cudarc enqueues the launch on `stream`; the five arg
+            //   refs live until the trailing `?`. Stream sync is
+            //   caller's.
+            unsafe {
+                stream
+                    .launch_builder(&f)
+                    .arg(grad.inner())
+                    .arg(input.inner())
+                    .arg(out.inner_mut())
+                    .arg(&n_u32)
+                    .arg(&alpha)
+                    .launch(cfg)?;
+            }
+            Ok(out)
         }
-        return Ok(out);
+        Err(e) => {
+            if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+                tracing::warn!(
+                    target: "ferrotorch::gpu_fallback",
+                    kernel = "elu_backward_f64_kernel",
+                    error = %e,
+                    "PTX compile failed; falling back to CPU. Unset \
+                     FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+                );
+                let g_host = gpu_to_cpu(grad, device)?;
+                let x_host = gpu_to_cpu(input, device)?;
+                let result: Vec<f64> = g_host
+                    .iter()
+                    .zip(x_host.iter())
+                    .map(|(&g, &x)| if x > 0.0 { g } else { g * alpha * x.exp() })
+                    .collect();
+                return cpu_to_gpu(&result, device);
+            }
+            Err(GpuError::PtxCompileFailed {
+                kernel: "elu_backward_f64_kernel",
+                source: e,
+            })
+        }
     }
-    let g_host = gpu_to_cpu(grad, device)?;
-    let x_host = gpu_to_cpu(input, device)?;
-    let result: Vec<f64> = g_host
-        .iter()
-        .zip(x_host.iter())
-        .map(|(&g, &x)| if x > 0.0 { g } else { g * alpha * x.exp() })
-        .collect();
-    cpu_to_gpu(&result, device)
 }
 
 /// Mish for f64.
@@ -19224,27 +21671,65 @@ pub fn gpu_clamp_f64(
     let ctx = device.context();
     let stream = device.stream();
     let ptx = get_f64_ptx(&CACHE, CLAMP_PTX, "clamp_kernel", "clamp_f64_kernel");
-    if let Ok(f) =
-        crate::module_cache::get_or_compile(ctx, ptx, "clamp_f64_kernel", device.ordinal() as u32)
+    match crate::module_cache::get_or_compile(ctx, ptx, "clamp_f64_kernel", device.ordinal() as u32)
     {
-        let mut out = alloc_zeros_f64(n, device)?;
-        let n_u32 = n as u32;
-        let cfg = launch_cfg(n)?;
-        unsafe {
-            stream
-                .launch_builder(&f)
-                .arg(input.inner())
-                .arg(out.inner_mut())
-                .arg(&n_u32)
-                .arg(&min_val)
-                .arg(&max_val)
-                .launch(cfg)?;
+        Ok(f) => {
+            let mut out = alloc_zeros_f64(n, device)?;
+            let n_u32 = n as u32;
+            let cfg = launch_cfg(n)?;
+            // SAFETY:
+            // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+            //   `clamp_f64_kernel` resolved by
+            //   `module_cache::get_or_compile` in the `if let Ok(f)`
+            //   arm directly above (the silent CPU fallback below is
+            //   gpu-F territory, not this dispatch's); its `(in_ptr,
+            //   out_ptr, n, min_val, max_val)` ABI matches `CLAMP_PTX`
+            //   rewritten by `ptx_f32_to_f64` (line ~20386).
+            // - `input: &CudaBuffer<f64>` is the source. `out: &mut
+            //   CudaBuffer<f64>` was alloc'd via `alloc_zeros_f64(n,
+            //   device)?`. The `&mut` borrow precludes aliasing
+            //   `input`. The `n == 0` early-return above ensures the
+            //   launch only runs when there's work.
+            // - `n = input.len()`; the kernel reads `input[i]` and
+            //   writes `out[i] = clamp(input[i], min_val, max_val)`
+            //   only for `i in [0, n)` per the PTX bound check.
+            //   `min_val: f64`, `max_val: f64` passed by-reference.
+            // - `n_u32 = n as u32` cannot truncate: `launch_cfg(n)?`
+            //   returns `Err` if `n > u32::MAX`.
+            // - cudarc enqueues the launch on `stream`; the five arg
+            //   refs live until the trailing `?`. Stream sync is
+            //   caller's.
+            unsafe {
+                stream
+                    .launch_builder(&f)
+                    .arg(input.inner())
+                    .arg(out.inner_mut())
+                    .arg(&n_u32)
+                    .arg(&min_val)
+                    .arg(&max_val)
+                    .launch(cfg)?;
+            }
+            Ok(out)
         }
-        return Ok(out);
+        Err(e) => {
+            if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+                tracing::warn!(
+                    target: "ferrotorch::gpu_fallback",
+                    kernel = "clamp_f64_kernel",
+                    error = %e,
+                    "PTX compile failed; falling back to CPU. Unset \
+                     FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+                );
+                let host = gpu_to_cpu(input, device)?;
+                let result: Vec<f64> = host.iter().map(|&x| x.max(min_val).min(max_val)).collect();
+                return cpu_to_gpu(&result, device);
+            }
+            Err(GpuError::PtxCompileFailed {
+                kernel: "clamp_f64_kernel",
+                source: e,
+            })
+        }
     }
-    let host = gpu_to_cpu(input, device)?;
-    let result: Vec<f64> = host.iter().map(|&x| x.max(min_val).min(max_val)).collect();
-    cpu_to_gpu(&result, device)
 }
 
 /// f64 VJP for `clamp(x, min, max)`. Counterpart of [`gpu_clamp_backward`].
@@ -19278,43 +21763,87 @@ pub fn gpu_clamp_backward_f64(
         "clamp_backward_kernel",
         "clamp_backward_f64_kernel",
     );
-    if let Ok(f) = crate::module_cache::get_or_compile(
+    match crate::module_cache::get_or_compile(
         ctx,
         ptx,
         "clamp_backward_f64_kernel",
         device.ordinal() as u32,
     ) {
-        let mut out = alloc_zeros_f64(n, device)?;
-        let n_u32 = n as u32;
-        let cfg = launch_cfg(n)?;
-        unsafe {
-            stream
-                .launch_builder(&f)
-                .arg(grad.inner())
-                .arg(input.inner())
-                .arg(out.inner_mut())
-                .arg(&min_val)
-                .arg(&max_val)
-                .arg(&n_u32)
-                .launch(cfg)?;
-        }
-        return Ok(out);
-    }
-    // PTX-compile failure → host walk.
-    let g = gpu_to_cpu(grad, device)?;
-    let x = gpu_to_cpu(input, device)?;
-    let out: Vec<f64> = g
-        .iter()
-        .zip(x.iter())
-        .map(|(&gi, &xi)| {
-            if xi >= min_val && xi <= max_val {
-                gi
-            } else {
-                0.0
+        Ok(f) => {
+            let mut out = alloc_zeros_f64(n, device)?;
+            let n_u32 = n as u32;
+            let cfg = launch_cfg(n)?;
+            // SAFETY:
+            // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+            //   `clamp_backward_f64_kernel` resolved by
+            //   `module_cache::get_or_compile` in the `if let Ok(f)`
+            //   arm directly above (the silent CPU fallback below is
+            //   gpu-F territory, not this dispatch's); its `(grad_ptr,
+            //   input_ptr, out_ptr, min_val, max_val, n)` ABI matches
+            //   `CLAMP_BACKWARD_PTX` rewritten by `ptx_f32_to_f64`.
+            // - `grad: &CudaBuffer<f64>` and `input: &CudaBuffer<f64>`
+            //   are caller-supplied; the length-equality precondition
+            //   `grad.len() == input.len()` is enforced earlier in
+            //   this fn (returns `LengthMismatch` otherwise).
+            //   `n = input.len()`; the `n == 0` early-return above
+            //   ensures the launch only runs when there's work.
+            // - `out: &mut CudaBuffer<f64>` was alloc'd via
+            //   `alloc_zeros_f64(n, device)?`. The `&mut` borrow
+            //   precludes aliasing `grad` or `input`.
+            // - The kernel reads `grad[i]`, `input[i]` and writes
+            //   `out[i] = (input[i] in [min_val, max_val]) ? grad[i]
+            //   : 0.0` only for `i in [0, n)` per the PTX bound
+            //   check. `min_val: f64`, `max_val: f64` passed by-
+            //   reference.
+            // - `n_u32 = n as u32` cannot truncate: `launch_cfg(n)?`
+            //   returns `Err` if `n > u32::MAX`.
+            // - cudarc enqueues the launch on `stream`; the six arg
+            //   refs live until the trailing `?`. Stream sync is
+            //   caller's.
+            unsafe {
+                stream
+                    .launch_builder(&f)
+                    .arg(grad.inner())
+                    .arg(input.inner())
+                    .arg(out.inner_mut())
+                    .arg(&min_val)
+                    .arg(&max_val)
+                    .arg(&n_u32)
+                    .launch(cfg)?;
             }
-        })
-        .collect();
-    cpu_to_gpu(&out, device)
+            Ok(out)
+        }
+        Err(e) => {
+            if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+                tracing::warn!(
+                    target: "ferrotorch::gpu_fallback",
+                    kernel = "clamp_backward_f64_kernel",
+                    error = %e,
+                    "PTX compile failed; falling back to CPU. Unset \
+                     FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+                );
+                // PTX-compile failure → host walk.
+                let g = gpu_to_cpu(grad, device)?;
+                let x = gpu_to_cpu(input, device)?;
+                let out: Vec<f64> = g
+                    .iter()
+                    .zip(x.iter())
+                    .map(|(&gi, &xi)| {
+                        if xi >= min_val && xi <= max_val {
+                            gi
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect();
+                return cpu_to_gpu(&out, device);
+            }
+            Err(GpuError::PtxCompileFailed {
+                kernel: "clamp_backward_f64_kernel",
+                source: e,
+            })
+        }
+    }
 }
 
 #[cfg(not(feature = "cuda"))]
@@ -19364,6 +21893,32 @@ pub fn gpu_cumsum_f64(
     let mut out = alloc_zeros_f64(n, device)?;
     let cfg = launch_cfg(total)?;
     let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `cumsum_f64_kernel` resolved by
+    //   `module_cache::get_or_compile` in the `match` directly
+    //   above (returns `PtxCompileFailed` on Err); its `(in_ptr,
+    //   out_ptr, outer, dim_size, inner, total)` ABI matches
+    //   `CUMSUM_PTX` rewritten by `ptx_f32_to_f64`.
+    // - `input: &CudaBuffer<f64>` is the source `[outer, dim_size,
+    //   inner]` tensor (caller contract: `input.len() == n`).
+    // - `out: &mut CudaBuffer<f64>` was alloc'd via
+    //   `alloc_zeros_f64(n, device)?` for the same shape. The
+    //   `&mut` borrow precludes aliasing `input`. The `n == 0`
+    //   early-return above ensures the launch only runs when
+    //   there's work.
+    // - The kernel runs one thread per `(o, i)` pair (`total =
+    //   outer * inner` threads) per the PTX bound check; each
+    //   thread sequentially scans `dim_size` elements writing
+    //   `out[(o*dim_size+k)*inner+i] = cumulative_sum` for `k in
+    //   [0, dim_size)`. Reads of `input[(o*dim_size+k)*inner+i]`
+    //   are bounded by `n`.
+    // - `o`, `d`, `i`, `t` cannot truncate: `launch_cfg(total)?`
+    //   returns `Err` if `total > u32::MAX`; `outer <= total`,
+    //   `inner <= total`, `dim_size <= n / total <= u32::MAX`
+    //   (caller contract on input length).
+    // - cudarc enqueues the launch on `stream`; the six arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -19414,6 +21969,30 @@ pub fn gpu_cumprod_f64(
     let mut out = alloc_zeros_f64(n, device)?;
     let cfg = launch_cfg(total)?;
     let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `cumprod_f64_kernel` resolved by
+    //   `module_cache::get_or_compile` in the `match` directly
+    //   above (returns `PtxCompileFailed` on Err); its `(in_ptr,
+    //   out_ptr, outer, dim_size, inner, total)` ABI matches
+    //   `CUMPROD_PTX` rewritten by `ptx_f32_to_f64`.
+    // - `input: &CudaBuffer<f64>` is the source `[outer, dim_size,
+    //   inner]` tensor (caller contract: `input.len() == n`).
+    //   `out: &mut CudaBuffer<f64>` was alloc'd via
+    //   `alloc_zeros_f64(n, device)?`. The `&mut` borrow
+    //   precludes aliasing `input`. The `n == 0` early-return
+    //   above ensures the launch only runs when there's work.
+    // - The kernel runs one thread per `(o, i)` pair (`total =
+    //   outer * inner` threads) per the PTX bound check; each
+    //   thread sequentially scans `dim_size` elements writing
+    //   `out[(o*dim_size+k)*inner+i] = cumulative_product` for
+    //   `k in [0, dim_size)`. Reads bounded by `n`.
+    // - `o`, `d`, `i`, `t` cannot truncate: `launch_cfg(total)?`
+    //   returns `Err` if `total > u32::MAX`; per-axis dims
+    //   bounded by total via `outer * inner = total`,
+    //   `dim_size <= n / total`.
+    // - cudarc enqueues the launch on `stream`; the six arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -19458,6 +22037,33 @@ pub fn gpu_cummax_f64(
     let mut ind = alloc_zeros_f64(n, device)?;
     let cfg = launch_cfg(total)?;
     let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `cummax_f64_kernel` resolved by
+    //   `module_cache::get_or_compile` directly above (returns
+    //   `PtxCompileFailed` on Err); its `(in_ptr, out_ptr,
+    //   ind_ptr, outer, dim_size, inner, total)` ABI matches
+    //   `CUMMAX_PTX` rewritten by `ptx_f32_to_f64`.
+    // - `input: &CudaBuffer<f64>` is the source `[outer, dim_size,
+    //   inner]` (caller contract: `input.len() == n`).
+    // - `out: &mut CudaBuffer<f64>` and `ind: &mut CudaBuffer<f64>`
+    //   are two distinct `[outer, dim_size, inner]` buffers
+    //   alloc'd via `alloc_zeros_f64(n, device)?`. Rust borrow
+    //   rules guarantee they cannot alias each other or `input`
+    //   (note: `ind` is f64 holding indices as floats — design
+    //   choice of the caller, kernel writes integer values that
+    //   fit exactly in f64).
+    // - The kernel runs one thread per `(o, i)` pair (`total =
+    //   outer * inner` threads); each thread sequentially scans
+    //   `dim_size` elements writing `out[(o*dim_size+k)*inner+i]
+    //   = running_max` and `ind[...] = argmax_k` per the PTX
+    //   bound check.
+    // - `o`, `d`, `i`, `t` cannot truncate: `launch_cfg(total)?`
+    //   returns `Err` if `total > u32::MAX`; per-axis dims fit
+    //   the same as cumsum/cumprod above.
+    // - cudarc enqueues the launch on `stream`; the seven arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -19503,6 +22109,30 @@ pub fn gpu_cummin_f64(
     let mut ind = alloc_zeros_f64(n, device)?;
     let cfg = launch_cfg(total)?;
     let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `cummin_f64_kernel` resolved by
+    //   `module_cache::get_or_compile` directly above (returns
+    //   `PtxCompileFailed` on Err); its `(in_ptr, out_ptr,
+    //   ind_ptr, outer, dim_size, inner, total)` ABI matches
+    //   `CUMMIN_PTX` rewritten by `ptx_f32_to_f64`.
+    // - `input: &CudaBuffer<f64>` is the source `[outer, dim_size,
+    //   inner]` (caller contract: `input.len() == n`).
+    // - `out: &mut CudaBuffer<f64>` and `ind: &mut CudaBuffer<f64>`
+    //   are two distinct buffers alloc'd via
+    //   `alloc_zeros_f64(n, device)?`. Rust borrow rules
+    //   guarantee they cannot alias each other or `input`. `ind`
+    //   holds argmin indices as f64 values that fit exactly in
+    //   the mantissa.
+    // - The kernel runs one thread per `(o, i)` pair (`total =
+    //   outer * inner` threads); each thread sequentially scans
+    //   `dim_size` elements writing `out[...] = running_min`
+    //   and `ind[...] = argmin_k` per the PTX bound check.
+    // - `o`, `d`, `i`, `t` cannot truncate: `launch_cfg(total)?`
+    //   returns `Err` if `total > u32::MAX`; per-axis dims fit.
+    // - cudarc enqueues the launch on `stream`; the seven arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -19552,6 +22182,28 @@ pub fn gpu_logcumsumexp_f64(
     let mut out = alloc_zeros_f64(n, device)?;
     let cfg = launch_cfg(total)?;
     let (o, d, i, t) = (outer as u32, dim_size as u32, inner as u32, total as u32);
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for
+    //   `logcumsumexp_f64_kernel` resolved by
+    //   `module_cache::get_or_compile` in the `match` directly
+    //   above (returns `PtxCompileFailed` on Err); its `(in_ptr,
+    //   out_ptr, outer, dim_size, inner, total)` ABI matches
+    //   `LOGCUMSUMEXP_F64_PTX`.
+    // - `input: &CudaBuffer<f64>` is the source `[outer, dim_size,
+    //   inner]` tensor (caller contract: `input.len() == n`).
+    //   `out: &mut CudaBuffer<f64>` was alloc'd via
+    //   `alloc_zeros_f64(n, device)?`. The `&mut` borrow
+    //   precludes aliasing `input`. The `n == 0` early-return
+    //   above ensures the launch only runs when there's work.
+    // - The kernel runs one thread per `(o, i)` pair (`total =
+    //   outer * inner` threads); each thread maintains a running
+    //   max and log-sum-exp across `dim_size` elements,
+    //   producing the numerically-stable cumulative log-sum-exp
+    //   in `out`.
+    // - `o`, `d`, `i`, `t` cannot truncate: `launch_cfg(total)?`
+    //   returns `Err` if `total > u32::MAX`; per-axis dims fit.
+    // - cudarc enqueues the launch on `stream`; the six arg refs
+    //   live until the trailing `?`. Stream sync is caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -19613,6 +22265,31 @@ pub fn gpu_softmax_f64(
         shared_mem_bytes: 256 * 8, // sdata[256] f64
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `softmax_f64_kernel`
+    //   resolved by `module_cache::get_or_compile` in the `match`
+    //   directly above (returns `PtxCompileFailed` on Err); its
+    //   `(in_ptr, out_ptr, rows, cols)` ABI matches
+    //   `SOFTMAX_F64_PTX`.
+    // - `input: &CudaBuffer<f64>` is the row-major `[rows, cols]`
+    //   activation; `validate_device(input, device)?` confirms
+    //   device match (helper at line 10582). The caller is
+    //   contracted to size `input` to `rows * cols`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd via
+    //   `alloc_zeros_f64(rows * cols, device)?`. The `&mut`
+    //   borrow precludes aliasing `input`.
+    // - One block per row (grid `rows`), 256 threads per block,
+    //   `256 * 8` bytes shared memory (sdata[256] of f64) for
+    //   the per-row max+sum reduction. The kernel reads
+    //   `input[row*cols+j]` and writes `out[row*cols+j]` for
+    //   `row in [0, rows)` and `j in [0, cols)`, bounded by the
+    //   PTX per-thread loop with stride `blockDim.x` capped at
+    //   `cols`.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid_dim is u32-
+    //   typed; caller contract ensures `rows * cols <= u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the four arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -19684,6 +22361,33 @@ pub fn gpu_softmax_backward_f64(
         shared_mem_bytes: 256 * 8,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `softmax_backward_f64_kernel` resolved by
+    //   `module_cache::get_or_compile` in the `match` directly
+    //   above (returns `PtxCompileFailed` on Err); its `(grad_
+    //   ptr, output_ptr, out_ptr, rows, cols)` ABI matches
+    //   `SOFTMAX_BACKWARD_PTX` rewritten by `ptx_f32_to_f64`.
+    // - `grad: &CudaBuffer<f64>` and `output: &CudaBuffer<f64>`
+    //   are caller-supplied; `validate_device(grad, device)?`
+    //   plus `grad.len() == output.len()` is enforced earlier
+    //   in this fn (returns `LengthMismatch` otherwise).
+    //   `total = grad.len()`, `rows = total / cols`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd via
+    //   `alloc_zeros_f64(total, device)?`. The `&mut` borrow
+    //   precludes aliasing `grad` or `output`.
+    // - One block per row (grid `rows`), 256 threads per block,
+    //   `256 * 8` bytes shared memory for per-row dot-product
+    //   reduction. The kernel reads `grad[row*cols+j]`,
+    //   `output[row*cols+j]` and writes `out[row*cols+j] =
+    //   output[j] * (grad[j] - dot(grad_row, output_row))` for
+    //   `row in [0, rows)` and `j in [0, cols)`.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid_dim is u32-
+    //   typed; caller contract ensures `total = rows * cols <=
+    //   u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the five arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -19742,6 +22446,31 @@ pub fn gpu_log_softmax_f64(
         shared_mem_bytes: 256 * 8,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `log_softmax_f64_
+    //   kernel` resolved by `module_cache::get_or_compile`
+    //   directly above (the `.map_err` reports `kernel:
+    //   "softmax_backward_kernel"` — a known wrong-kernel-name
+    //   copy-paste bug, sibling to #708; substantiation only
+    //   here, surfaced in Category A list); its `(in_ptr, out_
+    //   ptr, rows, cols)` ABI matches `LOG_SOFTMAX_F64_PTX`.
+    // - `input: &CudaBuffer<f64>` is the row-major activation;
+    //   `validate_device(input, device)?` confirms device match.
+    //   `total = input.len()`, `rows = total / cols`. Caller
+    //   contract: `total == rows * cols`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd via
+    //   `alloc_zeros_f64(total, device)?`. The `&mut` borrow
+    //   precludes aliasing `input`.
+    // - One block per row, 256 threads per block, `256 * 8`
+    //   bytes shared memory for the per-row max + log-sum-exp
+    //   reduction. The kernel reads `input[row*cols+j]` and
+    //   writes `out[row*cols+j] = x[j] - log_sum_exp` for `row
+    //   in [0, rows)` and `j in [0, cols)`.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid_dim is
+    //   u32-typed; caller contract ensures `total <= u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the four arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -19808,6 +22537,32 @@ pub fn gpu_log_softmax_backward_f64(
         shared_mem_bytes: 256 * 8,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for
+    //   `log_softmax_backward_f64_kernel` resolved by
+    //   `module_cache::get_or_compile` in the `match` directly
+    //   above (returns `PtxCompileFailed` on Err); its `(grad_
+    //   ptr, output_ptr, out_ptr, rows, cols)` ABI matches
+    //   `LOG_SOFTMAX_BACKWARD_F64_PTX`.
+    // - `grad: &CudaBuffer<f64>` and `output: &CudaBuffer<f64>`
+    //   are caller-supplied; `validate_device(grad, device)?`
+    //   plus `grad.len() == output.len()` is enforced earlier in
+    //   this fn (returns `LengthMismatch` otherwise). `total =
+    //   grad.len()`, `rows = total / cols`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd via
+    //   `alloc_zeros_f64(total, device)?`. The `&mut` borrow
+    //   precludes aliasing `grad` or `output`.
+    // - One block per row, 256 threads per block, `256 * 8`
+    //   bytes shared memory for the per-row sum reduction. The
+    //   kernel reads `grad[row*cols+j]`, `output[row*cols+j]`
+    //   and writes `out[row*cols+j] = grad[j] - exp(output[j])
+    //   * sum(grad_row)` for `row in [0, rows)` and `j in [0,
+    //   cols)`.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid_dim is
+    //   u32-typed; caller contract ensures `total <= u32::MAX`.
+    // - cudarc enqueues the launch on `stream`; the five arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -19875,6 +22630,34 @@ pub fn gpu_layernorm_f64(
         shared_mem_bytes: 256 * 8,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `layernorm_f64_kernel` resolved by
+    //   `module_cache::get_or_compile` in the `match` directly
+    //   above (returns `PtxCompileFailed` on Err); its `(input_
+    //   ptr, out_ptr, weight_ptr, bias_ptr, rows, cols, eps)`
+    //   ABI matches `LAYERNORM_PTX` rewritten by
+    //   `ptx_f32_to_f64`.
+    // - `input: &CudaBuffer<f64>` is the row-major `[rows, cols]`
+    //   activation; `validate_device(input, device)?` confirms
+    //   device match. `weight: &CudaBuffer<f64>` and `bias:
+    //   &CudaBuffer<f64>` are per-column affine parameters
+    //   (length `cols`). The caller is contracted to size
+    //   `input` to `rows * cols`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd via
+    //   `alloc_zeros_f64(rows * cols, device)?`. The `&mut`
+    //   borrow precludes aliasing `input`, `weight`, or `bias`.
+    // - One block per row, 256 threads per block, `256 * 8`
+    //   bytes shared memory for the per-row mean/var reduction.
+    //   The kernel reads `input[row*cols+j]`, `weight[j]`,
+    //   `bias[j]` and writes `out[row*cols+j]` for `row in
+    //   [0, rows)` and `j in [0, cols)`.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid_dim is
+    //   u32-typed; caller contract ensures `rows * cols <=
+    //   u32::MAX`. `eps: f64` passed by-reference.
+    // - cudarc enqueues the launch on `stream`; the seven arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -19945,6 +22728,40 @@ pub fn gpu_layernorm_backward_f64(
         shared_mem_bytes: 256 * 8,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `layernorm_backward_f64_kernel` resolved by
+    //   `module_cache::get_or_compile` in the `match` directly
+    //   above (returns `PtxCompileFailed` on Err); its ABI
+    //   `(input, grad_out, weight, grad_in, grad_w, grad_b,
+    //   rows, cols, eps)` matches `LAYERNORM_BACKWARD_PTX`
+    //   rewritten by `ptx_f32_to_f64`.
+    // - `input: &CudaBuffer<f64>` is the saved-for-backward
+    //   activation; `grad_output: &CudaBuffer<f64>` is the
+    //   upstream gradient; `weight: &CudaBuffer<f64>` is the
+    //   per-col scale. `validate_device(input, device)?`
+    //   confirms `input` lives on `device`. Caller contract:
+    //   `input.len() == grad_output.len() == rows * cols`,
+    //   `weight.len() == cols`.
+    // - `grad_in: &mut CudaBuffer<f64>`, `grad_w: &mut
+    //   CudaBuffer<f64>`, `grad_b: &mut CudaBuffer<f64>` are
+    //   three distinct buffers alloc'd via `alloc_zeros_f64`.
+    //   Rust borrow rules guarantee no aliasing between them or
+    //   with the read-only inputs. `grad_w` and `grad_b` are
+    //   accumulated via `atomicAdd` (PTX-level).
+    // - One block per row, 256 threads per block, `256 * 8`
+    //   bytes shared memory for per-row gradient reductions.
+    //   The kernel reads `input[row*cols+j]`, `grad_output[row*
+    //   cols+j]`, `weight[j]` and writes `grad_in[row*cols+j]`
+    //   directly; `grad_w[j]` and `grad_b[j]` accumulated via
+    //   atomic ops so cross-block updates compose correctly.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid_dim is
+    //   u32-typed; caller contract ensures `rows * cols <=
+    //   u32::MAX`. `eps: f64` passed by-reference.
+    // - cudarc enqueues the launch on `stream`; the nine arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's responsibility before reading any gradient
+    //   buffer.
     unsafe {
         stream
             .launch_builder(&f)
@@ -20010,6 +22827,33 @@ pub fn gpu_rmsnorm_f64(
         shared_mem_bytes: 256 * 8,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `rmsnorm_f64_kernel` resolved by
+    //   `module_cache::get_or_compile` in the `match` directly
+    //   above (returns `PtxCompileFailed` on Err); its `(input_
+    //   ptr, out_ptr, weight_ptr, rows, cols, eps)` ABI matches
+    //   `RMSNORM_PTX` rewritten by `ptx_f32_to_f64`.
+    // - `input: &CudaBuffer<f64>` is the row-major `[rows, cols]`
+    //   activation; `validate_device(input, device)?` confirms
+    //   device match. `weight: &CudaBuffer<f64>` is the per-col
+    //   scale (`weight.len() == cols`). Caller contract:
+    //   `input.len() == rows * cols`.
+    // - `out: &mut CudaBuffer<f64>` was alloc'd via
+    //   `alloc_zeros_f64(rows * cols, device)?`. The `&mut`
+    //   borrow precludes aliasing `input` or `weight`.
+    // - One block per row, 256 threads per block, `256 * 8`
+    //   bytes shared memory for the per-row mean-of-squares
+    //   reduction. The kernel reads `input[row*cols+j]`,
+    //   `weight[j]` and writes `out[row*cols+j] = x[j] *
+    //   rsqrt(mean(x^2) + eps) * weight[j]` for `row in [0,
+    //   rows)` and `j in [0, cols)`.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid_dim is
+    //   u32-typed; caller contract ensures `rows * cols <=
+    //   u32::MAX`. `eps: f64` passed by-reference.
+    // - cudarc enqueues the launch on `stream`; the six arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's.
     unsafe {
         stream
             .launch_builder(&f)
@@ -20078,6 +22922,39 @@ pub fn gpu_rmsnorm_backward_f64(
         shared_mem_bytes: 256 * 8,
     };
 
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the f64-rewritten
+    //   `rmsnorm_backward_f64_kernel` resolved by
+    //   `module_cache::get_or_compile` in the `match` directly
+    //   above (returns `PtxCompileFailed` on Err); its ABI
+    //   `(input, grad_out, weight, grad_in, grad_w, rows, cols,
+    //   eps)` matches `RMSNORM_BACKWARD_PTX` rewritten by
+    //   `ptx_f32_to_f64`.
+    // - `input: &CudaBuffer<f64>` is the saved-for-backward
+    //   activation; `grad_output: &CudaBuffer<f64>` is the
+    //   upstream gradient; `weight: &CudaBuffer<f64>` is the
+    //   per-col scale. `validate_device(input, device)?`
+    //   confirms `input` lives on `device`. Caller contract:
+    //   `input.len() == grad_output.len() == rows * cols`,
+    //   `weight.len() == cols`.
+    // - `grad_in: &mut CudaBuffer<f64>` and `grad_w: &mut
+    //   CudaBuffer<f64>` are two distinct buffers alloc'd via
+    //   `alloc_zeros_f64`. Rust borrow rules guarantee no
+    //   aliasing between them or with the read-only inputs.
+    //   `grad_w` is accumulated via `atomicAdd` (PTX-level).
+    // - One block per row, 256 threads per block, `256 * 8`
+    //   bytes shared memory for per-row gradient reductions.
+    //   The kernel reads `input[row*cols+j]`, `grad_output[row*
+    //   cols+j]`, `weight[j]` and writes `grad_in[row*cols+j]`
+    //   directly; `grad_w[j]` accumulated atomically across
+    //   blocks.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid_dim is
+    //   u32-typed; caller contract ensures `rows * cols <=
+    //   u32::MAX`. `eps: f64` passed by-reference.
+    // - cudarc enqueues the launch on `stream`; the eight arg
+    //   refs live until the trailing `?`. Stream sync is
+    //   caller's responsibility before reading the gradient
+    //   buffers.
     unsafe {
         stream
             .launch_builder(&f)

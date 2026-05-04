@@ -832,6 +832,22 @@ pub fn gpu_lu_factor_f32(
     let mut d_info = alloc_zeros_i32(1, device)?;
 
     let mut lwork: i32 = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 827 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle's lifetime is tied to `dn`, which lives for the duration of
+    //   this function — the FFI call completes before `dn` is dropped.
+    // - `n` was validated at line 818-824 (early-return on `a_dev.len() != n*n`)
+    //   and is non-zero (line 812 short-circuits the n==0 path).
+    // - `a_ptr` points to an `n*n` f32 column-major buffer allocated at line 830
+    //   by `gpu_transpose_2d`; `lda = n as i32` matches the column-major leading
+    //   dimension as required by cuSOLVER's LAPACK-style ABI (lda >= max(1, n)).
+    // - `&mut lwork` is a stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in elements (not bytes) per the upstream docs for `Sgetrf_bufferSize`.
+    // - This is a query-only call: it inspects `m`, `n`, `lda` only and does not
+    //   touch the matrix data, so the `device_ptr_mut` borrow is harmless.
+    // - Column-major layout is upheld because `d_a_col` came from
+    //   `gpu_transpose_2d(a_dev, n, n, ..)` at line 830 (row→col conversion).
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnSgetrf_bufferSize(
@@ -847,6 +863,24 @@ pub fn gpu_lu_factor_f32(
 
     let mut d_work = crate::transfer::alloc_zeros_f32(lwork.max(1) as usize, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the same valid handle proved above.
+    // - `a_ptr` points to the `n*n` column-major f32 matrix (line 830); cuSOLVER
+    //   overwrites it in place with the LU factors (L below diag, U on/above).
+    // - `lda = n as i32` matches the column-major leading dimension.
+    // - `work_ptr` points to a workspace of `lwork.max(1)` f32 elements
+    //   allocated at line 848 from the `Sgetrf_bufferSize` query above; the
+    //   `.max(1)` guards against the rare lwork==0 case so the alloc is never
+    //   zero-sized. cuSOLVER receives `lwork` (the queried value) so the
+    //   buffer is at least the size cuSOLVER claimed it needs.
+    // - `ipiv_ptr` points to `d_ipiv`, an `n`-element i32 buffer alloc'd at
+    //   line 831 — cuSOLVER writes the 1-based pivot indices (length n).
+    // - `info_ptr` points to a single-element i32 alloc'd at line 832; cuSOLVER
+    //   stores the status code there. We synchronize at line 869 before reading
+    //   it via `read_dev_info` and branching on non-zero at line 871.
+    // - All four `_sync` guards keep the `CudaSlice` borrows alive across the
+    //   FFI call, ensuring no concurrent reuse of these device pointers on
+    //   `stream` for the duration of the launch.
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
@@ -912,6 +946,19 @@ pub fn gpu_lu_factor_f64(
     let mut d_info = alloc_zeros_i32(1, device)?;
 
     let mut lwork: i32 = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 908 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle outlives this query because `dn` is dropped at function exit.
+    // - `n` was validated at line 899-905 (early-return on length mismatch)
+    //   and is non-zero (line 893 short-circuits the n==0 path).
+    // - `a_ptr` points to an `n*n` f64 column-major buffer allocated at line 910
+    //   by `gpu_transpose_2d_f64`; `lda = n as i32` matches the column-major
+    //   leading dimension (lda >= max(1, n)) as required by the LAPACK-style ABI.
+    // - `&mut lwork` is a stack-resident `i32`; cuSOLVER writes the f64
+    //   workspace size in elements per the upstream `Dgetrf_bufferSize` ABI.
+    // - This is a query-only call: it inspects dims, not data, so the
+    //   `device_ptr_mut` borrow does not race with any other in-flight launch.
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnDgetrf_bufferSize(
@@ -927,6 +974,22 @@ pub fn gpu_lu_factor_f64(
 
     let mut d_work = crate::transfer::alloc_zeros_f64(lwork.max(1) as usize, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the same valid handle proved above.
+    // - `a_ptr` points to the `n*n` column-major f64 matrix (line 910); cuSOLVER
+    //   overwrites it in place with the LU factors (L below diag, U on/above).
+    // - `lda = n as i32` matches the column-major leading dimension.
+    // - `work_ptr` points to a workspace of `lwork.max(1)` f64 elements
+    //   allocated at line 928 from the `Dgetrf_bufferSize` query above; the
+    //   `.max(1)` guard prevents zero-sized alloc and cuSOLVER receives the
+    //   queried `lwork` so the buffer is at least the size it claimed to need.
+    // - `ipiv_ptr` points to `d_ipiv`, an `n`-element i32 buffer alloc'd at
+    //   line 911 for the 1-based pivot indices.
+    // - `info_ptr` points to a single-element i32 alloc'd at line 912; cuSOLVER
+    //   writes the status code asynchronously on `stream`. We synchronize at
+    //   line 949 before reading via `read_dev_info` and branching on non-zero.
+    // - All four `_sync` guards keep the `CudaSlice` borrows alive for the
+    //   duration of the FFI call, preventing concurrent reuse on `stream`.
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
@@ -1007,6 +1070,24 @@ pub fn gpu_cholesky_f32_dev(
     let uplo = csys::cublasFillMode_t::CUBLAS_FILL_MODE_LOWER;
 
     let mut lwork: i32 = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 1000 by `cusolverDnHandle::new(stream.clone())`; the
+    //   handle outlives this call (dn drops only at function exit).
+    // - `n` was validated at line 988-993 (early-return on length mismatch)
+    //   and is non-zero (line 995 short-circuits n==0).
+    // - `a_ptr` points to an `n*n` f32 buffer (`d_a`) allocated at line 1003
+    //   then populated via `memcpy_dtod` at line 1004 (a clone of the input).
+    //   The matrix is symmetric SPD, so its row-major and column-major layouts
+    //   are byte-identical (per the doc-comment at line 1002).
+    // - `lda = n as i32` matches the leading dimension (lda >= max(1, n)).
+    // - `uplo = CUBLAS_FILL_MODE_LOWER` (set at line 1007); cuSOLVER will
+    //   write L into the lower triangle, leaving the upper triangle as
+    //   workspace.
+    // - `&mut lwork` is a stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in f32 elements per the `Spotrf_bufferSize` upstream contract.
+    // - This is a query-only call: it inspects dims/uplo only, not data, so
+    //   the `device_ptr_mut` borrow does not race with any other in-flight op.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnSpotrf_bufferSize(
@@ -1022,6 +1103,22 @@ pub fn gpu_cholesky_f32_dev(
 
     let mut d_work = crate::transfer::alloc_zeros_f32(lwork.max(1) as usize, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the valid handle proved above.
+    // - `a_ptr` points to the `n*n` f32 buffer (line 1003); cuSOLVER overwrites
+    //   the lower triangle with the Cholesky factor L when `uplo == LOWER`.
+    // - `lda = n as i32` matches the leading dimension.
+    // - `uplo = CUBLAS_FILL_MODE_LOWER` matches the value used in the
+    //   buffer-size query above.
+    // - `work_ptr` points to a workspace of `lwork.max(1)` f32 elements
+    //   allocated at line 1023 from the buffer-size query; cuSOLVER receives
+    //   the queried `lwork`, so the buffer is at least the size it claimed.
+    // - `info_ptr` points to a single-element i32 alloc'd at line 1006; the
+    //   status is checked at line 1044 (`read_dev_info` after synchronize at
+    //   line 1043). A non-zero info indicates the matrix is not SPD; that's
+    //   converted to a `GpuError::ShapeMismatch` at line 1046.
+    // - All three `_sync` guards keep the `CudaSlice` borrows alive across the
+    //   FFI call so cudarc doesn't reuse these device pointers on `stream`.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
@@ -1103,6 +1200,22 @@ pub fn gpu_cholesky_f64_dev(
     let uplo = csys::cublasFillMode_t::CUBLAS_FILL_MODE_LOWER;
 
     let mut lwork: i32 = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 1097 by `cusolverDnHandle::new(stream.clone())`; the
+    //   handle outlives this call (dn drops only at function exit).
+    // - `n` was validated at line 1085-1090 (early-return on length mismatch)
+    //   and is non-zero (line 1092 short-circuits the n==0 path).
+    // - `a_ptr` points to an `n*n` f64 buffer (`d_a`) allocated at line 1099
+    //   and populated via `memcpy_dtod` at line 1100. Per the symmetric-SPD
+    //   invariant (doc-comment at line 1002 of the f32 sibling), row-major
+    //   and column-major layouts are byte-identical for the input.
+    // - `lda = n as i32` matches the leading dimension (lda >= max(1, n)).
+    // - `uplo = CUBLAS_FILL_MODE_LOWER` (set at line 1103); cuSOLVER will
+    //   write L into the lower triangle.
+    // - `&mut lwork` is stack-resident `i32`; cuSOLVER writes the f64
+    //   workspace size in elements per the `Dpotrf_bufferSize` ABI.
+    // - This is a query-only call: it inspects dims/uplo only, not the data.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnDpotrf_bufferSize(
@@ -1118,6 +1231,22 @@ pub fn gpu_cholesky_f64_dev(
 
     let mut d_work = crate::transfer::alloc_zeros_f64(lwork.max(1) as usize, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the valid handle proved above.
+    // - `a_ptr` points to the `n*n` f64 buffer (line 1099); cuSOLVER overwrites
+    //   the lower triangle with the Cholesky factor L when uplo == LOWER.
+    // - `lda = n as i32` matches the leading dimension.
+    // - `uplo = CUBLAS_FILL_MODE_LOWER` matches the buffer-size query.
+    // - `work_ptr` points to a workspace of `lwork.max(1)` f64 elements
+    //   allocated at line 1119 from the `Dpotrf_bufferSize` query above; the
+    //   `.max(1)` guard prevents zero-sized alloc and cuSOLVER receives the
+    //   queried `lwork` so the buffer is at least the size it claimed to need.
+    // - `info_ptr` points to a single-element i32 alloc'd at line 1102; the
+    //   status is checked at line 1140 (`read_dev_info` after synchronize at
+    //   line 1139) and converted to `GpuError::ShapeMismatch` on non-zero
+    //   (positive info_val ⇒ leading minor not positive definite).
+    // - All three `_sync` guards keep the `CudaSlice` borrows alive across the
+    //   FFI call so cudarc cannot reuse these device pointers on `stream`.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
@@ -1228,6 +1357,19 @@ pub fn gpu_solve_f32_dev(
     let mut d_info = alloc_zeros_i32(1, device)?;
 
     let mut lwork: i32 = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 1221 by `cusolverDnHandle::new(stream.clone())`; the
+    //   handle outlives this call (dn drops at function exit).
+    // - `n` was validated at line 1202-1207 (early-return on `a_dev.len() != n*n`)
+    //   and is non-zero (line 1216 short-circuits the n==0 path).
+    // - `a_ptr` points to an `n*n` f32 column-major buffer (`d_a`) produced by
+    //   `gpu_transpose_2d` at line 1224 (row→col on device).
+    // - `lda = n as i32` matches the column-major leading dimension; cuSOLVER's
+    //   LAPACK-style ABI requires `lda >= max(1, n)`.
+    // - `&mut lwork` is stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in f32 elements per the `Sgetrf_bufferSize` upstream contract.
+    // - This is a query-only call: it inspects dims only, not data.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnSgetrf_bufferSize(
@@ -1243,6 +1385,23 @@ pub fn gpu_solve_f32_dev(
 
     let mut d_work = crate::transfer::alloc_zeros_f32(lwork.max(1) as usize, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the valid handle proved above.
+    // - `a_ptr` points to the column-major `n*n` f32 matrix (line 1224); cuSOLVER
+    //   overwrites it in place with the LU factors.
+    // - `lda = n as i32` matches the column-major leading dimension.
+    // - `work_ptr` points to a workspace of `lwork.max(1)` f32 elements
+    //   allocated at line 1244 from the `Sgetrf_bufferSize` query above; the
+    //   `.max(1)` prevents a zero-sized alloc and cuSOLVER receives the
+    //   queried `lwork` so the buffer is at least the size it claimed.
+    // - `ipiv_ptr` points to `d_ipiv`, an `n`-element i32 buffer alloc'd at
+    //   line 1227 for the 1-based pivot indices (length n).
+    // - `info_ptr` points to a single-element i32 alloc'd at line 1228; the
+    //   status is checked at line 1266 (`read_dev_info` after synchronize at
+    //   line 1265). A non-zero info_val here indicates a singular matrix and
+    //   is converted to `GpuError::ShapeMismatch` at line 1268.
+    // - All four `_sync` guards keep the `CudaSlice` borrows alive across the
+    //   FFI call.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
@@ -1274,6 +1433,25 @@ pub fn gpu_solve_f32_dev(
 
     let mut d_info2 = alloc_zeros_i32(1, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the same valid handle (still alive).
+    // - The Sgetrf call above succeeded (we checked devInfo at line 1266 and
+    //   returned early on non-zero), so `d_a` now contains valid LU factors
+    //   and `d_ipiv` valid pivot indices — both are read-only here, so we
+    //   take immutable `device_ptr` borrows (cast to `*const f32` / `*const i32`).
+    // - `b_ptr` points to `d_b`, an `n*nrhs` column-major f32 buffer produced
+    //   by `gpu_transpose_2d` at line 1225; cuSOLVER overwrites it in place
+    //   with the solution X (still column-major).
+    // - `nrhs` was validated at line 1209-1214 (B length == n*nrhs).
+    // - `lda = ldb = n as i32` for both the LU matrix and the RHS — both are
+    //   leading dimensions of square / n-row column-major matrices.
+    // - `op = CUBLAS_OP_N` (no transpose); we factored A directly, so we
+    //   solve A * X = B not A^T * X = B.
+    // - `info_ptr` points to a fresh i32 alloc (`d_info2` at line 1275),
+    //   distinct from the getrf info to make failure mode unambiguous.
+    //   Status is checked at line 1299 after synchronize.
+    // - All four `_sync` guards keep the `CudaSlice` borrows alive across
+    //   the FFI call.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner().device_ptr(&stream);
         let (ipiv_ptr, _ipiv_sync) = d_ipiv.inner().device_ptr(&stream);
@@ -1347,6 +1525,19 @@ pub fn gpu_solve_f64_dev(
     let mut d_info = alloc_zeros_i32(1, device)?;
 
     let mut lwork: i32 = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 1342 by `cusolverDnHandle::new(stream.clone())`; the
+    //   handle outlives this call (dn drops at function exit).
+    // - `n` was validated at line 1323-1328 (early-return on length mismatch)
+    //   and is non-zero (line 1337 short-circuits the n==0 path).
+    // - `a_ptr` points to an `n*n` f64 column-major buffer (`d_a`) produced by
+    //   `gpu_transpose_2d_f64` at line 1344 (row→col on device).
+    // - `lda = n as i32` matches the column-major leading dimension; cuSOLVER's
+    //   LAPACK-style ABI requires `lda >= max(1, n)`.
+    // - `&mut lwork` is stack-resident `i32`; cuSOLVER writes the f64
+    //   workspace size in elements per the `Dgetrf_bufferSize` ABI.
+    // - This is a query-only call: it inspects dims only, not data.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         csys::cusolverDnDgetrf_bufferSize(
@@ -1362,6 +1553,22 @@ pub fn gpu_solve_f64_dev(
 
     let mut d_work = crate::transfer::alloc_zeros_f64(lwork.max(1) as usize, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the valid handle proved above.
+    // - `a_ptr` points to the column-major `n*n` f64 matrix (line 1344);
+    //   cuSOLVER overwrites it in place with the LU factors.
+    // - `lda = n as i32` matches the column-major leading dimension.
+    // - `work_ptr` points to a workspace of `lwork.max(1)` f64 elements
+    //   allocated at line 1363 from the buffer-size query above; the `.max(1)`
+    //   prevents zero-sized alloc and cuSOLVER receives the queried `lwork`.
+    // - `ipiv_ptr` points to `d_ipiv`, an `n`-element i32 buffer alloc'd at
+    //   line 1346 for the 1-based pivot indices (length n).
+    // - `info_ptr` points to a single-element i32 alloc'd at line 1347;
+    //   status is checked at line 1385 (`read_dev_info` after synchronize at
+    //   line 1384), and non-zero info is converted to `GpuError::ShapeMismatch`
+    //   (positive ⇒ singular U_kk == 0 at column k).
+    // - All four `_sync` guards keep the `CudaSlice` borrows alive across the
+    //   FFI call.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner_mut().device_ptr_mut(&stream);
         let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
@@ -1393,6 +1600,25 @@ pub fn gpu_solve_f64_dev(
 
     let mut d_info2 = alloc_zeros_i32(1, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the same valid handle (still alive).
+    // - The Dgetrf call above succeeded (we checked devInfo at line 1385 and
+    //   returned early on non-zero), so `d_a` contains valid LU factors and
+    //   `d_ipiv` valid pivot indices — both are read-only here, so we take
+    //   immutable `device_ptr` borrows (cast to `*const f64` / `*const i32`).
+    // - `b_ptr` points to `d_b`, an `n*nrhs` column-major f64 buffer produced
+    //   by `gpu_transpose_2d_f64` at line 1345; cuSOLVER overwrites it in
+    //   place with the solution X (still column-major).
+    // - `nrhs` was validated at line 1330-1335 (B length == n*nrhs).
+    // - `lda = ldb = n as i32` for both the LU matrix and the RHS — both are
+    //   leading dimensions of square/n-row column-major matrices.
+    // - `op = CUBLAS_OP_N` (no transpose); we factored A directly, solving
+    //   A * X = B.
+    // - `info_ptr` points to a fresh i32 alloc (`d_info2` at line 1394),
+    //   distinct from the getrf info; status is checked at line 1418 after
+    //   synchronize.
+    // - All four `_sync` guards keep the `CudaSlice` borrows alive across
+    //   the FFI call.
     unsafe {
         let (a_ptr, _a_sync) = d_a.inner().device_ptr(&stream);
         let (ipiv_ptr, _ipiv_sync) = d_ipiv.inner().device_ptr(&stream);
@@ -1504,6 +1730,27 @@ pub fn gpu_lstsq_f32(
 
     // Query workspace.
     let mut lwork_bytes: usize = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 1495 by `cusolverDnHandle::new(stream.clone())`.
+    // - `m`, `n`, `nrhs` were validated at lines 1476-1492 (A length == m*n,
+    //   B length == m*nrhs, all dims non-zero).
+    // - `a_ptr` points to an `m*n` f32 column-major buffer alloc'd at line 1498
+    //   by `gpu_transpose_2d`; `lda = m as i32` matches the column-major
+    //   leading dimension (cuSOLVER requires `lda >= max(1, m)`).
+    // - `b_ptr` points to an `m*nrhs` f32 column-major buffer alloc'd at line
+    //   1499 by `gpu_transpose_2d`; `ldb = m as i32` matches `max(1, m)`.
+    // - `x_ptr` points to an `n*nrhs` f32 buffer alloc'd zero-init at line
+    //   1501; `ldx = n as i32` matches the column-major leading dim
+    //   (`ldx >= max(1, n)`); cuSOLVER will write the solution X here.
+    // - The 11th argument is `std::ptr::null_mut()`: per cudarc/cuSOLVER docs,
+    //   `niters_ptr` is unused for the buffer-size query and accepts NULL.
+    // - `&mut lwork_bytes` is stack-resident `usize`; cuSOLVER writes the
+    //   workspace size **in bytes** (not elements) per the SSgels ABI,
+    //   distinguishing it from the `Sgetrf_bufferSize` lwork-in-elements
+    //   convention used elsewhere in this file.
+    // - This is a query-only call: it inspects dims only, not data, so the
+    //   `device_ptr_mut` borrows do not race with any concurrent launch.
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         let (b_ptr, _b_sync) = d_b_col.inner_mut().device_ptr_mut(&stream);
@@ -1528,6 +1775,34 @@ pub fn gpu_lstsq_f32(
     let work_elems = lwork_bytes.div_ceil(4).max(1);
     let mut d_work = crate::transfer::alloc_zeros_f32(work_elems, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the valid handle proved above.
+    // - `a_ptr` points to the `m*n` f32 column-major matrix (line 1498); SSgels
+    //   may overwrite it in place during iterative refinement.
+    // - `b_ptr` points to the `m*nrhs` f32 column-major RHS (line 1499); SSgels
+    //   may overwrite it.
+    // - `x_ptr` points to the `n*nrhs` f32 output buffer (line 1501); cuSOLVER
+    //   writes the solution X here in column-major layout.
+    // - `lda = ldb = m as i32` and `ldx = n as i32` — matches column-major
+    //   leading dimensions for matrices with `m` or `n` rows respectively.
+    // - `work_ptr` points to a workspace of `work_elems` f32 elements
+    //   allocated at line 1529; `work_elems = lwork_bytes.div_ceil(4).max(1)`
+    //   computes the number of f32 (4-byte) elements needed to cover the
+    //   queried `lwork_bytes`, with `.max(1)` guarding against zero-sized
+    //   alloc. cuSOLVER receives the original `lwork_bytes` count, so it sees
+    //   exactly the byte budget it asked for.
+    // - The work pointer is cast to `*mut std::ffi::c_void` per the SSgels ABI
+    //   (which uses an opaque byte-buffer signature, not f32-typed).
+    // - `&mut iter` is a stack-resident `i32` (at line 1503); cuSOLVER writes
+    //   the iterative-refinement step count here. It's reported via the
+    //   `info_ptr` channel for failure modes; we don't currently inspect iter.
+    // - `info_ptr` points to a single-element i32 alloc'd at line 1502; the
+    //   status is checked at line 1558 (`read_dev_info` after synchronize at
+    //   line 1557). Negative info_val ⇒ invalid argument; positive info_val
+    //   in this routine indicates iter-refinement non-convergence which
+    //   cudarc encodes via the negative-only branch at line 1559.
+    // - All five `_sync` guards keep the `CudaSlice` borrows alive across
+    //   the FFI call.
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         let (b_ptr, _b_sync) = d_b_col.inner_mut().device_ptr_mut(&stream);
@@ -1608,6 +1883,24 @@ pub fn gpu_lstsq_f64(
     let mut iter: i32 = 0;
 
     let mut lwork_bytes: usize = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 1602 by `cusolverDnHandle::new(stream.clone())`.
+    // - `m`, `n`, `nrhs` were validated at lines 1583-1599 (A length == m*n,
+    //   B length == m*nrhs, all dims non-zero).
+    // - `a_ptr` points to an `m*n` f64 column-major buffer alloc'd at line
+    //   1604 by `gpu_transpose_2d_f64`; `lda = m as i32` matches column-major
+    //   leading dim (`lda >= max(1, m)`).
+    // - `b_ptr` points to an `m*nrhs` f64 column-major RHS alloc'd at line
+    //   1605; `ldb = m as i32`.
+    // - `x_ptr` points to an `n*nrhs` f64 output buffer alloc'd zero-init at
+    //   line 1606; `ldx = n as i32` (`ldx >= max(1, n)`).
+    // - The 11th argument is `std::ptr::null_mut()`: `niters_ptr` is unused
+    //   for the buffer-size query and accepts NULL per cudarc/cuSOLVER docs.
+    // - `&mut lwork_bytes` is stack-resident `usize`; cuSOLVER writes the
+    //   workspace size **in bytes** per the DDgels ABI (distinct from
+    //   `Dgetrf_bufferSize`'s elements convention).
+    // - This is a query-only call: it inspects dims only, not data.
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         let (b_ptr, _b_sync) = d_b_col.inner_mut().device_ptr_mut(&stream);
@@ -1632,6 +1925,29 @@ pub fn gpu_lstsq_f64(
     let work_elems = lwork_bytes.div_ceil(8).max(1);
     let mut d_work = crate::transfer::alloc_zeros_f64(work_elems, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the valid handle proved above.
+    // - `a_ptr` (line 1604), `b_ptr` (line 1605), `x_ptr` (line 1606) all
+    //   point to column-major buffers whose sizes were validated above.
+    //   DDgels may overwrite A and B in place during iterative refinement;
+    //   X receives the solution.
+    // - `lda = ldb = m as i32` and `ldx = n as i32` — column-major leading
+    //   dimensions matching their respective row counts.
+    // - `work_ptr` points to a workspace of `work_elems` f64 elements
+    //   allocated at line 1633; `work_elems = lwork_bytes.div_ceil(8).max(1)`
+    //   computes the count of f64 (8-byte) elements covering the queried
+    //   `lwork_bytes` (the `.div_ceil(8)` matches the f64 size; `.max(1)`
+    //   prevents zero-sized alloc). cuSOLVER receives the original byte count
+    //   `lwork_bytes`, so the buffer is at least that many bytes.
+    // - The work pointer is cast to `*mut std::ffi::c_void` per the DDgels
+    //   ABI's opaque-byte-buffer signature.
+    // - `&mut iter` is a stack-resident `i32` (line 1608); cuSOLVER writes
+    //   the iterative-refinement step count there.
+    // - `info_ptr` points to a single-element i32 alloc'd at line 1607; status
+    //   is checked at line 1662 (`read_dev_info` after synchronize at line
+    //   1661). Negative info_val ⇒ invalid argument.
+    // - All five `_sync` guards keep the `CudaSlice` borrows alive across
+    //   the FFI call.
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         let (b_ptr, _b_sync) = d_b_col.inner_mut().device_ptr_mut(&stream);
@@ -1716,6 +2032,23 @@ impl DnParamsHandle {
     fn new() -> GpuResult<Self> {
         use cudarc::cusolver::sys as csys;
         let mut p: csys::cusolverDnParams_t = std::ptr::null_mut();
+        // SAFETY:
+        // - `cusolverDnCreateParams` takes a `*mut cusolverDnParams_t` and
+        //   writes a freshly-allocated handle into the slot pointed at.
+        // - `&mut p` is a valid pointer to a stack-local `cusolverDnParams_t`
+        //   (declared on the previous line as a typed null pointer); the
+        //   pointee lifetime covers this FFI call (alloc happens before the
+        //   `Ok(Self { inner: p })` move on the next line).
+        // - On error, cuSOLVER may leave `p` as the original null value;
+        //   `.result()?` propagates the error before we wrap `p` in `Self`,
+        //   so we never construct a `DnParamsHandle` containing a sentinel
+        //   that could later be passed to a routine call.
+        // - On success, `p` becomes a valid handle that will be destroyed
+        //   exactly once via the `Drop` impl below — matching the cuSOLVER
+        //   create/destroy contract.
+        // - This call has no device-side side effects: it only allocates a
+        //   small CPU-side opaque struct and is safe to make even before the
+        //   stream is bound.
         unsafe {
             csys::cusolverDnCreateParams(&mut p).result()?;
         }
@@ -1730,6 +2063,22 @@ impl DnParamsHandle {
 impl Drop for DnParamsHandle {
     fn drop(&mut self) {
         if !self.inner.is_null() {
+            // SAFETY:
+            // - `self.inner` is non-null (just checked at line 1733) and was
+            //   produced by `cusolverDnCreateParams` in `Self::new` (line
+            //   1727); per the cuSOLVER contract, every successful Create
+            //   must be paired with exactly one Destroy.
+            // - `Drop::drop` runs at most once per `DnParamsHandle` value
+            //   (the Rust drop guarantee), so `Destroy` is never invoked
+            //   twice on the same handle — no double-free.
+            // - We discard the returned status (`let _ = ...`) because Drop
+            //   cannot return errors and we cannot panic-propagate them
+            //   safely from a destructor; the params object is a small CPU
+            //   struct with no externally-observable cleanup beyond memory
+            //   release, so a leaked failure would manifest only as a tiny
+            //   leak, not a correctness bug.
+            // - No `cusolverDnHandle_t` or `stream` is needed here:
+            //   `cusolverDnDestroyParams` operates only on the params object.
             unsafe {
                 let _ = cudarc::cusolver::sys::cusolverDnDestroyParams(self.inner);
             }
@@ -1791,6 +2140,37 @@ pub fn gpu_eig_f32(
     // Buffer-size query.
     let mut wks_dev_bytes: usize = 0;
     let mut wks_host_bytes: usize = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 1770 by `cusolverDnHandle::new(stream.clone())`.
+    // - `params.raw()` returns the `cusolverDnParams_t` created at line 1771;
+    //   the params handle is owned by the local `params` binding which lives
+    //   for the entire function (Drop runs at function exit, after this call).
+    // - `n` was validated at line 1755-1760 (A length == n*n) and is non-zero
+    //   (line 1762 short-circuits the n==0 path).
+    // - `a_ptr` points to an `n*n` f32 column-major buffer (`d_a_col`)
+    //   produced by `gpu_transpose_2d` at line 1774; `lda = n as i64` matches
+    //   the column-major leading dimension. Cast to `*const c_void` per the
+    //   Xgeev type-erased ABI; `dt_a = CUDA_R_32F` (line 1786) tells cuSOLVER
+    //   to interpret these bytes as f32.
+    // - `w_ptr` points to a `2n` f32 buffer alloc'd at line 1776 holding
+    //   complex eigenvalues as interleaved re/im pairs; `dt_w = CUDA_C_32F`
+    //   (line 1787) matches the interleaved layout: each complex element
+    //   spans 2 consecutive f32s.
+    // - `vl_ptr` points to a 2-element placeholder buffer alloc'd at line
+    //   1781. cuSOLVER's X-API rejects null VL even with `jobvl = NOVECTOR`,
+    //   per the comment at lines 1779-1781; `ldvl = n as i64` is the leading
+    //   dim. The buffer is never written to (NOVECTOR mode).
+    // - `vr_ptr` points to a `2*n*n` f32 buffer alloc'd at line 1778 (complex
+    //   eigenvectors interleaved); `ldvr = n as i64`; `dt_v = CUDA_C_32F`.
+    // - `compute_type = CUDA_R_32F` (line 1789) — cuSOLVER's mixed-precision
+    //   API requires a separate compute precision; we keep it real f32.
+    // - `&mut wks_dev_bytes` and `&mut wks_host_bytes` are stack-resident
+    //   `usize`; cuSOLVER writes the device and host workspace sizes
+    //   **in bytes** per the Xgeev ABI's two-buffer scheme.
+    // - This is a query-only call: the buffers are not written. All
+    //   `device_ptr_mut` borrows are taken to satisfy cudarc's ownership
+    //   bookkeeping but are not actually dereferenced for write.
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         let (w_ptr, _w_sync) = d_w.inner_mut().device_ptr_mut(&stream);
@@ -1824,6 +2204,32 @@ pub fn gpu_eig_f32(
     let mut d_work = crate::transfer::alloc_zeros_f32(dev_work_elems, device)?;
     let mut host_work: Vec<u8> = vec![0u8; wks_host_bytes];
 
+    // SAFETY:
+    // - `dn.cu()`, `params.raw()` are the same valid handles from above.
+    // - `a_ptr` points to the `n*n` f32 column-major matrix (line 1774);
+    //   Xgeev may overwrite it during reduction to Hessenberg form.
+    // - `w_ptr` points to the `2n` f32 eigenvalue buffer (line 1776);
+    //   cuSOLVER writes complex eigenvalues here as re/im pairs.
+    // - `vl_ptr` points to the dummy 2-element VL buffer (line 1781) — not
+    //   written to in NOVECTOR mode but required to be non-null by the X-API.
+    // - `vr_ptr` points to the `2*n*n` f32 eigenvector buffer (line 1778);
+    //   cuSOLVER writes the right eigenvectors here in column-major complex
+    //   layout (each element occupies 2 consecutive f32s).
+    // - `lda = ldvl = ldvr = n as i64` — column-major leading dims.
+    // - `work_ptr` points to a device workspace of `dev_work_elems` f32
+    //   elements alloc'd at line 1824; `dev_work_elems =
+    //   wks_dev_bytes.div_ceil(4).max(1)` covers the queried byte budget
+    //   (4-byte f32 elements, with `.max(1)` guarding zero-size). cuSOLVER
+    //   receives `wks_dev_bytes` directly so it sees the original byte count.
+    // - `host_work.as_mut_ptr()` points to a `wks_host_bytes` `u8` buffer
+    //   alloc'd at line 1825 (`Vec<u8>`); cuSOLVER writes host-side scratch
+    //   here. The vector outlives the FFI call (drops at function exit).
+    // - `info_ptr` points to a single-element i32 alloc'd at line 1782; the
+    //   status is checked at line 1863 (`read_dev_info` after synchronize at
+    //   line 1862). Non-zero info means non-converged eigenvalues; converted
+    //   to `GpuError::ShapeMismatch` at line 1865.
+    // - All six `_sync` guards keep the `CudaSlice` borrows alive across the
+    //   FFI call, preventing concurrent reuse on `stream`.
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         let (w_ptr, _w_sync) = d_w.inner_mut().device_ptr_mut(&stream);
@@ -1941,6 +2347,30 @@ pub fn gpu_eig_f64(
 
     let mut wks_dev_bytes: usize = 0;
     let mut wks_host_bytes: usize = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 1971 by `cusolverDnHandle::new(stream.clone())`.
+    // - `params.raw()` returns the `cusolverDnParams_t` created at line 1972;
+    //   the params handle outlives this call (Drop runs at function exit).
+    // - `n` was validated at line 1956-1961 (A length == n*n) and is non-zero
+    //   (line 1963 short-circuits the n==0 path).
+    // - `a_ptr` points to an `n*n` f64 column-major buffer (`d_a_col`)
+    //   produced by `gpu_transpose_2d_f64` at line 1974; `lda = n as i64`.
+    //   Cast to `*const c_void` per Xgeev's type-erased ABI; `dt_a =
+    //   CUDA_R_64F` (line 1982) tells cuSOLVER to interpret the bytes as f64.
+    // - `w_ptr` points to a `2n` f64 buffer alloc'd at line 1976 holding
+    //   complex eigenvalues as interleaved re/im pairs; `dt_w = CUDA_C_64F`
+    //   matches the layout (each complex element spans 2 consecutive f64s).
+    // - `vl_ptr` points to a 2-element dummy alloc'd at line 1977; cuSOLVER's
+    //   X-API rejects null VL even with NOVECTOR mode (same constraint as the
+    //   f32 sibling). `ldvl = n as i64`.
+    // - `vr_ptr` points to a `2*n*n` f64 buffer alloc'd at line 1976 (complex
+    //   eigenvectors interleaved); `ldvr = n as i64`; `dt_v = CUDA_C_64F`.
+    // - `compute_type = CUDA_R_64F` (line 1985) — real f64 compute precision.
+    // - `&mut wks_dev_bytes` and `&mut wks_host_bytes` are stack-resident
+    //   `usize`; cuSOLVER writes the device and host workspace sizes
+    //   **in bytes** per the Xgeev two-buffer ABI.
+    // - This is a query-only call: it inspects dims/dtypes only, not data.
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         let (w_ptr, _w_sync) = d_w.inner_mut().device_ptr_mut(&stream);
@@ -1974,6 +2404,27 @@ pub fn gpu_eig_f64(
     let mut d_work = crate::transfer::alloc_zeros_f64(dev_work_elems, device)?;
     let mut host_work: Vec<u8> = vec![0u8; wks_host_bytes];
 
+    // SAFETY:
+    // - `dn.cu()`, `params.raw()` are the same valid handles from above.
+    // - `a_ptr` (line 1974), `w_ptr` (line 1976), `vl_ptr` (line 1977),
+    //   `vr_ptr` (line 1976) point to the same buffers proved above; Xgeev
+    //   may overwrite A during Hessenberg reduction and writes complex
+    //   eigenvalues into W and right eigenvectors into VR in column-major
+    //   complex layout.
+    // - `lda = ldvl = ldvr = n as i64` — column-major leading dims.
+    // - `work_ptr` points to a device workspace of `dev_work_elems` f64
+    //   elements alloc'd at line 2009; `dev_work_elems =
+    //   wks_dev_bytes.div_ceil(8).max(1)` covers the queried byte budget
+    //   (8-byte f64 elements, `.max(1)` guarding zero-size). cuSOLVER receives
+    //   `wks_dev_bytes` so the byte count it sees is exact.
+    // - `host_work.as_mut_ptr()` points to a `wks_host_bytes` `u8` buffer
+    //   alloc'd at line 2010; the Vec outlives the FFI call (drops at function
+    //   exit, well after `stream.synchronize()` at line 2047).
+    // - `info_ptr` points to a single-element i32 alloc'd at line 1978; the
+    //   status is checked at line 2048 (`read_dev_info` after synchronize at
+    //   line 2047). Non-zero info ⇒ Xgeev failed.
+    // - All six `_sync` guards keep the `CudaSlice` borrows alive across the
+    //   FFI call.
     unsafe {
         let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
         let (w_ptr, _w_sync) = d_w.inner_mut().device_ptr_mut(&stream);
@@ -2453,6 +2904,33 @@ pub fn gpu_eigh_f32(
     let jobz = csys::cusolverEigMode_t::CUSOLVER_EIG_MODE_VECTOR;
     let uplo = csys::cublasFillMode_t::CUBLAS_FILL_MODE_UPPER;
     let mut lwork: i32 = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created by `cusolverDnHandle::new(stream.clone())` earlier in this
+    //   function (just before the `d_a` clone). The handle outlives this
+    //   call (dn drops at function exit).
+    // - `n` is non-zero (the n==0 path short-circuits earlier with empty
+    //   buffers); the cuSOLVER docs require `lda >= max(1, n)`, satisfied by
+    //   `lda = n as i32`.
+    // - The device pointers from `d_a.inner().device_ptr(&stream).0` and
+    //   `d_w.inner().device_ptr(&stream).0` are extracted from the freshly-
+    //   allocated buffers (line 2895 area: `d_a` is `n*n` f32, `d_w` is `n`
+    //   f32 from `alloc_zeros_f32`); these are read-only in the buffer-size
+    //   query (no compute, no write).
+    // - For real symmetric matrices the row-major and column-major byte
+    //   layouts coincide (transpose of a symmetric matrix is itself), per
+    //   the comment at lines ~2401-2407 — so passing the row-major
+    //   `d_a = memcpy_dtod(input)` directly is safe.
+    // - `uplo = CUBLAS_FILL_MODE_UPPER`: cuSOLVER reads only the upper
+    //   triangle of A (which equals the lower for symmetric inputs).
+    // - `jobz = CUSOLVER_EIG_MODE_VECTOR` requests both eigenvalues and
+    //   eigenvectors, so cuSOLVER will need the larger of the two workspace
+    //   sizes — that's what `&mut lwork` will receive.
+    // - `&mut lwork` is stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in **f32 elements** (not bytes) per the syevd_bufferSize ABI.
+    // - The temporary `device_ptr` borrows held by `.0` extraction live only
+    //   for the duration of the call expression (cudarc's `DevicePtr`
+    //   guard keeps the underlying allocation alive while in scope).
     unsafe {
         csys::cusolverDnSsyevd_bufferSize(
             dn.cu(),
@@ -2470,6 +2948,28 @@ pub fn gpu_eigh_f32(
     let mut d_work = crate::transfer::alloc_zeros_f32(lwork.max(1) as usize, device)?;
 
     // Run syevd.
+    // SAFETY:
+    // - `dn.cu()` is the same valid handle proved above.
+    // - `a_ptr` points to the `n*n` f32 buffer (`d_a`); cuSOLVER overwrites
+    //   it in place: with `jobz = VECTOR` the eigenvectors are written into
+    //   A column-major (each column a normalized eigenvector).
+    // - `lda = n as i32` matches the leading dimension.
+    // - `uplo = CUBLAS_FILL_MODE_UPPER` matches the buffer-size query.
+    // - `w_ptr` points to the `n`-element f32 buffer `d_w`; cuSOLVER writes
+    //   eigenvalues here in ascending order.
+    // - `work_ptr` points to a workspace of `lwork.max(1)` f32 elements
+    //   allocated immediately above from the buffer-size query; cuSOLVER
+    //   receives the queried `lwork`, so the buffer is at least as large as
+    //   it claimed to need. `.max(1)` prevents zero-sized alloc.
+    // - `info_ptr` points to a single-element i32; the status is checked at
+    //   line 2946 (`read_dev_info` after synchronize at line 2945). A
+    //   positive info_val indicates non-converged eigenvalues; converted to
+    //   `GpuError::ShapeMismatch` at line 2948.
+    // - All four `_` placeholder bindings receive the `_sync` guards from
+    //   `device_ptr_mut`; they remain in scope (until end of unsafe block)
+    //   to keep the `CudaSlice` borrows live across the FFI call. The
+    //   bare-`_` placeholder is allowed because the guards are still bound
+    //   to a tuple slot for the block's duration.
     unsafe {
         let (a_ptr, _) = d_a.inner_mut().device_ptr_mut(&stream);
         let (w_ptr, _) = d_w.inner_mut().device_ptr_mut(&stream);
@@ -2537,6 +3037,24 @@ pub fn gpu_eigh_f64(
     let jobz = csys::cusolverEigMode_t::CUSOLVER_EIG_MODE_VECTOR;
     let uplo = csys::cublasFillMode_t::CUBLAS_FILL_MODE_UPPER;
     let mut lwork: i32 = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created earlier in this function (just before the `d_a` clone).
+    //   The handle outlives this call (dn drops at function exit).
+    // - `n` is non-zero (n==0 path short-circuits earlier with empty
+    //   buffers); `lda = n as i32` satisfies `lda >= max(1, n)`.
+    // - The device pointers from `d_a.inner().device_ptr(&stream).0` and
+    //   `d_w.inner().device_ptr(&stream).0` come from the freshly-allocated
+    //   `d_a` (`n*n` f64 from `alloc_zeros_f64`, populated via memcpy_dtod
+    //   from the input) and `d_w` (`n` f64 zero-init). Read-only here.
+    // - For real symmetric matrices the row-major and column-major byte
+    //   layouts coincide — the row-major `d_a` clone is a valid input.
+    // - `uplo = CUBLAS_FILL_MODE_UPPER`: cuSOLVER reads only the upper
+    //   triangle (equals lower for symmetric).
+    // - `jobz = CUSOLVER_EIG_MODE_VECTOR` requests both eigenvalues and
+    //   eigenvectors; cuSOLVER will report the larger workspace size.
+    // - `&mut lwork` is stack-resident `i32`; cuSOLVER writes the f64
+    //   workspace size in **elements** per the syevd_bufferSize ABI.
     unsafe {
         csys::cusolverDnDsyevd_bufferSize(
             dn.cu(),
@@ -2553,6 +3071,25 @@ pub fn gpu_eigh_f64(
 
     let mut d_work = crate::transfer::alloc_zeros_f64(lwork.max(1) as usize, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the same valid handle proved above.
+    // - `a_ptr` points to the `n*n` f64 buffer (`d_a`); cuSOLVER overwrites
+    //   it in place — with `jobz = VECTOR` the eigenvectors are written
+    //   into A column-major (each column a normalized eigenvector).
+    // - `lda = n as i32` matches the leading dimension.
+    // - `uplo = CUBLAS_FILL_MODE_UPPER` matches the buffer-size query.
+    // - `w_ptr` points to the `n`-element f64 buffer `d_w`; cuSOLVER writes
+    //   eigenvalues here in ascending order.
+    // - `work_ptr` points to a workspace of `lwork.max(1)` f64 elements
+    //   allocated immediately above from the buffer-size query; cuSOLVER
+    //   receives the queried `lwork`, so the buffer is at least as large
+    //   as it claimed to need. `.max(1)` prevents zero-sized alloc.
+    // - `info_ptr` points to a single-element i32; status checked at line
+    //   3029 (`read_dev_info` after synchronize at line 3028). Positive
+    //   info_val ⇒ non-converged eigenvalues, converted to `ShapeMismatch`.
+    // - The four `_` placeholder bindings still hold the `_sync` guards
+    //   for the unsafe block's duration, keeping `CudaSlice` borrows live
+    //   across the FFI call.
     unsafe {
         let (a_ptr, _) = d_a.inner_mut().device_ptr_mut(&stream);
         let (w_ptr, _) = d_w.inner_mut().device_ptr_mut(&stream);
@@ -2617,6 +3154,26 @@ pub fn gpu_eigvalsh_f32(
     let jobz = csys::cusolverEigMode_t::CUSOLVER_EIG_MODE_NOVECTOR;
     let uplo = csys::cublasFillMode_t::CUBLAS_FILL_MODE_UPPER;
     let mut lwork: i32 = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 3145 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle outlives this call (dn drops at function exit).
+    // - `n` is non-zero (line 3140 short-circuits the n==0 path); `lda =
+    //   n as i32` satisfies cuSOLVER's `lda >= max(1, n)` requirement.
+    // - The pointers from `d_a.inner().device_ptr(&stream).0` and
+    //   `d_w.inner().device_ptr(&stream).0` come from the freshly-allocated
+    //   `d_a` (`n*n` f32, line 3148; populated via `memcpy_dtod` at line 3149)
+    //   and `d_w` (`n` f32 zero-init, line 3151). Read-only in this query.
+    // - For real symmetric matrices the row-major and column-major layouts
+    //   coincide (per the comment at lines ~2401-2407); the row-major input
+    //   clone is a valid input.
+    // - `uplo = CUBLAS_FILL_MODE_UPPER`: cuSOLVER reads only the upper
+    //   triangle (equals lower for symmetric).
+    // - `jobz = CUSOLVER_EIG_MODE_NOVECTOR` requests eigenvalues only —
+    //   cuSOLVER skips eigenvector accumulation and reports the smaller
+    //   workspace size for this mode.
+    // - `&mut lwork` is stack-resident `i32`; cuSOLVER writes the workspace
+    //   size in **f32 elements** per the syevd_bufferSize ABI.
     unsafe {
         csys::cusolverDnSsyevd_bufferSize(
             dn.cu(),
@@ -2633,6 +3190,26 @@ pub fn gpu_eigvalsh_f32(
 
     let mut d_work = crate::transfer::alloc_zeros_f32(lwork.max(1) as usize, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the same valid handle proved above.
+    // - `a_ptr` points to the `n*n` f32 buffer `d_a` (line 3148). With
+    //   `jobz = NOVECTOR`, cuSOLVER still overwrites A with intermediate
+    //   tridiagonal data ("syevd writes garbage to A — clone to protect
+    //   input" per the comment at line 3147), so we must use a cloned A and
+    //   the input remains untouched.
+    // - `lda = n as i32` matches the leading dimension.
+    // - `uplo = CUBLAS_FILL_MODE_UPPER` matches the buffer-size query.
+    // - `w_ptr` points to the `n`-element f32 buffer `d_w`; cuSOLVER writes
+    //   eigenvalues here in ascending order.
+    // - `work_ptr` points to a workspace of `lwork.max(1)` f32 elements
+    //   allocated immediately above from the buffer-size query; cuSOLVER
+    //   receives the queried `lwork`. `.max(1)` prevents zero-sized alloc.
+    // - `info_ptr` points to a single-element i32; status checked at line
+    //   3195 (`read_dev_info` after synchronize at line 3194). Positive
+    //   info ⇒ non-converged eigenvalues; converted to `ShapeMismatch`.
+    // - The four `_` placeholder bindings hold `_sync` guards for the
+    //   block's duration, keeping `CudaSlice` borrows live across the FFI
+    //   call.
     unsafe {
         let (a_ptr, _) = d_a.inner_mut().device_ptr_mut(&stream);
         let (w_ptr, _) = d_w.inner_mut().device_ptr_mut(&stream);
@@ -2692,6 +3269,23 @@ pub fn gpu_eigvalsh_f64(
     let jobz = csys::cusolverEigMode_t::CUSOLVER_EIG_MODE_NOVECTOR;
     let uplo = csys::cublasFillMode_t::CUBLAS_FILL_MODE_UPPER;
     let mut lwork: i32 = 0;
+    // SAFETY:
+    // - `dn.cu()` returns a valid `cusolverDnHandle_t` bound to `stream`,
+    //   created at line 3221 by `cusolverDnHandle::new(stream.clone())`. The
+    //   handle outlives this call (dn drops at function exit).
+    // - `n` is non-zero (line 3216 short-circuits the n==0 path); `lda =
+    //   n as i32` satisfies cuSOLVER's `lda >= max(1, n)` requirement.
+    // - The pointers from `d_a.inner().device_ptr(&stream).0` and
+    //   `d_w.inner().device_ptr(&stream).0` come from the freshly-allocated
+    //   `d_a` (`n*n` f64, line 3223; populated via `memcpy_dtod` at line 3224)
+    //   and `d_w` (`n` f64 zero-init, line 3226). Read-only in this query.
+    // - For real symmetric matrices the row-major and column-major layouts
+    //   coincide; the row-major input clone is a valid input.
+    // - `uplo = CUBLAS_FILL_MODE_UPPER`: cuSOLVER reads only the upper
+    //   triangle.
+    // - `jobz = CUSOLVER_EIG_MODE_NOVECTOR` requests eigenvalues only.
+    // - `&mut lwork` is stack-resident `i32`; cuSOLVER writes the f64
+    //   workspace size in **elements** per the syevd_bufferSize ABI.
     unsafe {
         csys::cusolverDnDsyevd_bufferSize(
             dn.cu(),
@@ -2708,6 +3302,26 @@ pub fn gpu_eigvalsh_f64(
 
     let mut d_work = crate::transfer::alloc_zeros_f64(lwork.max(1) as usize, device)?;
 
+    // SAFETY:
+    // - `dn.cu()` is the same valid handle proved above.
+    // - `a_ptr` points to the `n*n` f64 buffer `d_a` (line 3223). With
+    //   `jobz = NOVECTOR`, cuSOLVER still overwrites A with intermediate
+    //   tridiagonal data, hence the `memcpy_dtod` clone at line 3224 to
+    //   protect the caller's input.
+    // - `lda = n as i32` matches the leading dimension.
+    // - `uplo = CUBLAS_FILL_MODE_UPPER` matches the buffer-size query.
+    // - `w_ptr` points to the `n`-element f64 buffer `d_w`; cuSOLVER writes
+    //   eigenvalues here in ascending order.
+    // - `work_ptr` points to a workspace of `lwork.max(1)` f64 elements
+    //   allocated immediately above from the buffer-size query; cuSOLVER
+    //   receives the queried `lwork`, so the buffer is at least as large
+    //   as it claimed to need. `.max(1)` prevents zero-sized alloc.
+    // - `info_ptr` points to a single-element i32; status checked at line
+    //   3270 (`read_dev_info` after synchronize at line 3269). Positive
+    //   info_val ⇒ non-converged eigenvalues; converted to `ShapeMismatch`.
+    // - The four `_` placeholder bindings hold `_sync` guards for the
+    //   block's duration, keeping `CudaSlice` borrows live across the FFI
+    //   call.
     unsafe {
         let (a_ptr, _) = d_a.inner_mut().device_ptr_mut(&stream);
         let (w_ptr, _) = d_w.inner_mut().device_ptr_mut(&stream);

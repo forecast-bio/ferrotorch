@@ -376,6 +376,27 @@ fn launch_binary(
     let mut out = stream.alloc_zeros::<u16>(n)?;
     let cfg = launch_1d(n);
     let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 369 via
+    //   `module_cache::get_or_compile` from `ptx`; the corresponding entry
+    //   point (e.g. `mul_bf16_kernel` at line 48 / `add_bf16_kernel` at
+    //   line 108) has signature (a_ptr: u64, b_ptr: u64, out_ptr: u64,
+    //   n: u32) which matches the four args pushed below in order.
+    // - `a` and `b` are non-aliased input buffers each of length `n` u16
+    //   elements; equality of `a.len()` and `b.len()` is enforced at line
+    //   357 (`LengthMismatch` guard), and `n` is bound to `a.len()` at
+    //   line 363.
+    // - `out` was alloc'd with exactly `n` u16 elements at line 376 from
+    //   `stream`; it is exclusively owned by this scope (we hold the
+    //   only `&mut out`) and exclusively bound to `stream` until the
+    //   launch completes.
+    // - The kernel reads `a[i]` and `b[i]` and writes `out[i]` only
+    //   within `[0, n)` per the PTX bound-check `setp.ge.u32 %p, %r_tid,
+    //   %n_reg; @%p bra DONE;` (lines 71-72 / 131-132).
+    // - `n` fits in u32 because `launch_1d` already cast `n as u32` at
+    //   line 342 to compute the grid; reaching this line implies the
+    //   cast above on line 378 is non-truncating for any `n` the grid
+    //   covered.
     unsafe {
         stream
             .launch_builder(&f)
@@ -431,6 +452,24 @@ pub fn gpu_silu_bf16(
     let mut out = stream.alloc_zeros::<u16>(n)?;
     let cfg = launch_1d(n);
     let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 420 via
+    //   `module_cache::get_or_compile` from `SILU_BF16_PTX`; entry point
+    //   `silu_bf16_kernel` at line 170 has signature (a_ptr: u64,
+    //   out_ptr: u64, n: u32) which matches the three args pushed below.
+    // - `a` is the only input buffer; `n = a.len()` is bound at line
+    //   414, and the early-return at line 415 ensures we never launch
+    //   with `n == 0`.
+    // - `out` was alloc'd with exactly `n` u16 elements at line 431 from
+    //   `stream`; we hold the only `&mut out` so it is non-aliased with
+    //   `a` (which is `&CudaSlice`, immutable) and exclusively owned by
+    //   `stream` until launch completes.
+    // - The kernel reads `a[i]` and writes `out[i]` only within `[0, n)`
+    //   per the PTX bound-check at lines 193-194 (`setp.ge.u32 %p,
+    //   %r_tid, %n_reg; @%p bra DONE;`).
+    // - `n` fits in u32: `launch_1d` already cast `n as u32` at line 342
+    //   to compute the grid, so the cast on line 433 is non-truncating
+    //   for any `n` the grid actually covers.
     unsafe {
         stream
             .launch_builder(&f)
@@ -467,6 +506,24 @@ pub fn gpu_relu_bf16(
     let mut out = stream.alloc_zeros::<u16>(n)?;
     let cfg = launch_1d(n);
     let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 456 via
+    //   `module_cache::get_or_compile` from `RELU_BF16_PTX`; entry point
+    //   `relu_bf16_kernel` at line 232 has signature (a_ptr: u64,
+    //   out_ptr: u64, n: u32) which matches the three args pushed below.
+    // - `a` is the only input buffer; `n = a.len()` is bound at line
+    //   450, and the early-return at line 451 ensures we never launch
+    //   with `n == 0`.
+    // - `out` was alloc'd with exactly `n` u16 elements at line 467 from
+    //   `stream`; we hold the only `&mut out`, so it is non-aliased with
+    //   the immutable `a` and exclusively owned by `stream` until launch
+    //   completes.
+    // - The kernel reads `a[i]` and writes `out[i]` only within `[0, n)`
+    //   per the PTX bound-check at lines 254-255 of the kernel source
+    //   (`setp.ge.u32 %p, %r_tid, %n_reg; @%p bra DONE;`).
+    // - `n` fits in u32: `launch_1d` cast `n as u32` at line 342 to
+    //   compute the grid, so the cast on line 469 is non-truncating for
+    //   any `n` the grid covers.
     unsafe {
         stream
             .launch_builder(&f)
@@ -507,6 +564,27 @@ pub fn gpu_fatrelu_bf16(
     let mut out = stream.alloc_zeros::<u16>(n)?;
     let cfg = launch_1d(n);
     let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 496 via
+    //   `module_cache::get_or_compile` from `FATRELU_BF16_PTX`; entry
+    //   point `fatrelu_bf16_kernel` at line 288 has signature (a_ptr:
+    //   u64, out_ptr: u64, n: u32, threshold: f32) which matches the
+    //   four args pushed below in order.
+    // - `a` is the only input buffer; `n = a.len()` bound at line 490,
+    //   early-return at line 491 ensures `n > 0` at launch.
+    // - `out` was alloc'd with exactly `n` u16 elements at line 507 from
+    //   `stream`; we hold the only `&mut out`, so it is non-aliased with
+    //   the immutable `a` and exclusively owned by `stream` until launch
+    //   completes.
+    // - `threshold` is a stack `f32` whose address is borrowed only for
+    //   the duration of `arg(&threshold)` and is read once into a kernel
+    //   parameter slot before launch — its lifetime exceeds the
+    //   parameter copy.
+    // - The kernel reads `a[i]` and writes `out[i]` only within `[0, n)`
+    //   per the PTX bound-check at lines 311-312 of the kernel source
+    //   (`setp.ge.u32 %p, %r_tid, %n_reg; @%p bra DONE;`).
+    // - `n` fits in u32: `launch_1d` cast `n as u32` at line 342, so the
+    //   cast on line 509 is non-truncating for any `n` the grid covers.
     unsafe {
         stream
             .launch_builder(&f)
@@ -620,6 +698,38 @@ pub fn gpu_embedding_gather_bf16(
     };
     let n_u32 = n_tokens as u32;
     let dim_u32 = dim as u32;
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 603 via
+    //   `module_cache::get_or_compile` from `EMBEDDING_GATHER_BF16_PTX`;
+    //   entry point `embedding_gather_bf16_kernel` at line 533 has
+    //   signature (weight_ptr: u64, indices_ptr: u64, out_ptr: u64,
+    //   n_tokens: u32, dim: u32) which matches the five args below.
+    // - `weight` is the immutable bf16 row-table; `indices` is the
+    //   immutable u32 row-index buffer of length `n_tokens` (bound at
+    //   line 597 from `indices.len()`). The early-return at line 598
+    //   ensures `n_tokens > 0 && dim > 0` at launch, so neither pointer
+    //   is dereferenced for an empty grid.
+    // - `out` was alloc'd with exactly `n_tokens * dim` u16 elements at
+    //   line 615 from `stream`; we hold the only `&mut out`, so it is
+    //   non-aliased with `weight`/`indices` (both immutable shared refs)
+    //   and exclusively owned by `stream` until launch completes.
+    // - `weight`, `indices`, and `out` were all allocated via the same
+    //   `stream`/`device` context, so all three handles are valid in
+    //   the kernel's address space.
+    // - The kernel guards each token block with `setp.ge.u32 %p_tok,
+    //   %bid, %n_reg` and each column step with `setp.ge.u32 %p_col,
+    //   %col, %dim_reg` (loop body at lines 568-585), so reads/writes
+    //   are confined to `[0, n_tokens * dim)` for `out` and
+    //   `[indices[i] * dim, (indices[i]+1) * dim)` for `weight`. Caller
+    //   is responsible for ensuring `indices[i] < weight.len()/dim`;
+    //   that is a public-API invariant of `gpu_embedding_gather_bf16`,
+    //   not a soundness invariant of this launch (out-of-range gathers
+    //   produce garbage but cannot violate memory safety because the
+    //   PTX only reads from the supplied `weight` allocation).
+    // - `n_tokens` and `dim` fit in u32: both come from `usize` values
+    //   already used to size `out` at line 614 (`n_tokens * dim`); on
+    //   any 64-bit target `dim_u32` truncation would have been caught
+    //   by the alloc, on 32-bit it cannot truncate by definition.
     unsafe {
         stream
             .launch_builder(&f)
@@ -752,6 +862,39 @@ pub fn gpu_embedding_gather_bf16_to_f32(
     let n_u32 = n_tokens as u32;
     let dim_u32 = dim as u32;
     let out_slice = out.inner_mut();
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 734 via
+    //   `module_cache::get_or_compile` from
+    //   `EMBEDDING_GATHER_BF16_TO_F32_PTX`; entry point
+    //   `embedding_gather_bf16_to_f32_kernel` at line 650 has signature
+    //   (weight_ptr: u64, indices_ptr: u64, out_ptr: u64, n_tokens: u32,
+    //   dim: u32) which matches the five args below.
+    // - `weight` is bf16 (u16) row-table; `indices` is u32 of length
+    //   `n_tokens` (bound at line 728). Early-return at line 729 ensures
+    //   `n_tokens > 0 && dim > 0` at launch.
+    // - `out` (a `CudaBuffer<f32>`) was alloc'd with `n_tokens * dim`
+    //   f32 elements at line 746 via `transfer::alloc_zeros_f32`;
+    //   `out.inner_mut()` reborrows the inner `CudaSlice<f32>`
+    //   exclusively for this scope. We hold no other reference to
+    //   `out`, so `out_slice` is non-aliased with `weight`/`indices`
+    //   (both immutable shared refs) and exclusively owned by `stream`
+    //   until launch completes.
+    // - The kernel writes `out` as `.b32` (4 bytes per element) at line
+    //   705 — matching the `f32` element type and 4-byte alignment of
+    //   the cudarc-allocated buffer (cudarc aligns device allocations
+    //   to natural element alignment).
+    // - The kernel guards each token block with `setp.ge.u32 %p_tok,
+    //   %bid, %n_reg` (line 673) and each column step with `setp.ge.u32
+    //   %p_col, %col, %dim_reg` (line 685), confining writes to
+    //   `[0, n_tokens * dim)` of `out` and reads to
+    //   `[indices[i] * dim, (indices[i]+1) * dim)` of `weight`.
+    //   Out-of-range row indices are a public-API invariant of the
+    //   caller, not a soundness break (kernel only touches the supplied
+    //   `weight` allocation).
+    // - `n_tokens` and `dim` fit in u32: `n_tokens * dim` was used to
+    //   size `out` at line 745, so any 64-bit truncation would have
+    //   already failed; on 32-bit `usize == u32` so truncation is
+    //   impossible.
     unsafe {
         stream
             .launch_builder(&f)
@@ -960,6 +1103,31 @@ pub fn gpu_rmsnorm_bf16(
     };
     let rows_u32 = rows as u32;
     let cols_u32 = cols as u32;
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 944 via
+    //   `module_cache::get_or_compile` from `RMSNORM_BF16_PTX`; entry
+    //   point `rmsnorm_bf16_kernel` at line 782 has signature (in_ptr:
+    //   u64, w_ptr: u64, out_ptr: u64, rows: u32, cols: u32, eps: f32),
+    //   matching the six args below in order.
+    // - `input` length is checked `>= rows * cols` at line 928
+    //   (`ShapeMismatch` guard); `weight` length is checked `>= cols`
+    //   at line 935. Empty-shape early-return at line 925 ensures
+    //   `rows > 0 && cols > 0` at launch.
+    // - `out` was alloc'd with exactly `rows * cols` u16 elements at
+    //   line 955 from `stream`; we hold the only `&mut out`, so it is
+    //   non-aliased with the immutable `input` and `weight` refs and
+    //   exclusively owned by `stream` until launch completes.
+    // - `eps` is a stack `f32` borrowed only for the `arg(&eps)` call;
+    //   its address lives for the duration of the kernel-arg copy.
+    // - The kernel uses one block per row (grid_dim.x = rows, line 957)
+    //   and guards both row index (`setp.ge.u32 %p, %bid, %rows_reg`)
+    //   and column-loop iterations (`setp.ge.u32 %lp, %j, %cols_reg`),
+    //   confining all reads/writes to `[0, rows * cols)` of `input`/
+    //   `out` and `[0, cols)` of `weight`.
+    // - `rows` and `cols` fit in u32: their product was used at line
+    //   955 to size `out` via `alloc_zeros::<u16>(rows * cols)`, so any
+    //   `u32`-truncating value of either would have already failed the
+    //   alloc on a 64-bit target; on 32-bit `usize == u32`.
     unsafe {
         stream
             .launch_builder(&f)
@@ -1201,6 +1369,30 @@ pub fn gpu_softmax_bf16(
     };
     let rows_u32 = rows as u32;
     let cols_u32 = cols as u32;
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 1185 via
+    //   `module_cache::get_or_compile` from `SOFTMAX_BF16_PTX`; entry
+    //   point `softmax_bf16_kernel` at line 992 has signature (in_ptr:
+    //   u64, out_ptr: u64, rows: u32, cols: u32) which matches the four
+    //   args below in order.
+    // - `input` length is checked `>= rows * cols` at line 1176
+    //   (`ShapeMismatch` guard). Empty-shape early-return at line 1173
+    //   ensures `rows > 0 && cols > 0` at launch.
+    // - `out` was alloc'd with exactly `rows * cols` u16 elements at
+    //   line 1196 from `stream`; we hold the only `&mut out`, so it is
+    //   non-aliased with the immutable `input` ref and exclusively
+    //   owned by `stream` until launch completes.
+    // - The kernel declares 256 f32 words of `.shared` at line 990
+    //   (`softmax_bf16_sdata[256]`); `cfg.block_dim.x == BLOCK_SIZE ==
+    //   256` (line 1199) so `r_tid < 256` and shared accesses at offset
+    //   `r_tid * 4` are within the 1024-byte shared region.
+    // - The kernel uses one block per row (grid_dim.x = rows, line 1198)
+    //   and guards both row index and the column loops with
+    //   `setp.ge.u32 ..., %rows_reg` / `..., %cols_reg`, confining
+    //   reads/writes to `[0, rows * cols)`.
+    // - `rows` and `cols` fit in u32: their product was used at line
+    //   1196 to size `out`, so any u32-truncating value would have
+    //   already failed the allocation on 64-bit; impossible on 32-bit.
     unsafe {
         stream
             .launch_builder(&f)
@@ -1407,6 +1599,38 @@ pub fn gpu_rope_half_bf16(
         head_dim as u32,
         seq_offset as u32,
     );
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 1389 via
+    //   `module_cache::get_or_compile` from `ROPE_HALF_BF16_PTX`; entry
+    //   point `rope_half_bf16_kernel` at line 1227 has signature
+    //   (in_ptr: u64, cos_ptr: u64, sin_ptr: u64, out_ptr: u64,
+    //   num_heads: u32, seq_len: u32, head_dim: u32, seq_offset: u32),
+    //   matching the eight args below in order.
+    // - `input` length is checked `>= num_heads * seq_len * head_dim`
+    //   at line 1380 (`ShapeMismatch` guard); `head_dim` is checked
+    //   non-zero and even at line 1372. The caller's API contract
+    //   requires `cos_cache` and `sin_cache` indexed by `(seq_offset +
+    //   pos) * (head_dim/2) + d` to be in-bounds — kernel reads via
+    //   straight indexing without an extra check (out-of-range inputs
+    //   read garbage but cannot violate memory safety because the PTX
+    //   only ever dereferences the supplied allocations).
+    // - `out` was alloc'd with exactly `num_heads * seq_len * head_dim`
+    //   u16 elements at line 1402 from `stream`; we hold the only
+    //   `&mut out`, so it is non-aliased with the four immutable input
+    //   refs (`input`, `cos_cache`, `sin_cache`) and exclusively owned
+    //   by `stream` until launch completes.
+    // - The kernel computes `total = num_heads * seq_len * half_dim`
+    //   (line 1257-1258) and guards `setp.ge.u32 %p, %gid, %total` at
+    //   line 1265. Each surviving thread writes two adjacent halves
+    //   (`d` and `d + half_dim`) which together index a unique element
+    //   in `[0, num_heads * seq_len * head_dim)` of `out`.
+    // - `num_heads`, `seq_len`, `head_dim`, `seq_offset` all fit in u32:
+    //   the product of the first three was used at line 1379 (`total_io
+    //   = num_heads * seq_len * head_dim`) and line 1402 to size `out`,
+    //   so a truncating value of any one would have failed the alloc on
+    //   64-bit; impossible on 32-bit. `seq_offset as u32` is bounded by
+    //   the caller's positional context (any position past u32::MAX is
+    //   nonsensical for a Llama-3 context window).
     unsafe {
         stream
             .launch_builder(&f)
@@ -1592,6 +1816,32 @@ pub fn gpu_transpose_to_heads_bf16(
     let mut out = stream.alloc_zeros::<u16>(total)?;
     let cfg = launch_1d(total);
     let (nh, sl, hd) = (num_heads as u32, seq_len as u32, head_dim as u32);
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 1805 via
+    //   `module_cache::get_or_compile` from
+    //   `TRANSPOSE_TO_HEADS_BF16_PTX`; entry point
+    //   `transpose_to_heads_bf16_kernel` at line 1463 has signature
+    //   (in_ptr: u64, out_ptr: u64, num_heads: u32, seq_len: u32,
+    //   head_dim: u32), matching the five args below in order.
+    // - `input` length is checked `>= total = num_heads * seq_len *
+    //   head_dim` at line 1796 (`ShapeMismatch` guard). Empty-shape
+    //   early-return at line 1793 ensures `total > 0` at launch.
+    // - `out` was alloc'd with exactly `total` u16 elements at line
+    //   1816 from `stream`; we hold the only `&mut out`, so it is
+    //   non-aliased with the immutable `input` ref and exclusively
+    //   owned by `stream` until launch completes. Both `input` and
+    //   `out` have the same number of elements (this op is a layout
+    //   permutation, not a reshape), and the kernel writes each output
+    //   index exactly once via the bijective mapping `(s, h, d) ->
+    //   (h, s, d)`.
+    // - The kernel computes `total = H * S * D` in registers and
+    //   guards `setp.ge.u32 %p, %gid, %total` (kernel body), confining
+    //   reads of `input[gid]` and writes of `out[dst_idx]` to
+    //   `[0, total)`.
+    // - `num_heads`, `seq_len`, `head_dim` fit in u32: their product
+    //   was used at line 1791 (and again at line 1816 to size `out`),
+    //   so a truncating value would have failed the alloc on 64-bit;
+    //   impossible on 32-bit.
     unsafe {
         stream
             .launch_builder(&f)
@@ -1639,6 +1889,32 @@ pub fn gpu_transpose_from_heads_bf16(
     let mut out = stream.alloc_zeros::<u16>(total)?;
     let cfg = launch_1d(total);
     let (nh, sl, hd) = (num_heads as u32, seq_len as u32, head_dim as u32);
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 1878 via
+    //   `module_cache::get_or_compile` from
+    //   `TRANSPOSE_FROM_HEADS_BF16_PTX`; entry point
+    //   `transpose_from_heads_bf16_kernel` (heads-major to seq-major
+    //   layout) has signature (in_ptr: u64, out_ptr: u64, num_heads:
+    //   u32, seq_len: u32, head_dim: u32), matching the five args
+    //   below in order.
+    // - `input` length is checked `>= total = num_heads * seq_len *
+    //   head_dim` at line 1869 (`ShapeMismatch` guard). Empty-shape
+    //   early-return at line 1866 ensures `total > 0` at launch.
+    // - `out` was alloc'd with exactly `total` u16 elements at line
+    //   1889 from `stream`; we hold the only `&mut out`, so it is
+    //   non-aliased with the immutable `input` ref and exclusively
+    //   owned by `stream` until launch completes. Both buffers have
+    //   the same element count (this is the inverse layout permutation
+    //   of `transpose_to_heads`), and the kernel writes each output
+    //   index exactly once via the bijective inverse mapping.
+    // - The kernel computes `total = H * S * D` in registers and
+    //   guards `setp.ge.u32 %p, %gid, %total` (kernel body), confining
+    //   reads of `input[gid]` and writes of `out[dst_idx]` to
+    //   `[0, total)`.
+    // - `num_heads`, `seq_len`, `head_dim` fit in u32: their product
+    //   was used at line 1864 (and again at line 1889 to size `out`),
+    //   so a truncating value would have failed the alloc on 64-bit;
+    //   impossible on 32-bit.
     unsafe {
         stream
             .launch_builder(&f)
@@ -1766,6 +2042,33 @@ pub fn gpu_repeat_kv_bf16(
         seq_len as u32,
         head_dim as u32,
     );
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 2026 via
+    //   `module_cache::get_or_compile` from `REPEAT_KV_BF16_PTX`; entry
+    //   point `repeat_kv_bf16_kernel` (line 1916) has signature (in_ptr:
+    //   u64, out_ptr: u64, num_kv_heads: u32, group_size: u32, seq_len:
+    //   u32, head_dim: u32), matching the six args below in order.
+    // - `input` length is checked `>= total_in = num_kv_heads * seq_len
+    //   * head_dim` at line 2017 (`ShapeMismatch` guard). Empty-shape
+    //   early-return at line 2014 ensures `total_out > 0` at launch.
+    // - `out` was alloc'd with exactly `total_out = num_kv_heads *
+    //   group_size * seq_len * head_dim` u16 elements at line 2037 from
+    //   `stream`; we hold the only `&mut out`, so it is non-aliased
+    //   with the immutable `input` and exclusively owned by `stream`
+    //   until launch completes.
+    // - The kernel computes `total = Hkv * G * S * D` in registers
+    //   (lines matching 1937-1939 of the PTX source: `mul.lo.u32 %Hq,
+    //   %Hkv, %G; mul.lo.u32 %SD, %S, %D; mul.lo.u32 %total, %Hq,
+    //   %SD;`) and guards each thread with `setp.ge.u32 %p, %gid,
+    //   %total`. Each surviving thread reads from `input[h_in * S*D +
+    //   s*D + d]` where `h_in = h_out / G < Hkv` so the read is bounded
+    //   by `[0, total_in)`, and writes `out[gid]` bounded by
+    //   `[0, total_out)`.
+    // - `num_kv_heads`, `group_size`, `seq_len`, `head_dim` all fit in
+    //   u32: `total_in` and `total_out` were both used to size or
+    //   bounds-check buffers (lines 2012-2017, 2037), so any
+    //   u32-truncating value would have already failed alloc/bounds on
+    //   64-bit; impossible on 32-bit.
     unsafe {
         stream
             .launch_builder(&f)
@@ -1876,6 +2179,31 @@ pub fn gpu_causal_mask_bf16(
 
     let cfg = launch_1d(total);
     let (b, sq, sk) = (batch as u32, seq_q as u32, seq_k as u32);
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 2169 via
+    //   `module_cache::get_or_compile` from `CAUSAL_MASK_BF16_PTX`;
+    //   entry point `causal_mask_bf16_kernel` (line 2096) has signature
+    //   (buf_ptr: u64, batch: u32, seq_q: u32, seq_k: u32), matching
+    //   the four args below in order.
+    // - `buf` is the in-place output (`&mut CudaSlice<u16>`); its
+    //   length is checked `>= total = batch * seq_q * seq_k` at line
+    //   2160 (`ShapeMismatch` guard). Empty-shape early-return at
+    //   line 2157 ensures `total > 0` at launch.
+    // - `buf` is borrowed exclusively via `&mut` for the full duration
+    //   of this function (the public API takes `&mut CudaSlice<u16>`),
+    //   so no other reference exists during the launch — exclusive
+    //   ownership by `stream` until the kernel completes is preserved
+    //   by the borrow check.
+    // - The kernel computes `total = B * SQ * SK` in registers and
+    //   guards `setp.ge.u32 %p, %gid, %total` at line 2120; an
+    //   additional predicate `setp.le.u32 %q, %j, %i; @%q bra DONE`
+    //   at line 2129 ensures only the upper triangle (`j > i`) is
+    //   written. Writes are confined to `[0, total)` of `buf`.
+    // - `batch`, `seq_q`, `seq_k` fit in u32: `total = batch * seq_q
+    //   * seq_k` was computed at line 2156 and used to bounds-check
+    //   `buf.len()` at line 2160, so any u32-truncating value would
+    //   have already failed the bounds check on 64-bit; impossible
+    //   on 32-bit.
     unsafe {
         stream
             .launch_builder(&f)
@@ -1975,6 +2303,28 @@ pub fn gpu_scale_bf16(
     let mut out = stream.alloc_zeros::<u16>(n)?;
     let cfg = launch_1d(n);
     let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 2292 via
+    //   `module_cache::get_or_compile` from `SCALE_BF16_PTX`; entry
+    //   point `scale_bf16_kernel` (line 2225) has signature (a_ptr:
+    //   u64, out_ptr: u64, scale: f32, n: u32), matching the four
+    //   args below in order.
+    // - `input` is the immutable bf16 buffer; `n = input.len()` bound
+    //   at line 2286, early-return at line 2287 ensures `n > 0` at
+    //   launch.
+    // - `out` was alloc'd with exactly `n` u16 elements at line 2303
+    //   from `stream`; we hold the only `&mut out`, so it is
+    //   non-aliased with the immutable `input` ref and exclusively
+    //   owned by `stream` until launch completes.
+    // - `scale` is a stack `f32` borrowed only for the `arg(&scale)`
+    //   call; its address lives for the duration of the kernel-arg
+    //   copy.
+    // - The kernel reads `input[i]` and writes `out[i]` only within
+    //   `[0, n)` per the PTX bound-check at line 2249-2250
+    //   (`setp.ge.u32 %p, %r_tid, %n_reg; @%p bra DONE;`).
+    // - `n` fits in u32: `launch_1d` cast `n as u32` at line 342 to
+    //   compute the grid, so the cast on line 2305 is non-truncating
+    //   for any `n` the grid covers.
     unsafe {
         stream
             .launch_builder(&f)
@@ -2161,6 +2511,37 @@ pub fn gpu_block_reduce_max_abs_bf16(
     let rows_u32 = rows as u32;
     let nb_u32 = n_blocks as u32;
     let bs_u32 = block_size as u32;
+    // SAFETY:
+    // - `f` is a valid PTX function compiled at line 2494 via
+    //   `module_cache::get_or_compile` from
+    //   `BLOCK_REDUCE_MAX_ABS_BF16_PTX`; entry point
+    //   `block_reduce_max_abs_bf16_kernel` (line 2347) has signature
+    //   (in_ptr: u64, out_ptr: u64, rows: u32, n_blocks: u32,
+    //   block_size: u32), matching the five args below in order.
+    // - `input` length is checked `>= rows * n_blocks * block_size` at
+    //   line 2485 (`ShapeMismatch` guard). Empty-shape early-return at
+    //   line 2481 ensures all three dimensions are non-zero at launch.
+    // - `out` (a `CudaSlice<f32>`) was alloc'd with exactly `rows *
+    //   n_blocks` f32 elements at line 2505 from `stream`; we hold the
+    //   only `&mut out`, so it is non-aliased with the immutable
+    //   `input` ref and exclusively owned by `stream` until launch
+    //   completes. The output is `f32` (4 bytes), matching the PTX
+    //   `st.shared.f32` and `st.global.f32` writes.
+    // - The kernel declares 256 f32 words of `.shared` at line 2333
+    //   (`block_reduce_max_abs_sdata[256]`); `cfg.block_dim.x ==
+    //   BLOCK_SIZE == 256` so `r_tid < 256` and shared accesses at
+    //   offset `r_tid * 4` are within the 1024-byte shared region.
+    // - The kernel uses a 2D grid `(n_blocks, rows, 1)` and guards
+    //   both dimensions with `setp.ge.u32 %p, %bid_r, %rows_reg` /
+    //   `setp.ge.u32 %p, %bid_b, %nb_reg` (lines 2362-2365) and the
+    //   element loop with `setp.ge.u32 %lp, %j, %bs_reg`. Reads of
+    //   `input` are confined to `[0, rows * n_blocks * block_size)`
+    //   and writes of `out` to `[0, rows * n_blocks)`.
+    // - `rows`, `n_blocks`, `block_size` fit in u32: their product
+    //   was used at line 2484 to bounds-check `input.len()`, so any
+    //   u32-truncating value would have already failed; `rows *
+    //   n_blocks` was used at line 2505 to size `out`. Impossible
+    //   to truncate on 32-bit (`usize == u32`).
     unsafe {
         stream
             .launch_builder(&f)

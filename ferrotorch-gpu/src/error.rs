@@ -1,210 +1,137 @@
-use core::fmt;
+//! Error type for the GPU backend.
+//!
+//! [`GpuError`] is the canonical fallible-result type for everything in this
+//! crate; [`GpuResult<T>`] aliases `Result<T, GpuError>`. The variants
+//! correspond 1:1 with the failure modes the rest of the crate produces. The
+//! cudarc-error wrappers are gated behind the `cuda` feature so the crate can
+//! still build (with stubs) when the feature is disabled.
 
 /// Errors produced by GPU operations.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum GpuError {
     /// CUDA driver error forwarded from cudarc.
     #[cfg(feature = "cuda")]
-    Driver(cudarc::driver::DriverError),
+    #[error("CUDA driver error: {0}")]
+    Driver(#[from] cudarc::driver::DriverError),
 
     /// Attempted a GPU operation but the `cuda` feature is not enabled.
     #[cfg(not(feature = "cuda"))]
+    #[error("GPU operations require the `cuda` feature")]
     NoCudaFeature,
 
     /// Device ordinal is out of range.
-    InvalidDevice { ordinal: usize, count: usize },
+    #[error("invalid device ordinal {ordinal} (only {count} devices available)")]
+    InvalidDevice {
+        /// The requested ordinal.
+        ordinal: usize,
+        /// The number of devices actually present.
+        count: usize,
+    },
 
     /// Tried to operate on buffers from different devices.
-    DeviceMismatch { expected: usize, got: usize },
+    #[error("device mismatch: expected cuda:{expected}, got cuda:{got}")]
+    DeviceMismatch {
+        /// Ordinal the operation expected.
+        expected: usize,
+        /// Ordinal the operand was actually on.
+        got: usize,
+    },
 
     /// GPU out of memory. Contains the requested size and the free bytes at
     /// the time of the failed allocation.
+    #[error(
+        "GPU out of memory: requested {requested_bytes} bytes but only \
+         {free_bytes} bytes free"
+    )]
     OutOfMemory {
+        /// Allocation size in bytes that the caller requested.
         requested_bytes: usize,
+        /// Free bytes reported by the driver at the time of failure.
         free_bytes: usize,
     },
 
     /// Allocation rejected because it would exceed the user-configured memory
     /// budget (see [`crate::memory_guard::MemoryGuard::set_budget`]).
+    #[error(
+        "memory budget exceeded: requested {requested_bytes} bytes, \
+         budget is {budget_bytes} bytes with {used_bytes} bytes already used"
+    )]
     BudgetExceeded {
+        /// Allocation size in bytes that the caller requested.
         requested_bytes: usize,
+        /// Configured budget ceiling in bytes.
         budget_bytes: usize,
+        /// Bytes already accounted for as live by the guard.
         used_bytes: usize,
     },
 
     /// Binary op received buffers with different lengths.
-    LengthMismatch { a: usize, b: usize },
+    #[error("buffer length mismatch: {a} vs {b}")]
+    LengthMismatch {
+        /// Length of the first operand.
+        a: usize,
+        /// Length of the second operand.
+        b: usize,
+    },
 
     /// Matrix multiplication shape mismatch (inner dimensions differ).
+    #[error("{op}: shape mismatch, expected {expected:?}, got {got:?}")]
     ShapeMismatch {
+        /// Operation name (`"matmul"`, `"bmm"`, etc).
         op: &'static str,
+        /// Shape the operation expected.
         expected: Vec<usize>,
+        /// Shape that was actually supplied.
         got: Vec<usize>,
     },
 
     /// cuBLAS error forwarded from cudarc.
     #[cfg(feature = "cuda")]
-    Blas(cudarc::cublas::result::CublasError),
+    #[error("cuBLAS error: {0}")]
+    Blas(#[from] cudarc::cublas::result::CublasError),
 
     /// cuSOLVER error forwarded from cudarc.
     #[cfg(feature = "cuda")]
-    Solver(cudarc::cusolver::result::CusolverError),
+    #[error("cuSOLVER error: {0}")]
+    Solver(#[from] cudarc::cusolver::result::CusolverError),
 
     /// cuFFT error forwarded from cudarc.
     #[cfg(feature = "cuda")]
-    Fft(cudarc::cufft::result::CufftError),
+    #[error("cuFFT error: {0}")]
+    Fft(#[from] cudarc::cufft::result::CufftError),
 
     /// PTX kernel compilation failed (e.g. unsupported GPU architecture, or
     /// invalid PTX rejected by the JIT). Preserves the underlying cudarc error
     /// so callers can diagnose specifically *why* the JIT rejected the kernel.
     #[cfg(feature = "cuda")]
+    #[error("PTX kernel compilation failed for `{kernel}`: {source}")]
     PtxCompileFailed {
+        /// Name of the kernel whose PTX source the JIT rejected.
         kernel: &'static str,
+        /// Underlying cudarc driver error returned by the JIT.
+        #[source]
         source: cudarc::driver::DriverError,
     },
 
     /// The op is not supported on this device for this dtype combination.
     /// Mirrors PyTorch's `NotImplementedError: <op> not implemented for 'CUDA'`
     /// for unsupported (op, dtype, device) combinations.
+    #[error("{op} not implemented for '{dtype}' on CUDA")]
     Unsupported {
+        /// Operation name.
         op: &'static str,
+        /// Dtype that's not supported for this op.
         dtype: &'static str,
     },
 
     /// An operation was attempted in an invalid state (e.g., capture on a
     /// sealed pool, or cuSOLVER reported a negative info value).
-    InvalidState { message: String },
-}
-
-impl fmt::Display for GpuError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            #[cfg(feature = "cuda")]
-            GpuError::Driver(e) => write!(f, "CUDA driver error: {e}"),
-
-            #[cfg(not(feature = "cuda"))]
-            GpuError::NoCudaFeature => {
-                write!(f, "GPU operations require the `cuda` feature")
-            }
-
-            GpuError::InvalidDevice { ordinal, count } => {
-                write!(
-                    f,
-                    "invalid device ordinal {ordinal} (only {count} devices available)"
-                )
-            }
-
-            GpuError::DeviceMismatch { expected, got } => {
-                write!(
-                    f,
-                    "device mismatch: expected cuda:{expected}, got cuda:{got}"
-                )
-            }
-
-            GpuError::OutOfMemory {
-                requested_bytes,
-                free_bytes,
-            } => {
-                write!(
-                    f,
-                    "GPU out of memory: requested {requested_bytes} bytes but only \
-                     {free_bytes} bytes free"
-                )
-            }
-
-            GpuError::BudgetExceeded {
-                requested_bytes,
-                budget_bytes,
-                used_bytes,
-            } => {
-                write!(
-                    f,
-                    "memory budget exceeded: requested {requested_bytes} bytes, \
-                     budget is {budget_bytes} bytes with {used_bytes} bytes already used"
-                )
-            }
-
-            GpuError::LengthMismatch { a, b } => {
-                write!(f, "buffer length mismatch: {a} vs {b}")
-            }
-
-            GpuError::ShapeMismatch { op, expected, got } => {
-                write!(
-                    f,
-                    "{op}: shape mismatch, expected {expected:?}, got {got:?}"
-                )
-            }
-
-            #[cfg(feature = "cuda")]
-            GpuError::Blas(e) => write!(f, "cuBLAS error: {e}"),
-
-            #[cfg(feature = "cuda")]
-            GpuError::Solver(e) => write!(f, "cuSOLVER error: {e}"),
-
-            #[cfg(feature = "cuda")]
-            GpuError::Fft(e) => write!(f, "cuFFT error: {e}"),
-
-            #[cfg(feature = "cuda")]
-            GpuError::PtxCompileFailed { kernel, source } => {
-                write!(f, "PTX kernel compilation failed for `{kernel}`: {source}")
-            }
-
-            GpuError::Unsupported { op, dtype } => {
-                write!(f, "{op} not implemented for '{dtype}' on CUDA")
-            }
-
-            GpuError::InvalidState { message } => {
-                write!(f, "invalid state: {message}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for GpuError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            #[cfg(feature = "cuda")]
-            GpuError::Driver(e) => Some(e),
-            #[cfg(feature = "cuda")]
-            GpuError::Blas(e) => Some(e),
-            #[cfg(feature = "cuda")]
-            GpuError::Solver(e) => Some(e),
-            #[cfg(feature = "cuda")]
-            GpuError::Fft(e) => Some(e),
-            #[cfg(feature = "cuda")]
-            GpuError::PtxCompileFailed { source, .. } => Some(source),
-            _ => None,
-        }
-    }
-}
-
-#[cfg(feature = "cuda")]
-impl From<cudarc::driver::DriverError> for GpuError {
-    fn from(e: cudarc::driver::DriverError) -> Self {
-        GpuError::Driver(e)
-    }
-}
-
-#[cfg(feature = "cuda")]
-impl From<cudarc::cublas::result::CublasError> for GpuError {
-    fn from(e: cudarc::cublas::result::CublasError) -> Self {
-        GpuError::Blas(e)
-    }
-}
-
-#[cfg(feature = "cuda")]
-impl From<cudarc::cusolver::result::CusolverError> for GpuError {
-    fn from(e: cudarc::cusolver::result::CusolverError) -> Self {
-        GpuError::Solver(e)
-    }
-}
-
-#[cfg(feature = "cuda")]
-impl From<cudarc::cufft::result::CufftError> for GpuError {
-    fn from(e: cudarc::cufft::result::CufftError) -> Self {
-        GpuError::Fft(e)
-    }
+    #[error("invalid state: {message}")]
+    InvalidState {
+        /// Human-readable description of the invalid state.
+        message: String,
+    },
 }
 
 /// Convenience alias for GPU results.

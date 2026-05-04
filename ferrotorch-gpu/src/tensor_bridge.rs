@@ -169,9 +169,45 @@ impl<T: GpuFloat> GpuTensor<T> {
     pub fn add(&self, other: &GpuTensor<T>) -> GpuResult<GpuTensor<T>> {
         validate_shapes(self, other)?;
         if is_f32::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f32>` is `unsafe` per its
+            //   `# Safety` block at line 503-506: the caller must verify
+            //   `size_of::<T>() == size_of::<f32>()` and
+            //   `align_of::<T>() == align_of::<f32>()`.
+            // - The branch is gated by `is_f32::<T>()` on line 171, which
+            //   uses `TypeId::of::<T>() == TypeId::of::<f32>()` (line 133).
+            //   `TypeId` equality on a `'static` type implies `T == f32`
+            //   exactly, so size and alignment of `T` and `f32` are equal
+            //   by definition.
+            // - `CudaBuffer<T>` and `CudaBuffer<f32>` have identical layout
+            //   when `T == f32`: per the helper's inline comment on
+            //   line 511-513, `CudaSlice` is a device pointer + length,
+            //   size-independent, so the outer struct layout depends only
+            //   on `T` through `PhantomData`-like fields. Reinterpreting
+            //   `&CudaBuffer<f32>` as `&CudaBuffer<f32>` is the identity.
+            // - Lifetime: the returned `&CudaBuffer<f32>` is bound by
+            //   `&self.buffer` (and inherits `&self`'s borrow), so the
+            //   `a_buf` reference cannot outlive `&self`.
+            // - No `&mut` aliases: `&self.buffer` is a shared borrow; no
+            //   concurrent `&mut CudaBuffer` exists during this call.
             let a_buf = unsafe { transmute_buffer_ref::<T, f32>(&self.buffer) };
+            // SAFETY: same as the `a_buf` transmute above — `is_f32::<T>()`
+            // (line 171) implies `T == f32`, so `&CudaBuffer<T>` and
+            // `&CudaBuffer<f32>` have identical layout. `b_buf`'s lifetime
+            // is bound by `&other.buffer`, and `&other` is a shared borrow
+            // so no `&mut` aliasing is possible.
             let b_buf = unsafe { transmute_buffer_ref::<T, f32>(&other.buffer) };
             let out_buf = gpu_add(a_buf, b_buf, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f32, T>` (line 519-522) requires
+            //   `size_of::<f32>() == size_of::<T>()` and equal alignment.
+            //   `is_f32::<T>()` on line 171 implies `T == f32` so both
+            //   conditions hold by reflexivity.
+            // - We move ownership of the `CudaBuffer<f32>` returned by
+            //   `gpu_add` (which already owns its CudaSlice and pool ticket)
+            //   into a `CudaBuffer<T>`. The helper uses `ptr::read` plus
+            //   `mem::forget` (lines 528-529) so the original allocation
+            //   is moved exactly once with no double-drop.
             let out_buf = unsafe { transmute_buffer::<f32, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
@@ -179,17 +215,53 @@ impl<T: GpuFloat> GpuTensor<T> {
                 device: self.device.clone(),
             })
         } else if is_f64::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f64>` requires
+            //   `size_of::<T>() == size_of::<f64>()` and equal alignment
+            //   (helper docstring at line 503-506).
+            // - This branch is gated by `is_f64::<T>()` on line 181 which
+            //   tests `TypeId::of::<T>() == TypeId::of::<f64>()` (line 139).
+            //   `TypeId` equality on a `'static` type proves `T == f64`,
+            //   so size and alignment match by reflexivity.
+            // - `CudaBuffer<f64>` and `CudaBuffer<T>` therefore have
+            //   identical layout (helper rationale on line 511-513).
+            // - Lifetime: `a_buf`'s borrow is rooted at `&self.buffer`,
+            //   limited by the outer `&self` borrow. No `&mut` aliasing
+            //   possible: shared borrow only.
             let a_buf = unsafe { transmute_buffer_ref::<T, f64>(&self.buffer) };
+            // SAFETY: identical to `a_buf` transmute above; `is_f64::<T>()`
+            // (line 181) implies `T == f64`. Lifetime bound by
+            // `&other.buffer`, shared-borrow-only.
             let b_buf = unsafe { transmute_buffer_ref::<T, f64>(&other.buffer) };
             let out_buf = gpu_add_f64(a_buf, b_buf, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f64, T>` requires equal size and
+            //   alignment of `f64` and `T` (line 519-522). `is_f64::<T>()`
+            //   on line 181 proves `T == f64`, so both hold.
+            // - Move semantics: `gpu_add_f64` returns an owned
+            //   `CudaBuffer<f64>`; we transfer ownership to
+            //   `CudaBuffer<T>` with no double-drop (helper uses
+            //   `ptr::read` + `mem::forget`, lines 528-529).
             let out_buf = unsafe { transmute_buffer::<f64, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
                 shape: self.shape.clone(),
                 device: self.device.clone(),
             })
-        } else {
+        } else if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+            tracing::warn!(
+                target: "ferrotorch::gpu_fallback",
+                op = "add",
+                dtype = std::any::type_name::<T>(),
+                "GPU does not support this dtype; falling back to CPU. Unset \
+                 FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+            );
             binary_cpu_fallback(self, other, |a, b| a + b)
+        } else {
+            Err(GpuError::Unsupported {
+                op: "add",
+                dtype: std::any::type_name::<T>(),
+            })
         }
     }
 
@@ -199,9 +271,32 @@ impl<T: GpuFloat> GpuTensor<T> {
     pub fn sub(&self, other: &GpuTensor<T>) -> GpuResult<GpuTensor<T>> {
         validate_shapes(self, other)?;
         if is_f32::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f32>` (line 503-506) requires
+            //   `size_of::<T>() == size_of::<f32>()` and equal alignment.
+            // - `is_f32::<T>()` on the line above (TypeId equality at
+            //   line 133) implies `T == f32` exactly, so the size and
+            //   alignment preconditions hold by reflexivity.
+            // - `CudaBuffer<T>` and `CudaBuffer<f32>` have identical
+            //   memory layout when `T == f32` (helper inline rationale
+            //   line 511-513).
+            // - Lifetime: returned `&CudaBuffer<f32>` is bound by
+            //   `&self.buffer`. No `&mut` aliasing because shared borrow.
             let a_buf = unsafe { transmute_buffer_ref::<T, f32>(&self.buffer) };
+            // SAFETY: same reasoning as `a_buf` above; `is_f32::<T>()`
+            // proves `T == f32`, so the transmute is identity-shaped.
+            // Lifetime rooted at `&other.buffer`; shared borrow excludes
+            // `&mut` aliasing.
             let b_buf = unsafe { transmute_buffer_ref::<T, f32>(&other.buffer) };
             let out_buf = gpu_sub(a_buf, b_buf, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f32, T>` (line 519-522) requires
+            //   `size_of::<f32>() == size_of::<T>()` and equal alignment.
+            //   `is_f32::<T>()` proves `T == f32` so both hold.
+            // - Move ownership: `gpu_sub` returns an owned
+            //   `CudaBuffer<f32>`; the helper transfers via
+            //   `ptr::read` + `mem::forget` (lines 528-529). No
+            //   double-drop, no aliasing.
             let out_buf = unsafe { transmute_buffer::<f32, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
@@ -209,17 +304,52 @@ impl<T: GpuFloat> GpuTensor<T> {
                 device: self.device.clone(),
             })
         } else if is_f64::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f64>` (line 503-506) requires
+            //   equal size and alignment for `T` and `f64`.
+            // - `is_f64::<T>()` (TypeId equality at line 139) implies
+            //   `T == f64` exactly. Reflexivity discharges the
+            //   preconditions.
+            // - `CudaBuffer<T>` and `CudaBuffer<f64>` have identical
+            //   layout when `T == f64`.
+            // - Lifetime bound by `&self.buffer`; shared borrow rules
+            //   out `&mut` aliasing.
             let a_buf = unsafe { transmute_buffer_ref::<T, f64>(&self.buffer) };
+            // SAFETY:
+            // - Identical reasoning to `a_buf` above: `is_f64::<T>()`
+            //   (TypeId equality, line 139) implies `T == f64`, so
+            //   `transmute_buffer_ref::<T, f64>`'s size/align
+            //   preconditions hold reflexively.
+            // - Lifetime: bound by `&other.buffer`; shared borrow
+            //   precludes `&mut` aliasing.
             let b_buf = unsafe { transmute_buffer_ref::<T, f64>(&other.buffer) };
             let out_buf = gpu_sub_f64(a_buf, b_buf, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f64, T>` (line 519-522) precondition
+            //   discharged by `is_f64::<T>()` ⇒ `T == f64`.
+            // - Owned move: `gpu_sub_f64` returns a `CudaBuffer<f64>`
+            //   which we transfer to `CudaBuffer<T>` with `ptr::read` +
+            //   `mem::forget` semantics. No double-drop.
             let out_buf = unsafe { transmute_buffer::<f64, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
                 shape: self.shape.clone(),
                 device: self.device.clone(),
             })
-        } else {
+        } else if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+            tracing::warn!(
+                target: "ferrotorch::gpu_fallback",
+                op = "sub",
+                dtype = std::any::type_name::<T>(),
+                "GPU does not support this dtype; falling back to CPU. Unset \
+                 FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+            );
             binary_cpu_fallback(self, other, |a, b| a - b)
+        } else {
+            Err(GpuError::Unsupported {
+                op: "sub",
+                dtype: std::any::type_name::<T>(),
+            })
         }
     }
 
@@ -229,9 +359,34 @@ impl<T: GpuFloat> GpuTensor<T> {
     pub fn mul(&self, other: &GpuTensor<T>) -> GpuResult<GpuTensor<T>> {
         validate_shapes(self, other)?;
         if is_f32::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f32>` (line 503-506) requires
+            //   equal size and alignment of `T` and `f32`.
+            // - `is_f32::<T>()` (TypeId equality, line 133) on the
+            //   conditional above proves `T == f32` exactly; reflexivity
+            //   discharges the size/align preconditions.
+            // - `CudaBuffer<T>` layout matches `CudaBuffer<f32>` for
+            //   `T == f32` (helper rationale at line 511-513).
+            // - Lifetime: `a_buf` is bound by `&self.buffer`; the shared
+            //   borrow `&self` precludes any `&mut` aliasing.
             let a_buf = unsafe { transmute_buffer_ref::<T, f32>(&self.buffer) };
+            // SAFETY:
+            // - Same reasoning as `a_buf` above: `is_f32::<T>()`
+            //   (TypeId equality, line 133) implies `T == f32`, so
+            //   `transmute_buffer_ref::<T, f32>` size/align preconditions
+            //   hold reflexively.
+            // - Lifetime: bound by `&other.buffer`; shared borrow
+            //   precludes `&mut` aliasing.
             let b_buf = unsafe { transmute_buffer_ref::<T, f32>(&other.buffer) };
             let out_buf = gpu_mul(a_buf, b_buf, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f32, T>` (line 519-522) requires
+            //   `size_of::<f32>() == size_of::<T>()` + equal alignment.
+            //   `is_f32::<T>()` ⇒ `T == f32` discharges both.
+            // - Move semantics: `gpu_mul` returns an owned
+            //   `CudaBuffer<f32>` whose CudaSlice + pool ticket transfer
+            //   to `CudaBuffer<T>` via `ptr::read` + `mem::forget`
+            //   (lines 528-529). No double-free.
             let out_buf = unsafe { transmute_buffer::<f32, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
@@ -239,17 +394,51 @@ impl<T: GpuFloat> GpuTensor<T> {
                 device: self.device.clone(),
             })
         } else if is_f64::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f64>` (line 503-506) requires
+            //   equal size and alignment of `T` and `f64`.
+            // - `is_f64::<T>()` (TypeId equality, line 139) proves
+            //   `T == f64`; reflexivity discharges the preconditions.
+            // - `CudaBuffer<T>` and `CudaBuffer<f64>` share layout when
+            //   `T == f64`.
+            // - Lifetime: bound by `&self.buffer`; shared borrow excludes
+            //   `&mut` aliasing.
             let a_buf = unsafe { transmute_buffer_ref::<T, f64>(&self.buffer) };
+            // SAFETY:
+            // - Same reasoning as `a_buf` above: `is_f64::<T>()`
+            //   (TypeId equality, line 139) implies `T == f64`, so the
+            //   `transmute_buffer_ref::<T, f64>` size/align preconditions
+            //   hold reflexively.
+            // - Lifetime: bound by `&other.buffer`; shared borrow
+            //   excludes any `&mut` aliasing.
             let b_buf = unsafe { transmute_buffer_ref::<T, f64>(&other.buffer) };
             let out_buf = gpu_mul_f64(a_buf, b_buf, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f64, T>` (line 519-522) preconditions
+            //   discharged by `is_f64::<T>()` ⇒ `T == f64`.
+            // - Owned move: `gpu_mul_f64` returns a `CudaBuffer<f64>`;
+            //   helper transfers via `ptr::read` + `mem::forget`. No
+            //   double-drop.
             let out_buf = unsafe { transmute_buffer::<f64, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
                 shape: self.shape.clone(),
                 device: self.device.clone(),
             })
-        } else {
+        } else if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+            tracing::warn!(
+                target: "ferrotorch::gpu_fallback",
+                op = "mul",
+                dtype = std::any::type_name::<T>(),
+                "GPU does not support this dtype; falling back to CPU. Unset \
+                 FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+            );
             binary_cpu_fallback(self, other, |a, b| a * b)
+        } else {
+            Err(GpuError::Unsupported {
+                op: "mul",
+                dtype: std::any::type_name::<T>(),
+            })
         }
     }
 
@@ -258,8 +447,23 @@ impl<T: GpuFloat> GpuTensor<T> {
     /// Uses a PTX kernel for `f32`; falls back to CPU round-trip for `f64`.
     pub fn neg(&self) -> GpuResult<GpuTensor<T>> {
         if is_f32::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f32>` (line 503-506) requires
+            //   equal size and alignment for `T` and `f32`.
+            // - `is_f32::<T>()` (TypeId equality, line 133) proves
+            //   `T == f32`; reflexivity discharges the preconditions.
+            // - `CudaBuffer<T>` matches `CudaBuffer<f32>` layout for
+            //   `T == f32` (helper rationale at line 511-513).
+            // - Lifetime: `a_buf` borrow rooted at `&self.buffer`; shared
+            //   borrow precludes `&mut` aliasing.
             let a_buf = unsafe { transmute_buffer_ref::<T, f32>(&self.buffer) };
             let out_buf = gpu_neg(a_buf, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f32, T>` (line 519-522) preconditions
+            //   discharged by `is_f32::<T>()` ⇒ `T == f32`.
+            // - Owned move: `gpu_neg` returns `CudaBuffer<f32>`; helper
+            //   transfers via `ptr::read` + `mem::forget` (lines 528-529).
+            //   No double-drop.
             let out_buf = unsafe { transmute_buffer::<f32, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
@@ -267,16 +471,42 @@ impl<T: GpuFloat> GpuTensor<T> {
                 device: self.device.clone(),
             })
         } else if is_f64::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f64>` (line 503-506) requires
+            //   equal size and alignment of `T` and `f64`.
+            // - `is_f64::<T>()` (TypeId equality, line 139) proves
+            //   `T == f64`; reflexivity discharges both preconditions.
+            // - `CudaBuffer<T>` and `CudaBuffer<f64>` share layout for
+            //   `T == f64`.
+            // - Lifetime: rooted at `&self.buffer`; shared borrow.
             let a_buf = unsafe { transmute_buffer_ref::<T, f64>(&self.buffer) };
             let out_buf = gpu_neg_f64(a_buf, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f64, T>` (line 519-522) preconditions
+            //   discharged by `is_f64::<T>()` ⇒ `T == f64`.
+            // - Owned move: `gpu_neg_f64` returns `CudaBuffer<f64>`;
+            //   helper transfers via `ptr::read` + `mem::forget`. No
+            //   double-drop.
             let out_buf = unsafe { transmute_buffer::<f64, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
                 shape: self.shape.clone(),
                 device: self.device.clone(),
             })
-        } else {
+        } else if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+            tracing::warn!(
+                target: "ferrotorch::gpu_fallback",
+                op = "neg",
+                dtype = std::any::type_name::<T>(),
+                "GPU does not support this dtype; falling back to CPU. Unset \
+                 FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+            );
             unary_cpu_fallback(self, |x| -x)
+        } else {
+            Err(GpuError::Unsupported {
+                op: "neg",
+                dtype: std::any::type_name::<T>(),
+            })
         }
     }
 
@@ -285,8 +515,25 @@ impl<T: GpuFloat> GpuTensor<T> {
     /// Uses a PTX kernel for `f32`; falls back to CPU round-trip for `f64`.
     pub fn relu(&self) -> GpuResult<GpuTensor<T>> {
         if is_f32::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f32>` (line 503-506) requires
+            //   equal size and alignment of `T` and `f32`.
+            // - `is_f32::<T>()` (TypeId equality on `'static` types,
+            //   line 133) implies `T == f32` exactly. Reflexivity
+            //   discharges both preconditions.
+            // - `CudaBuffer<T>` and `CudaBuffer<f32>` share layout for
+            //   `T == f32` (rationale on line 511-513).
+            // - Lifetime: bound by `&self.buffer`; shared borrow excludes
+            //   `&mut` aliasing.
             let a_buf = unsafe { transmute_buffer_ref::<T, f32>(&self.buffer) };
             let out_buf = gpu_relu(a_buf, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f32, T>` (line 519-522) requires
+            //   equal size and alignment for `f32` and `T`. The
+            //   `is_f32::<T>()` guard above proves `T == f32`.
+            // - Owned move: `gpu_relu` returns `CudaBuffer<f32>`;
+            //   helper transfers via `ptr::read` + `mem::forget` (lines
+            //   528-529). No double-drop.
             let out_buf = unsafe { transmute_buffer::<f32, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
@@ -294,18 +541,44 @@ impl<T: GpuFloat> GpuTensor<T> {
                 device: self.device.clone(),
             })
         } else if is_f64::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f64>` (line 503-506) requires
+            //   equal size and alignment of `T` and `f64`.
+            // - `is_f64::<T>()` (TypeId equality, line 139) proves
+            //   `T == f64`; reflexivity discharges both.
+            // - `CudaBuffer<T>` and `CudaBuffer<f64>` share layout when
+            //   `T == f64`.
+            // - Lifetime: rooted at `&self.buffer`; shared borrow.
             let a_buf = unsafe { transmute_buffer_ref::<T, f64>(&self.buffer) };
             let out_buf = gpu_relu_f64(a_buf, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f64, T>` (line 519-522) preconditions
+            //   discharged by `is_f64::<T>()` ⇒ `T == f64`.
+            // - Owned move: `gpu_relu_f64` returns a `CudaBuffer<f64>`;
+            //   helper transfers via `ptr::read` + `mem::forget`. No
+            //   double-drop.
             let out_buf = unsafe { transmute_buffer::<f64, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
                 shape: self.shape.clone(),
                 device: self.device.clone(),
             })
-        } else {
+        } else if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
+            tracing::warn!(
+                target: "ferrotorch::gpu_fallback",
+                op = "relu",
+                dtype = std::any::type_name::<T>(),
+                "GPU does not support this dtype; falling back to CPU. Unset \
+                 FERROTORCH_ENABLE_GPU_FALLBACK to make this an error instead.",
+            );
             unary_cpu_fallback(self, |x| {
                 let z = <T as num_traits::Zero>::zero();
                 if x > z { x } else { z }
+            })
+        } else {
+            Err(GpuError::Unsupported {
+                op: "relu",
+                dtype: std::any::type_name::<T>(),
             })
         }
     }
@@ -361,25 +634,78 @@ impl<T: GpuFloat> GpuTensor<T> {
         }
 
         if is_f32::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f32>` (line 503-506) requires
+            //   equal size and alignment of `T` and `f32`.
+            // - `is_f32::<T>()` (TypeId equality, line 133) proves
+            //   `T == f32`; reflexivity discharges the preconditions.
+            // - `CudaBuffer<T>` matches `CudaBuffer<f32>` layout for
+            //   `T == f32` (helper rationale at line 511-513).
+            // - Lifetime: `a_buf` is bound by `&self.buffer`; shared
+            //   borrow precludes `&mut` aliasing through `&self`.
             let a_buf = unsafe { transmute_buffer_ref::<T, f32>(&self.buffer) };
+            // SAFETY: same reasoning as `a_buf`; `is_f32::<T>()` ⇒
+            // `T == f32`. `b_buf` is bound by `&other.buffer`; shared
+            // borrow excludes `&mut` aliasing.
             let b_buf = unsafe { transmute_buffer_ref::<T, f32>(&other.buffer) };
             let out_buf = gpu_matmul_f32(a_buf, b_buf, m, k, n, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f32, T>` (line 519-522) preconditions
+            //   discharged by `is_f32::<T>()` ⇒ `T == f32`.
+            // - Owned move: `gpu_matmul_f32` returns a freshly allocated
+            //   `CudaBuffer<f32>` of length `m*n`; helper transfers
+            //   ownership via `ptr::read` + `mem::forget` (lines 528-529).
+            //   No double-drop.
             let out_buf = unsafe { transmute_buffer::<f32, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
                 shape: vec![m, n],
                 device: self.device.clone(),
             })
-        } else {
-            // f64 path
+        } else if is_f64::<T>() {
+            // SAFETY:
+            // - `transmute_buffer_ref::<T, f64>` (line 503-506) requires
+            //   equal size and alignment of `T` and `f64`.
+            // - This branch is gated by `is_f64::<T>()` on the line above
+            //   which tests `TypeId::of::<T>() == TypeId::of::<f64>()`
+            //   (line 139). `TypeId` equality on `'static` types proves
+            //   `T == f64` exactly, so size and alignment match by
+            //   reflexivity.
+            // - `CudaBuffer<T>` matches `CudaBuffer<f64>` layout when
+            //   `T == f64` (helper rationale at line 511-513).
+            // - Lifetime: `a_buf` is bound by `&self.buffer`; shared
+            //   borrow precludes any `&mut` aliasing through `&self`.
             let a_buf = unsafe { transmute_buffer_ref::<T, f64>(&self.buffer) };
+            // SAFETY: same reasoning as `a_buf`; `is_f64::<T>()` ⇒
+            // `T == f64`. `b_buf` is bound by `&other.buffer`; shared
+            // borrow excludes `&mut` aliasing.
             let b_buf = unsafe { transmute_buffer_ref::<T, f64>(&other.buffer) };
             let out_buf = gpu_matmul_f64(a_buf, b_buf, m, k, n, &self.device)?;
+            // SAFETY:
+            // - `transmute_buffer::<f64, T>` (line 519-522) preconditions
+            //   discharged by `is_f64::<T>()` ⇒ `T == f64`.
+            // - Owned move: `gpu_matmul_f64` returns a freshly allocated
+            //   `CudaBuffer<f64>` of length `m*n`; helper transfers
+            //   ownership via `ptr::read` + `mem::forget` (lines 528-529).
+            //   No double-drop.
             let out_buf = unsafe { transmute_buffer::<f64, T>(out_buf) };
             Ok(GpuTensor {
                 buffer: out_buf,
                 shape: vec![m, n],
                 device: self.device.clone(),
+            })
+        } else {
+            // Unreachable today: `T: GpuFloat` is implemented only for
+            // `f32` and `f64` (lines 47, 49), and the trait is effectively
+            // sealed (downstream crates cannot add impls because the
+            // sub-bound `cudarc::driver::DeviceRepr` is foreign and the
+            // `GpuFloat` trait itself is `pub` only inside this crate's
+            // public API). This explicit `Err` arm is the runtime guard
+            // that converts a future `GpuFloat` impl (e.g. f16, bf16)
+            // from a latent transmute-UB into a clean error return.
+            Err(GpuError::Unsupported {
+                op: "matmul",
+                dtype: std::any::type_name::<T>(),
             })
         }
     }
@@ -466,8 +792,32 @@ impl<T: GpuFloat> GpuTensor<T> {
             weight.shape[3],
         ];
 
+        // SAFETY:
+        // - `transmute_buffer_ref::<T, f32>` (line 503-506) requires
+        //   equal size and alignment of `T` and `f32`.
+        // - The `!is_f32::<T>()` early-return on line 453-459 (above)
+        //   guarantees this code is only reached when `T == f32`. The
+        //   `is_f32::<T>()` check (TypeId equality, line 133) is exact
+        //   for `'static` types, so reflexivity discharges the
+        //   preconditions.
+        // - `CudaBuffer<T>` matches `CudaBuffer<f32>` layout when
+        //   `T == f32` (helper rationale at line 511-513).
+        // - Lifetime: `a_buf` is bound by `&self.buffer`; shared borrow
+        //   excludes any `&mut` aliasing.
         let a_buf = unsafe { transmute_buffer_ref::<T, f32>(&self.buffer) };
+        // SAFETY:
+        // - Same reasoning as `a_buf` above: the early-return guard at
+        //   lines 453-459 ensures this code is only reached when
+        //   `T == f32`, so `transmute_buffer_ref::<T, f32>`'s size and
+        //   alignment preconditions hold reflexively.
+        // - Lifetime: `w_buf` is bound by `&weight.buffer`; shared
+        //   borrow precludes `&mut` aliasing.
         let w_buf = unsafe { transmute_buffer_ref::<T, f32>(&weight.buffer) };
+        // SAFETY: same as above; `T == f32` from the f32 guard. Each
+        // bias borrow `&b.buffer` is shared and outlives the call to
+        // `gpu_conv2d_f32` because the closure-returned reference's
+        // lifetime is tied to the outer `bias: Option<&GpuTensor<T>>`
+        // parameter, which lives for the whole function body.
         let b_buf = bias.map(|b| unsafe { transmute_buffer_ref::<T, f32>(&b.buffer) });
 
         let (out_buf, out_shape) = gpu_conv2d_f32(
@@ -481,6 +831,12 @@ impl<T: GpuFloat> GpuTensor<T> {
             &self.device,
         )?;
 
+        // SAFETY:
+        // - `transmute_buffer::<f32, T>` (line 519-522) preconditions
+        //   discharged by `T == f32` (early-return guard at line 453-459).
+        // - Owned move: `gpu_conv2d_f32` returns a freshly allocated
+        //   `CudaBuffer<f32>`; helper transfers ownership via
+        //   `ptr::read` + `mem::forget` (lines 528-529). No double-drop.
         let out_buf = unsafe { transmute_buffer::<f32, T>(out_buf) };
         Ok(GpuTensor {
             buffer: out_buf,
@@ -511,6 +867,28 @@ unsafe fn transmute_buffer_ref<T, U>(buf: &CudaBuffer<T>) -> &CudaBuffer<U> {
     // CudaBuffer<T> and CudaBuffer<U> have identical layout when T and U
     // are the same size — CudaSlice is a device pointer + length, both
     // size-independent.
+    // SAFETY:
+    // - The function-level `# Safety` block (line 762-767) requires the
+    //   caller to have proven `size_of::<T>() == size_of::<U>()` and
+    //   `align_of::<T>() == align_of::<U>()`. The `debug_assert_eq!`
+    //   calls on lines 770-771 enforce this dynamically in debug builds;
+    //   in release builds the caller's static proof (e.g. `is_f32::<T>()`
+    //   ⇒ `T == f32` at every call site in this module) discharges the
+    //   obligation.
+    // - `CudaBuffer<T>`'s layout is determined by its non-zero-sized
+    //   fields (`Option<CudaSlice<T>>`, `usize` × 3, `Option<fn ...>`).
+    //   `CudaSlice<T>` (cudarc 0.19.4 src/driver/safe/core.rs) consists
+    //   of a `CUdeviceptr` (u64), a length, and `PhantomData<T>`. None
+    //   of those store `T` inline, so when `size_of::<T>() ==
+    //   size_of::<U>()` and alignments match, the outer struct layouts
+    //   are pointwise identical.
+    // - Lifetime: the returned `&CudaBuffer<U>` inherits its borrow from
+    //   the input `&CudaBuffer<T>` parameter. The `*const → &` cast
+    //   does not extend the lifetime; the elided lifetime is identical.
+    // - No `&mut` aliasing: parameter is `&CudaBuffer<T>` (shared).
+    // - Pointer is non-null and aligned: it comes from a Rust reference
+    //   `buf` which is by definition non-null and aligned-to-`T`.
+    //   Alignment-to-`U` follows from the precondition.
     unsafe { &*(buf as *const CudaBuffer<T> as *const CudaBuffer<U>) }
 }
 
@@ -525,6 +903,30 @@ unsafe fn transmute_buffer<U, T>(buf: CudaBuffer<U>) -> CudaBuffer<T> {
     debug_assert_eq!(std::mem::size_of::<U>(), std::mem::size_of::<T>());
     debug_assert_eq!(std::mem::align_of::<U>(), std::mem::align_of::<T>());
     // Move the buffer without running U's drop — T's drop will handle it.
+    // SAFETY:
+    // - The function's `# Safety` (line 780-783) requires the caller to
+    //   have proven `size_of::<U>() == size_of::<T>()` and
+    //   `align_of::<U>() == align_of::<T>()`. The `debug_assert_eq!`
+    //   calls on lines 786-787 enforce this dynamically in debug builds;
+    //   release builds rely on the static proof at the call site
+    //   (every call in this module is gated by `is_f32::<T>()` /
+    //   `is_f64::<T>()` ⇒ `T == U`).
+    // - `CudaBuffer<U>` and `CudaBuffer<T>` have identical layout when
+    //   the size/align preconditions hold (same rationale as
+    //   `transmute_buffer_ref`: `CudaSlice<X>` stores no `X` inline,
+    //   only `CUdeviceptr` + `usize` + `PhantomData<X>`).
+    // - `ptr::read` requires the source pointer to be aligned and to
+    //   point to a properly initialised `CudaBuffer<T>`-shaped value:
+    //   `&buf as *const CudaBuffer<U>` is derived from a Rust reference
+    //   so it is non-null, aligned, and points to an initialised
+    //   `CudaBuffer<U>`. With layout-equivalence, the bit pattern is
+    //   also a valid `CudaBuffer<T>`.
+    // - Double-drop avoidance: `ptr::read` performs a bitwise copy and
+    //   does not run any destructor. We then `mem::forget(buf)` on the
+    //   next line so `CudaBuffer<U>::drop` does NOT run; the resulting
+    //   `CudaBuffer<T>` is the unique owner of the underlying CudaSlice
+    //   and pool ticket. When it eventually drops, the standard
+    //   `CudaBuffer<T>::drop` releases the allocation exactly once.
     let result = unsafe { std::ptr::read(&buf as *const CudaBuffer<U> as *const CudaBuffer<T>) };
     std::mem::forget(buf);
     result
@@ -937,5 +1339,42 @@ mod tests {
         let back = gpu.cpu().expect("cpu");
         assert!(back.is_scalar());
         assert!((back.item().unwrap() - 42.0).abs() < 1e-6);
+    }
+
+    // -- matmul f64 (regression test for #704) --------------------------------
+    //
+    // Confirms that `GpuTensor::<f64>::matmul` still dispatches correctly
+    // through the now-explicit `else if is_f64::<T>()` branch (previously a
+    // bare `else` that was sound only by `GpuFloat`-impl elimination). The
+    // explicit-`Err` arm for non-f32/f64 `GpuFloat` impls is unreachable
+    // today (the trait is effectively sealed: `f32` and `f64` are the only
+    // impls and the `cudarc::driver::DeviceRepr` super-bound is foreign),
+    // so it is not exercised by a runtime test — the type signature is the
+    // guard.
+
+    #[test]
+    fn gpu_tensor_matmul_basic_f64() {
+        // Same reference values as `gpu_tensor_matmul_basic`, on f64.
+        // A = [[1, 2, 3], [4, 5, 6]]  (2x3)
+        // B = [[7, 8], [9, 10], [11, 12]]  (3x2)
+        // C = [[58, 64], [139, 154]]  (2x2)
+        let storage_a = TensorStorage::cpu(vec![1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let a = Tensor::from_storage(storage_a, vec![2, 3], false).expect("a");
+        let storage_b = TensorStorage::cpu(vec![7.0_f64, 8.0, 9.0, 10.0, 11.0, 12.0]);
+        let b = Tensor::from_storage(storage_b, vec![3, 2], false).expect("b");
+
+        let device = GpuDevice::new(0).expect("CUDA device 0");
+        let ga = tensor_to_gpu(&a, &device).expect("a to gpu");
+        let gb = tensor_to_gpu(&b, &device).expect("b to gpu");
+
+        let gc = ga.matmul(&gb).expect("gpu matmul f64");
+        assert_eq!(gc.shape(), &[2, 2]);
+
+        let result = gc.cpu().expect("cpu");
+        let data = result.data().unwrap();
+        assert!((data[0] - 58.0).abs() < 1e-9);
+        assert!((data[1] - 64.0).abs() < 1e-9);
+        assert!((data[2] - 139.0).abs() < 1e-9);
+        assert!((data[3] - 154.0).abs() < 1e-9);
     }
 }

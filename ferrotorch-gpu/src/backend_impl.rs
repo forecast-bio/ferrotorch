@@ -187,18 +187,70 @@ impl GpuBackend for CudaBackendImpl {
         let dev = self.device(device)?;
         match elem_size {
             4 => {
-                // SAFETY: The caller (ferrotorch-core) guarantees that `data`
-                // was originally an f32 slice serialised to bytes.
                 let count = data.len() / 4;
+                // SAFETY:
+                // - The caller (ferrotorch-core) guarantees that `data` is the
+                //   byte serialisation of a contiguous `&[f32]`; this is the
+                //   contract of the `cpu_to_gpu` trait method whose signature
+                //   accepts `&[u8]` + `elem_size` as a type-erased façade
+                //   across f32/f64 (see trait definition in
+                //   ferrotorch-core/src/gpu_dispatch.rs:146-151).
+                // - The `elem_size == 4` arm is only entered when the upstream
+                //   caller asserted f32 layout. The canonical caller pattern
+                //   (ferrotorch-core/src/storage.rs:117-133, `on_device`)
+                //   originates a `Vec<T>` and forwards `size_of::<T>()` as
+                //   `elem_size`; reaching this arm means `T == f32` upstream.
+                // - Alignment: f32 has size 4 and align 4 (Rust reference,
+                //   primitive data layout). The source `Vec<f32>` allocation
+                //   is 4-byte-aligned; that alignment propagates through
+                //   `data.as_ptr()` because the `&[u8]` view of an f32 slice
+                //   is always at least 4-byte-aligned at its start.
+                // - Length: `count = data.len() / 4` is exact when the caller
+                //   honours the contract (`data.len() == count * size_of::<f32>()`);
+                //   any remainder is a caller-contract violation, not a bug
+                //   we must defend against here.
+                // - Provenance: `slice::from_raw_parts` reads `count * 4` bytes,
+                //   which equals `data.len()` exactly, so the new slice spans
+                //   no memory beyond the input.
+                // - Lifetime: the reinterpreted `&[f32]` is bound by `data`
+                //   (a `&[u8]` parameter borrowed for the duration of this
+                //   call). The slice is consumed by `cpu_to_gpu` on the next
+                //   line before this stack frame returns; no dangling
+                //   reference can escape.
+                // - No `&mut` aliases: `data: &[u8]` is a shared borrow, so
+                //   no concurrent `&mut [f32]` to the same allocation can
+                //   exist while this call is active.
                 let f32_data: &[f32] =
                     unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, count) };
                 let buf = crate::transfer::cpu_to_gpu(f32_data, dev).map_err(Self::map_gpu_err)?;
                 Ok(Self::wrap_buffer(buf, device))
             }
             8 => {
-                // SAFETY: The caller (ferrotorch-core) guarantees that `data`
-                // was originally an f64 slice serialised to bytes.
                 let count = data.len() / 8;
+                // SAFETY:
+                // - The caller (ferrotorch-core) guarantees that `data` is the
+                //   byte serialisation of a contiguous `&[f64]`; this is the
+                //   `elem_size == 8` arm's precondition documented at the
+                //   trait method (ferrotorch-core/src/gpu_dispatch.rs:146-151).
+                //   Canonical caller path: ferrotorch-core/src/storage.rs:117-133
+                //   forwards `size_of::<T>()`; reaching this arm means
+                //   `T == f64` upstream.
+                // - Alignment: f64 has size 8 and align 8 (Rust reference,
+                //   primitive data layout). The source `Vec<f64>` allocation
+                //   guarantees 8-byte alignment which propagates to
+                //   `data.as_ptr()` for the byte view of an f64 slice.
+                // - Length: `count = data.len() / 8` is exact when the caller
+                //   honours the contract; remainder bytes would be a
+                //   caller-contract violation upstream of this site.
+                // - Provenance: `slice::from_raw_parts` reads `count * 8`
+                //   bytes which equals `data.len()` exactly, so the new
+                //   slice covers exactly the byte range of `data` with no
+                //   overrun.
+                // - Lifetime: the reinterpreted `&[f64]` is bounded by `data`
+                //   and consumed by `cpu_to_gpu` on the next line, never
+                //   escaping this stack frame.
+                // - No `&mut` aliases: shared `&[u8]` input rules out any
+                //   concurrent `&mut [f64]` aliasing of the same allocation.
                 let f64_data: &[f64] =
                     unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f64, count) };
                 let buf = crate::transfer::cpu_to_gpu(f64_data, dev).map_err(Self::map_gpu_err)?;
@@ -220,6 +272,29 @@ impl GpuBackend for CudaBackendImpl {
         match elem_size {
             4 => {
                 let count = data.len() / 4;
+                // SAFETY:
+                // - The caller (ferrotorch-core) guarantees that `data` is the
+                //   byte serialisation of a contiguous `&[f32]`; this is the
+                //   contract of the `cpu_to_gpu_pinned` trait method whose
+                //   signature accepts `&[u8]` + `elem_size` as a type-erased
+                //   façade across f32/f64 (see trait definition in
+                //   ferrotorch-core gpu_dispatch.rs).
+                // - The `elem_size == 4` arm is only entered when the upstream
+                //   caller asserted f32 layout. f32 has size 4 and align 4
+                //   (Rust reference: <https://doc.rust-lang.org/reference/type-layout.html#primitive-data-layout>),
+                //   so `count = data.len() / 4` is exact and `data.as_ptr()`
+                //   inherits 4-byte alignment from any f32 source Vec.
+                // - Lifetime: the reinterpreted `&[f32]` is bounded by `data`
+                //   (a `&[u8]` parameter borrowed for the duration of this
+                //   call). The slice is consumed by `cpu_to_gpu_pinned` on
+                //   line 226 before this stack frame returns; no dangling
+                //   reference can escape.
+                // - Provenance: `slice::from_raw_parts` requires the entire
+                //   `count * 4` byte range to be readable; that is exactly
+                //   `data.len()` bytes (since `count = data.len() / 4`), so
+                //   the new slice spans no memory beyond the input.
+                // - No `&mut` aliases: `data` is a shared `&[u8]`, so no
+                //   concurrent `&mut [f32]` to the same allocation can exist.
                 let f32_data: &[f32] =
                     unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, count) };
                 let buf =
@@ -228,6 +303,22 @@ impl GpuBackend for CudaBackendImpl {
             }
             8 => {
                 let count = data.len() / 8;
+                // SAFETY:
+                // - The caller (ferrotorch-core) guarantees that `data` is the
+                //   byte serialisation of a contiguous `&[f64]`; this is the
+                //   `elem_size == 8` arm's precondition documented at the
+                //   trait method (see gpu_dispatch.rs).
+                // - f64 has size 8 and align 8 (Rust reference: primitive data
+                //   layout). `count = data.len() / 8` is exact; the source
+                //   `Vec<f64>` allocation guarantees 8-byte alignment which
+                //   propagates to `data.as_ptr()`.
+                // - Lifetime: the reinterpreted `&[f64]` is bounded by `data`
+                //   and consumed by `cpu_to_gpu_pinned` on line 234, never
+                //   escaping this stack frame.
+                // - Provenance: `count * 8 == data.len()` so the new slice
+                //   covers exactly the byte range of `data` with no overrun.
+                // - No `&mut` aliases: shared `&[u8]` input rules out any
+                //   concurrent `&mut [f64]` aliasing of the same allocation.
                 let f64_data: &[f64] =
                     unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f64, count) };
                 let buf =
@@ -2491,14 +2582,10 @@ impl GpuBackend for CudaBackendImpl {
                 message: "failed to lock CUDA RNG manager".into(),
             }
         })?;
-        mgr.set_rng_state(
-            state.device(),
-            crate::rng::PhiloxState {
-                counter: state.counter(),
-                seed: state.seed(),
-                offset: state.offset(),
-            },
-        );
+        let philox =
+            crate::rng::PhiloxState::from_parts(state.counter(), state.seed(), state.offset())
+                .map_err(Self::map_gpu_err)?;
+        mgr.set_rng_state(state.device(), philox);
         Ok(())
     }
 
@@ -2610,7 +2697,36 @@ impl GpuBackend for CudaBackendImpl {
         let src_buf_ptr = Self::unwrap_buffer_f64(src)? as *const CudaBuffer<f64>;
         let dst_buf = Self::unwrap_buffer_f64_mut(dst)?;
         let dev = self.device(ord)?;
-        // SAFETY: see strided_scatter_f32 above; same reasoning applies.
+        // SAFETY:
+        // - `src` and `dst` are distinct `GpuBufferHandle` parameters
+        //   supplied by the caller. The borrow checker forbids the same
+        //   handle being passed as both `&` and `&mut` simultaneously, so
+        //   `src` and `dst` necessarily refer to non-aliasing handles for
+        //   the duration of this call.
+        // - `unwrap_buffer_f64` (line 109) produces a `&CudaBuffer<f64>`
+        //   borrowed from `src`; we cast to `*const CudaBuffer<f64>` only
+        //   to release the borrow on `src` so we can subsequently call
+        //   `unwrap_buffer_f64_mut(dst)` without the borrow checker
+        //   flagging `dst`'s mutable borrow as conflicting with `src`'s
+        //   shared borrow on `self`. The two handles' inner storage is
+        //   disjoint by the previous bullet.
+        // - `CudaBuffer<f64>` has no interior mutability that would let
+        //   `dst_buf`'s mutation affect what `src_ref` reads: it owns a
+        //   `cudarc::driver::CudaSlice<f64>` (a device pointer + length)
+        //   plus pool-ticket metadata. Mutating one buffer's contents on
+        //   the device cannot alias another buffer's allocation because
+        //   each `CudaBuffer` owns its own `CudaSlice` allocation.
+        // - The `*const CudaBuffer<f64>` is reborrowed as `&CudaBuffer<f64>`
+        //   for the duration of the kernel call only; the resulting
+        //   reference does not outlive this stack frame.
+        // - Pointer is non-null and aligned: it originates from the
+        //   `&CudaBuffer<f64>` returned by `unwrap_buffer_f64` (a Rust
+        //   reference, by definition non-null and aligned).
+        // - Reads through `src_ref` see a fully-initialised
+        //   `CudaBuffer<f64>` because the source reference was obtained
+        //   from a live `Box<CudaBuffer<f64>>` inside the handle.
+        // (Same shape as the f32 sibling at `strided_scatter_f32`; the
+        // only differences are the buffer dtype and the kernel name.)
         let src_ref = unsafe { &*src_buf_ptr };
         crate::kernels::gpu_strided_scatter_f64(
             src_ref,
@@ -3170,6 +3286,23 @@ mod tests {
         let backend = gpu_dispatch::gpu_backend().expect("backend registered");
 
         let host: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        // SAFETY:
+        // - `host` is a `Vec<f32>` whose backing allocation is at least
+        //   4-byte-aligned (Vec follows the alignment of T = f32, per
+        //   `Vec::as_ptr` documentation). Reinterpreting the pointer as
+        //   `*const u8` is always sound: u8 has alignment 1, so any pointer
+        //   alignment is sufficient for u8 access.
+        // - The byte length `host.len() * size_of::<f32>()` exactly matches
+        //   the byte extent of the f32 allocation (5 elements × 4 bytes =
+        //   20 bytes); the resulting slice never overruns the allocation.
+        // - Every f32 bit pattern is a valid u8 sequence (u8 has no invalid
+        //   bit patterns), so the byte read is well-defined for all elements
+        //   including IEEE 754 NaNs.
+        // - Lifetime: the resulting `&[u8]` is bound by `host` (used on the
+        //   very next line as `cpu_to_gpu(bytes, ...)` and not escaping the
+        //   test scope); `host` is not dropped before line 3176.
+        // - No `&mut` aliases: `host` is read via `host.as_ptr()` (shared);
+        //   no `&mut [f32]` to the same allocation exists.
         let bytes: &[u8] = unsafe {
             std::slice::from_raw_parts(
                 host.as_ptr() as *const u8,
@@ -3182,6 +3315,21 @@ mod tests {
         assert_eq!(handle.device_ordinal(), 0);
 
         let back_bytes = backend.gpu_to_cpu(&handle).expect("gpu_to_cpu");
+        // SAFETY:
+        // - `back_bytes` is a `Vec<u8>` returned by `gpu_to_cpu` (line 245)
+        //   which constructs it via `Vec::from_raw_parts` from a
+        //   `Vec<f32>::ManuallyDrop` (see line 256-262 in this file). The
+        //   resulting `Vec<u8>` therefore inherits f32's 4-byte alignment
+        //   on the original allocation pointer.
+        // - `back_bytes.len() / 4` is the original f32 element count (the
+        //   byte length is `host.len() * 4 == 20`, so divided by 4 yields
+        //   `5`, the original `host.len()`).
+        // - Every u32 bit pattern is a valid f32 (including all NaN
+        //   payloads) — the round-trip CUDA memcpy preserves bytes exactly,
+        //   so reinterpreting the bytes as f32 yields the original values.
+        // - Lifetime: `&[f32]` is bound to `&back_bytes`; both are dropped
+        //   at end of scope after the `assert_eq!` on line 3184.
+        // - No `&mut` aliases: `back_bytes` is read via `as_ptr()` only.
         let back: &[f32] = unsafe {
             std::slice::from_raw_parts(back_bytes.as_ptr() as *const f32, back_bytes.len() / 4)
         };
@@ -3197,8 +3345,27 @@ mod tests {
         let b_data: Vec<f32> = vec![10.0, 20.0, 30.0, 40.0];
         let expected: Vec<f32> = vec![11.0, 22.0, 33.0, 44.0];
 
+        // SAFETY:
+        // - `a_data` is a `Vec<f32>` (4 elements, 4-byte-aligned allocation).
+        //   Reinterpret as `*const u8` always sound (u8 alignment is 1; f32
+        //   alignment 4 ≥ 1).
+        // - Length `a_data.len() * 4 == 16` matches the f32 byte extent
+        //   exactly; no overrun.
+        // - Every f32 bit pattern is a valid u8 byte sequence; bytes are
+        //   well-defined for all stored values (1.0..4.0 here).
+        // - Lifetime: `&[u8]` borrows `a_data`'s allocation; `a_data` lives
+        //   to the end of this test function (line 3216), and the slice is
+        //   consumed by `cpu_to_gpu` on line 3201 before reuse.
+        // - No `&mut` aliases: `a_data` is accessed via shared `as_ptr()`.
         let a_bytes: &[u8] =
             unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const u8, a_data.len() * 4) };
+        // SAFETY:
+        // - `b_data` is a `Vec<f32>` (4 elements, 4-byte-aligned). All
+        //   alignment, length, validity, lifetime, and aliasing properties
+        //   are identical to `a_bytes` above. The byte length
+        //   `b_data.len() * 4 == 16` matches the f32 byte extent exactly.
+        // - The `&[u8]` is consumed by `cpu_to_gpu` on line 3202 before
+        //   `b_data` is read again.
         let b_bytes: &[u8] =
             unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const u8, b_data.len() * 4) };
 
@@ -3209,6 +3376,21 @@ mod tests {
         assert_eq!(result.len(), 4);
 
         let result_bytes = backend.gpu_to_cpu(&result).expect("gpu_to_cpu");
+        // SAFETY:
+        // - `result_bytes` is a `Vec<u8>` constructed by `gpu_to_cpu` (line
+        //   245) via `Vec::from_raw_parts` from a `Vec<f32>::ManuallyDrop`
+        //   so its allocation pointer inherits 4-byte alignment from the
+        //   original f32 allocation.
+        // - `result_bytes.len() / 4` is the original f32 element count
+        //   (`add_f32` produces 4 f32s → 16 bytes / 4 = 4 elements), so the
+        //   reinterpreted slice covers exactly the f32 region.
+        // - Every u32 bit pattern is a valid f32 (the bytes that
+        //   `gpu_to_cpu` returned are exactly those produced by the GPU
+        //   `gpu_add` kernel, so each 4-byte word is a valid IEEE 754 f32).
+        // - Lifetime: `&[f32]` is bound by `&result_bytes`; the iterator on
+        //   line 3212 consumes the slice within the same scope.
+        // - No `&mut` aliases: `result_bytes` is accessed only via shared
+        //   `as_ptr()`.
         let result_f32: &[f32] = unsafe {
             std::slice::from_raw_parts(result_bytes.as_ptr() as *const f32, result_bytes.len() / 4)
         };
@@ -3237,8 +3419,25 @@ mod tests {
         let b_data: Vec<f32> = vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
         let expected: Vec<f32> = vec![58.0, 64.0, 139.0, 154.0];
 
+        // SAFETY:
+        // - `a_data` is a `Vec<f32>` of 6 elements (24 bytes total). f32
+        //   alignment 4 ≥ u8 alignment 1, so the pointer cast is sound.
+        // - `a_data.len() * 4 == 24` exactly matches the f32 byte extent;
+        //   no overrun, no misalignment.
+        // - All values (1.0..=6.0) are finite; every f32 byte sequence is a
+        //   valid u8 sequence regardless.
+        // - Lifetime: `&[u8]` is bound by `a_data` through `cpu_to_gpu` on
+        //   line 3242 (within the same test scope). `a_data` is not dropped
+        //   before line 3252.
+        // - No `&mut` aliases: shared `as_ptr()` access only.
         let a_bytes: &[u8] =
             unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const u8, a_data.len() * 4) };
+        // SAFETY:
+        // - `b_data` is a `Vec<f32>` of 6 elements; same alignment,
+        //   length-exactness, validity, lifetime, and aliasing properties
+        //   as `a_bytes` above. Byte length `b_data.len() * 4 == 24`
+        //   matches the f32 byte extent exactly.
+        // - Slice is consumed by `cpu_to_gpu` on line 3243.
         let b_bytes: &[u8] =
             unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const u8, b_data.len() * 4) };
 
@@ -3251,6 +3450,20 @@ mod tests {
         assert_eq!(result.len(), 4);
 
         let result_bytes = backend.gpu_to_cpu(&result).expect("gpu_to_cpu");
+        // SAFETY:
+        // - `result_bytes` is a `Vec<u8>` returned by `gpu_to_cpu` (line
+        //   245), constructed via `Vec::from_raw_parts` from a
+        //   `ManuallyDrop<Vec<f32>>` (lines 256-262), so its underlying
+        //   allocation has f32's 4-byte alignment.
+        // - `result_bytes.len() / 4` is the original f32 element count
+        //   (matmul produces a 2×2 matrix → 4 f32 → 16 bytes; 16/4 = 4).
+        // - Every u32 bit pattern is a valid f32; the bytes were produced
+        //   by the cuBLAS GEMM kernel (so each 4-byte word is a finite
+        //   IEEE 754 f32 modulo NaN, all of which are valid f32 values).
+        // - Lifetime: `&[f32]` is bound by `&result_bytes`; the iterator on
+        //   line 3284 consumes the slice in the same scope and `result_bytes`
+        //   outlives it.
+        // - No `&mut` aliases: shared `as_ptr()` only.
         let result_f32: &[f32] = unsafe {
             std::slice::from_raw_parts(result_bytes.as_ptr() as *const f32, result_bytes.len() / 4)
         };

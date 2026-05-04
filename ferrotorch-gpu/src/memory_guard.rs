@@ -77,21 +77,28 @@ pub enum OomPolicy {
 /// Hooks declare upfront how much memory they expect to free, so the
 /// memory guard can decide which hooks to call and in what order.
 ///
+/// Construct via [`MemoryHook::new`]; the callback field is private because
+/// `Box<dyn Fn>` can't be cloned, equality-compared, or serialised, so
+/// exposing it as a public field would commit the API to a non-clonable
+/// shape forever. Hooks are identified for unregistration by their `name`
+/// (see [`MemoryGuard::remove_hook`]); the name is therefore expected to be
+/// unique per registered hook.
+///
 /// # Example: halving a batch when memory is tight
 ///
 /// ```rust
 /// use ferrotorch_gpu::memory_guard::MemoryHook;
 ///
-/// let hook = MemoryHook {
-///     name: "halve_batch_size".into(),
-///     estimated_free_bytes: 512 * 1024 * 1024, // expects to free ~512 MiB
-///     execution_overhead_bytes: 4096,           // metadata setup cost
-///     priority: 10,
-///     callback: Box::new(|| {
+/// let hook = MemoryHook::new(
+///     "halve_batch_size",
+///     512 * 1024 * 1024, // expects to free ~512 MiB
+///     4096,              // metadata setup cost
+///     10,                // priority
+///     || {
 ///         // ... split the batch, free old tensors ...
 ///         512 * 1024 * 1024 // actual bytes freed
-///     }),
-/// };
+///     },
+/// );
 /// ```
 pub struct MemoryHook {
     /// Human-readable name (e.g., `"halve_batch_size"`, `"free_kv_cache"`).
@@ -106,8 +113,42 @@ pub struct MemoryHook {
     /// called in registration order.
     pub priority: u32,
     /// The callback. Returns the *actual* bytes freed (may differ from the
-    /// estimate).
-    pub callback: Box<dyn Fn() -> usize + Send + Sync>,
+    /// estimate). Private to keep the boxed-closure shape encapsulated;
+    /// the guard's [`run_hooks`](MemoryGuard) machinery is the only caller.
+    pub(crate) callback: Box<dyn Fn() -> usize + Send + Sync>,
+}
+
+impl MemoryHook {
+    /// Build a hook from its scheduling metadata and callback.
+    ///
+    /// `name` identifies the hook for [`MemoryGuard::remove_hook`].
+    /// `estimated_free_bytes` is the byte amount the guard will assume the
+    /// callback frees when sequencing hooks; `execution_overhead_bytes` is
+    /// the temporary headroom the hook needs to run (a hook is skipped when
+    /// the budget can't afford the overhead). `priority` orders hooks
+    /// (lowest first; ties broken by registration order).
+    ///
+    /// `callback` returns the *actual* bytes freed when run, which may
+    /// differ from the estimate.
+    pub fn new<S, F>(
+        name: S,
+        estimated_free_bytes: usize,
+        execution_overhead_bytes: usize,
+        priority: u32,
+        callback: F,
+    ) -> Self
+    where
+        S: Into<String>,
+        F: Fn() -> usize + Send + Sync + 'static,
+    {
+        Self {
+            name: name.into(),
+            estimated_free_bytes,
+            execution_overhead_bytes,
+            priority,
+            callback: Box::new(callback),
+        }
+    }
 }
 
 impl std::fmt::Debug for MemoryHook {
@@ -214,7 +255,12 @@ impl std::fmt::Debug for MemoryReservation {
 // ---------------------------------------------------------------------------
 
 /// Snapshot of memory-guard statistics.
+///
+/// The struct is `#[non_exhaustive]` so future fields can be added without
+/// a major-version bump. External callers must read fields through the
+/// public accessors rather than struct-pattern matching.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MemoryStats {
     /// Bytes currently tracked as live by the guard.
     pub used_bytes: usize,
@@ -911,6 +957,17 @@ pub struct MemoryGuardBuilder {
     oom_policy: OomPolicy,
 }
 
+impl std::fmt::Debug for MemoryGuardBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryGuardBuilder")
+            .field("budget_bytes", &self.budget_bytes)
+            .field("reserve_bytes", &self.reserve_bytes)
+            .field("oom_policy", &self.oom_policy)
+            .field("device_ordinal", &self.device.ordinal())
+            .finish()
+    }
+}
+
 impl MemoryGuardBuilder {
     /// Create a new builder for the given device.
     pub fn new(device: Arc<GpuDevice>) -> Self {
@@ -1388,13 +1445,7 @@ mod tests {
 
     #[test]
     fn memory_hook_debug() {
-        let hook = MemoryHook {
-            name: "test_hook".into(),
-            estimated_free_bytes: 1024,
-            execution_overhead_bytes: 64,
-            priority: 5,
-            callback: Box::new(|| 1024),
-        };
+        let hook = MemoryHook::new("test_hook", 1024, 64, 5, || 1024);
         let s = format!("{hook:?}");
         assert!(s.contains("test_hook"));
         assert!(s.contains("1024"));
@@ -1714,16 +1765,10 @@ mod tests {
             let called = Arc::new(AtomicBool::new(false));
             let called_clone = Arc::clone(&called);
 
-            guard.register_hook(MemoryHook {
-                name: "test_hook".into(),
-                estimated_free_bytes: 2048,
-                execution_overhead_bytes: 0,
-                priority: 10,
-                callback: Box::new(move || {
-                    called_clone.store(true, Ordering::SeqCst);
-                    0 // does not actually free tracked memory
-                }),
-            });
+            guard.register_hook(MemoryHook::new("test_hook", 2048, 0, 10, move || {
+                called_clone.store(true, Ordering::SeqCst);
+                0 // does not actually free tracked memory
+            }));
 
             // Allocation of 512 f32 = 2048 bytes > budget of 1024.
             // Hook will be called but won't free enough, so alloc falls
@@ -1754,16 +1799,10 @@ mod tests {
             // In a real scenario the hook would drop GPU buffers. Here we
             // simulate by having the hook report 1024 freed; run_hooks
             // subtracts that from used_bytes.
-            guard.register_hook(MemoryHook {
-                name: "free_1k".into(),
-                estimated_free_bytes: 1024,
-                execution_overhead_bytes: 0,
-                priority: 10,
-                callback: Box::new(move || {
-                    called_clone.store(true, Ordering::SeqCst);
-                    1024
-                }),
-            });
+            guard.register_hook(MemoryHook::new("free_1k", 1024, 0, 10, move || {
+                called_clone.store(true, Ordering::SeqCst);
+                1024
+            }));
 
             // Request 256 f32 = 1024 bytes. 1536 + 1024 = 2560 > 2048.
             // Shortfall = 512. Hook frees 1024 (enough).
@@ -1792,16 +1831,10 @@ mod tests {
             let called = Arc::new(AtomicBool::new(false));
             let called_clone = Arc::clone(&called);
 
-            guard.register_hook(MemoryHook {
-                name: "weak_hook".into(),
-                estimated_free_bytes: 64,
-                execution_overhead_bytes: 0,
-                priority: 10,
-                callback: Box::new(move || {
-                    called_clone.store(true, Ordering::SeqCst);
-                    64 // only frees 64 bytes
-                }),
-            });
+            guard.register_hook(MemoryHook::new("weak_hook", 64, 0, 10, move || {
+                called_clone.store(true, Ordering::SeqCst);
+                64 // only frees 64 bytes
+            }));
 
             // Request 1024 f32 = 4096 bytes >> 512 budget.
             // Hook frees 64, still not enough, falls through to OomPolicy::Fail.
@@ -1825,40 +1858,22 @@ mod tests {
             let order = Arc::new(Mutex::new(Vec::new()));
 
             let o1 = Arc::clone(&order);
-            guard.register_hook(MemoryHook {
-                name: "priority_20".into(),
-                estimated_free_bytes: 256,
-                execution_overhead_bytes: 0,
-                priority: 20,
-                callback: Box::new(move || {
-                    o1.lock().unwrap().push(20_u32);
-                    256
-                }),
-            });
+            guard.register_hook(MemoryHook::new("priority_20", 256, 0, 20, move || {
+                o1.lock().unwrap().push(20_u32);
+                256
+            }));
 
             let o2 = Arc::clone(&order);
-            guard.register_hook(MemoryHook {
-                name: "priority_5".into(),
-                estimated_free_bytes: 256,
-                execution_overhead_bytes: 0,
-                priority: 5,
-                callback: Box::new(move || {
-                    o2.lock().unwrap().push(5_u32);
-                    256
-                }),
-            });
+            guard.register_hook(MemoryHook::new("priority_5", 256, 0, 5, move || {
+                o2.lock().unwrap().push(5_u32);
+                256
+            }));
 
             let o3 = Arc::clone(&order);
-            guard.register_hook(MemoryHook {
-                name: "priority_10".into(),
-                estimated_free_bytes: 256,
-                execution_overhead_bytes: 0,
-                priority: 10,
-                callback: Box::new(move || {
-                    o3.lock().unwrap().push(10_u32);
-                    256
-                }),
-            });
+            guard.register_hook(MemoryHook::new("priority_10", 256, 0, 10, move || {
+                o3.lock().unwrap().push(10_u32);
+                256
+            }));
 
             // Request 512 f32 = 2048 bytes > 1024 budget.
             // All three hooks needed. Should fire: 5, 10, 20.
@@ -1882,16 +1897,10 @@ mod tests {
             let called = Arc::new(AtomicBool::new(false));
             let called_clone = Arc::clone(&called);
 
-            guard.register_hook(MemoryHook {
-                name: "removable".into(),
-                estimated_free_bytes: 2048,
-                execution_overhead_bytes: 0,
-                priority: 10,
-                callback: Box::new(move || {
-                    called_clone.store(true, Ordering::SeqCst);
-                    2048
-                }),
-            });
+            guard.register_hook(MemoryHook::new("removable", 2048, 0, 10, move || {
+                called_clone.store(true, Ordering::SeqCst);
+                2048
+            }));
 
             // Remove the hook.
             assert!(guard.remove_hook("removable"));
@@ -1956,44 +1965,26 @@ mod tests {
 
             // Hook A: priority 1, frees 256 bytes.
             let c1 = Arc::clone(&count);
-            guard.register_hook(MemoryHook {
-                name: "hook_a".into(),
-                estimated_free_bytes: 256,
-                execution_overhead_bytes: 0,
-                priority: 1,
-                callback: Box::new(move || {
-                    c1.fetch_add(1, Ordering::SeqCst);
-                    256
-                }),
-            });
+            guard.register_hook(MemoryHook::new("hook_a", 256, 0, 1, move || {
+                c1.fetch_add(1, Ordering::SeqCst);
+                256
+            }));
 
             // Hook B: priority 2, frees 512 bytes.
             let c2 = Arc::clone(&count);
-            guard.register_hook(MemoryHook {
-                name: "hook_b".into(),
-                estimated_free_bytes: 512,
-                execution_overhead_bytes: 0,
-                priority: 2,
-                callback: Box::new(move || {
-                    c2.fetch_add(1, Ordering::SeqCst);
-                    512
-                }),
-            });
+            guard.register_hook(MemoryHook::new("hook_b", 512, 0, 2, move || {
+                c2.fetch_add(1, Ordering::SeqCst);
+                512
+            }));
 
             // Hook C: priority 3, frees 512 bytes. Should NOT be called if
             // A+B free enough.
             let c3 = Arc::new(AtomicBool::new(false));
             let c3_clone = Arc::clone(&c3);
-            guard.register_hook(MemoryHook {
-                name: "hook_c".into(),
-                estimated_free_bytes: 512,
-                execution_overhead_bytes: 0,
-                priority: 3,
-                callback: Box::new(move || {
-                    c3_clone.store(true, Ordering::SeqCst);
-                    512
-                }),
-            });
+            guard.register_hook(MemoryHook::new("hook_c", 512, 0, 3, move || {
+                c3_clone.store(true, Ordering::SeqCst);
+                512
+            }));
 
             // Request 384 f32 = 1536 bytes. 1024 + 1536 = 2560 > 2048.
             // Shortfall = 512. Hook A frees 256 (not enough), Hook B frees
@@ -2028,31 +2019,19 @@ mod tests {
             let expensive_clone = Arc::clone(&expensive_called);
 
             // Hook with overhead of 256 > headroom of 128 => should be skipped.
-            guard.register_hook(MemoryHook {
-                name: "expensive_hook".into(),
-                estimated_free_bytes: 1024,
-                execution_overhead_bytes: 256,
-                priority: 1,
-                callback: Box::new(move || {
-                    expensive_clone.store(true, Ordering::SeqCst);
-                    1024
-                }),
-            });
+            guard.register_hook(MemoryHook::new("expensive_hook", 1024, 256, 1, move || {
+                expensive_clone.store(true, Ordering::SeqCst);
+                1024
+            }));
 
             let cheap_called = Arc::new(AtomicBool::new(false));
             let cheap_clone = Arc::clone(&cheap_called);
 
             // Hook with zero overhead => should fire.
-            guard.register_hook(MemoryHook {
-                name: "cheap_hook".into(),
-                estimated_free_bytes: 512,
-                execution_overhead_bytes: 0,
-                priority: 2,
-                callback: Box::new(move || {
-                    cheap_clone.store(true, Ordering::SeqCst);
-                    512
-                }),
-            });
+            guard.register_hook(MemoryHook::new("cheap_hook", 512, 0, 2, move || {
+                cheap_clone.store(true, Ordering::SeqCst);
+                512
+            }));
 
             // Request 64 f32 = 256 bytes. 1920 + 256 = 2176 > 2048.
             // Shortfall = 128.

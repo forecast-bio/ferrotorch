@@ -58,7 +58,20 @@ const PHILOX_W1: u32 = 0xBB67AE85; // sqrt(3) - 1
 /// Serializable snapshot of a [`PhiloxGenerator`]'s state.
 ///
 /// Used for checkpoint save/restore and fork/join in data parallelism.
+///
+/// # Construction
+///
+/// Use [`PhiloxState::new`] when starting from a fresh `(counter, seed)`
+/// pair (offset starts at zero). Use [`PhiloxState::from_parts`] when
+/// reconstructing from a checkpoint that captured a non-zero offset; that
+/// constructor validates the offset is in the legal range `0..4`.
+///
+/// `counter` and `seed` remain public fields because they are legitimate
+/// snapshot values that callers commonly read (and may compare). `offset`
+/// is `pub(crate)` because external code can put it in an invalid state:
+/// values `>= 4` produce a generator state the algorithm cannot represent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PhiloxState {
     /// Counter value — incremented for each 4-tuple generated.
     pub counter: u64,
@@ -66,7 +79,46 @@ pub struct PhiloxState {
     pub seed: u64,
     /// Offset into the current 4-tuple (0..4). Tracks how many of the
     /// 4 values from the last Philox round have been consumed.
-    pub offset: u64,
+    pub(crate) offset: u64,
+}
+
+impl PhiloxState {
+    /// Create a new snapshot starting at counter `counter` with seed `seed`
+    /// and a zero offset (no values consumed from the current 4-tuple).
+    #[must_use]
+    pub fn new(counter: u64, seed: u64) -> Self {
+        Self {
+            counter,
+            seed,
+            offset: 0,
+        }
+    }
+
+    /// Reconstruct a snapshot from raw parts, validating the offset.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError::InvalidState`] if `offset >= 4`. The Philox
+    /// 4x32-10 algorithm produces 4 `u32` values per counter step, so the
+    /// offset cursor must be in `0..4`.
+    pub fn from_parts(counter: u64, seed: u64, offset: u64) -> GpuResult<Self> {
+        if offset >= 4 {
+            return Err(GpuError::InvalidState {
+                message: format!("invalid Philox offset {offset}; must be < 4"),
+            });
+        }
+        Ok(Self {
+            counter,
+            seed,
+            offset,
+        })
+    }
+
+    /// Read the offset cursor (`0..4`).
+    #[must_use]
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1172,7 +1224,11 @@ pub fn gpu_philox_uniform(n: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<
 
     // Get the current RNG state and advance it.
     let state = {
-        let mut mgr = CUDA_RNG_MANAGER.lock().unwrap();
+        let mut mgr = CUDA_RNG_MANAGER
+            .lock()
+            .map_err(|e| GpuError::InvalidState {
+                message: format!("CUDA RNG manager mutex poisoned: {e}"),
+            })?;
         let rng_gen = mgr.generator(device.ordinal());
         let state = rng_gen.get_state();
         // Advance the generator by ceil(n/4) counters (each counter produces 4 values)
@@ -1242,7 +1298,11 @@ pub fn gpu_philox_normal(n: usize, device: &GpuDevice) -> GpuResult<CudaBuffer<f
     // Each thread consumes one Philox 4-tuple (using 2 of 4 values for Box-Muller),
     // and each thread produces 2 output values, so we need ceil(n/2) counters.
     let state = {
-        let mut mgr = CUDA_RNG_MANAGER.lock().unwrap();
+        let mut mgr = CUDA_RNG_MANAGER
+            .lock()
+            .map_err(|e| GpuError::InvalidState {
+                message: format!("CUDA RNG manager mutex poisoned: {e}"),
+            })?;
         let rng_gen = mgr.generator(device.ordinal());
         let state = rng_gen.get_state();
         let counters_needed = n.div_ceil(2);
@@ -1614,11 +1674,7 @@ mod tests {
     #[test]
     fn manager_set_rng_state() {
         let mut mgr = CudaRngManager::new(0);
-        let custom_state = PhiloxState {
-            counter: 100,
-            seed: 999,
-            offset: 2,
-        };
+        let custom_state = PhiloxState::from_parts(100, 999, 2).expect("offset 2 is in 0..4");
         mgr.set_rng_state(0, custom_state);
 
         let state = mgr.get_rng_state(0);
@@ -1678,11 +1734,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "devices.len()")]
     fn fork_join_length_mismatch_panics() {
-        let states = vec![PhiloxState {
-            counter: 0,
-            seed: 0,
-            offset: 0,
-        }];
+        let states = vec![PhiloxState::new(0, 0)];
         join_rng(&[0, 1], states);
     }
 
