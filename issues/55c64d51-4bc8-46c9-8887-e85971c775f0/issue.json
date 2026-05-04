@@ -2,11 +2,12 @@
   "uuid": "55c64d51-4bc8-46c9-8887-e85971c775f0",
   "display_id": 715,
   "title": "ferrotorch-cubecl polynomial families: dispatch_unary_with_n! has no handle variant — host-roundtrips on every call (chebyshev/hermite/laguerre/legendre)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-04T15:44:04.740002806Z",
-  "updated_at": "2026-05-04T15:44:06.649668875Z",
+  "updated_at": "2026-05-04T20:04:25.661602071Z",
+  "closed_at": "2026-05-04T20:04:25.661602071Z",
   "labels": [
     "rust,gpu,gpu-discipline-3,follow-up"
   ]
