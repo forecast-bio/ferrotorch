@@ -1,0 +1,10 @@
+{
+  "uuid": "e1336ed4-e15e-40c8-b733-51ea10640b08",
+  "display_id": 734,
+  "title": "audit follow-up: ferrotorch-tokenize — doctest unwrap + lints + encode_batch perf + ChatMessage encapsulation + Deserialize + I/O error categories + # Errors",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T21:39:06.877275532Z",
+  "updated_at": "2026-05-04T21:39:06.877275532Z"
+}
