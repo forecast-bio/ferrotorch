@@ -1,0 +1,10 @@
+{
+  "uuid": "cf35d8ed-7f24-438e-8115-d18f926ba0f7",
+  "display_id": 714,
+  "title": "audit follow-up: ferrotorch-cubecl §3 PyTorch parity — host-readback per op + 28 unsafe SAFETY",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T15:25:34.916622036Z",
+  "updated_at": "2026-05-04T15:25:34.916622036Z"
+}
