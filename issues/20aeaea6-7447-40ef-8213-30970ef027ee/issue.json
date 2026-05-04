@@ -2,11 +2,12 @@
   "uuid": "20aeaea6-7447-40ef-8213-30970ef027ee",
   "display_id": 735,
   "title": "audit follow-up: ferrotorch-nn-derive — expect→syn::Error + lints + Debug derives + find_float_param",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-04T21:52:27.683662257Z",
-  "updated_at": "2026-05-04T21:52:29.433654730Z",
+  "updated_at": "2026-05-04T21:58:24.995982442Z",
+  "closed_at": "2026-05-04T21:58:24.995982442Z",
   "labels": [
     "rust,nn-derive,audit-followup"
   ]
