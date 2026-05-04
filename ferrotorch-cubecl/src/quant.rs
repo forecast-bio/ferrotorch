@@ -45,6 +45,12 @@ const Q8_0_BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8)
 const Q8_1_BLOCK_BYTES: usize = 40; // 4 (f32 scale) + 4 (f32 min) + 32 (i8)
 
 /// Identifier for the supported GGUF block layouts.
+///
+/// Variant names mirror the GGUF binary format spec verbatim (`Q4_0`,
+/// `Q4_1`, `Q5_0`, `Q5_1`, `Q8_0`, `Q8_1`) so that grep-equivalence with
+/// the upstream llama.cpp / GGUF documentation holds. Renaming to RFC 430
+/// `UpperCamelCase` would break that interop contract.
+#[allow(non_camel_case_types)] // matches GGUF binary format spec naming (Q4_0, Q4_1, ...)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GgufBlockKind {
     Q4_0,
@@ -501,15 +507,6 @@ pub fn kernel_dequantize_q8_1<F: Float>(
 // Host launchers — upload split buffers, dispatch kernel, return GPU handle
 // ---------------------------------------------------------------------------
 
-fn elementwise_launch_dims(n: u32) -> (CubeCount, CubeDim) {
-    let units_per_cube: u32 = 256;
-    let num_cubes = n.div_ceil(units_per_cube).max(1);
-    (
-        CubeCount::Static(num_cubes, 1, 1),
-        CubeDim::new_1d(units_per_cube),
-    )
-}
-
 /// Upload the host-split Q4_0 buffers to GPU, run the dequantization kernel,
 /// and return the on-device output handle. The output handle is *not* read
 /// back to the host — that is the entire point of this path.
@@ -528,6 +525,18 @@ pub fn dequantize_q4_0_to_gpu<R: Runtime>(
 
     let scales_handle = client.create_from_slice(f32::as_bytes(scales));
     let nibbles_handle = client.create_from_slice(unsafe {
+        // SAFETY: Reinterprets the host-side `&[u32]` as `&[u8]` for the
+        //   `client.create_from_slice` upload path (which takes `&[u8]`).
+        //   - Alignment: `u32` has stricter alignment than `u8`, so casting
+        //     `*const u32` to `*const u8` is always valid (no
+        //     under-alignment). Read access at any byte offset is sound.
+        //   - Length: `size_of_val(nibbles) == nibbles.len() * 4`; the
+        //     resulting `&[u8]` covers exactly the same bytes as the
+        //     original `&[u32]`. No out-of-bounds.
+        //   - Lifetime: the `&[u8]` borrows from `nibbles` (lives until
+        //     this function returns) and is consumed synchronously by
+        //     `create_from_slice`, which copies into device memory. No
+        //     dangling reference. No concurrent `&mut` exists.
         std::slice::from_raw_parts(
             nibbles.as_ptr() as *const u8,
             std::mem::size_of_val(nibbles),
@@ -535,7 +544,24 @@ pub fn dequantize_q4_0_to_gpu<R: Runtime>(
     });
     let out_handle = client.empty(num_elements * std::mem::size_of::<f32>());
 
-    let (count, dim) = elementwise_launch_dims(num_elements as u32);
+    let (count, dim) = crate::elementwise_launch_dims(num_elements as u32);
+    // SAFETY: All three handles were alloc'd by this `client` immediately
+    //   above:
+    //   - `scales_handle` from `create_from_slice(f32::as_bytes(scales))`
+    //     (line 526); backing buffer holds `scales.len()` f32 elements.
+    //   - `nibbles_handle` from `create_from_slice(<bytes>)` (line 527);
+    //     `nibbles.len() * 4` bytes uploaded — exactly `nibbles.len()` u32
+    //     elements as the kernel sees `&Array<u32>`.
+    //   - `out_handle` from `empty(num_elements * size_of::<f32>())` (line
+    //     533); capacity is exactly `num_elements` f32 elements. `.clone()`
+    //     is a refcount bump only; kernel writes are visible via the
+    //     returned `out_handle`.
+    //   `count`/`dim` from `elementwise_launch_dims(num_elements)` cover
+    //   `num_elements` units (one per output element); kernel guards
+    //   `ABSOLUTE_POS < out.len()`. `debug_assert_eq` at lines 523-524
+    //   pins shape relations (`num_elements == scales.len() * 32`,
+    //   `nibbles.len() == scales.len() * 4`). `launch_unchecked` is unsafe
+    //   per cubecl convention; refs live for launch duration.
     unsafe {
         kernel_dequantize_q4_0::launch_unchecked::<f32, R>(
             client,
@@ -565,6 +591,17 @@ pub fn dequantize_q4_1_to_gpu<R: Runtime>(
     let scales_handle = client.create_from_slice(f32::as_bytes(scales));
     let mins_handle = client.create_from_slice(f32::as_bytes(mins));
     let nibbles_handle = client.create_from_slice(unsafe {
+        // SAFETY: `&[u32]` → `&[u8]` reinterpret for the `&[u8]`-typed
+        //   `create_from_slice` upload API.
+        //   - Alignment: `align_of::<u32>() ≥ align_of::<u8>()`, so casting
+        //     `*const u32` to `*const u8` cannot under-align — every byte
+        //     in the underlying buffer is independently readable.
+        //   - Length: `size_of_val(nibbles) == nibbles.len() * 4`; the
+        //     resulting `&[u8]` covers exactly the same byte range. No
+        //     out-of-bounds.
+        //   - Lifetime: borrows from `nibbles` (live until function return);
+        //     consumed synchronously by `create_from_slice`. No `&mut`
+        //     aliasing.
         std::slice::from_raw_parts(
             nibbles.as_ptr() as *const u8,
             std::mem::size_of_val(nibbles),
@@ -572,7 +609,22 @@ pub fn dequantize_q4_1_to_gpu<R: Runtime>(
     });
     let out_handle = client.empty(num_elements * std::mem::size_of::<f32>());
 
-    let (count, dim) = elementwise_launch_dims(num_elements as u32);
+    let (count, dim) = crate::elementwise_launch_dims(num_elements as u32);
+    // SAFETY: All four handles were alloc'd by this `client` immediately
+    //   above:
+    //   - `scales_handle` and `mins_handle` from
+    //     `create_from_slice(f32::as_bytes(...))` (lines 562-563); each
+    //     holds `scales.len()` / `mins.len()` f32 elements
+    //     (`scales.len() == mins.len()` per debug_assert at line 559).
+    //   - `nibbles_handle` from `create_from_slice(<bytes>)` (line 564);
+    //     `nibbles.len() * 4` bytes — exactly `nibbles.len()` u32 elements.
+    //   - `out_handle` from `empty(num_elements * size_of::<f32>())` (line
+    //     570); capacity = `num_elements` f32 elements. `.clone()` is a
+    //     refcount bump — kernel writes visible via returned handle.
+    //   `count`/`dim` cover `num_elements` units; kernel bounds-checks
+    //   `ABSOLUTE_POS`. Shape relations enforced by `debug_assert_eq` at
+    //   lines 558-560. `launch_unchecked` skips runtime arity checks (per
+    //   cubecl convention); refs live for launch duration.
     unsafe {
         kernel_dequantize_q4_1::launch_unchecked::<f32, R>(
             client,
@@ -600,11 +652,32 @@ pub fn dequantize_q8_0_to_gpu<R: Runtime>(
 
     let scales_handle = client.create_from_slice(f32::as_bytes(scales));
     let bytes_handle = client.create_from_slice(unsafe {
+        // SAFETY: `&[u32]` → `&[u8]` reinterpret for `create_from_slice`'s
+        //   `&[u8]` upload API.
+        //   - Alignment: `align_of::<u32>() ≥ align_of::<u8>()`; the cast
+        //     `*const u32` → `*const u8` never under-aligns.
+        //   - Length: `size_of_val(bytes) == bytes.len() * 4` — exact byte
+        //     coverage, no overrun.
+        //   - Lifetime: borrows from `bytes` (live until function return);
+        //     consumed synchronously by `create_from_slice` (which copies
+        //     into device memory). No `&mut` overlap.
         std::slice::from_raw_parts(bytes.as_ptr() as *const u8, std::mem::size_of_val(bytes))
     });
     let out_handle = client.empty(num_elements * std::mem::size_of::<f32>());
 
-    let (count, dim) = elementwise_launch_dims(num_elements as u32);
+    let (count, dim) = crate::elementwise_launch_dims(num_elements as u32);
+    // SAFETY: All three handles alloc'd by this `client` above:
+    //   - `scales_handle` from `create_from_slice(f32::as_bytes(scales))`
+    //     (line 598); `scales.len()` f32 elements.
+    //   - `bytes_handle` from `create_from_slice(<bytes>)` (line 599);
+    //     `bytes.len()` u32 elements (`bytes.len() == scales.len() * 8`,
+    //     debug-asserted line 596).
+    //   - `out_handle` from `empty(num_elements * size_of::<f32>())` (line
+    //     602); `num_elements` f32 elements. `.clone()` is a refcount bump.
+    //   `count`/`dim` cover `num_elements` units; kernel bounds-checks
+    //   `ABSOLUTE_POS < out.len()`. Shape relations: `num_elements ==
+    //   scales.len() * 32` (line 595). `launch_unchecked` skips runtime
+    //   checks per cubecl convention; refs live for launch duration.
     unsafe {
         kernel_dequantize_q8_0::launch_unchecked::<f32, R>(
             client,
@@ -633,9 +706,21 @@ pub fn dequantize_q5_0_to_gpu<R: Runtime>(
 
     let scales_handle = client.create_from_slice(f32::as_bytes(scales));
     let qh_handle = client.create_from_slice(unsafe {
+        // SAFETY: `&[u32]` → `&[u8]` reinterpret for the `&[u8]`-typed
+        //   `create_from_slice` upload path.
+        //   - Alignment: `align_of::<u32>() ≥ align_of::<u8>()` — cast
+        //     never under-aligns; every byte readable.
+        //   - Length: `size_of_val(qh) == qh.len() * 4` exactly.
+        //   - Lifetime: borrows from `qh` (live until function return);
+        //     consumed synchronously by `create_from_slice`.
         std::slice::from_raw_parts(qh.as_ptr() as *const u8, std::mem::size_of_val(qh))
     });
     let nibbles_handle = client.create_from_slice(unsafe {
+        // SAFETY: identical pattern to the `qh` reinterpret above —
+        //   `&[u32]` → `&[u8]` for upload. Alignment is monotonic
+        //   (`u32` ≥ `u8`); `size_of_val(nibbles) == nibbles.len() * 4`
+        //   gives exact byte coverage; lifetime tied to `nibbles` (returns
+        //   before it's dropped); no `&mut` aliasing.
         std::slice::from_raw_parts(
             nibbles.as_ptr() as *const u8,
             std::mem::size_of_val(nibbles),
@@ -643,7 +728,22 @@ pub fn dequantize_q5_0_to_gpu<R: Runtime>(
     });
     let out_handle = client.empty(num_elements * std::mem::size_of::<f32>());
 
-    let (count, dim) = elementwise_launch_dims(num_elements as u32);
+    let (count, dim) = crate::elementwise_launch_dims(num_elements as u32);
+    // SAFETY: All four handles alloc'd by this `client` above:
+    //   - `scales_handle` from `create_from_slice(f32::as_bytes(scales))`
+    //     (line 631); `scales.len()` f32 elements.
+    //   - `qh_handle` from `create_from_slice(<qh-as-bytes>)` (line 632);
+    //     `qh.len()` u32 elements (`qh.len() == scales.len()`,
+    //     debug-asserted line 628).
+    //   - `nibbles_handle` from `create_from_slice(<nibbles-as-bytes>)`
+    //     (line 635); `nibbles.len()` u32 elements
+    //     (`nibbles.len() == scales.len() * 4`, line 629).
+    //   - `out_handle` from `empty(num_elements * size_of::<f32>())` (line
+    //     641); `num_elements` f32 elements. `.clone()` is a refcount bump.
+    //   `count`/`dim` cover `num_elements` units; kernel guards
+    //   `ABSOLUTE_POS < out.len()`. Shape: `num_elements == scales.len() *
+    //   32` (line 627). `launch_unchecked` skips runtime arity per cubecl
+    //   convention; refs live for launch duration.
     unsafe {
         kernel_dequantize_q5_0::launch_unchecked::<f32, R>(
             client,
@@ -676,9 +776,18 @@ pub fn dequantize_q5_1_to_gpu<R: Runtime>(
     let scales_handle = client.create_from_slice(f32::as_bytes(scales));
     let mins_handle = client.create_from_slice(f32::as_bytes(mins));
     let qh_handle = client.create_from_slice(unsafe {
+        // SAFETY: `&[u32]` → `&[u8]` reinterpret for upload (see Q5_0
+        //   variant for the canonical version). Alignment is monotonic
+        //   (`u32` ≥ `u8`); `size_of_val(qh) == qh.len() * 4` is exact;
+        //   lifetime tied to `qh` (lives until function return);
+        //   `create_from_slice` consumes the borrow synchronously.
         std::slice::from_raw_parts(qh.as_ptr() as *const u8, std::mem::size_of_val(qh))
     });
     let nibbles_handle = client.create_from_slice(unsafe {
+        // SAFETY: same `&[u32]` → `&[u8]` reinterpret pattern as `qh`
+        //   above. `align_of::<u32>() ≥ align_of::<u8>()`,
+        //   `size_of_val(nibbles) == nibbles.len() * 4`, lifetime bounded
+        //   by `nibbles`'s scope, no `&mut` aliasing.
         std::slice::from_raw_parts(
             nibbles.as_ptr() as *const u8,
             std::mem::size_of_val(nibbles),
@@ -686,7 +795,22 @@ pub fn dequantize_q5_1_to_gpu<R: Runtime>(
     });
     let out_handle = client.empty(num_elements * std::mem::size_of::<f32>());
 
-    let (count, dim) = elementwise_launch_dims(num_elements as u32);
+    let (count, dim) = crate::elementwise_launch_dims(num_elements as u32);
+    // SAFETY: All five handles alloc'd by this `client` above:
+    //   - `scales_handle` and `mins_handle` from
+    //     `create_from_slice(f32::as_bytes(...))` (lines 673-674); each
+    //     holds `scales.len()` / `mins.len()` f32 elements
+    //     (`scales.len() == mins.len()`, asserted line 669).
+    //   - `qh_handle` (line 675): `qh.len()` u32 elements
+    //     (`qh.len() == scales.len()`, line 670).
+    //   - `nibbles_handle` (line 678): `nibbles.len()` u32 elements
+    //     (`nibbles.len() == scales.len() * 4`, line 671).
+    //   - `out_handle` from `empty(num_elements * size_of::<f32>())` (line
+    //     684); `num_elements` f32 elements. `.clone()` is a refcount bump.
+    //   `count`/`dim` cover `num_elements` units (`num_elements ==
+    //   scales.len() * 32`, line 668); kernel bounds-checks `ABSOLUTE_POS
+    //   < out.len()`. `launch_unchecked` skips runtime arity per cubecl
+    //   convention; refs live for launch duration.
     unsafe {
         kernel_dequantize_q5_1::launch_unchecked::<f32, R>(
             client,
@@ -718,11 +842,30 @@ pub fn dequantize_q8_1_to_gpu<R: Runtime>(
     let scales_handle = client.create_from_slice(f32::as_bytes(scales));
     let mins_handle = client.create_from_slice(f32::as_bytes(mins));
     let bytes_handle = client.create_from_slice(unsafe {
+        // SAFETY: `&[u32]` → `&[u8]` reinterpret for the `&[u8]`-typed
+        //   `create_from_slice` upload path. `align_of::<u32>() ≥
+        //   align_of::<u8>()` (cast never under-aligns); `size_of_val(bytes)
+        //   == bytes.len() * 4` exactly; lifetime tied to `bytes` (lives
+        //   until function return); `create_from_slice` consumes the borrow
+        //   synchronously by copying into device memory; no `&mut` overlap.
         std::slice::from_raw_parts(bytes.as_ptr() as *const u8, std::mem::size_of_val(bytes))
     });
     let out_handle = client.empty(num_elements * std::mem::size_of::<f32>());
 
-    let (count, dim) = elementwise_launch_dims(num_elements as u32);
+    let (count, dim) = crate::elementwise_launch_dims(num_elements as u32);
+    // SAFETY: All four handles alloc'd by this `client` above:
+    //   - `scales_handle` and `mins_handle` from
+    //     `create_from_slice(f32::as_bytes(...))` (lines 715-716); each
+    //     holds `scales.len()` / `mins.len()` f32 elements
+    //     (`scales.len() == mins.len()`, asserted line 712).
+    //   - `bytes_handle` (line 717): `bytes.len()` u32 elements
+    //     (`bytes.len() == scales.len() * 8`, line 713).
+    //   - `out_handle` from `empty(num_elements * size_of::<f32>())` (line
+    //     720); `num_elements` f32 elements. `.clone()` is a refcount bump.
+    //   `count`/`dim` cover `num_elements` units (`num_elements ==
+    //   scales.len() * 32`, line 711); kernel bounds-checks `ABSOLUTE_POS
+    //   < out.len()`. `launch_unchecked` skips runtime arity per cubecl
+    //   convention; refs live for launch duration.
     unsafe {
         kernel_dequantize_q8_1::launch_unchecked::<f32, R>(
             client,
@@ -1278,11 +1421,30 @@ pub fn apply_token_mask_to_gpu<R: Runtime>(
     let n = logits.len();
     let logits_handle = client.create_from_slice(f32::as_bytes(logits));
     let mask_handle = client.create_from_slice(unsafe {
+        // SAFETY: `&[u32]` → `&[u8]` reinterpret for `create_from_slice`'s
+        //   `&[u8]` upload API. Alignment is monotonic
+        //   (`align_of::<u32>() ≥ align_of::<u8>()`); `size_of_val(mask) ==
+        //   mask.len() * 4` exactly; lifetime tied to `mask` (live until
+        //   function return); `create_from_slice` consumes the borrow
+        //   synchronously by copying into device memory; no `&mut` overlap.
         std::slice::from_raw_parts(mask.as_ptr() as *const u8, std::mem::size_of_val(mask))
     });
     let out_handle = client.empty(std::mem::size_of_val(logits));
 
-    let (count, dim) = elementwise_launch_dims(n as u32);
+    let (count, dim) = crate::elementwise_launch_dims(n as u32);
+    // SAFETY: All three handles alloc'd by this `client` above:
+    //   - `logits_handle` from `create_from_slice(f32::as_bytes(logits))`;
+    //     `logits.len() == n` f32 elements.
+    //   - `mask_handle` from `create_from_slice(<mask-as-bytes>)`;
+    //     `mask.len() == n` u32 elements (debug-asserted at line 1274).
+    //   - `out_handle` from `empty(size_of_val(logits))` =
+    //     `n * size_of::<f32>()` bytes; capacity is `n` f32 elements.
+    //     `.clone()` is a refcount bump only; kernel writes visible
+    //     through returned `out_handle`.
+    //   `count`/`dim` from `elementwise_launch_dims(n)` cover `n` units
+    //   (one per token); kernel guards `ABSOLUTE_POS < out.len()`.
+    //   `launch_unchecked` skips runtime arity per cubecl convention; refs
+    //   live for launch duration.
     unsafe {
         kernel_apply_token_mask::launch_unchecked::<f32, R>(
             client,

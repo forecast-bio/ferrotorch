@@ -1,14 +1,23 @@
 //! Portable GPU operations that dispatch through a real CubeCL
 //! [`ComputeClient`] and run `#[cube]` kernels on the selected backend.
 //!
-//! Each function takes a [`CubeRuntime`] (which owns the client) and input
-//! `f32` tensors, runs the kernel on-device, and returns a
-//! `(cubecl::server::Handle, Vec<usize>)` pair: the **device-resident** result
-//! buffer plus its shape. No host readback is performed here.
+//! # API contract
 //!
-//! Post-#673: inputs that are already device-resident (XPU tensors backed by
-//! `StorageBuffer::Cubecl`) are dispatched through handle-direct kernel paths
-//! with no H2D upload. CPU tensors are uploaded on the way in.
+//! Every `portable_*` function returns a
+//! `(cubecl::server::Handle, Vec<usize>)` — the **device-resident** result
+//! buffer plus its shape. **No host readback is performed here.** A caller
+//! that needs CPU-resident data must explicitly call
+//! `CubeRuntime::read_f32s(handle, n)` (or the equivalent) at the call site;
+//! this keeps the readback decision local to the consumer rather than
+//! buried in a kernel helper.
+//!
+//! # Dispatch shape
+//!
+//! Inputs that are already device-resident (XPU tensors backed by
+//! `StorageBuffer::Cubecl`) are routed through handle-direct kernel paths
+//! (`run_*_handle` in [`crate::kernels`]) with **no H2D upload**. CPU
+//! tensors are uploaded once on the way in. After #673 + cubecl-A this
+//! covers all elementwise unary, elementwise binary, and matmul ops.
 //!
 //! Only `f32` is supported today — CubeCL's `Float` trait requires
 //! `CubeElement`, which `f32` implements on every backend.
@@ -132,18 +141,39 @@ macro_rules! dispatch_unary {
     }};
 }
 
+/// Dispatch a matmul, using the handle-direct path when both inputs are
+/// already device-resident (no H2D upload), otherwise uploading slices.
+///
+/// Mirrors `dispatch_binary!` for elementwise ops; matmul gets its own
+/// macro because the kernel takes additional `m`, `k`, `n` scalars.
 #[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
 macro_rules! dispatch_matmul {
     ($rt:expr, $a:expr, $b:expr, $m:expr, $k:expr, $n:expr) => {{
-        let a_data = contiguous_data($a)?;
-        let b_data = contiguous_data($b)?;
-        match $rt.client() {
-            #[cfg(feature = "wgpu")]
-            CubeClient::Wgpu(c) => kernels::run_matmul(c, &a_data, &b_data, $m, $k, $n),
-            #[cfg(feature = "cuda")]
-            CubeClient::Cuda(c) => kernels::run_matmul(c, &a_data, &b_data, $m, $k, $n),
-            #[cfg(feature = "rocm")]
-            CubeClient::Rocm(c) => kernels::run_matmul(c, &a_data, &b_data, $m, $k, $n),
+        match (cubecl_handle_of($a), cubecl_handle_of($b)) {
+            (Some(ha), Some(hb)) => {
+                let ah = ha.raw_handle().clone();
+                let bh = hb.raw_handle().clone();
+                match $rt.client() {
+                    #[cfg(feature = "wgpu")]
+                    CubeClient::Wgpu(c) => kernels::run_matmul_handle(c, ah, bh, $m, $k, $n),
+                    #[cfg(feature = "cuda")]
+                    CubeClient::Cuda(c) => kernels::run_matmul_handle(c, ah, bh, $m, $k, $n),
+                    #[cfg(feature = "rocm")]
+                    CubeClient::Rocm(c) => kernels::run_matmul_handle(c, ah, bh, $m, $k, $n),
+                }
+            }
+            _ => {
+                let a_data = contiguous_data($a)?;
+                let b_data = contiguous_data($b)?;
+                match $rt.client() {
+                    #[cfg(feature = "wgpu")]
+                    CubeClient::Wgpu(c) => kernels::run_matmul(c, &a_data, &b_data, $m, $k, $n),
+                    #[cfg(feature = "cuda")]
+                    CubeClient::Cuda(c) => kernels::run_matmul(c, &a_data, &b_data, $m, $k, $n),
+                    #[cfg(feature = "rocm")]
+                    CubeClient::Rocm(c) => kernels::run_matmul(c, &a_data, &b_data, $m, $k, $n),
+                }
+            }
         }
     }};
 }
@@ -155,9 +185,9 @@ macro_rules! dispatch_matmul {
 
 /// Elementwise `a + b` on the GPU.
 ///
-/// Returns the device-resident result handle and shape. Call
-/// Elementwise `a + b` on the GPU. Inputs may be device-resident (no H2D
-/// upload) or CPU tensors (uploaded on the way in). Issue #673.
+/// Returns the device-resident result handle and shape. Inputs may be
+/// device-resident (no H2D upload) or CPU tensors (uploaded on the way
+/// in). Issue #673.
 #[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
 pub fn portable_add(
     a: &Tensor<f32>,
@@ -244,7 +274,10 @@ pub fn portable_relu(
 /// 2-D matrix multiplication on the GPU.
 ///
 /// `a` must have shape `[M, K]` and `b` must have shape `[K, N]`.
-/// Returns device-resident handle + shape `[M, N]`.
+/// Returns device-resident handle + shape `[M, N]`. When both inputs are
+/// already device-resident (XPU tensors), dispatches through
+/// [`kernels::run_matmul_handle`] with no H2D upload; otherwise uploads
+/// slices and uses [`kernels::run_matmul`]. Issue #673.
 #[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
 pub fn portable_matmul(
     a: &Tensor<f32>,

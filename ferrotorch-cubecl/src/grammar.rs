@@ -103,27 +103,115 @@ pub fn kernel_compute_token_mask_dfa(
     }
 }
 
-/// Launch dimensions: 256 threads per cube, one thread per output.
-fn elementwise_launch_dims(n: u32) -> (CubeCount, CubeDim) {
-    let units_per_cube: u32 = 256;
-    let num_cubes = n.div_ceil(units_per_cube).max(1);
-    (
-        CubeCount::Static(num_cubes, 1, 1),
-        CubeDim::new_1d(units_per_cube),
-    )
-}
-
 /// Inputs the host has to assemble before calling
 /// [`compute_token_mask_dfa_to_gpu`].
+///
+/// All buffers are flat host slices that the launcher uploads to GPU.
+///
+/// # Invariants
+///
+/// - `vocab_offsets.len() == vocab_size + 1` — one offset per token plus a
+///   trailing sentinel that points one past the last char. The launcher
+///   computes `vocab_size = vocab_offsets.len() - 1`, so a slice that does
+///   *not* include the trailing sentinel will silently produce a vocab
+///   one shorter than the caller intended.
+/// - `transitions.len() == num_states * num_classes`, row-major.
+/// - `char_classes.len() == 128` — only ASCII codepoints are classified;
+///   any char `>= 128` is forced to REJECT inside the kernel.
+/// - `start_state` and `reject_state` are valid state indices for
+///   `transitions`.
+///
+/// Callers: [`compute_token_mask_dfa_to_gpu`] (single host launcher),
+/// `ferrotorch-llama::grammar::gpu_dispatch` (constructs from a compiled
+/// DFA + packed vocab), plus the in-crate CUDA tests.
+///
+/// # Cross-crate construction
+///
+/// `ferrotorch-llama` builds this struct via field-literal syntax. Adding
+/// `#[non_exhaustive]` would break that call site, so this struct is
+/// deliberately exhaustive; the validating constructor [`Self::new`] is
+/// available as the recommended entry point and is preferred for new
+/// callers.
 pub struct DfaMaskInputs<'a> {
+    /// Flat row-major DFA transition table. Indexed
+    /// `transitions[state * num_classes + class]` → next state.
+    /// Length must equal `num_states * num_classes`.
     pub transitions: &'a [u32],
+    /// 128-entry mapping from ASCII codepoint → equivalence class index.
+    /// Codepoints `>= 128` are not classified; the kernel forces them to
+    /// REJECT.
     pub char_classes: &'a [u32],
+    /// Vocab CSR offsets. **Length must equal `vocab_size + 1`**: the
+    /// trailing sentinel is required so the kernel can compute
+    /// `[start, end)` for the last token. A slice missing the sentinel
+    /// produces a vocab one shorter than intended.
     pub vocab_offsets: &'a [u32],
+    /// Concatenated ASCII codepoints of every token, addressed by
+    /// `vocab_offsets`. Length is `vocab_offsets[vocab_size]`.
     pub vocab_chars: &'a [u32],
+    /// Number of equivalence classes (the second dim of `transitions`).
     pub num_classes: u32,
+    /// Initial DFA state for every walk.
     pub start_state: u32,
+    /// Sink state — once the walk lands here it stays here and the token
+    /// is masked out.
     pub reject_state: u32,
+    /// Upper bound on the length of any token in `vocab_chars`. The
+    /// kernel's per-thread loop runs exactly this many iterations.
     pub max_token_len: u32,
+}
+
+impl<'a> DfaMaskInputs<'a> {
+    /// Construct a [`DfaMaskInputs`] after validating the
+    /// `vocab_offsets.len() == vocab_size + 1` invariant.
+    ///
+    /// `vocab_size` is the number of tokens in the vocab; the constructor
+    /// returns `None` when `vocab_offsets.len() != vocab_size + 1`. New
+    /// callers should prefer this over the raw struct literal so the
+    /// off-by-one in `vocab_offsets` cannot fire silently in
+    /// [`compute_token_mask_dfa_to_gpu`].
+    #[must_use]
+    #[allow(clippy::too_many_arguments)] // mirrors the 8 fields of the struct verbatim
+    pub fn new(
+        vocab_size: usize,
+        transitions: &'a [u32],
+        char_classes: &'a [u32],
+        vocab_offsets: &'a [u32],
+        vocab_chars: &'a [u32],
+        num_classes: u32,
+        start_state: u32,
+        reject_state: u32,
+        max_token_len: u32,
+    ) -> Option<Self> {
+        if vocab_offsets.len() != vocab_size + 1 {
+            return None;
+        }
+        Some(Self {
+            transitions,
+            char_classes,
+            vocab_offsets,
+            vocab_chars,
+            num_classes,
+            start_state,
+            reject_state,
+            max_token_len,
+        })
+    }
+}
+
+impl std::fmt::Debug for DfaMaskInputs<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DfaMaskInputs")
+            .field("transitions.len", &self.transitions.len())
+            .field("char_classes.len", &self.char_classes.len())
+            .field("vocab_offsets.len", &self.vocab_offsets.len())
+            .field("vocab_chars.len", &self.vocab_chars.len())
+            .field("num_classes", &self.num_classes)
+            .field("start_state", &self.start_state)
+            .field("reject_state", &self.reject_state)
+            .field("max_token_len", &self.max_token_len)
+            .finish()
+    }
 }
 
 /// Upload all inputs, dispatch [`kernel_compute_token_mask_dfa`], and
@@ -142,7 +230,27 @@ pub fn compute_token_mask_dfa_to_gpu<R: Runtime>(
     let chars_handle = client.create_from_slice(u32_slice_as_bytes(inputs.vocab_chars));
     let allow_handle = client.empty(vocab_size * bytes_u32);
 
-    let (count, dim) = elementwise_launch_dims(vocab_size as u32);
+    let (count, dim) = crate::elementwise_launch_dims(vocab_size as u32);
+    // SAFETY: All five handles alloc'd by this `client` above:
+    //   - `trans_handle` from `create_from_slice(u32_slice_as_bytes(...))`
+    //     (line 227); `inputs.transitions.len()` u32 elements.
+    //   - `class_handle` (line 228): `inputs.char_classes.len()` u32
+    //     elements (one per ASCII codepoint).
+    //   - `offsets_handle` (line 229): `inputs.vocab_offsets.len()` u32
+    //     elements (`vocab_size + 1` per the slice's CSR-style layout —
+    //     `vocab_size = inputs.vocab_offsets.len() - 1`, line 224).
+    //   - `chars_handle` (line 230): `inputs.vocab_chars.len()` u32
+    //     elements.
+    //   - `allow_handle` from `empty(vocab_size * size_of::<u32>())` (line
+    //     231); capacity is exactly `vocab_size` u32 elements. `.clone()`
+    //     is a cubecl handle refcount bump (no copy); kernel writes
+    //     visible through the returned handle.
+    //   `count`/`dim` from `elementwise_launch_dims(vocab_size)` cover
+    //   `vocab_size` units (one per vocab entry); kernel guards
+    //   `ABSOLUTE_POS < allow.len()`. Scalars (`num_classes`, `start_state`,
+    //   `reject_state`, `max_token_len`) are passed by value.
+    //   `launch_unchecked` skips runtime arity per cubecl convention; refs
+    //   live for launch duration.
     unsafe {
         kernel_compute_token_mask_dfa::launch_unchecked::<R>(
             client,
@@ -165,6 +273,20 @@ pub fn compute_token_mask_dfa_to_gpu<R: Runtime>(
 fn u32_slice_as_bytes(s: &[u32]) -> &[u8] {
     // `&[u32]` is `align >= align_of::<u8>()` and contiguous, so this
     // reinterpret is safe. CubeCL's upload path accepts `&[u8]`.
+    // SAFETY: `&[u32]` → `&[u8]` reinterpret for cubecl's `&[u8]` upload
+    //   API.
+    //   - Alignment: `align_of::<u32>() == 4 ≥ align_of::<u8>() == 1`.
+    //     Casting `*const u32` to `*const u8` always succeeds — every byte
+    //     of the underlying buffer is independently readable, regardless
+    //     of the source pointer's offset.
+    //   - Length: `size_of_val(s) == s.len() * 4`. The resulting `&[u8]`
+    //     covers exactly the bytes of the original `&[u32]`. No overrun
+    //     and no untouched padding (u32 has no padding).
+    //   - Lifetime: the returned `&[u8]` has the same lifetime as the
+    //     input `&[u32]` (lifetime elision rule: single-input → returned
+    //     reference inherits its lifetime). The borrow checker forbids
+    //     concurrent `&mut` access through the lifetime.
+    //   - Validity: any byte pattern is a valid `u8`; no UB on read.
     unsafe { std::slice::from_raw_parts(s.as_ptr().cast::<u8>(), std::mem::size_of_val(s)) }
 }
 

@@ -372,20 +372,10 @@ pub fn kernel_matmul_naive<F: Float>(
 // ---------------------------------------------------------------------------
 // Launch helpers — runtime-generic, f32-concrete
 // ---------------------------------------------------------------------------
-
-/// Choose a 1-D cube dim and cube count that cover `n` elements when each
-/// unit processes exactly one element.
-fn elementwise_launch_dims(n: u32) -> (CubeCount, CubeDim) {
-    // 256 units per cube is a safe default across all backends; wgpu requires
-    // the workgroup size to be compiled into the shader, but CubeCL handles
-    // that through `CubeDim`.
-    let units_per_cube: u32 = 256;
-    let num_cubes = n.div_ceil(units_per_cube).max(1);
-    (
-        CubeCount::Static(num_cubes, 1, 1),
-        CubeDim::new_1d(units_per_cube),
-    )
-}
+//
+// Launch geometry (`elementwise_launch_dims`) lives in `crate::` (lib.rs);
+// see that helper's doc comment. The function is shared verbatim with
+// `quant.rs` and `grammar.rs`.
 
 // ---------------------------------------------------------------------------
 // Unary + binary helpers shared by every elementwise op
@@ -409,8 +399,21 @@ where
     let x_handle = client.create_from_slice(f32::as_bytes(x));
     let out_handle = client.empty(size_bytes);
 
-    let (count, dim) = elementwise_launch_dims(n as u32);
+    let (count, dim) = crate::elementwise_launch_dims(n as u32);
+    // SAFETY: `x_handle` was alloc'd by `client.create_from_slice` at line 399
+    //   from `f32::as_bytes(x)`; backing buffer holds exactly `n = x.len()`
+    //   f32 elements (line 396). `ArrayArg::from_raw_parts`'s second arg is
+    //   the element count, not bytes; passing `n` matches the kernel's
+    //   `&Array<f32>` view. The launcher (closure provided by caller) only
+    //   dispatches kernels that read up to `n` elements — guarded by
+    //   `ABSOLUTE_POS < out.len()` in every kernel body in this module.
     let in_arg = unsafe { ArrayArg::from_raw_parts(x_handle, n) };
+    // SAFETY: `out_handle` was alloc'd by `client.empty(size_bytes)` at line
+    //   400 with `size_bytes = n * size_of::<f32>()` (line 397 via
+    //   `size_of_val`); capacity is exactly `n` f32 elements. `.clone()` on
+    //   a cubecl `Handle` is a refcount bump, not a memory copy — both
+    //   clones reference the same device allocation, so the kernel writes
+    //   visible to `out_handle` (returned below). `n` is the element count.
     let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), n) };
     launcher(client, count, dim, in_arg, out_arg);
 
@@ -437,9 +440,23 @@ where
     let b_handle = client.create_from_slice(f32::as_bytes(b));
     let out_handle = client.empty(size_bytes);
 
-    let (count, dim) = elementwise_launch_dims(n as u32);
+    let (count, dim) = crate::elementwise_launch_dims(n as u32);
+    // SAFETY: `a_handle` was alloc'd by `client.create_from_slice` at line
+    //   426 from `f32::as_bytes(a)`; backing buffer holds exactly
+    //   `n = a.len()` f32 elements (line 422). `n == b.len()` is asserted
+    //   at line 423. `ArrayArg::from_raw_parts`'s second arg is the element
+    //   count; `n` matches the kernel's `&Array<f32>` first input.
     let a_arg = unsafe { ArrayArg::from_raw_parts(a_handle, n) };
+    // SAFETY: `b_handle` was alloc'd by `client.create_from_slice` at line
+    //   427 from `f32::as_bytes(b)`; backing buffer holds exactly
+    //   `b.len() == n` f32 elements (debug-asserted line 423). `n` matches
+    //   the kernel's `&Array<f32>` second input.
     let b_arg = unsafe { ArrayArg::from_raw_parts(b_handle, n) };
+    // SAFETY: `out_handle` was alloc'd by `client.empty(size_bytes)` at line
+    //   428 with `size_bytes = n * size_of::<f32>()` (line 424 via
+    //   `size_of_val`); capacity is exactly `n` f32 elements. `.clone()` is
+    //   a cubecl handle refcount bump (no copy), so the kernel writes are
+    //   visible through the returned `out_handle`. `n` is the element count.
     let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), n) };
     launcher(client, count, dim, a_arg, b_arg, out_arg);
 
@@ -467,11 +484,17 @@ where
 {
     let size_bytes = n * std::mem::size_of::<f32>();
     let out_handle = client.empty(size_bytes);
-    let (count, dim) = elementwise_launch_dims(n as u32);
+    let (count, dim) = crate::elementwise_launch_dims(n as u32);
     // SAFETY: `x_handle` and `out_handle` were allocated by this `client`
     // with exactly `n` f32 elements each. The kernel reads `n` elements from
     // `x_handle` and writes `n` elements to `out_handle`.
     let in_arg = unsafe { ArrayArg::from_raw_parts(x_handle, n) };
+    // SAFETY: `out_handle` is the freshly-alloc'd device buffer from line
+    //   486 (`client.empty(n * size_of::<f32>())`); capacity is exactly `n`
+    //   f32 elements. `.clone()` on a cubecl `Handle` is a refcount bump
+    //   only, so the kernel writes through this `ArrayArg` are visible via
+    //   the `out_handle` returned to the caller. `n` is the element count
+    //   (not bytes), matching the kernel's `&mut Array<f32>` view.
     let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), n) };
     launcher(client, count, dim, in_arg, out_arg);
     (out_handle, n)
@@ -493,12 +516,23 @@ where
 {
     let size_bytes = n * std::mem::size_of::<f32>();
     let out_handle = client.empty(size_bytes);
-    let (count, dim) = elementwise_launch_dims(n as u32);
+    let (count, dim) = crate::elementwise_launch_dims(n as u32);
     // SAFETY: `a_handle`, `b_handle`, and `out_handle` were allocated by this
     // `client` with exactly `n` f32 elements each. The kernel reads from the
     // first two and writes to the third.
     let a_arg = unsafe { ArrayArg::from_raw_parts(a_handle, n) };
+    // SAFETY: `b_handle` is caller-provided and contracted to be alloc'd
+    //   from this same `client` with ≥`n * size_of::<f32>()` bytes (handle
+    //   shape is the `pub fn` contract for the `*_handle` runner family —
+    //   see issue #673). `n` matches the kernel's `&Array<f32>` second
+    //   input element count.
     let b_arg = unsafe { ArrayArg::from_raw_parts(b_handle, n) };
+    // SAFETY: `out_handle` is the freshly-alloc'd device buffer from line
+    //   512 (`client.empty(n * size_of::<f32>())`); capacity is exactly `n`
+    //   f32 elements. `.clone()` is a refcount bump only — kernel writes
+    //   through this `ArrayArg` are visible via the returned `out_handle`.
+    //   `n` is the element count, matching the kernel's
+    //   `&mut Array<f32>` view.
     let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), n) };
     launcher(client, count, dim, a_arg, b_arg, out_arg);
     (out_handle, n)
@@ -516,6 +550,16 @@ macro_rules! define_unary_runner {
             client: &ComputeClient<R>,
             x: &[f32],
         ) -> (cubecl::server::Handle, usize) {
+            // SAFETY: `launch_unchecked` is unsafe per cubecl convention because
+            //   it skips runtime arity/dim sanity checks that the macro form
+            //   `launch` performs. Caller (`run_unary`) guarantees: `input` and
+            //   `output` are `ArrayArg::from_raw_parts` over `n = x.len()` f32
+            //   elements (constructed under SAFETY at lines 411-426); `count`
+            //   and `dim` come from `elementwise_launch_dims(n as u32)` so the
+            //   grid covers exactly `n` units (one per element); the kernel
+            //   body guards `ABSOLUTE_POS < out.len()`. Argument refs live for
+            //   the launch duration; cubecl queues the dispatch and returns,
+            //   sync is the caller's responsibility.
             run_unary::<R, _>(client, x, |client, count, dim, input, output| unsafe {
                 $kernel::launch_unchecked::<f32, R>(client, count, dim, input, output);
             })
@@ -527,6 +571,14 @@ macro_rules! define_unary_runner {
             x_handle: cubecl::server::Handle,
             n: usize,
         ) -> (cubecl::server::Handle, usize) {
+            // SAFETY: same `launch_unchecked` invariants as the slice-upload
+            //   variant above. `run_unary_handle` (line 448) wraps `x_handle`
+            //   and a freshly-allocated `out_handle` in `ArrayArg::from_raw_parts`
+            //   over `n` f32 elements. The handle-direct path requires the
+            //   caller to have alloc'd `x_handle` from the same `client` with
+            //   ≥`n * size_of::<f32>()` bytes — this is the `pub fn` contract
+            //   used by `ferrotorch-xpu` after #673. `count`/`dim` cover `n`
+            //   units; kernel body bounds-checks `ABSOLUTE_POS`.
             run_unary_handle::<R, _>(client, x_handle, n, |client, count, dim, input, output| unsafe {
                 $kernel::launch_unchecked::<f32, R>(client, count, dim, input, output);
             })
@@ -542,6 +594,15 @@ macro_rules! define_binary_runner {
             a: &[f32],
             b: &[f32],
         ) -> (cubecl::server::Handle, usize) {
+            // SAFETY: `launch_unchecked` skips arity/dim checks; safety is
+            //   inherited from `run_binary` (line 412), which constructs all
+            //   three `ArrayArg`s under SAFETY at lines 439-457: `a` and `b`
+            //   handles each hold `n = a.len() == b.len()` f32 elements
+            //   (asserted line 423), `out` handle holds `n` elements freshly
+            //   alloc'd. `count`/`dim` from `elementwise_launch_dims(n as u32)`
+            //   span exactly `n` units. Kernel body bounds-checks
+            //   `ABSOLUTE_POS < out.len()`. Refs live for launch duration;
+            //   cubecl queues + returns.
             run_binary::<R, _>(client, a, b, |client, count, dim, a, b, out| unsafe {
                 $kernel::launch_unchecked::<f32, R>(client, count, dim, a, b, out);
             })
@@ -554,6 +615,15 @@ macro_rules! define_binary_runner {
             b_handle: cubecl::server::Handle,
             n: usize,
         ) -> (cubecl::server::Handle, usize) {
+            // SAFETY: same `launch_unchecked` invariants as the slice-upload
+            //   binary variant above. `run_binary_handle` (line 473) wraps
+            //   the two caller-provided handles plus a fresh `out_handle` in
+            //   `ArrayArg::from_raw_parts` over `n` f32 elements. The
+            //   `pub fn` contract requires both `a_handle` and `b_handle` to
+            //   be alloc'd from the same `client` with ≥`n * size_of::<f32>()`
+            //   bytes (caller responsibility — used by `ferrotorch-xpu`
+            //   post-#673). Grid covers `n` units; kernel guards
+            //   `ABSOLUTE_POS < out.len()`.
             run_binary_handle::<R, _>(client, a_handle, b_handle, n, |client, count, dim, a, b, out| unsafe {
                 $kernel::launch_unchecked::<f32, R>(client, count, dim, a, b, out);
             })
@@ -602,8 +672,21 @@ where
     let x_handle = client.create_from_slice(f32::as_bytes(x));
     let out_handle = client.empty(size_bytes);
 
-    let (count, dim) = elementwise_launch_dims(count_elems as u32);
+    let (count, dim) = crate::elementwise_launch_dims(count_elems as u32);
+    // SAFETY: `x_handle` was alloc'd by `client.create_from_slice` at line
+    //   655 from `f32::as_bytes(x)`; backing buffer holds exactly
+    //   `count_elems = x.len()` f32 elements (line 652).
+    //   `ArrayArg::from_raw_parts`'s second arg is the element count;
+    //   `count_elems` matches the kernel's `&Array<f32>` input view. The
+    //   scalar `n` (degree) is passed separately and not subject to this
+    //   block's invariants.
     let in_arg = unsafe { ArrayArg::from_raw_parts(x_handle, count_elems) };
+    // SAFETY: `out_handle` was alloc'd by `client.empty(size_bytes)` at line
+    //   656 with `size_bytes = count_elems * size_of::<f32>()` (line 653 via
+    //   `size_of_val`); capacity is exactly `count_elems` f32 elements.
+    //   `.clone()` is a cubecl handle refcount bump (no copy); kernel
+    //   writes are visible through the returned `out_handle`. `count_elems`
+    //   is the element count.
     let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), count_elems) };
     launcher(client, count, dim, in_arg, out_arg, n);
 
@@ -622,6 +705,18 @@ macro_rules! define_unary_with_n_runner {
                 client,
                 x,
                 n,
+                // SAFETY: `launch_unchecked` skips runtime arity/dim checks
+                //   that the macro `launch` form normally performs. Caller
+                //   (`run_unary_with_n`, line 642) constructs `input` and
+                //   `output` via `ArrayArg::from_raw_parts` over
+                //   `count_elems = x.len()` f32 elements (under SAFETY at
+                //   lines 658-674). `count`/`dim` come from
+                //   `elementwise_launch_dims(count_elems as u32)` so the grid
+                //   covers `count_elems` units (one per element); kernel
+                //   bodies bounds-check `ABSOLUTE_POS < out.len()`. `n_val`
+                //   is a scalar copied by value into the kernel — not subject
+                //   to handle-aliasing concerns. Refs live for launch
+                //   duration; cubecl queues the dispatch and returns.
                 |client, count, dim, input, output, n_val| unsafe {
                     $kernel::launch_unchecked::<f32, R>(
                         client,
@@ -669,7 +764,27 @@ pub fn run_matmul<R: Runtime>(
     let b_handle = client.create_from_slice(f32::as_bytes(b));
     let out_handle = client.empty(size_bytes);
 
-    let (count, dim) = elementwise_launch_dims(out_len as u32);
+    let (count, dim) = crate::elementwise_launch_dims(out_len as u32);
+    // SAFETY: All three handles were alloc'd by this `client`:
+    //   - `a_handle` from `create_from_slice(f32::as_bytes(a))` at line 746;
+    //     backing buffer holds `a.len() == m * k` f32 elements (asserted
+    //     line 741). Passing `a.len()` matches the kernel's `&Array<f32>`
+    //     first input.
+    //   - `b_handle` from `create_from_slice(f32::as_bytes(b))` at line 747;
+    //     `b.len() == k * n` f32 elements (asserted line 742). `b.len()`
+    //     matches the second input.
+    //   - `out_handle` from `empty(size_bytes)` at line 748 with
+    //     `size_bytes = out_len * size_of::<f32>()` (line 744); capacity is
+    //     exactly `out_len = m * n` f32 elements. `.clone()` is a refcount
+    //     bump, kernel writes are visible through the returned handle.
+    //   `count`/`dim` from `elementwise_launch_dims(out_len)` cover `m*n`
+    //   units (one per output element); kernel guards `ABSOLUTE_POS <
+    //   out.len()`. Scalars `m`, `k`, `n` are passed by value as `u32` for
+    //   shape indexing inside the kernel — kernel converts to `usize`
+    //   internally per the documented idiom (see `kernel_matmul_naive`).
+    //   `launch_unchecked` is unsafe per cubecl convention because it
+    //   bypasses runtime arity checks; refs live for launch duration;
+    //   cubecl queues the dispatch.
     unsafe {
         kernel_matmul_naive::launch_unchecked::<f32, R>(
             client,
@@ -677,6 +792,52 @@ pub fn run_matmul<R: Runtime>(
             dim,
             ArrayArg::from_raw_parts(a_handle, a.len()),
             ArrayArg::from_raw_parts(b_handle, b.len()),
+            ArrayArg::from_raw_parts(out_handle.clone(), out_len),
+            m as u32,
+            k as u32,
+            n as u32,
+        );
+    }
+
+    (out_handle, out_len)
+}
+
+/// Run `kernel_matmul_naive` against pre-uploaded device handles; no H2D
+/// upload. Issue #673.
+///
+/// `a_handle` points to `[m * k]` row-major device memory and `b_handle`
+/// points to `[k * n]`. Output is allocated by this function and filled in
+/// `[m * n]` row-major. The caller is responsible for ensuring the handle
+/// shapes and sizes match `m`, `k`, `n`.
+///
+/// This is the device-resident counterpart to [`run_matmul`] for callers
+/// whose inputs already live on the GPU (e.g. `ferrotorch-xpu` after #673).
+pub fn run_matmul_handle<R: Runtime>(
+    client: &ComputeClient<R>,
+    a_handle: cubecl::server::Handle,
+    b_handle: cubecl::server::Handle,
+    m: usize,
+    k: usize,
+    n: usize,
+) -> (cubecl::server::Handle, usize) {
+    let a_len = m * k;
+    let b_len = k * n;
+    let out_len = m * n;
+    let size_bytes = out_len * std::mem::size_of::<f32>();
+
+    let out_handle = client.empty(size_bytes);
+    let (count, dim) = crate::elementwise_launch_dims(out_len as u32);
+    // SAFETY: `a_handle`, `b_handle`, and `out_handle` were allocated by
+    // this `client`. The kernel reads `a_len = m*k` and `b_len = k*n`
+    // elements and writes `out_len = m*n` elements — matching the array
+    // lengths declared here.
+    unsafe {
+        kernel_matmul_naive::launch_unchecked::<f32, R>(
+            client,
+            count,
+            dim,
+            ArrayArg::from_raw_parts(a_handle, a_len),
+            ArrayArg::from_raw_parts(b_handle, b_len),
             ArrayArg::from_raw_parts(out_handle.clone(), out_len),
             m as u32,
             k as u32,
