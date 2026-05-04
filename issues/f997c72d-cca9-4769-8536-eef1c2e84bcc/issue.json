@@ -6,5 +6,8 @@
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-04T19:12:09.113255506Z",
-  "updated_at": "2026-05-04T19:12:09.113255506Z"
+  "updated_at": "2026-05-04T19:12:10.816071949Z",
+  "labels": [
+    "rust,workspace,2024-edition,follow-up"
+  ]
 }
