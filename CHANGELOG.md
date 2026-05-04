@@ -312,6 +312,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- ferrotorch-cubecl polynomial families: dispatch_unary_with_n! has no handle variant — host-roundtrips on every call (chebyshev/hermite/laguerre/legendre) (#715)
+- ferrotorch-gpu/jit: 36 pre-existing rustdoc intra-doc-link warnings (broken/private item links) block cargo doc -- -D warnings (#712)
+- ferrotorch-cubecl: run_binary_handle lacks runtime byte-capacity debug_assert for pre-uploaded handles (#718)
+- ferrotorch-cubecl: ArrayArg::from_raw_parts lacks runtime byte-capacity validation (release-build UB on size mismatch) (#717)
+- cubecl bundle: #717 + #718 handle byte-capacity validation (#725)
+- audit follow-up: ferrotorch-distributed — 25 SAFETY + fsdp expects + collective NumCast + Drop SAFETY (#723)
+- commit xpu+jit bundle (#722)
 - audit follow-up: ferrotorch-jit — interpreter NumCast + tracing panics + IrValue dtype doc + IR encapsulation (#720)
 - audit follow-up: ferrotorch-cubecl §3 PyTorch parity — host-readback per op + 28 unsafe SAFETY (#714)
 - audit follow-up: ferrotorch-xpu — dtype monomorphism + lints baseline + shape-bypass (#719)

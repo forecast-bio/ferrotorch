@@ -20,8 +20,22 @@ use std::sync::OnceLock;
 pub type NcclComm = *mut c_void;
 
 /// NCCL unique ID for communicator bootstrap (128 bytes).
+///
+/// The `internal` byte buffer is written by NCCL via
+/// [`get_unique_id`] and must be transmitted to all ranks (commonly via
+/// TCP, env var, or shared filesystem) before [`comm_init_rank`].
+///
+/// `#[repr(C)]` is load-bearing: this struct is passed by value across
+/// the C FFI boundary to NCCL and its layout must match `ncclUniqueId`
+/// from `nccl.h` exactly. `#[non_exhaustive]` is a Rust surface-API
+/// annotation only — it does not affect memory layout — and is added
+/// to allow forward-compatible additions (e.g., a version field) without
+/// breaking external struct-literal construction. External callers
+/// obtain instances via [`get_unique_id`] rather than constructing
+/// directly.
 #[repr(C)]
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 pub struct NcclUniqueId {
     pub internal: [u8; 128],
 }

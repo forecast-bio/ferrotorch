@@ -22,7 +22,7 @@
 //! # CPU fallback
 //!
 //! When the `cuda` feature is disabled, all functions return
-//! [`GpuError::NoCudaFeature`].
+//! `GpuError::NoCudaFeature`.
 
 use crate::blas::gpu_matmul_f32;
 use crate::buffer::CudaBuffer;

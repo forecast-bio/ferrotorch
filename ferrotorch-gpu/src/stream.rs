@@ -9,7 +9,7 @@
 //!
 //! # Design
 //!
-//! Each device gets [`STREAMS_PER_DEVICE`] non-blocking streams created via
+//! Each device gets `STREAMS_PER_DEVICE` (8) non-blocking streams created via
 //! [`CudaContext::new_stream`]. The pool is initialized lazily on first access
 //! using [`OnceLock`]. Streams are distributed round-robin via an atomic counter.
 //!
@@ -184,7 +184,7 @@ const _CUDA_STREAM_LAYOUT_GUARD: () = {
 /// into cudarc's `CudaStream`, because cudarc 0.19 does not expose a
 /// public constructor for `CudaStream` from a raw pointer. The
 /// transmute is bounded by a const layout-guard assertion against the
-/// pinned cudarc version. See [`CudaStreamMirror`] above for the
+/// pinned cudarc version. See the `CudaStreamMirror` helper above for the
 /// rationale and update procedure.
 ///
 /// CL-322.
@@ -253,7 +253,7 @@ impl CudaEventWrapper {
     /// Create a new event associated with the given device's context.
     ///
     /// The event is created with `CU_EVENT_DISABLE_TIMING` (the cudarc default
-    /// when `None` is passed for flags). Use [`new_with_timing`] if you need
+    /// when `None` is passed for flags). Use [`Self::new_with_timing`] if you need
     /// elapsed-time queries.
     pub fn new(ctx: &Arc<CudaContext>) -> GpuResult<Self> {
         let inner = ctx.new_event(None)?;
@@ -398,7 +398,7 @@ pub struct StreamPool;
 impl StreamPool {
     /// Get a stream for the given device, round-robin across the pool.
     ///
-    /// On first call for a device ordinal, lazily creates [`STREAMS_PER_DEVICE`]
+    /// On first call for a device ordinal, lazily creates `STREAMS_PER_DEVICE` (8)
     /// non-blocking streams from the device's CUDA context.
     ///
     /// # Arguments

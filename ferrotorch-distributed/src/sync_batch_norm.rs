@@ -57,6 +57,12 @@ use crate::collective::{ReduceOp, allreduce};
 /// Same API surface as `BatchNorm2d` plus an `Arc<dyn Backend>` for
 /// cross-rank communication. When `world_size == 1` (or no backend is
 /// provided), behaves exactly like a plain BatchNorm2d.
+///
+/// Marked `#[non_exhaustive]` so future configuration knobs (e.g.,
+/// running-stats sync mode, momentum schedule, fused fwd/bwd flags) can
+/// be added without breaking external struct-literal construction.
+/// Construct via [`SyncBatchNorm2d::new`] / [`SyncBatchNorm2d::with_backend`].
+#[non_exhaustive]
 pub struct SyncBatchNorm2d<T: Float> {
     pub num_features: usize,
     pub eps: f64,

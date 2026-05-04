@@ -79,8 +79,8 @@ impl DimSpec {
 /// [`export`] produces `InputSpec`s with all dimensions
 /// [`DimSpec::Static`]. To mark dimensions as symbolic, use
 /// [`export_with_dynamic_shapes`] (or construct an `InputSpec`
-/// manually and pass it to [`export_from_program`] in
-/// `ferrotorch-serialize`). CL-396.
+/// manually and pass it to `ferrotorch_serialize::export_from_program`).
+/// CL-396.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputSpec {
     /// Per-dimension spec, outermost-first.
@@ -162,7 +162,7 @@ impl ExportedProgram {
         crate::interpret(&self.graph, inputs)
     }
 
-    /// Validate `inputs` against this program's [`input_specs`] and
+    /// Validate `inputs` against this program's [`Self::input_specs`] and
     /// run the graph. Returns an `InvalidArgument` error describing
     /// the first violation if:
     ///
@@ -179,7 +179,7 @@ impl ExportedProgram {
         self.run(inputs)
     }
 
-    /// Check runtime `inputs` against [`input_specs`]. Returns an
+    /// Check runtime `inputs` against [`Self::input_specs`]. Returns an
     /// error describing the first violation or `Ok(())` on success.
     /// Public so callers can validate without running the graph.
     /// CL-461.

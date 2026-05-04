@@ -103,9 +103,9 @@ fn download_f64(buf: &CudaBuffer<f64>, device: &GpuDevice) -> GpuResult<Vec<f64>
 /// Compute the thin SVD of an m-by-n matrix (row-major f32).
 ///
 /// Returns `(U, S, Vh)` as flat row-major `Vec<f32>` with shapes:
-/// - U:  [m, k]  where k = min(m, n)
-/// - S:  [k]
-/// - Vh: [k, n]
+/// - U:  `[m, k]`  where `k = min(m, n)`
+/// - S:  `[k]`
+/// - Vh: `[k, n]`
 ///
 /// cuSOLVER's `Sgesvd` operates on column-major data and produces
 /// column-major U and VT. We transpose on input and output.
@@ -268,9 +268,9 @@ pub fn gpu_svd_f32(
 /// Compute the thin SVD of an m-by-n matrix (row-major f64).
 ///
 /// Returns `(U, S, Vh)` as flat row-major `Vec<f64>` with shapes:
-/// - U:  [m, k]  where k = min(m, n)
-/// - S:  [k]
-/// - Vh: [k, n]
+/// - U:  `[m, k]`  where `k = min(m, n)`
+/// - S:  `[k]`
+/// - Vh: `[k, n]`
 ///
 /// cuSOLVER's `Dgesvd` operates on column-major data and produces
 /// column-major U and VT. We transpose on input and output.
@@ -716,7 +716,7 @@ pub fn gpu_cholesky_f64(data: &[f64], n: usize, device: &GpuDevice) -> GpuResult
 ///
 /// Uses LU factorization (Sgetrf) followed by triangular solve (Sgetrs).
 ///
-/// Returns X as flat row-major `Vec<f32>` with shape [n, nrhs] (or [n] if nrhs==1).
+/// Returns X as flat row-major `Vec<f32>` with shape `[n, nrhs]` (or `[n]` if `nrhs==1`).
 #[cfg(feature = "cuda")]
 pub fn gpu_solve_f32(
     a_data: &[f32],
@@ -923,7 +923,7 @@ pub fn gpu_solve_f32(
 ///
 /// Uses LU factorization (Dgetrf) followed by triangular solve (Dgetrs).
 ///
-/// Returns X as flat row-major `Vec<f64>` with shape [n, nrhs] (or [n] if nrhs==1).
+/// Returns X as flat row-major `Vec<f64>` with shape `[n, nrhs]` (or `[n]` if `nrhs==1`).
 #[cfg(feature = "cuda")]
 pub fn gpu_solve_f64(
     a_data: &[f64],

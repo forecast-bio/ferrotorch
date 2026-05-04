@@ -389,28 +389,50 @@ define_portable_unary!(portable_tanh, run_tanh, run_tanh_handle);
 define_portable_unary!(portable_sigmoid, run_sigmoid, run_sigmoid_handle);
 
 // ---------------------------------------------------------------------------
-// Orthogonal polynomial families — three-term recurrences, scalar `n` arg. (#577)
-// Polynomials always go through host upload (no handle-direct variant yet).
+// Orthogonal polynomial families with device-resident handle dispatch (#715).
+// Three-term recurrences, scalar `n` (degree) arg. (#577)
+//
+// Inputs that are already device-resident (XPU tensors backed by
+// `StorageBuffer::Cubecl`) are routed through the handle-direct kernel paths
+// (`run_*_handle` in [`crate::kernels`]) with no H2D upload — closing the
+// last §3 gap surfaced by gpu-cubecl-A. CPU tensors fall back to the slice
+// upload path. Mirrors the matmul-handle pattern.
 // ---------------------------------------------------------------------------
 
 #[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
 macro_rules! dispatch_unary_with_n {
-    ($rt:expr, $launcher:path, $x:expr, $n:expr) => {{
-        let x_data = contiguous_data($x)?;
-        match $rt.client() {
-            #[cfg(feature = "wgpu")]
-            CubeClient::Wgpu(c) => $launcher(c, &x_data, $n),
-            #[cfg(feature = "cuda")]
-            CubeClient::Cuda(c) => $launcher(c, &x_data, $n),
-            #[cfg(feature = "rocm")]
-            CubeClient::Rocm(c) => $launcher(c, &x_data, $n),
+    ($rt:expr, $launcher:path, $launcher_handle:path, $x:expr, $n:expr) => {{
+        match cubecl_handle_of($x) {
+            Some(hx) => {
+                let count = hx.len();
+                let xh = hx.raw_handle().clone();
+                match $rt.client() {
+                    #[cfg(feature = "wgpu")]
+                    CubeClient::Wgpu(c) => $launcher_handle(c, xh, count, $n),
+                    #[cfg(feature = "cuda")]
+                    CubeClient::Cuda(c) => $launcher_handle(c, xh, count, $n),
+                    #[cfg(feature = "rocm")]
+                    CubeClient::Rocm(c) => $launcher_handle(c, xh, count, $n),
+                }
+            }
+            None => {
+                let x_data = contiguous_data($x)?;
+                match $rt.client() {
+                    #[cfg(feature = "wgpu")]
+                    CubeClient::Wgpu(c) => $launcher(c, &x_data, $n),
+                    #[cfg(feature = "cuda")]
+                    CubeClient::Cuda(c) => $launcher(c, &x_data, $n),
+                    #[cfg(feature = "rocm")]
+                    CubeClient::Rocm(c) => $launcher(c, &x_data, $n),
+                }
+            }
         }
     }};
 }
 
 macro_rules! define_portable_polynomial {
-    ($name:ident, $runner:ident, $math:literal) => {
-        #[doc = concat!("Evaluate ", $math, " elementwise on the GPU at degree `n`. Returns device-resident handle + shape.")]
+    ($name:ident, $runner:ident, $runner_handle:ident, $math:literal) => {
+        #[doc = concat!("Evaluate ", $math, " elementwise on the GPU at degree `n`. Returns device-resident handle + shape. Issue #715: no H2D upload when input is already device-resident.")]
         #[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
         pub fn $name(
             x: &Tensor<f32>,
@@ -420,7 +442,13 @@ macro_rules! define_portable_polynomial {
             let n_u32 = u32::try_from(n).map_err(|_| FerrotorchError::InvalidArgument {
                 message: format!("polynomial degree {n} exceeds u32 range"),
             })?;
-            let (handle, _n) = dispatch_unary_with_n!(rt, kernels::$runner, x, n_u32);
+            let (handle, _n) = dispatch_unary_with_n!(
+                rt,
+                kernels::$runner,
+                kernels::$runner_handle,
+                x,
+                n_u32
+            );
             Ok((handle, x.shape().to_vec()))
         }
 
@@ -438,41 +466,49 @@ macro_rules! define_portable_polynomial {
 define_portable_polynomial!(
     portable_chebyshev_polynomial_t,
     run_chebyshev_t,
+    run_chebyshev_t_handle,
     "Chebyshev T_n(x)"
 );
 define_portable_polynomial!(
     portable_chebyshev_polynomial_u,
     run_chebyshev_u,
+    run_chebyshev_u_handle,
     "Chebyshev U_n(x)"
 );
 define_portable_polynomial!(
     portable_chebyshev_polynomial_v,
     run_chebyshev_v,
+    run_chebyshev_v_handle,
     "Chebyshev V_n(x)"
 );
 define_portable_polynomial!(
     portable_chebyshev_polynomial_w,
     run_chebyshev_w,
+    run_chebyshev_w_handle,
     "Chebyshev W_n(x)"
 );
 define_portable_polynomial!(
     portable_hermite_polynomial_h,
     run_hermite_h,
+    run_hermite_h_handle,
     "Hermite (physicist) H_n(x)"
 );
 define_portable_polynomial!(
     portable_hermite_polynomial_he,
     run_hermite_he,
+    run_hermite_he_handle,
     "Hermite (probabilist) He_n(x)"
 );
 define_portable_polynomial!(
     portable_laguerre_polynomial_l,
     run_laguerre_l,
+    run_laguerre_l_handle,
     "Laguerre L_n(x)"
 );
 define_portable_polynomial!(
     portable_legendre_polynomial_p,
     run_legendre_p,
+    run_legendre_p_handle,
     "Legendre P_n(x)"
 );
 

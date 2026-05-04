@@ -8,6 +8,7 @@
 
 use std::time::Duration;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 
@@ -102,7 +103,7 @@ pub fn allreduce_with_timeout<T: Float>(
 
         // Apply mean if requested.
         if op == ReduceOp::Mean {
-            let divisor = T::from(world_size).unwrap();
+            let divisor: T = cast(world_size)?;
             for a in &mut accum {
                 *a = *a / divisor;
             }
@@ -375,7 +376,7 @@ pub fn reduce_scatter_with_timeout<T: Float>(
 
         // Apply mean if requested.
         if op == ReduceOp::Mean {
-            let divisor = T::from(world_size).unwrap();
+            let divisor: T = cast(world_size)?;
             for a in &mut accum {
                 *a = *a / divisor;
             }

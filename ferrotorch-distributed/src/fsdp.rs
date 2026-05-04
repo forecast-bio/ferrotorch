@@ -224,9 +224,22 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                     ShardingStrategy::HybridShard { .. } => {
                         // Shard within the node only. Each rank keeps
                         // `1 / intra_node_size` of each parameter.
-                        let intra = intra_node_group
-                            .as_ref()
-                            .expect("HybridShard: intra_node_group built above");
+                        //
+                        // INVARIANT: `intra_node_group` is `Some(_)` for every
+                        // `HybridShard { .. }` strategy. The local binding was
+                        // assigned `Some(intra)` ~50 lines above (in the
+                        // `match strategy` that opens this fn) on exactly the
+                        // `HybridShard { .. }` arm, and was never reassigned
+                        // before reaching this match. Since this arm is only
+                        // entered under the same `HybridShard { .. }` pattern,
+                        // `as_ref()` here cannot observe `None` — `expect()`
+                        // is provably unreachable. Category C per
+                        // rust-fix-discipline.
+                        let intra = intra_node_group.as_ref().expect(
+                            "FSDP::new_with_strategy: intra_node_group is Some \
+                             for HybridShard (set ~50 lines above on the same \
+                             match arm; never reassigned)",
+                        );
                         let intra_size = intra.world_size();
                         let intra_rank = intra.rank();
                         let numel = tensor.numel();
@@ -448,10 +461,19 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                     });
                 }
 
-                let intra = self
-                    .intra_node_group
-                    .as_ref()
-                    .expect("HybridShard: intra_node_group set in new_with_strategy");
+                // INVARIANT: `self.intra_node_group` is `Some(_)` whenever
+                // `self.strategy` is `HybridShard { .. }`. Both fields are
+                // private and only assigned in `new_with_strategy`, which sets
+                // them as a coupled pair on the `HybridShard { .. }` arm. The
+                // strategy field is never reassigned after construction (no
+                // setter, no internal mutation). Since this arm is gated on
+                // the strategy, `as_ref()` here cannot observe `None`.
+                // Category C per rust-fix-discipline.
+                let intra = self.intra_node_group.as_ref().expect(
+                    "FSDP::forward (HybridShard): intra_node_group is Some for \
+                     HybridShard strategy (paired with strategy in \
+                     new_with_strategy; never reassigned)",
+                );
                 let intra_ref: &dyn Backend = &**intra;
                 let intra_size = intra.world_size();
 
@@ -523,10 +545,18 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
     /// intra-node shards. Used by [`ShardingStrategy::HybridShard`] after
     /// forward completes. CL-327.
     fn restore_hybrid_shards(&mut self) -> FerrotorchResult<()> {
+        // INVARIANT: `restore_hybrid_shards` is only reached from `forward()`
+        // under `ShardingStrategy::HybridShard { .. }`. `self.intra_node_group`
+        // is `Some(_)` whenever `self.strategy` is `HybridShard` (paired in
+        // `new_with_strategy`; both fields private; strategy never reassigned).
+        // Category C per rust-fix-discipline.
         let intra = self
             .intra_node_group
             .as_ref()
-            .expect("HybridShard: intra_node_group set")
+            .expect(
+                "FSDP::restore_hybrid_shards: intra_node_group is Some for \
+                 HybridShard (only callsite is forward() under HybridShard arm)",
+            )
             .clone();
         let intra_size = intra.world_size();
         let intra_rank = intra.rank();
@@ -693,14 +723,24 @@ impl<M: Module<T>, T: Float> FSDP<M, T> {
                     // same gradient. Parameter is already the
                     // intra-node shard (installed by
                     // restore_hybrid_shards after forward).
-                    let intra = self
-                        .intra_node_group
-                        .as_ref()
-                        .expect("HybridShard: intra_node_group set");
-                    let inter = self
-                        .inter_node_group
-                        .as_ref()
-                        .expect("HybridShard: inter_node_group set");
+                    //
+                    // INVARIANT: `intra_node_group` and `inter_node_group`
+                    // are both `Some(_)` whenever `self.strategy` is
+                    // `HybridShard { .. }`. The two fields are assigned as a
+                    // coupled pair in `new_with_strategy` on the same arm
+                    // that this match enters; all three are private and
+                    // never reassigned. Both `expect()`s are provably
+                    // unreachable. Category C per rust-fix-discipline.
+                    let intra = self.intra_node_group.as_ref().expect(
+                        "FSDP::sync_gradients (HybridShard): intra_node_group \
+                         is Some for HybridShard (paired with strategy in \
+                         new_with_strategy; never reassigned)",
+                    );
+                    let inter = self.inter_node_group.as_ref().expect(
+                        "FSDP::sync_gradients (HybridShard): inter_node_group \
+                         is Some for HybridShard (paired with strategy in \
+                         new_with_strategy; never reassigned)",
+                    );
                     let intra_ref: &dyn Backend = &**intra;
                     let inter_ref: &dyn Backend = &**inter;
                     let intra_size = intra.world_size();

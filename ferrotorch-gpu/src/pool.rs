@@ -96,7 +96,7 @@ static POOL: LazyLock<Mutex<PoolState>> = LazyLock::new(|| Mutex::new(PoolState:
 /// from the rounded allocation size.
 const ROUND_ELEMENTS: usize = 256;
 
-/// Round `len` up to the nearest multiple of [`ROUND_ELEMENTS`].
+/// Round `len` up to the nearest multiple of the `ROUND_ELEMENTS` constant (256).
 ///
 /// Uses saturating arithmetic to avoid overflow on extreme inputs.
 pub fn round_len(len: usize) -> usize {

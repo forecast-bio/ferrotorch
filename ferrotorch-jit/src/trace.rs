@@ -4,7 +4,7 @@
 //! This is the simplest tracing strategy: no proxy tensors, no interpreter.
 //! The user-provided function executes normally, building an autograd graph.
 //! We then traverse that graph from the output tensor back to the leaf inputs
-//! and emit one [`IrNode`] per operation.
+//! and emit one [`crate::graph::IrNode`] per operation.
 
 use std::collections::{HashMap, VecDeque};
 

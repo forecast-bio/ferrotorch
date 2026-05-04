@@ -1246,7 +1246,7 @@ impl GpuDevice {
 
 /// A [`GpuDevice`] paired with a [`MemoryGuard`] for convenient use.
 ///
-/// Created by [`GpuDevice::with_memory_guard`].
+/// Constructed directly from a [`MemoryGuard`].
 pub struct MemoryGuardedDevice {
     /// The memory guard managing allocations.
     pub guard: MemoryGuard,

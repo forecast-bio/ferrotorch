@@ -514,7 +514,7 @@ impl CudaAllocator {
     ///
     /// # Errors
     ///
-    /// Returns [`GpuError::Driver`] if the underlying CUDA allocation fails.
+    /// Returns [`crate::error::GpuError::Driver`] if the underlying CUDA allocation fails.
     #[cfg(feature = "cuda")]
     pub fn alloc_zeros<T>(&self, count: usize) -> GpuResult<CudaBuffer<T>>
     where
@@ -545,7 +545,7 @@ impl CudaAllocator {
     ///
     /// # Errors
     ///
-    /// Returns [`GpuError::Driver`] if the CUDA memcpy or allocation fails.
+    /// Returns [`crate::error::GpuError::Driver`] if the CUDA memcpy or allocation fails.
     #[cfg(feature = "cuda")]
     pub fn alloc_copy<T>(&self, data: &[T]) -> GpuResult<CudaBuffer<T>>
     where

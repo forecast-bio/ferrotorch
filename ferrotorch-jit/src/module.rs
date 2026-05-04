@@ -147,7 +147,7 @@ impl<T: Float> TracedModule<T> {
     }
 
     /// Reconstruct a `TracedModule` from a byte buffer produced by
-    /// [`to_bytes`]. Mirrors `torch.jit.load` for the in-memory case.
+    /// [`Self::to_bytes`]. Mirrors `torch.jit.load` for the in-memory case.
     pub fn from_bytes(data: &[u8]) -> FerrotorchResult<Self> {
         let graph = IrGraph::deserialize(data)?;
         Ok(Self::new(graph))

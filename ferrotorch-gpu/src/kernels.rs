@@ -12471,8 +12471,8 @@ pub fn gpu_reduce_prod(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<C
 }
 
 /// f32 parallel reduction returning the minimum element. Two-pass kernel
-/// dispatch identical to [`gpu_reduce_sum`] but using
-/// [`REDUCE_MIN_PTX`]. (#627)
+/// dispatch identical to [`gpu_reduce_sum`] but using the
+/// `REDUCE_MIN_PTX` kernel. (#627)
 #[cfg(feature = "cuda")]
 pub fn gpu_reduce_min(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
     use cudarc::driver::PushKernelArg;
@@ -14834,7 +14834,7 @@ pub fn gpu_small_matmul(
     Ok(c)
 }
 
-/// Small batched matmul: C[i] = A[i] @ B[i] for i in 0..batch.
+/// Small batched matmul: `C[i] = A[i] @ B[i]` for `i` in `0..batch`.
 /// Uses the small_matmul_kernel by reshaping the problem: treat it as a single
 /// large matmul of [batch*M, K] @ [K, N] — but that doesn't work because B is
 /// batched. Instead, we use a modified approach: thread `idx` computes element
@@ -19522,7 +19522,7 @@ pub fn gpu_fill_f32(n: usize, scalar: f32, device: &GpuDevice) -> GpuResult<Cuda
 
 /// Check whether a GPU buffer contains any inf or NaN values (#687).
 ///
-/// Launches the [`HAS_INF_NAN_F32_PTX`] reduction kernel: every thread
+/// Launches the `HAS_INF_NAN_F32_PTX` reduction kernel: every thread
 /// inspects one f32 element, and on observing an Inf or NaN exponent
 /// pattern (`(bits & 0x7F80_0000) == 0x7F80_0000`) atomically OR-sets a
 /// single-element device-resident flag. The host then reads back exactly
@@ -19545,9 +19545,9 @@ pub fn gpu_fill_f32(n: usize, scalar: f32, device: &GpuDevice) -> GpuResult<Cuda
 /// # Errors
 ///
 /// - [`GpuError::DeviceMismatch`] if `a` and `device` refer to different CUDA devices.
-/// - [`GpuError::PtxCompileFailed`] if the JIT rejects [`HAS_INF_NAN_F32_PTX`]
-///   and `FERROTORCH_ENABLE_GPU_FALLBACK` is unset.
-/// - [`GpuError::ShapeMismatch`] if `a.len() > u32::MAX` (via [`launch_cfg`]).
+/// - [`GpuError::PtxCompileFailed`] if the JIT rejects the `HAS_INF_NAN_F32_PTX`
+///   kernel and `FERROTORCH_ENABLE_GPU_FALLBACK` is unset.
+/// - [`GpuError::ShapeMismatch`] if `a.len() > u32::MAX` (via the `launch_cfg` helper).
 /// - [`GpuError::Driver`] on CUDA runtime errors.
 #[cfg(feature = "cuda")]
 pub fn gpu_has_inf_nan(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<bool> {

@@ -29,14 +29,14 @@
 //!
 //! # Guards
 //!
-//! On every forward call, the [`GuardResult`] is checked before
+//! On every forward call, the input shapes are checked before
 //! interpretation:
 //!
 //! 1. The number of inputs matches.
 //! 2. Each input's rank matches the trace-time rank.
 //! 3. Each **concrete** (non-symbolic) dim matches the trace-time value.
 //! 4. Symbolic dims are free to vary, subject to an optional
-//!    [`SymbolicDim::range`] constraint.
+//!    `[min, max]` range carried on each [`SymbolicDim`].
 //!
 //! A guard failure returns a descriptive `InvalidArgument` error.
 //!

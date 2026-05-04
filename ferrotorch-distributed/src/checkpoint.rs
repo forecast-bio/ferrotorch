@@ -76,7 +76,13 @@ impl From<std::io::Error> for DistCheckpointError {
 // ---------------------------------------------------------------------------
 
 /// Describes how a single tensor is sharded across ranks.
+///
+/// Marked `#[non_exhaustive]` so future fields (e.g., dtype, ordering,
+/// per-rank ranges for non-uniform shards) can be added without a major
+/// version bump. Construct via in-crate helpers (e.g.
+/// [`flat_shard_metadata`]) and access fields by name.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TensorShardSpec {
     /// Full (unsharded) shape of the tensor.
     pub full_shape: Vec<usize>,
@@ -89,7 +95,11 @@ pub struct TensorShardSpec {
 
 /// Metadata for a distributed checkpoint: how many ranks participated and
 /// how each tensor is sharded.
+///
+/// Marked `#[non_exhaustive]` to allow forward-compatible additions
+/// (versioning, dtype catalog, optimizer-state metadata).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ShardMetadata {
     /// Number of ranks that produced this checkpoint.
     pub num_ranks: usize,
@@ -102,6 +112,10 @@ pub struct ShardMetadata {
 /// Wraps the directory path and the shard metadata. Typically created by
 /// [`save_distributed`] (which writes files) or by reading an existing
 /// checkpoint's `metadata.json`.
+///
+/// Marked `#[non_exhaustive]` for forward-compatible additions
+/// (e.g., async-write handles, optimizer-state cache).
+#[non_exhaustive]
 pub struct DistributedCheckpoint {
     /// Directory where shard files are stored.
     pub checkpoint_dir: PathBuf,
@@ -126,6 +140,27 @@ fn st_dtype<T: Float>() -> Result<Dtype, DistCheckpointError> {
 
 /// Reinterpret a `&[T]` as a byte slice (little-endian platforms).
 fn as_le_bytes<T: Float>(data: &[T]) -> &[u8] {
+    // SAFETY: byte-reinterpret of a `&[T]` of `Float` (f32/f64/bf16/f16) into
+    // `&[u8]`.
+    //
+    // - VALIDITY: every byte pattern is a valid `u8`, so reading the
+    //   underlying bytes never produces an invalid value (unlike e.g. `bool`
+    //   or `char`).
+    // - LIFETIME: the resulting `&[u8]` borrows the same allocation as
+    //   `data` and is returned tied to `data`'s lifetime — the borrow
+    //   checker therefore prevents `data` from being dropped or mutated
+    //   while the byte slice is live.
+    // - LENGTH: `mem::size_of_val(data) == data.len() * mem::size_of::<T>()`,
+    //   so the resulting slice covers exactly the same memory as the input.
+    // - ALIGNMENT: `*const u8` has alignment 1, which is always satisfied
+    //   by an allocation aligned to `T` (alignment of `T` is a multiple of
+    //   1 for every primitive `Float` type).
+    // - ALIASING: this returns a shared borrow; no `&mut [u8]` aliasing is
+    //   possible while the borrow lives.
+    // - ENDIANNESS: ferrotorch targets little-endian platforms (the
+    //   workspace's MSRV-supported targets are all LE); on a hypothetical
+    //   big-endian build the byte order would not match SafeTensors'
+    //   on-disk LE convention, but no such target is currently supported.
     unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data)) }
 }
 
@@ -146,8 +181,8 @@ fn save_tensors_to_file<T: Float>(
 ) -> Result<(), DistCheckpointError> {
     let dtype = st_dtype::<T>()?;
 
-    let mut keys: Vec<&String> = tensors.keys().collect();
-    keys.sort();
+    let mut keys: Vec<&str> = tensors.keys().map(String::as_str).collect();
+    keys.sort_unstable();
 
     struct Entry<'a> {
         name: String,
@@ -162,7 +197,7 @@ fn save_tensors_to_file<T: Float>(
             message: format!("failed to read tensor \"{key}\": {e}"),
         })?;
         entries.push(Entry {
-            name: (*key).clone(),
+            name: (*key).to_owned(),
             shape: tensor.shape().to_vec(),
             data: as_le_bytes(data_slice),
         });
@@ -239,6 +274,32 @@ fn load_tensors_from_file<T: Float>(
             .map(|chunk| {
                 let mut bytes = [0u8; 8];
                 bytes[..elem_size].copy_from_slice(chunk);
+                // SAFETY: `read_unaligned` of `T` from a stack buffer.
+                //
+                // - VALIDITY: `T: Float` is constrained to f32/f64/bf16/f16,
+                //   for which every 4- or 8-byte pattern is a valid value
+                //   (NaN/inf included). No invalid bit patterns exist for
+                //   IEEE-754 floats — unlike `bool` (must be 0/1) or
+                //   `NonZero<...>`.
+                // - LENGTH: `elem_size == size_of::<T>()` (verified at the
+                //   call site by `chunks_exact(elem_size)`); since
+                //   `size_of::<T>() <= 8` for every supported float and
+                //   `bytes` is a `[u8; 8]`, the read stays within bounds.
+                // - ALIGNMENT: `read_unaligned` does not require
+                //   `bytes.as_ptr()` to be aligned to `T` — that's the
+                //   whole point of the function. Using `read` instead
+                //   would be UB here because `[u8; 8]` is 1-aligned.
+                // - LIFETIME: `bytes` is a stack-local array; the read
+                //   produces an owned `T` by value, so no dangling
+                //   reference can outlive the closure.
+                // - PROVENANCE: `bytes.as_ptr()` is derived directly from
+                //   the live stack array `bytes`; the cast to `*const T`
+                //   preserves provenance under the strict-provenance model.
+                // - ENDIANNESS: SafeTensors stores tensors little-endian;
+                //   ferrotorch's supported targets are LE, so the byte
+                //   pattern read here matches the on-disk pattern. On a
+                //   hypothetical BE host the values would be byte-swapped,
+                //   but no such target is currently supported.
                 unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const T) }
             })
             .collect();

@@ -372,9 +372,9 @@ pub fn end_capture_with_pool(
 
 /// RAII guard that runs CUDA graph capture in a scoped block.
 ///
-/// Call [`GraphCaptureGuard::begin`] (or [`begin_with_mode`] /
-/// [`begin_with_pool`]) to start capture; calling [`finish`] returns
-/// the instantiated graph. If the guard is dropped without calling
+/// Call [`GraphCaptureGuard::begin`] (or [`Self::begin_with_mode`] /
+/// [`Self::begin_with_pool`]) to start capture; calling [`Self::finish`]
+/// returns the instantiated graph. If the guard is dropped without calling
 /// `finish` (for example because a kernel returned an error
 /// mid-capture), its `Drop` impl best-effort-ends capture and
 /// discards the resulting graph so the stream returns to a usable
@@ -423,7 +423,7 @@ impl GraphCaptureGuard {
     }
 
     /// Begin graph capture bound to a [`CapturePool`]. The pool is
-    /// attached to the resulting graph by [`finish`]. CL-454.
+    /// attached to the resulting graph by [`Self::finish`]. CL-454.
     pub fn begin_with_pool(stream: &Arc<CudaStream>, pool: Arc<CapturePool>) -> GpuResult<Self> {
         begin_capture_with_pool(&pool, stream)?;
         Ok(Self {

@@ -1,9 +1,9 @@
 //! cuBLAS-backed GPU matrix multiplication.
 //!
 //! This module provides GPU-accelerated matrix multiplication via NVIDIA's
-//! cuBLAS library (SGEMM for f32, DGEMM for f64). The primary entry point is
-//! [`gpu_matmul`], which computes `C = A @ B` for row-major matrices stored
-//! in [`CudaBuffer`]s.
+//! cuBLAS library (SGEMM for f32, DGEMM for f64). The primary entry points are
+//! [`gpu_matmul_f32`] and [`gpu_matmul_f64`], which compute `C = A @ B` for
+//! row-major matrices stored in [`CudaBuffer`]s.
 //!
 //! # Row-major trick
 //!
@@ -719,7 +719,7 @@ pub fn gpu_bmm_f32_into(
 /// Compute `C = A @ B` using mixed-precision fp16 matmul with f32 accumulation.
 ///
 /// Takes f32 inputs, internally converts them to f16 on-GPU, runs
-/// [`cublasGemmEx`] with `CUDA_R_16F` for A/B and `CUDA_R_32F` for C and
+/// `cublasGemmEx` with `CUDA_R_16F` for A/B and `CUDA_R_32F` for C and
 /// the compute type (`CUBLAS_COMPUTE_32F`). This yields f32 output with
 /// full f32 accumulation precision while leveraging Tensor Cores for 8-16x
 /// throughput on Volta/Turing/Ampere+ GPUs.

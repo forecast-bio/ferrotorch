@@ -162,7 +162,25 @@ impl NcclBackend {
     ///
     /// # Safety
     ///
-    /// Pointers must be valid device memory of the correct size.
+    /// The caller MUST uphold all of the following:
+    ///
+    /// - `sendbuf` is a valid CUDA device pointer with at least
+    ///   `count * size_of(datatype)` bytes addressable for read.
+    /// - `recvbuf` is a valid CUDA device pointer with at least
+    ///   `count * size_of(datatype)` bytes addressable for write.
+    /// - In-place mode (`sendbuf == recvbuf`) is allowed and matches
+    ///   NCCL's documented behaviour.
+    /// - `datatype` matches the actual element layout of both buffers.
+    /// - Every other rank in this NCCL communicator invokes
+    ///   `allreduce_raw` with the same `count`, `datatype`, and `op`
+    ///   (NCCL collective contract; cannot be checked in-process).
+    /// - The current CUDA device matches the device on which the
+    ///   communicator was initialised (`comm_init_rank` runs on the
+    ///   active device).
+    /// - The buffers remain alive and unmodified until the NCCL
+    ///   stream is synchronised — the call is asynchronous on
+    ///   `self.stream`. Use [`Self::synchronize`] to await
+    ///   completion before reading `recvbuf` from another stream.
     pub unsafe fn allreduce_raw(
         &self,
         sendbuf: *const c_void,
@@ -186,7 +204,23 @@ impl NcclBackend {
     ///
     /// # Safety
     ///
-    /// Pointers must be valid device memory.
+    /// The caller MUST uphold all of the following:
+    ///
+    /// - `sendbuf` is a valid CUDA device pointer with at least
+    ///   `count * size_of(datatype)` bytes addressable for read on the
+    ///   `root` rank. On non-root ranks `sendbuf` is ignored by NCCL.
+    /// - `recvbuf` is a valid CUDA device pointer with at least
+    ///   `count * size_of(datatype)` bytes addressable for write on
+    ///   every non-root rank. On the root rank `recvbuf` may equal
+    ///   `sendbuf` for in-place operation.
+    /// - `datatype` matches the actual element layout of both buffers.
+    /// - `root` is in the range `0..world_size` and is the same value
+    ///   on every rank.
+    /// - Every rank invokes `broadcast_raw` with the same `count`,
+    ///   `datatype`, and `root` (NCCL collective contract).
+    /// - The current CUDA device matches the communicator's device.
+    /// - The buffers remain alive and unmodified until the NCCL
+    ///   stream is synchronised.
     pub unsafe fn broadcast_raw(
         &self,
         sendbuf: *const c_void,
@@ -211,7 +245,21 @@ impl NcclBackend {
     ///
     /// # Safety
     ///
-    /// Pointers must be valid device memory.
+    /// The caller MUST uphold all of the following:
+    ///
+    /// - `sendbuf` is a valid CUDA device pointer with at least
+    ///   `sendcount * size_of(datatype)` bytes addressable for read.
+    /// - `recvbuf` is a valid CUDA device pointer with at least
+    ///   `sendcount * world_size * size_of(datatype)` bytes
+    ///   addressable for write. Undersized `recvbuf` causes NCCL to
+    ///   write past the buffer and is undefined behaviour.
+    /// - `sendbuf` and `recvbuf` do not alias.
+    /// - `datatype` matches the element layout of both buffers.
+    /// - Every rank invokes `all_gather_raw` with the same `sendcount`
+    ///   and `datatype` (NCCL collective contract).
+    /// - The current CUDA device matches the communicator's device.
+    /// - The buffers remain alive and unmodified until the NCCL
+    ///   stream is synchronised.
     pub unsafe fn all_gather_raw(
         &self,
         sendbuf: *const c_void,
@@ -235,7 +283,22 @@ impl NcclBackend {
     ///
     /// # Safety
     ///
-    /// Pointers must be valid device memory.
+    /// The caller MUST uphold all of the following:
+    ///
+    /// - `sendbuf` is a valid CUDA device pointer with at least
+    ///   `recvcount * world_size * size_of(datatype)` bytes addressable
+    ///   for read.
+    /// - `recvbuf` is a valid CUDA device pointer with at least
+    ///   `recvcount * size_of(datatype)` bytes addressable for write.
+    ///   Undersized `recvbuf` causes NCCL to write past the buffer and
+    ///   is undefined behaviour.
+    /// - `sendbuf` and `recvbuf` do not alias.
+    /// - `datatype` matches the element layout of both buffers.
+    /// - Every rank invokes `reduce_scatter_raw` with the same
+    ///   `recvcount`, `datatype`, and `op` (NCCL collective contract).
+    /// - The current CUDA device matches the communicator's device.
+    /// - The buffers remain alive and unmodified until the NCCL
+    ///   stream is synchronised.
     pub unsafe fn reduce_scatter_raw(
         &self,
         sendbuf: *const c_void,
@@ -297,6 +360,33 @@ impl Backend for NcclBackend {
 
         // Use a null pointer with count=0 as a lightweight barrier.
         // NCCL allReduce with count=0 is a valid synchronization point.
+        // SAFETY: calling NCCL `ncclAllReduce` for a count=0 barrier.
+        //
+        // - COMM VALIDITY: `comm` was just dereferenced from
+        //   `self.lock_comm()?`, which holds the `Mutex<NcclComm>` lock for
+        //   the duration of this block. The communicator was initialised
+        //   in `Self::new` / `Self::with_stream` via `comm_init_rank` and
+        //   has not yet been destroyed (`Drop::drop` runs only when the
+        //   last reference goes away).
+        // - POINTER VALIDITY: with `count = 0`, NCCL does not dereference
+        //   `sendbuf`/`recvbuf` per the NCCL API contract — null pointers
+        //   are explicitly accepted for zero-count operations (this is
+        //   documented as "valid synchronization point" in the NCCL
+        //   programming guide and used identically by PyTorch's
+        //   `ProcessGroupNCCL::barrier`).
+        // - DATATYPE/OP MATCH: `NcclDataType::Float32` and
+        //   `NcclRedOp::Sum` are valid `repr(C)` enum values (see
+        //   `nccl_sys` definitions, derived from nccl.h). With `count=0`
+        //   no reduction work occurs, so the choice of dtype/op is
+        //   inert.
+        // - STREAM VALIDITY: `self.stream` is either null (default
+        //   stream, always valid per CUDA semantics) or a stream
+        //   created by `create_nccl_stream` and owned by `self`; either
+        //   way it is alive for the lifetime of `self`, which encloses
+        //   this call.
+        // - THREAD SAFETY: the comm-lock guard is held for the entire
+        //   call, serialising NCCL calls on this communicator with any
+        //   other thread on this rank.
         unsafe {
             nccl_sys::all_reduce(
                 std::ptr::null(),
@@ -320,6 +410,45 @@ impl Drop for NcclBackend {
     fn drop(&mut self) {
         if let Ok(comm) = self.comm.lock() {
             if !(*comm).is_null() {
+                // SAFETY: `nccl_sys::comm_destroy` is `unsafe` because it
+                // requires a once-only call on a previously-initialised
+                // `NcclComm`.
+                //
+                // - COMM VALIDITY: `*comm` was produced by
+                //   `nccl_sys::comm_init_rank` in `Self::new` /
+                //   `Self::with_stream`. Both constructors store the result
+                //   in `Mutex<NcclComm>`. Because we just observed
+                //   `!(*comm).is_null()`, the communicator is the
+                //   originally-initialised handle (NCCL never resets to
+                //   null after init except via destroy).
+                // - SINGLE CALL: `Drop::drop` runs at most once per
+                //   `NcclBackend` (Rust language guarantee). No other code
+                //   path calls `comm_destroy` — `nccl_sys::comm_destroy`
+                //   is `pub unsafe fn` and is not invoked anywhere else
+                //   in the workspace. Therefore the once-only contract
+                //   for this `comm` is upheld.
+                // - LOCK ORDERING / EXCLUSIVITY: we hold the `Mutex` lock
+                //   for the duration of the destroy call, so no other
+                //   thread can issue a concurrent NCCL operation on this
+                //   communicator. Destruction during in-flight operations
+                //   would be a logic bug in the caller (they would have
+                //   to be holding a borrow that crosses `Drop`, which is
+                //   prevented by Rust's lifetime rules).
+                // - ERROR HANDLING: `comm_destroy` returns `Result<(),
+                //   NcclError>`. `Drop::drop` cannot return errors, so we
+                //   discard via `let _ = ...`. NCCL destroy failures are
+                //   non-recoverable here (the process is shutting down or
+                //   the backend is being torn down) and would only
+                //   surface as a leaked NCCL communicator on the
+                //   GPU-side state machine — preferable to a panic in
+                //   `Drop`.
+                // - STREAM ORDERING: NCCL requires that all in-flight
+                //   collective operations on `comm` complete before
+                //   destruction. The `Backend` API does not retain any
+                //   `&mut self` borrows across drop (Rust prevents this
+                //   structurally), and `synchronize()` is exposed on the
+                //   public API for users who want explicit barriers
+                //   prior to drop.
                 unsafe {
                     let _ = nccl_sys::comm_destroy(*comm);
                 }
@@ -334,13 +463,52 @@ impl Drop for NcclBackend {
 // ---------------------------------------------------------------------------
 // CUDA stream helpers (via dlopen to avoid compile-time CUDA dependency)
 // ---------------------------------------------------------------------------
+//
+// These helpers load CUDA runtime symbols (`cudaStreamCreateWithFlags`,
+// `cudaStreamSynchronize`, `cudaStreamDestroy`) lazily via `dlopen` +
+// `dlsym` so the crate compiles on machines without `libcudart.so` present
+// at build time. Each `unsafe { mem::transmute(sym) }` cast turns a raw
+// symbol pointer into a typed function-pointer; the SAFETY comments at
+// each site spell out which CUDA Runtime API signature is being matched.
+//
+// References (CUDA Runtime API, all stable since CUDA 5.0):
+//   - cudaStreamCreateWithFlags:
+//     https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__STREAM.html
+//     `__host__ cudaError_t cudaStreamCreateWithFlags(cudaStream_t *pStream, unsigned int flags)`
+//   - cudaStreamSynchronize: same group,
+//     `__host__ cudaError_t cudaStreamSynchronize(cudaStream_t stream)`
+//   - cudaStreamDestroy: same group,
+//     `__host__ cudaError_t cudaStreamDestroy(cudaStream_t stream)`
+//
+// Mappings:
+//   - `cudaStream_t` is `void *` (an opaque handle), matched here as
+//     `*mut c_void` / `*mut *mut c_void` for the out-pointer.
+//   - `cudaError_t` is `int` (a signed 32-bit enum), matched here as
+//     `i32`. The success value is `cudaSuccess == 0`.
+//   - `unsigned int` (flags) is matched as `u32`.
 
 /// Create a new CUDA stream for NCCL operations.
-/// Returns null on failure (caller falls back to default stream).
+/// Returns `None` on failure (caller falls back to default stream).
 fn create_nccl_stream() -> Option<*mut c_void> {
-    // cuStreamCreate via dlopen
+    // SAFETY: `libc::dlopen` is `unsafe` because it loads arbitrary code.
+    //
+    // - LIBRARY NAME: the byte literal is a NUL-terminated valid CString
+    //   produced inline (`b"libcudart.so.12\0"`). The pointer is valid
+    //   for the duration of the call.
+    // - FLAGS: `RTLD_LAZY` is the documented flag for resolving
+    //   symbols on demand; it does not change return-type semantics.
+    // - RETURN VALUE: dlopen returns either a non-null opaque handle or
+    //   null on failure; we check the result before any dlsym call.
+    // - LIFETIME: the returned handle stays valid until `dlclose` —
+    //   which we never call (matching CUDA driver convention: the
+    //   process holds libcudart for its lifetime). This means the
+    //   resolved function pointers below remain valid for the entire
+    //   program duration.
     let lib = unsafe { libc::dlopen(b"libcudart.so.12\0".as_ptr() as *const _, libc::RTLD_LAZY) };
     if lib.is_null() {
+        // SAFETY: same invariants as the previous dlopen — fallback to
+        // the unversioned soname when the explicit ABI version is not
+        // installed (e.g., older toolkits or Ubuntu's default symlink).
         let lib = unsafe { libc::dlopen(b"libcudart.so\0".as_ptr() as *const _, libc::RTLD_LAZY) };
         if lib.is_null() {
             return None;
@@ -351,23 +519,91 @@ fn create_nccl_stream() -> Option<*mut c_void> {
 }
 
 fn create_stream_from_lib(lib: *mut c_void) -> Option<*mut c_void> {
+    // SAFETY: `dlsym` resolves a symbol against an opened library handle.
+    //
+    // - HANDLE VALIDITY: `lib` was just verified non-null by the caller
+    //   (`create_nccl_stream` checks the dlopen result before calling
+    //   here). The handle is owned by the process for its lifetime.
+    // - SYMBOL NAME: `b"cudaStreamCreateWithFlags\0"` is a NUL-terminated
+    //   valid CString matching the CUDA Runtime API symbol name verbatim.
+    // - RETURN VALUE: dlsym returns either a function-pointer-shaped
+    //   non-null pointer or null; we check the result below before any
+    //   transmute or call.
     let sym = unsafe { libc::dlsym(lib, b"cudaStreamCreateWithFlags\0".as_ptr() as *const _) };
     if sym.is_null() {
         return None;
     }
-    // cudaStreamCreateWithFlags(cudaStream_t *pStream, unsigned int flags)
-    // flags = 1 = cudaStreamNonBlocking
+    // ABI: `cudaError_t cudaStreamCreateWithFlags(cudaStream_t *pStream,
+    //                                              unsigned int flags)`.
+    // Mapping: `cudaStream_t` -> `*mut c_void`, `cudaStream_t *` -> `*mut
+    // *mut c_void`, `unsigned int` -> `u32`, `cudaError_t` -> `i32`.
     type CudaStreamCreateFn = unsafe extern "C" fn(*mut *mut c_void, u32) -> i32;
+    // SAFETY: transmute of a raw symbol pointer to a typed
+    // function-pointer with `extern "C"` ABI.
+    //
+    // - SOURCE TYPE: `*mut c_void` returned by dlsym, verified non-null
+    //   above. Per POSIX, dlsym returns a pointer that may legitimately
+    //   be cast to a function-pointer (the object/function ambiguity is
+    //   acknowledged by POSIX 2017 Issue 7 and accepted as
+    //   implementation-defined; on every platform ferrotorch supports
+    //   — Linux glibc/musl, macOS — this cast is well-defined).
+    // - TARGET TYPE: `unsafe extern "C" fn(*mut *mut c_void, u32) -> i32`.
+    //   This signature must match the CUDA Runtime ABI for
+    //   `cudaStreamCreateWithFlags` exactly:
+    //     * Calling convention: C (CUDA Runtime is exported as
+    //       `__host__` C functions; on x86_64-linux-gnu the host-side C
+    //       ABI is the System V AMD64 ABI; on aarch64-linux-gnu it is
+    //       the AAPCS64. `extern "C"` selects whichever the target
+    //       platform mandates.).
+    //     * Argument count: 2.
+    //     * Argument 1: `cudaStream_t *` = pointer to opaque handle =
+    //       `*mut *mut c_void` (8 bytes on 64-bit, matching CUDA's host
+    //       ABI; no other targets are supported by NCCL).
+    //     * Argument 2: `unsigned int flags` = 4-byte unsigned = `u32`.
+    //     * Return: `cudaError_t` (a C enum sized as `int`) = `i32`.
+    // - SIZE/LAYOUT: `*mut c_void`, `*mut *mut c_void`, `u32`, and `i32`
+    //   match their C counterparts exactly under all CUDA-supported
+    //   host ABIs.
+    // - LIFETIME: the function pointer remains valid as long as `lib`
+    //   is loaded; we never `dlclose`, so it lives for the program
+    //   duration.
+    // - PROVENANCE: `sym` was returned by libc; transmuting a raw
+    //   pointer to a fn-pointer of correct ABI is a documented use of
+    //   `mem::transmute` (Rust reference, `transmute` semantics for
+    //   pointer-to-function casts).
     let create_fn: CudaStreamCreateFn = unsafe { std::mem::transmute(sym) };
     let mut stream: *mut c_void = std::ptr::null_mut();
+    // SAFETY: calling the resolved CUDA Runtime function.
+    //
+    // - FN-PTR VALIDITY: `create_fn` is the transmuted symbol just
+    //   resolved; `lib` is still loaded (no intervening `dlclose`).
+    // - ARGUMENT 1: `&mut stream` is a unique mutable borrow to a
+    //   stack-local `*mut c_void`, valid for the duration of the
+    //   call. CUDA writes the new stream handle into `*pStream` on
+    //   success; the slot is `null_mut()` on entry.
+    // - ARGUMENT 2: `1` selects `cudaStreamNonBlocking`, the documented
+    //   flag value (cf. cudaStreamFlags enum in CUDA Runtime headers,
+    //   stable since CUDA 5.0).
+    // - PRECONDITIONS: CUDA does NOT require a current device to be set
+    //   for `cudaStreamCreateWithFlags` — it allocates against the
+    //   current device, defaulting to device 0 if none has been set
+    //   explicitly. NCCL itself requires a `cudaSetDevice` before
+    //   `comm_init_rank`, which is the caller's responsibility (see
+    //   `Self::new` doc).
+    // - RETURN: `cudaError_t` integer; `0 == cudaSuccess`. We discard
+    //   on failure and return `None` so the backend falls back to the
+    //   default stream.
     let result = unsafe { create_fn(&mut stream, 1) }; // 1 = cudaStreamNonBlocking
     if result == 0 { Some(stream) } else { None }
 }
 
 /// Synchronize a CUDA stream (blocks until all operations complete).
 fn synchronize_stream(stream: *mut c_void) -> Result<(), String> {
+    // SAFETY: same dlopen invariants as `create_nccl_stream`. The
+    // returned handle is checked for null below before any dlsym.
     let lib = unsafe { libc::dlopen(b"libcudart.so.12\0".as_ptr() as *const _, libc::RTLD_LAZY) };
     let lib = if lib.is_null() {
+        // SAFETY: same dlopen invariants — fallback soname.
         unsafe { libc::dlopen(b"libcudart.so\0".as_ptr() as *const _, libc::RTLD_LAZY) }
     } else {
         lib
@@ -375,12 +611,41 @@ fn synchronize_stream(stream: *mut c_void) -> Result<(), String> {
     if lib.is_null() {
         return Err("cudart not found".into());
     }
+    // SAFETY: same dlsym invariants as `create_stream_from_lib`. `lib`
+    // was just checked non-null. Symbol name is a NUL-terminated valid
+    // CString matching the CUDA Runtime symbol verbatim.
     let sym = unsafe { libc::dlsym(lib, b"cudaStreamSynchronize\0".as_ptr() as *const _) };
     if sym.is_null() {
         return Err("cudaStreamSynchronize not found".into());
     }
+    // ABI: `cudaError_t cudaStreamSynchronize(cudaStream_t stream)`.
+    // Mapping: `cudaStream_t` -> `*mut c_void`, `cudaError_t` -> `i32`.
     type SyncFn = unsafe extern "C" fn(*mut c_void) -> i32;
+    // SAFETY: transmute of dlsym result to typed C fn-pointer.
+    //
+    // - SOURCE: non-null `*mut c_void` from dlsym (checked above).
+    // - TARGET: `unsafe extern "C" fn(*mut c_void) -> i32` — matches the
+    //   CUDA Runtime ABI for `cudaStreamSynchronize` (1 pointer arg,
+    //   `cudaError_t` (=`int`=`i32`) return).
+    // - SIZE/LAYOUT: `*mut c_void` and `i32` match their C
+    //   counterparts on every supported host platform.
+    // - LIFETIME: function pointer valid for program lifetime (no
+    //   `dlclose`).
     let sync_fn: SyncFn = unsafe { std::mem::transmute(sym) };
+    // SAFETY: calling the resolved CUDA Runtime function.
+    //
+    // - FN-PTR VALIDITY: just resolved; library still loaded.
+    // - ARGUMENT: `stream` is the caller-provided `*mut c_void`. Per the
+    //   only callsite (`NcclBackend::synchronize`), this is either
+    //   - a stream produced by `create_nccl_stream` and stored in
+    //     `self.stream` — alive as long as `self` lives — OR
+    //   - null if no dedicated stream was created. The caller's
+    //     `synchronize` early-returns on null before reaching here, so
+    //     null is never passed in practice.
+    // - PRECONDITIONS: CUDA `cudaStreamSynchronize` accepts any valid
+    //   stream handle, including the default stream. It blocks the
+    //   calling thread.
+    // - RETURN: `cudaError_t`; non-zero is propagated as `Err(String)`.
     let result = unsafe { sync_fn(stream) };
     if result == 0 {
         Ok(())
@@ -391,8 +656,10 @@ fn synchronize_stream(stream: *mut c_void) -> Result<(), String> {
 
 /// Destroy a CUDA stream.
 fn destroy_stream(stream: *mut c_void) {
+    // SAFETY: same dlopen invariants as `create_nccl_stream`.
     let lib = unsafe { libc::dlopen(b"libcudart.so.12\0".as_ptr() as *const _, libc::RTLD_LAZY) };
     let lib = if lib.is_null() {
+        // SAFETY: same dlopen invariants — fallback soname.
         unsafe { libc::dlopen(b"libcudart.so\0".as_ptr() as *const _, libc::RTLD_LAZY) }
     } else {
         lib
@@ -400,12 +667,47 @@ fn destroy_stream(stream: *mut c_void) {
     if lib.is_null() {
         return;
     }
+    // SAFETY: same dlsym invariants as the other helpers. `lib`
+    // verified non-null above; symbol name matches the CUDA Runtime
+    // export verbatim.
     let sym = unsafe { libc::dlsym(lib, b"cudaStreamDestroy\0".as_ptr() as *const _) };
     if sym.is_null() {
         return;
     }
+    // ABI: `cudaError_t cudaStreamDestroy(cudaStream_t stream)`.
+    // Mapping: `cudaStream_t` -> `*mut c_void`, `cudaError_t` -> `i32`.
     type DestroyFn = unsafe extern "C" fn(*mut c_void) -> i32;
+    // SAFETY: transmute of dlsym result to typed C fn-pointer.
+    //
+    // - SOURCE: non-null `*mut c_void` from dlsym (checked above).
+    // - TARGET: `unsafe extern "C" fn(*mut c_void) -> i32` — matches
+    //   `cudaStreamDestroy`'s ABI (1 pointer arg, `cudaError_t`
+    //   return).
+    // - SIZE/LAYOUT: identical to `synchronize_stream` above; same
+    //   guarantees apply.
+    // - LIFETIME: program-lifetime fn-pointer (no `dlclose`).
     let destroy_fn: DestroyFn = unsafe { std::mem::transmute(sym) };
+    // SAFETY: calling `cudaStreamDestroy` on a stream we own.
+    //
+    // - FN-PTR VALIDITY: just resolved; library still loaded.
+    // - STREAM VALIDITY: `destroy_stream` is only called from
+    //   `NcclBackend::drop` under the guard `self.owns_stream &&
+    //   !self.stream.is_null()`. `self.owns_stream` is set to `true`
+    //   IFF `create_nccl_stream` succeeded (returned a non-null handle)
+    //   — see `Self::new`. Therefore the stream passed here was
+    //   produced by `cudaStreamCreateWithFlags` on this process and
+    //   has not yet been destroyed (Drop runs at most once).
+    // - SINGLE CALL: `Drop::drop` is called at most once per
+    //   `NcclBackend` (Rust language guarantee), so each stream is
+    //   destroyed exactly once.
+    // - ORDERING: the CUDA Runtime API does not require any operation
+    //   on the stream to have completed before destroy; pending work
+    //   is allowed to finish asynchronously. NCCL operations enqueued
+    //   on this stream complete on the device-side queue independently
+    //   of the host destroy call.
+    // - RETURN VALUE DISCARDED: this is `Drop`-context where we cannot
+    //   propagate errors. A failed destroy would only leak the stream,
+    //   which is recovered when the process exits.
     unsafe { destroy_fn(stream) };
 }
 

@@ -16,7 +16,7 @@
 //! - Different optimization configs: fusion on/off, constant folding
 //!   on/off, dead-code elimination on/off.
 //! - Different block sizes for GPU codegen (via
-//!   [`InductorBackend::with_block_size`]).
+//!   [`crate::codegen::InductorBackend::with_block_size`]).
 //!
 //! The tuner doesn't care what the difference is — it runs each
 //! candidate against the same inputs, records the median wall-clock

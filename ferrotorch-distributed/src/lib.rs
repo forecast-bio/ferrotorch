@@ -1,3 +1,97 @@
+// Lint baseline mirrors the workspace-standard pattern from
+// `ferrotorch-gpu`/`-jit`/`-cubecl`/`-xpu` lib.rs. `unsafe_code` is NOT
+// denied: this crate calls into NCCL via raw FFI (`nccl_sys`), uses
+// `dlopen`/`dlsym`/`std::mem::transmute` to load CUDA stream symbols
+// without a compile-time CUDA dependency (`nccl_backend`), and performs
+// byte-reinterpret tensor I/O (`checkpoint`, `pipeline`). Per-block
+// SAFETY substantiation lives at each `unsafe { ... }` site.
+#![warn(clippy::all, clippy::pedantic)]
+#![deny(rust_2018_idioms)]
+// `missing_docs` and `missing_debug_implementations` are held at `allow`
+// while the workspace-wide rustdoc / `Debug` pass is tracked separately
+// (matches the existing `ferrotorch-gpu`/`-core` precedent — diverging
+// unilaterally from a leaf crate would be Step 4 architectural
+// unilateralism). Several distributed types own `Mutex<NcclComm>` raw
+// FFI pointers, `Arc<dyn Backend>` trait objects, or `Box<dyn Fn>` RPC
+// handlers whose `Debug` impls require careful hand-rolling.
+#![allow(missing_docs, missing_debug_implementations)]
+// Pedantic lints we explicitly accept across this crate. Each allow names
+// a concrete reason — the alternative would be churn-for-zero-benefit or
+// a worse API. Mirrors the ferrotorch-gpu baseline; add to this list only
+// with a one-line justification.
+#![allow(
+    // # Errors / # Panics sections will be added during the workspace-wide
+    // rustdoc pass (tracked separately, not gated on this lint baseline).
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    // Distributed code casts pervasively between `usize` rank/world_size
+    // and `i32` NCCL/MPI peer indices, and between `u64` byte counters
+    // and `usize` buffer lengths; the explicit cast is more readable
+    // than try_into/unwrap or num-traits indirection.
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_lossless,
+    // `#[must_use]` on every getter is churn for marginal value; callers
+    // in this codebase already use the returned values.
+    clippy::must_use_candidate,
+    // Builder-style methods returning `Self` document their pattern in
+    // the type signature; `#[must_use]` is noise.
+    clippy::return_self_not_must_use,
+    // Doc comments follow the standard rustdoc layout; pedantic
+    // doc-markdown rules are too aggressive for technical prose with
+    // NCCL/MPI/RPC terminology.
+    clippy::doc_markdown,
+    // Test/helper modules define small fns after `let`-bindings; the
+    // hoisting requirement is style-only.
+    clippy::items_after_statements,
+    // Long match-on-strategy/op blocks mirror the NCCL/PyTorch
+    // taxonomy 1:1; splitting reduces legibility.
+    clippy::too_many_lines,
+    // Manual `Debug` impls intentionally omit non-Debug fields like
+    // `Mutex<NcclComm>` (raw FFI pointers) and `Arc<dyn Backend>` to
+    // keep formatted output free of lock probes / opaque handles.
+    clippy::missing_fields_in_debug,
+    // `match { Some(x) => x, None => return }` is the natural shape
+    // when the `else` branch is non-trivial.
+    clippy::single_match_else,
+    // Methods that take `&self` for a uniform interface (e.g.,
+    // `world_size()` on backends with a single rank) are part of the
+    // public API shape and not refactor candidates.
+    clippy::unused_self,
+    // `.map(...).unwrap_or(...)` is the documented PyTorch-style
+    // fallback shape used in option-bearing collectives; rewriting
+    // to `match` is lossier.
+    clippy::map_unwrap_or,
+    // Match arms that each call out a specific reduction/op variant
+    // are intentional when the variant set is documented and the
+    // "wildcard branch" would hide future additions.
+    clippy::match_same_arms,
+    // `.collect::<Vec<_>>()` after mapping is the idiomatic shape;
+    // rewriting to `extend(map(..))` is lossier and clippy's preference
+    // is contested.
+    clippy::redundant_closure_for_method_calls,
+    // `for elem in vec.into_iter()` on owned `Vec`s mirrors the consumed
+    // semantics in iteration; clippy's `for elem in vec` rewrite hides
+    // that the value is consumed.
+    clippy::explicit_into_iter_loop,
+    // FFI raw-pointer casts (`*const c_void` <-> `*const T`) and
+    // `&T as *const T` are the natural shape in NCCL bindings; clippy's
+    // preferred `.cast()` / `std::ptr::from_ref` rewrites do not
+    // improve legibility in this context.
+    clippy::ptr_as_ptr,
+    clippy::ref_as_ptr,
+    // `format!("{x}")` already uses inline captures where `Display` is
+    // direct; some sites use `.to_string()` or pass `&str` for
+    // readability with structured prefixes.
+    clippy::uninlined_format_args,
+    // `HashMap<String, Tensor<T>>` parameters in checkpoint helpers
+    // mirror PyTorch's `state_dict` shape; generalising over the
+    // hasher would leak `S: BuildHasher` to every caller.
+    clippy::implicit_hasher,
+)]
+
 //! Distributed training for ferrotorch.
 //!
 //! This crate provides the building blocks for multi-rank training:

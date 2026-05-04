@@ -31,7 +31,7 @@
 //! # CPU fallback
 //!
 //! When the `cuda` feature is disabled, [`gpu_flash_attention_f32`] returns
-//! [`GpuError::NoCudaFeature`].
+//! `GpuError::NoCudaFeature`.
 
 use crate::buffer::CudaBuffer;
 use crate::device::GpuDevice;

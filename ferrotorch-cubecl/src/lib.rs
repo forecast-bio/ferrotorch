@@ -102,6 +102,25 @@ pub(crate) fn elementwise_launch_dims(
     )
 }
 
+/// Debug-build runtime check that a cubecl `Handle` has at least
+/// `n * size_of::<T>()` bytes capacity. Release builds elide via
+/// `debug_assert!`. Use before `ArrayArg::from_raw_parts(handle, n)`
+/// for caller-provided handles where the cubecl-side `unsafe` API
+/// requires the byte capacity to match.
+///
+/// `T` carries the kernel-side element type (e.g. `f32`) so that the
+/// byte stride is computed from `size_of::<T>()`. Closes #717 / #718.
+pub(crate) fn debug_assert_handle_capacity<T>(handle: &cubecl::server::Handle, n: usize) {
+    debug_assert!(
+        handle.size() as usize >= n.saturating_mul(std::mem::size_of::<T>()),
+        "cubecl handle capacity {} bytes < required {} bytes ({} elements x {} byte stride)",
+        handle.size(),
+        n.saturating_mul(std::mem::size_of::<T>()),
+        n,
+        std::mem::size_of::<T>(),
+    );
+}
+
 // Re-export runtime types.
 pub use runtime::{CubeClient, CubeDevice, CubeRuntime};
 

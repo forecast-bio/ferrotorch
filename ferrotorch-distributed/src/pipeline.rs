@@ -253,6 +253,27 @@ impl<M: Module<T>, T: Float> Pipeline<M, T> {
         let byte_slice: Vec<u8> = data
             .iter()
             .flat_map(|v| {
+                // SAFETY: byte-reinterpret of a single `&T` (`T: Float`)
+                // into a `[u8]` view of length `size_of::<T>()`.
+                //
+                // - VALIDITY: every byte pattern is a valid `u8`; reading
+                //   the underlying bytes of an IEEE-754 float can never
+                //   produce an invalid value.
+                // - LENGTH: `elem_size == size_of::<T>()`, set immediately
+                //   above; this matches the size of the value pointed to.
+                // - ALIGNMENT: `*const u8` is 1-aligned, satisfied by any
+                //   `*const T` for primitive `Float`.
+                // - LIFETIME: the slice borrows `*v` (live for the closure
+                //   body) and is immediately copied via `bytes.to_vec()`
+                //   before the closure returns; the borrow does not
+                //   escape. No dangling reference is possible.
+                // - PROVENANCE: `v as *const T as *const u8` derives from
+                //   the live `&T` borrow; the dual cast preserves
+                //   provenance under the strict-provenance model.
+                // - ENDIANNESS: matches checkpoint.rs:as_le_bytes — this
+                //   crate targets LE platforms; the wire format used by
+                //   `recv_activation` performs the inverse byte-pattern
+                //   read on the same endianness.
                 let bytes =
                     unsafe { std::slice::from_raw_parts(v as *const T as *const u8, elem_size) };
                 bytes.to_vec()

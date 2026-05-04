@@ -1,6 +1,6 @@
 //! Low-level loop-based IR for code generation.
 //!
-//! [`LoopIR`] sits below the high-level [`IrOpKind`](crate::graph::IrOpKind)
+//! [`LoopIR`] sits below the high-level [`crate::graph::IrOpKind`]
 //! graph representation and above the textual code emitters.  Lowering from
 //! the graph IR to `LoopIR` makes the iteration structure explicit (loop nests,
 //! index arithmetic, memory accesses) so that the CPU and GPU code generators

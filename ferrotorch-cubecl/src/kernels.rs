@@ -485,9 +485,12 @@ where
     let size_bytes = n * std::mem::size_of::<f32>();
     let out_handle = client.empty(size_bytes);
     let (count, dim) = crate::elementwise_launch_dims(n as u32);
+    crate::debug_assert_handle_capacity::<f32>(&x_handle, n);
     // SAFETY: `x_handle` and `out_handle` were allocated by this `client`
     // with exactly `n` f32 elements each. The kernel reads `n` elements from
-    // `x_handle` and writes `n` elements to `out_handle`.
+    // `x_handle` and writes `n` elements to `out_handle`. Verified at
+    // debug-build runtime via `debug_assert_handle_capacity::<f32>(&x_handle,
+    // n)` immediately above; release builds rely on the caller contract.
     let in_arg = unsafe { ArrayArg::from_raw_parts(x_handle, n) };
     // SAFETY: `out_handle` is the freshly-alloc'd device buffer from line
     //   486 (`client.empty(n * size_of::<f32>())`); capacity is exactly `n`
@@ -517,15 +520,21 @@ where
     let size_bytes = n * std::mem::size_of::<f32>();
     let out_handle = client.empty(size_bytes);
     let (count, dim) = crate::elementwise_launch_dims(n as u32);
+    crate::debug_assert_handle_capacity::<f32>(&a_handle, n);
     // SAFETY: `a_handle`, `b_handle`, and `out_handle` were allocated by this
     // `client` with exactly `n` f32 elements each. The kernel reads from the
-    // first two and writes to the third.
+    // first two and writes to the third. Verified at debug-build runtime via
+    // `debug_assert_handle_capacity::<f32>(&a_handle, n)` immediately above;
+    // release builds rely on the caller contract.
     let a_arg = unsafe { ArrayArg::from_raw_parts(a_handle, n) };
+    crate::debug_assert_handle_capacity::<f32>(&b_handle, n);
     // SAFETY: `b_handle` is caller-provided and contracted to be alloc'd
     //   from this same `client` with ≥`n * size_of::<f32>()` bytes (handle
     //   shape is the `pub fn` contract for the `*_handle` runner family —
     //   see issue #673). `n` matches the kernel's `&Array<f32>` second
-    //   input element count.
+    //   input element count. Verified at debug-build runtime via
+    //   `debug_assert_handle_capacity::<f32>(&b_handle, n)` immediately above;
+    //   release builds rely on the caller contract.
     let b_arg = unsafe { ArrayArg::from_raw_parts(b_handle, n) };
     // SAFETY: `out_handle` is the freshly-alloc'd device buffer from line
     //   512 (`client.empty(n * size_of::<f32>())`); capacity is exactly `n`
@@ -693,6 +702,57 @@ where
     (out_handle, count_elems)
 }
 
+/// Run a unary polynomial kernel against a pre-uploaded device handle,
+/// taking an extra `degree: u32` scalar.
+///
+/// Same pattern as [`run_unary_handle`] but threads through one extra scalar
+/// argument (the polynomial degree). No host upload — the input handle is
+/// caller-provided and contracted to be alloc'd from this same `client` with
+/// `≥ n * size_of::<f32>()` bytes. Used by the XPU path so already
+/// device-resident polynomial inputs don't round-trip through host. Issue
+/// #715 (#673 cascade).
+fn run_unary_with_n_handle<R, L>(
+    client: &ComputeClient<R>,
+    x_handle: cubecl::server::Handle,
+    n: usize,
+    degree: u32,
+    launcher: L,
+) -> (cubecl::server::Handle, usize)
+where
+    R: Runtime,
+    L: FnOnce(&ComputeClient<R>, CubeCount, CubeDim, ArrayArg<R>, ArrayArg<R>, u32),
+{
+    let size_bytes = n * std::mem::size_of::<f32>();
+    let out_handle = client.empty(size_bytes);
+    let (count, dim) = crate::elementwise_launch_dims(n as u32);
+    crate::debug_assert_handle_capacity::<f32>(&x_handle, n);
+    // SAFETY: `x_handle` is caller-provided and contracted (the `pub fn`
+    //   contract for the `*_handle` runner family — see issue #715) to be
+    //   alloc'd from this same `client` with `≥ n * size_of::<f32>()` bytes.
+    //   `ArrayArg::from_raw_parts`'s second arg is the element count (not
+    //   bytes); `n` matches the kernel's `&Array<f32>` input view. The
+    //   capacity precondition is verified at debug-build runtime via
+    //   `debug_assert_handle_capacity::<f32>(&x_handle, n)` immediately above
+    //   (release builds rely on the caller contract). The scalar `degree` is
+    //   passed by value through the launcher and is not subject to this
+    //   block's handle-aliasing invariants. The kernel guards
+    //   `ABSOLUTE_POS < out.len()` so reads are bounds-checked at the
+    //   per-unit level.
+    let in_arg = unsafe { ArrayArg::from_raw_parts(x_handle, n) };
+    // SAFETY: `out_handle` is the freshly-alloc'd device buffer from
+    //   `client.empty(size_bytes)` at the top of this function with
+    //   `size_bytes = n * size_of::<f32>()`; capacity is exactly `n` f32
+    //   elements by construction. `.clone()` on a cubecl `Handle` is a
+    //   refcount bump, not a memory copy — both clones reference the same
+    //   device allocation, so kernel writes through this `ArrayArg` are
+    //   visible via the `out_handle` returned to the caller. `n` is the
+    //   element count, matching the kernel's `&mut Array<f32>` view; the
+    //   output buffer is exclusively owned (no aliasing with `x_handle`).
+    let out_arg = unsafe { ArrayArg::from_raw_parts(out_handle.clone(), n) };
+    launcher(client, count, dim, in_arg, out_arg, degree);
+    (out_handle, n)
+}
+
 macro_rules! define_unary_with_n_runner {
     ($run_fn:ident, $kernel:ident) => {
         #[doc = concat!("Upload `x`, run `", stringify!($kernel), "` with degree `n`, return on-device handle + element count. ADR #663 item 4.")]
@@ -732,6 +792,50 @@ macro_rules! define_unary_with_n_runner {
     };
 }
 
+macro_rules! define_unary_with_n_runner_handle {
+    ($run_fn:ident, $kernel:ident) => {
+        #[doc = concat!("Run `", stringify!($kernel), "` on a pre-uploaded device handle with degree `n`; no H2D upload. Issue #715.")]
+        pub fn $run_fn<R: Runtime>(
+            client: &ComputeClient<R>,
+            x_handle: cubecl::server::Handle,
+            n: usize,
+            degree: u32,
+        ) -> (cubecl::server::Handle, usize) {
+            run_unary_with_n_handle::<R, _>(
+                client,
+                x_handle,
+                n,
+                degree,
+                // SAFETY: same `launch_unchecked` invariants as the
+                //   slice-upload `define_unary_with_n_runner!` stamp above.
+                //   `run_unary_with_n_handle` wraps the caller-provided
+                //   `x_handle` and a freshly-allocated `out_handle` in
+                //   `ArrayArg::from_raw_parts` over `n` f32 elements (under
+                //   SAFETY in that function's body). The handle-direct path
+                //   requires the caller to have alloc'd `x_handle` from the
+                //   same `client` with `≥ n * size_of::<f32>()` bytes — the
+                //   `pub fn` contract used by `ferrotorch-xpu` post-#715,
+                //   verified at debug-build runtime by
+                //   `debug_assert_handle_capacity::<f32>` inside
+                //   `run_unary_with_n_handle`. `count`/`dim` cover `n`
+                //   units; kernel body bounds-checks `ABSOLUTE_POS`. `n_val`
+                //   is a scalar copied by value into the kernel and not
+                //   subject to handle-aliasing concerns.
+                |client, count, dim, input, output, n_val| unsafe {
+                    $kernel::launch_unchecked::<f32, R>(
+                        client,
+                        count,
+                        dim,
+                        input,
+                        output,
+                        n_val,
+                    );
+                },
+            )
+        }
+    };
+}
+
 define_unary_with_n_runner!(run_chebyshev_t, kernel_chebyshev_t);
 define_unary_with_n_runner!(run_chebyshev_u, kernel_chebyshev_u);
 define_unary_with_n_runner!(run_chebyshev_v, kernel_chebyshev_v);
@@ -740,6 +844,17 @@ define_unary_with_n_runner!(run_hermite_h, kernel_hermite_h);
 define_unary_with_n_runner!(run_hermite_he, kernel_hermite_he);
 define_unary_with_n_runner!(run_laguerre_l, kernel_laguerre_l);
 define_unary_with_n_runner!(run_legendre_p, kernel_legendre_p);
+
+// Handle-direct variants (no H2D upload) — used by `ferrotorch-xpu` after
+// #715 when polynomial inputs are already device-resident.
+define_unary_with_n_runner_handle!(run_chebyshev_t_handle, kernel_chebyshev_t);
+define_unary_with_n_runner_handle!(run_chebyshev_u_handle, kernel_chebyshev_u);
+define_unary_with_n_runner_handle!(run_chebyshev_v_handle, kernel_chebyshev_v);
+define_unary_with_n_runner_handle!(run_chebyshev_w_handle, kernel_chebyshev_w);
+define_unary_with_n_runner_handle!(run_hermite_h_handle, kernel_hermite_h);
+define_unary_with_n_runner_handle!(run_hermite_he_handle, kernel_hermite_he);
+define_unary_with_n_runner_handle!(run_laguerre_l_handle, kernel_laguerre_l);
+define_unary_with_n_runner_handle!(run_legendre_p_handle, kernel_legendre_p);
 
 /// Upload `a` and `b`, run `kernel_matmul_naive`, return the on-device result
 /// handle and element count (`m * n`).  No host readback is performed.
@@ -827,10 +942,15 @@ pub fn run_matmul_handle<R: Runtime>(
 
     let out_handle = client.empty(size_bytes);
     let (count, dim) = crate::elementwise_launch_dims(out_len as u32);
+    crate::debug_assert_handle_capacity::<f32>(&a_handle, a_len);
+    crate::debug_assert_handle_capacity::<f32>(&b_handle, b_len);
     // SAFETY: `a_handle`, `b_handle`, and `out_handle` were allocated by
     // this `client`. The kernel reads `a_len = m*k` and `b_len = k*n`
     // elements and writes `out_len = m*n` elements — matching the array
-    // lengths declared here.
+    // lengths declared here. Verified at debug-build runtime via
+    // `debug_assert_handle_capacity::<f32>(&a_handle, a_len)` and
+    // `debug_assert_handle_capacity::<f32>(&b_handle, b_len)` immediately
+    // above; release builds rely on the caller contract.
     unsafe {
         kernel_matmul_naive::launch_unchecked::<f32, R>(
             client,
