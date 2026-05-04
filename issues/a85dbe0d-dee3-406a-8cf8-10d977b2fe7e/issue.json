@@ -1,0 +1,10 @@
+{
+  "uuid": "a85dbe0d-dee3-406a-8cf8-10d977b2fe7e",
+  "display_id": 732,
+  "title": "audit follow-up: ferrotorch (meta) — fake-GPU rename + lints + println→assert + pythia expect",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T21:17:53.420491965Z",
+  "updated_at": "2026-05-04T21:17:53.420491965Z"
+}
