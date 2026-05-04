@@ -1,0 +1,10 @@
+{
+  "uuid": "b552ba6a-1772-4682-b62a-c708f27e9e52",
+  "display_id": 737,
+  "title": "audit follow-up: ferrotorch-jit-script — silent f32 fallback + recursion cap + lints + dedup",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T21:59:18.770464348Z",
+  "updated_at": "2026-05-04T21:59:18.770464348Z"
+}
