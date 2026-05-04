@@ -1,0 +1,10 @@
+{
+  "uuid": "b8396a8a-43b9-4bcd-951a-6b2956e4e868",
+  "display_id": 712,
+  "title": "ferrotorch-gpu/jit: 36 pre-existing rustdoc intra-doc-link warnings (broken/private item links) block cargo doc -- -D warnings",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T14:32:02.511743326Z",
+  "updated_at": "2026-05-04T14:32:02.511743326Z"
+}
