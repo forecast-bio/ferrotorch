@@ -1,0 +1,10 @@
+{
+  "uuid": "3cf56386-b4be-435e-95fc-987f36d47c35",
+  "display_id": 716,
+  "title": "ferrotorch-cubecl DfaMaskInputs #[non_exhaustive] coordination — needs ferrotorch-llama grammar/gpu_dispatch.rs:833 migration to validating new() first",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-04T15:44:11.712946826Z",
+  "updated_at": "2026-05-04T15:44:11.712946826Z"
+}
