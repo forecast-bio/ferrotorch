@@ -2,11 +2,12 @@
   "uuid": "a9c40d14-5af7-40e0-aad3-b735c603da72",
   "display_id": 668,
   "title": "Fix 11 silent GPU->CPU fallbacks gated on PtxCompileFailed + rewrite REDUCE_SUM_PTX/REDUCE_PROD_PTX shared-memory addressing",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-02T23:25:12.470643278Z",
-  "updated_at": "2026-05-02T23:25:13.800961637Z",
+  "updated_at": "2026-05-05T01:22:31.247832941Z",
+  "closed_at": "2026-05-05T01:22:31.247832941Z",
   "labels": [
     "fix"
   ]
