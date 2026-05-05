@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_nn::StateDict;
 
@@ -81,7 +82,7 @@ pub fn save_state_dict<T: Float>(
             tensor
                 .shape()
                 .iter()
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(",")
         );
@@ -126,8 +127,19 @@ pub fn save_state_dict<T: Float>(
         let data = tensor.data()?;
         // Convert the slice of T to raw bytes (little-endian on LE platforms,
         // which covers x86/ARM — production SafeTensors would enforce LE).
+        //
+        // SAFETY: `data: &[T]` where `T: Float` is one of f32/f64/bf16 — all
+        // `Copy` POD types with a stable bit-level layout and no padding or
+        // `Drop` semantics. Reinterpreting the same memory as `&[u8]` is
+        // therefore well-defined. The byte length `size_of_val(data)` equals
+        // `data.len() * size_of::<T>()`, which is the exact extent the
+        // pointer is valid for, and the returned `&[u8]` reborrows `data`,
+        // so no dangling reference can outlive the source slice. The
+        // crate-level `compile_error!` at top-of-file forbids
+        // big-endian targets, matching the on-disk byte order required by
+        // this format.
         let byte_slice = unsafe {
-            std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data))
+            std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), std::mem::size_of_val(data))
         };
         file.write_all(byte_slice)
             .map_err(|e| FerrotorchError::InvalidArgument {
@@ -247,24 +259,52 @@ pub fn load_state_dict<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<Sta
 
         // Reinterpret bytes as T values.
         let byte_slice = &body[meta.byte_offset..end];
-        let data: Vec<T> = byte_slice
-            .chunks_exact(elem_size)
-            .map(|chunk| {
-                // Safe byte-to-float conversion using from_le_bytes instead of
-                // unsafe pointer reinterpretation.
-                match elem_size {
-                    4 => {
-                        let val = f32::from_le_bytes(chunk.try_into().unwrap());
-                        T::from(val).unwrap()
-                    }
-                    8 => {
-                        let val = f64::from_le_bytes(chunk.try_into().unwrap());
-                        T::from(val).unwrap()
-                    }
-                    _ => unreachable!("unsupported element size {}", elem_size),
+        let mut data: Vec<T> = Vec::with_capacity(numel);
+        for chunk in byte_slice.chunks_exact(elem_size) {
+            // Safe byte-to-float conversion using from_le_bytes; the
+            // `try_into` is fallible for malformed input (a chunk that
+            // isn't exactly `elem_size` bytes — should not happen with
+            // `chunks_exact`, but we propagate cleanly anyway), and the
+            // numeric `cast` is fallible for source values not
+            // representable in `T` (e.g. `f64::INFINITY` -> `bf16`-like
+            // narrow `Float` impls).
+            let value: T = match elem_size {
+                4 => {
+                    let arr: [u8; 4] =
+                        chunk
+                            .try_into()
+                            .map_err(|e| FerrotorchError::InvalidArgument {
+                                message: format!(
+                                    "malformed state-dict chunk for tensor \"{}\": {e}",
+                                    meta.name
+                                ),
+                            })?;
+                    cast::<f32, T>(f32::from_le_bytes(arr))?
                 }
-            })
-            .collect();
+                8 => {
+                    let arr: [u8; 8] =
+                        chunk
+                            .try_into()
+                            .map_err(|e| FerrotorchError::InvalidArgument {
+                                message: format!(
+                                    "malformed state-dict chunk for tensor \"{}\": {e}",
+                                    meta.name
+                                ),
+                            })?;
+                    cast::<f64, T>(f64::from_le_bytes(arr))?
+                }
+                other => {
+                    return Err(FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "unsupported element size {other} for tensor \"{}\" \
+                             (state_dict format only supports f32/f64)",
+                            meta.name
+                        ),
+                    });
+                }
+            };
+            data.push(value);
+        }
 
         let storage = TensorStorage::cpu(data);
         let tensor = Tensor::from_storage(storage, meta.shape.clone(), false)?;
@@ -281,7 +321,7 @@ pub fn load_state_dict<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<Sta
 pub(crate) fn parse_meta_line(line: &str) -> FerrotorchResult<TensorMeta> {
     // Simple key-value extraction from JSON-like string.
     let extract_string = |key: &str| -> FerrotorchResult<String> {
-        let pattern = format!(r#""{}":""#, key);
+        let pattern = format!(r#""{key}":""#);
         let start = line
             .find(&pattern)
             .ok_or_else(|| FerrotorchError::InvalidArgument {
@@ -298,7 +338,7 @@ pub(crate) fn parse_meta_line(line: &str) -> FerrotorchResult<TensorMeta> {
     };
 
     let extract_usize = |key: &str| -> FerrotorchResult<usize> {
-        let pattern = format!(r#""{}":"#, key);
+        let pattern = format!(r#""{key}":"#);
         let start = line
             .find(&pattern)
             .ok_or_else(|| FerrotorchError::InvalidArgument {
@@ -318,7 +358,7 @@ pub(crate) fn parse_meta_line(line: &str) -> FerrotorchResult<TensorMeta> {
 
     let extract_shape = || -> FerrotorchResult<Vec<usize>> {
         let key = "shape";
-        let pattern = format!(r#""{}":["#, key);
+        let pattern = format!(r#""{key}":["#);
         let start = line
             .find(&pattern)
             .ok_or_else(|| FerrotorchError::InvalidArgument {
@@ -467,7 +507,7 @@ mod tests {
 
     #[test]
     fn test_shape_preservation_high_rank() {
-        let data: Vec<f64> = (0..24).map(|i| i as f64).collect();
+        let data: Vec<f64> = (0..24).map(f64::from).collect();
         let mut state: StateDict<f64> = HashMap::new();
         state.insert(
             "conv.weight".to_string(),
@@ -484,7 +524,7 @@ mod tests {
         let t = &loaded["conv.weight"];
         assert_eq!(t.shape(), &[2, 3, 2, 2]);
         let loaded_data = t.data().unwrap();
-        let expected: Vec<f64> = (0..24).map(|i| i as f64).collect();
+        let expected: Vec<f64> = (0..24).map(f64::from).collect();
         assert_eq!(loaded_data, expected.as_slice());
 
         std::fs::remove_dir_all(&dir).ok();

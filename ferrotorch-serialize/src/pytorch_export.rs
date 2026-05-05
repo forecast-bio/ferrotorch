@@ -1,6 +1,6 @@
 //! Export a `StateDict<T>` as a PyTorch-compatible `.pt` / `.pth` file.
 //!
-//! [CL-328] Serialization Expansion: PyTorch export writer.
+//! [CL-328] Serialization Expansion: `PyTorch` export writer.
 //!
 //! A `.pt` file is a ZIP archive containing:
 //! - `archive/data.pkl` -- pickle protocol 2 bytecodes describing the state dict
@@ -85,7 +85,7 @@ impl PickleWriter {
         self.buf.push(b'\n');
     }
 
-    /// Emit a SHORT_BINUNICODE string (len < 256).
+    /// Emit a `SHORT_BINUNICODE` string (len < 256).
     fn emit_short_binunicode(&mut self, s: &str) {
         assert!(s.len() < 256, "string too long for SHORT_BINUNICODE");
         self.buf.push(SHORT_BINUNICODE);
@@ -169,7 +169,12 @@ impl PickleWriter {
 // PyTorch dtype helpers
 // ---------------------------------------------------------------------------
 
-/// PyTorch storage class name for the given `Float` type and byte width.
+/// `PyTorch` storage class name for the given `Float` type and byte width.
+// The `4` and `_` arms map to the same string deliberately: PyTorch only
+// has `FloatStorage` (f32) and `DoubleStorage` (f64); narrower `Float`
+// implementations (bf16) fall back to the f32 storage class for
+// compatibility with downstream readers that don't speak bf16.
+#[allow(clippy::match_same_arms)]
 fn pytorch_storage_type<T: Float>() -> &'static str {
     match std::mem::size_of::<T>() {
         4 => "FloatStorage",
@@ -178,7 +183,10 @@ fn pytorch_storage_type<T: Float>() -> &'static str {
     }
 }
 
-/// PyTorch dtype string for use in rebuild_tensor_v2 metadata.
+/// `PyTorch` dtype string for use in `rebuild_tensor_v2` metadata.
+// Same rationale as `pytorch_storage_type`: bf16 falls back to
+// `torch.float32` for PyTorch consumer compatibility.
+#[allow(clippy::match_same_arms)]
 fn pytorch_dtype_str<T: Float>() -> &'static str {
     match std::mem::size_of::<T>() {
         4 => "torch.float32",
@@ -240,7 +248,7 @@ pub fn save_pytorch<T: Float>(
     // -----------------------------------------------------------------------
     // Build the pickle bytes (archive/data.pkl)
     // -----------------------------------------------------------------------
-    let pkl_bytes = build_state_dict_pickle::<T>(&entries)?;
+    let pkl_bytes = build_state_dict_pickle::<T>(&entries);
 
     // -----------------------------------------------------------------------
     // Write the ZIP archive
@@ -271,8 +279,18 @@ pub fn save_pytorch<T: Float>(
             tensor.numel() * elem_size,
             "tensor byte size mismatch for {key}"
         );
+        // SAFETY: `data: &[T]` where `T: Float` is one of f32/f64/bf16 —
+        // all `Copy` POD types with a stable bit-level layout, no padding,
+        // and no `Drop` semantics, so reinterpreting their bytes as `&[u8]`
+        // is sound. `elem_size = size_of::<T>()` and the `debug_assert_eq!`
+        // immediately above this block confirms `tensor.numel() * elem_size
+        // == size_of_val(data)`, so the byte length is the exact extent the
+        // source pointer is valid for. The returned slice reborrows `data`
+        // and cannot outlive it. PyTorch's `.pt` format is little-endian by
+        // contract; that matches the `compile_error!` at the top of this
+        // module.
         let byte_slice = unsafe {
-            std::slice::from_raw_parts(data.as_ptr() as *const u8, tensor.numel() * elem_size)
+            std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), tensor.numel() * elem_size)
         };
 
         let entry_name = format!("archive/data/{idx}");
@@ -316,7 +334,7 @@ pub fn save_pytorch<T: Float>(
 ///   ...
 /// ])
 /// ```
-fn build_state_dict_pickle<T: Float>(entries: &[TensorEntry<'_>]) -> FerrotorchResult<Vec<u8>> {
+fn build_state_dict_pickle<T: Float>(entries: &[TensorEntry<'_>]) -> Vec<u8> {
     let storage_type = pytorch_storage_type::<T>();
     let mut pw = PickleWriter::new();
 
@@ -400,7 +418,7 @@ fn build_state_dict_pickle<T: Float>(entries: &[TensorEntry<'_>]) -> FerrotorchR
     pw.emit_build(); // OrderedDict.__setstate__(list)
     pw.emit_binput();
 
-    Ok(pw.finish())
+    pw.finish()
 }
 
 /// Emit a shape/stride tuple using the most compact tuple opcode.
@@ -526,7 +544,7 @@ fn crc32_hash(data: &[u8]) -> u32 {
 
     let mut crc = 0xFFFF_FFFFu32;
     for &byte in data {
-        let idx = ((crc ^ byte as u32) & 0xFF) as usize;
+        let idx = ((crc ^ u32::from(byte)) & 0xFF) as usize;
         crc = table[idx] ^ (crc >> 8);
     }
     !crc
@@ -877,9 +895,9 @@ mod tests {
         let pos_a = pkl_str
             .find("\"a\"")
             .or_else(|| pkl_str.find("\x01a"))
-            .unwrap_or(pkl_str.find("a").unwrap());
-        let pos_m = pkl_str.rfind("m").unwrap();
-        let pos_z = pkl_str.rfind("z").unwrap();
+            .unwrap_or(pkl_str.find('a').unwrap());
+        let pos_m = pkl_str.rfind('m').unwrap();
+        let pos_z = pkl_str.rfind('z').unwrap();
         // "a" should appear before "m" and "m" before "z" in pickle output
         assert!(pos_a < pos_m);
         assert!(pos_m < pos_z);

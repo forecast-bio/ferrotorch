@@ -157,14 +157,21 @@ impl<T: Float> std::fmt::Display for Sequential<T> {
 /// # Examples
 ///
 /// ```ignore
-/// let mut list = ModuleList::<f32>::new(vec![
-///     Box::new(Linear::<f32>::new(10, 10, true)?),
-///     Box::new(Linear::<f32>::new(10, 10, true)?),
-/// ]);
+/// # use ferrotorch_core::FerrotorchError;
+/// fn example(input: &Tensor<f32>) -> Result<Tensor<f32>, FerrotorchError> {
+///     let list = ModuleList::<f32>::new(vec![
+///         Box::new(Linear::<f32>::new(10, 10, true)?),
+///         Box::new(Linear::<f32>::new(10, 10, true)?),
+///     ]);
 ///
-/// let mut x = input.clone();
-/// for i in 0..list.len() {
-///     x = list.get(i).unwrap().forward(&x)?;
+///     let mut x = input.clone();
+///     for i in 0..list.len() {
+///         let module = list.get(i).ok_or_else(|| FerrotorchError::InvalidArgument {
+///             message: format!("ModuleList index {i} out of bounds"),
+///         })?;
+///         x = module.forward(&x)?;
+///     }
+///     Ok(x)
 /// }
 /// ```
 pub struct ModuleList<T: Float> {
@@ -305,12 +312,21 @@ impl<T: Float> std::fmt::Display for ModuleList<T> {
 /// # Examples
 ///
 /// ```ignore
-/// let mut dict = ModuleDict::<f32>::new();
-/// dict.insert("encoder", Box::new(Linear::<f32>::new(784, 256, true)?));
-/// dict.insert("decoder", Box::new(Linear::<f32>::new(256, 784, true)?));
+/// # use ferrotorch_core::FerrotorchError;
+/// fn example(input: &Tensor<f32>) -> Result<Tensor<f32>, FerrotorchError> {
+///     let mut dict = ModuleDict::<f32>::new();
+///     dict.insert("encoder", Box::new(Linear::<f32>::new(784, 256, true)?));
+///     dict.insert("decoder", Box::new(Linear::<f32>::new(256, 784, true)?));
 ///
-/// let encoded = dict.get("encoder").unwrap().forward(&input)?;
-/// let decoded = dict.get("decoder").unwrap().forward(&encoded)?;
+///     let encoder = dict.get("encoder").ok_or_else(|| FerrotorchError::InvalidArgument {
+///         message: "missing 'encoder' module".into(),
+///     })?;
+///     let decoder = dict.get("decoder").ok_or_else(|| FerrotorchError::InvalidArgument {
+///         message: "missing 'decoder' module".into(),
+///     })?;
+///     let encoded = encoder.forward(input)?;
+///     decoder.forward(&encoded)
+/// }
 /// ```
 pub struct ModuleDict<T: Float> {
     entries: Vec<(String, Box<dyn Module<T>>)>,

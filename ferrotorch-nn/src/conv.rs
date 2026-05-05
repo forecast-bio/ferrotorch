@@ -27,6 +27,9 @@ use crate::parameter::Parameter;
 /// Given a 4-D input `[B, C, H, W]`, produces a 3-D output
 /// `[B, C * kH * kW, H_out * W_out]` where each column is one
 /// flattened receptive-field patch.
+// Internal kernel: argument set mirrors the 2-D convolution descriptor
+// (B, C, H, W, kH, kW, padH, padW, strideH, strideW, dilH, dilW); a config
+// struct would force allocation on every call in convolution hot paths.
 #[allow(clippy::too_many_arguments)]
 fn im2col<T: Float>(
     input: &[T],
@@ -92,6 +95,9 @@ fn im2col<T: Float>(
 ///
 /// Given columns of shape `[B, C * kH * kW, H_out * W_out]`, accumulates
 /// values back into a `[B, C, H, W]` tensor (with padding stripped).
+// Internal kernel: argument set is the adjoint of `im2col` (same descriptor
+// inputs); refactoring to a config struct would diverge the two helpers'
+// signatures unhelpfully.
 #[allow(clippy::too_many_arguments)]
 fn col2im<T: Float>(
     cols: &[T],
@@ -1842,6 +1848,9 @@ impl<T: Float> GradFn<T> for ConvTranspose2dBackward<T> {
 /// Given a 5-D input `[B, C, D, H, W]`, produces a 3-D output
 /// `[B, C * kD * kH * kW, D_out * H_out * W_out]` where each column is one
 /// flattened receptive-field patch.
+// Internal kernel: argument set mirrors the 3-D convolution descriptor
+// (B, C, D, H, W, kD, kH, kW, ...); the 3-D extension of `im2col` carries
+// proportionally more arguments than the 2-D version.
 #[allow(clippy::too_many_arguments)]
 fn im2col_3d<T: Float>(
     input: &[T],
@@ -1923,6 +1932,7 @@ fn im2col_3d<T: Float>(
 /// Given columns of shape `[B, C * kD * kH * kW, D_out * H_out * W_out]`,
 /// accumulates values back into a `[B, C, D, H, W]` tensor (with padding
 /// stripped).
+// Internal kernel: adjoint of `im2col_3d`; same descriptor signature.
 #[allow(clippy::too_many_arguments)]
 fn col2im_3d<T: Float>(
     cols: &[T],
@@ -3246,6 +3256,9 @@ impl<T: Float> ConvTranspose3d<T> {
 ///
 /// Given input `[B, C, D, H, W]`, produces `[B, C, D_up, H_up, W_up]` where
 /// `D_up = (D - 1) * stride_d + 1` (and analogously for H, W).
+// Internal kernel for ConvTranspose3d backward: arguments are the 3-D
+// shape descriptor + per-axis stride; refactoring to a config struct would
+// add allocation in a hot path.
 #[allow(clippy::too_many_arguments)]
 fn stride_insert_zeros_3d<T: Float>(
     input: &[T],

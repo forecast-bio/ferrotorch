@@ -21,7 +21,6 @@
 
 use std::ffi::c_void;
 use std::sync::Mutex;
-use std::time::Duration;
 
 use ferrotorch_core::FerrotorchResult;
 
@@ -190,14 +189,36 @@ impl NcclBackend {
         op: NcclRedOp,
     ) -> FerrotorchResult<()> {
         let comm = *self.lock_comm()?;
-        nccl_sys::all_reduce(sendbuf, recvbuf, count, datatype, op, comm, self.stream).map_err(
-            |e| {
+        // SAFETY: this `pub unsafe fn`'s `# Safety` rustdoc enumerates the
+        // caller's obligations; each maps to an `nccl_sys::all_reduce`
+        // precondition as follows:
+        //   - "sendbuf valid for read of `count * size_of(datatype)`",
+        //     "recvbuf valid for write of same", "in-place allowed",
+        //     "buffers alive until stream synchronisation"
+        //                          → ncclAllReduce buffer-validity contract;
+        //   - "datatype matches both buffers' element layout"
+        //                          → ncclAllReduce datatype/buffer pairing;
+        //   - "every other rank invokes allreduce_raw with same count,
+        //     datatype, op"        → NCCL collective contract (cross-rank);
+        //   - "current CUDA device matches the comm's device"
+        //                          → ncclAllReduce device-binding precondition.
+        //
+        // `comm` was obtained one line above by dereferencing the
+        // `MutexGuard<NcclComm>` from `lock_comm()?`. The guard is dropped
+        // at the end of this function (the `*` copies the `*mut c_void`
+        // handle out of the lock); since we are holding *the only* guard
+        // until the call returns, `comm` is the live, post-init handle and
+        // no concurrent destroy can run on this side. `self.stream` is
+        // either null (default stream — always valid) or a stream created
+        // via `create_nccl_stream` in `Self::new` and owned by `self`,
+        // alive for the lifetime of `&self`.
+        unsafe { nccl_sys::all_reduce(sendbuf, recvbuf, count, datatype, op, comm, self.stream) }
+            .map_err(|e| {
                 DistributedError::Io {
                     message: format!("NCCL allreduce failed: {e}"),
                 }
                 .into()
-            },
-        )
+            })
     }
 
     /// GPU broadcast: broadcast `count` elements from `root` to all ranks.
@@ -230,14 +251,33 @@ impl NcclBackend {
         root: i32,
     ) -> FerrotorchResult<()> {
         let comm = *self.lock_comm()?;
-        nccl_sys::broadcast(sendbuf, recvbuf, count, datatype, root, comm, self.stream).map_err(
-            |e| {
+        // SAFETY: this `pub unsafe fn`'s `# Safety` rustdoc enumerates the
+        // caller's obligations; each maps to an `nccl_sys::broadcast`
+        // precondition as follows:
+        //   - "sendbuf valid on root for read of `count * size_of(datatype)`",
+        //     "recvbuf valid on non-root for write of same",
+        //     "buffers alive until stream synchronisation"
+        //                       → ncclBroadcast buffer-validity contract;
+        //   - "datatype matches both buffers' layout"
+        //                       → ncclBroadcast datatype/buffer pairing;
+        //   - "root in 0..world_size, same on every rank",
+        //     "every rank invokes broadcast_raw with same count, datatype, root"
+        //                       → NCCL collective + root-consistency contract;
+        //   - "current CUDA device matches the comm's device"
+        //                       → ncclBroadcast device-binding precondition.
+        //
+        // `comm` was obtained from `*self.lock_comm()?` immediately above,
+        // copying the live `*mut c_void` out of the held `MutexGuard`;
+        // since the lock is held to the end of this function no concurrent
+        // destroy can race. `self.stream` is null (default stream) or a
+        // dedicated stream owned by `self`, alive for `&self`'s borrow.
+        unsafe { nccl_sys::broadcast(sendbuf, recvbuf, count, datatype, root, comm, self.stream) }
+            .map_err(|e| {
                 DistributedError::Io {
                     message: format!("NCCL broadcast failed: {e}"),
                 }
                 .into()
-            },
-        )
+            })
     }
 
     /// GPU all-gather: each rank sends `sendcount` elements, receives
@@ -268,14 +308,32 @@ impl NcclBackend {
         datatype: NcclDataType,
     ) -> FerrotorchResult<()> {
         let comm = *self.lock_comm()?;
-        nccl_sys::all_gather(sendbuf, recvbuf, sendcount, datatype, comm, self.stream).map_err(
-            |e| {
+        // SAFETY: this `pub unsafe fn`'s `# Safety` rustdoc enumerates the
+        // caller's obligations; each maps to an `nccl_sys::all_gather`
+        // precondition as follows:
+        //   - "sendbuf valid for read of `sendcount * size_of(datatype)`",
+        //     "recvbuf valid for write of `sendcount * world_size *
+        //      size_of(datatype)`", "sendbuf and recvbuf do not alias",
+        //     "buffers alive until stream synchronisation"
+        //                       → ncclAllGather buffer-validity / no-alias
+        //                          contract (NCCL UB on undersized recv);
+        //   - "datatype matches both buffers' layout"
+        //                       → ncclAllGather datatype/buffer pairing;
+        //   - "every rank invokes all_gather_raw with same sendcount and
+        //      datatype"        → NCCL collective contract;
+        //   - "current CUDA device matches the comm's device"
+        //                       → ncclAllGather device-binding precondition.
+        //
+        // `comm` came from `*self.lock_comm()?` above; the held mutex
+        // guards against concurrent destroy. `self.stream` is null
+        // (default stream) or a dedicated stream owned by `self`.
+        unsafe { nccl_sys::all_gather(sendbuf, recvbuf, sendcount, datatype, comm, self.stream) }
+            .map_err(|e| {
                 DistributedError::Io {
                     message: format!("NCCL all_gather failed: {e}"),
                 }
                 .into()
-            },
-        )
+            })
     }
 
     /// GPU reduce-scatter: reduces then distributes `recvcount` elements
@@ -308,13 +366,34 @@ impl NcclBackend {
         op: NcclRedOp,
     ) -> FerrotorchResult<()> {
         let comm = *self.lock_comm()?;
-        nccl_sys::reduce_scatter(sendbuf, recvbuf, recvcount, datatype, op, comm, self.stream)
-            .map_err(|e| {
-                DistributedError::Io {
-                    message: format!("NCCL reduce_scatter failed: {e}"),
-                }
-                .into()
-            })
+        // SAFETY: this `pub unsafe fn`'s `# Safety` rustdoc enumerates the
+        // caller's obligations; each maps to an `nccl_sys::reduce_scatter`
+        // precondition as follows:
+        //   - "sendbuf valid for read of `recvcount * world_size *
+        //      size_of(datatype)`", "recvbuf valid for write of
+        //      `recvcount * size_of(datatype)`", "sendbuf and recvbuf
+        //      do not alias", "buffers alive until stream sync"
+        //                       → ncclReduceScatter buffer-validity / no-alias
+        //                          contract (NCCL UB on undersized recv);
+        //   - "datatype matches both buffers' layout"
+        //                       → ncclReduceScatter datatype/buffer pairing;
+        //   - "every rank invokes reduce_scatter_raw with same recvcount,
+        //      datatype, op"    → NCCL collective contract;
+        //   - "current CUDA device matches the comm's device"
+        //                       → ncclReduceScatter device-binding precond.
+        //
+        // `comm` came from `*self.lock_comm()?` above; the held mutex
+        // guards against concurrent destroy. `self.stream` is null
+        // (default stream) or a dedicated stream owned by `self`.
+        unsafe {
+            nccl_sys::reduce_scatter(sendbuf, recvbuf, recvcount, datatype, op, comm, self.stream)
+        }
+        .map_err(|e| {
+            DistributedError::Io {
+                message: format!("NCCL reduce_scatter failed: {e}"),
+            }
+            .into()
+        })
     }
 }
 
@@ -492,9 +571,10 @@ impl Drop for NcclBackend {
 fn create_nccl_stream() -> Option<*mut c_void> {
     // SAFETY: `libc::dlopen` is `unsafe` because it loads arbitrary code.
     //
-    // - LIBRARY NAME: the byte literal is a NUL-terminated valid CString
-    //   produced inline (`b"libcudart.so.12\0"`). The pointer is valid
-    //   for the duration of the call.
+    // - LIBRARY NAME: the C-string literal `c"libcudart.so.12"` is
+    //   NUL-terminated by the compiler and has `'static` lifetime; its
+    //   `.as_ptr()` is a valid `*const c_char` for the duration of the
+    //   call (and beyond).
     // - FLAGS: `RTLD_LAZY` is the documented flag for resolving
     //   symbols on demand; it does not change return-type semantics.
     // - RETURN VALUE: dlopen returns either a non-null opaque handle or
@@ -504,12 +584,12 @@ fn create_nccl_stream() -> Option<*mut c_void> {
     //   process holds libcudart for its lifetime). This means the
     //   resolved function pointers below remain valid for the entire
     //   program duration.
-    let lib = unsafe { libc::dlopen(b"libcudart.so.12\0".as_ptr() as *const _, libc::RTLD_LAZY) };
+    let lib = unsafe { libc::dlopen(c"libcudart.so.12".as_ptr(), libc::RTLD_LAZY) };
     if lib.is_null() {
         // SAFETY: same invariants as the previous dlopen — fallback to
         // the unversioned soname when the explicit ABI version is not
         // installed (e.g., older toolkits or Ubuntu's default symlink).
-        let lib = unsafe { libc::dlopen(b"libcudart.so\0".as_ptr() as *const _, libc::RTLD_LAZY) };
+        let lib = unsafe { libc::dlopen(c"libcudart.so".as_ptr(), libc::RTLD_LAZY) };
         if lib.is_null() {
             return None;
         }
@@ -524,12 +604,13 @@ fn create_stream_from_lib(lib: *mut c_void) -> Option<*mut c_void> {
     // - HANDLE VALIDITY: `lib` was just verified non-null by the caller
     //   (`create_nccl_stream` checks the dlopen result before calling
     //   here). The handle is owned by the process for its lifetime.
-    // - SYMBOL NAME: `b"cudaStreamCreateWithFlags\0"` is a NUL-terminated
-    //   valid CString matching the CUDA Runtime API symbol name verbatim.
+    // - SYMBOL NAME: `c"cudaStreamCreateWithFlags"` is a `'static`
+    //   NUL-terminated C-string literal matching the CUDA Runtime API
+    //   symbol name verbatim.
     // - RETURN VALUE: dlsym returns either a function-pointer-shaped
     //   non-null pointer or null; we check the result below before any
     //   transmute or call.
-    let sym = unsafe { libc::dlsym(lib, b"cudaStreamCreateWithFlags\0".as_ptr() as *const _) };
+    let sym = unsafe { libc::dlsym(lib, c"cudaStreamCreateWithFlags".as_ptr()) };
     if sym.is_null() {
         return None;
     }
@@ -593,7 +674,7 @@ fn create_stream_from_lib(lib: *mut c_void) -> Option<*mut c_void> {
     // - RETURN: `cudaError_t` integer; `0 == cudaSuccess`. We discard
     //   on failure and return `None` so the backend falls back to the
     //   default stream.
-    let result = unsafe { create_fn(&mut stream, 1) }; // 1 = cudaStreamNonBlocking
+    let result = unsafe { create_fn(&raw mut stream, 1) }; // 1 = cudaStreamNonBlocking
     if result == 0 { Some(stream) } else { None }
 }
 
@@ -601,10 +682,10 @@ fn create_stream_from_lib(lib: *mut c_void) -> Option<*mut c_void> {
 fn synchronize_stream(stream: *mut c_void) -> Result<(), String> {
     // SAFETY: same dlopen invariants as `create_nccl_stream`. The
     // returned handle is checked for null below before any dlsym.
-    let lib = unsafe { libc::dlopen(b"libcudart.so.12\0".as_ptr() as *const _, libc::RTLD_LAZY) };
+    let lib = unsafe { libc::dlopen(c"libcudart.so.12".as_ptr(), libc::RTLD_LAZY) };
     let lib = if lib.is_null() {
         // SAFETY: same dlopen invariants — fallback soname.
-        unsafe { libc::dlopen(b"libcudart.so\0".as_ptr() as *const _, libc::RTLD_LAZY) }
+        unsafe { libc::dlopen(c"libcudart.so".as_ptr(), libc::RTLD_LAZY) }
     } else {
         lib
     };
@@ -612,9 +693,9 @@ fn synchronize_stream(stream: *mut c_void) -> Result<(), String> {
         return Err("cudart not found".into());
     }
     // SAFETY: same dlsym invariants as `create_stream_from_lib`. `lib`
-    // was just checked non-null. Symbol name is a NUL-terminated valid
-    // CString matching the CUDA Runtime symbol verbatim.
-    let sym = unsafe { libc::dlsym(lib, b"cudaStreamSynchronize\0".as_ptr() as *const _) };
+    // was just checked non-null. Symbol name is a `'static` NUL-terminated
+    // C-string literal matching the CUDA Runtime symbol verbatim.
+    let sym = unsafe { libc::dlsym(lib, c"cudaStreamSynchronize".as_ptr()) };
     if sym.is_null() {
         return Err("cudaStreamSynchronize not found".into());
     }
@@ -657,10 +738,10 @@ fn synchronize_stream(stream: *mut c_void) -> Result<(), String> {
 /// Destroy a CUDA stream.
 fn destroy_stream(stream: *mut c_void) {
     // SAFETY: same dlopen invariants as `create_nccl_stream`.
-    let lib = unsafe { libc::dlopen(b"libcudart.so.12\0".as_ptr() as *const _, libc::RTLD_LAZY) };
+    let lib = unsafe { libc::dlopen(c"libcudart.so.12".as_ptr(), libc::RTLD_LAZY) };
     let lib = if lib.is_null() {
         // SAFETY: same dlopen invariants — fallback soname.
-        unsafe { libc::dlopen(b"libcudart.so\0".as_ptr() as *const _, libc::RTLD_LAZY) }
+        unsafe { libc::dlopen(c"libcudart.so".as_ptr(), libc::RTLD_LAZY) }
     } else {
         lib
     };
@@ -670,7 +751,7 @@ fn destroy_stream(stream: *mut c_void) {
     // SAFETY: same dlsym invariants as the other helpers. `lib`
     // verified non-null above; symbol name matches the CUDA Runtime
     // export verbatim.
-    let sym = unsafe { libc::dlsym(lib, b"cudaStreamDestroy\0".as_ptr() as *const _) };
+    let sym = unsafe { libc::dlsym(lib, c"cudaStreamDestroy".as_ptr()) };
     if sym.is_null() {
         return;
     }

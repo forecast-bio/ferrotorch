@@ -1,6 +1,6 @@
 //! Text tokenization for ferrotorch models.
 //!
-//! This crate is a thin wrapper around the HuggingFace
+//! This crate is a thin wrapper around the `HuggingFace`
 //! [`tokenizers`] crate — the same library powering Python's
 //! `transformers.AutoTokenizer` — with an API shaped for ferrotorch
 //! idioms (`Vec<u32>` token ids, `FerrotorchResult` errors).
@@ -19,7 +19,7 @@
 //!
 //! # Scope
 //!
-//! The wrapper covers the path the Llama 3 8B PoC needs:
+//! The wrapper covers the path the Llama 3 8B `PoC` needs:
 //! - Load a `tokenizer.json` file into a [`Tokenizer`].
 //! - Encode / decode single strings and batches.
 //! - Query vocab size and special-token ids.
@@ -28,27 +28,47 @@
 //! added-token manipulation) are available by calling the re-exported
 //! [`tokenizers`] API directly on the returned [`Tokenizer`].
 
+#![warn(clippy::all, clippy::pedantic)]
+#![deny(rust_2018_idioms, missing_debug_implementations)]
+// Workspace-wide rustdoc completeness pass is tracked separately; this crate's
+// public items are documented but `missing_docs` is not yet enforced workspace-
+// wide, so don't gate compilation on it here.
+#![allow(missing_docs)]
+
 use std::path::Path;
+use std::str::FromStr;
 
 use ferrotorch_core::{FerrotorchError, FerrotorchResult};
 
 pub use tokenizers::Tokenizer;
 
-/// Load a tokenizer from a HuggingFace `tokenizer.json` file.
+/// Load a tokenizer from a `HuggingFace` `tokenizer.json` file.
 ///
 /// This accepts any format that `tokenizers::Tokenizer::from_file`
-/// supports — which is the full HF tokenizer format including BPE,
-/// WordPiece, Unigram, pre/post processors, and added tokens.
+/// supports — which is the full HF tokenizer format including `BPE`,
+/// `WordPiece`, Unigram, pre/post processors, and added tokens.
 ///
 /// # Errors
 ///
-/// Returns [`FerrotorchError::InvalidArgument`] if the file does not exist,
-/// cannot be read, or is not a valid HuggingFace tokenizer JSON (parse
-/// errors, unknown model types, etc.).
+/// Returns [`FerrotorchError::Internal`] if the file cannot be read
+/// (not found, permission denied, other `std::io::Error`).
+///
+/// Returns [`FerrotorchError::InvalidArgument`] if the file content is
+/// not a valid `HuggingFace` tokenizer JSON (parse error, unknown model
+/// type, structurally invalid serialization).
 pub fn load_tokenizer(path: impl AsRef<Path>) -> FerrotorchResult<Tokenizer> {
+    // I/O and parse errors are categorically different: missing file or
+    // permission denied is an environment problem (Internal), while a
+    // malformed tokenizer.json is genuinely a bad parameter value
+    // (InvalidArgument). Audit issue #734 — split the error categories
+    // by doing the I/O ourselves so the typed `std::io::Error` is
+    // available at the boundary, then parse via `Tokenizer: FromStr`.
     let path = path.as_ref();
-    Tokenizer::from_file(path).map_err(|e| FerrotorchError::InvalidArgument {
-        message: format!("failed to load tokenizer {}: {e}", path.display()),
+    let content = std::fs::read_to_string(path).map_err(|e| FerrotorchError::Internal {
+        message: format!("failed to read tokenizer {}: {e:?}", path.display()),
+    })?;
+    Tokenizer::from_str(&content).map_err(|e| FerrotorchError::InvalidArgument {
+        message: format!("failed to parse tokenizer {}: {e}", path.display()),
     })
 }
 
@@ -121,18 +141,21 @@ pub fn decode(
 }
 
 /// Vocabulary size the tokenizer was trained with, including any
-/// special / added tokens (Llama 3: 128_256).
+/// special / added tokens (Llama 3: `128_256`).
+#[must_use]
 pub fn vocab_size(tokenizer: &Tokenizer, with_added_tokens: bool) -> usize {
     tokenizer.get_vocab_size(with_added_tokens)
 }
 
 /// Resolve a token string to its numeric id, if present in the vocab
 /// (including added/special tokens).
+#[must_use]
 pub fn token_to_id(tokenizer: &Tokenizer, token: &str) -> Option<u32> {
     tokenizer.token_to_id(token)
 }
 
 /// Resolve a token id to its string form.
+#[must_use]
 pub fn id_to_token(tokenizer: &Tokenizer, id: u32) -> Option<String> {
     tokenizer.id_to_token(id)
 }
@@ -143,8 +166,8 @@ pub fn id_to_token(tokenizer: &Tokenizer, id: u32) -> Option<String> {
 
 /// One message in a chat-completion conversation.
 ///
-/// Mirrors the OpenAI / HuggingFace `messages` list structure that LLM
-/// chat templates expect: `{ role, content }` plus optional structured
+/// Mirrors the `OpenAI` / `HuggingFace` `messages` list structure that
+/// `LLM` chat templates expect: `{ role, content }` plus optional structured
 /// fields the template may reference (`name`, `tool_calls`, `tool_call_id`).
 /// We model the optional fields as a free-form `serde_json::Value` map so
 /// the renderer can pass any extra keys straight to Jinja.
@@ -168,6 +191,7 @@ pub struct ChatMessage {
 
 impl ChatMessage {
     /// Convenience constructor for the common `{ role, content }` case.
+    #[must_use]
     pub fn new(role: impl Into<String>, content: impl Into<String>) -> Self {
         Self {
             role: role.into(),
@@ -290,16 +314,21 @@ pub fn apply_chat_template_to_ids(
 ///
 /// # Errors
 ///
-/// Returns [`FerrotorchError::InvalidArgument`] if the file cannot be read
-/// (not found, permission denied, I/O error), if the content is not valid
-/// JSON, or if the `chat_template` field exists but is neither a string nor
-/// an array of `{name, template}` objects.
+/// Returns [`FerrotorchError::Internal`] if the file cannot be read
+/// (not found, permission denied, other `std::io::Error`).
+///
+/// Returns [`FerrotorchError::InvalidArgument`] if the file content is
+/// not valid JSON, or if the `chat_template` field exists but is neither
+/// a string nor an array of `{name, template}` objects.
 pub fn load_chat_template(
     tokenizer_config_path: impl AsRef<Path>,
 ) -> FerrotorchResult<Option<String>> {
+    // Audit issue #734 — categorize I/O failure (Internal) vs JSON
+    // parse / structural failure (InvalidArgument). The original code
+    // collapsed every error category into InvalidArgument.
     let path = tokenizer_config_path.as_ref();
-    let bytes = std::fs::read(path).map_err(|e| FerrotorchError::InvalidArgument {
-        message: format!("failed to read tokenizer_config {}: {e}", path.display()),
+    let bytes = std::fs::read(path).map_err(|e| FerrotorchError::Internal {
+        message: format!("failed to read tokenizer_config {}: {e:?}", path.display()),
     })?;
     let value: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(|e| FerrotorchError::InvalidArgument {
@@ -346,17 +375,56 @@ mod tests {
 
     #[test]
     fn loader_rejects_missing_file() {
+        // Audit issue #734: missing file is an environment / I/O failure,
+        // categorized as `Internal` rather than `InvalidArgument`.
         let r = load_tokenizer("/nonexistent/tokenizer.json");
-        assert!(r.is_err());
+        match r {
+            Err(FerrotorchError::Internal { .. }) => {}
+            other => panic!("expected Internal for missing file, got {other:?}"),
+        }
     }
 
     #[test]
     fn loader_rejects_malformed_json() {
+        // Audit issue #734: malformed content is a parse failure of a
+        // user-supplied parameter, categorized as `InvalidArgument`.
         let tmp = std::env::temp_dir().join("ferrotorch_tok_malformed.json");
         std::fs::write(&tmp, "{ not valid").unwrap();
         let r = load_tokenizer(&tmp);
-        assert!(r.is_err());
+        let outcome = match r {
+            Err(FerrotorchError::InvalidArgument { .. }) => Ok(()),
+            other => Err(format!(
+                "expected InvalidArgument for malformed JSON, got {other:?}"
+            )),
+        };
         let _ = std::fs::remove_file(&tmp);
+        outcome.unwrap();
+    }
+
+    #[test]
+    fn load_chat_template_categorizes_missing_file_as_internal() {
+        // Audit issue #734: same I/O-vs-parse split for the chat-template
+        // loader.
+        let r = load_chat_template("/nonexistent/tokenizer_config.json");
+        match r {
+            Err(FerrotorchError::Internal { .. }) => {}
+            other => panic!("expected Internal for missing file, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_chat_template_categorizes_malformed_json_as_invalid_argument() {
+        let tmp = std::env::temp_dir().join("ferrotorch_tok_chat_cfg_malformed.json");
+        std::fs::write(&tmp, "{ not valid json").unwrap();
+        let r = load_chat_template(&tmp);
+        let outcome = match r {
+            Err(FerrotorchError::InvalidArgument { .. }) => Ok(()),
+            other => Err(format!(
+                "expected InvalidArgument for malformed JSON, got {other:?}"
+            )),
+        };
+        let _ = std::fs::remove_file(&tmp);
+        outcome.unwrap();
     }
 
     /// End-to-end: load the real Llama 3 tokenizer.json from the HF

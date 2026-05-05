@@ -497,9 +497,11 @@ pub fn cuda_rng_manager() -> &'static Mutex<CudaRngManager> {
 /// poisoned (would only happen if a prior caller panicked while holding
 /// the lock).
 pub fn fork_rng(devices: &[usize]) -> GpuResult<Vec<PhiloxState>> {
-    let mut mgr = CUDA_RNG_MANAGER.lock().map_err(|e| GpuError::InvalidState {
-        message: format!("CUDA RNG manager mutex poisoned: {e}"),
-    })?;
+    let mut mgr = CUDA_RNG_MANAGER
+        .lock()
+        .map_err(|e| GpuError::InvalidState {
+            message: format!("CUDA RNG manager mutex poisoned: {e}"),
+        })?;
     Ok(devices.iter().map(|&d| mgr.get_rng_state(d)).collect())
 }
 
@@ -523,9 +525,11 @@ pub fn join_rng(devices: &[usize], states: Vec<PhiloxState>) -> GpuResult<()> {
             got: vec![states.len()],
         });
     }
-    let mut mgr = CUDA_RNG_MANAGER.lock().map_err(|e| GpuError::InvalidState {
-        message: format!("CUDA RNG manager mutex poisoned: {e}"),
-    })?;
+    let mut mgr = CUDA_RNG_MANAGER
+        .lock()
+        .map_err(|e| GpuError::InvalidState {
+            message: format!("CUDA RNG manager mutex poisoned: {e}"),
+        })?;
     for (&device, state) in devices.iter().zip(states) {
         mgr.set_rng_state(device, state);
     }
@@ -1750,10 +1754,7 @@ mod tests {
         let result = join_rng(&[0, 1], states);
         assert!(matches!(
             result,
-            Err(GpuError::ShapeMismatch {
-                op: "join_rng",
-                ..
-            })
+            Err(GpuError::ShapeMismatch { op: "join_rng", .. })
         ));
     }
 

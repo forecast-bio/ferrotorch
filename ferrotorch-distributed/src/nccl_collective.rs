@@ -125,7 +125,7 @@ pub fn nccl_allreduce_dtype(
     //     so `buffer` must remain alive until the stream synchronizes;
     //     callers are documented to call `backend.synchronize()` before
     //     reading.
-    unsafe { backend.allreduce_raw(ptr as *const c_void, ptr, count, dtype, nccl_op) }
+    unsafe { backend.allreduce_raw(ptr.cast_const(), ptr, count, dtype, nccl_op) }
 }
 
 /// Broadcast a GPU buffer from `root` to all ranks via NCCL.
@@ -168,7 +168,7 @@ pub fn nccl_broadcast_dtype(
     // - LIFETIME: `buffer` is exclusively borrowed for the duration of
     //   this call; the NCCL operation is enqueued on `backend.stream`
     //   and the caller is documented to `synchronize()` before reading.
-    unsafe { backend.broadcast_raw(ptr as *const c_void, ptr, count, dtype, root as i32) }
+    unsafe { backend.broadcast_raw(ptr.cast_const(), ptr, count, dtype, root as i32) }
 }
 
 /// All-gather GPU buffers via NCCL.

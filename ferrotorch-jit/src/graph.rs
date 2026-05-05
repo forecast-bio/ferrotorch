@@ -158,30 +158,77 @@ pub enum IrOpKind {
     },
 }
 
-/// An IR value — an edge in the graph carrying shape metadata.
+/// Element dtype carried by an [`IrValue`] edge.
+///
+/// Currently only `F32` and `F64` are recognized. Additional dtypes
+/// (`Bf16`, `F16`, integer types) will be added when codegen learns
+/// about them.
+///
+/// This enum lives in `ferrotorch-jit` rather than `ferrotorch-core` on
+/// purpose — it describes IR-edge dtype metadata, which is a JIT
+/// concern. A workspace-level `Dtype` (matching `ferrotorch-core`'s
+/// `Float` trait family) is a separate, larger coordination concern
+/// tracked alongside #721.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Dtype {
+    /// 32-bit IEEE 754 floating point.
+    F32,
+    /// 64-bit IEEE 754 floating point.
+    F64,
+}
+
+impl Dtype {
+    /// Human-readable name (matches Rust primitive type names).
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Dtype::F32 => "f32",
+            Dtype::F64 => "f64",
+        }
+    }
+
+    /// Best-effort dtype inference from a Rust type name string
+    /// (typically the result of [`std::any::type_name`]).
+    ///
+    /// `std::any::type_name` is documented as returning an
+    /// implementation-defined diagnostic string, so this matcher accepts
+    /// the bare primitive name (`"f32"`, `"f64"`) plus the known stable
+    /// path-qualified variants emitted by current rustc
+    /// (`"core::primitive::f32"`, `"std::primitive::f32"`, and the
+    /// equivalents for `f64`).
+    ///
+    /// Returns `None` for unrecognized type names.
+    #[must_use]
+    pub fn from_type_name(name: &str) -> Option<Self> {
+        match name {
+            "f32" | "core::primitive::f32" | "std::primitive::f32" | "core::f32" | "std::f32" => {
+                Some(Dtype::F32)
+            }
+            "f64" | "core::primitive::f64" | "std::primitive::f64" | "core::f64" | "std::f64" => {
+                Some(Dtype::F64)
+            }
+            _ => None,
+        }
+    }
+}
+
+/// An IR value — an edge in the graph carrying shape and dtype metadata.
 ///
 /// Each `IrValue` represents a tensor flowing between IR nodes, identified by
-/// a stable `IrValueId` and annotated with its `shape`.
+/// a stable `IrValueId` and annotated with its `shape` and `dtype`.
 ///
-/// # Limitations
+/// # GPU Codegen
 ///
-/// `IrValue` does **not** currently carry a dtype field. The interpreter
-/// dispatches on the caller-supplied `T: Float` (so it executes correctly for
-/// any `Float`-typed inputs), but the **GPU codegen path is hard-coded to
-/// `f32`** — see [`crate::codegen_gpu`] (`float __restrict__` / `.reg .f32`
-/// emissions). Tracing an `f64` graph and lowering it through the GPU backend
-/// will silently produce a kernel that operates on `f32` operands, which is
-/// almost never what callers want.
+/// As of #721-A, GPU codegen validates that all `IrValue`s have
+/// `dtype == Dtype::F32` at lowering time, returning
+/// `JitError::GpuBackendUnavailable` for any non-F32 graph. Real dtype-aware
+/// GPU emission (per-edge dtype dispatch in CUDA C / PTX templates)
+/// is tracked as #721-B.
 ///
-/// Adding a real per-edge dtype is tracked as a follow-up (cascades through
-/// every GPU codegen site and the interpreter's type-erased entry point); see
-/// crosslink follow-up issue #721. Until then, prefer the CPU/interpreter
-/// backends for non-`f32` graphs.
-///
-/// `#[non_exhaustive]` reserves the right to add fields (notably `dtype`
-/// once the GPU codegen cascade is resolved) without a major-version bump.
-/// External crates must construct values through the [`IrGraph`] builder
-/// methods rather than struct-literal syntax.
+/// `#[non_exhaustive]` reserves the right to add fields without a
+/// major-version bump. External crates must construct values through the
+/// [`IrGraph`] builder methods rather than struct-literal syntax.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct IrValue {
@@ -191,6 +238,11 @@ pub struct IrValue {
     pub shape: Vec<usize>,
     /// Node that produces this value, or `None` if it is a graph input.
     pub producer: Option<IrNodeId>, // None for graph inputs
+    /// Element dtype. Defaults to [`Dtype::F32`] on construction paths
+    /// that don't yet propagate dtype; [`crate::codegen::InductorBackend`]
+    /// validates this at lowering time for GPU targets (#721-A safety
+    /// guard).
+    pub dtype: Dtype,
 }
 
 /// An IR node — a single operation in the graph.
@@ -245,8 +297,16 @@ impl IrGraph {
         }
     }
 
-    /// Register a graph input with the given shape.
+    /// Register a graph input with the given shape (defaults to
+    /// [`Dtype::F32`]).
+    ///
+    /// For dtype-aware construction, prefer [`IrGraph::add_input_with_dtype`].
     pub fn add_input(&mut self, shape: Vec<usize>) -> IrValueId {
+        self.add_input_with_dtype(shape, Dtype::F32)
+    }
+
+    /// Register a graph input with the given shape and dtype.
+    pub fn add_input_with_dtype(&mut self, shape: Vec<usize>, dtype: Dtype) -> IrValueId {
         let value_id = IrValueId(self.next_value_id);
         self.next_value_id += 1;
 
@@ -259,6 +319,7 @@ impl IrGraph {
             id: value_id,
             shape,
             producer: Some(node_id),
+            dtype,
         });
 
         self.nodes.push(IrNode {
@@ -272,8 +333,22 @@ impl IrGraph {
         value_id
     }
 
-    /// Register a constant value with the given data and shape.
+    /// Register a constant value with the given data and shape (defaults to
+    /// [`Dtype::F32`]).
+    ///
+    /// For dtype-aware construction, prefer
+    /// [`IrGraph::add_constant_with_dtype`].
     pub fn add_constant(&mut self, data: Vec<f64>, shape: Vec<usize>) -> IrValueId {
+        self.add_constant_with_dtype(data, shape, Dtype::F32)
+    }
+
+    /// Register a constant value with the given data, shape, and dtype.
+    pub fn add_constant_with_dtype(
+        &mut self,
+        data: Vec<f64>,
+        shape: Vec<usize>,
+        dtype: Dtype,
+    ) -> IrValueId {
         let value_id = IrValueId(self.next_value_id);
         self.next_value_id += 1;
 
@@ -284,6 +359,7 @@ impl IrGraph {
             id: value_id,
             shape: shape.clone(),
             producer: Some(node_id),
+            dtype,
         });
 
         self.nodes.push(IrNode {
@@ -296,20 +372,50 @@ impl IrGraph {
         value_id
     }
 
-    /// Add an operation node to the graph.
+    /// Add an operation node to the graph (output dtypes default to
+    /// [`Dtype::F32`]).
     ///
-    /// Returns the node ID and the IDs of its output values.
+    /// Returns the node ID and the IDs of its output values. For dtype-aware
+    /// construction, prefer [`IrGraph::add_node_with_dtype`].
     pub fn add_node(
         &mut self,
         op: IrOpKind,
         inputs: Vec<IrValueId>,
         output_shapes: Vec<Vec<usize>>,
     ) -> (IrNodeId, Vec<IrValueId>) {
+        let dtypes = vec![Dtype::F32; output_shapes.len()];
+        self.add_node_with_dtype(op, inputs, output_shapes, &dtypes)
+    }
+
+    /// Add an operation node to the graph with explicit per-output dtypes.
+    ///
+    /// `output_dtypes` must have the same length as `output_shapes`. Returns
+    /// the node ID and the IDs of its output values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `output_dtypes.len() != output_shapes.len()`.
+    pub fn add_node_with_dtype(
+        &mut self,
+        op: IrOpKind,
+        inputs: Vec<IrValueId>,
+        output_shapes: Vec<Vec<usize>>,
+        output_dtypes: &[Dtype],
+    ) -> (IrNodeId, Vec<IrValueId>) {
+        assert_eq!(
+            output_dtypes.len(),
+            output_shapes.len(),
+            "add_node_with_dtype: output_dtypes length ({}) must equal \
+             output_shapes length ({})",
+            output_dtypes.len(),
+            output_shapes.len(),
+        );
+
         let node_id = IrNodeId(self.next_node_id);
         self.next_node_id += 1;
 
         let mut output_ids = Vec::with_capacity(output_shapes.len());
-        for shape in output_shapes {
+        for (shape, &dtype) in output_shapes.into_iter().zip(output_dtypes.iter()) {
             let value_id = IrValueId(self.next_value_id);
             self.next_value_id += 1;
 
@@ -317,6 +423,7 @@ impl IrGraph {
                 id: value_id,
                 shape,
                 producer: Some(node_id),
+                dtype,
             });
 
             output_ids.push(value_id);
@@ -552,6 +659,69 @@ mod tests {
         let (_add_id, _add_outs) = g.add_node(IrOpKind::Add, vec![x, c], vec![vec![5]]);
         assert_eq!(g.node_count(), 3);
         assert_eq!(g.value_count(), 3);
+    }
+
+    /// `Dtype::from_type_name` recognizes the bare primitive names plus the
+    /// stable rustc-emitted path-qualified variants.
+    #[test]
+    fn test_dtype_from_type_name_stable_variants() {
+        assert_eq!(Dtype::from_type_name("f32"), Some(Dtype::F32));
+        assert_eq!(Dtype::from_type_name("f64"), Some(Dtype::F64));
+        assert_eq!(
+            Dtype::from_type_name("core::primitive::f32"),
+            Some(Dtype::F32)
+        );
+        assert_eq!(
+            Dtype::from_type_name("std::primitive::f64"),
+            Some(Dtype::F64)
+        );
+        // Unknown dtype names return None (fail-fast at trace time).
+        assert_eq!(Dtype::from_type_name("bf16"), None);
+        assert_eq!(Dtype::from_type_name("i32"), None);
+        assert_eq!(Dtype::from_type_name("alloc::vec::Vec<f32>"), None);
+    }
+
+    /// `Dtype::from_type_name` agrees with `std::any::type_name::<T>()` for
+    /// `f32` and `f64` on the current rustc — the binding constraint that
+    /// `trace.rs` relies on.
+    #[test]
+    fn test_dtype_from_actual_type_name() {
+        assert_eq!(
+            Dtype::from_type_name(std::any::type_name::<f32>()),
+            Some(Dtype::F32),
+        );
+        assert_eq!(
+            Dtype::from_type_name(std::any::type_name::<f64>()),
+            Some(Dtype::F64),
+        );
+    }
+
+    /// Default `add_input`/`add_constant`/`add_node` paths tag every value
+    /// with `Dtype::F32` — backward-compatible with all existing callers.
+    #[test]
+    fn test_default_construction_is_f32() {
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![3]);
+        let _c = g.add_constant(vec![1.0; 3], vec![3]);
+        let (_, _outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![3]]);
+        for v in &g.values {
+            assert_eq!(v.dtype, Dtype::F32);
+        }
+    }
+
+    /// Explicit-dtype constructors propagate dtype to the produced edge.
+    #[test]
+    fn test_explicit_dtype_construction() {
+        let mut g = IrGraph::new();
+        let x = g.add_input_with_dtype(vec![2], Dtype::F64);
+        let c = g.add_constant_with_dtype(vec![0.0, 1.0], vec![2], Dtype::F64);
+        let (_, outs) =
+            g.add_node_with_dtype(IrOpKind::Add, vec![x, c], vec![vec![2]], &[Dtype::F64]);
+
+        let dtype_of = |id: IrValueId| g.values.iter().find(|v| v.id == id).unwrap().dtype;
+        assert_eq!(dtype_of(x), Dtype::F64);
+        assert_eq!(dtype_of(c), Dtype::F64);
+        assert_eq!(dtype_of(outs[0]), Dtype::F64);
     }
 
     /// `remove_node` should remove the node and its output values.

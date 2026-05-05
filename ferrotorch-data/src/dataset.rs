@@ -45,12 +45,33 @@ pub trait IterableDataset: Send + Sync {
 ///
 /// Passed to `IterableDataset::iter()` so the dataset can partition
 /// its stream across workers.
+///
+/// # Stability
+///
+/// This struct is `#[non_exhaustive]` so future fields (e.g., a per-worker
+/// seed or rendezvous handle) can be added without a breaking change.
+/// External code must construct values via the public field setters or
+/// future helper constructors rather than struct-literal syntax. Field
+/// reads remain unchanged.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct WorkerInfo {
     /// This worker's index (0-based).
     pub worker_id: usize,
     /// Total number of workers.
     pub num_workers: usize,
+}
+
+impl WorkerInfo {
+    /// Construct a `WorkerInfo` for a worker with the given index out of
+    /// `num_workers` total.
+    #[must_use]
+    pub fn new(worker_id: usize, num_workers: usize) -> Self {
+        Self {
+            worker_id,
+            num_workers,
+        }
+    }
 }
 
 /// A simple in-memory dataset backed by a `Vec<S>`.

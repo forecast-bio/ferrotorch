@@ -55,19 +55,52 @@ pub fn download_weights(info: &ModelInfo, cache: &HubCache) -> FerrotorchResult<
     }
 }
 
+/// Returns `true` when `s` is the registry's all-zero SHA-256 placeholder.
+///
+/// The registry currently ships every entry with the placeholder string
+/// `"0".repeat(64)` so the wiring lands before real checkpoints have been
+/// uploaded. Detecting the placeholder is the trigger for the fail-fast
+/// policy in [`download_and_verify`]: a placeholder hash silently bypasses
+/// integrity verification, which is unsafe behaviour for a security-relevant
+/// download path. We return `Err` rather than warn-and-continue so the
+/// "registry SHA256 not yet pinned" condition surfaces deterministically.
+#[cfg(feature = "http")]
+fn is_placeholder_sha256(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b == b'0')
+}
+
 /// Download `info.weights_url` via blocking HTTP, verify the SHA-256
 /// digest, and write the bytes to the cache. Returns the cache path.
 ///
-/// Verification policy:
-/// - If `info.weights_sha256` is exactly 64 hex zero characters, the
-///   checksum is treated as a placeholder and skipped (a warning is
-///   printed). Real registry entries should always pin a checksum.
+/// Verification policy (post-audit, fail-fast):
+/// - If `info.weights_sha256` is the all-zero placeholder, the request is
+///   refused with an `InvalidArgument` error pointing at the registry —
+///   silently skipping integrity verification for placeholder entries was
+///   the security audit's #6 finding. Populating real hashes is tracked as
+///   follow-up issue #739.
 /// - Otherwise the downloaded bytes' SHA-256 must match exactly. A
-///   mismatch deletes the partial cache file and returns an error.
+///   mismatch returns an error and does not write to the cache.
 #[cfg(feature = "http")]
 fn download_and_verify(info: &ModelInfo, cache: &HubCache) -> FerrotorchResult<PathBuf> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
+
+    // *** SECURITY (audit #6): refuse fail-open behaviour. The previous
+    // policy was "if placeholder, skip verification with eprintln warning",
+    // which silently bypassed integrity for every registry entry on the
+    // download path. Convert to fail-fast — the caller now sees a clear
+    // error tied to the missing registry hash, instead of an unverified
+    // download succeeding behind their back. ***
+    if is_placeholder_sha256(info.weights_sha256) {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "ferrotorch-hub: registry SHA-256 for '{}' is the all-zero placeholder; \
+                 refusing to download without integrity verification. Populate the real \
+                 checksum in the registry before retrying (tracked as follow-up #739).",
+                info.name
+            ),
+        });
+    }
 
     // Fetch the body. ureq's blocking client returns a Response we can
     // read into a Vec<u8>; for very large weights this allocates the
@@ -99,30 +132,19 @@ fn download_and_verify(info: &ModelInfo, cache: &HubCache) -> FerrotorchResult<P
             ),
         })?;
 
-    // Verify SHA-256 unless the registry entry uses the all-zero
-    // placeholder.
-    let placeholder_sha = "0".repeat(64);
-    if info.weights_sha256 != placeholder_sha {
-        let mut hasher = Sha256::new();
-        hasher.update(&body);
-        let digest = hasher.finalize();
-        let got_hex = hex_lower(&digest);
-        if got_hex != info.weights_sha256.to_lowercase() {
-            return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "ferrotorch-hub: SHA-256 mismatch for '{}': \
-                     expected {}, got {}. The file at {} may be corrupted \
-                     or tampered with.",
-                    info.name, info.weights_sha256, got_hex, info.weights_url
-                ),
-            });
-        }
-    } else {
-        eprintln!(
-            "ferrotorch-hub: WARNING: model '{}' has placeholder SHA-256 in the registry; \
-             integrity check skipped. This should be fixed by pinning a real checksum.",
-            info.name
-        );
+    let mut hasher = Sha256::new();
+    hasher.update(&body);
+    let digest = hasher.finalize();
+    let got_hex = hex_lower(&digest);
+    if got_hex != info.weights_sha256.to_lowercase() {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "ferrotorch-hub: SHA-256 mismatch for '{}': \
+                 expected {}, got {}. The file at {} may be corrupted \
+                 or tampered with.",
+                info.name, info.weights_sha256, got_hex, info.weights_url
+            ),
+        });
     }
 
     // Write to the canonical cache path. Use cache.store to take care
@@ -180,9 +202,13 @@ fn hex_nibble(n: u8) -> char {
 /// # Example
 ///
 /// ```rust,no_run
+/// use ferrotorch_core::FerrotorchError;
 /// use ferrotorch_hub::load_pretrained;
 ///
-/// let state_dict = load_pretrained::<f32>("resnet50").unwrap();
+/// fn main() -> Result<(), FerrotorchError> {
+///     let _state_dict = load_pretrained::<f32>("resnet50")?;
+///     Ok(())
+/// }
 /// ```
 pub fn load_pretrained<T: Float>(name: &str) -> FerrotorchResult<StateDict<T>> {
     let info = get_model_info(name).ok_or_else(|| FerrotorchError::InvalidArgument {
@@ -293,8 +319,9 @@ fn lexical_normalize(p: &std::path::Path) -> std::path::PathBuf {
     let mut out = PathBuf::new();
     for component in p.components() {
         match component {
-            Component::CurDir => {}             // `.` — skip
-            Component::ParentDir => {            // `..` — pop one level
+            Component::CurDir => {} // `.` — skip
+            Component::ParentDir => {
+                // `..` — pop one level
                 out.pop();
             }
             c => out.push(c),
@@ -323,9 +350,15 @@ fn lexical_normalize(p: &std::path::Path) -> std::path::PathBuf {
 ///
 /// Returns `FerrotorchError::InvalidArgument` if containment cannot be
 /// confirmed.  The write is always refused in that case.
-fn assert_within_cache(base: &std::path::Path, full_path: &std::path::Path) -> FerrotorchResult<()> {
+fn assert_within_cache(
+    base: &std::path::Path,
+    full_path: &std::path::Path,
+) -> FerrotorchResult<()> {
     // Strong form: both paths exist and can be canonicalized (symlinks resolved).
-    if let (Ok(b), Ok(p)) = (std::fs::canonicalize(base), std::fs::canonicalize(full_path)) {
+    if let (Ok(b), Ok(p)) = (
+        std::fs::canonicalize(base),
+        std::fs::canonicalize(full_path),
+    ) {
         if !p.starts_with(&b) {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
@@ -412,7 +445,11 @@ pub fn hf_download_model(
             sanitize_path_component(part, "repo component")?;
         }
     }
-    let revision = if revision.is_empty() { "main" } else { revision };
+    let revision = if revision.is_empty() {
+        "main"
+    } else {
+        revision
+    };
     sanitize_path_component(revision, "revision")?;
 
     // Helper to fetch one file from the repo into the cache. `relative` is
@@ -760,10 +797,7 @@ mod tests {
     #[test]
     fn sanitize_accepts_normal_shard_filename() {
         // A typical HuggingFace shard filename should be accepted.
-        let ok = super::sanitize_path_component(
-            "model-00001-of-00004.safetensors",
-            "shard",
-        );
+        let ok = super::sanitize_path_component("model-00001-of-00004.safetensors", "shard");
         assert!(
             ok.is_ok(),
             "expected Ok for normal shard filename, got: {:?}",
@@ -775,7 +809,11 @@ mod tests {
     fn sanitize_accepts_normal_revision() {
         for rev in &["main", "v1.0", "abc123def456", "feature-branch"] {
             let ok = super::sanitize_path_component(rev, "revision");
-            assert!(ok.is_ok(), "expected Ok for revision {rev:?}, got: {:?}", ok);
+            assert!(
+                ok.is_ok(),
+                "expected Ok for revision {rev:?}, got: {:?}",
+                ok
+            );
         }
     }
 
@@ -797,10 +835,7 @@ mod tests {
         // Construct a path that lexically escapes the cache dir.
         let escaped = cache_dir.join("..").join("outside.txt");
         let result = super::assert_within_cache(cache_dir, &escaped);
-        assert!(
-            result.is_err(),
-            "expected Err for escaped path, got Ok"
-        );
+        assert!(result.is_err(), "expected Err for escaped path, got Ok");
     }
 
     #[test]
@@ -813,6 +848,10 @@ mod tests {
         std::fs::write(&sub, b"fake").unwrap();
         // The cache dir itself exists now; both can be canonicalized.
         let result = super::assert_within_cache(cache_dir, &sub);
-        assert!(result.is_ok(), "expected Ok for sub-path, got: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "expected Ok for sub-path, got: {:?}",
+            result
+        );
     }
 }

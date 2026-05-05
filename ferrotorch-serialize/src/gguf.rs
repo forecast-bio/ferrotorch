@@ -5,7 +5,7 @@
 //!
 //! 1. Header and metadata parsing (version 3).
 //! 2. Tensor info extraction (name, shape, quantization type, data offset).
-//! 3. Dequantization of Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1, F16, and F32
+//! 3. Dequantization of `Q4_0`, `Q4_1`, `Q5_0`, `Q5_1`, `Q8_0`, `Q8_1`, F16, and F32
 //!    tensor data to `f32`.
 //! 4. A public [`load_gguf_state_dict`] function that produces a
 //!    `StateDict<f32>`.
@@ -66,8 +66,9 @@ impl GgmlType {
     /// Block size (number of elements per quantization block).
     fn block_size(self) -> usize {
         match self {
-            Self::F32 => 1,
-            Self::F16 => 1,
+            // Scalar types — one element per "block".
+            Self::F32 | Self::F16 => 1,
+            // GGML quantized formats group 32 elements per block.
             Self::Q4_0 | Self::Q4_1 | Self::Q5_0 | Self::Q5_1 | Self::Q8_0 | Self::Q8_1 => 32,
         }
     }
@@ -160,7 +161,12 @@ pub struct GgufMetadata {
 }
 
 /// Information about a single tensor stored in the GGUF file.
+///
+/// `#[non_exhaustive]` so future GGUF versions can add fields (e.g. an
+/// optional checksum) without breaking external pattern matches; field
+/// access continues to work for the existing fields.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GgufTensorInfo {
     pub name: String,
     pub dims: Vec<u64>,
@@ -169,7 +175,12 @@ pub struct GgufTensorInfo {
 }
 
 /// A fully parsed GGUF file: header, metadata, tensor descriptors, and raw data.
+///
+/// `#[non_exhaustive]` because GGUF v4+ may extend the header with new
+/// fields (alignment, sub-format flags); marking the struct as such lets
+/// us add them in a patch release.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GgufFile {
     /// GGUF format version (currently 3).
     pub version: u32,
@@ -272,7 +283,7 @@ impl<'a> Reader<'a> {
         let len = self.read_u64()? as usize;
         let bytes = self.read_bytes(len)?;
         std::str::from_utf8(bytes)
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .map_err(|_| gguf_err("non-UTF-8 string in GGUF metadata"))
     }
 
@@ -357,7 +368,7 @@ pub fn load_gguf(path: impl AsRef<Path>) -> FerrotorchResult<GgufFile> {
 /// The mmap is dropped before the function returns. The header /
 /// metadata / tensor-infos are parsed in place from the mmap region; the
 /// data section is copied into the returned `GgufFile.data: Vec<u8>` so
-/// the GgufFile is fully owned and outlives the mmap. The file must not
+/// the `GgufFile` is fully owned and outlives the mmap. The file must not
 /// be mutated while the mmap is live.
 pub fn load_gguf_mmap(path: impl AsRef<Path>) -> FerrotorchResult<GgufFile> {
     let path = path.as_ref();
@@ -465,9 +476,9 @@ pub fn parse_gguf_bytes(data: &[u8]) -> FerrotorchResult<GgufFile> {
 /// Convert IEEE 754 half-precision (f16) bits to f32.
 fn f16_to_f32(lo: u8, hi: u8) -> f32 {
     let bits = u16::from_le_bytes([lo, hi]);
-    let sign = ((bits >> 15) & 1) as u32;
-    let exponent = ((bits >> 10) & 0x1f) as u32;
-    let mantissa = (bits & 0x3ff) as u32;
+    let sign = u32::from((bits >> 15) & 1);
+    let exponent = u32::from((bits >> 10) & 0x1f);
+    let mantissa = u32::from(bits & 0x3ff);
 
     if exponent == 0 {
         if mantissa == 0 {
@@ -498,9 +509,9 @@ fn f16_to_f32(lo: u8, hi: u8) -> f32 {
     }
 }
 
-/// Dequantize Q4_0 data to f32.
+/// Dequantize `Q4_0` data to f32.
 ///
-/// Q4_0: block size 32, each block = 2 bytes (f16 scale) + 16 bytes (32 nibbles).
+/// `Q4_0`: block size 32, each block = 2 bytes (f16 scale) + 16 bytes (32 nibbles).
 /// `dequant(nibble) = (nibble - 8) * scale`
 fn dequantize_q4_0(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32>> {
     const BLOCK_SIZE: usize = 32;
@@ -523,8 +534,8 @@ fn dequantize_q4_0(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32
 
         for j in 0..16 {
             let byte = data[block_start + 2 + j];
-            let lo = (byte & 0x0F) as f32 - 8.0;
-            let hi = ((byte >> 4) & 0x0F) as f32 - 8.0;
+            let lo = f32::from(byte & 0x0F) - 8.0;
+            let hi = f32::from((byte >> 4) & 0x0F) - 8.0;
             output.push(lo * scale);
             output.push(hi * scale);
         }
@@ -533,9 +544,9 @@ fn dequantize_q4_0(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32
     Ok(output)
 }
 
-/// Dequantize Q4_1 data to f32.
+/// Dequantize `Q4_1` data to f32.
 ///
-/// Q4_1: block size 32, each block = 2 bytes (f16 scale) + 2 bytes (f16 min) +
+/// `Q4_1`: block size 32, each block = 2 bytes (f16 scale) + 2 bytes (f16 min) +
 /// 16 bytes (32 nibbles).
 /// `dequant(nibble) = nibble * scale + min`
 fn dequantize_q4_1(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32>> {
@@ -560,8 +571,8 @@ fn dequantize_q4_1(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32
 
         for j in 0..16 {
             let byte = data[block_start + 4 + j];
-            let lo = (byte & 0x0F) as f32;
-            let hi = ((byte >> 4) & 0x0F) as f32;
+            let lo = f32::from(byte & 0x0F);
+            let hi = f32::from((byte >> 4) & 0x0F);
             output.push(lo * scale + min);
             output.push(hi * scale + min);
         }
@@ -570,9 +581,9 @@ fn dequantize_q4_1(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32
     Ok(output)
 }
 
-/// Dequantize Q5_0 data to f32.
+/// Dequantize `Q5_0` data to f32.
 ///
-/// Q5_0: block size 32, each block = 2 bytes (f16 scale) + 4 bytes (32 high bits)
+/// `Q5_0`: block size 32, each block = 2 bytes (f16 scale) + 4 bytes (32 high bits)
 /// + 16 bytes (32 low nibbles). Each element is 5 bits: 4 low bits from nibble
 /// + 1 high bit from the bit field. `dequant(val5) = (val5 - 16) * scale`
 fn dequantize_q5_0(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32>> {
@@ -604,8 +615,8 @@ fn dequantize_q5_0(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32
 
         for j in 0..16 {
             let byte = data[block_start + 6 + j];
-            let lo_nibble = (byte & 0x0F) as u32;
-            let hi_nibble = ((byte >> 4) & 0x0F) as u32;
+            let lo_nibble = u32::from(byte & 0x0F);
+            let hi_nibble = u32::from((byte >> 4) & 0x0F);
 
             let lo_high_bit = (qh >> (j * 2)) & 1;
             let hi_high_bit = (qh >> (j * 2 + 1)) & 1;
@@ -621,9 +632,9 @@ fn dequantize_q5_0(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32
     Ok(output)
 }
 
-/// Dequantize Q5_1 data to f32.
+/// Dequantize `Q5_1` data to f32.
 ///
-/// Q5_1: block size 32, each block = 2 bytes (f16 scale) + 2 bytes (f16 min) +
+/// `Q5_1`: block size 32, each block = 2 bytes (f16 scale) + 2 bytes (f16 min) +
 /// 4 bytes (32 high bits) + 16 bytes (32 low nibbles).
 /// `dequant(val5) = val5 * scale + min`
 fn dequantize_q5_1(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32>> {
@@ -655,8 +666,8 @@ fn dequantize_q5_1(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32
 
         for j in 0..16 {
             let byte = data[block_start + 8 + j];
-            let lo_nibble = (byte & 0x0F) as u32;
-            let hi_nibble = ((byte >> 4) & 0x0F) as u32;
+            let lo_nibble = u32::from(byte & 0x0F);
+            let hi_nibble = u32::from((byte >> 4) & 0x0F);
 
             let lo_high_bit = (qh >> (j * 2)) & 1;
             let hi_high_bit = (qh >> (j * 2 + 1)) & 1;
@@ -672,9 +683,9 @@ fn dequantize_q5_1(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32
     Ok(output)
 }
 
-/// Dequantize Q8_0 data to f32.
+/// Dequantize `Q8_0` data to f32.
 ///
-/// Q8_0: block size 32, each block = 2 bytes (f16 scale) + 32 bytes (int8 values).
+/// `Q8_0`: block size 32, each block = 2 bytes (f16 scale) + 32 bytes (int8 values).
 /// `dequant(val) = val * scale`
 fn dequantize_q8_0(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32>> {
     const BLOCK_SIZE: usize = 32;
@@ -697,16 +708,16 @@ fn dequantize_q8_0(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32
 
         for j in 0..32 {
             let val = data[block_start + 2 + j] as i8;
-            output.push(val as f32 * scale);
+            output.push(f32::from(val) * scale);
         }
     }
 
     Ok(output)
 }
 
-/// Dequantize Q8_1 data to f32.
+/// Dequantize `Q8_1` data to f32.
 ///
-/// Q8_1: block size 32, each block = 4 bytes (f32 scale) + 4 bytes (f32 min) +
+/// `Q8_1`: block size 32, each block = 4 bytes (f32 scale) + 4 bytes (f32 min) +
 /// 32 bytes (int8 values).
 /// `dequant(val) = val * scale + min`
 fn dequantize_q8_1(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32>> {
@@ -741,7 +752,7 @@ fn dequantize_q8_1(data: &[u8], num_elements: usize) -> FerrotorchResult<Vec<f32
 
         for j in 0..32 {
             let val = data[block_start + 8 + j] as i8;
-            output.push(val as f32 * scale + min);
+            output.push(f32::from(val) * scale + min);
         }
     }
 
@@ -1008,7 +1019,7 @@ mod tests {
     fn test_invalid_magic() {
         let mut data = vec![0u8; 32];
         // Wrong magic.
-        data[0..4].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        data[0..4].copy_from_slice(&0xDEAD_BEEF_u32.to_le_bytes());
         let result = parse_gguf_bytes(&data);
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
@@ -1304,7 +1315,7 @@ mod tests {
         let tensor = dequantize_gguf_tensor(&file, "q4_tensor").unwrap();
         assert_eq!(tensor.shape(), &[32]);
         // All elements should be 0.0 since all nibbles are 8 and (8-8)*scale=0.
-        for &v in tensor.data().unwrap().iter() {
+        for &v in tensor.data().unwrap() {
             assert!((v - 0.0).abs() < 1e-5, "expected 0.0, got {v}");
         }
     }
@@ -1428,6 +1439,10 @@ mod tests {
     }
 
     #[test]
+    // The f16-to-f32 helper produces exact bit-equivalent results for
+    // every special value tested here (zero, NaN, infinity); strict
+    // equality is the correct test, not an epsilon comparison.
+    #[allow(clippy::float_cmp)]
     fn test_f16_to_f32_special_values() {
         // Zero.
         let z = f16_to_f32(0, 0);
@@ -1479,7 +1494,7 @@ mod tests {
         );
     }
 
-    /// metadata_kv_count = u64::MAX, 0 tensors, no metadata bytes.
+    /// `metadata_kv_count` = `u64::MAX`, 0 tensors, no metadata bytes.
     /// The parser must return Err on the first `read_gguf_string` attempt, not OOM.
     #[test]
     fn test_dos_metadata_count_u64_max() {
@@ -1492,7 +1507,7 @@ mod tests {
         // Must not have OOMed; we reach this line.
     }
 
-    /// tensor_count = u64::MAX, 0 metadata entries, no tensor bytes.
+    /// `tensor_count` = `u64::MAX`, 0 metadata entries, no tensor bytes.
     /// The parser must return Err on the first `read_gguf_string` for the tensor
     /// name, not OOM.
     #[test]
@@ -1505,7 +1520,7 @@ mod tests {
         );
     }
 
-    /// Both counts are u64::MAX.
+    /// Both counts are `u64::MAX`.
     #[test]
     fn test_dos_both_counts_u64_max() {
         let buf = build_gguf_header_stub(u64::MAX, u64::MAX);
@@ -1516,7 +1531,7 @@ mod tests {
         );
     }
 
-    /// Large but not MAX: metadata_kv_count = 100_000, but the buffer only
+    /// Large but not MAX: `metadata_kv_count` = `100_000`, but the buffer only
     /// contains the 24-byte header.  Must fail on the first loop iteration.
     #[test]
     fn test_dos_metadata_count_large_truncated_buffer() {
@@ -1528,7 +1543,7 @@ mod tests {
         );
     }
 
-    /// Large but not MAX: tensor_count = 100_000, but the buffer only contains
+    /// Large but not MAX: `tensor_count` = `100_000`, but the buffer only contains
     /// the 24-byte header.  Must fail on the first loop iteration.
     #[test]
     fn test_dos_tensor_count_large_truncated_buffer() {
@@ -1559,7 +1574,7 @@ mod tests {
         );
     }
 
-    /// Array value with u64::MAX element count — must fail fast inside
+    /// Array value with `u64::MAX` element count — must fail fast inside
     /// `read_gguf_value`, not OOM.
     #[test]
     fn test_dos_array_value_count_u64_max() {

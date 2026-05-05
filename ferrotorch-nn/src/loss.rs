@@ -41,7 +41,12 @@ fn apply_reduction<T: Float>(
 /// Mean Squared Error loss.
 ///
 /// `loss_i = (pred_i - target_i)^2`, then the chosen reduction is applied.
+///
+/// Construct via [`MSELoss::new`] / [`MSELoss::default`]; new fields may be
+/// added in minor releases (`#[non_exhaustive]`). Direct field access via
+/// `loss.reduction` continues to work.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct MSELoss {
     pub reduction: Reduction,
 }
@@ -158,7 +163,11 @@ impl<T: Float> GradFn<T> for MSEBackward<T> {
 /// ```text
 /// loss = (1 - ls) * nll + ls * (-log_probs.mean(dim=-1))
 /// ```
+///
+/// Construct via [`CrossEntropyLoss::new`] / [`CrossEntropyLoss::default`];
+/// `#[non_exhaustive]` reserves the right to add fields in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CrossEntropyLoss {
     pub reduction: Reduction,
     pub label_smoothing: f64,
@@ -306,6 +315,13 @@ struct CrossEntropyBackward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "CrossEntropy backward" }`
+    /// when `grad_output` lives on a CUDA device — the CPU softmax-minus-target
+    /// kernel has no GPU counterpart yet. Move `grad_output` to CPU explicitly to
+    /// run this backward, or file a follow-up to land the GPU kernel.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let shape = self.logits.shape();
         let batch = shape[0];
@@ -371,7 +387,11 @@ impl<T: Float> GradFn<T> for CrossEntropyBackward<T> {
 /// ```
 ///
 /// Backward: `grad = sigmoid(x) - y`
+///
+/// `#[non_exhaustive]`: construct via [`BCEWithLogitsLoss::new`] /
+/// [`BCEWithLogitsLoss::default`]; new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct BCEWithLogitsLoss {
     pub reduction: Reduction,
 }
@@ -501,7 +521,11 @@ impl<T: Float> GradFn<T> for BCEWithLogitsBackward<T> {
 /// if |error| < delta:  0.5 * error^2
 /// else:                delta * (|error| - 0.5 * delta)
 /// ```
+///
+/// `#[non_exhaustive]`: construct via [`HuberLoss::new`] /
+/// [`HuberLoss::default`]; new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct HuberLoss {
     pub reduction: Reduction,
     pub delta: f64,
@@ -640,7 +664,11 @@ impl<T: Float> GradFn<T> for HuberBackward<T> {
 ///
 /// Note: entries where `target_i == 0` contribute zero loss (0 * log(0) is
 /// treated as 0 following the convention).
+///
+/// `#[non_exhaustive]`: construct via [`KLDivLoss::new`] /
+/// [`KLDivLoss::default`]; new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct KLDivLoss {
     pub reduction: Reduction,
 }
@@ -770,7 +798,11 @@ impl<T: Float> GradFn<T> for KLDivBackward<T> {
 ///
 /// `x1` and `x2` must have the same shape. `y` must be a 1-D tensor of
 /// `1.0` or `-1.0` values with length equal to the batch size (first dim).
+///
+/// `#[non_exhaustive]`: construct via [`CosineEmbeddingLoss::new`] /
+/// [`CosineEmbeddingLoss::default`]; new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CosineEmbeddingLoss {
     pub reduction: Reduction,
     pub margin: f64,
@@ -911,6 +943,13 @@ struct CosineEmbeddingBackward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for CosineEmbeddingBackward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "CosineEmbedding backward" }`
+    /// when `grad_output` lives on a CUDA device — the per-sample cosine-similarity
+    /// gradient kernel has no GPU counterpart yet. Move `grad_output` to CPU
+    /// explicitly to run this backward.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let shape = self.x1.shape();
         let (batch, feat) = if shape.len() == 1 {
@@ -1022,7 +1061,11 @@ impl<T: Float> GradFn<T> for CosineEmbeddingBackward<T> {
 /// Then the chosen reduction is applied.
 ///
 /// Matches `torch.nn.L1Loss`.
+///
+/// `#[non_exhaustive]`: construct via [`L1Loss::new`] / [`L1Loss::default`];
+/// new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct L1Loss {
     pub reduction: Reduction,
 }
@@ -1094,6 +1137,13 @@ struct L1Backward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for L1Backward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "L1 backward" }`
+    /// when `grad_output` lives on a CUDA device — the elementwise sign gradient
+    /// kernel has no GPU counterpart yet. Move `grad_output` to CPU explicitly to
+    /// run this backward.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda { op: "L1 backward" });
@@ -1174,7 +1224,11 @@ impl<T: Float> GradFn<T> for L1Backward<T> {
 /// the denominator is the count of non-ignored samples.
 ///
 /// Matches `torch.nn.NLLLoss`.
+///
+/// `#[non_exhaustive]`: construct via [`NLLLoss::new`] / [`NLLLoss::default`];
+/// new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct NLLLoss {
     pub reduction: Reduction,
     /// If set, class indices equal to this value are ignored.
@@ -1333,6 +1387,13 @@ struct NLLBackward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for NLLBackward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "NLL backward" }`
+    /// when `grad_output` lives on a CUDA device — the per-target one-hot scatter
+    /// has no GPU counterpart yet. Move `grad_output` to CPU explicitly to run
+    /// this backward.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let shape = self.log_probs.shape();
         let batch = shape[0];
@@ -1397,7 +1458,11 @@ impl<T: Float> GradFn<T> for NLLBackward<T> {
 /// ```
 ///
 /// This is the same as PyTorch's `SmoothL1Loss` with `beta=1.0`.
+///
+/// `#[non_exhaustive]`: construct via [`SmoothL1Loss::new`] /
+/// [`SmoothL1Loss::default`]; new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SmoothL1Loss {
     pub reduction: Reduction,
 }
@@ -1441,7 +1506,11 @@ impl Default for SmoothL1Loss {
 /// clamped to `[eps, 1 - eps]` where `eps = 1e-12`.
 ///
 /// Matches `torch.nn.BCELoss`.
+///
+/// `#[non_exhaustive]`: construct via [`BCELoss::new`] / [`BCELoss::default`];
+/// new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct BCELoss {
     pub reduction: Reduction,
 }
@@ -1531,6 +1600,13 @@ struct BCEBackward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for BCEBackward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "BCE backward" }`
+    /// when `grad_output` lives on a CUDA device — the elementwise BCE gradient
+    /// kernel has no GPU counterpart yet. Move `grad_output` to CPU explicitly
+    /// to run this backward.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda { op: "BCE backward" });
@@ -1625,7 +1701,11 @@ impl<T: Float> GradFn<T> for BCEBackward<T> {
 /// where `d(x, y) = ||x - y||_p` is the Lp distance. Default `p = 2`.
 ///
 /// Matches `torch.nn.TripletMarginLoss`.
+///
+/// `#[non_exhaustive]`: construct via [`TripletMarginLoss::new`] /
+/// [`TripletMarginLoss::default`]; new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TripletMarginLoss {
     pub reduction: Reduction,
     pub margin: f64,
@@ -1751,6 +1831,13 @@ struct TripletMarginBackward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for TripletMarginBackward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "TripletMargin backward" }`
+    /// when `grad_output` lives on a CUDA device — the per-batch margin
+    /// gradient routing has no GPU counterpart yet. Move `grad_output` to CPU
+    /// explicitly to run this backward.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let shape = self.anchor.shape();
         let batch = shape[0];
@@ -1848,7 +1935,11 @@ impl<T: Float> GradFn<T> for TripletMarginBackward<T> {
 /// ```
 ///
 /// Matches `torch.nn.MarginRankingLoss`.
+///
+/// `#[non_exhaustive]`: construct via [`MarginRankingLoss::new`] /
+/// [`MarginRankingLoss::default`]; new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct MarginRankingLoss {
     pub reduction: Reduction,
     pub margin: f64,
@@ -1940,6 +2031,13 @@ struct MarginRankingBackward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for MarginRankingBackward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "MarginRanking backward" }`
+    /// when `grad_output` lives on a CUDA device — the pairwise margin gradient
+    /// kernel has no GPU counterpart yet. Move `grad_output` to CPU explicitly
+    /// to run this backward.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda {
@@ -2022,7 +2120,11 @@ impl<T: Float> GradFn<T> for MarginRankingBackward<T> {
 /// - `blank`: Index of the blank label (default 0).
 ///
 /// Matches `torch.nn.CTCLoss`.
+///
+/// `#[non_exhaustive]`: construct via [`CTCLoss::new`] / [`CTCLoss::default`];
+/// new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CTCLoss {
     pub reduction: Reduction,
     pub blank: usize,
@@ -2219,6 +2321,14 @@ struct CTCBackward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for CTCBackward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "CTC backward" }`
+    /// when `grad_output` lives on a CUDA device — the forward/backward dynamic
+    /// programming kernel for connectionist temporal classification has no GPU
+    /// counterpart yet. Move `grad_output` to CPU explicitly to run this
+    /// backward.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda { op: "CTC backward" });
@@ -2390,7 +2500,11 @@ impl<T: Float> GradFn<T> for CTCBackward<T> {
 /// ```
 ///
 /// Matches `torch.nn.PoissonNLLLoss`.
+///
+/// `#[non_exhaustive]`: construct via [`PoissonNLLLoss::new`] /
+/// [`PoissonNLLLoss::default`]; new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PoissonNLLLoss {
     pub reduction: Reduction,
     pub log_input: bool,
@@ -2543,7 +2657,11 @@ impl<T: Float> GradFn<T> for PoissonNLLBackward<T> {
 /// where `p` is 1 or 2 (default 1).
 ///
 /// Matches `torch.nn.MultiMarginLoss`.
+///
+/// `#[non_exhaustive]`: construct via [`MultiMarginLoss::new`] /
+/// [`MultiMarginLoss::default`]; new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct MultiMarginLoss {
     pub reduction: Reduction,
     pub p: usize,
@@ -2657,6 +2775,13 @@ struct MultiMarginBackward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for MultiMarginBackward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "MultiMargin backward" }`
+    /// when `grad_output` lives on a CUDA device — the per-class hinge gradient
+    /// kernel has no GPU counterpart yet. Move `grad_output` to CPU explicitly
+    /// to run this backward.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let shape = self.input.shape();
         let batch = shape[0];
@@ -2736,7 +2861,12 @@ impl<T: Float> GradFn<T> for MultiMarginBackward<T> {
 /// then summed over the class dimension and reduced over the batch.
 ///
 /// Matches `torch.nn.MultiLabelSoftMarginLoss`.
+///
+/// `#[non_exhaustive]`: construct via [`MultiLabelSoftMarginLoss::new`] /
+/// [`MultiLabelSoftMarginLoss::default`]; new fields may be added in minor
+/// releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct MultiLabelSoftMarginLoss {
     pub reduction: Reduction,
 }
@@ -2837,6 +2967,13 @@ struct MultiLabelSoftMarginBackward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for MultiLabelSoftMarginBackward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "MultiLabelSoftMargin backward" }`
+    /// when `grad_output` lives on a CUDA device — the elementwise sigmoid-based
+    /// gradient kernel has no GPU counterpart yet. Move `grad_output` to CPU
+    /// explicitly to run this backward.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         let shape = self.input.shape();
         let batch = shape[0];
@@ -2898,7 +3035,11 @@ impl<T: Float> GradFn<T> for MultiLabelSoftMarginBackward<T> {
 /// ```
 ///
 /// Matches `torch.nn.HingeEmbeddingLoss`.
+///
+/// `#[non_exhaustive]`: construct via [`HingeEmbeddingLoss::new`] /
+/// [`HingeEmbeddingLoss::default`]; new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct HingeEmbeddingLoss {
     pub reduction: Reduction,
     pub margin: f64,
@@ -2991,6 +3132,13 @@ struct HingeEmbeddingBackward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for HingeEmbeddingBackward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "HingeEmbedding backward" }`
+    /// when `grad_output` lives on a CUDA device — the hinge gradient kernel has
+    /// no GPU counterpart yet. Move `grad_output` to CPU explicitly to run this
+    /// backward.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda {
@@ -3088,7 +3236,11 @@ impl<T: Float> GradFn<T> for HingeEmbeddingBackward<T> {
 /// - `var`: predicted variance, same shape as `input` (must be positive).
 ///
 /// The `eps` parameter clamps variance from below for numerical stability.
+///
+/// `#[non_exhaustive]`: construct via [`GaussianNLLLoss::new`] /
+/// [`GaussianNLLLoss::default`]; new fields may be added in minor releases.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GaussianNLLLoss {
     pub reduction: Reduction,
     pub full: bool,
@@ -3202,6 +3354,13 @@ struct GaussianNLLBackward<T: Float> {
 }
 
 impl<T: Float> GradFn<T> for GaussianNLLBackward<T> {
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::NotImplementedOnCuda { op: "GaussianNLL backward" }`
+    /// when `grad_output` lives on a CUDA device — the per-element Gaussian NLL
+    /// gradient kernel has no GPU counterpart yet. Move `grad_output` to CPU
+    /// explicitly to run this backward.
+    /// Also propagates any `FerrotorchError` from intermediate tensor reads.
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
         if grad_output.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda {

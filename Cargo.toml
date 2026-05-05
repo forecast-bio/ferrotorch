@@ -26,7 +26,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.4.5"
+version = "0.4.6"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -38,27 +38,27 @@ categories = ["science", "mathematics", "algorithms"]
 
 [workspace.dependencies]
 # Internal crates (version for crates.io, path for local dev)
-ferrotorch-core = { version = "0.4.5", path = "ferrotorch-core" }
-ferrotorch-nn = { version = "0.4.5", path = "ferrotorch-nn" }
-ferrotorch-nn-derive = { version = "0.4.5", path = "ferrotorch-nn-derive" }
-ferrotorch-optim = { version = "0.4.5", path = "ferrotorch-optim" }
-ferrotorch-data = { version = "0.4.5", path = "ferrotorch-data" }
-ferrotorch-vision = { version = "0.4.5", path = "ferrotorch-vision" }
-ferrotorch-jit = { version = "0.4.5", path = "ferrotorch-jit" }
-ferrotorch-serialize = { version = "0.4.5", path = "ferrotorch-serialize" }
-ferrotorch-gpu = { version = "0.4.5", path = "ferrotorch-gpu" }
-ferrotorch-distributed = { version = "0.4.5", path = "ferrotorch-distributed" }
-ferrotorch-train = { version = "0.4.5", path = "ferrotorch-train" }
-ferrotorch-cubecl = { version = "0.4.5", path = "ferrotorch-cubecl" }
-ferrotorch-xpu = { version = "0.4.5", path = "ferrotorch-xpu" }
-ferrotorch-distributions = { version = "0.4.5", path = "ferrotorch-distributions" }
-ferrotorch-profiler = { version = "0.4.5", path = "ferrotorch-profiler" }
-ferrotorch-hub = { version = "0.4.5", path = "ferrotorch-hub" }
-ferrotorch-tokenize = { version = "0.4.5", path = "ferrotorch-tokenize" }
-ferrotorch-llama = { version = "0.4.5", path = "ferrotorch-llama" }
-ferrotorch-ml = { version = "0.4.5", path = "ferrotorch-ml" }
-ferrotorch-jit-script = { version = "0.4.5", path = "ferrotorch-jit-script" }
-ferrotorch-mps = { version = "0.4.5", path = "ferrotorch-mps" }
+ferrotorch-core = { version = "0.4.6", path = "ferrotorch-core" }
+ferrotorch-nn = { version = "0.4.6", path = "ferrotorch-nn" }
+ferrotorch-nn-derive = { version = "0.4.6", path = "ferrotorch-nn-derive" }
+ferrotorch-optim = { version = "0.4.6", path = "ferrotorch-optim" }
+ferrotorch-data = { version = "0.4.6", path = "ferrotorch-data" }
+ferrotorch-vision = { version = "0.4.6", path = "ferrotorch-vision" }
+ferrotorch-jit = { version = "0.4.6", path = "ferrotorch-jit" }
+ferrotorch-serialize = { version = "0.4.6", path = "ferrotorch-serialize" }
+ferrotorch-gpu = { version = "0.4.6", path = "ferrotorch-gpu" }
+ferrotorch-distributed = { version = "0.4.6", path = "ferrotorch-distributed" }
+ferrotorch-train = { version = "0.4.6", path = "ferrotorch-train" }
+ferrotorch-cubecl = { version = "0.4.6", path = "ferrotorch-cubecl" }
+ferrotorch-xpu = { version = "0.4.6", path = "ferrotorch-xpu" }
+ferrotorch-distributions = { version = "0.4.6", path = "ferrotorch-distributions" }
+ferrotorch-profiler = { version = "0.4.6", path = "ferrotorch-profiler" }
+ferrotorch-hub = { version = "0.4.6", path = "ferrotorch-hub" }
+ferrotorch-tokenize = { version = "0.4.6", path = "ferrotorch-tokenize" }
+ferrotorch-llama = { version = "0.4.6", path = "ferrotorch-llama" }
+ferrotorch-ml = { version = "0.4.6", path = "ferrotorch-ml" }
+ferrotorch-jit-script = { version = "0.4.6", path = "ferrotorch-jit-script" }
+ferrotorch-mps = { version = "0.4.6", path = "ferrotorch-mps" }
 
 # ferray ecosystem
 ferray-core = { version = "0.3", features = ["bf16"] }

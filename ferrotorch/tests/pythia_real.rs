@@ -193,7 +193,8 @@ fn test_pythia_70m_training_benchmark() {
     let seq = 32;
 
     eprintln!("Building Pythia-70M model (6 layers, 8 heads, d=512, vocab=50304)...");
-    let model = PythiaModel::new(n_layers, d_model, n_heads, vocab, max_seq).unwrap();
+    let model = PythiaModel::new(n_layers, d_model, n_heads, vocab, max_seq)
+        .expect("Pythia-70M model construction failed (Linear/LN/RoPE init)");
 
     let param_count: usize = model.parameters().iter().map(|p| p.tensor().numel()).sum();
     eprintln!(
@@ -205,10 +206,7 @@ fn test_pythia_70m_training_benchmark() {
     adamw_cfg.lr = 1e-4;
     adamw_cfg.betas = (0.9, 0.95);
     adamw_cfg.weight_decay = 0.01;
-    let mut optimizer = AdamW::new(
-        model.parameters().into_iter().cloned().collect(),
-        adamw_cfg,
-    );
+    let mut optimizer = AdamW::new(model.parameters().into_iter().cloned().collect(), adamw_cfg);
 
     let ce_loss = CrossEntropyLoss::new(Reduction::Mean, 0.0);
 
@@ -224,26 +222,38 @@ fn test_pythia_70m_training_benchmark() {
 
         let step_start = Instant::now();
 
-        optimizer.zero_grad().unwrap();
+        optimizer
+            .zero_grad()
+            .expect("optimizer.zero_grad failed at start of Pythia training step");
 
-        let logits = model.forward(&token_ids, batch, seq).unwrap();
-        let logits_flat = logits.view(&[(batch * seq) as i64, vocab as i64]).unwrap();
-        let targets = from_vec(target_ids, &[batch * seq]).unwrap();
+        let logits = model
+            .forward(&token_ids, batch, seq)
+            .expect("Pythia forward pass failed");
+        let logits_flat = logits
+            .view(&[(batch * seq) as i64, vocab as i64])
+            .expect("logits .view to [batch*seq, vocab] failed");
+        let targets = from_vec(target_ids, &[batch * seq]).expect("from_vec for target_ids failed");
 
-        let loss = ce_loss.forward(&logits_flat, &targets).unwrap();
-        let loss_val = loss.data_vec().unwrap()[0];
+        let loss = ce_loss
+            .forward(&logits_flat, &targets)
+            .expect("CrossEntropyLoss forward failed");
+        let loss_val = loss.data_vec().expect("loss.data_vec readback failed")[0];
 
-        loss.backward().unwrap();
+        loss.backward()
+            .expect("autograd backward failed for Pythia loss");
 
         // Sync grads
         let model_params = model.parameters();
         let opt_params = optimizer.param_groups()[0].params();
         for (mp, op) in model_params.iter().zip(opt_params.iter()) {
-            if let Some(g) = mp.grad().unwrap() {
-                op.set_grad(Some(g)).unwrap();
+            if let Some(g) = mp.grad().expect("Parameter::grad readback failed") {
+                op.set_grad(Some(g))
+                    .expect("Parameter::set_grad on optimizer-side param failed");
             }
         }
-        optimizer.step().unwrap();
+        optimizer
+            .step()
+            .expect("optimizer.step failed for Pythia training step");
 
         let step_ms = step_start.elapsed().as_secs_f64() * 1000.0;
         if step > 0 {

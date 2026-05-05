@@ -632,11 +632,20 @@ mod tests {
     static HOSTNAME_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
-    // SAFETY: all env-var mutations in this module are serialized via
-    // HOSTNAME_TEST_LOCK, so no other test thread touches these vars
-    // while the lock is held.
-    #[allow(unsafe_code)]
+    #[allow(unsafe_code)] // Test mutates process-wide env; gated by HOSTNAME_TEST_LOCK.
     fn test_detect_hostname_fallback() {
+        // The `unsafe` blocks below all call `std::env::{set,remove}_var`,
+        // which is unsound under concurrent reads/writes from any other
+        // thread (`set_var` may free/reallocate the environ array). The
+        // soundness invariant required by the API is therefore "no other
+        // thread is concurrently reading or writing the environment for
+        // the duration of the call." Holding `HOSTNAME_TEST_LOCK` for the
+        // whole test serializes every env-touching test in this module —
+        // and these tests are the only env-touching code in this crate
+        // (verified by grep for `env::set_var|env::remove_var` in
+        // ferrotorch-profiler). The lock is held for the entire body via
+        // the `_g` guard, so each individual `unsafe` block below
+        // upholds the invariant by virtue of that lock.
         let _g = HOSTNAME_TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -647,7 +656,12 @@ mod tests {
         let original = std::env::var("HOSTNAME").ok();
         let original_computer = std::env::var("COMPUTERNAME").ok();
         let original_host = std::env::var("HOST").ok();
-        // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
+        // SAFETY: clears the three hostname env vars under
+        // HOSTNAME_TEST_LOCK (held by `_g` above) so no concurrent
+        // reader/writer in this module's tests can race the libc
+        // environ pointer free/realloc. No other crate code reads
+        // these vars at runtime — only `detect_hostname` does, and
+        // it runs synchronously below while the lock is held.
         unsafe {
             std::env::remove_var("HOSTNAME");
             std::env::remove_var("COMPUTERNAME");
@@ -657,35 +671,53 @@ mod tests {
         assert_eq!(h, "localhost");
         // Restore to avoid affecting other tests.
         if let Some(v) = original {
-            // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
+            // SAFETY: restores the original `HOSTNAME` value under
+            // HOSTNAME_TEST_LOCK. Same invariant as the remove_var
+            // block above; we are just re-establishing the pre-test
+            // value before releasing the lock.
             unsafe { std::env::set_var("HOSTNAME", v) };
         }
         if let Some(v) = original_computer {
-            // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
+            // SAFETY: restores `COMPUTERNAME` under HOSTNAME_TEST_LOCK.
+            // Same invariant; symmetric counterpart to the
+            // `remove_var("COMPUTERNAME")` call above.
             unsafe { std::env::set_var("COMPUTERNAME", v) };
         }
         if let Some(v) = original_host {
-            // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
+            // SAFETY: restores `HOST` under HOSTNAME_TEST_LOCK. Same
+            // invariant; symmetric counterpart to the
+            // `remove_var("HOST")` call above.
             unsafe { std::env::set_var("HOST", v) };
         }
     }
 
     #[test]
-    #[allow(unsafe_code)]
+    #[allow(unsafe_code)] // Test mutates process-wide env; gated by HOSTNAME_TEST_LOCK.
     fn test_detect_hostname_uses_env_var() {
+        // See the SAFETY block in `test_detect_hostname_fallback` for
+        // the full rationale on why holding HOSTNAME_TEST_LOCK upholds
+        // the `set_var`/`remove_var` soundness invariant.
         let _g = HOSTNAME_TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let original = std::env::var("HOSTNAME").ok();
-        // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
+        // SAFETY: sets `HOSTNAME` to a deterministic test value under
+        // HOSTNAME_TEST_LOCK (held by `_g`). No concurrent
+        // reader/writer in this crate's tests can race the libc
+        // environ pointer mutation while the lock is held.
         unsafe {
             std::env::set_var("HOSTNAME", "my-test-host");
         }
         assert_eq!(detect_hostname(), "my-test-host");
         // Restore.
-        // SAFETY: serialized via HOSTNAME_TEST_LOCK above.
         match original {
+            // SAFETY: re-establishes the pre-test `HOSTNAME` value
+            // under HOSTNAME_TEST_LOCK before releasing the lock.
+            // Same invariant as the set_var above.
             Some(v) => unsafe { std::env::set_var("HOSTNAME", v) },
+            // SAFETY: clears the test value under HOSTNAME_TEST_LOCK
+            // when the original was unset. Same invariant; symmetric
+            // counterpart to the set_var that introduced "my-test-host".
             None => unsafe { std::env::remove_var("HOSTNAME") },
         }
     }

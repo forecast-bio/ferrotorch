@@ -202,6 +202,18 @@ fn load_nccl() -> Result<NcclFunctions, NcclError> {
     }
 
     // Helper macro to load a symbol.
+    //
+    // The `transmute(ptr)` here is parametrically inferred from each call
+    // site's surrounding context (i.e. the corresponding `NcclFunctions`
+    // field's `unsafe extern "C" fn(...) -> NcclResult` type). Adding the
+    // explicit annotation clippy suggests would require either threading
+    // the fn-pointer type as a second macro parameter — duplicating the
+    // 11 signatures already declared in `NcclFunctions` — or a parallel
+    // turbofish per call site mirroring the same types. The struct
+    // definition above is the single source of truth; the transmute is
+    // type-checked by Rust through the field-init coercion. The narrow
+    // `#[allow]` is placed on the transmute statement inside the macro
+    // body so it propagates to every expansion site.
     macro_rules! load_sym {
         ($name:ident) => {{
             let c_name = std::ffi::CString::new(stringify!($name)).unwrap();
@@ -209,7 +221,9 @@ fn load_nccl() -> Result<NcclFunctions, NcclError> {
             if ptr.is_null() {
                 return Err(NcclError::SymbolNotFound(stringify!($name).into()));
             }
-            unsafe { std::mem::transmute(ptr) }
+            #[allow(clippy::missing_transmute_annotations)]
+            let f = unsafe { std::mem::transmute(ptr) };
+            f
         }};
     }
 
@@ -253,8 +267,13 @@ pub fn get_unique_id() -> Result<NcclUniqueId, NcclError> {
     let mut id = NcclUniqueId {
         internal: [0u8; 128],
     };
-    // SAFETY: id is a valid NcclUniqueId struct on the stack.
-    unsafe { (lib.ncclGetUniqueId)(&mut id) }.ok()?;
+    // SAFETY: id is a valid NcclUniqueId struct on the stack. The
+    // `&raw mut id` raw-pointer borrow (Rust 2024 idiom) hands a typed
+    // pointer to ncclGetUniqueId without first creating a `&mut id`
+    // reference; the FFI fn writes the 128-byte buffer and the result is
+    // owned by `id` for the rest of this function. Fn-ptr resolved by
+    // `load_nccl`, valid for program lifetime.
+    unsafe { (lib.ncclGetUniqueId)(&raw mut id) }.ok()?;
     Ok(id)
 }
 
@@ -275,7 +294,11 @@ pub fn comm_init_rank(
     let lib = nccl()?;
     let mut comm: NcclComm = std::ptr::null_mut();
     // SAFETY: unique_id is valid, world_size and rank are within bounds.
-    unsafe { (lib.ncclCommInitRank)(&mut comm, world_size, unique_id, rank) }.ok()?;
+    // `&raw mut comm` (Rust 2024 idiom) yields a `*mut NcclComm` without
+    // creating an intermediate reference; ncclCommInitRank writes the new
+    // communicator handle into `comm` on success. Fn-ptr resolved by
+    // `load_nccl`, valid for program lifetime.
+    unsafe { (lib.ncclCommInitRank)(&raw mut comm, world_size, unique_id, rank) }.ok()?;
     Ok(comm)
 }
 
@@ -286,7 +309,15 @@ pub fn comm_init_rank(
 /// `comm` must be a valid communicator that hasn't been destroyed.
 pub unsafe fn comm_destroy(comm: NcclComm) -> Result<(), NcclError> {
     let lib = nccl()?;
-    (lib.ncclCommDestroy)(comm).ok()
+    // SAFETY: invoking the `unsafe extern "C"` ncclCommDestroy fn-pointer.
+    // The caller's `# Safety` contract on `comm_destroy` ("`comm` is a
+    // valid communicator that hasn't been destroyed") discharges the
+    // ncclCommDestroy precondition that the handle was produced by a
+    // matching ncclCommInitRank and has not previously been destroyed.
+    // `lib.ncclCommDestroy` was resolved once via dlsym in `load_nccl`
+    // and remains valid for program lifetime (libnccl is never
+    // dlclosed).
+    unsafe { (lib.ncclCommDestroy)(comm) }.ok()
 }
 
 /// In-place all-reduce on device memory.
@@ -306,7 +337,17 @@ pub unsafe fn all_reduce(
     stream: *mut c_void,
 ) -> Result<(), NcclError> {
     let lib = nccl()?;
-    (lib.ncclAllReduce)(sendbuf, recvbuf, count, datatype, op, comm, stream).ok()
+    // SAFETY: invoking the `unsafe extern "C"` ncclAllReduce fn-pointer.
+    // The caller's `# Safety` contract on `all_reduce` ("`sendbuf` and
+    // `recvbuf` are valid device pointers with at least `count` elements
+    // of `datatype`; `stream` is a valid CUDA stream or null") discharges
+    // ncclAllReduce's preconditions: buffer validity for `count *
+    // size_of(datatype)` bytes on the device side, datatype matches the
+    // buffers' element layout, comm is the live communicator handle the
+    // caller is responsible for, stream is a valid CUDA stream (or null
+    // for the default stream). `lib.ncclAllReduce` was resolved by
+    // `load_nccl` and is valid for program lifetime.
+    unsafe { (lib.ncclAllReduce)(sendbuf, recvbuf, count, datatype, op, comm, stream) }.ok()
 }
 
 /// Broadcast from root to all ranks on device memory.
@@ -324,7 +365,14 @@ pub unsafe fn broadcast(
     stream: *mut c_void,
 ) -> Result<(), NcclError> {
     let lib = nccl()?;
-    (lib.ncclBroadcast)(sendbuf, recvbuf, count, datatype, root, comm, stream).ok()
+    // SAFETY: invoking the `unsafe extern "C"` ncclBroadcast fn-pointer.
+    // The caller's `# Safety` contract on `broadcast` (same requirements
+    // as `all_reduce`) discharges ncclBroadcast's preconditions: buffer
+    // validity, datatype/buffer match, valid `root` rank in
+    // `0..world_size`, live comm, valid CUDA stream (or null).
+    // `lib.ncclBroadcast` was resolved by `load_nccl` and is valid for
+    // program lifetime.
+    unsafe { (lib.ncclBroadcast)(sendbuf, recvbuf, count, datatype, root, comm, stream) }.ok()
 }
 
 /// All-gather: each rank sends `sendcount` elements, receives
@@ -342,7 +390,14 @@ pub unsafe fn all_gather(
     stream: *mut c_void,
 ) -> Result<(), NcclError> {
     let lib = nccl()?;
-    (lib.ncclAllGather)(sendbuf, recvbuf, sendcount, datatype, comm, stream).ok()
+    // SAFETY: invoking the `unsafe extern "C"` ncclAllGather fn-pointer.
+    // The caller's `# Safety` contract on `all_gather` (same requirements
+    // as `all_reduce`) discharges ncclAllGather's preconditions: sendbuf
+    // valid for `sendcount` elements, recvbuf valid for `sendcount *
+    // world_size` elements, datatype/buffer match, live comm, valid CUDA
+    // stream (or null). `lib.ncclAllGather` was resolved by `load_nccl`
+    // and is valid for program lifetime.
+    unsafe { (lib.ncclAllGather)(sendbuf, recvbuf, sendcount, datatype, comm, stream) }.ok()
 }
 
 /// Reduce-scatter: reduces then distributes `recvcount` elements to each rank.
@@ -360,7 +415,14 @@ pub unsafe fn reduce_scatter(
     stream: *mut c_void,
 ) -> Result<(), NcclError> {
     let lib = nccl()?;
-    (lib.ncclReduceScatter)(sendbuf, recvbuf, recvcount, datatype, op, comm, stream).ok()
+    // SAFETY: invoking the `unsafe extern "C"` ncclReduceScatter fn-pointer.
+    // The caller's `# Safety` contract on `reduce_scatter` (same as
+    // `all_reduce`) discharges ncclReduceScatter's preconditions: sendbuf
+    // valid for `recvcount * world_size` elements, recvbuf valid for
+    // `recvcount` elements, datatype/buffer match, live comm, valid CUDA
+    // stream (or null). `lib.ncclReduceScatter` was resolved by
+    // `load_nccl` and is valid for program lifetime.
+    unsafe { (lib.ncclReduceScatter)(sendbuf, recvbuf, recvcount, datatype, op, comm, stream) }.ok()
 }
 
 /// Point-to-point send (NCCL 2.7+).
@@ -380,7 +442,15 @@ pub unsafe fn send(
     stream: *mut c_void,
 ) -> Result<(), NcclError> {
     let lib = nccl()?;
-    (lib.ncclSend)(sendbuf, count, datatype, peer, comm, stream).ok()
+    // SAFETY: invoking the `unsafe extern "C"` ncclSend fn-pointer. The
+    // caller's `# Safety` contract on `send` ("`sendbuf` is a valid device
+    // pointer") plus the documented pairing requirement (matching `recv`
+    // on the peer rank, both bracketed by `group_start`/`group_end`)
+    // discharges ncclSend's preconditions: sendbuf valid for `count`
+    // elements of `datatype`, `peer` is a rank within the comm, live
+    // comm, valid CUDA stream (or null). `lib.ncclSend` was resolved by
+    // `load_nccl` and is valid for program lifetime.
+    unsafe { (lib.ncclSend)(sendbuf, count, datatype, peer, comm, stream) }.ok()
 }
 
 /// Point-to-point receive (NCCL 2.7+).
@@ -397,7 +467,15 @@ pub unsafe fn recv(
     stream: *mut c_void,
 ) -> Result<(), NcclError> {
     let lib = nccl()?;
-    (lib.ncclRecv)(recvbuf, count, datatype, peer, comm, stream).ok()
+    // SAFETY: invoking the `unsafe extern "C"` ncclRecv fn-pointer. The
+    // caller's `# Safety` contract on `recv` ("`recvbuf` is a valid device
+    // pointer") plus the documented pairing requirement (matching `send`
+    // on the peer rank, both bracketed by `group_start`/`group_end`)
+    // discharges ncclRecv's preconditions: recvbuf valid for write of
+    // `count` elements of `datatype`, `peer` is a rank within the comm,
+    // live comm, valid CUDA stream (or null). `lib.ncclRecv` was
+    // resolved by `load_nccl` and is valid for program lifetime.
+    unsafe { (lib.ncclRecv)(recvbuf, count, datatype, peer, comm, stream) }.ok()
 }
 
 /// Begin a group of NCCL operations (batches kernel launches).

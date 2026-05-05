@@ -269,6 +269,15 @@ pub fn constant_fold(graph: &mut IrGraph) {
             // remove the node (remove_node strips it from output_values).
             let is_graph_output = graph.output_values.contains(&output_value_id);
 
+            // Capture the original output value's dtype before removal so we
+            // can restore it on the replacement Constant node — folding must
+            // not silently change an edge's dtype.
+            let preserved_dtype = graph
+                .values
+                .iter()
+                .find(|v| v.id == output_value_id)
+                .map_or(crate::graph::Dtype::F32, |v| v.dtype);
+
             // Remove the old node (this also removes its output values).
             graph.remove_node(node_id);
 
@@ -280,6 +289,7 @@ pub fn constant_fold(graph: &mut IrGraph) {
                 id: output_value_id,
                 shape: result_shape.clone(),
                 producer: Some(const_node_id),
+                dtype: preserved_dtype,
             });
 
             graph.nodes.push(IrNode {

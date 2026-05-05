@@ -127,11 +127,13 @@ pub fn kernel_compute_token_mask_dfa(
 ///
 /// # Cross-crate construction
 ///
-/// `ferrotorch-llama` builds this struct via field-literal syntax. Adding
-/// `#[non_exhaustive]` would break that call site, so this struct is
-/// deliberately exhaustive; the validating constructor [`Self::new`] is
-/// available as the recommended entry point and is preferred for new
-/// callers.
+/// This struct is `#[non_exhaustive]`: external crates **must** construct
+/// it via the validating [`Self::new`] constructor, which enforces the
+/// `vocab_offsets.len() == vocab_size + 1` invariant at the API boundary.
+/// Field-literal syntax (`DfaMaskInputs { ... }`) is rejected for
+/// out-of-crate callers; in-crate construction (the launcher in this
+/// module and the CUDA tests) continues to use field literals.
+#[non_exhaustive]
 pub struct DfaMaskInputs<'a> {
     /// Flat row-major DFA transition table. Indexed
     /// `transitions[state * num_classes + class]` → next state.

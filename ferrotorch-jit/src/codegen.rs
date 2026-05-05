@@ -17,7 +17,7 @@ use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::tensor::Tensor;
 
-use crate::graph::{IrGraph, IrNodeId, IrOpKind, IrValueId};
+use crate::graph::{Dtype, IrGraph, IrNodeId, IrOpKind, IrValueId};
 use crate::interpreter;
 
 // ---------------------------------------------------------------------------
@@ -811,6 +811,19 @@ impl InductorBackend {
     ///
     /// Returns a vector of generated source strings, one per fusion group.
     pub fn generate(&self, graph: &IrGraph) -> FerrotorchResult<Vec<String>> {
+        // #721-A safety guard: GPU codegen still emits hard-coded f32
+        // (`float __restrict__` / `.reg .f32`) across every site. Lowering
+        // a non-f32 graph would silently produce a wrong-typed kernel, which
+        // is exactly the silent-wrong-behavior bit `rust-gpu-discipline` §3
+        // forbids. Fail fast with a structured error instead. Real
+        // dtype-aware GPU emission is tracked as #721-B.
+        if matches!(
+            self.target,
+            InductorTarget::GpuCuda | InductorTarget::GpuPtx
+        ) {
+            check_gpu_dtype_uniform_f32(graph, self.target)?;
+        }
+
         let groups = crate::dag_fusion::find_fusion_groups(graph);
         let loops_per_group = crate::dag_fusion::fuse_dag(&groups, graph);
 
@@ -866,6 +879,41 @@ impl InductorBackend {
     }
 }
 
+/// Verify every IR value carries `Dtype::F32`.
+///
+/// Returns `Err(JitError::GpuBackendUnavailable)` if any value has a
+/// non-F32 dtype, naming the offending value id and dtype. This is the
+/// #721-A safety guard: GPU codegen still hard-codes f32 across 100+
+/// emission sites (CUDA `float` / PTX `.f32`), so lowering a non-F32
+/// graph would silently produce a wrong-typed kernel. Fail fast.
+///
+/// We reuse the existing `JitError::GpuBackendUnavailable` variant —
+/// adding a new variant from a per-crate dispatch is forbidden by
+/// `rust-fix-discipline` Step 4 — and the variant's
+/// `(target: String, reason: String)` shape fits this case verbatim.
+/// Real per-edge dtype dispatch is tracked as #721-B.
+fn check_gpu_dtype_uniform_f32(graph: &IrGraph, target: InductorTarget) -> FerrotorchResult<()> {
+    if let Some(bad) = graph.values.iter().find(|v| v.dtype != Dtype::F32) {
+        let target_name = match target {
+            InductorTarget::GpuCuda => "GpuCuda",
+            InductorTarget::GpuPtx => "GpuPtx",
+            InductorTarget::CpuRust => "CpuRust",
+        };
+        return Err(crate::error::JitError::GpuBackendUnavailable {
+            target: target_name.to_string(),
+            reason: format!(
+                "ferrotorch-jit GPU codegen only supports f32 dtype today; \
+                 IR value {:?} has dtype `{}`. Tracked: #721-B will land \
+                 dtype-aware emission across CUDA C and PTX templates.",
+                bad.id,
+                bad.dtype.name(),
+            ),
+        }
+        .into());
+    }
+    Ok(())
+}
+
 impl Codegen for InductorBackend {
     fn compile(&self, graph: &IrGraph) -> FerrotorchResult<CompiledGraph> {
         // For the CpuRust target, attempt the real JIT path: lower the fusion
@@ -890,6 +938,14 @@ impl Codegen for InductorBackend {
         //
         // Callers that want opt-in CPU fallback may catch
         // JitError::GpuBackendUnavailable and re-dispatch to a CPU target.
+        if matches!(
+            self.target,
+            InductorTarget::GpuCuda | InductorTarget::GpuPtx
+        ) {
+            // #721-A safety guard: surface non-f32 graphs as Err before any
+            // hard-coded-f32 codegen runs. See generate() for the rationale.
+            check_gpu_dtype_uniform_f32(graph, self.target)?;
+        }
         if self.target == InductorTarget::GpuCuda {
             return Err(crate::error::JitError::GpuBackendUnavailable {
                 target: "GpuCuda".to_string(),
@@ -1870,5 +1926,87 @@ mod tests {
             let out = compiled.execute(&[vec![1.0, -2.0, 3.5]]).unwrap();
             assert_close(&out, &[-1.0, 2.0, -3.5], 1e-10);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // #721-A safety guard: GPU codegen rejects non-F32 graphs
+    // -----------------------------------------------------------------------
+
+    /// `InductorBackend::generate` for a `GpuCuda` target must reject any
+    /// graph containing a non-F32 IR value with a structured
+    /// `JitError::GpuBackendUnavailable` error rather than silently emitting
+    /// a wrong-typed kernel.
+    #[test]
+    fn test_inductor_gpu_cuda_rejects_non_f32_graph() {
+        let mut g = IrGraph::new();
+        let x = g.add_input_with_dtype(vec![4], Dtype::F64);
+        let (_, relu_outs) =
+            g.add_node_with_dtype(IrOpKind::Relu, vec![x], vec![vec![4]], &[Dtype::F64]);
+        g.set_outputs(vec![relu_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::GpuCuda);
+        let err = backend.generate(&g).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("only supports f32") || msg.contains("f32 dtype"),
+            "expected dtype-rejection message, got: {msg}"
+        );
+        assert!(
+            msg.contains("GpuCuda"),
+            "expected target name in error: {msg}"
+        );
+    }
+
+    /// `InductorBackend::generate` for a `GpuPtx` target must reject any
+    /// graph containing a non-F32 IR value.
+    #[test]
+    fn test_inductor_gpu_ptx_rejects_non_f32_graph() {
+        let mut g = IrGraph::new();
+        let x = g.add_input_with_dtype(vec![4], Dtype::F64);
+        g.set_outputs(vec![x]);
+
+        let backend = InductorBackend::new(InductorTarget::GpuPtx);
+        let err = backend.generate(&g).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("GpuPtx"),
+            "expected target name in error: {msg}"
+        );
+    }
+
+    /// `InductorBackend::compile` for a GPU target with a non-F32 graph must
+    /// surface the dtype error before the broader "no GPU runtime wired"
+    /// message — the dtype guard is the more precise diagnosis.
+    #[test]
+    fn test_inductor_gpu_compile_rejects_non_f32_graph() {
+        let mut g = IrGraph::new();
+        let x = g.add_input_with_dtype(vec![4], Dtype::F64);
+        g.set_outputs(vec![x]);
+
+        let backend = InductorBackend::new(InductorTarget::GpuCuda);
+        let err = backend.compile(&g).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("f32 dtype") || msg.contains("only supports f32"),
+            "expected dtype-rejection message in compile path, got: {msg}"
+        );
+    }
+
+    /// All-F32 graphs continue to flow through `generate()` unchanged on
+    /// GPU targets.
+    #[test]
+    fn test_inductor_gpu_accepts_f32_graph() {
+        let mut g = IrGraph::new();
+        let x = g.add_input(vec![4]); // defaults to F32
+        let (_, relu_outs) = g.add_node(IrOpKind::Relu, vec![x], vec![vec![4]]);
+        g.set_outputs(vec![relu_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::GpuCuda);
+        let result = backend.generate(&g);
+        assert!(
+            result.is_ok(),
+            "F32 graph should pass the dtype guard, got: {:?}",
+            result.err()
+        );
     }
 }

@@ -19,5 +19,6 @@ ferrotorch-optim = { workspace = true }
 ferrotorch-data = { workspace = true }
 ferrotorch-serialize = { workspace = true }
 num-traits = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]

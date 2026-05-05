@@ -14,7 +14,8 @@
 //!
 //! [CL-334] Add gradient checkpointing, autocast context, gradient clipping, and EMA callback
 
-use ferrotorch_core::Float;
+use ferrotorch_core::numeric_cast::cast;
+use ferrotorch_core::{FerrotorchResult, Float};
 
 use crate::history::{EpochResult, TrainingHistory};
 
@@ -141,9 +142,13 @@ impl<T: Float> Callback<T> for EarlyStopping {
 // ProgressLogger
 // ---------------------------------------------------------------------------
 
-/// Prints training progress to stdout.
+/// Logs training progress via the `tracing` crate.
 ///
-/// Logs epoch start/end and batch-level loss for visibility during training.
+/// Emits `tracing::info!` events at epoch start/end and batch-level loss for
+/// visibility during training. Output is redirectable / suppressible by
+/// configuring a `tracing` subscriber in the consumer (e.g. via
+/// `tracing_subscriber::fmt`); installing no subscriber silently drops the
+/// events. The log target is `ferrotorch::progress`.
 pub struct ProgressLogger {
     log_every_n_batches: usize,
 }
@@ -170,26 +175,46 @@ impl Default for ProgressLogger {
 
 impl<T: Float> Callback<T> for ProgressLogger {
     fn on_epoch_start(&mut self, epoch: usize) {
-        println!("--- Epoch {epoch} ---");
+        tracing::info!(target: "ferrotorch::progress", epoch, "--- Epoch {epoch} ---");
     }
 
     fn on_epoch_end(&mut self, _epoch: usize, result: &EpochResult) {
-        println!("{result}");
+        tracing::info!(target: "ferrotorch::progress", "{result}");
     }
 
     fn on_batch_end(&mut self, batch: usize, loss: f64) {
         if self.log_every_n_batches > 0 && batch % self.log_every_n_batches == 0 {
-            println!("  batch {batch}: loss={loss:.6}");
+            tracing::info!(
+                target: "ferrotorch::progress",
+                batch,
+                loss,
+                "  batch {batch}: loss={loss:.6}",
+            );
         }
     }
 
     fn on_train_end(&mut self, history: &TrainingHistory) {
-        println!("Training complete. {} epochs.", history.len());
+        tracing::info!(
+            target: "ferrotorch::progress",
+            epochs = history.len(),
+            "Training complete. {} epochs.",
+            history.len(),
+        );
         if let Some((epoch, loss)) = history.best_train_loss() {
-            println!("Best train loss: {loss:.6} (epoch {epoch})");
+            tracing::info!(
+                target: "ferrotorch::progress",
+                epoch,
+                loss,
+                "Best train loss: {loss:.6} (epoch {epoch})",
+            );
         }
         if let Some((epoch, loss)) = history.best_val_loss() {
-            println!("Best val loss: {loss:.6} (epoch {epoch})");
+            tracing::info!(
+                target: "ferrotorch::progress",
+                epoch,
+                loss,
+                "Best val loss: {loss:.6} (epoch {epoch})",
+            );
         }
     }
 }
@@ -294,28 +319,46 @@ impl EmaCallback {
     ///
     /// Called internally on the first batch. Can also be called manually to
     /// reinitialize.
-    pub fn init_from_params<T: Float>(&mut self, params: &[Vec<T>]) {
-        self.shadow = params
-            .iter()
-            .map(|p| p.iter().map(|v| v.to_f64().unwrap()).collect())
-            .collect();
+    ///
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::InvalidArgument` from the numeric `cast`
+    /// helper when a parameter value (e.g. an `f16`/`bf16` value outside
+    /// the `f64` representable range) cannot be converted to `f64`.
+    pub fn init_from_params<T: Float>(&mut self, params: &[Vec<T>]) -> FerrotorchResult<()> {
+        let mut shadow: Vec<Vec<f64>> = Vec::with_capacity(params.len());
+        for p in params {
+            let mut row: Vec<f64> = Vec::with_capacity(p.len());
+            for &v in p {
+                row.push(cast::<T, f64>(v)?);
+            }
+            shadow.push(row);
+        }
+        self.shadow = shadow;
         self.initialized = true;
+        Ok(())
     }
 
     /// Update the shadow parameters with the current parameter values.
     ///
     /// Applies: `shadow = decay * shadow + (1 - decay) * param`
-    pub fn update_from_params<T: Float>(&mut self, params: &[Vec<T>]) {
+    ///
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::InvalidArgument` from the numeric `cast`
+    /// helper when a parameter value cannot be converted to `f64`.
+    pub fn update_from_params<T: Float>(&mut self, params: &[Vec<T>]) -> FerrotorchResult<()> {
         let one_minus_decay = 1.0 - self.decay;
 
         for (shadow, current) in self.shadow.iter_mut().zip(params.iter()) {
             for (s, c) in shadow.iter_mut().zip(current.iter()) {
-                let c_f64 = c.to_f64().unwrap();
+                let c_f64 = cast::<T, f64>(*c)?;
                 *s = self.decay * *s + one_minus_decay * c_f64;
             }
         }
 
         self.num_updates += 1;
+        Ok(())
     }
 }
 
@@ -500,7 +543,7 @@ mod tests {
     fn test_ema_init_from_params() {
         let mut ema = EmaCallback::new(0.99);
         let params: Vec<Vec<f32>> = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0]];
-        ema.init_from_params(&params);
+        ema.init_from_params(&params).unwrap();
 
         assert!(ema.is_initialized());
         assert_eq!(ema.shadow_params().len(), 2);
@@ -513,10 +556,10 @@ mod tests {
         let mut ema = EmaCallback::new(0.9);
 
         // Initialize with [10.0].
-        ema.init_from_params(&[vec![10.0_f32]]);
+        ema.init_from_params(&[vec![10.0_f32]]).unwrap();
 
         // Update with [20.0]. Expected: 0.9 * 10 + 0.1 * 20 = 11.0.
-        ema.update_from_params(&[vec![20.0_f32]]);
+        ema.update_from_params(&[vec![20.0_f32]]).unwrap();
 
         assert_eq!(ema.num_updates(), 1);
         assert!((ema.shadow_params()[0][0] - 11.0).abs() < 1e-10);
@@ -526,18 +569,18 @@ mod tests {
     fn test_ema_multiple_updates() {
         let mut ema = EmaCallback::new(0.5);
 
-        ema.init_from_params(&[vec![0.0_f32]]);
+        ema.init_from_params(&[vec![0.0_f32]]).unwrap();
 
         // Step 1: 0.5 * 0 + 0.5 * 10 = 5.0
-        ema.update_from_params(&[vec![10.0_f32]]);
+        ema.update_from_params(&[vec![10.0_f32]]).unwrap();
         assert!((ema.shadow_params()[0][0] - 5.0).abs() < 1e-10);
 
         // Step 2: 0.5 * 5 + 0.5 * 10 = 7.5
-        ema.update_from_params(&[vec![10.0_f32]]);
+        ema.update_from_params(&[vec![10.0_f32]]).unwrap();
         assert!((ema.shadow_params()[0][0] - 7.5).abs() < 1e-10);
 
         // Step 3: 0.5 * 7.5 + 0.5 * 10 = 8.75
-        ema.update_from_params(&[vec![10.0_f32]]);
+        ema.update_from_params(&[vec![10.0_f32]]).unwrap();
         assert!((ema.shadow_params()[0][0] - 8.75).abs() < 1e-10);
 
         assert_eq!(ema.num_updates(), 3);
@@ -546,20 +589,20 @@ mod tests {
     #[test]
     fn test_ema_decay_zero_replaces_completely() {
         let mut ema = EmaCallback::new(0.0);
-        ema.init_from_params(&[vec![100.0_f32]]);
+        ema.init_from_params(&[vec![100.0_f32]]).unwrap();
 
         // decay=0 means shadow = 0 * shadow + 1 * current = current.
-        ema.update_from_params(&[vec![42.0_f32]]);
+        ema.update_from_params(&[vec![42.0_f32]]).unwrap();
         assert!((ema.shadow_params()[0][0] - 42.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_ema_decay_one_keeps_original() {
         let mut ema = EmaCallback::new(1.0);
-        ema.init_from_params(&[vec![100.0_f32]]);
+        ema.init_from_params(&[vec![100.0_f32]]).unwrap();
 
         // decay=1 means shadow = 1 * shadow + 0 * current = shadow (no change).
-        ema.update_from_params(&[vec![42.0_f32]]);
+        ema.update_from_params(&[vec![42.0_f32]]).unwrap();
         assert!((ema.shadow_params()[0][0] - 100.0).abs() < 1e-10);
     }
 

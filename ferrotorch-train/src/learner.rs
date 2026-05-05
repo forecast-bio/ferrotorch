@@ -22,6 +22,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_nn::Module;
 use ferrotorch_optim::Optimizer;
@@ -183,6 +184,14 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
     /// optimizer state, and the epoch/step counters.
     ///
     /// The model's `load_state_dict` is called with `strict = true`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any `FerrotorchError` from
+    /// [`ferrotorch_serialize::load_checkpoint`] (file open / read,
+    /// deserialization, version mismatch), from the model's
+    /// `load_state_dict` (parameter shape/name mismatches under strict
+    /// loading), or from the optimizer's `load_state_dict`.
     pub fn load_checkpoint(&mut self, path: impl AsRef<std::path::Path>) -> FerrotorchResult<()> {
         let ckpt: TrainingCheckpoint<T> = load_checkpoint(path)?;
         self.model.load_state_dict(&ckpt.model_state, true)?;
@@ -207,6 +216,14 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
     /// # Returns
     ///
     /// A [`TrainingHistory`] containing per-epoch results.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any `FerrotorchError` returned by the train/val data
+    /// iterators, the model's `forward`, the user-supplied loss function,
+    /// the optimizer's `step` / `zero_grad`, the optional `GradScaler`,
+    /// or the numeric `cast` helper used to convert the per-batch loss to
+    /// `f64`.
     pub fn fit<I, V>(
         &mut self,
         train_data: &dyn Fn() -> I,
@@ -250,7 +267,7 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
                 // Forward.
                 let output = self.model.forward(&input)?;
                 let loss = (self.loss_fn)(&output, &target)?;
-                let loss_val = loss.item()?.to_f64().unwrap();
+                let loss_val = cast::<T, f64>(loss.item()?)?;
 
                 if let Some(ref mut scaler) = self.grad_scaler {
                     // AMP path: scale loss, backward, scaler-driven step.
@@ -322,12 +339,12 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
             // Save checkpoint if checkpointing is enabled.
             if let Some(ref dir) = self.checkpoint_dir {
                 let _ = std::fs::create_dir_all(dir);
-                let checkpoint = TrainingCheckpoint {
-                    model_state: self.model.state_dict(),
-                    optimizer_state: self.optimizer.state_dict()?,
-                    epoch: self.epoch,
-                    step: self.step,
-                };
+                let checkpoint = TrainingCheckpoint::new(
+                    self.model.state_dict(),
+                    self.optimizer.state_dict()?,
+                    self.epoch,
+                    self.step,
+                );
                 let path = dir.join(format!("checkpoint_epoch_{}.ftc", self.epoch));
                 let _ = save_checkpoint(&checkpoint, &path);
             }
@@ -367,6 +384,13 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
     ///
     /// Sets the model to eval mode, runs forward passes (no gradient),
     /// and returns an [`EvalResult`] with mean loss and metric values.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any `FerrotorchError` returned by the data iterator,
+    /// the model's `forward`, the user-supplied loss function, or the
+    /// numeric `cast` helper used to convert the per-batch loss to `f64`
+    /// (e.g. when an `f16`/`bf16` value cannot be represented in `f64`).
     pub fn evaluate<V>(&mut self, val_data: &dyn Fn() -> V) -> FerrotorchResult<EvalResult>
     where
         V: Iterator<Item = FerrotorchResult<(Tensor<T>, Tensor<T>)>>,
@@ -394,7 +418,7 @@ impl<M: Module<T>, T: Float> Learner<M, T> {
                 let (input, target) = batch_result?;
                 let output = self.model.forward(&input)?;
                 let loss = (self.loss_fn)(&output, &target)?;
-                let loss_val = loss.item()?.to_f64().unwrap();
+                let loss_val = cast::<T, f64>(loss.item()?)?;
 
                 val_loss_sum += loss_val;
                 val_batch_count += 1;

@@ -28,14 +28,25 @@
 //! the IR. That keeps op coverage in lockstep with trace and avoids a
 //! second source of truth for op-name → IR mapping.
 
+#![warn(clippy::all, clippy::pedantic)]
+#![deny(rust_2018_idioms, missing_debug_implementations)]
+#![allow(missing_docs)] // tracked workspace-wide in the rustdoc pass
+
 use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{FnArg, ItemFn, parse_macro_input};
+use syn::{FnArg, ItemFn};
 
 /// Apply `#[script]` to a function `fn(args...) -> Tensor<T>` to compile
 /// it into a `ferrotorch_jit::TracedModule<T>`-returning function.
 ///
-/// Example:
+/// The example below is marked `ignore` because this is a `proc-macro`
+/// crate: it cannot itself import `ferrotorch_jit::TracedModule` or
+/// `ferrotorch_core::Tensor` at doctest-compile time (proc-macro crates
+/// can only export proc-macro items and pull procedural-macro deps; they
+/// cannot depend on consumer crates). The example is exercised
+/// end-to-end by the integration tests in
+/// `ferrotorch-jit-script/tests/script_macro.rs`.
 ///
 /// ```ignore
 /// use ferrotorch_jit_script::script;
@@ -52,9 +63,29 @@ use syn::{FnArg, ItemFn, parse_macro_input};
 /// // `weighted_sum(...)` now returns `FerrotorchResult<TracedModule<f32>>`
 /// // built by tracing the body once with the supplied tensors.
 /// ```
+///
+/// # Errors
+///
+/// Emits a `compile_error!` (via `syn::Error`) if the annotated function's
+/// return type isn't one of the recognized shapes:
+///
+/// - `Tensor<T>`
+/// - `FerrotorchResult<Tensor<T>>`
+/// - `Result<Tensor<T>, _>`
+///
+/// Previously, an unrecognized return type silently fell back to
+/// `TracedModule<f32>`, producing a wrong-dtype wrapper for e.g.
+/// `Tensor<f64>` callers. The macro now refuses the input instead.
 #[proc_macro_attribute]
-pub fn script(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(item as ItemFn);
+pub fn script(attr: TokenStream, item: TokenStream) -> TokenStream {
+    match script_impl(attr, item) {
+        Ok(ts) => ts.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+fn script_impl(_attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream2> {
+    let input: ItemFn = syn::parse(item)?;
     let vis = &input.vis;
     let sig = &input.sig;
     let ident = &sig.ident;
@@ -62,62 +93,78 @@ pub fn script(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let inputs = &sig.inputs;
     let output = &sig.output;
 
-    // Collect simple `name: Tensor<T>` arg idents so we can pass them
-    // to `trace` as the example-input slice.
-    let mut arg_idents: Vec<proc_macro2::TokenStream> = Vec::new();
-    for arg in inputs {
-        if let FnArg::Typed(pat_ty) = arg {
-            let pat = &pat_ty.pat;
-            arg_idents.push(quote! { #pat .clone() });
-        }
-    }
-
-    let body_fn_inputs = inputs.clone();
-
-    // Generated wrapper:
-    // - Defines an inner closure with the user's body (so all the let
-    //   bindings and ops just compile as normal Rust).
-    // - Calls trace(closure, &[args...]) to capture the IR graph.
-    // - Wraps the graph in a TracedModule and returns it.
-    //
-    // The closure takes `&[Tensor<T>]` (matching trace's signature) and
-    // unpacks them by index into the same arg names the user wrote.
-    let arg_names: Vec<&syn::Pat> = inputs
+    // Walk the function's typed args once. `arg_clones` is the
+    // example-input slice handed to `trace`; `arg_unpacks` are the
+    // index-based bindings inside the closure body. Both projections
+    // share the same filter (skip `Self` receivers) and ordering, so a
+    // single pass keeps them in lockstep.
+    let typed_args: Vec<&syn::PatType> = inputs
         .iter()
         .filter_map(|a| match a {
-            FnArg::Typed(pt) => Some(&*pt.pat),
-            _ => None,
+            FnArg::Typed(pt) => Some(pt),
+            FnArg::Receiver(_) => None,
         })
         .collect();
-    let arg_unpacks: Vec<proc_macro2::TokenStream> = arg_names
+    let arg_clones: Vec<TokenStream2> = typed_args
+        .iter()
+        .map(|pt| {
+            let pat = &pt.pat;
+            quote! { #pat .clone() }
+        })
+        .collect();
+    let arg_unpacks: Vec<TokenStream2> = typed_args
         .iter()
         .enumerate()
-        .map(|(i, name)| quote! { let #name = inputs[#i].clone(); })
+        .map(|(i, pt)| {
+            let pat = &pt.pat;
+            quote! { let #pat = inputs[#i].clone(); }
+        })
         .collect();
 
-    // Determine T from the return type Tensor<T>: walk the syn Type.
-    // For simplicity we pin T = f32 in the generated code unless the
-    // return is Tensor<f64>. Most callers use f32; f64 falls back to
-    // explicit annotation.
+    // Determine T from the return type. Unrecognized return shapes are
+    // a hard error: silently defaulting to f32 (the historic behaviour)
+    // produced a `TracedModule<f32>` wrapper for callers that returned
+    // e.g. `Tensor<f64>`, with no diagnostic. Failing here surfaces the
+    // mistake at macro-expansion time as a clean `compile_error!`.
     let scalar_ty = match output {
-        syn::ReturnType::Type(_, ty) => extract_tensor_param(ty).unwrap_or_else(|| quote! { f32 }),
-        _ => quote! { f32 },
+        syn::ReturnType::Type(_, ty) => extract_tensor_param(ty.as_ref()).ok_or_else(|| {
+            syn::Error::new_spanned(
+                ty,
+                "ferrotorch-jit-script: function must return Tensor<T>, \
+                 FerrotorchResult<Tensor<T>>, or Result<Tensor<T>, _>",
+            )
+        })?,
+        syn::ReturnType::Default => {
+            return Err(syn::Error::new_spanned(
+                sig,
+                "ferrotorch-jit-script: function must declare a return type \
+                 of Tensor<T>, FerrotorchResult<Tensor<T>>, or Result<Tensor<T>, _>",
+            ));
+        }
     };
 
     // Capture the user's return type tokens so the expansion mentions
     // any names they imported (e.g. `FerrotorchResult`) — otherwise
     // those imports look unused after macro expansion.
-    let user_return_ty: proc_macro2::TokenStream = match output {
+    let user_return_ty: TokenStream2 = match output {
         syn::ReturnType::Type(_, ty) => quote! { #ty },
-        _ => quote! { ::ferrotorch_core::FerrotorchResult<::ferrotorch_core::Tensor<#scalar_ty>> },
+        syn::ReturnType::Default => {
+            quote! { ::ferrotorch_core::FerrotorchResult<::ferrotorch_core::Tensor<#scalar_ty>> }
+        }
     };
 
+    // Generated wrapper:
+    // - Builds the example-input slice from the caller's args.
+    // - Defines an inner closure with the user's body (so all the let
+    //   bindings and ops just compile as normal Rust).
+    // - Calls trace(closure, &[args...]) to capture the IR graph.
+    // - Wraps the graph in a TracedModule and returns it.
     let expanded = quote! {
-        #vis fn #ident ( #body_fn_inputs ) -> ::ferrotorch_core::FerrotorchResult<
+        #vis fn #ident ( #inputs ) -> ::ferrotorch_core::FerrotorchResult<
             ::ferrotorch_jit::TracedModule<#scalar_ty>
         > {
             let __script_inputs: ::std::vec::Vec<::ferrotorch_core::Tensor<#scalar_ty>> =
-                vec![ #( #arg_idents ),* ];
+                vec![ #( #arg_clones ),* ];
             let __script_inputs_for_trace: ::std::vec::Vec<::ferrotorch_core::Tensor<#scalar_ty>> =
                 __script_inputs
                     .iter()
@@ -136,22 +183,54 @@ pub fn script(_attr: TokenStream, item: TokenStream) -> TokenStream {
             Ok(::ferrotorch_jit::TracedModule::<#scalar_ty>::new(__graph))
         }
     };
-    expanded.into()
+    Ok(expanded)
 }
 
-/// Extract the `T` from `Tensor<T>` (or `FerrotorchResult<Tensor<T>>`,
-/// or `Result<Tensor<T>, _>`). Returns `None` if the shape doesn't match.
-fn extract_tensor_param(ty: &syn::Type) -> Option<proc_macro2::TokenStream> {
-    let path = if let syn::Type::Path(p) = ty {
-        &p.path
-    } else {
+/// Recognized return-type entry point for the `#[script]` macro.
+///
+/// Returns the dtype `TokenStream` extracted from the annotated function's
+/// return type. The recognized shapes are:
+///
+/// - `Tensor<T>` — yields `T`
+/// - `FerrotorchResult<Tensor<T>>` — yields `T` (recurses through the
+///   `FerrotorchResult` wrapper)
+/// - `Result<Tensor<T>, _>` — yields `T` (recurses through the `Result`
+///   wrapper, ignoring the error type)
+///
+/// Returns `None` when the type doesn't match any of those shapes; the
+/// caller turns that into a `compile_error!` diagnostic.
+///
+/// Recursion through `Result` / `FerrotorchResult` wrappers is bounded
+/// (see `extract_tensor_param_inner`'s depth cap) so a malformed input
+/// like `Result<Result<Result<...>, _>, _>` cannot blow the macro's
+/// stack — it returns `None` once the cap is reached, falling through
+/// to the same `compile_error!` path as any other unrecognized shape.
+fn extract_tensor_param(ty: &syn::Type) -> Option<TokenStream2> {
+    extract_tensor_param_inner(ty, 0)
+}
+
+/// Maximum nesting depth for the recognized `Result<...>` /
+/// `FerrotorchResult<...>` wrappers around `Tensor<T>`.
+///
+/// `Result<Result<FerrotorchResult<Tensor<T>>, _>, _>` is depth 3, which
+/// is already pathological; anything deeper is malformed. The cap exists
+/// to make the recursion total — a hand-crafted, syntactically valid but
+/// nonsense input (an arbitrarily nested `Result<...>`) cannot blow the
+/// macro's stack during expansion.
+const MAX_RETURN_TYPE_DEPTH: u8 = 4;
+
+fn extract_tensor_param_inner(ty: &syn::Type, depth: u8) -> Option<TokenStream2> {
+    if depth > MAX_RETURN_TYPE_DEPTH {
+        return None;
+    }
+    let syn::Type::Path(p) = ty else {
         return None;
     };
+    let path = &p.path;
     let last = path.segments.last()?;
     let ident_str = last.ident.to_string();
-    let args = match &last.arguments {
-        syn::PathArguments::AngleBracketed(a) => a,
-        _ => return None,
+    let syn::PathArguments::AngleBracketed(args) = &last.arguments else {
+        return None;
     };
     if ident_str == "Tensor" {
         // First generic arg is the scalar type.
@@ -162,7 +241,7 @@ fn extract_tensor_param(ty: &syn::Type) -> Option<proc_macro2::TokenStream> {
     }
     if ident_str == "FerrotorchResult" || ident_str == "Result" {
         if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-            return extract_tensor_param(inner);
+            return extract_tensor_param_inner(inner, depth + 1);
         }
     }
     None

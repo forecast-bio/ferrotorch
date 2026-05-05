@@ -12,7 +12,14 @@ use std::fmt;
 // ---------------------------------------------------------------------------
 
 /// Summary of a single training epoch.
+///
+/// Marked `#[non_exhaustive]` so that fields can be added in a minor
+/// release without breaking external struct-literal construction.
+/// Construct internal callers with the literal syntax in this crate;
+/// downstream consumers should obtain instances from
+/// [`Learner::fit`](crate::Learner::fit) and read fields by access.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct EpochResult {
     /// Zero-indexed epoch number.
     pub epoch: usize,
@@ -30,7 +37,7 @@ pub struct EpochResult {
 
 impl fmt::Display for EpochResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "epoch {}: train_loss={:.6}", self.epoch, self.train_loss,)?;
+        write!(f, "epoch {}: train_loss={:.6}", self.epoch, self.train_loss)?;
         if let Some(vl) = self.val_loss {
             write!(f, ", val_loss={vl:.6}")?;
         }
@@ -46,7 +53,13 @@ impl fmt::Display for EpochResult {
 // ---------------------------------------------------------------------------
 
 /// Summary of an evaluation pass.
+///
+/// Marked `#[non_exhaustive]` so that fields can be added in a minor
+/// release without breaking external struct-literal construction.
+/// Downstream consumers should obtain instances from
+/// [`Learner::evaluate`](crate::Learner::evaluate) and read fields by access.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct EvalResult {
     /// Mean loss over the evaluation dataset.
     pub loss: f64,
@@ -70,8 +83,13 @@ impl fmt::Display for EvalResult {
 
 /// Accumulated results from an entire training run.
 ///
-/// Returned by [`Learner::fit`](crate::Learner::fit).
+/// Returned by [`Learner::fit`](crate::Learner::fit). Marked
+/// `#[non_exhaustive]` so that fields can be added in a minor release
+/// without breaking external struct-literal construction; downstream
+/// consumers should obtain instances from `fit()` (or via
+/// [`TrainingHistory::new`] / [`TrainingHistory::default`]).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TrainingHistory {
     /// Per-epoch results, in chronological order.
     pub epochs: Vec<EpochResult>,

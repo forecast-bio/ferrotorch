@@ -27,6 +27,7 @@
 
 use ferrotorch_core::dtype::Float;
 use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::tensor::Tensor;
 
 use crate::adapter::{tensor_to_array1, tensor_to_array1_usize};
@@ -85,6 +86,22 @@ where
     let yt = tensor_to_array1(y_true)?;
     let yp = tensor_to_array1(y_pred)?;
     ferrolearn_metrics::mean_absolute_error(&yt, &yp).map_err(map_metric_err)
+}
+
+/// Mean absolute percentage error: `mean(|y_true - y_pred| / |y_true|)`.
+///
+/// Returned as a fraction (matching ferrolearn's convention; multiply by
+/// 100 to get a percentage). Mirrors `sklearn.metrics.mean_absolute_percentage_error`.
+pub fn mean_absolute_percentage_error<T>(
+    y_true: &Tensor<T>,
+    y_pred: &Tensor<T>,
+) -> FerrotorchResult<T>
+where
+    T: Float + num_traits::Float + Send + Sync + 'static,
+{
+    let yt = tensor_to_array1(y_true)?;
+    let yp = tensor_to_array1(y_pred)?;
+    ferrolearn_metrics::mean_absolute_percentage_error(&yt, &yp).map_err(map_metric_err)
 }
 
 /// Median absolute error.
@@ -146,7 +163,11 @@ pub use ferrolearn_metrics::classification::Average;
 /// Convert a `Tensor<T>` to an `Array1<f64>`. Used for score-typed metric
 /// arguments (ROC-AUC, log_loss, etc. expect raw scores in f64).
 fn tensor_to_array1_f64<T: Float>(t: &Tensor<T>) -> FerrotorchResult<ndarray::Array1<f64>> {
-    let data: Vec<f64> = t.data_vec()?.iter().map(|v| v.to_f64().unwrap()).collect();
+    let data: Vec<f64> = t
+        .data_vec()?
+        .iter()
+        .map(|&v| cast::<T, f64>(v))
+        .collect::<FerrotorchResult<_>>()?;
     Ok(ndarray::Array1::from(data))
 }
 
@@ -209,8 +230,8 @@ pub fn log_loss<T: Float>(y_true: &Tensor<T>, y_prob: &Tensor<T>) -> FerrotorchR
     let data: Vec<f64> = y_prob
         .data_vec()?
         .iter()
-        .map(|v| v.to_f64().unwrap())
-        .collect();
+        .map(|&v| cast::<T, f64>(v))
+        .collect::<FerrotorchResult<_>>()?;
     let arr = ndarray::Array2::from_shape_vec((n, k), data).map_err(|e| {
         FerrotorchError::InvalidArgument {
             message: format!("log_loss: failed to build Array2: {e}"),
@@ -319,8 +340,8 @@ pub fn top_k_accuracy_score<T: Float>(
     let data: Vec<f64> = y_score
         .data_vec()?
         .iter()
-        .map(|v| v.to_f64().unwrap())
-        .collect();
+        .map(|&v| cast::<T, f64>(v))
+        .collect::<FerrotorchResult<_>>()?;
     let arr = ndarray::Array2::from_shape_vec((n, c), data).map_err(|e| {
         FerrotorchError::InvalidArgument {
             message: format!("top_k_accuracy_score: y_score shape: {e}"),
@@ -372,7 +393,11 @@ fn tensor_to_array2_f64<T: Float>(t: &Tensor<T>) -> FerrotorchResult<ndarray::Ar
         });
     }
     let (rows, cols) = (t.shape()[0], t.shape()[1]);
-    let data: Vec<f64> = t.data_vec()?.iter().map(|v| v.to_f64().unwrap()).collect();
+    let data: Vec<f64> = t
+        .data_vec()?
+        .iter()
+        .map(|&v| cast::<T, f64>(v))
+        .collect::<FerrotorchResult<_>>()?;
     ndarray::Array2::from_shape_vec((rows, cols), data).map_err(|e| {
         FerrotorchError::ShapeMismatch {
             message: format!("tensor_to_array2_f64: shape build failed: {e}"),

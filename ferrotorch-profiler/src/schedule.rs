@@ -38,6 +38,18 @@ impl std::fmt::Display for SchedulePhase {
 /// ```
 ///
 /// After `repeat` cycles (default 1), the schedule enters [`Done`](SchedulePhase::Done).
+///
+/// # Cloning
+///
+/// `ProfileSchedule` implements [`Clone`]. The cloned schedule retains
+/// the configuration (`wait` / `warmup` / `active` / `repeat`) and the
+/// current runtime position (`current_step`, `current_cycle`, `phase`),
+/// **but the `on_trace_ready` callback is intentionally dropped** — a
+/// `Box<dyn FnMut + Send>` cannot be cloned in general (no `Clone`
+/// bound on closures), and re-attaching the same callback would alias
+/// state the original owner did not consent to share. Callers that
+/// want the cloned schedule to fire callbacks must call
+/// [`Self::set_on_trace_ready`] on the clone explicitly.
 pub struct ProfileSchedule {
     /// Number of steps to wait before the first warmup.
     wait: u64,
@@ -57,6 +69,24 @@ pub struct ProfileSchedule {
     phase: SchedulePhase,
     /// Callback invoked when an active window ends.
     on_trace_ready: Option<Box<dyn FnMut(u64) + Send>>,
+}
+
+impl Clone for ProfileSchedule {
+    /// Clone the configuration and runtime position; **drops the
+    /// `on_trace_ready` callback** because `Box<dyn FnMut + Send>` is
+    /// not `Clone`. See the type-level docs for the rationale.
+    fn clone(&self) -> Self {
+        Self {
+            wait: self.wait,
+            warmup: self.warmup,
+            active: self.active,
+            repeat: self.repeat,
+            current_step: self.current_step,
+            current_cycle: self.current_cycle,
+            phase: self.phase,
+            on_trace_ready: None,
+        }
+    }
 }
 
 impl std::fmt::Debug for ProfileSchedule {
@@ -291,6 +321,41 @@ mod tests {
     #[should_panic(expected = "`repeat` must be > 0")]
     fn zero_repeat_panics() {
         let _ = ProfileSchedule::new(0, 0, 1, 0);
+    }
+
+    #[test]
+    fn clone_preserves_config_and_position_drops_callback() {
+        use std::sync::{Arc, Mutex};
+        // Step the original twice so it has non-default runtime state.
+        let mut sched = ProfileSchedule::new(0, 0, 4, 1);
+        let fired = Arc::new(Mutex::new(0u64));
+        {
+            let fired = fired.clone();
+            sched.set_on_trace_ready(move |_| {
+                *fired.lock().unwrap() += 1;
+            });
+        }
+        sched.step();
+        sched.step();
+
+        let cloned = sched.clone();
+        // Configuration and position are preserved.
+        assert_eq!(cloned.phase(), sched.phase());
+        assert_eq!(cloned.current_step(), sched.current_step());
+        assert_eq!(cloned.current_cycle(), sched.current_cycle());
+
+        // Callback is intentionally dropped on clone — drive the clone
+        // through the end of the cycle and verify the original's
+        // counter does not advance from the clone's stepping.
+        let mut cloned = cloned;
+        cloned.step();
+        cloned.step(); // end of cycle on clone (should not fire original's cb)
+        assert_eq!(*fired.lock().unwrap(), 0);
+
+        // Original still fires its own callback on its end-of-cycle.
+        sched.step();
+        sched.step(); // end of cycle on original
+        assert_eq!(*fired.lock().unwrap(), 1);
     }
 
     #[test]

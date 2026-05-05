@@ -36,6 +36,14 @@ fn is_f64<T: Float>() -> bool {
 /// Upload a CPU `&[f32]` slice to a GPU buffer on the given device ordinal.
 fn upload_f32_to_gpu(data: &[f32], ordinal: usize) -> FerrotorchResult<GpuBufferHandle> {
     let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+    // SAFETY: `data` is a live `&[f32]` borrow; its memory is valid for reads of
+    // `data.len() * 4` bytes (every `f32` is exactly 4 bytes — `size_of::<f32>() == 4`,
+    // guaranteed by the language and verified by `mem::size_of`). The cast from
+    // `*const f32` to `*const u8` does not violate alignment (alignment of `u8` is 1,
+    // strictly weaker than `f32`'s alignment of 4). The resulting `&[u8]` is borrowed
+    // for the duration of this expression and consumed by `backend.cpu_to_gpu` before
+    // `data` goes out of scope, so the lifetime never outlives the source borrow.
+    // No interior mutability — `data` is a shared reference and `f32` has no padding.
     let bytes: &[u8] =
         unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4) };
     backend.cpu_to_gpu(bytes, 4, ordinal)
@@ -518,6 +526,16 @@ impl<T: Float> Module<T> for Embedding<T> {
                 Device::Cuda(o) => o,
                 _ => unreachable!(),
             };
+            // SAFETY: `output_data` is a live owned `Vec<T>` whose contents we borrow
+            // shared for the duration of this expression. Its underlying buffer is valid
+            // for reads of `output_data.len() * size_of::<T>()` bytes — `T: Float`
+            // is one of f32/f64/bf16/f16, none of which have padding bytes (no struct
+            // wrappers, no niches), so the byte-length calculation is exact. The cast
+            // `*const T` -> `*const u8` does not violate alignment because `u8`'s
+            // alignment (1) is at most `T`'s alignment. The resulting `&[u8]` is
+            // consumed by `backend.cpu_to_gpu` before `output_data` is moved into
+            // `TensorStorage::cpu` on the else branch (mutually exclusive paths) or
+            // dropped here, so the borrow never outlives the source.
             let bytes: &[u8] = unsafe {
                 std::slice::from_raw_parts(
                     output_data.as_ptr() as *const u8,

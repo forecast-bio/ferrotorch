@@ -164,8 +164,8 @@ impl<T: Float> ParameterDict<T> {
     }
 
     /// Return all parameter keys.
-    pub fn keys(&self) -> impl Iterator<Item = &String> {
-        self.params.keys()
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.params.keys().map(String::as_str)
     }
 
     /// Return all parameters as references.

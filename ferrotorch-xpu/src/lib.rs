@@ -599,7 +599,9 @@ mod tests {
         // data() must error — tensor is device-resident.
         assert!(t.data().is_err(), "data() must return Err for XPU tensors");
         // .cpu() then .data() must succeed.
-        let host = t.cpu().expect("cpu() readback must succeed for an XPU tensor");
+        let host = t
+            .cpu()
+            .expect("cpu() readback must succeed for an XPU tensor");
         assert_eq!(host.device(), Device::Cpu);
         assert_eq!(
             host.data().expect("CPU tensor data() must succeed"),
@@ -736,8 +738,8 @@ mod tests {
     fn xpu_add_rejects_cpu_input() {
         let Some(xpu) = xpu() else { return };
         let a = xpu_tensor(&[1.0, 2.0], &xpu);
-        let b = ferrotorch_core::tensor(&[1.0_f32, 2.0])
-            .expect("CPU tensor construction must succeed");
+        let b =
+            ferrotorch_core::tensor(&[1.0_f32, 2.0]).expect("CPU tensor construction must succeed");
         let err = xpu_add(&a, &b, &xpu).expect_err("CPU operand must be rejected");
         assert!(matches!(err, FerrotorchError::DeviceMismatch { .. }));
     }
@@ -746,8 +748,8 @@ mod tests {
     fn xpu_add_rejects_cuda_input_against_xpu_device() {
         let Some(xpu) = xpu() else { return };
         let a = xpu_tensor(&[1.0, 2.0], &xpu);
-        let b = ferrotorch_core::tensor(&[1.0_f32, 2.0])
-            .expect("CPU tensor construction must succeed");
+        let b =
+            ferrotorch_core::tensor(&[1.0_f32, 2.0]).expect("CPU tensor construction must succeed");
         let err = xpu_add(&a, &b, &xpu).expect_err("non-XPU operand must be rejected");
         assert!(matches!(err, FerrotorchError::DeviceMismatch { .. }));
     }
@@ -788,8 +790,8 @@ mod tests {
         // P_2(x) = (3x^2 - 1)/2. At x = [0, 1, -1] → [-0.5, 1, 1].
         let Some(xpu) = xpu() else { return };
         let a = xpu_tensor(&[0.0, 1.0, -1.0], &xpu);
-        let r = xpu_legendre_polynomial_p(&a, 2, &xpu)
-            .expect("xpu_legendre_polynomial_p must succeed");
+        let r =
+            xpu_legendre_polynomial_p(&a, 2, &xpu).expect("xpu_legendre_polynomial_p must succeed");
         let data = read_back(&r);
         for (got, want) in data.iter().zip(&[-0.5_f32, 1.0, 1.0]) {
             assert!(
@@ -804,8 +806,8 @@ mod tests {
         let Some(xpu) = xpu() else { return };
         let a = ferrotorch_core::tensor(&[0.0_f32, 0.5, 1.0])
             .expect("CPU tensor construction must succeed");
-        let err = xpu_chebyshev_polynomial_t(&a, 2, &xpu)
-            .expect_err("CPU operand must be rejected");
+        let err =
+            xpu_chebyshev_polynomial_t(&a, 2, &xpu).expect_err("CPU operand must be rejected");
         assert!(matches!(err, FerrotorchError::DeviceMismatch { .. }));
     }
 }

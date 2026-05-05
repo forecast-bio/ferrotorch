@@ -1,6 +1,11 @@
 //! Correctness validation: verify ferrotorch produces the same results
 //! as PyTorch for core operations.
 //!
+//! Each `eprintln!("PASS: …")` follows a real `assert!` / `assert_close` /
+//! `assert_eq!` and is informational — using stderr means the diagnostic is
+//! visible in test output without `--nocapture`, while the actual assertion
+//! is what gates the test.
+//!
 //! Run with: cargo test --test validate_vs_pytorch --release
 
 use std::time::Instant;
@@ -30,7 +35,7 @@ fn test_softmax_sums_to_one() {
         let row_sum: f32 = (0..10).map(|c| sm_data[row * 10 + c]).sum();
         assert_close(row_sum, 1.0, 1e-5, &format!("softmax row {row} sum"));
     }
-    println!("PASS: softmax sums to 1");
+    eprintln!("PASS: softmax sums to 1");
 }
 
 // =====================================================================
@@ -57,7 +62,7 @@ fn test_layernorm_statistics() {
             "layernorm var too far from 1: {var}"
         );
     }
-    println!("PASS: layernorm produces zero mean, unit variance");
+    eprintln!("PASS: layernorm produces zero mean, unit variance");
 }
 
 // =====================================================================
@@ -78,7 +83,7 @@ fn test_autograd_x_squared() {
     assert_close(grad_data[0], 2.0, 1e-4, "grad[0]");
     assert_close(grad_data[1], 4.0, 1e-4, "grad[1]");
     assert_close(grad_data[2], 6.0, 1e-4, "grad[2]");
-    println!("PASS: autograd d/dx(x^2) = 2x");
+    eprintln!("PASS: autograd d/dx(x^2) = 2x");
 }
 
 // =====================================================================
@@ -96,7 +101,7 @@ fn test_crossentropy_gradient() {
     let grad_data = grad.data().unwrap();
     let grad_sum: f32 = grad_data.iter().map(|g| g.abs()).sum();
     assert!(grad_sum > 0.0, "CrossEntropy gradient should be non-zero");
-    println!("PASS: CrossEntropy produces non-zero gradients (sum = {grad_sum:.4})");
+    eprintln!("PASS: CrossEntropy produces non-zero gradients (sum = {grad_sum:.4})");
 }
 
 // =====================================================================
@@ -115,7 +120,7 @@ fn test_dropout_rate() {
         zero_frac > 0.20 && zero_frac < 0.40,
         "dropout rate should be ~0.3, got {zero_frac}"
     );
-    println!("PASS: dropout zero fraction = {zero_frac:.4} (expected ~0.3)");
+    eprintln!("PASS: dropout zero fraction = {zero_frac:.4} (expected ~0.3)");
 }
 
 // =====================================================================
@@ -147,7 +152,7 @@ fn test_embedding_lookup() {
             &format!("emb[50][{j}]"),
         );
     }
-    println!("PASS: embedding lookup matches weight rows");
+    eprintln!("PASS: embedding lookup matches weight rows");
 }
 
 // =====================================================================
@@ -185,7 +190,7 @@ fn test_causal_attention_mask() {
         upper_sum < 1e-5,
         "causal mask: upper triangle sum should be ~0, got {upper_sum}"
     );
-    println!("PASS: causal attention mask zeros future positions (upper sum = {upper_sum:.2e})");
+    eprintln!("PASS: causal attention mask zeros future positions (upper sum = {upper_sum:.2e})");
 }
 
 // =====================================================================
@@ -197,7 +202,7 @@ fn test_conv2d_output_shape() {
     let x = rand::<f32>(&[2, 3, 32, 32]).unwrap();
     let y = conv.forward(&x).unwrap();
     assert_eq!(y.shape(), &[2, 16, 16, 16], "conv2d output shape mismatch");
-    println!("PASS: Conv2d [2,3,32,32] stride=2 pad=1 -> [2,16,16,16]");
+    eprintln!("PASS: Conv2d [2,3,32,32] stride=2 pad=1 -> [2,16,16,16]");
 }
 
 // =====================================================================
@@ -213,10 +218,7 @@ fn test_mlp_training_converges() {
 
     let mut adam_cfg = AdamConfig::default();
     adam_cfg.lr = 1e-3;
-    let mut optimizer = Adam::new(
-        model.parameters().into_iter().cloned().collect(),
-        adam_cfg,
-    );
+    let mut optimizer = Adam::new(model.parameters().into_iter().cloned().collect(), adam_cfg);
 
     let ce = CrossEntropyLoss::new(Reduction::Mean, 0.0);
     let mut losses = Vec::new();
@@ -247,7 +249,7 @@ fn test_mlp_training_converges() {
         optimizer.step().unwrap();
 
         if step == 0 || step == 19 {
-            println!("  Step {step}: loss = {loss_val:.4}");
+            eprintln!("  Step {step}: loss = {loss_val:.4}");
         }
     }
 
@@ -257,7 +259,7 @@ fn test_mlp_training_converges() {
         losses.first().unwrap(),
         losses.last().unwrap()
     );
-    println!(
+    eprintln!(
         "PASS: MLP training loss decreases ({:.4} -> {:.4})",
         losses[0], losses[19]
     );
@@ -319,7 +321,7 @@ fn test_autoencoder_reconstruction() {
         optimizer.step().unwrap();
 
         if step == 0 || step == 19 {
-            println!("  Step {step}: recon_loss = {loss_val:.4}");
+            eprintln!("  Step {step}: recon_loss = {loss_val:.4}");
         }
     }
 
@@ -329,7 +331,7 @@ fn test_autoencoder_reconstruction() {
         losses.first().unwrap(),
         losses.last().unwrap()
     );
-    println!(
+    eprintln!(
         "PASS: Autoencoder reconstruction loss decreases ({:.4} -> {:.4})",
         losses[0], losses[19]
     );
@@ -421,7 +423,7 @@ fn test_transformer_block_training() {
         optimizer.step().unwrap();
 
         if step == 0 || step == 29 {
-            println!("  Step {step}: loss = {loss_val:.4}");
+            eprintln!("  Step {step}: loss = {loss_val:.4}");
         }
     }
 
@@ -431,7 +433,7 @@ fn test_transformer_block_training() {
         losses.first().unwrap(),
         losses.last().unwrap()
     );
-    println!(
+    eprintln!(
         "PASS: Transformer block training loss decreases ({:.4} -> {:.4})",
         losses[0], losses[29]
     );
@@ -442,9 +444,9 @@ fn test_transformer_block_training() {
 // =====================================================================
 #[test]
 fn test_speed_comparison() {
-    println!("\n{}", "=".repeat(60));
-    println!("SPEED COMPARISON vs PyTorch");
-    println!("{}", "=".repeat(60));
+    eprintln!("\n{}", "=".repeat(60));
+    eprintln!("SPEED COMPARISON vs PyTorch");
+    eprintln!("{}", "=".repeat(60));
 
     // PyTorch reference numbers from pytorch_validate.py
     let pytorch_ref = vec![
@@ -516,11 +518,11 @@ fn test_speed_comparison() {
         ("matmul_1024", ft_mm1024),
     ];
 
-    println!(
+    eprintln!(
         "\n{:<20} {:>12} {:>12} {:>8}",
         "Operation", "PyTorch(us)", "ferrotorch(us)", "Ratio"
     );
-    println!("{}", "-".repeat(56));
+    eprintln!("{}", "-".repeat(56));
     for (name, ft_us) in &results {
         if let Some((_, pt_us)) = pytorch_ref.iter().find(|(n, _)| n == name) {
             let ratio = ft_us / pt_us;
@@ -531,7 +533,7 @@ fn test_speed_comparison() {
             } else {
                 "✗"
             };
-            println!(
+            eprintln!(
                 "{:<20} {:>12.1} {:>12.1} {:>7.1}x {status}",
                 name, pt_us, ft_us, ratio
             );

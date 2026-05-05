@@ -50,6 +50,38 @@ fn script_macro_three_args() {
     assert_eq!(result.data().unwrap(), &[9.0, 12.0]);
 }
 
+// Regression test for the silent-f32-fallback bug: prior to the fix,
+// `extract_tensor_param` returned `None` for any return type it didn't
+// recognize and the macro silently substituted `f32`. That meant a
+// function returning `Tensor<f64>` got wrapped into a `TracedModule<f32>`
+// — wrong dtype, no diagnostic. The fix turns the unrecognized branch
+// into a `compile_error!` and recognizes `Tensor<f64>` as `f64`. This
+// test verifies the latter half: the wrapper is correctly typed
+// `TracedModule<f64>`, not `TracedModule<f32>`.
+fn t1d_f64(data: &[f64]) -> Tensor<f64> {
+    Tensor::from_storage(TensorStorage::cpu(data.to_vec()), vec![data.len()], false).unwrap()
+}
+
+#[script]
+fn weighted_sum_f64(a: Tensor<f64>, w: Tensor<f64>) -> FerrotorchResult<Tensor<f64>> {
+    let prod = mul(&a, &w)?;
+    sum(&prod)
+}
+
+#[test]
+fn script_macro_preserves_scalar_type_f64() {
+    let a = t1d_f64(&[1.0, 2.0, 3.0]);
+    let w = t1d_f64(&[4.0, 5.0, 6.0]);
+    // Type ascription is the load-bearing assertion: the prior bug
+    // produced `TracedModule<f32>` for this signature, which would
+    // fail to compile here.
+    let module: TracedModule<f64> = weighted_sum_f64(a, w).unwrap();
+    let result = module
+        .forward_multi(&[t1d_f64(&[1.0, 2.0, 3.0]), t1d_f64(&[4.0, 5.0, 6.0])])
+        .unwrap();
+    assert_eq!(result.data().unwrap(), &[32.0_f64]);
+}
+
 #[test]
 fn script_macro_module_save_load_roundtrip() {
     let a = t1d(&[2.0, 3.0]);

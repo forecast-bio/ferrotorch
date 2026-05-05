@@ -7,8 +7,14 @@
 
 // Each test asserts a module path resolves; the `use … as _;` pattern is the
 // minimum-friction way to do that without forcing every sub-crate to keep a
-// specific named symbol stable. The unused-import warning is intrinsic to the
-// pattern, not a code smell.
+// specific named symbol stable.
+//
+// The `as _` rename suppresses `unused_imports` for value bindings, but it
+// does NOT suppress it for module path imports (`use ferrotorch::nn as _;`
+// — there is nothing nameable in a module path to "use"), so this file-level
+// allow is load-bearing. Verified empirically: removing it produces 16
+// `unused import` errors under `cargo clippy --all-targets -- -D warnings`.
+// The audit's claim that this allow was redundant was mistaken.
 #![allow(unused_imports)]
 
 #[test]

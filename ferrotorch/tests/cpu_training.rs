@@ -1,10 +1,14 @@
-//! End-to-end GPU training integration tests.
+//! End-to-end CPU training integration tests.
 //!
 //! Each test runs a small training loop on CPU, verifying loss decreases.
 //! These tests catch systemic issues that unit tests miss:
-//! - Device mismatches in autograd backward (issue #14)
-//! - Optimizers crashing on GPU parameters (issue #13)
-//! - Shape ops breaking the computation graph
+//! - Device mismatches surfacing in autograd backward (originally issue #14)
+//! - Optimizers crashing on parameter gradient sync (originally issue #13)
+//! - Shape ops silently breaking the computation graph
+//!
+//! GPU-resident counterparts are tracked as a follow-up (issue #733); none of
+//! the tests below construct CUDA / WGPU / Metal devices, and the file was
+//! renamed from `gpu_training.rs` to reflect what it actually exercises.
 
 use ferrotorch_core::*;
 use ferrotorch_nn::*;

@@ -107,9 +107,7 @@ mod tests {
         let outer = FerrotorchError::Gpu {
             source: Box::new(inner),
         };
-        let source = outer
-            .source()
-            .expect("source must be set via #[source]");
+        let source = outer.source().expect("source must be set via #[source]");
         let downcast = source
             .downcast_ref::<TestError>()
             .expect("downcast back to TestError");

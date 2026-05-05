@@ -95,6 +95,13 @@ struct ProtobufWriter {
     buf: Vec<u8>,
 }
 
+// `ProtobufWriter` is the lightweight wire-format encoder for TFEvents
+// messages. The full helper set (`write_int64`, `write_string`,
+// `write_message`, `write_float`, `write_double`, `bytes`) is intentionally
+// kept available for forward compatibility — adding new event/summary
+// fields in this module should not need to touch the encoder. Only a
+// subset is exercised by the current `encode_*` functions, hence the
+// `dead_code` allow.
 #[allow(dead_code)]
 impl ProtobufWriter {
     fn new() -> Self {
@@ -304,6 +311,13 @@ impl TensorBoardWriter {
     /// The directory is created if it does not exist. A TFEvents file is
     /// created inside it, prefixed with the current wall-clock timestamp.
     /// A `file_version` event is written as the first record.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::InvalidArgument` when:
+    /// - `log_dir` cannot be created (e.g. permission denied, parent missing).
+    /// - The event file cannot be created at the chosen path.
+    /// - Writing the initial `file_version` record to the new file fails.
     pub fn new(log_dir: impl AsRef<Path>) -> FerrotorchResult<Self> {
         let log_dir = log_dir.as_ref().to_path_buf();
         fs::create_dir_all(&log_dir).map_err(|e| FerrotorchError::InvalidArgument {
@@ -332,6 +346,11 @@ impl TensorBoardWriter {
     }
 
     /// Add a single scalar value at the given step.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::InvalidArgument` when the underlying
+    /// buffered writer fails (e.g. disk full, broken pipe, closed file).
     pub fn add_scalar(&mut self, tag: &str, value: f64, step: i64) -> FerrotorchResult<()> {
         let wall_time = wall_time_secs();
         let summary = encode_summary(&[(tag, value as f32)]);
@@ -344,6 +363,11 @@ impl TensorBoardWriter {
     /// Add multiple scalar values under a common prefix at the given step.
     ///
     /// Each entry in `values` is written as `"{main_tag}/{sub_tag}"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::InvalidArgument` when the underlying
+    /// buffered writer fails (e.g. disk full, broken pipe, closed file).
     pub fn add_scalars(
         &mut self,
         main_tag: &str,
@@ -365,6 +389,11 @@ impl TensorBoardWriter {
     }
 
     /// Flush buffered data to the underlying file.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::InvalidArgument` when the underlying
+    /// `BufWriter::flush` fails (e.g. disk full, broken pipe, closed file).
     pub fn flush(&mut self) -> FerrotorchResult<()> {
         self.file
             .flush()
@@ -411,6 +440,13 @@ pub struct TensorBoardCallback {
 
 impl TensorBoardCallback {
     /// Create a new callback that writes events to `log_dir`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FerrotorchError::InvalidArgument` for any reason the
+    /// underlying [`TensorBoardWriter::new`] would: the log directory
+    /// cannot be created, the event file cannot be created, or the
+    /// `file_version` record cannot be written.
     pub fn new(log_dir: impl AsRef<Path>) -> FerrotorchResult<Self> {
         let writer = TensorBoardWriter::new(log_dir)?;
         Ok(Self {
@@ -427,20 +463,66 @@ impl<T: Float> Callback<T> for TensorBoardCallback {
         };
         let step = epoch as i64;
 
-        let _ = writer.add_scalar("train_loss", result.train_loss, step);
-
-        if let Some(val_loss) = result.val_loss {
-            let _ = writer.add_scalar("val_loss", val_loss, step);
+        // PyTorch's `torch.utils.tensorboard.SummaryWriter` logs but does
+        // not raise when an `add_scalar` write fails (e.g. disk full,
+        // closed file handle); the `Callback` trait surface returns `()`,
+        // so we mirror that policy and emit a `tracing::warn!` per failed
+        // write instead of swallowing the error silently.
+        if let Err(e) = writer.add_scalar("train_loss", result.train_loss, step) {
+            tracing::warn!(
+                target: "ferrotorch::tensorboard",
+                error = %e,
+                kind = "train_loss",
+                step,
+                "TensorBoard write failed",
+            );
         }
 
-        let _ = writer.add_scalar("lr", result.lr, step);
+        if let Some(val_loss) = result.val_loss
+            && let Err(e) = writer.add_scalar("val_loss", val_loss, step)
+        {
+            tracing::warn!(
+                target: "ferrotorch::tensorboard",
+                error = %e,
+                kind = "val_loss",
+                step,
+                "TensorBoard write failed",
+            );
+        }
+
+        if let Err(e) = writer.add_scalar("lr", result.lr, step) {
+            tracing::warn!(
+                target: "ferrotorch::tensorboard",
+                error = %e,
+                kind = "lr",
+                step,
+                "TensorBoard write failed",
+            );
+        }
 
         // Write any custom metrics.
         for (name, &value) in &result.metrics {
-            let _ = writer.add_scalar(name, value, step);
+            if let Err(e) = writer.add_scalar(name, value, step) {
+                tracing::warn!(
+                    target: "ferrotorch::tensorboard",
+                    error = %e,
+                    kind = "metric",
+                    metric = %name,
+                    step,
+                    "TensorBoard write failed",
+                );
+            }
         }
 
-        let _ = writer.flush();
+        if let Err(e) = writer.flush() {
+            tracing::warn!(
+                target: "ferrotorch::tensorboard",
+                error = %e,
+                kind = "flush",
+                step,
+                "TensorBoard flush failed",
+            );
+        }
     }
 
     fn on_batch_end(&mut self, batch: usize, loss: f64) {
@@ -448,7 +530,15 @@ impl<T: Float> Callback<T> for TensorBoardCallback {
             Ok(w) => w,
             Err(poisoned) => poisoned.into_inner(),
         };
-        let _ = writer.add_scalar("batch_loss", loss, batch as i64);
+        if let Err(e) = writer.add_scalar("batch_loss", loss, batch as i64) {
+            tracing::warn!(
+                target: "ferrotorch::tensorboard",
+                error = %e,
+                kind = "batch_loss",
+                batch,
+                "TensorBoard write failed",
+            );
+        }
     }
 }
 

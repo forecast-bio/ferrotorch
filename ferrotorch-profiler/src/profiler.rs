@@ -244,8 +244,12 @@ impl Profiler {
 
     /// Queue a CUDA event scope for later finalization. Called by
     /// [`crate::cuda_timing::CudaKernelScope::stop`]. CL-380.
+    ///
+    /// `pub(crate)` because the parameter type is `pub(crate)` — this
+    /// is an internal hand-off between `CudaKernelScope::stop` and the
+    /// profiler's pending-flush queue, not part of the public API.
     #[cfg(feature = "cuda")]
-    pub fn push_pending_cuda_scope(&self, scope: crate::cuda_timing::PendingCudaScope) {
+    pub(crate) fn push_pending_cuda_scope(&self, scope: crate::cuda_timing::PendingCudaScope) {
         if !self.active.load(Ordering::Relaxed) {
             return;
         }
@@ -267,13 +271,13 @@ impl Profiler {
     /// dispatch latency that the wall-clock fallback measures.
     #[cfg(feature = "cuda")]
     pub fn flush_cuda_kernels(&self) {
-        let pending: Vec<crate::cuda_timing::PendingCudaScope> = match self.pending_cuda.lock() {
-            Ok(mut q) => std::mem::take(&mut *q),
-            Err(_) => {
+        let pending: Vec<crate::cuda_timing::PendingCudaScope> =
+            if let Ok(mut q) = self.pending_cuda.lock() {
+                std::mem::take(&mut *q)
+            } else {
                 Self::warn_poisoned();
                 return;
-            }
-        };
+            };
         if pending.is_empty() {
             return;
         }
@@ -296,7 +300,7 @@ impl Profiler {
     pub fn pending_cuda_count(&self) -> usize {
         #[cfg(feature = "cuda")]
         {
-            self.pending_cuda.lock().map(|q| q.len()).unwrap_or(0)
+            self.pending_cuda.lock().map_or(0, |q| q.len())
         }
         #[cfg(not(feature = "cuda"))]
         {
@@ -414,12 +418,15 @@ impl Drop for ProfilerHookGuard {
 ///
 /// # Panics
 ///
-/// Panics only if an internal invariant is violated: the
-/// `Arc<Profiler>` strong count is not 1 after the closure and the
-/// RAII hook guard have both been dropped.  This is unreachable given
-/// the current API — the profiler `Arc` is created inside this
-/// function and `f` only ever receives a `&Profiler` borrow, so no
-/// caller can hold a second clone.
+/// Reaches an [`unreachable!`] if an internal invariant is violated:
+/// the `Arc<Profiler>` strong count is not 1 after the closure and
+/// the RAII hook guard have both been dropped. This is unreachable
+/// given the current API — the profiler `Arc` is created inside
+/// this function and `f` only ever receives a `&Profiler` borrow,
+/// so no caller can hold a second clone. The only other strong
+/// reference is the one stashed in the thread-local profiler hook,
+/// and dropping `ProfilerHookGuard` clears it before
+/// [`Arc::try_unwrap`] is called.
 pub fn with_profiler<F, R>(config: ProfileConfig, f: F) -> (R, ProfileReport)
 where
     F: FnOnce(&Profiler) -> R,
@@ -436,10 +443,13 @@ where
     drop(guard);
     // Invariant: the only extra Arc clone was `hook` above; dropping
     // `guard` removed it from the thread-local, so strong count == 1.
+    // `unreachable!` (not `panic!`) documents that this branch cannot
+    // be exercised by any caller given the current API surface — the
+    // `Arc<Profiler>` never escapes this function.
     let profiler = Arc::try_unwrap(profiler).unwrap_or_else(|_| {
-        panic!(
-            "invariant violated: Arc<Profiler> strong count != 1 after hook cleared; \
-                unreachable given the current with_profiler API shape"
+        unreachable!(
+            "Arc<Profiler> strong count != 1 after hook cleared; \
+             unreachable given the current with_profiler API shape"
         )
     });
     let report = profiler.into_report();

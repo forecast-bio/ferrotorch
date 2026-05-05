@@ -830,16 +830,17 @@ fn run_dfa_on_gpu<R: Runtime>(
     packed: &PackedVocab,
     dfa: &CompiledDfa,
 ) -> Option<TokenMask> {
-    let inputs = DfaMaskInputs {
-        transitions: &dfa.transitions,
-        char_classes: &dfa.char_classes,
-        vocab_offsets: &packed.offsets,
-        vocab_chars: &packed.chars,
-        num_classes: dfa.num_classes,
-        start_state: dfa.start_state,
-        reject_state: dfa.reject_state,
-        max_token_len: packed.max_token_len,
-    };
+    let inputs = DfaMaskInputs::new(
+        packed.offsets.len().saturating_sub(1), // vocab_size from CSR offsets
+        &dfa.transitions,
+        &dfa.char_classes,
+        &packed.offsets,
+        &packed.chars,
+        dfa.num_classes,
+        dfa.start_state,
+        dfa.reject_state,
+        packed.max_token_len,
+    )?;
     let (handle, n) = compute_token_mask_dfa_to_gpu::<R>(client, &inputs);
     let bytes = client.read_one(handle).ok()?;
     if bytes.len() != n * std::mem::size_of::<u32>() {

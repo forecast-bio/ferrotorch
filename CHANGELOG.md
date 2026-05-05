@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [0.3.0] - 2026-04-08
 
+### Security
+- audit follow-up: ferrotorch-serialize — CRITICAL gguf DoS + 12 unsafe SAFETY + cast unwrap on untrusted input + lints + dead_code + pub fields + &String + integration tests (#744)
+
 ### Added
 - GPU `prod` (forward) via a native `reduce_prod` PTX kernel (#524, additional slice). New `gpu_reduce_prod` (f32) / `gpu_reduce_prod_f64` in `ferrotorch-gpu/src/kernels.rs` mirror `gpu_reduce_sum` but with `1.0` identity and `mul.f32` combiner. f64 reuses the kernel via the existing `ptx_f32_to_f64` rewriter. New `prod_f32` / `prod_f64` trait methods on `GpuBackend`. `reduction::prod` routes f32/f64 CUDA inputs to the new kernel — closes the previous `NotImplementedOnCuda { op: "prod" }` gap. 4 new GPU integration tests on RTX 3090 (f32 vs CPU on small input, f64 closed-form 3.0, GPU-output device contract, 10K-unit-factor stress that exercises the multi-pass tree reduction). The existing `ProdBackward` already had a CPU-only path; its GPU dispatch is wired alongside (#524)
 - GPU `sum_dim` backward via a dedicated `repeat_along_dim` PTX kernel (#524, additional slice). New `gpu_repeat_along_dim` (f32) / `gpu_repeat_along_dim_f64` in `ferrotorch-gpu/src/kernels.rs` expand a `[outer, inner]` source into `[outer, repeat_count, inner]` by replicating the gradient along an inserted middle axis — exactly the broadcast `sum_dim`'s VJP needs to map a reduced gradient back to the input shape. New `repeat_along_dim_f32` / `repeat_along_dim_f64` trait methods on `GpuBackend`. `SumDimBackward::backward` routes through these for f32/f64 CUDA tensors, eliminating another `NotImplementedOnCuda` gap. 3 new GPU integration tests on RTX 3090 (forward sum_dim → backward propagates 1s, keepdim variant, GPU vs CPU equivalence on a non-trivial 2×3×4 tensor) (#524)
@@ -312,6 +315,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- audit follow-up: ferrotorch-train — cast unwrap in train loop + assert input validation + silent TB errors + println + lints + non_exhaustive + Errors docs (#743)
+- audit follow-up: ferrotorch-data — Mutex/Condvar unwrap + cast unwrap + collate_fn expect + lints + Debug + unnecessary unsafe impl + pub fields + assert! (#742)
+- audit follow-up: ferrotorch-nn — unsafe SAFETY + clip_grad CPU detour + bf16 cast panics + lints + pub fields + .expect + doctests + repeated allows (#741)
+- audit follow-up: ferrotorch-profiler — eprintln + panic + cuda silent zero + SAFETY + lints + non_exhaustive + Debug/Clone + Errors/Panics docs (#740)
+- audit follow-up: ferrotorch-hub — CRITICAL path traversal + eprintln + SAFETY + lints + Debug + SHA256 policy + encapsulation + Errors (#738)
+- audit follow-up: ferrotorch-jit-script — silent f32 fallback + recursion cap + lints + dedup (#737)
+- audit follow-up: ferrotorch-nn-derive — expect→syn::Error + lints + Debug derives + find_float_param (#735)
+- audit follow-up: ferrotorch-tokenize — doctest unwrap + lints + encode_batch perf + ChatMessage encapsulation + Deserialize + I/O error categories + # Errors (#734)
+- audit follow-up: ferrotorch (meta) — fake-GPU rename + lints + println→assert + pythia expect (#732)
+- audit follow-up: ferrotorch-ml — NumCast × 5 + lints + broken doc + # Errors × 4 (#730)
+- ferrotorch-cubecl DfaMaskInputs #[non_exhaustive] coordination — needs ferrotorch-llama grammar/gpu_dispatch.rs:833 migration to validating new() first (#716)
+- ferrotorch-jit IrValue per-edge dtype dispatch (cascades through 5+ codegen_gpu sites) (#721)
+- workspace 2024-edition unsafe-op-in-unsafe-fn cleanup pass (39 clippy hits in ferrotorch-distributed/nccl_backend under --features nccl) (#724)
 - fold auto-changelog after #726 close (#727)
 - commit 4-followup progress (#726)
 - ferrotorch-cubecl polynomial families: dispatch_unary_with_n! has no handle variant — host-roundtrips on every call (chebyshev/hermite/laguerre/legendre) (#715)

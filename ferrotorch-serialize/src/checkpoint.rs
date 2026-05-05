@@ -25,12 +25,20 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::Path;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float};
 use ferrotorch_nn::StateDict;
 use ferrotorch_optim::OptimizerState;
 
 /// A complete training checkpoint for resuming training.
+///
+/// Marked `#[non_exhaustive]` so the struct can grow new fields (e.g. RNG
+/// state, scheduler state, framework version) without forcing every
+/// downstream consumer to update their pattern matches or struct
+/// literals. Use [`TrainingCheckpoint::new`] to construct values; field
+/// access continues to work as before.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct TrainingCheckpoint<T: Float> {
     /// The model's parameter state dict.
     pub model_state: StateDict<T>,
@@ -40,6 +48,26 @@ pub struct TrainingCheckpoint<T: Float> {
     pub epoch: usize,
     /// The global step count.
     pub step: usize,
+}
+
+impl<T: Float> TrainingCheckpoint<T> {
+    /// Construct a new checkpoint from its mandatory components.
+    ///
+    /// Required because the struct is `#[non_exhaustive]` and so cannot be
+    /// built with struct-literal syntax outside this crate.
+    pub fn new(
+        model_state: StateDict<T>,
+        optimizer_state: OptimizerState,
+        epoch: usize,
+        step: usize,
+    ) -> Self {
+        Self {
+            model_state,
+            optimizer_state,
+            epoch,
+            step,
+        }
+    }
 }
 
 /// Save a training checkpoint to a file.
@@ -148,7 +176,7 @@ fn read_section(file: &mut std::fs::File) -> FerrotorchResult<Vec<u8>> {
 /// Parse the metadata JSON: `{"epoch":N,"step":N}`.
 fn parse_metadata(s: &str) -> FerrotorchResult<(usize, usize)> {
     let extract = |key: &str| -> FerrotorchResult<usize> {
-        let pattern = format!(r#""{}":"#, key);
+        let pattern = format!(r#""{key}":"#);
         let start = s
             .find(&pattern)
             .ok_or_else(|| FerrotorchError::InvalidArgument {
@@ -167,7 +195,7 @@ fn parse_metadata(s: &str) -> FerrotorchResult<(usize, usize)> {
     Ok((extract("epoch")?, extract("step")?))
 }
 
-/// Serialize an OptimizerState to JSON without serde.
+/// Serialize an `OptimizerState` to JSON without serde.
 ///
 /// Format: `{"param_name":{"state_key":[v1,v2,...], ...}, ...}`
 fn serialize_optimizer_state(state: &OptimizerState) -> String {
@@ -192,7 +220,7 @@ fn serialize_optimizer_state(state: &OptimizerState) -> String {
                 .map(|v| format!("{v}"))
                 .collect::<Vec<_>>()
                 .join(",");
-            inner_parts.push(format!(r#""{}":[{vals_str}]"#, ik));
+            inner_parts.push(format!(r#""{ik}":[{vals_str}]"#));
         }
         outer_parts.push(format!(r#""{}":{{{}}}"#, key, inner_parts.join(",")));
     }
@@ -200,7 +228,7 @@ fn serialize_optimizer_state(state: &OptimizerState) -> String {
     format!("{{{}}}", outer_parts.join(","))
 }
 
-/// Deserialize an OptimizerState from JSON without serde.
+/// Deserialize an `OptimizerState` from JSON without serde.
 fn deserialize_optimizer_state(s: &str) -> FerrotorchResult<OptimizerState> {
     let s = s.trim();
     if s == "{}" {
@@ -329,7 +357,7 @@ fn parse_inner_opt_state(s: &str) -> FerrotorchResult<HashMap<String, Vec<f64>>>
     Ok(result)
 }
 
-/// Serialize a StateDict to the state_dict binary format in memory.
+/// Serialize a `StateDict` to the `state_dict` binary format in memory.
 fn serialize_state_dict_to_bytes<T: Float>(state: &StateDict<T>) -> FerrotorchResult<Vec<u8>> {
     // Write to a temp buffer using state_dict::save_state_dict, but into
     // memory. We replicate the logic inline to avoid temp files.
@@ -354,13 +382,12 @@ fn serialize_state_dict_to_bytes<T: Float>(state: &StateDict<T>) -> FerrotorchRe
             tensor
                 .shape()
                 .iter()
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(",")
         );
         let line = format!(
-            r#"{{"name":"{}","shape":{},"dtype":"{}","byte_offset":{},"byte_length":{}}}"#,
-            key, shape_str, dtype, byte_offset, byte_length,
+            r#"{{"name":"{key}","shape":{shape_str},"dtype":"{dtype}","byte_offset":{byte_offset},"byte_length":{byte_length}}}"#,
         );
         buf.extend_from_slice(line.as_bytes());
         buf.push(b'\n');
@@ -374,8 +401,18 @@ fn serialize_state_dict_to_bytes<T: Float>(state: &StateDict<T>) -> FerrotorchRe
     for key in &keys {
         let tensor = &state[*key];
         let data = tensor.data()?;
+        // SAFETY: `data: &[T]` where `T: Float` is one of f32/f64/bf16 — all
+        // `Copy` POD types whose in-memory representation is a byte sequence
+        // with no padding and no `Drop` semantics, so reinterpreting the same
+        // bytes as `&[u8]` is sound. The pointer is valid for
+        // `size_of_val(data)` bytes (that is the slice's exact byte length),
+        // and the returned `&[u8]` borrows from `data`, inheriting its
+        // lifetime, so no dangling reference is produced. The crate-level
+        // `compile_error!` at top-of-file restricts this code to
+        // little-endian targets, matching the on-disk byte order of the
+        // state-dict format.
         let byte_slice = unsafe {
-            std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data))
+            std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), std::mem::size_of_val(data))
         };
         buf.extend_from_slice(byte_slice);
     }
@@ -383,7 +420,7 @@ fn serialize_state_dict_to_bytes<T: Float>(state: &StateDict<T>) -> FerrotorchRe
     Ok(buf)
 }
 
-/// Deserialize a StateDict from the state_dict binary format in memory.
+/// Deserialize a `StateDict` from the `state_dict` binary format in memory.
 fn deserialize_state_dict_from_bytes<T: Float>(bytes: &[u8]) -> FerrotorchResult<StateDict<T>> {
     // Find the separator.
     let sep = b"\n---\n";
@@ -446,24 +483,52 @@ fn deserialize_state_dict_from_bytes<T: Float>(bytes: &[u8]) -> FerrotorchResult
         }
 
         let byte_slice = &body[meta.byte_offset..end];
-        let data: Vec<T> = byte_slice
-            .chunks_exact(elem_size)
-            .map(|chunk| {
-                // Safe byte-to-float conversion using from_le_bytes instead of
-                // unsafe pointer reinterpretation.
-                match elem_size {
-                    4 => {
-                        let val = f32::from_le_bytes(chunk.try_into().unwrap());
-                        T::from(val).unwrap()
-                    }
-                    8 => {
-                        let val = f64::from_le_bytes(chunk.try_into().unwrap());
-                        T::from(val).unwrap()
-                    }
-                    _ => unreachable!("unsupported element size {}", elem_size),
+        let mut data: Vec<T> = Vec::with_capacity(numel);
+        for chunk in byte_slice.chunks_exact(elem_size) {
+            // Safe byte-to-float conversion using from_le_bytes; both
+            // `try_into` and the numeric `cast` are fallible and propagate
+            // a structured `FerrotorchError` instead of panicking on
+            // malformed input. `chunk.try_into()` can only fail if
+            // `chunks_exact` lied (it doesn't), but we propagate cleanly
+            // anyway. `cast::<f64, T>` can fail for narrow `Float`
+            // implementations where the source value isn't representable.
+            let value: T = match elem_size {
+                4 => {
+                    let arr: [u8; 4] =
+                        chunk
+                            .try_into()
+                            .map_err(|e| FerrotorchError::InvalidArgument {
+                                message: format!(
+                                    "malformed checkpoint chunk for tensor \"{}\": {e}",
+                                    meta.name
+                                ),
+                            })?;
+                    cast::<f32, T>(f32::from_le_bytes(arr))?
                 }
-            })
-            .collect();
+                8 => {
+                    let arr: [u8; 8] =
+                        chunk
+                            .try_into()
+                            .map_err(|e| FerrotorchError::InvalidArgument {
+                                message: format!(
+                                    "malformed checkpoint chunk for tensor \"{}\": {e}",
+                                    meta.name
+                                ),
+                            })?;
+                    cast::<f64, T>(f64::from_le_bytes(arr))?
+                }
+                other => {
+                    return Err(FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "unsupported element size {other} for tensor \"{}\" \
+                             (checkpoint format only supports f32/f64)",
+                            meta.name
+                        ),
+                    });
+                }
+            };
+            data.push(value);
+        }
 
         let storage = ferrotorch_core::TensorStorage::cpu(data);
         let tensor = ferrotorch_core::Tensor::from_storage(storage, meta.shape.clone(), false)?;
@@ -495,6 +560,18 @@ pub struct AsyncCheckpointer {
     in_flight: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Join handle for the background thread.
     handle: Option<std::thread::JoinHandle<FerrotorchResult<()>>>,
+}
+
+impl std::fmt::Debug for AsyncCheckpointer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AsyncCheckpointer")
+            .field(
+                "in_flight",
+                &self.in_flight.load(std::sync::atomic::Ordering::Relaxed),
+            )
+            .field("has_pending_save", &self.handle.is_some())
+            .finish()
+    }
 }
 
 impl AsyncCheckpointer {

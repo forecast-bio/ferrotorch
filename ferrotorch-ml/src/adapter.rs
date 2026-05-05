@@ -25,6 +25,7 @@ use ndarray::{Array1, Array2};
 
 use ferrotorch_core::dtype::Float;
 use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::storage::TensorStorage;
 use ferrotorch_core::tensor::Tensor;
 
@@ -77,6 +78,11 @@ pub fn tensor_to_array2<T: Float + Clone>(t: &Tensor<T>) -> FerrotorchResult<Arr
 }
 
 /// Convert a 1-D ndarray back to a CPU tensor.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError`] when [`Tensor::from_storage`] rejects the
+/// shape (e.g. internal storage construction failure).
 pub fn array1_to_tensor<T: Float>(arr: Array1<T>) -> FerrotorchResult<Tensor<T>> {
     let len = arr.len();
     let data = arr.into_raw_vec_and_offset().0;
@@ -84,6 +90,11 @@ pub fn array1_to_tensor<T: Float>(arr: Array1<T>) -> FerrotorchResult<Tensor<T>>
 }
 
 /// Convert a 2-D ndarray back to a CPU tensor.
+///
+/// # Errors
+///
+/// Returns [`FerrotorchError`] when [`Tensor::from_storage`] rejects the
+/// shape (e.g. internal storage construction failure).
 pub fn array2_to_tensor<T: Float>(arr: Array2<T>) -> FerrotorchResult<Tensor<T>> {
     let (rows, cols) = arr.dim();
     // ndarray Array2 may be non-contiguous if it was sliced/transposed —
@@ -99,8 +110,19 @@ pub fn array2_to_tensor<T: Float>(arr: Array2<T>) -> FerrotorchResult<Tensor<T>>
 /// Convert a 1-D `Array1<usize>` (sklearn label-style) into a CPU tensor
 /// of `T`. Useful when ferrolearn returns class predictions and you want
 /// them back inside a tensor pipeline.
+///
+/// # Errors
+///
+/// - [`FerrotorchError::InvalidArgument`] when an input label cannot be
+///   represented as a finite `T` (propagated from
+///   [`ferrotorch_core::numeric_cast::cast`]).
+/// - [`FerrotorchError`] from [`Tensor::from_storage`] on storage build
+///   failure.
 pub fn array1_usize_to_tensor<T: Float>(arr: Array1<usize>) -> FerrotorchResult<Tensor<T>> {
-    let data: Vec<T> = arr.iter().map(|&i| T::from(i as f64).unwrap()).collect();
+    let data: Vec<T> = arr
+        .iter()
+        .map(|&i| cast::<f64, T>(i as f64))
+        .collect::<FerrotorchResult<_>>()?;
     Tensor::from_storage(TensorStorage::cpu(data), vec![arr.len()], false)
 }
 
@@ -110,6 +132,14 @@ pub fn array1_usize_to_tensor<T: Float>(arr: Array1<usize>) -> FerrotorchResult<
 ///
 /// GPU tensors are transparently moved to host memory; see the module
 /// docstring.
+///
+/// # Errors
+///
+/// - [`FerrotorchError::ShapeMismatch`] when the input is not 1-D.
+/// - [`FerrotorchError::InvalidArgument`] when an element is non-finite,
+///   negative, or otherwise not representable as a non-negative integer.
+/// - [`FerrotorchError`] propagated from [`Tensor::data_vec`] on
+///   device-transfer failure.
 pub fn tensor_to_array1_usize<T: Float>(t: &Tensor<T>) -> FerrotorchResult<Array1<usize>> {
     if t.shape().len() != 1 {
         return Err(FerrotorchError::ShapeMismatch {

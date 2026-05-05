@@ -14,7 +14,16 @@ pub enum WeightsFormat {
 }
 
 /// Metadata for a pretrained model.
+///
+/// Marked `#[non_exhaustive]` so future fields (e.g. license, license_url,
+/// expected dtype, training resolution) can be added in a minor version
+/// without breaking external code. External callers must use the registry
+/// accessors ([`get_model_info`], [`list_models`]) — there is no public
+/// constructor and struct-literal construction from outside this crate is
+/// rejected at compile time. A workspace-level grep for `ModelInfo {`
+/// outside `ferrotorch-hub/` returned zero hits at audit time.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ModelInfo {
     /// Short identifier (e.g. `"resnet50"`).
     pub name: &'static str,

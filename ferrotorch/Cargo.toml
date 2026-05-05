@@ -73,8 +73,8 @@ ferrotorch-llama = { workspace = true, optional = true }
 ferrotorch-ml = { workspace = true, optional = true }
 
 [[test]]
-name = "gpu_training"
-path = "tests/gpu_training.rs"
+name = "cpu_training"
+path = "tests/cpu_training.rs"
 
 [[test]]
 name = "pythia_real"

@@ -101,6 +101,8 @@ fn pad_2d_constant<T: Float>(
 }
 
 /// Pad the last 3 dimensions of a contiguous tensor with a constant value.
+// Internal kernel: signature mirrors PyTorch's `F.pad` 3-axis layout
+// (left, right, top, bottom, front, back); a config struct adds nothing.
 #[allow(clippy::too_many_arguments)]
 fn pad_3d_constant<T: Float>(
     data: &[T],
@@ -251,6 +253,7 @@ fn pad_2d_reflect<T: Float>(
 }
 
 /// Reflect-pad the last 3 dimensions.
+// Internal kernel: same 3-axis pad descriptor as `pad_3d_constant`.
 #[allow(clippy::too_many_arguments)]
 fn pad_3d_reflect<T: Float>(
     data: &[T],
@@ -403,6 +406,7 @@ fn pad_2d_replicate<T: Float>(
 }
 
 /// Replicate-pad the last 3 dimensions.
+// Internal kernel: same 3-axis pad descriptor as `pad_3d_constant`.
 #[allow(clippy::too_many_arguments)]
 fn pad_3d_replicate<T: Float>(
     data: &[T],
@@ -520,6 +524,7 @@ fn pad_2d_circular<T: Float>(
 }
 
 /// Circular-pad the last 3 dimensions.
+// Internal kernel: same 3-axis pad descriptor as `pad_3d_constant`.
 #[allow(clippy::too_many_arguments)]
 fn pad_3d_circular<T: Float>(
     data: &[T],
@@ -636,6 +641,9 @@ pub fn functional_pad_2d<T: Float>(
 }
 
 /// Apply padding to the last 3 dimensions of a tensor using the given mode.
+// Public API: matches PyTorch's `torch.nn.functional.pad` signature for the
+// 3-axis case (input + 6 pad amounts + mode + value); divergence would
+// break parity with the upstream reference.
 #[allow(clippy::too_many_arguments)]
 pub fn functional_pad_3d<T: Float>(
     input: &Tensor<T>,

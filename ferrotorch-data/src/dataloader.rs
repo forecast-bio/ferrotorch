@@ -135,7 +135,7 @@ type CollateFn<S> = Arc<dyn Fn(Vec<S>) -> FerrotorchResult<S> + Send + Sync>;
 ///
 /// ```ignore
 /// let ds = VecDataset::new(vec![1, 2, 3, 4, 5]);
-/// let loader = DataLoader::new(Arc::new(ds), 2);
+/// let loader = DataLoader::new(Arc::new(ds), 2).unwrap();
 ///
 /// for batch in loader.iter(0) {
 ///     let batch = batch.unwrap();
@@ -159,18 +159,45 @@ pub struct DataLoader<D: Dataset> {
     transfer_fn: Option<TransferFn<D::Sample>>,
 }
 
+// Manual `Debug` impl: `Box<dyn Sampler>`, `CollateFn`, and `TransferFn`
+// hold trait objects / `Arc<dyn Fn>` closures that do not implement
+// `Debug`. We elide their content with a presence indicator so the
+// derived format remains useful for diagnostics.
+impl<D: Dataset> std::fmt::Debug for DataLoader<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DataLoader")
+            .field("batch_size", &self.batch_size)
+            .field("shuffle", &self.shuffle)
+            .field("drop_last", &self.drop_last)
+            .field("seed", &self.seed)
+            .field("num_workers", &self.num_workers)
+            .field("prefetch_factor", &self.prefetch_factor)
+            .field("worker_mode", &self.worker_mode)
+            .field("device", &self.device)
+            .field("pin_memory", &self.pin_memory)
+            .field("has_custom_sampler", &self.custom_sampler.is_some())
+            .field("has_collate_fn", &self.collate_fn.is_some())
+            .field("has_transfer_fn", &self.transfer_fn.is_some())
+            .finish()
+    }
+}
+
 impl<D: Dataset> DataLoader<D> {
     /// Create a new `DataLoader` for the given dataset and batch size.
     ///
     /// Defaults: sequential order, keep the final partial batch, seed 0,
     /// prefetch_factor 2, no device transfer.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `batch_size` is 0.
-    pub fn new(dataset: Arc<D>, batch_size: usize) -> Self {
-        assert!(batch_size > 0, "batch_size must be > 0");
-        Self {
+    /// Returns [`FerrotorchError::InvalidArgument`] if `batch_size == 0`.
+    pub fn new(dataset: Arc<D>, batch_size: usize) -> FerrotorchResult<Self> {
+        if batch_size == 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "DataLoader: batch_size must be > 0".into(),
+            });
+        }
+        Ok(Self {
             dataset,
             batch_size,
             shuffle: false,
@@ -184,7 +211,7 @@ impl<D: Dataset> DataLoader<D> {
             custom_sampler: None,
             collate_fn: None,
             transfer_fn: None,
-        }
+        })
     }
 
     /// Select the worker parallelism strategy.
@@ -468,6 +495,18 @@ pub enum BatchIter<'a, D: Dataset> {
     MultiWorker(MultiWorkerIter<D>),
 }
 
+// Manual `Debug`: variants wrap iterator state with non-`Debug` fields
+// (closures, channels, thread handles); print the variant tag only.
+impl<D: Dataset> std::fmt::Debug for BatchIter<'_, D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BatchIter::Sync(_) => f.debug_tuple("BatchIter::Sync").finish(),
+            BatchIter::Prefetch(_) => f.debug_tuple("BatchIter::Prefetch").finish(),
+            BatchIter::MultiWorker(_) => f.debug_tuple("BatchIter::MultiWorker").finish(),
+        }
+    }
+}
+
 impl<D: Dataset + 'static> Iterator for BatchIter<'_, D>
 where
     D::Sample: Send + 'static,
@@ -511,6 +550,22 @@ pub struct DataLoaderIter<'a, D: Dataset> {
     /// Only meaningful when transfer_fn is set and the target device is CUDA.
     pin_memory: bool,
     pos: usize,
+}
+
+// Manual `Debug`: `dataset: &D` and `transfer_fn: Option<&Arc<dyn Fn ...>>`
+// are not `Debug`-bound. Elide both with presence indicators.
+impl<D: Dataset> std::fmt::Debug for DataLoaderIter<'_, D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DataLoaderIter")
+            .field("indices_len", &self.indices.len())
+            .field("batch_size", &self.batch_size)
+            .field("drop_last", &self.drop_last)
+            .field("num_workers", &self.num_workers)
+            .field("has_transfer_fn", &self.transfer_fn.is_some())
+            .field("pin_memory", &self.pin_memory)
+            .field("pos", &self.pos)
+            .finish()
+    }
 }
 
 impl<D: Dataset> Iterator for DataLoaderIter<'_, D>
@@ -587,6 +642,18 @@ pub struct PrefetchIter<D: Dataset> {
     total_batches: usize,
     /// Number of batches consumed so far.
     consumed: usize,
+}
+
+// Manual `Debug`: `Receiver` and `JoinHandle` are not `Debug` for
+// arbitrary `D::Sample`. Print only the bookkeeping counters that are
+// useful for diagnostics.
+impl<D: Dataset> std::fmt::Debug for PrefetchIter<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PrefetchIter")
+            .field("total_batches", &self.total_batches)
+            .field("consumed", &self.consumed)
+            .finish()
+    }
 }
 
 impl<D: Dataset + 'static> PrefetchIter<D>
@@ -816,6 +883,24 @@ pub struct MultiWorkerIter<D: Dataset> {
     worker_handles: Vec<JoinHandle<()>>,
     /// Whether the work queue has been closed (sentinel sent).
     closed: bool,
+}
+
+// Manual `Debug`: `Receiver`, `Mutex<VecDeque<Option<WorkItem>>>`,
+// `BinaryHeap<SeqEntry<D::Sample>>`, and `JoinHandle` either lack
+// `Debug` for arbitrary `D::Sample` or carry per-thread state that is
+// not useful in diagnostics. Print only the dispatcher bookkeeping.
+impl<D: Dataset> std::fmt::Debug for MultiWorkerIter<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultiWorkerIter")
+            .field("next_dispatch_seq", &self.next_dispatch_seq)
+            .field("next_yield_seq", &self.next_yield_seq)
+            .field("in_flight_count", &self.in_flight_count)
+            .field("max_in_flight", &self.max_in_flight)
+            .field("total_batches", &self.total_batches)
+            .field("workers", &self.worker_handles.len())
+            .field("closed", &self.closed)
+            .finish()
+    }
 }
 
 impl<D: Dataset + 'static> MultiWorkerIter<D>
@@ -1134,6 +1219,17 @@ pub struct CollatedIter<'a, D: Dataset> {
     collate_fn: &'a (dyn Fn(Vec<D::Sample>) -> FerrotorchResult<D::Sample> + Send + Sync),
 }
 
+// Manual `Debug`: `collate_fn` is a `dyn Fn` reference and not `Debug`.
+// Print the inner `BatchIter` variant tag and a presence indicator.
+impl<D: Dataset> std::fmt::Debug for CollatedIter<'_, D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CollatedIter")
+            .field("inner", &self.inner)
+            .field("has_collate_fn", &true)
+            .finish()
+    }
+}
+
 impl<D: Dataset + 'static> Iterator for CollatedIter<'_, D>
 where
     D::Sample: Send + 'static,
@@ -1165,7 +1261,7 @@ mod tests {
 
     #[test]
     fn test_batch_count_exact_division() {
-        let loader = DataLoader::new(make_dataset(10), 5);
+        let loader = DataLoader::new(make_dataset(10), 5).unwrap();
         assert_eq!(loader.len(), 2);
         let batches: Vec<_> = loader.iter(0).collect();
         assert_eq!(batches.len(), 2);
@@ -1173,7 +1269,7 @@ mod tests {
 
     #[test]
     fn test_batch_count_with_remainder() {
-        let loader = DataLoader::new(make_dataset(10), 3);
+        let loader = DataLoader::new(make_dataset(10), 3).unwrap();
         assert_eq!(loader.len(), 4); // ceil(10/3) = 4
         let batches: Vec<_> = loader.iter(0).collect();
         assert_eq!(batches.len(), 4);
@@ -1181,7 +1277,7 @@ mod tests {
 
     #[test]
     fn test_batch_count_single_element() {
-        let loader = DataLoader::new(make_dataset(1), 5);
+        let loader = DataLoader::new(make_dataset(1), 5).unwrap();
         assert_eq!(loader.len(), 1);
         let batches: Vec<_> = loader.iter(0).collect();
         assert_eq!(batches.len(), 1);
@@ -1189,7 +1285,7 @@ mod tests {
 
     #[test]
     fn test_empty_dataset() {
-        let loader = DataLoader::new(make_dataset(0), 4);
+        let loader = DataLoader::new(make_dataset(0), 4).unwrap();
         assert!(loader.is_empty());
         assert_eq!(loader.len(), 0);
         let batches: Vec<_> = loader.iter(0).collect();
@@ -1200,21 +1296,21 @@ mod tests {
 
     #[test]
     fn test_batch_sizes_exact() {
-        let loader = DataLoader::new(make_dataset(6), 3);
+        let loader = DataLoader::new(make_dataset(6), 3).unwrap();
         let sizes: Vec<usize> = loader.iter(0).map(|b| b.unwrap().len()).collect();
         assert_eq!(sizes, vec![3, 3]);
     }
 
     #[test]
     fn test_batch_sizes_with_partial_last() {
-        let loader = DataLoader::new(make_dataset(7), 3);
+        let loader = DataLoader::new(make_dataset(7), 3).unwrap();
         let sizes: Vec<usize> = loader.iter(0).map(|b| b.unwrap().len()).collect();
         assert_eq!(sizes, vec![3, 3, 1]);
     }
 
     #[test]
     fn test_all_samples_present_sequential() {
-        let loader = DataLoader::new(make_dataset(10), 3);
+        let loader = DataLoader::new(make_dataset(10), 3).unwrap();
         let mut all: Vec<i32> = loader.iter(0).flat_map(|b| b.unwrap()).collect();
         all.sort();
         assert_eq!(all, (0..10).collect::<Vec<i32>>());
@@ -1224,7 +1320,9 @@ mod tests {
 
     #[test]
     fn test_drop_last_removes_partial_batch() {
-        let loader = DataLoader::new(make_dataset(10), 3).drop_last(true);
+        let loader = DataLoader::new(make_dataset(10), 3)
+            .unwrap()
+            .drop_last(true);
         assert_eq!(loader.len(), 3); // 10/3 = 3 full batches
         let batches: Vec<_> = loader.iter(0).collect();
         assert_eq!(batches.len(), 3);
@@ -1235,7 +1333,7 @@ mod tests {
 
     #[test]
     fn test_drop_last_exact_keeps_all() {
-        let loader = DataLoader::new(make_dataset(9), 3).drop_last(true);
+        let loader = DataLoader::new(make_dataset(9), 3).unwrap().drop_last(true);
         assert_eq!(loader.len(), 3);
         let batches: Vec<_> = loader.iter(0).collect();
         assert_eq!(batches.len(), 3);
@@ -1243,7 +1341,7 @@ mod tests {
 
     #[test]
     fn test_drop_last_smaller_than_batch() {
-        let loader = DataLoader::new(make_dataset(2), 5).drop_last(true);
+        let loader = DataLoader::new(make_dataset(2), 5).unwrap().drop_last(true);
         assert!(loader.is_empty());
         let batches: Vec<_> = loader.iter(0).collect();
         assert!(batches.is_empty());
@@ -1254,6 +1352,7 @@ mod tests {
     #[test]
     fn test_shuffle_produces_different_order() {
         let loader = DataLoader::new(make_dataset(100), 100)
+            .unwrap()
             .shuffle(true)
             .seed(42);
         let batch = loader.iter(0).next().unwrap().unwrap();
@@ -1266,7 +1365,10 @@ mod tests {
 
     #[test]
     fn test_shuffle_contains_all_elements() {
-        let loader = DataLoader::new(make_dataset(20), 5).shuffle(true).seed(7);
+        let loader = DataLoader::new(make_dataset(20), 5)
+            .unwrap()
+            .shuffle(true)
+            .seed(7);
         let mut all: Vec<i32> = loader.iter(0).flat_map(|b| b.unwrap()).collect();
         all.sort();
         assert_eq!(all, (0..20).collect::<Vec<i32>>());
@@ -1274,7 +1376,10 @@ mod tests {
 
     #[test]
     fn test_shuffle_different_epochs() {
-        let loader = DataLoader::new(make_dataset(50), 50).shuffle(true).seed(99);
+        let loader = DataLoader::new(make_dataset(50), 50)
+            .unwrap()
+            .shuffle(true)
+            .seed(99);
         let epoch0 = loader.iter(0).next().unwrap().unwrap();
         let epoch1 = loader.iter(1).next().unwrap().unwrap();
         assert_ne!(
@@ -1287,7 +1392,10 @@ mod tests {
 
     #[test]
     fn test_reproducible_with_same_seed_and_epoch() {
-        let loader = DataLoader::new(make_dataset(30), 10).shuffle(true).seed(42);
+        let loader = DataLoader::new(make_dataset(30), 10)
+            .unwrap()
+            .shuffle(true)
+            .seed(42);
         let run1: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
         let run2: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
         assert_eq!(run1, run2);
@@ -1296,8 +1404,11 @@ mod tests {
     #[test]
     fn test_different_seeds_differ() {
         let ds = make_dataset(100);
-        let loader_a = DataLoader::new(Arc::clone(&ds), 100).shuffle(true).seed(1);
-        let loader_b = DataLoader::new(ds, 100).shuffle(true).seed(2);
+        let loader_a = DataLoader::new(Arc::clone(&ds), 100)
+            .unwrap()
+            .shuffle(true)
+            .seed(1);
+        let loader_b = DataLoader::new(ds, 100).unwrap().shuffle(true).seed(2);
         let a = loader_a.iter(0).next().unwrap().unwrap();
         let b = loader_b.iter(0).next().unwrap().unwrap();
         assert_ne!(a, b);
@@ -1307,7 +1418,7 @@ mod tests {
 
     #[test]
     fn test_size_hint_accurate() {
-        let loader = DataLoader::new(make_dataset(11), 3);
+        let loader = DataLoader::new(make_dataset(11), 3).unwrap();
         let mut it = loader.iter(0);
         assert_eq!(it.len(), 4);
         it.next();
@@ -1323,7 +1434,9 @@ mod tests {
 
     #[test]
     fn test_size_hint_drop_last() {
-        let loader = DataLoader::new(make_dataset(11), 3).drop_last(true);
+        let loader = DataLoader::new(make_dataset(11), 3)
+            .unwrap()
+            .drop_last(true);
         let it = loader.iter(0);
         assert_eq!(it.len(), 3);
     }
@@ -1331,14 +1444,19 @@ mod tests {
     // ── builder ergonomics ──────────────────────────────────────────
 
     #[test]
-    #[should_panic(expected = "batch_size must be > 0")]
-    fn test_zero_batch_size_panics() {
-        let _ = DataLoader::new(make_dataset(5), 0);
+    fn test_zero_batch_size_returns_err() {
+        let result = DataLoader::new(make_dataset(5), 0);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            let msg = format!("{e:?}");
+            assert!(msg.contains("batch_size must be > 0"), "got: {msg}");
+        }
     }
 
     #[test]
     fn test_builder_chaining() {
         let loader = DataLoader::new(make_dataset(10), 2)
+            .unwrap()
             .shuffle(true)
             .drop_last(true)
             .seed(123)
@@ -1352,6 +1470,7 @@ mod tests {
     #[test]
     fn test_builder_chaining_with_device() {
         let loader = DataLoader::new(make_device_dataset(4), 2)
+            .unwrap()
             .prefetch_factor(4)
             .device(Device::Cpu);
         assert_eq!(loader.prefetch_factor, 4);
@@ -1364,6 +1483,7 @@ mod tests {
     #[test]
     fn test_with_collate_sum() {
         let loader = DataLoader::new(make_dataset(6), 3)
+            .unwrap()
             .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
 
         let collated: Vec<i32> = loader
@@ -1378,6 +1498,7 @@ mod tests {
     #[test]
     fn test_collate_with_remainder() {
         let loader = DataLoader::new(make_dataset(5), 3)
+            .unwrap()
             .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
 
         let collated: Vec<i32> = loader
@@ -1392,6 +1513,7 @@ mod tests {
     #[test]
     fn test_collate_with_drop_last() {
         let loader = DataLoader::new(make_dataset(5), 3)
+            .unwrap()
             .drop_last(true)
             .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
 
@@ -1406,7 +1528,7 @@ mod tests {
 
     #[test]
     fn test_collate_fn_accessor() {
-        let loader = DataLoader::new(make_dataset(5), 3);
+        let loader = DataLoader::new(make_dataset(5), 3).unwrap();
         assert!(loader.collate_fn().is_none());
 
         let loader = loader.with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
@@ -1416,6 +1538,7 @@ mod tests {
     #[test]
     fn test_collated_iter_size_hint() {
         let loader = DataLoader::new(make_dataset(10), 3)
+            .unwrap()
             .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
 
         let it = loader.iter_collated(0).unwrap();
@@ -1424,11 +1547,13 @@ mod tests {
 
     #[test]
     fn test_collate_error_propagation() {
-        let loader = DataLoader::new(make_dataset(4), 2).with_collate(|_batch| {
-            Err(ferrotorch_core::FerrotorchError::InvalidArgument {
-                message: "test error".into(),
-            })
-        });
+        let loader = DataLoader::new(make_dataset(4), 2)
+            .unwrap()
+            .with_collate(|_batch| {
+                Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+                    message: "test error".into(),
+                })
+            });
 
         let results: Vec<_> = loader.iter_collated(0).unwrap().collect();
         assert_eq!(results.len(), 2);
@@ -1440,7 +1565,7 @@ mod tests {
     fn test_collated_iter_err_without_collate_fn() {
         // iter_collated now returns Err instead of panicking when no
         // collate_fn is set — callers can handle the misuse gracefully.
-        let loader = DataLoader::new(make_dataset(5), 3);
+        let loader = DataLoader::new(make_dataset(5), 3).unwrap();
         assert!(loader.iter_collated(0).is_err());
     }
 
@@ -1449,6 +1574,7 @@ mod tests {
         // The original iter() path still returns Vec<Sample> even when
         // a collate_fn is set.
         let loader = DataLoader::new(make_dataset(4), 2)
+            .unwrap()
             .with_collate(|batch| Ok(batch.into_iter().sum::<i32>()));
 
         let batches: Vec<Vec<i32>> = loader.iter(0).map(|r| r.unwrap()).collect();
@@ -1459,13 +1585,13 @@ mod tests {
 
     #[test]
     fn test_num_workers_builder() {
-        let loader = DataLoader::new(make_dataset(10), 2).num_workers(4);
+        let loader = DataLoader::new(make_dataset(10), 2).unwrap().num_workers(4);
         assert_eq!(loader.num_workers, 4);
     }
 
     #[test]
     fn test_num_workers_parallel_loads_all_samples() {
-        let loader = DataLoader::new(make_dataset(20), 5).num_workers(2);
+        let loader = DataLoader::new(make_dataset(20), 5).unwrap().num_workers(2);
         let mut all: Vec<i32> = loader.iter(0).flat_map(|b| b.unwrap()).collect();
         all.sort();
         assert_eq!(all, (0..20).collect::<Vec<i32>>());
@@ -1473,7 +1599,7 @@ mod tests {
 
     #[test]
     fn test_num_workers_parallel_batch_sizes() {
-        let loader = DataLoader::new(make_dataset(7), 3).num_workers(2);
+        let loader = DataLoader::new(make_dataset(7), 3).unwrap().num_workers(2);
         let sizes: Vec<usize> = loader.iter(0).map(|b| b.unwrap().len()).collect();
         assert_eq!(sizes, vec![3, 3, 1]);
     }
@@ -1481,6 +1607,7 @@ mod tests {
     #[test]
     fn test_num_workers_parallel_drop_last() {
         let loader = DataLoader::new(make_dataset(10), 3)
+            .unwrap()
             .num_workers(2)
             .drop_last(true);
         let batches: Vec<_> = loader.iter(0).collect();
@@ -1493,6 +1620,7 @@ mod tests {
     #[test]
     fn test_num_workers_parallel_with_shuffle() {
         let loader = DataLoader::new(make_dataset(100), 100)
+            .unwrap()
             .num_workers(4)
             .shuffle(true)
             .seed(42);
@@ -1510,6 +1638,7 @@ mod tests {
     fn test_num_workers_zero_is_sequential() {
         // num_workers=0 should behave identically to default.
         let loader = DataLoader::new(make_dataset(10), 3)
+            .unwrap()
             .num_workers(0)
             .prefetch_factor(0);
         let batches: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
@@ -1527,6 +1656,7 @@ mod tests {
 
         // Even with shuffle=true, a custom sampler takes precedence.
         let loader = DataLoader::new(make_dataset(6), 3)
+            .unwrap()
             .shuffle(true)
             .seed(42)
             .with_sampler(Box::new(SequentialSampler::new(6)));
@@ -1542,7 +1672,9 @@ mod tests {
         let ds = make_dataset(10);
         // Rank 0 of 2, no shuffle => indices [0,2,4,6,8]
         let sampler = DistributedSampler::new(10, 2, 0).shuffle(false);
-        let loader = DataLoader::new(ds, 3).with_sampler(Box::new(sampler));
+        let loader = DataLoader::new(ds, 3)
+            .unwrap()
+            .with_sampler(Box::new(sampler));
 
         let all: Vec<i32> = loader.iter(0).flat_map(|b| b.unwrap()).collect();
         assert_eq!(all, vec![0, 2, 4, 6, 8]);
@@ -1553,6 +1685,7 @@ mod tests {
         use crate::sampler::SequentialSampler;
 
         let loader = DataLoader::new(make_dataset(8), 4)
+            .unwrap()
             .num_workers(2)
             .with_sampler(Box::new(SequentialSampler::new(8)));
 
@@ -1568,8 +1701,10 @@ mod tests {
         // Compare prefetch=0 (sync) vs prefetch=2 (default) for
         // sequential loading.
         let ds = make_dataset(20);
-        let sync_loader = DataLoader::new(Arc::clone(&ds), 3).prefetch_factor(0);
-        let prefetch_loader = DataLoader::new(ds, 3).prefetch_factor(2);
+        let sync_loader = DataLoader::new(Arc::clone(&ds), 3)
+            .unwrap()
+            .prefetch_factor(0);
+        let prefetch_loader = DataLoader::new(ds, 3).unwrap().prefetch_factor(2);
 
         let sync_batches: Vec<Vec<i32>> = sync_loader.iter(0).map(|b| b.unwrap()).collect();
         let prefetch_batches: Vec<Vec<i32>> = prefetch_loader.iter(0).map(|b| b.unwrap()).collect();
@@ -1581,6 +1716,7 @@ mod tests {
     fn test_prefetch_with_shuffle_same_elements() {
         let ds = make_dataset(50);
         let loader = DataLoader::new(ds, 7)
+            .unwrap()
             .shuffle(true)
             .seed(42)
             .prefetch_factor(3);
@@ -1593,6 +1729,7 @@ mod tests {
     #[test]
     fn test_prefetch_with_drop_last() {
         let loader = DataLoader::new(make_dataset(10), 3)
+            .unwrap()
             .drop_last(true)
             .prefetch_factor(2);
 
@@ -1605,14 +1742,18 @@ mod tests {
 
     #[test]
     fn test_prefetch_empty_dataset() {
-        let loader = DataLoader::new(make_dataset(0), 4).prefetch_factor(2);
+        let loader = DataLoader::new(make_dataset(0), 4)
+            .unwrap()
+            .prefetch_factor(2);
         let batches: Vec<_> = loader.iter(0).collect();
         assert!(batches.is_empty());
     }
 
     #[test]
     fn test_prefetch_single_element() {
-        let loader = DataLoader::new(make_dataset(1), 5).prefetch_factor(2);
+        let loader = DataLoader::new(make_dataset(1), 5)
+            .unwrap()
+            .prefetch_factor(2);
         let batches: Vec<_> = loader.iter(0).collect();
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].as_ref().unwrap(), &vec![0]);
@@ -1621,7 +1762,9 @@ mod tests {
     #[test]
     fn test_prefetch_factor_1() {
         // Minimal buffer: one batch ahead.
-        let loader = DataLoader::new(make_dataset(10), 3).prefetch_factor(1);
+        let loader = DataLoader::new(make_dataset(10), 3)
+            .unwrap()
+            .prefetch_factor(1);
         let batches: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
         assert_eq!(
             batches,
@@ -1632,14 +1775,18 @@ mod tests {
     #[test]
     fn test_prefetch_factor_large() {
         // Buffer larger than total batches — should still work.
-        let loader = DataLoader::new(make_dataset(6), 3).prefetch_factor(100);
+        let loader = DataLoader::new(make_dataset(6), 3)
+            .unwrap()
+            .prefetch_factor(100);
         let batches: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
         assert_eq!(batches, vec![vec![0, 1, 2], vec![3, 4, 5]]);
     }
 
     #[test]
     fn test_prefetch_size_hint() {
-        let loader = DataLoader::new(make_dataset(11), 3).prefetch_factor(2);
+        let loader = DataLoader::new(make_dataset(11), 3)
+            .unwrap()
+            .prefetch_factor(2);
         let mut it = loader.iter(0);
         assert_eq!(it.len(), 4);
         it.next();
@@ -1657,7 +1804,9 @@ mod tests {
     fn test_prefetch_drop_mid_iteration_no_hang() {
         // Dropping the iterator mid-stream must not block or hang.
         // The background thread should detect the closed channel and exit.
-        let loader = DataLoader::new(make_dataset(1000), 3).prefetch_factor(2);
+        let loader = DataLoader::new(make_dataset(1000), 3)
+            .unwrap()
+            .prefetch_factor(2);
         let mut it = loader.iter(0);
         // Consume only 2 of ~334 batches, then drop.
         let _ = it.next();
@@ -1669,6 +1818,7 @@ mod tests {
     #[test]
     fn test_prefetch_multiple_epochs() {
         let loader = DataLoader::new(make_dataset(10), 5)
+            .unwrap()
             .shuffle(true)
             .seed(42)
             .prefetch_factor(2);
@@ -1692,6 +1842,7 @@ mod tests {
     #[test]
     fn test_prefetch_with_num_workers() {
         let loader = DataLoader::new(make_dataset(20), 5)
+            .unwrap()
             .num_workers(2)
             .prefetch_factor(3);
 
@@ -1704,6 +1855,7 @@ mod tests {
     fn test_prefetch_reproducibility() {
         let ds = make_dataset(30);
         let loader = DataLoader::new(ds, 7)
+            .unwrap()
             .shuffle(true)
             .seed(99)
             .prefetch_factor(2);
@@ -1716,7 +1868,9 @@ mod tests {
     #[test]
     fn test_sync_path_when_prefetch_zero() {
         // prefetch_factor=0 should use the synchronous DataLoaderIter.
-        let loader = DataLoader::new(make_dataset(6), 3).prefetch_factor(0);
+        let loader = DataLoader::new(make_dataset(6), 3)
+            .unwrap()
+            .prefetch_factor(0);
         let batches: Vec<Vec<i32>> = loader.iter(0).map(|b| b.unwrap()).collect();
         assert_eq!(batches, vec![vec![0, 1, 2], vec![3, 4, 5]]);
     }
@@ -1788,6 +1942,7 @@ mod tests {
     #[test]
     fn test_device_transfer_sync() {
         let loader = DataLoader::new(make_device_dataset(4), 2)
+            .unwrap()
             .prefetch_factor(0)
             .device(Device::Cuda(0));
 
@@ -1804,6 +1959,7 @@ mod tests {
     #[test]
     fn test_device_transfer_prefetch() {
         let loader = DataLoader::new(make_device_dataset(6), 2)
+            .unwrap()
             .prefetch_factor(2)
             .device(Device::Cuda(1));
 
@@ -1826,7 +1982,9 @@ mod tests {
     #[test]
     fn test_no_device_no_transfer() {
         // Without .device(), samples should remain on their original device.
-        let loader = DataLoader::new(make_device_dataset(4), 2).prefetch_factor(0);
+        let loader = DataLoader::new(make_device_dataset(4), 2)
+            .unwrap()
+            .prefetch_factor(0);
 
         let batches: Vec<Vec<DeviceSample>> = loader.iter(0).map(|b| b.unwrap()).collect();
 
@@ -1839,7 +1997,9 @@ mod tests {
 
     #[test]
     fn test_device_transfer_empty_dataset() {
-        let loader = DataLoader::new(make_device_dataset(0), 4).device(Device::Cuda(0));
+        let loader = DataLoader::new(make_device_dataset(0), 4)
+            .unwrap()
+            .device(Device::Cuda(0));
 
         let batches: Vec<_> = loader.iter(0).collect();
         assert!(batches.is_empty());
@@ -1847,7 +2007,9 @@ mod tests {
 
     #[test]
     fn test_device_transfer_single_element() {
-        let loader = DataLoader::new(make_device_dataset(1), 5).device(Device::Cuda(0));
+        let loader = DataLoader::new(make_device_dataset(1), 5)
+            .unwrap()
+            .device(Device::Cuda(0));
 
         let batches: Vec<Vec<DeviceSample>> = loader.iter(0).map(|b| b.unwrap()).collect();
         assert_eq!(batches.len(), 1);
@@ -1858,6 +2020,7 @@ mod tests {
     #[test]
     fn test_device_transfer_with_collate() {
         let loader = DataLoader::new(make_device_dataset(6), 3)
+            .unwrap()
             .device(Device::Cuda(0))
             .with_collate(|batch| {
                 Ok(DeviceSample {
@@ -1893,6 +2056,7 @@ mod tests {
     fn test_pin_memory_default_off_uses_to_device() {
         // pin_memory not set -> closure should call to_device (pinned=Some(false))
         let loader = DataLoader::new(make_device_dataset(2), 2)
+            .unwrap()
             .prefetch_factor(0)
             .device(Device::Cuda(0));
         assert!(!loader.is_pin_memory());
@@ -1906,6 +2070,7 @@ mod tests {
     fn test_pin_memory_on_uses_to_device_pinned_sync() {
         // pin_memory(true) + device(Cuda) + sync iter -> to_device_pinned
         let loader = DataLoader::new(make_device_dataset(4), 2)
+            .unwrap()
             .prefetch_factor(0)
             .device(Device::Cuda(0))
             .pin_memory(true);
@@ -1923,6 +2088,7 @@ mod tests {
     fn test_pin_memory_on_uses_to_device_pinned_prefetch() {
         // pin_memory(true) + device(Cuda) + prefetch iter -> to_device_pinned
         let loader = DataLoader::new(make_device_dataset(6), 2)
+            .unwrap()
             .prefetch_factor(2)
             .device(Device::Cuda(0))
             .pin_memory(true);
@@ -1941,6 +2107,7 @@ mod tests {
         // parameter), not at device() construction time. So calling
         // pin_memory(true) AFTER device() must still flip the path.
         let loader = DataLoader::new(make_device_dataset(2), 2)
+            .unwrap()
             .device(Device::Cuda(0))
             .pin_memory(true);
         let batches: Vec<Vec<DeviceSample>> = loader.iter(0).map(|b| b.unwrap()).collect();
@@ -1953,6 +2120,7 @@ mod tests {
     fn test_pin_memory_set_before_device_takes_effect() {
         // Order independent: pin_memory before device should also work.
         let loader = DataLoader::new(make_device_dataset(2), 2)
+            .unwrap()
             .pin_memory(true)
             .device(Device::Cuda(0));
         let batches: Vec<Vec<DeviceSample>> = loader.iter(0).map(|b| b.unwrap()).collect();
@@ -1966,7 +2134,9 @@ mod tests {
         // pin_memory without device() should be a no-op (no transfer
         // happens at all). Samples retain their original device and
         // pinned=None.
-        let loader = DataLoader::new(make_device_dataset(2), 2).pin_memory(true);
+        let loader = DataLoader::new(make_device_dataset(2), 2)
+            .unwrap()
+            .pin_memory(true);
         let batches: Vec<Vec<DeviceSample>> = loader.iter(0).map(|b| b.unwrap()).collect();
         for sample in &batches[0] {
             assert_eq!(sample.pinned, None);
@@ -2020,6 +2190,7 @@ mod tests {
             ],
         });
         let loader = DataLoader::new(ds, 2)
+            .unwrap()
             .device(Device::Cuda(0))
             .pin_memory(true);
         let batches: Vec<Vec<NoPinSample>> = loader.iter(0).map(|b| b.unwrap()).collect();
@@ -2033,13 +2204,15 @@ mod tests {
 
     #[test]
     fn test_prefetch_factor_builder() {
-        let loader = DataLoader::new(make_dataset(10), 2).prefetch_factor(5);
+        let loader = DataLoader::new(make_dataset(10), 2)
+            .unwrap()
+            .prefetch_factor(5);
         assert_eq!(loader.prefetch_factor, 5);
     }
 
     #[test]
     fn test_default_prefetch_factor_is_2() {
-        let loader = DataLoader::new(make_dataset(10), 2);
+        let loader = DataLoader::new(make_dataset(10), 2).unwrap();
         assert_eq!(loader.prefetch_factor, 2);
     }
 
@@ -2047,7 +2220,9 @@ mod tests {
 
     #[test]
     fn test_prefetch_iterator_returns_none_after_exhaustion() {
-        let loader = DataLoader::new(make_dataset(3), 2).prefetch_factor(2);
+        let loader = DataLoader::new(make_dataset(3), 2)
+            .unwrap()
+            .prefetch_factor(2);
         let mut it = loader.iter(0);
         assert!(it.next().is_some()); // [0, 1]
         assert!(it.next().is_some()); // [2]
@@ -2058,7 +2233,9 @@ mod tests {
 
     #[test]
     fn test_sync_iterator_returns_none_after_exhaustion() {
-        let loader = DataLoader::new(make_dataset(3), 2).prefetch_factor(0);
+        let loader = DataLoader::new(make_dataset(3), 2)
+            .unwrap()
+            .prefetch_factor(0);
         let mut it = loader.iter(0);
         assert!(it.next().is_some());
         assert!(it.next().is_some());
@@ -2072,14 +2249,18 @@ mod tests {
     fn test_drop_immediately_after_creation() {
         // Creating and immediately dropping a prefetch iterator should not
         // block or panic.
-        let loader = DataLoader::new(make_dataset(100), 3).prefetch_factor(2);
+        let loader = DataLoader::new(make_dataset(100), 3)
+            .unwrap()
+            .prefetch_factor(2);
         let it = loader.iter(0);
         drop(it);
     }
 
     #[test]
     fn test_drop_empty_prefetch_iter() {
-        let loader = DataLoader::new(make_dataset(0), 4).prefetch_factor(2);
+        let loader = DataLoader::new(make_dataset(0), 4)
+            .unwrap()
+            .prefetch_factor(2);
         let it = loader.iter(0);
         drop(it);
     }
@@ -2088,13 +2269,15 @@ mod tests {
 
     #[test]
     fn test_multi_worker_default_is_intra_batch() {
-        let loader = DataLoader::new(make_dataset(10), 2);
+        let loader = DataLoader::new(make_dataset(10), 2).unwrap();
         assert_eq!(loader.current_worker_mode(), WorkerMode::IntraBatch);
     }
 
     #[test]
     fn test_multi_worker_builder_sets_mode() {
-        let loader = DataLoader::new(make_dataset(10), 2).worker_mode(WorkerMode::CrossBatch);
+        let loader = DataLoader::new(make_dataset(10), 2)
+            .unwrap()
+            .worker_mode(WorkerMode::CrossBatch);
         assert_eq!(loader.current_worker_mode(), WorkerMode::CrossBatch);
     }
 
@@ -2104,6 +2287,7 @@ mod tests {
         // worker runs independently so batches complete out of order
         // on the wire; the reorder buffer must yield them in order.
         let loader = DataLoader::new(make_dataset(20), 2)
+            .unwrap()
             .num_workers(4)
             .worker_mode(WorkerMode::CrossBatch)
             .prefetch_factor(8);
@@ -2120,6 +2304,7 @@ mod tests {
     #[test]
     fn test_multi_worker_with_drop_last() {
         let loader = DataLoader::new(make_dataset(7), 2)
+            .unwrap()
             .num_workers(2)
             .worker_mode(WorkerMode::CrossBatch)
             .drop_last(true);
@@ -2131,6 +2316,7 @@ mod tests {
     #[test]
     fn test_multi_worker_with_keep_last() {
         let loader = DataLoader::new(make_dataset(7), 2)
+            .unwrap()
             .num_workers(2)
             .worker_mode(WorkerMode::CrossBatch)
             .drop_last(false);
@@ -2145,11 +2331,13 @@ mod tests {
         // exactly once, and the same seed should produce the same
         // sequence across runs.
         let loader1 = DataLoader::new(make_dataset(12), 3)
+            .unwrap()
             .shuffle(true)
             .seed(42)
             .num_workers(3)
             .worker_mode(WorkerMode::CrossBatch);
         let loader2 = DataLoader::new(make_dataset(12), 3)
+            .unwrap()
             .shuffle(true)
             .seed(42)
             .num_workers(3)
@@ -2168,6 +2356,7 @@ mod tests {
     #[test]
     fn test_multi_worker_empty_dataset() {
         let loader = DataLoader::new(make_dataset(0), 4)
+            .unwrap()
             .num_workers(2)
             .worker_mode(WorkerMode::CrossBatch);
         let batches: Vec<_> = loader.iter(0).collect();
@@ -2180,6 +2369,7 @@ mod tests {
         // then drop the iterator. Workers should exit cleanly without
         // deadlocking the test.
         let loader = DataLoader::new(make_dataset(1000), 4)
+            .unwrap()
             .num_workers(4)
             .worker_mode(WorkerMode::CrossBatch)
             .prefetch_factor(16);
@@ -2194,6 +2384,7 @@ mod tests {
         // CrossBatch with num_workers=0 should fall back to the
         // existing Prefetch / Sync code paths.
         let loader = DataLoader::new(make_dataset(6), 2)
+            .unwrap()
             .num_workers(0)
             .worker_mode(WorkerMode::CrossBatch)
             .prefetch_factor(2);
@@ -2204,6 +2395,7 @@ mod tests {
     #[test]
     fn test_multi_worker_iter_variant_returned_when_configured() {
         let loader = DataLoader::new(make_dataset(6), 2)
+            .unwrap()
             .num_workers(2)
             .worker_mode(WorkerMode::CrossBatch);
         let it = loader.iter(0);
@@ -2213,6 +2405,7 @@ mod tests {
     #[test]
     fn test_multi_worker_size_hint_decreases_monotonically() {
         let loader = DataLoader::new(make_dataset(8), 2)
+            .unwrap()
             .num_workers(2)
             .worker_mode(WorkerMode::CrossBatch);
         let mut it = loader.iter(0);

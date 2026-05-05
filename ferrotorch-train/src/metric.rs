@@ -95,7 +95,7 @@ impl Metric for LossMetric {
         self.count = 0;
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "loss"
     }
 }
@@ -164,7 +164,7 @@ impl Metric for AccuracyMetric {
         self.total = 0;
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "accuracy"
     }
 }
@@ -238,7 +238,7 @@ impl Metric for TopKAccuracy {
         self.total = 0;
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "top_k_accuracy"
     }
 }
@@ -314,7 +314,7 @@ impl Metric for RunningAverage {
         self.values.clear();
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "running_avg"
     }
 }

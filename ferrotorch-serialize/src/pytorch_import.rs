@@ -1,4 +1,4 @@
-//! Import PyTorch `.pt` / `.pth` checkpoint files in pure Rust.
+//! Import `PyTorch` `.pt` / `.pth` checkpoint files in pure Rust.
 //!
 //! A `.pt` file is a ZIP archive containing:
 //! - `archive/data.pkl` (or `data.pkl`) -- pickle bytecodes describing the
@@ -7,7 +7,7 @@
 //!   referenced by the pickle via `PERSISTENT_LOAD`.
 //!
 //! This module implements:
-//! 1. A minimal pickle protocol-2 parser (only the opcode subset PyTorch uses).
+//! 1. A minimal pickle protocol-2 parser (only the opcode subset `PyTorch` uses).
 //! 2. Interpretation logic that walks the pickle tree, extracts tensor metadata
 //!    (shape, dtype, storage key), and reads raw bytes from the ZIP.
 //! 3. A public [`load_pytorch_state_dict`] function that produces a
@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::path::Path;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_nn::StateDict;
 use memmap2::Mmap;
@@ -27,7 +28,7 @@ use memmap2::Mmap;
 
 /// A value produced by the pickle virtual machine.
 ///
-/// Only the subset of types that PyTorch's state dict pickles actually emit
+/// Only the subset of types that `PyTorch`'s state dict pickles actually emit
 /// is represented here. Unknown constructs are mapped to the closest
 /// approximation or ignored.
 #[derive(Debug, Clone)]
@@ -110,7 +111,7 @@ const NEWOBJ: u8 = 0x81;
 
 /// Parse pickle bytecodes into a [`PickleValue`] tree.
 ///
-/// This only handles the protocol-2 opcode subset that PyTorch state dict
+/// This only handles the protocol-2 opcode subset that `PyTorch` state dict
 /// pickles emit. Encountering an unknown opcode returns an error rather than
 /// silently producing garbage.
 pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
@@ -186,7 +187,7 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 if pos >= data.len() {
                     return Err(pickle_err("unexpected end of pickle data (BINPUT)"));
                 }
-                let idx = data[pos] as u32;
+                let idx = u32::from(data[pos]);
                 pos += 1;
                 if let Some(top) = stack.last() {
                     memo.insert(idx, top.clone());
@@ -217,7 +218,7 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 if pos >= data.len() {
                     return Err(pickle_err("unexpected end of pickle data (BINGET)"));
                 }
-                let idx = data[pos] as u32;
+                let idx = u32::from(data[pos]);
                 pos += 1;
                 let val = memo
                     .get(&idx)
@@ -253,13 +254,11 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 let module_val = stack
                     .pop()
                     .ok_or_else(|| pickle_err("STACK_GLOBAL underflow"))?;
-                let module = match module_val {
-                    PickleValue::String(s) => s,
-                    _ => return Err(pickle_err("STACK_GLOBAL: module is not a string")),
+                let PickleValue::String(module) = module_val else {
+                    return Err(pickle_err("STACK_GLOBAL: module is not a string"));
                 };
-                let name = match name_val {
-                    PickleValue::String(s) => s,
-                    _ => return Err(pickle_err("STACK_GLOBAL: name is not a string")),
+                let PickleValue::String(name) = name_val else {
+                    return Err(pickle_err("STACK_GLOBAL: name is not a string"));
                 };
                 stack.push(PickleValue::Global { module, name });
             }
@@ -362,7 +361,7 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 }
                 let v = data[pos];
                 pos += 1;
-                stack.push(PickleValue::Int(v as i64));
+                stack.push(PickleValue::Int(i64::from(v)));
             }
 
             BININT2 => {
@@ -371,7 +370,7 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 }
                 let v = u16::from_le_bytes([data[pos], data[pos + 1]]);
                 pos += 2;
-                stack.push(PickleValue::Int(v as i64));
+                stack.push(PickleValue::Int(i64::from(v)));
             }
 
             BININT => {
@@ -381,7 +380,7 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
                 let v =
                     i32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
                 pos += 4;
-                stack.push(PickleValue::Int(v as i64));
+                stack.push(PickleValue::Int(i64::from(v)));
             }
 
             BINFLOAT => {
@@ -527,7 +526,7 @@ fn read_line(data: &[u8], pos: &mut usize) -> FerrotorchResult<String> {
     let line = &data[start..*pos];
     *pos += 1; // skip newline
     std::str::from_utf8(line)
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .map_err(|_| pickle_err("non-UTF-8 line in pickle"))
 }
 
@@ -566,13 +565,13 @@ struct TensorInfo {
     storage_key: String,
     /// Byte offset within the storage blob (usually 0).
     storage_offset: usize,
-    /// PyTorch dtype string (`"Float"`, `"Double"`, `"Half"`, `"BFloat16"`).
+    /// `PyTorch` dtype string (`"Float"`, `"Double"`, `"Half"`, `"BFloat16"`).
     dtype_str: String,
 }
 
 /// Extract the state dict entries from the parsed pickle tree.
 ///
-/// PyTorch state dicts are serialized as:
+/// `PyTorch` state dicts are serialized as:
 /// ```text
 /// GLOBAL 'collections' 'OrderedDict'
 /// REDUCE (EMPTY_TUPLE)
@@ -686,9 +685,8 @@ fn try_extract_tensor_info(name: &str, value: &PickleValue) -> Option<TensorInfo
         return None;
     }
 
-    let args_vec = match args {
-        PickleValue::Tuple(v) => v,
-        _ => return None,
+    let PickleValue::Tuple(args_vec) = args else {
+        return None;
     };
 
     if args_vec.len() < 4 {
@@ -723,7 +721,7 @@ fn try_extract_tensor_info(name: &str, value: &PickleValue) -> Option<TensorInfo
     })
 }
 
-/// Extract storage key and dtype from a PersistentLoad reference.
+/// Extract storage key and dtype from a `PersistentLoad` reference.
 ///
 /// The persistent load tuple is: `('storage', storage_type, key, device, numel)`
 fn extract_storage_info(value: &PickleValue) -> Option<(String, String)> {
@@ -758,7 +756,7 @@ fn extract_storage_info(value: &PickleValue) -> Option<(String, String)> {
     Some((key, dtype_str))
 }
 
-/// Map a PyTorch storage class name to a dtype string.
+/// Map a `PyTorch` storage class name to a dtype string.
 fn storage_type_to_dtype(name: &str) -> String {
     if name.contains("Double") {
         "Double".to_string()
@@ -779,7 +777,12 @@ fn storage_type_to_dtype(name: &str) -> String {
     }
 }
 
-/// Number of bytes per element for a given PyTorch dtype string.
+/// Number of bytes per element for a given `PyTorch` dtype string.
+// Several PyTorch dtypes share an element width (e.g. `Float` and `Int` are
+// both 4 bytes); merging them via `|` would obscure the spec mapping that
+// callers cross-reference against PyTorch's `torch.dtype.itemsize`. Keep
+// the one-arm-per-dtype shape and silence the lint.
+#[allow(clippy::match_same_arms)]
 fn dtype_element_size(dtype: &str) -> usize {
     match dtype {
         "Float" => 4,
@@ -797,7 +800,7 @@ fn dtype_element_size(dtype: &str) -> usize {
 // ZIP reading + tensor loading
 // ---------------------------------------------------------------------------
 
-/// Load a PyTorch `.pt` / `.pth` state dict file and return it as a
+/// Load a `PyTorch` `.pt` / `.pth` state dict file and return it as a
 /// `StateDict<T>`.
 ///
 /// The function:
@@ -949,15 +952,19 @@ fn find_pkl_name<R: Read + std::io::Seek>(
         }
     }
 
-    // Try any file ending in .pkl.
+    // Try any file ending in .pkl (case-insensitive — PyTorch's archive
+    // format uses lowercase, but some downstream tooling capitalises).
     for name in &names {
-        if name.ends_with(".pkl") {
+        if std::path::Path::new(name)
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("pkl"))
+        {
             return Ok(name.clone());
         }
     }
 
     Err(FerrotorchError::InvalidArgument {
-        message: format!("no .pkl file found in pytorch archive. Files: {:?}", names),
+        message: format!("no .pkl file found in pytorch archive. Files: {names:?}"),
     })
 }
 
@@ -1018,43 +1025,31 @@ fn convert_bytes_to_float<T: Float>(
     match dtype {
         "Float" => {
             if target_size == 4 {
-                Ok(reinterpret_le_bytes::<T>(bytes, 4))
+                // T == f32: byte-for-byte reinterpretation is correct.
+                reinterpret_le_bytes::<T>(bytes, 4)
             } else if target_size == 8 {
-                // f32 -> f64 promotion.
-                let f32s = reinterpret_le_bytes::<f32>(bytes, 4);
-                Ok(f32s
-                    .into_iter()
-                    .map(|v| {
-                        let f64_val = v as f64;
-                        unsafe { std::ptr::read(&f64_val as *const f64 as *const T) }
-                    })
-                    .collect())
+                // T == f64: f32 -> f64 promotion via safe `cast`.
+                let f32s = reinterpret_le_bytes::<f32>(bytes, 4)?;
+                f32s.into_iter().map(cast::<f32, T>).collect()
             } else {
-                Err(FerrotorchError::DtypeMismatch {
-                    expected: format!("f32 or f64 (size {})", target_size),
-                    got: "Float (f32)".to_string(),
-                })
+                // T == bf16 (size 2) or another exotic Float impl.
+                let f32s = reinterpret_le_bytes::<f32>(bytes, 4)?;
+                f32s.into_iter().map(cast::<f32, T>).collect()
             }
         }
 
         "Double" => {
             if target_size == 8 {
-                Ok(reinterpret_le_bytes::<T>(bytes, 8))
+                // T == f64: byte-for-byte reinterpretation is correct.
+                reinterpret_le_bytes::<T>(bytes, 8)
             } else if target_size == 4 {
-                // f64 -> f32 demotion.
-                let f64s = reinterpret_le_bytes::<f64>(bytes, 8);
-                Ok(f64s
-                    .into_iter()
-                    .map(|v| {
-                        let f32_val = v as f32;
-                        unsafe { std::ptr::read(&f32_val as *const f32 as *const T) }
-                    })
-                    .collect())
+                // T == f32: f64 -> f32 demotion via safe `cast`.
+                let f64s = reinterpret_le_bytes::<f64>(bytes, 8)?;
+                f64s.into_iter().map(cast::<f64, T>).collect()
             } else {
-                Err(FerrotorchError::DtypeMismatch {
-                    expected: format!("f32 or f64 (size {})", target_size),
-                    got: "Double (f64)".to_string(),
-                })
+                // T == bf16 or other narrow Float; demote through f64.
+                let f64s = reinterpret_le_bytes::<f64>(bytes, 8)?;
+                f64s.into_iter().map(cast::<f64, T>).collect()
             }
         }
 
@@ -1069,21 +1064,15 @@ fn convert_bytes_to_float<T: Float>(
                 });
             }
 
-            let values: Vec<T> = bytes
+            bytes
                 .chunks_exact(2)
                 .take(numel)
                 .map(|chunk| {
                     let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
                     let f32_val = f16_to_f32(bits);
-                    if target_size == 4 {
-                        unsafe { std::ptr::read(&f32_val as *const f32 as *const T) }
-                    } else {
-                        let f64_val = f32_val as f64;
-                        unsafe { std::ptr::read(&f64_val as *const f64 as *const T) }
-                    }
+                    cast::<f32, T>(f32_val)
                 })
-                .collect();
-            Ok(values)
+                .collect()
         }
 
         "BFloat16" => {
@@ -1097,21 +1086,15 @@ fn convert_bytes_to_float<T: Float>(
                 });
             }
 
-            let values: Vec<T> = bytes
+            bytes
                 .chunks_exact(2)
                 .take(numel)
                 .map(|chunk| {
                     let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
                     let f32_val = bf16_to_f32(bits);
-                    if target_size == 4 {
-                        unsafe { std::ptr::read(&f32_val as *const f32 as *const T) }
-                    } else {
-                        let f64_val = f32_val as f64;
-                        unsafe { std::ptr::read(&f64_val as *const f64 as *const T) }
-                    }
+                    cast::<f32, T>(f32_val)
                 })
-                .collect();
-            Ok(values)
+                .collect()
         }
 
         other => Err(FerrotorchError::DtypeMismatch {
@@ -1122,22 +1105,53 @@ fn convert_bytes_to_float<T: Float>(
 }
 
 /// Reinterpret raw little-endian bytes as a `Vec<T>`.
-fn reinterpret_le_bytes<T: Copy>(bytes: &[u8], elem_size: usize) -> Vec<T> {
-    bytes
+///
+/// `elem_size` is the on-disk byte width of one `T` element (4 for `f32`, 8
+/// for `f64`). The function returns an error if `elem_size != size_of::<T>()`
+/// rather than producing UB by reading more or fewer bytes than `T` occupies.
+///
+/// # Errors
+///
+/// Returns `FerrotorchError::InvalidArgument` if `elem_size` disagrees with
+/// `size_of::<T>()`. This guards every `unsafe` site below from a size
+/// mismatch that would corrupt memory.
+fn reinterpret_le_bytes<T: Copy>(bytes: &[u8], elem_size: usize) -> FerrotorchResult<Vec<T>> {
+    if elem_size != std::mem::size_of::<T>() {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "reinterpret_le_bytes: elem_size {} does not match size_of::<{}>() = {}",
+                elem_size,
+                std::any::type_name::<T>(),
+                std::mem::size_of::<T>(),
+            ),
+        });
+    }
+    Ok(bytes
         .chunks_exact(elem_size)
         .map(|chunk| {
             let mut buf = [0u8; 8];
             buf[..elem_size].copy_from_slice(chunk);
-            unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const T) }
+            // SAFETY: `T: Copy` so reading produces a valid, owned bit
+            // pattern with no `Drop` semantics. The size precondition above
+            // guarantees `elem_size == size_of::<T>()`, so `chunks_exact`
+            // hands us a `chunk` of exactly `size_of::<T>()` bytes which we
+            // copy fully into `buf`. `buf.as_ptr()` is valid for
+            // `size_of::<T>()` bytes (the array is 8 bytes; we only read
+            // `size_of::<T>()` of them, and `T` is one of f32/f64 here, both
+            // <= 8). `read_unaligned` requires no alignment, so the cast
+            // from `*const u8` to `*const T` carrying any address is sound.
+            // Every bit pattern is valid for `f32`/`f64` (NaNs included), so
+            // the read cannot produce an invalid value.
+            unsafe { std::ptr::read_unaligned(buf.as_ptr().cast::<T>()) }
         })
-        .collect()
+        .collect())
 }
 
 /// Convert IEEE 754 half-precision (f16) bits to f32.
 fn f16_to_f32(bits: u16) -> f32 {
-    let sign = ((bits >> 15) & 1) as u32;
-    let exponent = ((bits >> 10) & 0x1f) as u32;
-    let mantissa = (bits & 0x3ff) as u32;
+    let sign = u32::from((bits >> 15) & 1);
+    let exponent = u32::from((bits >> 10) & 0x1f);
+    let mantissa = u32::from(bits & 0x3ff);
 
     if exponent == 0 {
         if mantissa == 0 {
@@ -1171,11 +1185,11 @@ fn f16_to_f32(bits: u16) -> f32 {
     }
 }
 
-/// Convert BFloat16 bits to f32.
+/// Convert `BFloat16` bits to f32.
 ///
-/// BFloat16 is the upper 16 bits of an f32, so conversion is a left-shift.
+/// `BFloat16` is the upper 16 bits of an f32, so conversion is a left-shift.
 fn bf16_to_f32(bits: u16) -> f32 {
-    f32::from_bits((bits as u32) << 16)
+    f32::from_bits(u32::from(bits) << 16)
 }
 
 // ---------------------------------------------------------------------------
@@ -1195,7 +1209,7 @@ mod tests {
         let val = parse_pickle(&data).unwrap();
         match val {
             PickleValue::Dict(entries) => assert!(entries.is_empty()),
-            other => panic!("expected Dict, got: {:?}", other),
+            other => panic!("expected Dict, got: {other:?}"),
         }
     }
 
@@ -1205,7 +1219,7 @@ mod tests {
         let val = parse_pickle(&data).unwrap();
         match val {
             PickleValue::List(items) => assert!(items.is_empty()),
-            other => panic!("expected List, got: {:?}", other),
+            other => panic!("expected List, got: {other:?}"),
         }
     }
 
@@ -1215,7 +1229,7 @@ mod tests {
         let val = parse_pickle(&data).unwrap();
         match val {
             PickleValue::Tuple(items) => assert!(items.is_empty()),
-            other => panic!("expected Tuple, got: {:?}", other),
+            other => panic!("expected Tuple, got: {other:?}"),
         }
     }
 
@@ -1231,13 +1245,13 @@ mod tests {
         let data_t = [0x80, 0x02, NEWTRUE, STOP];
         match parse_pickle(&data_t).unwrap() {
             PickleValue::Bool(true) => {}
-            other => panic!("expected Bool(true), got: {:?}", other),
+            other => panic!("expected Bool(true), got: {other:?}"),
         }
 
         let data_f = [0x80, 0x02, NEWFALSE, STOP];
         match parse_pickle(&data_f).unwrap() {
             PickleValue::Bool(false) => {}
-            other => panic!("expected Bool(false), got: {:?}", other),
+            other => panic!("expected Bool(false), got: {other:?}"),
         }
     }
 
@@ -1246,7 +1260,7 @@ mod tests {
         let data = [0x80, 0x02, BININT1, 42, STOP];
         match parse_pickle(&data).unwrap() {
             PickleValue::Int(v) => assert_eq!(v, 42),
-            other => panic!("expected Int(42), got: {:?}", other),
+            other => panic!("expected Int(42), got: {other:?}"),
         }
     }
 
@@ -1255,7 +1269,7 @@ mod tests {
         let data = [0x80, 0x02, BININT2, 0x00, 0x01, STOP];
         match parse_pickle(&data).unwrap() {
             PickleValue::Int(v) => assert_eq!(v, 256),
-            other => panic!("expected Int(256), got: {:?}", other),
+            other => panic!("expected Int(256), got: {other:?}"),
         }
     }
 
@@ -1264,7 +1278,7 @@ mod tests {
         let data = [0x80, 0x02, BININT, 0xff, 0xff, 0xff, 0xff, STOP];
         match parse_pickle(&data).unwrap() {
             PickleValue::Int(v) => assert_eq!(v, -1),
-            other => panic!("expected Int(-1), got: {:?}", other),
+            other => panic!("expected Int(-1), got: {other:?}"),
         }
     }
 
@@ -1277,7 +1291,7 @@ mod tests {
         data.push(STOP);
         match parse_pickle(&data).unwrap() {
             PickleValue::Float(v) => assert!((v - 3.14).abs() < 1e-12),
-            other => panic!("expected Float(3.14), got: {:?}", other),
+            other => panic!("expected Float(3.14), got: {other:?}"),
         }
     }
 
@@ -1288,7 +1302,7 @@ mod tests {
         data.push(STOP);
         match parse_pickle(&data).unwrap() {
             PickleValue::String(s) => assert_eq!(s, "hello"),
-            other => panic!("expected String, got: {:?}", other),
+            other => panic!("expected String, got: {other:?}"),
         }
     }
 
@@ -1299,7 +1313,7 @@ mod tests {
         data.push(STOP);
         match parse_pickle(&data).unwrap() {
             PickleValue::String(s) => assert_eq!(s, "abc"),
-            other => panic!("expected String, got: {:?}", other),
+            other => panic!("expected String, got: {other:?}"),
         }
     }
 
@@ -1311,7 +1325,7 @@ mod tests {
                 assert_eq!(v.len(), 1);
                 assert!(matches!(&v[0], PickleValue::Int(7)));
             }
-            other => panic!("expected Tuple, got: {:?}", other),
+            other => panic!("expected Tuple, got: {other:?}"),
         }
     }
 
@@ -1324,7 +1338,7 @@ mod tests {
                 assert!(matches!(&v[0], PickleValue::Int(1)));
                 assert!(matches!(&v[1], PickleValue::Int(2)));
             }
-            other => panic!("expected Tuple, got: {:?}", other),
+            other => panic!("expected Tuple, got: {other:?}"),
         }
     }
 
@@ -1333,7 +1347,7 @@ mod tests {
         let data = [0x80, 0x02, BININT1, 1, BININT1, 2, BININT1, 3, TUPLE3, STOP];
         match parse_pickle(&data).unwrap() {
             PickleValue::Tuple(v) => assert_eq!(v.len(), 3),
-            other => panic!("expected Tuple, got: {:?}", other),
+            other => panic!("expected Tuple, got: {other:?}"),
         }
     }
 
@@ -1342,7 +1356,7 @@ mod tests {
         let data = [0x80, 0x02, MARK, BININT1, 10, BININT1, 20, TUPLE, STOP];
         match parse_pickle(&data).unwrap() {
             PickleValue::Tuple(v) => assert_eq!(v.len(), 2),
-            other => panic!("expected Tuple, got: {:?}", other),
+            other => panic!("expected Tuple, got: {other:?}"),
         }
     }
 
@@ -1363,7 +1377,7 @@ mod tests {
                 assert!(matches!(&v[0], PickleValue::String(s) if s == "x"));
                 assert!(matches!(&v[1], PickleValue::String(s) if s == "x"));
             }
-            other => panic!("expected Tuple, got: {:?}", other),
+            other => panic!("expected Tuple, got: {other:?}"),
         }
     }
 
@@ -1377,7 +1391,7 @@ mod tests {
                 assert_eq!(module, "collections");
                 assert_eq!(name, "OrderedDict");
             }
-            other => panic!("expected Global, got: {:?}", other),
+            other => panic!("expected Global, got: {other:?}"),
         }
     }
 
@@ -1397,7 +1411,7 @@ mod tests {
                 ));
                 assert!(matches!(*args, PickleValue::Tuple(ref v) if v.is_empty()));
             }
-            other => panic!("expected Reduce, got: {:?}", other),
+            other => panic!("expected Reduce, got: {other:?}"),
         }
     }
 
@@ -1415,7 +1429,7 @@ mod tests {
                 assert!(matches!(&entries[0].0, PickleValue::String(s) if s == "a"));
                 assert!(matches!(&entries[0].1, PickleValue::Int(1)));
             }
-            other => panic!("expected Dict, got: {:?}", other),
+            other => panic!("expected Dict, got: {other:?}"),
         }
     }
 
@@ -1430,7 +1444,7 @@ mod tests {
         data.push(STOP);
         match parse_pickle(&data).unwrap() {
             PickleValue::Dict(entries) => assert_eq!(entries.len(), 2),
-            other => panic!("expected Dict, got: {:?}", other),
+            other => panic!("expected Dict, got: {other:?}"),
         }
     }
 
@@ -1441,7 +1455,7 @@ mod tests {
         ];
         match parse_pickle(&data).unwrap() {
             PickleValue::List(items) => assert_eq!(items.len(), 2),
-            other => panic!("expected List, got: {:?}", other),
+            other => panic!("expected List, got: {other:?}"),
         }
     }
 
@@ -1452,7 +1466,7 @@ mod tests {
         ];
         match parse_pickle(&data).unwrap() {
             PickleValue::List(items) => assert_eq!(items.len(), 2),
-            other => panic!("expected List, got: {:?}", other),
+            other => panic!("expected List, got: {other:?}"),
         }
     }
 
@@ -1463,7 +1477,7 @@ mod tests {
             PickleValue::PersistentLoad(inner) => {
                 assert!(matches!(*inner, PickleValue::Int(99)));
             }
-            other => panic!("expected PersistentLoad, got: {:?}", other),
+            other => panic!("expected PersistentLoad, got: {other:?}"),
         }
     }
 
@@ -1475,7 +1489,7 @@ mod tests {
                 assert!(matches!(*obj, PickleValue::Dict(_)));
                 assert!(matches!(*state, PickleValue::Int(42)));
             }
-            other => panic!("expected Build, got: {:?}", other),
+            other => panic!("expected Build, got: {other:?}"),
         }
     }
 
@@ -1484,10 +1498,14 @@ mod tests {
     #[test]
     fn test_f16_to_f32_normal() {
         let val = f16_to_f32(0x3C00); // 1.0
-        assert!((val - 1.0).abs() < 1e-6, "got {}", val);
+        assert!((val - 1.0).abs() < 1e-6, "got {val}");
     }
 
     #[test]
+    // f16 zero converts to f32 zero with an exact bit pattern; strict
+    // equality is the correct test (an epsilon would silently accept a
+    // bug in the conversion).
+    #[allow(clippy::float_cmp)]
     fn test_f16_to_f32_zero() {
         assert_eq!(f16_to_f32(0x0000), 0.0);
         assert_eq!(f16_to_f32(0x8000), -0.0);
@@ -1497,7 +1515,7 @@ mod tests {
     #[test]
     fn test_f16_to_f32_neg() {
         let val = f16_to_f32(0xBC00); // -1.0
-        assert!((val + 1.0).abs() < 1e-6, "got {}", val);
+        assert!((val + 1.0).abs() < 1e-6, "got {val}");
     }
 
     #[test]
@@ -1517,16 +1535,16 @@ mod tests {
     fn test_f16_to_f32_subnormal() {
         let val = f16_to_f32(0x0001); // smallest positive subnormal
         assert!(val > 0.0);
-        assert!((val - 5.960_464_5e-8).abs() < 1e-14, "got {}", val);
+        assert!((val - 5.960_464_5e-8).abs() < 1e-14, "got {val}");
     }
 
     #[test]
     fn test_bf16_to_f32() {
         let val = bf16_to_f32(0x3F80); // 1.0
-        assert!((val - 1.0).abs() < 1e-6, "got {}", val);
+        assert!((val - 1.0).abs() < 1e-6, "got {val}");
 
         let val2 = bf16_to_f32(0xC000); // -2.0
-        assert!((val2 + 2.0).abs() < 1e-6, "got {}", val2);
+        assert!((val2 + 2.0).abs() < 1e-6, "got {val2}");
     }
 
     // -- dtype conversion tests --

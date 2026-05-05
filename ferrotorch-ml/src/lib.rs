@@ -1,3 +1,58 @@
+// Lint baseline mirrors `ferrotorch-gpu/src/lib.rs` and the wider workspace:
+// `clippy::all + pedantic` are warned, `rust_2018_idioms` and
+// `missing_debug_implementations` are denied, `missing_docs` is held at
+// `allow` while the workspace-wide rustdoc pass is tracked separately
+// (#731 follow-up). Diverging unilaterally from a leaf crate would be
+// Step 4 architectural unilateralism.
+#![warn(clippy::all, clippy::pedantic)]
+#![deny(rust_2018_idioms, missing_debug_implementations)]
+#![allow(missing_docs)]
+// tracked workspace-wide rustdoc pass
+// Pedantic lints we explicitly accept across this crate. Each allow names a
+// concrete reason — the alternative would be churn-for-zero-benefit or a
+// worse API. Mirrors the ferrotorch-gpu / ferrotorch-jit baselines; add to
+// this list only with a one-line justification.
+#![allow(
+    // Wrapper fns intentionally re-export the ferrolearn metric / dataset
+    // names so the API maps 1:1 onto sklearn's surface; renaming would
+    // make the bridge harder to use.
+    clippy::module_name_repetitions,
+    // # Errors / # Panics sections will be added during the workspace-wide
+    // rustdoc pass tracked as a follow-up issue (#731), not gated on this
+    // lint baseline. The four adapter fns named in the audit are filled in
+    // explicitly below.
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    // `#[must_use]` on every wrapper is churn for marginal value; callers
+    // already use the returned values (the fns return `Result<Tensor<T>>`
+    // and discarding it makes no sense).
+    clippy::must_use_candidate,
+    // ML code casts pervasively between integer/float widths around label
+    // encodings (`usize` ↔ `f64`) and ranking indices; the explicit cast is
+    // more readable than try_into / num-traits indirection. Mirrors the
+    // ferrotorch-gpu / ferrotorch-jit precedent.
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    // Adapter fns take ownership of `Array1<usize>` etc. by value because
+    // they pass the data to ferrolearn / Tensor::from_storage which
+    // benefits from owned storage; switching to `&Array1<usize>` would
+    // force an extra clone and is the wrong shape for the API.
+    clippy::needless_pass_by_value,
+    // Doc-markdown's autocorrect insists on backtick-wrapping every
+    // sklearn / ferrolearn type name (PCA, KFold, OneHotEncoder, …);
+    // the prose reads better unmarked and matches the upstream rustdoc.
+    clippy::doc_markdown,
+    // Tests assert exact label values (0.0 / 1.0 / 2.0 from integer
+    // class encodings) where strict equality is intentional and a
+    // tolerance check would obscure the property under test.
+    clippy::float_cmp,
+    // `as f64` on small literal integers is the idiomatic shape; the
+    // `From`-based migration adds noise to test setup without value.
+    clippy::cast_lossless,
+)]
+
 //! Sklearn-compatible adapter for ferrotorch.
 //!
 //! Bridges [`ferrotorch_core::Tensor`] to `ndarray::{Array1, Array2}` so

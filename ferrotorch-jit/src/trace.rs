@@ -12,7 +12,7 @@ use ferrotorch_core::dtype::Float;
 use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 use ferrotorch_core::tensor::{Tensor, TensorId};
 
-use crate::graph::{IrGraph, IrOpKind, IrValueId};
+use crate::graph::{Dtype, IrGraph, IrOpKind, IrValueId};
 
 // ---------------------------------------------------------------------------
 // Name -> IrOpKind mapping
@@ -119,6 +119,25 @@ where
     T: Float,
     F: Fn(&[Tensor<T>]) -> FerrotorchResult<Tensor<T>>,
 {
+    // Step 0: Resolve the dtype that this trace will tag every IrValue with.
+    //
+    // `Tensor<T>` is monomorphic per call, so a single dtype lookup at entry
+    // suffices. `std::any::type_name` is documented as implementation-defined
+    // diagnostic text, so [`Dtype::from_type_name`] accepts the bare primitive
+    // names plus the known stable rustc-emitted variants. Anything else is
+    // an unsupported tracer dtype today (e.g. `bf16`, `f16`, integer types)
+    // and we fail fast at trace time rather than silently producing a
+    // wrong-typed kernel down the line (#721-A safety guard).
+    let type_name = std::any::type_name::<T>();
+    let dtype =
+        Dtype::from_type_name(type_name).ok_or_else(|| FerrotorchError::InvalidArgument {
+            message: format!(
+                "ferrotorch-jit: unsupported tensor dtype `{type_name}`; only f32 and f64 are \
+             supported by the tracer (#721-A). Add support via Dtype::from_type_name \
+             once codegen learns the new dtype."
+            ),
+        })?;
+
     // Step 1: Execute the forward function to build the autograd graph.
     let output = f(example_inputs)?;
 
@@ -231,7 +250,7 @@ where
                     idx
                 };
 
-                let value_id = graph.add_input(op.input_shapes[i].clone());
+                let value_id = graph.add_input_with_dtype(op.input_shapes[i].clone(), dtype);
 
                 // `add_input` auto-assigns the index based on insertion
                 // order. Override it to match the user-provided order.
@@ -264,7 +283,10 @@ where
 
         let ir_op = map_name_to_op(op.name, &op.output_shape)?;
 
-        let (_, out_ids) = graph.add_node(ir_op, ir_inputs, vec![op.output_shape.clone()]);
+        // Tracing is monomorphic in `T`, so every produced edge carries the
+        // same dtype that we resolved at entry.
+        let (_, out_ids) =
+            graph.add_node_with_dtype(ir_op, ir_inputs, vec![op.output_shape.clone()], &[dtype]);
 
         tensor_to_ir.insert(op.output_id, out_ids[0]);
     }

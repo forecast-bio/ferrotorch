@@ -32,13 +32,26 @@ impl<T: Float> Transform<T> for Box<dyn Transform<T>> {
 /// ```text
 /// let pipeline = Compose::new(vec![
 ///     Box::new(ToTensor),
-///     Box::new(Normalize::new(mean, std)),
-///     Box::new(RandomHorizontalFlip::new(0.5)),
+///     Box::new(Normalize::new(mean, std)?),
+///     Box::new(RandomHorizontalFlip::new(0.5)?),
 /// ]);
 /// let output = pipeline.apply(input)?;
 /// ```
 pub struct Compose<T: Float> {
     transforms: Vec<Box<dyn Transform<T>>>,
+}
+
+// Manual `Debug`: `Box<dyn Transform<T>>` does not implement `Debug`.
+// Print the transform count for diagnostics.
+impl<T: Float> std::fmt::Debug for Compose<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Compose")
+            .field(
+                "transforms",
+                &format_args!("[{} transform(s)]", self.transforms.len()),
+            )
+            .finish()
+    }
 }
 
 impl<T: Float> Compose<T> {
@@ -75,6 +88,7 @@ impl<T: Float> Transform<T> for Compose<T> {
 ///
 /// The number of mean/std values must match the first dimension (channel
 /// count) of the input tensor.
+#[derive(Debug, Clone)]
 pub struct Normalize<T: Float> {
     mean: Vec<T>,
     std: Vec<T>,
@@ -177,6 +191,7 @@ impl<T: Float> Transform<T> for Normalize<T> {
 ///
 /// This is a placeholder for a future image-to-tensor conversion. In the
 /// current API everything is already a `Tensor`, so `ToTensor` is a no-op.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ToTensor;
 
 impl<T: Float> Transform<T> for ToTensor {
@@ -197,6 +212,7 @@ impl<T: Float> Transform<T> for ToTensor {
 ///
 /// For a 3-D tensor `[C, H, W]` this reverses the W dimension, producing
 /// a horizontal flip of an image in channel-first layout.
+#[derive(Debug, Clone, Copy)]
 pub struct RandomHorizontalFlip<T: Float> {
     p: f64,
     _marker: std::marker::PhantomData<T>,
@@ -206,21 +222,28 @@ impl<T: Float> RandomHorizontalFlip<T> {
     /// Create a new `RandomHorizontalFlip` with the given probability.
     ///
     /// `p` must be in `[0.0, 1.0]`.
-    pub fn new(p: f64) -> Self {
-        assert!(
-            (0.0..=1.0).contains(&p),
-            "RandomHorizontalFlip: p must be in [0.0, 1.0], got {p}"
-        );
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if `p` is outside
+    /// `[0.0, 1.0]`.
+    pub fn new(p: f64) -> FerrotorchResult<Self> {
+        if !(0.0..=1.0).contains(&p) {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("RandomHorizontalFlip: p must be in [0.0, 1.0], got {p}"),
+            });
+        }
+        Ok(Self {
             p,
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 }
 
 impl<T: Float> Default for RandomHorizontalFlip<T> {
     fn default() -> Self {
-        Self::new(0.5)
+        // Default p=0.5 is in [0, 1]; expect documents the invariant.
+        Self::new(0.5).expect("invariant: default p=0.5 is in [0, 1]")
     }
 }
 
@@ -268,11 +291,12 @@ impl<T: Float> Transform<T> for RandomHorizontalFlip<T> {
 
         let shape = input.shape().to_vec();
         let data = input.data()?;
-        // SAFETY: shape is non-empty — the `ndim() == 0` guard above returns
-        // early with Err, so we have at least one dimension here.
-        let last_dim = *shape
-            .last()
-            .expect("invariant: shape is non-empty after ndim guard");
+        // The `ndim() == 0` guard above returns early with Err, so the
+        // shape has at least one dimension here. Propagate as Internal
+        // rather than panic if that invariant ever breaks under refactor.
+        let last_dim = *shape.last().ok_or_else(|| FerrotorchError::Internal {
+            message: "RandomHorizontalFlip: shape unexpectedly empty after ndim guard".into(),
+        })?;
 
         if last_dim <= 1 {
             // Nothing to flip.
@@ -302,6 +326,7 @@ impl<T: Float> Transform<T> for RandomHorizontalFlip<T> {
 ///
 /// Expects input of shape `[C, H, W]`. If the input is already the
 /// target size the tensor is returned unchanged.
+#[derive(Debug, Clone, Copy)]
 pub struct RandomCrop<T: Float> {
     height: usize,
     width: usize,
@@ -507,7 +532,7 @@ mod tests {
             false,
         )
         .unwrap();
-        let flip = RandomHorizontalFlip::<f64>::new(1.0);
+        let flip = RandomHorizontalFlip::<f64>::new(1.0).unwrap();
         let out = flip.apply(t).unwrap();
         let d = out.data().unwrap();
         // Row 0: [1,2,3] -> [3,2,1]
@@ -526,7 +551,7 @@ mod tests {
         let t =
             Tensor::<f64>::from_storage(TensorStorage::cpu(vec![1.0, 2.0, 3.0]), vec![1, 3], false)
                 .unwrap();
-        let flip = RandomHorizontalFlip::<f64>::new(0.0);
+        let flip = RandomHorizontalFlip::<f64>::new(0.0).unwrap();
         let out = flip.apply(t).unwrap();
         let d = out.data().unwrap();
         assert_eq!(d, &[1.0, 2.0, 3.0]);
@@ -535,7 +560,7 @@ mod tests {
     #[test]
     fn test_random_horizontal_flip_approximate_fraction() {
         // With p=0.5, run many trials and check the fraction is roughly 0.5.
-        let flip = RandomHorizontalFlip::<f64>::new(0.5);
+        let flip = RandomHorizontalFlip::<f64>::new(0.5).unwrap();
         let mut flipped_count = 0;
         let trials = 1000;
 

@@ -58,7 +58,7 @@ fn main() -> FerrotorchResult<()> {
     let num_samples = 1000;
     let batch_size = 32;
     let train_dataset = Mnist::<f32>::synthetic(Split::Train, num_samples)?;
-    let train_loader = DataLoader::new(Arc::new(train_dataset), batch_size)
+    let train_loader = DataLoader::new(Arc::new(train_dataset), batch_size)?
         .shuffle(true)
         .seed(42);
 

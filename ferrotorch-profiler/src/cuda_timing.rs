@@ -55,6 +55,7 @@ use crate::profiler::Profiler;
 /// deferred to [`Profiler::flush_cuda_kernels`] so the start/stop
 /// path stays asynchronous and adds only the cost of two
 /// `cuEventRecord` calls.
+#[derive(Debug)]
 pub struct CudaKernelScope {
     name: String,
     category: String,
@@ -122,7 +123,13 @@ impl CudaKernelScope {
 /// to synchronize and convert into a [`ProfileEvent`]. Internal type
 /// used by [`Profiler`]; exposed only via the
 /// [`Profiler::push_pending_cuda_scope`] entry point.
-pub struct PendingCudaScope {
+///
+/// Visibility is `pub(crate)` because no caller outside this crate has
+/// any way to construct one — the only producer is
+/// [`CudaKernelScope::stop`] and the only consumer is `Profiler`'s
+/// pending-queue. Verified zero external uses workspace-wide.
+#[derive(Debug)]
+pub(crate) struct PendingCudaScope {
     pub(crate) name: String,
     pub(crate) category: String,
     pub(crate) start: Arc<CudaEvent>,
@@ -135,7 +142,7 @@ impl PendingCudaScope {
     /// into a real [`ProfileEvent`] with the GPU-measured duration.
     ///
     /// `profiler_epoch_us` is "now" minus the profiler's start time
-    /// in microseconds — used as the synthetic start_us for the
+    /// in microseconds — used as the synthetic `start_us` for the
     /// event since CUDA events don't carry an absolute timestamp,
     /// only relative durations.
     pub(crate) fn finalize(self, profiler_epoch_us: u64) -> ProfileEvent {
@@ -148,7 +155,16 @@ impl PendingCudaScope {
         let sync_ok = self.end.synchronize().is_ok();
         let (duration_us, timing_failed) = if sync_ok {
             match self.start.elapsed_ms(&self.end) {
-                Ok(ms) if ms > 0.0 => ((ms * 1000.0).round() as u64, false),
+                Ok(ms) if ms > 0.0 => {
+                    // `ms` is finite-positive and bounded by the longest
+                    // realistic kernel (well under 2^53 µs ≈ 285 years),
+                    // so the f32 → u64 conversion is exact in practice.
+                    // `as u64` saturates on +∞/NaN to 0, which is
+                    // benign here (just reports a 0 µs kernel).
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let us = (ms * 1000.0).round() as u64;
+                    (us, false)
+                }
                 Ok(_) => (0, false), // genuine sub-µs kernel
                 Err(_) => (0, true), // elapsed_ms query failed
             }

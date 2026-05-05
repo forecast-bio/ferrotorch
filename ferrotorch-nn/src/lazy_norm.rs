@@ -85,7 +85,9 @@ macro_rules! lazy_batchnorm {
                     let c = channels_from_input(input, $kind, $expected_ndim)?;
                     self.materialize(c)?;
                 }
-                let inner = self.inner.get().expect("inner initialized");
+                let inner = self.inner.get().ok_or_else(|| FerrotorchError::Internal {
+                    message: "LazyBatchNorm: inner not initialized after materialize() — invariant violated".into(),
+                })?;
                 inner.forward(input)
             }
 
@@ -173,7 +175,12 @@ macro_rules! lazy_instancenorm {
                     let c = channels_from_input(input, $kind, $expected_ndim)?;
                     self.materialize(c)?;
                 }
-                self.inner.get().expect("inner").forward(input)
+                self.inner
+                    .get()
+                    .ok_or_else(|| FerrotorchError::Internal {
+                        message: "LazyInstanceNorm: inner not initialized after materialize() — invariant violated".into(),
+                    })?
+                    .forward(input)
             }
 
             fn parameters(&self) -> Vec<&Parameter<T>> {

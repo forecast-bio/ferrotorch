@@ -2,8 +2,8 @@
 //!
 //! [ONNX](https://onnx.ai/) (Open Neural Network Exchange) is a standard
 //! protobuf-based format for representing ML models. Models exported as `.onnx`
-//! files can be loaded by ONNX Runtime (C++/Python), TensorRT (NVIDIA),
-//! CoreML (Apple), and many other inference engines.
+//! files can be loaded by ONNX Runtime (C++/Python), `TensorRT` (NVIDIA),
+//! `CoreML` (Apple), and many other inference engines.
 //!
 //! This module implements a minimal hand-written binary protobuf encoder --
 //! no protobuf compiler or code-generation step is needed. We only emit the
@@ -38,6 +38,16 @@ use ferrotorch_jit::trace;
 // ---------------------------------------------------------------------------
 
 /// Configuration for ONNX model export.
+///
+/// `#[non_exhaustive]` so we can extend the export options (e.g.
+/// custom op-domain mappings, FP16 weights, optimisation passes)
+/// without forcing every caller to update struct-literal initialisers.
+/// Use [`OnnxExportConfig::default`] and the struct-update syntax
+/// (`OnnxExportConfig { opset_version: 18, ..Default::default() }`) is
+/// not available; downstream callers should instead obtain a default
+/// and mutate through the existing `pub` fields.
+#[derive(Debug)]
+#[non_exhaustive]
 pub struct OnnxExportConfig {
     /// ONNX opset version. Minimum (and default) is 17.
     pub opset_version: usize,
@@ -94,6 +104,11 @@ struct ProtobufWriter {
     buf: Vec<u8>,
 }
 
+// Several `ProtobufWriter` methods (e.g. `bytes`, lower-level numeric
+// writers) are reserved for future ONNX features (training-info graphs,
+// quantised tensor protos, sparse weights) and aren't called by today's
+// export path. Allow dead-code at the impl level rather than removing
+// them, so the protobuf encoder remains a complete reusable component.
 #[allow(dead_code)]
 impl ProtobufWriter {
     fn new() -> Self {
@@ -123,7 +138,7 @@ impl ProtobufWriter {
     }
 
     fn write_tag(&mut self, field_number: u32, wire_type: u32) {
-        self.write_varint(((field_number as u64) << 3) | wire_type as u64);
+        self.write_varint((u64::from(field_number) << 3) | u64::from(wire_type));
     }
 
     // -- typed field writers -------------------------------------------------
@@ -217,12 +232,17 @@ const NODE_ATTRIBUTE: u32 = 5;
 const ATTR_NAME: u32 = 1;
 // const ATTR_F: u32 = 4; // unused
 const ATTR_I: u32 = 3;
+// Reserved ONNX wire constant — `AttributeProto.ints` (repeated int64
+// attribute). Exposed by `encode_attr_ints` below for future ops that
+// need int-list attributes (e.g. `Reshape` shape, `Slice` axes).
 #[allow(dead_code)]
 const ATTR_INTS: u32 = 8;
 const ATTR_TYPE: u32 = 20;
 
 // AttributeProto.AttributeType enum values
 const ATTR_TYPE_INT: i32 = 2;
+// Reserved ONNX `AttributeType::INTS` enum value — pairs with
+// `ATTR_INTS` above for the int-list attribute future-ops above.
 #[allow(dead_code)]
 const ATTR_TYPE_INTS: i32 = 7;
 
@@ -265,7 +285,7 @@ fn encode_opset(domain: &str, version: u64) -> Vec<u8> {
     w.into_bytes()
 }
 
-/// Encode a `TensorShapeProto.Dimension` (dim_value variant).
+/// Encode a `TensorShapeProto.Dimension` (`dim_value` variant).
 fn encode_dim(value: u64) -> Vec<u8> {
     let mut w = ProtobufWriter::new();
     w.write_uint64(DIM_VALUE, value);
@@ -282,7 +302,7 @@ fn encode_shape(dims: &[usize]) -> Vec<u8> {
     w.into_bytes()
 }
 
-/// Encode a `TensorShapeProto.Dimension` with a symbolic dim_param (string).
+/// Encode a `TensorShapeProto.Dimension` with a symbolic `dim_param` (string).
 pub fn encode_dim_param(param: &str) -> Vec<u8> {
     let mut w = ProtobufWriter::new();
     w.write_string(DIM_PARAM, param);
@@ -290,6 +310,7 @@ pub fn encode_dim_param(param: &str) -> Vec<u8> {
 }
 
 /// Specification for a single ONNX dimension — either static or dynamic.
+#[derive(Debug)]
 pub enum OnnxDimSpec {
     Static(usize),
     Dynamic(String),
@@ -378,6 +399,10 @@ fn encode_attr_int(name: &str, value: i64) -> Vec<u8> {
 }
 
 /// Encode an `AttributeProto` with a list of integers.
+// Future-method: not yet wired into a public op encoder, but kept
+// implemented so adding a new op that needs an int-list attribute
+// (e.g. `Reshape`'s `shape`) is a one-call change rather than a
+// rewrite of the protobuf logic.
 #[allow(dead_code)]
 fn encode_attr_ints(name: &str, values: &[i64]) -> Vec<u8> {
     let mut w = ProtobufWriter::new();
@@ -455,9 +480,9 @@ fn encode_model(ir_version: u64, opset_imports: &[Vec<u8>], graph: &[u8]) -> Vec
 /// Information needed to create an ONNX `NodeProto` from an IR operation.
 #[derive(Debug)]
 struct OnnxOpMapping {
-    /// ONNX operator name (e.g. "Add", "Relu", "MatMul").
+    /// ONNX operator name (e.g. "Add", "Relu", "`MatMul`").
     op_type: &'static str,
-    /// Additional attributes to attach to the NodeProto.
+    /// Additional attributes to attach to the `NodeProto`.
     attributes: Vec<Vec<u8>>,
     /// If the op needs an auxiliary constant input (e.g. Reshape needs a
     /// shape tensor), its name and raw bytes. These will be added as
@@ -945,8 +970,14 @@ pub fn ir_graph_to_onnx(
                 let output_names: Vec<String> =
                     node.outputs.iter().map(|&id| value_name(id)).collect();
 
-                let input_refs: Vec<&str> = all_input_names.iter().map(|s| s.as_str()).collect();
-                let output_refs: Vec<&str> = output_names.iter().map(|s| s.as_str()).collect();
+                let input_refs: Vec<&str> = all_input_names
+                    .iter()
+                    .map(std::string::String::as_str)
+                    .collect();
+                let output_refs: Vec<&str> = output_names
+                    .iter()
+                    .map(std::string::String::as_str)
+                    .collect();
 
                 let encoded = encode_node(
                     &node_name,
@@ -1014,6 +1045,11 @@ pub fn ir_graph_to_onnx(
 /// - Tracing fails (e.g. no autograd graph).
 /// - An unsupported IR operation is encountered.
 /// - The output file cannot be written.
+// `config` is taken by value to give callers an unambiguous ownership model:
+// they typically construct a fresh `OnnxExportConfig` per call (it has
+// owned `String` and `HashMap` fields) and don't reuse it. Borrowing
+// would force an extra `.clone()` in every caller for no win.
+#[allow(clippy::needless_pass_by_value)]
 pub fn export_onnx<T: Float>(
     trace_fn: impl Fn(&[Tensor<T>]) -> FerrotorchResult<Tensor<T>>,
     example_inputs: &[Tensor<T>],
@@ -1051,6 +1087,9 @@ pub fn export_onnx<T: Float>(
 ///
 /// Use this when you already have a traced or manually constructed graph and
 /// do not need to re-trace.
+// Same rationale as `export_onnx`: callers construct a fresh config per
+// call and don't reuse it.
+#[allow(clippy::needless_pass_by_value)]
 pub fn export_ir_graph_to_onnx(
     graph: &IrGraph,
     path: impl AsRef<Path>,
@@ -1775,7 +1814,7 @@ mod tests {
         let bytes = std::fs::read(&path).unwrap();
         let as_str = String::from_utf8_lossy(&bytes);
         assert!(
-            as_str.contains("N"),
+            as_str.contains('N'),
             "caller override 'N' should be present"
         );
 

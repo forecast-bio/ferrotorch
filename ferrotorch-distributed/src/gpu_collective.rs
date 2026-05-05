@@ -128,7 +128,7 @@ pub fn gpu_allreduce<T: GpuFloat>(
     // TODO(#668): wire GpuTensor<T> raw-pointer extraction + NcclBackend
     // dispatch here once the cross-crate glue is ready.
     #[cfg(feature = "nccl")]
-    let _ = (); // placeholder so the cfg arm compiles
+    let () = (); // placeholder so the cfg arm compiles
 
     // Opt-in CPU fallback (Gloo-equivalent slow path).
     if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {
@@ -186,7 +186,7 @@ pub fn gpu_broadcast<T: GpuFloat>(
     // TODO(#668): wire GpuTensor<T> raw-pointer extraction + NcclBackend
     // dispatch here once the cross-crate glue is ready.
     #[cfg(feature = "nccl")]
-    let _ = (); // placeholder so the cfg arm compiles
+    let () = (); // placeholder so the cfg arm compiles
 
     // Opt-in CPU fallback (Gloo-equivalent slow path).
     if std::env::var("FERROTORCH_ENABLE_GPU_FALLBACK").is_ok() {

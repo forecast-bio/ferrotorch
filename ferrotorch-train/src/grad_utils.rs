@@ -10,7 +10,8 @@
 //!
 //! [CL-334] Add gradient checkpointing, autocast context, gradient clipping, and EMA callback
 
-use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage};
+use ferrotorch_core::numeric_cast::cast;
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_nn::Parameter;
 
 /// Clip the total gradient norm of an iterable of parameters.
@@ -39,6 +40,16 @@ use ferrotorch_nn::Parameter;
 ///
 /// This matches PyTorch's `torch.nn.utils.clip_grad_norm_` behaviour exactly.
 ///
+/// # Errors
+///
+/// Returns `FerrotorchError::InvalidArgument` when `max_norm < 0.0` or
+/// `norm_type <= 0.0`. Also propagates any `FerrotorchError` from the
+/// underlying tensor reads / writes (`grad()`, `data_vec()`, `set_grad()`).
+/// May additionally return `FerrotorchError::InvalidArgument` from the
+/// numeric `cast` helper when a gradient value (e.g. an `f16`/`bf16` NaN
+/// or out-of-range value) cannot be represented as `f64`, or when the
+/// computed `clip_coef` cannot be converted back to `T`.
+///
 /// # Examples
 ///
 /// ```ignore
@@ -52,8 +63,16 @@ pub fn clip_grad_norm_<T: Float>(
     max_norm: f64,
     norm_type: f64,
 ) -> FerrotorchResult<f64> {
-    assert!(max_norm >= 0.0, "max_norm must be non-negative");
-    assert!(norm_type > 0.0, "norm_type must be positive");
+    if max_norm < 0.0 {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!("max_norm must be non-negative, got {max_norm}"),
+        });
+    }
+    if norm_type <= 0.0 {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!("norm_type must be positive, got {norm_type}"),
+        });
+    }
 
     // Collect all gradient data into a flat list of f64 values for norm computation.
     // This matches PyTorch's approach of treating all grads as a single vector.
@@ -76,7 +95,7 @@ pub fn clip_grad_norm_<T: Float>(
         let mut max_val = 0.0_f64;
         for (_, data) in &grad_tensors {
             for &val in data.iter() {
-                let abs = val.to_f64().unwrap().abs();
+                let abs = cast::<T, f64>(val)?.abs();
                 if abs > max_val {
                     max_val = abs;
                 }
@@ -88,7 +107,7 @@ pub fn clip_grad_norm_<T: Float>(
         let mut norm_sum = 0.0_f64;
         for (_, data) in &grad_tensors {
             for &val in data.iter() {
-                let abs = val.to_f64().unwrap().abs();
+                let abs = cast::<T, f64>(val)?.abs();
                 norm_sum += abs.powf(norm_type);
             }
         }
@@ -100,7 +119,7 @@ pub fn clip_grad_norm_<T: Float>(
     let clip_coef = max_norm / (total_norm + 1e-6);
 
     if clip_coef < 1.0 {
-        let clip_coef_t = T::from(clip_coef).unwrap();
+        let clip_coef_t: T = cast(clip_coef)?;
 
         // Scale all gradients in-place.
         for (i, param) in params.iter().enumerate() {
@@ -147,6 +166,14 @@ pub fn clip_grad_norm_<T: Float>(
 /// * `params` - An iterable of parameters whose `.grad()` will be clipped.
 /// * `clip_value` - Maximum absolute value for any gradient element.
 ///
+/// # Errors
+///
+/// Returns `FerrotorchError::InvalidArgument` when `clip_value < 0.0`.
+/// Also propagates any `FerrotorchError` from the underlying tensor reads
+/// / writes (`grad()`, `data_vec()`, `set_grad()`). Also returns
+/// `FerrotorchError::InvalidArgument` from the numeric `cast` helper when
+/// `clip_value` (or its negation) cannot be represented as `T`.
+///
 /// # Examples
 ///
 /// ```ignore
@@ -158,10 +185,14 @@ pub fn clip_grad_value_<T: Float>(
     params: &[&Parameter<T>],
     clip_value: f64,
 ) -> FerrotorchResult<()> {
-    assert!(clip_value >= 0.0, "clip_value must be non-negative");
+    if clip_value < 0.0 {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!("clip_value must be non-negative, got {clip_value}"),
+        });
+    }
 
-    let clip_pos = T::from(clip_value).unwrap();
-    let clip_neg = T::from(-clip_value).unwrap();
+    let clip_pos: T = cast(clip_value)?;
+    let clip_neg: T = cast(-clip_value)?;
 
     for param in params {
         if let Some(grad) = param.grad()? {
@@ -410,11 +441,11 @@ mod tests {
     #[test]
     fn test_functions_are_callable() {
         // Smoke test: the functions exist and have the expected signatures.
-        fn _test_norm<T: Float>(_params: &[&Parameter<T>]) {
-            let _ = clip_grad_norm_(_params, 1.0, 2.0);
+        fn _test_norm<T: Float>(params: &[&Parameter<T>]) {
+            let _ = clip_grad_norm_(params, 1.0, 2.0);
         }
-        fn _test_value<T: Float>(_params: &[&Parameter<T>]) {
-            let _ = clip_grad_value_(_params, 1.0);
+        fn _test_value<T: Float>(params: &[&Parameter<T>]) {
+            let _ = clip_grad_value_(params, 1.0);
         }
     }
 }

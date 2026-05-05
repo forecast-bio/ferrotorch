@@ -3,7 +3,7 @@
 //!
 //! Files produced by this module are fully compatible with Python's
 //! `safetensors` library, enabling seamless model exchange between Rust and
-//! the HuggingFace ecosystem.
+//! the `HuggingFace` ecosystem.
 //!
 //! # Sharded checkpoints
 //!
@@ -23,14 +23,15 @@ use safetensors::serialize_to_file;
 use safetensors::tensor::{Dtype, SafeTensors, TensorView};
 use serde::Deserialize;
 
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 use ferrotorch_nn::StateDict;
 
 /// Convert IEEE 754 half-precision (f16) bits to f32.
 fn half_to_f32(bits: u16) -> f32 {
-    let sign = ((bits >> 15) & 1) as u32;
-    let exp = ((bits >> 10) & 0x1F) as u32;
-    let frac = (bits & 0x3FF) as u32;
+    let sign = u32::from((bits >> 15) & 1);
+    let exp = u32::from((bits >> 10) & 0x1F);
+    let frac = u32::from(bits & 0x3FF);
 
     if exp == 0 {
         if frac == 0 {
@@ -66,10 +67,7 @@ fn st_dtype<T: Float>() -> FerrotorchResult<Dtype> {
         4 => Ok(Dtype::F32),
         8 => Ok(Dtype::F64),
         _ => Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "unsupported element size {} for safetensors serialization",
-                size
-            ),
+            message: format!("unsupported element size {size} for safetensors serialization"),
         }),
     }
 }
@@ -86,12 +84,28 @@ fn expected_dtype<T: Float>() -> FerrotorchResult<Dtype> {
 ///
 /// This reinterprets the memory of a `&[T]` as `&[u8]`. This is safe for
 /// `f32` and `f64` on little-endian platforms (x86, ARM), which is the same
-/// assumption that the SafeTensors format makes.
+/// assumption that the `SafeTensors` format makes.
 fn as_le_bytes<T: Float>(data: &[T]) -> &[u8] {
-    unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data)) }
+    // SAFETY: `data: &[T]` where `T: Float` is one of f32/f64/bf16 — every
+    // such `T` is `Copy`, has a stable bit-level representation with no
+    // padding, and has no `Drop` semantics, so reinterpreting the same
+    // memory as `&[u8]` is sound. The byte length `size_of_val(data)`
+    // equals `data.len() * size_of::<T>()`, the exact extent the source
+    // pointer is valid for. The returned `&[u8]` reborrows `data` and is
+    // tied to its lifetime, so it cannot dangle. Big-endian targets would
+    // produce wrong bytes; the SafeTensors specification mandates LE.
+    unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), std::mem::size_of_val(data)) }
 }
 
-/// Save a state dict using the SafeTensors format (HuggingFace standard).
+/// Internal helper used by [`save_safetensors`] to retain owned shape
+/// vectors and byte-slice borrows while we build the `TensorView` list.
+struct TensorEntry<'a> {
+    name: &'a str,
+    shape: Vec<usize>,
+    data: &'a [u8],
+}
+
+/// Save a state dict using the `SafeTensors` format (`HuggingFace` standard).
 ///
 /// The tensors are sorted by name for deterministic output. The resulting
 /// file can be loaded by Python's `safetensors` library:
@@ -115,12 +129,6 @@ pub fn save_safetensors<T: Float>(
 
     // Build (name, TensorView) pairs. We need the tensor data to outlive the
     // TensorView, so we collect data slices first.
-    struct TensorEntry<'a> {
-        name: &'a str,
-        shape: Vec<usize>,
-        data: &'a [u8],
-    }
-
     let mut entries: Vec<TensorEntry<'_>> = Vec::with_capacity(keys.len());
     for key in &keys {
         let tensor = &state[*key];
@@ -190,13 +198,13 @@ fn decode_view<T: Float>(name: &str, view: &TensorView<'_>) -> FerrotorchResult<
             let hi = byte_data[i * 2 + 1];
             let f32_val = if is_bf16 {
                 // bf16: top 16 bits of f32
-                f32::from_bits((hi as u32) << 24 | (lo as u32) << 16)
+                f32::from_bits((u32::from(hi)) << 24 | (u32::from(lo)) << 16)
             } else {
                 // f16: IEEE 754 half-precision
-                let bits = (hi as u16) << 8 | lo as u16;
+                let bits = (u16::from(hi)) << 8 | u16::from(lo);
                 half_to_f32(bits)
             };
-            float_data.push(T::from(f32_val).unwrap());
+            float_data.push(cast::<f32, T>(f32_val)?);
         }
         return Tensor::from_storage(TensorStorage::cpu(float_data), shape, false);
     }
@@ -214,8 +222,13 @@ fn decode_view<T: Float>(name: &str, view: &TensorView<'_>) -> FerrotorchResult<
         }
         let mut data: Vec<T> = Vec::with_capacity(numel);
         for chunk in byte_data.chunks_exact(4) {
-            let f32_val = f32::from_le_bytes(chunk.try_into().unwrap());
-            data.push(T::from(f32_val).unwrap());
+            let arr: [u8; 4] = chunk
+                .try_into()
+                .map_err(|e| FerrotorchError::InvalidArgument {
+                    message: format!("malformed safetensors chunk for tensor '{name}': {e}"),
+                })?;
+            let f32_val = f32::from_le_bytes(arr);
+            data.push(cast::<f32, T>(f32_val)?);
         }
         return Tensor::from_storage(TensorStorage::cpu(data), shape, false);
     }
@@ -225,7 +238,7 @@ fn decode_view<T: Float>(name: &str, view: &TensorView<'_>) -> FerrotorchResult<
     let elem_size = std::mem::size_of::<T>();
     if view.dtype() != expected {
         return Err(FerrotorchError::DtypeMismatch {
-            expected: format!("{:?}", expected),
+            expected: format!("{expected:?}"),
             got: format!("{:?}", view.dtype()),
         });
     }
@@ -251,14 +264,25 @@ fn decode_view<T: Float>(name: &str, view: &TensorView<'_>) -> FerrotorchResult<
         .map(|chunk| {
             let mut bytes = [0u8; 8];
             bytes[..elem_size].copy_from_slice(chunk);
-            unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const T) }
+            // SAFETY: `expected = st_dtype::<T>()` succeeded above only for
+            // `T: Float` with `size_of::<T>() == 4` (f32) or `8` (f64), and
+            // `elem_size = size_of::<T>()` is set from that match — so
+            // `elem_size` here is always 4 or 8, and `chunks_exact` hands
+            // us exactly that many bytes which we copy fully into `bytes`.
+            // `bytes` is an 8-byte stack array; we only read `elem_size`
+            // of its bytes, all of which are initialized by the
+            // `copy_from_slice`. `read_unaligned` requires no alignment, so
+            // the cast from `*const u8` to `*const T` at any address is
+            // sound. Every bit pattern is a valid `f32`/`f64` (NaNs
+            // included), so the read cannot produce an invalid value.
+            unsafe { std::ptr::read_unaligned(bytes.as_ptr().cast::<T>()) }
         })
         .collect();
 
     Tensor::from_storage(TensorStorage::cpu(data), shape, false)
 }
 
-/// Load a state dict from a SafeTensors file.
+/// Load a state dict from a `SafeTensors` file.
 ///
 /// The dtype stored in the file must match the requested type `T`. For
 /// example, loading an `F32` file into `StateDict<f64>` produces an error.
@@ -281,7 +305,7 @@ pub fn load_safetensors<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<St
 
     for (name, view) in &tensor_list {
         let tensor = decode_view::<T>(name, view)?;
-        state.insert(name.to_string(), tensor);
+        state.insert(name.clone(), tensor);
     }
 
     Ok(state)
@@ -291,18 +315,28 @@ pub fn load_safetensors<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<St
 // Sharded loading (HuggingFace `model.safetensors.index.json`)
 // ---------------------------------------------------------------------------
 
-/// HuggingFace safetensors index file (`model.safetensors.index.json`).
+/// `HuggingFace` safetensors index file (`model.safetensors.index.json`).
 ///
 /// Maps each tensor name to the shard file that contains it, plus a
 /// total-size metadata field used for progress reporting.
+///
+/// `#[non_exhaustive]` so we can extend the index format (e.g. tensor
+/// hashes, per-shard byte ranges) without forcing every reader to update
+/// pattern matches; field access keeps working.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct SafeTensorsIndex {
     pub metadata: SafeTensorsIndexMetadata,
     pub weight_map: HashMap<String, String>,
 }
 
 /// Metadata section of the safetensors index.
+///
+/// `#[non_exhaustive]` for the same reason as [`SafeTensorsIndex`]:
+/// `HuggingFace` already adds optional metadata fields between safetensors
+/// versions and we want to absorb those without semver breaks.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct SafeTensorsIndexMetadata {
     /// Sum of the sizes (in bytes) of every tensor referenced by the index.
     pub total_size: u64,
@@ -344,7 +378,7 @@ impl SafeTensorsIndex {
     }
 }
 
-/// Load a sharded HuggingFace safetensors checkpoint from its
+/// Load a sharded `HuggingFace` safetensors checkpoint from its
 /// `model.safetensors.index.json`.
 ///
 /// Shards are loaded one at a time (sorted by filename) and each tensor
@@ -363,8 +397,7 @@ pub fn load_safetensors_sharded<T: Float>(
     let index_path = index_path.as_ref();
     let dir: PathBuf = index_path
         .parent()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
+        .map_or_else(|| PathBuf::from("."), PathBuf::from);
     let index = SafeTensorsIndex::from_file(index_path)?;
 
     let grouped = index.group_by_shard();
@@ -414,7 +447,10 @@ fn load_one_shard_into<T: Float>(
             message: format!("failed to parse shard {}: {e}", shard_path.display()),
         })?;
 
-    let expected_set: HashSet<&str> = expected_keys.iter().map(|s| s.as_str()).collect();
+    let expected_set: HashSet<&str> = expected_keys
+        .iter()
+        .map(std::string::String::as_str)
+        .collect();
     let mut found: HashSet<String> = HashSet::with_capacity(expected_keys.len());
 
     let tensors = st.tensors();
@@ -423,7 +459,7 @@ fn load_one_shard_into<T: Float>(
             continue;
         }
         let tensor = decode_view::<T>(name, view)?;
-        state.insert(name.to_string(), tensor);
+        state.insert(name.clone(), tensor);
         found.insert(name.clone());
     }
 
@@ -460,7 +496,12 @@ pub fn load_safetensors_auto<T: Float>(path: impl AsRef<Path>) -> FerrotorchResu
 
 /// Progress information passed to a [`load_safetensors_sharded_with_progress`]
 /// callback before each shard is opened.
+///
+/// `#[non_exhaustive]` because additional progress signals (bytes
+/// loaded, ETA, current tensor name) may be added in future versions
+/// without breaking callbacks that pattern-match on existing fields.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct ShardProgress<'a> {
     /// 0-based index of the shard about to be loaded.
     pub shard_index: usize,
@@ -492,8 +533,7 @@ where
     let index_path = index_path.as_ref();
     let dir: PathBuf = index_path
         .parent()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
+        .map_or_else(|| PathBuf::from("."), PathBuf::from);
     let index = SafeTensorsIndex::from_file(index_path)?;
 
     let grouped = index.group_by_shard();
@@ -569,7 +609,7 @@ pub fn load_safetensors_mmap<T: Float>(path: impl AsRef<Path>) -> FerrotorchResu
     let mut state: StateDict<T> = HashMap::with_capacity(tensor_list.len());
     for (name, view) in &tensor_list {
         let tensor = decode_view::<T>(name, view)?;
-        state.insert(name.to_string(), tensor);
+        state.insert(name.clone(), tensor);
     }
     Ok(state)
 }
@@ -585,8 +625,7 @@ pub fn load_safetensors_sharded_mmap<T: Float>(
     let index_path = index_path.as_ref();
     let dir: PathBuf = index_path
         .parent()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
+        .map_or_else(|| PathBuf::from("."), PathBuf::from);
     let index = SafeTensorsIndex::from_file(index_path)?;
 
     let grouped = index.group_by_shard();
@@ -634,7 +673,10 @@ fn load_one_shard_into_mmap<T: Float>(
         message: format!("failed to parse shard {}: {e}", shard_path.display()),
     })?;
 
-    let expected_set: HashSet<&str> = expected_keys.iter().map(|s| s.as_str()).collect();
+    let expected_set: HashSet<&str> = expected_keys
+        .iter()
+        .map(std::string::String::as_str)
+        .collect();
     let mut found: HashSet<String> = HashSet::with_capacity(expected_keys.len());
 
     let tensors = st.tensors();
@@ -643,7 +685,7 @@ fn load_one_shard_into_mmap<T: Float>(
             continue;
         }
         let tensor = decode_view::<T>(name, view)?;
-        state.insert(name.to_string(), tensor);
+        state.insert(name.clone(), tensor);
         found.insert(name.clone());
     }
 
@@ -663,7 +705,7 @@ fn load_one_shard_into_mmap<T: Float>(
 /// Sharded loader that returns only tensors whose name is accepted by
 /// `predicate`. Matches the typical "load only encoder weights" or
 /// "load layer 12 only" patterns used by inference servers and by
-/// adapter / LoRA training that wants to skip the base model. (#586)
+/// adapter / `LoRA` training that wants to skip the base model. (#586)
 ///
 /// Shards that contain no accepted tensors are still opened to validate
 /// the index, but their tensor data is dropped after the predicate check.
@@ -678,8 +720,7 @@ where
     let index_path = index_path.as_ref();
     let dir: PathBuf = index_path
         .parent()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
+        .map_or_else(|| PathBuf::from("."), PathBuf::from);
     let index = SafeTensorsIndex::from_file(index_path)?;
 
     let grouped = index.group_by_shard();
@@ -819,7 +860,7 @@ mod tests {
         let file_data = std::fs::read(&path).unwrap();
         let st = SafeTensors::deserialize(&file_data).unwrap();
 
-        let mut names: Vec<String> = st.names().iter().map(|s| s.to_string()).collect();
+        let mut names: Vec<String> = st.names().iter().map(|s| (*s).clone()).collect();
         names.sort();
         assert_eq!(
             names,
@@ -974,10 +1015,12 @@ mod tests {
         filename: &str,
         shards: &[(&str, &StateDict<f32>)],
     ) -> std::path::PathBuf {
+        use std::fmt::Write as _;
+
         let mut weight_map: Vec<(String, String)> = Vec::new();
         let mut total_size: u64 = 0;
         for (shard_file, sd) in shards {
-            for (key, tensor) in sd.iter() {
+            for (key, tensor) in *sd {
                 weight_map.push((key.clone(), shard_file.to_string()));
                 total_size += (tensor.numel() * std::mem::size_of::<f32>()) as u64;
             }
@@ -991,7 +1034,7 @@ mod tests {
             if i > 0 {
                 json.push(',');
             }
-            json.push_str(&format!("\"{k}\":\"{v}\""));
+            write!(json, "\"{k}\":\"{v}\"").unwrap();
         }
         json.push_str("}}");
 

@@ -38,7 +38,16 @@ use serde::Deserialize;
 /// Unknown fields in the JSON are silently ignored so a config emitted
 /// by a newer HF version still parses. Missing optional fields fall
 /// back to the defaults documented on each accessor.
+///
+/// Marked `#[non_exhaustive]` so HuggingFace's evolving config schema
+/// can pick up new fields (rope-scaling parameter shapes, attention
+/// implementation tags, etc.) in a minor version without breaking
+/// external code. External callers should construct via
+/// [`Self::from_json_str`] / [`Self::from_file`] rather than struct
+/// literal. A workspace-level grep for `HfTransformerConfig {` outside
+/// `ferrotorch-hub/` returned zero hits at audit time.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct HfTransformerConfig {
     /// Embedding / hidden dimension (`d_model`).
     pub hidden_size: usize,

@@ -33,8 +33,8 @@ mod report;
 pub mod schedule;
 
 // `CudaKernelScope` is the public API for users who want to time a GPU kernel
-// region. `PendingCudaScope` is an internal queue type used by `Profiler`;
-// it has no meaningful public contract and is not re-exported.
+// region. The crate's other CUDA scope type (`PendingCudaScope`, the
+// queue-internal end-of-region marker) is `pub(crate)` and not re-exported.
 #[cfg(feature = "cuda")]
 pub use cuda_timing::CudaKernelScope;
 pub use event::{MemoryCategory, ProfileEvent};

@@ -34,6 +34,7 @@
 use std::any::TypeId;
 
 use ferrotorch_core::gpu_dispatch::gpu_backend;
+use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{Device, FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::parameter::Parameter;
@@ -191,7 +192,10 @@ fn clip_grad_norm_cpu<T: Float>(
         for g in grads {
             let data = g.data_vec()?;
             for v in &data {
-                let abs_v = v.to_f64().unwrap().abs();
+                // Use the workspace `cast` helper: bf16/f16 values that overflow
+                // f64 range (or the rare NaN-like cases) propagate as Err rather
+                // than panicking via the previous `.to_f64().unwrap()`.
+                let abs_v = cast::<T, f64>(*v)?.abs();
                 if abs_v > max_val {
                     max_val = abs_v;
                 }
@@ -203,7 +207,7 @@ fn clip_grad_norm_cpu<T: Float>(
         for g in grads {
             let data = g.data_vec()?;
             for v in &data {
-                accum += v.to_f64().unwrap().abs().powf(norm_type);
+                accum += cast::<T, f64>(*v)?.abs().powf(norm_type);
             }
         }
         accum.powf(1.0 / norm_type)
@@ -211,7 +215,10 @@ fn clip_grad_norm_cpu<T: Float>(
 
     if total_norm > max_norm {
         let clip_coef = max_norm / total_norm;
-        let clip_t = T::from(clip_coef).unwrap();
+        // `clip_coef` ∈ (0, 1) so casting back to T succeeds for every Float
+        // type in the workspace; the helper still surfaces `Err` if a future
+        // dtype were added that cannot represent values in that range.
+        let clip_t: T = cast(clip_coef)?;
 
         for param in params {
             if let Some(g) = param.grad()? {
@@ -388,8 +395,12 @@ fn clip_grad_value_cpu<T: Float>(
     params: &[&Parameter<T>],
     clip_value: f64,
 ) -> FerrotorchResult<()> {
-    let lo = T::from(-clip_value).unwrap();
-    let hi = T::from(clip_value).unwrap();
+    // Use the workspace `cast` helper: bf16's narrower exponent / mantissa range
+    // means `f64 -> bf16` can fail for values outside its representable interval,
+    // and the previous `T::from(...).unwrap()` would panic in user code. `cast`
+    // surfaces this as `FerrotorchError::InvalidArgument` for `?` propagation.
+    let lo: T = cast(-clip_value)?;
+    let hi: T = cast(clip_value)?;
 
     for param in params {
         if let Some(g) = param.grad()? {

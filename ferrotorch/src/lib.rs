@@ -1,3 +1,39 @@
+//! ferrotorch — PyTorch-shaped deep learning framework in Rust.
+//!
+//! This crate is the umbrella re-export crate. Sub-crates own the actual
+//! implementation; this crate exists so users can `use ferrotorch::*;` (or
+//! `use ferrotorch::prelude::*;`) and pick up the canonical public surface
+//! in one import.
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! use ferrotorch::{FerrotorchResult, zeros};
+//!
+//! fn main() -> FerrotorchResult<()> {
+//!     let t = zeros::<f32>(&[2, 3])?;
+//!     assert_eq!(t.shape(), &[2, 3]);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! See the `prelude` module for the items most users want, and the per-feature
+//! modules (`nn`, `optim`, `data`, `vision`, `train`, `serialize`, `jit`,
+//! `distributions`, `profiler`, `hub`, `tokenize`, `gpu`, `cubecl`, `mps`,
+//! `xpu`, `distributed`, `llama`, `ml`) for sub-crate access.
+//!
+//! Lint baseline mirrors the per-crate convention used across the workspace
+//! (`ferrotorch-core`, `ferrotorch-jit`, `ferrotorch-cubecl`, etc.). Workspace
+//! `[lints]` is intentionally not used — every crate carries its own
+//! `#![warn/deny(...)]` so the policy lives next to the code it governs.
+
+#![warn(clippy::all, clippy::pedantic)]
+#![deny(rust_2018_idioms, missing_debug_implementations)]
+// `missing_docs` is held off here because the umbrella crate is exclusively
+// re-exports from already-documented sub-crates; a workspace-wide rustdoc
+// pass is tracked separately and will lift this allow once it lands.
+#![allow(missing_docs)]
+
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -41,7 +77,7 @@ pub mod train {
     pub use ferrotorch_train::*;
 }
 
-/// Model serialization: ONNX export, PyTorch import, safetensors, GGUF.
+/// Model serialization: ONNX export, `PyTorch` import, safetensors, GGUF.
 #[cfg(feature = "serialize")]
 pub mod serialize {
     pub use ferrotorch_serialize::*;
@@ -77,7 +113,7 @@ pub mod hub {
     pub use ferrotorch_hub::*;
 }
 
-/// HuggingFace tokenizer wrapper (BPE, WordPiece, Unigram).
+/// `HuggingFace` tokenizer wrapper (BPE, `WordPiece`, Unigram).
 #[cfg(feature = "tokenize")]
 pub mod tokenize {
     pub use ferrotorch_tokenize::*;
@@ -89,7 +125,7 @@ pub mod gpu {
     pub use ferrotorch_gpu::*;
 }
 
-/// Portable GPU compute via CubeCL (CUDA + WGPU + ROCm).
+/// Portable GPU compute via `CubeCL` (CUDA + WGPU + `ROCm`).
 #[cfg(feature = "cubecl")]
 pub mod cubecl {
     pub use ferrotorch_cubecl::*;
@@ -101,7 +137,7 @@ pub mod mps {
     pub use ferrotorch_mps::*;
 }
 
-/// Intel Arc / Data Center GPU Max via CubeCL wgpu.
+/// Intel Arc / Data Center GPU Max via `CubeCL` wgpu.
 #[cfg(feature = "xpu")]
 pub mod xpu {
     pub use ferrotorch_xpu::*;

@@ -252,6 +252,9 @@ pub fn interpolate<T: Float>(
 // Forward kernels
 // ---------------------------------------------------------------------------
 
+// Internal kernel: argument set is the upsample descriptor
+// (B, C, H_in, W_in, H_out, W_out, scale_h, scale_w); a config struct
+// would force allocation in the hot interpolate path.
 #[allow(clippy::too_many_arguments)]
 fn nearest_forward<T: Float>(
     data: &[T],
@@ -281,6 +284,7 @@ fn nearest_forward<T: Float>(
     }
 }
 
+// Internal kernel: same upsample descriptor as `nearest_forward`.
 #[allow(clippy::too_many_arguments)]
 fn bilinear_forward<T: Float>(
     data: &[T],
@@ -343,6 +347,7 @@ fn bilinear_forward<T: Float>(
     }
 }
 
+// Internal kernel: same upsample descriptor as `nearest_forward`.
 #[allow(clippy::too_many_arguments)]
 fn bicubic_forward<T: Float>(
     data: &[T],
@@ -497,6 +502,7 @@ impl<T: Float> GradFn<T> for InterpolateBackward<T> {
     }
 }
 
+// Internal kernel: adjoint of `nearest_forward`; same descriptor.
 #[allow(clippy::too_many_arguments)]
 fn nearest_backward<T: Float>(
     go: &[T],
@@ -526,6 +532,7 @@ fn nearest_backward<T: Float>(
     }
 }
 
+// Internal kernel: adjoint of `bilinear_forward`; same descriptor.
 #[allow(clippy::too_many_arguments)]
 fn bilinear_backward<T: Float>(
     go: &[T],
@@ -584,6 +591,7 @@ fn bilinear_backward<T: Float>(
     }
 }
 
+// Internal kernel: adjoint of `bicubic_forward`; same descriptor.
 #[allow(clippy::too_many_arguments)]
 fn bicubic_backward<T: Float>(
     go: &[T],

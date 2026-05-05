@@ -8,7 +8,7 @@
 //! | Offset | Field | Type |
 //! |--------|-------|------|
 //! | 0 | Magic bytes `b"FTIR"` | `[u8; 4]` |
-//! | 4 | Version (currently 1) | `u32` |
+//! | 4 | Version (currently 2) | `u32` |
 //! | 8 | Value count | `u32` |
 //! | ... | Values (variable) | see below |
 //! | ... | Node count | `u32` |
@@ -17,17 +17,52 @@
 //! | ... | Input value ids | `u32` each |
 //! | ... | Output value count | `u32` |
 //! | ... | Output value ids | `u32` each |
+//!
+//! # Versioning
+//!
+//! - **v1** — original format; values had `id`, `shape`, `producer` only.
+//!   No dtype was encoded; readers default v1 values to [`Dtype::F32`].
+//! - **v2** — adds a single dtype tag byte after each value's `producer`
+//!   field (`0` = `F32`, `1` = `F64`). All other fields are unchanged
+//!   relative to v1.
 
 use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 
-use crate::graph::{IrGraph, IrNode, IrNodeId, IrOpKind, IrValue, IrValueId};
+use crate::graph::{Dtype, IrGraph, IrNode, IrNodeId, IrOpKind, IrValue, IrValueId};
 
 // ---------------------------------------------------------------------------
 // Magic & version
 // ---------------------------------------------------------------------------
 
 const MAGIC: &[u8; 4] = b"FTIR";
-const VERSION: u32 = 1;
+/// Current writer version (v2 carries dtype). Readers also accept v1 by
+/// defaulting every value's dtype to [`Dtype::F32`].
+const VERSION: u32 = 2;
+const VERSION_V1: u32 = 1;
+
+// ---------------------------------------------------------------------------
+// Dtype tag bytes (v2+)
+// ---------------------------------------------------------------------------
+
+const DTYPE_TAG_F32: u8 = 0;
+const DTYPE_TAG_F64: u8 = 1;
+
+fn dtype_to_tag(d: Dtype) -> u8 {
+    match d {
+        Dtype::F32 => DTYPE_TAG_F32,
+        Dtype::F64 => DTYPE_TAG_F64,
+    }
+}
+
+fn tag_to_dtype(tag: u8) -> FerrotorchResult<Dtype> {
+    match tag {
+        DTYPE_TAG_F32 => Ok(Dtype::F32),
+        DTYPE_TAG_F64 => Ok(Dtype::F64),
+        other => Err(FerrotorchError::InvalidArgument {
+            message: format!("IR deserialize: unknown dtype tag {other}"),
+        }),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Op-kind tag bytes
@@ -417,6 +452,8 @@ impl IrGraph {
                     w.write_u8(0);
                 }
             }
+            // v2: dtype tag byte.
+            w.write_u8(dtype_to_tag(val.dtype));
         }
 
         // Nodes.
@@ -465,13 +502,15 @@ impl IrGraph {
         }
 
         let version = r.read_u32()?;
-        if version != VERSION {
+        if version != VERSION && version != VERSION_V1 {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
-                    "IR deserialize: unsupported version {version} (expected {VERSION})"
+                    "IR deserialize: unsupported version {version} \
+                     (this build accepts {VERSION_V1} or {VERSION})"
                 ),
             });
         }
+        let has_dtype = version >= VERSION;
 
         // Values.
         let value_count = r.read_u32_as_usize()?;
@@ -493,10 +532,17 @@ impl IrGraph {
             } else {
                 None
             };
+            // v2 carries an explicit dtype tag; v1 streams default to F32.
+            let dtype = if has_dtype {
+                tag_to_dtype(r.read_u8()?)?
+            } else {
+                Dtype::F32
+            };
             values.push(IrValue {
                 id: IrValueId(id),
                 shape,
                 producer,
+                dtype,
             });
         }
 
@@ -721,6 +767,82 @@ mod tests {
         for (orig, deser) in g.nodes.iter().zip(g2.nodes.iter()) {
             assert_eq!(orig.op, deser.op, "op mismatch for node {}", orig.id.0);
         }
+    }
+
+    /// Mixed-dtype values must survive a serialize/deserialize round-trip
+    /// at v2 (the current writer version).
+    #[test]
+    fn test_round_trip_dtype_v2() {
+        let mut g = IrGraph::new();
+        let _x_f32 = g.add_input_with_dtype(vec![4], Dtype::F32);
+        let _x_f64 = g.add_input_with_dtype(vec![4], Dtype::F64);
+        let _c_f64 = g.add_constant_with_dtype(vec![1.0; 4], vec![4], Dtype::F64);
+
+        let bytes = g.serialize();
+        let g2 = IrGraph::deserialize(&bytes).expect("round-trip failed");
+
+        assert_eq!(g2.value_count(), g.value_count());
+        for (orig, deser) in g.values.iter().zip(g2.values.iter()) {
+            assert_eq!(
+                orig.dtype, deser.dtype,
+                "dtype mismatch for value id {}",
+                orig.id.0
+            );
+        }
+    }
+
+    /// A v1-formatted byte stream (no dtype byte) must still deserialize
+    /// successfully, with every value defaulting to `Dtype::F32`.
+    #[test]
+    fn test_v1_backward_compat_defaults_f32() {
+        // Hand-craft a minimal v1 stream: magic + version=1 + value_count=1 +
+        // (id=0, shape_len=1, shape=[2], has_producer=0)
+        // + node_count=0 + input_count=0 + output_count=0.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(MAGIC);
+        buf.extend_from_slice(&VERSION_V1.to_le_bytes());
+        // value_count = 1
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        // id = 0
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        // shape_len = 1
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        // shape[0] = 2
+        buf.extend_from_slice(&2u32.to_le_bytes());
+        // has_producer = 0 (no producer)
+        buf.push(0);
+        // node_count = 0
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        // input_count = 0
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        // output_count = 0
+        buf.extend_from_slice(&0u32.to_le_bytes());
+
+        let g = IrGraph::deserialize(&buf).expect("v1 deserialize failed");
+        assert_eq!(g.value_count(), 1);
+        assert_eq!(g.values[0].dtype, Dtype::F32);
+        assert_eq!(g.values[0].shape, vec![2]);
+    }
+
+    /// An unknown dtype tag must surface as an error rather than a panic.
+    #[test]
+    fn test_unknown_dtype_tag_errors() {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(MAGIC);
+        buf.extend_from_slice(&VERSION.to_le_bytes());
+        buf.extend_from_slice(&1u32.to_le_bytes()); // value_count = 1
+        buf.extend_from_slice(&0u32.to_le_bytes()); // id
+        buf.extend_from_slice(&0u32.to_le_bytes()); // shape_len = 0
+        buf.push(0); // has_producer = 0
+        buf.push(0xFF); // bogus dtype tag
+
+        let result = IrGraph::deserialize(&buf);
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("unknown dtype tag"),
+            "unexpected error message: {msg}"
+        );
     }
 
     /// Truncated data must produce an error (not a panic).
