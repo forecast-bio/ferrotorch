@@ -1,0 +1,10 @@
+{
+  "uuid": "6ebd0d21-47c0-4d72-b547-9812ed95423e",
+  "display_id": 748,
+  "title": "ferrotorch-jit: F64 GPU transcendentals (exp/log/sin/cos/tanh) via libdevice — Phase-2 follow-up to #729",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-05T03:05:13.716412495Z",
+  "updated_at": "2026-05-05T03:05:13.716412495Z"
+}
