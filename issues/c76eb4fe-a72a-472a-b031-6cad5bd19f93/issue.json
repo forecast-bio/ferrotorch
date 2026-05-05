@@ -2,11 +2,12 @@
   "uuid": "c76eb4fe-a72a-472a-b031-6cad5bd19f93",
   "display_id": 651,
   "title": "Skill refinements: rust-quality eprintln-removal clause + rust-fix-discipline severity-reassess step",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-02T19:26:14.472668982Z",
-  "updated_at": "2026-05-02T19:26:15.859258556Z",
+  "updated_at": "2026-05-05T01:21:28.895472229Z",
+  "closed_at": "2026-05-05T01:21:28.895472229Z",
   "labels": [
     "skill"
   ]
