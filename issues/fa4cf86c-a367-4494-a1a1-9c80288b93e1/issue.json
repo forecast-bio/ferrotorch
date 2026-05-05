@@ -2,11 +2,12 @@
   "uuid": "fa4cf86c-a367-4494-a1a1-9c80288b93e1",
   "display_id": 653,
   "title": "Test dispatch #3: tightened rust-fix-discipline + skills on ferrotorch-tokenize (validates §6 workspace-build mandate, §7 grep-evidence requirement, §3 forbidden #11)",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-02T20:03:22.325464421Z",
-  "updated_at": "2026-05-02T20:03:23.579988264Z",
+  "updated_at": "2026-05-05T01:21:36.506676217Z",
+  "closed_at": "2026-05-05T01:21:36.506676217Z",
   "labels": [
     "review"
   ]
