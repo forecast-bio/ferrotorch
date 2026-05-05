@@ -2,11 +2,12 @@
   "uuid": "4e3858c5-968b-429c-9c2d-e7493b7a0209",
   "display_id": 674,
   "title": "ADR #663 item 4.6: wire xpu wrappers for cubecl polynomial ops (chebyshev_t/u, hermite_*, laguerre_*, legendre_*)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-03T01:36:44.402404137Z",
-  "updated_at": "2026-05-03T01:36:45.610865752Z",
+  "updated_at": "2026-05-05T01:22:51.515330467Z",
+  "closed_at": "2026-05-05T01:22:51.515330467Z",
   "labels": [
     "fix"
   ]
