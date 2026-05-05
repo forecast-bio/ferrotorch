@@ -2,11 +2,12 @@
   "uuid": "367b58be-d0b4-4d33-a4c8-857d8717e9b2",
   "display_id": 680,
   "title": "Author 'architect' skill — adversarial orchestrator that supervises subagents against the project's north star",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-03T04:52:31.494389976Z",
-  "updated_at": "2026-05-03T04:52:32.997789169Z",
+  "updated_at": "2026-05-05T01:22:59.433794295Z",
+  "closed_at": "2026-05-05T01:22:59.433794295Z",
   "labels": [
     "add"
   ]
