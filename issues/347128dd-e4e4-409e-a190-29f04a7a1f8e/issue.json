@@ -2,11 +2,12 @@
   "uuid": "347128dd-e4e4-409e-a190-29f04a7a1f8e",
   "display_id": 649,
   "title": "Adjust rust-gpu-discipline skill for PyTorch-parity device-error policy + add new rust-fix-discipline skill",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-02T19:07:47.324734669Z",
-  "updated_at": "2026-05-02T19:07:48.800680147Z",
+  "updated_at": "2026-05-05T01:21:21.334644318Z",
+  "closed_at": "2026-05-05T01:21:21.334644318Z",
   "labels": [
     "skill"
   ]
