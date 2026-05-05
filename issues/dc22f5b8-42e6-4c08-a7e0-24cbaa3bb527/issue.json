@@ -2,11 +2,12 @@
   "uuid": "dc22f5b8-42e6-4c08-a7e0-24cbaa3bb527",
   "display_id": 662,
   "title": "Skill tightening: remove Category D deferral entirely + add 'PyTorch has answer => defer is violation' clause to rust-gpu-discipline §3",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-02T21:53:58.113224966Z",
-  "updated_at": "2026-05-02T21:53:59.611160853Z",
+  "updated_at": "2026-05-05T01:22:10.751221199Z",
+  "closed_at": "2026-05-05T01:22:10.751221199Z",
   "labels": [
     "skill"
   ]
