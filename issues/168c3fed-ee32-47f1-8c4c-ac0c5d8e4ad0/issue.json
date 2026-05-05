@@ -2,11 +2,12 @@
   "uuid": "168c3fed-ee32-47f1-8c4c-ac0c5d8e4ad0",
   "display_id": 676,
   "title": "ADR #663 item 6.5: ferrotorch-jit rust-quality follow-up — lint baseline, DefaultHasher, eprintln removal, pub-field encapsulation",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-03T03:07:41.547700279Z",
-  "updated_at": "2026-05-03T03:07:43.036076505Z",
+  "updated_at": "2026-05-05T01:22:53.767959524Z",
+  "closed_at": "2026-05-05T01:22:53.767959524Z",
   "labels": [
     "fix"
   ]
