@@ -2,11 +2,12 @@
   "uuid": "3f2a1737-3db4-46b3-8486-07153b736740",
   "display_id": 637,
   "title": "Workspace cleanup: clippy strict + fmt + bump to 0.4.5",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-02T02:58:50.395466471Z",
-  "updated_at": "2026-05-02T02:58:51.842157337Z",
+  "updated_at": "2026-05-05T01:21:08.172995018Z",
+  "closed_at": "2026-05-05T01:21:08.172995018Z",
   "labels": [
     "chore"
   ]
