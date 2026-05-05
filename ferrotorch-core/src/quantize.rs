@@ -1586,6 +1586,9 @@ mod tests {
     }
 
     #[test]
+    // reason: STE mask is binary 0.0/1.0 — written as exact bit patterns,
+    // never the result of arithmetic, so equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_fake_quantize_ste_clipping() {
         let mut fq = FakeQuantize::new(QuantDtype::Int8);
         // First, observe a range [0, 2].
@@ -1624,6 +1627,9 @@ mod tests {
     }
 
     #[test]
+    // reason: with fake_quant disabled the STE mask is filled with the exact
+    // bit pattern 1.0 (no arithmetic), so equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_fake_quantize_disabled_is_identity() {
         let mut fq = FakeQuantize::new(QuantDtype::Int8);
         fq.fake_quant_enabled = false;

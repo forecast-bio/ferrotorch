@@ -457,6 +457,9 @@ mod tests {
     }
 
     #[test]
+    // reason: round-trip bit-equality — fill_(42.0) writes the exact bit
+    // pattern of 42.0 (no arithmetic), so equality is the correct check.
+    #[allow(clippy::float_cmp)]
     fn test_fill_scalar_tensor() {
         let t = Tensor::from_storage(TensorStorage::cpu(vec![0.0f32]), vec![], false).unwrap();
 

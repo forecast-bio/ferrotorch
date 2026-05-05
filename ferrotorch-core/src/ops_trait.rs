@@ -152,6 +152,9 @@ mod tests {
     use crate::*;
 
     #[test]
+    // reason: 2 + 3 = 5 in f32 is bit-exact (small integers); add-grad
+    // is exactly 1.0 by construction. Equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_add_refs() {
         let a = scalar(2.0f32).unwrap().requires_grad_(true);
         let b = scalar(3.0f32).unwrap().requires_grad_(true);
@@ -163,6 +166,8 @@ mod tests {
     }
 
     #[test]
+    // reason: 5 - 3 = 2 in f32 is bit-exact (small integers).
+    #[allow(clippy::float_cmp)]
     fn test_sub_refs() {
         let a = scalar(5.0f32).unwrap();
         let b = scalar(3.0f32).unwrap();
@@ -170,6 +175,9 @@ mod tests {
     }
 
     #[test]
+    // reason: 4 * 3 = 12 in f32 is bit-exact (small integers); mul-grads
+    // are the other operand exactly. Equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_mul_with_autograd() {
         let a = scalar(4.0f32).unwrap().requires_grad_(true);
         let b = scalar(3.0f32).unwrap().requires_grad_(true);
@@ -181,6 +189,8 @@ mod tests {
     }
 
     #[test]
+    // reason: 6 / 2 = 3 in f32 is bit-exact (powers of 2 in division).
+    #[allow(clippy::float_cmp)]
     fn test_div_refs() {
         let a = scalar(6.0f32).unwrap();
         let b = scalar(2.0f32).unwrap();
@@ -188,6 +198,9 @@ mod tests {
     }
 
     #[test]
+    // reason: negation flips the sign bit only — bit-exact for any finite
+    // input including the small integers used here.
+    #[allow(clippy::float_cmp)]
     fn test_neg() {
         let a = scalar(5.0f32).unwrap();
         assert_eq!((-&a).unwrap().item().unwrap(), -5.0);
@@ -195,12 +208,16 @@ mod tests {
     }
 
     #[test]
+    // reason: 2 + 3 = 5 in f32 is bit-exact (small integers).
+    #[allow(clippy::float_cmp)]
     fn test_owned_add() {
         let c = (scalar(2.0f32).unwrap() + scalar(3.0f32).unwrap()).unwrap();
         assert_eq!(c.item().unwrap(), 5.0);
     }
 
     #[test]
+    // reason: 2 + 3 = 5 in f32 is bit-exact (small integers).
+    #[allow(clippy::float_cmp)]
     fn test_mixed_ownership() {
         let a = scalar(2.0f32).unwrap();
         let b = scalar(3.0f32).unwrap();
@@ -208,6 +225,9 @@ mod tests {
     }
 
     #[test]
+    // reason: (2+3)*(2-3) = 5 * -1 = -5; every step is bit-exact in f32
+    // because operands are small integers.
+    #[allow(clippy::float_cmp)]
     fn test_chained_expression() {
         let a = scalar(2.0f32).unwrap().requires_grad_(true);
         let b = scalar(3.0f32).unwrap().requires_grad_(true);

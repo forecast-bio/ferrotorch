@@ -48,6 +48,9 @@ mod tests {
     }
 
     #[test]
+    // reason: bit-exact round-trip of 0.0 / 1.0 through bf16 → f32; both values
+    // are exactly representable in bf16, so equality (not epsilon) is correct.
+    #[allow(clippy::float_cmp)]
     fn bf16_zero_one_round_trip() {
         let zero = <half::bf16 as Element>::zero();
         let one = <half::bf16 as Element>::one();
@@ -56,6 +59,9 @@ mod tests {
     }
 
     #[test]
+    // reason: 2 + 3 = 5 in bf16 is bit-exact (small integers are exactly
+    // representable and integer addition does not lose mantissa bits).
+    #[allow(clippy::float_cmp)]
     fn bf16_num_traits_float_ops() {
         use num_traits::Float as _;
         let a = half::bf16::from_f32(2.0);
@@ -68,6 +74,9 @@ mod tests {
     }
 
     #[test]
+    // reason: 1 + 2 = 3 in bf16 is bit-exact (small integers are exactly
+    // representable and integer addition does not lose mantissa bits).
+    #[allow(clippy::float_cmp)]
     fn bf16_add_assign() {
         let mut x = half::bf16::from_f32(1.0);
         x += half::bf16::from_f32(2.0);

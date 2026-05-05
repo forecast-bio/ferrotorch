@@ -1328,6 +1328,10 @@ mod tests {
     // --- from_dense with threshold ---
 
     #[test]
+    // reason: from_dense filters by magnitude and to_dense scatters values
+    // back into a zero buffer — neither performs arithmetic on the values, so
+    // each kept entry retains its original bit pattern from the literal source.
+    #[allow(clippy::float_cmp)]
     fn test_from_dense_with_threshold() {
         // Dense 3x3 matrix with some near-zero values.
         let data = vec![0.0f32, 0.0, 5.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0];
@@ -1348,6 +1352,10 @@ mod tests {
     }
 
     #[test]
+    // reason: filtered entries become exactly 0.0 (the zero-init in to_dense's
+    // output buffer) and kept entries retain their literal bit pattern — no
+    // arithmetic touches the values, so bitwise equality is correct.
+    #[allow(clippy::float_cmp)]
     fn test_from_dense_threshold_filters_small() {
         let data = vec![0.5f32, 1.5, 0.1, 2.0];
         let tensor = Tensor::from_storage(TensorStorage::cpu(data), vec![2, 2], false).unwrap();
@@ -1720,6 +1728,10 @@ mod tests {
     // --- 1-D, 3-D, and zero-dimension edge cases ---
 
     #[test]
+    // reason: to_dense scatters each literal sparse value into a zero-initialised
+    // buffer — empty slots are exactly 0.0 and stored values retain their literal
+    // bit pattern, so bitwise equality is the correct check.
+    #[allow(clippy::float_cmp)]
     fn test_1d_sparse_tensor() {
         let sp = SparseTensor::new(vec![vec![1], vec![4]], vec![10.0f32, 20.0], vec![5]).unwrap();
 
@@ -1882,6 +1894,12 @@ mod tests {
     }
 
     #[test]
+    // reason: the assertion mirrors the kernel's accumulation order exactly
+    // (`acc = 0; acc += a[0]*b[0]; acc += a[1]*b[4]` corresponds to the
+    // `1.0*b_m[0] + 2.0*b_m[4]` left-associative expression). IEEE 754 is
+    // deterministic for identical operations on identical operands in the same
+    // order, so bit-exact equality is the right check, not an epsilon.
+    #[allow(clippy::float_cmp)]
     fn semi24_sparse_matmul_matches_dense_matmul() {
         // a @ b where b is compressed to 2:4. The reference
         // implementation decompresses b and does the full

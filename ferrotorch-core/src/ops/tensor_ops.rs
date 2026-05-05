@@ -399,6 +399,10 @@ mod tests {
     }
 
     #[test]
+    // reason: diagflat is pure indexing — each input element is copied to
+    // a diagonal slot without arithmetic, so the bit pattern is preserved
+    // and equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_diagflat() {
         let input = t2d(&[1.0, 2.0, 3.0, 4.0], 2, 2);
         let result = diagflat(&input, 0).unwrap();

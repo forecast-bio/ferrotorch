@@ -136,6 +136,10 @@ mod tests {
     // --- magnitude_prune ---
 
     #[test]
+    // reason: pruning is select-or-zero — kept slots hold the exact input
+    // bit pattern (no arithmetic), pruned slots hold the exact zero bit
+    // pattern. Equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_magnitude_prune_50_percent() {
         let t = make_tensor(vec![1.0, -4.0, 2.0, -3.0], vec![4]);
         let pruned = magnitude_prune(&t, 0.5).unwrap();
@@ -188,6 +192,11 @@ mod tests {
     // --- apply_2_4_mask ---
 
     #[test]
+    // reason: 2:4 masking is select-or-zero — kept slots hold the exact
+    // input bit pattern (no arithmetic), pruned slots hold exact zero. The
+    // 0.9 and 0.8 literals on the RHS produce the same f32 bit pattern as
+    // the corresponding input literals, so equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_apply_2_4_mask_basic() {
         let t = make_tensor(vec![1.0, -4.0, 2.0, -3.0, 0.5, 0.1, 0.9, 0.8], vec![8]);
         let masked = apply_2_4_mask(&t).unwrap();

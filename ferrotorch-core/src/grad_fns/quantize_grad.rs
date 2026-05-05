@@ -183,6 +183,11 @@ mod tests {
     }
 
     #[test]
+    // reason: with scale=1.0, zp=0 the quantize-then-dequantize round-trip
+    // is exact for integer-valued inputs in range, and clamping snaps
+    // out-of-range inputs to exact integer boundaries. Every expected
+    // value is bit-exactly representable in f32, so equality is correct.
+    #[allow(clippy::float_cmp)]
     fn fake_quantize_clamps_out_of_range_values() {
         // int8: [-128, 127] with scale 1.0, zp 0 → representable
         // range is [-128.0, 127.0]. Values outside should be
@@ -236,6 +241,10 @@ mod tests {
     // ── backward / STE ─────────────────────────────────────────────
 
     #[test]
+    // reason: STE passes gradient 1.0 through for in-range values; this is
+    // a binary mask (1.0 for in-range, 0.0 for out-of-range), written as an
+    // exact bit pattern, never the result of arithmetic.
+    #[allow(clippy::float_cmp)]
     fn fake_quantize_ste_passes_grad_for_in_range_values() {
         // scale=1.0, zp=0, range=[-128, 127]. Values inside this
         // range should have gradient 1.0 passed through unchanged.
@@ -260,6 +269,10 @@ mod tests {
     }
 
     #[test]
+    // reason: STE gradient mask is binary (1.0 for in-range, 0.0 for clipped);
+    // each grad slot holds the exact bit pattern of the chosen sentinel,
+    // never the result of arithmetic — equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn fake_quantize_ste_zeros_grad_for_out_of_range_values() {
         // Only values in [-1.0, 1.0] (scale=0.01, range=[-1.28, 1.27])
         // get grad 1, others get 0. Use scale=0.01, qmin=-128, qmax=127.
@@ -310,6 +323,10 @@ mod tests {
     }
 
     #[test]
+    // reason: chained STE × relu mask product is still binary (0.0 or 1.0
+    // — multiplying two binary masks). Each grad slot holds an exact bit
+    // pattern, never a non-trivial arithmetic result.
+    #[allow(clippy::float_cmp)]
     fn fake_quantize_chains_through_autograd_with_relu() {
         // y = relu(fake_quantize(x)); backward should flow through
         // both layers and give the expected combined gradient.

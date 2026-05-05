@@ -79,6 +79,9 @@ mod tests {
     }
 
     #[test]
+    // reason: 42 is exactly representable in f32 (any integer up to 2^24 is),
+    // so usize→f32 round-trip is bit-exact and equality is the correct check.
+    #[allow(clippy::float_cmp)]
     fn cast_usize_to_f32_succeeds() {
         let x: f32 = cast(42_usize).unwrap();
         assert_eq!(x, 42.0);

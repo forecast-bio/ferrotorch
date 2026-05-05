@@ -318,6 +318,10 @@ mod tests {
     }
 
     #[test]
+    // reason: hanning() is a deliberate alias of hann() and the test pins
+    // that they emit byte-identical buffers; any drift means the alias broke
+    // and equality (not an epsilon) is exactly the right check.
+    #[allow(clippy::float_cmp)]
     fn hanning_is_alias_for_hann() {
         let a = hann(13).unwrap();
         let b = hanning(13).unwrap();

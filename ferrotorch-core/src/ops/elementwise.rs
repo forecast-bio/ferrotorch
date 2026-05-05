@@ -1384,6 +1384,11 @@ mod tests {
     }
 
     #[test]
+    // reason: parallel-vs-scalar bit-equality — fast_add must produce the
+    // same bit pattern as the scalar `a + b` it shadows. Both sides perform
+    // a single non-fused float add of integer-valued operands, which is
+    // bit-exact on every IEEE-754 target; epsilon would mask real drift.
+    #[allow(clippy::float_cmp)]
     fn test_fast_add_parallel() {
         let n = PARALLEL_THRESHOLD + 1024;
         let a_data: Vec<f32> = (0..n).map(|i| i as f32).collect();
@@ -1482,6 +1487,9 @@ mod tests {
     }
 
     #[test]
+    // reason: IEEE-754 sentinel — exp(-inf) is exactly 0.0, not "close to 0".
+    // The fast-path must hit the IEEE limit, so equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_fast_exp_f32_neg_inf() {
         let result = fast_exp_f32(f32::NEG_INFINITY);
         assert_eq!(
@@ -1560,6 +1568,9 @@ mod tests {
     }
 
     #[test]
+    // reason: IEEE-754 sentinel — log(0) is exactly -inf, not "close to -inf".
+    // The fallback guard must produce the IEEE limit, so equality is correct.
+    #[allow(clippy::float_cmp)]
     fn test_vlog_f32_handles_zero_and_negative() {
         assert_eq!(vlog_f32(0.0), f32::NEG_INFINITY);
         assert!(vlog_f32(-1.0).is_nan());

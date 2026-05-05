@@ -1347,6 +1347,12 @@ pub fn cond<T: Float>(a: &Tensor<T>, p: f64) -> FerrotorchResult<Tensor<T>> {
 ///
 /// `2.0` -> Fro/L2, `1.0` -> L1, `f64::INFINITY` -> Inf, `f64::NEG_INFINITY`
 /// -> NegInf, anything else -> P(p as the underlying float type).
+// reason: PyTorch dispatches `ord` by exact magic values (1.0, 2.0, ±inf).
+// 1.0 and 2.0 are exactly representable in f64 and callers pass these
+// literals directly, so equality (not epsilon) is the correct dispatch
+// predicate; an epsilon check would route nearby user values like 1.0001
+// to L1 silently and break parity with torch.linalg.norm.
+#[allow(clippy::float_cmp)]
 fn float_to_norm_order<T: Into<f64>>(ord: T) -> ferray_linalg::NormOrder {
     let v: f64 = ord.into();
     if v == f64::INFINITY {

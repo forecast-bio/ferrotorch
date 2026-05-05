@@ -995,6 +995,10 @@ mod tests {
     // --- from_padded round-trip for ragged_dim != 0 ---
 
     #[test]
+    // reason: to_padded copies component values verbatim and writes the literal
+    // pad value (0.0) into pad slots — no float arithmetic, so bitwise equality
+    // with the source literals is the correct assertion.
+    #[allow(clippy::float_cmp)]
     fn test_from_padded_round_trip_ragged_dim_1() {
         // Component tensors: shape [2, L_i] where dim 1 is ragged.
         // t1: [2, 3], t2: [2, 2]

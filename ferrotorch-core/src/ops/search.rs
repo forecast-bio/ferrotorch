@@ -390,6 +390,10 @@ mod tests {
     // --- unique ---
 
     #[test]
+    // reason: round-trip bit-equality — unique() copies values without
+    // arithmetic, and the inverse map is verified by index lookup. Both
+    // sides hold the same bit pattern, so equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_unique_sorted() {
         let input = tensor_1d(&[3.0, 1.0, 2.0, 1.0, 3.0, 2.0]);
         let (unique, inverse, counts) = unique(&input).unwrap();

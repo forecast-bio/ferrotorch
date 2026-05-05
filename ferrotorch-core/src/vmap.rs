@@ -646,6 +646,9 @@ mod tests {
     }
 
     #[test]
+    // reason: select() is pure indexing (no arithmetic); 20.0 is read back
+    // bit-for-bit from storage, so equality is the correct check.
+    #[allow(clippy::float_cmp)]
     fn test_select_from_1d() {
         // Select from a 1-D tensor yields a scalar.
         let input = t(&[10.0, 20.0, 30.0], &[3]);

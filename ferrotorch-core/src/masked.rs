@@ -604,6 +604,9 @@ mod tests {
     }
 
     #[test]
+    // reason: masked_count returns an integer count cast to float; 3 is
+    // exactly representable, so equality (not epsilon) is the right check.
+    #[allow(clippy::float_cmp)]
     fn masked_count_returns_valid_count() {
         let d = t(&[1.0, 2.0, 3.0, 4.0], &[4]);
         let mt = MaskedTensor::new(d, vec![true, false, true, true]).unwrap();

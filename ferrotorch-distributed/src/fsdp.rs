@@ -1142,6 +1142,12 @@ mod tests {
     }
 
     #[test]
+    // reason: sharded-grad zero-padding writes the exact bit pattern 0.0 to
+    // off-shard slots (no arithmetic). The on-shard slots are tested with
+    // an explicit epsilon (the abs/<1e-6 lines just above each assert_eq!),
+    // because those go through reduce-scatter mean. The 0.0 == 0.0 sentinel
+    // and ints {0,1,2,3,4} are bit-exact, so equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_fsdp_shard_grad_op_sync_gradients_multi_rank() {
         // ZeRO-2: two ranks, param [1,2,3,4], both ranks produce full grad
         // [1,2,3,4]. reduce_scatter(mean) gives rank 0 the slice [1,2] and

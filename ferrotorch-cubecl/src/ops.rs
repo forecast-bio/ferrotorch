@@ -636,6 +636,12 @@ mod tests {
     }
 
     #[test]
+    // reason: GPU-vs-CPU bit-equality — the GPU portable_add must produce
+    // the same bit pattern as the scalar `a + b` it shadows. Both sides are
+    // a single non-fused IEEE-754 add of integer-valued operands (i + 2i =
+    // 3i for i < 1024, all exactly representable in f32), so equality
+    // pins kernel correctness; epsilon would mask real GPU drift.
+    #[allow(clippy::float_cmp)]
     fn portable_add_large_shape() {
         // Exercise multi-cube launch (more than 256 elements so we go past
         // one cube).

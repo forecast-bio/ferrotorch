@@ -312,6 +312,9 @@ mod tests {
     }
 
     #[test]
+    // reason: ones() writes the exact bit pattern of 1.0; sentinel-value
+    // identity check (no arithmetic), so equality is the right predicate.
+    #[allow(clippy::float_cmp)]
     fn test_ones() {
         let t: Tensor<f64> = ones(&[4]).unwrap();
         assert_eq!(t.shape(), &[4]);
@@ -339,6 +342,9 @@ mod tests {
     }
 
     #[test]
+    // reason: scalar(42.0) stores exactly 42.0; round-trip read returns
+    // the same bit pattern (no arithmetic), so equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_scalar() {
         let t = scalar(42.0f64).unwrap();
         assert!(t.is_scalar());
@@ -346,6 +352,10 @@ mod tests {
     }
 
     #[test]
+    // reason: identity-matrix sentinel — eye() fills exact 1.0 on the
+    // diagonal and exact 0.0 elsewhere (no arithmetic), so bit-equality
+    // is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_eye() {
         let t: Tensor<f32> = eye(3).unwrap();
         assert_eq!(t.shape(), &[3, 3]);
@@ -387,6 +397,10 @@ mod tests {
     }
 
     #[test]
+    // reason: linspace(start, start, 1) is a single-point degenerate case
+    // that returns exactly `start` — no arithmetic happens, so equality
+    // is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_linspace_single() {
         let t: Tensor<f32> = linspace(3.0, 3.0, 1).unwrap();
         assert_eq!(t.shape(), &[1]);
@@ -432,6 +446,9 @@ mod tests {
     }
 
     #[test]
+    // reason: ones_like writes the exact bit pattern of 1.0; sentinel-value
+    // identity check (no arithmetic), so equality is the right predicate.
+    #[allow(clippy::float_cmp)]
     fn test_ones_like() {
         let t: Tensor<f64> = zeros(&[2, 5]).unwrap();
         let o = ones_like(&t).unwrap();

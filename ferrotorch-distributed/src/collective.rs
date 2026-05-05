@@ -1118,6 +1118,10 @@ mod tests {
     }
 
     #[test]
+    // reason: all_to_all is pure copy across ranks; both sides hold the
+    // exact bit pattern of `usize as f32` (small integers up to 304, all
+    // exactly representable), so equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_all_to_all_4_ranks() {
         // Each rank sends [rank*10 + peer*1] to peer — simple pattern
         // that lets us verify every pair.

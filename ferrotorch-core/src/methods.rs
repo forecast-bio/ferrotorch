@@ -796,6 +796,9 @@ mod tests {
     use crate::*;
 
     #[test]
+    // reason: relu is pure passthrough or hard-zero; both branches preserve
+    // the exact bit pattern (no arithmetic), so equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_method_relu() {
         let a = scalar(2.0f32).unwrap();
         assert_eq!(a.relu().unwrap().item().unwrap(), 2.0);
@@ -813,6 +816,10 @@ mod tests {
     }
 
     #[test]
+    // reason: sum of small integer-valued floats (1+2+3=6) is bit-exact in
+    // any deterministic order — the partial sums never lose mantissa bits,
+    // so equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_method_sum() {
         let a = tensor(&[1.0f32, 2.0, 3.0]).unwrap();
         let s = a.sum_all().unwrap();
@@ -827,6 +834,10 @@ mod tests {
     }
 
     #[test]
+    // reason: 3^2 = 9 in f32 is bit-exact (small integer power of small
+    // integer), and relu of a positive integer is passthrough. The whole
+    // chain produces exactly 9.0, so equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_method_chain() {
         let a = scalar(3.0f32).unwrap().requires_grad_(true);
         // a.pow(2).relu().sum() = relu(9) = 9
@@ -889,6 +900,10 @@ mod tests {
     }
 
     #[test]
+    // reason: permute is pure indexing — it rearranges values without any
+    // arithmetic, so each output slot holds the exact bit pattern of the
+    // corresponding input slot.
+    #[allow(clippy::float_cmp)]
     fn test_method_permute_3d() {
         let data: Vec<f32> = (1..=24).map(|x| x as f32).collect();
         let a = from_slice(&data, &[2, 3, 4]).unwrap();

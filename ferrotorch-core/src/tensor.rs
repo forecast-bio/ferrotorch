@@ -1686,6 +1686,10 @@ mod tests {
     }
 
     #[test]
+    // reason: round-trip bit-equality — the storage contains the exact bit
+    // pattern of 42.0 and item() reads it without arithmetic, so equality is
+    // the correct check.
+    #[allow(clippy::float_cmp)]
     fn test_tensor_scalar() {
         let storage = TensorStorage::cpu(vec![42.0f32]);
         let t = Tensor::from_storage(storage, vec![], false).unwrap();

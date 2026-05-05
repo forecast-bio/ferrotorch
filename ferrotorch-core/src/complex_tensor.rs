@@ -430,6 +430,9 @@ mod tests {
     }
 
     #[test]
+    // reason: scalar(2.0, 3.0) stores the exact bit patterns; round-trip
+    // read returns the same bits (no arithmetic), so equality is correct.
+    #[allow(clippy::float_cmp)]
     fn complex_scalar_constructor() {
         let c = ComplexTensor::<f32>::scalar(2.0, 3.0);
         assert_eq!(c.shape(), &[] as &[usize]);
@@ -472,6 +475,9 @@ mod tests {
     }
 
     #[test]
+    // reason: complex add of small integer-valued floats (1+3=4, 2+4=6) is
+    // bit-exact in IEEE-754; no rounding occurs, so equality is correct.
+    #[allow(clippy::float_cmp)]
     fn complex_pointwise_add() {
         // (1+2i) + (3+4i) = (4+6i)
         let a = ComplexTensor::<f32>::from_re_im(vec![1.0], vec![2.0], vec![1]).unwrap();
@@ -482,6 +488,9 @@ mod tests {
     }
 
     #[test]
+    // reason: complex sub of small integer-valued floats (5-3=2, 6-2=4) is
+    // bit-exact in IEEE-754; no rounding occurs, so equality is correct.
+    #[allow(clippy::float_cmp)]
     fn complex_pointwise_sub() {
         let a = ComplexTensor::<f32>::from_re_im(vec![5.0], vec![6.0], vec![1]).unwrap();
         let b = ComplexTensor::<f32>::from_re_im(vec![3.0], vec![2.0], vec![1]).unwrap();
@@ -491,6 +500,10 @@ mod tests {
     }
 
     #[test]
+    // reason: complex mul of small integer-valued floats — (1*3 - 2*4 = -5,
+    // 1*4 + 2*3 = 10) — every partial product and sum stays within f32
+    // mantissa precision, so the result is bit-exact and equality is right.
+    #[allow(clippy::float_cmp)]
     fn complex_pointwise_mul() {
         // (1+2i)(3+4i) = 3 + 4i + 6i + 8i² = 3 - 8 + (4+6)i = -5 + 10i
         let a = ComplexTensor::<f32>::from_re_im(vec![1.0], vec![2.0], vec![1]).unwrap();

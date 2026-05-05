@@ -924,6 +924,10 @@ mod tests {
     }
 
     #[test]
+    // reason: rearrange ("b h w c -> b c h w") is pure axis permutation —
+    // each output slot holds the exact bit pattern of an input slot, so
+    // bit-exact equality is the right check.
+    #[allow(clippy::float_cmp)]
     fn test_rearrange_transpose_nhwc_to_nchw() {
         // "b h w c -> b c h w" transposes.
         // Input shape: [1, 2, 2, 3] (B=1, H=2, W=2, C=3)
