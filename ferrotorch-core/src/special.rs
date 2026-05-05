@@ -11,14 +11,14 @@ use crate::tensor::Tensor;
 
 /// Helper: return zero via `num_traits::Zero` to avoid ambiguity with
 /// `ferray_core::Element::zero`.
-#[inline(always)]
+#[inline]
 fn nt_zero<T: num_traits::Zero>() -> T {
     <T as num_traits::Zero>::zero()
 }
 
 /// Helper: return one via `num_traits::One` to avoid ambiguity with
 /// `ferray_core::Element::one`.
-#[inline(always)]
+#[inline]
 fn nt_one<T: num_traits::One>() -> T {
     <T as num_traits::One>::one()
 }
@@ -1165,7 +1165,7 @@ mod tests {
         ));
         assert!(close(
             laguerre_polynomial_l(&x, 2).unwrap().data().unwrap()[0],
-            (xv * xv - 4.0 * xv + 2.0) / 2.0,
+            f64::midpoint(xv * xv - 4.0 * xv, 2.0),
             1e-12,
         ));
     }

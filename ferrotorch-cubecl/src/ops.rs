@@ -534,14 +534,13 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             CubeRuntime::new(CubeDevice::Wgpu(0)).ok()
         }));
-        match result {
-            Ok(Some(rt)) => Some(rt),
-            _ => {
-                eprintln!(
-                    "[ferrotorch-cubecl] wgpu adapter unavailable; skipping wgpu integration test"
-                );
-                None
-            }
+        if let Ok(Some(rt)) = result {
+            Some(rt)
+        } else {
+            eprintln!(
+                "[ferrotorch-cubecl] wgpu adapter unavailable; skipping wgpu integration test"
+            );
+            None
         }
     }
 

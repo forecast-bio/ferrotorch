@@ -220,8 +220,7 @@ impl<T: Float> SparseTensor<T> {
         if k_sparse != k_dense {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
-                    "spmm inner dimensions mismatch: sparse [{}, {}] @ dense [{}, {}]",
-                    m, k_sparse, k_dense, n
+                    "spmm inner dimensions mismatch: sparse [{m}, {k_sparse}] @ dense [{k_dense}, {n}]"
                 ),
             });
         }
@@ -383,7 +382,7 @@ impl<T: Float> fmt::Debug for SparseTensor<T> {
             .field("shape", &self.shape)
             .field("nnz", &self.nnz)
             .field("ndim", &self.shape.len())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -817,7 +816,7 @@ impl<T: Float> SemiStructuredSparseTensor<T> {
             // two ascending so values are stored in original
             // position order.
             let mut kept = [mags[0].0, mags[1].0];
-            kept.sort();
+            kept.sort_unstable();
             values.push(data[base + kept[0]]);
             values.push(data[base + kept[1]]);
 
@@ -1387,7 +1386,7 @@ mod tests {
         let recon_data = reconstructed.data().unwrap();
 
         for (a, b) in orig_data.iter().zip(recon_data.iter()) {
-            assert!((*a - *b).abs() < 1e-10, "mismatch: {} vs {}", a, b);
+            assert!((*a - *b).abs() < 1e-10, "mismatch: {a} vs {b}");
         }
     }
 

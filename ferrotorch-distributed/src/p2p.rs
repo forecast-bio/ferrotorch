@@ -224,14 +224,14 @@ mod tests {
         let (a, b) = pair_backends();
         let from_a = from_slice::<f32>(&[1.0, 2.0], &[2]).unwrap();
         let from_b = from_slice::<f32>(&[100.0, 200.0], &[2]).unwrap();
-        let from_a_c = from_a.clone();
-        let from_b_c = from_b.clone();
+        let send_buf_a = from_a.clone();
+        let send_buf_b = from_b.clone();
 
         let h_a = std::thread::spawn(move || -> Tensor<f32> {
-            sendrecv::<f32>(&from_a_c, &[2], 1, &a).unwrap()
+            sendrecv::<f32>(&send_buf_a, &[2], 1, &a).unwrap()
         });
         let h_b = std::thread::spawn(move || -> Tensor<f32> {
-            sendrecv::<f32>(&from_b_c, &[2], 0, &b).unwrap()
+            sendrecv::<f32>(&send_buf_b, &[2], 0, &b).unwrap()
         });
 
         let recv_a = h_a.join().unwrap();

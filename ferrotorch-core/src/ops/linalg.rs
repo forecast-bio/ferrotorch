@@ -65,10 +65,7 @@ fn broadcast_batch_shapes(a: &[usize], b: &[usize]) -> FerrotorchResult<Vec<usiz
             result.push(da);
         } else {
             return Err(FerrotorchError::ShapeMismatch {
-                message: format!(
-                    "matmul: batch dimensions cannot be broadcast: {:?} vs {:?}",
-                    a, b
-                ),
+                message: format!("matmul: batch dimensions cannot be broadcast: {a:?} vs {b:?}"),
             });
         }
     }
@@ -260,6 +257,7 @@ const DIRECT_MM_THRESHOLD: usize = 128;
 /// Whether `T` is `half::bf16`. Used to route bf16 kernels through an
 /// f32 accumulator to avoid the catastrophic precision loss of summing
 /// hundreds of 7-bit-mantissa values in bf16.
+#[allow(clippy::inline_always)] // reason: trivial TypeId compare; must inline to constant-fold the bf16 dispatch in hot matmul
 #[inline(always)]
 fn is_bf16<T: 'static>() -> bool {
     std::any::TypeId::of::<T>() == std::any::TypeId::of::<half::bf16>()
@@ -267,6 +265,7 @@ fn is_bf16<T: 'static>() -> bool {
 
 /// Reinterpret a bf16 slice as `&[half::bf16]`. Only call when
 /// `is_bf16::<T>()` is true.
+#[allow(clippy::inline_always)] // reason: zero-cost reinterpret cast; must inline so caller sees through to the bf16 slice
 #[inline(always)]
 unsafe fn as_bf16_slice<T>(data: &[T]) -> &[half::bf16] {
     // SAFETY: caller guarantees T is half::bf16 (same size, same repr).
@@ -274,6 +273,7 @@ unsafe fn as_bf16_slice<T>(data: &[T]) -> &[half::bf16] {
 }
 
 /// Write f32 results into a freshly-zeroed T slice (only valid when T=bf16).
+#[allow(clippy::inline_always)] // reason: tight zip-loop fused into matmul epilogue; must inline to vectorize the bf16 store
 #[inline(always)]
 unsafe fn write_f32_as_bf16<T>(dst: &mut [T], src: &[f32]) {
     // SAFETY: caller guarantees T is half::bf16.
@@ -1008,7 +1008,7 @@ mod tests {
         let c = matmul(&a, &b).unwrap();
         assert_eq!(c.shape(), &[2, 3, 2]);
         // Each element = sum of 4 ones = 4.0
-        for &v in c.data().unwrap().iter() {
+        for &v in c.data().unwrap() {
             assert!((v - 4.0).abs() < 1e-6);
         }
     }
@@ -1047,7 +1047,7 @@ mod tests {
         let b = t(&[1.0; 4], &[4]);
         let c = matmul(&a, &b).unwrap();
         assert_eq!(c.shape(), &[2, 3]);
-        for &v in c.data().unwrap().iter() {
+        for &v in c.data().unwrap() {
             assert!((v - 4.0).abs() < 1e-6);
         }
     }

@@ -141,6 +141,7 @@ fn parse_side(s: &str) -> FerrotorchResult<Vec<AxisSpec>> {
 }
 
 /// Read an axis name: a run of alphanumeric / underscore characters.
+#[allow(clippy::unnecessary_wraps)] // reason: keeps signature uniform with sibling parser helpers (read_int, read_group) that DO fail
 fn read_axis_name(
     chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
 ) -> FerrotorchResult<String> {
@@ -383,6 +384,7 @@ fn elementary_shape(specs: &[AxisSpec], sizes: &HashMap<String, usize>) -> Vec<u
 ///    axis ordering.
 /// 4. Transpose data according to the permutation.
 /// 5. Reshape from `right_elementary_shape` to `output_shape` (merges).
+#[allow(clippy::unnecessary_wraps)] // reason: pairs with rearrange/reduce_impl which DO fail; keeping uniform Result lets the dispatch site stay one match
 fn rearrange_impl<T: Float>(
     data: &[T],
     _input_shape: &[usize],
@@ -496,9 +498,8 @@ pub fn rearrange_with<T: Float>(
     if left_sorted != right_sorted {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "einops rearrange: left axes {:?} and right axes {:?} must name \
-                 the same set of axes (use `repeat` for new axes, `reduce` for removed axes)",
-                left_names, right_names
+                "einops rearrange: left axes {left_names:?} and right axes {right_names:?} must name \
+                 the same set of axes (use `repeat` for new axes, `reduce` for removed axes)"
             ),
         });
     }
@@ -738,10 +739,10 @@ pub fn reduce<T: Float>(
         .iter()
         .enumerate()
         .filter_map(|(i, name)| {
-            if !right_names.contains(name) {
-                Some(i)
-            } else {
+            if right_names.contains(name) {
                 None
+            } else {
+                Some(i)
             }
         })
         .collect();

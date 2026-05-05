@@ -758,8 +758,7 @@ fn sum_dim_inner<T: Float>(
     if norm_dim >= ndim {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "sum_dim: dim {} is out of bounds for tensor with {} dimensions",
-                dim, ndim
+                "sum_dim: dim {dim} is out of bounds for tensor with {ndim} dimensions"
             ),
         });
     }
@@ -803,10 +802,10 @@ fn sum_dim_inner<T: Float>(
     if input.is_cuda() {
         return Err(FerrotorchError::NotImplementedOnCuda { op: "sum_dim" });
     }
-    let input_ref = if !input.is_contiguous() {
-        input.contiguous()?
-    } else {
+    let input_ref = if input.is_contiguous() {
         input.clone()
+    } else {
+        input.contiguous()?
     };
     let in_data = input_ref.data()?;
 
@@ -1028,8 +1027,7 @@ fn mean_dim_inner<T: Float>(
     if norm_dim >= ndim {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "mean_dim: dim {} is out of bounds for tensor with {} dimensions",
-                dim, ndim
+                "mean_dim: dim {dim} is out of bounds for tensor with {ndim} dimensions"
             ),
         });
     }

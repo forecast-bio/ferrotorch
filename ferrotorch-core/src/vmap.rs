@@ -33,8 +33,7 @@ pub fn select<T: Float>(
     if dim >= ndim {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "select: dim {} is out of bounds for tensor with {} dimensions",
-                dim, ndim
+                "select: dim {dim} is out of bounds for tensor with {ndim} dimensions"
             ),
         });
     }
@@ -97,8 +96,7 @@ pub fn stack<T: Float>(tensors: &[Tensor<T>], dim: usize) -> FerrotorchResult<Te
     if dim > base_ndim {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "stack: dim {} is out of bounds for tensors with {} dimensions (max = {})",
-                dim, base_ndim, base_ndim
+                "stack: dim {dim} is out of bounds for tensors with {base_ndim} dimensions (max = {base_ndim})"
             ),
         });
     }
@@ -252,8 +250,7 @@ where
         if batch_a != batch_b {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
-                    "vmap2: batch size mismatch: a has {} along dim {}, b has {} along dim {}",
-                    batch_a, in_dim_a, batch_b, in_dim_b
+                    "vmap2: batch size mismatch: a has {batch_a} along dim {in_dim_a}, b has {batch_b} along dim {in_dim_b}"
                 ),
             });
         }
@@ -334,8 +331,7 @@ where
         if batch_a != batch_b || batch_a != batch_c {
             return Err(FerrotorchError::ShapeMismatch {
                 message: format!(
-                    "vmap3: batch size mismatch: a={} dim {}, b={} dim {}, c={} dim {}",
-                    batch_a, in_dim_a, batch_b, in_dim_b, batch_c, in_dim_c
+                    "vmap3: batch size mismatch: a={batch_a} dim {in_dim_a}, b={batch_b} dim {in_dim_b}, c={batch_c} dim {in_dim_c}"
                 ),
             });
         }
@@ -407,8 +403,7 @@ where
                 Some(b) if b != bs => {
                     return Err(FerrotorchError::ShapeMismatch {
                         message: format!(
-                            "vmap_many: batch size mismatch: input[{}] has {} along dim {}, others have {}",
-                            i, bs, dim, b
+                            "vmap_many: batch size mismatch: input[{i}] has {bs} along dim {dim}, others have {b}"
                         ),
                     });
                 }
@@ -1072,7 +1067,7 @@ mod tests {
     fn test_per_sample_grad_invalid_dim() {
         let x = t(&[1.0, 2.0], &[2]);
         let p = t(&[0.5], &[1]);
-        let result = per_sample_grad(|_x, _p| Ok(_p.clone()), &x, &p, 5);
+        let result = per_sample_grad(|_x, p| Ok(p.clone()), &x, &p, 5);
         assert!(result.is_err());
     }
 

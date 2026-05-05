@@ -132,9 +132,8 @@ pub(crate) fn reduce_grad_to_shape<T: Float>(
     if grad_ndim < target_ndim {
         return Err(FerrotorchError::ShapeMismatch {
             message: format!(
-                "reduce_grad_to_shape: gradient has {} dim(s) but target has {} dim(s) ({:?} -> {:?}). \
-                 Standard broadcasting backward requires grad_ndim >= target_ndim.",
-                grad_ndim, target_ndim, grad_shape, target_shape
+                "reduce_grad_to_shape: gradient has {grad_ndim} dim(s) but target has {target_ndim} dim(s) ({grad_shape:?} -> {target_shape:?}). \
+                 Standard broadcasting backward requires grad_ndim >= target_ndim."
             ),
         });
     }
@@ -1047,32 +1046,31 @@ impl<T: Float> GradFn<T> for AbsBackward<T> {
 
             if grad_output.is_cuda() || self.a.is_cuda() {
                 return Err(FerrotorchError::NotImplementedOnCuda { op: "AbsBackward" });
-            } else {
-                // CPU path: direct data access for performance.
-                let go_data = grad_output.data()?;
-                let a_data = self.a.data()?;
-                let zero = <T as num_traits::Zero>::zero();
-                let one = <T as num_traits::One>::one();
-                let grad_a: Vec<T> = go_data
-                    .iter()
-                    .zip(a_data.iter())
-                    .map(|(&g, &a)| {
-                        let sign = if a > zero {
-                            one
-                        } else if a < zero {
-                            -one
-                        } else {
-                            zero
-                        };
-                        g * sign
-                    })
-                    .collect();
-                Some(Tensor::from_storage(
-                    TensorStorage::cpu(grad_a),
-                    self.a.shape().to_vec(),
-                    false,
-                )?)
             }
+            // CPU path: direct data access for performance.
+            let go_data = grad_output.data()?;
+            let a_data = self.a.data()?;
+            let zero = <T as num_traits::Zero>::zero();
+            let one = <T as num_traits::One>::one();
+            let grad_a: Vec<T> = go_data
+                .iter()
+                .zip(a_data.iter())
+                .map(|(&g, &a)| {
+                    let sign = if a > zero {
+                        one
+                    } else if a < zero {
+                        -one
+                    } else {
+                        zero
+                    };
+                    g * sign
+                })
+                .collect();
+            Some(Tensor::from_storage(
+                TensorStorage::cpu(grad_a),
+                self.a.shape().to_vec(),
+                false,
+            )?)
         } else {
             None
         };

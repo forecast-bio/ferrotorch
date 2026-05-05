@@ -97,8 +97,7 @@ impl<T: Float> ComplexTensor<T> {
         if shape.is_empty() || *shape.last().unwrap() != 2 {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
-                    "ComplexTensor::from_interleaved: input must have trailing dim 2, got {:?}",
-                    shape
+                    "ComplexTensor::from_interleaved: input must have trailing dim 2, got {shape:?}"
                 ),
             });
         }

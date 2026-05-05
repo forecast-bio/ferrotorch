@@ -942,7 +942,7 @@ pub(crate) fn dequantize_q8_0_reference(scales: &[f32], bytes: &[u32]) -> Vec<f3
             let byte_u = (packed >> (byte_in_u32 * 8)) & 0xFF;
             // Sign-extend u8 → i32 (mirrors the GPU branchless form):
             let sign_bit = (byte_u >> 7) & 1;
-            let signed_u = byte_u.wrapping_add(0xFFFFFF00_u32.wrapping_mul(sign_bit));
+            let signed_u = byte_u.wrapping_add(0xFFFF_FF00_u32.wrapping_mul(sign_bit));
             let signed = signed_u as i32;
             out.push(scale * signed as f32);
         }
@@ -1017,7 +1017,7 @@ pub(crate) fn dequantize_q8_1_reference(scales: &[f32], mins: &[f32], bytes: &[u
             let packed = bytes[b * 8 + u32_idx_in_block];
             let byte_u = (packed >> (byte_in_u32 * 8)) & 0xFF;
             let sign_bit = (byte_u >> 7) & 1;
-            let signed_u = byte_u.wrapping_add(0xFFFFFF00_u32.wrapping_mul(sign_bit));
+            let signed_u = byte_u.wrapping_add(0xFFFF_FF00_u32.wrapping_mul(sign_bit));
             let signed = signed_u as i32;
             out.push(scale * signed as f32 + min_v);
         }
@@ -1233,7 +1233,7 @@ mod tests {
             let s = scale.to_f32();
             // Build 32 nibbles, store low/high pairs into 16 bytes.
             let mut nibs = [0u8; 32];
-            for n in nibs.iter_mut() {
+            for n in &mut nibs {
                 *n = (next() & 0xF) as u8;
             }
             for chunk in nibs.chunks(2) {
@@ -1276,13 +1276,13 @@ mod tests {
 
     #[test]
     fn split_q5_0_recovers_scales_qh_and_nibbles() {
-        // val5 = 0..32 over 32 elements, so high_bit toggles at element 16.
+        // q5 = 0..32 over 32 elements, so high_bit toggles at element 16.
         let mut vals = [0u8; 32];
         let mut qh: u32 = 0;
         for (i, v) in vals.iter_mut().enumerate() {
-            let val5 = i as u8; // 0..32, but 5-bit → high bit set when val5 >= 16
-            *v = val5 & 0xF;
-            if val5 >= 16 {
+            let q5 = i as u8; // 0..32, but 5-bit → high bit set when q5 >= 16
+            *v = q5 & 0xF;
+            if q5 >= 16 {
                 qh |= 1 << i;
             }
         }
@@ -1296,8 +1296,8 @@ mod tests {
         let dequant = dequantize_q5_0_reference(&scales, &qh_out, &nibs);
         let s = half::f16::from_f32(1.5).to_f32();
         for (i, &v) in dequant.iter().enumerate() {
-            let val5 = i as f32;
-            let expected = s * (val5 - 16.0);
+            let q5 = i as f32;
+            let expected = s * (q5 - 16.0);
             assert_relative_eq!(v, expected, epsilon = 1e-3);
         }
     }
@@ -1322,9 +1322,9 @@ mod tests {
         let mut vals = [0u8; 32];
         let mut qh: u32 = 0;
         for (i, v) in vals.iter_mut().enumerate() {
-            let val5 = i as u8;
-            *v = val5 & 0xF;
-            if val5 >= 16 {
+            let q5 = i as u8;
+            *v = q5 & 0xF;
+            if q5 >= 16 {
                 qh |= 1 << i;
             }
         }
@@ -1552,7 +1552,7 @@ mod cuda_tests {
         let num_blocks = 5;
         let mut state: u32 = 0xDEAD_BEEF;
         let mut next = || {
-            state = state.wrapping_mul(214013).wrapping_add(2531011);
+            state = state.wrapping_mul(214_013).wrapping_add(2_531_011);
             state
         };
         let mut raw = Vec::with_capacity(num_blocks * Q8_0_BLOCK_BYTES);
@@ -1579,7 +1579,7 @@ mod cuda_tests {
         let num_blocks = 4;
         let mut state: u32 = 0xFACE_FEED;
         let mut next = || {
-            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             state
         };
         let mut raw = Vec::with_capacity(num_blocks * Q5_0_BLOCK_BYTES);
@@ -1611,7 +1611,7 @@ mod cuda_tests {
         let num_blocks = 4;
         let mut state: u32 = 0xBABE_CAFE;
         let mut next = || {
-            state = state.wrapping_mul(22695477).wrapping_add(1);
+            state = state.wrapping_mul(22_695_477).wrapping_add(1);
             state
         };
         let mut raw = Vec::with_capacity(num_blocks * Q5_1_BLOCK_BYTES);
@@ -1664,7 +1664,7 @@ mod cuda_tests {
         let num_blocks = 3;
         let mut state: u32 = 0x1357_9BDF;
         let mut next = || {
-            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             state
         };
         let mut raw = Vec::with_capacity(num_blocks * Q8_1_BLOCK_BYTES);

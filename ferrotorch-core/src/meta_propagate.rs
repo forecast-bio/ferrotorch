@@ -144,8 +144,7 @@ pub fn matmul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Option
     if a_ndim == 0 || b_ndim == 0 {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "meta_propagate::matmul: scalar operands not supported, got {:?} and {:?}",
-                a_shape, b_shape
+                "meta_propagate::matmul: scalar operands not supported, got {a_shape:?} and {b_shape:?}"
             ),
         });
     }
@@ -207,8 +206,7 @@ pub fn matmul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Option
             if a_inner_k != b_inner_k {
                 return Err(FerrotorchError::ShapeMismatch {
                     message: format!(
-                        "meta_propagate::matmul: batched inner dim mismatch {} vs {}",
-                        a_inner_k, b_inner_k
+                        "meta_propagate::matmul: batched inner dim mismatch {a_inner_k} vs {b_inner_k}"
                     ),
                 });
             }

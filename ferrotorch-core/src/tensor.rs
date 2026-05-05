@@ -778,10 +778,10 @@ impl<T: Float> Tensor<T> {
         match (self.device(), device) {
             (Device::Cpu, Device::Cuda(ordinal)) => {
                 // Non-contiguous tensors must be materialized before GPU upload.
-                let contiguous_self = if !self.is_contiguous() {
-                    crate::methods::contiguous_t(self)?
-                } else {
+                let contiguous_self = if self.is_contiguous() {
                     self.clone()
+                } else {
+                    crate::methods::contiguous_t(self)?
                 };
                 let backend =
                     crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
@@ -911,11 +911,7 @@ impl<T: Float> Tensor<T> {
                 cpu.to(Device::Xpu(b))
             }
             // CUDA ↔ XPU: round-trip via CPU. CL-452.
-            (Device::Cuda(_), Device::Xpu(_)) => {
-                let cpu = self.to(Device::Cpu)?;
-                cpu.to(device)
-            }
-            (Device::Xpu(_), Device::Cuda(_)) => {
+            (Device::Cuda(_), Device::Xpu(_)) | (Device::Xpu(_), Device::Cuda(_)) => {
                 let cpu = self.to(Device::Cpu)?;
                 cpu.to(device)
             }
@@ -967,10 +963,10 @@ impl<T: Float> Tensor<T> {
                     && crate::autograd::no_grad::is_grad_enabled();
 
                 // Materialize non-contiguous tensors before upload.
-                let contiguous_self = if !self.is_contiguous() {
-                    crate::methods::contiguous_t(self)?
-                } else {
+                let contiguous_self = if self.is_contiguous() {
                     self.clone()
+                } else {
+                    crate::methods::contiguous_t(self)?
                 };
                 let cpu_data = contiguous_self.data()?;
                 // on_device_pinned takes ownership of the Vec, so we copy.
@@ -1426,7 +1422,7 @@ impl<T: Float> Tensor<T> {
                         inner: Arc::new(TensorInner {
                             id: TensorId::next(),
                             storage: Arc::new(storage),
-                            shape: shape.to_vec(),
+                            shape: shape.clone(),
                             strides: target_strides,
                             offset: 0,
                             grad: Mutex::new(None),
@@ -1496,7 +1492,7 @@ impl<T: Float> Tensor<T> {
             inner: Arc::new(TensorInner {
                 id: TensorId::next(),
                 storage: Arc::new(storage),
-                shape: shape.to_vec(),
+                shape: shape.clone(),
                 strides: target_strides,
                 offset: 0,
                 grad: Mutex::new(None),

@@ -625,6 +625,7 @@ pub fn fast_log<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
 /// (`x != x`) that auto-vectorizes cleanly, and tightened clamp bounds
 /// keep the internal exponent n in [-126, 127] to avoid bit-manipulation
 /// overflow that would produce garbage at n=128.
+#[allow(clippy::inline_always)] // reason: hot inner-loop scalar; must inline into SIMD-vectorized unary_map
 #[inline(always)]
 fn fast_exp_f32(x: f32) -> f32 {
     // Guard special values BEFORE clamping (auto-vectorizes via is_nan)
@@ -649,6 +650,7 @@ fn fast_exp_f32(x: f32) -> f32 {
 /// for NaN and `+∞`; this function delegates to `f32::ln()` (libm-backed)
 /// after explicit guards so each special case maps to its IEEE-754 result:
 /// `0.0 → −∞`, negatives → `NaN`, `NaN → NaN`, `+∞ → +∞`.
+#[allow(clippy::inline_always)] // reason: hot inner-loop scalar; must inline into SIMD-vectorized unary_map
 #[inline(always)]
 fn fast_log_f32(x: f32) -> f32 {
     if x <= 0.0 {
@@ -1105,7 +1107,7 @@ pub fn nanmean<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let data = input.data()?;
     let mut total = <T as num_traits::Zero>::zero();
     let mut count = 0usize;
-    for &v in data.iter() {
+    for &v in data {
         if !v.is_nan() {
             total += v;
             count += 1;

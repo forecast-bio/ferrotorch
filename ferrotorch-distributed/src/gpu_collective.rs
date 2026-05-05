@@ -214,7 +214,6 @@ pub fn gpu_broadcast<T: GpuFloat>(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[cfg(feature = "cuda")]
 mod tests {
     use super::*;
     use crate::backend::SimulatedBackend;

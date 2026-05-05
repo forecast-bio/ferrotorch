@@ -131,8 +131,7 @@ fn build_dim_map<T: Float>(
                 if existing != size {
                     return Err(FerrotorchError::ShapeMismatch {
                         message: format!(
-                            "einsum: index '{c}' has inconsistent sizes: {} vs {}",
-                            existing, size
+                            "einsum: index '{c}' has inconsistent sizes: {existing} vs {size}"
                         ),
                     });
                 }
@@ -191,7 +190,7 @@ fn einsum_single<T: Float>(
     // Deduplicate (a repeated index like "ii" means diagonal/trace).
     let summed_unique: Vec<char> = {
         let mut v = summed_indices.clone();
-        v.sort();
+        v.sort_unstable();
         v.dedup();
         // But we need to include only indices not in output.
         v.into_iter().filter(|c| !out_subs.contains(c)).collect()
@@ -252,7 +251,7 @@ fn einsum_single<T: Float>(
             // corresponding axis values must match.
             // For repeated input indices, enforce equality.
             let mut first_occurrence: BTreeMap<char, Option<usize>> = BTreeMap::new();
-            for &c in in_subs.iter() {
+            for &c in in_subs {
                 let val = idx_vals[&c];
                 match first_occurrence.get(&c) {
                     Some(Some(prev_val)) => {
@@ -313,13 +312,13 @@ fn einsum_two<T: Float>(
     // Collect unique chars from A.
     let a_unique: Vec<char> = {
         let mut v = a_subs.clone();
-        v.sort();
+        v.sort_unstable();
         v.dedup();
         v
     };
     let b_unique: Vec<char> = {
         let mut v = b_subs.clone();
-        v.sort();
+        v.sort_unstable();
         v.dedup();
         v
     };
@@ -800,7 +799,7 @@ impl<T: Float> GradFn<T> for EinsumBackwardSingle<T> {
         }
 
         // Pure permutation: "ij->ji" reverses to "ji->ij"
-        let reverse_eq = format!("{}->{}", rhs, lhs);
+        let reverse_eq = format!("{rhs}->{lhs}");
         let grad_a = einsum(&reverse_eq, &[grad_output])?;
         Ok(vec![Some(grad_a)])
     }
@@ -859,11 +858,11 @@ impl<T: Float> EinsumBackwardTwo<T> {
         // A has shape matching a_subs, grad_C has shape matching out_subs
         if target == 0 {
             // grad_A: einsum("out,b->a", [grad_C, B])
-            let eq = format!("{},{}->{}", out_subs, b_subs, a_subs);
+            let eq = format!("{out_subs},{b_subs}->{a_subs}");
             (eq, 0, 1) // (equation, grad_C_pos, other_pos)
         } else {
             // grad_B: einsum("a,out->b", [A, grad_C])
-            let eq = format!("{},{}->{}", a_subs, out_subs, b_subs);
+            let eq = format!("{a_subs},{out_subs}->{b_subs}");
             (eq, 1, 0) // (equation, grad_C_pos=1, A_pos=0)
         }
     }

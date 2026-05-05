@@ -131,25 +131,7 @@ impl<T: Float> GradFn<T> for CumprodBackward<T> {
                 let has_zero = (0..dim_size)
                     .any(|i| in_data[base + i * inner] == <T as num_traits::Zero>::zero());
 
-                if !has_zero {
-                    // Fast path: no zeros, safe to use output / input.
-                    // grad_input[i] = reverse_cumsum(grad_output * output)[i] / input[i]
-                    //
-                    // We compute `product = go * out` then reverse-cumsum it,
-                    // then divide each element by input[i].
-                    let mut product = vec![<T as num_traits::Zero>::zero(); dim_size];
-                    for (i, prod_elem) in product.iter_mut().enumerate().take(dim_size) {
-                        let idx = base + i * inner;
-                        *prod_elem = go_data[idx] * out_data[idx];
-                    }
-                    // Reverse cumsum of product.
-                    let mut rev_acc = <T as num_traits::Zero>::zero();
-                    for i in (0..dim_size).rev() {
-                        let idx = base + i * inner;
-                        rev_acc += product[i];
-                        grad_input[idx] = rev_acc / in_data[idx];
-                    }
-                } else {
+                if has_zero {
                     // Slow path: zeros present. Use prefix/suffix product
                     // approach to avoid division by zero.
                     //
@@ -175,6 +157,24 @@ impl<T: Float> GradFn<T> for CumprodBackward<T> {
                             acc += go_data[base + j * inner] * partial;
                         }
                         grad_input[base + i * inner] = acc;
+                    }
+                } else {
+                    // Fast path: no zeros, safe to use output / input.
+                    // grad_input[i] = reverse_cumsum(grad_output * output)[i] / input[i]
+                    //
+                    // We compute `product = go * out` then reverse-cumsum it,
+                    // then divide each element by input[i].
+                    let mut product = vec![<T as num_traits::Zero>::zero(); dim_size];
+                    for (i, prod_elem) in product.iter_mut().enumerate().take(dim_size) {
+                        let idx = base + i * inner;
+                        *prod_elem = go_data[idx] * out_data[idx];
+                    }
+                    // Reverse cumsum of product.
+                    let mut rev_acc = <T as num_traits::Zero>::zero();
+                    for i in (0..dim_size).rev() {
+                        let idx = base + i * inner;
+                        rev_acc += product[i];
+                        grad_input[idx] = rev_acc / in_data[idx];
                     }
                 }
             }

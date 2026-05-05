@@ -56,10 +56,7 @@ impl<T: Float> NestedTensor<T> {
         let ndim = tensors[0].ndim();
         if ragged_dim >= ndim {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "ragged_dim {} out of range for {}-D tensors",
-                    ragged_dim, ndim
-                ),
+                message: format!("ragged_dim {ragged_dim} out of range for {ndim}-D tensors"),
             });
         }
 
@@ -243,8 +240,7 @@ impl<T: Float> NestedTensor<T> {
         if ragged_dim >= comp_ndim {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
-                    "ragged_dim {} out of range for {}-D component tensors",
-                    ragged_dim, comp_ndim
+                    "ragged_dim {ragged_dim} out of range for {comp_ndim}-D component tensors"
                 ),
             });
         }
@@ -418,15 +414,12 @@ pub fn nested_scaled_dot_product_attention<T: Float>(
 
         if d_k != d_k2 {
             return Err(FerrotorchError::ShapeMismatch {
-                message: format!("component {}: query d_k={} but key d_k={}", i, d_k, d_k2),
+                message: format!("component {i}: query d_k={d_k} but key d_k={d_k2}"),
             });
         }
         if seq_k != seq_k2 {
             return Err(FerrotorchError::ShapeMismatch {
-                message: format!(
-                    "component {}: key seq_len={} but value seq_len={}",
-                    i, seq_k, seq_k2
-                ),
+                message: format!("component {i}: key seq_len={seq_k} but value seq_len={seq_k2}"),
             });
         }
 
@@ -874,8 +867,7 @@ impl<T: Float> PackedNestedTensor<T> {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
                     "PackedNestedTensor::from_padded: tensor must have at least \
-                     2 dims (batch, sequence), got {:?}",
-                    shape
+                     2 dims (batch, sequence), got {shape:?}"
                 ),
             });
         }
@@ -1064,7 +1056,7 @@ mod tests {
         // With uniform values, softmax should produce uniform weights,
         // and the output should be close to 1.0 everywhere.
         let out = result.tensors()[0].data().unwrap();
-        for &val in out.iter() {
+        for &val in out {
             assert!((val - 1.0).abs() < 1e-5, "expected ~1.0, got {val}");
         }
     }

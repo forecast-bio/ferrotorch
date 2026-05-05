@@ -123,8 +123,7 @@ impl<T: Float> NamedTensor<T> {
             .map(|n| {
                 n.as_ref().map(|s| {
                     map.get(s.as_str())
-                        .map(|n| (*n).to_string())
-                        .unwrap_or_else(|| s.clone())
+                        .map_or_else(|| s.clone(), |n| (*n).to_string())
                 })
             })
             .collect();

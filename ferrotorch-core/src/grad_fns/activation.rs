@@ -1041,7 +1041,7 @@ fn softmax_inner<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                     }
                 }
                 let mut sum_exp = 0.0f32;
-                for slot in scratch[..last_dim].iter_mut() {
+                for slot in &mut scratch[..last_dim] {
                     let e = (*slot - row_max).exp();
                     *slot = e;
                     sum_exp += e;
@@ -2694,8 +2694,7 @@ mod tests {
         let total: f64 = d.iter().copied().sum();
         assert!(
             (total - 1.0).abs() < 1e-7,
-            "softmax sum: expected 1.0, got {}",
-            total
+            "softmax sum: expected 1.0, got {total}"
         );
         // Monotonicity: s(1) < s(2) < s(3).
         assert!(d[0] < d[1]);
@@ -2727,10 +2726,7 @@ mod tests {
         for (i, (&got, &exp)) in gx.iter().zip(expected.iter()).enumerate() {
             assert!(
                 (got - exp).abs() < 1e-7,
-                "softmax grad[{}]: expected {}, got {}",
-                i,
-                exp,
-                got
+                "softmax grad[{i}]: expected {exp}, got {got}"
             );
         }
     }
@@ -2748,8 +2744,7 @@ mod tests {
         let total: f64 = d.iter().map(|&v| v.exp()).sum();
         assert!(
             (total - 1.0).abs() < 1e-7,
-            "exp(log_softmax) sum: expected 1.0, got {}",
-            total
+            "exp(log_softmax) sum: expected 1.0, got {total}"
         );
     }
 
@@ -2780,10 +2775,7 @@ mod tests {
         for (i, (&got, &exp)) in gx.iter().zip(expected.iter()).enumerate() {
             assert!(
                 (got - exp).abs() < 1e-7,
-                "log_softmax grad[{}]: expected {}, got {}",
-                i,
-                exp,
-                got
+                "log_softmax grad[{i}]: expected {exp}, got {got}"
             );
         }
     }

@@ -264,7 +264,7 @@ mod tests {
         }
         // Sorted union covers every rank exactly once.
         let mut all: Vec<usize> = g0.iter().flatten().copied().collect();
-        all.sort();
+        all.sort_unstable();
         assert_eq!(all, (0..8).collect::<Vec<_>>());
 
         // Along dim 1: 2 groups of 4 (one per row).

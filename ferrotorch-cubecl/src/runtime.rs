@@ -11,7 +11,7 @@ use std::fmt;
 use cubecl::Runtime;
 #[cfg(any(feature = "wgpu", feature = "cuda", feature = "rocm"))]
 use cubecl::prelude::ComputeClient;
-use ferrotorch_core::{FerrotorchError, FerrotorchResult};
+use ferrotorch_core::FerrotorchResult;
 
 #[cfg(feature = "cuda")]
 use cubecl_cuda::{CudaDevice, CudaRuntime};
@@ -149,6 +149,7 @@ impl CubeRuntime {
     /// backend feature is enabled.
     ///
     /// Priority order: CUDA > ROCm > WGPU.
+    #[allow(unreachable_code)] // reason: each cfg-gated branch unconditionally returns; subsequent branches are tried only when the prior feature is off
     pub fn auto() -> Option<Self> {
         // CUDA takes priority when available.
         #[cfg(feature = "cuda")]
@@ -168,7 +169,6 @@ impl CubeRuntime {
             return Self::new(CubeDevice::Wgpu(0)).ok();
         }
 
-        #[allow(unreachable_code)]
         None
     }
 
@@ -212,6 +212,7 @@ impl CubeRuntime {
     // Backend client construction
     // ---------------------------------------------------------------------
 
+    #[allow(clippy::unnecessary_wraps)] // reason: returns Err under #[cfg(not(feature=...))]; clippy only sees the all-features path
     fn make_client(device: CubeDevice) -> FerrotorchResult<CubeClient> {
         match device {
             CubeDevice::Wgpu(idx) => {
@@ -224,7 +225,7 @@ impl CubeRuntime {
                 #[cfg(not(feature = "wgpu"))]
                 {
                     let _ = idx;
-                    Err(FerrotorchError::DeviceUnavailable)
+                    Err(ferrotorch_core::FerrotorchError::DeviceUnavailable)
                 }
             }
             CubeDevice::Cuda(idx) => {
@@ -232,12 +233,12 @@ impl CubeRuntime {
                 {
                     let cuda_device = CudaDevice { index: idx };
                     let client = CudaRuntime::client(&cuda_device);
-                    return Ok(CubeClient::Cuda(client));
+                    Ok(CubeClient::Cuda(client))
                 }
                 #[cfg(not(feature = "cuda"))]
                 {
                     let _ = idx;
-                    Err(FerrotorchError::DeviceUnavailable)
+                    Err(ferrotorch_core::FerrotorchError::DeviceUnavailable)
                 }
             }
             CubeDevice::Rocm(idx) => {
@@ -245,12 +246,12 @@ impl CubeRuntime {
                 {
                     let amd_device = AmdDevice { index: idx };
                     let client = HipRuntime::client(&amd_device);
-                    return Ok(CubeClient::Rocm(client));
+                    Ok(CubeClient::Rocm(client))
                 }
                 #[cfg(not(feature = "rocm"))]
                 {
                     let _ = idx;
-                    Err(FerrotorchError::DeviceUnavailable)
+                    Err(ferrotorch_core::FerrotorchError::DeviceUnavailable)
                 }
             }
         }
@@ -350,7 +351,10 @@ mod tests {
     #[test]
     fn no_backend_feature_yields_device_unavailable() {
         let err = CubeRuntime::new(CubeDevice::Wgpu(0)).unwrap_err();
-        assert!(matches!(err, FerrotorchError::DeviceUnavailable));
+        assert!(matches!(
+            err,
+            ferrotorch_core::FerrotorchError::DeviceUnavailable
+        ));
     }
 
     #[test]

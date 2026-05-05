@@ -203,10 +203,12 @@ struct CheckpointBackward<T: Float> {
 impl<T: Float> std::fmt::Debug for CheckpointBackward<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CheckpointBackward")
+            .field("func", &"<closure>")
             .field("input_shape", &self.input.shape())
             .field("output_shape", &self.output_shape)
             .field("has_gpu_rng_state", &self.saved_gpu_rng.is_some())
             .field("autocast_enabled", &self.saved_autocast.enabled)
+            .field("autocast_dtype", &self.saved_autocast.dtype)
             .finish()
     }
 }
@@ -281,10 +283,12 @@ struct CheckpointMultiBackward<T: Float> {
 impl<T: Float> std::fmt::Debug for CheckpointMultiBackward<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CheckpointMultiBackward")
+            .field("func", &"<closure>")
             .field("num_inputs", &self.inputs.len())
             .field("output_shape", &self.output_shape)
             .field("has_gpu_rng_state", &self.saved_gpu_rng.is_some())
             .field("autocast_enabled", &self.saved_autocast.enabled)
+            .field("autocast_dtype", &self.saved_autocast.dtype)
             .finish()
     }
 }
@@ -568,8 +572,7 @@ mod tests {
         let dbg = format!("{:?}", y_inside.grad_fn().unwrap());
         assert!(
             dbg.contains("autocast_enabled: true"),
-            "expected captured autocast=true in debug repr, got {}",
-            dbg
+            "expected captured autocast=true in debug repr, got {dbg}"
         );
     }
 
@@ -580,8 +583,7 @@ mod tests {
         let dbg = format!("{:?}", y.grad_fn().unwrap());
         assert!(
             dbg.contains("autocast_enabled: false"),
-            "expected captured autocast=false in debug repr, got {}",
-            dbg
+            "expected captured autocast=false in debug repr, got {dbg}"
         );
     }
 

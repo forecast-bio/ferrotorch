@@ -180,7 +180,10 @@ fn array_to_tensor(
     arr: ferray_core::Array<f64, ferray_core::Ix1>,
     m: usize,
 ) -> FerrotorchResult<Tensor<f64>> {
-    let data: Vec<f64> = arr.iter().copied().collect();
+    // Consume `arr` to silence clippy::needless_pass_by_value while still
+    // funneling through the standard contiguous-vec path. `into_iter()` on
+    // an owned `Array` yields owned `f64` so no copy is required.
+    let data: Vec<f64> = arr.into_iter().collect();
     Tensor::from_storage(TensorStorage::cpu(data), vec![m], false)
 }
 

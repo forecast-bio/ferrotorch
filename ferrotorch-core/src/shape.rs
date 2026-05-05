@@ -115,7 +115,7 @@ pub fn normalize_axis(axis: isize, ndim: usize) -> FerrotorchResult<usize> {
 pub fn check_shapes_match(a: &[usize], b: &[usize], op: &str) -> FerrotorchResult<()> {
     if a != b {
         return Err(FerrotorchError::ShapeMismatch {
-            message: format!("{op}: shapes {:?} and {:?} do not match", a, b),
+            message: format!("{op}: shapes {a:?} and {b:?} do not match"),
         });
     }
     Ok(())

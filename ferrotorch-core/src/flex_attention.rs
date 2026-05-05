@@ -77,6 +77,7 @@ use crate::tensor::Tensor;
 /// the strided `cat` kernel for score_mod reassembly. The previous
 /// implementation downloaded Q, K, V to CPU and ran nested loops; the
 /// current path stays on-device.
+#[allow(clippy::needless_pass_by_value)] // reason: pub API stability — Option<F> by value is the natural ergonomic shape; re-exported via ferrotorch-nn
 pub fn flex_attention<T, F>(
     query: &Tensor<T>,
     key: &Tensor<T>,
@@ -96,8 +97,7 @@ where
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
                 "flex_attention: expected 4-D tensors [batch, heads, seq, dim], \
-                 got Q={:?}, K={:?}, V={:?}",
-                q_shape, k_shape, v_shape
+                 got Q={q_shape:?}, K={k_shape:?}, V={v_shape:?}"
             ),
         });
     }
@@ -119,8 +119,7 @@ where
     if k_shape[0] != batch || k_shape[1] != heads || k_shape[3] != d {
         return Err(FerrotorchError::ShapeMismatch {
             message: format!(
-                "flex_attention: Q shape {:?} incompatible with K shape {:?}",
-                q_shape, k_shape
+                "flex_attention: Q shape {q_shape:?} incompatible with K shape {k_shape:?}"
             ),
         });
     }
@@ -128,8 +127,7 @@ where
     if v_shape[0] != batch || v_shape[1] != heads || v_shape[2] != n_k {
         return Err(FerrotorchError::ShapeMismatch {
             message: format!(
-                "flex_attention: K shape {:?} incompatible with V shape {:?}",
-                k_shape, v_shape
+                "flex_attention: K shape {k_shape:?} incompatible with V shape {v_shape:?}"
             ),
         });
     }
@@ -392,10 +390,7 @@ mod tests {
         for (i, (&got, &exp)) in data.iter().zip(expected.iter()).enumerate() {
             assert!(
                 (got - exp).abs() < 1e-3,
-                "out[{}]: expected {}, got {}",
-                i,
-                exp,
-                got
+                "out[{i}]: expected {exp}, got {got}"
             );
         }
     }
@@ -436,10 +431,7 @@ mod tests {
         for (i, (&b, &m)) in base_data.iter().zip(mod_data.iter()).enumerate() {
             assert!(
                 (b - m).abs() < 1e-5,
-                "softmax-invariant additive bias should not change output[{}]: base={}, mod={}",
-                i,
-                b,
-                m
+                "softmax-invariant additive bias should not change output[{i}]: base={b}, mod={m}"
             );
         }
     }

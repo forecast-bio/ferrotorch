@@ -411,7 +411,7 @@ where
     let shape = input.shape();
     if shape.len() != 1 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("jacfwd: input must be 1-D, got shape {:?}", shape),
+            message: format!("jacfwd: input must be 1-D, got shape {shape:?}"),
         });
     }
 

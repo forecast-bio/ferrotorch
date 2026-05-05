@@ -425,8 +425,12 @@ mod cuda_tests {
             .map(|d| d.to_string())
             .chain((10..20).map(|n| n.to_string()))
             .chain((100..105).map(|n| n.to_string()))
-            .chain(["1a", "2b", "3c", "4d", "x9"].iter().map(|s| s.to_string()))
-            .chain(["".to_string(), "1234567".to_string()])
+            .chain(
+                ["1a", "2b", "3c", "4d", "x9"]
+                    .iter()
+                    .map(std::string::ToString::to_string),
+            )
+            .chain([String::new(), "1234567".to_string()])
             .collect();
 
         let mut vocab_offsets: Vec<u32> = vec![0];

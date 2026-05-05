@@ -229,10 +229,7 @@ impl<T: Float> Tensor<T> {
         let ndim = self.ndim();
         if dim0 >= ndim || dim1 >= ndim {
             return Err(crate::error::FerrotorchError::InvalidArgument {
-                message: format!(
-                    "transpose: dims ({}, {}) out of bounds for ndim {}",
-                    dim0, dim1, ndim
-                ),
+                message: format!("transpose: dims ({dim0}, {dim1}) out of bounds for ndim {ndim}"),
             });
         }
         if dim0 == dim1 {
@@ -330,12 +327,12 @@ pub fn permute_t<T: Float>(input: &Tensor<T>, dims: &[usize]) -> FerrotorchResul
     for &d in dims {
         if d >= ndim {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!("permute: dim {} is out of bounds for ndim {}", d, ndim),
+                message: format!("permute: dim {d} is out of bounds for ndim {ndim}"),
             });
         }
         if seen[d] {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!("permute: duplicate dim {} in permutation", d),
+                message: format!("permute: duplicate dim {d} in permutation"),
             });
         }
         seen[d] = true;
@@ -404,7 +401,7 @@ pub fn narrow_t<T: Float>(
     let ndim = input.ndim();
     if dim >= ndim {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("narrow: dim {} out of bounds for ndim {}", dim, ndim),
+            message: format!("narrow: dim {dim} out of bounds for ndim {ndim}"),
         });
     }
     let dim_size = input.shape()[dim];
@@ -676,10 +673,7 @@ pub fn split_t<T: Float>(
 
     if dim >= ndim {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "split: dim {} is out of bounds for tensor with {} dimensions",
-                dim, ndim
-            ),
+            message: format!("split: dim {dim} is out of bounds for tensor with {ndim} dimensions"),
         });
     }
 

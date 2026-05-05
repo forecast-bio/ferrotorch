@@ -145,10 +145,10 @@ pub fn backward_with_grad<T: Float>(
             // Materialize non-contiguous gradients before backward.
             // Stride-based views (from permute/transpose/narrow) may be
             // non-contiguous — backward functions expect contiguous data.
-            let grad_output = if !grad_output.is_contiguous() {
-                crate::methods::contiguous_t(&grad_output)?
-            } else {
+            let grad_output = if grad_output.is_contiguous() {
                 grad_output
+            } else {
+                crate::methods::contiguous_t(&grad_output)?
             };
             let input_grads = grad_fn.backward(&grad_output)?;
             let inputs = grad_fn.inputs();
@@ -360,10 +360,10 @@ pub fn backward_parallel<T: Float>(
                         };
 
                         if let Some(grad_fn) = node.grad_fn() {
-                            let grad_output = if !grad_output.is_contiguous() {
-                                crate::methods::contiguous_t(&grad_output)?
-                            } else {
+                            let grad_output = if grad_output.is_contiguous() {
                                 grad_output
+                            } else {
+                                crate::methods::contiguous_t(&grad_output)?
                             };
 
                             let input_grads = grad_fn.backward(&grad_output)?;

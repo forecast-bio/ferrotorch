@@ -70,7 +70,7 @@ impl<T: Float> Tensor<T> {
         check_inplace_allowed(self, "add_scalar_")?;
 
         let mut data = self.data_vec()?;
-        for x in data.iter_mut() {
+        for x in &mut data {
             *x += value;
         }
         // SAFETY: check_inplace_allowed ensures this tensor is not part of the
@@ -90,7 +90,7 @@ impl<T: Float> Tensor<T> {
         check_inplace_allowed(self, "mul_scalar_")?;
 
         let mut data = self.data_vec()?;
-        for x in data.iter_mut() {
+        for x in &mut data {
             *x = *x * value;
         }
         // SAFETY: check_inplace_allowed ensures this tensor is not part of the
@@ -325,14 +325,14 @@ impl<T: Float> Tensor<T> {
     pub fn clamp_(&self, min: T, max: T) -> FerrotorchResult<&Self> {
         if min > max {
             return Err(FerrotorchError::InvalidArgument {
-                message: format!("clamp_ requires min <= max, got min={min:?}, max={max:?}",),
+                message: format!("clamp_ requires min <= max, got min={min:?}, max={max:?}"),
             });
         }
 
         check_inplace_allowed(self, "clamp_")?;
 
         let mut data = self.data_vec()?;
-        for x in data.iter_mut() {
+        for x in &mut data {
             if *x < min {
                 *x = min;
             } else if *x > max {

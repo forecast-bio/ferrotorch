@@ -130,6 +130,7 @@ impl GpuBufferHandle {
 impl std::fmt::Debug for GpuBufferHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GpuBufferHandle")
+            .field("inner", &"<dyn Any + Send + Sync>")
             .field("device", &self.device_ordinal)
             .field("len", &self.len)
             .finish()

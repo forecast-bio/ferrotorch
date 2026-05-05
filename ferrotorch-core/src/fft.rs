@@ -112,8 +112,7 @@ pub fn fft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<Te
     if shape.is_empty() || *shape.last().unwrap() != 2 {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "fft: input must have trailing dimension 2 (complex), got shape {:?}",
-                shape
+                "fft: input must have trailing dimension 2 (complex), got shape {shape:?}"
             ),
         });
     }
@@ -204,8 +203,7 @@ pub fn ifft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<T
     if shape.is_empty() || *shape.last().unwrap() != 2 {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "ifft: input must have trailing dimension 2 (complex), got shape {:?}",
-                shape
+                "ifft: input must have trailing dimension 2 (complex), got shape {shape:?}"
             ),
         });
     }
@@ -375,8 +373,7 @@ pub fn irfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<
     if shape.is_empty() || *shape.last().unwrap() != 2 {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "irfft: input must have trailing dimension 2 (complex), got shape {:?}",
-                shape
+                "irfft: input must have trailing dimension 2 (complex), got shape {shape:?}"
             ),
         });
     }
@@ -470,8 +467,7 @@ pub fn fft2<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if shape.is_empty() || *shape.last().unwrap() != 2 {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "fft2: input must have trailing dimension 2 (complex), got shape {:?}",
-                shape
+                "fft2: input must have trailing dimension 2 (complex), got shape {shape:?}"
             ),
         });
     }
@@ -515,8 +511,7 @@ pub fn ifft2<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if shape.is_empty() || *shape.last().unwrap() != 2 {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "ifft2: input must have trailing dimension 2 (complex), got shape {:?}",
-                shape
+                "ifft2: input must have trailing dimension 2 (complex), got shape {shape:?}"
             ),
         });
     }

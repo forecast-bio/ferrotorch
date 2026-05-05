@@ -177,6 +177,7 @@ pub fn cumprod_forward<T: Float>(input: &Tensor<T>, dim: i64) -> FerrotorchResul
 // ---------------------------------------------------------------------------
 
 /// Result of `cummax` / `cummin`: values tensor and indices tensor.
+#[derive(Debug)]
 pub struct CumExtremeResult<T: Float> {
     pub values: Tensor<T>,
     pub indices: Vec<usize>,

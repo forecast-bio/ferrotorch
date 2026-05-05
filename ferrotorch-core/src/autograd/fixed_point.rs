@@ -160,6 +160,7 @@ struct FixedPointBackward<T: Float> {
 impl<T: Float> fmt::Debug for FixedPointBackward<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FixedPointBackward")
+            .field("f_closure", &"<closure>")
             .field("x_star_shape", &self.x_star.shape())
             .field("num_params", &self.params.len())
             .field("backward_max_iter", &self.backward_max_iter)

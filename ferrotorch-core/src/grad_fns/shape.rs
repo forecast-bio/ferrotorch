@@ -289,8 +289,7 @@ pub fn unsqueeze<T: Float>(input: &Tensor<T>, axis: isize) -> FerrotorchResult<T
     if axis >= ndim_i || axis < -ndim_i {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "unsqueeze: axis {} is out of bounds for tensor with {} dimensions (new ndim = {})",
-                axis, ndim, new_ndim
+                "unsqueeze: axis {axis} is out of bounds for tensor with {ndim} dimensions (new ndim = {new_ndim})"
             ),
         });
     }
@@ -420,8 +419,7 @@ pub fn expand<T: Float>(input: &Tensor<T>, new_shape: &[usize]) -> FerrotorchRes
     if out_ndim < in_ndim {
         return Err(FerrotorchError::InvalidArgument {
             message: format!(
-                "expand: target shape {:?} has fewer dimensions than input {:?}",
-                new_shape, in_shape
+                "expand: target shape {new_shape:?} has fewer dimensions than input {in_shape:?}"
             ),
         });
     }

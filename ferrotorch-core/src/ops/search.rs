@@ -162,11 +162,11 @@ pub fn unique_consecutive<T: Float>(
     let mut counts: Vec<usize> = vec![1];
 
     for i in 1..n {
-        if data[i] != data[i - 1] {
+        if data[i] == data[i - 1] {
+            *counts.last_mut().unwrap() += 1;
+        } else {
             output.push(data[i]);
             counts.push(1);
-        } else {
-            *counts.last_mut().unwrap() += 1;
         }
         inverse[i] = output.len() - 1;
     }

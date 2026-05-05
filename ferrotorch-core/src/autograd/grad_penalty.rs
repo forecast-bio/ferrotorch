@@ -155,7 +155,7 @@ pub fn grad_norm<T: Float>(
 
     for maybe_grad in grads.iter().flatten() {
         let g_data = maybe_grad.data_vec()?;
-        for &val in g_data.iter() {
+        for &val in &g_data {
             total_sq += val * val;
         }
     }

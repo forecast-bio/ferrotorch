@@ -24,7 +24,7 @@ fn tensor_to_array2_f64<T: Float>(
     let shape = t.shape();
     if shape.len() != 2 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("expected 2-D tensor, got {:?}", shape),
+            message: format!("expected 2-D tensor, got {shape:?}"),
         });
     }
     let data: Vec<f64> = t.data()?.iter().map(|&v| v.to_f64().unwrap()).collect();
@@ -39,7 +39,7 @@ fn tensor_to_array2_f32<T: Float>(
     let shape = t.shape();
     if shape.len() != 2 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("expected 2-D tensor, got {:?}", shape),
+            message: format!("expected 2-D tensor, got {shape:?}"),
         });
     }
     let data: Vec<f32> = t
@@ -122,7 +122,7 @@ pub fn svd<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T
     let shape = input.shape();
     if shape.len() != 2 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("svd requires a 2-D tensor, got {:?}", shape),
+            message: format!("svd requires a 2-D tensor, got {shape:?}"),
         });
     }
 
@@ -278,7 +278,7 @@ pub fn det<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape();
     if shape.len() != 2 || shape[0] != shape[1] {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("det requires a square 2-D tensor, got {:?}", shape),
+            message: format!("det requires a square 2-D tensor, got {shape:?}"),
         });
     }
 
@@ -312,7 +312,7 @@ pub fn inv<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape();
     if shape.len() != 2 || shape[0] != shape[1] {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("inv requires a square 2-D tensor, got {:?}", shape),
+            message: format!("inv requires a square 2-D tensor, got {shape:?}"),
         });
     }
 
@@ -349,7 +349,7 @@ pub fn qr<T: Float>(input: &Tensor<T>) -> FerrotorchResult<(Tensor<T>, Tensor<T>
     let shape = input.shape();
     if shape.len() != 2 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("qr requires a 2-D tensor, got {:?}", shape),
+            message: format!("qr requires a 2-D tensor, got {shape:?}"),
         });
     }
 
@@ -420,7 +420,7 @@ pub fn cholesky<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape();
     if shape.len() != 2 || shape[0] != shape[1] {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("cholesky requires a square 2-D tensor, got {:?}", shape),
+            message: format!("cholesky requires a square 2-D tensor, got {shape:?}"),
         });
     }
 
@@ -472,7 +472,7 @@ pub fn matrix_norm<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape();
     if shape.len() != 2 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("matrix_norm requires a 2-D tensor, got {:?}", shape),
+            message: format!("matrix_norm requires a 2-D tensor, got {shape:?}"),
         });
     }
 
@@ -532,7 +532,7 @@ pub fn pinv<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape();
     if shape.len() != 2 {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("pinv requires a 2-D tensor, got {:?}", shape),
+            message: format!("pinv requires a 2-D tensor, got {shape:?}"),
         });
     }
 

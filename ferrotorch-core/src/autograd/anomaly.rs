@@ -25,6 +25,7 @@ thread_local! {
 ///
 /// Anomaly mode has significant runtime overhead (backtrace capture is slow),
 /// so it should only be enabled during debugging.
+#[derive(Debug)]
 pub struct AnomalyMode;
 
 impl AnomalyMode {

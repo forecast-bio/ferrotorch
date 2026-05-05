@@ -171,7 +171,7 @@ pub fn roll<T: Float>(input: &Tensor<T>, shifts: i64, dim: usize) -> FerrotorchR
     let shape = input.shape();
     if dim >= shape.len() {
         return Err(FerrotorchError::InvalidArgument {
-            message: format!("roll: dim {dim} out of range for shape {:?}", shape),
+            message: format!("roll: dim {dim} out of range for shape {shape:?}"),
         });
     }
 
@@ -223,7 +223,7 @@ pub fn cdist<T: Float>(x1: &Tensor<T>, x2: &Tensor<T>, p: f64) -> FerrotorchResu
             let m2 = x2.shape()[1];
             if m1 != m2 {
                 return Err(FerrotorchError::ShapeMismatch {
-                    message: format!("cdist: feature dims mismatch: {} vs {}", m1, m2),
+                    message: format!("cdist: feature dims mismatch: {m1} vs {m2}"),
                 });
             }
             (false, 1, p_dim, r_dim, m1)
