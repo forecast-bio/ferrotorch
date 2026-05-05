@@ -2,11 +2,12 @@
   "uuid": "50475f63-ddd5-4685-9c4a-88b6770c78f5",
   "display_id": 654,
   "title": "Apply 3 minor refinements to rust-fix-discipline (canonical grep shape, shared-error-enum sensitivity, #[non_exhaustive] workspace-build classification)",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-02T20:27:35.676621226Z",
-  "updated_at": "2026-05-02T20:27:37.100266861Z",
+  "updated_at": "2026-05-05T01:21:40.422736720Z",
+  "closed_at": "2026-05-05T01:21:40.422736720Z",
   "labels": [
     "skill"
   ]
