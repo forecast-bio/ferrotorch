@@ -1,0 +1,10 @@
+{
+  "uuid": "76fe829a-6eca-44c6-81ce-a5c6d2df9b72",
+  "display_id": 756,
+  "title": "release: bump 0.4.6 → 0.4.7 (GPU LSTM/RNN parity + clippy clean workspace)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-05T22:18:36.057050630Z",
+  "updated_at": "2026-05-05T22:18:36.057050630Z"
+}
