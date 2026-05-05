@@ -605,57 +605,41 @@ fn gpu_cnn_training_smoke() {
 }
 
 // =====================================================================
-// Experiment 4: LSTM language model on GPU — BLOCKED on a Step 4 escalation
+// Experiment 4: LSTM end-to-end training on GPU
 // =====================================================================
 //
-// Mirrors `cpu_training.rs::test_lstm_training_cpu` in *intent*: token
-// embedding -> LSTM -> linear projection -> NLL over vocab indices.
+// Mirrors `gpu_transformer_training_smoke` structurally: every parameter,
+// activation, and gradient is on `Device::Cuda(0)` for the entire loop.
 //
-// Why this experiment is a sentinel rather than a full training loop:
+// Closes the sentinel that previously documented `forward_with_state`
+// returning `GpuTensorNotAccessible` on CUDA-resident weights. The fix
+// (#750) replaced the host-detour `data_vec()` / `TensorStorage::cpu`
+// path inside `ferrotorch-nn::rnn` with device-aware ops (`narrow`,
+// `squeeze_t`, `chunk`, `expand`, `cat`), so the gate math now runs on
+// whichever device the inputs and weights live on.
 //
-// `LSTM::<T>::forward_with_state` (`ferrotorch-nn/src/rnn.rs`) calls
-// `weight.data()` on every per-layer weight inside its host-side
-// implementation (rnn.rs:467 et seq.). When the LSTM is moved to
-// `Cuda(0)` via `Module::to_device`, those weights now live in VRAM —
-// `data()` returns `Err(GpuTensorNotAccessible)`, which is the correct
-// `rust-gpu-discipline` §3 behaviour but means the LSTM's host-only
-// forward simply cannot run on a CUDA-resident model.
-//
-// The fix is non-trivial: a real GPU LSTM forward needs (a) gate-
-// reduction kernels for `i, f, g, o`, (b) elementwise hadamard +
-// fused tanh/sigmoid, (c) a per-timestep state-carry sequential loop
-// expressed as a CUDA stream of kernel launches. This is a
-// multi-kernel novel design and exceeds this dispatch's scope.
-//
-// Per the dispatch's instructions ("Large fix: file a Step 4 issue,
-// gate the experiment with a `// blocked on #<issue>` comment, NOT
-// `#[ignore]` — `#[ignore]` is silent"), this experiment is kept as
-// a visible `#[test]` that asserts the *expected* failure mode. The
-// assertion will start failing — and the test's body will need to be
-// replaced with a real training loop — once the GPU LSTM forward
-// lands. That makes this a regression sentinel, not an `#[ignore]`d
-// silent skip.
-//
-// blocked on: #750 (GPU-resident LSTM forward + backward kernel chain).
-// Sibling kernels in `ferrotorch-gpu` (rms_norm, softmax,
-// flash_attention) provide the architectural template for a per-layer
-// LSTM step kernel.
+// What this test enforces:
+//   1. Loss decreases meaningfully (final < 0.9 × initial).
+//   2. Gradients land on Cuda(0) after `backward()`.
+//   3. Parameters stay on Cuda(0) after `optimizer.step()`.
 #[test]
-fn gpu_lstm_training_smoke_blocked_sentinel() {
-    init_cuda_backend()
-        .expect("CUDA backend must initialize for the GPU LSTM blocked-sentinel test");
+fn gpu_lstm_training_smoke() {
+    init_cuda_backend().expect("CUDA backend must initialize for the GPU LSTM training test");
     let device = Device::Cuda(0);
 
     let embed_dim = 32;
-    let hidden_size = 64;
+    let hidden_size = 32;
+    let batch = 2;
+    let seq = 8;
 
     let mut lstm = LSTM::<f32>::new(embed_dim, hidden_size, 1).expect("LSTM");
-    lstm.to_device(device).expect("lstm.to_device(Cuda)");
+    let mut proj = Linear::<f32>::new(hidden_size, embed_dim, true).expect("proj");
 
-    // Verify every LSTM weight is now on Cuda(0). If this changes
-    // (e.g. `LSTM::to_device` becomes a no-op or routes back through
-    // CPU), the assert below will fail — which means the rest of the
-    // sentinel is testing the wrong thing and must be revisited.
+    for m in [&mut lstm as &mut dyn Module<f32>, &mut proj] {
+        m.to_device(device).expect("module.to_device(Cuda(0))");
+    }
+
+    // Sanity: every parameter is device-resident before training begins.
     for p in lstm.parameters() {
         assert_eq!(
             p.tensor().device(),
@@ -663,43 +647,85 @@ fn gpu_lstm_training_smoke_blocked_sentinel() {
             "LSTM parameter not on Cuda(0) after to_device",
         );
     }
+    for p in proj.parameters() {
+        assert_eq!(
+            p.tensor().device(),
+            device,
+            "Linear parameter not on Cuda(0) after to_device",
+        );
+    }
 
-    // Build a [4, 8, embed_dim] CUDA-resident input; we never run the
-    // training loop because LSTM's host-only forward path can't read
-    // the CUDA weights.
-    let x_data: Vec<f32> = (0..4 * 8 * embed_dim)
-        .map(|i| ((i as f32) * 0.07).sin())
-        .collect();
-    let x = from_vec(x_data, &[4, 8, embed_dim])
+    let mut all_params: Vec<Parameter<f32>> = Vec::new();
+    all_params.extend(lstm.parameters().into_iter().cloned());
+    all_params.extend(proj.parameters().into_iter().cloned());
+
+    let mut adamw_cfg = AdamWConfig::default();
+    adamw_cfg.lr = 1e-2;
+    let mut optimizer = AdamW::new(all_params, adamw_cfg);
+
+    // Fix the batch across steps so loss is guaranteed to decrease for a
+    // sane optimizer (mirrors gpu_transformer_training_smoke).
+    let x = randn::<f32>(&[batch, seq, embed_dim])
         .expect("x")
         .to(device)
         .expect("x.to(Cuda)");
+    let target = randn::<f32>(&[batch, seq, embed_dim])
+        .expect("target")
+        .to(device)
+        .expect("target.to(Cuda)");
 
-    // Document the expected failure mode. The error is the §3 contract
-    // working as designed: rather than silently demoting the weights
-    // through host RAM, the host LSTM refuses to read CUDA storage and
-    // surfaces `GpuTensorNotAccessible`.
-    let outcome = lstm.forward_with_state(&x, None);
-    match outcome {
-        Err(ferrotorch_core::FerrotorchError::GpuTensorNotAccessible) => {
-            eprintln!(
-                "gpu_lstm_training_smoke_blocked_sentinel: confirmed BLOCKED — \
-                 LSTM::forward_with_state returned GpuTensorNotAccessible as expected. \
-                 Replace this sentinel with a real training loop once the GPU LSTM \
-                 forward kernel lands."
-            );
+    let mut first_loss: Option<f32> = None;
+    let mut last_loss = 0.0f32;
+    let n_steps = 10usize;
+
+    for step in 0..n_steps {
+        optimizer.zero_grad().expect("zero_grad");
+
+        let (lstm_out, _state) = lstm
+            .forward_with_state(&x, None)
+            .expect("LSTM forward on Cuda");
+        assert_eq!(lstm_out.device(), device, "LSTM output off-device");
+
+        let output = proj.forward(&lstm_out).expect("proj.forward");
+        assert_eq!(output.device(), device, "Linear output off-device");
+
+        let loss = mse_gpu(&output, &target).expect("MSE loss");
+        assert_eq!(loss.device(), device, "loss off-device");
+
+        let loss_val = loss
+            .data_vec()
+            .expect("loss readback")
+            .first()
+            .copied()
+            .expect("scalar loss");
+        assert!(loss_val.is_finite(), "non-finite loss at step {step}");
+        if first_loss.is_none() {
+            first_loss = Some(loss_val);
         }
-        Err(other) => panic!(
-            "expected GpuTensorNotAccessible (the §3 host-LSTM-on-CUDA-weights \
-             contract); got a different error which means the underlying behaviour \
-             changed and this sentinel needs updating: {other:?}",
-        ),
-        Ok(_) => panic!(
-            "LSTM::forward_with_state succeeded on a CUDA-resident model — that means \
-             the GPU LSTM forward kernel chain has landed. REPLACE THIS SENTINEL with a \
-             real training loop; mirror `gpu_transformer_training_smoke` for structure.",
-        ),
+        last_loss = loss_val;
+
+        loss.backward().expect("backward");
+
+        let mut model_params: Vec<&Parameter<f32>> = Vec::new();
+        model_params.extend(lstm.parameters());
+        model_params.extend(proj.parameters());
+
+        assert_grads_on_device("lstm", &model_params, device, step);
+        sync_grads(&model_params, optimizer.param_groups()[0].params());
+
+        optimizer.step().expect("optimizer.step");
+
+        assert_all_on_device("lstm", &model_params, device, step);
     }
+
+    let initial = first_loss.expect("at least one step ran");
+    eprintln!("gpu_lstm_training_smoke: initial loss = {initial:.6}, final loss = {last_loss:.6}");
+    assert!(
+        last_loss < 0.9 * initial,
+        "LSTM GPU: loss should decrease meaningfully. \
+         initial={initial:.6}, final={last_loss:.6}, threshold={:.6}",
+        0.9 * initial,
+    );
 }
 
 // =====================================================================

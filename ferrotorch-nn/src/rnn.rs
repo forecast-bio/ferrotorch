@@ -12,7 +12,12 @@
 use ferrotorch_core::grad_fns::activation::{relu, sigmoid, tanh};
 use ferrotorch_core::grad_fns::arithmetic::{add, mul, sub};
 use ferrotorch_core::grad_fns::shape::{cat, reshape};
-use ferrotorch_core::ops::linalg::mm;
+// Use the device-aware, autograd-tracked matmul. The `ops::linalg::mm`
+// alternative is host-only (calls `data()?` internally, which after the
+// Phase-2a `try_as_slice` migration returns Err on GPU storage). The
+// LSTM/GRU/RNN forward paths must dispatch to GPU when inputs are GPU-
+// resident — see #750 closure.
+use ferrotorch_core::grad_fns::linalg::mm_differentiable as mm;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
 
 use crate::init;
@@ -208,60 +213,36 @@ impl<T: Float> LSTM<T> {
                 (h0.clone(), c0.clone())
             }
             None => {
-                let h0 = ferrotorch_core::zeros::<T>(&[self.num_layers, batch, self.hidden_size])?;
-                let c0 = ferrotorch_core::zeros::<T>(&[self.num_layers, batch, self.hidden_size])?;
+                // Initialize on the input's device so the layer state and
+                // gate computation share the same device. The CPU-only
+                // `zeros` would land h0/c0 on Cpu and trigger a
+                // DeviceMismatch downstream when the input is GPU-resident.
+                let init_shape = [self.num_layers, batch, self.hidden_size];
+                let h0 = ferrotorch_core::zeros::<T>(&init_shape)?.to(input.device())?;
+                let c0 = ferrotorch_core::zeros::<T>(&init_shape)?.to(input.device())?;
                 (h0, c0)
             }
         };
 
-        // Extract per-timestep input slices using differentiable reshape + split.
-        // input is [batch, seq_len, input_size].
-        // We transpose to get timestep slices as [batch, input_size] tensors.
-        let input_data = input.data_vec()?;
-
-        // Build timestep inputs: shape [batch, input_size] each.
-        // Use data_vec + from_storage for now. These are leaf-level copies from
-        // the input, preserving requires_grad so downstream ops build the graph.
+        // Extract per-timestep input slices using device-aware narrow + squeeze.
+        // input is [batch, seq_len, input_size]; per-timestep slices are
+        // [batch, input_size]. Both ops preserve autograd state and the
+        // tensor's device (CUDA tensors stay on CUDA, CPU tensors stay on CPU).
         let mut timestep_inputs: Vec<Tensor<T>> = Vec::with_capacity(seq_len);
         for t in 0..seq_len {
-            let mut slice_data = Vec::with_capacity(batch * self.input_size);
-            for b in 0..batch {
-                let offset = b * seq_len * self.input_size + t * self.input_size;
-                slice_data.extend_from_slice(&input_data[offset..offset + self.input_size]);
-            }
-            timestep_inputs.push(Tensor::from_storage(
-                TensorStorage::cpu(slice_data),
-                vec![batch, self.input_size],
-                input.requires_grad(),
-            )?);
+            let slice = input.narrow(1, t, 1)?; // [batch, 1, input_size]
+            timestep_inputs.push(slice.squeeze_t(1)?); // [batch, input_size]
         }
 
-        // Extract per-layer initial hidden/cell states.
-        let h_init_data = h_init.data_vec()?;
-        let c_init_data = c_init.data_vec()?;
+        // Extract per-layer initial hidden/cell states via narrow + squeeze.
+        // h_init / c_init are [num_layers, batch, hidden_size]; each layer's
+        // slice is [batch, hidden_size]. Device-aware and autograd-preserving.
         let hs = self.hidden_size;
-
         let mut layer_h: Vec<Tensor<T>> = Vec::with_capacity(self.num_layers);
         let mut layer_c: Vec<Tensor<T>> = Vec::with_capacity(self.num_layers);
-
         for l in 0..self.num_layers {
-            let mut h_data = Vec::with_capacity(batch * hs);
-            let mut c_data = Vec::with_capacity(batch * hs);
-            for b in 0..batch {
-                let offset = l * batch * hs + b * hs;
-                h_data.extend_from_slice(&h_init_data[offset..offset + hs]);
-                c_data.extend_from_slice(&c_init_data[offset..offset + hs]);
-            }
-            layer_h.push(Tensor::from_storage(
-                TensorStorage::cpu(h_data),
-                vec![batch, hs],
-                false,
-            )?);
-            layer_c.push(Tensor::from_storage(
-                TensorStorage::cpu(c_data),
-                vec![batch, hs],
-                false,
-            )?);
+            layer_h.push(h_init.narrow(0, l, 1)?.squeeze_t(0)?);
+            layer_c.push(c_init.narrow(0, l, 1)?.squeeze_t(0)?);
         }
 
         // Run the LSTM forward pass.
@@ -454,27 +435,29 @@ impl<T: Float> Module<T> for LSTM<T> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Transpose a 2-D tensor (thin wrapper delegating to ops::linalg::transpose).
+/// Transpose a 2-D tensor (zero-copy stride swap; device-aware).
+///
+/// Delegates to `grad_fns::shape::transpose_2d` (which uses `permute_t`)
+/// rather than `ops::linalg::transpose` because the latter calls `data()`
+/// on the input — broken on GPU storage after the Phase-2a `try_as_slice`
+/// migration. The grad_fns variant is the device-aware path (see #750
+/// closure for context).
 fn transpose_2d<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    ferrotorch_core::ops::linalg::transpose(input)
+    ferrotorch_core::grad_fns::shape::transpose_2d(input)
 }
 
-/// Broadcast a 1-D bias of shape `[n]` into shape `[batch, n]` by repeating.
+/// Broadcast a 1-D bias of shape `[n]` into shape `[batch, n]`.
+///
+/// Device-aware: preserves the bias tensor's device (CPU bias stays CPU,
+/// CUDA bias stays CUDA) and autograd state, since both `unsqueeze_t` and
+/// `expand` are differentiable, device-dispatched ops.
 fn broadcast_bias_to_batch<T: Float>(
     bias: &Parameter<T>,
     batch: usize,
 ) -> FerrotorchResult<Tensor<T>> {
-    let bias_data = bias.data()?;
-    let n = bias_data.len();
-    let mut out = Vec::with_capacity(batch * n);
-    for _ in 0..batch {
-        out.extend_from_slice(bias_data);
-    }
-    Tensor::from_storage(
-        TensorStorage::cpu(out),
-        vec![batch, n],
-        bias.requires_grad(),
-    )
+    let n = bias.tensor().shape()[0];
+    let bias_2d = bias.tensor().unsqueeze_t(0)?; // [1, n]
+    ferrotorch_core::grad_fns::shape::expand(&bias_2d, &[batch, n])
 }
 
 // ---------------------------------------------------------------------------
@@ -670,39 +653,20 @@ impl<T: Float> GRU<T> {
             None => ferrotorch_core::zeros::<T>(&[self.num_layers, batch, self.hidden_size])?,
         };
 
-        // Extract per-timestep input slices.
-        let input_data = input.data()?;
+        // Extract per-timestep input slices via device-aware narrow + squeeze.
+        // input is [batch, seq_len, input_size]; each slice is [batch, input_size].
         let hs = self.hidden_size;
-
         let mut timestep_inputs: Vec<Tensor<T>> = Vec::with_capacity(seq_len);
         for t in 0..seq_len {
-            let mut slice_data = Vec::with_capacity(batch * self.input_size);
-            for b in 0..batch {
-                let offset = b * seq_len * self.input_size + t * self.input_size;
-                slice_data.extend_from_slice(&input_data[offset..offset + self.input_size]);
-            }
-            timestep_inputs.push(Tensor::from_storage(
-                TensorStorage::cpu(slice_data),
-                vec![batch, self.input_size],
-                input.requires_grad(),
-            )?);
+            let slice = input.narrow(1, t, 1)?; // [batch, 1, input_size]
+            timestep_inputs.push(slice.squeeze_t(1)?); // [batch, input_size]
         }
 
-        // Extract per-layer initial hidden states.
-        let h_init_data = h_init.data()?;
-
+        // Extract per-layer initial hidden states via narrow + squeeze.
+        // h_init is [num_layers, batch, hidden_size]; per-layer is [batch, hs].
         let mut layer_h: Vec<Tensor<T>> = Vec::with_capacity(self.num_layers);
         for l in 0..self.num_layers {
-            let mut h_data = Vec::with_capacity(batch * hs);
-            for b in 0..batch {
-                let offset = l * batch * hs + b * hs;
-                h_data.extend_from_slice(&h_init_data[offset..offset + hs]);
-            }
-            layer_h.push(Tensor::from_storage(
-                TensorStorage::cpu(h_data),
-                vec![batch, hs],
-                false,
-            )?);
+            layer_h.push(h_init.narrow(0, l, 1)?.squeeze_t(0)?);
         }
 
         // Run the GRU forward pass.
@@ -751,50 +715,26 @@ impl<T: Float> GRU<T> {
                     next_layer_outputs.push(h_new.clone());
                     h = h_new;
                 } else {
-                    // ---- CPU path: scalar gate computation ----
+                    // ---- Generic path: device-aware composite ops ----
+                    // Used when the fused GPU kernel doesn't apply (e.g. f64
+                    // tensors, CPU tensors, or no GPU backend registered).
+                    // Every op below is device-dispatched, so this branch
+                    // runs on CPU for CPU tensors and on GPU for GPU tensors.
                     let bias_ih_2d = broadcast_bias_to_batch(&params.bias_ih, batch)?;
                     let bias_hh_2d = broadcast_bias_to_batch(&params.bias_hh, batch)?;
 
                     let xw_b = add(&xw, &bias_ih_2d)?;
                     let hw_b = add(&hw, &bias_hh_2d)?;
 
-                    let xw_data = xw_b.data()?;
-                    let hw_data = hw_b.data()?;
-                    let gate_size = 3 * hs;
-
-                    let mut rx_data = Vec::with_capacity(batch * hs);
-                    let mut zx_data = Vec::with_capacity(batch * hs);
-                    let mut nx_data = Vec::with_capacity(batch * hs);
-                    let mut rh_data = Vec::with_capacity(batch * hs);
-                    let mut zh_data = Vec::with_capacity(batch * hs);
-                    let mut nh_data = Vec::with_capacity(batch * hs);
-
-                    for b_idx in 0..batch {
-                        let xbase = b_idx * gate_size;
-                        rx_data.extend_from_slice(&xw_data[xbase..xbase + hs]);
-                        zx_data.extend_from_slice(&xw_data[xbase + hs..xbase + 2 * hs]);
-                        nx_data.extend_from_slice(&xw_data[xbase + 2 * hs..xbase + 3 * hs]);
-
-                        let hbase = b_idx * gate_size;
-                        rh_data.extend_from_slice(&hw_data[hbase..hbase + hs]);
-                        zh_data.extend_from_slice(&hw_data[hbase + hs..hbase + 2 * hs]);
-                        nh_data.extend_from_slice(&hw_data[hbase + 2 * hs..hbase + 3 * hs]);
-                    }
-
-                    let rg = xw_b.requires_grad() || hw_b.requires_grad();
-
-                    let rx =
-                        Tensor::from_storage(TensorStorage::cpu(rx_data), vec![batch, hs], rg)?;
-                    let zx =
-                        Tensor::from_storage(TensorStorage::cpu(zx_data), vec![batch, hs], rg)?;
-                    let nx =
-                        Tensor::from_storage(TensorStorage::cpu(nx_data), vec![batch, hs], rg)?;
-                    let rh =
-                        Tensor::from_storage(TensorStorage::cpu(rh_data), vec![batch, hs], rg)?;
-                    let zh =
-                        Tensor::from_storage(TensorStorage::cpu(zh_data), vec![batch, hs], rg)?;
-                    let nh =
-                        Tensor::from_storage(TensorStorage::cpu(nh_data), vec![batch, hs], rg)?;
+                    // Split [batch, 3*hs] -> 3 x [batch, hs] via differentiable chunk.
+                    let xw_chunks = xw_b.chunk(3, 1)?;
+                    let hw_chunks = hw_b.chunk(3, 1)?;
+                    let rx = xw_chunks[0].clone();
+                    let zx = xw_chunks[1].clone();
+                    let nx = xw_chunks[2].clone();
+                    let rh = hw_chunks[0].clone();
+                    let zh = hw_chunks[1].clone();
+                    let nh = hw_chunks[2].clone();
 
                     let r_gate = sigmoid(&add(&rx, &rh)?)?;
                     let z_gate = sigmoid(&add(&zx, &zh)?)?;
@@ -814,31 +754,28 @@ impl<T: Float> GRU<T> {
         }
 
         // Assemble output: [batch, seq_len, hidden_size] from the last layer.
-        let mut output_data = Vec::with_capacity(batch * seq_len * hs);
-        for b_idx in 0..batch {
-            for lo in &layer_outputs {
-                let t_data = lo.data()?;
-                let offset = b_idx * hs;
-                output_data.extend_from_slice(&t_data[offset..offset + hs]);
-            }
-        }
-        let output = Tensor::from_storage(
-            TensorStorage::cpu(output_data),
-            vec![batch, seq_len, hs],
-            false,
-        )?;
+        // Each layer_outputs[t] is [batch, hs]. Concatenate along dim=1 to
+        // produce [batch, seq_len*hs] then reshape — matches the layout used
+        // by LSTM above and preserves device + autograd.
+        let output = if seq_len == 1 {
+            reshape(&layer_outputs[0], &[batch as isize, 1, hs as isize])?
+        } else {
+            let stacked = cat(&layer_outputs, 1)?;
+            reshape(&stacked, &[batch as isize, seq_len as isize, hs as isize])?
+        };
 
-        // Assemble h_n: [num_layers, batch, hidden_size].
-        let mut h_n_data = Vec::with_capacity(self.num_layers * batch * hs);
-        for h_l_tensor in &final_h {
-            let h_l = h_l_tensor.data()?;
-            h_n_data.extend_from_slice(h_l);
-        }
-        let h_n = Tensor::from_storage(
-            TensorStorage::cpu(h_n_data),
-            vec![self.num_layers, batch, hs],
-            false,
-        )?;
+        // Assemble h_n: [num_layers, batch, hidden_size]. Each final_h[l] is
+        // [batch, hs]; concatenate along dim=0 then reshape to recover the
+        // layer dimension.
+        let h_n = if self.num_layers == 1 {
+            reshape(&final_h[0], &[1, batch as isize, hs as isize])?
+        } else {
+            let h_stacked = cat(&final_h, 0)?;
+            reshape(
+                &h_stacked,
+                &[self.num_layers as isize, batch as isize, hs as isize],
+            )?
+        };
 
         Ok((output, h_n))
     }
@@ -1501,39 +1438,16 @@ impl<T: Float> GRUCell<T> {
         let xw_b = add(&xw, &bias_ih_2d)?;
         let hw_b = add(&hw, &bias_hh_2d)?;
 
-        // Split into r, z, n components — each [batch, hs].
-        // Use manual slicing like the existing GRU impl.
-        let xw_data = xw_b.data()?;
-        let hw_data = hw_b.data()?;
-        let gate_size = 3 * hs;
-
-        let mut rx_data = Vec::with_capacity(batch * hs);
-        let mut zx_data = Vec::with_capacity(batch * hs);
-        let mut nx_data = Vec::with_capacity(batch * hs);
-        let mut rh_data = Vec::with_capacity(batch * hs);
-        let mut zh_data = Vec::with_capacity(batch * hs);
-        let mut nh_data = Vec::with_capacity(batch * hs);
-
-        for b_idx in 0..batch {
-            let xbase = b_idx * gate_size;
-            rx_data.extend_from_slice(&xw_data[xbase..xbase + hs]);
-            zx_data.extend_from_slice(&xw_data[xbase + hs..xbase + 2 * hs]);
-            nx_data.extend_from_slice(&xw_data[xbase + 2 * hs..xbase + 3 * hs]);
-
-            let hbase = b_idx * gate_size;
-            rh_data.extend_from_slice(&hw_data[hbase..hbase + hs]);
-            zh_data.extend_from_slice(&hw_data[hbase + hs..hbase + 2 * hs]);
-            nh_data.extend_from_slice(&hw_data[hbase + 2 * hs..hbase + 3 * hs]);
-        }
-
-        let rg = xw_b.requires_grad() || hw_b.requires_grad();
-
-        let rx = Tensor::from_storage(TensorStorage::cpu(rx_data), vec![batch, hs], rg)?;
-        let zx = Tensor::from_storage(TensorStorage::cpu(zx_data), vec![batch, hs], rg)?;
-        let nx = Tensor::from_storage(TensorStorage::cpu(nx_data), vec![batch, hs], rg)?;
-        let rh = Tensor::from_storage(TensorStorage::cpu(rh_data), vec![batch, hs], rg)?;
-        let zh = Tensor::from_storage(TensorStorage::cpu(zh_data), vec![batch, hs], rg)?;
-        let nh = Tensor::from_storage(TensorStorage::cpu(nh_data), vec![batch, hs], rg)?;
+        // Split [batch, 3*hs] into r, z, n components — each [batch, hs] —
+        // via differentiable, device-aware chunk along dim=1.
+        let xw_chunks = xw_b.chunk(3, 1)?;
+        let hw_chunks = hw_b.chunk(3, 1)?;
+        let rx = xw_chunks[0].clone();
+        let zx = xw_chunks[1].clone();
+        let nx = xw_chunks[2].clone();
+        let rh = hw_chunks[0].clone();
+        let zh = hw_chunks[1].clone();
+        let nh = hw_chunks[2].clone();
 
         // r = sigmoid(rx + rh), z = sigmoid(zx + zh)
         let r_gate = sigmoid(&add(&rx, &rh)?)?;
@@ -1783,38 +1697,18 @@ impl<T: Float> RNN<T> {
             None => ferrotorch_core::zeros::<T>(&[self.num_layers, batch, hs])?,
         };
 
-        // Extract per-timestep input slices.
-        let input_data = input.data()?;
-
+        // Extract per-timestep input slices via device-aware narrow + squeeze.
+        // input is [batch, seq_len, input_size]; per-timestep is [batch, input_size].
         let mut timestep_inputs: Vec<Tensor<T>> = Vec::with_capacity(seq_len);
         for t in 0..seq_len {
-            let mut slice_data = Vec::with_capacity(batch * self.input_size);
-            for b in 0..batch {
-                let offset = b * seq_len * self.input_size + t * self.input_size;
-                slice_data.extend_from_slice(&input_data[offset..offset + self.input_size]);
-            }
-            timestep_inputs.push(Tensor::from_storage(
-                TensorStorage::cpu(slice_data),
-                vec![batch, self.input_size],
-                input.requires_grad(),
-            )?);
+            let slice = input.narrow(1, t, 1)?; // [batch, 1, input_size]
+            timestep_inputs.push(slice.squeeze_t(1)?); // [batch, input_size]
         }
 
-        // Extract per-layer initial hidden states.
-        let h_init_data = h_init.data()?;
-
+        // Extract per-layer initial hidden states via narrow + squeeze.
         let mut layer_h: Vec<Tensor<T>> = Vec::with_capacity(self.num_layers);
         for l in 0..self.num_layers {
-            let mut h_data = Vec::with_capacity(batch * hs);
-            for b in 0..batch {
-                let offset = l * batch * hs + b * hs;
-                h_data.extend_from_slice(&h_init_data[offset..offset + hs]);
-            }
-            layer_h.push(Tensor::from_storage(
-                TensorStorage::cpu(h_data),
-                vec![batch, hs],
-                false,
-            )?);
+            layer_h.push(h_init.narrow(0, l, 1)?.squeeze_t(0)?);
         }
 
         // Run the RNN forward pass.
@@ -1851,31 +1745,25 @@ impl<T: Float> RNN<T> {
         }
 
         // Assemble output: [batch, seq_len, hidden_size] from the last layer.
-        let mut output_data = Vec::with_capacity(batch * seq_len * hs);
-        for b_idx in 0..batch {
-            for lo in &layer_outputs {
-                let t_data = lo.data()?;
-                let offset = b_idx * hs;
-                output_data.extend_from_slice(&t_data[offset..offset + hs]);
-            }
-        }
-        let output = Tensor::from_storage(
-            TensorStorage::cpu(output_data),
-            vec![batch, seq_len, hs],
-            false,
-        )?;
+        // Each layer_outputs[t] is [batch, hs]; cat-along-1 + reshape mirrors
+        // the LSTM/GRU output assembly and stays on-device.
+        let output = if seq_len == 1 {
+            reshape(&layer_outputs[0], &[batch as isize, 1, hs as isize])?
+        } else {
+            let stacked = cat(&layer_outputs, 1)?;
+            reshape(&stacked, &[batch as isize, seq_len as isize, hs as isize])?
+        };
 
         // Assemble h_n: [num_layers, batch, hidden_size].
-        let mut h_n_data = Vec::with_capacity(self.num_layers * batch * hs);
-        for h_l_tensor in &final_h {
-            let h_l = h_l_tensor.data()?;
-            h_n_data.extend_from_slice(h_l);
-        }
-        let h_n = Tensor::from_storage(
-            TensorStorage::cpu(h_n_data),
-            vec![self.num_layers, batch, hs],
-            false,
-        )?;
+        let h_n = if self.num_layers == 1 {
+            reshape(&final_h[0], &[1, batch as isize, hs as isize])?
+        } else {
+            let h_stacked = cat(&final_h, 0)?;
+            reshape(
+                &h_stacked,
+                &[self.num_layers as isize, batch as isize, hs as isize],
+            )?
+        };
 
         Ok((output, h_n))
     }

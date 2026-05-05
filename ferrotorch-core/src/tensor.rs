@@ -140,11 +140,15 @@ impl<T: Float> Tensor<T> {
     pub fn view_reshape(&self, new_shape: Vec<usize>) -> FerrotorchResult<Self> {
         // Non-contiguous tensors must be materialized first — a view over
         // non-contiguous storage with new strides would read wrong elements.
+        // Use the device-aware `contiguous()` path so a non-contiguous CUDA
+        // tensor is gathered on-device via `strided_copy_*` rather than
+        // demoted to CPU storage. The previous `data_vec() + TensorStorage::cpu`
+        // path silently moved GPU tensors to host on every reshape after
+        // a stride-view op (narrow / select / permute), which broke the
+        // §3 PyTorch-parity contract for downstream LSTM/GRU/RNN forward
+        // paths that compose narrow + squeeze on GPU inputs (#750).
         if !self.is_contiguous() {
-            let data = self.data_vec()?;
-            let storage = TensorStorage::cpu(data);
-            let t = Tensor::from_storage(storage, self.shape().to_vec(), false)?;
-            return t.view_reshape(new_shape);
+            return self.contiguous()?.view_reshape(new_shape);
         }
 
         let new_numel: usize = new_shape.iter().product();
