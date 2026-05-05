@@ -2,11 +2,12 @@
   "uuid": "0c49577d-36ae-4a2a-9c17-69fb1c3341c8",
   "display_id": 650,
   "title": "Test dispatch: rust-fix-discipline + rust-quality + rust-gpu-discipline on ferrotorch-xpu",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-02T19:15:07.069861521Z",
-  "updated_at": "2026-05-02T19:15:08.574785254Z",
+  "updated_at": "2026-05-05T01:21:25.133090277Z",
+  "closed_at": "2026-05-05T01:21:25.133090277Z",
   "labels": [
     "review"
   ]
