@@ -2,11 +2,12 @@
   "uuid": "2cfb301c-1ee5-4f66-996c-a0768fdf898d",
   "display_id": 667,
   "title": "Improve GpuError::PtxCompileFailed to preserve source DriverError (rust-quality §3 cause-chain regression exposed by issue #665)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-02T23:07:30.009068568Z",
-  "updated_at": "2026-05-02T23:07:31.260806187Z",
+  "updated_at": "2026-05-05T01:22:27.903391422Z",
+  "closed_at": "2026-05-05T01:22:27.903391422Z",
   "labels": [
     "fix"
   ]
