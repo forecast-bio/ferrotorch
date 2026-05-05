@@ -2,11 +2,12 @@
   "uuid": "d06be1ba-7521-401a-a92a-509c26fab858",
   "display_id": 751,
   "title": "commit: 5 audit-closure follow-ups + architect self-correction bundle (#731 #736 #733 #729 #739 + libdevice + LSTM blocker)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-05T05:10:05.626848480Z",
-  "updated_at": "2026-05-05T05:10:06.968618860Z",
+  "updated_at": "2026-05-05T05:10:26.790045876Z",
+  "closed_at": "2026-05-05T05:10:26.790045876Z",
   "labels": [
     "audit-followup"
   ]
