@@ -2,11 +2,12 @@
   "uuid": "d109a1df-557a-4632-be9d-3e05e1825432",
   "display_id": 665,
   "title": "Workspace fix: add GpuError::Unsupported variant + ferrotorch-gpu Category A silent-fallback migration (bundled per user decision)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-02T22:04:36.257821273Z",
-  "updated_at": "2026-05-02T22:04:37.861337502Z",
+  "updated_at": "2026-05-05T01:22:21.095214028Z",
+  "closed_at": "2026-05-05T01:22:21.095214028Z",
   "labels": [
     "fix"
   ]
