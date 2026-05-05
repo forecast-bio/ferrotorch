@@ -635,7 +635,7 @@ impl<T: Float> Tensor<T> {
                 message: "tensor is not contiguous; call .contiguous() or use .data_vec()".into(),
             });
         }
-        let slice = self.inner.storage.as_slice();
+        let slice = self.inner.storage.try_as_slice()?;
         let end = self.inner.offset + self.numel();
         if end > slice.len() {
             return Err(FerrotorchError::InvalidArgument {
@@ -680,7 +680,10 @@ impl<T: Float> Tensor<T> {
             Ok(self.data()?.to_vec())
         } else {
             // Non-contiguous: gather elements by walking strides.
-            let slice = self.inner.storage.as_slice();
+            // is_cuda/is_cubecl branches above already routed GPU storage,
+            // so try_as_slice on this CPU/Meta arm only Errs on Meta — which
+            // the data_vec entry guard at the top of the function rejects.
+            let slice = self.inner.storage.try_as_slice()?;
             let shape = &self.inner.shape;
             let strides = &self.inner.strides;
             let offset = self.inner.offset;
@@ -1049,7 +1052,11 @@ impl<T: Float> Tensor<T> {
         let storage_ptr = Arc::as_ptr(&self.inner.storage) as *mut TensorStorage<T>;
         // SAFETY: Caller guarantees exclusive access (optimizer step inside no_grad).
         let storage = unsafe { &mut *storage_ptr };
-        let slice = storage.as_mut_slice();
+        // Returns Err(GpuTensorNotAccessible) for GPU/Cubecl/Meta storage —
+        // the deprecated `as_mut_slice` panicked here. Optimizer step
+        // implementations now get a clean error path for misuse against
+        // GPU-resident parameters.
+        let slice = storage.try_as_mut_slice()?;
         let end = self.inner.offset + self.numel();
         if end > slice.len() {
             return Err(FerrotorchError::InvalidArgument {
@@ -1111,7 +1118,11 @@ impl<T: Float> Tensor<T> {
             let new_handle = backend.cpu_to_gpu(bytes, std::mem::size_of::<T>(), ordinal)?;
             storage.data = crate::storage::StorageBuffer::Gpu(new_handle);
         } else {
-            let slice = storage.as_mut_slice();
+            // is_gpu() branch above already routed Gpu storage; try_as_mut_slice
+            // here Errs only on Cubecl/Meta — neither of which an update_data
+            // caller in the optimizer hot path is expected to hit, so the
+            // explicit Err is a strict improvement over the deprecated panic.
+            let slice = storage.try_as_mut_slice()?;
             let offset = self.inner.offset;
             slice[offset..offset + numel].copy_from_slice(new_data);
         }
@@ -1453,7 +1464,10 @@ impl<T: Float> Tensor<T> {
             src_owned = self.data_vec()?;
             &src_owned
         } else {
-            self.inner.storage.as_slice()
+            // is_cuda branch above routes Gpu storage; try_as_slice
+            // here Errs only on Cubecl/Meta — both signal a misuse of
+            // materialize_format_cpu and propagate cleanly.
+            self.inner.storage.try_as_slice()?
         };
 
         let mut dst = vec![<T as num_traits::Zero>::zero(); numel];
