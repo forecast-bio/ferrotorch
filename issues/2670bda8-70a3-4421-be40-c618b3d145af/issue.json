@@ -2,11 +2,12 @@
   "uuid": "2670bda8-70a3-4421-be40-c618b3d145af",
   "display_id": 678,
   "title": "ferrotorch-jit: replace C-codegen JIT with Rust-codegen JIT (rustc-shellout, no cc dep)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-03T03:21:11.048491483Z",
-  "updated_at": "2026-05-03T03:21:12.391353884Z",
+  "updated_at": "2026-05-05T01:22:57.206817313Z",
+  "closed_at": "2026-05-05T01:22:57.206817313Z",
   "labels": [
     "fix"
   ]
