@@ -795,7 +795,7 @@ impl<T: Float> Tensor<T> {
                 // size_of::<T>()`, which matches the underlying allocation.
                 let bytes = unsafe {
                     std::slice::from_raw_parts(
-                        cpu_data.as_ptr() as *const u8,
+                        cpu_data.as_ptr().cast::<u8>(),
                         std::mem::size_of_val(cpu_data),
                     )
                 };
@@ -831,7 +831,7 @@ impl<T: Float> Tensor<T> {
                     let mut bytes = std::mem::ManuallyDrop::new(bytes);
                     let len = bytes.len() / std::mem::size_of::<T>();
                     let cap = bytes.capacity() / std::mem::size_of::<T>();
-                    Vec::from_raw_parts(bytes.as_mut_ptr() as *mut T, len, cap)
+                    Vec::from_raw_parts(bytes.as_mut_ptr().cast::<T>(), len, cap)
                 };
                 let storage = TensorStorage::cpu(data);
                 if needs_grad_fn {
@@ -891,7 +891,7 @@ impl<T: Float> Tensor<T> {
                     // The bytes came from a cubecl kernel that wrote f32 values.
                     unsafe {
                         let mut md = std::mem::ManuallyDrop::new(host_f32);
-                        Vec::from_raw_parts(md.as_mut_ptr() as *mut T, md.len(), md.capacity())
+                        Vec::from_raw_parts(md.as_mut_ptr().cast::<T>(), md.len(), md.capacity())
                     }
                 };
                 let storage = TensorStorage::cpu(data);
@@ -1049,7 +1049,7 @@ impl<T: Float> Tensor<T> {
                 message: "data_mut requires a contiguous tensor".into(),
             });
         }
-        let storage_ptr = Arc::as_ptr(&self.inner.storage) as *mut TensorStorage<T>;
+        let storage_ptr = Arc::as_ptr(&self.inner.storage).cast_mut();
         // SAFETY: Caller guarantees exclusive access (optimizer step inside no_grad).
         let storage = unsafe { &mut *storage_ptr };
         // Returns Err(GpuTensorNotAccessible) for GPU/Cubecl/Meta storage —
@@ -1092,7 +1092,7 @@ impl<T: Float> Tensor<T> {
             });
         }
 
-        let storage_ptr = Arc::as_ptr(&self.inner.storage) as *mut TensorStorage<T>;
+        let storage_ptr = Arc::as_ptr(&self.inner.storage).cast_mut();
         // SAFETY: Caller guarantees exclusive access (optimizer step inside no_grad).
         let storage = unsafe { &mut *storage_ptr };
 
@@ -1111,7 +1111,7 @@ impl<T: Float> Tensor<T> {
             // matches the actual byte size of the underlying allocation.
             let bytes: &[u8] = unsafe {
                 std::slice::from_raw_parts(
-                    new_data.as_ptr() as *const u8,
+                    new_data.as_ptr().cast::<u8>(),
                     std::mem::size_of_val(new_data),
                 )
             };
@@ -1153,7 +1153,7 @@ impl<T: Float> Tensor<T> {
             });
         }
 
-        let storage_ptr = Arc::as_ptr(&self.inner.storage) as *mut TensorStorage<T>;
+        let storage_ptr = Arc::as_ptr(&self.inner.storage).cast_mut();
         // SAFETY: Caller guarantees exclusive access (optimizer step inside
         // no_grad).
         //
@@ -1211,7 +1211,7 @@ impl<T: Float> Tensor<T> {
         &self,
         f: impl FnOnce(&mut crate::gpu_dispatch::GpuBufferHandle) -> FerrotorchResult<R>,
     ) -> FerrotorchResult<R> {
-        let storage_ptr = Arc::as_ptr(&self.inner.storage) as *mut TensorStorage<T>;
+        let storage_ptr = Arc::as_ptr(&self.inner.storage).cast_mut();
         // SAFETY: We materialize a single `&mut TensorStorage<T>` for the
         // duration of the call. The storage lives behind `Arc`, but the
         // optimizer-step caller holds `&mut self` on the outer optimizer

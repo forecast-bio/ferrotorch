@@ -197,7 +197,7 @@ pub fn randn<T: Float>(shape: &[usize]) -> FerrotorchResult<Tensor<T>> {
         // SAFETY: f32 and T have the same size (checked above).
         let typed: Vec<T> = unsafe {
             let mut d = std::mem::ManuallyDrop::new(data);
-            Vec::from_raw_parts(d.as_mut_ptr() as *mut T, numel, d.capacity())
+            Vec::from_raw_parts(d.as_mut_ptr().cast::<T>(), numel, d.capacity())
         };
         return Tensor::from_storage(TensorStorage::cpu(typed), shape.to_vec(), false);
     }

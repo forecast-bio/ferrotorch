@@ -111,7 +111,7 @@ unsafe fn transmute_vec_f32_to_t<T: Float>(v: Vec<f32>) -> Vec<T> {
     // placed in ManuallyDrop on the line above, so the pointer/len/capacity
     // we pass here are no longer owned by any other Vec — reconstructing a
     // Vec<T> from them transfers ownership to the new Vec without double-free.
-    unsafe { Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity()) }
+    unsafe { Vec::from_raw_parts(v.as_mut_ptr().cast::<T>(), v.len(), v.capacity()) }
 }
 
 /// Transmute a Vec<f64> to Vec<T> (zero-cost when T is f64).
@@ -123,7 +123,7 @@ unsafe fn transmute_vec_f64_to_t<T: Float>(v: Vec<f64>) -> Vec<T> {
     // placed in ManuallyDrop on the line above, so the pointer/len/capacity
     // we pass here are no longer owned by any other Vec — reconstructing a
     // Vec<T> from them transfers ownership to the new Vec without double-free.
-    unsafe { Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity()) }
+    unsafe { Vec::from_raw_parts(v.as_mut_ptr().cast::<T>(), v.len(), v.capacity()) }
 }
 
 /// SIMD-accelerated add: dispatches to f32/f64 SIMD for same-shape tensors,
@@ -143,10 +143,10 @@ pub fn fast_add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             // initialization. `a_data` is borrowed for the duration of `n`
             // elements, so the resulting slice does not outlive its source.
             let a_f32: &[f32] =
-                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr().cast::<f32>(), n) };
             // SAFETY: same invariant as a_f32 above (T == f32 by size guard).
             let b_f32: &[f32] =
-                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr().cast::<f32>(), n) };
             let mut out = pool_alloc_cpu_uninit_f32(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -178,10 +178,10 @@ pub fn fast_add<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             // has size 8, so T == f64 and the cast preserves layout. `a_data`
             // is borrowed for `n` elements; the slice does not outlive it.
             let a_f64: &[f64] =
-                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr().cast::<f64>(), n) };
             // SAFETY: same invariant as a_f64 above (T == f64 by size guard).
             let b_f64: &[f64] =
-                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr().cast::<f64>(), n) };
             let mut out = pool_alloc_cpu_uninit_f64(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -222,10 +222,10 @@ pub fn fast_mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             // and alignment. `a_data` outlives this slice (it borrows a_data's
             // buffer for n elements, all initialized as part of a Tensor<T>).
             let a_f32: &[f32] =
-                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr().cast::<f32>(), n) };
             // SAFETY: identical reasoning to a_f32 above (T == f32 by size_of guard).
             let b_f32: &[f32] =
-                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr().cast::<f32>(), n) };
             let mut out = pool_alloc_cpu_uninit_f32(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -258,10 +258,10 @@ pub fn fast_mul<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             // and alignment. `a_data` outlives this slice (n initialized
             // f64-sized elements borrowed from a_data's buffer).
             let a_f64: &[f64] =
-                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr().cast::<f64>(), n) };
             // SAFETY: identical reasoning to a_f64 above (T == f64 by size_of guard).
             let b_f64: &[f64] =
-                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr().cast::<f64>(), n) };
             let mut out = pool_alloc_cpu_uninit_f64(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -305,10 +305,10 @@ pub fn fast_sub<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             // and alignment. `a_data` outlives this slice (it borrows a_data's
             // buffer for n elements, all initialized as part of a Tensor<T>).
             let a_f32: &[f32] =
-                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr().cast::<f32>(), n) };
             // SAFETY: identical reasoning to a_f32 above (T == f32 by size_of guard).
             let b_f32: &[f32] =
-                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr().cast::<f32>(), n) };
             let mut out = pool_alloc_cpu_uninit_f32(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -343,10 +343,10 @@ pub fn fast_sub<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             // and alignment. `a_data` outlives this slice (n initialized
             // f64-sized elements borrowed from a_data's buffer).
             let a_f64: &[f64] =
-                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr().cast::<f64>(), n) };
             // SAFETY: identical reasoning to a_f64 above (T == f64 by size_of guard).
             let b_f64: &[f64] =
-                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr().cast::<f64>(), n) };
             let mut out = pool_alloc_cpu_uninit_f64(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -389,10 +389,10 @@ pub fn fast_div<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             // and alignment. `a_data` outlives this slice (it borrows a_data's
             // buffer for n elements, all initialized as part of a Tensor<T>).
             let a_f32: &[f32] =
-                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f32, n) };
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr().cast::<f32>(), n) };
             // SAFETY: identical reasoning to a_f32 above (T == f32 by size_of guard).
             let b_f32: &[f32] =
-                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f32, n) };
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr().cast::<f32>(), n) };
             let mut out = pool_alloc_cpu_uninit_f32(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -427,10 +427,10 @@ pub fn fast_div<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tens
             // and alignment. `a_data` outlives this slice (n initialized
             // f64-sized elements borrowed from a_data's buffer).
             let a_f64: &[f64] =
-                unsafe { std::slice::from_raw_parts(a_data.as_ptr() as *const f64, n) };
+                unsafe { std::slice::from_raw_parts(a_data.as_ptr().cast::<f64>(), n) };
             // SAFETY: identical reasoning to a_f64 above (T == f64 by size_of guard).
             let b_f64: &[f64] =
-                unsafe { std::slice::from_raw_parts(b_data.as_ptr() as *const f64, n) };
+                unsafe { std::slice::from_raw_parts(b_data.as_ptr().cast::<f64>(), n) };
             let mut out = pool_alloc_cpu_uninit_f64(n);
             if n >= PARALLEL_THRESHOLD {
                 let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -547,7 +547,7 @@ pub fn fast_exp<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
         // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
         // and contains exactly `n` initialized T-sized elements.
-        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
+        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<f32>(), n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
             let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -590,7 +590,7 @@ pub fn fast_log<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
         // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
         // and contains exactly `n` initialized T-sized elements.
-        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
+        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<f32>(), n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
             let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -680,7 +680,7 @@ pub fn fast_sigmoid<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> 
         // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
         // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
         // and contains exactly `n` initialized T-sized elements.
-        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
+        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<f32>(), n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
             let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -719,7 +719,7 @@ pub fn fast_tanh<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
         // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
         // and contains exactly `n` initialized T-sized elements.
-        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
+        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<f32>(), n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
             let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -766,7 +766,7 @@ pub fn fast_sin<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
         // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
         // and contains exactly `n` initialized T-sized elements.
-        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
+        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<f32>(), n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
             let chunk_size = (n / rayon::current_num_threads()).max(4096);
@@ -806,7 +806,7 @@ pub fn fast_cos<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // crate-internal `Float` impls (f32/f64/bf16/f16) only f32 has size 4,
         // so T == f32. `data` (a `Tensor<T>::data()` borrow) outlives this slice
         // and contains exactly `n` initialized T-sized elements.
-        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, n) };
+        let inp: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<f32>(), n) };
         let mut out = pool_alloc_cpu_uninit_f32(n);
         if n >= PARALLEL_THRESHOLD {
             let chunk_size = (n / rayon::current_num_threads()).max(4096);

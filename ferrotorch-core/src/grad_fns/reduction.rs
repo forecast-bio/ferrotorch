@@ -252,7 +252,7 @@ fn mean_inner<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 // the actual byte size of the array.
                 let inv_n_bytes: &[u8] = unsafe {
                     std::slice::from_raw_parts(
-                        inv_n_data.as_ptr() as *const u8,
+                        inv_n_data.as_ptr().cast::<u8>(),
                         inv_n_data.len() * 4,
                     )
                 };
@@ -269,7 +269,7 @@ fn mean_inner<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
                 // the actual byte size of the array.
                 let inv_n_bytes: &[u8] = unsafe {
                     std::slice::from_raw_parts(
-                        inv_n_data.as_ptr() as *const u8,
+                        inv_n_data.as_ptr().cast::<u8>(),
                         inv_n_data.len() * 8,
                     )
                 };

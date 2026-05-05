@@ -126,7 +126,7 @@ impl<T: Element> TensorStorage<T> {
                     // the bytes to copy to the GPU; the vec is not dropped
                     // until after `cpu_to_gpu` returns.
                     std::slice::from_raw_parts(
-                        data.as_ptr() as *const u8,
+                        data.as_ptr().cast::<u8>(),
                         data.len() * std::mem::size_of::<T>(),
                     )
                 };
@@ -164,7 +164,7 @@ impl<T: Element> TensorStorage<T> {
                 let bytes: &[u8] = unsafe {
                     // SAFETY: same invariant as in `on_device`.
                     std::slice::from_raw_parts(
-                        data.as_ptr() as *const u8,
+                        data.as_ptr().cast::<u8>(),
                         data.len() * std::mem::size_of::<T>(),
                     )
                 };
