@@ -2,11 +2,12 @@
   "uuid": "907ac9a8-fff5-46c1-bd5b-a41b215555c0",
   "display_id": 728,
   "title": "final CHANGELOG fold",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-04T20:18:44.442158174Z",
-  "updated_at": "2026-05-04T20:18:45.920109227Z",
+  "updated_at": "2026-05-05T01:20:37.743448482Z",
+  "closed_at": "2026-05-05T01:20:37.743448482Z",
   "labels": [
     "chore"
   ]
