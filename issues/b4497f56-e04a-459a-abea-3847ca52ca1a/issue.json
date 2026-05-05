@@ -6,5 +6,8 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-05T01:09:03.725795114Z",
-  "updated_at": "2026-05-05T01:09:03.725795114Z"
+  "updated_at": "2026-05-05T01:09:05.068502033Z",
+  "labels": [
+    "release"
+  ]
 }
