@@ -2,11 +2,12 @@
   "uuid": "4f27b697-d182-4dfe-ab26-8b98291af3b6",
   "display_id": 663,
   "title": "Re-dispatch ADR #2 (CPU-fallback policy) under tightened skills — verify defer-removal changes subagent behavior",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-02T21:56:26.608935383Z",
-  "updated_at": "2026-05-02T21:56:28.837556748Z",
+  "updated_at": "2026-05-05T01:22:14.154750655Z",
+  "closed_at": "2026-05-05T01:22:14.154750655Z",
   "labels": [
     "adr"
   ]
