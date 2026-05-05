@@ -439,11 +439,21 @@ impl<T: Float> GradFn<T> for AvgPool2dBackward<T> {
             }
         }
 
+        // The forward emits its result on the input's device (line ~382
+        // and ~384 of this file: `to(input_device)` after the host
+        // computation). The backward must match — otherwise a CUDA
+        // forward followed by a CPU gradient breaks every downstream
+        // op that branches on device-residency (e.g. relu_backward
+        // hits its `NotImplementedOnCuda` arm because grad_output
+        // disagrees with the saved CUDA `input`). Surfaced by
+        // `gpu_cnn_training_smoke` in
+        // `ferrotorch/tests/gpu_training.rs` (#749 Section B).
         let grad_tensor = Tensor::from_storage(
             TensorStorage::cpu(grad_input),
             self.input.shape().to_vec(),
             false,
-        )?;
+        )?
+        .to(self.input.device())?;
         Ok(vec![Some(grad_tensor)])
     }
 

@@ -8739,8 +8739,18 @@ DONE:
 }
 ";
 
-/// PTX source for `broadcast_div_kernel`: broadcast division, identical structure
-/// to `broadcast_mul_kernel` but uses `div.f32` instead of `mul.f32`.
+/// PTX source for `broadcast_div_kernel`: broadcast division, identical
+/// structure to `broadcast_mul_kernel` but uses `div.rn.f32` for the f32
+/// scalar divide (the f32-to-f64 string substitution at the top of this
+/// module rewrites it to `div.rn.f64` for the f64 cousin kernel).
+///
+/// Note on the rounding modifier: PTX does not accept bare `div.f32` —
+/// the assembler requires either an explicit IEEE rounding mode (`.rn`,
+/// `.rz`, `.rm`, `.rp`) or `.approx`. Earlier versions of this kernel
+/// emitted bare `div.f32` and were caught by `gpu_transformer_training_smoke`
+/// in `ferrotorch/tests/gpu_training.rs`, where the loaded module would
+/// fail with `CUDA_ERROR_INVALID_PTX` (#749 Section B). `div.rn.f32`
+/// matches every other site in this file.
 #[cfg(feature = "cuda")]
 pub(crate) const BROADCAST_DIV_PTX: &str = "\
 .version 7.0
@@ -8813,7 +8823,7 @@ END_LOOP:
     add.u64 %off_b, %b, %off_b;
     ld.global.f32 %vb, [%off_b];
 
-    div.f32 %vr, %va, %vb;
+    div.rn.f32 %vr, %va, %vb;
 
     cvt.u64.u32 %off_out, %r_tid;
     shl.b64 %off_out, %off_out, 2;

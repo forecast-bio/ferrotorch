@@ -19,3 +19,10 @@ proc-macro = true
 syn = { version = "2", features = ["full", "extra-traits"] }
 quote = "1"
 proc-macro2 = "1"
+
+# trybuild is a leaf-crate-only dev dependency: only this proc-macro crate
+# needs compile-fail snapshot tests for its error paths. Adding it to
+# `[workspace.dependencies]` would be unilateral architectural creep for a
+# concern unique to this one crate.
+[dev-dependencies]
+trybuild = "1.0"

@@ -1,0 +1,7 @@
+error: #[derive(Module)] requires at least one type parameter (e.g., `T: Float`)
+ --> tests/compile_fail/no_type_param.rs:9:10
+  |
+9 | #[derive(Module)]
+  |          ^^^^^^
+  |
+  = note: this error originates in the derive macro `Module` (in Nightly builds, run with -Z macro-backtrace for more info)

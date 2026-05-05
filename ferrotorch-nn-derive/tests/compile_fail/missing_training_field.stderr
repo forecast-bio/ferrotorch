@@ -1,0 +1,7 @@
+error: #[derive(Module)] requires a `training: bool` field
+  --> tests/compile_fail/missing_training_field.rs:10:10
+   |
+10 | #[derive(Module)]
+   |          ^^^^^^
+   |
+   = note: this error originates in the derive macro `Module` (in Nightly builds, run with -Z macro-backtrace for more info)

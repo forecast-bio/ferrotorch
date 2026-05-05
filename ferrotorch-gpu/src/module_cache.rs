@@ -176,4 +176,30 @@ mod tests {
             d1, d2,
         );
     }
+
+    /// Regression: `broadcast_div_kernel` PTX must load on the driver.
+    ///
+    /// Two compounding bugs caused the original module to fail with
+    /// `CUDA_ERROR_INVALID_PTX`:
+    ///
+    /// 1. The kernel emitted bare `div.f32 %vr, %va, %vb`. PTX does not
+    ///    accept a divide without a rounding mode (`.rn`/`.rz`/`.rm`/`.rp`)
+    ///    or `.approx`; `div.rn.f32` is the IEEE round-to-nearest-even
+    ///    form used by every other site in `kernels.rs`.
+    /// 2. The fix-up commit briefly carried a UTF-8 arrow (`->` written
+    ///    as a Unicode `→`) inside a `// ...` comment in the PTX
+    ///    literal. The driver's PTX parser rejects multibyte sequences
+    ///    inside comments and surfaces the same opaque error.
+    ///
+    /// Surfaced by `gpu_transformer_training_smoke` in
+    /// `ferrotorch/tests/gpu_training.rs` (#749 Section B).
+    #[test]
+    fn broadcast_div_kernel_ptx_loads() {
+        let ctx = cudarc::driver::CudaContext::new(0).expect("CUDA device 0");
+        let _module = ctx
+            .load_module(cudarc::nvrtc::Ptx::from_src(
+                crate::kernels::BROADCAST_DIV_PTX,
+            ))
+            .expect("BROADCAST_DIV_PTX must compile");
+    }
 }

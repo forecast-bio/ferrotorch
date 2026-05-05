@@ -67,6 +67,21 @@ fn pack_xy_regress<F: Float>(
 /// Returns `(X: [n_samples, n_features], y: [n_samples])` where `y`
 /// carries integer class labels encoded as floats. Mirrors
 /// `sklearn.datasets.make_classification`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_ml::datasets::make_classification;
+///
+/// let (x, y) = make_classification::<f64>(50, 4, 3, Some(42)).unwrap();
+/// assert_eq!(x.shape(), &[50, 4]);
+/// assert_eq!(y.shape(), &[50]);
+/// // Labels are integer-valued in [0, n_classes).
+/// for &v in y.data().unwrap() {
+///     assert!((0.0..3.0).contains(&v));
+///     assert_eq!(v.fract(), 0.0);
+/// }
+/// ```
 pub fn make_classification<F>(
     n_samples: usize,
     n_features: usize,
@@ -91,6 +106,21 @@ where
 /// magnitude `noise`.
 ///
 /// Mirrors `sklearn.datasets.make_regression`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_ml::datasets::make_regression;
+///
+/// // 80 samples, 5 features (3 informative + 2 noise), small noise.
+/// let (x, y) = make_regression::<f64>(80, 5, 3, 0.1_f64, Some(7)).unwrap();
+/// assert_eq!(x.shape(), &[80, 5]);
+/// assert_eq!(y.shape(), &[80]);
+/// // Targets are real-valued, so just check they're finite.
+/// for &v in y.data().unwrap() {
+///     assert!(v.is_finite());
+/// }
+/// ```
 pub fn make_regression<F>(
     n_samples: usize,
     n_features: usize,
@@ -116,6 +146,20 @@ where
 /// controls the per-cluster spread (1.0 is a reasonable default).
 ///
 /// Mirrors `sklearn.datasets.make_blobs`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_ml::datasets::make_blobs;
+///
+/// let (x, y) = make_blobs::<f64>(60, 2, 3, 1.0_f64, Some(1)).unwrap();
+/// assert_eq!(x.shape(), &[60, 2]);
+/// assert_eq!(y.shape(), &[60]);
+/// // Cluster IDs span [0, centers).
+/// for &v in y.data().unwrap() {
+///     assert!((0.0..3.0).contains(&v));
+/// }
+/// ```
 pub fn make_blobs<F>(
     n_samples: usize,
     n_features: usize,
@@ -140,6 +184,20 @@ where
 /// Generate the two-moons binary-classification toy dataset.
 ///
 /// Mirrors `sklearn.datasets.make_moons`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_ml::datasets::make_moons;
+///
+/// let (x, y) = make_moons::<f64>(40, 0.05_f64, Some(2)).unwrap();
+/// assert_eq!(x.shape(), &[40, 2]);
+/// assert_eq!(y.shape(), &[40]);
+/// // Binary task: labels are exactly 0 or 1.
+/// for &v in y.data().unwrap() {
+///     assert!(v == 0.0 || v == 1.0);
+/// }
+/// ```
 pub fn make_moons<F>(
     n_samples: usize,
     noise: F,
@@ -156,6 +214,20 @@ where
 /// Generate the concentric-circles binary-classification toy dataset.
 ///
 /// Mirrors `sklearn.datasets.make_circles`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_ml::datasets::make_circles;
+///
+/// let (x, y) = make_circles::<f64>(40, 0.02_f64, 0.5_f64, Some(3)).unwrap();
+/// assert_eq!(x.shape(), &[40, 2]);
+/// assert_eq!(y.shape(), &[40]);
+/// // Binary task: labels are exactly 0 or 1.
+/// for &v in y.data().unwrap() {
+///     assert!(v == 0.0 || v == 1.0);
+/// }
+/// ```
 pub fn make_circles<F>(
     n_samples: usize,
     noise: F,
@@ -175,6 +247,23 @@ where
 // ---------------------------------------------------------------------------
 
 /// Iris flower classification (150 samples × 4 features × 3 classes).
+///
+/// The dataset is shipped inline by `ferrolearn-datasets` (no network
+/// or filesystem access).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_ml::datasets::load_iris;
+///
+/// let (x, y) = load_iris::<f64>().unwrap();
+/// assert_eq!(x.shape(), &[150, 4]);
+/// assert_eq!(y.shape(), &[150]);
+/// // Three classes: labels in {0, 1, 2}.
+/// for &v in y.data().unwrap() {
+///     assert!((0.0..3.0).contains(&v));
+/// }
+/// ```
 pub fn load_iris<F>() -> FerrotorchResult<(Tensor<F>, Tensor<F>)>
 where
     F: Float + num_traits::Float + Send + Sync + 'static,
@@ -184,6 +273,23 @@ where
 }
 
 /// Wine cultivar classification (178 samples × 13 features × 3 classes).
+///
+/// The dataset is shipped inline by `ferrolearn-datasets` (no network
+/// or filesystem access).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_ml::datasets::load_wine;
+///
+/// let (x, y) = load_wine::<f64>().unwrap();
+/// assert_eq!(x.shape(), &[178, 13]);
+/// assert_eq!(y.shape(), &[178]);
+/// // Three classes: labels in {0, 1, 2}.
+/// for &v in y.data().unwrap() {
+///     assert!((0.0..3.0).contains(&v));
+/// }
+/// ```
 pub fn load_wine<F>() -> FerrotorchResult<(Tensor<F>, Tensor<F>)>
 where
     F: Float + num_traits::Float + Send + Sync + 'static,
@@ -194,6 +300,23 @@ where
 
 /// Breast-cancer Wisconsin diagnostic dataset (569 samples × 30 features
 /// × 2 classes).
+///
+/// The dataset is shipped inline by `ferrolearn-datasets` (no network
+/// or filesystem access).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_ml::datasets::load_breast_cancer;
+///
+/// let (x, y) = load_breast_cancer::<f64>().unwrap();
+/// assert_eq!(x.shape(), &[569, 30]);
+/// assert_eq!(y.shape(), &[569]);
+/// // Binary task: labels are exactly 0 or 1.
+/// for &v in y.data().unwrap() {
+///     assert!(v == 0.0 || v == 1.0);
+/// }
+/// ```
 pub fn load_breast_cancer<F>() -> FerrotorchResult<(Tensor<F>, Tensor<F>)>
 where
     F: Float + num_traits::Float + Send + Sync + 'static,

@@ -77,6 +77,11 @@ name = "cpu_training"
 path = "tests/cpu_training.rs"
 
 [[test]]
+name = "gpu_training"
+path = "tests/gpu_training.rs"
+required-features = ["gpu"]
+
+[[test]]
 name = "pythia_real"
 path = "tests/pythia_real.rs"
 

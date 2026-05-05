@@ -220,11 +220,14 @@ impl Dtype {
 ///
 /// # GPU Codegen
 ///
-/// As of #721-A, GPU codegen validates that all `IrValue`s have
-/// `dtype == Dtype::F32` at lowering time, returning
-/// `JitError::GpuBackendUnavailable` for any non-F32 graph. Real dtype-aware
-/// GPU emission (per-edge dtype dispatch in CUDA C / PTX templates)
-/// is tracked as #721-B.
+/// As of #729, GPU codegen dispatches per-kernel on `dtype`: arithmetic,
+/// load/store, register declarations, and constant emission all branch on
+/// `Dtype::F32` vs `Dtype::F64`. Each fusion group lowers to a kernel of a
+/// single scalar width; mixed-dtype groups are rejected.
+///
+/// PTX transcendentals (`exp`, `log`, `sqrt`, `tanh`, `sigmoid`, `gelu`,
+/// `silu`) remain f32-only because PTX has no `*.approx.f64` instructions.
+/// F64 transcendentals via libdevice are tracked as a Phase-2 follow-up.
 ///
 /// `#[non_exhaustive]` reserves the right to add fields without a
 /// major-version bump. External crates must construct values through the

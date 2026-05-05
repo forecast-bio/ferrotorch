@@ -1,0 +1,5 @@
+error: #[derive(Module)] only supports structs with named fields
+  --> tests/compile_fail/tuple_struct_unsupported.rs:11:8
+   |
+11 | struct TupleStruct<T>(T, bool);
+   |        ^^^^^^^^^^^

@@ -1,0 +1,7 @@
+error: field cannot have more than one of #[param], #[submodule], #[skip]
+  --> tests/compile_fail/multiple_attrs_on_field.rs:11:5
+   |
+11 | /     #[param]
+12 | |     #[submodule]
+13 | |     weight: T,
+   | |_____________^

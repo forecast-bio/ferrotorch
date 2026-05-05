@@ -49,6 +49,17 @@ fn map_metric_err(e: ferrolearn_core::FerroError) -> FerrotorchError {
 /// `1.0` is perfect prediction; `0.0` is the constant-mean baseline; can
 /// be negative when the model is worse than that baseline. Mirrors
 /// `sklearn.metrics.r2_score`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::r2_score;
+///
+/// let y_true = tensor(&[1.0_f64, 2.0, 3.0, 4.0]).unwrap();
+/// let r = r2_score(&y_true, &y_true).unwrap();
+/// assert!((r - 1.0).abs() < 1e-12);
+/// ```
 pub fn r2_score<T>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<T>
 where
     T: Float + num_traits::Float + Send + Sync + 'static,
@@ -59,6 +70,18 @@ where
 }
 
 /// Mean squared error: `mean((y_true - y_pred)^2)`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::mean_squared_error;
+///
+/// let y_true = tensor(&[1.0_f64, 2.0, 3.0]).unwrap();
+/// let y_pred = tensor(&[1.5_f64, 2.5, 3.5]).unwrap();
+/// let mse = mean_squared_error(&y_true, &y_pred).unwrap();
+/// assert!((mse - 0.25).abs() < 1e-12);
+/// ```
 pub fn mean_squared_error<T>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<T>
 where
     T: Float + num_traits::Float + Send + Sync + 'static,
@@ -69,6 +92,18 @@ where
 }
 
 /// Root mean squared error: `sqrt(mean((y_true - y_pred)^2))`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::root_mean_squared_error;
+///
+/// let y_true = tensor(&[1.0_f64, 2.0, 3.0]).unwrap();
+/// let y_pred = tensor(&[1.5_f64, 2.5, 3.5]).unwrap();
+/// let rmse = root_mean_squared_error(&y_true, &y_pred).unwrap();
+/// assert!((rmse - 0.5).abs() < 1e-12);
+/// ```
 pub fn root_mean_squared_error<T>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<T>
 where
     T: Float + num_traits::Float + Send + Sync + 'static,
@@ -79,6 +114,18 @@ where
 }
 
 /// Mean absolute error: `mean(|y_true - y_pred|)`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::mean_absolute_error;
+///
+/// let y_true = tensor(&[1.0_f64, 2.0, 3.0]).unwrap();
+/// let y_pred = tensor(&[1.0_f64, 3.0, 5.0]).unwrap();
+/// let mae = mean_absolute_error(&y_true, &y_pred).unwrap();
+/// assert!((mae - 1.0).abs() < 1e-12);
+/// ```
 pub fn mean_absolute_error<T>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<T>
 where
     T: Float + num_traits::Float + Send + Sync + 'static,
@@ -92,6 +139,18 @@ where
 ///
 /// Returned as a fraction (matching ferrolearn's convention; multiply by
 /// 100 to get a percentage). Mirrors `sklearn.metrics.mean_absolute_percentage_error`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::mean_absolute_percentage_error;
+///
+/// let y_true = tensor(&[100.0_f64, 200.0]).unwrap();
+/// let y_pred = tensor(&[100.0_f64, 200.0]).unwrap();
+/// let mape = mean_absolute_percentage_error(&y_true, &y_pred).unwrap();
+/// assert!(mape.abs() < 1e-12);
+/// ```
 pub fn mean_absolute_percentage_error<T>(
     y_true: &Tensor<T>,
     y_pred: &Tensor<T>,
@@ -105,6 +164,19 @@ where
 }
 
 /// Median absolute error.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::median_absolute_error;
+///
+/// let y_true = tensor(&[1.0_f64, 2.0, 3.0, 4.0, 5.0]).unwrap();
+/// let y_pred = tensor(&[1.0_f64, 2.0, 3.5, 4.0, 7.0]).unwrap();
+/// // residuals: [0, 0, 0.5, 0, 2.0] → median = 0.0
+/// let med = median_absolute_error(&y_true, &y_pred).unwrap();
+/// assert!(med.abs() < 1e-12);
+/// ```
 pub fn median_absolute_error<T>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<T>
 where
     T: Float + num_traits::Float + Send + Sync + 'static,
@@ -115,6 +187,18 @@ where
 }
 
 /// Maximum residual: `max(|y_true - y_pred|)`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::max_error;
+///
+/// let y_true = tensor(&[1.0_f64, 2.0, 3.0]).unwrap();
+/// let y_pred = tensor(&[1.0_f64, 5.0, 3.0]).unwrap();
+/// let m = max_error(&y_true, &y_pred).unwrap();
+/// assert!((m - 3.0).abs() < 1e-12);
+/// ```
 pub fn max_error<T>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<T>
 where
     T: Float + num_traits::Float + Send + Sync + 'static,
@@ -125,6 +209,17 @@ where
 }
 
 /// Explained-variance score (between 0 and 1; 1 = perfect).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::explained_variance_score;
+///
+/// let y_true = tensor(&[1.0_f64, 2.0, 3.0, 4.0]).unwrap();
+/// let ev = explained_variance_score(&y_true, &y_true).unwrap();
+/// assert!((ev - 1.0).abs() < 1e-12);
+/// ```
 pub fn explained_variance_score<T>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<T>
 where
     T: Float + num_traits::Float + Send + Sync + 'static,
@@ -143,6 +238,18 @@ where
 /// Both inputs are interpreted as integer class labels; values are
 /// rounded via `as usize` after a finite/non-negative check. Mirrors
 /// `sklearn.metrics.accuracy_score`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::accuracy_score;
+///
+/// let y_true = tensor(&[0.0_f64, 1.0, 1.0, 0.0]).unwrap();
+/// let y_pred = tensor(&[0.0_f64, 0.0, 1.0, 0.0]).unwrap(); // 3 / 4 correct
+/// let acc = accuracy_score(&y_true, &y_pred).unwrap();
+/// assert!((acc - 0.75).abs() < 1e-12);
+/// ```
 pub fn accuracy_score<T>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<f64>
 where
     T: Float,
@@ -158,6 +265,18 @@ where
 
 /// Re-export sklearn-style averaging strategy for multi-class precision /
 /// recall / F1. (Binary / Macro / Micro / Weighted)
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::{f1_score, Average};
+///
+/// let y_true = tensor(&[0.0_f64, 1.0, 1.0, 0.0]).unwrap();
+/// let y_pred = tensor(&[0.0_f64, 1.0, 0.0, 0.0]).unwrap();
+/// let f = f1_score(&y_true, &y_pred, Average::Binary).unwrap();
+/// assert!(f.is_finite() && (0.0..=1.0).contains(&f));
+/// ```
 pub use ferrolearn_metrics::classification::Average;
 
 /// Convert a `Tensor<T>` to an `Array1<f64>`. Used for score-typed metric
@@ -172,6 +291,18 @@ fn tensor_to_array1_f64<T: Float>(t: &Tensor<T>) -> FerrotorchResult<ndarray::Ar
 }
 
 /// Precision: `TP / (TP + FP)`. Mirrors `sklearn.metrics.precision_score`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::{precision_score, Average};
+///
+/// let y_true = tensor(&[0.0_f64, 1.0, 1.0, 0.0]).unwrap();
+/// let y_pred = tensor(&[0.0_f64, 1.0, 1.0, 0.0]).unwrap();
+/// let p = precision_score(&y_true, &y_pred, Average::Binary).unwrap();
+/// assert!((p - 1.0).abs() < 1e-12);
+/// ```
 pub fn precision_score<T: Float>(
     y_true: &Tensor<T>,
     y_pred: &Tensor<T>,
@@ -183,6 +314,18 @@ pub fn precision_score<T: Float>(
 }
 
 /// Recall (sensitivity): `TP / (TP + FN)`. Mirrors `sklearn.metrics.recall_score`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::{recall_score, Average};
+///
+/// let y_true = tensor(&[0.0_f64, 1.0, 1.0, 0.0]).unwrap();
+/// let y_pred = tensor(&[0.0_f64, 1.0, 0.0, 0.0]).unwrap(); // recall = 1/2
+/// let r = recall_score(&y_true, &y_pred, Average::Binary).unwrap();
+/// assert!((r - 0.5).abs() < 1e-12);
+/// ```
 pub fn recall_score<T: Float>(
     y_true: &Tensor<T>,
     y_pred: &Tensor<T>,
@@ -194,6 +337,19 @@ pub fn recall_score<T: Float>(
 }
 
 /// F1 score (harmonic mean of precision and recall).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::{f1_score, Average};
+///
+/// let y_true = tensor(&[0.0_f64, 1.0, 1.0, 0.0]).unwrap();
+/// let y_pred = tensor(&[0.0_f64, 1.0, 0.0, 0.0]).unwrap();
+/// // precision = 1.0, recall = 0.5 → F1 = 2/3
+/// let f = f1_score(&y_true, &y_pred, Average::Binary).unwrap();
+/// assert!((f - 2.0 / 3.0).abs() < 1e-12);
+/// ```
 pub fn f1_score<T: Float>(
     y_true: &Tensor<T>,
     y_pred: &Tensor<T>,
@@ -206,6 +362,18 @@ pub fn f1_score<T: Float>(
 
 /// Area under the ROC curve. `y_score` is the predicted probability /
 /// decision-function value for the positive class. Binary classification.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::roc_auc_score;
+///
+/// let y_true = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let y_score = tensor(&[0.1_f64, 0.2, 0.8, 0.9]).unwrap();
+/// let auc = roc_auc_score(&y_true, &y_score).unwrap();
+/// assert!((auc - 1.0).abs() < 1e-12);
+/// ```
 pub fn roc_auc_score<T: Float>(y_true: &Tensor<T>, y_score: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array1_usize(y_true)?;
     let ys = tensor_to_array1_f64(y_score)?;
@@ -215,6 +383,23 @@ pub fn roc_auc_score<T: Float>(y_true: &Tensor<T>, y_score: &Tensor<T>) -> Ferro
 /// Cross-entropy / log loss for probabilistic classifiers. `y_prob` is
 /// `[n_samples, n_classes]` of class probabilities; rows must sum to 1
 /// (within tolerance). `y_true` is integer labels.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::{tensor, Tensor, TensorStorage};
+/// use ferrotorch_ml::metrics::log_loss;
+///
+/// // 2 samples, 2 classes; each correct class probability is 0.9.
+/// let y_true = tensor(&[0.0_f64, 1.0]).unwrap();
+/// let y_prob = Tensor::from_storage(
+///     TensorStorage::cpu(vec![0.9_f64, 0.1, 0.1, 0.9]),
+///     vec![2, 2],
+///     false,
+/// ).unwrap();
+/// let l = log_loss(&y_true, &y_prob).unwrap();
+/// assert!((l - (-0.9_f64.ln())).abs() < 1e-9);
+/// ```
 pub fn log_loss<T: Float>(y_true: &Tensor<T>, y_prob: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array1_usize(y_true)?;
     if y_prob.ndim() != 2 {
@@ -243,6 +428,18 @@ pub fn log_loss<T: Float>(y_true: &Tensor<T>, y_prob: &Tensor<T>) -> FerrotorchR
 /// Confusion matrix `[n_classes, n_classes]` where `M[i, j]` is the count
 /// of samples with true class `i` predicted as class `j`. Returns the
 /// matrix as a `Vec<Vec<usize>>` (rows-of-rows; the n_classes is implicit).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::confusion_matrix;
+///
+/// let y_true = tensor(&[0.0_f64, 1.0, 0.0, 1.0]).unwrap();
+/// let y_pred = tensor(&[0.0_f64, 1.0, 1.0, 0.0]).unwrap();
+/// let cm = confusion_matrix(&y_true, &y_pred).unwrap();
+/// assert_eq!(cm, vec![vec![1, 1], vec![1, 1]]);
+/// ```
 pub fn confusion_matrix<T: Float>(
     y_true: &Tensor<T>,
     y_pred: &Tensor<T>,
@@ -257,6 +454,18 @@ pub fn confusion_matrix<T: Float>(
 }
 
 /// Hamming loss: fraction of mispredicted labels.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::hamming_loss;
+///
+/// let y_true = tensor(&[0.0_f64, 1.0, 0.0, 1.0]).unwrap();
+/// let y_pred = tensor(&[0.0_f64, 1.0, 1.0, 1.0]).unwrap(); // 1 mismatch / 4
+/// let l = hamming_loss(&y_true, &y_pred).unwrap();
+/// assert!((l - 0.25).abs() < 1e-12);
+/// ```
 pub fn hamming_loss<T: Float>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array1_usize(y_true)?;
     let yp = tensor_to_array1_usize(y_pred)?;
@@ -266,6 +475,18 @@ pub fn hamming_loss<T: Float>(y_true: &Tensor<T>, y_pred: &Tensor<T>) -> Ferroto
 /// Balanced accuracy: average of per-class recalls. Robust to class imbalance.
 /// `adjusted = false` matches sklearn's default; `adjusted = true` rescales
 /// to `[0, 1]` with chance at 0.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::balanced_accuracy_score;
+///
+/// let y_true = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let y_pred = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let b = balanced_accuracy_score(&y_true, &y_pred, false).unwrap();
+/// assert!((b - 1.0).abs() < 1e-12);
+/// ```
 pub fn balanced_accuracy_score<T: Float>(
     y_true: &Tensor<T>,
     y_pred: &Tensor<T>,
@@ -278,6 +499,17 @@ pub fn balanced_accuracy_score<T: Float>(
 
 /// Matthews correlation coefficient — single-number summary that handles
 /// class imbalance gracefully (range `[-1, 1]`).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::matthews_corrcoef;
+///
+/// let y = tensor(&[0.0_f64, 1.0, 1.0, 0.0]).unwrap();
+/// let m = matthews_corrcoef(&y, &y).unwrap();
+/// assert!((m - 1.0).abs() < 1e-12);
+/// ```
 pub fn matthews_corrcoef<T: Float>(
     y_true: &Tensor<T>,
     y_pred: &Tensor<T>,
@@ -288,6 +520,17 @@ pub fn matthews_corrcoef<T: Float>(
 }
 
 /// Cohen's kappa: inter-rater agreement, corrected for chance.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::cohen_kappa_score;
+///
+/// let y = tensor(&[0.0_f64, 1.0, 1.0, 0.0, 1.0]).unwrap();
+/// let k = cohen_kappa_score(&y, &y).unwrap();
+/// assert!((k - 1.0).abs() < 1e-12);
+/// ```
 pub fn cohen_kappa_score<T: Float>(
     y_true: &Tensor<T>,
     y_pred: &Tensor<T>,
@@ -304,6 +547,19 @@ pub fn cohen_kappa_score<T: Float>(
 /// Brier score loss for binary classification: `mean((y_prob - y_true)^2)`.
 /// `y_prob` is the predicted probability of the positive class (1-D, shape
 /// `[N]`). Mirrors `sklearn.metrics.brier_score_loss`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::brier_score_loss;
+///
+/// let y_true = tensor(&[0.0_f64, 1.0]).unwrap();
+/// let y_prob = tensor(&[0.5_f64, 0.5]).unwrap();
+/// // (0.5 - 0)^2 + (0.5 - 1)^2 over 2 = 0.25
+/// let b = brier_score_loss(&y_true, &y_prob).unwrap();
+/// assert!((b - 0.25).abs() < 1e-12);
+/// ```
 pub fn brier_score_loss<T: Float>(y_true: &Tensor<T>, y_prob: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array1_usize(y_true)?;
     let yp = tensor_to_array1_f64(y_prob)?;
@@ -313,6 +569,18 @@ pub fn brier_score_loss<T: Float>(y_true: &Tensor<T>, y_prob: &Tensor<T>) -> Fer
 /// D² Brier score: 1 - (model_brier / null_brier). Coefficient-of-determination
 /// analog for binary calibration. `1.0` is perfect, `0.0` is null-model
 /// baseline.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::d2_brier_score;
+///
+/// let y_true = tensor(&[0.0_f64, 1.0, 1.0, 0.0]).unwrap();
+/// let y_prob = tensor(&[0.0_f64, 1.0, 1.0, 0.0]).unwrap();
+/// let d2 = d2_brier_score(&y_true, &y_prob).unwrap();
+/// assert!((d2 - 1.0).abs() < 1e-12);
+/// ```
 pub fn d2_brier_score<T: Float>(y_true: &Tensor<T>, y_prob: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array1_usize(y_true)?;
     let yp = tensor_to_array1_f64(y_prob)?;
@@ -321,6 +589,23 @@ pub fn d2_brier_score<T: Float>(y_true: &Tensor<T>, y_prob: &Tensor<T>) -> Ferro
 
 /// Top-K accuracy: a sample counts as correct if the true label is among
 /// the top-K highest-scored classes. `y_score` is `[N, n_classes]`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::{tensor, Tensor, TensorStorage};
+/// use ferrotorch_ml::metrics::top_k_accuracy_score;
+///
+/// // 3 classes; with k = 3 every sample's true class is in the top-3.
+/// let y_true = tensor(&[0.0_f64, 2.0, 1.0]).unwrap();
+/// let y_score = Tensor::from_storage(
+///     TensorStorage::cpu(vec![0.6_f64, 0.3, 0.1, 0.1, 0.2, 0.7, 0.2, 0.5, 0.3]),
+///     vec![3, 3],
+///     false,
+/// ).unwrap();
+/// let acc = top_k_accuracy_score(&y_true, &y_score, 3).unwrap();
+/// assert!((acc - 1.0).abs() < 1e-12);
+/// ```
 pub fn top_k_accuracy_score<T: Float>(
     y_true: &Tensor<T>,
     y_score: &Tensor<T>,
@@ -352,6 +637,18 @@ pub fn top_k_accuracy_score<T: Float>(
 
 /// 0/1 loss. `normalize=true` returns the fraction misclassified; `false`
 /// returns the count.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::zero_one_loss;
+///
+/// let y_true = tensor(&[0.0_f64, 1.0, 0.0, 1.0]).unwrap();
+/// let y_pred = tensor(&[0.0_f64, 1.0, 1.0, 1.0]).unwrap(); // 1 mismatch / 4
+/// let frac = zero_one_loss(&y_true, &y_pred, true).unwrap();
+/// assert!((frac - 0.25).abs() < 1e-12);
+/// ```
 pub fn zero_one_loss<T: Float>(
     y_true: &Tensor<T>,
     y_pred: &Tensor<T>,
@@ -364,6 +661,18 @@ pub fn zero_one_loss<T: Float>(
 
 /// Average precision score (binary): the precision-recall curve's area,
 /// computed as a sum of trapezoidal rectangles.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::average_precision_score;
+///
+/// let y_true = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let y_score = tensor(&[0.1_f64, 0.2, 0.8, 0.9]).unwrap();
+/// let ap = average_precision_score(&y_true, &y_score).unwrap();
+/// assert!((ap - 1.0).abs() < 1e-12);
+/// ```
 pub fn average_precision_score<T: Float>(
     y_true: &Tensor<T>,
     y_score: &Tensor<T>,
@@ -466,6 +775,18 @@ fn tensor_to_array1_isize<T: Float>(t: &Tensor<T>) -> FerrotorchResult<ndarray::
 /// Discounted Cumulative Gain (DCG) — sum of relevance scores discounted by
 /// log(rank). `y_true` (relevance) and `y_score` are both 1-D `[K]`.
 /// Mirrors `sklearn.metrics.dcg_score` for the single-query case.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::dcg_score;
+///
+/// let y_true = tensor(&[3.0_f64, 0.0, 2.0]).unwrap();
+/// let y_score = tensor(&[1.0_f64, 0.5, 2.0]).unwrap();
+/// let d = dcg_score(&y_true, &y_score, None).unwrap();
+/// assert!(d.is_finite() && d > 0.0);
+/// ```
 pub fn dcg_score<T: Float>(
     y_true: &Tensor<T>,
     y_score: &Tensor<T>,
@@ -479,6 +800,19 @@ pub fn dcg_score<T: Float>(
 /// Normalized Discounted Cumulative Gain (NDCG) — DCG normalized by the
 /// ideal DCG so the score lies in `[0, 1]`. Mirrors
 /// `sklearn.metrics.ndcg_score` for the single-query case.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::ndcg_score;
+///
+/// // Perfect ranking (scores match relevance order) → NDCG = 1.0.
+/// let y_true = tensor(&[3.0_f64, 2.0, 1.0, 0.0]).unwrap();
+/// let y_score = tensor(&[3.0_f64, 2.0, 1.0, 0.0]).unwrap();
+/// let n = ndcg_score(&y_true, &y_score, None).unwrap();
+/// assert!((n - 1.0).abs() < 1e-9);
+/// ```
 pub fn ndcg_score<T: Float>(
     y_true: &Tensor<T>,
     y_score: &Tensor<T>,
@@ -492,6 +826,18 @@ pub fn ndcg_score<T: Float>(
 /// Coverage error: average number of labels in the ranked list above the
 /// last positive label. Mirrors `sklearn.metrics.coverage_error`. `y_true`
 /// must be 2-D `[N, K]` of binary indicators (0/1).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::coverage_error;
+///
+/// let y_true = tensor(&[1.0_f64, 0.0, 0.0, 1.0]).unwrap().reshape_t(&[1, 4]).unwrap();
+/// let y_score = tensor(&[0.9_f64, 0.4, 0.5, 0.1]).unwrap().reshape_t(&[1, 4]).unwrap();
+/// let c = coverage_error(&y_true, &y_score).unwrap();
+/// assert!(c.is_finite() && c > 0.0);
+/// ```
 pub fn coverage_error<T: Float>(y_true: &Tensor<T>, y_score: &Tensor<T>) -> FerrotorchResult<f64> {
     let yt = tensor_to_array2_usize(y_true)?;
     let ys = tensor_to_array2_f64(y_score)?;
@@ -500,6 +846,25 @@ pub fn coverage_error<T: Float>(y_true: &Tensor<T>, y_score: &Tensor<T>) -> Ferr
 
 /// Label-ranking average precision score. Mirrors
 /// `sklearn.metrics.label_ranking_average_precision_score`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::label_ranking_average_precision_score;
+///
+/// // Two queries, three candidate labels each, perfectly ranked → score = 1.0.
+/// let y_true = tensor(&[1.0_f64, 0.0, 0.0, 0.0, 1.0, 0.0])
+///     .unwrap()
+///     .reshape_t(&[2, 3])
+///     .unwrap();
+/// let y_score = tensor(&[0.9_f64, 0.1, 0.2, 0.1, 0.8, 0.3])
+///     .unwrap()
+///     .reshape_t(&[2, 3])
+///     .unwrap();
+/// let s = label_ranking_average_precision_score(&y_true, &y_score).unwrap();
+/// assert!((s - 1.0).abs() < 1e-9);
+/// ```
 pub fn label_ranking_average_precision_score<T: Float>(
     y_true: &Tensor<T>,
     y_score: &Tensor<T>,
@@ -511,6 +876,24 @@ pub fn label_ranking_average_precision_score<T: Float>(
 
 /// Label-ranking loss (number of label-pair inversions, normalised).
 /// Mirrors `sklearn.metrics.label_ranking_loss`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::label_ranking_loss;
+///
+/// let y_true = tensor(&[1.0_f64, 0.0, 0.0, 0.0, 1.0, 0.0])
+///     .unwrap()
+///     .reshape_t(&[2, 3])
+///     .unwrap();
+/// let y_score = tensor(&[0.9_f64, 0.1, 0.2, 0.1, 0.8, 0.3])
+///     .unwrap()
+///     .reshape_t(&[2, 3])
+///     .unwrap();
+/// let l = label_ranking_loss(&y_true, &y_score).unwrap();
+/// assert!(l.is_finite() && l >= 0.0);
+/// ```
 pub fn label_ranking_loss<T: Float>(
     y_true: &Tensor<T>,
     y_score: &Tensor<T>,
@@ -532,6 +915,17 @@ pub fn label_ranking_loss<T: Float>(
 /// Mirrors `sklearn.metrics.adjusted_rand_score`. Inputs are 1-D label
 /// tensors of equal length (encoded as floats; cast to `isize` so sklearn's
 /// `-1` noise convention is preserved).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::adjusted_rand_score;
+///
+/// let labels = tensor(&[0.0_f64, 0.0, 1.0, 1.0, 2.0, 2.0]).unwrap();
+/// let s = adjusted_rand_score(&labels, &labels).unwrap();
+/// assert!((s - 1.0).abs() < 1e-12);
+/// ```
 pub fn adjusted_rand_score<T: Float>(
     labels_true: &Tensor<T>,
     labels_pred: &Tensor<T>,
@@ -544,6 +938,17 @@ pub fn adjusted_rand_score<T: Float>(
 /// Adjusted mutual information between two clusterings. Mirrors
 /// `sklearn.metrics.adjusted_mutual_info_score` (uses ferrolearn's default
 /// expected-value adjustment; no method parameter).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::adjusted_mutual_info_score;
+///
+/// let labels = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let s = adjusted_mutual_info_score(&labels, &labels).unwrap();
+/// assert!(s.is_finite() && s >= 0.0);
+/// ```
 pub fn adjusted_mutual_info_score<T: Float>(
     labels_true: &Tensor<T>,
     labels_pred: &Tensor<T>,
@@ -556,6 +961,17 @@ pub fn adjusted_mutual_info_score<T: Float>(
 /// Normalized mutual information score (arithmetic-mean normalisation,
 /// matching sklearn's default). Mirrors
 /// `sklearn.metrics.normalized_mutual_info_score`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::normalized_mutual_info_score;
+///
+/// let labels = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let n = normalized_mutual_info_score(&labels, &labels).unwrap();
+/// assert!((n - 1.0).abs() < 1e-9);
+/// ```
 pub fn normalized_mutual_info_score<T: Float>(
     labels_true: &Tensor<T>,
     labels_pred: &Tensor<T>,
@@ -572,6 +988,18 @@ pub fn normalized_mutual_info_score<T: Float>(
 
 /// Homogeneity score: each cluster contains members of a single class.
 /// Mirrors `sklearn.metrics.homogeneity_score`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::homogeneity_score;
+///
+/// let labels_true = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let labels_pred = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let h = homogeneity_score(&labels_true, &labels_pred).unwrap();
+/// assert!((h - 1.0).abs() < 1e-9);
+/// ```
 pub fn homogeneity_score<T: Float>(
     labels_true: &Tensor<T>,
     labels_pred: &Tensor<T>,
@@ -583,6 +1011,18 @@ pub fn homogeneity_score<T: Float>(
 
 /// Completeness score: all members of a class go to the same cluster.
 /// Mirrors `sklearn.metrics.completeness_score`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::completeness_score;
+///
+/// let labels_true = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let labels_pred = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let c = completeness_score(&labels_true, &labels_pred).unwrap();
+/// assert!((c - 1.0).abs() < 1e-9);
+/// ```
 pub fn completeness_score<T: Float>(
     labels_true: &Tensor<T>,
     labels_pred: &Tensor<T>,
@@ -594,6 +1034,18 @@ pub fn completeness_score<T: Float>(
 
 /// V-measure: harmonic mean of homogeneity and completeness. Mirrors
 /// `sklearn.metrics.v_measure_score`.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::v_measure_score;
+///
+/// let labels_true = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let labels_pred = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let v = v_measure_score(&labels_true, &labels_pred).unwrap();
+/// assert!((v - 1.0).abs() < 1e-9);
+/// ```
 pub fn v_measure_score<T: Float>(
     labels_true: &Tensor<T>,
     labels_pred: &Tensor<T>,
@@ -604,6 +1056,17 @@ pub fn v_measure_score<T: Float>(
 }
 
 /// Fowlkes-Mallows score: geometric mean of pairwise precision and recall.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::metrics::fowlkes_mallows_score;
+///
+/// let labels = tensor(&[0.0_f64, 0.0, 1.0, 1.0, 2.0]).unwrap();
+/// let s = fowlkes_mallows_score(&labels, &labels).unwrap();
+/// assert!((s - 1.0).abs() < 1e-12);
+/// ```
 pub fn fowlkes_mallows_score<T: Float>(
     labels_true: &Tensor<T>,
     labels_pred: &Tensor<T>,
@@ -617,6 +1080,23 @@ pub fn fowlkes_mallows_score<T: Float>(
 /// separation. `x` is the feature matrix `[N, D]`; `labels` is the 1-D
 /// cluster assignment (encoded as floats; cast to `isize`, sklearn allows
 /// `-1` for noise).
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::{tensor, Tensor, TensorStorage};
+/// use ferrotorch_ml::metrics::silhouette_score;
+///
+/// // Two well-separated 2-D clusters.
+/// let x = Tensor::from_storage(
+///     TensorStorage::cpu(vec![0.0_f64, 0.0, 0.1, 0.1, 10.0, 10.0, 10.1, 10.1]),
+///     vec![4, 2],
+///     false,
+/// ).unwrap();
+/// let labels = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let s = silhouette_score(&x, &labels).unwrap();
+/// assert!(s > 0.9);
+/// ```
 pub fn silhouette_score<T: Float>(x: &Tensor<T>, labels: &Tensor<T>) -> FerrotorchResult<f64> {
     let xa = tensor_to_array2_f64(x)?;
     let la = tensor_to_array1_isize(labels)?;
@@ -625,6 +1105,22 @@ pub fn silhouette_score<T: Float>(x: &Tensor<T>, labels: &Tensor<T>) -> Ferrotor
 
 /// Davies-Bouldin score (lower is better): cluster compactness over
 /// inter-cluster spread.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::{tensor, Tensor, TensorStorage};
+/// use ferrotorch_ml::metrics::davies_bouldin_score;
+///
+/// let x = Tensor::from_storage(
+///     TensorStorage::cpu(vec![0.0_f64, 0.0, 0.1, 0.1, 5.0, 5.0, 5.1, 5.1]),
+///     vec![4, 2],
+///     false,
+/// ).unwrap();
+/// let labels = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let d = davies_bouldin_score(&x, &labels).unwrap();
+/// assert!(d.is_finite() && d >= 0.0);
+/// ```
 pub fn davies_bouldin_score<T: Float>(x: &Tensor<T>, labels: &Tensor<T>) -> FerrotorchResult<f64> {
     let xa = tensor_to_array2_f64(x)?;
     let la = tensor_to_array1_isize(labels)?;
@@ -632,6 +1128,22 @@ pub fn davies_bouldin_score<T: Float>(x: &Tensor<T>, labels: &Tensor<T>) -> Ferr
 }
 
 /// Calinski-Harabasz score (higher is better): variance ratio criterion.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::{tensor, Tensor, TensorStorage};
+/// use ferrotorch_ml::metrics::calinski_harabasz_score;
+///
+/// let x = Tensor::from_storage(
+///     TensorStorage::cpu(vec![0.0_f64, 0.0, 0.1, 0.1, 5.0, 5.0, 5.1, 5.1]),
+///     vec![4, 2],
+///     false,
+/// ).unwrap();
+/// let labels = tensor(&[0.0_f64, 0.0, 1.0, 1.0]).unwrap();
+/// let c = calinski_harabasz_score(&x, &labels).unwrap();
+/// assert!(c.is_finite() && c > 0.0);
+/// ```
 pub fn calinski_harabasz_score<T: Float>(
     x: &Tensor<T>,
     labels: &Tensor<T>,

@@ -35,6 +35,18 @@ use ferrotorch_core::tensor::Tensor;
 /// GPU tensors are transparently moved to host memory; see the module
 /// docstring for the rationale.
 ///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::adapter::tensor_to_array1;
+///
+/// let t = tensor(&[1.0_f64, 2.0, 3.0]).unwrap();
+/// let arr = tensor_to_array1(&t).unwrap();
+/// assert_eq!(arr.len(), 3);
+/// assert_eq!(arr[0], 1.0);
+/// ```
+///
 /// # Errors
 /// - [`FerrotorchError::ShapeMismatch`] when the input is not 1-D.
 pub fn tensor_to_array1<T: Float + Clone>(t: &Tensor<T>) -> FerrotorchResult<Array1<T>> {
@@ -59,6 +71,22 @@ pub fn tensor_to_array1<T: Float + Clone>(t: &Tensor<T>) -> FerrotorchResult<Arr
 /// GPU tensors are transparently moved to host memory; see the module
 /// docstring for the rationale.
 ///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::{Tensor, TensorStorage};
+/// use ferrotorch_ml::adapter::tensor_to_array2;
+///
+/// let t = Tensor::from_storage(
+///     TensorStorage::cpu(vec![1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0]),
+///     vec![2, 3],
+///     false,
+/// ).unwrap();
+/// let arr = tensor_to_array2(&t).unwrap();
+/// assert_eq!(arr.shape(), &[2, 3]);
+/// assert_eq!(arr[[1, 2]], 6.0);
+/// ```
+///
 /// # Errors
 /// - [`FerrotorchError::ShapeMismatch`] for non-2-D input.
 pub fn tensor_to_array2<T: Float + Clone>(t: &Tensor<T>) -> FerrotorchResult<Array2<T>> {
@@ -79,6 +107,18 @@ pub fn tensor_to_array2<T: Float + Clone>(t: &Tensor<T>) -> FerrotorchResult<Arr
 
 /// Convert a 1-D ndarray back to a CPU tensor.
 ///
+/// # Examples
+///
+/// ```
+/// use ndarray::Array1;
+/// use ferrotorch_ml::adapter::array1_to_tensor;
+///
+/// let arr = Array1::from(vec![1.0_f64, 2.0, 3.0]);
+/// let t = array1_to_tensor(arr).unwrap();
+/// assert_eq!(t.shape(), &[3]);
+/// assert_eq!(t.data().unwrap(), &[1.0, 2.0, 3.0]);
+/// ```
+///
 /// # Errors
 ///
 /// Returns [`FerrotorchError`] when [`Tensor::from_storage`] rejects the
@@ -90,6 +130,18 @@ pub fn array1_to_tensor<T: Float>(arr: Array1<T>) -> FerrotorchResult<Tensor<T>>
 }
 
 /// Convert a 2-D ndarray back to a CPU tensor.
+///
+/// # Examples
+///
+/// ```
+/// use ndarray::Array2;
+/// use ferrotorch_ml::adapter::array2_to_tensor;
+///
+/// let arr = Array2::from_shape_vec((2, 3), vec![1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+/// let t = array2_to_tensor(arr).unwrap();
+/// assert_eq!(t.shape(), &[2, 3]);
+/// assert_eq!(t.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+/// ```
 ///
 /// # Errors
 ///
@@ -110,6 +162,18 @@ pub fn array2_to_tensor<T: Float>(arr: Array2<T>) -> FerrotorchResult<Tensor<T>>
 /// Convert a 1-D `Array1<usize>` (sklearn label-style) into a CPU tensor
 /// of `T`. Useful when ferrolearn returns class predictions and you want
 /// them back inside a tensor pipeline.
+///
+/// # Examples
+///
+/// ```
+/// use ndarray::Array1;
+/// use ferrotorch_core::Tensor;
+/// use ferrotorch_ml::adapter::array1_usize_to_tensor;
+///
+/// let labels = Array1::from(vec![0_usize, 1, 2, 1]);
+/// let t: Tensor<f64> = array1_usize_to_tensor(labels).unwrap();
+/// assert_eq!(t.data().unwrap(), &[0.0, 1.0, 2.0, 1.0]);
+/// ```
 ///
 /// # Errors
 ///
@@ -132,6 +196,17 @@ pub fn array1_usize_to_tensor<T: Float>(arr: Array1<usize>) -> FerrotorchResult<
 ///
 /// GPU tensors are transparently moved to host memory; see the module
 /// docstring.
+///
+/// # Examples
+///
+/// ```
+/// use ferrotorch_core::tensor;
+/// use ferrotorch_ml::adapter::tensor_to_array1_usize;
+///
+/// let t = tensor(&[0.0_f64, 1.0, 2.0, 1.0]).unwrap();
+/// let labels = tensor_to_array1_usize(&t).unwrap();
+/// assert_eq!(labels.to_vec(), vec![0, 1, 2, 1]);
+/// ```
 ///
 /// # Errors
 ///

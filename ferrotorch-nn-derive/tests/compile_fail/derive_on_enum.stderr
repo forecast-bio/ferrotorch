@@ -1,0 +1,5 @@
+error: #[derive(Module)] only supports structs
+ --> tests/compile_fail/derive_on_enum.rs:9:6
+  |
+9 | enum NotAStruct<T> {
+  |      ^^^^^^^^^^

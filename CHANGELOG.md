@@ -315,6 +315,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- release: bump 0.4.5 → 0.4.6 + architect skill improvements (after-action review) (#745)
 - audit follow-up: ferrotorch-train — cast unwrap in train loop + assert input validation + silent TB errors + println + lints + non_exhaustive + Errors docs (#743)
 - audit follow-up: ferrotorch-data — Mutex/Condvar unwrap + cast unwrap + collate_fn expect + lints + Debug + unnecessary unsafe impl + pub fields + assert! (#742)
 - audit follow-up: ferrotorch-nn — unsafe SAFETY + clip_grad CPU detour + bf16 cast panics + lints + pub fields + .expect + doctests + repeated allows (#741)

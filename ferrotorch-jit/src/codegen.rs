@@ -810,24 +810,24 @@ impl InductorBackend {
     /// Generate source code for the given IR graph without compiling it.
     ///
     /// Returns a vector of generated source strings, one per fusion group.
+    ///
+    /// # Errors
+    ///
+    /// - Returns `Err(JitError::CodegenError)` for GPU targets if a fusion
+    ///   group contains values of mixed dtypes (mixed-dtype kernels are not
+    ///   supported; one kernel = one scalar dtype).
+    /// - Returns `Err(JitError::Unsupported)` for GPU PTX targets if an f64
+    ///   graph contains a transcendental op (no `*.approx.f64` instructions
+    ///   exist; tracked as a Phase-2 follow-up).
     pub fn generate(&self, graph: &IrGraph) -> FerrotorchResult<Vec<String>> {
-        // #721-A safety guard: GPU codegen still emits hard-coded f32
-        // (`float __restrict__` / `.reg .f32`) across every site. Lowering
-        // a non-f32 graph would silently produce a wrong-typed kernel, which
-        // is exactly the silent-wrong-behavior bit `rust-gpu-discipline` §3
-        // forbids. Fail fast with a structured error instead. Real
-        // dtype-aware GPU emission is tracked as #721-B.
-        if matches!(
-            self.target,
-            InductorTarget::GpuCuda | InductorTarget::GpuPtx
-        ) {
-            check_gpu_dtype_uniform_f32(graph, self.target)?;
-        }
-
         let groups = crate::dag_fusion::find_fusion_groups(graph);
         let loops_per_group = crate::dag_fusion::fuse_dag(&groups, graph);
 
         let num_graph_inputs = graph.input_values.len();
+        let target_is_gpu = matches!(
+            self.target,
+            InductorTarget::GpuCuda | InductorTarget::GpuPtx
+        );
 
         let mut sources = Vec::with_capacity(groups.len());
 
@@ -835,19 +835,33 @@ impl InductorBackend {
             let fn_name = format!("kernel_{i}");
             let num_inputs = group.external_inputs.len().max(1);
 
+            // Determine the kernel's scalar dtype from the IR. For GPU
+            // targets, every IR value participating in this group must have
+            // the same dtype: a single kernel emits a single scalar width.
+            // CPU codegen ignores the result; the existing CPU path is
+            // dtype-agnostic.
+            let dtype = if target_is_gpu {
+                resolve_group_dtype(group, graph, self.target)?
+            } else {
+                Dtype::F32
+            };
+
             let source = match self.target {
                 InductorTarget::CpuRust => {
                     crate::codegen_cpu::CpuCodegen::generate_rust_source(loops, &fn_name)
                 }
                 InductorTarget::GpuCuda => crate::codegen_gpu::GpuCodegen::generate_cuda_source(
-                    loops, &fn_name, num_inputs,
-                ),
+                    loops, &fn_name, num_inputs, dtype,
+                )
+                .map_err(FerrotorchError::from)?,
                 InductorTarget::GpuPtx => crate::codegen_gpu::GpuCodegen::generate_ptx_source(
                     loops,
                     &fn_name,
                     self.block_size,
                     num_inputs,
-                ),
+                    dtype,
+                )
+                .map_err(FerrotorchError::from)?,
             };
 
             sources.push(source);
@@ -856,6 +870,15 @@ impl InductorBackend {
         // If no groups were found (e.g., identity graph), produce an
         // empty-body kernel for completeness.
         if sources.is_empty() {
+            // Identity-graph dtype: pick from the first input value if any,
+            // else default to F32. An empty body never references the dtype
+            // beyond declarations, so this is honest.
+            let dtype = graph
+                .input_values
+                .first()
+                .and_then(|id| graph.values.iter().find(|v| v.id == *id))
+                .map_or(Dtype::F32, |v| v.dtype);
+
             let source = match self.target {
                 InductorTarget::CpuRust => {
                     crate::codegen_cpu::CpuCodegen::generate_rust_source(&[], "kernel_identity")
@@ -864,13 +887,17 @@ impl InductorBackend {
                     &[],
                     "kernel_identity",
                     num_graph_inputs.max(1),
-                ),
+                    dtype,
+                )
+                .map_err(FerrotorchError::from)?,
                 InductorTarget::GpuPtx => crate::codegen_gpu::GpuCodegen::generate_ptx_source(
                     &[],
                     "kernel_identity",
                     self.block_size,
                     num_graph_inputs.max(1),
-                ),
+                    dtype,
+                )
+                .map_err(FerrotorchError::from)?,
             };
             sources.push(source);
         }
@@ -879,39 +906,58 @@ impl InductorBackend {
     }
 }
 
-/// Verify every IR value carries `Dtype::F32`.
+/// Resolve the scalar dtype for a fusion group's emitted GPU kernel.
 ///
-/// Returns `Err(JitError::GpuBackendUnavailable)` if any value has a
-/// non-F32 dtype, naming the offending value id and dtype. This is the
-/// #721-A safety guard: GPU codegen still hard-codes f32 across 100+
-/// emission sites (CUDA `float` / PTX `.f32`), so lowering a non-F32
-/// graph would silently produce a wrong-typed kernel. Fail fast.
+/// As of #729, GPU codegen dispatches on `Dtype` per-kernel. Each fusion
+/// group lowers to a single PTX/CUDA-C kernel that loads, computes, and
+/// stores at one scalar width — mixed-dtype kernels are out of scope
+/// (`PyTorch`'s Inductor analogously decomposes mixed-dtype graphs across
+/// multiple kernels). This helper returns the uniform dtype of all IR
+/// values touched by the group, or `Err(JitError::CodegenError)` if the
+/// values disagree.
 ///
-/// We reuse the existing `JitError::GpuBackendUnavailable` variant —
-/// adding a new variant from a per-crate dispatch is forbidden by
-/// `rust-fix-discipline` Step 4 — and the variant's
-/// `(target: String, reason: String)` shape fits this case verbatim.
-/// Real per-edge dtype dispatch is tracked as #721-B.
-fn check_gpu_dtype_uniform_f32(graph: &IrGraph, target: InductorTarget) -> FerrotorchResult<()> {
-    if let Some(bad) = graph.values.iter().find(|v| v.dtype != Dtype::F32) {
-        let target_name = match target {
-            InductorTarget::GpuCuda => "GpuCuda",
-            InductorTarget::GpuPtx => "GpuPtx",
-            InductorTarget::CpuRust => "CpuRust",
-        };
-        return Err(crate::error::JitError::GpuBackendUnavailable {
-            target: target_name.to_string(),
-            reason: format!(
-                "ferrotorch-jit GPU codegen only supports f32 dtype today; \
-                 IR value {:?} has dtype `{}`. Tracked: #721-B will land \
-                 dtype-aware emission across CUDA C and PTX templates.",
-                bad.id,
-                bad.dtype.name(),
-            ),
+/// The values inspected are the group's `external_inputs` plus
+/// `external_outputs`; intermediate (group-internal) values inherit
+/// dtype from those endpoints in current builders.
+fn resolve_group_dtype(
+    group: &crate::dag_fusion::FusionGroup,
+    graph: &IrGraph,
+    target: InductorTarget,
+) -> FerrotorchResult<Dtype> {
+    let mut chosen: Option<Dtype> = None;
+    let mut value_iter = group
+        .external_inputs
+        .iter()
+        .chain(group.external_outputs.iter());
+
+    for vid in &mut value_iter {
+        let value = graph.values.iter().find(|v| v.id == *vid);
+        let Some(value) = value else { continue };
+        match chosen {
+            None => chosen = Some(value.dtype),
+            Some(d) if d == value.dtype => {}
+            Some(d) => {
+                let target_name = match target {
+                    InductorTarget::GpuCuda => "GpuCuda",
+                    InductorTarget::GpuPtx => "GpuPtx",
+                    InductorTarget::CpuRust => "CpuRust",
+                };
+                return Err(crate::error::JitError::CodegenError {
+                    message: format!(
+                        "ferrotorch-jit {target_name} codegen requires uniform dtype within \
+                         a fusion group; value {:?} has dtype `{}`, but earlier values in \
+                         the group used `{}`. Mixed-dtype kernels are not supported.",
+                        value.id,
+                        value.dtype.name(),
+                        d.name(),
+                    ),
+                }
+                .into());
+            }
         }
-        .into());
     }
-    Ok(())
+
+    Ok(chosen.unwrap_or(Dtype::F32))
 }
 
 impl Codegen for InductorBackend {
@@ -942,9 +988,16 @@ impl Codegen for InductorBackend {
             self.target,
             InductorTarget::GpuCuda | InductorTarget::GpuPtx
         ) {
-            // #721-A safety guard: surface non-f32 graphs as Err before any
-            // hard-coded-f32 codegen runs. See generate() for the rationale.
-            check_gpu_dtype_uniform_f32(graph, self.target)?;
+            // #729: Validate per-group dtype uniformity (and surface
+            // unsupported f64 transcendentals on PTX) before declaring the
+            // GPU runtime unavailable. This gives callers the more precise
+            // diagnosis when both apply.
+            //
+            // We invoke `generate()` purely for its validation side effects
+            // and discard the produced source — the runtime executor is not
+            // wired through `compile()` yet, so we still return
+            // `GpuBackendUnavailable` afterwards.
+            let _ = self.generate(graph)?;
         }
         if self.target == InductorTarget::GpuCuda {
             return Err(crate::error::JitError::GpuBackendUnavailable {
@@ -1929,15 +1982,19 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // #721-A safety guard: GPU codegen rejects non-F32 graphs
+    // #729: F64 GPU codegen dispatch
+    //
+    // Replaces the prior #721-A guard that hard-rejected all non-F32 graphs.
+    // Per #729 and `rust-gpu-discipline` §3, F64 graphs lower to native f64
+    // PTX/CUDA emission; F64 graphs containing transcendentals on PTX
+    // return `JitError::Unsupported` (no `*.approx.f64` PTX instructions
+    // exist; libdevice path is Phase-2).
     // -----------------------------------------------------------------------
 
-    /// `InductorBackend::generate` for a `GpuCuda` target must reject any
-    /// graph containing a non-F32 IR value with a structured
-    /// `JitError::GpuBackendUnavailable` error rather than silently emitting
-    /// a wrong-typed kernel.
+    /// F64 graph on `GpuCuda` target lowers to CUDA C with `double`
+    /// declarations and unsuffixed math calls — no rejection.
     #[test]
-    fn test_inductor_gpu_cuda_rejects_non_f32_graph() {
+    fn test_inductor_gpu_cuda_accepts_f64_graph() {
         let mut g = IrGraph::new();
         let x = g.add_input_with_dtype(vec![4], Dtype::F64);
         let (_, relu_outs) =
@@ -1945,55 +2002,156 @@ mod tests {
         g.set_outputs(vec![relu_outs[0]]);
 
         let backend = InductorBackend::new(InductorTarget::GpuCuda);
-        let err = backend.generate(&g).unwrap_err();
-        let msg = format!("{err}");
+        let sources = backend
+            .generate(&g)
+            .expect("F64 CUDA C generation should succeed");
+        let combined = sources.join("\n");
         assert!(
-            msg.contains("only supports f32") || msg.contains("f32 dtype"),
-            "expected dtype-rejection message, got: {msg}"
-        );
-        assert!(
-            msg.contains("GpuCuda"),
-            "expected target name in error: {msg}"
+            combined.contains("const double*") || combined.contains("double*"),
+            "expected `double` declarations in F64 CUDA C; got:\n{combined}"
         );
     }
 
-    /// `InductorBackend::generate` for a `GpuPtx` target must reject any
-    /// graph containing a non-F32 IR value.
+    /// F64 graph on `GpuPtx` target with hardware-supported ops only
+    /// (input → relu) lowers to PTX with `.f64` registers and `max.f64`.
     #[test]
-    fn test_inductor_gpu_ptx_rejects_non_f32_graph() {
+    fn test_inductor_gpu_ptx_accepts_f64_arithmetic() {
         let mut g = IrGraph::new();
         let x = g.add_input_with_dtype(vec![4], Dtype::F64);
-        g.set_outputs(vec![x]);
+        let (_, relu_outs) =
+            g.add_node_with_dtype(IrOpKind::Relu, vec![x], vec![vec![4]], &[Dtype::F64]);
+        g.set_outputs(vec![relu_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::GpuPtx);
+        let sources = backend
+            .generate(&g)
+            .expect("F64 PTX (relu only) should succeed; relu lowers to hardware max.f64");
+        let combined = sources.join("\n");
+        assert!(
+            combined.contains(".reg .f64") && combined.contains("max.f64"),
+            "expected f64 register and max.f64 in PTX:\n{combined}"
+        );
+    }
+
+    /// F64 graph on `GpuPtx` target containing a transcendental
+    /// (sigmoid here): without the `cuda` feature, returns
+    /// `JitError::Unsupported`. With the `cuda` feature on, the f64
+    /// transcendental path delegates to NVRTC + libdevice and succeeds —
+    /// see [`test_inductor_gpu_ptx_accepts_f64_transcendental_with_cuda`]
+    /// for the matching positive case.
+    #[cfg(not(feature = "cuda"))]
+    #[test]
+    fn test_inductor_gpu_ptx_rejects_f64_transcendental() {
+        let mut g = IrGraph::new();
+        let x = g.add_input_with_dtype(vec![4], Dtype::F64);
+        let (_, sig_outs) =
+            g.add_node_with_dtype(IrOpKind::Sigmoid, vec![x], vec![vec![4]], &[Dtype::F64]);
+        g.set_outputs(vec![sig_outs[0]]);
 
         let backend = InductorBackend::new(InductorTarget::GpuPtx);
         let err = backend.generate(&g).unwrap_err();
         let msg = format!("{err}");
         assert!(
-            msg.contains("GpuPtx"),
-            "expected target name in error: {msg}"
+            msg.contains("sigmoid")
+                || msg.contains("Unsupported")
+                || msg.contains("does not support"),
+            "expected Unsupported diagnostic for f64 sigmoid; got: {msg}"
+        );
+        assert!(
+            msg.contains("f64"),
+            "expected dtype name `f64` in error message; got: {msg}"
         );
     }
 
-    /// `InductorBackend::compile` for a GPU target with a non-F32 graph must
-    /// surface the dtype error before the broader "no GPU runtime wired"
-    /// message — the dtype guard is the more precise diagnosis.
+    /// With the `cuda` feature on, an f64 graph on `GpuPtx` target
+    /// containing a transcendental (sigmoid here) compiles cleanly via
+    /// NVRTC + libdevice — closes #748. Counter-test to the no-feature
+    /// rejection above.
+    #[cfg(feature = "cuda")]
     #[test]
-    fn test_inductor_gpu_compile_rejects_non_f32_graph() {
+    fn test_inductor_gpu_ptx_accepts_f64_transcendental_with_cuda() {
         let mut g = IrGraph::new();
         let x = g.add_input_with_dtype(vec![4], Dtype::F64);
-        g.set_outputs(vec![x]);
+        let (_, sig_outs) =
+            g.add_node_with_dtype(IrOpKind::Sigmoid, vec![x], vec![vec![4]], &[Dtype::F64]);
+        g.set_outputs(vec![sig_outs[0]]);
 
-        let backend = InductorBackend::new(InductorTarget::GpuCuda);
+        let backend = InductorBackend::new(InductorTarget::GpuPtx);
+        let sources = backend
+            .generate(&g)
+            .expect("f64 sigmoid via NVRTC must succeed with cuda feature");
+        assert!(!sources.is_empty(), "expected at least one PTX source");
+        let combined = sources.join("\n");
+        assert!(
+            combined.contains(".entry"),
+            "expected NVRTC-compiled PTX with .entry; got:\n{combined}",
+        );
+    }
+
+    /// `compile()` on a F64 PTX graph with a transcendental: without the
+    /// `cuda` feature, surfaces the `Unsupported` diagnosis before the
+    /// `GpuBackendUnavailable` runtime-not-wired error.
+    ///
+    /// With the `cuda` feature on, NVRTC produces valid PTX so the
+    /// `compile()` failure mode shifts to `GpuBackendUnavailable` (the
+    /// driver isn't wired into `compile()` itself; that's `module::compile`).
+    /// We exercise both shapes below.
+    #[cfg(not(feature = "cuda"))]
+    #[test]
+    fn test_inductor_gpu_compile_rejects_f64_transcendental() {
+        let mut g = IrGraph::new();
+        let x = g.add_input_with_dtype(vec![4], Dtype::F64);
+        let (_, sig_outs) =
+            g.add_node_with_dtype(IrOpKind::Sigmoid, vec![x], vec![vec![4]], &[Dtype::F64]);
+        g.set_outputs(vec![sig_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::GpuPtx);
         let err = backend.compile(&g).unwrap_err();
         let msg = format!("{err}");
         assert!(
-            msg.contains("f32 dtype") || msg.contains("only supports f32"),
-            "expected dtype-rejection message in compile path, got: {msg}"
+            msg.contains("sigmoid") || msg.contains("does not support"),
+            "expected unsupported-op message in compile path; got: {msg}"
+        );
+    }
+
+    /// With the `cuda` feature on, `compile()` on an f64 PTX graph with
+    /// a transcendental no longer rejects on dtype/op grounds — it now
+    /// surfaces the existing `GpuBackendUnavailable` "runtime not wired"
+    /// error, since the inductor `compile()` doesn't itself launch
+    /// kernels. The failure mode is preserved (errors are still loud)
+    /// but the *cause* shifts to the runtime-unwired layer rather than
+    /// the codegen layer.
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn test_inductor_gpu_compile_f64_transcendental_with_cuda_runtime_block() {
+        let mut g = IrGraph::new();
+        let x = g.add_input_with_dtype(vec![4], Dtype::F64);
+        let (_, sig_outs) =
+            g.add_node_with_dtype(IrOpKind::Sigmoid, vec![x], vec![vec![4]], &[Dtype::F64]);
+        g.set_outputs(vec![sig_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::GpuPtx);
+        let err = backend.compile(&g).unwrap_err();
+        let msg = format!("{err}");
+        // The error is no longer "unsupported op" — it's the
+        // GPU-runtime-not-wired error from the existing inductor
+        // pipeline. Assert that the codegen layer isn't the rejection
+        // source any more (no "does not support" / "Unsupported"), and
+        // that the runtime-block message surfaces instead.
+        assert!(
+            !msg.contains("does not support") && !msg.contains("Unsupported"),
+            "f64 sigmoid should no longer reject at codegen with cuda feature; got: {msg}"
+        );
+        assert!(
+            msg.contains("GPU backend unavailable")
+                || msg.contains("runtime")
+                || msg.contains("not yet wire"),
+            "expected runtime-unwired diagnostic; got: {msg}"
         );
     }
 
     /// All-F32 graphs continue to flow through `generate()` unchanged on
-    /// GPU targets.
+    /// GPU targets — the F64 dispatch must not regress F32.
     #[test]
     fn test_inductor_gpu_accepts_f32_graph() {
         let mut g = IrGraph::new();
@@ -2005,8 +2163,35 @@ mod tests {
         let result = backend.generate(&g);
         assert!(
             result.is_ok(),
-            "F32 graph should pass the dtype guard, got: {:?}",
+            "F32 graph should still generate, got: {:?}",
             result.err()
+        );
+    }
+
+    /// PTX F64 emission contains the new `0d`-prefixed 16-hex-digit
+    /// constants when the graph has a literal that survives lowering.
+    /// Smallest-test: a relu activates `%zero` which is emitted as a
+    /// dtype-correct constant.
+    #[test]
+    fn test_inductor_gpu_ptx_f64_zero_constant_format() {
+        let mut g = IrGraph::new();
+        let x = g.add_input_with_dtype(vec![4], Dtype::F64);
+        let (_, relu_outs) =
+            g.add_node_with_dtype(IrOpKind::Relu, vec![x], vec![vec![4]], &[Dtype::F64]);
+        g.set_outputs(vec![relu_outs[0]]);
+
+        let backend = InductorBackend::new(InductorTarget::GpuPtx);
+        let sources = backend.generate(&g).unwrap();
+        let combined = sources.join("\n");
+        // f64 zero is `0d0000000000000000` (16 hex digits).
+        assert!(
+            combined.contains("0d0000000000000000"),
+            "expected f64 zero literal `0d0000000000000000` in PTX; got:\n{combined}"
+        );
+        // Must NOT have the f32 form.
+        assert!(
+            !combined.contains("0f00000000"),
+            "F64 PTX leaked f32 zero literal `0f00000000`:\n{combined}"
         );
     }
 }

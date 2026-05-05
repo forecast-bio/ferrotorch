@@ -567,7 +567,25 @@ struct Conv2dBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for Conv2dBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        // grad_output shape: [B, C_out, H_out, W_out]
+        // grad_output shape: [B, C_out, H_out, W_out].
+        //
+        // The backward computation is host-side (im2col / col2im / mm),
+        // so the produced tensors land on CPU. They must be lifted back
+        // onto the saved input/weight devices before being returned;
+        // otherwise downstream gradient ops (e.g. relu_backward, the
+        // optimizer step) see CPU tensors mixed with CUDA parameters
+        // and either fall into the `NotImplementedOnCuda` branch or
+        // fail device assertions in the optimizer. Surfaced by
+        // `gpu_cnn_training_smoke` in
+        // `ferrotorch/tests/gpu_training.rs` (#749 Section B).
+        //
+        // Note: this is a transitional fix that keeps the chain
+        // device-consistent while the actual GPU im2col/col2im backward
+        // kernels are written. A full Conv2dBackward GPU implementation
+        // is tracked separately (see Section B report).
+        let input_device = self.input.device();
+        let weight_device = self.weight.device();
+        let bias_device = self.bias.as_ref().map(|b| b.device());
         let go_data = grad_output.data_vec()?;
         let batch = self.input.shape()[0];
         let h = self.input.shape()[2];
@@ -616,11 +634,14 @@ impl<T: Float> GradFn<T> for Conv2dBackward<T> {
                 }
             }
 
-            Some(Tensor::from_storage(
-                TensorStorage::cpu(gw_accum),
-                vec![self.out_channels, self.in_channels, kh, kw],
-                false,
-            )?)
+            Some(
+                Tensor::from_storage(
+                    TensorStorage::cpu(gw_accum),
+                    vec![self.out_channels, self.in_channels, kh, kw],
+                    false,
+                )?
+                .to(weight_device)?,
+            )
         } else {
             None
         };
@@ -642,11 +663,11 @@ impl<T: Float> GradFn<T> for Conv2dBackward<T> {
                         }
                     }
                 }
-                Some(Tensor::from_storage(
-                    TensorStorage::cpu(gb),
-                    vec![self.out_channels],
-                    false,
-                )?)
+                let target_dev = bias_device.unwrap_or(input_device);
+                Some(
+                    Tensor::from_storage(TensorStorage::cpu(gb), vec![self.out_channels], false)?
+                        .to(target_dev)?,
+                )
             }
             _ => None,
         };
@@ -702,11 +723,10 @@ impl<T: Float> GradFn<T> for Conv2dBackward<T> {
                 self.w_out,
             );
 
-            Some(Tensor::from_storage(
-                TensorStorage::cpu(gi),
-                self.input.shape().to_vec(),
-                false,
-            )?)
+            Some(
+                Tensor::from_storage(TensorStorage::cpu(gi), self.input.shape().to_vec(), false)?
+                    .to(input_device)?,
+            )
         } else {
             None
         };

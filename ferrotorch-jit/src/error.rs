@@ -113,6 +113,34 @@ pub enum JitError {
         /// Why the runtime for this target is not wired up in this build.
         reason: String,
     },
+
+    /// The requested (op, dtype) combination has no GPU codegen path.
+    ///
+    /// This is the structured analog of `PyTorch`'s `NotImplementedError`
+    /// for unsupported (op, dtype, device) combinations. As of #729, GPU
+    /// codegen dispatches on `Dtype` for arithmetic, load/store, register
+    /// declarations, and constant emission. As of #748 (closing the
+    /// Phase-2 follow-up to #729), f64 transcendentals — `exp`, `log`,
+    /// `sqrt`, `tanh`, `sigmoid`, `gelu`, `silu`, and `pow` — are
+    /// supported on the PTX path *with the `cuda` feature enabled* by
+    /// routing through NVRTC + libdevice. Without the `cuda` feature, f64
+    /// transcendentals still surface this variant since NVRTC isn't
+    /// linked at runtime.
+    ///
+    /// This variant is also the right return for any future (op, dtype)
+    /// combination the codegen genuinely cannot lower — keep messages
+    /// pointing at the missing feature flag or follow-up issue so callers
+    /// can act on them.
+    #[error(
+        "ferrotorch-jit GPU codegen does not support op '{op}' on dtype `{dtype}'; \
+         enable the `cuda` feature on ferrotorch-jit for f64 transcendentals via libdevice"
+    )]
+    Unsupported {
+        /// Name of the unsupported op (e.g. `"exp"`, `"tanh"`).
+        op: String,
+        /// Name of the offending dtype (e.g. `"f64"`).
+        dtype: String,
+    },
 }
 
 impl From<JitError> for FerrotorchError {
