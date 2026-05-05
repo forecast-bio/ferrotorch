@@ -2,9 +2,10 @@
   "uuid": "2943efb2-44c5-4d9f-b619-ca04a7c812e4",
   "display_id": 747,
   "title": "ferrotorch-jit: F64 GPU transcendentals (exp/log/sin/cos/tanh) via libdevice — Phase-2\n\nPhase-2 follow-up to #729 (F64 GPU codegen dispatch).\n\nContext: #729 landed dtype-aware GPU codegen for arithmetic, load/store, register declarations, and constant emission across CUDA C and PTX. Transcendental ops (exp, log, sqrt, tanh, sigmoid, gelu, silu, plus powf via lg2/ex2) on PTX remain f32-only because PTX has no hardware approximation instructions for f64 (`ex2.approx.f64`, `lg2.approx.f64`, `rcp.approx.f64`, `sqrt.approx.f64` do not exist). F64 graphs containing transcendentals currently return `Err(JitError::Unsupported { op, dtype: \"f64\" })`.\n\nPhase-2 design question: how should we lower F64 transcendentals?\n\nOptions to evaluate (none implemented in #729):\n\n1. libdevice (NVIDIA's PTX math library): emit `call.uni (retval), __nv_exp, (operand);` etc. and link against `libdevice.10.bc`. Industry standard for f64 math on NVIDIA. Adds a workspace coordination event (libdevice path / link rules / cudarc binding for the bitcode loader).\n\n2. Software emulation: emit a polynomial / range-reduction approximation in PTX. Lossy, slow, but no extra deps. Probably not worth the engineering effort.\n\n3. Demote-promote: cast f64→f32, run f32 transcendental, cast back. Silently loses precision; rejected in #729 design.\n\n4. CUDA C path only for f64 transcendentals: emit CUDA C source (where the host math headers provide `exp`/`log` for double) and compile via nvrtc. Different runtime path from PTX.\n\nPyTorch parity reference: PyTorch's CUDA backend uses libdevice via ATen's CUDA dispatch (option 1).\n\nAcceptance criteria for Phase-2:\n- F64 graphs with exp/log/sqrt/tanh/sigmoid/gelu/silu/powf lower to valid PTX.\n- F64 PTX runs end-to-end and matches CPU reference within tolerance.\n- Existing f32 transcendental tests still pass.\n- The `JitError::Unsupported` rejection at codegen_gpu.rs find_transcendental_op is removed for f64.\n\nFiles of interest:\n- ferrotorch-jit/src/codegen_gpu.rs (find_transcendental_op, emit_ptx_unary_op)\n- ferrotorch-jit/src/error.rs (JitError::Unsupported)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-05T03:05:05.018818142Z",
-  "updated_at": "2026-05-05T03:05:05.018818142Z"
+  "updated_at": "2026-05-05T05:09:22.868846434Z",
+  "closed_at": "2026-05-05T05:09:22.868846434Z"
 }
