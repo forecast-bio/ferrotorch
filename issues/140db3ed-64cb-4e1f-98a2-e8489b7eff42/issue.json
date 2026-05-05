@@ -2,11 +2,12 @@
   "uuid": "140db3ed-64cb-4e1f-98a2-e8489b7eff42",
   "display_id": 669,
   "title": "Workspace fix #C: ferrotorch-distributed Category B migration (gpu_collective.rs opt-in fallback per ADR #663 item 7)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-02T23:25:17.999059889Z",
-  "updated_at": "2026-05-02T23:25:19.269109552Z",
+  "updated_at": "2026-05-05T01:22:34.603925781Z",
+  "closed_at": "2026-05-05T01:22:34.603925781Z",
   "labels": [
     "fix"
   ]
