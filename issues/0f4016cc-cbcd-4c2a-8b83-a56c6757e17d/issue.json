@@ -1,0 +1,10 @@
+{
+  "uuid": "0f4016cc-cbcd-4c2a-8b83-a56c6757e17d",
+  "display_id": 749,
+  "title": "architect self-correction bundle: reopen #733 GPU training scope (5 missing experiments) + #739 + #748",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-05T04:11:07.435794334Z",
+  "updated_at": "2026-05-05T04:11:07.435794334Z"
+}
