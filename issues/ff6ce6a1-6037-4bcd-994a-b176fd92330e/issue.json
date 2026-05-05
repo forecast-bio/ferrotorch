@@ -1,0 +1,10 @@
+{
+  "uuid": "ff6ce6a1-6037-4bcd-994a-b176fd92330e",
+  "display_id": 752,
+  "title": "clippy phase 2a: migrate 5 deprecated as_slice/as_mut_slice sites in tensor.rs to try_as_slice/try_as_mut_slice (panics on GPU storage → explicit Err)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-05T05:17:30.369375859Z",
+  "updated_at": "2026-05-05T05:17:30.369375859Z"
+}
