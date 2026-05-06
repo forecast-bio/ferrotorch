@@ -57,4 +57,5 @@ Thumbs.db
 __pycache__/
 .crosslink/
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 hierarchical-llm-rust/
