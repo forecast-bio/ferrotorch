@@ -1,0 +1,11 @@
+{
+  "uuid": "ccc208c5-0c63-4e72-8763-ac91e4b9ebc1",
+  "display_id": 810,
+  "title": "ferrotorch-core: signal::taylor diverges from scipy.signal.windows.taylor by 1.5e-3 (LSL-level) — surfaced by phase 2.7 (#769)",
+  "description": "ferray-window 0.3.6 taylor(M=16, nbar=4, sll=30, norm=true) returns values that differ from scipy.signal.windows.taylor by ~1.5e-3 at every position.\n\nSample: index 0 → ferrotorch 0.25388183826768423 vs scipy 0.252321041674507 (delta 1.561e-3).\n\nThis is likely an algorithmic-implementation difference in the Taylor weighting calculation rather than rounding — a 1.5e-3 delta is too coarse to be FP error.\n\nPossible upstream issues: ferray-window may use a different convention for the SLL conversion (R = 10^(sll/20) vs 10^(-sll/20)) or a different normalization formula.\n\nMitigation in phase 2.7 conformance: cascade_skip for window_taylor; we still cover every other window function (parzen, tukey, hanning, etc.) at F64_WINDOW = 1e-6 which all pass.",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T16:52:52.042666321Z",
+  "updated_at": "2026-05-06T16:52:52.042666321Z"
+}
