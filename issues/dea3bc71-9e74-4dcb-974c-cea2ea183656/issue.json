@@ -3,11 +3,12 @@
   "display_id": 790,
   "title": "ferrotorch-core: GPU reduce(Max/Min) returns first-row instead of last — surfaced by phase 2.6 (#768)",
   "description": "Phase 2.6 conformance test gpu_reduce found that einops::reduce on CUDA returns the wrong result for EinopsReduction::Max and EinopsReduction::Min when the kept axis comes after the reduced axis in left order.\n\nRepro:\n  input shape [3, 2], data = [0.5, 4.0, 1.0, 4.5, 1.5, 5.0] on cuda:0\n  reduce(t, \"b c -> c\", EinopsReduction::Max)\n  expected: [1.5, 5.0]\n  actual:   [0.5, 4.0]   (= input row 0)\n\nThe fast path in einops.rs uses cummax/cummin then narrow(dim=1, last, 1) + squeeze. The result selects row 0 instead of the last running-max row, suggesting one of:\n  - GPU cummax returns the input unmodified for [1, N, M] view shapes\n  - GPU narrow(dim=1, start=N-1, len=1) selects start=0 instead\n\nSum/Mean reductions work correctly (they use sum_dim, which is GPU-aware and routes through a different code path). Min superficially looks right because the min of the test data IS row 0.\n\nCPU path returns the correct result. Confirmed by direct repro test (now removed).",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-06T16:05:16.024680668Z",
-  "updated_at": "2026-05-06T16:05:17.512354050Z",
+  "updated_at": "2026-05-06T23:34:17.328663607Z",
+  "closed_at": "2026-05-06T23:34:17.328663607Z",
   "labels": [
     "rust,gpu,bug,conformance"
   ]
