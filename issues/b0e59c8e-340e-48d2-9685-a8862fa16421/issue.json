@@ -1,0 +1,10 @@
+{
+  "uuid": "b0e59c8e-340e-48d2-9685-a8862fa16421",
+  "display_id": 780,
+  "title": "ferrotorch-gpu: fill_f64 returns InvalidArgument 'not yet implemented' — blocks f64 GPU autograd workspace-wide (surfaced by #763)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T04:17:27.439437534Z",
+  "updated_at": "2026-05-06T04:17:27.439437534Z"
+}
