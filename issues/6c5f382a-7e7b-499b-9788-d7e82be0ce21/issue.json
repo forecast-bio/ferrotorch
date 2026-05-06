@@ -1,0 +1,10 @@
+{
+  "uuid": "6c5f382a-7e7b-499b-9788-d7e82be0ce21",
+  "display_id": 817,
+  "title": "ferrotorch-gpu: mv_f32/mv_f64 missing for matmul 2D×1D — surfaced by #801 fix",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T18:56:09.600347611Z",
+  "updated_at": "2026-05-06T18:56:09.600347611Z"
+}
