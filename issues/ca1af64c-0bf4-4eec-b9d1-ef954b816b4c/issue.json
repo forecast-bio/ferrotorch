@@ -1,0 +1,10 @@
+{
+  "uuid": "ca1af64c-0bf4-4eec-b9d1-ef954b816b4c",
+  "display_id": 777,
+  "title": "wsl env: install torch + transformers + tokenizers in WSL python so fixture-regen scripts are linux-native (replaces /mnt/f/Python detour)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T03:30:11.750814049Z",
+  "updated_at": "2026-05-06T03:30:11.750814049Z"
+}
