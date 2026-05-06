@@ -1,0 +1,10 @@
+{
+  "uuid": "da43a699-b300-468d-93fe-08e8fbd4b796",
+  "issue_uuid": "433e7952-6e49-4379-8fcd-520c2a01a8e4",
+  "author": "y4rr",
+  "content": "Phase 2.2 delivered: 21 CPU + 12 GPU tests in conformance_reduction.rs (33 total) — sum/sum_dim/mean/mean_dim/prod/amax/amin + cumsum/cumprod/cummax/cummin/logcumsumexp + edge cases (empty tensor, amax/amin tie distribution, cumprod-with-zero, logcumsumexp f32/f64 stability at magnitude 100), plus reverse_cumsum direct unit test and CumExtremeResult field-access test. Coverage delta: removed 21 exclusions (Cat A/B/E forwards now directly tested), rewrote 16 reasons (Cat C *_forward + reverse_cumsum, Cat D backward structs) to implicit-coverage framing. Cascade issues filed for 5 surfaced GPU divergences: #785 prod_backward GPU stub, #786 logcumsumexp_f64 PTX kernel garbage (Dispatch C polynomial cluster regression), #787 cummax_f64/cummin_f64 PTX kernel subnormal output, #788 mean_dim_f64 missing scale_f64. Each broken case is per-test diagnostic-skipped via cascade_skip() with the issue ref printed; no silent skips, no tolerance weakening. Verification: cargo test reduction --features gpu → 33/33 PASS; cargo test creation --features gpu → 43/43 PASS; cargo test elementwise --features gpu → 40/40 PASS; cargo test surface_coverage → 0 uncovered (covered 97/1130, excluded 1033); cargo build workspace --tests --features gpu PASS; cargo clippy --all-targets --all-features -D warnings PASS; cargo fmt --check PASS.",
+  "created_at": "2026-05-06T14:21:39.423736223Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAHBZYSisKV7La3s0yliuNz7PNEVw1N4bs4WuYuA/54pENDgJtCfnK3FnM4IuTEaz9OnkvWYstJgONU98+8PhUDQ=="
+}
