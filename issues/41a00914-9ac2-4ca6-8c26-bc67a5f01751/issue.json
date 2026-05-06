@@ -1,0 +1,10 @@
+{
+  "uuid": "41a00914-9ac2-4ca6-8c26-bc67a5f01751",
+  "display_id": 779,
+  "title": "ferrotorch-gpu: broadcast_{add,sub,mul,div}_{f32,f64} hits CUDA_ERROR_MISALIGNED_ADDRESS on non-same-shape pairs (surfaced by #763)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T04:17:21.418702954Z",
+  "updated_at": "2026-05-06T04:17:21.418702954Z"
+}
