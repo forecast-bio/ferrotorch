@@ -7,9 +7,10 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-06T03:19:00.635483769Z",
-  "updated_at": "2026-05-06T03:19:03.196195294Z",
+  "updated_at": "2026-05-06T03:19:04.434288277Z",
   "labels": [
     "testing",
-    "conformance"
+    "conformance",
+    "audit-followup"
   ]
 }
