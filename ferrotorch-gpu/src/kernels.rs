@@ -1419,15 +1419,15 @@ pub(crate) const GELU_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %neg_kx;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %exp_neg, %e_p, %e_r, %one;
@@ -1585,15 +1585,15 @@ pub(crate) const GELU_TANH_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %two_y;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %e2y, %e_p, %e_r, %one;
@@ -1803,15 +1803,15 @@ pub(crate) const GELU_ERF_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %neg_z2;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %exp_neg_z2, %e_p, %e_r, %one;
@@ -2005,15 +2005,15 @@ pub(crate) const GELU_BACKWARD_TANH_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %two_y;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %e2y, %e_p, %e_r, %one;
@@ -2159,15 +2159,15 @@ pub(crate) const SILU_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %neg_x;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %e, %e_p, %e_r, %one;
@@ -2307,15 +2307,15 @@ pub(crate) const SILU_BACKWARD_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %neg_x;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %e, %e_p, %e_r, %one;
@@ -2450,15 +2450,15 @@ pub(crate) const ELU_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %x;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %ex, %e_p, %e_r, %one;
@@ -2602,15 +2602,15 @@ pub(crate) const ELU_BACKWARD_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %x;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %ex, %e_p, %e_r, %one;
@@ -2784,15 +2784,15 @@ pub(crate) const MISH_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %x;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %ex, %e_p, %e_r, %one;
@@ -2820,7 +2820,7 @@ pub(crate) const MISH_F64_PTX: &str = "\
     div.rn.f64 %l_f, %l_f, %l_s;
     mul.f64 %l_f2, %l_f, %l_f;
     mov.f64 %l_p, 0d3FB745D1745D1746;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC1C71C71C71C72;
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;
@@ -2837,15 +2837,15 @@ pub(crate) const MISH_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %two_sp;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %e2sp, %e_p, %e_r, %one;
@@ -2872,15 +2872,15 @@ LARGE_X:
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %two_sp;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %e2sp, %e_p, %e_r, %one;
@@ -3084,14 +3084,14 @@ pub(crate) const MISH_BACKWARD_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %x;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
@@ -3119,7 +3119,7 @@ pub(crate) const MISH_BACKWARD_F64_PTX: &str = "\
     div.rn.f64 %l_f, %l_f, %l_s;
     mul.f64 %l_f2, %l_f, %l_f;
     mov.f64 %l_p, 0d3FB745D1745D1746;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC1C71C71C71C72;
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;
@@ -3136,14 +3136,14 @@ pub(crate) const MISH_BACKWARD_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %two_sp;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
@@ -3165,14 +3165,14 @@ pub(crate) const MISH_BACKWARD_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %neg_x;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
@@ -3205,14 +3205,14 @@ LARGE_X:
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %two_sp;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
@@ -3583,15 +3583,15 @@ pub(crate) const GELU_BACKWARD_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %neg_kx;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %exp_neg, %e_p, %e_r, %one;
@@ -3833,15 +3833,15 @@ pub(crate) const GELU_BACKWARD_ERF_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %neg_z2;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %exp_neg_z2, %e_p, %e_r, %one;
@@ -3872,15 +3872,15 @@ pub(crate) const GELU_BACKWARD_ERF_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %neg_x2h;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %exp_neg_x2h, %e_p, %e_r, %one;
@@ -4675,14 +4675,14 @@ SUM_EXP:\n\
     cvt.rni.s32.f64 %e_ni, %e_nf;\n\
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %val;\n\
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;\n\
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;\n\
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;\n\
+    mov.f64 %e_p, 0d3E5AE64567F544E4;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;\n\
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;\n\
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;\n\
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, %e_one;\n\
@@ -4743,7 +4743,7 @@ SUM_REDUCE_DONE:\n\
     div.rn.f64 %l_f, %l_f, %l_s;\n\
     mul.f64 %l_f2, %l_f, %l_f;\n\
     mov.f64 %l_p, 0d3FB745D1745D1746;\n\
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC1C71C71C71C72;\n\
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;\n\
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;\n\
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;\n\
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;\n\
@@ -5018,14 +5018,14 @@ WRITE_LOOP:\n\
     cvt.rni.s32.f64 %e_ni, %e_nf;\n\
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %vo;\n\
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;\n\
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;\n\
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;\n\
+    mov.f64 %e_p, 0d3E5AE64567F544E4;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;\n\
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;\n\
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;\n\
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, %e_one;\n\
@@ -6567,14 +6567,14 @@ SCAN_LOOP:
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %ea;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_one;
@@ -6591,14 +6591,14 @@ SCAN_LOOP:
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %ev;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_one;
@@ -6624,7 +6624,7 @@ SCAN_LOOP:
     div.rn.f64 %l_f, %l_f, %l_s;
     mul.f64 %l_f2, %l_f, %l_f;
     mov.f64 %l_p, 0d3FB745D1745D1746;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC1C71C71C71C72;
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;
@@ -8306,14 +8306,14 @@ SUM_EXP:\n\
     cvt.rni.s32.f64 %e_ni, %e_nf;\n\
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %val;\n\
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;\n\
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;\n\
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;\n\
+    mov.f64 %e_p, 0d3E5AE64567F544E4;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;\n\
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;\n\
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;\n\
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;\n\
     fma.rn.f64 %e_p, %e_p, %e_r, %e_one;\n\
@@ -9565,14 +9565,14 @@ pub(crate) const EXP_F64_PTX: &str = "\
 
     // Horner polynomial for exp(r) - 1 - r = r^2 * (1/2! + r*(1/3! + r*(1/4! + ...)))
     // p starts at 1/11!, accumulates down to 1/2!
-    mov.f64 %p, 0d3E21EED8EFF8D898;           // 1/11! = 2.505e-8
-    fma.rn.f64 %p, %p, %r, 0d3E5AE64567F544E4;  // 1/10! = 2.756e-7
-    fma.rn.f64 %p, %p, %r, 0d3E927E4FB7789F5C;  // 1/9!  = 2.756e-6
-    fma.rn.f64 %p, %p, %r, 0d3EC71DE3A556C734;  // 1/8!  = 2.480e-5
-    fma.rn.f64 %p, %p, %r, 0d3EFA01A01A01A01A;  // 1/7!  = 1.984e-4
-    fma.rn.f64 %p, %p, %r, 0d3F2A01A01A01A01A;  // 1/6!  = 1.389e-3
-    fma.rn.f64 %p, %p, %r, 0d3F56C16C16C16C17;  // 1/5!  = 8.333e-3
-    fma.rn.f64 %p, %p, %r, 0d3F811111111111111;  // 1/4!  = 4.167e-2
+    mov.f64 %p, 0d3E5AE64567F544E4;           // 1/11! = 2.505e-8
+    fma.rn.f64 %p, %p, %r, 0d3E927E4FB7789F5C;  // 1/10! = 2.756e-7
+    fma.rn.f64 %p, %p, %r, 0d3EC71DE3A556C734;  // 1/9!  = 2.756e-6
+    fma.rn.f64 %p, %p, %r, 0d3EFA01A01A01A01A;  // 1/8!  = 2.480e-5
+    fma.rn.f64 %p, %p, %r, 0d3F2A01A01A01A01A;  // 1/7!  = 1.984e-4
+    fma.rn.f64 %p, %p, %r, 0d3F56C16C16C16C17;  // 1/6!  = 1.389e-3
+    fma.rn.f64 %p, %p, %r, 0d3F81111111111111;  // 1/5!  = 8.333e-3
+    fma.rn.f64 %p, %p, %r, 0d3FA5555555555555;  // 1/4!  = 4.167e-2
     fma.rn.f64 %p, %p, %r, 0d3FC5555555555555;  // 1/3!  = 1.667e-1
     fma.rn.f64 %p, %p, %r, %half;                // 1/2!  = 5.000e-1
 
@@ -9723,7 +9723,7 @@ pub(crate) const LOG_F64_PTX: &str = "\
     // p = 1/11
     mov.f64 %p, 0d3FB745D1745D1746;
     // p = p*f2 + 1/9
-    fma.rn.f64 %p, %p, %f2, 0d3FC1C71C71C71C72;
+    fma.rn.f64 %p, %p, %f2, 0d3FBC71C71C71C71C;
     // p = p*f2 + 1/7
     fma.rn.f64 %p, %p, %f2, 0d3FC2492492492492;
     // p = p*f2 + 1/5
@@ -9914,7 +9914,7 @@ pub(crate) const POW_F64_PTX: &str = "\
 
     // Horner: p = 1/11 + f2*(1/9 + f2*(1/7 + f2*(1/5 + f2*(1/3 + f2*1))))
     mov.f64 %l_p, 0d3FB745D1745D1746;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC1C71C71C71C72;
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;
@@ -9937,15 +9937,15 @@ pub(crate) const POW_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %e_z;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %vr, %e_p, %e_r, %one;
@@ -10110,15 +10110,15 @@ pub(crate) const SIGMOID_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %neg_x;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %e64, %e_p, %e_r, %one;
@@ -10249,15 +10249,15 @@ pub(crate) const TANH_F64_PTX: &str = "\
     cvt.rni.s32.f64 %e_ni, %e_nf;
     fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %neg2x;
     fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
-    mov.f64 %e_p, 0d3E21EED8EFF8D898;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3E5AE64567F544E4;
+    mov.f64 %e_p, 0d3E5AE64567F544E4;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
-    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F811111111111111;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
     fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+    fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
     fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
     fma.rn.f64 %e_p, %e_p, %e_r, %one;
     fma.rn.f64 %e64, %e_p, %e_r, %one;
