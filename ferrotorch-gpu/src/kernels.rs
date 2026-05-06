@@ -84,13 +84,18 @@ pub(crate) fn ptx_f32_to_f64(
         .replace("mov.b32", "mov.b64")
         // Byte offset: 4 bytes per f32 → 8 bytes per f64.
         // Cover the canonical `%off` register, the `%off_in`/`%off_out`
-        // pair used by gather/scatter/transpose-style kernels, and the
-        // `%off_a`/`%off_b` pair used by the binary broadcast kernels.
+        // pair used by gather/scatter/transpose-style kernels, the
+        // `%off_a`/`%off_b` pair used by the binary broadcast kernels,
+        // and the `%row_off` register used by per-row reduction kernels
+        // (layernorm_backward, rmsnorm_backward).
         // Missing one of these caused `gpu_transpose_2d_f64` to issue
         // f32-stride loads against an f64 buffer, hitting
         // `CUDA_ERROR_MISALIGNED_ADDRESS` (#575); the same class of bug
         // recurred for `gpu_broadcast_{add,sub,mul,div}_f64` because the
-        // broadcast PTX uses `%off_a`/`%off_b` for the input loads (#779).
+        // broadcast PTX uses `%off_a`/`%off_b` for the input loads (#779);
+        // and again for `gpu_layernorm_backward_f64` /
+        // `gpu_rmsnorm_backward_f64` because their f32 templates use
+        // `%row_off` for the row-stride (#784 cascade).
         .replace("shl.b64 %off, %off, 2", "shl.b64 %off, %off, 3")
         .replace("shl.b64 %off_in, %off_in, 2", "shl.b64 %off_in, %off_in, 3")
         .replace(
@@ -107,6 +112,27 @@ pub(crate) fn ptx_f32_to_f64(
         )
         .replace("shl.b64 %off_a, %off_a, 2", "shl.b64 %off_a, %off_a, 3")
         .replace("shl.b64 %off_b, %off_b, 2", "shl.b64 %off_b, %off_b, 3")
+        .replace(
+            "shl.b64 %row_off, %row_off, 2",
+            "shl.b64 %row_off, %row_off, 3",
+        )
+        // Reciprocal / division / sqrt: PTX has no `*.approx.f64`
+        // forms — promote to the full-precision IEEE `.rn.f64` rounded
+        // forms (loses the f32-style 2^-22 approximation but gains
+        // correct rounding; the layernorm_backward / rmsnorm_backward
+        // f32 templates use `rcp.approx.f32`, `div.approx.f32`,
+        // `sqrt.approx.f32` and the converter lifts them all to `.rn.f64`).
+        .replace("rcp.approx.f32", "rcp.rn.f64")
+        .replace("div.approx.f32", "div.rn.f64")
+        .replace("sqrt.approx.f32", "sqrt.rn.f64")
+        // PTX `.target sm_52` allows f32 atomics but rejects
+        // `atom.add.f64.global` — that instruction requires sm_60+.
+        // Lift the converted f64 PTX target so kernels that use
+        // atomic-f64 (e.g., layernorm_backward, rmsnorm_backward
+        // accumulating per-column grads) compile. RTX 30-series and
+        // newer (sm_75+) all satisfy this; the f32 template stays at
+        // sm_52 for maximum portability.
+        .replace(".target sm_52", ".target sm_60")
         // Atomics
         .replace("atom.global.add.f32", "atom.global.add.f64")
         // Common float hex literals
@@ -2748,8 +2774,9 @@ pub(crate) const MISH_F64_PTX: &str = "\
     // log subroutine regs
     .reg .u64 %l_xbits, %l_mbits, %l_bias;
     .reg .s64 %l_exp64;
-    .reg .f64 %l_m, %l_f, %l_f2, %l_s, %l_p, %l_nf, %l_ln2;
-    .reg .pred %p, %large;
+    .reg .f64 %l_m, %l_f, %l_f2, %l_s, %l_p, %l_nf;
+    .reg .f64 %l_ln2_hi, %l_ln2_lo, %l_sqrt2, %l_half_const;
+    .reg .pred %p, %large, %p_shift;
 
     ld.param.u64 %a, [a_ptr];
     ld.param.u64 %out, [out_ptr];
@@ -2805,7 +2832,7 @@ pub(crate) const MISH_F64_PTX: &str = "\
     // ep1 = 1 + exp(x)
     add.f64 %ep1, %ex, %one;
 
-    // ln(ep1) via argument reduction
+    // ln(ep1) via half-step argument reduction (#783 cluster fix)
     mov.b64 %l_xbits, %ep1;
     shr.u64 %l_exp64, %l_xbits, 52;
     and.b64 %l_exp64, %l_exp64, 2047;
@@ -2815,20 +2842,31 @@ pub(crate) const MISH_F64_PTX: &str = "\
     and.b64 %l_mbits, %l_xbits, 0x000FFFFFFFFFFFFF;
     or.b64 %l_mbits, %l_mbits, %l_bias;
     mov.b64 %l_m, %l_mbits;
+    // Half-step: m > sqrt(2) -> m/=2, n+=1
+    mov.f64 %l_sqrt2, 0d3FF6A09E667F3BCD;
+    mov.f64 %l_half_const, 0d3FE0000000000000;
+    setp.gt.f64 %p_shift, %l_m, %l_sqrt2;
+    @%p_shift mul.f64 %l_m, %l_m, %l_half_const;
+    @%p_shift add.f64 %l_nf, %l_nf, %one;
     sub.f64 %l_f, %l_m, %one;
     add.f64 %l_s, %l_m, %one;
     div.rn.f64 %l_f, %l_f, %l_s;
     mul.f64 %l_f2, %l_f, %l_f;
-    mov.f64 %l_p, 0d3FB745D1745D1746;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;
+    // Degree-7 odd-power Horner (was degree-5; #783 cluster fix).
+    mov.f64 %l_p, 0d3FB1111111111111;          // 1/15
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FB3B13B13B13B14;  // 1/13
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FB745D1745D1746;  // 1/11
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;  // 1/9
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;  // 1/7
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;  // 1/5
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;  // 1/3
     fma.rn.f64 %l_p, %l_p, %l_f2, %one;
     mul.f64 %l_p, %l_p, %l_f;
     add.f64 %l_p, %l_p, %l_p;
-    mov.f64 %l_ln2, 0d3FE62E42FEFA39EF;
-    fma.rn.f64 %sp, %l_nf, %l_ln2, %l_p;
+    mov.f64 %l_ln2_hi, 0d3FE62E42FEFA3800;
+    mov.f64 %l_ln2_lo, 0d3D2EF35793C76730;
+    fma.rn.f64 %sp, %l_nf, %l_ln2_hi, %l_p;
+    fma.rn.f64 %sp, %l_nf, %l_ln2_lo, %sp;
 
     // === tanh(sp) = (exp(2*sp)-1)/(exp(2*sp)+1) ===
     add.f64 %two_sp, %sp, %sp;
@@ -3045,8 +3083,9 @@ pub(crate) const MISH_BACKWARD_F64_PTX: &str = "\
     // log subroutine regs
     .reg .u64 %l_xbits, %l_mbits, %l_bias;
     .reg .s64 %l_exp64;
-    .reg .f64 %l_m, %l_f, %l_f2, %l_s, %l_p, %l_nf, %l_ln2;
-    .reg .pred %p, %large;
+    .reg .f64 %l_m, %l_f, %l_f2, %l_s, %l_p, %l_nf;
+    .reg .f64 %l_ln2_hi, %l_ln2_lo, %l_sqrt2, %l_half_const;
+    .reg .pred %p, %large, %p_shift;
 
     ld.param.u64 %grad, [grad_ptr];
     ld.param.u64 %input, [input_ptr];
@@ -3104,7 +3143,7 @@ pub(crate) const MISH_BACKWARD_F64_PTX: &str = "\
 
     add.f64 %ep1, %ex, %one;
 
-    // ln(ep1) via argument reduction
+    // ln(ep1) via half-step argument reduction (#783 cluster fix)
     mov.b64 %l_xbits, %ep1;
     shr.u64 %l_exp64, %l_xbits, 52;
     and.b64 %l_exp64, %l_exp64, 2047;
@@ -3114,20 +3153,30 @@ pub(crate) const MISH_BACKWARD_F64_PTX: &str = "\
     and.b64 %l_mbits, %l_xbits, 0x000FFFFFFFFFFFFF;
     or.b64 %l_mbits, %l_mbits, %l_bias;
     mov.b64 %l_m, %l_mbits;
+    mov.f64 %l_sqrt2, 0d3FF6A09E667F3BCD;
+    mov.f64 %l_half_const, 0d3FE0000000000000;
+    setp.gt.f64 %p_shift, %l_m, %l_sqrt2;
+    @%p_shift mul.f64 %l_m, %l_m, %l_half_const;
+    @%p_shift add.f64 %l_nf, %l_nf, %one;
     sub.f64 %l_f, %l_m, %one;
     add.f64 %l_s, %l_m, %one;
     div.rn.f64 %l_f, %l_f, %l_s;
     mul.f64 %l_f2, %l_f, %l_f;
-    mov.f64 %l_p, 0d3FB745D1745D1746;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;
+    // Degree-7 odd-power Horner (was degree-5; #783 cluster fix).
+    mov.f64 %l_p, 0d3FB1111111111111;          // 1/15
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FB3B13B13B13B14;  // 1/13
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FB745D1745D1746;  // 1/11
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;  // 1/9
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;  // 1/7
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;  // 1/5
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;  // 1/3
     fma.rn.f64 %l_p, %l_p, %l_f2, %one;
     mul.f64 %l_p, %l_p, %l_f;
     add.f64 %l_p, %l_p, %l_p;
-    mov.f64 %l_ln2, 0d3FE62E42FEFA39EF;
-    fma.rn.f64 %sp, %l_nf, %l_ln2, %l_p;
+    mov.f64 %l_ln2_hi, 0d3FE62E42FEFA3800;
+    mov.f64 %l_ln2_lo, 0d3D2EF35793C76730;
+    fma.rn.f64 %sp, %l_nf, %l_ln2_hi, %l_p;
+    fma.rn.f64 %sp, %l_nf, %l_ln2_lo, %sp;
 
     // === tanh(sp) ===
     add.f64 %two_sp, %sp, %sp;
@@ -4590,7 +4639,9 @@ pub(crate) const LOG_SOFTMAX_F64_PTX: &str = "\
     .reg .s64 %e_ni64, %e_bits;\n\
     .reg .u64 %l_xbits, %l_mbits, %l_bias;\n\
     .reg .s64 %l_exp64;\n\
-    .reg .f64 %l_m, %l_f, %l_f2, %l_s, %l_p, %l_nf, %l_ln2;\n\
+    .reg .f64 %l_m, %l_f, %l_f2, %l_s, %l_p, %l_nf;\n\
+    .reg .f64 %l_ln2_hi, %l_ln2_lo, %l_sqrt2, %l_half_const;\n\
+    .reg .pred %p_shift;\n\
 \n\
     ld.param.u64 %in, [input_ptr];\n\
     ld.param.u64 %out, [output_ptr];\n\
@@ -4738,11 +4789,18 @@ SUM_REDUCE_DONE:\n\
     and.b64 %l_mbits, %l_xbits, 0x000FFFFFFFFFFFFF;\n\
     or.b64 %l_mbits, %l_mbits, %l_bias;\n\
     mov.b64 %l_m, %l_mbits;\n\
+    mov.f64 %l_sqrt2, 0d3FF6A09E667F3BCD;\n\
+    mov.f64 %l_half_const, 0d3FE0000000000000;\n\
+    setp.gt.f64 %p_shift, %l_m, %l_sqrt2;\n\
+    @%p_shift mul.f64 %l_m, %l_m, %l_half_const;\n\
+    @%p_shift add.f64 %l_nf, %l_nf, %e_one;\n\
     sub.f64 %l_f, %l_m, %e_one;\n\
     add.f64 %l_s, %l_m, %e_one;\n\
     div.rn.f64 %l_f, %l_f, %l_s;\n\
     mul.f64 %l_f2, %l_f, %l_f;\n\
-    mov.f64 %l_p, 0d3FB745D1745D1746;\n\
+    mov.f64 %l_p, 0d3FB1111111111111;\n\
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FB3B13B13B13B14;\n\
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FB745D1745D1746;\n\
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;\n\
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;\n\
     fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;\n\
@@ -4750,8 +4808,10 @@ SUM_REDUCE_DONE:\n\
     fma.rn.f64 %l_p, %l_p, %l_f2, %e_one;\n\
     mul.f64 %l_p, %l_p, %l_f;\n\
     add.f64 %l_p, %l_p, %l_p;\n\
-    mov.f64 %l_ln2, 0d3FE62E42FEFA39EF;\n\
-    fma.rn.f64 %log_sum_exp, %l_nf, %l_ln2, %l_p;\n\
+    mov.f64 %l_ln2_hi, 0d3FE62E42FEFA3800;\n\
+    mov.f64 %l_ln2_lo, 0d3D2EF35793C76730;\n\
+    fma.rn.f64 %log_sum_exp, %l_nf, %l_ln2_hi, %l_p;\n\
+    fma.rn.f64 %log_sum_exp, %l_nf, %l_ln2_lo, %log_sum_exp;\n\
     add.f64 %log_sum_exp, %max_val, %log_sum_exp;\n\
 \n\
     mov.u32 %j, %r_tid;\n\
@@ -5010,7 +5070,7 @@ WRITE_LOOP:\n\
     add.u64 %saddr, %output, %off;\n\
     add.u64 %saddr, %saddr, %row_off;\n\
     ld.global.f64 %vo, [%saddr];\n\
-    // exp(log_softmax_output) — inline f64 exp\n\
+    // exp(log_softmax_output) -- inline f64 exp\n\
     mov.f64 %e_one, 0d3FF0000000000000;\n\
     mov.f64 %e_half, 0d3FE0000000000000;\n\
     mul.f64 %e_nf, %vo, 0d3FF71547652B82FE;\n\
@@ -6517,7 +6577,9 @@ pub(crate) const LOGCUMSUMEXP_F64_PTX: &str = "\
     .reg .s64 %e_ni64, %e_bits;
     .reg .u64 %l_xbits, %l_mbits, %l_bias;
     .reg .s64 %l_exp64;
-    .reg .f64 %l_m, %l_f, %l_f2, %l_s, %l_p, %l_nf, %l_ln2;
+    .reg .f64 %l_m, %l_f, %l_f2, %l_s, %l_p, %l_nf;
+    .reg .f64 %l_ln2_hi, %l_ln2_lo, %l_sqrt2, %l_half_const;
+    .reg .pred %p_shift;
 
     ld.param.u64 %in, [input_ptr];
     ld.param.u64 %out, [output_ptr];
@@ -6609,7 +6671,7 @@ SCAN_LOOP:
     mov.b64 %e_nf, %e_bits;
     mul.f64 %ev, %ev, %e_nf;
     add.f64 %s, %ea, %ev;
-    // --- inline ln(%s) -> %ls ---
+    // --- inline ln(%s) -> %ls (#783 cluster fix: half-step + degree-7 + 2-double ln2) ---
     mov.b64 %l_xbits, %s;
     shr.u64 %l_exp64, %l_xbits, 52;
     and.b64 %l_exp64, %l_exp64, 2047;
@@ -6619,20 +6681,30 @@ SCAN_LOOP:
     and.b64 %l_mbits, %l_xbits, 0x000FFFFFFFFFFFFF;
     or.b64 %l_mbits, %l_mbits, %l_bias;
     mov.b64 %l_m, %l_mbits;
+    mov.f64 %l_sqrt2, 0d3FF6A09E667F3BCD;
+    mov.f64 %l_half_const, 0d3FE0000000000000;
+    setp.gt.f64 %p_shift, %l_m, %l_sqrt2;
+    @%p_shift mul.f64 %l_m, %l_m, %l_half_const;
+    @%p_shift add.f64 %l_nf, %l_nf, %e_one;
     sub.f64 %l_f, %l_m, %e_one;
     add.f64 %l_s, %l_m, %e_one;
     div.rn.f64 %l_f, %l_f, %l_s;
     mul.f64 %l_f2, %l_f, %l_f;
-    mov.f64 %l_p, 0d3FB745D1745D1746;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;
+    // Degree-7 odd-power Horner (was degree-5; #783 cluster fix).
+    mov.f64 %l_p, 0d3FB1111111111111;          // 1/15
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FB3B13B13B13B14;  // 1/13
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FB745D1745D1746;  // 1/11
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;  // 1/9
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;  // 1/7
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;  // 1/5
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;  // 1/3
     fma.rn.f64 %l_p, %l_p, %l_f2, %e_one;
     mul.f64 %l_p, %l_p, %l_f;
     add.f64 %l_p, %l_p, %l_p;
-    mov.f64 %l_ln2, 0d3FE62E42FEFA39EF;
-    fma.rn.f64 %ls, %l_nf, %l_ln2, %l_p;
+    mov.f64 %l_ln2_hi, 0d3FE62E42FEFA3800;
+    mov.f64 %l_ln2_lo, 0d3D2EF35793C76730;
+    fma.rn.f64 %ls, %l_nf, %l_ln2_hi, %l_p;
+    fma.rn.f64 %ls, %l_nf, %l_ln2_lo, %ls;
     add.f64 %acc, %m, %ls;
 
     add.u64 %addr, %out, %off;
@@ -9669,11 +9741,11 @@ pub(crate) const LOG_F64_PTX: &str = "\
     .reg .u64 %a, %out, %off;
     .reg .u64 %xbits, %mantissa_bits, %bias_bits;
     .reg .f64 %x, %vr, %m, %f, %f2, %s, %p;
-    .reg .f64 %ln2_hi, %ln2_lo, %one, %two;
+    .reg .f64 %ln2_hi, %ln2_lo, %one, %two, %sqrt2, %half_const;
     .reg .s32 %exp_i;
     .reg .s64 %exp64;
     .reg .f64 %nf;
-    .reg .pred %p_tid;
+    .reg .pred %p_tid, %p_shift;
 
     ld.param.u64 %a, [a_ptr];
     ld.param.u64 %out, [out_ptr];
@@ -9694,7 +9766,8 @@ pub(crate) const LOG_F64_PTX: &str = "\
 
     ld.global.f64 %x, [%a];
 
-    mov.f64 %ln2_hi, 0d3FE62E42FEFA39EF;   // ln(2) = 0.6931471805599453
+    mov.f64 %ln2_hi, 0d3FE62E42FEFA3800;    // hi of ln(2) Cody-Waite split
+    mov.f64 %ln2_lo, 0d3D2EF35793C76730;    // lo of ln(2) Cody-Waite split
     mov.f64 %one, 0d3FF0000000000000;
     mov.f64 %two, 0d4000000000000000;
 
@@ -9711,34 +9784,37 @@ pub(crate) const LOG_F64_PTX: &str = "\
     or.b64 %mantissa_bits, %mantissa_bits, %bias_bits;
     mov.b64 %m, %mantissa_bits;      // m in [1.0, 2.0)
 
-    // f = (m - 1) / (m + 1) — maps [1,2) to [0, 1/3)
+    // Half-step: if m > sqrt(2), halve m and bump n by 1 to restrict
+    // m to [sqrt(2)/2, sqrt(2)) and |f| <= ~0.172.
+    mov.f64 %sqrt2, 0d3FF6A09E667F3BCD;
+    mov.f64 %half_const, 0d3FE0000000000000;
+    setp.gt.f64 %p_shift, %m, %sqrt2;
+    @%p_shift mul.f64 %m, %m, %half_const;
+    @%p_shift add.f64 %nf, %nf, %one;
+
+    // f = (m - 1) / (m + 1), |f| <= ~0.172 after half-step
     sub.f64 %f, %m, %one;
     add.f64 %s, %m, %one;
     div.rn.f64 %f, %f, %s;
 
-    // ln(m) = 2*f + 2*f^3/3 + 2*f^5/5 + 2*f^7/7 + 2*f^9/9 + 2*f^11/11
-    // Horner: ln(m) = 2*f*(1 + f^2*(1/3 + f^2*(1/5 + f^2*(1/7 + f^2*(1/9 + f^2/11)))))
+    // Degree-7 odd-power Horner (extra 1/13, 1/15 vs degree-5).
     mul.f64 %f2, %f, %f;
-
-    // p = 1/11
-    mov.f64 %p, 0d3FB745D1745D1746;
-    // p = p*f2 + 1/9
-    fma.rn.f64 %p, %p, %f2, 0d3FBC71C71C71C71C;
-    // p = p*f2 + 1/7
-    fma.rn.f64 %p, %p, %f2, 0d3FC2492492492492;
-    // p = p*f2 + 1/5
-    fma.rn.f64 %p, %p, %f2, 0d3FC999999999999A;
-    // p = p*f2 + 1/3
-    fma.rn.f64 %p, %p, %f2, 0d3FD5555555555555;
-    // p = p*f2 + 1
+    mov.f64 %p, 0d3FB1111111111111;          // 1/15
+    fma.rn.f64 %p, %p, %f2, 0d3FB3B13B13B13B14;  // 1/13
+    fma.rn.f64 %p, %p, %f2, 0d3FB745D1745D1746;  // 1/11
+    fma.rn.f64 %p, %p, %f2, 0d3FBC71C71C71C71C;  // 1/9
+    fma.rn.f64 %p, %p, %f2, 0d3FC2492492492492;  // 1/7
+    fma.rn.f64 %p, %p, %f2, 0d3FC999999999999A;  // 1/5
+    fma.rn.f64 %p, %p, %f2, 0d3FD5555555555555;  // 1/3
     fma.rn.f64 %p, %p, %f2, %one;
 
     // ln(m) = 2*f*p
     mul.f64 %p, %p, %f;
     add.f64 %p, %p, %p;   // * 2
 
-    // ln(x) = n*ln(2) + ln(m)
+    // ln(x) = n*ln(2) + ln(m), with 2-double ln(2) for the n term.
     fma.rn.f64 %vr, %nf, %ln2_hi, %p;
+    fma.rn.f64 %vr, %nf, %ln2_lo, %vr;
 
     st.global.f64 [%out], %vr;
 
@@ -9843,8 +9919,18 @@ DONE:
 
 /// PTX source for `pow_f64_kernel`: `out[i] = a[i] ^ exponent` (f64).
 /// Full f64 precision: x^e = exp(e * ln(x)).
-/// Uses inline f64 log (argument reduction + odd-power series) and
-/// inline f64 exp (Cody-Waite + degree-11 Horner).
+/// Uses inline f64 log (half-step argument reduction + degree-7 odd-power
+/// series + 2-double ln(2) reconstruction) and inline f64 exp
+/// (Cody-Waite + degree-11 Horner).
+///
+/// The log polynomial uses half-step argument reduction: when m > sqrt(2),
+/// we shift `m -> m/2` and increment the exponent component, restricting
+/// the substitution `f = (m-1)/(m+1)` to |f| <= (sqrt(2)-1)/(sqrt(2)+1)
+/// ~ 0.172 instead of the previous |f| <= 1/3 ~ 0.333. Combined with
+/// extending the Horner polynomial from degree-5 to degree-7 and replacing
+/// the single-double ln(2) reconstruction with a 2-double Cody-Waite split,
+/// this brings worst-case relative error from ~9e-6 (for `pow(0.99, 100)`)
+/// to within `F64_TRANSCENDENTAL = 1e-10` across the supported range.
 #[cfg(feature = "cuda")]
 pub(crate) const POW_F64_PTX: &str = "\
 .version 7.0
@@ -9863,7 +9949,9 @@ pub(crate) const POW_F64_PTX: &str = "\
     // log registers
     .reg .u64 %l_xbits, %l_mbits, %l_bias;
     .reg .s64 %l_exp64;
-    .reg .f64 %l_m, %l_f, %l_f2, %l_s, %l_p, %l_nf, %l_ln2, %l_lnx;
+    .reg .f64 %l_m, %l_f, %l_f2, %l_s, %l_p, %l_nf;
+    .reg .f64 %l_ln2_hi, %l_ln2_lo, %l_lnx, %l_sqrt2, %l_half_const;
+    .reg .pred %p_shift;
     // exp registers
     .reg .f64 %e_z, %e_nf, %e_r, %e_p, %e_half;
     .reg .s32 %e_ni;
@@ -9894,7 +9982,9 @@ pub(crate) const POW_F64_PTX: &str = "\
     mov.f64 %two, 0d4000000000000000;
 
     // === ln(va) via argument reduction ===
-    // Decompose va = 2^n * m, m in [1,2), ln(va) = n*ln(2) + ln(m)
+    // Decompose va = 2^n * m, m in [1,2). Then half-step reduce: if
+    // m > sqrt(2), set m <- m/2 and n <- n+1, so m ends up in
+    // [sqrt(2)/2, sqrt(2)) and |f| = |(m-1)/(m+1)| <= ~0.172.
     mov.b64 %l_xbits, %va;
     shr.u64 %l_exp64, %l_xbits, 52;
     and.b64 %l_exp64, %l_exp64, 2047;
@@ -9906,27 +9996,44 @@ pub(crate) const POW_F64_PTX: &str = "\
     or.b64 %l_mbits, %l_mbits, %l_bias;
     mov.b64 %l_m, %l_mbits;
 
-    // f = (m-1)/(m+1)
+    // Half-step: if m > sqrt(2), halve m and bump n by 1 (in the f64
+    // count register; the integer exp64 is no longer used after this).
+    mov.f64 %l_sqrt2, 0d3FF6A09E667F3BCD;
+    mov.f64 %l_half_const, 0d3FE0000000000000;
+    setp.gt.f64 %p_shift, %l_m, %l_sqrt2;
+    @%p_shift mul.f64 %l_m, %l_m, %l_half_const;
+    @%p_shift add.f64 %l_nf, %l_nf, %one;
+
+    // f = (m-1)/(m+1), |f| <= ~0.172 after half-step reduction
     sub.f64 %l_f, %l_m, %one;
     add.f64 %l_s, %l_m, %one;
     div.rn.f64 %l_f, %l_f, %l_s;
     mul.f64 %l_f2, %l_f, %l_f;
 
-    // Horner: p = 1/11 + f2*(1/9 + f2*(1/7 + f2*(1/5 + f2*(1/3 + f2*1))))
-    mov.f64 %l_p, 0d3FB745D1745D1746;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;
-    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;
+    // Degree-7 odd-power Horner: p = sum_{k=0..6} f^(2k) / (2k+1).
+    // Extra terms beyond degree-5 are 1/13 and 1/15.
+    // p = 1/15 + f2*(1/13 + f2*(1/11 + f2*(1/9 + f2*(1/7 + f2*(1/5 + f2*(1/3 + f2*1))))))
+    mov.f64 %l_p, 0d3FB1111111111111;          // 1/15
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FB3B13B13B13B14;  // 1/13
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FB745D1745D1746;  // 1/11
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FBC71C71C71C71C;  // 1/9
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC2492492492492;  // 1/7
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FC999999999999A;  // 1/5
+    fma.rn.f64 %l_p, %l_p, %l_f2, 0d3FD5555555555555;  // 1/3
     fma.rn.f64 %l_p, %l_p, %l_f2, %one;
 
     // ln(m) = 2*f*p
     mul.f64 %l_p, %l_p, %l_f;
     add.f64 %l_p, %l_p, %l_p;
 
-    // ln(x) = n*ln(2) + ln(m)
-    mov.f64 %l_ln2, 0d3FE62E42FEFA39EF;
-    fma.rn.f64 %l_lnx, %l_nf, %l_ln2, %l_p;
+    // ln(x) = n*ln(2) + ln(m), where ln(2) is split into hi+lo
+    // (Cody-Waite 2-double form) so the n*ln(2) reconstruction is
+    // accurate to ~106 bits before adding ln(m). The hi/lo split is
+    // the same as used inside the exp argument reduction below.
+    mov.f64 %l_ln2_hi, 0d3FE62E42FEFA3800;
+    mov.f64 %l_ln2_lo, 0d3D2EF35793C76730;
+    fma.rn.f64 %l_lnx, %l_nf, %l_ln2_hi, %l_p;
+    fma.rn.f64 %l_lnx, %l_nf, %l_ln2_lo, %l_lnx;
 
     // === exp(exponent * ln(x)) ===
     mul.f64 %e_z, %exp64, %l_lnx;
@@ -16128,6 +16235,29 @@ pub fn gpu_relu_backward_f64(
     try_launch_binary_f64(grad, input, device, ptx, "relu_backward_f64_kernel")
 }
 
+/// Abs backward (f64): `out[i] = grad[i] * sign(input[i])` with `sign(0) = 0`.
+#[cfg(feature = "cuda")]
+pub fn gpu_abs_backward_f64(
+    grad: &CudaBuffer<f64>,
+    input: &CudaBuffer<f64>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    if grad.len() != input.len() {
+        return Err(GpuError::LengthMismatch {
+            a: grad.len(),
+            b: input.len(),
+        });
+    }
+    let ptx = get_f64_ptx(
+        &CACHE,
+        ABS_BACKWARD_PTX,
+        "abs_backward_kernel",
+        "abs_backward_f64_kernel",
+    );
+    try_launch_binary_f64(grad, input, device, ptx, "abs_backward_f64_kernel")
+}
+
 /// Sigmoid backward (f64): `out[i] = grad[i] * output[i] * (1 - output[i])`.
 #[cfg(feature = "cuda")]
 pub fn gpu_sigmoid_backward_f64(
@@ -21472,6 +21602,14 @@ pub fn gpu_tanh_f64(_a: &CudaBuffer<f64>, _device: &GpuDevice) -> GpuResult<Cuda
 }
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_relu_backward_f64(
+    _grad: &CudaBuffer<f64>,
+    _input: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_abs_backward_f64(
     _grad: &CudaBuffer<f64>,
     _input: &CudaBuffer<f64>,
     _device: &GpuDevice,

@@ -2233,33 +2233,21 @@ mod gpu {
                         expected,
                         tolerance::F64_GPU,
                     );
-                    // The `abs` op's f64 GPU backward (`abs_backward_f64`) is
-                    // not yet implemented — a *separate* gap from the
-                    // `fill_f64` (#780, fixed) gap that previously masked it.
-                    // The `neg` and `sqrt` f64 GPU backward kernels are
-                    // present, so their grad lanes run live; `abs` skips
-                    // until its backward kernel lands. Tracked in #782
-                    // alongside 12 other `*_backward_f64` stubs that the
-                    // #780 fix unmasked.
-                    if op_name == "abs" {
-                        eprintln!(
-                            "[conformance:phase2.1] skipping f64 GPU autograd lane for {label} \
-                             — `abs_backward_f64` (#782) GPU op not yet implemented; forward path \
-                             verified."
-                        );
-                        let _ = grad_a_exp;
-                    } else {
-                        let a_g = upload_f64(make_cpu_f64(a_data, shape, true), Device::Cuda(0));
-                        let out = op.apply_f64(&a_g);
-                        grad_sum(&out).expect("sum").backward().expect("backward");
-                        let ga = a_g.grad().unwrap().expect("grad_a");
-                        check_f64(
-                            &format!("{label} grad_a"),
-                            &read_back_f64(&ga),
-                            grad_a_exp,
-                            tolerance::F64_GPU,
-                        );
-                    }
+                    // #782 fixed: `abs_backward_f64` (and the other
+                    // *_backward_f64 ops counted in the umbrella issue)
+                    // are now implemented; the f64 GPU autograd lane
+                    // runs live for every unary op including `abs`.
+                    let _ = op_name;
+                    let a_g = upload_f64(make_cpu_f64(a_data, shape, true), Device::Cuda(0));
+                    let out = op.apply_f64(&a_g);
+                    grad_sum(&out).expect("sum").backward().expect("backward");
+                    let ga = a_g.grad().unwrap().expect("grad_a");
+                    check_f64(
+                        &format!("{label} grad_a"),
+                        &read_back_f64(&ga),
+                        grad_a_exp,
+                        tolerance::F64_GPU,
+                    );
                 }
                 _ => unreachable!(),
             }
@@ -2322,29 +2310,32 @@ mod gpu {
                 }
                 "float64" => {
                     // #781 fixed: PTX JIT now compiles for the f64 pow
-                    // kernel — the hand-written inline `log + exp`
-                    // template had a malformed 17-hex-digit f64 literal
-                    // (`ptxas` rejected it) plus an off-by-one factorial
-                    // shift in the exp polynomial coefficients. Both
-                    // corrected.
-                    //
-                    // #783 surfaced: the kernel JIT-compiles and runs,
-                    // but degree-5 odd-power `ln` + degree-11 Horner
-                    // `exp` produces ~5–7 ULP relative error vs.
-                    // libm in the worst case (bases near 1.0). This
-                    // exceeds the workspace `F64_TRANSCENDENTAL = 1e-10`
-                    // tolerance for some fixtures. The f64 GPU pow lane
-                    // is skipped pending the precision improvement
-                    // tracked in #783; the f32 GPU pow path is verified
-                    // above and the JIT-compile sentinel runs in
-                    // `ferrotorch-gpu/tests/_probe_pow_f64.rs`.
-                    eprintln!(
-                        "[conformance:phase2.1] skipping f64 GPU pow value-equality \
-                         lane for {label} — kernel JIT-compiles (#781 fixed) but \
-                         inline log+exp accuracy is ~5–7 ULP, exceeding \
-                         F64_TRANSCENDENTAL=1e-10 (#783)."
+                    // kernel.
+                    // #783 fixed: the inline log+exp template was tightened
+                    // (half-step argument reduction restricting |f| from
+                    // ~1/3 to ~0.172, degree-7 odd-power Horner instead of
+                    // degree-5, and a 2-double Cody-Waite split for the
+                    // n*ln(2) reconstruction step). Worst-case relative
+                    // error is now ~few-ULP across the supported range,
+                    // well inside `F64_TRANSCENDENTAL = 1e-10`.
+                    let a = upload_f64(make_cpu_f64(a_data, shape, false), Device::Cuda(0));
+                    let c = pow(&a, exp).expect("pow");
+                    check_f64(
+                        &format!("{label} fwd"),
+                        &read_back_f64(&c),
+                        expected,
+                        tolerance::F64_TRANSCENDENTAL,
                     );
-                    let _ = (expected, grad_a_exp);
+                    let a_g = upload_f64(make_cpu_f64(a_data, shape, true), Device::Cuda(0));
+                    let out = pow(&a_g, exp).expect("pow");
+                    grad_sum(&out).expect("sum").backward().expect("backward");
+                    let ga = a_g.grad().unwrap().expect("grad_a");
+                    check_f64(
+                        &format!("{label} grad_a"),
+                        &read_back_f64(&ga),
+                        grad_a_exp,
+                        tolerance::F64_TRANSCENDENTAL,
+                    );
                 }
                 _ => unreachable!(),
             }

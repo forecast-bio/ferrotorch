@@ -119,3 +119,84 @@ fn pow_f64_values_match_reference_cubed_ten() {
         result[0],
     );
 }
+
+// ---------------------------------------------------------------------------
+// #783 strict-tolerance regression sentinels
+// ---------------------------------------------------------------------------
+// The four sub-cases below assert the kernel matches `f64::powf` to within
+// `F64_TRANSCENDENTAL = 1e-10` (the workspace tolerance for transcendentals
+// against libm). Pre-#783 this was achievable only for "easy" cases; the
+// inline log+exp path produced ~1.4e-8 relative error for `pow(0.9, 1.0)`
+// and ~9e-6 for `pow(0.99, 100.0)`. Post-#783 (half-step argument reduction
+// + degree-7 Horner + 2-double Cody-Waite ln(2) reconstruction) all cases
+// land within ~few-ULP of the reference, well inside 1e-10.
+
+const F64_TRANSCENDENTAL: f64 = 1e-10;
+
+fn assert_strict(label: &str, got: f64, want: f64) {
+    let abs_err = (got - want).abs();
+    let rel_err = abs_err / want.abs().max(1e-300);
+    assert!(
+        abs_err < F64_TRANSCENDENTAL || rel_err < F64_TRANSCENDENTAL,
+        "{label}: got {got} want {want} abs_err={abs_err:.3e} rel_err={rel_err:.3e} \
+         (#783 sentinel: must be inside F64_TRANSCENDENTAL=1e-10)",
+    );
+}
+
+#[test]
+fn pow_f64_strict_tolerance_squared() {
+    ensure_cuda();
+    let result = pow_f64_or_dump(&[2.0], 2.0);
+    assert_strict("pow_f64(2.0, 2.0) strict", result[0], (2.0_f64).powf(2.0));
+}
+
+#[test]
+fn pow_f64_strict_tolerance_sqrt() {
+    ensure_cuda();
+    let result = pow_f64_or_dump(&[4.0], 0.5);
+    assert_strict("pow_f64(4.0, 0.5) strict", result[0], (4.0_f64).powf(0.5));
+}
+
+#[test]
+fn pow_f64_strict_tolerance_reciprocal() {
+    ensure_cuda();
+    let result = pow_f64_or_dump(&[2.0], -1.0);
+    assert_strict("pow_f64(2.0, -1.0) strict", result[0], (2.0_f64).powf(-1.0));
+}
+
+#[test]
+fn pow_f64_strict_tolerance_cubed_ten() {
+    // Same case as `_cubed_ten` above but with the strict
+    // F64_TRANSCENDENTAL tolerance instead of the historical 1e-7.
+    ensure_cuda();
+    let result = pow_f64_or_dump(&[10.0], 3.0);
+    assert_strict("pow_f64(10.0, 3.0) strict", result[0], (10.0_f64).powf(3.0));
+}
+
+#[test]
+fn pow_f64_edge_bases_near_one_09() {
+    // pow(0.9, 1.0) — the worst-case identity-function error pre-#783
+    // (1.4e-8 rel). Post-#783: exact (rounding-only).
+    ensure_cuda();
+    let result = pow_f64_or_dump(&[0.9], 1.0);
+    assert_strict("pow_f64(0.9, 1.0)", result[0], (0.9_f64).powf(1.0));
+}
+
+#[test]
+fn pow_f64_edge_bases_near_one_15() {
+    // pow(1.5, 2.0) — base near sqrt(2) where the half-step reduction
+    // toggle activates. Pre-#783: 2.6e-10 rel; post-#783: 1e-15 rel.
+    ensure_cuda();
+    let result = pow_f64_or_dump(&[1.5], 2.0);
+    assert_strict("pow_f64(1.5, 2.0)", result[0], (1.5_f64).powf(2.0));
+}
+
+#[test]
+fn pow_f64_edge_bases_near_one_099_100() {
+    // pow(0.99, 100.0) — large-exponent magnification of small log
+    // error. Pre-#783: 8.93e-6 rel (worst case in this probe set).
+    // Post-#783: ~few-ULP relative.
+    ensure_cuda();
+    let result = pow_f64_or_dump(&[0.99], 100.0);
+    assert_strict("pow_f64(0.99, 100.0)", result[0], (0.99_f64).powf(100.0));
+}
