@@ -1,0 +1,11 @@
+{
+  "uuid": "7b5718ae-55c9-47fd-8db7-bafcdd4b6c42",
+  "display_id": 792,
+  "title": "ferrotorch-core: special::erf / erfc / digamma / gelu_none f64 polynomial approximation residual — surfaced by phase 2.5 (#767)",
+  "description": "Phase 2.5 conformance probe revealed CPU f64 erf/erfc/digamma/gelu(none) deviate from PyTorch reference at ~6e-8 (erf/erfc) and ~9e-10 (digamma) and ~5e-8 (gelu_none-via-erf) absolute error, exceeding F64_TRANSCENDENTAL = 1e-10. Root cause: ferrotorch-core/src/special.rs uses Abramowitz-Stegun 7.1.26 (documented |epsilon| <= 1.5e-7) for erf, and erf-based gelu_none inherits this. PyTorch uses libm's erf which is correctly-rounded to ~1 ulp. To close: replace the polynomial with a higher-order approximation (e.g. Cody-Hwang, Chebyshev expansion, or libm-equivalent rational) or wire libm's erf through num_traits when T = f64.",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T16:07:34.070394063Z",
+  "updated_at": "2026-05-06T16:07:34.070394063Z"
+}
