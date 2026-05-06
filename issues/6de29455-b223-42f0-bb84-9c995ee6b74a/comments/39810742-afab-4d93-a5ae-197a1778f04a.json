@@ -1,0 +1,10 @@
+{
+  "uuid": "39810742-afab-4d93-a5ae-197a1778f04a",
+  "issue_uuid": "6de29455-b223-42f0-bb84-9c995ee6b74a",
+  "author": "y4rr",
+  "content": "Cascade discovered by Phase 2.14 plumbing conformance suite. Test case: `cast::<f64, bf16>(1e300_f64)` is expected to return Err(InvalidArgument) per the cast contract (\"value not representable\"). Actual: returns Ok(bf16::INFINITY) because num_traits::NumCast for half::bf16 silently saturates to Infinity instead of returning None. The same call for f32 → bf16 with a value > bf16::MAX would saturate identically. Two possible fixes: (a) wrap NumCast<bf16> with an explicit finite-result check that errors on Infinity that wasn't already infinite in the source; (b) document this as a divergence from cast::<T,i32>(Infinity) semantics. The phase 2.14 test suite skips this case (huge → bf16) and only asserts the other expect_err cases until this is resolved.",
+  "created_at": "2026-05-06T18:27:14.534802079Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAVcc2rfVtoZfUxFoQKKLx3+BrqB0aiQ1LT2hmfAa9O9tRiFIHHtxPqqU0nCsdf4VjpCFmVRjjfsxqy79esKZ6BQ=="
+}
