@@ -2,11 +2,12 @@
   "uuid": "4334ae42-fd5b-46ba-a477-56b773ba6524",
   "display_id": 757,
   "title": "architect skill: generalize beyond ferrotorch + match the actual workflow cycle from this session",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-06T02:02:19.600646611Z",
-  "updated_at": "2026-05-06T02:02:21.100005199Z",
+  "updated_at": "2026-05-06T02:06:05.632003858Z",
+  "closed_at": "2026-05-06T02:06:05.632003858Z",
   "labels": [
     "skill"
   ]
