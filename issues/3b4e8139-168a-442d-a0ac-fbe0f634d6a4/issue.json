@@ -1,0 +1,11 @@
+{
+  "uuid": "3b4e8139-168a-442d-a0ac-fbe0f634d6a4",
+  "display_id": 789,
+  "title": "GPU f64 grad accumulation silently round-trips to CPU (sibling of #788)",
+  "description": "ferrotorch-core/src/tensor.rs:566 — gradient accumulation for f64 GPU tensors hits 'is_f32 &&' and falls through to CPU host-detour path, despite add_f64 being implemented on CudaBackendImpl. Same shape as #788: a forced f32-only branch causes the f64 path to skip the working override. Fix: extend the GPU branch to handle f64 via backend.add_f64().",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T14:47:15.331023723Z",
+  "updated_at": "2026-05-06T14:47:15.331023723Z"
+}
