@@ -1,0 +1,10 @@
+{
+  "uuid": "bdb8d23b-7c2a-49df-8210-161fca5ee105",
+  "display_id": 783,
+  "title": "ferrotorch-gpu: pow_f64 numerical accuracy gap — 5-7 ULP error from inline log+exp implementation; surfaced by #781 fix removing the JIT failure mask",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T13:01:49.106570236Z",
+  "updated_at": "2026-05-06T13:01:49.106570236Z"
+}
