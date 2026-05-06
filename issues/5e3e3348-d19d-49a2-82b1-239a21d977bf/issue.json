@@ -1,0 +1,11 @@
+{
+  "uuid": "5e3e3348-d19d-49a2-82b1-239a21d977bf",
+  "display_id": 809,
+  "title": "ferrotorch-core: RfftBackward / IrfftBackward / HfftBackward / IhfftBackward / RfftnBackward / IrfftnBackward missing N normalization scale — surfaced by phase 2.7 (#769)",
+  "description": "PyTorch's grad of rfft (and the rest of the real-only / Hermitian-only FFT ops) for a sum-of-real-plus-imag scalar loss differs from ferrotorch's by a multiplicative factor.\n\nConcretely, for x = arange(1..=8) f64 and L = sum(real(rfft(x))) + sum(imag(rfft(x))),\nPyTorch grad: [5, -2.4142, 1, -0.4142, 1, 0.4142, 1, 2.4142]\nferrotorch grad (RfftBackward): [1, -0.6036, 0, -0.1036, 0, 0.1036, 0, 0.6036]\nRatio: 5x = N/2 + 1 (the rfft K) — ferrotorch's irfft normalizes by 1/N which is the correct *forward* irfft semantic but the wrong VJP.\n\nPer torch.autograd FftR2CBackward, the correct VJP is unnormalized irfft (i.e. ferrotorch::fft::irfft(...) * N).\nSame pattern for IrfftBackward (rfft-of-grad needs *N), HfftBackward / IhfftBackward (similar mirror).\n\nAffected fixtures: cpu_rfft_differentiable, cpu_irfft_differentiable, cpu_rfftn_differentiable, cpu_irfftn_differentiable, cpu_hfft_differentiable.\nMitigation in phase 2.7 conformance: cascade_skip applied for these tag families.",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T16:52:34.786169186Z",
+  "updated_at": "2026-05-06T16:52:34.786169186Z"
+}
