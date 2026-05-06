@@ -2,11 +2,12 @@
   "uuid": "a428beaf-21c7-4ca9-b3fd-65e556a7f440",
   "display_id": 758,
   "title": "conformance suite phase 1: ferrotorch-tokenize — surface inventory + reference fixtures + bit-exact tests + strict coverage gate",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-06T02:27:07.897314594Z",
-  "updated_at": "2026-05-06T02:27:09.347029160Z",
+  "updated_at": "2026-05-06T02:39:56.208782289Z",
+  "closed_at": "2026-05-06T02:39:56.208782289Z",
   "labels": [
     "testing,conformance"
   ]
