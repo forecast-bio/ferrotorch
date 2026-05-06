@@ -1,0 +1,10 @@
+{
+  "uuid": "d633b4ab-27c8-45ac-977a-fd995a4b0ebe",
+  "issue_uuid": "82af9dd7-1b4a-49b9-b8cc-4e52694d79d5",
+  "author": "y4rr",
+  "content": "Surfaced by phase 2.2 conformance dispatch (#764). mean_dim_inner (ferrotorch-core/src/grad_fns/reduction.rs:1062) only handles the f32 GPU path because backend.scale_f64 is not yet declared/implemented; f64 inputs fall through to NotImplementedOnCuda. The f32 GPU path passes the conformance test. Fix: add scale_f64 to GpuBackend trait + cudarc impl, then mirror the f32 branch. Repro: cargo test -p ferrotorch-core --test conformance_reduction --features gpu gpu_mean_dim. Test #764 keeps GPU f64 mean_dim case marked with #[ignore = \"blocked on #788\"]; CPU + GPU f32 paths both pass.",
+  "created_at": "2026-05-06T14:16:11.248942281Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAp2TfIkK3cz+GXEe1VhAyS+nWgDsQc1B8gxCo5mah4Alr4vkcbjW+vhx5xX9mTs04ufiPRQDx6e6IMq28HI6ADw=="
+}
