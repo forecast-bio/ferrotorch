@@ -1,0 +1,10 @@
+{
+  "uuid": "23d0d5d5-f705-4855-acb7-2c43dbf5afe7",
+  "display_id": 820,
+  "title": "log_softmax_f64 GPU backward also double-exp's saved softmax buffer — #798 sibling; blocked behind #797",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T19:42:00.485491647Z",
+  "updated_at": "2026-05-06T19:42:00.485491647Z"
+}
