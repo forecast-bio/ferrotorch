@@ -2,11 +2,12 @@
   "uuid": "b08a97c9-ccf4-474d-8d9d-a66c8557a87d",
   "display_id": 811,
   "title": "Add Phase 2.11 conformance suite for flex_attention",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-06T18:14:43.734668930Z",
-  "updated_at": "2026-05-06T18:14:45.170055411Z",
+  "updated_at": "2026-05-06T18:24:57.602455902Z",
+  "closed_at": "2026-05-06T18:24:57.602455902Z",
   "labels": [
     "feature,conformance,rust"
   ]
