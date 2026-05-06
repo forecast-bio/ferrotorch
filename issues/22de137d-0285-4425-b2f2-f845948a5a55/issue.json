@@ -1,0 +1,10 @@
+{
+  "uuid": "22de137d-0285-4425-b2f2-f845948a5a55",
+  "display_id": 782,
+  "title": "ferrotorch-gpu: 13 *_backward_f64 GPU ops remain CPU-stubs (abs/relu/gelu/clamp/silu/elu/mish/log_softmax/sigmoid/tanh/softmax/layernorm/rmsnorm) — unmasked by #780 fill_f64 fix",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T12:13:11.994548959Z",
+  "updated_at": "2026-05-06T12:13:11.994548959Z"
+}
