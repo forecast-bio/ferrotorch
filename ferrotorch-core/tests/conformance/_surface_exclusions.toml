@@ -80,11 +80,6 @@ reason = "Pending Phase 2.8-nested-sparse — nested & sparse. Top-level re-expo
 tracking_issue = "#770"
 
 [[exclusion]]
-path = "ferrotorch_core::CumExtremeResult"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
-tracking_issue = "#764"
-
-[[exclusion]]
 path = "ferrotorch_core::DType"
 reason = "Pending Phase 2.14-plumbing — plumbing & core types. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
 tracking_issue = "#776"
@@ -1340,26 +1335,6 @@ reason = "Pending Phase 2.9-quantize-prune — quantize & prune. Top-level re-ex
 tracking_issue = "#771"
 
 [[exclusion]]
-path = "ferrotorch_core::cummax"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::cummin"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::cumprod"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::cumsum"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
-tracking_issue = "#764"
-
-[[exclusion]]
 path = "ferrotorch_core::dequantize"
 reason = "Pending Phase 2.9-quantize-prune — quantize & prune. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
 tracking_issue = "#771"
@@ -2236,42 +2211,17 @@ tracking_issue = "#763"
 
 [[exclusion]]
 path = "ferrotorch_core::grad_fns::cumulative::CumprodBackward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: autograd grad_fn for cumprod; tested via cumprod's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::grad_fns::cumulative::CumsumBackward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: autograd grad_fn for cumsum; tested via cumsum's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::grad_fns::cumulative::LogcumsumexpBackward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::cumulative::cummax"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::cumulative::cummin"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::cumulative::cumprod"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::cumulative::cumsum"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::cumulative::logcumsumexp"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: autograd grad_fn for logcumsumexp; tested via logcumsumexp's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
@@ -2576,72 +2526,37 @@ tracking_issue = "#771"
 
 [[exclusion]]
 path = "ferrotorch_core::grad_fns::reduction::AmaxBackward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: autograd grad_fn for amax; tested via amax's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::grad_fns::reduction::AminBackward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: autograd grad_fn for amin; tested via amin's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::grad_fns::reduction::MeanBackward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: autograd grad_fn for mean; tested via mean's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::grad_fns::reduction::MeanDimBackward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: autograd grad_fn for mean_dim; tested via mean_dim's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::grad_fns::reduction::ProdBackward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: autograd grad_fn for prod; tested via prod's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::grad_fns::reduction::SumBackward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: autograd grad_fn for sum; tested via sum's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::grad_fns::reduction::SumDimBackward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::reduction::amax"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::reduction::amin"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::reduction::mean"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::reduction::mean_dim"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::reduction::prod"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::reduction::sum"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
-path = "ferrotorch_core::grad_fns::reduction::sum_dim"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: autograd grad_fn for sum_dim; tested via sum_dim's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
@@ -3150,11 +3065,6 @@ reason = "Pending Phase 2.5-special-transcendental — activations, transcendent
 tracking_issue = "#767"
 
 [[exclusion]]
-path = "ferrotorch_core::logcumsumexp"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
-tracking_issue = "#764"
-
-[[exclusion]]
 path = "ferrotorch_core::magnitude_prune"
 reason = "Pending Phase 2.9-quantize-prune — quantize & prune. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
 tracking_issue = "#771"
@@ -3308,11 +3218,6 @@ tracking_issue = "#774"
 path = "ferrotorch_core::masked_where"
 reason = "Pending Phase 2.12-masked — masked tensors. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
 tracking_issue = "#774"
-
-[[exclusion]]
-path = "ferrotorch_core::mean_dim"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
-tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::meshgrid"
@@ -3590,38 +3495,33 @@ reason = "Pending Phase 2.14-plumbing — plumbing & core types. The phase will 
 tracking_issue = "#776"
 
 [[exclusion]]
-path = "ferrotorch_core::ops::cumulative::CumExtremeResult"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
-tracking_issue = "#764"
-
-[[exclusion]]
 path = "ferrotorch_core::ops::cumulative::cummax_forward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: cummax_forward used by cummax's autograd path; tested via cummax's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::ops::cumulative::cummin_forward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: cummin_forward used by cummin's autograd path; tested via cummin's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::ops::cumulative::cumprod_forward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: cumprod_forward used by cumprod's autograd path; tested via cumprod's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::ops::cumulative::cumsum_forward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: cumsum_forward used by cumsum's autograd path; tested via cumsum's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::ops::cumulative::logcumsumexp_forward"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: logcumsumexp_forward used by logcumsumexp's autograd path; tested via logcumsumexp's grad assertion in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::ops::cumulative::reverse_cumsum"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
+reason = "Implicit coverage: reverse_cumsum is a raw-slice utility used by every cumulative Backward (CumsumBackward, CumprodBackward, LogcumsumexpBackward); tested directly via `test_reverse_cumsum` and transitively via cumsum/cumprod/logcumsumexp grad assertions in conformance_reduction.rs"
 tracking_issue = "#764"
 
 [[exclusion]]
@@ -4918,11 +4818,6 @@ tracking_issue = "#765"
 path = "ferrotorch_core::stride_tricks::as_strided_scatter"
 reason = "Pending Phase 2.3-shape — shape, indexing, view. The phase will land a conformance test that exercises this item against PyTorch parity (CPU + GPU + autograd-where-applicable)."
 tracking_issue = "#765"
-
-[[exclusion]]
-path = "ferrotorch_core::sum_dim"
-reason = "Pending Phase 2.2-reduction — reductions & cumulative. Top-level re-export of an item whose canonical path is also pending coverage in the same phase."
-tracking_issue = "#764"
 
 [[exclusion]]
 path = "ferrotorch_core::tanh"
