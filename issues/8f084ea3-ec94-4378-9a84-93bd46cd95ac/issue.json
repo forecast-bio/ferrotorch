@@ -1,0 +1,10 @@
+{
+  "uuid": "8f084ea3-ec94-4378-9a84-93bd46cd95ac",
+  "display_id": 813,
+  "title": "ferrotorch-core: flex_attention GPU baseline f64 hits f32-typed CUDA dispatch — surfaced by phase 2.11 (#773)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T18:21:50.020341448Z",
+  "updated_at": "2026-05-06T18:21:50.020341448Z"
+}
