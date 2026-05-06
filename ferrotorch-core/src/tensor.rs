@@ -815,22 +815,72 @@ impl<T: Float> Tensor<T> {
                 }
             }
             (Device::Cuda(_), Device::Cpu) => {
+                use std::any::TypeId;
+
                 let backend =
                     crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
                 let handle = self.gpu_handle()?;
-                let bytes = backend.gpu_to_cpu(handle)?;
+                let numel = self.numel();
+
+                // Issue #802 — When the source GPU tensor is a stride-view
+                // (narrow / select / transpose / permute / chained views),
+                // its storage Arc is shared with the parent and so the
+                // raw `gpu_to_cpu(handle)` D2H readback would copy the
+                // *entire* underlying buffer. The receiving CPU tensor is
+                // then constructed via `from_storage`, which resets
+                // `storage_offset` to 0 and recomputes C-contiguous strides
+                // for the view's shape — silently dropping the original
+                // `storage_offset()` and `strides()`. The result: `.data()`
+                // returns the first `numel` elements of the full buffer
+                // rather than the actual view's elements.
+                //
+                // PyTorch parity (rust-gpu-discipline §3): `tensor.cpu()`
+                // must materialize the view. We do this by gathering the
+                // view on-device via the existing `strided_copy_{f32,f64}`
+                // kernel (rank ≤ 8, positive strides, f32/f64) into a
+                // fresh contiguous device buffer, *then* D2H. This mirrors
+                // the GPU fast path already used by `methods::contiguous_t`
+                // for f32/f64 CUDA tensors — there is no new kernel.
+                //
+                // The fast path is only taken when the view is *already*
+                // a full contiguous representation of the underlying
+                // buffer: contiguous, zero offset, and the buffer length
+                // matches numel. In every other case we materialize.
+                let needs_materialize =
+                    !self.is_contiguous() || self.storage_offset() != 0 || handle.len() != numel;
+
+                let bytes = if needs_materialize
+                    && self.shape().len() <= 8
+                    && (TypeId::of::<T>() == TypeId::of::<f32>()
+                        || TypeId::of::<T>() == TypeId::of::<f64>())
+                {
+                    let view_shape = self.shape().to_vec();
+                    let src_strides = self.strides().to_vec();
+                    let src_offset = self.storage_offset();
+                    let materialized = if TypeId::of::<T>() == TypeId::of::<f32>() {
+                        backend.strided_copy_f32(handle, &view_shape, &src_strides, src_offset)?
+                    } else {
+                        backend.strided_copy_f64(handle, &view_shape, &src_strides, src_offset)?
+                    };
+                    backend.gpu_to_cpu(&materialized)?
+                } else {
+                    backend.gpu_to_cpu(handle)?
+                };
                 // SAFETY: `bytes` is a `Vec<u8>` returned by gpu_to_cpu
                 // containing the raw bytes of a Tensor<T>'s GPU storage —
                 // those bytes were originally written by an upload of T-sized
-                // values (cpu_to_gpu uploads bytes of T). Wrapping `bytes` in
-                // ManuallyDrop prevents its destructor from running, then we
-                // reconstruct a Vec<T> from the same allocation: ptr/len/cap
-                // are from the now-orphaned Vec<u8> with len/cap divided by
-                // size_of::<T>(). This requires bytes.len() and bytes.capacity()
-                // to be multiples of size_of::<T>() and the allocator layout to
-                // be compatible. The ferrotorch-gpu backend guarantees both
-                // (it allocates Vec<u8> with size_of::<T>()-aligned, T-multiple
-                // length and capacity for D2H readbacks).
+                // values (cpu_to_gpu uploads bytes of T) or produced by a
+                // strided_copy_{f32,f64} kernel which writes T-aligned
+                // T-sized elements. Wrapping `bytes` in ManuallyDrop
+                // prevents its destructor from running, then we reconstruct
+                // a Vec<T> from the same allocation: ptr/len/cap are from
+                // the now-orphaned Vec<u8> with len/cap divided by
+                // size_of::<T>(). This requires bytes.len() and
+                // bytes.capacity() to be multiples of size_of::<T>() and
+                // the allocator layout to be compatible. The ferrotorch-gpu
+                // backend guarantees both (it allocates Vec<u8> with
+                // size_of::<T>()-aligned, T-multiple length and capacity
+                // for D2H readbacks).
                 let data: Vec<T> = unsafe {
                     let mut bytes = std::mem::ManuallyDrop::new(bytes);
                     let len = bytes.len() / std::mem::size_of::<T>();

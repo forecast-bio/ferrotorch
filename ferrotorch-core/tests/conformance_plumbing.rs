@@ -599,20 +599,13 @@ fn float_trait_implementors() {
 /// Cascade-skip table for `cast` fixtures. Each entry surfaces a known
 /// divergence from PyTorch parity that has been filed as a follow-up.
 ///
-/// Active cascades:
-///   * #815 — `cast::<f64,bf16>(1e300)` returns `Ok(Infinity)` instead of
-///     `Err(InvalidArgument)` because `num_traits::NumCast` for bf16
-///     silently saturates instead of returning `None`. The fixture pins
-///     the documented contract (`expect_err = true`); skip until #815
-///     lands a fix.
-fn cast_cascade_skip(tag: Option<&str>) -> Option<&'static str> {
-    let tag = tag.unwrap_or("");
-    if tag == "f64_huge_to_bf16_err" {
-        return Some(
-            "issue #815 — num_traits::NumCast<bf16> saturates to Infinity \
-             instead of returning None for out-of-range f64",
-        );
-    }
+/// Resolved cascades (kept here as historical record):
+///   * #815 — `cast::<f64,bf16>(1e300)` returned `Ok(Infinity)` instead
+///     of `Err(InvalidArgument)`. Fixed by adding a saturation guard
+///     in `numeric_cast::cast` that detects finite-source/non-finite-
+///     result pairs (see module docs in `numeric_cast.rs`). The
+///     `f64_huge_to_bf16_err` fixture now drives the live assertion.
+fn cast_cascade_skip(_tag: Option<&str>) -> Option<&'static str> {
     None
 }
 
@@ -1490,28 +1483,21 @@ fn cast_f64_nan_to_f32_preserves_nan() {
 }
 
 #[test]
-fn cast_huge_f64_to_bf16_documents_saturation_cascade() {
-    // Cascade #815: `num_traits::NumCast<bf16>` saturates out-of-range f64
-    // to bf16::INFINITY instead of returning None. The documented `cast`
-    // contract is "Err on values not representable in target type"; the
-    // observed behavior is `Ok(Infinity)`. This test pins the *current*
-    // (buggy) behavior so the suite remains green; when #815 lands the
-    // fix the assertion below will flip to `is_err()` and #815 closes.
+fn cast_huge_f64_to_bf16_returns_err_post_815() {
+    // Issue #815 (resolved): `num_traits::NumCast<bf16>` saturates
+    // out-of-range f64 to bf16::INFINITY instead of returning None.
+    // `numeric_cast::cast` now layers a saturation guard on top, so the
+    // documented contract ("Err on values not representable in target
+    // type") is honored. This test pins the post-fix behavior; if it
+    // ever flips back to Ok(Infinity) the regression will be caught
+    // here.
     let r: FerrotorchResult<half::bf16> = cast(1e300_f64);
-    match r {
-        Ok(v) => {
-            // Pre-#815 state: result is bf16::INFINITY (saturated).
-            assert!(
-                v.is_infinite(),
-                "cascade #815: expected bf16::INFINITY from saturating cast, got {v}"
-            );
-        }
-        Err(e) => {
-            // Post-#815 state: error contract is honored.
-            let msg = format!("{e}");
-            assert!(msg.contains("not representable"), "got: {msg}");
-        }
-    }
+    assert!(r.is_err(), "post-#815: expected Err for finite-source saturation");
+    let msg = format!("{}", r.unwrap_err());
+    assert!(
+        msg.contains("saturates to non-finite") || msg.contains("not representable"),
+        "got: {msg}"
+    );
 }
 
 // ---------------------------------------------------------------------------

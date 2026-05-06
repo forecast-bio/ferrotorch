@@ -498,38 +498,52 @@ fn check_f64(label: &str, actual: &[f64], expected: &[f64], tol: f64) {
 /// Returns `Some("issue #")` to skip with a printed reason; `None` runs.
 ///
 /// Active cascades:
-/// * `#800` — `mm_differentiable` / `mm_bt_differentiable` / `linear_fused` /
-///   `matmul_differentiable` / `bmm_differentiable` forward paths in
-///   `grad_fns/linalg.rs` unconditionally call `backend.matmul_f32` /
-///   `bmm_f32`, even when `T = f64`. CUDA f64 inputs return
-///   `InvalidArgument { message: "GPU handle does not contain a
-///   CudaBuffer<f32>" }`. The forward dispatch needs an `is_f64::<T>()`
-///   branch matching the existing backward dispatches.
-/// * `#801` — `matmul_differentiable` GPU dispatch is gated on
-///   `a.ndim() == 2 && b.ndim() == 2`. All other rank pairs (1D x 1D,
-///   2D x 1D, 1D x 2D, 3D x 3D batched, broadcast) fall through to
-///   CPU-only specialised paths and return `GpuTensorNotAccessible`.
+/// * `#800` — RESOLVED. `mm_differentiable` / `mm_bt_differentiable` /
+///   `linear_fused` / `matmul_differentiable` (2D x 2D) /
+///   `bmm_differentiable` forward paths now dispatch on `is_f64::<T>()`
+///   and route f64 tensors to `matmul_f64` / `bmm_f64` (cuBLAS dgemm).
+/// * `#801` — `matmul_differentiable` 2D x 2D and 3D x 3D now run on GPU;
+///   1D x 1D (dot), 2D x 1D (mv), 1D x 2D (vm), and broadcast (>3D, or
+///   3D with mismatched batch) still fall through to CPU-only specialised
+///   paths and surface as `GpuTensorNotAccessible` for CUDA inputs. Those
+///   routes need GPU dot/mv/vm/batched-broadcast kernels on the backend
+///   trait — tracked as separate sub-cascades.
 fn cascade_skip(
     op: &str,
     device_label: &str,
-    dtype: &str,
-    _tag: &Option<String>,
+    _dtype: &str,
+    tag: &Option<String>,
 ) -> Option<&'static str> {
-    if device_label == "cuda:0" && dtype == "float64" {
-        match op {
-            "mm" | "mm_bt" | "linear_fused" | "bmm" => {
-                return Some(
-                    "#800 — forward GPU path unconditionally calls matmul_f32; \
-                     f64 lane filed as cascade",
-                );
-            }
-            _ => {}
-        }
-    }
     if device_label == "cuda:0" && op == "matmul" {
-        // Only 2D x 2D dispatches to GPU; everything else is CPU-only and
-        // surfaces as GpuTensorNotAccessible.
-        return Some("#801 — matmul GPU dispatch limited to 2D x 2D");
+        // Sub-cascades for #801: only 2D x 2D and matching 3D x 3D dispatch
+        // to GPU; the rest depend on missing backend kernels.
+        if let Some(t) = tag.as_deref() {
+            match t {
+                "matmul_2d_2d" | "matmul_3d_3d" => return None,
+                "matmul_1d_1d" => {
+                    return Some(
+                        "#801 — 1D x 1D (dot) needs GPU dot kernel; sub-cascade filed",
+                    );
+                }
+                "matmul_2d_1d" => {
+                    return Some(
+                        "#801 — 2D x 1D (mv) needs GPU mv kernel; sub-cascade filed",
+                    );
+                }
+                "matmul_1d_2d" => {
+                    return Some(
+                        "#801 — 1D x 2D (vm) needs GPU vm kernel; sub-cascade filed",
+                    );
+                }
+                "matmul_broadcast" => {
+                    return Some(
+                        "#801 — broadcast matmul needs GPU broadcast-bmm kernel; \
+                         sub-cascade filed",
+                    );
+                }
+                _ => {}
+            }
+        }
     }
     None
 }

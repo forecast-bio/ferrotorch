@@ -616,14 +616,22 @@ pub fn mm_differentiable<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchRe
         let m = a.shape()[0];
         let k = a.shape()[1];
         let n = b.shape()[1];
-        // When autocast says ReducedPrecision and inputs are f32 on GPU,
-        // use the f16-accumulate path (falls back to f32 if no kernel).
-        let handle =
-            if is_f32::<T>() && autocast_guard("mm") == Some(AutocastCategory::ReducedPrecision) {
+        // Dtype-aware GPU dispatch (#800): forward must mirror backward, which
+        // already branches on `is_f64::<T>()`. Calling `matmul_f32` for an f64
+        // tensor handle returns "GPU handle does not contain a CudaBuffer<f32>".
+        let handle = if is_f32::<T>() {
+            // When autocast says ReducedPrecision and inputs are f32 on GPU,
+            // use the f16-accumulate path (falls back to f32 if no kernel).
+            if autocast_guard("mm") == Some(AutocastCategory::ReducedPrecision) {
                 backend.matmul_f16_f32(a.gpu_handle()?, b.gpu_handle()?, m, k, n)?
             } else {
                 backend.matmul_f32(a.gpu_handle()?, b.gpu_handle()?, m, k, n)?
-            };
+            }
+        } else if is_f64::<T>() {
+            backend.matmul_f64(a.gpu_handle()?, b.gpu_handle()?, m, k, n)?
+        } else {
+            return Err(FerrotorchError::NotImplementedOnCuda { op: "mm" });
+        };
         let storage = TensorStorage::gpu(handle);
         let shape = vec![m, n];
 
@@ -806,8 +814,18 @@ pub fn mm_bt_differentiable<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> Ferrotorc
     if a.is_cuda() {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-        let bt_handle = backend.transpose_2d_f32(b.gpu_handle()?, n, k)?;
-        let handle = backend.matmul_f32(a.gpu_handle()?, &bt_handle, m, k, n)?;
+        // Dtype-aware GPU dispatch (#800): mirror the backward, which already
+        // branches on `is_f64::<T>()`. The previous unconditional f32 path
+        // returned "GPU handle does not contain a CudaBuffer<f32>" for f64.
+        let handle = if is_f32::<T>() {
+            let bt = backend.transpose_2d_f32(b.gpu_handle()?, n, k)?;
+            backend.matmul_f32(a.gpu_handle()?, &bt, m, k, n)?
+        } else if is_f64::<T>() {
+            let bt = backend.transpose_2d_f64(b.gpu_handle()?, n, k)?;
+            backend.matmul_f64(a.gpu_handle()?, &bt, m, k, n)?
+        } else {
+            return Err(FerrotorchError::NotImplementedOnCuda { op: "mm_bt" });
+        };
         let storage = TensorStorage::gpu(handle);
         let shape = vec![m, n];
 
@@ -1022,28 +1040,46 @@ pub fn linear_fused<T: Float>(
     if input.is_cuda() {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-        // C = input @ weight^T
-        let wt_handle = backend.transpose_2d_f32(weight.gpu_handle()?, n, k)?;
-        // When autocast says ReducedPrecision and inputs are f32 on GPU,
-        // use the f16-accumulate path (falls back to f32 if no kernel).
-        let use_f16 =
-            is_f32::<T>() && autocast_guard("linear") == Some(AutocastCategory::ReducedPrecision);
-        let mut result_handle = if use_f16 {
-            backend.matmul_f16_f32(input.gpu_handle()?, &wt_handle, m, k, n)?
+        // Dtype-aware GPU dispatch (#800): forward must branch on f32 vs. f64
+        // just as the backward already does. Calling `*_f32` kernels on f64
+        // handles surfaces "GPU handle does not contain a CudaBuffer<f32>".
+        let mut result_handle = if is_f32::<T>() {
+            // C = input @ weight^T
+            let wt_handle = backend.transpose_2d_f32(weight.gpu_handle()?, n, k)?;
+            // When autocast says ReducedPrecision and inputs are f32 on GPU,
+            // use the f16-accumulate path (falls back to f32 if no kernel).
+            if autocast_guard("linear") == Some(AutocastCategory::ReducedPrecision) {
+                backend.matmul_f16_f32(input.gpu_handle()?, &wt_handle, m, k, n)?
+            } else {
+                backend.matmul_f32(input.gpu_handle()?, &wt_handle, m, k, n)?
+            }
+        } else if is_f64::<T>() {
+            let wt_handle = backend.transpose_2d_f64(weight.gpu_handle()?, n, k)?;
+            backend.matmul_f64(input.gpu_handle()?, &wt_handle, m, k, n)?
         } else {
-            backend.matmul_f32(input.gpu_handle()?, &wt_handle, m, k, n)?
+            return Err(FerrotorchError::NotImplementedOnCuda { op: "linear_fused" });
         };
-        // Add bias if present
+        // Add bias if present (dtype-aware).
         if let Some(b) = bias {
             let out_shape = vec![m, n];
             let b_shape = vec![n];
-            result_handle = backend.broadcast_add_f32(
-                &result_handle,
-                b.gpu_handle()?,
-                &out_shape,
-                &b_shape,
-                &out_shape,
-            )?;
+            result_handle = if is_f32::<T>() {
+                backend.broadcast_add_f32(
+                    &result_handle,
+                    b.gpu_handle()?,
+                    &out_shape,
+                    &b_shape,
+                    &out_shape,
+                )?
+            } else {
+                backend.broadcast_add_f64(
+                    &result_handle,
+                    b.gpu_handle()?,
+                    &out_shape,
+                    &b_shape,
+                    &out_shape,
+                )?
+            };
         }
         let storage = TensorStorage::gpu(result_handle);
         let shape = vec![m, n];
@@ -1208,14 +1244,22 @@ pub fn matmul_differentiable<T: Float>(
         let m = a.shape()[0];
         let k = a.shape()[1];
         let n = b.shape()[1];
-        // When autocast says ReducedPrecision and inputs are f32 on GPU,
-        // use the f16-accumulate path (falls back to f32 if no kernel).
-        let handle = if is_f32::<T>()
-            && autocast_guard("matmul") == Some(AutocastCategory::ReducedPrecision)
-        {
-            backend.matmul_f16_f32(a.gpu_handle()?, b.gpu_handle()?, m, k, n)?
+        // Dtype-aware GPU dispatch (#800): forward must branch on f32 vs. f64
+        // just as the sibling 2D paths (`mm_differentiable`, etc.) do. The
+        // previous unconditional `matmul_f32` path surfaced "GPU handle does
+        // not contain a CudaBuffer<f32>" for f64 tensors.
+        let handle = if is_f32::<T>() {
+            // When autocast says ReducedPrecision and inputs are f32 on GPU,
+            // use the f16-accumulate path (falls back to f32 if no kernel).
+            if autocast_guard("matmul") == Some(AutocastCategory::ReducedPrecision) {
+                backend.matmul_f16_f32(a.gpu_handle()?, b.gpu_handle()?, m, k, n)?
+            } else {
+                backend.matmul_f32(a.gpu_handle()?, b.gpu_handle()?, m, k, n)?
+            }
+        } else if is_f64::<T>() {
+            backend.matmul_f64(a.gpu_handle()?, b.gpu_handle()?, m, k, n)?
         } else {
-            backend.matmul_f32(a.gpu_handle()?, b.gpu_handle()?, m, k, n)?
+            return Err(FerrotorchError::NotImplementedOnCuda { op: "matmul" });
         };
         let storage = TensorStorage::gpu(handle);
         let shape = vec![m, n];
@@ -1228,6 +1272,15 @@ pub fn matmul_differentiable<T: Float>(
         }
     } else {
         // Dispatch to specialized paths that avoid double-copy.
+        //
+        // GPU shape coverage (#801): 2D x 2D is handled above; 3D x 3D with
+        // matching batch dim routes to `bmm_differentiable` which has GPU
+        // f32/f64 dispatch (#800). Other rank combinations (1D x 1D dot,
+        // 2D x 1D mv, 1D x 2D vm, broadcast >3D) require GPU dot/mv/vm/
+        // batched-broadcast kernels that do not yet exist on the backend
+        // trait — those routes fall through to CPU specialised paths and
+        // surface as `GpuTensorNotAccessible` for CUDA inputs. Tracked via
+        // cascade follow-ups (see conformance test `cascade_skip`).
         match (a.ndim(), b.ndim()) {
             (1, 1) => return dot_differentiable(&a, &b),
             (2, 1) => return mv_differentiable(&a, &b),
@@ -1305,13 +1358,21 @@ pub fn bmm<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<T>
     // GPU path.
     if a.is_cuda() {
         if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
-            // Use f16 Tensor Core path when autocast selects ReducedPrecision.
-            let handle = if is_f32::<T>()
-                && autocast_guard("bmm") == Some(AutocastCategory::ReducedPrecision)
-            {
-                backend.bmm_f16_f32(a.gpu_handle()?, b.gpu_handle()?, batch, m, k, n)?
+            // Dtype-aware GPU dispatch (#800): the f32-only path returned
+            // "GPU handle does not contain a CudaBuffer<f32>" for f64 inputs.
+            // Forward must branch on `is_f64::<T>()` and use `bmm_f64` (cuBLAS
+            // dgemm strided-batched) for f64 tensors.
+            let handle = if is_f32::<T>() {
+                // Use f16 Tensor Core path when autocast selects ReducedPrecision.
+                if autocast_guard("bmm") == Some(AutocastCategory::ReducedPrecision) {
+                    backend.bmm_f16_f32(a.gpu_handle()?, b.gpu_handle()?, batch, m, k, n)?
+                } else {
+                    backend.bmm_f32(a.gpu_handle()?, b.gpu_handle()?, batch, m, k, n)?
+                }
+            } else if is_f64::<T>() {
+                backend.bmm_f64(a.gpu_handle()?, b.gpu_handle()?, batch, m, k, n)?
             } else {
-                backend.bmm_f32(a.gpu_handle()?, b.gpu_handle()?, batch, m, k, n)?
+                return Err(FerrotorchError::NotImplementedOnCuda { op: "bmm" });
             };
             return Tensor::from_storage(TensorStorage::gpu(handle), out_shape, false);
         }

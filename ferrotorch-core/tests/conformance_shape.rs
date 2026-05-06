@@ -576,20 +576,11 @@ fn check_f64(label: &str, actual: &[f64], expected: &[f64], tol: f64) {
 /// surfacing each failure with a tracking issue rather than silently
 /// weakening tolerance.
 ///
-/// Active cascades:
-///   * **#802** — `narrow` on CUDA returns wrong values via the D2H
-///     readback path. `Tensor::to(Device::Cpu)` ignores
-///     `storage_offset()` and reads the entire underlying GPU buffer,
-///     so a contiguous narrow-view at non-zero offset reads back the
-///     wrong elements. Skipped on `cuda:0` until the underlying readback
-///     materializes the view first. Surfaced by phase 2.3 (#765).
-fn cascade_skip(op: &str, device_label: &str, _dtype: &str) -> Option<&'static str> {
-    match (op, device_label) {
-        ("narrow", "cuda:0") => {
-            Some("#802 — narrow GPU readback ignores storage_offset (silent corruption)")
-        }
-        _ => None,
-    }
+/// Active cascades: (none currently — #802 was resolved by materializing
+/// stride-views on-device via `strided_copy_{f32,f64}` before D2H in the
+/// CUDA→CPU arm of `Tensor::to`.)
+fn cascade_skip(_op: &str, _device_label: &str, _dtype: &str) -> Option<&'static str> {
+    None
 }
 
 fn maybe_skip(op: &str, device_label: &str, dtype: &str, tag: &str) -> bool {
