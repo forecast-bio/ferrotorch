@@ -2,11 +2,12 @@
   "uuid": "40bfaf30-ea5a-45e0-8f82-f7f9c914b194",
   "display_id": 804,
   "title": "docs: write conformance-suite explainer markdown (concept + architecture + when to use)",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-06T16:41:02.762198990Z",
-  "updated_at": "2026-05-06T16:41:04.221193757Z",
+  "updated_at": "2026-05-06T16:43:36.848038958Z",
+  "closed_at": "2026-05-06T16:43:36.848038958Z",
   "labels": [
     "docs"
   ]
