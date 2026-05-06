@@ -1,0 +1,10 @@
+{
+  "uuid": "41e2ba88-ec3a-4df7-a8a4-db6097a5a7f4",
+  "display_id": 821,
+  "title": "ferrotorch-gpu: einsum repeated-index ('ii->', 'ii->i') needs on-device diagonal kernel — partial of #803",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T21:10:27.823679907Z",
+  "updated_at": "2026-05-06T21:10:27.823679907Z"
+}
