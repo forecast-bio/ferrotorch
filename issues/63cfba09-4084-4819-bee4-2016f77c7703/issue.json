@@ -1,0 +1,10 @@
+{
+  "uuid": "63cfba09-4084-4819-bee4-2016f77c7703",
+  "display_id": 787,
+  "title": "ferrotorch-core GPU: cummax_f64 / cummin_f64 PTX kernels return subnormal values",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T14:15:40.100722147Z",
+  "updated_at": "2026-05-06T14:15:40.100722147Z"
+}
