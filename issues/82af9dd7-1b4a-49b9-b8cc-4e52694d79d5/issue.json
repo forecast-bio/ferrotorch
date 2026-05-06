@@ -2,11 +2,12 @@
   "uuid": "82af9dd7-1b4a-49b9-b8cc-4e52694d79d5",
   "display_id": 788,
   "title": "ferrotorch-core: mean_dim f64 GPU path missing scale_f64 kernel",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-06T14:15:58.061062065Z",
-  "updated_at": "2026-05-06T14:15:59.610146677Z",
+  "updated_at": "2026-05-06T15:14:43.044605283Z",
+  "closed_at": "2026-05-06T15:14:43.044605283Z",
   "labels": [
     "rust,gpu,bug,conformance"
   ]
