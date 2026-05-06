@@ -1,0 +1,10 @@
+{
+  "uuid": "8c03709c-2a46-4309-b342-2172439153d4",
+  "display_id": 781,
+  "title": "ferrotorch-gpu: pow_f64_kernel PTX JIT fails with CUDA_ERROR_INVALID_PTX (surfaced by #763)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T04:17:34.457610507Z",
+  "updated_at": "2026-05-06T04:17:34.457610507Z"
+}
