@@ -7,9 +7,10 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-06T16:13:00.282609311Z",
-  "updated_at": "2026-05-06T16:13:03.113342986Z",
+  "updated_at": "2026-05-06T16:13:04.525697492Z",
   "labels": [
     "rust",
-    "gpu"
+    "gpu",
+    "bug"
   ]
 }
