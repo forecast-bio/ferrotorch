@@ -1,0 +1,10 @@
+{
+  "uuid": "9f35082f-0075-46d6-aaf2-8e0de3dde3e2",
+  "issue_uuid": "8f084ea3-ec94-4378-9a84-93bd46cd95ac",
+  "author": "y4rr",
+  "content": "Repro: cargo test -p ferrotorch-core --test conformance_flex_attention --features gpu gpu_flex_attention_forward.\\n\\nFailure: 'flex_attention baseline forward f64: InvalidArgument { message: \"GPU handle does not contain a CudaBuffer<f32>\" }'\\n\\nTriggered by: B=1, H=1, n_q=4, n_k=4, d=4, d_v=4 with score_mod=None, dtype=float64. The baseline (no score_mod) path goes through the standard composed pipeline: reshape → transpose → bmm_differentiable → mul (scale) → softmax → reshape → bmm_differentiable → reshape. One of those device-aware ops is downcasting to f32 when handed an f64 CUDA tensor. Likely candidate: bmm_differentiable's CUDA path (cuBLAS SgemmStridedBatched) is f32-only and bmm_f64 dispatch is missing a branch, OR the scalar 1/sqrt(d) is constructed as f32 and the mul broadcast trips the dtype guard.\\n\\nNarrowing: the f32 baseline GPU works (test 'baseline single_head_4x4 dtype=float32' on cuda:0 passes). Only f64 baseline fails. Means the CUDA path for f64 inside the flex_attention chain is broken — bmm_differentiable_f64 / softmax_f64 / mul_f64 / reshape_f64 — one of those is hardcoded to f32 internally on CUDA.\\n\\nWorkaround: tests/conformance_flex_attention.rs cascade_skip()s ALL f64 GPU variants in this test.",
+  "created_at": "2026-05-06T18:22:07.735507872Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAjmPTLYSl2H0d5/wvbOy6jJ8fkEXq2OJ/M88+V14f5uZJD708wJLYfu+Cf1ii/16I378IOuxULdjOaKwn5SI0AA=="
+}
