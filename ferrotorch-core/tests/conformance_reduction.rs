@@ -413,23 +413,12 @@ impl GlobalReduction {
 /// to run normally. The dispatch's cascade-handling mandate requires
 /// surfacing each failure with a tracking issue rather than silently
 /// weakening tolerance.
-fn cascade_skip(op: &str, device_label: &str, dtype: &str) -> Option<&'static str> {
-    match (op, device_label, dtype) {
-        // #785: ProdBackward returns NotImplementedOnCuda. The forward path
-        // works on GPU but autograd cannot complete.
-        ("prod", "cuda:0", _) => Some("#785 — prod_backward GPU stub"),
-        // #788: mean_dim f64 GPU lacks scale_f64; falls through to
-        // NotImplementedOnCuda. f32 path is fine.
-        ("mean_dim", "cuda:0", "float64") => Some("#788 — mean_dim_f64 GPU missing scale_f64"),
-        // #786: logcumsumexp_f64 PTX returns ln(f64::MAX) garbage.
-        ("logcumsumexp", "cuda:0", "float64") => {
-            Some("#786 — logcumsumexp_f64 GPU kernel garbage output")
-        }
-        // #787: cummax_f64 / cummin_f64 PTX returns denormal subnormals.
-        ("cummax", "cuda:0", "float64") => Some("#787 — cummax_f64 GPU kernel garbage output"),
-        ("cummin", "cuda:0", "float64") => Some("#787 — cummin_f64 GPU kernel garbage output"),
-        _ => None,
-    }
+///
+/// All four phase 2.2 cascade issues (#785, #786, #787, #788) are now
+/// fixed; the function is retained as the canonical opt-out point for
+/// any future cascade so the surfacing pattern is preserved.
+fn cascade_skip(_op: &str, _device_label: &str, _dtype: &str) -> Option<&'static str> {
+    None
 }
 
 fn run_global_reduction_for_device(op: GlobalReduction, device_label: &str, device: Device) {

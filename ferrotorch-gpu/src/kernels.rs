@@ -80,7 +80,25 @@ pub(crate) fn ptx_f32_to_f64(
         // Conversions
         .replace("cvt.rn.f32.u32", "cvt.rn.f64.u32")
         .replace("cvt.rn.f32.s32", "cvt.rn.f64.s32")
-        // Bit reinterpretation (for NaN/inf checks)
+        // Bit reinterpretation (for NaN/inf checks). Note: the literal
+        // operand of `mov.b32 %reg, <imm32>` must also be promoted when
+        // the immediate encodes a special-value bit pattern (e.g. f32 ±inf
+        // 0xFF800000 / 0x7F800000), otherwise the converted f64 register
+        // gets the f32 bits in its low 32 bits and zero in the high half —
+        // the resulting f64 is a tiny denormal, not the intended ±inf.
+        // Cover the seed values used by the cumulative max/min kernels
+        // (cummax/cummin: -inf for max init, +inf for min init).
+        // (#787 — pre-this-fix the kernels returned subnormal denormals
+        // at the first scan position because the seed never made it
+        // through the converter intact.)
+        .replace(
+            "mov.b32 %acc, 0xFF800000",
+            "mov.b64 %acc, 0xFFF0000000000000",
+        )
+        .replace(
+            "mov.b32 %acc, 0x7F800000",
+            "mov.b64 %acc, 0x7FF0000000000000",
+        )
         .replace("mov.b32", "mov.b64")
         // Byte offset: 4 bytes per f32 → 8 bytes per f64.
         // Cover the canonical `%off` register, the `%off_in`/`%off_out`
@@ -5324,6 +5342,105 @@ END_PROD:
 }
 ";
 
+/// PTX source for `prod_backward_kernel`: VJP of the global `prod`
+/// reduction (#785).
+///
+/// Forward: `out = prod(input[0..n])` (scalar).
+/// Backward: `grad_input[i] = grad_output * prefix[i] * suffix[i]` where
+/// `prefix[i] = prod(input[0..i])` and `suffix[i] = prod(input[i+1..n])`.
+///
+/// This formulation matches PyTorch's exact behaviour for all zero
+/// cases without an explicit branch:
+/// - No zeros: `prefix[i] * suffix[i] = total_prod / input[i]`.
+/// - Exactly one zero at index z: `grad_input[z] = prod(non-zero
+///   elements)`, and for any `i != z`, the suffix or prefix contains
+///   the zero, so `grad_input[i] = 0`.
+/// - Multiple zeros: every `prefix[i] * suffix[i] == 0`, so all
+///   gradients are zero.
+///
+/// One thread per output element. Each thread does an O(n) pair of
+/// scans across the input. The per-thread cost is `O(n)`; total work
+/// is `O(n^2)` — acceptable for the typical reduction sizes the
+/// conformance fixtures stress (≤ a few hundred elements). Larger
+/// inputs would warrant a parallel prefix-product approach; we file
+/// that as a follow-up rather than block this fix.
+#[cfg(feature = "cuda")]
+pub(crate) const PROD_BACKWARD_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry prod_backward_kernel(
+    .param .u64 input_ptr,
+    .param .u64 grad_out_ptr,
+    .param .u64 grad_in_ptr,
+    .param .u32 n
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %i, %j, %n_reg;
+    .reg .u64 %in, %go, %gi, %off, %addr;
+    .reg .f32 %prefix, %suffix, %val, %go_val, %result;
+    .reg .pred %p, %lp, %skip;
+
+    ld.param.u64 %in, [input_ptr];
+    ld.param.u64 %go, [grad_out_ptr];
+    ld.param.u64 %gi, [grad_in_ptr];
+    ld.param.u32 %n_reg, [n];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %i, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %i, %n_reg;
+    @%p bra DONE;
+
+    // Read scalar grad_output once.
+    ld.global.f32 %go_val, [%go];
+
+    // prefix = prod(input[0..i])
+    mov.f32 %prefix, 0f3F800000;
+    mov.u32 %j, 0;
+PREFIX_LOOP:
+    setp.ge.u32 %lp, %j, %i;
+    @%lp bra PREFIX_DONE;
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    ld.global.f32 %val, [%addr];
+    mul.f32 %prefix, %prefix, %val;
+    add.u32 %j, %j, 1;
+    bra PREFIX_LOOP;
+PREFIX_DONE:
+
+    // suffix = prod(input[i+1..n])
+    mov.f32 %suffix, 0f3F800000;
+    add.u32 %j, %i, 1;
+SUFFIX_LOOP:
+    setp.ge.u32 %lp, %j, %n_reg;
+    @%lp bra SUFFIX_DONE;
+    cvt.u64.u32 %off, %j;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %in, %off;
+    ld.global.f32 %val, [%addr];
+    mul.f32 %suffix, %suffix, %val;
+    add.u32 %j, %j, 1;
+    bra SUFFIX_LOOP;
+SUFFIX_DONE:
+
+    // grad_input[i] = grad_output * prefix * suffix
+    mul.f32 %result, %prefix, %suffix;
+    mul.f32 %result, %result, %go_val;
+
+    cvt.u64.u32 %off, %i;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %gi, %off;
+    st.global.f32 [%addr], %result;
+
+DONE:
+    ret;
+}
+";
+
 /// PTX source for `reduce_min_kernel`: parallel block-level min reduction (#627).
 ///
 /// Mirrors `REDUCE_SUM_PTX` exactly except:
@@ -6604,9 +6721,20 @@ pub(crate) const LOGCUMSUMEXP_F64_PTX: &str = "\
     mul.lo.u32 %base, %base, %inner_sz;
     add.u32 %base, %base, %inner_idx;
 
-    // acc = -inf
-    mov.b64 %acc, 0xFFF0000000000000;
-    mov.u32 %k, 0;
+    // Seed `acc` from input[0] (#786). The previous `acc = -inf`
+    // seed reached the inline exp/ln poly with `r = NaN` because
+    // `cvt.rni.s32.f64(-inf)` saturates to INT_MIN and the
+    // `(INT_MIN + 1023) << 52` bit-shift trick yields the f64 bits
+    // for 1.0; the poly drift then accumulated ~+710.19 per element.
+    // Reading the seed from `input[0]` makes the first iteration's
+    // exp(acc - m) = exp(0) = 1, well-defined for the polynomial.
+    cvt.u64.u32 %off, %base;
+    shl.b64 %off, %off, 3;
+    add.u64 %addr, %in, %off;
+    ld.global.f64 %acc, [%addr];
+    add.u64 %addr, %out, %off;
+    st.global.f64 [%addr], %acc;
+    mov.u32 %k, 1;
 SCAN_LOOP:
     setp.ge.u32 %lp, %k, %dim_sz;
     @%lp bra SCAN_DONE;
@@ -12590,6 +12718,157 @@ pub fn gpu_reduce_prod(a: &CudaBuffer<f32>, device: &GpuDevice) -> GpuResult<Cud
 
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_reduce_prod(_a: &CudaBuffer<f32>, _device: &GpuDevice) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// f32 backward of the global `prod` reduction (#785).
+///
+/// Returns `grad_input[i] = grad_output * prefix[i] * suffix[i]` for
+/// each `i` (where prefix/suffix are products excluding the i-th
+/// element). See [`PROD_BACKWARD_PTX`] for the formulation and zero
+/// handling.
+///
+/// `grad_output` is a 1-element scalar buffer.
+#[cfg(feature = "cuda")]
+pub fn gpu_prod_backward_f32(
+    input: &CudaBuffer<f32>,
+    grad_output: &CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+    let n = input.len();
+    if n == 0 {
+        let e: &[f32] = &[];
+        return cpu_to_gpu(e, device);
+    }
+    if grad_output.len() != 1 {
+        return Err(GpuError::ShapeMismatch {
+            op: "prod_backward",
+            expected: vec![1],
+            got: vec![grad_output.len()],
+        });
+    }
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        PROD_BACKWARD_PTX,
+        "prod_backward_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "prod_backward_kernel",
+        source: e,
+    })?;
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid `CudaFunction` for `prod_backward_kernel`
+    //   resolved by `module_cache::get_or_compile` immediately above
+    //   (returns `PtxCompileFailed` on Err); its
+    //   `(input_ptr, grad_out_ptr, grad_in_ptr, n)` ABI matches the
+    //   `.param .u64 .. .param .u32` signature in `PROD_BACKWARD_PTX`.
+    // - `input: &CudaBuffer<f32>` is the source (`n == input.len()`),
+    //   `grad_output: &CudaBuffer<f32>` is a 1-element scalar (validated
+    //   above), and `out: &mut CudaBuffer<f32>` is freshly alloc'd via
+    //   `alloc_zeros_f32(n, device)?` — distinct from both inputs by Rust
+    //   borrow rules.
+    // - Each thread `i ∈ [0, n)` reads all of `input[0..n]` (two scans:
+    //   prefix then suffix, both with explicit per-iteration bound
+    //   checks) and writes one f32 to `out[i]`. Reads to `grad_output[0]`
+    //   are uniform across threads.
+    // - `n_u32` cannot truncate: `launch_cfg(n)?` returns `Err` for
+    //   `n > u32::MAX`.
+    // - cudarc enqueues on `stream`; the four arg refs live until
+    //   the trailing `?`. Stream sync is the caller's.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(grad_output.inner())
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_prod_backward_f32(
+    _input: &CudaBuffer<f32>,
+    _grad_output: &CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// f64 backward of the global `prod` reduction (#785). Mirror of
+/// [`gpu_prod_backward_f32`], using the f64-rewritten PTX template.
+#[cfg(feature = "cuda")]
+pub fn gpu_prod_backward_f64(
+    input: &CudaBuffer<f64>,
+    grad_output: &CudaBuffer<f64>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    use cudarc::driver::PushKernelArg;
+    let n = input.len();
+    if n == 0 {
+        let e: &[f64] = &[];
+        return cpu_to_gpu(e, device);
+    }
+    if grad_output.len() != 1 {
+        return Err(GpuError::ShapeMismatch {
+            op: "prod_backward",
+            expected: vec![1],
+            got: vec![grad_output.len()],
+        });
+    }
+    static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let ctx = device.context();
+    let stream = device.stream();
+    let ptx = get_f64_ptx(
+        &CACHE,
+        PROD_BACKWARD_PTX,
+        "prod_backward_kernel",
+        "prod_backward_f64_kernel",
+    );
+    let f = crate::module_cache::get_or_compile(
+        ctx,
+        ptx,
+        "prod_backward_f64_kernel",
+        device.ordinal() as u32,
+    )
+    .map_err(|e| GpuError::PtxCompileFailed {
+        kernel: "prod_backward_kernel",
+        source: e,
+    })?;
+    let mut out = alloc_zeros_f64(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+    // SAFETY: identical contract to `gpu_prod_backward_f32` above, with
+    // the PTX template f64-rewritten by `ptx_f32_to_f64` (lifts the
+    // `.f32` arithmetic, the `0f3F800000` 1.0 literal, and the
+    // `shl.b64 %off, %off, 2` byte-stride to f64-equivalents). Buffer
+    // pointers, lifetimes, aliasing, and bound checks are unchanged.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(grad_output.inner())
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_prod_backward_f64(
+    _input: &CudaBuffer<f64>,
+    _grad_output: &CudaBuffer<f64>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
     Err(GpuError::NoCudaFeature)
 }
 

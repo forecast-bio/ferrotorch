@@ -199,18 +199,31 @@ pub fn cummax_forward<T: Float>(
     // GPU fast path for f32/f64 — kernel returns both values and indices
     if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
-            let (vals_h, idxs_h) = if is_f32::<T>() {
-                backend.cummax_f32(input.gpu_handle()?, outer, dim_size, inner)?
+            let values;
+            let indices: Vec<usize>;
+            if is_f32::<T>() {
+                let (vals_h, idxs_h) =
+                    backend.cummax_f32(input.gpu_handle()?, outer, dim_size, inner)?;
+                values = Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
+                // f32 path: indices stored as f32 (uniform with values).
+                let idxs_tensor =
+                    Tensor::<f32>::from_storage(TensorStorage::gpu(idxs_h), shape.to_vec(), false)?;
+                let idxs_cpu = idxs_tensor.cpu()?;
+                let idxs_data = idxs_cpu.data()?;
+                indices = idxs_data.iter().map(|&v| v as usize).collect();
             } else {
-                backend.cummax_f64(input.gpu_handle()?, outer, dim_size, inner)?
-            };
-            let values = Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
-            // Indices are stored as f32 on GPU — download and convert to usize
-            let idxs_tensor =
-                Tensor::<f32>::from_storage(TensorStorage::gpu(idxs_h), shape.to_vec(), false)?;
-            let idxs_cpu = idxs_tensor.cpu()?;
-            let idxs_data = idxs_cpu.data()?;
-            let indices: Vec<usize> = idxs_data.iter().map(|&v| v as usize).collect();
+                let (vals_h, idxs_h) =
+                    backend.cummax_f64(input.gpu_handle()?, outer, dim_size, inner)?;
+                values = Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
+                // f64 path: the converter rewrites the index store
+                // `st.global.f32` → `st.global.f64`, so the index buffer
+                // is f64 (#787). Read it back at f64 width, then cast.
+                let idxs_tensor =
+                    Tensor::<f64>::from_storage(TensorStorage::gpu(idxs_h), shape.to_vec(), false)?;
+                let idxs_cpu = idxs_tensor.cpu()?;
+                let idxs_data = idxs_cpu.data()?;
+                indices = idxs_data.iter().map(|&v| v as usize).collect();
+            }
             return Ok(CumExtremeResult { values, indices });
         }
     }
@@ -267,17 +280,29 @@ pub fn cummin_forward<T: Float>(
     // GPU fast path for f32/f64 — kernel returns both values and indices
     if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
-            let (vals_h, idxs_h) = if is_f32::<T>() {
-                backend.cummin_f32(input.gpu_handle()?, outer, dim_size, inner)?
+            let values;
+            let indices: Vec<usize>;
+            if is_f32::<T>() {
+                let (vals_h, idxs_h) =
+                    backend.cummin_f32(input.gpu_handle()?, outer, dim_size, inner)?;
+                values = Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
+                let idxs_tensor =
+                    Tensor::<f32>::from_storage(TensorStorage::gpu(idxs_h), shape.to_vec(), false)?;
+                let idxs_cpu = idxs_tensor.cpu()?;
+                let idxs_data = idxs_cpu.data()?;
+                indices = idxs_data.iter().map(|&v| v as usize).collect();
             } else {
-                backend.cummin_f64(input.gpu_handle()?, outer, dim_size, inner)?
-            };
-            let values = Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
-            let idxs_tensor =
-                Tensor::<f32>::from_storage(TensorStorage::gpu(idxs_h), shape.to_vec(), false)?;
-            let idxs_cpu = idxs_tensor.cpu()?;
-            let idxs_data = idxs_cpu.data()?;
-            let indices: Vec<usize> = idxs_data.iter().map(|&v| v as usize).collect();
+                let (vals_h, idxs_h) =
+                    backend.cummin_f64(input.gpu_handle()?, outer, dim_size, inner)?;
+                values = Tensor::from_storage(TensorStorage::gpu(vals_h), shape.to_vec(), false)?;
+                // f64 path: indices stored at f64 width by the converted
+                // PTX (#787). Read back as f64, then cast.
+                let idxs_tensor =
+                    Tensor::<f64>::from_storage(TensorStorage::gpu(idxs_h), shape.to_vec(), false)?;
+                let idxs_cpu = idxs_tensor.cpu()?;
+                let idxs_data = idxs_cpu.data()?;
+                indices = idxs_data.iter().map(|&v| v as usize).collect();
+            }
             return Ok(CumExtremeResult { values, indices });
         }
     }

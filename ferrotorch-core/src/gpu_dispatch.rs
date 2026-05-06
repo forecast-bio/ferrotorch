@@ -366,6 +366,37 @@ pub trait GpuBackend: Send + Sync {
         })
     }
 
+    /// f32 backward of the global `prod` reduction (#785).
+    ///
+    /// Returns `grad_input[i] = grad_output * (prod_{j != i} input[j])`,
+    /// which matches PyTorch's exact zero-handling semantics:
+    /// no zeros → `grad_input = grad_output * total / input`; one zero
+    /// at index z → only `grad_input[z]` is nonzero (the product of the
+    /// remaining elements); two or more zeros → all zero.
+    ///
+    /// `grad_output` is a scalar (`numel == 1`).
+    fn prod_backward_f32(
+        &self,
+        _input: &GpuBufferHandle,
+        _grad_output: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "prod_backward_f32 GPU op not yet implemented".into(),
+        })
+    }
+
+    /// f64 backward of the global `prod` reduction (#785). Companion of
+    /// [`Self::prod_backward_f32`].
+    fn prod_backward_f64(
+        &self,
+        _input: &GpuBufferHandle,
+        _grad_output: &GpuBufferHandle,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "prod_backward_f64 GPU op not yet implemented".into(),
+        })
+    }
+
     /// f64 parallel min reduction. (#627)
     fn min_f64(&self, _a: &GpuBufferHandle, _len: usize) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument {

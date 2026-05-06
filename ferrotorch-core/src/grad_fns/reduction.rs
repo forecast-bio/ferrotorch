@@ -313,18 +313,42 @@ pub struct ProdBackward<T: Float> {
 
 impl<T: Float> GradFn<T> for ProdBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        let go = if grad_output.is_cuda() {
-            let cpu = grad_output.cpu()?;
-            cpu.data()?[0]
-        } else {
-            grad_output.data()?[0]
-        };
+        // GPU fast path (#785): on-device prefix-suffix kernel handles
+        // all zero cases (no zero, single zero, multi-zero) with a
+        // single launch — no host detour for the gradient values.
+        let t_is_f32 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>();
+        let t_is_f64 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>();
+        if self.input.is_cuda() && (t_is_f32 || t_is_f64) {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                // grad_output may live on CPU when constructed by
+                // the autograd seed; upload it to the same device as
+                // the input so the kernel can read it directly.
+                let go_on_device = if grad_output.is_cuda() {
+                    grad_output.clone()
+                } else {
+                    grad_output.to(self.input.device())?
+                };
+                let grad_handle = if t_is_f32 {
+                    backend
+                        .prod_backward_f32(self.input.gpu_handle()?, go_on_device.gpu_handle()?)?
+                } else {
+                    backend
+                        .prod_backward_f64(self.input.gpu_handle()?, go_on_device.gpu_handle()?)?
+                };
+                let storage = TensorStorage::gpu(grad_handle);
+                let grad_input =
+                    Tensor::from_storage(storage, self.input.shape().to_vec(), false)?;
+                return Ok(vec![Some(grad_input)]);
+            }
+        }
 
         if self.input.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda {
                 op: "prod backward",
             });
         }
+
+        let go = grad_output.data()?[0];
         let input_data = self.input.data()?;
         let n = input_data.len();
 
@@ -1056,23 +1080,27 @@ fn mean_dim_inner<T: Float>(
             } else {
                 backend.sum_axis_f64(input.gpu_handle()?, in_shape, norm_dim)?
             };
-            // Divide by dim_size on-device. scale_* is only declared
-            // for f32; for f64 this path falls through to the error
-            // below until a scale_f64 is added.
-            if is_f32 {
-                let mean_handle = backend.scale_f32(&summed_handle, 1.0 / dim_size as f32)?;
-                let storage = TensorStorage::gpu(mean_handle);
-                return if is_grad_enabled() && input.requires_grad() {
-                    let grad_fn = Arc::new(MeanDimBackward {
-                        input: input.clone(),
-                        dim: norm_dim,
-                        keepdim,
-                    });
-                    Tensor::from_operation(storage, out_shape, grad_fn)
-                } else {
-                    Tensor::from_storage(storage, out_shape, false)
-                };
-            }
+            // Divide by dim_size on-device. Both f32 and f64 dispatch
+            // through the GpuBackend trait so the concrete CudaBackendImpl
+            // override is reached (issue #788 — previously the f64 path
+            // fell through to NotImplementedOnCuda even though
+            // scale_f64 was implemented).
+            let mean_handle = if is_f32 {
+                backend.scale_f32(&summed_handle, 1.0 / dim_size as f32)?
+            } else {
+                backend.scale_f64(&summed_handle, 1.0 / dim_size as f64)?
+            };
+            let storage = TensorStorage::gpu(mean_handle);
+            return if is_grad_enabled() && input.requires_grad() {
+                let grad_fn = Arc::new(MeanDimBackward {
+                    input: input.clone(),
+                    dim: norm_dim,
+                    keepdim,
+                });
+                Tensor::from_operation(storage, out_shape, grad_fn)
+            } else {
+                Tensor::from_storage(storage, out_shape, false)
+            };
         }
     }
 
