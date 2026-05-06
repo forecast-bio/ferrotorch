@@ -1,0 +1,11 @@
+{
+  "uuid": "1152330c-a141-4523-992a-97cde5aac22b",
+  "display_id": 800,
+  "title": "ferrotorch-core: matmul_f64 GPU forward unsupported — surfaced by phase 2.4 (#766)",
+  "description": "mm_differentiable / mm_bt_differentiable / linear_fused / matmul_differentiable / bmm forward paths in grad_fns/linalg.rs unconditionally call backend.matmul_f32 even when T = f64. Calling these with a CUDA f64 tensor returns InvalidArgument { message: 'GPU handle does not contain a CudaBuffer<f32>' }. The backward paths (mm_backward_gpu, MmBtBackward, MatmulBackward, LinearFusedBackward) DO branch on is_f64::<T>() — so the forward is the only side missing the branch. Fix: dispatch matmul_f64 vs matmul_f32 in the forward path, mirroring the existing backward branches at lines 47/51, 69/73, 707/709, 725/729, 865/867, 883/886. Skipped in conformance_linalg.rs gpu_mm/gpu_mm_bt/gpu_linear_fused/gpu_matmul/gpu_bmm under the cascade_skip() switch with this issue ref.",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T16:09:39.219664794Z",
+  "updated_at": "2026-05-06T16:09:39.219664794Z"
+}
