@@ -1,0 +1,6645 @@
+{
+  "metadata": {
+    "torch_version": "2.11.0+cu130",
+    "numpy_version": "2.4.4",
+    "cuda_version": "13.0",
+    "cuda_available": true,
+    "python_executable": "/usr/sbin/python3",
+    "python_platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "generated_at": "2026-05-06T16:39:41.421366+00:00",
+    "rng_seed": 195939070,
+    "dtypes": [
+      "float32",
+      "float64"
+    ],
+    "devices": [
+      "cpu",
+      "cuda:0"
+    ],
+    "torch_masked_status": "prototype (\u22651.13); reductions confirmed against numpy.ma"
+  },
+  "fixtures": [
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        5.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.75
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        22.5
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        10.5
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        5.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.75
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        22.5
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        10.5
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        5.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.75
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        22.5
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        10.5
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        5.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "vec1d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.75
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "mat2d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        22.5
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        10.5
+      ]
+    },
+    {
+      "op": "masked_sum",
+      "tag": "ten3d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.125
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.875
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.75
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.125
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.875
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.75
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.125
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.875
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.75
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "vec1d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.125
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.0
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "mat2d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.875
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.75
+      ]
+    },
+    {
+      "op": "masked_mean",
+      "tag": "ten3d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "vec1d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "mat2d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.5
+      ]
+    },
+    {
+      "op": "masked_min",
+      "tag": "ten3d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.75
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.25
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.75
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.25
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.75
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.25
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "vec1d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.75
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        1.5
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "mat2d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.25
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_max",
+      "tag": "ten3d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        5.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_all_true",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        12.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_partial",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_all_false",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        5.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_all_true",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        12.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_partial",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_all_false",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        5.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_all_true",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        12.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_partial",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_all_false",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        5.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "vec1d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        5
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        3.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "mat2d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_all_true",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_shape": [],
+      "out_values": [
+        12.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_partial",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        6.0
+      ]
+    },
+    {
+      "op": "masked_count",
+      "tag": "ten3d_all_false",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        2,
+        2,
+        3
+      ],
+      "a_data": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25
+      ],
+      "mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum_empty",
+      "tag": "empty",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_mean_empty",
+      "tag": "empty",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min_empty",
+      "tag": "empty",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max_empty",
+      "tag": "empty",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_count_empty",
+      "tag": "empty",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum_empty",
+      "tag": "empty",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_mean_empty",
+      "tag": "empty",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min_empty",
+      "tag": "empty",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max_empty",
+      "tag": "empty",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_count_empty",
+      "tag": "empty",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum_empty",
+      "tag": "empty",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_mean_empty",
+      "tag": "empty",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min_empty",
+      "tag": "empty",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max_empty",
+      "tag": "empty",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_count_empty",
+      "tag": "empty",
+      "dtype": "float32",
+      "device": "cuda:0",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_sum_empty",
+      "tag": "empty",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "masked_mean_empty",
+      "tag": "empty",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_min_empty",
+      "tag": "empty",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_max_empty",
+      "tag": "empty",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        "NaN"
+      ]
+    },
+    {
+      "op": "masked_count_empty",
+      "tag": "empty",
+      "dtype": "float64",
+      "device": "cuda:0",
+      "a_shape": [
+        0
+      ],
+      "a_data": [],
+      "mask": [],
+      "out_shape": [],
+      "out_values": [
+        0.0
+      ]
+    },
+    {
+      "op": "from_data",
+      "tag": "vec3",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "expected_mask": [
+        true,
+        true,
+        true
+      ],
+      "expected_count_valid": 3,
+      "expected_count_masked": 0,
+      "expected_numel": 3
+    },
+    {
+      "op": "masked_where",
+      "tag": "vec4",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        4
+      ],
+      "a_data": [
+        10.0,
+        20.0,
+        30.0,
+        40.0
+      ],
+      "condition": [
+        false,
+        true,
+        false,
+        true
+      ],
+      "expected_mask": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "expected_count_valid": 2,
+      "expected_count_masked": 2,
+      "expected_numel": 4
+    },
+    {
+      "op": "masked_invalid",
+      "tag": "vec6",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        6
+      ],
+      "a_data": [
+        1.0,
+        "NaN",
+        3.0,
+        "Infinity",
+        "-Infinity",
+        5.0
+      ],
+      "expected_mask": [
+        true,
+        false,
+        true,
+        false,
+        false,
+        true
+      ],
+      "expected_count_valid": 3,
+      "expected_count_masked": 3,
+      "expected_numel": 6
+    },
+    {
+      "op": "masked_equal",
+      "tag": "vec4",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        5.0,
+        5.0,
+        2.0
+      ],
+      "value": 5.0,
+      "expected_mask": [
+        true,
+        false,
+        false,
+        true
+      ],
+      "expected_count_valid": 2,
+      "expected_count_masked": 2,
+      "expected_numel": 4
+    },
+    {
+      "op": "filled_default",
+      "tag": "vec3",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "mask": [
+        true,
+        false,
+        true
+      ],
+      "fill_value": 0.0,
+      "out_shape": [
+        3
+      ],
+      "out_values": [
+        1.0,
+        0.0,
+        3.0
+      ]
+    },
+    {
+      "op": "filled_override",
+      "tag": "vec3",
+      "dtype": "float32",
+      "device": "cpu",
+      "a_shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "mask": [
+        true,
+        false,
+        true
+      ],
+      "fill_value": -99.0,
+      "out_shape": [
+        3
+      ],
+      "out_values": [
+        1.0,
+        -99.0,
+        3.0
+      ]
+    },
+    {
+      "op": "from_data",
+      "tag": "vec3",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "expected_mask": [
+        true,
+        true,
+        true
+      ],
+      "expected_count_valid": 3,
+      "expected_count_masked": 0,
+      "expected_numel": 3
+    },
+    {
+      "op": "masked_where",
+      "tag": "vec4",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        4
+      ],
+      "a_data": [
+        10.0,
+        20.0,
+        30.0,
+        40.0
+      ],
+      "condition": [
+        false,
+        true,
+        false,
+        true
+      ],
+      "expected_mask": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "expected_count_valid": 2,
+      "expected_count_masked": 2,
+      "expected_numel": 4
+    },
+    {
+      "op": "masked_invalid",
+      "tag": "vec6",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        6
+      ],
+      "a_data": [
+        1.0,
+        "NaN",
+        3.0,
+        "Infinity",
+        "-Infinity",
+        5.0
+      ],
+      "expected_mask": [
+        true,
+        false,
+        true,
+        false,
+        false,
+        true
+      ],
+      "expected_count_valid": 3,
+      "expected_count_masked": 3,
+      "expected_numel": 6
+    },
+    {
+      "op": "masked_equal",
+      "tag": "vec4",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        5.0,
+        5.0,
+        2.0
+      ],
+      "value": 5.0,
+      "expected_mask": [
+        true,
+        false,
+        false,
+        true
+      ],
+      "expected_count_valid": 2,
+      "expected_count_masked": 2,
+      "expected_numel": 4
+    },
+    {
+      "op": "filled_default",
+      "tag": "vec3",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "mask": [
+        true,
+        false,
+        true
+      ],
+      "fill_value": 0.0,
+      "out_shape": [
+        3
+      ],
+      "out_values": [
+        1.0,
+        0.0,
+        3.0
+      ]
+    },
+    {
+      "op": "filled_override",
+      "tag": "vec3",
+      "dtype": "float64",
+      "device": "cpu",
+      "a_shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "mask": [
+        true,
+        false,
+        true
+      ],
+      "fill_value": -99.0,
+      "out_shape": [
+        3
+      ],
+      "out_values": [
+        1.0,
+        -99.0,
+        3.0
+      ]
+    }
+  ]
+}

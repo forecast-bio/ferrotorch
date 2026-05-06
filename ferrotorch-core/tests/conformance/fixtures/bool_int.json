@@ -1,0 +1,4544 @@
+{
+  "metadata": {
+    "torch_version": "2.11.0+cu130",
+    "cuda_version": "13.0",
+    "cuda_available": true,
+    "python_executable": "/usr/sbin/python3",
+    "python_platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "generated_at": "2026-05-06T16:41:09.595706+00:00",
+    "rng_seed": 11534759,
+    "devices": [
+      "cpu"
+    ],
+    "phase": "2.13-bool-int",
+    "tracking_issue": "#775"
+  },
+  "fixtures": [
+    {
+      "op": "bool_zeros",
+      "tag": "vec1d",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "bool_ones",
+      "tag": "vec1d",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "bool_zeros",
+      "tag": "mat2d",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "ndim": 2,
+      "numel": 6
+    },
+    {
+      "op": "bool_ones",
+      "tag": "mat2d",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "ndim": 2,
+      "numel": 6
+    },
+    {
+      "op": "bool_zeros",
+      "tag": "ten3d",
+      "device": "cpu",
+      "shape": [
+        2,
+        2,
+        3
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "ndim": 3,
+      "numel": 12
+    },
+    {
+      "op": "bool_ones",
+      "tag": "ten3d",
+      "device": "cpu",
+      "shape": [
+        2,
+        2,
+        3
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "ndim": 3,
+      "numel": 12
+    },
+    {
+      "op": "bool_zeros",
+      "tag": "empty1d",
+      "device": "cpu",
+      "shape": [
+        0
+      ],
+      "out_data": [],
+      "ndim": 1,
+      "numel": 0
+    },
+    {
+      "op": "bool_ones",
+      "tag": "empty1d",
+      "device": "cpu",
+      "shape": [
+        0
+      ],
+      "out_data": [],
+      "ndim": 1,
+      "numel": 0
+    },
+    {
+      "op": "bool_from_vec",
+      "tag": "alt4",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "bool_from_slice",
+      "tag": "alt4",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "bool_from_vec",
+      "tag": "alltrue4",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "bool_from_slice",
+      "tag": "alltrue4",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "bool_from_vec",
+      "tag": "allfalse4",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "bool_from_slice",
+      "tag": "allfalse4",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "bool_from_vec",
+      "tag": "mixed2x3",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "in_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "ndim": 2,
+      "numel": 6
+    },
+    {
+      "op": "bool_from_slice",
+      "tag": "mixed2x3",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "in_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "ndim": 2,
+      "numel": 6
+    },
+    {
+      "op": "bool_from_vec",
+      "tag": "scalar_true",
+      "device": "cpu",
+      "shape": [],
+      "in_data": [
+        true
+      ],
+      "out_data": [
+        true
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "bool_from_slice",
+      "tag": "scalar_true",
+      "device": "cpu",
+      "shape": [],
+      "in_data": [
+        true
+      ],
+      "out_data": [
+        true
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "bool_from_vec",
+      "tag": "scalar_false",
+      "device": "cpu",
+      "shape": [],
+      "in_data": [
+        false
+      ],
+      "out_data": [
+        false
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "bool_from_slice",
+      "tag": "scalar_false",
+      "device": "cpu",
+      "shape": [],
+      "in_data": [
+        false
+      ],
+      "out_data": [
+        false
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "pos1d_gt0",
+      "predicate": "gt0",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        -1.0,
+        0.0,
+        1.0,
+        2.0
+      ],
+      "out_data": [
+        false,
+        false,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "pos1d_lt_half",
+      "predicate": "lt_half",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        -1.0,
+        0.0,
+        1.0,
+        2.0
+      ],
+      "out_data": [
+        true,
+        true,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "pos2d_gt0",
+      "predicate": "gt0",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        -2.0,
+        -1.0,
+        0.0,
+        1.0,
+        2.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "pos2d_lt_half",
+      "predicate": "lt_half",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        -2.0,
+        -1.0,
+        0.0,
+        1.0,
+        2.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "finite1d_gt0",
+      "predicate": "gt0",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        5
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        "Infinity",
+        "-Infinity",
+        0.0
+      ],
+      "out_data": [
+        false,
+        true,
+        true,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "finite1d_lt_half",
+      "predicate": "lt_half",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        5
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        "Infinity",
+        "-Infinity",
+        0.0
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "finite1d_is_finite",
+      "predicate": "is_finite",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        5
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        "Infinity",
+        "-Infinity",
+        0.0
+      ],
+      "out_data": [
+        false,
+        true,
+        false,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "pos1d_gt0",
+      "predicate": "gt0",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        -1.0,
+        0.0,
+        1.0,
+        2.0
+      ],
+      "out_data": [
+        false,
+        false,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "pos1d_lt_half",
+      "predicate": "lt_half",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        -1.0,
+        0.0,
+        1.0,
+        2.0
+      ],
+      "out_data": [
+        true,
+        true,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "pos2d_gt0",
+      "predicate": "gt0",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        -2.0,
+        -1.0,
+        0.0,
+        1.0,
+        2.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "pos2d_lt_half",
+      "predicate": "lt_half",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        -2.0,
+        -1.0,
+        0.0,
+        1.0,
+        2.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "finite1d_gt0",
+      "predicate": "gt0",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        5
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        "Infinity",
+        "-Infinity",
+        0.0
+      ],
+      "out_data": [
+        false,
+        true,
+        true,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "finite1d_lt_half",
+      "predicate": "lt_half",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        5
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        "Infinity",
+        "-Infinity",
+        0.0
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_from_predicate",
+      "tag": "finite1d_is_finite",
+      "predicate": "is_finite",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        5
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        "Infinity",
+        "-Infinity",
+        0.0
+      ],
+      "out_data": [
+        false,
+        true,
+        false,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_not",
+      "tag": "vec4",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_data": [
+        false,
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_and",
+      "tag": "vec4",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "b_data": [
+        true,
+        true,
+        false,
+        false
+      ],
+      "out_data": [
+        true,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_or",
+      "tag": "vec4",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "b_data": [
+        true,
+        true,
+        false,
+        false
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_xor",
+      "tag": "vec4",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "b_data": [
+        true,
+        true,
+        false,
+        false
+      ],
+      "out_data": [
+        false,
+        true,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_not",
+      "tag": "mat2x3",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_data": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_and",
+      "tag": "mat2x3",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "b_data": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true
+      ],
+      "out_data": [
+        true,
+        false,
+        false,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_or",
+      "tag": "mat2x3",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "b_data": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        false,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_xor",
+      "tag": "mat2x3",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "b_data": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true
+      ],
+      "out_data": [
+        false,
+        true,
+        true,
+        false,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_not",
+      "tag": "ones_vs_zeros",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        true,
+        true
+      ],
+      "out_data": [
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_and",
+      "tag": "ones_vs_zeros",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        true,
+        true
+      ],
+      "b_data": [
+        false,
+        false,
+        false
+      ],
+      "out_data": [
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_or",
+      "tag": "ones_vs_zeros",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        true,
+        true
+      ],
+      "b_data": [
+        false,
+        false,
+        false
+      ],
+      "out_data": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_xor",
+      "tag": "ones_vs_zeros",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        true,
+        true
+      ],
+      "b_data": [
+        false,
+        false,
+        false
+      ],
+      "out_data": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_not",
+      "tag": "all_true",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_and",
+      "tag": "all_true",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "b_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_or",
+      "tag": "all_true",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "b_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_xor",
+      "tag": "all_true",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "b_data": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_not",
+      "tag": "all_false",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_and",
+      "tag": "all_false",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "b_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_or",
+      "tag": "all_false",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "b_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_xor",
+      "tag": "all_false",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "b_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_not",
+      "tag": "empty",
+      "device": "cpu",
+      "shape": [
+        0
+      ],
+      "a_data": [],
+      "out_data": []
+    },
+    {
+      "op": "bool_and",
+      "tag": "empty",
+      "device": "cpu",
+      "shape": [
+        0
+      ],
+      "a_data": [],
+      "b_data": [],
+      "out_data": []
+    },
+    {
+      "op": "bool_or",
+      "tag": "empty",
+      "device": "cpu",
+      "shape": [
+        0
+      ],
+      "a_data": [],
+      "b_data": [],
+      "out_data": []
+    },
+    {
+      "op": "bool_xor",
+      "tag": "empty",
+      "device": "cpu",
+      "shape": [
+        0
+      ],
+      "a_data": [],
+      "b_data": [],
+      "out_data": []
+    },
+    {
+      "op": "bool_any",
+      "tag": "mixed",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        false,
+        true
+      ],
+      "out_scalar_bool": true
+    },
+    {
+      "op": "bool_all",
+      "tag": "mixed",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        false,
+        true
+      ],
+      "out_scalar_bool": false
+    },
+    {
+      "op": "bool_count_true",
+      "tag": "mixed",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        false,
+        true
+      ],
+      "out_scalar_uint": 2
+    },
+    {
+      "op": "bool_any",
+      "tag": "alltrue",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        true,
+        true
+      ],
+      "out_scalar_bool": true
+    },
+    {
+      "op": "bool_all",
+      "tag": "alltrue",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        true,
+        true
+      ],
+      "out_scalar_bool": true
+    },
+    {
+      "op": "bool_count_true",
+      "tag": "alltrue",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        true,
+        true
+      ],
+      "out_scalar_uint": 3
+    },
+    {
+      "op": "bool_any",
+      "tag": "allfalse",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        false,
+        false,
+        false
+      ],
+      "out_scalar_bool": false
+    },
+    {
+      "op": "bool_all",
+      "tag": "allfalse",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        false,
+        false,
+        false
+      ],
+      "out_scalar_bool": false
+    },
+    {
+      "op": "bool_count_true",
+      "tag": "allfalse",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        false,
+        false,
+        false
+      ],
+      "out_scalar_uint": 0
+    },
+    {
+      "op": "bool_any",
+      "tag": "single_true",
+      "device": "cpu",
+      "shape": [
+        1
+      ],
+      "a_data": [
+        true
+      ],
+      "out_scalar_bool": true
+    },
+    {
+      "op": "bool_all",
+      "tag": "single_true",
+      "device": "cpu",
+      "shape": [
+        1
+      ],
+      "a_data": [
+        true
+      ],
+      "out_scalar_bool": true
+    },
+    {
+      "op": "bool_count_true",
+      "tag": "single_true",
+      "device": "cpu",
+      "shape": [
+        1
+      ],
+      "a_data": [
+        true
+      ],
+      "out_scalar_uint": 1
+    },
+    {
+      "op": "bool_any",
+      "tag": "single_false",
+      "device": "cpu",
+      "shape": [
+        1
+      ],
+      "a_data": [
+        false
+      ],
+      "out_scalar_bool": false
+    },
+    {
+      "op": "bool_all",
+      "tag": "single_false",
+      "device": "cpu",
+      "shape": [
+        1
+      ],
+      "a_data": [
+        false
+      ],
+      "out_scalar_bool": false
+    },
+    {
+      "op": "bool_count_true",
+      "tag": "single_false",
+      "device": "cpu",
+      "shape": [
+        1
+      ],
+      "a_data": [
+        false
+      ],
+      "out_scalar_uint": 0
+    },
+    {
+      "op": "bool_any",
+      "tag": "empty",
+      "device": "cpu",
+      "shape": [
+        0
+      ],
+      "a_data": [],
+      "out_scalar_bool": false
+    },
+    {
+      "op": "bool_all",
+      "tag": "empty",
+      "device": "cpu",
+      "shape": [
+        0
+      ],
+      "a_data": [],
+      "out_scalar_bool": true
+    },
+    {
+      "op": "bool_count_true",
+      "tag": "empty",
+      "device": "cpu",
+      "shape": [
+        0
+      ],
+      "a_data": [],
+      "out_scalar_uint": 0
+    },
+    {
+      "op": "bool_any",
+      "tag": "mat2x2_mixed",
+      "device": "cpu",
+      "shape": [
+        2,
+        2
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_scalar_bool": true
+    },
+    {
+      "op": "bool_all",
+      "tag": "mat2x2_mixed",
+      "device": "cpu",
+      "shape": [
+        2,
+        2
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_scalar_bool": false
+    },
+    {
+      "op": "bool_count_true",
+      "tag": "mat2x2_mixed",
+      "device": "cpu",
+      "shape": [
+        2,
+        2
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_scalar_uint": 2
+    },
+    {
+      "op": "bool_any",
+      "tag": "mat2x3_allfalse",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_scalar_bool": false
+    },
+    {
+      "op": "bool_all",
+      "tag": "mat2x3_allfalse",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_scalar_bool": false
+    },
+    {
+      "op": "bool_count_true",
+      "tag": "mat2x3_allfalse",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_scalar_uint": 0
+    },
+    {
+      "op": "bool_gt",
+      "tag": "mixed4",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        true,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_lt",
+      "tag": "mixed4",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        false,
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_ge",
+      "tag": "mixed4",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        true,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_le",
+      "tag": "mixed4",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        false,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_eq_t",
+      "tag": "mixed4",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        false,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_ne",
+      "tag": "mixed4",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        true,
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_gt",
+      "tag": "ge_le_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        false,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_lt",
+      "tag": "ge_le_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_ge",
+      "tag": "ge_le_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_le",
+      "tag": "ge_le_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        true,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_eq_t",
+      "tag": "ge_le_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        true,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_ne",
+      "tag": "ge_le_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        false,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_gt",
+      "tag": "eq_ne_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_lt",
+      "tag": "eq_ne_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_ge",
+      "tag": "eq_ne_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_le",
+      "tag": "eq_ne_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_eq_t",
+      "tag": "eq_ne_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_ne",
+      "tag": "eq_ne_mix",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_gt",
+      "tag": "nan_compare",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_lt",
+      "tag": "nan_compare",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_ge",
+      "tag": "nan_compare",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_le",
+      "tag": "nan_compare",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_eq_t",
+      "tag": "nan_compare",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_ne",
+      "tag": "nan_compare",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_gt",
+      "tag": "mat2x3",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_lt",
+      "tag": "mat2x3",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        true,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_ge",
+      "tag": "mat2x3",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        false,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_le",
+      "tag": "mat2x3",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_eq_t",
+      "tag": "mat2x3",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        false,
+        true,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_ne",
+      "tag": "mat2x3",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        true,
+        false,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_gt",
+      "tag": "mixed4",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        true,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_lt",
+      "tag": "mixed4",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        false,
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_ge",
+      "tag": "mixed4",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        true,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_le",
+      "tag": "mixed4",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        false,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_eq_t",
+      "tag": "mixed4",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        false,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_ne",
+      "tag": "mixed4",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b_data": [
+        0.0,
+        3.0,
+        3.0,
+        5.0
+      ],
+      "out_data": [
+        true,
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_gt",
+      "tag": "ge_le_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        false,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_lt",
+      "tag": "ge_le_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_ge",
+      "tag": "ge_le_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_le",
+      "tag": "ge_le_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        true,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_eq_t",
+      "tag": "ge_le_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        true,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_ne",
+      "tag": "ge_le_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        3.0,
+        2.0
+      ],
+      "out_data": [
+        false,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_gt",
+      "tag": "eq_ne_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_lt",
+      "tag": "eq_ne_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_ge",
+      "tag": "eq_ne_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_le",
+      "tag": "eq_ne_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_eq_t",
+      "tag": "eq_ne_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_ne",
+      "tag": "eq_ne_mix",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "b_data": [
+        1.0,
+        5.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_gt",
+      "tag": "nan_compare",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_lt",
+      "tag": "nan_compare",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_ge",
+      "tag": "nan_compare",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_le",
+      "tag": "nan_compare",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_eq_t",
+      "tag": "nan_compare",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_ne",
+      "tag": "nan_compare",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        "NaN",
+        1.0,
+        2.0
+      ],
+      "b_data": [
+        1.0,
+        1.0,
+        "NaN"
+      ],
+      "out_data": [
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "op": "bool_gt",
+      "tag": "mat2x3",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_lt",
+      "tag": "mat2x3",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        true,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_ge",
+      "tag": "mat2x3",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        false,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_le",
+      "tag": "mat2x3",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        true,
+        true,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_eq_t",
+      "tag": "mat2x3",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        false,
+        false,
+        true,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "op": "bool_ne",
+      "tag": "mat2x3",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b_data": [
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "out_data": [
+        true,
+        true,
+        false,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "op": "bool_reshape",
+      "tag": "1d_to_2d",
+      "device": "cpu",
+      "in_shape": [
+        6
+      ],
+      "new_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_reshape",
+      "tag": "2d_to_2d",
+      "device": "cpu",
+      "in_shape": [
+        2,
+        3
+      ],
+      "new_shape": [
+        3,
+        2
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_data": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_reshape",
+      "tag": "1d_to_2x2",
+      "device": "cpu",
+      "in_shape": [
+        4
+      ],
+      "new_shape": [
+        2,
+        2
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_data": [
+        true,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "op": "bool_reshape",
+      "tag": "1d_to_scalar",
+      "device": "cpu",
+      "in_shape": [
+        1
+      ],
+      "new_shape": [],
+      "a_data": [
+        true
+      ],
+      "out_data": [
+        true
+      ]
+    },
+    {
+      "op": "bool_to_float",
+      "tag": "vec4",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_data": [
+        1.0,
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "op": "bool_to_float",
+      "tag": "vec3",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        true,
+        false
+      ],
+      "out_data": [
+        1.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "op": "bool_to_float",
+      "tag": "allfalse",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_data": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "op": "bool_to_float",
+      "tag": "alltrue",
+      "dtype": "float32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        true,
+        true
+      ],
+      "out_data": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "op": "bool_to_float",
+      "tag": "vec4",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "out_data": [
+        1.0,
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "op": "bool_to_float",
+      "tag": "vec3",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        true,
+        false
+      ],
+      "out_data": [
+        1.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "op": "bool_to_float",
+      "tag": "allfalse",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "a_data": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "out_data": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "op": "bool_to_float",
+      "tag": "alltrue",
+      "dtype": "float64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        true,
+        true,
+        true
+      ],
+      "out_data": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "op": "int_zeros",
+      "tag": "vec1d",
+      "dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "out_data": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "int_zeros",
+      "tag": "mat2d",
+      "dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "out_data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ndim": 2,
+      "numel": 6
+    },
+    {
+      "op": "int_zeros",
+      "tag": "ten3d",
+      "dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        2,
+        2,
+        3
+      ],
+      "out_data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ndim": 3,
+      "numel": 12
+    },
+    {
+      "op": "int_zeros",
+      "tag": "empty1d",
+      "dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        0
+      ],
+      "out_data": [],
+      "ndim": 1,
+      "numel": 0
+    },
+    {
+      "op": "int_from_vec",
+      "tag": "small_vec",
+      "dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "int_from_slice",
+      "tag": "small_vec",
+      "dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "int_from_vec",
+      "tag": "signed_vec",
+      "dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        0,
+        -1,
+        100,
+        -100
+      ],
+      "out_data": [
+        0,
+        -1,
+        100,
+        -100
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "int_from_slice",
+      "tag": "signed_vec",
+      "dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        0,
+        -1,
+        100,
+        -100
+      ],
+      "out_data": [
+        0,
+        -1,
+        100,
+        -100
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "int_from_vec",
+      "tag": "mat2x3",
+      "dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "in_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "ndim": 2,
+      "numel": 6
+    },
+    {
+      "op": "int_from_slice",
+      "tag": "mat2x3",
+      "dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "in_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "ndim": 2,
+      "numel": 6
+    },
+    {
+      "op": "int_arange",
+      "tag": "n0",
+      "dtype": "i32",
+      "device": "cpu",
+      "n": 0,
+      "out_data": [],
+      "ndim": 1,
+      "numel": 0
+    },
+    {
+      "op": "int_arange",
+      "tag": "n1",
+      "dtype": "i32",
+      "device": "cpu",
+      "n": 1,
+      "out_data": [
+        0
+      ],
+      "ndim": 1,
+      "numel": 1
+    },
+    {
+      "op": "int_arange",
+      "tag": "n5",
+      "dtype": "i32",
+      "device": "cpu",
+      "n": 5,
+      "out_data": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "ndim": 1,
+      "numel": 5
+    },
+    {
+      "op": "int_arange",
+      "tag": "n10",
+      "dtype": "i32",
+      "device": "cpu",
+      "n": 10,
+      "out_data": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "ndim": 1,
+      "numel": 10
+    },
+    {
+      "op": "int_scalar",
+      "tag": "v0",
+      "dtype": "i32",
+      "device": "cpu",
+      "scalar": 0,
+      "shape": [],
+      "out_data": [
+        0
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "int_scalar",
+      "tag": "v1",
+      "dtype": "i32",
+      "device": "cpu",
+      "scalar": 1,
+      "shape": [],
+      "out_data": [
+        1
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "int_scalar",
+      "tag": "v-1",
+      "dtype": "i32",
+      "device": "cpu",
+      "scalar": -1,
+      "shape": [],
+      "out_data": [
+        -1
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "int_scalar",
+      "tag": "v42",
+      "dtype": "i32",
+      "device": "cpu",
+      "scalar": 42,
+      "shape": [],
+      "out_data": [
+        42
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "int_scalar",
+      "tag": "v-100",
+      "dtype": "i32",
+      "device": "cpu",
+      "scalar": -100,
+      "shape": [],
+      "out_data": [
+        -100
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "int_zeros",
+      "tag": "vec1d",
+      "dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "out_data": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "int_zeros",
+      "tag": "mat2d",
+      "dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "out_data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ndim": 2,
+      "numel": 6
+    },
+    {
+      "op": "int_zeros",
+      "tag": "ten3d",
+      "dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        2,
+        2,
+        3
+      ],
+      "out_data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ndim": 3,
+      "numel": 12
+    },
+    {
+      "op": "int_zeros",
+      "tag": "empty1d",
+      "dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        0
+      ],
+      "out_data": [],
+      "ndim": 1,
+      "numel": 0
+    },
+    {
+      "op": "int_from_vec",
+      "tag": "small_vec",
+      "dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "int_from_slice",
+      "tag": "small_vec",
+      "dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "int_from_vec",
+      "tag": "signed_vec",
+      "dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        0,
+        -1,
+        100,
+        -100
+      ],
+      "out_data": [
+        0,
+        -1,
+        100,
+        -100
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "int_from_slice",
+      "tag": "signed_vec",
+      "dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        4
+      ],
+      "in_data": [
+        0,
+        -1,
+        100,
+        -100
+      ],
+      "out_data": [
+        0,
+        -1,
+        100,
+        -100
+      ],
+      "ndim": 1,
+      "numel": 4
+    },
+    {
+      "op": "int_from_vec",
+      "tag": "mat2x3",
+      "dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "in_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "ndim": 2,
+      "numel": 6
+    },
+    {
+      "op": "int_from_slice",
+      "tag": "mat2x3",
+      "dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        2,
+        3
+      ],
+      "in_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "ndim": 2,
+      "numel": 6
+    },
+    {
+      "op": "int_arange",
+      "tag": "n0",
+      "dtype": "i64",
+      "device": "cpu",
+      "n": 0,
+      "out_data": [],
+      "ndim": 1,
+      "numel": 0
+    },
+    {
+      "op": "int_arange",
+      "tag": "n1",
+      "dtype": "i64",
+      "device": "cpu",
+      "n": 1,
+      "out_data": [
+        0
+      ],
+      "ndim": 1,
+      "numel": 1
+    },
+    {
+      "op": "int_arange",
+      "tag": "n5",
+      "dtype": "i64",
+      "device": "cpu",
+      "n": 5,
+      "out_data": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "ndim": 1,
+      "numel": 5
+    },
+    {
+      "op": "int_arange",
+      "tag": "n10",
+      "dtype": "i64",
+      "device": "cpu",
+      "n": 10,
+      "out_data": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "ndim": 1,
+      "numel": 10
+    },
+    {
+      "op": "int_scalar",
+      "tag": "v0",
+      "dtype": "i64",
+      "device": "cpu",
+      "scalar": 0,
+      "shape": [],
+      "out_data": [
+        0
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "int_scalar",
+      "tag": "v1",
+      "dtype": "i64",
+      "device": "cpu",
+      "scalar": 1,
+      "shape": [],
+      "out_data": [
+        1
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "int_scalar",
+      "tag": "v-1",
+      "dtype": "i64",
+      "device": "cpu",
+      "scalar": -1,
+      "shape": [],
+      "out_data": [
+        -1
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "int_scalar",
+      "tag": "v42",
+      "dtype": "i64",
+      "device": "cpu",
+      "scalar": 42,
+      "shape": [],
+      "out_data": [
+        42
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "int_scalar",
+      "tag": "v-100",
+      "dtype": "i64",
+      "device": "cpu",
+      "scalar": -100,
+      "shape": [],
+      "out_data": [
+        -100
+      ],
+      "ndim": 0,
+      "numel": 1
+    },
+    {
+      "op": "int_reshape",
+      "tag": "1d_to_2d",
+      "dtype": "i32",
+      "device": "cpu",
+      "in_shape": [
+        6
+      ],
+      "new_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "op": "int_reshape",
+      "tag": "2d_to_2d",
+      "dtype": "i32",
+      "device": "cpu",
+      "in_shape": [
+        2,
+        3
+      ],
+      "new_shape": [
+        3,
+        2
+      ],
+      "a_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "op": "int_reshape",
+      "tag": "1d_to_2x2",
+      "dtype": "i32",
+      "device": "cpu",
+      "in_shape": [
+        4
+      ],
+      "new_shape": [
+        2,
+        2
+      ],
+      "a_data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "op": "int_reshape",
+      "tag": "1d_to_scalar",
+      "dtype": "i32",
+      "device": "cpu",
+      "in_shape": [
+        1
+      ],
+      "new_shape": [],
+      "a_data": [
+        42
+      ],
+      "out_data": [
+        42
+      ]
+    },
+    {
+      "op": "int_reshape",
+      "tag": "1d_to_2d",
+      "dtype": "i64",
+      "device": "cpu",
+      "in_shape": [
+        6
+      ],
+      "new_shape": [
+        2,
+        3
+      ],
+      "a_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "op": "int_reshape",
+      "tag": "2d_to_2d",
+      "dtype": "i64",
+      "device": "cpu",
+      "in_shape": [
+        2,
+        3
+      ],
+      "new_shape": [
+        3,
+        2
+      ],
+      "a_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "op": "int_reshape",
+      "tag": "1d_to_2x2",
+      "dtype": "i64",
+      "device": "cpu",
+      "in_shape": [
+        4
+      ],
+      "new_shape": [
+        2,
+        2
+      ],
+      "a_data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "out_data": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "op": "int_reshape",
+      "tag": "1d_to_scalar",
+      "dtype": "i64",
+      "device": "cpu",
+      "in_shape": [
+        1
+      ],
+      "new_shape": [],
+      "a_data": [
+        42
+      ],
+      "out_data": [
+        42
+      ]
+    },
+    {
+      "op": "int_cast",
+      "tag": "i32_to_i64_small",
+      "src_dtype": "i32",
+      "dst_dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1,
+        -1,
+        100
+      ],
+      "out_data": [
+        1,
+        -1,
+        100
+      ],
+      "expect_err": false
+    },
+    {
+      "op": "int_cast",
+      "tag": "i32_to_i64_mixed_signs",
+      "src_dtype": "i32",
+      "dst_dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        5
+      ],
+      "a_data": [
+        0,
+        -1,
+        1,
+        1000,
+        -1000
+      ],
+      "out_data": [
+        0,
+        -1,
+        1,
+        1000,
+        -1000
+      ],
+      "expect_err": false
+    },
+    {
+      "op": "int_cast",
+      "tag": "i32_to_i64_near_i32_extremes",
+      "src_dtype": "i32",
+      "dst_dtype": "i64",
+      "device": "cpu",
+      "shape": [
+        2
+      ],
+      "a_data": [
+        -1073741824,
+        1073741823
+      ],
+      "out_data": [
+        -1073741824,
+        1073741823
+      ],
+      "expect_err": false
+    },
+    {
+      "op": "int_cast",
+      "tag": "i64_to_i32_small",
+      "src_dtype": "i64",
+      "dst_dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        3
+      ],
+      "a_data": [
+        1,
+        -1,
+        100
+      ],
+      "out_data": [
+        1,
+        -1,
+        100
+      ],
+      "expect_err": false
+    },
+    {
+      "op": "int_cast",
+      "tag": "i64_to_i32_mixed_signs",
+      "src_dtype": "i64",
+      "dst_dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        5
+      ],
+      "a_data": [
+        0,
+        -1,
+        1,
+        1000,
+        -1000
+      ],
+      "out_data": [
+        0,
+        -1,
+        1,
+        1000,
+        -1000
+      ],
+      "expect_err": false
+    },
+    {
+      "op": "int_cast",
+      "tag": "i64_to_i32_near_i32_extremes",
+      "src_dtype": "i64",
+      "dst_dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        2
+      ],
+      "a_data": [
+        -1073741824,
+        1073741823
+      ],
+      "out_data": [
+        -1073741824,
+        1073741823
+      ],
+      "expect_err": false
+    },
+    {
+      "op": "int_cast",
+      "tag": "i64_to_i32_max_oob",
+      "src_dtype": "i64",
+      "dst_dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        1
+      ],
+      "a_data": [
+        9223372036854775807
+      ],
+      "out_data": [],
+      "expect_err": true
+    },
+    {
+      "op": "int_cast",
+      "tag": "i64_to_i32_min_oob",
+      "src_dtype": "i64",
+      "dst_dtype": "i32",
+      "device": "cpu",
+      "shape": [
+        1
+      ],
+      "a_data": [
+        -9223372036854775808
+      ],
+      "out_data": [],
+      "expect_err": true
+    },
+    {
+      "op": "int_dtype_name",
+      "tag": "i32",
+      "dtype": "i32",
+      "device": "cpu",
+      "expected_name": "i32"
+    },
+    {
+      "op": "int_dtype_name",
+      "tag": "i64",
+      "dtype": "i64",
+      "device": "cpu",
+      "expected_name": "i64"
+    }
+  ]
+}
