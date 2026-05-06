@@ -1,0 +1,10 @@
+{
+  "uuid": "9a52f6b6-9c32-4fef-aa67-1a8bad73b2c3",
+  "issue_uuid": "6d016961-edea-4fe6-8da4-e5437be69448",
+  "author": "y4rr",
+  "content": "Plan: build phase 2.14-plumbing conformance suite. Three artifacts: (1) scripts/regenerate_plumbing_fixtures.py — emits fixtures/plumbing.json with PyTorch parity references for Dtype/Device enums + numeric_cast results; (2) ferrotorch-core/tests/conformance/fixtures/plumbing.json — fixtures (variants enumerated, no kernel arithmetic for Cat-G items); (3) ferrotorch-core/tests/conformance_plumbing.rs — exercises 180 surface paths via direct method calls + file-comment-block literal substrings for trait/internal helpers. Strategy: many entries are Cat-G implicit-coverage (TensorStorage methods touched by Tensor ops, GpuBackend trait methods, internal dispatch helpers) — use file-comment-block pattern to satisfy literal-substring scanner. Will report exclusion changes structurally back to architect (no edits to _surface_exclusions.toml due to race-avoidance with #772/#773).",
+  "created_at": "2026-05-06T18:14:15.235607017Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAV6S1PS1pReV8Jk5cLMRTc+2yjZ0MImrCyI4WcroA2cCtBciDW7rF0cdiDCHJhKS+cWE29U+MTKNJ5wL/D4b6BQ=="
+}
