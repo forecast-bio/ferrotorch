@@ -1,0 +1,10 @@
+{
+  "uuid": "5e7f89f3-ba5a-4dce-ad35-aaaa47769b43",
+  "issue_uuid": "f2f42bfb-c5f6-444e-b049-090f62938af9",
+  "author": "y4rr",
+  "content": "Surfaced by phase 2.2 conformance dispatch (#764). LOGCUMSUMEXP_F64_PTX produces ~709.69 (= ln(f64::MAX)) for a 1-D input of small magnitudes (range [-0.5, 1.0]) where the correct cumulative answers stay below 4. This was one of the 5 sibling kernels that received the polynomial sweep in Dispatch C without direct probe coverage; the f32 version passes which suggests an exp_f64 inline approximation overflow or saturation in the kernel. Repro: cargo test -p ferrotorch-core --test conformance_reduction --features gpu gpu_logcumsumexp_forward. Test #764 keeps the GPU f64 forward case marked with #[ignore = \"blocked on #786\"]; CPU and GPU f32 paths both pass.",
+  "created_at": "2026-05-06T14:15:34.726530747Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAYqAVf851zAurCNh6DyZxJYJpcADY0botqo5hw9jlEZq/RneYvr0biYLWq0fiCmjXZJDWyC4w/dNwf87yz5w3AA=="
+}
