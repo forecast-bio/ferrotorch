@@ -1,0 +1,11 @@
+{
+  "uuid": "97fbd5cc-745f-4b20-aa45-5700beeb595b",
+  "display_id": 768,
+  "title": "conformance phase 2.6-einops-einsum: ferrotorch-core::einops & einsum — 7 items pending",
+  "description": "Tracking: phase 2.6-einops-einsum of the ferrotorch-core conformance suite (parent issue #759).\n\n**Module(s) covered:** einops.rs, einsum.rs\n**Item count:** 7 `pub` items.\n\n## Mandate\n\nEach public item below requires CPU + GPU + autograd-where-applicable\nconformance test coverage referenced from `ferrotorch-core/tests/conformance_*.rs`.\nUntil this phase lands its tests, every item here is excluded in\n`ferrotorch-core/tests/conformance/_surface_exclusions.toml` with this issue\nas its `tracking_issue` field. The strict gate\n(`tests/conformance_surface_coverage.rs`) enforces the contract.\n\n## Items pending\n\n- `ferrotorch_core::einops::EinopsReduction`  (*enum*) — `pub enum EinopsReduction`\n- `ferrotorch_core::einops::rearrange`  (*fn*) — `fn rearrange < T : Float > (input : & Tensor < T > , pattern : & str) -> FerrotorchResult < Tensor < T > >`\n- `ferrotorch_core::einops::rearrange_with`  (*fn*) — `fn rearrange_with < T : Float > (input : & Tensor < T > , pattern : & str , axes_lengths : & [(& str , usize)] ,) -> ...`\n- `ferrotorch_core::einops::reduce`  (*fn*) — `fn reduce < T : Float > (input : & Tensor < T > , pattern : & str , reduction : EinopsReduction ,) -> FerrotorchResul...`\n- `ferrotorch_core::einops::repeat`  (*fn*) — `fn repeat < T : Float > (input : & Tensor < T > , pattern : & str , axes_lengths : & [(& str , usize)] ,) -> Ferrotor...`\n- `ferrotorch_core::einsum::einsum`  (*fn*) — `fn einsum < T : Float > (equation : & str , inputs : & [& Tensor < T >]) -> FerrotorchResult < Tensor < T > >`\n- `ferrotorch_core::einsum::einsum_differentiable`  (*fn*) — `fn einsum_differentiable < T : Float > (equation : & str , inputs : & [& Tensor < T >] ,) -> FerrotorchResult < Tenso...`",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T03:19:17.667274975Z",
+  "updated_at": "2026-05-06T03:19:17.667274975Z"
+}
