@@ -2,11 +2,12 @@
   "uuid": "17509916-faa8-41b5-88e8-950360823f02",
   "display_id": 784,
   "title": "cascade bundle: #782 (13 *_backward_f64 stubs) + #783 (pow_f64 numerical accuracy via libdevice/NVRTC)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-06T13:14:42.467063759Z",
-  "updated_at": "2026-05-06T13:14:44.049485072Z",
+  "updated_at": "2026-05-06T13:48:49.330105459Z",
+  "closed_at": "2026-05-06T13:48:49.330105459Z",
   "labels": [
     "rust,gpu,bug,conformance"
   ]
