@@ -1,0 +1,11 @@
+{
+  "uuid": "03588b1c-7f0f-4614-9ca5-99c22d2d27d0",
+  "display_id": 805,
+  "title": "ferrotorch-core: BoolTensor/IntTensor empty-shape numel divergence — surfaced by phase 2.13 (#775)",
+  "description": "BoolTensor::zeros(&[0]) and IntTensor::zeros(&[0]) return numel=1 instead of numel=0. PyTorch's torch.zeros([0]) has numel=0. Root cause: the .max(1) in zeros/ones/from_vec conflates the 0-d scalar case (shape=[]) with the 1-D empty case (shape=[0]). Locations: ferrotorch-core/src/bool_tensor.rs:55-70 (zeros/ones), :31-47 (from_vec); ferrotorch-core/src/int_tensor.rs:75-122 (same pattern + arange(0) calls from_vec(vec![], vec![0]) which fails). Fix: distinguish shape=[] (scalar) from shape=[0] (1-D empty): use 'if shape.is_empty() { 1 } else { shape.iter().product() }'. Surfaced by phase 2.13 conformance suite. Test currently cascade_skips the empty1d/empty/n0 fixtures so the rest of the suite passes.",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T16:46:02.803877087Z",
+  "updated_at": "2026-05-06T16:46:02.803877087Z"
+}
