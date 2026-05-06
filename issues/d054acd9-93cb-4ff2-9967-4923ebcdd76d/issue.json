@@ -7,9 +7,10 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-06T23:31:00.863278891Z",
-  "updated_at": "2026-05-06T23:31:03.530655936Z",
+  "updated_at": "2026-05-06T23:31:04.856831112Z",
   "labels": [
     "bug",
-    "gpu"
+    "gpu",
+    "einsum"
   ]
 }
