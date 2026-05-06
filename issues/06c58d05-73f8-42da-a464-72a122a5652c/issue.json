@@ -1,0 +1,11 @@
+{
+  "uuid": "06c58d05-73f8-42da-a464-72a122a5652c",
+  "display_id": 799,
+  "title": "ferrotorch-gpu: gelu_with(GeluApproximate::None) f32 GPU forward diverges by 1.25e-2 from PyTorch — surfaced by phase 2.5 (#767)",
+  "description": "Phase 2.5 GPU lane shows gelu_with(None) = 'exact erf-based' on f32 GPU diverges by 1.25e-2 from PyTorch — well outside F32_TRANSCENDENTAL_GPU = 1e-4. Likely the GPU 'gelu_f32' kernel uses a tanh approximation or sigmoid approximation regardless of the GeluApproximate flag (the GeluBackward::backward dispatches by flag but forward might not). Probe: trace which gelu_f32 kernel ferrotorch-gpu's backend exposes, check whether gelu_with's CPU-detour-then-upload path even uses the GPU kernel for the forward. Fix shape: route gelu_with(None) to a GPU erf-based kernel (or fall through to the exact CPU formula via composite-implicit-autograd).",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T16:08:25.836579735Z",
+  "updated_at": "2026-05-06T16:08:25.836579735Z"
+}
