@@ -1,0 +1,11 @@
+{
+  "uuid": "74bf3ba5-4b46-47be-8934-cb65b12a77e2",
+  "display_id": 807,
+  "title": "ferrotorch-core: irfft CPU pad/truncate semantics differ from PyTorch when half_n != output_n/2+1 — surfaced by phase 2.7 (#769)",
+  "description": "Fixture cpu_irfft len_8_pad_to_16: input shape [2, 9, 2] (rfft of len-16 padded), output_n=8.\nPyTorch's irfft(spec_of_len_9, n=8) takes the first 5 (=8/2+1) elements of the spectrum and Hermitian-extends. ferrotorch's CPU path takes the first min(half_n, output_n)=8 elements of the spectrum (which are not Hermitian) and IFFTs that, producing wrong result.\nCode: ferrotorch-core/src/fft.rs:419-444.\nSurfaced by phase 2.7. cascade_skip applied for tag len_8_pad_to_16.",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T16:52:01.295533767Z",
+  "updated_at": "2026-05-06T16:52:01.295533767Z"
+}
