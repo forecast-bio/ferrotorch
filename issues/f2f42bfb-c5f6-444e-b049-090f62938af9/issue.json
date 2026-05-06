@@ -2,11 +2,12 @@
   "uuid": "f2f42bfb-c5f6-444e-b049-090f62938af9",
   "display_id": 786,
   "title": "ferrotorch-core GPU: logcumsumexp_f64 PTX kernel returns garbage on small inputs",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-06T14:15:19.570295521Z",
-  "updated_at": "2026-05-06T14:15:21.119264544Z",
+  "updated_at": "2026-05-06T15:14:25.139488613Z",
+  "closed_at": "2026-05-06T15:14:25.139488613Z",
   "labels": [
     "rust,gpu,bug,conformance"
   ]
