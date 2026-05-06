@@ -1,0 +1,10 @@
+{
+  "uuid": "6aed601a-e94d-48eb-84db-8afc3be0f3c5",
+  "issue_uuid": "b08a97c9-ccf4-474d-8d9d-a66c8557a87d",
+  "author": "y4rr",
+  "content": "Delivered:\n- scripts/regenerate_flex_attention_fixtures.py (WSL-native; torch 2.11.0+cu130; 144 fixtures = 4 shapes × 5 variants × 2 dtypes × 2 devices, with backward-lane elision for empty_mask).\n- ferrotorch-core/tests/conformance/fixtures/flex_attention.json (0xBADCAFE seed; CUDA ON).\n- ferrotorch-core/tests/conformance_flex_attention.rs (8 tests: cpu fwd, cpu bwd, gpu fwd, gpu bwd, plus 4 hand-written smoke + invariant tests).\n\nVerification:\n- cargo test -p ferrotorch-core --test conformance_flex_attention --features gpu → 8 passed, 0 failed.\n- cargo test -p ferrotorch-core --test conformance_surface_coverage → 1 passed (#773's 2 entries either covered by substring 'flex_attention' OR still excluded — orchestrator-controlled).\n- cargo clippy -p ferrotorch-core --all-targets --all-features --no-deps -D warnings → clean.\n- cargo build --workspace --tests --features gpu → clean.\n- Other phases unchanged: 43+40+33+68+60+77+15+63+35+32+23+38 = 527 (autograd phase #772 has 4 pre-existing failures owned by that ticket, not introduced by 2.11).\n\nCascade follow-ups: #812 (narrow→add CUDA contiguity), #813 (f64 GPU dispatch in flex_attention chain).\n\nDid NOT edit _surface_exclusions.toml (race-avoidance per dispatch); orchestrator removes the 2 #773 entries.",
+  "created_at": "2026-05-06T18:24:53.318527449Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAYmRyELxtGBbcusctNQ9+0VFrbR/2VXXLm7CZt9jI4cXOVtUkwEqgFPeK0K7tqc3MJ8+OouYAB+845ECcxxHFAQ=="
+}
