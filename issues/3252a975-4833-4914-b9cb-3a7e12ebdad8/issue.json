@@ -1,0 +1,11 @@
+{
+  "uuid": "3252a975-4833-4914-b9cb-3a7e12ebdad8",
+  "display_id": 798,
+  "title": "ferrotorch-gpu: log_softmax_f32 backward grad on GPU returns wildly wrong values — surfaced by phase 2.5 (#767)",
+  "description": "Phase 2.5 conformance probe shows gpu log_softmax f32 grad has delta of ~4.0 absolute (actual ~ -3.9 vs expected ~ 0.19). Root cause likely lives in LogSoftmaxBackward's CUDA path (or its delegated softmax forward used as a saved tensor). Probe: build a focused minimum-shape (1,4) f32 fixture, dump intermediate softmax_output via a hook, compare. The forward GPU log_softmax passes — only the backward grad is broken. Possibly a missing grad_output * (sum-over-rows) accumulation step or a wrong axis.",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-06T16:08:19.438280097Z",
+  "updated_at": "2026-05-06T16:08:19.438280097Z"
+}
