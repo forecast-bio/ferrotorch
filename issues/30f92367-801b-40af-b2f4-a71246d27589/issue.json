@@ -1,0 +1,10 @@
+{
+  "uuid": "30f92367-801b-40af-b2f4-a71246d27589",
+  "display_id": 897,
+  "title": "captured_graph_upload_and_replay_count_api: gpu_add_into dispatches on device.stream() not the capture stream — CUDA_ERROR_STREAM_CAPTURE_INVALIDATED when tests run concurrently",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T16:52:10.873474141Z",
+  "updated_at": "2026-05-07T16:52:10.873474141Z"
+}
