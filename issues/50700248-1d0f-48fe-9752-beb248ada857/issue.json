@@ -2,11 +2,12 @@
   "uuid": "50700248-1d0f-48fe-9752-beb248ada857",
   "display_id": 856,
   "title": "ferrotorch-distributed: SubBackend::members diverges from torch.distributed new_group reference — SubBackend::new rejects members [1,2,3] as invalid ranks against world_size=3 parent (world_size mismatch from SimulatedBackend::create_group) — surfaced by C4 conformance",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T14:37:10.624693238Z",
-  "updated_at": "2026-05-07T14:37:11.985433064Z",
+  "updated_at": "2026-05-07T18:19:09.434588994Z",
+  "closed_at": "2026-05-07T18:19:09.434588994Z",
   "labels": [
     "rust,bug,conformance,distributed"
   ]
