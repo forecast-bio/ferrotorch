@@ -37,6 +37,74 @@ fn upload_f32_to_gpu(
     backend.cpu_to_gpu(bytes, 4, ordinal)
 }
 
+/// For `ScatterBackward` grad_input: build a flat boolean mask (1.0 at positions
+/// overwritten by scatter, 0.0 elsewhere) in the input's flat space.
+fn scatter_write_mask(
+    index: &[usize],
+    index_shape: &[usize],
+    input_shape: &[usize],
+    dim: usize,
+) -> Vec<f32> {
+    let input_numel: usize = input_shape.iter().product();
+    let index_numel: usize = index_shape.iter().product();
+    let mut mask = vec![0.0f32; input_numel];
+    let ndim = input_shape.len();
+    let mut coords = vec![0usize; ndim];
+    for i in 0..index_numel {
+        let idx_val = index[i];
+        let mut dst_coords = coords.clone();
+        dst_coords[dim] = idx_val;
+        let dst_flat = flat_index(&dst_coords, input_shape);
+        mask[dst_flat] = 1.0;
+        if i + 1 < index_numel {
+            increment_coords(&mut coords, index_shape);
+        }
+    }
+    mask
+}
+
+/// For `GatherBackward`: compute flat destination indices (into input space)
+/// for each element of the index tensor — i.e. the same flat positions that
+/// `gather` read from, so scatter-add routes gradients back there.
+fn gather_dst_flat_indices(
+    index: &[usize],
+    index_shape: &[usize],
+    input_shape: &[usize],
+    dim: usize,
+) -> Vec<f32> {
+    let ndim = input_shape.len();
+    let index_numel: usize = index_shape.iter().product();
+    let mut result = Vec::with_capacity(index_numel);
+    let mut coords = vec![0usize; ndim];
+    for i in 0..index_numel {
+        let idx_val = index[i];
+        // The destination in input space: same coords as the index position
+        // but with `dim` replaced by idx_val.
+        let mut dst_coords = coords.clone();
+        dst_coords[dim] = idx_val;
+        result.push(flat_index(&dst_coords, input_shape) as f32);
+        if i + 1 < index_numel {
+            increment_coords(&mut coords, index_shape);
+        }
+    }
+    result
+}
+
+/// For scatter/scatter_add backward grad_src: the source gradient comes from
+/// gathering grad_output at the index-mapped positions in input space — the
+/// inverse of what scatter wrote. Returns flat indices into grad_output space.
+fn scatter_src_flat_indices(
+    index: &[usize],
+    index_shape: &[usize],
+    input_shape: &[usize],
+    dim: usize,
+) -> Vec<f32> {
+    // Same computation as gather_dst_flat_indices: for each position in the
+    // index tensor, the source flat index in grad_output (= input) is the same
+    // flat location that was overwritten during scatter.
+    gather_dst_flat_indices(index, index_shape, input_shape, dim)
+}
+
 // ---------------------------------------------------------------------------
 // Helpers for N-D backward (shared by gather/scatter/scatter_add)
 // ---------------------------------------------------------------------------
@@ -382,14 +450,36 @@ impl<T: Float> GradFn<T> for GatherBackward<T> {
             return Ok(vec![None]);
         }
 
-        if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda {
-                op: "gather backward",
-            });
-        }
-
         let input_shape = self.input.shape();
         let input_numel: usize = input_shape.iter().product();
+
+        // §3 GPU-native path: flatten grad_output, compute flat dst indices CPU-side
+        // (the index tensor is always CPU-resident), scatter-add via existing 1-D kernel.
+        if grad_output.is_cuda() {
+            let ordinal = match grad_output.device() {
+                Device::Cuda(o) => o,
+                _ => unreachable!(),
+            };
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let dst_indices = gather_dst_flat_indices(
+                &self.index,
+                &self.index_shape,
+                input_shape,
+                self.dim,
+            );
+            let idx_handle = upload_f32_to_gpu(&dst_indices, ordinal)?;
+            // scatter_add_1d_f32 treats grad_output as a flat 1-D buffer and
+            // accumulates each element at its flat destination index.
+            let result_handle =
+                backend.scatter_add_1d_f32(grad_output.gpu_handle()?, &idx_handle, input_numel)?;
+            let grad_tensor = Tensor::from_storage(
+                TensorStorage::gpu(result_handle),
+                input_shape.to_vec(),
+                false,
+            )?;
+            return Ok(vec![Some(grad_tensor)]);
+        }
+
         let go_data = grad_output.data_vec()?;
         let ndim = input_shape.len();
         let index_numel: usize = self.index_shape.iter().product();
@@ -456,15 +546,65 @@ impl<T: Float> GradFn<T> for ScatterBackward<T> {
             return Ok(vec![None, None]);
         }
 
+        let input_shape = self.input.shape();
+        let index_numel: usize = self.index_shape.iter().product();
+
+        // §3 GPU-native path:
+        //   grad_input = masked_zero_f32(grad_output, write_mask)
+        //     — zeros at every position scatter wrote to (those positions came from src).
+        //   grad_src   = index_select_1d_f32(flat(grad_output), scatter_src_indices)
+        //     — gathers from the flat positions that scatter wrote into.
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda {
-                op: "scatter backward",
-            });
+            let ordinal = match grad_output.device() {
+                Device::Cuda(o) => o,
+                _ => unreachable!(),
+            };
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+
+            let grad_input = if self.input.requires_grad() {
+                // Build a 1.0/0.0 mask for the written positions, upload, zero them out.
+                let mask_f32 = scatter_write_mask(
+                    &self.index,
+                    &self.index_shape,
+                    input_shape,
+                    self.dim,
+                );
+                let mask_handle = upload_f32_to_gpu(&mask_f32, ordinal)?;
+                let result_h =
+                    backend.masked_zero_f32(grad_output.gpu_handle()?, &mask_handle)?;
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h),
+                    input_shape.to_vec(),
+                    false,
+                )?)
+            } else {
+                None
+            };
+
+            let grad_src = if self.src.requires_grad() {
+                // Gather grad_output at the flat positions that scatter wrote into.
+                let src_indices = scatter_src_flat_indices(
+                    &self.index,
+                    &self.index_shape,
+                    input_shape,
+                    self.dim,
+                );
+                let idx_handle = upload_f32_to_gpu(&src_indices, ordinal)?;
+                let result_h =
+                    backend.index_select_1d_f32(grad_output.gpu_handle()?, &idx_handle)?;
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h),
+                    self.index_shape.clone(),
+                    false,
+                )?)
+            } else {
+                None
+            };
+
+            return Ok(vec![grad_input, grad_src]);
         }
 
-        let input_shape = self.input.shape();
         let ndim = input_shape.len();
-        let index_numel: usize = self.index_shape.iter().product();
         let go_data = grad_output.data_vec()?;
 
         // grad for input: grad_output with scattered positions zeroed.
@@ -553,15 +693,61 @@ impl<T: Float> GradFn<T> for ScatterAddBackward<T> {
             return Ok(vec![None, None]);
         }
 
+        let input_shape = self.input.shape();
+        let index_numel: usize = self.index_shape.iter().product();
+
+        // §3 GPU-native path:
+        //   grad_input = grad_output  (identity — addition passes grad through unchanged).
+        //   grad_src   = index_select_1d_f32(flat(grad_output), scatter_src_indices)
+        //     — gathers the positions that scatter_add accumulated into.
+        if grad_output.is_cuda() {
+            let ordinal = match grad_output.device() {
+                Device::Cuda(o) => o,
+                _ => unreachable!(),
+            };
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+
+            let grad_input = if self.input.requires_grad() {
+                // Identity: grad_input is an on-device copy of grad_output.
+                let cloned_h = backend.clone_buffer(grad_output.gpu_handle()?)?;
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(cloned_h),
+                    input_shape.to_vec(),
+                    false,
+                )?)
+            } else {
+                None
+            };
+
+            let grad_src = if self.src.requires_grad() {
+                let src_indices = scatter_src_flat_indices(
+                    &self.index,
+                    &self.index_shape,
+                    input_shape,
+                    self.dim,
+                );
+                let idx_handle = upload_f32_to_gpu(&src_indices, ordinal)?;
+                let result_h =
+                    backend.index_select_1d_f32(grad_output.gpu_handle()?, &idx_handle)?;
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h),
+                    self.index_shape.clone(),
+                    false,
+                )?)
+            } else {
+                None
+            };
+
+            return Ok(vec![grad_input, grad_src]);
+        }
+
         if grad_output.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda {
                 op: "scatter_add backward",
             });
         }
 
-        let input_shape = self.input.shape();
         let ndim = input_shape.len();
-        let index_numel: usize = self.index_shape.iter().product();
         let go_data = grad_output.data_vec()?;
 
         // grad for input: identity (pass grad_output through).
@@ -635,10 +821,51 @@ impl<T: Float> GradFn<T> for WhereCondBackward<T> {
             return Ok(vec![None, None]);
         }
 
+        // §3 GPU-native path: upload the bool condition as a f32 mask (1.0=true, 0.0=false)
+        // and use masked_zero_f32 on-device:
+        //   grad_x[i] = condition[i] ? grad[i] : 0  → zero where condition=false (NOT-mask)
+        //   grad_y[i] = condition[i] ? 0 : grad[i]  → zero where condition=true  (mask)
         if grad_output.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda {
-                op: "where_cond backward",
-            });
+            let ordinal = match grad_output.device() {
+                Device::Cuda(o) => o,
+                _ => unreachable!(),
+            };
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+
+            // condition_mask: 1.0 where condition=true, 0.0 where false.
+            let condition_mask: Vec<f32> =
+                self.condition.iter().map(|&c| if c { 1.0f32 } else { 0.0 }).collect();
+            // not_mask: 1.0 where condition=false (used to zero grad_x at those positions).
+            let not_mask: Vec<f32> =
+                self.condition.iter().map(|&c| if c { 0.0f32 } else { 1.0 }).collect();
+
+            let grad_x = if self.x.requires_grad() {
+                let not_mask_h = upload_f32_to_gpu(&not_mask, ordinal)?;
+                let result_h =
+                    backend.masked_zero_f32(grad_output.gpu_handle()?, &not_mask_h)?;
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h),
+                    self.x.shape().to_vec(),
+                    false,
+                )?)
+            } else {
+                None
+            };
+
+            let grad_y = if self.y.requires_grad() {
+                let cond_mask_h = upload_f32_to_gpu(&condition_mask, ordinal)?;
+                let result_h =
+                    backend.masked_zero_f32(grad_output.gpu_handle()?, &cond_mask_h)?;
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h),
+                    self.y.shape().to_vec(),
+                    false,
+                )?)
+            } else {
+                None
+            };
+
+            return Ok(vec![grad_x, grad_y]);
         }
 
         let go_data = grad_output.data_vec()?;

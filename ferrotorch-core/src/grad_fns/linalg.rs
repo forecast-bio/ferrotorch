@@ -187,7 +187,53 @@ impl<T: Float> MvBackward<T> {
 
 impl<T: Float> GradFn<T> for MvBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        if grad_output.is_cuda() || self.a.is_cuda() || self.x.is_cuda() {
+        // §3 GPU-native path (PyTorch parity: backward runs on same device as forward).
+        // dA = outer(grad_y, x) = matmul(grad_y.reshape(m,1), x.reshape(1,k)) — rank-1 mm on GPU.
+        // dx = A^T @ grad_y  — cuBLAS gemv with transpose flag via mv_f32/f64.
+        if grad_output.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            let m = self.a.shape()[0];
+            let k = self.a.shape()[1];
+            let f64_path = is_f64::<T>();
+
+            let grad_a = if self.a.requires_grad() {
+                let go_h = grad_output.gpu_handle()?;
+                let x_h = self.x.gpu_handle()?;
+                // outer(grad_y, x): treat grad_y as (m,1) and x as (1,k) → matmul gives (m,k).
+                let result_h = if f64_path {
+                    backend.matmul_f64(go_h, x_h, m, 1, k)?
+                } else {
+                    backend.matmul_f32(go_h, x_h, m, 1, k)?
+                };
+                Some(Tensor::from_storage(TensorStorage::gpu(result_h), vec![m, k], false)?)
+            } else {
+                None
+            };
+
+            let grad_x = if self.x.requires_grad() {
+                let a_h = self.a.gpu_handle()?;
+                let go_h = grad_output.gpu_handle()?;
+                // dx = A^T @ grad_y: transpose A (m,k) → (k,m), then mv((k,m), grad_y[m]) → (k,).
+                let at_h = if f64_path {
+                    backend.transpose_2d_f64(a_h, m, k)?
+                } else {
+                    backend.transpose_2d_f32(a_h, m, k)?
+                };
+                // mv_f32/f64(at, grad_y, rows=k, cols=m): y[k] = at[k,m] @ grad_y[m].
+                let result_h = if f64_path {
+                    backend.mv_f64(&at_h, go_h, k, m)?
+                } else {
+                    backend.mv_f32(&at_h, go_h, k, m)?
+                };
+                Some(Tensor::from_storage(TensorStorage::gpu(result_h), vec![k], false)?)
+            } else {
+                None
+            };
+
+            return Ok(vec![grad_a, grad_x]);
+        }
+
+        if grad_output.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda { op: "MvBackward" });
         }
 
@@ -256,9 +302,59 @@ impl<T: Float> DotBackward<T> {
 
 impl<T: Float> GradFn<T> for DotBackward<T> {
     fn backward(&self, grad_output: &Tensor<T>) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
-        if grad_output.is_cuda() || self.a.is_cuda() || self.b.is_cuda() {
+        // §3 GPU-native path: da = grad_s * b, db = grad_s * a — elementwise scale on GPU.
+        // grad_s is a scalar (1-element buffer); scale_f32/f64 broadcasts it via PTX.
+        if grad_output.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            // Extract scalar from the 1-element GPU buffer via D2H transfer.
+            // `.item()` calls `.data()` which returns GpuTensorNotAccessible for CUDA
+            // tensors; we must copy the 1-element scalar to CPU first.
+            let s: T = grad_output.cpu()?.item()?;
+            let f64_path = is_f64::<T>();
+
+            let grad_a = if self.a.requires_grad() {
+                let b_h = self.b.gpu_handle()?;
+                let result_h = if f64_path {
+                    let s64 = <T as num_traits::ToPrimitive>::to_f64(&s).unwrap();
+                    backend.scale_f64(b_h, s64)?
+                } else {
+                    let s32 = <T as num_traits::ToPrimitive>::to_f32(&s).unwrap();
+                    backend.scale_f32(b_h, s32)?
+                };
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h),
+                    self.a.shape().to_vec(),
+                    false,
+                )?)
+            } else {
+                None
+            };
+
+            let grad_b = if self.b.requires_grad() {
+                let a_h = self.a.gpu_handle()?;
+                let result_h = if f64_path {
+                    let s64 = <T as num_traits::ToPrimitive>::to_f64(&s).unwrap();
+                    backend.scale_f64(a_h, s64)?
+                } else {
+                    let s32 = <T as num_traits::ToPrimitive>::to_f32(&s).unwrap();
+                    backend.scale_f32(a_h, s32)?
+                };
+                Some(Tensor::from_storage(
+                    TensorStorage::gpu(result_h),
+                    self.b.shape().to_vec(),
+                    false,
+                )?)
+            } else {
+                None
+            };
+
+            return Ok(vec![grad_a, grad_b]);
+        }
+
+        if grad_output.is_cuda() {
             return Err(FerrotorchError::NotImplementedOnCuda { op: "DotBackward" });
         }
+
         let s = grad_output.item()?;
 
         let grad_a = if self.a.requires_grad() {
@@ -399,6 +495,50 @@ impl<T: Float> GradFn<T> for MatmulBackward<T> {
             }
             (1, 2) => {
                 // vm: y = a @ B where a is (K,), B is (K,N), y is (N,)
+                // §3 GPU-native path: da = mv(B, grad_y) via mv; dB = outer(a, grad_y) via matmul.
+                if grad_output.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
+                    let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+                    let k = self.a.numel();
+                    let n = grad_output.numel();
+                    let f64_path = is_f64::<T>();
+
+                    let grad_a = if self.a.requires_grad() {
+                        // da = B @ grad_y: B is (K,N), grad_y is (N,) → result (K,).
+                        // mv_f32/f64(B, grad_y, rows=K, cols=N).
+                        let b_h = self.b.gpu_handle()?;
+                        let go_h = grad_output.gpu_handle()?;
+                        let result_h = if f64_path {
+                            backend.mv_f64(b_h, go_h, k, n)?
+                        } else {
+                            backend.mv_f32(b_h, go_h, k, n)?
+                        };
+                        Some(Tensor::from_storage(TensorStorage::gpu(result_h), vec![k], false)?)
+                    } else {
+                        None
+                    };
+
+                    let grad_b = if self.b.requires_grad() {
+                        // dB = outer(a, grad_y): a (K,) × grad_y (N,) → (K,N).
+                        // Compose as matmul((K,1), (1,N)) = rank-1 mm.
+                        let a_h = self.a.gpu_handle()?;
+                        let go_h = grad_output.gpu_handle()?;
+                        let result_h = if f64_path {
+                            backend.matmul_f64(a_h, go_h, k, 1, n)?
+                        } else {
+                            backend.matmul_f32(a_h, go_h, k, 1, n)?
+                        };
+                        Some(Tensor::from_storage(
+                            TensorStorage::gpu(result_h),
+                            vec![k, n],
+                            false,
+                        )?)
+                    } else {
+                        None
+                    };
+
+                    return Ok(vec![grad_a, grad_b]);
+                }
+
                 if grad_output.is_cuda() || self.a.is_cuda() || self.b.is_cuda() {
                     return Err(FerrotorchError::NotImplementedOnCuda {
                         op: "MatmulBackward(vm)",
@@ -468,6 +608,9 @@ fn broadcast_matmul_backward<T: Float>(
     grad_output: &Tensor<T>,
 ) -> FerrotorchResult<Vec<Option<Tensor<T>>>> {
     // Transpose last two dims of a tensor (swap matrix dims in batched tensor).
+    //
+    // §3 GPU-native: use `permute + contiguous` which already dispatches to GPU.
+    // The permute axis vector is [0, 1, ..., nd-3, nd-1, nd-2].
     let swap_last_two = |t: &Tensor<T>| -> FerrotorchResult<Tensor<T>> {
         let shape = t.shape();
         let nd = shape.len();
@@ -477,9 +620,10 @@ fn broadcast_matmul_backward<T: Float>(
             });
         }
         if t.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda {
-                op: "MatmulBackward(broadcast)",
-            });
+            // GPU path: permute last two dims, then make contiguous (copies on device).
+            let mut perm: Vec<usize> = (0..nd).collect();
+            perm.swap(nd - 2, nd - 1);
+            return t.permute(&perm)?.contiguous();
         }
         let data = t.data()?;
         let rows = shape[nd - 2];
@@ -504,15 +648,46 @@ fn broadcast_matmul_backward<T: Float>(
     // Sum-reduce grad to match the original shape. This handles the case
     // where a dimension was size-1 (broadcast) in the original but expanded
     // in the gradient. We need to sum over those expanded dimensions.
+    //
+    // §3 GPU-native: iteratively call `sum_dim` (already GPU-aware for f32/f64)
+    // to collapse each dimension that doesn't match the target. Leading dims
+    // that were broadcast-expanded are collapsed with a final slice/reshape.
     let reduce_to_shape = |grad: Tensor<T>, target: &[usize]| -> FerrotorchResult<Tensor<T>> {
         let grad_shape = grad.shape().to_vec();
         if grad_shape == target {
             return Ok(grad);
         }
+
         if grad.is_cuda() {
-            return Err(FerrotorchError::NotImplementedOnCuda {
-                op: "MatmulBackward(broadcast)",
-            });
+            // GPU path: for each dim where grad_shape[d] > target[d], sum along that dim.
+            // The dim alignment is: grad_shape and target have the same number of dims
+            // OR grad has more leading dims (broadcast-expanded batch dims).
+            let grad_nd = grad_shape.len();
+            let target_nd = target.len();
+
+            let mut current = grad;
+
+            // Step 1: sum out any extra leading dims beyond target_nd.
+            // After each sum_dim(0, keepdim=false), current loses its first dim.
+            let extra_leading = grad_nd.saturating_sub(target_nd);
+            for _ in 0..extra_leading {
+                current = crate::grad_fns::reduction::sum_dim(&current, 0, false)?;
+            }
+
+            // Step 2: for each remaining dim that is size-1 in target but >1 in current,
+            // sum along that dim (keepdim=true to preserve alignment).
+            let cur_shape = current.shape().to_vec();
+            for (d, (&cur_size, &tgt_size)) in
+                cur_shape.iter().zip(target.iter()).enumerate()
+            {
+                if tgt_size == 1 && cur_size != 1 {
+                    // sum_dim uses i64 dim index; d is already in-bounds after leading collapse.
+                    current =
+                        crate::grad_fns::reduction::sum_dim(&current, d as i64, true)?;
+                }
+            }
+
+            return Ok(current);
         }
 
         let grad_nd = grad_shape.len();

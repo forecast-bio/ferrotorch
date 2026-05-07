@@ -4944,6 +4944,308 @@ pub fn gpu_qr_f64_dev(
     Ok((q_row, r_dev))
 }
 
+// ---------------------------------------------------------------------------
+// `gpu_eig_f32_dev` / `gpu_eig_f64_dev` — device-resident non-symmetric eig
+// (#631)
+//
+// These mirror `gpu_eig_f32` / `gpu_eig_f64` but replace the host round-trip
+// for VR (column-major complex → row-major complex) with an on-device PTX
+// kernel call (`kernels::gpu_transpose_complex_f32/f64`).
+//
+// rust-gpu-discipline §3: `torch.linalg.eig` on CUDA returns CUDA tensors.
+// The old `gpu_eig_f32/f64` bounced the eigenvector buffer through host RAM
+// for every call — a §3 violation. These functions are the compliant
+// replacements; `backend_impl.rs` must route `eig_f32/f64` here.
+// ---------------------------------------------------------------------------
+
+/// Device-resident non-symmetric eigendecomposition (f32). Returns
+/// `(W: CudaBuffer<f32>, VR: CudaBuffer<f32>)` where:
+///   - W  has length `2n`, interleaved re/im (logical shape `[n, 2]`)
+///   - VR has length `2*n*n`, row-major interleaved (logical shape `[n, n, 2]`)
+///
+/// No host bounce — the col-major-complex → row-major-complex VR permutation
+/// is performed on-device via `gpu_transpose_complex_f32`.
+///
+/// (#631) Implemented gpu_eig_f32/f64_dev via cuSOLVER geev with
+/// device-resident outputs; torch.linalg.eig parity.
+#[cfg(feature = "cuda")]
+pub fn gpu_eig_f32_dev(
+    a_dev: &CudaBuffer<f32>,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>)> {
+    use cudarc::cusolver::sys as csys;
+
+    if a_dev.len() != n * n {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_eig_f32_dev: A length mismatch",
+            expected: vec![n * n],
+            got: vec![a_dev.len()],
+        });
+    }
+    if n == 0 {
+        return Ok((
+            crate::transfer::alloc_zeros_f32(0, device)?,
+            crate::transfer::alloc_zeros_f32(0, device)?,
+        ));
+    }
+
+    let stream = device.stream();
+    let dn = cusolver_safe::DnHandle::new(stream.clone())?;
+    let params = DnParamsHandle::new()?;
+
+    // Row-major → column-major on device (cuSOLVER expects column-major).
+    let mut d_a_col = crate::kernels::gpu_transpose_2d(a_dev, n, n, device)?;
+    // W: complex eigenvalues, 2n f32 (re/im interleaved). Stays on device.
+    let mut d_w = crate::transfer::alloc_zeros_f32(2 * n, device)?;
+    // VR: complex right eigenvectors, col-major, 2*n*n f32.
+    let mut d_vr = crate::transfer::alloc_zeros_f32(2 * n * n, device)?;
+    // VL: 2-element dummy placeholder (X-API rejects null VL even with NOVECTOR).
+    let mut d_vl_dummy = crate::transfer::alloc_zeros_f32(2, device)?;
+    let mut d_info = alloc_zeros_i32(1, device)?;
+
+    let novec = csys::cusolverEigMode_t::CUSOLVER_EIG_MODE_NOVECTOR;
+    let vec_mode = csys::cusolverEigMode_t::CUSOLVER_EIG_MODE_VECTOR;
+    let dt_a = csys::cudaDataType::CUDA_R_32F;
+    let dt_w = csys::cudaDataType::CUDA_C_32F;
+    let dt_v = csys::cudaDataType::CUDA_C_32F;
+    let compute_type = csys::cudaDataType::CUDA_R_32F;
+
+    let mut wks_dev_bytes: usize = 0;
+    let mut wks_host_bytes: usize = 0;
+    // SAFETY:
+    // - `dn.cu()` is a valid `cusolverDnHandle_t` bound to `stream`.
+    // - `params.raw()` is a valid `cusolverDnParams_t` (owned local, lives to fn exit).
+    // - `n` is non-zero (short-circuited above) and `a_dev.len() == n*n` (validated).
+    // - All device pointers are freshly alloc'd on `device` and live for this fn.
+    // - `&mut wks_dev_bytes` / `&mut wks_host_bytes` are stack `usize`.
+    // - This is a query-only call: no buffer is written.
+    unsafe {
+        let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
+        let (w_ptr, _w_sync) = d_w.inner_mut().device_ptr_mut(&stream);
+        let (vr_ptr, _vr_sync) = d_vr.inner_mut().device_ptr_mut(&stream);
+        let (vl_ptr, _vl_sync) = d_vl_dummy.inner_mut().device_ptr_mut(&stream);
+        csys::cusolverDnXgeev_bufferSize(
+            dn.cu(),
+            params.raw(),
+            novec,
+            vec_mode,
+            n as i64,
+            dt_a,
+            a_ptr as *const std::ffi::c_void,
+            n as i64,
+            dt_w,
+            w_ptr as *const std::ffi::c_void,
+            dt_v,
+            vl_ptr as *const std::ffi::c_void,
+            n as i64,
+            dt_v,
+            vr_ptr as *const std::ffi::c_void,
+            n as i64,
+            compute_type,
+            &mut wks_dev_bytes,
+            &mut wks_host_bytes,
+        )
+        .result()?;
+    }
+
+    let dev_work_elems = wks_dev_bytes.div_ceil(4).max(1);
+    let mut d_work = crate::transfer::alloc_zeros_f32(dev_work_elems, device)?;
+    let mut host_work: Vec<u8> = vec![0u8; wks_host_bytes];
+
+    // SAFETY:
+    // - Same handles/buffers as the buffer-size query above.
+    // - `d_a_col` may be overwritten (Hessenberg reduction). `d_w` receives
+    //   complex eigenvalues as re/im pairs. `d_vr` receives right eigenvectors
+    //   in column-major complex layout. `d_vl_dummy` is not written (NOVECTOR).
+    // - `d_work` is the device scratch sized by `wks_dev_bytes`.
+    // - `host_work` is the host scratch sized by `wks_host_bytes`.
+    // - `d_info` receives the convergence status (0 = success).
+    unsafe {
+        let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
+        let (w_ptr, _w_sync) = d_w.inner_mut().device_ptr_mut(&stream);
+        let (vr_ptr, _vr_sync) = d_vr.inner_mut().device_ptr_mut(&stream);
+        let (vl_ptr, _vl_sync) = d_vl_dummy.inner_mut().device_ptr_mut(&stream);
+        let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
+        let (info_ptr, _info_sync) = d_info.inner_mut().device_ptr_mut(&stream);
+
+        csys::cusolverDnXgeev(
+            dn.cu(),
+            params.raw(),
+            novec,
+            vec_mode,
+            n as i64,
+            dt_a,
+            a_ptr as *mut std::ffi::c_void,
+            n as i64,
+            dt_w,
+            w_ptr as *mut std::ffi::c_void,
+            dt_v,
+            vl_ptr as *mut std::ffi::c_void,
+            n as i64,
+            dt_v,
+            vr_ptr as *mut std::ffi::c_void,
+            n as i64,
+            compute_type,
+            work_ptr as *mut std::ffi::c_void,
+            wks_dev_bytes,
+            host_work.as_mut_ptr() as *mut std::ffi::c_void,
+            wks_host_bytes,
+            info_ptr as *mut std::ffi::c_int,
+        )
+        .result()?;
+    }
+
+    stream.synchronize()?;
+    let info_val = read_dev_info(&d_info, device)?;
+    if info_val != 0 {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_eig_f32_dev: Xgeev failed (non-converged eigenvalues)",
+            expected: vec![0],
+            got: vec![info_val.unsigned_abs() as usize],
+        });
+    }
+
+    // On-device col-major complex → row-major complex for VR.
+    // `gpu_transpose_complex_f32` treats the 2*n*n f32 buffer as n×n complex
+    // elements and transposes without any host bounce. (#631 — §3 fix)
+    let d_vr_row = crate::kernels::gpu_transpose_complex_f32(&d_vr, n, device)?;
+
+    Ok((d_w, d_vr_row))
+}
+
+/// Device-resident non-symmetric eigendecomposition (f64). f64 counterpart of
+/// [`gpu_eig_f32_dev`]. (#631)
+///
+/// Implemented gpu_eig_f32/f64_dev via cuSOLVER geev with device-resident
+/// outputs; torch.linalg.eig parity.
+#[cfg(feature = "cuda")]
+pub fn gpu_eig_f64_dev(
+    a_dev: &CudaBuffer<f64>,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<(CudaBuffer<f64>, CudaBuffer<f64>)> {
+    use cudarc::cusolver::sys as csys;
+
+    if a_dev.len() != n * n {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_eig_f64_dev: A length mismatch",
+            expected: vec![n * n],
+            got: vec![a_dev.len()],
+        });
+    }
+    if n == 0 {
+        return Ok((
+            crate::transfer::alloc_zeros_f64(0, device)?,
+            crate::transfer::alloc_zeros_f64(0, device)?,
+        ));
+    }
+
+    let stream = device.stream();
+    let dn = cusolver_safe::DnHandle::new(stream.clone())?;
+    let params = DnParamsHandle::new()?;
+
+    let mut d_a_col = crate::kernels::gpu_transpose_2d_f64(a_dev, n, n, device)?;
+    let mut d_w = crate::transfer::alloc_zeros_f64(2 * n, device)?;
+    let mut d_vr = crate::transfer::alloc_zeros_f64(2 * n * n, device)?;
+    let mut d_vl_dummy = crate::transfer::alloc_zeros_f64(2, device)?;
+    let mut d_info = alloc_zeros_i32(1, device)?;
+
+    let novec = csys::cusolverEigMode_t::CUSOLVER_EIG_MODE_NOVECTOR;
+    let vec_mode = csys::cusolverEigMode_t::CUSOLVER_EIG_MODE_VECTOR;
+    let dt_a = csys::cudaDataType::CUDA_R_64F;
+    let dt_w = csys::cudaDataType::CUDA_C_64F;
+    let dt_v = csys::cudaDataType::CUDA_C_64F;
+    let compute_type = csys::cudaDataType::CUDA_R_64F;
+
+    let mut wks_dev_bytes: usize = 0;
+    let mut wks_host_bytes: usize = 0;
+    // SAFETY: same obligations as gpu_eig_f32_dev; f64 types throughout.
+    unsafe {
+        let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
+        let (w_ptr, _w_sync) = d_w.inner_mut().device_ptr_mut(&stream);
+        let (vr_ptr, _vr_sync) = d_vr.inner_mut().device_ptr_mut(&stream);
+        let (vl_ptr, _vl_sync) = d_vl_dummy.inner_mut().device_ptr_mut(&stream);
+        csys::cusolverDnXgeev_bufferSize(
+            dn.cu(),
+            params.raw(),
+            novec,
+            vec_mode,
+            n as i64,
+            dt_a,
+            a_ptr as *const std::ffi::c_void,
+            n as i64,
+            dt_w,
+            w_ptr as *const std::ffi::c_void,
+            dt_v,
+            vl_ptr as *const std::ffi::c_void,
+            n as i64,
+            dt_v,
+            vr_ptr as *const std::ffi::c_void,
+            n as i64,
+            compute_type,
+            &mut wks_dev_bytes,
+            &mut wks_host_bytes,
+        )
+        .result()?;
+    }
+
+    let dev_work_elems = wks_dev_bytes.div_ceil(8).max(1);
+    let mut d_work = crate::transfer::alloc_zeros_f64(dev_work_elems, device)?;
+    let mut host_work: Vec<u8> = vec![0u8; wks_host_bytes];
+
+    // SAFETY: same as gpu_eig_f32_dev; f64 types throughout.
+    unsafe {
+        let (a_ptr, _a_sync) = d_a_col.inner_mut().device_ptr_mut(&stream);
+        let (w_ptr, _w_sync) = d_w.inner_mut().device_ptr_mut(&stream);
+        let (vr_ptr, _vr_sync) = d_vr.inner_mut().device_ptr_mut(&stream);
+        let (vl_ptr, _vl_sync) = d_vl_dummy.inner_mut().device_ptr_mut(&stream);
+        let (work_ptr, _work_sync) = d_work.inner_mut().device_ptr_mut(&stream);
+        let (info_ptr, _info_sync) = d_info.inner_mut().device_ptr_mut(&stream);
+
+        csys::cusolverDnXgeev(
+            dn.cu(),
+            params.raw(),
+            novec,
+            vec_mode,
+            n as i64,
+            dt_a,
+            a_ptr as *mut std::ffi::c_void,
+            n as i64,
+            dt_w,
+            w_ptr as *mut std::ffi::c_void,
+            dt_v,
+            vl_ptr as *mut std::ffi::c_void,
+            n as i64,
+            dt_v,
+            vr_ptr as *mut std::ffi::c_void,
+            n as i64,
+            compute_type,
+            work_ptr as *mut std::ffi::c_void,
+            wks_dev_bytes,
+            host_work.as_mut_ptr() as *mut std::ffi::c_void,
+            wks_host_bytes,
+            info_ptr as *mut std::ffi::c_int,
+        )
+        .result()?;
+    }
+
+    stream.synchronize()?;
+    let info_val = read_dev_info(&d_info, device)?;
+    if info_val != 0 {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_eig_f64_dev: Xgeev failed",
+            expected: vec![0],
+            got: vec![info_val.unsigned_abs() as usize],
+        });
+    }
+
+    // On-device col-major complex → row-major complex for VR. (#631 — §3 fix)
+    let d_vr_row = crate::kernels::gpu_transpose_complex_f64(&d_vr, n, device)?;
+
+    Ok((d_w, d_vr_row))
+}
+
 // Device-resident stubs when `cuda` feature is disabled.
 
 #[cfg(not(feature = "cuda"))]

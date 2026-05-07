@@ -51,6 +51,33 @@ pub struct GptqQ4 {
     pub group_size: usize,
 }
 
+impl GptqQ4 {
+    /// Construct a [`GptqQ4`] tile from the individual packed buffers.
+    ///
+    /// This constructor exists so that external callers (e.g. integration
+    /// tests) can build a [`GptqQ4`] without being blocked by the
+    /// `#[non_exhaustive]` attribute.
+    pub fn new(
+        qweight: Vec<i32>,
+        qzeros: Vec<i32>,
+        scales: Vec<f32>,
+        g_idx: Option<Vec<i32>>,
+        in_features: usize,
+        out_features: usize,
+        group_size: usize,
+    ) -> Self {
+        Self {
+            qweight,
+            qzeros,
+            scales,
+            g_idx,
+            in_features,
+            out_features,
+            group_size,
+        }
+    }
+}
+
 /// Dequantize a 4-bit GPTQ weight matrix to row-major `f32`.
 ///
 /// Returns `[out_features, in_features]` row-major (matches torch's
@@ -189,6 +216,31 @@ pub struct AwqQ4 {
     pub group_size: usize,
 }
 
+impl AwqQ4 {
+    /// Construct an [`AwqQ4`] tile from the individual packed buffers.
+    ///
+    /// This constructor exists so that external callers (e.g. integration
+    /// tests) can build an [`AwqQ4`] without being blocked by the
+    /// `#[non_exhaustive]` attribute.
+    pub fn new(
+        qweight: Vec<i32>,
+        qzeros: Vec<i32>,
+        scales: Vec<f32>,
+        in_features: usize,
+        out_features: usize,
+        group_size: usize,
+    ) -> Self {
+        Self {
+            qweight,
+            qzeros,
+            scales,
+            in_features,
+            out_features,
+            group_size,
+        }
+    }
+}
+
 /// AWQ's int32 → int4 channel-shuffle order (see autoawq/awq_inference_engine).
 /// AWQ packs `[N0, N4, N1, N5, N2, N6, N3, N7]` instead of `[N0..N7]`.
 const AWQ_PACK_ORDER: [usize; 8] = [0, 4, 1, 5, 2, 6, 3, 7];
@@ -314,6 +366,31 @@ pub struct HqqWeights {
     pub out_features: usize,
     /// Input features (cols of the dequantized matrix).
     pub in_features: usize,
+}
+
+impl HqqWeights {
+    /// Construct an [`HqqWeights`] tile from the individual packed buffers.
+    ///
+    /// This constructor exists so that external callers (e.g. integration
+    /// tests) can build an [`HqqWeights`] without being blocked by the
+    /// `#[non_exhaustive]` attribute.
+    pub fn new(
+        bits: u8,
+        w_q: Vec<u8>,
+        scale: Vec<f32>,
+        zero: Vec<f32>,
+        out_features: usize,
+        in_features: usize,
+    ) -> Self {
+        Self {
+            bits,
+            w_q,
+            scale,
+            zero,
+            out_features,
+            in_features,
+        }
+    }
 }
 
 /// Dequantize an HQQ-packed weight matrix to row-major `f32`. (#613)

@@ -18054,6 +18054,83 @@ pub fn gpu_sum_axis_f64(
 }
 
 // ---------------------------------------------------------------------------
+// Complex-matrix transpose PTX kernels (#631)
+//
+// `transpose_complex_f32_kernel` / `transpose_complex_f64_kernel` treat the
+// input as an n×n matrix of complex elements stored as interleaved re/im pairs.
+// Each thread `t` in [0, n*n) copies complex element (out_col*n + out_row)
+// from input to position t in output, where (out_row, out_col) = (t/n, t%n).
+// This is the on-device replacement for the host round-trip that previously
+// occurred in `gpu_eig_f32` / `gpu_eig_f64` when converting cuSOLVER's
+// column-major complex VR output to row-major.
+// ---------------------------------------------------------------------------
+
+/// PTX kernel — transpose an n×n complex f32 matrix (interleaved re/im pairs).
+/// Input:  2*n*n f32 elements, column-major complex layout (cuSOLVER output).
+/// Output: 2*n*n f32 elements, row-major complex layout ([n, n, 2]).
+/// Each thread handles one complex element (two consecutive f32 values).
+#[cfg(feature = "cuda")]
+pub(crate) const TRANSPOSE_COMPLEX_F32_PTX: &str = "\
+.version 7.0\n\
+.target sm_52\n\
+.address_size 64\n\
+\n\
+.visible .entry transpose_complex_f32_kernel(\n\
+    .param .u64 in_ptr,\n\
+    .param .u64 out_ptr,\n\
+    .param .u32 N,\n\
+    .param .u32 total\n\
+) {\n\
+    .reg .u32 %tid, %bid, %bdim, %total_reg, %N_reg;\n\
+    .reg .u32 %out_row, %out_col, %in_idx;\n\
+    .reg .u32 %in_off, %out_off;\n\
+    .reg .u64 %in, %out;\n\
+    .reg .u64 %p_in_re, %p_in_im, %p_out_re, %p_out_im;\n\
+    .reg .f32 %re, %im;\n\
+    .reg .pred %p;\n\
+\n\
+    ld.param.u64 %in, [in_ptr];\n\
+    ld.param.u64 %out, [out_ptr];\n\
+    ld.param.u32 %N_reg, [N];\n\
+    ld.param.u32 %total_reg, [total];\n\
+\n\
+    mov.u32 %bid, %ctaid.x;\n\
+    mov.u32 %bdim, %ntid.x;\n\
+    mov.u32 %tid, %tid.x;\n\
+    mad.lo.u32 %tid, %bid, %bdim, %tid;\n\
+\n\
+    setp.ge.u32 %p, %tid, %total_reg;\n\
+    @%p bra DONE;\n\
+\n\
+    // Output element: out_row = tid / N, out_col = tid % N.\n\
+    div.u32 %out_row, %tid, %N_reg;\n\
+    rem.u32 %out_col, %tid, %N_reg;\n\
+    // Input element in column-major: (out_col, out_row) = out_col*N + out_row.\n\
+    mad.lo.u32 %in_idx, %out_col, %N_reg, %out_row;\n\
+\n\
+    // Byte offsets: each complex element is 2 f32 = 8 bytes.\n\
+    shl.b32 %in_off, %in_idx, 3;\n\
+    shl.b32 %out_off, %tid, 3;\n\
+\n\
+    cvt.u64.u32 %p_in_re, %in_off;\n\
+    add.u64 %p_in_re, %in, %p_in_re;\n\
+    add.u64 %p_in_im, %p_in_re, 4;\n\
+\n\
+    cvt.u64.u32 %p_out_re, %out_off;\n\
+    add.u64 %p_out_re, %out, %p_out_re;\n\
+    add.u64 %p_out_im, %p_out_re, 4;\n\
+\n\
+    ld.global.f32 %re, [%p_in_re];\n\
+    ld.global.f32 %im, [%p_in_im];\n\
+    st.global.f32 [%p_out_re], %re;\n\
+    st.global.f32 [%p_out_im], %im;\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+// ---------------------------------------------------------------------------
 // Public API -- f64 shape ops
 // ---------------------------------------------------------------------------
 
@@ -18131,6 +18208,161 @@ pub fn gpu_transpose_2d_f64(
             .arg(input.inner())
             .arg(out.inner_mut())
             .arg(&m_u32)
+            .arg(&n_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Complex n×n matrix transpose: column-major → row-major (#631)
+// ---------------------------------------------------------------------------
+
+/// Transpose an n×n complex matrix stored as `2*n*n` interleaved f32 (re, im)
+/// from column-major (cuSOLVER output) to row-major ([n, n, 2]) on GPU.
+///
+/// Input/output both have length `2 * n * n`. Each thread copies one complex
+/// element (a re/im pair). Used by `gpu_eig_f32_dev` to convert VR without a
+/// host round-trip.
+///
+/// (#631) Replaces the host bounce in `gpu_eig_f32`.
+#[cfg(feature = "cuda")]
+pub fn gpu_transpose_complex_f32(
+    input: &CudaBuffer<f32>,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    let n_elems = n * n; // number of complex elements
+    if input.len() != 2 * n_elems {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_transpose_complex_f32",
+            expected: vec![2 * n_elems],
+            got: vec![input.len()],
+        });
+    }
+    if n == 0 {
+        return crate::transfer::alloc_zeros_f32(0, device);
+    }
+
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        TRANSPOSE_COMPLEX_F32_PTX,
+        "transpose_complex_f32_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "transpose_complex_f32_kernel",
+                source: e,
+            });
+        }
+    };
+
+    let mut out = alloc_zeros_f32(2 * n_elems, device)?;
+    let cfg = launch_cfg(n_elems)?;
+    let n_u32 = n as u32;
+    let total_u32 = n_elems as u32;
+
+    // SAFETY:
+    // - `f` is the valid PTX `CudaFunction` for `transpose_complex_f32_kernel`
+    //   resolved by `module_cache::get_or_compile` above; ABI is
+    //   `(in_ptr, out_ptr, N, total)`.
+    // - `input` has been validated: `input.len() == 2 * n * n` (above); the
+    //   kernel reads pairs at byte offset `in_idx * 8` where `in_idx < n*n`.
+    // - `out` is freshly alloc'd `2 * n_elems` f32; exclusive `inner_mut()`.
+    //   It cannot alias `input` (distinct allocations on `device`).
+    // - `total_u32 = n_elems as u32`: `launch_cfg(n_elems)?` guards overflow.
+    //   `n_u32 = n as u32`; since `n * n == n_elems` fits in u32, `n` fits too.
+    // - cudarc enqueues on `stream`; arg refs live until the trailing `?`.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+/// Transpose an n×n complex matrix stored as `2*n*n` interleaved f64 (re, im)
+/// from column-major (cuSOLVER output) to row-major ([n, n, 2]) on GPU.
+///
+/// f64 variant of [`gpu_transpose_complex_f32`]. (#631)
+#[cfg(feature = "cuda")]
+pub fn gpu_transpose_complex_f64(
+    input: &CudaBuffer<f64>,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    use cudarc::driver::PushKernelArg;
+    static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+    let n_elems = n * n;
+    if input.len() != 2 * n_elems {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_transpose_complex_f64",
+            expected: vec![2 * n_elems],
+            got: vec![input.len()],
+        });
+    }
+    if n == 0 {
+        return crate::transfer::alloc_zeros_f64(0, device);
+    }
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    // Reuse TRANSPOSE_COMPLEX_F32_PTX re-typed to f64 via the same
+    // ptx_f32_to_f64 mechanism used for all other f64 transpose variants.
+    let ptx = get_f64_ptx(
+        &CACHE,
+        TRANSPOSE_COMPLEX_F32_PTX,
+        "transpose_complex_f32_kernel",
+        "transpose_complex_f64_kernel",
+    );
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        ptx,
+        "transpose_complex_f64_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "transpose_complex_f64_kernel",
+                source: e,
+            });
+        }
+    };
+
+    let mut out = alloc_zeros_f64(2 * n_elems, device)?;
+    let cfg = launch_cfg(n_elems)?;
+    let n_u32 = n as u32;
+    let total_u32 = n_elems as u32;
+
+    // SAFETY:
+    // - `f` is the f64-retyped `transpose_complex_f64_kernel` from
+    //   `get_f64_ptx` / `module_cache::get_or_compile`; same ABI as f32 variant.
+    // - `input.len() == 2 * n * n` validated above; each complex f64 element is
+    //   16 bytes (two f64 = 2 × 8); kernel byte offset = `in_idx * 16` for
+    //   `in_idx < n*n`, which stays within the allocation.
+    // - `out` is freshly alloc'd, cannot alias `input`.
+    // - `total_u32` / `n_u32` overflow-checked by `launch_cfg`.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(out.inner_mut())
             .arg(&n_u32)
             .arg(&total_u32)
             .launch(cfg)?;
@@ -22556,6 +22788,22 @@ pub fn gpu_permute_0213_f64(
     _d1: usize,
     _d2: usize,
     _d3: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_transpose_complex_f32(
+    _input: &CudaBuffer<f32>,
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_transpose_complex_f64(
+    _input: &CudaBuffer<f64>,
+    _n: usize,
     _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f64>> {
     Err(GpuError::NoCudaFeature)
