@@ -3,11 +3,12 @@
   "display_id": 808,
   "title": "ferrotorch-core: irfftn / hfft / ihfft strict-Hermitian rejection — surfaced by phase 2.7 (#769)",
   "description": "ferray-fft's irfftn/hfft/ihfft helpers panic with 'Imaginary parts of both first and last values were non-zero' when the input spectrum is not perfectly Hermitian-symmetric. PyTorch's torch.fft.irfftn / hfft / ihfft accept any complex input and silently project to the Hermitian subspace.\nSource: /home/doll/.cargo/registry/.../ferray-fft-0.3.0/src/nd.rs:466.\nAffected fixtures: cpu_irfftn, cpu_irfftn_differentiable, cpu_ihfft_differentiable.\nMitigation in phase 2.7 conformance: cascade_skip applied for these ops.",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-06T16:52:14.973564265Z",
-  "updated_at": "2026-05-07T05:17:27.502179489Z",
+  "updated_at": "2026-05-07T05:18:14.028460532Z",
+  "closed_at": "2026-05-07T05:18:14.028460532Z",
   "labels": [
     "rust,bug,conformance"
   ]
