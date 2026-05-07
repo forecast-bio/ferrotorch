@@ -2,11 +2,12 @@
   "uuid": "5d6e7342-ca8c-4349-a9ea-4b506ab1eb30",
   "display_id": 878,
   "title": "RelaxedBernoulli::log_prob uses wrong formula — concrete density off by sign/structure vs PyTorch",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T15:40:31.290322565Z",
-  "updated_at": "2026-05-07T15:40:32.831347015Z",
+  "updated_at": "2026-05-07T22:29:09.529643077Z",
+  "closed_at": "2026-05-07T22:29:09.529643077Z",
   "labels": [
     "rust,bug,conformance,distributions"
   ]
