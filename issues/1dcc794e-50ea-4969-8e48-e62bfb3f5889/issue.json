@@ -6,8 +6,11 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T22:57:53.466695226Z",
-  "updated_at": "2026-05-07T22:57:54.781496212Z",
+  "updated_at": "2026-05-07T22:58:08.843055542Z",
   "labels": [
     "rust,conformance,nn"
+  ],
+  "related": [
+    "397cc160-3d32-4c9d-99c5-6c7e6ef7b041"
   ]
 }
