@@ -3,9 +3,10 @@
   "display_id": 633,
   "title": "GPTQ/AWQ/HQQ integration tests against real HF checkpoints",
   "description": "Spun out from #613 partial close. The synthetic tests in quant_loaders.rs validate unpacker correctness, but a full integration test loads e.g. TheBloke/Llama-2-7B-GPTQ from the HF Hub via ferrotorch-hub::hf_download_model and verifies that the unpacked weights produce the same output as the reference HF transformers + auto_gptq pipeline on a fixed prompt. Requires network access + ~4 GB cache; skip in CI unless an explicit feature flag is set.",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-02T01:27:30.615656946Z",
-  "updated_at": "2026-05-02T01:27:30.615656946Z"
+  "updated_at": "2026-05-07T21:19:14.282996461Z",
+  "closed_at": "2026-05-07T21:19:14.282996461Z"
 }
