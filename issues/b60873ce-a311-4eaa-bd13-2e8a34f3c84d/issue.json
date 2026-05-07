@@ -6,5 +6,8 @@
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-07T15:18:53.112191935Z",
-  "updated_at": "2026-05-07T15:18:53.112191935Z"
+  "updated_at": "2026-05-07T15:18:54.743227994Z",
+  "labels": [
+    "rust,conformance,vision"
+  ]
 }
