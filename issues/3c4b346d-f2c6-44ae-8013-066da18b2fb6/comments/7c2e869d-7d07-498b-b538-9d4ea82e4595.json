@@ -1,0 +1,10 @@
+{
+  "uuid": "7c2e869d-7d07-498b-b538-9d4ea82e4595",
+  "issue_uuid": "3c4b346d-f2c6-44ae-8013-066da18b2fb6",
+  "author": "y4rr",
+  "content": "Decision: No cascade bugs filed. All 55 tests pass against live implementation. No numerical divergences, no silent CPU detours, no stub residue detected. The implementation is in conformance with PyTorch parity claims for all 10 modules.",
+  "created_at": "2026-05-07T17:08:02.944641656Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAWJB8ub8lU+6sOVIuK2pzih5et5XrW+H3R1MIc9SBW3ZHYTwKOZ7MfHncuP8I7wHh1Hit/Itr+bLkbjjcw9MsCw=="
+}
