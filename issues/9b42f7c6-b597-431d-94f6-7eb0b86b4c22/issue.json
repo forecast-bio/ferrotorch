@@ -1,0 +1,10 @@
+{
+  "uuid": "9b42f7c6-b597-431d-94f6-7eb0b86b4c22",
+  "display_id": 951,
+  "title": "Add MSL kernels for MPS attention: flash_attention_forward, gelu dropout fused",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T21:08:56.931987200Z",
+  "updated_at": "2026-05-07T21:08:56.931987200Z"
+}
