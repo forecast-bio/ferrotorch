@@ -2,11 +2,12 @@
   "uuid": "e10f9e94-81bd-4e52-8b95-8f8a6e4e103b",
   "display_id": 855,
   "title": "ferrotorch-distributed: DeviceMesh::new valid construction diverges from torch.distributed reference — fixture uses shape/world_size keys but test reads mesh_shape/mesh_world_size — surfaced by C4 conformance",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T14:37:00.542237983Z",
-  "updated_at": "2026-05-07T14:37:01.888410923Z",
+  "updated_at": "2026-05-07T18:18:56.902838295Z",
+  "closed_at": "2026-05-07T18:18:56.902838295Z",
   "labels": [
     "rust,bug,conformance,distributed"
   ]
