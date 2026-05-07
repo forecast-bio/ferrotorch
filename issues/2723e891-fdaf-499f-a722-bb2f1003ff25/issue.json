@@ -2,11 +2,12 @@
   "uuid": "2723e891-fdaf-499f-a722-bb2f1003ff25",
   "display_id": 908,
   "title": "Add sharded safetensors multi-file fixture and conformance tests",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T17:47:02.783015672Z",
-  "updated_at": "2026-05-07T17:47:04.386682119Z",
+  "updated_at": "2026-05-07T17:52:28.370583242Z",
+  "closed_at": "2026-05-07T17:52:28.370583242Z",
   "labels": [
     "feature"
   ]
