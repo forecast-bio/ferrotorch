@@ -1,0 +1,268 @@
+# ferrotorch-vision surface exclusions
+# Items listed here are intentionally excluded from the strict conformance gate.
+# Each entry requires: path, reason, tracking_issue.
+#
+# tracking_issue must be #NNN or a full https:// URL — "TBD"/"pending"/etc. fail the gate.
+
+# ── models: large architecture constructors ───────────────────────────────────
+# Full forward-pass conformance for large model architectures requires running
+# the pretrained torchvision model, which in turn requires downloading pretrained
+# weights. These are excluded from Layer 3 fixture-based testing and tracked
+# for a dedicated model-parity sweep. The smoke tests in conformance_vision_models.rs
+# cover construction, parameter count, and output shape.
+
+[[exclusion]]
+path = "ferrotorch_vision::models::ConvNeXt"
+reason = "Architecture smoke-tested via convnext_tiny constructor test. Full forward-pass fixture requires pretrained weights download — tracked separately."
+tracking_issue = "#861"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::convnext_tiny"
+reason = "Constructor smoke-tested. Full forward-pass fixture requires pretrained weights — tracked in #871."
+tracking_issue = "#861"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::ConvNeXtBlock"
+reason = "Internal block type covered transitively by ConvNeXt architecture tests. Separate fixture not meaningful."
+tracking_issue = "#861"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::DenseNet"
+reason = "Architecture smoke-tested via densenet121 constructor. Full parity fixture requires pretrained weights — tracked in #872."
+tracking_issue = "#862"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::densenet121"
+reason = "Constructor smoke-tested. Full forward-pass fixture requires pretrained weights — tracked in #872."
+tracking_issue = "#862"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::DenseBlock"
+reason = "Internal block type covered transitively by DenseNet. Separate fixture not meaningful."
+tracking_issue = "#862"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::DenseLayer"
+reason = "Internal layer type covered transitively by DenseNet. Separate fixture not meaningful."
+tracking_issue = "#862"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::TransitionLayer"
+reason = "Internal layer type covered transitively by DenseNet. Separate fixture not meaningful."
+tracking_issue = "#862"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::EfficientNet"
+reason = "Architecture smoke-tested via efficientnet_b0. Full parity fixture requires pretrained weights — tracked in #873."
+tracking_issue = "#863"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::efficientnet_b0"
+reason = "Constructor smoke-tested. Full forward-pass fixture requires pretrained weights — tracked in #873."
+tracking_issue = "#863"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::ConvBlock"
+reason = "Internal block type covered transitively by EfficientNet. Separate fixture not meaningful."
+tracking_issue = "#863"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::InceptionV3"
+reason = "Architecture smoke-tested via inception_v3. Full parity fixture requires pretrained weights — tracked in #874."
+tracking_issue = "#864"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::inception_v3"
+reason = "Constructor smoke-tested. Full forward-pass fixture requires pretrained weights — tracked in #874."
+tracking_issue = "#864"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::InceptionModule"
+reason = "Internal module type covered transitively by InceptionV3. Separate fixture not meaningful."
+tracking_issue = "#864"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::MobileNetV2"
+reason = "Architecture smoke-tested via mobilenet_v2. Full parity fixture requires pretrained weights — tracked in #875."
+tracking_issue = "#865"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::mobilenet_v2"
+reason = "Constructor smoke-tested. Full forward-pass fixture requires pretrained weights — tracked in #875."
+tracking_issue = "#865"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::MobileNetV3Small"
+reason = "Architecture smoke-tested via mobilenet_v3_small. Full parity fixture requires pretrained weights — tracked in #875."
+tracking_issue = "#865"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::mobilenet_v3_small"
+reason = "Constructor smoke-tested. Full forward-pass fixture requires pretrained weights — tracked in #875."
+tracking_issue = "#865"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::InvertedResidual"
+reason = "Internal block type covered transitively by MobileNetV2. Separate fixture not meaningful."
+tracking_issue = "#865"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::V3Block"
+reason = "Internal block type covered transitively by MobileNetV3. Separate fixture not meaningful."
+tracking_issue = "#865"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::SwinTransformer"
+reason = "Architecture smoke-tested via swin_tiny. Full parity fixture requires pretrained weights — tracked in #876."
+tracking_issue = "#866"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::swin_tiny"
+reason = "Constructor smoke-tested. Full forward-pass fixture requires pretrained weights — tracked in #876."
+tracking_issue = "#866"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::SwinBlock"
+reason = "Internal block type covered transitively by SwinTransformer. Separate fixture not meaningful."
+tracking_issue = "#866"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::UNet"
+reason = "Architecture smoke-tested via unet constructor. No torchvision reference analog for direct parity — tracked in #877."
+tracking_issue = "#867"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::unet"
+reason = "Constructor smoke-tested. No torchvision reference analog for direct parity — tracked in #877."
+tracking_issue = "#867"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::VisionTransformer"
+reason = "Architecture smoke-tested via vit_b_16. Full parity fixture requires pretrained weights — tracked in #878."
+tracking_issue = "#868"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::vit_b_16"
+reason = "Constructor smoke-tested. Full forward-pass fixture requires pretrained weights — tracked in #878."
+tracking_issue = "#868"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::PatchEmbed"
+reason = "Internal block type covered transitively by VisionTransformer. Separate fixture not meaningful."
+tracking_issue = "#868"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::TransformerBlock"
+reason = "Internal block type covered transitively by VisionTransformer. Separate fixture not meaningful."
+tracking_issue = "#868"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::Yolo"
+reason = "YOLO architecture has no torchvision reference analog for direct parity. Smoke-tested via yolo constructor — tracked in #879."
+tracking_issue = "#869"
+
+[[exclusion]]
+path = "ferrotorch_vision::models::yolo"
+reason = "YOLO constructor smoke-tested. No torchvision reference analog — tracked in #879."
+tracking_issue = "#869"
+
+# ── models: IntermediateFeatures trait ────────────────────────────────────────
+
+[[exclusion]]
+path = "ferrotorch_vision::models::IntermediateFeatures"
+reason = "Trait tested transitively by FeatureExtractor conformance test. Direct trait fixture not needed."
+tracking_issue = "#873"
+
+# ── models: REGISTRY static ──────────────────────────────────────────────────
+
+[[exclusion]]
+path = "ferrotorch_vision::models::REGISTRY"
+reason = "Global registry static; covered transitively by list_models and get_model tests. Direct static fixture not meaningful."
+tracking_issue = "#873"
+
+# ── datasets: file-backed constructors ────────────────────────────────────────
+# Dataset constructors that require actual MNIST/CIFAR binary files on disk
+# cannot be tested in the fixture-level conformance suite without downloading
+# those datasets. The synthetic constructors ARE tested; from_dir is excluded.
+
+[[exclusion]]
+path = "ferrotorch_vision::Mnist"
+reason = "Mnist::synthetic is tested directly. Mnist::from_dir requires actual MNIST binary files — excluded. Tracked in #881."
+tracking_issue = "#870"
+
+[[exclusion]]
+path = "ferrotorch_vision::Cifar10"
+reason = "Cifar10 constructors require actual CIFAR binary files on disk. Tracked in #881."
+tracking_issue = "#870"
+
+[[exclusion]]
+path = "ferrotorch_vision::Cifar100"
+reason = "Cifar100 constructors require actual CIFAR binary files on disk. Tracked in #881."
+tracking_issue = "#870"
+
+[[exclusion]]
+path = "ferrotorch_vision::datasets::ImageFolder"
+reason = "ImageFolder requires a populated directory tree on disk. Tracked in #881."
+tracking_issue = "#870"
+
+[[exclusion]]
+path = "ferrotorch_vision::datasets::DatasetFolder"
+reason = "DatasetFolder requires a populated directory tree on disk. Tracked in #881."
+tracking_issue = "#870"
+
+[[exclusion]]
+path = "ferrotorch_vision::datasets::FolderSample"
+reason = "Covered transitively by ImageFolder tests when they run. Fixture-level coverage blocked by #881."
+tracking_issue = "#870"
+
+[[exclusion]]
+path = "ferrotorch_vision::datasets::ImageSample"
+reason = "Covered transitively by DatasetFolder tests when they run. Fixture-level coverage blocked by #881."
+tracking_issue = "#870"
+
+[[exclusion]]
+path = "ferrotorch_vision::datasets::IMG_EXTENSIONS"
+reason = "Constant value; no reference fixture needed. Tested by inspection in conformance gate."
+tracking_issue = "#874"
+
+# ── io: file-backed functions ─────────────────────────────────────────────────
+# read_image, read_image_rgba, read_image_as_tensor, write_image, write_tensor_as_image
+# require actual image files on disk. tensor_to_raw_image and raw_image_to_tensor
+# are pure functions exercised by fixtures. File I/O functions are tested with
+# tempfiles in conformance_vision_io.rs but diverge from fixture pattern.
+
+[[exclusion]]
+path = "ferrotorch_vision::write_image"
+reason = "write_image requires tempfile + round-trip; tested in conformance_vision_io.rs but is not fixture-driven. Tracked in #882."
+tracking_issue = "#871"
+
+[[exclusion]]
+path = "ferrotorch_vision::write_tensor_as_image"
+reason = "write_tensor_as_image requires tempfile; tested in conformance_vision_io.rs but not fixture-driven. Tracked in #882."
+tracking_issue = "#871"
+
+# ── transforms: stochastic transforms ─────────────────────────────────────────
+# Transforms with inherent stochasticity (ColorJitter, RandomResizedCrop,
+# RandomRotation, RandomCrop, RandomHorizontalFlip, RandomVerticalFlip,
+# RandomGaussianBlur, RandomApply, RandomChoice, ElasticTransform,
+# GaussianNoise, TrivialAugmentWide) cannot produce bit-exact reference
+# fixtures because their per-call random draws differ from PyTorch's RNG
+# state. They are tested in conformance_vision_transforms.rs with:
+#   (a) seeded determinism tests (zero-variance case)
+#   (b) output contract tests (shape, range, dtype)
+# Full stochastic parity is tracked per-transform.
+
+[[exclusion]]
+path = "ferrotorch_vision::transforms::ElasticTransform::new"
+reason = "Stochastic transform; deterministic contract tested (shape/range). RNG parity with torchvision tracked in #883."
+tracking_issue = "#872"
+
+[[exclusion]]
+path = "ferrotorch_vision::transforms::GaussianNoise::new"
+reason = "Stochastic transform; zero-std deterministic case tested. RNG parity with torchvision tracked in #883."
+tracking_issue = "#872"
+
+[[exclusion]]
+path = "ferrotorch_vision::transforms::TrivialAugmentWide::new"
+reason = "Stochastic transform; seeded output contract tested. Full op-space parity with torchvision tracked in #883."
+tracking_issue = "#872"

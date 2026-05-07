@@ -1,0 +1,115 @@
+# ferrotorch-distributions surface exclusions
+# Items listed here are intentionally excluded from the strict conformance gate.
+# Each entry requires: path, reason, tracking_issue.
+#
+# tracking_issue must be #NNN or a full https:// URL — "TBD"/"pending"/etc. fail the gate.
+
+# ── MultivariateNormal — GPU-dependent tests ─────────────────────────────────
+# MultivariateNormal and LowRankMultivariateNormal involve matrix ops (Cholesky
+# decomposition, triangular solve) that are exercised via the CUDA path.
+# Log-prob and entropy fixture tests are covered in the CPU path, but exact
+# GPU-path tests require ferrotorch-gpu to be compiled with CUDA. Filed as a
+# follow-up for the GPU conformance sweep.
+# (No exclusions needed — CPU-path tests are authored; this comment is for context.)
+
+# ── MixtureSameFamily — component-distribution coupling ──────────────────────
+# MixtureSameFamily requires pairing a Categorical with a vectorized component
+# distribution (one-per-component). The fixture-level test is authored using
+# Normal components. More exotic component types are deferred.
+# (No exclusions needed — CPU-path test is authored.)
+
+# ── Sampling exact-match tests — RNG algorithm divergence ────────────────────
+# ferrotorch's internal RNG (xorshift seeded via ferrotorch-core::creation::rand)
+# differs from PyTorch's Mersenne Twister + Philox RNGs. Exact sample-value
+# matching against torch.manual_seed(42) fixtures is therefore not achievable.
+# Analytic properties (log_prob, mean, variance, entropy, cdf, icdf) are all
+# verifiable and are tested. Sample-shape and sample-distribution tests use
+# statistical moment checks rather than exact value comparison.
+# These "sampling exact match" items are cascade_skipped in the tests with
+# reason "RNG algorithm divergence; analytic moments verified via parameterless tests".
+# No exclusion entries are needed here because the tests still run (cascade_skip
+# prints a diagnostic and returns; it is not a silent #[ignore]).
+
+# ── VonMises — circular statistics ───────────────────────────────────────────
+# VonMises entropy uses a Bessel-function approximation and the exact value
+# depends on the precision of the I0/I1 approximation. The fixture test
+# uses a loose 5e-3 tolerance on entropy and verifies mean/log_prob exactly.
+# No exclusion needed — test is authored.
+
+# ── RelaxedBernoulli / RelaxedOneHotCategorical — rsample shape only ─────────
+# Both distributions support rsample (Concrete / Gumbel-Softmax relaxation).
+# The exact sample values diverge due to RNG algorithm differences.
+# Log-prob is deterministic given inputs and is fixture-tested.
+# No exclusion needed — rsample shape + log_prob tests are authored.
+
+# ── Kumaraswamy — icdf not implemented ───────────────────────────────────────
+# Kumaraswamy does not implement icdf in the reference torch implementation
+# either. The ferrotorch implementation returns InvalidArgument.
+# This is tested (icdf returns error) and requires no exclusion.
+
+# ── TransformedDistribution — internal sample delegation ─────────────────────
+# TransformedDistribution::sample delegates to base.sample() then applies
+# transforms. Test exercises this chain (Normal + ExpTransform == LogNormal
+# density). No exclusion needed.
+
+# ── Distribution trait default methods — tested via concrete impls ────────────
+# The Distribution trait declares sample, rsample, log_prob, entropy, cdf, icdf,
+# mode, and stddev. Every concrete distribution test exercises these methods
+# via the concrete type, not via a dyn Distribution pointer, so the surface
+# scanner does not see "Distribution::sample" literally in the test sources.
+# The trait-level methods are covered transitively; no separate dyn-dispatch
+# tests are needed and adding them would not improve confidence.
+[[exclusion]]
+path = "ferrotorch_distributions::Distribution::sample"
+reason = "Covered transitively by all concrete distribution sample tests (Bernoulli, Normal, Categorical, etc.); dyn-dispatch duplicate not required."
+tracking_issue = "#859"
+
+[[exclusion]]
+path = "ferrotorch_distributions::Distribution::rsample"
+reason = "Covered transitively by concrete rsample tests (Normal, Beta, RelaxedBernoulli, etc.)."
+tracking_issue = "#859"
+
+[[exclusion]]
+path = "ferrotorch_distributions::Distribution::log_prob"
+reason = "Covered transitively by all concrete log_prob fixture tests."
+tracking_issue = "#859"
+
+[[exclusion]]
+path = "ferrotorch_distributions::Distribution::entropy"
+reason = "Covered transitively by all concrete entropy fixture tests."
+tracking_issue = "#859"
+
+[[exclusion]]
+path = "ferrotorch_distributions::Distribution::cdf"
+reason = "Covered transitively by Normal/Uniform cdf tests; trait default returns error and is tested via kl_divergence_unsupported_pair_returns_error pattern."
+tracking_issue = "#859"
+
+[[exclusion]]
+path = "ferrotorch_distributions::Distribution::icdf"
+reason = "Covered transitively by Uniform icdf test; trait default returns error."
+tracking_issue = "#859"
+
+[[exclusion]]
+path = "ferrotorch_distributions::Distribution::mode"
+reason = "Trait default returns InvalidArgument; mode is not currently exercised in the discrete or continuous fixture suites. Deferred to follow-up conformance pass."
+tracking_issue = "#859"
+
+[[exclusion]]
+path = "ferrotorch_distributions::Distribution::stddev"
+reason = "Default impl is sqrt(variance); covered by Normal/Poisson variance fixture tests. No dedicated stddev fixture authored yet."
+tracking_issue = "#859"
+
+# ── ComposeTransform utility accessors ────────────────────────────────────────
+# len() and is_empty() are trivial Vec-delegation accessors on ComposeTransform.
+# The ComposeTransform itself is exercised by the transforms conformance tests;
+# these accessors are not meaningfully testable beyond a unit test already in
+# the source module.
+[[exclusion]]
+path = "ferrotorch_distributions::transforms::ComposeTransform::len"
+reason = "Trivial Vec-delegation accessor; ComposeTransform is exercised by TransformedDistribution fixture test. Dedicated accessor test not required."
+tracking_issue = "#859"
+
+[[exclusion]]
+path = "ferrotorch_distributions::transforms::ComposeTransform::is_empty"
+reason = "Trivial Vec-delegation accessor; ComposeTransform is exercised by TransformedDistribution fixture test. Dedicated accessor test not required."
+tracking_issue = "#859"

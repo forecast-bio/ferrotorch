@@ -1,0 +1,854 @@
+# ferrotorch-vision public surface inventory (Layer 1).
+#
+# Tracking issue: #870 — ferrotorch-vision conformance suite.
+# Reference: torch == 2.11.0, torchvision == 0.21.0
+#
+# This file enumerates every public item exported by ferrotorch-vision.
+# It is the "denominator" for the Layer 4 strict surface-coverage gate.
+#
+# Format: [[item]] entries with:
+#   path      — crate-relative qualified path
+#   kind      — "fn" | "method" | "type_alias" | "struct" | "enum" | "re_export" | "constant"
+#   signature — short human-readable signature (not parsed by the gate)
+#
+# Inventory date: 2026-05-07
+# Crate: ferrotorch_vision
+
+crate = "ferrotorch_vision"
+description = "Public API surface of ferrotorch-vision, sized against torchvision 0.21.0."
+
+# ── lib.rs re-exports ────────────────────────────────────────────────────────
+
+# ── io ───────────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::RawImage"
+kind = "struct"
+signature = "pub struct RawImage { data: Vec<u8>, width: u32, height: u32, channels: u32 }"
+torch_analog = "PIL.Image"
+
+[[item]]
+path = "ferrotorch_vision::read_image"
+kind = "fn"
+signature = "pub fn read_image(path: impl AsRef<Path>) -> FerrotorchResult<RawImage>"
+torch_analog = "torchvision.io.read_image"
+
+[[item]]
+path = "ferrotorch_vision::read_image_rgba"
+kind = "fn"
+signature = "pub fn read_image_rgba(path: impl AsRef<Path>) -> FerrotorchResult<RawImage>"
+torch_analog = "torchvision.io.read_image with ImageReadMode.RGBA"
+
+[[item]]
+path = "ferrotorch_vision::read_image_as_tensor"
+kind = "fn"
+signature = "pub fn read_image_as_tensor<T: Float>(path: impl AsRef<Path>) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.io.read_image -> float normalize"
+
+[[item]]
+path = "ferrotorch_vision::raw_image_to_tensor"
+kind = "fn"
+signature = "pub fn raw_image_to_tensor<T: Float>(raw: &RawImage) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.transforms.ToTensor on PIL image"
+
+[[item]]
+path = "ferrotorch_vision::write_image"
+kind = "fn"
+signature = "pub fn write_image(path: impl AsRef<Path>, image: &RawImage) -> FerrotorchResult<()>"
+torch_analog = "torchvision.io.write_png / write_jpeg"
+
+[[item]]
+path = "ferrotorch_vision::tensor_to_raw_image"
+kind = "fn"
+signature = "pub fn tensor_to_raw_image<T: Float>(tensor: &Tensor<T>) -> FerrotorchResult<RawImage>"
+torch_analog = "torchvision.utils.save_image (inverse path)"
+
+[[item]]
+path = "ferrotorch_vision::write_tensor_as_image"
+kind = "fn"
+signature = "pub fn write_tensor_as_image<T: Float>(path, tensor) -> FerrotorchResult<()>"
+torch_analog = "torchvision.utils.save_image"
+
+# ── transforms: Resize ───────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::Resize"
+kind = "struct"
+signature = "pub struct Resize<T: Float>"
+torch_analog = "torchvision.transforms.Resize"
+
+[[item]]
+path = "ferrotorch_vision::Resize::new"
+kind = "method"
+signature = "pub fn new(height: usize, width: usize) -> Self"
+torch_analog = "torchvision.transforms.Resize(size)"
+
+# ── transforms: CenterCrop ───────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::CenterCrop"
+kind = "struct"
+signature = "pub struct CenterCrop<T: Float>"
+torch_analog = "torchvision.transforms.CenterCrop"
+
+[[item]]
+path = "ferrotorch_vision::CenterCrop::new"
+kind = "method"
+signature = "pub fn new(height: usize, width: usize) -> Self"
+torch_analog = "torchvision.transforms.CenterCrop(size)"
+
+# ── transforms: VisionNormalize ──────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::VisionNormalize"
+kind = "struct"
+signature = "pub struct VisionNormalize<T: Float>"
+torch_analog = "torchvision.transforms.Normalize"
+
+[[item]]
+path = "ferrotorch_vision::VisionNormalize::new"
+kind = "method"
+signature = "pub fn new(mean: [f64; 3], std: [f64; 3]) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.transforms.Normalize(mean, std)"
+
+[[item]]
+path = "ferrotorch_vision::VisionNormalize::imagenet"
+kind = "method"
+signature = "pub fn imagenet() -> Self"
+torch_analog = "torchvision.transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])"
+
+# ── transforms: VisionToTensor ───────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::VisionToTensor"
+kind = "struct"
+signature = "pub struct VisionToTensor<T: Float>"
+torch_analog = "torchvision.transforms.ToTensor"
+
+[[item]]
+path = "ferrotorch_vision::VisionToTensor::new"
+kind = "method"
+signature = "pub fn new() -> Self"
+torch_analog = "torchvision.transforms.ToTensor()"
+
+# ── transforms: ColorJitter ──────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::ColorJitter"
+kind = "struct"
+signature = "pub struct ColorJitter<T: Float>"
+torch_analog = "torchvision.transforms.ColorJitter"
+
+[[item]]
+path = "ferrotorch_vision::ColorJitter::new"
+kind = "method"
+signature = "pub fn new(brightness, contrast, saturation, hue) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.transforms.ColorJitter(brightness, contrast, saturation, hue)"
+
+# ── transforms: RandomApply ──────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::RandomApply"
+kind = "struct"
+signature = "pub struct RandomApply<T: Float>"
+torch_analog = "torchvision.transforms.RandomApply"
+
+[[item]]
+path = "ferrotorch_vision::RandomApply::new"
+kind = "method"
+signature = "pub fn new(transforms, p) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.transforms.RandomApply(transforms, p)"
+
+# ── transforms: RandomChoice ─────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::RandomChoice"
+kind = "struct"
+signature = "pub struct RandomChoice<T: Float>"
+torch_analog = "torchvision.transforms.RandomChoice"
+
+[[item]]
+path = "ferrotorch_vision::RandomChoice::new"
+kind = "method"
+signature = "pub fn new(transforms) -> Self"
+torch_analog = "torchvision.transforms.RandomChoice(transforms)"
+
+# ── transforms: RandomGaussianBlur ──────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::RandomGaussianBlur"
+kind = "struct"
+signature = "pub struct RandomGaussianBlur<T: Float>"
+torch_analog = "torchvision.transforms.GaussianBlur"
+
+[[item]]
+path = "ferrotorch_vision::RandomGaussianBlur::new"
+kind = "method"
+signature = "pub fn new(kernel_size, sigma) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.transforms.GaussianBlur(kernel_size, sigma)"
+
+# ── transforms: RandomResizedCrop ────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::RandomResizedCrop"
+kind = "struct"
+signature = "pub struct RandomResizedCrop<T: Float>"
+torch_analog = "torchvision.transforms.RandomResizedCrop"
+
+[[item]]
+path = "ferrotorch_vision::RandomResizedCrop::new"
+kind = "method"
+signature = "pub fn new(height, width, scale, ratio) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.transforms.RandomResizedCrop(size, scale, ratio)"
+
+# ── transforms: RandomRotation ───────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::RandomRotation"
+kind = "struct"
+signature = "pub struct RandomRotation<T: Float>"
+torch_analog = "torchvision.transforms.RandomRotation"
+
+[[item]]
+path = "ferrotorch_vision::RandomRotation::new"
+kind = "method"
+signature = "pub fn new(degrees: f64) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.transforms.RandomRotation(degrees)"
+
+# ── transforms: RandomVerticalFlip ───────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::RandomVerticalFlip"
+kind = "struct"
+signature = "pub struct RandomVerticalFlip<T: Float>"
+torch_analog = "torchvision.transforms.RandomVerticalFlip"
+
+[[item]]
+path = "ferrotorch_vision::RandomVerticalFlip::new"
+kind = "method"
+signature = "pub fn new(p: f64) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.transforms.RandomVerticalFlip(p)"
+
+# ── transforms: vision_manual_seed ────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::vision_manual_seed"
+kind = "fn"
+signature = "pub fn vision_manual_seed(seed: u64)"
+torch_analog = "torch.manual_seed"
+
+# ── transforms: IMAGENET_MEAN / IMAGENET_STD ──────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::IMAGENET_MEAN"
+kind = "constant"
+signature = "pub const IMAGENET_MEAN: [f64; 3]"
+torch_analog = "torchvision.transforms.Normalize imagenet mean"
+
+[[item]]
+path = "ferrotorch_vision::IMAGENET_STD"
+kind = "constant"
+signature = "pub const IMAGENET_STD: [f64; 3]"
+torch_analog = "torchvision.transforms.Normalize imagenet std"
+
+# ── transforms: Compose (pub in mod but not re-exported from lib.rs) ─────────
+
+[[item]]
+path = "ferrotorch_vision::transforms::Compose"
+kind = "struct"
+signature = "pub struct Compose<T: Float>"
+torch_analog = "torchvision.transforms.Compose"
+
+[[item]]
+path = "ferrotorch_vision::transforms::Compose::new"
+kind = "method"
+signature = "pub fn new(transforms) -> Self"
+torch_analog = "torchvision.transforms.Compose(transforms)"
+
+[[item]]
+path = "ferrotorch_vision::transforms::Compose::len"
+kind = "method"
+signature = "pub fn len(&self) -> usize"
+torch_analog = "len(compose.transforms)"
+
+[[item]]
+path = "ferrotorch_vision::transforms::Compose::is_empty"
+kind = "method"
+signature = "pub fn is_empty(&self) -> bool"
+torch_analog = "len(compose.transforms) == 0"
+
+# ── transforms: RandomCrop ───────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::transforms::RandomCrop"
+kind = "struct"
+signature = "pub struct RandomCrop<T: Float>"
+torch_analog = "torchvision.transforms.RandomCrop"
+
+[[item]]
+path = "ferrotorch_vision::transforms::RandomCrop::new"
+kind = "method"
+signature = "pub fn new(crop_h, crop_w) -> Self"
+torch_analog = "torchvision.transforms.RandomCrop(size)"
+
+[[item]]
+path = "ferrotorch_vision::transforms::RandomCrop::square"
+kind = "method"
+signature = "pub fn square(size: usize) -> Self"
+torch_analog = "torchvision.transforms.RandomCrop(size) square variant"
+
+# ── transforms: RandomHorizontalFlip ─────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::transforms::RandomHorizontalFlip"
+kind = "struct"
+signature = "pub struct RandomHorizontalFlip<T: Float>"
+torch_analog = "torchvision.transforms.RandomHorizontalFlip"
+
+[[item]]
+path = "ferrotorch_vision::transforms::RandomHorizontalFlip::new"
+kind = "method"
+signature = "pub fn new(p: f64) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.transforms.RandomHorizontalFlip(p)"
+
+# ── transforms: ElasticTransform ─────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::transforms::ElasticTransform"
+kind = "struct"
+signature = "pub struct ElasticTransform<T: Float>"
+torch_analog = "torchvision.transforms.v2.ElasticTransform"
+
+[[item]]
+path = "ferrotorch_vision::transforms::ElasticTransform::new"
+kind = "method"
+signature = "pub fn new(alpha: f64, sigma: f64) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.transforms.v2.ElasticTransform(alpha, sigma)"
+
+# ── transforms: GaussianNoise ────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::transforms::GaussianNoise"
+kind = "struct"
+signature = "pub struct GaussianNoise<T: Float>"
+torch_analog = "torchvision.transforms.v2.GaussianNoise"
+
+[[item]]
+path = "ferrotorch_vision::transforms::GaussianNoise::new"
+kind = "method"
+signature = "pub fn new(mean: f64, std: f64) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.transforms.v2.GaussianNoise(mean, sigma)"
+
+# ── transforms: TrivialAugmentWide ───────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::transforms::TrivialAugmentWide"
+kind = "struct"
+signature = "pub struct TrivialAugmentWide<T: Float>"
+torch_analog = "torchvision.transforms.TrivialAugmentWide"
+
+[[item]]
+path = "ferrotorch_vision::transforms::TrivialAugmentWide::new"
+kind = "method"
+signature = "pub fn new(num_magnitude_bins: usize) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.transforms.TrivialAugmentWide(num_magnitude_bins)"
+
+# ── models: ResNet ────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::models::ResNet"
+kind = "struct"
+signature = "pub struct ResNet<T: Float>"
+torch_analog = "torchvision.models.ResNet"
+
+[[item]]
+path = "ferrotorch_vision::models::ResNet::num_parameters"
+kind = "method"
+signature = "pub fn num_parameters(&self) -> usize"
+torch_analog = "sum(p.numel() for p in model.parameters())"
+
+[[item]]
+path = "ferrotorch_vision::models::BasicBlock"
+kind = "struct"
+signature = "pub struct BasicBlock<T: Float>"
+torch_analog = "torchvision.models.resnet.BasicBlock"
+
+[[item]]
+path = "ferrotorch_vision::models::BasicBlock::new"
+kind = "method"
+signature = "pub fn new(in_planes, planes, stride) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.models.resnet.BasicBlock constructor"
+
+[[item]]
+path = "ferrotorch_vision::models::Bottleneck"
+kind = "struct"
+signature = "pub struct Bottleneck<T: Float>"
+torch_analog = "torchvision.models.resnet.Bottleneck"
+
+[[item]]
+path = "ferrotorch_vision::models::Bottleneck::new"
+kind = "method"
+signature = "pub fn new(in_planes, planes, stride) -> FerrotorchResult<Self>"
+torch_analog = "torchvision.models.resnet.Bottleneck constructor"
+
+[[item]]
+path = "ferrotorch_vision::models::resnet18"
+kind = "fn"
+signature = "pub fn resnet18<T: Float>(num_classes: usize) -> FerrotorchResult<ResNet<T>>"
+torch_analog = "torchvision.models.resnet18(pretrained=False)"
+
+[[item]]
+path = "ferrotorch_vision::models::resnet34"
+kind = "fn"
+signature = "pub fn resnet34<T: Float>(num_classes: usize) -> FerrotorchResult<ResNet<T>>"
+torch_analog = "torchvision.models.resnet34(pretrained=False)"
+
+[[item]]
+path = "ferrotorch_vision::models::resnet50"
+kind = "fn"
+signature = "pub fn resnet50<T: Float>(num_classes: usize) -> FerrotorchResult<ResNet<T>>"
+torch_analog = "torchvision.models.resnet50(pretrained=False)"
+
+# ── models: VGG ───────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::models::VGG"
+kind = "struct"
+signature = "pub struct VGG<T: Float>"
+torch_analog = "torchvision.models.VGG"
+
+[[item]]
+path = "ferrotorch_vision::models::VGG::num_parameters"
+kind = "method"
+signature = "pub fn num_parameters(&self) -> usize"
+torch_analog = "sum(p.numel() for p in model.parameters())"
+
+[[item]]
+path = "ferrotorch_vision::models::vgg11"
+kind = "fn"
+signature = "pub fn vgg11<T: Float>(num_classes: usize) -> FerrotorchResult<VGG<T>>"
+torch_analog = "torchvision.models.vgg11(pretrained=False)"
+
+[[item]]
+path = "ferrotorch_vision::models::vgg16"
+kind = "fn"
+signature = "pub fn vgg16<T: Float>(num_classes: usize) -> FerrotorchResult<VGG<T>>"
+torch_analog = "torchvision.models.vgg16(pretrained=False)"
+
+# ── models: FeatureExtractor ─────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::FeatureExtractor"
+kind = "struct"
+signature = "pub struct FeatureExtractor<T: Float, M>"
+torch_analog = "torchvision.models.feature_extraction.create_feature_extractor"
+
+[[item]]
+path = "ferrotorch_vision::create_feature_extractor"
+kind = "fn"
+signature = "pub fn create_feature_extractor<T, M>(model, return_nodes) -> FerrotorchResult<FeatureExtractor<T, M>>"
+torch_analog = "torchvision.models.feature_extraction.create_feature_extractor"
+
+# ── models: ModelRegistry ────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::ModelConstructor"
+kind = "type_alias"
+signature = "pub type ModelConstructor<T> = Box<dyn Fn(bool, usize) -> FerrotorchResult<Box<dyn Module<T>>> + Send + Sync>"
+torch_analog = "factory function type"
+
+[[item]]
+path = "ferrotorch_vision::ModelRegistry"
+kind = "struct"
+signature = "pub struct ModelRegistry<T: Float>"
+torch_analog = "torchvision.models registry dict"
+
+[[item]]
+path = "ferrotorch_vision::get_model"
+kind = "fn"
+signature = "pub fn get_model<T: Float>(name, pretrained, num_classes) -> FerrotorchResult<Box<dyn Module<T>>>"
+torch_analog = "torchvision.models.get_model"
+
+[[item]]
+path = "ferrotorch_vision::list_models"
+kind = "fn"
+signature = "pub fn list_models<T: Float>() -> Vec<String>"
+torch_analog = "torchvision.models.list_models"
+
+[[item]]
+path = "ferrotorch_vision::register_model"
+kind = "fn"
+signature = "pub fn register_model<T: Float>(name, constructor)"
+torch_analog = "torchvision model registry registration"
+
+# ── datasets: Mnist ──────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::Mnist"
+kind = "struct"
+signature = "pub struct Mnist<T: Float>"
+torch_analog = "torchvision.datasets.MNIST"
+
+[[item]]
+path = "ferrotorch_vision::MnistSample"
+kind = "struct"
+signature = "pub struct MnistSample<T: Float>"
+torch_analog = "MNIST dataset item (image, label)"
+
+[[item]]
+path = "ferrotorch_vision::Split"
+kind = "enum"
+signature = "pub enum Split { Train, Test }"
+torch_analog = "train=True/False in torchvision datasets"
+
+# ── datasets: Cifar ──────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::Cifar10"
+kind = "struct"
+signature = "pub struct Cifar10<T: Float>"
+torch_analog = "torchvision.datasets.CIFAR10"
+
+[[item]]
+path = "ferrotorch_vision::Cifar100"
+kind = "struct"
+signature = "pub struct Cifar100<T: Float>"
+torch_analog = "torchvision.datasets.CIFAR100"
+
+[[item]]
+path = "ferrotorch_vision::CifarSample"
+kind = "struct"
+signature = "pub struct CifarSample<T: Float>"
+torch_analog = "CIFAR dataset item (image, label)"
+
+# ── datasets: ImageFolder ────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::datasets::ImageFolder"
+kind = "struct"
+signature = "pub struct ImageFolder<T: Float>"
+torch_analog = "torchvision.datasets.ImageFolder"
+
+[[item]]
+path = "ferrotorch_vision::datasets::DatasetFolder"
+kind = "struct"
+signature = "pub struct DatasetFolder<T: Float>"
+torch_analog = "torchvision.datasets.DatasetFolder"
+
+[[item]]
+path = "ferrotorch_vision::datasets::FolderSample"
+kind = "struct"
+signature = "pub struct FolderSample<T: Float>"
+torch_analog = "ImageFolder dataset item"
+
+[[item]]
+path = "ferrotorch_vision::datasets::ImageSample"
+kind = "struct"
+signature = "pub struct ImageSample<T: Float>"
+torch_analog = "DatasetFolder item (decoded image, label)"
+
+[[item]]
+path = "ferrotorch_vision::datasets::IMG_EXTENSIONS"
+kind = "constant"
+signature = "pub const IMG_EXTENSIONS: &[&str]"
+torch_analog = "torchvision.datasets.folder.IMG_EXTENSIONS"
+
+# ── ops: BoxFormat ────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_vision::ops::BoxFormat"
+kind = "enum"
+signature = "pub enum BoxFormat { Xyxy, Xywh, Cxcywh }"
+torch_analog = "torchvision.ops.box_convert format arg"
+
+[[item]]
+path = "ferrotorch_vision::ops::LossReduction"
+kind = "enum"
+signature = "pub enum LossReduction { None, Mean, Sum }"
+torch_analog = "reduction= arg in focal loss"
+
+[[item]]
+path = "ferrotorch_vision::ops::box_convert"
+kind = "fn"
+signature = "pub fn box_convert<T: Float>(boxes, in_fmt, out_fmt) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.ops.box_convert"
+
+[[item]]
+path = "ferrotorch_vision::ops::box_area"
+kind = "fn"
+signature = "pub fn box_area<T: Float>(boxes) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.ops.box_area"
+
+[[item]]
+path = "ferrotorch_vision::ops::box_iou"
+kind = "fn"
+signature = "pub fn box_iou<T: Float>(boxes1, boxes2) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.ops.box_iou"
+
+[[item]]
+path = "ferrotorch_vision::ops::clip_boxes_to_image"
+kind = "fn"
+signature = "pub fn clip_boxes_to_image<T: Float>(boxes, image_size) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.ops.clip_boxes_to_image"
+
+[[item]]
+path = "ferrotorch_vision::ops::remove_small_boxes"
+kind = "fn"
+signature = "pub fn remove_small_boxes<T: Float>(boxes, min_size) -> FerrotorchResult<Vec<usize>>"
+torch_analog = "torchvision.ops.remove_small_boxes"
+
+[[item]]
+path = "ferrotorch_vision::ops::nms"
+kind = "fn"
+signature = "pub fn nms<T: Float>(boxes, scores, iou_threshold) -> FerrotorchResult<Vec<usize>>"
+torch_analog = "torchvision.ops.nms"
+
+[[item]]
+path = "ferrotorch_vision::ops::batched_nms"
+kind = "fn"
+signature = "pub fn batched_nms<T: Float>(boxes, scores, idxs, threshold) -> FerrotorchResult<Vec<usize>>"
+torch_analog = "torchvision.ops.batched_nms"
+
+[[item]]
+path = "ferrotorch_vision::ops::sigmoid_focal_loss"
+kind = "fn"
+signature = "pub fn sigmoid_focal_loss<T: Float>(inputs, targets, alpha, gamma, reduction) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.ops.sigmoid_focal_loss"
+
+[[item]]
+path = "ferrotorch_vision::ops::focal_loss"
+kind = "fn"
+signature = "pub fn focal_loss<T: Float>(inputs, targets, alpha, gamma, reduction) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.ops.sigmoid_focal_loss variant"
+
+[[item]]
+path = "ferrotorch_vision::ops::generalized_box_iou"
+kind = "fn"
+signature = "pub fn generalized_box_iou<T: Float>(boxes1, boxes2) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.ops.generalized_box_iou"
+
+[[item]]
+path = "ferrotorch_vision::ops::distance_box_iou"
+kind = "fn"
+signature = "pub fn distance_box_iou<T: Float>(boxes1, boxes2) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.ops.distance_box_iou"
+
+[[item]]
+path = "ferrotorch_vision::ops::complete_box_iou"
+kind = "fn"
+signature = "pub fn complete_box_iou<T: Float>(boxes1, boxes2) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.ops.complete_box_iou"
+
+[[item]]
+path = "ferrotorch_vision::ops::roi_align"
+kind = "fn"
+signature = "pub fn roi_align<T: Float>(input, rois, output_size, spatial_scale, sampling_ratio) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.ops.roi_align"
+
+[[item]]
+path = "ferrotorch_vision::ops::roi_pool"
+kind = "fn"
+signature = "pub fn roi_pool<T: Float>(input, rois, output_size, spatial_scale) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torchvision.ops.roi_pool"
+
+# ── models: additional architectures (excluded from L3 — no fixture coverage) ─
+
+[[item]]
+path = "ferrotorch_vision::models::ConvNeXt"
+kind = "struct"
+signature = "pub struct ConvNeXt<T: Float>"
+torch_analog = "torchvision.models.ConvNeXt"
+
+[[item]]
+path = "ferrotorch_vision::models::convnext_tiny"
+kind = "fn"
+signature = "pub fn convnext_tiny<T: Float>(num_classes: usize) -> FerrotorchResult<ConvNeXt<T>>"
+torch_analog = "torchvision.models.convnext_tiny"
+
+[[item]]
+path = "ferrotorch_vision::models::DenseNet"
+kind = "struct"
+signature = "pub struct DenseNet<T: Float>"
+torch_analog = "torchvision.models.DenseNet"
+
+[[item]]
+path = "ferrotorch_vision::models::densenet121"
+kind = "fn"
+signature = "pub fn densenet121<T: Float>(num_classes: usize) -> FerrotorchResult<DenseNet<T>>"
+torch_analog = "torchvision.models.densenet121"
+
+[[item]]
+path = "ferrotorch_vision::models::EfficientNet"
+kind = "struct"
+signature = "pub struct EfficientNet<T: Float>"
+torch_analog = "torchvision.models.EfficientNet"
+
+[[item]]
+path = "ferrotorch_vision::models::efficientnet_b0"
+kind = "fn"
+signature = "pub fn efficientnet_b0<T: Float>(num_classes: usize) -> FerrotorchResult<EfficientNet<T>>"
+torch_analog = "torchvision.models.efficientnet_b0"
+
+[[item]]
+path = "ferrotorch_vision::models::InceptionV3"
+kind = "struct"
+signature = "pub struct InceptionV3<T: Float>"
+torch_analog = "torchvision.models.Inception3"
+
+[[item]]
+path = "ferrotorch_vision::models::inception_v3"
+kind = "fn"
+signature = "pub fn inception_v3<T: Float>(num_classes: usize) -> FerrotorchResult<InceptionV3<T>>"
+torch_analog = "torchvision.models.inception_v3"
+
+[[item]]
+path = "ferrotorch_vision::models::MobileNetV2"
+kind = "struct"
+signature = "pub struct MobileNetV2<T: Float>"
+torch_analog = "torchvision.models.MobileNetV2"
+
+[[item]]
+path = "ferrotorch_vision::models::mobilenet_v2"
+kind = "fn"
+signature = "pub fn mobilenet_v2<T: Float>(num_classes: usize) -> FerrotorchResult<MobileNetV2<T>>"
+torch_analog = "torchvision.models.mobilenet_v2"
+
+[[item]]
+path = "ferrotorch_vision::models::MobileNetV3Small"
+kind = "struct"
+signature = "pub struct MobileNetV3Small<T: Float>"
+torch_analog = "torchvision.models.MobileNetV3"
+
+[[item]]
+path = "ferrotorch_vision::models::mobilenet_v3_small"
+kind = "fn"
+signature = "pub fn mobilenet_v3_small<T: Float>(num_classes: usize) -> FerrotorchResult<MobileNetV3Small<T>>"
+torch_analog = "torchvision.models.mobilenet_v3_small"
+
+[[item]]
+path = "ferrotorch_vision::models::SwinTransformer"
+kind = "struct"
+signature = "pub struct SwinTransformer<T: Float>"
+torch_analog = "torchvision.models.SwinTransformer"
+
+[[item]]
+path = "ferrotorch_vision::models::swin_tiny"
+kind = "fn"
+signature = "pub fn swin_tiny<T: Float>(num_classes: usize) -> FerrotorchResult<SwinTransformer<T>>"
+torch_analog = "torchvision.models.swin_t"
+
+[[item]]
+path = "ferrotorch_vision::models::UNet"
+kind = "struct"
+signature = "pub struct UNet<T: Float>"
+torch_analog = "segmentation UNet"
+
+[[item]]
+path = "ferrotorch_vision::models::unet"
+kind = "fn"
+signature = "pub fn unet<T: Float>(in_ch, out_ch) -> FerrotorchResult<UNet<T>>"
+torch_analog = "UNet constructor"
+
+[[item]]
+path = "ferrotorch_vision::models::VisionTransformer"
+kind = "struct"
+signature = "pub struct VisionTransformer<T: Float>"
+torch_analog = "torchvision.models.VisionTransformer"
+
+[[item]]
+path = "ferrotorch_vision::models::vit_b_16"
+kind = "fn"
+signature = "pub fn vit_b_16<T: Float>(num_classes: usize) -> FerrotorchResult<VisionTransformer<T>>"
+torch_analog = "torchvision.models.vit_b_16"
+
+[[item]]
+path = "ferrotorch_vision::models::Yolo"
+kind = "struct"
+signature = "pub struct Yolo<T: Float>"
+torch_analog = "YOLO detection model"
+
+[[item]]
+path = "ferrotorch_vision::models::yolo"
+kind = "fn"
+signature = "pub fn yolo<T: Float>(num_classes: usize) -> FerrotorchResult<Yolo<T>>"
+torch_analog = "YOLO constructor"
+
+# ── models: sub-block types (internal impl detail, exclude from L3) ───────────
+
+[[item]]
+path = "ferrotorch_vision::models::ConvNeXtBlock"
+kind = "struct"
+signature = "pub struct ConvNeXtBlock<T: Float>"
+torch_analog = "ConvNeXt depthwise block"
+
+[[item]]
+path = "ferrotorch_vision::models::DenseBlock"
+kind = "struct"
+signature = "pub struct DenseBlock<T: Float>"
+torch_analog = "DenseNet dense block"
+
+[[item]]
+path = "ferrotorch_vision::models::DenseLayer"
+kind = "struct"
+signature = "pub struct DenseLayer<T: Float>"
+torch_analog = "DenseNet dense layer"
+
+[[item]]
+path = "ferrotorch_vision::models::TransitionLayer"
+kind = "struct"
+signature = "pub struct TransitionLayer<T: Float>"
+torch_analog = "DenseNet transition layer"
+
+[[item]]
+path = "ferrotorch_vision::models::ConvBlock"
+kind = "struct"
+signature = "pub struct ConvBlock<T: Float>"
+torch_analog = "EfficientNet conv block"
+
+[[item]]
+path = "ferrotorch_vision::models::InceptionModule"
+kind = "struct"
+signature = "pub struct InceptionModule<T: Float>"
+torch_analog = "Inception module"
+
+[[item]]
+path = "ferrotorch_vision::models::InvertedResidual"
+kind = "struct"
+signature = "pub struct InvertedResidual<T: Float>"
+torch_analog = "MobileNet inverted residual"
+
+[[item]]
+path = "ferrotorch_vision::models::V3Block"
+kind = "struct"
+signature = "pub struct V3Block<T: Float>"
+torch_analog = "MobileNetV3 block"
+
+[[item]]
+path = "ferrotorch_vision::models::SwinBlock"
+kind = "struct"
+signature = "pub struct SwinBlock<T: Float>"
+torch_analog = "Swin Transformer block"
+
+[[item]]
+path = "ferrotorch_vision::models::IntermediateFeatures"
+kind = "struct"
+signature = "pub trait IntermediateFeatures<T>"
+torch_analog = "feature extraction capability"
+
+[[item]]
+path = "ferrotorch_vision::models::PatchEmbed"
+kind = "struct"
+signature = "pub struct PatchEmbed<T: Float>"
+torch_analog = "ViT patch embedding"
+
+[[item]]
+path = "ferrotorch_vision::models::TransformerBlock"
+kind = "struct"
+signature = "pub struct TransformerBlock<T: Float>"
+torch_analog = "ViT transformer block"
+
+[[item]]
+path = "ferrotorch_vision::models::REGISTRY"
+kind = "constant"
+signature = "pub static REGISTRY: LazyLock<RwLock<ModelRegistry<f32>>>"
+torch_analog = "torchvision global model registry"

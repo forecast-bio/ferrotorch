@@ -1,0 +1,756 @@
+# ferrotorch-distributions public surface inventory (Layer 1).
+#
+# Tracking issue: #859 — ferrotorch-distributions conformance suite.
+# Reference: torch == 2.11.0 (torch.distributions)
+#
+# This file enumerates every public item exported by ferrotorch-distributions.
+# It is the "denominator" for the Layer 4 strict surface-coverage gate.
+# Regenerate by inspecting ferrotorch-distributions/src/*.rs for `pub` items.
+#
+# Format: [[item]] entries with:
+#   path      — crate-relative qualified path
+#   kind      — "fn" | "method" | "type_alias" | "struct" | "enum" | "trait" | "re_export"
+#   signature — short human-readable signature (not parsed by the gate)
+#
+# Items are grouped by distribution family / module.
+# Inventory date: 2026-05-07
+# Crate: ferrotorch_distributions
+
+crate = "ferrotorch_distributions"
+description = "Public API surface of ferrotorch-distributions, sized against torch.distributions."
+
+# ── Distribution trait ────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Distribution"
+kind = "trait"
+signature = "pub trait Distribution<T: Float>: Send + Sync"
+torch_analog = "torch.distributions.Distribution"
+
+[[item]]
+path = "ferrotorch_distributions::Distribution::sample"
+kind = "method"
+signature = "fn sample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "Distribution.sample"
+
+[[item]]
+path = "ferrotorch_distributions::Distribution::rsample"
+kind = "method"
+signature = "fn rsample(&self, shape: &[usize]) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "Distribution.rsample"
+
+[[item]]
+path = "ferrotorch_distributions::Distribution::log_prob"
+kind = "method"
+signature = "fn log_prob(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "Distribution.log_prob"
+
+[[item]]
+path = "ferrotorch_distributions::Distribution::entropy"
+kind = "method"
+signature = "fn entropy(&self) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "Distribution.entropy"
+
+[[item]]
+path = "ferrotorch_distributions::Distribution::cdf"
+kind = "method"
+signature = "fn cdf(&self, value: &Tensor<T>) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "Distribution.cdf"
+
+[[item]]
+path = "ferrotorch_distributions::Distribution::icdf"
+kind = "method"
+signature = "fn icdf(&self, q: &Tensor<T>) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "Distribution.icdf"
+
+[[item]]
+path = "ferrotorch_distributions::Distribution::mean"
+kind = "method"
+signature = "fn mean(&self) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "Distribution.mean"
+
+[[item]]
+path = "ferrotorch_distributions::Distribution::mode"
+kind = "method"
+signature = "fn mode(&self) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "Distribution.mode"
+
+[[item]]
+path = "ferrotorch_distributions::Distribution::variance"
+kind = "method"
+signature = "fn variance(&self) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "Distribution.variance"
+
+[[item]]
+path = "ferrotorch_distributions::Distribution::stddev"
+kind = "method"
+signature = "fn stddev(&self) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "Distribution.stddev"
+
+# ── Normal ────────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Normal"
+kind = "struct"
+signature = "pub struct Normal<T: Float>"
+torch_analog = "torch.distributions.Normal"
+
+[[item]]
+path = "ferrotorch_distributions::Normal::new"
+kind = "method"
+signature = "pub fn new(loc: Tensor<T>, scale: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Normal(loc, scale)"
+
+[[item]]
+path = "ferrotorch_distributions::Normal::loc"
+kind = "method"
+signature = "pub fn loc(&self) -> &Tensor<T>"
+torch_analog = "Normal.loc"
+
+[[item]]
+path = "ferrotorch_distributions::Normal::scale"
+kind = "method"
+signature = "pub fn scale(&self) -> &Tensor<T>"
+torch_analog = "Normal.scale"
+
+# ── Bernoulli ─────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Bernoulli"
+kind = "struct"
+signature = "pub struct Bernoulli<T: Float>"
+torch_analog = "torch.distributions.Bernoulli"
+
+[[item]]
+path = "ferrotorch_distributions::Bernoulli::new"
+kind = "method"
+signature = "pub fn new(probs: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Bernoulli(probs)"
+
+[[item]]
+path = "ferrotorch_distributions::Bernoulli::probs"
+kind = "method"
+signature = "pub fn probs(&self) -> &Tensor<T>"
+torch_analog = "Bernoulli.probs"
+
+# ── Categorical ───────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Categorical"
+kind = "struct"
+signature = "pub struct Categorical<T: Float>"
+torch_analog = "torch.distributions.Categorical"
+
+[[item]]
+path = "ferrotorch_distributions::Categorical::new"
+kind = "method"
+signature = "pub fn new(probs: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Categorical(probs)"
+
+# ── Beta ──────────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Beta"
+kind = "struct"
+signature = "pub struct Beta<T: Float>"
+torch_analog = "torch.distributions.Beta"
+
+[[item]]
+path = "ferrotorch_distributions::Beta::new"
+kind = "method"
+signature = "pub fn new(concentration1: Tensor<T>, concentration0: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Beta(concentration1, concentration0)"
+
+[[item]]
+path = "ferrotorch_distributions::Beta::concentration1"
+kind = "method"
+signature = "pub fn concentration1(&self) -> &Tensor<T>"
+torch_analog = "Beta.concentration1"
+
+[[item]]
+path = "ferrotorch_distributions::Beta::concentration0"
+kind = "method"
+signature = "pub fn concentration0(&self) -> &Tensor<T>"
+torch_analog = "Beta.concentration0"
+
+# ── Gamma ─────────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Gamma"
+kind = "struct"
+signature = "pub struct Gamma<T: Float>"
+torch_analog = "torch.distributions.Gamma"
+
+[[item]]
+path = "ferrotorch_distributions::Gamma::new"
+kind = "method"
+signature = "pub fn new(concentration: Tensor<T>, rate: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Gamma(concentration, rate)"
+
+[[item]]
+path = "ferrotorch_distributions::Gamma::concentration"
+kind = "method"
+signature = "pub fn concentration(&self) -> &Tensor<T>"
+torch_analog = "Gamma.concentration"
+
+[[item]]
+path = "ferrotorch_distributions::Gamma::rate"
+kind = "method"
+signature = "pub fn rate(&self) -> &Tensor<T>"
+torch_analog = "Gamma.rate"
+
+# ── Exponential ───────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Exponential"
+kind = "struct"
+signature = "pub struct Exponential<T: Float>"
+torch_analog = "torch.distributions.Exponential"
+
+[[item]]
+path = "ferrotorch_distributions::Exponential::new"
+kind = "method"
+signature = "pub fn new(rate: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Exponential(rate)"
+
+[[item]]
+path = "ferrotorch_distributions::Exponential::rate"
+kind = "method"
+signature = "pub fn rate(&self) -> &Tensor<T>"
+torch_analog = "Exponential.rate"
+
+# ── Laplace ───────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Laplace"
+kind = "struct"
+signature = "pub struct Laplace<T: Float>"
+torch_analog = "torch.distributions.Laplace"
+
+[[item]]
+path = "ferrotorch_distributions::Laplace::new"
+kind = "method"
+signature = "pub fn new(loc: Tensor<T>, scale: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Laplace(loc, scale)"
+
+# ── Cauchy ────────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Cauchy"
+kind = "struct"
+signature = "pub struct Cauchy<T: Float>"
+torch_analog = "torch.distributions.Cauchy"
+
+[[item]]
+path = "ferrotorch_distributions::Cauchy::new"
+kind = "method"
+signature = "pub fn new(loc: Tensor<T>, scale: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Cauchy(loc, scale)"
+
+# ── Gumbel ────────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Gumbel"
+kind = "struct"
+signature = "pub struct Gumbel<T: Float>"
+torch_analog = "torch.distributions.Gumbel"
+
+[[item]]
+path = "ferrotorch_distributions::Gumbel::new"
+kind = "method"
+signature = "pub fn new(loc: Tensor<T>, scale: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Gumbel(loc, scale)"
+
+# ── HalfNormal ────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::HalfNormal"
+kind = "struct"
+signature = "pub struct HalfNormal<T: Float>"
+torch_analog = "torch.distributions.HalfNormal"
+
+[[item]]
+path = "ferrotorch_distributions::HalfNormal::new"
+kind = "method"
+signature = "pub fn new(scale: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "HalfNormal(scale)"
+
+# ── LogNormal ─────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::LogNormal"
+kind = "struct"
+signature = "pub struct LogNormal<T: Float>"
+torch_analog = "torch.distributions.LogNormal"
+
+[[item]]
+path = "ferrotorch_distributions::LogNormal::new"
+kind = "method"
+signature = "pub fn new(loc: Tensor<T>, scale: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "LogNormal(loc, scale)"
+
+# ── Poisson ───────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Poisson"
+kind = "struct"
+signature = "pub struct Poisson<T: Float>"
+torch_analog = "torch.distributions.Poisson"
+
+[[item]]
+path = "ferrotorch_distributions::Poisson::new"
+kind = "method"
+signature = "pub fn new(rate: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Poisson(rate)"
+
+# ── StudentT ──────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::StudentT"
+kind = "struct"
+signature = "pub struct StudentT<T: Float>"
+torch_analog = "torch.distributions.StudentT"
+
+[[item]]
+path = "ferrotorch_distributions::StudentT::new"
+kind = "method"
+signature = "pub fn new(df: Tensor<T>, loc: Tensor<T>, scale: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "StudentT(df, loc, scale)"
+
+# ── Uniform ───────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Uniform"
+kind = "struct"
+signature = "pub struct Uniform<T: Float>"
+torch_analog = "torch.distributions.Uniform"
+
+[[item]]
+path = "ferrotorch_distributions::Uniform::new"
+kind = "method"
+signature = "pub fn new(low: Tensor<T>, high: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Uniform(low, high)"
+
+# ── MultivariateNormal ────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::MultivariateNormal"
+kind = "struct"
+signature = "pub struct MultivariateNormal<T: Float>"
+torch_analog = "torch.distributions.MultivariateNormal"
+
+[[item]]
+path = "ferrotorch_distributions::MultivariateNormal::new"
+kind = "method"
+signature = "pub fn new(loc: Tensor<T>, scale_tril: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "MultivariateNormal(loc, scale_tril=scale_tril)"
+
+# ── LowRankMultivariateNormal ─────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::LowRankMultivariateNormal"
+kind = "struct"
+signature = "pub struct LowRankMultivariateNormal<T: Float>"
+torch_analog = "torch.distributions.LowRankMultivariateNormal"
+
+[[item]]
+path = "ferrotorch_distributions::LowRankMultivariateNormal::new"
+kind = "method"
+signature = "pub fn new(loc, cov_factor, cov_diag) -> FerrotorchResult<Self>"
+torch_analog = "LowRankMultivariateNormal(loc, cov_factor, cov_diag)"
+
+# ── Dirichlet ─────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Dirichlet"
+kind = "struct"
+signature = "pub struct Dirichlet<T: Float>"
+torch_analog = "torch.distributions.Dirichlet"
+
+[[item]]
+path = "ferrotorch_distributions::Dirichlet::new"
+kind = "method"
+signature = "pub fn new(concentration: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Dirichlet(concentration)"
+
+# ── Multinomial ───────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Multinomial"
+kind = "struct"
+signature = "pub struct Multinomial<T: Float>"
+torch_analog = "torch.distributions.Multinomial"
+
+[[item]]
+path = "ferrotorch_distributions::Multinomial::new"
+kind = "method"
+signature = "pub fn new(total_count: usize, probs: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Multinomial(total_count, probs)"
+
+# ── Independent ───────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Independent"
+kind = "struct"
+signature = "pub struct Independent<T: Float>"
+torch_analog = "torch.distributions.Independent"
+
+[[item]]
+path = "ferrotorch_distributions::Independent::new"
+kind = "method"
+signature = "pub fn new(base: Box<dyn Distribution<T>>, reinterpreted_batch_ndims: usize) -> Self"
+torch_analog = "Independent(base_distribution, reinterpreted_batch_ndims)"
+
+# ── MixtureSameFamily ─────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::MixtureSameFamily"
+kind = "struct"
+signature = "pub struct MixtureSameFamily<T: Float>"
+torch_analog = "torch.distributions.MixtureSameFamily"
+
+[[item]]
+path = "ferrotorch_distributions::MixtureSameFamily::new"
+kind = "method"
+signature = "pub fn new(mixture_distribution: Categorical<T>, component_distribution: Box<dyn Distribution<T>>) -> Self"
+torch_analog = "MixtureSameFamily(mixture_distribution, component_distribution)"
+
+# ── OneHotCategorical ─────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::OneHotCategorical"
+kind = "struct"
+signature = "pub struct OneHotCategorical<T: Float>"
+torch_analog = "torch.distributions.OneHotCategorical"
+
+[[item]]
+path = "ferrotorch_distributions::OneHotCategorical::new"
+kind = "method"
+signature = "pub fn new(probs: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "OneHotCategorical(probs)"
+
+# ── RelaxedBernoulli ──────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::RelaxedBernoulli"
+kind = "struct"
+signature = "pub struct RelaxedBernoulli<T: Float>"
+torch_analog = "torch.distributions.RelaxedBernoulli"
+
+[[item]]
+path = "ferrotorch_distributions::RelaxedBernoulli::new"
+kind = "method"
+signature = "pub fn new(temperature: Tensor<T>, probs: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "RelaxedBernoulli(temperature, probs)"
+
+# ── RelaxedOneHotCategorical ──────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::RelaxedOneHotCategorical"
+kind = "struct"
+signature = "pub struct RelaxedOneHotCategorical<T: Float>"
+torch_analog = "torch.distributions.RelaxedOneHotCategorical"
+
+[[item]]
+path = "ferrotorch_distributions::RelaxedOneHotCategorical::new"
+kind = "method"
+signature = "pub fn new(temperature: Tensor<T>, probs: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "RelaxedOneHotCategorical(temperature, probs)"
+
+# ── Kumaraswamy ───────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Kumaraswamy"
+kind = "struct"
+signature = "pub struct Kumaraswamy<T: Float>"
+torch_analog = "torch.distributions.Kumaraswamy"
+
+[[item]]
+path = "ferrotorch_distributions::Kumaraswamy::new"
+kind = "method"
+signature = "pub fn new(concentration1: Tensor<T>, concentration0: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Kumaraswamy(concentration1, concentration0)"
+
+# ── Pareto ────────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Pareto"
+kind = "struct"
+signature = "pub struct Pareto<T: Float>"
+torch_analog = "torch.distributions.Pareto"
+
+[[item]]
+path = "ferrotorch_distributions::Pareto::new"
+kind = "method"
+signature = "pub fn new(scale: Tensor<T>, alpha: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Pareto(scale, alpha)"
+
+# ── VonMises ──────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::VonMises"
+kind = "struct"
+signature = "pub struct VonMises<T: Float>"
+torch_analog = "torch.distributions.VonMises"
+
+[[item]]
+path = "ferrotorch_distributions::VonMises::new"
+kind = "method"
+signature = "pub fn new(loc: Tensor<T>, concentration: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "VonMises(loc, concentration)"
+
+# ── Weibull ───────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::Weibull"
+kind = "struct"
+signature = "pub struct Weibull<T: Float>"
+torch_analog = "torch.distributions.Weibull"
+
+[[item]]
+path = "ferrotorch_distributions::Weibull::new"
+kind = "method"
+signature = "pub fn new(scale: Tensor<T>, concentration: Tensor<T>) -> FerrotorchResult<Self>"
+torch_analog = "Weibull(scale, concentration)"
+
+# ── TransformedDistribution ───────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::TransformedDistribution"
+kind = "struct"
+signature = "pub struct TransformedDistribution<T: Float>"
+torch_analog = "torch.distributions.TransformedDistribution"
+
+[[item]]
+path = "ferrotorch_distributions::TransformedDistribution::new"
+kind = "method"
+signature = "pub fn new(base: Box<dyn Distribution<T>>, transforms: Vec<Box<dyn Transform<T>>>) -> Self"
+torch_analog = "TransformedDistribution(base_distribution, transforms)"
+
+# ── kl module ─────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::kl::kl_divergence"
+kind = "fn"
+signature = "pub fn kl_divergence<T: Float, P, Q>(p: &P, q: &Q) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributions.kl_divergence"
+
+# ── constraints module ────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::constraints::Constraint"
+kind = "trait"
+signature = "pub trait Constraint: Send + Sync"
+torch_analog = "torch.distributions.constraints.Constraint"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::Real"
+kind = "struct"
+signature = "pub struct Real"
+torch_analog = "constraints.real"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::Positive"
+kind = "struct"
+signature = "pub struct Positive"
+torch_analog = "constraints.positive"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::NonNegative"
+kind = "struct"
+signature = "pub struct NonNegative"
+torch_analog = "constraints.nonnegative"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::UnitInterval"
+kind = "struct"
+signature = "pub struct UnitInterval"
+torch_analog = "constraints.unit_interval"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::BooleanConstraint"
+kind = "struct"
+signature = "pub struct BooleanConstraint"
+torch_analog = "constraints.boolean"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::GreaterThan"
+kind = "struct"
+signature = "pub struct GreaterThan<T: Float>"
+torch_analog = "constraints.greater_than"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::GreaterThanEq"
+kind = "struct"
+signature = "pub struct GreaterThanEq<T: Float>"
+torch_analog = "constraints.greater_than_eq"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::OpenInterval"
+kind = "struct"
+signature = "pub struct OpenInterval<T: Float>"
+torch_analog = "constraints.open_interval"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::ClosedInterval"
+kind = "struct"
+signature = "pub struct ClosedInterval<T: Float>"
+torch_analog = "constraints.interval"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::HalfOpenInterval"
+kind = "struct"
+signature = "pub struct HalfOpenInterval<T: Float>"
+torch_analog = "constraints.half_open_interval"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::LessThan"
+kind = "struct"
+signature = "pub struct LessThan<T: Float>"
+torch_analog = "constraints.less_than"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::Simplex"
+kind = "struct"
+signature = "pub struct Simplex"
+torch_analog = "constraints.simplex"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::real"
+kind = "fn"
+signature = "pub fn real() -> Real"
+torch_analog = "constraints.real"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::positive"
+kind = "fn"
+signature = "pub fn positive() -> Positive"
+torch_analog = "constraints.positive"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::nonnegative"
+kind = "fn"
+signature = "pub fn nonnegative() -> NonNegative"
+torch_analog = "constraints.nonnegative"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::unit_interval"
+kind = "fn"
+signature = "pub fn unit_interval() -> UnitInterval"
+torch_analog = "constraints.unit_interval"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::boolean"
+kind = "fn"
+signature = "pub fn boolean() -> BooleanConstraint"
+torch_analog = "constraints.boolean"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::greater_than"
+kind = "fn"
+signature = "pub fn greater_than<T: Float>(lower_bound: T) -> GreaterThan<T>"
+torch_analog = "constraints.greater_than"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::greater_than_eq"
+kind = "fn"
+signature = "pub fn greater_than_eq<T: Float>(lower_bound: T) -> GreaterThanEq<T>"
+torch_analog = "constraints.greater_than_eq"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::less_than"
+kind = "fn"
+signature = "pub fn less_than<T: Float>(upper_bound: T) -> LessThan<T>"
+torch_analog = "constraints.less_than"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::open_interval"
+kind = "fn"
+signature = "pub fn open_interval<T: Float>(lower_bound: T, upper_bound: T) -> OpenInterval<T>"
+torch_analog = "constraints.open_interval"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::closed_interval"
+kind = "fn"
+signature = "pub fn closed_interval<T: Float>(lower_bound: T, upper_bound: T) -> ClosedInterval<T>"
+torch_analog = "constraints.interval"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::half_open_interval"
+kind = "fn"
+signature = "pub fn half_open_interval<T: Float>(lower_bound: T, upper_bound: T) -> HalfOpenInterval<T>"
+torch_analog = "constraints.half_open_interval"
+
+[[item]]
+path = "ferrotorch_distributions::constraints::simplex"
+kind = "fn"
+signature = "pub fn simplex() -> Simplex"
+torch_analog = "constraints.simplex"
+
+# ── transforms module ─────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributions::transforms::Transform"
+kind = "trait"
+signature = "pub trait Transform<T: Float>: Send + Sync"
+torch_analog = "torch.distributions.transforms.Transform"
+
+[[item]]
+path = "ferrotorch_distributions::transforms::ExpTransform"
+kind = "struct"
+signature = "pub struct ExpTransform"
+torch_analog = "transforms.ExpTransform"
+
+[[item]]
+path = "ferrotorch_distributions::transforms::AffineTransform"
+kind = "struct"
+signature = "pub struct AffineTransform<T: Float>"
+torch_analog = "transforms.AffineTransform"
+
+[[item]]
+path = "ferrotorch_distributions::transforms::AffineTransform::new"
+kind = "method"
+signature = "pub fn new(loc: T, scale: T) -> Self"
+torch_analog = "AffineTransform(loc, scale)"
+
+[[item]]
+path = "ferrotorch_distributions::transforms::SigmoidTransform"
+kind = "struct"
+signature = "pub struct SigmoidTransform"
+torch_analog = "transforms.SigmoidTransform"
+
+[[item]]
+path = "ferrotorch_distributions::transforms::TanhTransform"
+kind = "struct"
+signature = "pub struct TanhTransform"
+torch_analog = "transforms.TanhTransform"
+
+[[item]]
+path = "ferrotorch_distributions::transforms::SoftplusTransform"
+kind = "struct"
+signature = "pub struct SoftplusTransform"
+torch_analog = "transforms.SoftplusTransform"
+
+[[item]]
+path = "ferrotorch_distributions::transforms::ComposeTransform"
+kind = "struct"
+signature = "pub struct ComposeTransform<T: Float>"
+torch_analog = "transforms.ComposeTransform"
+
+[[item]]
+path = "ferrotorch_distributions::transforms::ComposeTransform::new"
+kind = "method"
+signature = "pub fn new(transforms: Vec<Box<dyn Transform<T>>>) -> Self"
+torch_analog = "ComposeTransform(transforms)"
+
+[[item]]
+path = "ferrotorch_distributions::transforms::ComposeTransform::len"
+kind = "method"
+signature = "pub fn len(&self) -> usize"
+torch_analog = "len(compose_transform.parts)"
+
+[[item]]
+path = "ferrotorch_distributions::transforms::ComposeTransform::is_empty"
+kind = "method"
+signature = "pub fn is_empty(&self) -> bool"
+torch_analog = "len check"
