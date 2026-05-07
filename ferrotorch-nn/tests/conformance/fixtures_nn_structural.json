@@ -1,0 +1,1257 @@
+{
+  "version": "torch==2.11.0",
+  "generated_by": "scripts/regenerate_nn_structural_fixtures.py",
+  "generated_at": "2026-05-07T17:07:39.343698+00:00",
+  "description": "Reference fixtures for ferrotorch-nn C9.3 structural+recurrent+extension conformance suite. Covers 10 modules: container, module, parameter, parameter_container, buffer, hooks, rnn, rnn_utils, lora, qat.",
+  "fixture_count": 38,
+  "fixtures": [
+    {
+      "id": "sequential_nested_forward",
+      "module": "container",
+      "op": "Sequential.forward",
+      "inputs": {
+        "x": [
+          [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        ],
+        "x_shape": [
+          2,
+          4
+        ],
+        "lin1_weight": [
+          [
+            0.10000000149011612,
+            0.10000000149011612,
+            0.10000000149011612,
+            0.10000000149011612
+          ],
+          [
+            0.10000000149011612,
+            0.10000000149011612,
+            0.10000000149011612,
+            0.10000000149011612
+          ],
+          [
+            0.10000000149011612,
+            0.10000000149011612,
+            0.10000000149011612,
+            0.10000000149011612
+          ]
+        ],
+        "lin2_weight": [
+          [
+            0.20000000298023224,
+            0.20000000298023224,
+            0.20000000298023224
+          ],
+          [
+            0.20000000298023224,
+            0.20000000298023224,
+            0.20000000298023224
+          ]
+        ]
+      },
+      "expected": {
+        "output": [
+          [
+            0.24,
+            0.24
+          ],
+          [
+            0.24,
+            0.24
+          ]
+        ],
+        "output_shape": [
+          2,
+          2
+        ]
+      },
+      "note": "Sequential(Linear(4->3,no-bias,W=0.1), ReLU, Linear(3->2,no-bias,W=0.2)). Input all-ones [2,4]. x@W1^T = [4*0.1]*3 = [0.4,0.4,0.4], relu unchanged, then [0.4,0.4,0.4]@W2^T = [3*0.4*0.2]*2 = [0.24,0.24]. Shape [2,2]."
+    },
+    {
+      "id": "module_list_manual_chain",
+      "module": "container",
+      "op": "ModuleList.manual_forward",
+      "inputs": {
+        "x": [
+          [
+            2.0,
+            2.0,
+            2.0
+          ]
+        ],
+        "x_shape": [
+          1,
+          3
+        ],
+        "lin_a_weight": [
+          [
+            0.5,
+            0.5,
+            0.5
+          ],
+          [
+            0.5,
+            0.5,
+            0.5
+          ],
+          [
+            0.5,
+            0.5,
+            0.5
+          ]
+        ],
+        "lin_b_weight": [
+          [
+            0.5,
+            0.5,
+            0.5
+          ],
+          [
+            0.5,
+            0.5,
+            0.5
+          ]
+        ]
+      },
+      "expected": {
+        "output": [
+          [
+            4.5,
+            4.5
+          ]
+        ],
+        "output_shape": [
+          1,
+          2
+        ]
+      },
+      "note": "ModuleList with 2 Linear layers (manually chained). x=[2,2,2] -> lin_a: [3*1.0]*3=[3,3,3] -> lin_b: [3*1.5]*2=[4.5,4.5]. Shape [1,2]."
+    },
+    {
+      "id": "module_dict_encoder_decoder",
+      "module": "container",
+      "op": "ModuleDict.forward",
+      "inputs": {
+        "x": [
+          [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        ],
+        "x_shape": [
+          1,
+          4
+        ],
+        "enc_weight": [
+          [
+            0.25,
+            0.25,
+            0.25,
+            0.25
+          ],
+          [
+            0.25,
+            0.25,
+            0.25,
+            0.25
+          ]
+        ],
+        "dec_weight": [
+          [
+            0.25,
+            0.25
+          ],
+          [
+            0.25,
+            0.25
+          ],
+          [
+            0.25,
+            0.25
+          ],
+          [
+            0.25,
+            0.25
+          ]
+        ]
+      },
+      "expected": {
+        "enc_output": [
+          [
+            1.0,
+            1.0
+          ]
+        ],
+        "dec_output": [
+          [
+            0.5,
+            0.5,
+            0.5,
+            0.5
+          ]
+        ],
+        "dec_output_shape": [
+          1,
+          4
+        ]
+      },
+      "note": "ModuleDict{encoder: Linear(4->2,W=0.25), decoder: Linear(2->4,W=0.25)}. Enc: x@W^T=[4*0.25]*2=[1,1]. Dec: [1,1]@W^T=[2*0.25]*4=[0.5,0.5,0.5,0.5]."
+    },
+    {
+      "id": "module_state_dict_keys",
+      "module": "module",
+      "op": "Module.state_dict",
+      "description": "A parent module with weight [2,2], running_mean buffer [2], and a child with weight [3]. state_dict must contain exactly 'weight', 'running_mean', 'child.weight'.",
+      "expected_keys": [
+        "child.weight",
+        "running_mean",
+        "weight"
+      ],
+      "expected_count": 3,
+      "note": "PyTorch parity: state_dict includes both params and buffers with dot-paths."
+    },
+    {
+      "id": "module_named_modules_paths",
+      "module": "module",
+      "op": "Module.named_modules",
+      "description": "Root module with one direct child. named_modules returns [('', root), ('child', child)].",
+      "expected_paths": [
+        "",
+        "child"
+      ],
+      "expected_count": 2,
+      "note": "PyTorch parity: root is '' and children use attribute name."
+    },
+    {
+      "id": "module_train_eval_toggle",
+      "module": "module",
+      "op": "Module.train/eval",
+      "description": "Module starts in training mode. eval() sets is_training=false. train() restores it.",
+      "expected_train": true,
+      "expected_eval": false,
+      "note": "PyTorch parity: training mode flag toggles correctly."
+    },
+    {
+      "id": "module_requires_grad_freeze",
+      "module": "module",
+      "op": "Module.requires_grad_",
+      "description": "After requires_grad_(false) all params have requires_grad=false.",
+      "expected_frozen": false,
+      "expected_unfrozen": true,
+      "note": "PyTorch parity: requires_grad_(False) freezes all params."
+    },
+    {
+      "id": "module_load_state_dict_strict",
+      "module": "module",
+      "op": "Module.load_state_dict",
+      "description": "load_state_dict with extra key and strict=true must return error. strict=false must succeed.",
+      "extra_key": "nonexistent_param",
+      "expected_strict_err": true,
+      "expected_relaxed_ok": true,
+      "note": "PyTorch parity: strict mode rejects unknown keys."
+    },
+    {
+      "id": "parameter_requires_grad_always_true",
+      "module": "parameter",
+      "op": "Parameter.new",
+      "description": "A Parameter always has requires_grad=true after construction.",
+      "shape": [
+        3,
+        4
+      ],
+      "expected_requires_grad": true,
+      "note": "PyTorch parity: nn.Parameter always requires grad."
+    },
+    {
+      "id": "parameter_from_slice_shape",
+      "module": "parameter",
+      "op": "Parameter.from_slice",
+      "description": "Parameter::from_slice preserves shape and data.",
+      "data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "shape": [
+        2,
+        3
+      ],
+      "expected_shape": [
+        2,
+        3
+      ],
+      "expected_numel": 6,
+      "note": "PyTorch parity: nn.Parameter wraps tensor data."
+    },
+    {
+      "id": "parameter_set_requires_grad_freeze",
+      "module": "parameter",
+      "op": "Parameter.set_requires_grad",
+      "description": "set_requires_grad(false) makes requires_grad false; set_requires_grad(true) restores it.",
+      "shape": [
+        4
+      ],
+      "expected_frozen": false,
+      "expected_unfrozen": true,
+      "note": "PyTorch parity: param.requires_grad_(False) freezes a parameter."
+    },
+    {
+      "id": "parameter_list_named_indexed",
+      "module": "parameter_container",
+      "op": "ParameterList.named_parameters",
+      "description": "ParameterList with 3 params yields named_params with keys '0', '1', '2'.",
+      "count": 3,
+      "expected_keys": [
+        "0",
+        "1",
+        "2"
+      ],
+      "note": "PyTorch parity: nn.ParameterList keys are integer indices as strings."
+    },
+    {
+      "id": "parameter_dict_sorted_keys",
+      "module": "parameter_container",
+      "op": "ParameterDict.named_parameters",
+      "description": "ParameterDict with keys 'z','a','m' yields named_params in sorted order 'a','m','z'.",
+      "insert_order": [
+        "z",
+        "a",
+        "m"
+      ],
+      "expected_key_order": [
+        "a",
+        "m",
+        "z"
+      ],
+      "note": "PyTorch parity: nn.ParameterDict keys are sorted lexicographically (BTreeMap)."
+    },
+    {
+      "id": "buffer_no_grad",
+      "module": "buffer",
+      "op": "Buffer.new",
+      "description": "A Buffer always has requires_grad=false.",
+      "shape": [
+        3,
+        4
+      ],
+      "expected_requires_grad": false,
+      "note": "PyTorch parity: register_buffer tensors have requires_grad=False."
+    },
+    {
+      "id": "buffer_set_data_keeps_no_grad",
+      "module": "buffer",
+      "op": "Buffer.set_data",
+      "description": "set_data with a requires_grad=true tensor forces requires_grad back to false.",
+      "shape": [
+        3
+      ],
+      "expected_requires_grad": false,
+      "note": "PyTorch parity: buffers cannot have gradients regardless of assigned tensor."
+    },
+    {
+      "id": "buffer_in_state_dict",
+      "module": "buffer",
+      "op": "Module.state_dict_includes_buffer",
+      "description": "A module with a named buffer 'running_mean' includes it in state_dict().",
+      "buffer_name": "running_mean",
+      "buffer_shape": [
+        2
+      ],
+      "expected_in_state_dict": true,
+      "note": "PyTorch parity: state_dict includes buffers registered via register_buffer."
+    },
+    {
+      "id": "forward_hook_fires_once_per_forward",
+      "module": "hooks",
+      "op": "HookedModule.register_forward_hook",
+      "description": "A forward hook fires exactly once per forward call.",
+      "expected_fire_count_per_forward": 1,
+      "note": "PyTorch parity: register_forward_hook fires once per forward pass."
+    },
+    {
+      "id": "forward_pre_hook_modifies_input",
+      "module": "hooks",
+      "op": "HookedModule.register_forward_pre_hook",
+      "description": "A pre-hook that replaces input with zeros produces all-zero output.",
+      "note": "PyTorch parity: register_forward_pre_hook can replace input."
+    },
+    {
+      "id": "hook_handle_remove_stops_firing",
+      "module": "hooks",
+      "op": "HookHandle.remove",
+      "description": "After handle.remove(), hook fires 0 times on subsequent forwards.",
+      "expected_fire_after_remove": 0,
+      "note": "PyTorch parity: hook handle removal deregisters the hook."
+    },
+    {
+      "id": "multiple_hooks_fire_in_registration_order",
+      "module": "hooks",
+      "op": "HookedModule.register_forward_hook_order",
+      "description": "Three hooks registered in order 1,2,3 fire in order [1,2,3].",
+      "expected_order": [
+        1,
+        2,
+        3
+      ],
+      "note": "PyTorch parity: hooks fire in registration order."
+    },
+    {
+      "id": "lstm_single_step_shape",
+      "module": "rnn",
+      "op": "LSTM.forward_with_state",
+      "inputs": {
+        "x_shape": [
+          2,
+          1,
+          3
+        ],
+        "x_value": 0.3,
+        "hidden_size": 4,
+        "num_layers": 1,
+        "weight_value": 0.05
+      },
+      "expected": {
+        "output_shape": [
+          2,
+          1,
+          4
+        ],
+        "h_n_shape": [
+          1,
+          2,
+          4
+        ],
+        "c_n_shape": [
+          1,
+          2,
+          4
+        ],
+        "output": [
+          [
+            [
+              0.0413152,
+              0.0413152,
+              0.0413152,
+              0.0413152
+            ]
+          ],
+          [
+            [
+              0.0413152,
+              0.0413152,
+              0.0413152,
+              0.0413152
+            ]
+          ]
+        ],
+        "h_n": [
+          [
+            [
+              0.0413152,
+              0.0413152,
+              0.0413152,
+              0.0413152
+            ],
+            [
+              0.0413152,
+              0.0413152,
+              0.0413152,
+              0.0413152
+            ]
+          ]
+        ],
+        "c_n": [
+          [
+            [
+              0.0772067,
+              0.0772067,
+              0.0772067,
+              0.0772067
+            ],
+            [
+              0.0772067,
+              0.0772067,
+              0.0772067,
+              0.0772067
+            ]
+          ]
+        ]
+      },
+      "tolerance": 1e-05,
+      "note": "LSTM(input=3, hidden=4, layers=1). Input=0.3 [2,1,3]. All weights=0.05."
+    },
+    {
+      "id": "lstm_multistep_trajectory",
+      "module": "rnn",
+      "op": "LSTM.forward_multistep",
+      "inputs": {
+        "x": [
+          [
+            [
+              0.10000000149011612,
+              0.20000000298023224
+            ],
+            [
+              0.30000001192092896,
+              0.4000000059604645
+            ],
+            [
+              0.5,
+              0.6000000238418579
+            ]
+          ]
+        ],
+        "x_shape": [
+          1,
+          3,
+          2
+        ],
+        "hidden_size": 3,
+        "num_layers": 1,
+        "weight_value": 0.1
+      },
+      "expected": {
+        "output_shape": [
+          1,
+          3,
+          3
+        ],
+        "h_n": [
+          [
+            [
+              0.1890414,
+              0.1890414,
+              0.1890414
+            ]
+          ]
+        ],
+        "c_n": [
+          [
+            [
+              0.3342442,
+              0.3342442,
+              0.3342442
+            ]
+          ]
+        ],
+        "output": [
+          [
+            [
+              0.0698187,
+              0.0698187,
+              0.0698187
+            ],
+            [
+              0.1315191,
+              0.1315191,
+              0.1315191
+            ],
+            [
+              0.1890414,
+              0.1890414,
+              0.1890414
+            ]
+          ]
+        ]
+      },
+      "tolerance": 1e-05,
+      "note": "LSTM(input=2,hidden=3,layers=1). Input steps [[0.1,0.2],[0.3,0.4],[0.5,0.6]]."
+    },
+    {
+      "id": "gru_single_step_shape",
+      "module": "rnn",
+      "op": "GRU.forward",
+      "inputs": {
+        "x_shape": [
+          2,
+          1,
+          3
+        ],
+        "x_value": 0.3,
+        "hidden_size": 4,
+        "num_layers": 1,
+        "weight_value": 0.05
+      },
+      "expected": {
+        "output_shape": [
+          2,
+          1,
+          4
+        ],
+        "h_n_shape": [
+          1,
+          2,
+          4
+        ],
+        "output": [
+          [
+            [
+              0.056219,
+              0.056219,
+              0.056219,
+              0.056219
+            ]
+          ],
+          [
+            [
+              0.056219,
+              0.056219,
+              0.056219,
+              0.056219
+            ]
+          ]
+        ],
+        "h_n": [
+          [
+            [
+              0.056219,
+              0.056219,
+              0.056219,
+              0.056219
+            ],
+            [
+              0.056219,
+              0.056219,
+              0.056219,
+              0.056219
+            ]
+          ]
+        ]
+      },
+      "tolerance": 1e-05,
+      "note": "GRU(input=3,hidden=4,layers=1). Input=0.3 [2,1,3]. All weights=0.05."
+    },
+    {
+      "id": "gru_multistep_trajectory",
+      "module": "rnn",
+      "op": "GRU.forward_multistep",
+      "inputs": {
+        "x": [
+          [
+            [
+              0.10000000149011612,
+              0.20000000298023224
+            ],
+            [
+              0.30000001192092896,
+              0.4000000059604645
+            ],
+            [
+              0.5,
+              0.6000000238418579
+            ]
+          ]
+        ],
+        "x_shape": [
+          1,
+          3,
+          2
+        ],
+        "hidden_size": 3,
+        "num_layers": 1,
+        "weight_value": 0.1
+      },
+      "expected": {
+        "output_shape": [
+          1,
+          3,
+          3
+        ],
+        "h_n": [
+          [
+            [
+              0.2049194,
+              0.2049194,
+              0.2049194
+            ]
+          ]
+        ],
+        "output": [
+          [
+            [
+              0.0812974,
+              0.0812974,
+              0.0812974
+            ],
+            [
+              0.1476468,
+              0.1476468,
+              0.1476468
+            ],
+            [
+              0.2049194,
+              0.2049194,
+              0.2049194
+            ]
+          ]
+        ]
+      },
+      "tolerance": 1e-05,
+      "note": "GRU(input=2,hidden=3,layers=1). Input steps [[0.1,0.2],[0.3,0.4],[0.5,0.6]]."
+    },
+    {
+      "id": "rnn_tanh_single_step",
+      "module": "rnn",
+      "op": "RNN.forward_tanh",
+      "inputs": {
+        "x_shape": [
+          2,
+          1,
+          3
+        ],
+        "x_value": 0.3,
+        "hidden_size": 4,
+        "num_layers": 1,
+        "weight_value": 0.05,
+        "nonlinearity": "tanh"
+      },
+      "expected": {
+        "output_shape": [
+          2,
+          1,
+          4
+        ],
+        "h_n_shape": [
+          1,
+          2,
+          4
+        ],
+        "output": [
+          [
+            [
+              0.1439923,
+              0.1439923,
+              0.1439923,
+              0.1439923
+            ]
+          ],
+          [
+            [
+              0.1439923,
+              0.1439923,
+              0.1439923,
+              0.1439923
+            ]
+          ]
+        ],
+        "h_n": [
+          [
+            [
+              0.1439923,
+              0.1439923,
+              0.1439923,
+              0.1439923
+            ],
+            [
+              0.1439923,
+              0.1439923,
+              0.1439923,
+              0.1439923
+            ]
+          ]
+        ]
+      },
+      "tolerance": 1e-05,
+      "note": "RNN(input=3,hidden=4,tanh). Input=0.3 [2,1,3]. All weights=0.05."
+    },
+    {
+      "id": "rnn_tanh_multistep",
+      "module": "rnn",
+      "op": "RNN.forward_multistep",
+      "inputs": {
+        "x": [
+          [
+            [
+              0.10000000149011612,
+              0.20000000298023224
+            ],
+            [
+              0.30000001192092896,
+              0.4000000059604645
+            ],
+            [
+              0.5,
+              0.6000000238418579
+            ]
+          ]
+        ],
+        "x_shape": [
+          1,
+          3,
+          2
+        ],
+        "hidden_size": 3,
+        "num_layers": 1,
+        "weight_value": 0.1
+      },
+      "expected": {
+        "output_shape": [
+          1,
+          3,
+          3
+        ],
+        "h_n": [
+          [
+            [
+              0.3864805,
+              0.3864805,
+              0.3864805
+            ]
+          ]
+        ],
+        "output": [
+          [
+            [
+              0.2260283,
+              0.2260283,
+              0.2260283
+            ],
+            [
+              0.3255195,
+              0.3255195,
+              0.3255195
+            ],
+            [
+              0.3864805,
+              0.3864805,
+              0.3864805
+            ]
+          ]
+        ]
+      },
+      "tolerance": 1e-05,
+      "note": "RNN(input=2,hidden=3,tanh). Input steps [[0.1,0.2],[0.3,0.4],[0.5,0.6]]."
+    },
+    {
+      "id": "pack_padded_sequence_batch_sizes",
+      "module": "rnn_utils",
+      "op": "pack_padded_sequence.batch_sizes",
+      "description": "batch=3, lengths=[5,3,2], batch_first=true. Expected batch_sizes=[3,3,2,1,1].",
+      "inputs": {
+        "batch": 3,
+        "max_seq_len": 5,
+        "features": 2,
+        "lengths": [
+          5,
+          3,
+          2
+        ],
+        "batch_first": true
+      },
+      "expected": {
+        "batch_sizes": [
+          3,
+          3,
+          2,
+          1,
+          1
+        ],
+        "sorted_indices": [
+          0,
+          1,
+          2
+        ]
+      },
+      "note": "PyTorch parity: torch.nn.utils.rnn.pack_padded_sequence batch_sizes."
+    },
+    {
+      "id": "pack_padded_sequence_packed_order",
+      "module": "rnn_utils",
+      "op": "pack_padded_sequence.data_order",
+      "description": "2 seqs, lengths=[3,2], features=1, batch_first=true. seq0=[10,20,30], seq1=[40,50,PAD]. Packed=[10,40,20,50,30].",
+      "inputs": {
+        "data": [
+          [
+            10.0,
+            20.0,
+            30.0
+          ],
+          [
+            40.0,
+            50.0,
+            0.0
+          ]
+        ],
+        "lengths": [
+          3,
+          2
+        ],
+        "batch_first": true
+      },
+      "expected": {
+        "batch_sizes": [
+          2,
+          2,
+          1
+        ],
+        "packed_data": [
+          10.0,
+          40.0,
+          20.0,
+          50.0,
+          30.0
+        ]
+      },
+      "note": "PyTorch parity: data is packed timestep-major, longest-first within each timestep."
+    },
+    {
+      "id": "pad_packed_sequence_roundtrip",
+      "module": "rnn_utils",
+      "op": "pad_packed_sequence.roundtrip",
+      "description": "pack then unpack preserves data for non-padding positions.",
+      "inputs": {
+        "batch": 3,
+        "max_seq_len": 4,
+        "features": 2,
+        "lengths": [
+          4,
+          2,
+          1
+        ],
+        "batch_first": true,
+        "padding_value": 0.0
+      },
+      "expected": {
+        "output_lengths": [
+          4,
+          2,
+          1
+        ],
+        "output_shape": [
+          3,
+          4,
+          2
+        ]
+      },
+      "note": "PyTorch parity: pack+unpack roundtrip \u2014 valid positions unchanged, padding=0."
+    },
+    {
+      "id": "pack_padded_sequence_unsorted",
+      "module": "rnn_utils",
+      "op": "pack_padded_sequence.unsorted",
+      "description": "lengths=[2,5,3] unsorted, enforce_sorted=false. sorted_indices=[1,2,0], batch_sizes=[3,3,2,1,1].",
+      "inputs": {
+        "batch": 3,
+        "max_seq_len": 5,
+        "features": 2,
+        "lengths": [
+          2,
+          5,
+          3
+        ],
+        "batch_first": true,
+        "enforce_sorted": false
+      },
+      "expected": {
+        "batch_sizes": [
+          3,
+          3,
+          2,
+          1,
+          1
+        ],
+        "sorted_indices": [
+          1,
+          2,
+          0
+        ]
+      },
+      "note": "PyTorch parity: pack_padded_sequence auto-sorts by descending length."
+    },
+    {
+      "id": "lora_zero_b_matches_base",
+      "module": "lora",
+      "op": "LoRALinear.forward_zero_b",
+      "inputs": {
+        "x": [
+          [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        ],
+        "x_shape": [
+          2,
+          4
+        ],
+        "in_features": 4,
+        "out_features": 3,
+        "rank": 2,
+        "alpha": 1.0,
+        "weight_value": 0.1,
+        "bias_value": 0.05
+      },
+      "expected": {
+        "output": [
+          [
+            0.45,
+            0.45,
+            0.45
+          ],
+          [
+            0.45,
+            0.45,
+            0.45
+          ]
+        ],
+        "output_shape": [
+          2,
+          3
+        ]
+      },
+      "note": "LoRA B=zeros => contribution=0. Output == base linear output. base: x@W^T+b = [4*0.1+0.05]*3 = [0.45,0.45,0.45] each row."
+    },
+    {
+      "id": "lora_forward_known_weights",
+      "module": "lora",
+      "op": "LoRALinear.forward_known",
+      "inputs": {
+        "x": [
+          [
+            1.0,
+            2.0
+          ]
+        ],
+        "x_shape": [
+          1,
+          2
+        ],
+        "in_features": 2,
+        "out_features": 2,
+        "rank": 1,
+        "alpha": 2.0,
+        "base_weight": [
+          [
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0
+          ]
+        ],
+        "base_bias": [
+          0.0,
+          0.0
+        ],
+        "lora_a": [
+          [
+            1.0,
+            0.0
+          ]
+        ],
+        "lora_b": [
+          [
+            1.0
+          ],
+          [
+            0.0
+          ]
+        ]
+      },
+      "expected": {
+        "output": [
+          [
+            3.0,
+            2.0
+          ]
+        ],
+        "output_shape": [
+          1,
+          2
+        ]
+      },
+      "note": "LoRA(W=I2, bias=0, A=[[1,0]], B=[[1],[0]], alpha=2, rank=1). x=[1,2]. base=[1,2]. lora=2*(x@A^T@B^T)=2*[1,0]=[2,0]. total=[3,2]."
+    },
+    {
+      "id": "lora_merge_produces_same_output",
+      "module": "lora",
+      "op": "LoRALinear.merge",
+      "description": "After merge(), base weight = W + (alpha/r)*B@A. Forward via merged base == pre-merge LoRA forward.",
+      "inputs": {
+        "in_features": 4,
+        "out_features": 3,
+        "rank": 2,
+        "alpha": 1.0,
+        "base_weight": [
+          [
+            1.0,
+            2.0,
+            3.0,
+            4.0
+          ],
+          [
+            5.0,
+            6.0,
+            7.0,
+            8.0
+          ],
+          [
+            9.0,
+            10.0,
+            11.0,
+            12.0
+          ]
+        ],
+        "base_bias": [
+          0.1,
+          0.2,
+          0.3
+        ],
+        "lora_a": [
+          [
+            0.1,
+            0.2,
+            0.3,
+            0.4
+          ],
+          [
+            0.5,
+            0.6,
+            0.7,
+            0.8
+          ]
+        ],
+        "lora_b": [
+          [
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0
+          ],
+          [
+            0.5,
+            0.5
+          ]
+        ],
+        "x": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "x_shape": [
+          2,
+          4
+        ]
+      },
+      "expected": {
+        "merged_weight_shape": [
+          3,
+          4
+        ]
+      },
+      "note": "After merge, base.forward(x) must equal pre-merge lora.forward(x) within 1e-5."
+    },
+    {
+      "id": "qat_config_int8_symmetric",
+      "module": "qat",
+      "op": "QatConfig.default_symmetric_int8",
+      "expected": {
+        "weight_dtype": "Int8",
+        "activation_dtype": "Int8",
+        "weight_symmetric": true,
+        "activation_symmetric": true,
+        "weight_observer": "MinMax",
+        "activation_observer": "MovingAverageMinMax"
+      },
+      "note": "QatConfig::default_symmetric_int8() fields match their documented values."
+    },
+    {
+      "id": "qat_config_per_channel",
+      "module": "qat",
+      "op": "QatConfig.per_channel_int8",
+      "expected": {
+        "weight_dtype": "Int8",
+        "weight_observer": "PerChannelMinMax",
+        "activation_observer": "MovingAverageMinMax"
+      },
+      "note": "QatConfig::per_channel_int8() weight_observer is PerChannelMinMax."
+    },
+    {
+      "id": "qat_config_int4_int8",
+      "module": "qat",
+      "op": "QatConfig.int4_weight_int8_activation",
+      "expected": {
+        "weight_dtype": "Int4",
+        "activation_dtype": "Int8"
+      },
+      "note": "QatConfig::int4_weight_int8_activation() dtype fields."
+    },
+    {
+      "id": "prepare_qat_registers_weight_layers",
+      "module": "qat",
+      "op": "prepare_qat.layer_registration",
+      "description": "prepare_qat on a module with named_parameters ['0.weight','0.bias','1.weight'] registers layers '0' and '1' \u2014 bias does NOT create a separate layer entry.",
+      "param_names": [
+        "0.weight",
+        "0.bias",
+        "1.weight"
+      ],
+      "expected": {
+        "layer_count": 2,
+        "layer_names": [
+          "0",
+          "1"
+        ]
+      },
+      "note": "prepare_qat only registers a layer per *.weight param, not *.bias."
+    },
+    {
+      "id": "fake_quantize_int8_parity",
+      "module": "qat",
+      "op": "QatModel.fake_quantize_weights",
+      "description": "FakeQuantize INT8 on values in [-1.0, 1.0]. Dequantized values within 1/127 ~ 0.00788 of originals.",
+      "inputs": {
+        "values": [
+          0.0,
+          0.5,
+          -0.5,
+          1.0,
+          -1.0,
+          0.25,
+          -0.25
+        ],
+        "dtype": "Int8"
+      },
+      "expected": {
+        "max_abs_error": 0.00789
+      },
+      "note": "INT8 symmetric: range [-1,1], scale=1/127, max error = 1 LSB ~ 0.00787."
+    }
+  ]
+}
