@@ -1,0 +1,10 @@
+{
+  "uuid": "9af57b6b-abc3-427f-a60a-002aa3c67c0f",
+  "issue_uuid": "16e87a71-97cf-4eeb-ad22-d39700c75758",
+  "author": "y4rr",
+  "content": "Five conformance test functions are cascade-skipped because they require live network access to huggingface.co: hf_download_model, search_models, get_model (network path), download_weights (HTTP sub-path), load_pretrained (HTTP sub-path). These are covered by integration tests in tests/load_pretrained_smoke.rs but cannot be exercised offline in the conformance fixture model. To fix: introduce HTTP mocking (e.g. via a mock server or vcr-style recorded fixtures) so conformance tests can exercise the full network path offline. Tests: cascade_skip_hf_download_model, cascade_skip_search_models, cascade_skip_get_model_network, cascade_skip_download_weights_http, cascade_skip_load_pretrained_http in ferrotorch-hub/tests/conformance_hub.rs",
+  "created_at": "2026-05-07T13:54:28.412089370Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAURyj81eYOtAyx1TRcVnHTey/lfYOUX8TOrR5rjUig6gAzMhCXONIpY3vXZd7n5zRopYYm4SJ9RYjMwV/Y5AUBg=="
+}
