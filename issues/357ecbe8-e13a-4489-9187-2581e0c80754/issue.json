@@ -1,0 +1,10 @@
+{
+  "uuid": "357ecbe8-e13a-4489-9187-2581e0c80754",
+  "display_id": 870,
+  "title": "vision/datasets: Mnist/CIFAR from_dir and ImageFolder require actual dataset files on disk",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T15:18:23.232405332Z",
+  "updated_at": "2026-05-07T15:18:23.232405332Z"
+}
