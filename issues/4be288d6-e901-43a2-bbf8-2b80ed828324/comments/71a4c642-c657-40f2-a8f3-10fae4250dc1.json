@@ -1,0 +1,10 @@
+{
+  "uuid": "71a4c642-c657-40f2-a8f3-10fae4250dc1",
+  "issue_uuid": "4be288d6-e901-43a2-bbf8-2b80ed828324",
+  "author": "y4rr",
+  "content": "Result: C9.1 nn layers conformance suite delivered. Files created: ferrotorch-nn/tests/conformance_nn_layers.rs (153 tests, 153/153 pass), ferrotorch-nn/tests/conformance/_surface_inventory.toml (518 items, full crate), ferrotorch-nn/tests/conformance/_surface_exclusions.toml (168 exclusions with reasons), ferrotorch-nn/tests/conformance/fixtures.json (30 fixtures, regenerated from torch 2.6 on installed env), scripts/regenerate_nn_layers_fixtures.py (exits 0). 11 modules covered: linear, conv, lazy_linear, lazy_conv, lazy_conv_transpose, embedding, identity, padding, upsample, pooling, dropout. Cascade bugs: #902 (attention API drift), #903 (structural clippy). Clippy clean on our files; pre-existing failures in conformance_nn_attention and conformance_nn_structural are unrelated to C9.1.",
+  "created_at": "2026-05-07T17:14:00.830731237Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAXwu//asDpQnTd8FK+SkmxSxBGrtSxj/U85spy/XvMmRZEy/JpIFgT6YQ87hAYroOyhla3HfzDZsxIEB8/2SvDA=="
+}
