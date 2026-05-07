@@ -1,0 +1,10 @@
+{
+  "uuid": "c6e43760-7d39-48b8-903e-ebbe8e41883e",
+  "display_id": 849,
+  "title": "ferrotorch-serialize: ONNX export conformance — export_onnx / export_from_program / ir_graph_to_onnx require live JIT IR graph; deferred to JIT conformance suite",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T14:30:14.968099210Z",
+  "updated_at": "2026-05-07T14:30:14.968099210Z"
+}
