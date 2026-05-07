@@ -1,0 +1,10 @@
+{
+  "uuid": "0f81e72a-9d51-4d1f-8f3d-bbc953e219d0",
+  "issue_uuid": "e599639f-452a-452c-8a7e-9e21861d7cf6",
+  "author": "y4rr",
+  "content": "W6 complete. fft.rs -210 LOC. ferray-fft 0.3.8 pinned in Cargo.toml; Cargo.lock regenerated. Conformance: 63/63 conformance_fft pass; 7/7 _probe_b7_a3_hermitian_projection pass; workspace builds; clippy clean for changed code (only pre-existing unused-import warning unrelated to W6). Commit 6336000c. End-to-end fix for #808: upstream (W5) ships the projection inside ferray-fft's c2r path, downstream (W6) retires the redundant ferrotorch mitigation.",
+  "created_at": "2026-05-07T05:18:12.595737318Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA3i+zqG78W10UjqYagdrR3cJBS0urrSADfG8vlTPomAwRI28D8v9p3jCjR/atXlGpTPWefJ81+34t7DHJVIsPBQ=="
+}
