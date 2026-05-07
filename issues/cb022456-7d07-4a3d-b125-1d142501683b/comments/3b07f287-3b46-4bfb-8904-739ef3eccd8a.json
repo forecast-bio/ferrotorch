@@ -1,0 +1,10 @@
+{
+  "uuid": "3b07f287-3b46-4bfb-8904-739ef3eccd8a",
+  "issue_uuid": "cb022456-7d07-4a3d-b125-1d142501683b",
+  "author": "y4rr",
+  "content": "Plan: Sprint B.5.a — #860 ResNet18 param count + forward parity.\n\nPROBE BEFORE:\n- torchvision.models.resnet18(num_classes=10) param count = 11,182,282 (includes BN layers)\n- ferrotorch resnet18 param count excludes BatchNorm2d (not implemented in ferrotorch_nn)\n- Missing BN params: 4 * (2 * channels) per BN layer across stem + 8 stages = ~53K missing\n- Forward L2 divergence: not yet measured (cascade_skip prevents test from running)\n\nFix approach:\n1. Compute exact torchvision resnet18(10) param count from fixtures.json\n2. Add BatchNorm2d parameters to resnet.rs by adding BN tracking (BN2d is not a full module — add via bn_weight/bn_bias Parameter pairs directly in BasicBlock/ResNet)\n3. Add resnet18_forward_parity conformance test with seeded weights and F32_MATMUL_CPU=1e-5 tolerance\n4. Remove cascade_skip from resnet18_num_parameters_matches_reference\n5. Add fixtures for forward parity (densenet, inception forward parity is #862, #864)",
+  "created_at": "2026-05-07T19:48:01.757311825Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA/udyTroimZgXKXkqTtvY99JhmTyAtQLVzp8p2Nr//P2LUdZsiQtjj5tr9bxoiFi19kRTG5heFxaCi252Ah4PAg=="
+}
