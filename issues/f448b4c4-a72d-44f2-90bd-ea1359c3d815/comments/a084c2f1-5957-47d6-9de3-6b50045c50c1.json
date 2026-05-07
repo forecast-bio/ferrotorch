@@ -1,0 +1,10 @@
+{
+  "uuid": "a084c2f1-5957-47d6-9de3-6b50045c50c1",
+  "issue_uuid": "f448b4c4-a72d-44f2-90bd-ea1359c3d815",
+  "author": "y4rr",
+  "content": "Result: MobileNetV2 + MobileNetV3-Small V.2 forward parity conformance lane delivered in Sprint B.5.b / V.2. 10 conformance tests in conformance_vision_models.rs (output_shape, output_finite, param_count, custom_num_classes, deterministic_forward for both V2 and V3-Small). All tests pass.",
+  "created_at": "2026-05-07T22:46:45.875379690Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA673RHUNhuQvZj9lAIvQZGD/OSIKA5HU4t/6Dfs+MRqn5AXUR3m99uIQmgFC5kToahRem7YlhXhoTPkP5+UXoDA=="
+}
