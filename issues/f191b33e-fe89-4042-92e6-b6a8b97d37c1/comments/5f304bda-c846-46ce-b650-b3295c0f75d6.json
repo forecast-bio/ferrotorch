@@ -1,0 +1,10 @@
+{
+  "uuid": "5f304bda-c846-46ce-b650-b3295c0f75d6",
+  "issue_uuid": "f191b33e-fe89-4042-92e6-b6a8b97d37c1",
+  "author": "y4rr",
+  "content": "Already closed by Sprint C.9 (commit 8852de1d). 3 #[ignore]'d integration tests at integration_quant_loaders.rs + Python reference fixture script.",
+  "created_at": "2026-05-07T22:27:30.508024047Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAOdMlzc15epueUNuj4vsm4GPh/QeKj4Qv8nb+Fqp/3Ngh9QIGT/nl5j4UJjQWhphL6U+/tSevbtZET5kaANbgCA=="
+}
