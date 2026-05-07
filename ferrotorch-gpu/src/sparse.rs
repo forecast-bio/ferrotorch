@@ -1342,3 +1342,878 @@ pub fn gpu_dense_to_sparse_csr_f64(
 
     Ok((crow, col, vals))
 }
+
+// ===========================================================================
+// P7 — CSR/CSC/COO conversions + CSC → dense
+// ===========================================================================
+//
+// PyTorch parity (rust-gpu-discipline §3): `torch.sparse_csr_tensor` /
+// `torch.sparse_csc_tensor` / `torch.sparse_coo_tensor` keep results on the
+// input device. The format-conversion helpers (`.to_sparse_csr()`,
+// `.to_sparse_csc()`, `.to_dense()` on a CSR/CSC/COO tensor) dispatch to
+// cuSPARSE on CUDA. ferrotorch routes:
+//   - CSC → dense via `cusparseSparseToDense` with a CSC descriptor (built
+//     via `cusparseCreateConstCsc`).
+//   - CSR ↔ CSC via `cusparseCsr2cscEx2` (the cuSPARSE dual conversion).
+//   - COO ↔ CSR via `cusparseXcoo2csr` / `cusparseXcsr2coo` (header-only
+//     row-pointer compaction; values pass through unchanged).
+//
+// The CSR-shaped sparse-to-dense already exists above (P3); the CSC variant
+// is the dual.
+
+// ---------------------------------------------------------------------------
+// SparseToDense CSC (f32)
+// ---------------------------------------------------------------------------
+
+/// Materialize a CSC sparse matrix into a dense `[m, n]` row-major device
+/// buffer (f32). PyTorch parity: `torch.sparse_csc_tensor(...).to_dense()`
+/// on CUDA dispatches to `cusparseSparseToDense` with a CSC descriptor.
+///
+/// `col_ptrs` (length `n + 1`), `row_indices` (length `nnz`) and `values`
+/// (length `nnz`) describe the CSC structure on the host. They are
+/// uploaded just-in-time. Output `[m, n]` lives on `device`.
+#[allow(clippy::too_many_arguments)]
+pub fn gpu_csc_to_dense_f32(
+    handle: &CusparseHandle,
+    col_ptrs: &[u32],
+    row_indices: &[u32],
+    values: &[f32],
+    m: usize,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    if col_ptrs.len() != n + 1 {
+        return Err(GpuError::ShapeMismatch {
+            op: "csc_to_dense_f32",
+            expected: vec![n + 1],
+            got: vec![col_ptrs.len()],
+        });
+    }
+    if row_indices.len() != values.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "csc_to_dense_f32",
+            expected: vec![values.len()],
+            got: vec![row_indices.len()],
+        });
+    }
+
+    if m == 0 || n == 0 {
+        return alloc_zeros_f32(m * n, device);
+    }
+    let nnz = values.len();
+    if nnz == 0 {
+        return alloc_zeros_f32(m * n, device);
+    }
+
+    set_stream(handle, device)?;
+
+    let mut d_col = cpu_to_gpu(col_ptrs, device)?;
+    let mut d_row = cpu_to_gpu(row_indices, device)?;
+    let mut d_vals = cpu_to_gpu(values, device)?;
+
+    let mut out = alloc_zeros_f32(m * n, device)?;
+
+    let stream = device.stream();
+
+    let mut sp_mat: csys::cusparseConstSpMatDescr_t = std::ptr::null_mut();
+    let mut dn_c: csys::cusparseDnMatDescr_t = std::ptr::null_mut();
+
+    let m_i64 = i64::try_from(m).map_err(|_| GpuError::ShapeMismatch {
+        op: "csc_to_dense_f32",
+        expected: vec![i64::MAX as usize],
+        got: vec![m],
+    })?;
+    let n_i64 = i64::try_from(n).map_err(|_| GpuError::ShapeMismatch {
+        op: "csc_to_dense_f32",
+        expected: vec![i64::MAX as usize],
+        got: vec![n],
+    })?;
+    let nnz_i64 = i64::try_from(nnz).map_err(|_| GpuError::ShapeMismatch {
+        op: "csc_to_dense_f32",
+        expected: vec![i64::MAX as usize],
+        got: vec![nnz],
+    })?;
+
+    // SAFETY: descriptor lifetimes mirror `gpu_sparse_to_dense_csr_f32`. The
+    // CSC descriptor is `const` (cuSPARSE only reads the structure for
+    // `SparseToDense`). The dense descriptor is mutable and writes into
+    // `out`. Buffers `d_col`, `d_row`, `d_vals`, `out` outlive the closure
+    // which runs `cusparseSparseToDense` and destroys the descriptors before
+    // returning, so the descriptor-internal pointers stay valid for the
+    // entire FFI window.
+    let result = (|| -> GpuResult<()> {
+        let (col_ptr, _col_sync) = d_col.inner_mut().device_ptr_mut(&stream);
+        let (row_ptr, _row_sync) = d_row.inner_mut().device_ptr_mut(&stream);
+        let (vals_ptr, _vals_sync) = d_vals.inner_mut().device_ptr_mut(&stream);
+        let (out_ptr, _out_sync) = out.inner_mut().device_ptr_mut(&stream);
+
+        let status = unsafe {
+            csys::cusparseCreateConstCsc(
+                &mut sp_mat,
+                m_i64,
+                n_i64,
+                nnz_i64,
+                col_ptr as *const std::ffi::c_void,
+                row_ptr as *const std::ffi::c_void,
+                vals_ptr as *const std::ffi::c_void,
+                csys::cusparseIndexType_t::CUSPARSE_INDEX_32I,
+                csys::cusparseIndexType_t::CUSPARSE_INDEX_32I,
+                csys::cusparseIndexBase_t::CUSPARSE_INDEX_BASE_ZERO,
+                csys::cudaDataType_t::CUDA_R_32F,
+            )
+        };
+        check(status, "cusparseCreateConstCsc (s2d f32)")?;
+
+        let status = unsafe {
+            csys::cusparseCreateDnMat(
+                &mut dn_c,
+                m_i64,
+                n_i64,
+                n_i64,
+                out_ptr as *mut std::ffi::c_void,
+                csys::cudaDataType_t::CUDA_R_32F,
+                csys::cusparseOrder_t::CUSPARSE_ORDER_ROW,
+            )
+        };
+        check(status, "cusparseCreateDnMat (csc s2d f32 C)")?;
+
+        let mut buffer_size: usize = 0;
+        let status = unsafe {
+            csys::cusparseSparseToDense_bufferSize(
+                handle.raw(),
+                sp_mat,
+                dn_c,
+                csys::cusparseSparseToDenseAlg_t::CUSPARSE_SPARSETODENSE_ALG_DEFAULT,
+                &mut buffer_size,
+            )
+        };
+        check(status, "cusparseSparseToDense_bufferSize (csc f32)")?;
+
+        let mut workspace_slice = if buffer_size > 0 {
+            Some(stream.alloc_zeros::<u8>(buffer_size)?)
+        } else {
+            None
+        };
+        let workspace_ptr = match workspace_slice.as_mut() {
+            Some(s) => {
+                let (p, _sync) = s.device_ptr_mut(&stream);
+                p as *mut std::ffi::c_void
+            }
+            None => std::ptr::null_mut(),
+        };
+
+        let status = unsafe {
+            csys::cusparseSparseToDense(
+                handle.raw(),
+                sp_mat,
+                dn_c,
+                csys::cusparseSparseToDenseAlg_t::CUSPARSE_SPARSETODENSE_ALG_DEFAULT,
+                workspace_ptr,
+            )
+        };
+        check(status, "cusparseSparseToDense (csc f32)")?;
+
+        drop(workspace_slice);
+        Ok(())
+    })();
+
+    unsafe {
+        if !dn_c.is_null() {
+            let _ = csys::cusparseDestroyDnMat(dn_c);
+        }
+        if !sp_mat.is_null() {
+            let _ = csys::cusparseDestroySpMat(sp_mat);
+        }
+    }
+
+    result?;
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// SparseToDense CSC (f64)
+// ---------------------------------------------------------------------------
+
+/// f64 companion of [`gpu_csc_to_dense_f32`].
+#[allow(clippy::too_many_arguments)]
+pub fn gpu_csc_to_dense_f64(
+    handle: &CusparseHandle,
+    col_ptrs: &[u32],
+    row_indices: &[u32],
+    values: &[f64],
+    m: usize,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    if col_ptrs.len() != n + 1 {
+        return Err(GpuError::ShapeMismatch {
+            op: "csc_to_dense_f64",
+            expected: vec![n + 1],
+            got: vec![col_ptrs.len()],
+        });
+    }
+    if row_indices.len() != values.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "csc_to_dense_f64",
+            expected: vec![values.len()],
+            got: vec![row_indices.len()],
+        });
+    }
+
+    if m == 0 || n == 0 {
+        return alloc_zeros_f64(m * n, device);
+    }
+    let nnz = values.len();
+    if nnz == 0 {
+        return alloc_zeros_f64(m * n, device);
+    }
+
+    set_stream(handle, device)?;
+
+    let mut d_col = cpu_to_gpu(col_ptrs, device)?;
+    let mut d_row = cpu_to_gpu(row_indices, device)?;
+    let mut d_vals = cpu_to_gpu(values, device)?;
+
+    let mut out = alloc_zeros_f64(m * n, device)?;
+
+    let stream = device.stream();
+
+    let mut sp_mat: csys::cusparseConstSpMatDescr_t = std::ptr::null_mut();
+    let mut dn_c: csys::cusparseDnMatDescr_t = std::ptr::null_mut();
+
+    let m_i64 = i64::try_from(m).map_err(|_| GpuError::ShapeMismatch {
+        op: "csc_to_dense_f64",
+        expected: vec![i64::MAX as usize],
+        got: vec![m],
+    })?;
+    let n_i64 = i64::try_from(n).map_err(|_| GpuError::ShapeMismatch {
+        op: "csc_to_dense_f64",
+        expected: vec![i64::MAX as usize],
+        got: vec![n],
+    })?;
+    let nnz_i64 = i64::try_from(nnz).map_err(|_| GpuError::ShapeMismatch {
+        op: "csc_to_dense_f64",
+        expected: vec![i64::MAX as usize],
+        got: vec![nnz],
+    })?;
+
+    // SAFETY: same descriptor-lifetime / pointer-stability obligations as
+    // the f32 sibling above; only the dtype enum changes.
+    let result = (|| -> GpuResult<()> {
+        let (col_ptr, _col_sync) = d_col.inner_mut().device_ptr_mut(&stream);
+        let (row_ptr, _row_sync) = d_row.inner_mut().device_ptr_mut(&stream);
+        let (vals_ptr, _vals_sync) = d_vals.inner_mut().device_ptr_mut(&stream);
+        let (out_ptr, _out_sync) = out.inner_mut().device_ptr_mut(&stream);
+
+        let status = unsafe {
+            csys::cusparseCreateConstCsc(
+                &mut sp_mat,
+                m_i64,
+                n_i64,
+                nnz_i64,
+                col_ptr as *const std::ffi::c_void,
+                row_ptr as *const std::ffi::c_void,
+                vals_ptr as *const std::ffi::c_void,
+                csys::cusparseIndexType_t::CUSPARSE_INDEX_32I,
+                csys::cusparseIndexType_t::CUSPARSE_INDEX_32I,
+                csys::cusparseIndexBase_t::CUSPARSE_INDEX_BASE_ZERO,
+                csys::cudaDataType_t::CUDA_R_64F,
+            )
+        };
+        check(status, "cusparseCreateConstCsc (s2d f64)")?;
+
+        let status = unsafe {
+            csys::cusparseCreateDnMat(
+                &mut dn_c,
+                m_i64,
+                n_i64,
+                n_i64,
+                out_ptr as *mut std::ffi::c_void,
+                csys::cudaDataType_t::CUDA_R_64F,
+                csys::cusparseOrder_t::CUSPARSE_ORDER_ROW,
+            )
+        };
+        check(status, "cusparseCreateDnMat (csc s2d f64 C)")?;
+
+        let mut buffer_size: usize = 0;
+        let status = unsafe {
+            csys::cusparseSparseToDense_bufferSize(
+                handle.raw(),
+                sp_mat,
+                dn_c,
+                csys::cusparseSparseToDenseAlg_t::CUSPARSE_SPARSETODENSE_ALG_DEFAULT,
+                &mut buffer_size,
+            )
+        };
+        check(status, "cusparseSparseToDense_bufferSize (csc f64)")?;
+
+        let mut workspace_slice = if buffer_size > 0 {
+            Some(stream.alloc_zeros::<u8>(buffer_size)?)
+        } else {
+            None
+        };
+        let workspace_ptr = match workspace_slice.as_mut() {
+            Some(s) => {
+                let (p, _sync) = s.device_ptr_mut(&stream);
+                p as *mut std::ffi::c_void
+            }
+            None => std::ptr::null_mut(),
+        };
+
+        let status = unsafe {
+            csys::cusparseSparseToDense(
+                handle.raw(),
+                sp_mat,
+                dn_c,
+                csys::cusparseSparseToDenseAlg_t::CUSPARSE_SPARSETODENSE_ALG_DEFAULT,
+                workspace_ptr,
+            )
+        };
+        check(status, "cusparseSparseToDense (csc f64)")?;
+
+        drop(workspace_slice);
+        Ok(())
+    })();
+
+    unsafe {
+        if !dn_c.is_null() {
+            let _ = csys::cusparseDestroyDnMat(dn_c);
+        }
+        if !sp_mat.is_null() {
+            let _ = csys::cusparseDestroySpMat(sp_mat);
+        }
+    }
+
+    result?;
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// CSR → CSC (f32) — cusparseCsr2cscEx2
+// ---------------------------------------------------------------------------
+
+/// Convert CSR `(crow_indices, col_indices, values)` into the dual CSC
+/// `(col_ptrs, row_indices, values_csc)` triplet via `cusparseCsr2cscEx2`.
+///
+/// PyTorch parity: `torch.sparse_csr_tensor(...).to_sparse_csc()` on CUDA.
+/// Inputs are host buffers; outputs are returned as host `Vec`s
+/// (`CscTensor` is CPU-resident).
+#[allow(clippy::too_many_arguments)]
+pub fn gpu_csr_to_csc_f32(
+    handle: &CusparseHandle,
+    crow_indices: &[u32],
+    col_indices: &[u32],
+    values: &[f32],
+    m: usize,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
+    if crow_indices.len() != m + 1 {
+        return Err(GpuError::ShapeMismatch {
+            op: "csr_to_csc_f32",
+            expected: vec![m + 1],
+            got: vec![crow_indices.len()],
+        });
+    }
+    if col_indices.len() != values.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "csr_to_csc_f32",
+            expected: vec![values.len()],
+            got: vec![col_indices.len()],
+        });
+    }
+
+    // Empty CSR — empty CSC. col_ptrs has length n+1.
+    if values.is_empty() {
+        return Ok((vec![0u32; n + 1], Vec::new(), Vec::new()));
+    }
+
+    set_stream(handle, device)?;
+
+    let nnz = values.len();
+    let m_i = i32::try_from(m).map_err(|_| GpuError::ShapeMismatch {
+        op: "csr_to_csc_f32",
+        expected: vec![i32::MAX as usize],
+        got: vec![m],
+    })?;
+    let n_i = i32::try_from(n).map_err(|_| GpuError::ShapeMismatch {
+        op: "csr_to_csc_f32",
+        expected: vec![i32::MAX as usize],
+        got: vec![n],
+    })?;
+    let nnz_i = i32::try_from(nnz).map_err(|_| GpuError::ShapeMismatch {
+        op: "csr_to_csc_f32",
+        expected: vec![i32::MAX as usize],
+        got: vec![nnz],
+    })?;
+
+    // Upload CSR triplet.
+    let mut d_crow = cpu_to_gpu(crow_indices, device)?;
+    let mut d_col = cpu_to_gpu(col_indices, device)?;
+    let mut d_vals = cpu_to_gpu(values, device)?;
+
+    let stream = device.stream();
+
+    // Allocate destination CSC buffers on device.
+    let mut d_col_ptrs = stream.alloc_zeros::<u32>(n + 1)?;
+    let mut d_row_idx = stream.alloc_zeros::<u32>(nnz)?;
+    let mut d_vals_csc = stream.alloc_zeros::<f32>(nnz)?;
+
+    // SAFETY: `cusparseCsr2cscEx2_bufferSize` reads the descriptor pointers
+    // but does not dereference them; afterwards `cusparseCsr2cscEx2` writes
+    // CSC outputs into `d_col_ptrs`, `d_row_idx`, `d_vals_csc`. All buffers
+    // outlive the FFI window. Index types are `i32` (CSR2CSC uses `int`),
+    // matching `cusparseIndexBase_t::CUSPARSE_INDEX_BASE_ZERO`.
+    let buffer_size = {
+        let (crow_ptr, _crow_sync) = d_crow.inner_mut().device_ptr_mut(&stream);
+        let (col_ptr, _col_sync) = d_col.inner_mut().device_ptr_mut(&stream);
+        let (vals_ptr, _vals_sync) = d_vals.inner_mut().device_ptr_mut(&stream);
+        let (cp_ptr, _cp_sync) = d_col_ptrs.device_ptr_mut(&stream);
+        let (ri_ptr, _ri_sync) = d_row_idx.device_ptr_mut(&stream);
+        let (vc_ptr, _vc_sync) = d_vals_csc.device_ptr_mut(&stream);
+
+        let mut sz: usize = 0;
+        let status = unsafe {
+            csys::cusparseCsr2cscEx2_bufferSize(
+                handle.raw(),
+                m_i,
+                n_i,
+                nnz_i,
+                vals_ptr as *const std::ffi::c_void,
+                crow_ptr as *const i32,
+                col_ptr as *const i32,
+                vc_ptr as *mut std::ffi::c_void,
+                cp_ptr as *mut i32,
+                ri_ptr as *mut i32,
+                csys::cudaDataType_t::CUDA_R_32F,
+                csys::cusparseAction_t::CUSPARSE_ACTION_NUMERIC,
+                csys::cusparseIndexBase_t::CUSPARSE_INDEX_BASE_ZERO,
+                csys::cusparseCsr2CscAlg_t::CUSPARSE_CSR2CSC_ALG_DEFAULT,
+                &mut sz,
+            )
+        };
+        check(status, "cusparseCsr2cscEx2_bufferSize (f32)")?;
+        sz
+    };
+
+    let mut workspace = if buffer_size > 0 {
+        Some(stream.alloc_zeros::<u8>(buffer_size)?)
+    } else {
+        None
+    };
+
+    {
+        let (crow_ptr, _crow_sync) = d_crow.inner_mut().device_ptr_mut(&stream);
+        let (col_ptr, _col_sync) = d_col.inner_mut().device_ptr_mut(&stream);
+        let (vals_ptr, _vals_sync) = d_vals.inner_mut().device_ptr_mut(&stream);
+        let (cp_ptr, _cp_sync) = d_col_ptrs.device_ptr_mut(&stream);
+        let (ri_ptr, _ri_sync) = d_row_idx.device_ptr_mut(&stream);
+        let (vc_ptr, _vc_sync) = d_vals_csc.device_ptr_mut(&stream);
+        let ws_ptr = match workspace.as_mut() {
+            Some(s) => {
+                let (p, _sync) = s.device_ptr_mut(&stream);
+                p as *mut std::ffi::c_void
+            }
+            None => std::ptr::null_mut(),
+        };
+
+        let status = unsafe {
+            csys::cusparseCsr2cscEx2(
+                handle.raw(),
+                m_i,
+                n_i,
+                nnz_i,
+                vals_ptr as *const std::ffi::c_void,
+                crow_ptr as *const i32,
+                col_ptr as *const i32,
+                vc_ptr as *mut std::ffi::c_void,
+                cp_ptr as *mut i32,
+                ri_ptr as *mut i32,
+                csys::cudaDataType_t::CUDA_R_32F,
+                csys::cusparseAction_t::CUSPARSE_ACTION_NUMERIC,
+                csys::cusparseIndexBase_t::CUSPARSE_INDEX_BASE_ZERO,
+                csys::cusparseCsr2CscAlg_t::CUSPARSE_CSR2CSC_ALG_DEFAULT,
+                ws_ptr,
+            )
+        };
+        check(status, "cusparseCsr2cscEx2 (f32)")?;
+    }
+
+    drop(workspace);
+
+    let col_ptrs_h = stream.clone_dtoh(&d_col_ptrs)?;
+    let row_idx_h = stream.clone_dtoh(&d_row_idx)?;
+    let vals_h = stream.clone_dtoh(&d_vals_csc)?;
+    Ok((col_ptrs_h, row_idx_h, vals_h))
+}
+
+// ---------------------------------------------------------------------------
+// CSR → CSC (f64)
+// ---------------------------------------------------------------------------
+
+/// f64 companion of [`gpu_csr_to_csc_f32`].
+#[allow(clippy::too_many_arguments)]
+pub fn gpu_csr_to_csc_f64(
+    handle: &CusparseHandle,
+    crow_indices: &[u32],
+    col_indices: &[u32],
+    values: &[f64],
+    m: usize,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+    if crow_indices.len() != m + 1 {
+        return Err(GpuError::ShapeMismatch {
+            op: "csr_to_csc_f64",
+            expected: vec![m + 1],
+            got: vec![crow_indices.len()],
+        });
+    }
+    if col_indices.len() != values.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "csr_to_csc_f64",
+            expected: vec![values.len()],
+            got: vec![col_indices.len()],
+        });
+    }
+
+    if values.is_empty() {
+        return Ok((vec![0u32; n + 1], Vec::new(), Vec::new()));
+    }
+
+    set_stream(handle, device)?;
+
+    let nnz = values.len();
+    let m_i = i32::try_from(m).map_err(|_| GpuError::ShapeMismatch {
+        op: "csr_to_csc_f64",
+        expected: vec![i32::MAX as usize],
+        got: vec![m],
+    })?;
+    let n_i = i32::try_from(n).map_err(|_| GpuError::ShapeMismatch {
+        op: "csr_to_csc_f64",
+        expected: vec![i32::MAX as usize],
+        got: vec![n],
+    })?;
+    let nnz_i = i32::try_from(nnz).map_err(|_| GpuError::ShapeMismatch {
+        op: "csr_to_csc_f64",
+        expected: vec![i32::MAX as usize],
+        got: vec![nnz],
+    })?;
+
+    let mut d_crow = cpu_to_gpu(crow_indices, device)?;
+    let mut d_col = cpu_to_gpu(col_indices, device)?;
+    let mut d_vals = cpu_to_gpu(values, device)?;
+
+    let stream = device.stream();
+
+    let mut d_col_ptrs = stream.alloc_zeros::<u32>(n + 1)?;
+    let mut d_row_idx = stream.alloc_zeros::<u32>(nnz)?;
+    let mut d_vals_csc = stream.alloc_zeros::<f64>(nnz)?;
+
+    // SAFETY: identical to f32 sibling; only `cudaDataType_t` changes.
+    let buffer_size = {
+        let (crow_ptr, _crow_sync) = d_crow.inner_mut().device_ptr_mut(&stream);
+        let (col_ptr, _col_sync) = d_col.inner_mut().device_ptr_mut(&stream);
+        let (vals_ptr, _vals_sync) = d_vals.inner_mut().device_ptr_mut(&stream);
+        let (cp_ptr, _cp_sync) = d_col_ptrs.device_ptr_mut(&stream);
+        let (ri_ptr, _ri_sync) = d_row_idx.device_ptr_mut(&stream);
+        let (vc_ptr, _vc_sync) = d_vals_csc.device_ptr_mut(&stream);
+
+        let mut sz: usize = 0;
+        let status = unsafe {
+            csys::cusparseCsr2cscEx2_bufferSize(
+                handle.raw(),
+                m_i,
+                n_i,
+                nnz_i,
+                vals_ptr as *const std::ffi::c_void,
+                crow_ptr as *const i32,
+                col_ptr as *const i32,
+                vc_ptr as *mut std::ffi::c_void,
+                cp_ptr as *mut i32,
+                ri_ptr as *mut i32,
+                csys::cudaDataType_t::CUDA_R_64F,
+                csys::cusparseAction_t::CUSPARSE_ACTION_NUMERIC,
+                csys::cusparseIndexBase_t::CUSPARSE_INDEX_BASE_ZERO,
+                csys::cusparseCsr2CscAlg_t::CUSPARSE_CSR2CSC_ALG_DEFAULT,
+                &mut sz,
+            )
+        };
+        check(status, "cusparseCsr2cscEx2_bufferSize (f64)")?;
+        sz
+    };
+
+    let mut workspace = if buffer_size > 0 {
+        Some(stream.alloc_zeros::<u8>(buffer_size)?)
+    } else {
+        None
+    };
+
+    {
+        let (crow_ptr, _crow_sync) = d_crow.inner_mut().device_ptr_mut(&stream);
+        let (col_ptr, _col_sync) = d_col.inner_mut().device_ptr_mut(&stream);
+        let (vals_ptr, _vals_sync) = d_vals.inner_mut().device_ptr_mut(&stream);
+        let (cp_ptr, _cp_sync) = d_col_ptrs.device_ptr_mut(&stream);
+        let (ri_ptr, _ri_sync) = d_row_idx.device_ptr_mut(&stream);
+        let (vc_ptr, _vc_sync) = d_vals_csc.device_ptr_mut(&stream);
+        let ws_ptr = match workspace.as_mut() {
+            Some(s) => {
+                let (p, _sync) = s.device_ptr_mut(&stream);
+                p as *mut std::ffi::c_void
+            }
+            None => std::ptr::null_mut(),
+        };
+
+        let status = unsafe {
+            csys::cusparseCsr2cscEx2(
+                handle.raw(),
+                m_i,
+                n_i,
+                nnz_i,
+                vals_ptr as *const std::ffi::c_void,
+                crow_ptr as *const i32,
+                col_ptr as *const i32,
+                vc_ptr as *mut std::ffi::c_void,
+                cp_ptr as *mut i32,
+                ri_ptr as *mut i32,
+                csys::cudaDataType_t::CUDA_R_64F,
+                csys::cusparseAction_t::CUSPARSE_ACTION_NUMERIC,
+                csys::cusparseIndexBase_t::CUSPARSE_INDEX_BASE_ZERO,
+                csys::cusparseCsr2CscAlg_t::CUSPARSE_CSR2CSC_ALG_DEFAULT,
+                ws_ptr,
+            )
+        };
+        check(status, "cusparseCsr2cscEx2 (f64)")?;
+    }
+
+    drop(workspace);
+
+    let col_ptrs_h = stream.clone_dtoh(&d_col_ptrs)?;
+    let row_idx_h = stream.clone_dtoh(&d_row_idx)?;
+    let vals_h = stream.clone_dtoh(&d_vals_csc)?;
+    Ok((col_ptrs_h, row_idx_h, vals_h))
+}
+
+// ---------------------------------------------------------------------------
+// COO → CSR — cusparseXcoo2csr
+// ---------------------------------------------------------------------------
+//
+// `cusparseXcoo2csr` consumes a row-sorted COO row-index array and emits
+// the CSR row-pointer array. `col_indices` and `values` pass through
+// unchanged. Caller pre-sorts on the host before invocation. The function
+// is dtype-agnostic at the API boundary; we expose f32/f64 wrappers that
+// pass values through to keep the dispatch shape symmetric with the rest
+// of the cuSPARSE wrappers.
+
+fn gpu_coo_to_csr_indices(
+    handle: &CusparseHandle,
+    row_indices: &[u32],
+    m: usize,
+    device: &GpuDevice,
+) -> GpuResult<Vec<u32>> {
+    let nnz = row_indices.len();
+    if nnz == 0 {
+        return Ok(vec![0u32; m + 1]);
+    }
+
+    set_stream(handle, device)?;
+
+    let m_i = i32::try_from(m).map_err(|_| GpuError::ShapeMismatch {
+        op: "coo_to_csr_indices",
+        expected: vec![i32::MAX as usize],
+        got: vec![m],
+    })?;
+    let nnz_i = i32::try_from(nnz).map_err(|_| GpuError::ShapeMismatch {
+        op: "coo_to_csr_indices",
+        expected: vec![i32::MAX as usize],
+        got: vec![nnz],
+    })?;
+
+    let mut d_rows = cpu_to_gpu(row_indices, device)?;
+    let stream = device.stream();
+    let mut d_crow = stream.alloc_zeros::<u32>(m + 1)?;
+
+    // SAFETY: `cusparseXcoo2csr` reads `nnz` ints from `cooRowInd` and
+    // writes `m+1` ints into `csrSortedRowPtr`. Both buffers have the
+    // required capacity (`u32` and `i32` are both 32-bit). The cuSPARSE
+    // contract requires `cooRowInd` be sorted in ascending row order; the
+    // caller pre-sorts on the host (the f32/f64 wrappers above sort before
+    // dispatch).
+    {
+        let (rows_ptr, _rows_sync) = d_rows.inner_mut().device_ptr_mut(&stream);
+        let (crow_ptr, _crow_sync) = d_crow.device_ptr_mut(&stream);
+        let status = unsafe {
+            csys::cusparseXcoo2csr(
+                handle.raw(),
+                rows_ptr as *const i32,
+                nnz_i,
+                m_i,
+                crow_ptr as *mut i32,
+                csys::cusparseIndexBase_t::CUSPARSE_INDEX_BASE_ZERO,
+            )
+        };
+        check(status, "cusparseXcoo2csr")?;
+    }
+
+    Ok(stream.clone_dtoh(&d_crow)?)
+}
+
+/// Convert COO `(row_indices, col_indices, values)` (host, **row-sorted**)
+/// into the CSR triplet `(crow_indices, col_indices, values)`. Wraps
+/// `cusparseXcoo2csr`. PyTorch parity: `torch.sparse_coo_tensor(...)
+/// .to_sparse_csr()` on CUDA.
+///
+/// Caller responsibility: `row_indices` must be sorted in non-descending
+/// order. With ferrotorch's `CooTensor::coalesce()`, that holds by
+/// construction (sort key is `(row, col)`).
+pub fn gpu_coo_to_csr_f32(
+    handle: &CusparseHandle,
+    row_indices: &[u32],
+    col_indices: &[u32],
+    values: &[f32],
+    m: usize,
+    _n: usize,
+    device: &GpuDevice,
+) -> GpuResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
+    if row_indices.len() != values.len() || col_indices.len() != values.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "coo_to_csr_f32",
+            expected: vec![values.len()],
+            got: vec![row_indices.len(), col_indices.len()],
+        });
+    }
+    let crow = gpu_coo_to_csr_indices(handle, row_indices, m, device)?;
+    Ok((crow, col_indices.to_vec(), values.to_vec()))
+}
+
+/// f64 companion of [`gpu_coo_to_csr_f32`].
+pub fn gpu_coo_to_csr_f64(
+    handle: &CusparseHandle,
+    row_indices: &[u32],
+    col_indices: &[u32],
+    values: &[f64],
+    m: usize,
+    _n: usize,
+    device: &GpuDevice,
+) -> GpuResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+    if row_indices.len() != values.len() || col_indices.len() != values.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "coo_to_csr_f64",
+            expected: vec![values.len()],
+            got: vec![row_indices.len(), col_indices.len()],
+        });
+    }
+    let crow = gpu_coo_to_csr_indices(handle, row_indices, m, device)?;
+    Ok((crow, col_indices.to_vec(), values.to_vec()))
+}
+
+// ---------------------------------------------------------------------------
+// CSR → COO — cusparseXcsr2coo
+// ---------------------------------------------------------------------------
+
+fn gpu_csr_to_coo_indices(
+    handle: &CusparseHandle,
+    crow_indices: &[u32],
+    nnz: usize,
+    m: usize,
+    device: &GpuDevice,
+) -> GpuResult<Vec<u32>> {
+    if nnz == 0 {
+        return Ok(Vec::new());
+    }
+    set_stream(handle, device)?;
+
+    let m_i = i32::try_from(m).map_err(|_| GpuError::ShapeMismatch {
+        op: "csr_to_coo_indices",
+        expected: vec![i32::MAX as usize],
+        got: vec![m],
+    })?;
+    let nnz_i = i32::try_from(nnz).map_err(|_| GpuError::ShapeMismatch {
+        op: "csr_to_coo_indices",
+        expected: vec![i32::MAX as usize],
+        got: vec![nnz],
+    })?;
+
+    let mut d_crow = cpu_to_gpu(crow_indices, device)?;
+    let stream = device.stream();
+    let mut d_rows = stream.alloc_zeros::<u32>(nnz)?;
+
+    // SAFETY: `cusparseXcsr2coo` reads `m+1` row pointers and writes `nnz`
+    // row indices. Both buffers have the required capacity.
+    {
+        let (crow_ptr, _crow_sync) = d_crow.inner_mut().device_ptr_mut(&stream);
+        let (rows_ptr, _rows_sync) = d_rows.device_ptr_mut(&stream);
+        let status = unsafe {
+            csys::cusparseXcsr2coo(
+                handle.raw(),
+                crow_ptr as *const i32,
+                nnz_i,
+                m_i,
+                rows_ptr as *mut i32,
+                csys::cusparseIndexBase_t::CUSPARSE_INDEX_BASE_ZERO,
+            )
+        };
+        check(status, "cusparseXcsr2coo")?;
+    }
+
+    Ok(stream.clone_dtoh(&d_rows)?)
+}
+
+/// Convert CSR `(crow_indices, col_indices, values)` to COO
+/// `(row_indices, col_indices, values)`. Wraps `cusparseXcsr2coo`. PyTorch
+/// parity: `torch.sparse_csr_tensor(...).to_sparse_coo()` on CUDA. Values
+/// and column indices pass through unchanged.
+pub fn gpu_csr_to_coo_f32(
+    handle: &CusparseHandle,
+    crow_indices: &[u32],
+    col_indices: &[u32],
+    values: &[f32],
+    m: usize,
+    _n: usize,
+    device: &GpuDevice,
+) -> GpuResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
+    if crow_indices.len() != m + 1 {
+        return Err(GpuError::ShapeMismatch {
+            op: "csr_to_coo_f32",
+            expected: vec![m + 1],
+            got: vec![crow_indices.len()],
+        });
+    }
+    if col_indices.len() != values.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "csr_to_coo_f32",
+            expected: vec![values.len()],
+            got: vec![col_indices.len()],
+        });
+    }
+    let rows = gpu_csr_to_coo_indices(handle, crow_indices, values.len(), m, device)?;
+    Ok((rows, col_indices.to_vec(), values.to_vec()))
+}
+
+/// f64 companion of [`gpu_csr_to_coo_f32`].
+pub fn gpu_csr_to_coo_f64(
+    handle: &CusparseHandle,
+    crow_indices: &[u32],
+    col_indices: &[u32],
+    values: &[f64],
+    m: usize,
+    _n: usize,
+    device: &GpuDevice,
+) -> GpuResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+    if crow_indices.len() != m + 1 {
+        return Err(GpuError::ShapeMismatch {
+            op: "csr_to_coo_f64",
+            expected: vec![m + 1],
+            got: vec![crow_indices.len()],
+        });
+    }
+    if col_indices.len() != values.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "csr_to_coo_f64",
+            expected: vec![values.len()],
+            got: vec![col_indices.len()],
+        });
+    }
+    let rows = gpu_csr_to_coo_indices(handle, crow_indices, values.len(), m, device)?;
+    Ok((rows, col_indices.to_vec(), values.to_vec()))
+}

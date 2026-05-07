@@ -2023,10 +2023,79 @@ mod gpu {
         }
     }
 
+    /// Live GPU CSR/CSC/COO format conversions and `to_dense_on` (P7 of #806).
+    ///
+    /// Pre-P7: `CsrTensor::to_dense()` / `CscTensor::to_dense()` /
+    /// `CooTensor::to_dense()` always materialised on CPU, and the
+    /// format-conversion helpers (`CsrTensor::from_coo`, `CscTensor::from_csr`,
+    /// `CscTensor::to_csr`) had no on-device path. Post-P7: `to_dense_on` and
+    /// `from_*_on` / `to_csr_on` route through `cusparseSparseToDense` /
+    /// `cusparseCsr2cscEx2` / `cusparseXcoo2csr`. PyTorch parity:
+    /// `torch.sparse_csr_tensor` / `torch.sparse_csc_tensor` /
+    /// `torch.sparse_coo_tensor` keep results on the input device.
     #[test]
     fn gpu_coo_csr_csc_conversions() {
         ensure_cuda_backend();
-        note_cascade_skip("gpu_coo_csr_csc_conversions");
+
+        // Use a small fixture with an asymmetric nonzero pattern so a
+        // CSR↔CSC mistake (e.g. swapping row/col axes) shows up.
+        let coo = CooTensor::<f32>::new(
+            vec![0, 0, 1, 2, 2, 3],
+            vec![1, 3, 2, 0, 3, 1],
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            4,
+            4,
+        )
+        .expect("coo");
+
+        // CPU oracle for the dense materialisation.
+        let cpu_csr = CsrTensor::from_coo(&coo).expect("cpu csr");
+        let cpu_csc = CscTensor::from_csr(&cpu_csr);
+        let cpu_dense = cpu_csc.to_dense().expect("cpu dense");
+        let cpu_data = cpu_dense.data().expect("cpu data").to_vec();
+
+        // GPU lane: COO → CSR → CSC → dense on CUDA.
+        let gpu_csr = CsrTensor::from_coo_on(&coo, ferrotorch_core::Device::Cuda(0))
+            .expect("gpu CsrTensor::from_coo_on");
+        let gpu_csc = CscTensor::from_csr_on(&gpu_csr, ferrotorch_core::Device::Cuda(0))
+            .expect("gpu CscTensor::from_csr_on");
+        let gpu_dense = gpu_csc
+            .to_dense_on(ferrotorch_core::Device::Cuda(0))
+            .expect("gpu CscTensor::to_dense_on");
+        assert!(
+            gpu_dense.is_cuda(),
+            "to_dense_on(Cuda) output must remain on CUDA"
+        );
+        assert_eq!(gpu_dense.shape(), &[4, 4]);
+
+        let gpu_back = gpu_dense.cpu().expect("gpu->cpu");
+        let gpu_data = gpu_back.data().expect("gpu data");
+        for (i, (&a, &b)) in gpu_data.iter().zip(cpu_data.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "csc.to_dense_on f32 elem {i}: gpu={a} cpu={b}"
+            );
+        }
+
+        // Round-trip: CSC → CSR via to_csr_on returns the original CSR.
+        let gpu_csr2 = gpu_csc
+            .to_csr_on(ferrotorch_core::Device::Cuda(0))
+            .expect("gpu CscTensor::to_csr_on");
+        assert_eq!(gpu_csr2.row_ptrs(), gpu_csr.row_ptrs());
+        assert_eq!(gpu_csr2.col_indices(), gpu_csr.col_indices());
+
+        // CooTensor::to_dense_on path.
+        let gpu_coo_dense = coo
+            .to_dense_on(ferrotorch_core::Device::Cuda(0))
+            .expect("gpu CooTensor::to_dense_on");
+        assert!(gpu_coo_dense.is_cuda());
+        let gpu_coo_data = gpu_coo_dense.cpu().unwrap().data().unwrap().to_vec();
+        for (i, (&a, &b)) in gpu_coo_data.iter().zip(cpu_data.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "coo.to_dense_on f32 elem {i}: gpu={a} cpu={b}"
+            );
+        }
     }
 
     #[test]

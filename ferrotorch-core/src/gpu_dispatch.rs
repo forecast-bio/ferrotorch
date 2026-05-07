@@ -2509,6 +2509,176 @@ pub trait GpuBackend: Send + Sync {
         })
     }
 
+    // -- CSR/CSC/COO format-conversion + to_dense (cuSPARSE) -- P7 ------------
+    //
+    // PyTorch parity (rust-gpu-discipline §3): `torch.sparse_csr_tensor` /
+    // `torch.sparse_csc_tensor` / `torch.sparse_coo_tensor` keep the result on
+    // the input device, and the format-conversion helpers (`.to_sparse_csr()`,
+    // `.to_sparse_csc()`, `.to_dense()` on a CSR/CSC/COO tensor) run on
+    // cuSPARSE when the data lives on CUDA. ferrotorch routes CSR↔CSC via
+    // `cusparseCsr2cscEx2` and COO↔CSR via `cusparseXcoo2csr` /
+    // `cusparseXcsr2coo` (host inputs uploaded JIT, dense output stays on
+    // device).
+    //
+    // The CSR-shaped sparse-to-dense path already exists as
+    // `sparse_to_dense_csr_f{32,64}` (P3); the CSC variants below are dual
+    // paths that take a CSC triplet and materialise the dense matrix on
+    // device. Per-component dispatch from `CscTensor::to_dense_on` and
+    // `CooTensor::to_dense_on`.
+    //
+    // See ferrotorch-gpu/src/sparse.rs for the cuSPARSE implementations.
+
+    /// CSC-form sparse → dense materialization on GPU (f32 dtype).
+    ///
+    /// Inputs:
+    /// - `col_ptrs`: `n + 1` host `u32` column pointers in CSC order.
+    /// - `row_indices`: `nnz` host `u32` row indices.
+    /// - `values`: `nnz` host f32 non-zero values.
+    /// - `device_ordinal`: target CUDA ordinal; output buffer lives there.
+    /// - `m`, `n`: output dense shape `[m, n]`, row-major.
+    ///
+    /// Returns a device buffer holding the `[m, n]` row-major dense result.
+    fn csc_to_dense_f32(
+        &self,
+        _col_ptrs: &[u32],
+        _row_indices: &[u32],
+        _values: &[f32],
+        _device_ordinal: usize,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "csc_to_dense_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// CSC-form sparse → dense materialization on GPU (f64 dtype).
+    /// Companion of [`Self::csc_to_dense_f32`].
+    fn csc_to_dense_f64(
+        &self,
+        _col_ptrs: &[u32],
+        _row_indices: &[u32],
+        _values: &[f64],
+        _device_ordinal: usize,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "csc_to_dense_f64 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// CSR → CSC format conversion on GPU (f32 dtype).
+    ///
+    /// Uses `cusparseCsr2cscEx2`. Returns the CSC triplet
+    /// `(col_ptrs, row_indices, values)` in host buffers — ferrotorch's
+    /// `CscTensor` is CPU-resident so the host return matches that storage
+    /// model. `m`, `n` are the source CSR shape.
+    fn csr_to_csc_f32(
+        &self,
+        _crow_indices: &[u32],
+        _col_indices: &[u32],
+        _values: &[f32],
+        _device_ordinal: usize,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "csr_to_csc_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// CSR → CSC format conversion on GPU (f64 dtype).
+    /// Companion of [`Self::csr_to_csc_f32`].
+    fn csr_to_csc_f64(
+        &self,
+        _crow_indices: &[u32],
+        _col_indices: &[u32],
+        _values: &[f64],
+        _device_ordinal: usize,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "csr_to_csc_f64 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// COO → CSR format conversion on GPU (f32 dtype).
+    ///
+    /// Wraps `cusparseXcoo2csr`. Caller supplies row-sorted COO (cuSPARSE
+    /// requires it); ferrotorch's `CooTensor` is host-resident so the
+    /// caller pre-sorts on the host before invoking. Values are passed
+    /// through unchanged (only the row indices are compacted into a
+    /// `crow_indices` row-pointer array).
+    ///
+    /// Returns the host CSR triplet `(crow_indices, col_indices, values)`.
+    fn coo_to_csr_f32(
+        &self,
+        _row_indices: &[u32],
+        _col_indices: &[u32],
+        _values: &[f32],
+        _device_ordinal: usize,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "coo_to_csr_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// COO → CSR format conversion on GPU (f64 dtype).
+    /// Companion of [`Self::coo_to_csr_f32`].
+    fn coo_to_csr_f64(
+        &self,
+        _row_indices: &[u32],
+        _col_indices: &[u32],
+        _values: &[f64],
+        _device_ordinal: usize,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "coo_to_csr_f64 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// CSR → COO row-index expansion on GPU (f32 dtype).
+    ///
+    /// Wraps `cusparseXcsr2coo`. Returns the host COO triplet
+    /// `(row_indices, col_indices, values)`. `col_indices` and `values`
+    /// pass through unchanged from the source CSR; only the `crow_indices`
+    /// row-pointer array is expanded into per-entry `row_indices`.
+    fn csr_to_coo_f32(
+        &self,
+        _crow_indices: &[u32],
+        _col_indices: &[u32],
+        _values: &[f32],
+        _device_ordinal: usize,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "csr_to_coo_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// CSR → COO row-index expansion on GPU (f64 dtype).
+    /// Companion of [`Self::csr_to_coo_f32`].
+    fn csr_to_coo_f64(
+        &self,
+        _crow_indices: &[u32],
+        _col_indices: &[u32],
+        _values: &[f64],
+        _device_ordinal: usize,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "csr_to_coo_f64 GPU op not implemented for this backend".into(),
+        })
+    }
+
     /// Synchronize the current stream on the given device, blocking until
     /// all enqueued operations have completed.
     fn synchronize(&self, _device: usize) -> FerrotorchResult<()> {

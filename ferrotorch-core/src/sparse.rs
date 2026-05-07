@@ -910,18 +910,132 @@ impl<T: Float> CooTensor<T> {
         }
     }
 
-    /// Convert to dense tensor.
+    /// Convert to dense tensor on CPU. To materialise directly onto a CUDA
+    /// device, use [`Self::to_dense_on`].
     pub fn to_dense(&self) -> FerrotorchResult<Tensor<T>> {
+        self.to_dense_on(Device::Cpu)
+    }
+
+    /// Convert this 2-D COO tensor to a dense `Tensor<T>` on the given device.
+    ///
+    /// # GPU dispatch (P7)
+    ///
+    /// When `device` is `Device::Cuda(_)` and `T` is `f32` or `f64`, the
+    /// dense materialization runs on cuSPARSE: the COO is coalesced + sorted
+    /// on the host (so duplicates are summed and rows arrive sorted), then
+    /// `cusparseXcoo2csr` builds the row pointers and `cusparseSparseToDense`
+    /// emits the dense matrix on device. PyTorch parity:
+    /// `torch.sparse_coo_tensor(...).to_dense()` on CUDA stays on device.
+    pub fn to_dense_on(&self, device: Device) -> FerrotorchResult<Tensor<T>> {
+        use std::any::TypeId;
+
+        if let Device::Cuda(ord) = device {
+            if (TypeId::of::<T>() == TypeId::of::<f32>()
+                || TypeId::of::<T>() == TypeId::of::<f64>())
+                && let Some(backend) = crate::gpu_dispatch::gpu_backend()
+            {
+                // Coalesce + row-sort on host (cuSPARSE contract).
+                let coalesced = self.coalesce();
+                let row_u32: Vec<u32> =
+                    coalesced.row_indices.iter().map(|&v| v as u32).collect();
+                let col_u32: Vec<u32> =
+                    coalesced.col_indices.iter().map(|&v| v as u32).collect();
+
+                // We only need the CSR row pointers + column indices from
+                // the COO→CSR conversion; values pass through unchanged
+                // from `coalesced.values` (the cuSPARSE wrapper returns
+                // them for symmetry but we re-use the host `T`-typed
+                // values directly to avoid a dtype cast).
+                let (crow_u32, col_csr) = if TypeId::of::<T>() == TypeId::of::<f32>() {
+                    let vals_f32 = unsafe {
+                        std::slice::from_raw_parts(
+                            coalesced.values.as_ptr().cast::<f32>(),
+                            coalesced.values.len(),
+                        )
+                    };
+                    let (cr, ci, _v) = backend.coo_to_csr_f32(
+                        &row_u32,
+                        &col_u32,
+                        vals_f32,
+                        ord,
+                        coalesced.nrows,
+                        coalesced.ncols,
+                    )?;
+                    (cr, ci)
+                } else {
+                    let vals_f64 = unsafe {
+                        std::slice::from_raw_parts(
+                            coalesced.values.as_ptr().cast::<f64>(),
+                            coalesced.values.len(),
+                        )
+                    };
+                    let (cr, ci, _v) = backend.coo_to_csr_f64(
+                        &row_u32,
+                        &col_u32,
+                        vals_f64,
+                        ord,
+                        coalesced.nrows,
+                        coalesced.ncols,
+                    )?;
+                    (cr, ci)
+                };
+
+                let out_handle = if TypeId::of::<T>() == TypeId::of::<f32>() {
+                    let values_f32 = unsafe {
+                        std::slice::from_raw_parts(
+                            coalesced.values.as_ptr().cast::<f32>(),
+                            coalesced.values.len(),
+                        )
+                    };
+                    backend.sparse_to_dense_csr_f32(
+                        &crow_u32,
+                        &col_csr,
+                        values_f32,
+                        ord,
+                        coalesced.nrows,
+                        coalesced.ncols,
+                    )?
+                } else {
+                    let values_f64 = unsafe {
+                        std::slice::from_raw_parts(
+                            coalesced.values.as_ptr().cast::<f64>(),
+                            coalesced.values.len(),
+                        )
+                    };
+                    backend.sparse_to_dense_csr_f64(
+                        &crow_u32,
+                        &col_csr,
+                        values_f64,
+                        ord,
+                        coalesced.nrows,
+                        coalesced.ncols,
+                    )?
+                };
+                let storage = TensorStorage::gpu(out_handle);
+                return Tensor::from_storage(
+                    storage,
+                    vec![coalesced.nrows, coalesced.ncols],
+                    false,
+                );
+            }
+        }
+
+        // -- CPU path -------------------------------------------------------
         let mut data = vec![<T as num_traits::Zero>::zero(); self.nrows * self.ncols];
         for i in 0..self.values.len() {
             let flat = self.row_indices[i] * self.ncols + self.col_indices[i];
             data[flat] += self.values[i];
         }
-        Tensor::from_storage(
+        let cpu_tensor = Tensor::from_storage(
             TensorStorage::cpu(data),
             vec![self.nrows, self.ncols],
             false,
-        )
+        )?;
+        if matches!(device, Device::Cpu) {
+            Ok(cpu_tensor)
+        } else {
+            cpu_tensor.to(device)
+        }
     }
 
     /// Convert from a CSR tensor.
@@ -1087,8 +1201,74 @@ impl<T: Float> CsrTensor<T> {
         &self.values
     }
 
-    /// Convert to dense tensor.
+    /// Convert to dense tensor on CPU. To materialise directly onto a CUDA
+    /// device, use [`Self::to_dense_on`].
     pub fn to_dense(&self) -> FerrotorchResult<Tensor<T>> {
+        self.to_dense_on(Device::Cpu)
+    }
+
+    /// Convert this CSR tensor to a dense `Tensor<T>` on the given device.
+    ///
+    /// # GPU dispatch (P7)
+    ///
+    /// When `device` is `Device::Cuda(_)` and `T` is `f32` or `f64`, the
+    /// dense materialization runs on cuSPARSE via `cusparseSparseToDense`
+    /// with a CSR descriptor. The output `Tensor<T>` lives on the requested
+    /// CUDA device — no host buffer is allocated. PyTorch parity:
+    /// `torch.sparse_csr_tensor(...).to_dense()` keeps the result on the
+    /// input device.
+    ///
+    /// For non-CUDA devices or unsupported dtypes, the CPU dense buffer is
+    /// materialised first and then transferred onto the requested device.
+    pub fn to_dense_on(&self, device: Device) -> FerrotorchResult<Tensor<T>> {
+        use std::any::TypeId;
+
+        // -- CUDA fast path (f32/f64) ---------------------------------------
+        //
+        // PyTorch parity (rust-gpu-discipline §3): `torch.sparse_csr_tensor`
+        // dense materialization runs on cuSPARSE. We upload the CSR triplet
+        // JIT (host-side `usize` → device-side `u32` reinterpret), call
+        // `cusparseSparseToDense`, and keep the result on device.
+        if let Device::Cuda(ord) = device {
+            if (TypeId::of::<T>() == TypeId::of::<f32>()
+                || TypeId::of::<T>() == TypeId::of::<f64>())
+                && let Some(backend) = crate::gpu_dispatch::gpu_backend()
+            {
+                let crow: Vec<u32> = self.row_ptrs.iter().map(|&v| v as u32).collect();
+                let col: Vec<u32> = self.col_indices.iter().map(|&v| v as u32).collect();
+
+                let out_handle = if TypeId::of::<T>() == TypeId::of::<f32>() {
+                    // SAFETY: TypeId guard establishes T == f32; the slice
+                    // re-interpret is layout-preserving for the FFI window.
+                    let values_f32 = unsafe {
+                        std::slice::from_raw_parts(
+                            self.values.as_ptr().cast::<f32>(),
+                            self.values.len(),
+                        )
+                    };
+                    backend.sparse_to_dense_csr_f32(
+                        &crow, &col, values_f32, ord, self.nrows, self.ncols,
+                    )?
+                } else {
+                    // SAFETY: TypeId guard establishes T == f64.
+                    let values_f64 = unsafe {
+                        std::slice::from_raw_parts(
+                            self.values.as_ptr().cast::<f64>(),
+                            self.values.len(),
+                        )
+                    };
+                    backend.sparse_to_dense_csr_f64(
+                        &crow, &col, values_f64, ord, self.nrows, self.ncols,
+                    )?
+                };
+                let storage = TensorStorage::gpu(out_handle);
+                return Tensor::from_storage(storage, vec![self.nrows, self.ncols], false);
+            }
+            // CUDA requested but unsupported dtype / no backend — fall
+            // through to the CPU build then ship via `Tensor::to(device)`.
+        }
+
+        // -- CPU path -------------------------------------------------------
         let mut data = vec![<T as num_traits::Zero>::zero(); self.nrows * self.ncols];
         for row in 0..self.nrows {
             let start = self.row_ptrs[row];
@@ -1098,11 +1278,94 @@ impl<T: Float> CsrTensor<T> {
                 data[flat] += self.values[j];
             }
         }
-        Tensor::from_storage(
+        let cpu_tensor = Tensor::from_storage(
             TensorStorage::cpu(data),
             vec![self.nrows, self.ncols],
             false,
-        )
+        )?;
+        if matches!(device, Device::Cpu) {
+            Ok(cpu_tensor)
+        } else {
+            cpu_tensor.to(device)
+        }
+    }
+
+    /// Build a CSR tensor from a COO source on the given device.
+    ///
+    /// # GPU dispatch (P7)
+    ///
+    /// When `device` is `Device::Cuda(_)` and `T` is `f32` or `f64`, the
+    /// row-pointer compaction runs on cuSPARSE via `cusparseXcoo2csr`. The
+    /// host-side row-sort still happens on CPU (cuSPARSE requires the COO
+    /// row indices to arrive sorted) so duplicates are coalesced as part
+    /// of the host coalesce step. PyTorch parity:
+    /// `torch.sparse_coo_tensor(...).to_sparse_csr()` on CUDA dispatches to
+    /// `cusparseXcoo2csr`.
+    ///
+    /// For CPU or unsupported dtypes this delegates to [`Self::from_coo`].
+    pub fn from_coo_on(coo: &CooTensor<T>, device: Device) -> FerrotorchResult<Self> {
+        use std::any::TypeId;
+
+        if let Device::Cuda(ord) = device {
+            if (TypeId::of::<T>() == TypeId::of::<f32>()
+                || TypeId::of::<T>() == TypeId::of::<f64>())
+                && let Some(backend) = crate::gpu_dispatch::gpu_backend()
+            {
+                // Coalesce on host so values are summed and rows arrive
+                // sorted (cuSPARSE contract).
+                let coalesced = coo.coalesce();
+                let row_u32: Vec<u32> =
+                    coalesced.row_indices.iter().map(|&v| v as u32).collect();
+                let col_u32: Vec<u32> =
+                    coalesced.col_indices.iter().map(|&v| v as u32).collect();
+
+                let (crow, col, vals_t) = if TypeId::of::<T>() == TypeId::of::<f32>() {
+                    let vals_f32 = unsafe {
+                        std::slice::from_raw_parts(
+                            coalesced.values.as_ptr().cast::<f32>(),
+                            coalesced.values.len(),
+                        )
+                    };
+                    let (cr, ci, vals) = backend.coo_to_csr_f32(
+                        &row_u32,
+                        &col_u32,
+                        vals_f32,
+                        ord,
+                        coalesced.nrows,
+                        coalesced.ncols,
+                    )?;
+                    (cr, ci, vals_to_t::<T, f32>(vals))
+                } else {
+                    let vals_f64 = unsafe {
+                        std::slice::from_raw_parts(
+                            coalesced.values.as_ptr().cast::<f64>(),
+                            coalesced.values.len(),
+                        )
+                    };
+                    let (cr, ci, vals) = backend.coo_to_csr_f64(
+                        &row_u32,
+                        &col_u32,
+                        vals_f64,
+                        ord,
+                        coalesced.nrows,
+                        coalesced.ncols,
+                    )?;
+                    (cr, ci, vals_to_t::<T, f64>(vals))
+                };
+
+                let row_ptrs: Vec<usize> = crow.into_iter().map(|v| v as usize).collect();
+                let col_indices: Vec<usize> = col.into_iter().map(|v| v as usize).collect();
+                return Self::new(
+                    row_ptrs,
+                    col_indices,
+                    vals_t,
+                    coalesced.nrows,
+                    coalesced.ncols,
+                );
+            }
+        }
+
+        Self::from_coo(coo)
     }
 }
 
@@ -1559,8 +1822,71 @@ impl<T: Float> CscTensor<T> {
             .expect("CSR rebuild from CSC always satisfies invariants")
     }
 
-    /// Materialize as a dense 2-D `Tensor`.
+    /// Materialize as a dense 2-D `Tensor` on CPU. To materialise directly
+    /// onto a CUDA device, use [`Self::to_dense_on`].
     pub fn to_dense(&self) -> FerrotorchResult<Tensor<T>> {
+        self.to_dense_on(Device::Cpu)
+    }
+
+    /// Materialize as a dense 2-D `Tensor` on the given device.
+    ///
+    /// # GPU dispatch (P7)
+    ///
+    /// When `device` is `Device::Cuda(_)` and `T` is `f32` or `f64`, the
+    /// dense materialization runs on cuSPARSE via `cusparseSparseToDense`
+    /// with a CSC descriptor. The output `Tensor<T>` lives on the requested
+    /// CUDA device. PyTorch parity:
+    /// `torch.sparse_csc_tensor(...).to_dense()` keeps the result on the
+    /// input device.
+    pub fn to_dense_on(&self, device: Device) -> FerrotorchResult<Tensor<T>> {
+        use std::any::TypeId;
+
+        if let Device::Cuda(ord) = device {
+            if (TypeId::of::<T>() == TypeId::of::<f32>()
+                || TypeId::of::<T>() == TypeId::of::<f64>())
+                && let Some(backend) = crate::gpu_dispatch::gpu_backend()
+            {
+                let col_ptrs_u32: Vec<u32> = self.col_ptrs.iter().map(|&v| v as u32).collect();
+                let row_idx_u32: Vec<u32> =
+                    self.row_indices.iter().map(|&v| v as u32).collect();
+
+                let out_handle = if TypeId::of::<T>() == TypeId::of::<f32>() {
+                    let values_f32 = unsafe {
+                        std::slice::from_raw_parts(
+                            self.values.as_ptr().cast::<f32>(),
+                            self.values.len(),
+                        )
+                    };
+                    backend.csc_to_dense_f32(
+                        &col_ptrs_u32,
+                        &row_idx_u32,
+                        values_f32,
+                        ord,
+                        self.nrows,
+                        self.ncols,
+                    )?
+                } else {
+                    let values_f64 = unsafe {
+                        std::slice::from_raw_parts(
+                            self.values.as_ptr().cast::<f64>(),
+                            self.values.len(),
+                        )
+                    };
+                    backend.csc_to_dense_f64(
+                        &col_ptrs_u32,
+                        &row_idx_u32,
+                        values_f64,
+                        ord,
+                        self.nrows,
+                        self.ncols,
+                    )?
+                };
+                let storage = TensorStorage::gpu(out_handle);
+                return Tensor::from_storage(storage, vec![self.nrows, self.ncols], false);
+            }
+        }
+
+        // -- CPU path -------------------------------------------------------
         let mut data = vec![<T as num_traits::Zero>::zero(); self.nrows * self.ncols];
         for c in 0..self.ncols {
             let start = self.col_ptrs[c];
@@ -1570,11 +1896,150 @@ impl<T: Float> CscTensor<T> {
                 data[r * self.ncols + c] = self.values[k];
             }
         }
-        Tensor::from_storage(
+        let cpu_tensor = Tensor::from_storage(
             TensorStorage::cpu(data),
             vec![self.nrows, self.ncols],
             false,
-        )
+        )?;
+        if matches!(device, Device::Cpu) {
+            Ok(cpu_tensor)
+        } else {
+            cpu_tensor.to(device)
+        }
+    }
+
+    /// Build a `CscTensor` from a CSR tensor using the given device for the
+    /// transpose conversion.
+    ///
+    /// # GPU dispatch (P7)
+    ///
+    /// When `device` is `Device::Cuda(_)` and `T` is `f32` or `f64`, the
+    /// CSR→CSC reorganisation runs on cuSPARSE via `cusparseCsr2cscEx2`.
+    /// PyTorch parity: `torch.sparse_csr_tensor(...).to_sparse_csc()` on
+    /// CUDA dispatches to `cusparseCsr2cscEx2`.
+    ///
+    /// For CPU or unsupported dtypes this delegates to [`Self::from_csr`].
+    pub fn from_csr_on(csr: &CsrTensor<T>, device: Device) -> FerrotorchResult<Self> {
+        use std::any::TypeId;
+
+        if let Device::Cuda(ord) = device {
+            if (TypeId::of::<T>() == TypeId::of::<f32>()
+                || TypeId::of::<T>() == TypeId::of::<f64>())
+                && let Some(backend) = crate::gpu_dispatch::gpu_backend()
+            {
+                let crow: Vec<u32> = csr.row_ptrs.iter().map(|&v| v as u32).collect();
+                let col: Vec<u32> = csr.col_indices.iter().map(|&v| v as u32).collect();
+
+                let (col_ptrs_u32, row_idx_u32, values_t) =
+                    if TypeId::of::<T>() == TypeId::of::<f32>() {
+                        let vals_f32 = unsafe {
+                            std::slice::from_raw_parts(
+                                csr.values.as_ptr().cast::<f32>(),
+                                csr.values.len(),
+                            )
+                        };
+                        let (cp, ri, v) = backend.csr_to_csc_f32(
+                            &crow, &col, vals_f32, ord, csr.nrows, csr.ncols,
+                        )?;
+                        (cp, ri, vals_to_t::<T, f32>(v))
+                    } else {
+                        let vals_f64 = unsafe {
+                            std::slice::from_raw_parts(
+                                csr.values.as_ptr().cast::<f64>(),
+                                csr.values.len(),
+                            )
+                        };
+                        let (cp, ri, v) = backend.csr_to_csc_f64(
+                            &crow, &col, vals_f64, ord, csr.nrows, csr.ncols,
+                        )?;
+                        (cp, ri, vals_to_t::<T, f64>(v))
+                    };
+
+                let col_ptrs: Vec<usize> = col_ptrs_u32.into_iter().map(|v| v as usize).collect();
+                let row_indices: Vec<usize> =
+                    row_idx_u32.into_iter().map(|v| v as usize).collect();
+                return Self::new(col_ptrs, row_indices, values_t, csr.nrows, csr.ncols);
+            }
+        }
+
+        Ok(Self::from_csr(csr))
+    }
+
+    /// Convert to CSR using the given device for the transpose.
+    ///
+    /// # GPU dispatch (P7)
+    ///
+    /// When `device` is `Device::Cuda(_)` and `T` is `f32` or `f64`, the
+    /// CSC→CSR reorganisation runs on cuSPARSE via `cusparseCsr2cscEx2`
+    /// applied to the dual descriptor (CSC's column-pointer + row-index
+    /// arrays look like a CSR row-pointer + col-index array of the
+    /// transpose). PyTorch parity:
+    /// `torch.sparse_csc_tensor(...).to_sparse_csr()` on CUDA.
+    pub fn to_csr_on(&self, device: Device) -> FerrotorchResult<CsrTensor<T>> {
+        use std::any::TypeId;
+
+        if let Device::Cuda(ord) = device {
+            if (TypeId::of::<T>() == TypeId::of::<f32>()
+                || TypeId::of::<T>() == TypeId::of::<f64>())
+                && let Some(backend) = crate::gpu_dispatch::gpu_backend()
+            {
+                // Dual: feed CSC-as-CSR-of-transpose to cusparseCsr2cscEx2,
+                // which yields CSR-as-CSC-of-transpose = CSR of original.
+                // Concretely: pass `col_ptrs` as `crow_indices`, `row_indices`
+                // as `col_indices`, with `m=ncols, n=nrows`. The output
+                // `(col_ptrs', row_indices', vals')` is the CSR of `self`
+                // since transposing twice round-trips.
+                let col_ptrs_u32: Vec<u32> = self.col_ptrs.iter().map(|&v| v as u32).collect();
+                let row_idx_u32: Vec<u32> =
+                    self.row_indices.iter().map(|&v| v as u32).collect();
+
+                let (crow_u32, col_u32, values_t) = if TypeId::of::<T>() == TypeId::of::<f32>() {
+                    let vals_f32 = unsafe {
+                        std::slice::from_raw_parts(
+                            self.values.as_ptr().cast::<f32>(),
+                            self.values.len(),
+                        )
+                    };
+                    let (cr, ci, v) = backend.csr_to_csc_f32(
+                        &col_ptrs_u32,
+                        &row_idx_u32,
+                        vals_f32,
+                        ord,
+                        self.ncols,
+                        self.nrows,
+                    )?;
+                    (cr, ci, vals_to_t::<T, f32>(v))
+                } else {
+                    let vals_f64 = unsafe {
+                        std::slice::from_raw_parts(
+                            self.values.as_ptr().cast::<f64>(),
+                            self.values.len(),
+                        )
+                    };
+                    let (cr, ci, v) = backend.csr_to_csc_f64(
+                        &col_ptrs_u32,
+                        &row_idx_u32,
+                        vals_f64,
+                        ord,
+                        self.ncols,
+                        self.nrows,
+                    )?;
+                    (cr, ci, vals_to_t::<T, f64>(v))
+                };
+
+                let row_ptrs: Vec<usize> = crow_u32.into_iter().map(|v| v as usize).collect();
+                let col_indices: Vec<usize> = col_u32.into_iter().map(|v| v as usize).collect();
+                return CsrTensor::new(
+                    row_ptrs,
+                    col_indices,
+                    values_t,
+                    self.nrows,
+                    self.ncols,
+                );
+            }
+        }
+
+        Ok(self.to_csr())
     }
 
     pub fn nnz(&self) -> usize {

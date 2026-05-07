@@ -3549,6 +3549,151 @@ impl GpuBackend for CudaBackendImpl {
             .map_err(Self::map_gpu_err)
     }
 
+    // -- CSR/CSC/COO format-conversion + CSC → dense (cuSPARSE) — P7 ---------
+    //
+    // PyTorch parity (rust-gpu-discipline §3): `torch.sparse_csr_tensor` /
+    // `torch.sparse_csc_tensor` / `torch.sparse_coo_tensor` route format
+    // conversions through cuSPARSE on CUDA. Implementations live in
+    // `crate::sparse`; this section is the type-erased trait wiring.
+
+    fn csc_to_dense_f32(
+        &self,
+        col_ptrs: &[u32],
+        row_indices: &[u32],
+        values: &[f32],
+        device_ordinal: usize,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let dev = self.device(device_ordinal)?;
+        let handle = self.cusparse()?;
+        let out = crate::sparse::gpu_csc_to_dense_f32(
+            handle,
+            col_ptrs,
+            row_indices,
+            values,
+            m,
+            n,
+            dev,
+        )
+        .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(out, device_ordinal))
+    }
+
+    fn csc_to_dense_f64(
+        &self,
+        col_ptrs: &[u32],
+        row_indices: &[u32],
+        values: &[f64],
+        device_ordinal: usize,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let dev = self.device(device_ordinal)?;
+        let handle = self.cusparse()?;
+        let out = crate::sparse::gpu_csc_to_dense_f64(
+            handle,
+            col_ptrs,
+            row_indices,
+            values,
+            m,
+            n,
+            dev,
+        )
+        .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer_f64(out, device_ordinal))
+    }
+
+    fn csr_to_csc_f32(
+        &self,
+        crow_indices: &[u32],
+        col_indices: &[u32],
+        values: &[f32],
+        device_ordinal: usize,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
+        let dev = self.device(device_ordinal)?;
+        let handle = self.cusparse()?;
+        crate::sparse::gpu_csr_to_csc_f32(handle, crow_indices, col_indices, values, m, n, dev)
+            .map_err(Self::map_gpu_err)
+    }
+
+    fn csr_to_csc_f64(
+        &self,
+        crow_indices: &[u32],
+        col_indices: &[u32],
+        values: &[f64],
+        device_ordinal: usize,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+        let dev = self.device(device_ordinal)?;
+        let handle = self.cusparse()?;
+        crate::sparse::gpu_csr_to_csc_f64(handle, crow_indices, col_indices, values, m, n, dev)
+            .map_err(Self::map_gpu_err)
+    }
+
+    fn coo_to_csr_f32(
+        &self,
+        row_indices: &[u32],
+        col_indices: &[u32],
+        values: &[f32],
+        device_ordinal: usize,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
+        let dev = self.device(device_ordinal)?;
+        let handle = self.cusparse()?;
+        crate::sparse::gpu_coo_to_csr_f32(handle, row_indices, col_indices, values, m, n, dev)
+            .map_err(Self::map_gpu_err)
+    }
+
+    fn coo_to_csr_f64(
+        &self,
+        row_indices: &[u32],
+        col_indices: &[u32],
+        values: &[f64],
+        device_ordinal: usize,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+        let dev = self.device(device_ordinal)?;
+        let handle = self.cusparse()?;
+        crate::sparse::gpu_coo_to_csr_f64(handle, row_indices, col_indices, values, m, n, dev)
+            .map_err(Self::map_gpu_err)
+    }
+
+    fn csr_to_coo_f32(
+        &self,
+        crow_indices: &[u32],
+        col_indices: &[u32],
+        values: &[f32],
+        device_ordinal: usize,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
+        let dev = self.device(device_ordinal)?;
+        let handle = self.cusparse()?;
+        crate::sparse::gpu_csr_to_coo_f32(handle, crow_indices, col_indices, values, m, n, dev)
+            .map_err(Self::map_gpu_err)
+    }
+
+    fn csr_to_coo_f64(
+        &self,
+        crow_indices: &[u32],
+        col_indices: &[u32],
+        values: &[f64],
+        device_ordinal: usize,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+        let dev = self.device(device_ordinal)?;
+        let handle = self.cusparse()?;
+        crate::sparse::gpu_csr_to_coo_f64(handle, crow_indices, col_indices, values, m, n, dev)
+            .map_err(Self::map_gpu_err)
+    }
+
     // -- FlashAttention forward (P5) ---------------------------------------
 
     fn flash_attention_forward_f32(
