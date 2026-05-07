@@ -2,11 +2,12 @@
   "uuid": "71a55c6f-ea25-4d75-bce0-42a040128c09",
   "display_id": 917,
   "title": "Sprint B.5 — vision parity (15 issues, 4 parallel batches)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T19:46:40.083451389Z",
-  "updated_at": "2026-05-07T19:46:41.499083272Z",
+  "updated_at": "2026-05-07T20:16:54.839776383Z",
+  "closed_at": "2026-05-07T20:16:54.839776383Z",
   "labels": [
     "bug,sprint"
   ]
