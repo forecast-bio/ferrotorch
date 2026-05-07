@@ -1,0 +1,567 @@
+{
+  "metadata": {
+    "torch_version": "2.11.0+cu130",
+    "safetensors_version": "0.7.0",
+    "python_executable": "/usr/sbin/python3",
+    "python_platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "generated_at": "2026-05-07T14:29:48.766932+00:00",
+    "conformance_note": "Fixtures for ferrotorch-serialize conformance suite. Reference: torch.save/torch.load (pickle+zip) and safetensors.save_file/load_file. Byte-exact round-trips are verified at generation time."
+  },
+  "save_safetensors": [
+    {
+      "kind": "round_trip_f32_2d",
+      "tensor_name": "weight",
+      "shape": [
+        2,
+        3
+      ],
+      "data_f32": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "torch_dtype": "torch.float32",
+      "safetensors_dtype": "F32",
+      "expected_numel": 6,
+      "expected_byte_length": 24,
+      "label": "save_safetensors basic f32 2d round-trip"
+    },
+    {
+      "kind": "round_trip_f32_1d",
+      "tensor_name": "bias",
+      "shape": [
+        4
+      ],
+      "data_f32": [
+        0.1,
+        0.2,
+        0.3,
+        0.4
+      ],
+      "torch_dtype": "torch.float32",
+      "safetensors_dtype": "F32",
+      "expected_numel": 4,
+      "expected_byte_length": 16,
+      "label": "save_safetensors bias f32 1d round-trip"
+    },
+    {
+      "kind": "round_trip_f64_2d",
+      "tensor_name": "param",
+      "shape": [
+        2,
+        2
+      ],
+      "data_f64": [
+        1.0,
+        -2.0,
+        3.0,
+        -4.0
+      ],
+      "torch_dtype": "torch.float64",
+      "safetensors_dtype": "F64",
+      "expected_numel": 4,
+      "expected_byte_length": 32,
+      "label": "save_safetensors f64 2d round-trip"
+    },
+    {
+      "kind": "round_trip_f32_scalar",
+      "tensor_name": "loss",
+      "shape": [
+        1
+      ],
+      "data_f32": [
+        3.14
+      ],
+      "torch_dtype": "torch.float32",
+      "safetensors_dtype": "F32",
+      "expected_numel": 1,
+      "expected_byte_length": 4,
+      "label": "save_safetensors scalar (shape=[1]) round-trip"
+    },
+    {
+      "kind": "multi_tensor_sorted_keys",
+      "tensors": [
+        {
+          "name": "z_weight",
+          "shape": [
+            2
+          ],
+          "data_f32": [
+            7.0,
+            8.0
+          ]
+        },
+        {
+          "name": "a_bias",
+          "shape": [
+            2
+          ],
+          "data_f32": [
+            1.0,
+            2.0
+          ]
+        },
+        {
+          "name": "m_scale",
+          "shape": [
+            1
+          ],
+          "data_f32": [
+            0.5
+          ]
+        }
+      ],
+      "expected_key_order": [
+        "a_bias",
+        "m_scale",
+        "z_weight"
+      ],
+      "label": "save_safetensors deterministic key ordering"
+    },
+    {
+      "kind": "nan_inf_preserved",
+      "tensor_name": "special",
+      "shape": [
+        3
+      ],
+      "data_f32_special": [
+        "NaN",
+        "Infinity",
+        "-Infinity"
+      ],
+      "label": "save_safetensors NaN/Inf round-trip"
+    },
+    {
+      "kind": "round_trip_empty_dict",
+      "label": "save_safetensors empty state dict produces valid file"
+    }
+  ],
+  "load_safetensors": [
+    {
+      "kind": "dtype_mismatch_error",
+      "file_dtype": "F32",
+      "load_as_dtype": "f64",
+      "expected_error": "DtypeMismatch",
+      "label": "load_safetensors dtype mismatch returns DtypeMismatch error"
+    },
+    {
+      "kind": "missing_file_error",
+      "path": "/nonexistent/model.safetensors",
+      "expected_error_contains": "failed to",
+      "label": "load_safetensors missing file returns error"
+    }
+  ],
+  "save_pytorch": [
+    {
+      "kind": "round_trip_f32",
+      "tensor_name": "layer.weight",
+      "shape": [
+        2,
+        3
+      ],
+      "data_f32": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "expected_pickle_contains": [
+        "collections",
+        "OrderedDict",
+        "torch._utils",
+        "_rebuild_tensor_v2",
+        "FloatStorage",
+        "layer.weight"
+      ],
+      "expected_storage_bytes": 24,
+      "label": "save_pytorch f32 state dict pickle structure"
+    },
+    {
+      "kind": "round_trip_f64",
+      "tensor_name": "param",
+      "shape": [
+        3
+      ],
+      "data_f64": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "expected_pickle_contains": [
+        "DoubleStorage"
+      ],
+      "label": "save_pytorch f64 state dict uses DoubleStorage"
+    },
+    {
+      "kind": "zip_structure",
+      "tensors": [
+        {
+          "name": "a",
+          "shape": [
+            2
+          ],
+          "data_f32": [
+            1.0,
+            2.0
+          ]
+        },
+        {
+          "name": "b",
+          "shape": [
+            1
+          ],
+          "data_f32": [
+            3.0
+          ]
+        }
+      ],
+      "expected_zip_entries": [
+        "archive/data.pkl",
+        "archive/data/0",
+        "archive/data/1"
+      ],
+      "label": "save_pytorch ZIP contains data.pkl and numbered storage blobs"
+    },
+    {
+      "kind": "empty_state_dict",
+      "label": "save_pytorch empty state dict produces valid ZIP with data.pkl"
+    },
+    {
+      "kind": "pickle_protocol",
+      "pickle_header_bytes": [
+        128,
+        2
+      ],
+      "pickle_stop_byte": 46,
+      "label": "save_pytorch pickle uses protocol 2 header (0x80 0x02) and STOP opcode (0x2E)"
+    },
+    {
+      "kind": "deterministic_ordering",
+      "tensors": [
+        {
+          "name": "z_layer",
+          "shape": [
+            1
+          ],
+          "data_f32": [
+            3.0
+          ]
+        },
+        {
+          "name": "a_layer",
+          "shape": [
+            1
+          ],
+          "data_f32": [
+            1.0
+          ]
+        },
+        {
+          "name": "m_layer",
+          "shape": [
+            1
+          ],
+          "data_f32": [
+            2.0
+          ]
+        }
+      ],
+      "expected_key_order": [
+        "a_layer",
+        "m_layer",
+        "z_layer"
+      ],
+      "label": "save_pytorch keys appear in sorted order in pickle"
+    }
+  ],
+  "load_pytorch": [
+    {
+      "kind": "round_trip",
+      "tensors": [
+        {
+          "name": "layer1.weight",
+          "shape": [
+            2,
+            3
+          ],
+          "data_f32": [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            6.0
+          ]
+        },
+        {
+          "name": "layer1.bias",
+          "shape": [
+            2
+          ],
+          "data_f32": [
+            0.1,
+            0.2
+          ]
+        }
+      ],
+      "label": "load_pytorch_state_dict round-trips save_pytorch output"
+    },
+    {
+      "kind": "missing_file_error",
+      "path": "/nonexistent/model.pt",
+      "expected_error_contains": "failed",
+      "label": "load_pytorch_state_dict missing file returns error"
+    }
+  ],
+  "parse_pickle": [
+    {
+      "kind": "protocol_check",
+      "expected_protocol": 2,
+      "note": "torch.save produces pickle protocol 2 (bytes 0x80 0x02). parse_pickle must accept these bytes.",
+      "label": "parse_pickle accepts protocol 2 bytes from save_pytorch"
+    }
+  ],
+  "validate_checkpoint": [
+    {
+      "kind": "valid_passes",
+      "label": "validate_checkpoint returns Ok(()) for a freshly-written .pt file"
+    },
+    {
+      "kind": "missing_file_error",
+      "path": "/nonexistent/model.pt",
+      "expected_error_contains": "failed to open",
+      "label": "validate_checkpoint returns error for nonexistent file"
+    },
+    {
+      "kind": "corrupt_file_error",
+      "corrupt_bytes_hex": "74686973206973206e6f742061205a495020",
+      "label": "validate_checkpoint returns error for non-ZIP garbage"
+    }
+  ],
+  "save_state_dict": [
+    {
+      "kind": "round_trip_f32",
+      "tensors": [
+        {
+          "name": "weight",
+          "shape": [
+            2,
+            3
+          ],
+          "data_f32": [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            6.0
+          ]
+        },
+        {
+          "name": "bias",
+          "shape": [
+            3
+          ],
+          "data_f32": [
+            0.1,
+            0.2,
+            0.3
+          ]
+        }
+      ],
+      "expected_separator": "---",
+      "label": "save_state_dict f32 round-trip via ferrotorch native format"
+    },
+    {
+      "kind": "round_trip_f64",
+      "tensors": [
+        {
+          "name": "param",
+          "shape": [
+            2,
+            2
+          ],
+          "data_f64": [
+            1.0,
+            2.0,
+            3.0,
+            4.0
+          ]
+        }
+      ],
+      "label": "save_state_dict f64 round-trip"
+    },
+    {
+      "kind": "dtype_tag_f32",
+      "expected_dtype_tag": "f32",
+      "label": "save_state_dict uses dtype tag 'f32' for Float=f32"
+    },
+    {
+      "kind": "dtype_tag_f64",
+      "expected_dtype_tag": "f64",
+      "label": "save_state_dict uses dtype tag 'f64' for Float=f64"
+    },
+    {
+      "kind": "scalar_shape",
+      "tensor_name": "scalar",
+      "shape": [],
+      "data_f64": [
+        42.0
+      ],
+      "label": "save_state_dict preserves scalar (empty shape) tensors"
+    },
+    {
+      "kind": "high_rank_shape",
+      "tensor_name": "conv.weight",
+      "shape": [
+        2,
+        3,
+        2,
+        2
+      ],
+      "data_f64": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0,
+        17.0,
+        18.0,
+        19.0,
+        20.0,
+        21.0,
+        22.0,
+        23.0
+      ],
+      "numel": 24,
+      "label": "save_state_dict preserves 4D tensor shape"
+    },
+    {
+      "kind": "deterministic_key_ordering",
+      "tensors": [
+        {
+          "name": "z_last",
+          "shape": [
+            1
+          ],
+          "data_f64": [
+            3.0
+          ]
+        },
+        {
+          "name": "a_first",
+          "shape": [
+            1
+          ],
+          "data_f64": [
+            1.0
+          ]
+        },
+        {
+          "name": "m_mid",
+          "shape": [
+            1
+          ],
+          "data_f64": [
+            2.0
+          ]
+        }
+      ],
+      "expected_key_order": [
+        "a_first",
+        "m_mid",
+        "z_last"
+      ],
+      "label": "save_state_dict writes keys in sorted alphabetical order"
+    },
+    {
+      "kind": "dtype_mismatch_error_on_load",
+      "save_dtype": "f32",
+      "load_dtype": "f64",
+      "expected_error": "DtypeMismatch",
+      "label": "load_state_dict returns DtypeMismatch when file dtype != requested dtype"
+    },
+    {
+      "kind": "missing_file_error",
+      "path": "/nonexistent/state.fts",
+      "expected_error_contains": "failed to open file",
+      "label": "load_state_dict returns error for nonexistent file"
+    },
+    {
+      "kind": "round_trip_empty",
+      "tensors": [],
+      "label": "save_state_dict / load_state_dict empty dict round-trip"
+    }
+  ],
+  "save_checkpoint": [
+    {
+      "kind": "round_trip_f32",
+      "model_tensors": [
+        {
+          "name": "fc.weight",
+          "shape": [
+            2,
+            2
+          ],
+          "data_f32": [
+            1.0,
+            2.0,
+            3.0,
+            4.0
+          ]
+        },
+        {
+          "name": "fc.bias",
+          "shape": [
+            2
+          ],
+          "data_f32": [
+            0.5,
+            -0.5
+          ]
+        }
+      ],
+      "optimizer_state": {},
+      "epoch": 3,
+      "step": 150,
+      "label": "save_checkpoint / load_checkpoint f32 round-trip preserves epoch, step, model state"
+    },
+    {
+      "kind": "epoch_step_preserved",
+      "epoch": 7,
+      "step": 420,
+      "label": "load_checkpoint epoch and step match what was saved"
+    },
+    {
+      "kind": "missing_file_error",
+      "path": "/nonexistent/checkpoint.ft",
+      "expected_error_contains": "failed to open",
+      "label": "load_checkpoint returns error for nonexistent file"
+    }
+  ],
+  "training_checkpoint": [
+    {
+      "kind": "constructor",
+      "epoch": 2,
+      "step": 100,
+      "label": "TrainingCheckpoint::new stores epoch and step"
+    }
+  ]
+}

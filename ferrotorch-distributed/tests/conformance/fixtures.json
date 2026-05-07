@@ -1,0 +1,342 @@
+{
+  "metadata": {
+    "torch_version": "2.11.0+cu130",
+    "python_executable": "/usr/sbin/python3",
+    "python_platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "generated_at": "2026-05-07T15:00:00.000000+00:00",
+    "conformance_note": "torch.distributed collective ops. Multi-process collectives are exercised via single-process mocking (world_size=1 identity paths) or documented as cascade_skip where genuine multi-process is required. Reference: torch==2.11.0."
+  },
+  "fixtures": [
+    {
+      "op": "is_gloo_available",
+      "expected": false,
+      "platform_note": "always False when gloo-backend feature is off; this build has no gloo-backend feature"
+    },
+    {
+      "op": "is_mpi_available",
+      "expected": false,
+      "platform_note": "always False when mpi-backend feature is off; this build has no mpi-backend feature"
+    },
+    {
+      "op": "is_ucc_available",
+      "expected": false,
+      "platform_note": "always False when ucc-backend feature is off; this build has no ucc-backend feature"
+    },
+    {
+      "op": "ReduceOp_variants",
+      "variants": ["Sum", "Mean"],
+      "note": "torch.distributed.ReduceOp has SUM and MEAN among its variants"
+    },
+    {
+      "op": "DEFAULT_COLLECTIVE_TIMEOUT_secs",
+      "expected_secs": 60,
+      "note": "torch.distributed default timeout is 30 minutes; ferrotorch uses 60s for the simulated backend"
+    },
+    {
+      "op": "SimulatedBackend_create_group_world_size_1",
+      "world_size": 1,
+      "expected_len": 1,
+      "expected_rank_0": 0,
+      "expected_world_size_0": 1,
+      "note": "create_group(1) returns a single backend with rank=0, world_size=1"
+    },
+    {
+      "op": "SimulatedBackend_create_group_world_size_2",
+      "world_size": 2,
+      "expected_len": 2,
+      "expected_ranks": [0, 1],
+      "expected_world_size": 2,
+      "note": "create_group(2) returns two backends with ranks 0 and 1"
+    },
+    {
+      "op": "SimulatedBackend_create_group_world_size_0_error",
+      "world_size": 0,
+      "expected_error": "InvalidWorldSize",
+      "note": "create_group(0) must return Err(InvalidWorldSize)"
+    },
+    {
+      "op": "allreduce_world_size_1_sum",
+      "world_size": 1,
+      "op_type": "Sum",
+      "input": [1.0, 2.0, 3.0],
+      "shape": [3],
+      "expected": [1.0, 2.0, 3.0],
+      "note": "allreduce with world_size=1 is identity for Sum — no communication needed"
+    },
+    {
+      "op": "allreduce_world_size_1_mean",
+      "world_size": 1,
+      "op_type": "Mean",
+      "input": [1.0, 2.0, 3.0],
+      "shape": [3],
+      "expected": [1.0, 2.0, 3.0],
+      "note": "allreduce with world_size=1 is identity for Mean — no communication needed"
+    },
+    {
+      "op": "allreduce_world_size_2_sum",
+      "world_size": 2,
+      "op_type": "Sum",
+      "input_rank0": [1.0, 2.0, 3.0],
+      "input_rank1": [4.0, 5.0, 6.0],
+      "shape": [3],
+      "expected_all_ranks": [5.0, 7.0, 9.0],
+      "note": "torch.distributed.all_reduce(op=SUM): elementwise sum across all ranks"
+    },
+    {
+      "op": "allreduce_world_size_2_mean",
+      "world_size": 2,
+      "op_type": "Mean",
+      "input_rank0": [1.0, 2.0, 3.0],
+      "input_rank1": [4.0, 5.0, 6.0],
+      "shape": [3],
+      "expected_all_ranks": [2.5, 3.5, 4.5],
+      "note": "torch.distributed.all_reduce(op=MEAN): elementwise mean = sum/world_size"
+    },
+    {
+      "op": "broadcast_world_size_1",
+      "world_size": 1,
+      "root": 0,
+      "input": [10.0, 20.0, 30.0],
+      "shape": [3],
+      "expected": [10.0, 20.0, 30.0],
+      "note": "broadcast with world_size=1 is identity — torch.distributed.broadcast equivalent"
+    },
+    {
+      "op": "broadcast_world_size_2_from_root_0",
+      "world_size": 2,
+      "root": 0,
+      "input_rank0": [10.0, 20.0, 30.0],
+      "input_rank1": [0.0, 0.0, 0.0],
+      "shape": [3],
+      "expected_rank0": [10.0, 20.0, 30.0],
+      "expected_rank1": [10.0, 20.0, 30.0],
+      "note": "torch.distributed.broadcast: all ranks receive root's tensor"
+    },
+    {
+      "op": "all_gather_world_size_1",
+      "world_size": 1,
+      "input": [1.0, 2.0],
+      "shape": [2],
+      "expected": [1.0, 2.0],
+      "note": "all_gather with world_size=1 is identity — torch.distributed.all_gather equivalent"
+    },
+    {
+      "op": "all_gather_world_size_2",
+      "world_size": 2,
+      "input_rank0": [1.0, 2.0],
+      "input_rank1": [3.0, 4.0],
+      "input_shape": [2],
+      "expected_shape": [4],
+      "expected_all_ranks": [1.0, 2.0, 3.0, 4.0],
+      "note": "torch.distributed.all_gather: concatenates tensors from all ranks along dim 0"
+    },
+    {
+      "op": "reduce_scatter_world_size_1_sum",
+      "world_size": 1,
+      "op_type": "Sum",
+      "input": [1.0, 2.0, 3.0, 4.0],
+      "shape": [4],
+      "expected": [1.0, 2.0, 3.0, 4.0],
+      "note": "reduce_scatter with world_size=1 is identity for Sum"
+    },
+    {
+      "op": "reduce_scatter_world_size_2_sum",
+      "world_size": 2,
+      "op_type": "Sum",
+      "input_rank0": [1.0, 2.0, 3.0, 4.0],
+      "input_rank1": [5.0, 6.0, 7.0, 8.0],
+      "input_shape": [4],
+      "expected_rank0": [6.0, 8.0],
+      "expected_rank1": [10.0, 12.0],
+      "note": "torch.distributed.reduce_scatter: sum then scatter; rank i gets chunk i"
+    },
+    {
+      "op": "barrier_world_size_1",
+      "world_size": 1,
+      "expected_ok": true,
+      "note": "torch.distributed.barrier with world_size=1 is a no-op"
+    },
+    {
+      "op": "barrier_world_size_2",
+      "world_size": 2,
+      "expected_ok": true,
+      "note": "torch.distributed.barrier: all ranks must reach barrier before any proceed"
+    },
+    {
+      "op": "send_recv_round_trip",
+      "world_size": 2,
+      "send_rank": 0,
+      "recv_rank": 1,
+      "input": [7.0, 8.0, 9.0],
+      "shape": [3],
+      "expected": [7.0, 8.0, 9.0],
+      "note": "torch.distributed.send/recv: sender posts tensor; receiver gets exact copy"
+    },
+    {
+      "op": "sendrecv_round_trip",
+      "world_size": 2,
+      "rank0_sends": [1.0, 2.0],
+      "rank1_sends": [3.0, 4.0],
+      "shape": [2],
+      "expected_rank0_receives": [3.0, 4.0],
+      "expected_rank1_receives": [1.0, 2.0],
+      "note": "torch.distributed (batch_isend_irecv 2-party): symmetric exchange"
+    },
+    {
+      "op": "send_to_self_error",
+      "world_size": 2,
+      "rank": 0,
+      "dst_rank": 0,
+      "expected_error": "InvalidArgument",
+      "note": "torch.distributed.send to self-rank must fail — PyTorch raises ValueError"
+    },
+    {
+      "op": "send_dst_out_of_range_error",
+      "world_size": 2,
+      "rank": 0,
+      "dst_rank": 5,
+      "expected_error": "InvalidArgument",
+      "note": "torch.distributed.send to rank >= world_size must fail"
+    },
+    {
+      "op": "SubBackend_members",
+      "world_size": 4,
+      "members": [1, 2, 3],
+      "expected_members": [1, 2, 3],
+      "note": "torch.distributed.new_group: SubBackend must report the member ranks it was created with"
+    },
+    {
+      "op": "SubBackend_rank_mapping",
+      "world_size": 4,
+      "members": [1, 2, 3],
+      "to_global": {"0": 1, "1": 2, "2": 3},
+      "to_local": {"1": 0, "2": 1, "3": 2, "0": null, "4": null},
+      "note": "SubBackend rank mapping: to_global(local) and to_local(global)"
+    },
+    {
+      "op": "DeviceMesh_new_valid",
+      "shape": [2, 2],
+      "world_size": 4,
+      "expected_ndim": 2,
+      "expected_size": 4,
+      "note": "torch.distributed.DeviceMesh: shape product must equal world_size"
+    },
+    {
+      "op": "DeviceMesh_new_shape_mismatch_error",
+      "shape": [2, 3],
+      "world_size": 4,
+      "expected_error": "InvalidArgument",
+      "note": "DeviceMesh: shape product != world_size must return Err"
+    },
+    {
+      "op": "DeviceMesh_new_empty_shape_error",
+      "shape": [],
+      "world_size": 1,
+      "expected_error": "InvalidArgument",
+      "note": "DeviceMesh: empty shape must return Err"
+    },
+    {
+      "op": "Placement_variants",
+      "variants": ["Replicate", "Shard", "Partial"],
+      "shard_is_shard": true,
+      "replicate_is_replicate": true,
+      "partial_is_partial": true,
+      "note": "torch.distributed.tensor.Replicate / Shard / Partial placement variants"
+    },
+    {
+      "op": "DTensor_from_local_valid",
+      "local_shape": [2],
+      "global_shape": [4],
+      "mesh_shape": [2],
+      "mesh_world_size": 2,
+      "placement": "Shard(0)",
+      "expected_ok": true,
+      "note": "DTensor::from_local: basic sharded construction"
+    },
+    {
+      "op": "DTensor_from_local_placement_mismatch_error",
+      "local_shape": [2],
+      "global_shape": [4],
+      "mesh_shape": [2, 2],
+      "mesh_world_size": 4,
+      "placements_len": 1,
+      "expected_error": "ShapeMismatch",
+      "note": "DTensor: placements.len() != mesh.ndim() must return Err"
+    },
+    {
+      "op": "DistributedError_display",
+      "variants": [
+        {"variant": "InvalidWorldSize", "world_size": 0, "contains": "invalid world size"},
+        {"variant": "InvalidRank", "rank": 5, "world_size": 3, "contains": "invalid rank"},
+        {"variant": "Timeout", "seconds": 30, "contains": "timed out"},
+        {"variant": "BackendUnavailable", "backend": "gloo", "contains": "gloo"}
+      ],
+      "note": "DistributedError Display must produce human-readable messages"
+    },
+    {
+      "op": "PendingCollective_op_name",
+      "op_name_all_gather": "async_all_gather",
+      "op_name_reduce_scatter": "async_reduce_scatter",
+      "note": "PendingCollective::op_name() must return the collective name string"
+    },
+    {
+      "op": "async_all_gather_matches_sync",
+      "world_size": 2,
+      "input_rank0": [0.0, 10.0],
+      "input_rank1": [1.0, 11.0],
+      "shape": [2],
+      "expected_all_ranks": [0.0, 10.0, 1.0, 11.0],
+      "note": "async_all_gather must return the same result as synchronous all_gather"
+    },
+    {
+      "op": "async_reduce_scatter_matches_sync",
+      "world_size": 2,
+      "op_type": "Sum",
+      "input_rank0": [1.0, 2.0, 3.0, 4.0],
+      "input_rank1": [5.0, 6.0, 7.0, 8.0],
+      "input_shape": [4],
+      "expected_rank0": [6.0, 8.0],
+      "expected_rank1": [10.0, 12.0],
+      "note": "async_reduce_scatter must return the same result as synchronous reduce_scatter"
+    },
+    {
+      "op": "TensorShardSpec_fields",
+      "key": "weight",
+      "rank": 0,
+      "shard_index": 0,
+      "num_shards": 4,
+      "note": "TensorShardSpec records key, rank, shard_index, num_shards"
+    },
+    {
+      "op": "ShardMetadata_fields",
+      "offset": 0,
+      "length": 100,
+      "total_length": 400,
+      "note": "ShardMetadata records offset, length, total_length for flat layout"
+    },
+    {
+      "op": "flat_shard_metadata_single_shard",
+      "num_shards": 1,
+      "total_elements": 100,
+      "expected_offset": 0,
+      "expected_length": 100,
+      "expected_total": 100,
+      "note": "flat_shard_metadata with num_shards=1: offset=0, length=total"
+    },
+    {
+      "op": "flat_shard_metadata_four_shards",
+      "num_shards": 4,
+      "total_elements": 100,
+      "shard_index_0": {"offset": 0, "length": 25, "total": 100},
+      "shard_index_1": {"offset": 25, "length": 25, "total": 100},
+      "shard_index_2": {"offset": 50, "length": 25, "total": 100},
+      "shard_index_3": {"offset": 75, "length": 25, "total": 100},
+      "note": "flat_shard_metadata with num_shards=4: equal shards of 25 each"
+    },
+    {
+      "op": "RpcError_display",
+      "note": "RpcError variants must implement Display — cascade_skip: live TCP required for runtime errors",
+      "cascade_skip_reason": "RpcError runtime variants require live TCP RPC connections; structural Display tested only"
+    }
+  ]
+}

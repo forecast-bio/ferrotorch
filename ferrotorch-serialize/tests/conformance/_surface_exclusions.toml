@@ -1,0 +1,159 @@
+# ferrotorch-serialize surface exclusions
+# Items listed here are intentionally excluded from the strict conformance gate.
+# Each entry requires: path, reason, tracking_issue.
+#
+# Format mirrors ferrotorch-core's _surface_exclusions.toml.
+# tracking_issue must be #NNN or a full https:// URL — "TBD"/"pending"/etc. fail the gate.
+
+# ── AsyncCheckpointer ────────────────────────────────────────────────────────
+# AsyncCheckpointer requires a live async runtime (Tokio) and background thread
+# management; it cannot be exercised at the fixture level without a full async
+# executor wired up. Covered by integration tests in the workspace root.
+[[exclusion]]
+path = "ferrotorch_serialize::AsyncCheckpointer"
+reason = "Requires a live Tokio async runtime; not exercisable via fixture-level test. Covered transitively by integration tests in workspace root."
+tracking_issue = "#852"
+
+# ── GGUF file-format items ───────────────────────────────────────────────────
+# GgufFile, GgufMetadata, GgufTensorInfo, GgufValue, load_gguf, load_gguf_mmap,
+# load_gguf_state_dict, load_gguf_state_dict_mmap, parse_gguf_bytes and
+# dequantize_gguf_tensor all require a real GGUF binary blob. Generating a
+# synthetic GGUF fixture that covers the full header+metadata+tensor-info
+# protocol is a non-trivial binary-generation task tracked separately.
+[[exclusion]]
+path = "ferrotorch_serialize::GgufFile"
+reason = "Requires a real GGUF binary fixture; synthetic GGUF generation tracked in #848."
+tracking_issue = "#848"
+
+[[exclusion]]
+path = "ferrotorch_serialize::GgufMetadata"
+reason = "Implicit coverage through GgufFile; synthetic GGUF fixture tracked in #848."
+tracking_issue = "#848"
+
+[[exclusion]]
+path = "ferrotorch_serialize::GgufTensorInfo"
+reason = "Implicit coverage through GgufFile; synthetic GGUF fixture tracked in #848."
+tracking_issue = "#848"
+
+[[exclusion]]
+path = "ferrotorch_serialize::GgufValue"
+reason = "Implicit coverage through GgufFile metadata parsing; synthetic GGUF fixture tracked in #848."
+tracking_issue = "#848"
+
+[[exclusion]]
+path = "ferrotorch_serialize::GgmlType"
+reason = "Implicit coverage through GGUF tensor-info parsing; synthetic GGUF fixture tracked in #848."
+tracking_issue = "#848"
+
+[[exclusion]]
+path = "ferrotorch_serialize::dequantize_gguf_tensor"
+reason = "Requires a real GGUF quantized tensor blob; synthetic GGUF fixture tracked in #848."
+tracking_issue = "#848"
+
+[[exclusion]]
+path = "ferrotorch_serialize::load_gguf"
+reason = "Requires a real GGUF file on disk; synthetic GGUF fixture tracked in #848."
+tracking_issue = "#848"
+
+[[exclusion]]
+path = "ferrotorch_serialize::load_gguf_mmap"
+reason = "Requires a real GGUF file on disk (mmap variant); synthetic GGUF fixture tracked in #848."
+tracking_issue = "#848"
+
+[[exclusion]]
+path = "ferrotorch_serialize::load_gguf_state_dict"
+reason = "Requires a real GGUF file on disk; synthetic GGUF fixture tracked in #848."
+tracking_issue = "#848"
+
+[[exclusion]]
+path = "ferrotorch_serialize::load_gguf_state_dict_mmap"
+reason = "Requires a real GGUF file on disk (mmap variant); synthetic GGUF fixture tracked in #848."
+tracking_issue = "#848"
+
+[[exclusion]]
+path = "ferrotorch_serialize::parse_gguf_bytes"
+reason = "Requires valid GGUF binary bytes; synthetic GGUF fixture tracked in #848."
+tracking_issue = "#848"
+
+# ── ONNX export ──────────────────────────────────────────────────────────────
+# ONNX export requires a live IR graph produced by the JIT compiler
+# (ferrotorch-jit) and is not exercisable at fixture level without a complete
+# trace/compile pipeline. Tracked separately in the JIT conformance work.
+[[exclusion]]
+path = "ferrotorch_serialize::OnnxExportConfig"
+reason = "ONNX export requires a live IR graph from ferrotorch-jit; deferred to JIT conformance suite (#849)."
+tracking_issue = "#849"
+
+[[exclusion]]
+path = "ferrotorch_serialize::export_onnx"
+reason = "Requires a live IR graph from ferrotorch-jit; deferred to JIT conformance suite (#849)."
+tracking_issue = "#849"
+
+[[exclusion]]
+path = "ferrotorch_serialize::export_from_program"
+reason = "Requires a live ExportedProgram from ferrotorch-jit; deferred to JIT conformance suite (#849)."
+tracking_issue = "#849"
+
+[[exclusion]]
+path = "ferrotorch_serialize::export_ir_graph_to_onnx"
+reason = "Requires a live IrGraph from ferrotorch-jit; deferred to JIT conformance suite (#849)."
+tracking_issue = "#849"
+
+[[exclusion]]
+path = "ferrotorch_serialize::ir_graph_to_onnx"
+reason = "Requires a live IrGraph from ferrotorch-jit; deferred to JIT conformance suite (#849)."
+tracking_issue = "#849"
+
+# ── mmap load variants ───────────────────────────────────────────────────────
+# The mmap variants (load_pytorch_state_dict_mmap, load_safetensors_mmap,
+# load_safetensors_sharded_mmap) share the same deserialization path as their
+# non-mmap counterparts. The divergence is in the I/O layer (memmap2::Mmap vs
+# read_to_end), not the tensor reconstruction logic. Mmap requires a real
+# file-descriptor-backed mapping that works differently under WSL2 (no huge
+# pages, no DAX). These variants are covered by the non-mmap roundtrip tests
+# for correctness; a dedicated mmap integration test is tracked separately.
+[[exclusion]]
+path = "ferrotorch_serialize::load_pytorch_state_dict_mmap"
+reason = "Mmap I/O layer shares deserialization logic with load_pytorch_state_dict (covered); mmap-specific integration test tracked in #850."
+tracking_issue = "#850"
+
+[[exclusion]]
+path = "ferrotorch_serialize::load_safetensors_mmap"
+reason = "Mmap I/O layer shares deserialization logic with load_safetensors (covered); mmap-specific integration test tracked in #850."
+tracking_issue = "#850"
+
+[[exclusion]]
+path = "ferrotorch_serialize::load_safetensors_sharded_mmap"
+reason = "Mmap I/O layer shares deserialization logic with load_safetensors_sharded (covered); mmap-specific integration test tracked in #850."
+tracking_issue = "#850"
+
+# ── sharded / filtered / progress safetensors ────────────────────────────────
+# These require a multi-file sharded checkpoint directory with a valid
+# model.safetensors.index.json. Generating a minimal sharded fixture set
+# requires at minimum two shard files + an index; this is tracked as a
+# follow-up to the base safetensors conformance.
+[[exclusion]]
+path = "ferrotorch_serialize::ShardProgress"
+reason = "ShardProgress is only observable via the progress callback in load_safetensors_sharded_with_progress; sharded fixture generation tracked in #851."
+tracking_issue = "#851"
+
+[[exclusion]]
+path = "ferrotorch_serialize::load_safetensors_sharded"
+reason = "Requires a multi-file sharded safetensors directory; sharded fixture generation tracked in #851."
+tracking_issue = "#851"
+
+[[exclusion]]
+path = "ferrotorch_serialize::load_safetensors_sharded_filtered"
+reason = "Requires a multi-file sharded safetensors directory; sharded fixture generation tracked in #851."
+tracking_issue = "#851"
+
+[[exclusion]]
+path = "ferrotorch_serialize::load_safetensors_sharded_with_progress"
+reason = "Requires a multi-file sharded safetensors directory and progress callback; sharded fixture generation tracked in #851."
+tracking_issue = "#851"
+
+[[exclusion]]
+path = "ferrotorch_serialize::load_safetensors_auto"
+kind = "fn"
+reason = "load_safetensors_auto dispatches to load_safetensors (covered) for single-file inputs; sharded dispatch requires multi-file fixture tracked in #851."
+tracking_issue = "#851"

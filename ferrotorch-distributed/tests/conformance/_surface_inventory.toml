@@ -1,0 +1,423 @@
+# ferrotorch-distributed public surface inventory (Layer 1).
+#
+# Tracking issue: #882 — ferrotorch-distributed conformance suite.
+# Reference: torch.distributed (collective ops, process groups), torch == 2.11.0
+#
+# This file enumerates every public item exported by ferrotorch-distributed.
+# It is the "denominator" for the Layer 4 strict surface-coverage gate.
+# Regenerate by inspecting ferrotorch-distributed/src/*.rs for `pub` items.
+#
+# Inventory date: 2026-05-07
+# Crate: ferrotorch-distributed 0.4.7
+#
+# Format: [[item]] entries with:
+#   path      — crate-relative qualified path
+#   kind      — "fn" | "method" | "type_alias" | "struct" | "trait" | "enum" | "const" | "re_export"
+#   signature — short human-readable signature (not parsed by the gate)
+
+crate = "ferrotorch_distributed"
+description = "Public API surface of ferrotorch-distributed, sized against torch.distributed."
+
+# ── collective.rs ─────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::DEFAULT_COLLECTIVE_TIMEOUT"
+kind = "const"
+signature = "pub const DEFAULT_COLLECTIVE_TIMEOUT: Duration"
+torch_analog = "torch.distributed default timeout"
+
+[[item]]
+path = "ferrotorch_distributed::ReduceOp"
+kind = "enum"
+signature = "pub enum ReduceOp { Sum, Mean }"
+torch_analog = "torch.distributed.ReduceOp"
+
+[[item]]
+path = "ferrotorch_distributed::allreduce"
+kind = "fn"
+signature = "pub fn allreduce<T: Float>(tensor: &Tensor<T>, backend: &dyn Backend, op: ReduceOp) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.all_reduce"
+
+[[item]]
+path = "ferrotorch_distributed::allreduce_with_timeout"
+kind = "fn"
+signature = "pub fn allreduce_with_timeout<T: Float>(...) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.all_reduce (with timeout)"
+
+[[item]]
+path = "ferrotorch_distributed::broadcast"
+kind = "fn"
+signature = "pub fn broadcast<T: Float>(tensor: &Tensor<T>, root: usize, backend: &dyn Backend) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.broadcast"
+
+[[item]]
+path = "ferrotorch_distributed::all_gather"
+kind = "fn"
+signature = "pub fn all_gather<T: Float>(tensor: &Tensor<T>, backend: &dyn Backend) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.all_gather"
+
+[[item]]
+path = "ferrotorch_distributed::all_gather_with_timeout"
+kind = "fn"
+signature = "pub fn all_gather_with_timeout<T: Float>(...) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.all_gather (with timeout)"
+
+[[item]]
+path = "ferrotorch_distributed::reduce_scatter"
+kind = "fn"
+signature = "pub fn reduce_scatter<T: Float>(tensor: &Tensor<T>, backend: &dyn Backend, op: ReduceOp) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.reduce_scatter"
+
+[[item]]
+path = "ferrotorch_distributed::reduce_scatter_with_timeout"
+kind = "fn"
+signature = "pub fn reduce_scatter_with_timeout<T: Float>(...) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.reduce_scatter (with timeout)"
+
+[[item]]
+path = "ferrotorch_distributed::reduce_scatter_tensor"
+kind = "fn"
+signature = "pub fn reduce_scatter_tensor<T: Float>(tensor: &Tensor<T>, backend: &dyn Backend, op: ReduceOp) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.reduce_scatter_tensor"
+
+[[item]]
+path = "ferrotorch_distributed::all_to_all"
+kind = "fn"
+signature = "pub fn all_to_all<T: Float>(tensor: &Tensor<T>, backend: &dyn Backend) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.all_to_all"
+
+[[item]]
+path = "ferrotorch_distributed::all_to_all_with_timeout"
+kind = "fn"
+signature = "pub fn all_to_all_with_timeout<T: Float>(...) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.all_to_all (with timeout)"
+
+[[item]]
+path = "ferrotorch_distributed::all_to_all_single_uneven"
+kind = "fn"
+signature = "pub fn all_to_all_single_uneven<T: Float>(...) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.all_to_all_single (uneven splits)"
+
+[[item]]
+path = "ferrotorch_distributed::barrier"
+kind = "fn"
+signature = "pub fn barrier(backend: &dyn Backend) -> FerrotorchResult<()>"
+torch_analog = "torch.distributed.barrier"
+
+# ── backend.rs ────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::Backend"
+kind = "trait"
+signature = "pub trait Backend: Send + Sync"
+torch_analog = "torch.distributed.Backend (process group)"
+
+[[item]]
+path = "ferrotorch_distributed::SimulatedBackend"
+kind = "struct"
+signature = "pub struct SimulatedBackend"
+torch_analog = "torch.distributed (in-process gloo, world_size=1)"
+
+[[item]]
+path = "ferrotorch_distributed::SimulatedBackend::create_group"
+kind = "method"
+signature = "pub fn create_group(world_size: usize) -> FerrotorchResult<Vec<Self>>"
+torch_analog = "torch.distributed.init_process_group (simulated)"
+
+[[item]]
+path = "ferrotorch_distributed::TcpBackend"
+kind = "struct"
+signature = "pub struct TcpBackend"
+torch_analog = "torch.distributed (TCP store backend)"
+
+[[item]]
+path = "ferrotorch_distributed::TcpBackend::new"
+kind = "method"
+signature = "pub fn new(rank: usize, world_size: usize, master_addr: &str) -> FerrotorchResult<Self>"
+torch_analog = "torch.distributed.init_process_group (TCP)"
+
+[[item]]
+path = "ferrotorch_distributed::SubBackend"
+kind = "struct"
+signature = "pub struct SubBackend"
+torch_analog = "torch.distributed.new_group (subgroup)"
+
+[[item]]
+path = "ferrotorch_distributed::SubBackend::new"
+kind = "method"
+signature = "pub fn new(parent: Arc<dyn Backend>, members: Vec<usize>) -> FerrotorchResult<Self>"
+torch_analog = "torch.distributed.new_group"
+
+[[item]]
+path = "ferrotorch_distributed::SubBackend::members"
+kind = "method"
+signature = "pub fn members(&self) -> &[usize]"
+torch_analog = "ProcessGroup.ranks"
+
+[[item]]
+path = "ferrotorch_distributed::SubBackend::to_global"
+kind = "method"
+signature = "pub fn to_global(&self, local: usize) -> usize"
+torch_analog = "ProcessGroup rank mapping"
+
+[[item]]
+path = "ferrotorch_distributed::SubBackend::to_local"
+kind = "method"
+signature = "pub fn to_local(&self, global: usize) -> Option<usize>"
+torch_analog = "ProcessGroup rank mapping"
+
+[[item]]
+path = "ferrotorch_distributed::SubBackend::parent"
+kind = "method"
+signature = "pub fn parent(&self) -> &Arc<dyn Backend>"
+torch_analog = "ProcessGroup parent"
+
+# ── p2p.rs ────────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::send"
+kind = "fn"
+signature = "pub fn send<T: Float>(tensor: &Tensor<T>, dst_rank: usize, backend: &dyn Backend) -> FerrotorchResult<()>"
+torch_analog = "torch.distributed.send"
+
+[[item]]
+path = "ferrotorch_distributed::recv"
+kind = "fn"
+signature = "pub fn recv<T: Float>(shape: &[usize], src_rank: usize, backend: &dyn Backend) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.recv"
+
+[[item]]
+path = "ferrotorch_distributed::recv_with_timeout"
+kind = "fn"
+signature = "pub fn recv_with_timeout<T: Float>(...) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed.recv (with timeout)"
+
+[[item]]
+path = "ferrotorch_distributed::recv_into"
+kind = "fn"
+signature = "pub fn recv_into<T: Float>(out: &mut Tensor<T>, src_rank: usize, backend: &dyn Backend) -> FerrotorchResult<()>"
+torch_analog = "torch.distributed.recv (in-place)"
+
+[[item]]
+path = "ferrotorch_distributed::recv_into_with_timeout"
+kind = "fn"
+signature = "pub fn recv_into_with_timeout<T: Float>(...) -> FerrotorchResult<()>"
+torch_analog = "torch.distributed.recv (in-place, with timeout)"
+
+[[item]]
+path = "ferrotorch_distributed::sendrecv"
+kind = "fn"
+signature = "pub fn sendrecv<T: Float>(send_tensor: &Tensor<T>, recv_shape: &[usize], peer: usize, backend: &dyn Backend) -> FerrotorchResult<Tensor<T>>"
+torch_analog = "torch.distributed (send+recv pair)"
+
+# ── async_collective.rs ───────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::PendingCollective"
+kind = "struct"
+signature = "pub struct PendingCollective<T: Float>"
+torch_analog = "torch.distributed.Work (async handle)"
+
+[[item]]
+path = "ferrotorch_distributed::async_all_gather"
+kind = "fn"
+signature = "pub fn async_all_gather<T: Float + 'static>(tensor: Tensor<T>, backend: Arc<dyn Backend>) -> PendingCollective<T>"
+torch_analog = "torch.distributed.all_gather (async)"
+
+[[item]]
+path = "ferrotorch_distributed::async_reduce_scatter"
+kind = "fn"
+signature = "pub fn async_reduce_scatter<T: Float + 'static>(tensor: Tensor<T>, backend: Arc<dyn Backend>, op: ReduceOp) -> PendingCollective<T>"
+torch_analog = "torch.distributed.reduce_scatter (async)"
+
+# ── gloo_backend.rs ───────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::is_gloo_available"
+kind = "fn"
+signature = "pub fn is_gloo_available() -> bool"
+torch_analog = "torch.distributed.is_gloo_available()"
+
+[[item]]
+path = "ferrotorch_distributed::GlooBackend"
+kind = "struct"
+signature = "pub struct GlooBackend"
+torch_analog = "torch.distributed.ProcessGroupGloo"
+
+# ── mpi_backend.rs ────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::is_mpi_available"
+kind = "fn"
+signature = "pub fn is_mpi_available() -> bool"
+torch_analog = "torch.distributed.is_mpi_available()"
+
+[[item]]
+path = "ferrotorch_distributed::MpiBackend"
+kind = "struct"
+signature = "pub struct MpiBackend"
+torch_analog = "torch.distributed.ProcessGroupMPI"
+
+# ── ucc_backend.rs ────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::is_ucc_available"
+kind = "fn"
+signature = "pub fn is_ucc_available() -> bool"
+torch_analog = "torch.distributed.is_ucc_available()"
+
+[[item]]
+path = "ferrotorch_distributed::UccBackend"
+kind = "struct"
+signature = "pub struct UccBackend"
+torch_analog = "torch.distributed.ProcessGroupUCC"
+
+# ── device_mesh.rs ────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::DeviceMesh"
+kind = "struct"
+signature = "pub struct DeviceMesh"
+torch_analog = "torch.distributed.DeviceMesh"
+
+# ── dtensor.rs ────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::DTensor"
+kind = "struct"
+signature = "pub struct DTensor<T: Float>"
+torch_analog = "torch.distributed.tensor.DTensor"
+
+[[item]]
+path = "ferrotorch_distributed::Placement"
+kind = "enum"
+signature = "pub enum Placement { Replicate, Shard(usize), Partial(ReduceOp) }"
+torch_analog = "torch.distributed.tensor.Replicate / Shard / Partial"
+
+# ── ddp.rs ────────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::DDP"
+kind = "struct"
+signature = "pub struct DDP<M, T>"
+torch_analog = "torch.nn.parallel.DistributedDataParallel"
+
+# ── fsdp.rs ───────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::FSDP"
+kind = "struct"
+signature = "pub struct FSDP<M, T>"
+torch_analog = "torch.distributed.fsdp.FullyShardedDataParallel"
+
+# ── error.rs ──────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::DistributedError"
+kind = "enum"
+signature = "pub enum DistributedError"
+torch_analog = "torch.distributed distributed errors"
+
+# ── pipeline.rs ───────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::Pipeline"
+kind = "struct"
+signature = "pub struct Pipeline<M, T>"
+torch_analog = "torch.distributed.pipeline"
+
+[[item]]
+path = "ferrotorch_distributed::PipelineSchedule"
+kind = "enum"
+signature = "pub enum PipelineSchedule { GPipe, Interleaved1F1B }"
+torch_analog = "torch.distributed.pipeline schedule"
+
+# ── rpc.rs ────────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::RpcAgent"
+kind = "struct"
+signature = "pub struct RpcAgent"
+torch_analog = "torch.distributed.rpc"
+
+[[item]]
+path = "ferrotorch_distributed::RpcError"
+kind = "enum"
+signature = "pub enum RpcError"
+torch_analog = "torch.distributed.rpc errors"
+
+[[item]]
+path = "ferrotorch_distributed::TcpRpcBackend"
+kind = "struct"
+signature = "pub struct TcpRpcBackend"
+torch_analog = "torch.distributed.rpc (TCP backend)"
+
+# ── sync_batch_norm.rs ────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::SyncBatchNorm2d"
+kind = "struct"
+signature = "pub struct SyncBatchNorm2d<T: Float>"
+torch_analog = "torch.nn.SyncBatchNorm"
+
+# ── checkpoint.rs ─────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_distributed::DistCheckpointError"
+kind = "enum"
+signature = "pub enum DistCheckpointError"
+torch_analog = "torch.distributed.checkpoint errors"
+
+[[item]]
+path = "ferrotorch_distributed::TensorShardSpec"
+kind = "struct"
+signature = "pub struct TensorShardSpec"
+torch_analog = "torch.distributed.checkpoint shard spec"
+
+[[item]]
+path = "ferrotorch_distributed::ShardMetadata"
+kind = "struct"
+signature = "pub struct ShardMetadata"
+torch_analog = "torch.distributed.checkpoint ShardMetadata"
+
+[[item]]
+path = "ferrotorch_distributed::DistributedCheckpoint"
+kind = "struct"
+signature = "pub struct DistributedCheckpoint"
+torch_analog = "torch.distributed.checkpoint"
+
+[[item]]
+path = "ferrotorch_distributed::CheckpointFuture"
+kind = "struct"
+signature = "pub struct CheckpointFuture"
+torch_analog = "torch.distributed.checkpoint (async)"
+
+[[item]]
+path = "ferrotorch_distributed::AsyncCheckpointer"
+kind = "struct"
+signature = "pub struct AsyncCheckpointer"
+torch_analog = "torch.distributed.checkpoint (async checkpointer)"
+
+[[item]]
+path = "ferrotorch_distributed::save_distributed"
+kind = "fn"
+signature = "pub fn save_distributed<T: Float>(...) -> FerrotorchResult<()>"
+torch_analog = "torch.distributed.checkpoint.save"
+
+[[item]]
+path = "ferrotorch_distributed::load_distributed"
+kind = "fn"
+signature = "pub fn load_distributed<T: Float>(...) -> FerrotorchResult<HashMap<String, Tensor<T>>>"
+torch_analog = "torch.distributed.checkpoint.load"
+
+[[item]]
+path = "ferrotorch_distributed::reshard"
+kind = "fn"
+signature = "pub fn reshard<T: Float>(...) -> FerrotorchResult<HashMap<String, Tensor<T>>>"
+torch_analog = "torch.distributed.checkpoint reshard"
+
+[[item]]
+path = "ferrotorch_distributed::flat_shard_metadata"
+kind = "fn"
+signature = "pub fn flat_shard_metadata(spec: &TensorShardSpec) -> Vec<ShardMetadata>"
+torch_analog = "torch.distributed.checkpoint shard metadata"

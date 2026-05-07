@@ -1,0 +1,144 @@
+# ferrotorch-distributed surface exclusions
+# Items listed here are intentionally excluded from the strict conformance gate.
+# Each entry requires: path, reason, tracking_issue.
+#
+# Format mirrors ferrotorch-mps and ferrotorch-train's _surface_exclusions.toml.
+# tracking_issue must be #NNN or a full https:// URL — "TBD"/"pending"/etc. fail the gate.
+
+# ── Backend trait ─────────────────────────────────────────────────────────────
+# The Backend trait itself is a type-level contract; its methods (send, recv,
+# barrier, rank, world_size) are exercised transitively by every collective
+# conformance test that constructs a SimulatedBackend. There is no
+# torch.distributed.Backend object to compare; the trait is an implementation
+# detail invisible to end users.
+
+[[exclusion]]
+path = "ferrotorch_distributed::Backend"
+reason = "Trait definition only; all Backend methods are exercised transitively through SimulatedBackend in every collective conformance test. No torch.distributed.Backend object analogue to compare against."
+tracking_issue = "#882"
+
+# ── TcpBackend::new — requires live TCP bind ──────────────────────────────────
+# TcpBackend::new performs a live TCP rendezvous across real OS sockets and
+# requires at least two processes. Single-process testing cannot exercise the
+# multi-process handshake path without spawning subprocesses; the TCP backend
+# integration tests are covered by integration tests as per #882 scope.
+
+[[exclusion]]
+path = "ferrotorch_distributed::TcpBackend"
+reason = "TcpBackend requires a live TCP rendezvous across >= 2 processes. Single-process mocking is not possible for the real transport; covered by integration tests tracked in #882."
+tracking_issue = "#882"
+
+[[exclusion]]
+path = "ferrotorch_distributed::TcpBackend::new"
+reason = "Same as TcpBackend: requires multi-process TCP rendezvous. Single-process conformance testing is not feasible. Covered by #882 integration scope."
+tracking_issue = "#882"
+
+# ── DDP / FSDP / Pipeline — require multi-process training loops ──────────────
+# DDP, FSDP, and Pipeline all require a constructed Module, Optimizer, and
+# forward/backward pass to exercise meaningfully. Their gradient-synchronisation
+# contracts require at least two ranks executing concurrently. Single-process
+# stubs exist only for structural construction; the synchronisation logic is
+# multi-process only.
+
+[[exclusion]]
+path = "ferrotorch_distributed::DDP"
+reason = "DDP gradient synchronisation requires >= 2 ranks executing a forward/backward pass concurrently. Single-process testing can only exercise construction; the core synchronisation contract requires multi-process runs. Tracked in #883 (DDP multi-process conformance)."
+tracking_issue = "#883"
+
+[[exclusion]]
+path = "ferrotorch_distributed::FSDP"
+reason = "FSDP parameter sharding + all-gather/reduce-scatter during forward/backward requires >= 2 ranks. Construction path is exercised but sharding contract is multi-process only. Tracked in #884 (FSDP multi-process conformance)."
+tracking_issue = "#884"
+
+[[exclusion]]
+path = "ferrotorch_distributed::Pipeline"
+reason = "Pipeline parallelism requires a multi-stage model split across ranks. Single-process testing cannot exercise the inter-stage send/recv microbatch flow. Tracked in #885 (Pipeline multi-process conformance)."
+tracking_issue = "#885"
+
+[[exclusion]]
+path = "ferrotorch_distributed::PipelineSchedule"
+reason = "PipelineSchedule is consumed by Pipeline which is excluded above; no independent conformance test is meaningful without the multi-process pipeline. Tracked in #885."
+tracking_issue = "#885"
+
+# ── RpcAgent / TcpRpcBackend — require live TCP RPC ──────────────────────────
+# RpcAgent and TcpRpcBackend require spawning background listener threads and
+# making live TCP connections between ranks. Integration-tested separately.
+
+[[exclusion]]
+path = "ferrotorch_distributed::RpcAgent"
+reason = "RpcAgent requires a live TCP connection to a remote rank. Single-process testing cannot exercise remote invocation. Tracked in #886 (RPC multi-process conformance)."
+tracking_issue = "#886"
+
+[[exclusion]]
+path = "ferrotorch_distributed::TcpRpcBackend"
+reason = "TcpRpcBackend requires live TCP connections. Same as RpcAgent. Tracked in #886."
+tracking_issue = "#886"
+
+# ── SyncBatchNorm2d — requires multi-rank gradient sync ──────────────────────
+
+[[exclusion]]
+path = "ferrotorch_distributed::SyncBatchNorm2d"
+reason = "SyncBatchNorm2d synchronises batch statistics across ranks during forward. The synchronisation contract cannot be exercised in a single-process test without a live multi-rank group. Tracked in #887 (SyncBatchNorm multi-process conformance)."
+tracking_issue = "#887"
+
+# ── Distributed checkpoint — requires filesystem + multi-rank ────────────────
+# save_distributed / load_distributed / reshard / DistributedCheckpoint all
+# require filesystem I/O coordinated across multiple ranks with specific
+# shard layouts. The structural construction and metadata helpers are tested
+# where possible; end-to-end round-trips are multi-process.
+
+[[exclusion]]
+path = "ferrotorch_distributed::save_distributed"
+reason = "save_distributed coordinates shard writes across multiple ranks. End-to-end correctness requires >= 2 ranks; single-rank code path is tested via DistributedCheckpoint structural test. Tracked in #888 (checkpoint multi-rank conformance)."
+tracking_issue = "#888"
+
+[[exclusion]]
+path = "ferrotorch_distributed::load_distributed"
+reason = "load_distributed reassembles shards written by multiple ranks. Multi-rank only. Tracked in #888."
+tracking_issue = "#888"
+
+[[exclusion]]
+path = "ferrotorch_distributed::reshard"
+reason = "reshard remaps shard layouts across ranks. Multi-rank only. Tracked in #888."
+tracking_issue = "#888"
+
+[[exclusion]]
+path = "ferrotorch_distributed::DistributedCheckpoint"
+reason = "DistributedCheckpoint orchestrates multi-rank save/load. Core save_shard/load_shard paths require multiple ranks writing concurrently. Tracked in #888."
+tracking_issue = "#888"
+
+[[exclusion]]
+path = "ferrotorch_distributed::AsyncCheckpointer"
+reason = "AsyncCheckpointer wraps DistributedCheckpoint with background threads; multi-rank requirement inherited. Tracked in #888."
+tracking_issue = "#888"
+
+[[exclusion]]
+path = "ferrotorch_distributed::CheckpointFuture"
+reason = "CheckpointFuture is the handle type returned by AsyncCheckpointer; multi-rank requirement inherited. Tracked in #888."
+tracking_issue = "#888"
+
+# ── MpiBackend / UccBackend — feature-gated, C library required ───────────────
+# MpiBackend and UccBackend require the `mpi-backend` / `ucc-backend` feature
+# flag AND the underlying C library installed. Structural tests for
+# is_mpi_available / is_ucc_available are in the conformance test; the struct
+# types themselves cannot be constructed without the feature.
+
+[[exclusion]]
+path = "ferrotorch_distributed::MpiBackend"
+reason = "MpiBackend construction requires the `mpi-backend` feature and a live MPI installation. The is_mpi_available() availability gate is tested in conformance_distributed.rs. Tracked in #889 (MPI backend conformance)."
+tracking_issue = "#889"
+
+[[exclusion]]
+path = "ferrotorch_distributed::UccBackend"
+reason = "UccBackend construction requires the `ucc-backend` feature and a live UCC installation. The is_ucc_available() gate is tested in conformance_distributed.rs. Tracked in #890 (UCC backend conformance)."
+tracking_issue = "#890"
+
+# ── GlooBackend struct — always BackendUnavailable without feature ─────────────
+# GlooBackend::new is tested (error contract); the struct type itself cannot
+# be constructed successfully without the `gloo-backend` feature, so independent
+# struct-level tests are not meaningful beyond what new() already covers.
+
+[[exclusion]]
+path = "ferrotorch_distributed::GlooBackend"
+reason = "GlooBackend struct construction always returns Err(BackendUnavailable) without the gloo-backend feature. The error contract is tested through is_gloo_available() and GlooBackend::new in conformance_distributed.rs. Tracked in #882."
+tracking_issue = "#882"

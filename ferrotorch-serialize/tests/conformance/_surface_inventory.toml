@@ -1,0 +1,264 @@
+# ferrotorch-serialize public surface inventory (Layer 1).
+#
+# Tracking issue: #857 — ferrotorch-serialize conformance suite.
+# Reference: torch == 2.11.0, safetensors == 0.4.x
+#
+# This file enumerates every public item exported by ferrotorch-serialize.
+# It is the "denominator" for the Layer 4 strict surface-coverage gate.
+# Regenerate by inspecting ferrotorch-serialize/src/*.rs for `pub` items.
+#
+# Format: [[item]] entries with:
+#   path      — crate-relative qualified path
+#   kind      — "fn" | "method" | "type_alias" | "struct" | "enum" | "re_export"
+#   signature — short human-readable signature (not parsed by the gate)
+#
+# Items are grouped by source module.
+# Inventory date: 2026-05-07
+# Crate: ferrotorch-serialize
+
+crate = "ferrotorch_serialize"
+description = "Public API surface of ferrotorch-serialize, sized against torch.save/torch.load and safetensors."
+
+# ── lib.rs re-exports ────────────────────────────────────────────────────────
+
+# ── checkpoint ───────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_serialize::TrainingCheckpoint"
+kind = "struct"
+signature = "pub struct TrainingCheckpoint<T: Float>"
+torch_analog = "torch checkpoint dict with model_state_dict, optimizer_state_dict, epoch, step"
+
+[[item]]
+path = "ferrotorch_serialize::TrainingCheckpoint::new"
+kind = "method"
+signature = "pub fn new(model_state, optimizer_state, epoch, step) -> Self"
+torch_analog = "dict construction"
+
+[[item]]
+path = "ferrotorch_serialize::save_checkpoint"
+kind = "fn"
+signature = "pub fn save_checkpoint<T: Float>(checkpoint: &TrainingCheckpoint<T>, path) -> FerrotorchResult<()>"
+torch_analog = "torch.save(checkpoint_dict, path)"
+
+[[item]]
+path = "ferrotorch_serialize::load_checkpoint"
+kind = "fn"
+signature = "pub fn load_checkpoint<T: Float>(path) -> FerrotorchResult<TrainingCheckpoint<T>>"
+torch_analog = "torch.load(path)"
+
+[[item]]
+path = "ferrotorch_serialize::AsyncCheckpointer"
+kind = "struct"
+signature = "pub struct AsyncCheckpointer<T: Float>"
+torch_analog = "background checkpoint writer"
+
+# ── gguf ─────────────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_serialize::GgmlType"
+kind = "enum"
+signature = "pub enum GgmlType { F32, F16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1 }"
+torch_analog = "gguf quantization dtype"
+
+[[item]]
+path = "ferrotorch_serialize::GgufFile"
+kind = "struct"
+signature = "pub struct GgufFile"
+torch_analog = "gguf model file"
+
+[[item]]
+path = "ferrotorch_serialize::GgufMetadata"
+kind = "struct"
+signature = "pub struct GgufMetadata"
+torch_analog = "gguf metadata dict"
+
+[[item]]
+path = "ferrotorch_serialize::GgufTensorInfo"
+kind = "struct"
+signature = "pub struct GgufTensorInfo"
+torch_analog = "gguf tensor descriptor"
+
+[[item]]
+path = "ferrotorch_serialize::GgufValue"
+kind = "enum"
+signature = "pub enum GgufValue"
+torch_analog = "gguf metadata value types"
+
+[[item]]
+path = "ferrotorch_serialize::dequantize_gguf_tensor"
+kind = "fn"
+signature = "pub fn dequantize_gguf_tensor(info: &GgufTensorInfo, data: &[u8]) -> FerrotorchResult<Vec<f32>>"
+torch_analog = "gguf dequantization"
+
+[[item]]
+path = "ferrotorch_serialize::load_gguf"
+kind = "fn"
+signature = "pub fn load_gguf(path) -> FerrotorchResult<GgufFile>"
+torch_analog = "gguf file loader"
+
+[[item]]
+path = "ferrotorch_serialize::load_gguf_mmap"
+kind = "fn"
+signature = "pub fn load_gguf_mmap(path) -> FerrotorchResult<GgufFile>"
+torch_analog = "gguf mmap loader"
+
+[[item]]
+path = "ferrotorch_serialize::load_gguf_state_dict"
+kind = "fn"
+signature = "pub fn load_gguf_state_dict(path) -> FerrotorchResult<StateDict<f32>>"
+torch_analog = "gguf → state dict"
+
+[[item]]
+path = "ferrotorch_serialize::load_gguf_state_dict_mmap"
+kind = "fn"
+signature = "pub fn load_gguf_state_dict_mmap(path) -> FerrotorchResult<StateDict<f32>>"
+torch_analog = "gguf → state dict (mmap)"
+
+[[item]]
+path = "ferrotorch_serialize::parse_gguf_bytes"
+kind = "fn"
+signature = "pub fn parse_gguf_bytes(bytes: &[u8]) -> FerrotorchResult<GgufFile>"
+torch_analog = "gguf bytes parser"
+
+# ── onnx_export ──────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_serialize::OnnxExportConfig"
+kind = "struct"
+signature = "pub struct OnnxExportConfig"
+torch_analog = "torch.onnx.export config"
+
+[[item]]
+path = "ferrotorch_serialize::export_onnx"
+kind = "fn"
+signature = "pub fn export_onnx<T: Float>(state, path, config) -> FerrotorchResult<()>"
+torch_analog = "torch.onnx.export"
+
+[[item]]
+path = "ferrotorch_serialize::export_from_program"
+kind = "fn"
+signature = "pub fn export_from_program(program, path, config) -> FerrotorchResult<()>"
+torch_analog = "torch.export + onnx"
+
+[[item]]
+path = "ferrotorch_serialize::export_ir_graph_to_onnx"
+kind = "fn"
+signature = "pub fn export_ir_graph_to_onnx(graph, path, config) -> FerrotorchResult<()>"
+torch_analog = "IR graph → onnx"
+
+[[item]]
+path = "ferrotorch_serialize::ir_graph_to_onnx"
+kind = "fn"
+signature = "pub fn ir_graph_to_onnx(graph, config) -> FerrotorchResult<Vec<u8>>"
+torch_analog = "IR graph → onnx bytes"
+
+# ── pytorch_export ───────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_serialize::save_pytorch"
+kind = "fn"
+signature = "pub fn save_pytorch<T: Float>(state: &StateDict<T>, path) -> FerrotorchResult<()>"
+torch_analog = "torch.save(state_dict, path)"
+
+[[item]]
+path = "ferrotorch_serialize::validate_checkpoint"
+kind = "fn"
+signature = "pub fn validate_checkpoint(path) -> FerrotorchResult<()>"
+torch_analog = "checkpoint CRC integrity check"
+
+# ── pytorch_import ───────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_serialize::PickleValue"
+kind = "enum"
+signature = "pub enum PickleValue { None, Bool, Int, Float, Bytes, String, Tuple, List, Dict, Global, Reduce, Build, PersistentLoad }"
+torch_analog = "Python pickle value tree"
+
+[[item]]
+path = "ferrotorch_serialize::load_pytorch_state_dict"
+kind = "fn"
+signature = "pub fn load_pytorch_state_dict<T: Float>(path) -> FerrotorchResult<StateDict<T>>"
+torch_analog = "torch.load(path)"
+
+[[item]]
+path = "ferrotorch_serialize::load_pytorch_state_dict_mmap"
+kind = "fn"
+signature = "pub fn load_pytorch_state_dict_mmap<T: Float>(path) -> FerrotorchResult<StateDict<T>>"
+torch_analog = "torch.load(path, mmap=True)"
+
+[[item]]
+path = "ferrotorch_serialize::parse_pickle"
+kind = "fn"
+signature = "pub fn parse_pickle(bytes: &[u8]) -> FerrotorchResult<PickleValue>"
+torch_analog = "pickle.loads(bytes)"
+
+# ── safetensors_io ───────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_serialize::ShardProgress"
+kind = "struct"
+signature = "pub struct ShardProgress"
+torch_analog = "sharded load progress"
+
+[[item]]
+path = "ferrotorch_serialize::save_safetensors"
+kind = "fn"
+signature = "pub fn save_safetensors<T: Float>(state: &StateDict<T>, path) -> FerrotorchResult<()>"
+torch_analog = "safetensors.save_file(tensors, path)"
+
+[[item]]
+path = "ferrotorch_serialize::load_safetensors"
+kind = "fn"
+signature = "pub fn load_safetensors<T: Float>(path) -> FerrotorchResult<StateDict<T>>"
+torch_analog = "safetensors.load_file(path)"
+
+[[item]]
+path = "ferrotorch_serialize::load_safetensors_mmap"
+kind = "fn"
+signature = "pub fn load_safetensors_mmap<T: Float>(path) -> FerrotorchResult<StateDict<T>>"
+torch_analog = "safe_open(path, framework='pt')"
+
+[[item]]
+path = "ferrotorch_serialize::load_safetensors_auto"
+kind = "fn"
+signature = "pub fn load_safetensors_auto<T: Float>(path) -> FerrotorchResult<StateDict<T>>"
+torch_analog = "auto-detect single vs sharded"
+
+[[item]]
+path = "ferrotorch_serialize::load_safetensors_sharded"
+kind = "fn"
+signature = "pub fn load_safetensors_sharded<T: Float>(index_path) -> FerrotorchResult<StateDict<T>>"
+torch_analog = "sharded safetensors load"
+
+[[item]]
+path = "ferrotorch_serialize::load_safetensors_sharded_mmap"
+kind = "fn"
+signature = "pub fn load_safetensors_sharded_mmap<T: Float>(index_path) -> FerrotorchResult<StateDict<T>>"
+torch_analog = "sharded safetensors mmap load"
+
+[[item]]
+path = "ferrotorch_serialize::load_safetensors_sharded_filtered"
+kind = "fn"
+signature = "pub fn load_safetensors_sharded_filtered<T: Float>(index_path, filter) -> FerrotorchResult<StateDict<T>>"
+torch_analog = "filtered sharded safetensors load"
+
+[[item]]
+path = "ferrotorch_serialize::load_safetensors_sharded_with_progress"
+kind = "fn"
+signature = "pub fn load_safetensors_sharded_with_progress<T: Float>(index_path, cb) -> FerrotorchResult<StateDict<T>>"
+torch_analog = "sharded safetensors load with progress callback"
+
+# ── state_dict ───────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_serialize::save_state_dict"
+kind = "fn"
+signature = "pub fn save_state_dict<T: Float>(state: &StateDict<T>, path) -> FerrotorchResult<()>"
+torch_analog = "torch.save(state_dict, path) — ferrotorch native format"
+
+[[item]]
+path = "ferrotorch_serialize::load_state_dict"
+kind = "fn"
+signature = "pub fn load_state_dict<T: Float>(path) -> FerrotorchResult<StateDict<T>>"
+torch_analog = "torch.load(path) — ferrotorch native format"
