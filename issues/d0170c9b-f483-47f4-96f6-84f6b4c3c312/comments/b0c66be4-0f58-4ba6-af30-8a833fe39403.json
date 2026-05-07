@@ -1,0 +1,10 @@
+{
+  "uuid": "b0c66be4-0f58-4ba6-af30-8a833fe39403",
+  "issue_uuid": "d0170c9b-f483-47f4-96f6-84f6b4c3c312",
+  "author": "y4rr",
+  "content": "Plan: Add conformance tests for Swin Transformer Tiny forward parity. Tests: output_shape (1,1000), finite outputs, param count range. Reference: torchvision.models.swin_t().",
+  "created_at": "2026-05-07T19:50:57.298021227Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABALDuF2v+4FC7hQYigWt5kkFe3RyCUc7D/3YvrNA8dimUJCzNK7dNoLhybzcssD2ed/pMXHWgXRIYY3LvRcHYpBg=="
+}
