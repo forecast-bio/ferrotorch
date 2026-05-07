@@ -2,11 +2,12 @@
   "uuid": "25a94a9f-6d3a-488e-85c7-1dec84537759",
   "display_id": 812,
   "title": "ferrotorch-core: flex_attention GPU non-contiguous narrow view feeding add — surfaced by phase 2.11 (#773)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-06T18:20:52.085780999Z",
-  "updated_at": "2026-05-06T18:20:53.483881937Z",
+  "updated_at": "2026-05-07T01:49:51.023033292Z",
+  "closed_at": "2026-05-07T01:49:51.023033292Z",
   "labels": [
     "rust,gpu,bug,conformance"
   ]
