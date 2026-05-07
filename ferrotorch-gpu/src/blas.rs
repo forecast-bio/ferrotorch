@@ -2316,6 +2316,178 @@ pub fn gpu_matmul_bf16(
 }
 
 // ---------------------------------------------------------------------------
+// BF16 mixed-precision batched matmul via cublasGemmStridedBatchedEx
+// ---------------------------------------------------------------------------
+
+/// Batched `C[i] = A[i] @ B[i]` with bf16 Tensor Core acceleration.
+///
+/// Takes f32 inputs, converts to bf16 on-device via the `f32_to_bf16_kernel`
+/// PTX (round-to-nearest-even), then executes `cublasGemmStridedBatchedEx`
+/// with `CUDA_R_16BF` operands and `CUBLAS_COMPUTE_32F` accumulation.
+/// Returns f32 output — matching PyTorch's `torch.bmm(a.bfloat16(), b.bfloat16())`
+/// on CUDA under `torch.autocast`.
+///
+/// BF16 has the same exponent range as f32 (8-bit exponent), so it handles
+/// large weight values without overflow, unlike f16. Mantissa precision is
+/// ~3 decimal digits (7 mantissa bits vs. 10 for f16 / 23 for f32).
+///
+/// `a` is `[batch, m, k]` row-major, `b` is `[batch, k, n]` row-major.
+/// Returns `[batch, m, n]` row-major as f32.
+///
+/// # Errors
+///
+/// - [`GpuError::ShapeMismatch`] if buffer lengths don't match dimensions.
+/// - [`GpuError::PtxCompileFailed`] if the on-device bf16 conversion kernel
+///   cannot be compiled.
+/// - [`GpuError::Blas`] on cuBLAS errors (e.g., Volta- GPU lacks CUDA_R_16BF
+///   support; returns `CUBLAS_STATUS_NOT_SUPPORTED` as `GpuError::Blas`).
+/// - [`GpuError::Driver`] on CUDA driver errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_bmm_bf16(
+    a: &CudaBuffer<f32>,
+    b: &CudaBuffer<f32>,
+    batch: usize,
+    m: usize,
+    k: usize,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use core::ffi::c_void;
+    use cudarc::cublas::{result as cublas_result, sys as cublas_sys};
+    use cudarc::driver::{DevicePtr, DevicePtrMut};
+
+    if batch == 0 || m == 0 || k == 0 || n == 0 {
+        return alloc_zeros_f32(batch * m * n, device);
+    }
+    if a.len() != batch * m * k {
+        return Err(GpuError::ShapeMismatch {
+            op: "bmm_bf16",
+            expected: vec![batch, m, k],
+            got: vec![a.len()],
+        });
+    }
+    if b.len() != batch * k * n {
+        return Err(GpuError::ShapeMismatch {
+            op: "bmm_bf16",
+            expected: vec![batch, k, n],
+            got: vec![b.len()],
+        });
+    }
+
+    let m_i32 = i32::try_from(m).map_err(|_| GpuError::ShapeMismatch {
+        op: "bmm_bf16",
+        expected: vec![i32::MAX as usize],
+        got: vec![m],
+    })?;
+    let k_i32 = i32::try_from(k).map_err(|_| GpuError::ShapeMismatch {
+        op: "bmm_bf16",
+        expected: vec![i32::MAX as usize],
+        got: vec![k],
+    })?;
+    let n_i32 = i32::try_from(n).map_err(|_| GpuError::ShapeMismatch {
+        op: "bmm_bf16",
+        expected: vec![i32::MAX as usize],
+        got: vec![n],
+    })?;
+
+    // Convert f32 inputs to bf16 on-device (round-to-nearest-even).
+    // `gpu_f32_to_bf16` returns a `CudaSlice<u16>` where each u16 holds
+    // the bf16 bit pattern (top 16 bits of the f32 with RNE rounding).
+    let a_bf16 = crate::kernels::gpu_f32_to_bf16(a, device)?;
+    let b_bf16 = crate::kernels::gpu_f32_to_bf16(b, device)?;
+
+    let mut c = alloc_zeros_f32(batch * m * n, device)?;
+
+    let alpha: f32 = 1.0;
+    let beta: f32 = 0.0;
+    let blas = device.blas();
+    let stream = device.stream();
+
+    {
+        let (a_ptr, _ra) = a_bf16.device_ptr(&stream);
+        let (b_ptr, _rb) = b_bf16.device_ptr(&stream);
+        let (c_ptr, _rc) = c.inner_mut().device_ptr_mut(&stream);
+
+        // Row-major trick (same as gpu_bmm_f16): swap A/B and their leading dims
+        // so the column-major cuBLAS computation produces row-major output.
+        // BF16 strides are in u16 elements (2 bytes each, vs. 4 for f32).
+        let stride_a_bf16 = (k * n) as i64; // B batch stride in u16 elements
+        let stride_b_bf16 = (m * k) as i64; // A batch stride in u16 elements
+        let stride_c = (m * n) as i64;      // C batch stride in f32 elements
+
+        // SAFETY:
+        // - `cublas_result::gemm_strided_batched_ex` is the unsafe FFI shim
+        //   around `cublasGemmStridedBatchedEx` (NVIDIA cuBLAS API). All
+        //   driver preconditions apply.
+        // - Handle: `*blas.handle()` is a valid `cublasHandle_t` from
+        //   `device.blas()`, bound to `device`'s stream by `GpuDevice::new`.
+        // - Device pointers (`a_ptr`, `b_ptr`, `c_ptr`) from
+        //   `device_ptr`/`device_ptr_mut` above. The `_ra`/`_rb`/`_rc`
+        //   `SyncOnDrop` records remain alive in this block and record
+        //   completion events when dropped, ordering the GEMM correctly.
+        // - Operand types: `a_bf16`/`b_bf16` are `CudaSlice<u16>` from
+        //   `gpu_f32_to_bf16`, sized `batch*m*k` and `batch*k*n` u16s
+        //   (each u16 = bf16 bit pattern). `c` is `batch*m*n` f32 zeros.
+        //   dtype enums: A/B = CUDA_R_16BF, C = CUDA_R_32F.
+        // - Per-batch strides: `stride_a_bf16 = k*n` (cuBLAS "A" = our B
+        //   under the row-major trick, batch stride = k*n u16 elements);
+        //   `stride_b_bf16 = m*k` (cuBLAS "B" = our A, stride = m*k u16);
+        //   `stride_c = m*n` (f32 elements). For `batch` elements, total
+        //   accesses are `batch*(k*n)` for A and `batch*(m*k)` for B —
+        //   both match their allocations.
+        // - Compute: `CUBLAS_COMPUTE_32F` accumulates in f32 then rounds
+        //   to f32 output; supported on Ampere+ tensor cores.
+        // - alpha/beta: host f32 locals; cuBLAS default pointer mode is host.
+        // - Dimensions: `m_i32`, `k_i32`, `n_i32` from `i32::try_from` guards.
+        // - Aliasing: `a` and `b` are distinct shared refs; `c` is freshly
+        //   allocated and held exclusively. No overlap.
+        unsafe {
+            cublas_result::gemm_strided_batched_ex(
+                *blas.handle(),
+                cublas_sys::cublasOperation_t::CUBLAS_OP_N,
+                cublas_sys::cublasOperation_t::CUBLAS_OP_N,
+                n_i32,
+                m_i32,
+                k_i32,
+                (&alpha) as *const f32 as *const c_void,
+                b_ptr as *const c_void,
+                cublas_sys::cudaDataType_t::CUDA_R_16BF,
+                n_i32,
+                stride_a_bf16,
+                a_ptr as *const c_void,
+                cublas_sys::cudaDataType_t::CUDA_R_16BF,
+                k_i32,
+                stride_b_bf16,
+                (&beta) as *const f32 as *const c_void,
+                c_ptr as *mut c_void,
+                cublas_sys::cudaDataType_t::CUDA_R_32F,
+                n_i32,
+                stride_c,
+                batch as i32,
+                cublas_sys::cublasComputeType_t::CUBLAS_COMPUTE_32F,
+                cublas_sys::cublasGemmAlgo_t::CUBLAS_GEMM_DEFAULT,
+            )?;
+        }
+    }
+
+    Ok(c)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_bmm_bf16(
+    _a: &CudaBuffer<f32>,
+    _b: &CudaBuffer<f32>,
+    _batch: usize,
+    _m: usize,
+    _k: usize,
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+// ---------------------------------------------------------------------------
 // BF16 storage matmul via cublasGemmEx
 // ---------------------------------------------------------------------------
 

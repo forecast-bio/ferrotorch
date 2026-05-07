@@ -825,6 +825,75 @@ pub trait GpuBackend: Send + Sync {
         })
     }
 
+    // -- bf16 × f32-accumulator mixed-precision kernels (#518) ---------------
+    //
+    // PyTorch parity (rust-gpu-discipline §3): under `torch.autocast(device_type
+    // ="cuda", dtype=torch.bfloat16)`, `torch.matmul`, `torch.bmm`, and
+    // `torch.softmax` on CUDA tensors use bf16 inputs with f32 accumulation via
+    // cuBLAS GemmEx (CUDA_R_16BF / CUBLAS_COMPUTE_32F).
+    //
+    // Default impls return `Err` so existing backends compile unchanged. The
+    // CUDA backend overrides these three methods with real cuBLAS / PTX kernels.
+    // There is NO silent CPU fallback (§3 hard requirement).
+
+    /// Matrix multiply: bf16 inputs (f32-buffers converted to bf16 on-device)
+    /// → f32 output via cuBLAS GemmEx (CUDA_R_16BF / CUBLAS_COMPUTE_32F).
+    ///
+    /// Signature mirrors [`Self::matmul_f16_f32`]; dtype is bf16 instead of f16.
+    /// bf16 has a wider exponent range than f16 (same 8-bit exponent as f32),
+    /// making it more robust to large weight values typical in transformers.
+    fn matmul_bf16_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+        _m: usize,
+        _k: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "matmul_bf16_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// Batched matrix multiply: bf16 inputs → f32 output.
+    ///
+    /// `a` is `[batch, m, k]`, `b` is `[batch, k, n]`, result is `[batch, m, n]`.
+    /// All tensors are passed as f32 handles; inputs are converted to bf16
+    /// on-device before the cuBLAS GemmStridedBatchedEx call.
+    fn bmm_bf16_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+        _batch: usize,
+        _m: usize,
+        _k: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "bmm_bf16_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// Row-wise softmax: bf16 input (stored as `u16` bit-pattern buffer) →
+    /// f32 output via PTX kernel with f32 accumulator.
+    ///
+    /// `rows` = product of all dims except the last; `cols` = last dim size.
+    /// The input handle must contain a `CudaSlice<u16>` (bf16 bit patterns);
+    /// the output is a `CudaBuffer<f32>` of the same shape.
+    ///
+    /// All phases (max-find, exp-sum, normalize) accumulate in f32 for
+    /// numerical stability — matches PyTorch's bf16 softmax contract.
+    fn softmax_bf16_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _rows: usize,
+        _cols: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "softmax_bf16_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
     // GELU activation f32 (sigmoid approximation)
     fn gelu_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
     fn gelu_f64(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
@@ -2207,6 +2276,92 @@ pub trait GpuBackend: Send + Sync {
     ) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument {
             message: "irfft_c2r_f64 GPU op not yet implemented".into(),
+        })
+    }
+
+    /// Hermitian FFT: `hfft(x, n) = irfft(conj(x), n)` on GPU via cuFFT. (#636)
+    ///
+    /// Input `[batch, half_in, 2]` complex; output `[batch * n_out]` real.
+    /// `half_in` must equal `n_out / 2 + 1`.
+    fn hfft_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _batch: usize,
+        _half_in: usize,
+        _n_out: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "hfft_f32 GPU op not yet implemented".into(),
+        })
+    }
+
+    /// f64 Hermitian FFT counterpart. (#636)
+    fn hfft_f64(
+        &self,
+        _a: &GpuBufferHandle,
+        _batch: usize,
+        _half_in: usize,
+        _n_out: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "hfft_f64 GPU op not yet implemented".into(),
+        })
+    }
+
+    /// Inverse Hermitian FFT: `ihfft(x) = conj(rfft(x)) / n` on GPU. (#636)
+    ///
+    /// Input `[batch * n]` real; output `[batch, n/2+1, 2]` complex.
+    fn ihfft_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _batch: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "ihfft_f32 GPU op not yet implemented".into(),
+        })
+    }
+
+    /// f64 inverse Hermitian FFT counterpart. (#636)
+    fn ihfft_f64(
+        &self,
+        _a: &GpuBufferHandle,
+        _batch: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "ihfft_f64 GPU op not yet implemented".into(),
+        })
+    }
+
+    /// 3-D complex-to-complex FFT via `cufftPlan3d`. (#636)
+    ///
+    /// Input/output layout `[d, h, w, 2]` interleaved complex.
+    /// `inverse=true` divides by `d*h*w`.
+    fn fftn3d_c2c_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _d: usize,
+        _h: usize,
+        _w: usize,
+        _inverse: bool,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "fftn3d_c2c_f32 GPU op not yet implemented".into(),
+        })
+    }
+
+    /// f64 3-D FFT counterpart. (#636)
+    fn fftn3d_c2c_f64(
+        &self,
+        _a: &GpuBufferHandle,
+        _d: usize,
+        _h: usize,
+        _w: usize,
+        _inverse: bool,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "fftn3d_c2c_f64 GPU op not yet implemented".into(),
         })
     }
 

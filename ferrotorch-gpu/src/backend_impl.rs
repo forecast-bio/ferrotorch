@@ -313,8 +313,47 @@ impl GpuBackend for CudaBackendImpl {
                 let buf = crate::transfer::cpu_to_gpu(f64_data, dev).map_err(Self::map_gpu_err)?;
                 Ok(Self::wrap_buffer_f64(buf, device))
             }
+            2 => {
+                // elem_size == 2: bf16 bit patterns stored as u16.
+                // Used by softmax_bf16_f32: caller passes a `&[u8]` view of a
+                // `Vec<u16>` (bf16 bit-patterns); we upload to a `CudaSlice<u16>`
+                // on-device and box it directly into a GpuBufferHandle (not a
+                // CudaBuffer<T> wrapper) so `softmax_bf16_f32` can downcast to
+                // `CudaSlice<u16>`.
+                //
+                // clone_htod requires `&Vec<T: DeviceRepr>` (cudarc 0.19 API);
+                // `u16` satisfies DeviceRepr. We reinterpret the `&[u8]` bytes
+                // as a `Vec<u16>` by reading pairs of bytes. `bytemuck::cast_slice`
+                // is not available here, so we reinterpret via from_raw_parts
+                // then collect into a Vec so the &Vec reference is valid for
+                // clone_htod's lifetime requirement.
+                let count = data.len() / 2;
+                // SAFETY:
+                // - Caller guarantees `data` is the byte view of a `Vec<u16>`
+                //   with `data.len() == count * 2`.
+                // - u16 has size 2 and align 2. The source `Vec<u16>` allocation
+                //   is 2-byte-aligned; `data.as_ptr()` inherits that alignment.
+                // - `slice::from_raw_parts` reads exactly `count * 2 == data.len()`
+                //   bytes — no overrun.
+                // - The `&[u16]` is immediately `.to_vec()`'d into an owned
+                //   `Vec<u16>` before `data` is touched again; no aliasing.
+                // - No `&mut` aliases: `data: &[u8]` is a shared borrow throughout.
+                let u16_vec: Vec<u16> = unsafe {
+                    let slice =
+                        std::slice::from_raw_parts(data.as_ptr() as *const u16, count);
+                    slice.to_vec()
+                };
+                let slice = dev
+                    .stream()
+                    .clone_htod(&u16_vec)
+                    .map_err(|e| Self::map_gpu_err(crate::error::GpuError::Driver(e)))?;
+                let len = slice.len();
+                Ok(GpuBufferHandle::new(Box::new(slice), device, len))
+            }
             other => Err(FerrotorchError::InvalidArgument {
-                message: format!("cpu_to_gpu: unsupported elem_size {other} (expected 4 or 8)"),
+                message: format!(
+                    "cpu_to_gpu: unsupported elem_size {other} (expected 2, 4, or 8)"
+                ),
             }),
         }
     }
@@ -2207,6 +2246,60 @@ impl GpuBackend for CudaBackendImpl {
         Ok(Self::wrap_buffer(result, a.device_ordinal()))
     }
 
+    // -- bf16 mixed-precision (#518) -----------------------------------------
+
+    fn matmul_bf16_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let b_buf = Self::unwrap_buffer(b)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::blas::gpu_matmul_bf16(a_buf, b_buf, m, k, n, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn bmm_bf16_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b: &GpuBufferHandle,
+        batch: usize,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let b_buf = Self::unwrap_buffer(b)?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::blas::gpu_bmm_bf16(a_buf, b_buf, batch, m, k, n, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
+    fn softmax_bf16_f32(
+        &self,
+        a: &GpuBufferHandle,
+        rows: usize,
+        cols: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        // The bf16 softmax handle carries a CudaSlice<u16> (bf16 bit patterns).
+        let buf = a
+            .downcast_ref::<cudarc::driver::CudaSlice<u16>>()
+            .ok_or(FerrotorchError::InvalidArgument {
+                message: "softmax_bf16_f32: GPU handle does not contain a CudaSlice<u16> (bf16)"
+                    .into(),
+            })?;
+        let dev = self.device(a.device_ordinal())?;
+        let result = crate::kernels::gpu_softmax_bf16_f32(buf, rows, cols, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, a.device_ordinal()))
+    }
+
     fn gelu_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
         let a_buf = Self::unwrap_buffer(a)?;
         let dev = self.device(a.device_ordinal())?;
@@ -3414,6 +3507,94 @@ impl GpuBackend for CudaBackendImpl {
         let dev = self.device(a.device_ordinal())?;
         let out =
             crate::cufft::gpu_irfft_c2r_f64(a_buf, batch, n_out, dev).map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer_f64(out, a.device_ordinal()))
+    }
+
+    // -- Hermitian FFT (hfft / ihfft) (#636) ---------------------------------
+
+    fn hfft_f32(
+        &self,
+        a: &GpuBufferHandle,
+        batch: usize,
+        half_in: usize,
+        n_out: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let out = crate::cufft::gpu_hfft_f32(a_buf, batch, half_in, n_out, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(out, a.device_ordinal()))
+    }
+
+    fn hfft_f64(
+        &self,
+        a: &GpuBufferHandle,
+        batch: usize,
+        half_in: usize,
+        n_out: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer_f64(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let out = crate::cufft::gpu_hfft_f64(a_buf, batch, half_in, n_out, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer_f64(out, a.device_ordinal()))
+    }
+
+    fn ihfft_f32(
+        &self,
+        a: &GpuBufferHandle,
+        batch: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let out =
+            crate::cufft::gpu_ihfft_f32(a_buf, batch, n, dev).map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(out, a.device_ordinal()))
+    }
+
+    fn ihfft_f64(
+        &self,
+        a: &GpuBufferHandle,
+        batch: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer_f64(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let out =
+            crate::cufft::gpu_ihfft_f64(a_buf, batch, n, dev).map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer_f64(out, a.device_ordinal()))
+    }
+
+    // -- N-D FFT 3-D (fftn / ifftn via cufftPlan3d) (#636) ------------------
+
+    fn fftn3d_c2c_f32(
+        &self,
+        a: &GpuBufferHandle,
+        d: usize,
+        h: usize,
+        w: usize,
+        inverse: bool,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let out = crate::cufft::gpu_fftn3d_c2c_f32(a_buf, d, h, w, inverse, dev)
+            .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(out, a.device_ordinal()))
+    }
+
+    fn fftn3d_c2c_f64(
+        &self,
+        a: &GpuBufferHandle,
+        d: usize,
+        h: usize,
+        w: usize,
+        inverse: bool,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer_f64(a)?;
+        let dev = self.device(a.device_ordinal())?;
+        let out = crate::cufft::gpu_fftn3d_c2c_f64(a_buf, d, h, w, inverse, dev)
+            .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer_f64(out, a.device_ordinal()))
     }
 

@@ -9014,6 +9014,205 @@ DONE:\n\
 ";
 
 // ---------------------------------------------------------------------------
+// Softmax bf16->f32 PTX kernel
+// ---------------------------------------------------------------------------
+//
+// Row-wise numerically stable softmax:
+//   input:  [rows, cols] bf16 elements stored as u16 (2 bytes each)
+//   output: [rows, cols] f32 elements (4 bytes each)
+//
+// Each thread block handles one row. All accumulation is in f32 to match
+// PyTorch's torch.softmax(x.bfloat16()) -> f32 under autocast. The three
+// phases mirror the f32 softmax kernel structure:
+//   1. Load bf16 via ld.global.u16 + mov.b32 zero-extend + cvt.f32.bf16,
+//      find per-thread max in f32, then tree-reduce over shared f32 sdata.
+//   2. Compute exp(val - max) in f32 (ex2.approx.f32 after * log2e),
+//      store f32 intermediates to f32 output, sum partial sums,
+//      tree-reduce sum over shared sdata.
+//   3. Normalize: multiply stored f32 values by 1/sum_val.
+//
+// Shared memory: sdata[256] f32 (1024 bytes per block).
+// Launch: grid=(rows,1,1), block=(256,1,1).
+// Input stride: 2 bytes per element (u16/bf16).
+// Output stride: 4 bytes per element (f32).
+
+#[cfg(feature = "cuda")]
+pub(crate) const SOFTMAX_BF16_F32_PTX: &str = "\
+.version 7.0\n\
+.target sm_52\n\
+.address_size 64\n\
+\n\
+.shared .align 4 .f32 sdata_bf16sm[256];\n\
+\n\
+.visible .entry softmax_bf16_f32_kernel(\n\
+    .param .u64 input_ptr,\n\
+    .param .u64 output_ptr,\n\
+    .param .u32 rows,\n\
+    .param .u32 cols\n\
+) {\n\
+    .reg .u32 %r_tid, %bid, %bdim, %rows_reg, %cols_reg, %j;\n\
+    .reg .u64 %in, %out, %row_off_in, %row_off_out, %off, %sbase, %saddr;\n\
+    .reg .u16 %bf16_raw;\n\
+    .reg .u32 %bf16_bits;\n\
+    .reg .f32 %val, %max_val, %sum_val, %exp_val, %result;\n\
+    .reg .pred %p, %loop_p;\n\
+    .reg .u32 %half, %other_tid;\n\
+    .reg .f32 %other_val;\n\
+    .reg .pred %reduce_p;\n\
+\n\
+    ld.param.u64 %in, [input_ptr];\n\
+    ld.param.u64 %out, [output_ptr];\n\
+    ld.param.u32 %rows_reg, [rows];\n\
+    ld.param.u32 %cols_reg, [cols];\n\
+\n\
+    mov.u32 %bid, %ctaid.x;\n\
+    mov.u32 %bdim, %ntid.x;\n\
+    mov.u32 %r_tid, %tid.x;\n\
+    mov.u64 %sbase, sdata_bf16sm;\n\
+\n\
+    setp.ge.u32 %p, %bid, %rows_reg;\n\
+    @%p bra DONE;\n\
+\n\
+    cvt.u64.u32 %row_off_in, %bid;\n\
+    cvt.u64.u32 %off, %cols_reg;\n\
+    mul.lo.u64 %row_off_in, %row_off_in, %off;\n\
+    shl.b64 %row_off_in, %row_off_in, 1;\n\
+\n\
+    cvt.u64.u32 %row_off_out, %bid;\n\
+    mul.lo.u64 %row_off_out, %row_off_out, %off;\n\
+    shl.b64 %row_off_out, %row_off_out, 2;\n\
+\n\
+    mov.f32 %max_val, 0fFF800000;\n\
+    mov.u32 %j, %r_tid;\n\
+FIND_MAX_BF16:\n\
+    setp.ge.u32 %loop_p, %j, %cols_reg;\n\
+    @%loop_p bra FIND_MAX_BF16_DONE;\n\
+    cvt.u64.u32 %off, %j;\n\
+    shl.b64 %off, %off, 1;\n\
+    add.u64 %off, %in, %off;\n\
+    add.u64 %off, %off, %row_off_in;\n\
+    ld.global.u16 %bf16_raw, [%off];\n\
+    mov.b32 %bf16_bits, 0;\n\
+    cvt.u32.u16 %bf16_bits, %bf16_raw;\n\
+    shl.b32 %bf16_bits, %bf16_bits, 16;\n\
+    mov.b32 %val, %bf16_bits;\n\
+    max.f32 %max_val, %max_val, %val;\n\
+    add.u32 %j, %j, %bdim;\n\
+    bra FIND_MAX_BF16;\n\
+FIND_MAX_BF16_DONE:\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %saddr, %sbase, %off;\n\
+    st.shared.f32 [%saddr], %max_val;\n\
+    bar.sync 0;\n\
+\n\
+    mov.u32 %half, %bdim;\n\
+MAX_REDUCE_BF16:\n\
+    shr.u32 %half, %half, 1;\n\
+    setp.eq.u32 %reduce_p, %half, 0;\n\
+    @%reduce_p bra MAX_REDUCE_BF16_DONE;\n\
+    setp.ge.u32 %reduce_p, %r_tid, %half;\n\
+    @%reduce_p bra MAX_REDUCE_BF16_SKIP;\n\
+    add.u32 %other_tid, %r_tid, %half;\n\
+    cvt.u64.u32 %off, %other_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %saddr, %sbase, %off;\n\
+    ld.shared.f32 %other_val, [%saddr];\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %saddr, %sbase, %off;\n\
+    ld.shared.f32 %max_val, [%saddr];\n\
+    max.f32 %max_val, %max_val, %other_val;\n\
+    st.shared.f32 [%saddr], %max_val;\n\
+MAX_REDUCE_BF16_SKIP:\n\
+    bar.sync 0;\n\
+    bra MAX_REDUCE_BF16;\n\
+MAX_REDUCE_BF16_DONE:\n\
+\n\
+    ld.shared.f32 %max_val, [sdata_bf16sm];\n\
+    bar.sync 0;\n\
+\n\
+    mov.f32 %sum_val, 0f00000000;\n\
+    mov.u32 %j, %r_tid;\n\
+SUM_EXP_BF16:\n\
+    setp.ge.u32 %loop_p, %j, %cols_reg;\n\
+    @%loop_p bra SUM_EXP_BF16_DONE;\n\
+    cvt.u64.u32 %off, %j;\n\
+    shl.b64 %off, %off, 1;\n\
+    add.u64 %off, %in, %off;\n\
+    add.u64 %off, %off, %row_off_in;\n\
+    ld.global.u16 %bf16_raw, [%off];\n\
+    cvt.u32.u16 %bf16_bits, %bf16_raw;\n\
+    shl.b32 %bf16_bits, %bf16_bits, 16;\n\
+    mov.b32 %val, %bf16_bits;\n\
+    sub.f32 %val, %val, %max_val;\n\
+    mul.f32 %val, %val, 0f3FB8AA3B;\n\
+    ex2.approx.f32 %exp_val, %val;\n\
+    add.f32 %sum_val, %sum_val, %exp_val;\n\
+    cvt.u64.u32 %off, %j;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %off, %out, %off;\n\
+    add.u64 %off, %off, %row_off_out;\n\
+    st.global.f32 [%off], %exp_val;\n\
+    add.u32 %j, %j, %bdim;\n\
+    bra SUM_EXP_BF16;\n\
+SUM_EXP_BF16_DONE:\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %saddr, %sbase, %off;\n\
+    st.shared.f32 [%saddr], %sum_val;\n\
+    bar.sync 0;\n\
+\n\
+    mov.u32 %half, %bdim;\n\
+SUM_REDUCE_BF16:\n\
+    shr.u32 %half, %half, 1;\n\
+    setp.eq.u32 %reduce_p, %half, 0;\n\
+    @%reduce_p bra SUM_REDUCE_BF16_DONE;\n\
+    setp.ge.u32 %reduce_p, %r_tid, %half;\n\
+    @%reduce_p bra SUM_REDUCE_BF16_SKIP;\n\
+    add.u32 %other_tid, %r_tid, %half;\n\
+    cvt.u64.u32 %off, %other_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %saddr, %sbase, %off;\n\
+    ld.shared.f32 %other_val, [%saddr];\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %saddr, %sbase, %off;\n\
+    ld.shared.f32 %sum_val, [%saddr];\n\
+    add.f32 %sum_val, %sum_val, %other_val;\n\
+    st.shared.f32 [%saddr], %sum_val;\n\
+SUM_REDUCE_BF16_SKIP:\n\
+    bar.sync 0;\n\
+    bra SUM_REDUCE_BF16;\n\
+SUM_REDUCE_BF16_DONE:\n\
+\n\
+    ld.shared.f32 %sum_val, [sdata_bf16sm];\n\
+    bar.sync 0;\n\
+\n\
+    rcp.approx.f32 %sum_val, %sum_val;\n\
+    mov.u32 %j, %r_tid;\n\
+NORMALIZE_BF16:\n\
+    setp.ge.u32 %loop_p, %j, %cols_reg;\n\
+    @%loop_p bra NORMALIZE_BF16_DONE;\n\
+    cvt.u64.u32 %off, %j;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %off, %out, %off;\n\
+    add.u64 %off, %off, %row_off_out;\n\
+    ld.global.f32 %val, [%off];\n\
+    mul.f32 %result, %val, %sum_val;\n\
+    st.global.f32 [%off], %result;\n\
+    add.u32 %j, %j, %bdim;\n\
+    bra NORMALIZE_BF16;\n\
+NORMALIZE_BF16_DONE:\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+// ---------------------------------------------------------------------------
 // Dropout PTX kernel (inverted dropout with xorshift RNG)
 // ---------------------------------------------------------------------------
 
@@ -23889,6 +24088,114 @@ pub fn gpu_softmax_f64(
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// Public API -- bf16->f32 mixed-precision softmax
+// ---------------------------------------------------------------------------
+
+/// Row-wise numerically stable softmax for bf16 input → f32 output on GPU.
+///
+/// Reads `[rows, cols]` bf16 values (stored as `u16` bit patterns in a
+/// `CudaSlice<u16>`) and writes `[rows, cols]` f32 values. All internal
+/// accumulation (max, sum-of-exp, normalization) is done in f32 — this matches
+/// `torch.softmax(x.bfloat16())` under `torch.autocast` on CUDA.
+///
+/// Numerical stability: each row subtracts `row_max` before computing
+/// `exp(val - row_max)` in f32, so the result is finite for any finite input.
+///
+/// # Errors
+///
+/// - [`GpuError::PtxCompileFailed`] if the bf16 softmax PTX kernel cannot be
+///   compiled on this device (requires sm_52+).
+/// - [`GpuError::Driver`] on CUDA launch errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_softmax_bf16_f32(
+    input: &cudarc::driver::CudaSlice<u16>,
+    rows: usize,
+    cols: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    // Zero-element short-circuit.
+    if rows == 0 || cols == 0 {
+        return alloc_zeros_f32(rows * cols, device);
+    }
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        SOFTMAX_BF16_F32_PTX,
+        "softmax_bf16_f32_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "softmax_bf16_f32_kernel",
+                source: e,
+            });
+        }
+    };
+
+    let mut out = alloc_zeros_f32(rows * cols, device)?;
+    let rows_u32 = rows as u32;
+    let cols_u32 = cols as u32;
+
+    // One block per row, 256 threads per block.
+    let cfg = LaunchConfig {
+        grid_dim: ((rows as u32).max(1), 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 256 * 4, // sdata_bf16sm[256] f32 -- 1024 bytes
+    };
+
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `softmax_bf16_f32_kernel`
+    //   resolved by `module_cache::get_or_compile` in the `match` above
+    //   (returns `PtxCompileFailed` on Err); its `(in_ptr, out_ptr, rows,
+    //   cols)` ABI matches `SOFTMAX_BF16_F32_PTX`.
+    // - `input: &CudaSlice<u16>` carries `rows * cols` bf16 values (2 bytes
+    //   each). The caller is contracted to size it to `rows * cols` elements.
+    //   The `rows == 0 || cols == 0` early-return above ensures the launch
+    //   only fires when there is work.
+    // - `out: &mut CudaBuffer<f32>` was alloc'd via
+    //   `alloc_zeros_f32(rows * cols, device)?`; the `&mut` borrow precludes
+    //   aliasing `input`. Each output element is written exactly once per row
+    //   in the NORMALIZE_BF16 phase.
+    // - Grid `(rows, 1, 1)` x block `(256, 1, 1)`: one block per row reads
+    //   `input[row*cols .. row*cols+cols]` (two passes: FIND_MAX_BF16 then
+    //   SUM_EXP_BF16) and writes `out[row*cols .. row*cols+cols]`. Every
+    //   access is in `[0, rows*cols)`.
+    // - Shared memory: `256 * 4 = 1024 bytes` for `sdata_bf16sm[256]` f32,
+    //   matching the kernel's `.shared .align 4 .f32 sdata_bf16sm[256]`.
+    // - `rows_u32`, `cols_u32` cannot truncate: grid dim is u32-typed and
+    //   caller contract bounds the product. The `rows as u32` in `grid_dim`
+    //   already performs the same cast; overflow yields a launch error via `?`.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input)
+            .arg(out.inner_mut())
+            .arg(&rows_u32)
+            .arg(&cols_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_softmax_bf16_f32(
+    _input: &(),
+    _rows: usize,
+    _cols: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
 /// Row-wise softmax backward for f64 on GPU.
 ///
 /// For each row: `out[j] = output[j] * (grad[j] - dot(grad_row, output_row))`.
@@ -24787,6 +25094,202 @@ pub fn gpu_logcumsumexp_f64(
     _outer: usize,
     _dim_size: usize,
     _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+// ---------------------------------------------------------------------------
+// Complex conjugate kernel -- negate imaginary parts in-place (#636)
+// ---------------------------------------------------------------------------
+//
+// Used by hfft (conj before irfft) and ihfft (conj after rfft).
+// Layout: [n_pairs * 2] interleaved (re, im) f32 or f64.
+// Thread i handles complex pair i: negates buf[2*i+1].
+
+/// PTX for `conj_kernel`: for each complex pair at index `i`, negate the
+/// imaginary element `buf[2*i + 1] = -buf[2*i + 1]`.
+#[cfg(feature = "cuda")]
+pub(crate) const CONJ_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry conj_kernel(
+    .param .u64 buf_ptr,
+    .param .u32 n_pairs
+) {
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;
+    .reg .u64 %buf, %off;
+    .reg .f32 %vim;
+    .reg .pred %p;
+
+    ld.param.u64 %buf, [buf_ptr];
+    ld.param.u32 %n_reg, [n_pairs];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %n_reg;
+    @%p bra DONE;
+
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 1;
+    add.u64 %off, %off, 1;
+    shl.b64 %off, %off, 2;
+
+    add.u64 %buf, %buf, %off;
+    ld.global.f32 %vim, [%buf];
+    neg.f32 %vim, %vim;
+    st.global.f32 [%buf], %vim;
+
+DONE:
+    ret;
+}
+";
+
+/// In-place complex conjugate for an f32 interleaved buffer.
+/// Negates every imaginary part: `buf[2*i+1] = -buf[2*i+1]` for all `i`.
+/// Returns the buffer (modified in-place, returned for call-chain ergonomics).
+#[cfg(feature = "cuda")]
+pub fn gpu_conj_f32(
+    mut buf: CudaBuffer<f32>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    if buf.len() % 2 != 0 {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_conj_f32",
+            expected: vec![2],
+            got: vec![buf.len() % 2],
+        });
+    }
+    let n_pairs = buf.len() / 2;
+    if n_pairs == 0 {
+        return Ok(buf);
+    }
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        CONJ_PTX,
+        "conj_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "conj_kernel",
+                source: e,
+            });
+        }
+    };
+
+    let cfg = launch_cfg(n_pairs)?;
+    let n_pairs_u32 = n_pairs as u32;
+
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via
+    //   `module_cache::get_or_compile(ctx, CONJ_PTX, "conj_kernel", ...)`.
+    //   ABI is `(buf_ptr: *mut f32, n_pairs: u32)`.
+    // - `buf` has length `n_pairs * 2` (len % 2 == 0, n_pairs > 0, verified
+    //   above). Thread `i in [0, n_pairs)` computes byte offset
+    //   `(2*i+1)*4` from base; maximum `(2*(n_pairs-1)+1)*4 =
+    //   (2*n_pairs-1)*4 < n_pairs*2*4 = buf.len()*4`. All accesses
+    //   in-bounds.
+    // - Single-buffer read-modify-write; no aliasing with other buffers.
+    // - `n_pairs_u32` bounded by `launch_cfg(n_pairs)?`.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(buf.inner_mut())
+            .arg(&n_pairs_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(buf)
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_conj_f32(
+    _buf: CudaBuffer<f32>,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// In-place complex conjugate for an f64 interleaved buffer.
+/// Negates every imaginary part: `buf[2*i+1] = -buf[2*i+1]` for all `i`.
+#[cfg(feature = "cuda")]
+pub fn gpu_conj_f64(
+    mut buf: CudaBuffer<f64>,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    use cudarc::driver::PushKernelArg;
+
+    if buf.len() % 2 != 0 {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_conj_f64",
+            expected: vec![2],
+            got: vec![buf.len() % 2],
+        });
+    }
+    let n_pairs = buf.len() / 2;
+    if n_pairs == 0 {
+        return Ok(buf);
+    }
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    static CONJ_F64_PTX: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let ptx = get_f64_ptx(&CONJ_F64_PTX, CONJ_PTX, "conj_kernel", "conj_f64_kernel");
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        ptx,
+        "conj_f64_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "conj_f64_kernel",
+                source: e,
+            });
+        }
+    };
+
+    let cfg = launch_cfg(n_pairs)?;
+    let n_pairs_u32 = n_pairs as u32;
+
+    // SAFETY:
+    // - `f` is the f64 variant of `conj_kernel` produced by `get_f64_ptx`
+    //   from `CONJ_PTX`. ABI is `(buf_ptr: *mut f64, n_pairs: u32)`.
+    // - `buf` has length `n_pairs * 2` (verified above). Thread `i in
+    //   [0, n_pairs)` byte offset `(2*i+1)*8`; max `(2*(n_pairs-1)+1)*8 <
+    //   n_pairs*2*8 = buf.len()*8`. All accesses in-bounds.
+    // - Single-buffer read-modify-write; no aliasing.
+    // - `n_pairs_u32` bounded by `launch_cfg(n_pairs)?`.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(buf.inner_mut())
+            .arg(&n_pairs_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(buf)
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_conj_f64(
+    _buf: CudaBuffer<f64>,
     _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f64>> {
     Err(GpuError::NoCudaFeature)
