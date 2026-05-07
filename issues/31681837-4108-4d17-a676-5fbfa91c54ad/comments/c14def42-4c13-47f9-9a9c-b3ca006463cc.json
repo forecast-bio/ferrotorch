@@ -1,0 +1,10 @@
+{
+  "uuid": "c14def42-4c13-47f9-9a9c-b3ca006463cc",
+  "issue_uuid": "31681837-4108-4d17-a676-5fbfa91c54ad",
+  "author": "y4rr",
+  "content": "Verified still open: conformance_serialize.rs has gguf_items_cascade_skip() that always skips. Sprint A.2 (commit 72831cae) covered mmap/sharded/async suites (#850 #851 #852) but did NOT fix GGUF. Fixture keys GgufFile/GgufMetadata/GgufTensorInfo/GgufValue/dequantize_gguf_tensor/load_gguf/load_gguf_mmap/load_gguf_state_dict/load_gguf_state_dict_mmap/parse_gguf_bytes all remain excluded. Leaving open — synthetic GGUF binary generation still required.",
+  "created_at": "2026-05-07T22:58:21.641770061Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAUR2eKfBWZArSBmjit1JaU2c201ff4N3j0VldnzAboe/5Gx7y+o/8Rb8Jg4RFD9lY8cc8Ghw3265JjexCG7hZDw=="
+}
