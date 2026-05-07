@@ -1,0 +1,10 @@
+{
+  "uuid": "4596e3a9-d29f-4dcf-8861-770f32c225a9",
+  "issue_uuid": "5b52529f-f485-48fb-93c1-d7d7df81b0a8",
+  "author": "y4rr",
+  "content": "Already delivered by C3 (commit 91900631). 108 conformance tests covering attention/MLP/RoPE/RMSNorm + Layer-4 gate. transformers 4.50.x synthetic Llama config.",
+  "created_at": "2026-05-07T17:44:19.954516417Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAz2D5d6kMaHs+vBTWNqVbjgeqLolJG4thHCCAc8MMcuDZ7UnUdoxwvFaf9MZqYQ78WbUZl8cX2VBIWAQqT8wNDA=="
+}
