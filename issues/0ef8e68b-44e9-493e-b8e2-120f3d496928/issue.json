@@ -2,11 +2,12 @@
   "uuid": "0ef8e68b-44e9-493e-b8e2-120f3d496928",
   "display_id": 906,
   "title": "Sprint A — env-gated bugfix sprint (4 batches: xpu + serialize + hub + jit)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T17:45:17.531943581Z",
-  "updated_at": "2026-05-07T17:45:19.081400286Z",
+  "updated_at": "2026-05-07T17:58:39.960657435Z",
+  "closed_at": "2026-05-07T17:58:39.960657435Z",
   "labels": [
     "bug,sprint"
   ]
