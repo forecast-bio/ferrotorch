@@ -2,11 +2,12 @@
   "uuid": "cf9aad51-438b-4523-82a1-a65f7cd0965f",
   "display_id": 814,
   "title": "ferrotorch-core: higher-order grad fails reduce_grad_to_shape on shape [1] leaf — surfaced by phase 2.10 (#772)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-06T18:25:18.466539134Z",
-  "updated_at": "2026-05-06T18:25:19.857066243Z",
+  "updated_at": "2026-05-07T02:16:09.422440813Z",
+  "closed_at": "2026-05-07T02:16:09.422440813Z",
   "labels": [
     "rust,bug,conformance"
   ]
