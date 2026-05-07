@@ -11,13 +11,15 @@
 //! This creates a [`CudaBackendImpl`], initializes CUDA device 0, and registers
 //! it with [`ferrotorch_core::gpu_dispatch::register_gpu_backend`].
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 use ferrotorch_core::gpu_dispatch::{GpuBackend, GpuBufferHandle, GpuRngState};
 
 use crate::buffer::CudaBuffer;
 use crate::device::GpuDevice;
+#[cfg(feature = "cuda")]
+use crate::sparse::CusparseHandle;
 
 // ---------------------------------------------------------------------------
 // CudaBackendImpl
@@ -30,6 +32,13 @@ use crate::device::GpuDevice;
 /// [`crate::kernels`], [`crate::blas`], or [`crate::transfer`].
 pub struct CudaBackendImpl {
     devices: Vec<Arc<GpuDevice>>,
+    /// Lazily-initialised cuSPARSE handle, cached for `SparseTensor::spmm`.
+    /// One handle is sufficient because all current devices share the
+    /// primary CUDA context; the handle's stream is rebound per call via
+    /// `cusparseSetStream`. Wrapped in `OnceLock` so the first SpMM pays
+    /// the `cusparseCreate` cost and subsequent calls reuse the handle.
+    #[cfg(feature = "cuda")]
+    cusparse_handle: OnceLock<CusparseHandle>,
 }
 
 impl CudaBackendImpl {
@@ -47,7 +56,29 @@ impl CudaBackendImpl {
         );
         Ok(Self {
             devices: vec![device],
+            #[cfg(feature = "cuda")]
+            cusparse_handle: OnceLock::new(),
         })
+    }
+
+    /// Get or lazily create the cached cuSPARSE handle. The first call
+    /// pays the `cusparseCreate` cost; subsequent calls reuse the handle.
+    /// The stream is rebound per SpMM via `cusparseSetStream`.
+    #[cfg(feature = "cuda")]
+    fn cusparse(&self) -> FerrotorchResult<&CusparseHandle> {
+        if let Some(h) = self.cusparse_handle.get() {
+            return Ok(h);
+        }
+        let new_handle = CusparseHandle::new().map_err(Self::map_gpu_err)?;
+        // OnceLock::get_or_init can't return Err, so we set+ignore the
+        // race where a competing thread set first; either resulting handle
+        // is valid for the same context.
+        let _ = self.cusparse_handle.set(new_handle);
+        self.cusparse_handle
+            .get()
+            .ok_or(FerrotorchError::InvalidArgument {
+                message: "cuSPARSE handle slot empty after init".into(),
+            })
     }
 
     /// Get the device for ordinal 0 (the default device).
@@ -3361,6 +3392,69 @@ impl GpuBackend for CudaBackendImpl {
         let out =
             crate::cufft::gpu_irfft_c2r_f64(a_buf, batch, n_out, dev).map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer_f64(out, a.device_ordinal()))
+    }
+
+    // -- Sparse SpMM (cuSPARSE) ----------------------------------------------
+    //
+    // PyTorch parity (rust-gpu-discipline §3): `torch.sparse.mm` runs on
+    // cuSPARSE when the dense operand is CUDA. The just-in-time CSR upload
+    // and the actual `cusparseSpMM` call live in `crate::sparse` so that
+    // module-level SAFETY substantiation stays adjacent to the FFI.
+
+    fn spmm_csr_f32(
+        &self,
+        crow_indices: &[u32],
+        col_indices: &[u32],
+        values: &[f32],
+        dense: &GpuBufferHandle,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let dense_buf = Self::unwrap_buffer(dense)?;
+        let dev = self.device(dense.device_ordinal())?;
+        let handle = self.cusparse()?;
+        let out = crate::sparse::gpu_spmm_csr_f32(
+            handle,
+            crow_indices,
+            col_indices,
+            values,
+            dense_buf,
+            m,
+            k,
+            n,
+            dev,
+        )
+        .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(out, dense.device_ordinal()))
+    }
+
+    fn spmm_csr_f64(
+        &self,
+        crow_indices: &[u32],
+        col_indices: &[u32],
+        values: &[f64],
+        dense: &GpuBufferHandle,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let dense_buf = Self::unwrap_buffer_f64(dense)?;
+        let dev = self.device(dense.device_ordinal())?;
+        let handle = self.cusparse()?;
+        let out = crate::sparse::gpu_spmm_csr_f64(
+            handle,
+            crow_indices,
+            col_indices,
+            values,
+            dense_buf,
+            m,
+            k,
+            n,
+            dev,
+        )
+        .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer_f64(out, dense.device_ordinal()))
     }
 }
 

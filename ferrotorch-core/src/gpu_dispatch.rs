@@ -2370,6 +2370,56 @@ pub trait GpuBackend: Send + Sync {
         })
     }
 
+    // -- Sparse SpMM (cuSPARSE, CSR format) -----------------------------------
+    //
+    // These cover `SparseTensor::spmm` when the dense operand is a CUDA
+    // tensor — PyTorch's `torch.sparse.mm` runs on cuSPARSE in that case.
+    // Just-in-time CSR upload from the caller's host-side `(crow_indices,
+    // col_indices, values)`; the dense operand is already device-resident.
+    // Output `[m, n]` row-major lives on the same device as the dense input.
+    //
+    // See ferrotorch-core/src/sparse.rs `SparseTensor::spmm` for the call
+    // site and ferrotorch-gpu/src/sparse.rs for the cuSPARSE implementation.
+
+    /// CSR sparse-dense matmul on GPU (f32 dtype).
+    ///
+    /// `crow_indices`: `m + 1` host `u32` row pointers in CSR order.
+    /// `col_indices`: `nnz` host `u32` column indices.
+    /// `values`: `nnz` host f32 non-zero values.
+    /// `dense`: device buffer holding a `[k, n]` row-major dense matrix.
+    /// Returns a device buffer holding the `[m, n]` row-major dense result.
+    fn spmm_csr_f32(
+        &self,
+        _crow_indices: &[u32],
+        _col_indices: &[u32],
+        _values: &[f32],
+        _dense: &GpuBufferHandle,
+        _m: usize,
+        _k: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "spmm_csr_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// CSR sparse-dense matmul on GPU (f64 dtype). Companion of
+    /// [`Self::spmm_csr_f32`].
+    fn spmm_csr_f64(
+        &self,
+        _crow_indices: &[u32],
+        _col_indices: &[u32],
+        _values: &[f64],
+        _dense: &GpuBufferHandle,
+        _m: usize,
+        _k: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "spmm_csr_f64 GPU op not implemented for this backend".into(),
+        })
+    }
+
     /// Synchronize the current stream on the given device, blocking until
     /// all enqueued operations have completed.
     fn synchronize(&self, _device: usize) -> FerrotorchResult<()> {

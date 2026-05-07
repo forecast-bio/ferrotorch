@@ -158,6 +158,8 @@ pub mod memory_guard;
 pub mod module_cache;
 pub mod pool;
 pub mod rng;
+#[cfg(feature = "cuda")]
+pub mod sparse;
 pub mod stream;
 pub mod tensor_bridge;
 pub mod transfer;

@@ -1687,10 +1687,52 @@ mod gpu {
         note_cascade_skip("gpu_sparse_tensor_to_dense");
     }
 
+    /// Live GPU SpMM test (P2): `SparseTensor::spmm` dispatches to
+    /// `cusparseSpMM` when the dense operand is on CUDA. PyTorch parity:
+    /// `torch.sparse.mm` runs on cuSPARSE in the same configuration.
     #[test]
     fn gpu_sparse_tensor_spmm() {
         ensure_cuda_backend();
-        note_cascade_skip("gpu_sparse_tensor_spmm");
+        // 4x4 sparse, 4x3 dense, f32; dense lives on CUDA so spmm must
+        // route through the cuSPARSE path (pre-P2 this errored with
+        // GpuTensorNotAccessible from `dense.data()?`).
+        let sp = SparseTensor::<f32>::new(
+            vec![
+                vec![0, 1],
+                vec![0, 3],
+                vec![1, 2],
+                vec![2, 0],
+                vec![2, 3],
+                vec![3, 1],
+            ],
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            vec![4, 4],
+        )
+        .expect("sparse fixture");
+        let dense_data: Vec<f64> = (1..=12).map(|x| x as f64).collect();
+        let dense_cpu = make_tensor_f32(&dense_data, &[4, 3]);
+        let dense_gpu = dense_cpu
+            .to(ferrotorch_core::Device::Cuda(0))
+            .expect("dense->gpu");
+
+        let cpu_ref = sp.spmm(&dense_cpu).expect("cpu spmm reference");
+        let cpu_ref_data = cpu_ref.data().expect("cpu spmm data").to_vec();
+
+        let out = sp.spmm(&dense_gpu).expect("cusparse spmm");
+        assert!(
+            out.is_cuda(),
+            "spmm output must remain on CUDA when input was CUDA"
+        );
+        assert_eq!(out.shape(), &[4, 3]);
+
+        let out_cpu = out.cpu().expect("out gpu->cpu");
+        let out_data = out_cpu.data().expect("out data");
+        for (i, (&a, &b)) in out_data.iter().zip(cpu_ref_data.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-3,
+                "spmm GPU vs CPU mismatch at {i}: gpu={a} cpu={b}"
+            );
+        }
     }
 
     #[test]

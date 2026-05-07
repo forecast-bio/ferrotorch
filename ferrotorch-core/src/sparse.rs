@@ -200,6 +200,8 @@ impl<T: Float> SparseTensor<T> {
     /// This is a scatter-accumulate pattern — the same kernel used in the
     /// backward pass of `nn.Embedding`.
     pub fn spmm(&self, dense: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        use std::any::TypeId;
+
         if self.ndim() != 2 {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!("spmm requires 2-D sparse tensor, got {}-D", self.ndim()),
@@ -225,6 +227,120 @@ impl<T: Float> SparseTensor<T> {
             });
         }
 
+        // -- CUDA fast path -------------------------------------------------
+        //
+        // PyTorch parity (rust-gpu-discipline §3): `torch.sparse.mm` runs on
+        // cuSPARSE when the dense operand is a CUDA tensor. We mirror that
+        // by uploading the sparse indices/values to GPU just-in-time as CSR
+        // and dispatching to the backend's `spmm_csr_*` kernel. SparseTensor
+        // itself stays CPU-resident — only the spmm computation moves to GPU.
+        //
+        // Dispatch is gated on (a) dense is CUDA, (b) a GPU backend is
+        // registered, and (c) T is f32 or f64 (cuSPARSE accepts other
+        // dtypes, but we only wire the two PyTorch parity covers today).
+        // Anything else (e.g. dense on Meta, Xpu, MPS; or T == bf16) falls
+        // through to the CPU path which is then exercised via `data()?`.
+        if dense.is_cuda() {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                // Ensure the dense input is contiguous: cuSPARSE expects a
+                // dense matrix at a known leading dimension. A non-contiguous
+                // CUDA dense tensor is materialised to a contiguous CUDA
+                // tensor by `.contiguous()` (which has its own GPU fast path).
+                let dense_contig = dense.contiguous()?;
+                let dense_handle = dense_contig.gpu_handle()?;
+
+                // Build CSR row offsets, column indices, and values from the
+                // COO storage. Sort by (row, col) to coalesce duplicates and
+                // keep cuSPARSE happy (CSR requires sorted columns within
+                // each row). Coalescing matches PyTorch's behaviour where
+                // duplicate COO indices are summed before SpMM.
+                let coalesced = self.coalesce();
+                let nnz = coalesced.nnz;
+
+                // crow_indices: m+1 row pointers.
+                let mut crow_indices: Vec<u32> = vec![0; m + 1];
+                for idx in &coalesced.indices {
+                    let row = idx[0];
+                    if row >= m {
+                        return Err(FerrotorchError::IndexOutOfBounds {
+                            index: row,
+                            axis: 0,
+                            size: m,
+                        });
+                    }
+                    crow_indices[row + 1] += 1;
+                }
+                for r in 0..m {
+                    crow_indices[r + 1] += crow_indices[r];
+                }
+
+                // col_indices and values in CSR order. `coalesce()` sorts
+                // entries lexicographically by index, so iterating in order
+                // already yields CSR-sorted (row, col) pairs.
+                let mut col_indices: Vec<u32> = Vec::with_capacity(nnz);
+                let mut values_csr: Vec<T> = Vec::with_capacity(nnz);
+                for (idx, &v) in coalesced.indices.iter().zip(coalesced.values.iter()) {
+                    col_indices.push(idx[1] as u32);
+                    values_csr.push(v);
+                }
+
+                // Dispatch by dtype. The `unsafe` re-interpret is sound when
+                // the TypeId guard establishes T == f32 (resp. f64) because
+                // `Vec<T>` and `Vec<f32>` (resp. `Vec<f64>`) have identical
+                // layout under that condition.
+                let out_handle_opt = if TypeId::of::<T>() == TypeId::of::<f32>() {
+                    // SAFETY: TypeId guard establishes T == f32, so the Vec<T>
+                    // re-interpret as Vec<f32> is layout-preserving (same
+                    // size, alignment, niche). The borrow lifetime is tied
+                    // to `values_csr` for the duration of the call.
+                    let values_f32 = unsafe {
+                        std::slice::from_raw_parts(
+                            values_csr.as_ptr().cast::<f32>(),
+                            values_csr.len(),
+                        )
+                    };
+                    Some(backend.spmm_csr_f32(
+                        &crow_indices,
+                        &col_indices,
+                        values_f32,
+                        dense_handle,
+                        m,
+                        k_sparse,
+                        n,
+                    )?)
+                } else if TypeId::of::<T>() == TypeId::of::<f64>() {
+                    // SAFETY: TypeId guard establishes T == f64; cast is
+                    // layout-preserving, lifetime tied to `values_csr`.
+                    let values_f64 = unsafe {
+                        std::slice::from_raw_parts(
+                            values_csr.as_ptr().cast::<f64>(),
+                            values_csr.len(),
+                        )
+                    };
+                    Some(backend.spmm_csr_f64(
+                        &crow_indices,
+                        &col_indices,
+                        values_f64,
+                        dense_handle,
+                        m,
+                        k_sparse,
+                        n,
+                    )?)
+                } else {
+                    None
+                };
+
+                if let Some(out_handle) = out_handle_opt {
+                    let storage = TensorStorage::gpu(out_handle);
+                    return Tensor::from_storage(storage, vec![m, n], false);
+                }
+                // Unsupported dtype: fall through to the CPU path below.
+                // `dense.data()?` will then return GpuTensorNotAccessible,
+                // which is the same observable as before the §3 fast path.
+            }
+        }
+
+        // -- CPU path -------------------------------------------------------
         let dense_data = dense.data()?;
         let mut output = vec![<T as num_traits::Zero>::zero(); m * n];
 
