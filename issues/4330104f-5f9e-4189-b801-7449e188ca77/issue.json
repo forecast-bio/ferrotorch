@@ -1,0 +1,10 @@
+{
+  "uuid": "4330104f-5f9e-4189-b801-7449e188ca77",
+  "display_id": 963,
+  "title": "Add bf16 mixed-precision elementwise and reduction GPU kernels (Sprint C.3 follow-up)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T21:32:28.722777993Z",
+  "updated_at": "2026-05-07T21:32:28.722777993Z"
+}
