@@ -1,0 +1,10 @@
+{
+  "uuid": "a037dfca-e650-466b-9952-90c44418e2df",
+  "issue_uuid": "34347faa-4396-4b68-be96-3ebf89b531e1",
+  "author": "y4rr",
+  "content": "Result: Fixed XpuDevice::is_available() to probe wgpu adapter list for Intel GPU instead of assuming feature-compile-time means available. Implementation: under cfg(feature='wgpu'), uses catch_unwind(CubeRuntime::new(CubeDevice::Wgpu(0)).is_ok()) — returns false on WSL2/no-Intel-GPU box (adapter probe panics/errors), true only when a real adapter is successfully initialised. cascade_skip removed from xpu_is_available_matches_fixture in conformance_xpu.rs — test now runs live and passes (assert_eq!(false, false)). Pre-existing clippy::type_complexity in all_op_symbols_resolve suppressed with targeted allow + reason comment. cargo test -p ferrotorch-xpu --tests: 38/38 pass. cargo clippy -p ferrotorch-xpu --all-targets -- -D warnings: clean. Files changed: ferrotorch-xpu/src/lib.rs, ferrotorch-xpu/tests/conformance_xpu.rs.",
+  "created_at": "2026-05-07T17:50:51.314242048Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAlmGF2noXv0SSwvW3wkXcu01Md2qcQh8YJjsmdHI8J6th3QzV8ZjdUzton6MD74i4xpVQxAZBQXZt0aTl8xuDCA=="
+}
