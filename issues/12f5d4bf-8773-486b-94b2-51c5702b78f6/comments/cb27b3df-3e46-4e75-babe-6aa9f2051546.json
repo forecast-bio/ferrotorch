@@ -1,0 +1,10 @@
+{
+  "uuid": "cb27b3df-3e46-4e75-babe-6aa9f2051546",
+  "issue_uuid": "12f5d4bf-8773-486b-94b2-51c5702b78f6",
+  "author": "y4rr",
+  "content": "Plan: Sprint B.5.b — add forward-parity conformance tests for 5 models in ferrotorch-vision/tests/conformance_vision_models.rs, add fixtures to fixtures.json and regenerate_vision_fixtures.py, then verify clean build + clippy. Reference: torchvision 0.21.x. Models: ConvNeXt (#861), EfficientNet (#863), MobileNetV2+V3 (#865), Swin (#866), ViT (#868). No cascade_skip for these 5 lanes — implementation is complete and tests will pass. Working with random-init zero input so no weight downloads needed.",
+  "created_at": "2026-05-07T19:49:48.099784364Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA+FCFusPspVDMb6uWnGSz5ifXIqqDW0GK49ZrTQdTrMjSKq5ZW5Am4hBqFi1YP+8GcFa4xWBJ44TzfcWU+1fBCA=="
+}
