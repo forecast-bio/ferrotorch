@@ -2,11 +2,12 @@
   "uuid": "237fcc0b-fc22-49d8-9547-07af14186ec1",
   "display_id": 946,
   "title": "Add MSL kernels for MPS linalg: matmul_f64, bmm_f64, dot, mv, vm",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T21:08:05.600213119Z",
-  "updated_at": "2026-05-07T21:08:07.046949073Z",
+  "updated_at": "2026-05-07T22:33:09.408785108Z",
+  "closed_at": "2026-05-07T22:33:09.408785108Z",
   "labels": [
     "feature"
   ]
