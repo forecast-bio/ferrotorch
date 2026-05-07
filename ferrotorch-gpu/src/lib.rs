@@ -149,6 +149,8 @@ pub mod conv;
 #[cfg(feature = "cuda")]
 pub mod cufft;
 pub mod cusolver;
+#[cfg(all(feature = "cuda", feature = "cusparselt"))]
+pub mod cusparselt;
 pub mod device;
 pub mod error;
 pub mod flash_attention;

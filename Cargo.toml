@@ -98,3 +98,8 @@ tempfile = "3"
 rustfft = "6.2"
 tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 tracing = "0.1"
+
+# Build-time FFI generator. Only used by `ferrotorch-gpu` under the
+# opt-in `cusparselt` feature so the default workspace build does not
+# require libclang/cusparseLt headers.
+bindgen = "0.69"

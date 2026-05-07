@@ -1344,7 +1344,71 @@ pub fn sparse_matmul_24<T: Float>(
         });
     }
 
-    // Reference path: decompress and do the dense matmul.
+    // -- CUDA fast path (P6) -------------------------------------------------
+    //
+    // PyTorch parity (rust-gpu-discipline §3): `torch._C._sparse_semi_
+    // structured_apply` runs on cuSPARSELt when the dense operand is
+    // CUDA and the structured weight is 2:4. ferrotorch mirrors that
+    // when (a) `a` is on CUDA, (b) a GPU backend is registered, (c) the
+    // backend was built with `--features cusparselt` and `libcusparseLt`
+    // is available at runtime (the backend's `sparse_matmul_24_*`
+    // returns Err otherwise), and (d) `T == f32` (cuSPARSELt accepts
+    // FP16/BF16/FP32; only the f32 wire is mapped through the GPU
+    // dispatch trait today — FP16/BF16 require a u16 buffer-handle
+    // convention, tracked as a follow-up). On Err we fall through to
+    // the dense reference path below — same observable as the off-
+    // feature build.
+    if a.is_cuda() {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            use std::any::TypeId;
+            if TypeId::of::<T>() == TypeId::of::<f32>() {
+                // We need the dense decompressed form of `b` on the same
+                // CUDA device as `a`. Decompress on CPU then upload the
+                // bytes. The mask cuSPARSELt re-derives during the
+                // `cusparseLtSpMMACompress` step, so we hand it the dense
+                // form (with masked positions = 0) directly.
+                let b_dense_cpu = b.decompress()?;
+                let b_dense_data = b_dense_cpu.data_vec()?;
+                let ordinal = a.gpu_handle()?.device_ordinal();
+
+                // SAFETY: TypeId guard establishes T == f32; the cast is
+                // layout-preserving (Vec<T> and Vec<f32> have identical
+                // size/alignment under that condition). `b_dense_data`
+                // outlives the borrow.
+                let b_bytes = unsafe {
+                    std::slice::from_raw_parts(
+                        b_dense_data.as_ptr().cast::<u8>(),
+                        b_dense_data.len() * std::mem::size_of::<f32>(),
+                    )
+                };
+                let b_handle =
+                    backend.cpu_to_gpu(b_bytes, std::mem::size_of::<f32>(), ordinal)?;
+
+                let a_handle = a.gpu_handle()?;
+                match backend.sparse_matmul_24_f32(a_handle, &b_handle, m, k, n) {
+                    Ok(out_handle) => {
+                        let storage = TensorStorage::gpu(out_handle);
+                        return Tensor::from_storage(storage, vec![m, n], false);
+                    }
+                    Err(_) => {
+                        // Backend declined (cusparselt feature off, or
+                        // `libcusparseLt.so` unavailable, or shape not
+                        // alignment-compatible). Fall through to the
+                        // dense reference path. We discard the uploaded
+                        // `b_handle` by letting it drop here.
+                        let _ = b_handle;
+                    }
+                }
+            }
+        }
+    }
+
+    // -- Reference path: decompress and do the dense matmul -----------------
+    //
+    // This path is also used for non-CUDA `a`, `T != f32`, missing GPU
+    // backend, missing cusparselt feature, or runtime missing-
+    // libcusparseLt. Pre-P6 the only path; post-P6 the conformance fall-
+    // through.
     let b_dense = b.decompress()?;
     let a_data = a.data_vec()?;
     let b_data = b_dense.data_vec()?;

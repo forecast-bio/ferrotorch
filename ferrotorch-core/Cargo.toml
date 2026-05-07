@@ -22,6 +22,14 @@ readme = "README.md"
 # package cycle even though ferrotorch-gpu depends on ferrotorch-core in its
 # non-test builds. Cargo deliberately permits dev-dep cycles for this reason.
 gpu = []
+# Marker feature that gates the P6 cuSPARSELt-only probe
+# (`tests/_probe_p6_sparse_matmul_24.rs`). Activating this feature alone
+# does NOT enable the cuSPARSELt path in ferrotorch-gpu; pass
+# `--features ferrotorch-gpu/cusparselt` (or use `--features cusparselt`
+# on the workspace driver crate) to also turn on the live FFI. The
+# probe gates on this feature so a default `cargo test --features gpu`
+# build still produces a clean test binary.
+cusparselt = ["ferrotorch-gpu/cusparselt"]
 
 [dependencies]
 ferray-core = { workspace = true }

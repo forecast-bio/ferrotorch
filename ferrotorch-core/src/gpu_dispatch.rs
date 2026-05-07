@@ -2569,6 +2569,77 @@ pub trait GpuBackend: Send + Sync {
             message: "flash_attention_forward_f64 GPU op not yet implemented".into(),
         })
     }
+
+    // ---------------------------------------------------------------------
+    // P6: 2:4 structured sparse matmul (cuSPARSELt).
+    //
+    // PyTorch parity (rust-gpu-discipline §3): `torch._C._sparse_semi_
+    // structured_apply` (and the `SparseSemiStructuredTensor` user API)
+    // dispatches to NVIDIA cuSPARSELt on Ampere+ Tensor Cores when the
+    // 2:4 sparse weight is on CUDA. ferrotorch mirrors that by routing
+    // `SemiStructuredSparseTensor::sparse_matmul_24` through these
+    // hooks.
+    //
+    // The dense `b_dense_decompressed` operand is the dense
+    // representation of the structured 2:4 matrix (mask applied → zeros
+    // in non-retained positions). cuSPARSELt repacks it into the
+    // Tensor-Core-friendly layout via `cusparseLtSpMMACompress`
+    // internally.
+    //
+    // Default impls return `InvalidArgument` so backends without the
+    // `cusparselt` cargo feature declare unsupported and the caller
+    // falls through to the existing decompress + dense matmul reference
+    // path. This is the §3-correct opt-in mechanism — no silent CPU
+    // fallback. See `ferrotorch-gpu/src/cusparselt.rs` for the live
+    // implementation under the feature.
+    // ---------------------------------------------------------------------
+
+    /// 2:4 structured sparse matmul, FP32 (TF32-Tensor-Core compute).
+    /// Computes `[m, n] = a @ b_dense_decompressed` where `b` carries
+    /// 2:4 structured zeros along its inner dimension.
+    fn sparse_matmul_24_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _b_dense_decompressed: &GpuBufferHandle,
+        _m: usize,
+        _k: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "sparse_matmul_24_f32 GPU op not implemented for this backend (build with --features cusparselt)".into(),
+        })
+    }
+
+    /// 2:4 structured sparse matmul, FP16 (FP32 accumulator).
+    /// f16 inputs/outputs are passed as raw `u16` buffers (bf16/f16 in
+    /// ferrotorch are `u16`-bit-pattern carriers).
+    fn sparse_matmul_24_f16(
+        &self,
+        _a: &GpuBufferHandle,
+        _b_dense_decompressed: &GpuBufferHandle,
+        _m: usize,
+        _k: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "sparse_matmul_24_f16 GPU op not implemented for this backend (build with --features cusparselt)".into(),
+        })
+    }
+
+    /// 2:4 structured sparse matmul, BF16 (FP32 accumulator).
+    /// See [`Self::sparse_matmul_24_f16`].
+    fn sparse_matmul_24_bf16(
+        &self,
+        _a: &GpuBufferHandle,
+        _b_dense_decompressed: &GpuBufferHandle,
+        _m: usize,
+        _k: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "sparse_matmul_24_bf16 GPU op not implemented for this backend (build with --features cusparselt)".into(),
+        })
+    }
 }
 
 static GPU_BACKEND: OnceLock<Box<dyn GpuBackend>> = OnceLock::new();

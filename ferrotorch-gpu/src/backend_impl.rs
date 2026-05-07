@@ -17,6 +17,8 @@ use ferrotorch_core::error::{FerrotorchError, FerrotorchResult};
 use ferrotorch_core::gpu_dispatch::{GpuBackend, GpuBufferHandle, GpuRngState};
 
 use crate::buffer::CudaBuffer;
+#[cfg(all(feature = "cuda", feature = "cusparselt"))]
+use crate::cusparselt::CusparseLtHandle;
 use crate::device::GpuDevice;
 #[cfg(feature = "cuda")]
 use crate::sparse::CusparseHandle;
@@ -39,6 +41,12 @@ pub struct CudaBackendImpl {
     /// the `cusparseCreate` cost and subsequent calls reuse the handle.
     #[cfg(feature = "cuda")]
     cusparse_handle: OnceLock<CusparseHandle>,
+    /// Lazily-initialised cuSPARSELt handle, cached for the 2:4
+    /// structured sparse matmul path. Pays the `cusparseLtInit` cost
+    /// only on first use; subsequent matmuls reuse the handle. Only
+    /// present when the `cusparselt` cargo feature is enabled.
+    #[cfg(all(feature = "cuda", feature = "cusparselt"))]
+    cusparselt_handle: OnceLock<CusparseLtHandle>,
 }
 
 impl CudaBackendImpl {
@@ -58,7 +66,25 @@ impl CudaBackendImpl {
             devices: vec![device],
             #[cfg(feature = "cuda")]
             cusparse_handle: OnceLock::new(),
+            #[cfg(all(feature = "cuda", feature = "cusparselt"))]
+            cusparselt_handle: OnceLock::new(),
         })
+    }
+
+    /// Get or lazily create the cached cuSPARSELt handle. The first
+    /// call pays `cusparseLtInit`; subsequent calls reuse the handle.
+    #[cfg(all(feature = "cuda", feature = "cusparselt"))]
+    fn cusparselt(&self) -> FerrotorchResult<&CusparseLtHandle> {
+        if let Some(h) = self.cusparselt_handle.get() {
+            return Ok(h);
+        }
+        let new_handle = CusparseLtHandle::new().map_err(Self::map_gpu_err)?;
+        let _ = self.cusparselt_handle.set(new_handle);
+        self.cusparselt_handle
+            .get()
+            .ok_or(FerrotorchError::InvalidArgument {
+                message: "cuSPARSELt handle slot empty after init".into(),
+            })
     }
 
     /// Get or lazily create the cached cuSPARSE handle. The first call
@@ -3570,6 +3596,49 @@ impl GpuBackend for CudaBackendImpl {
         .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer_f64(result, query.device_ordinal()))
     }
+
+    // -- 2:4 Structured sparse matmul (cuSPARSELt) — P6 ----------------------
+    //
+    // Live implementation gated on the `cusparselt` cargo feature; without
+    // the feature these methods inherit the trait's default `Err(...)`
+    // shape so the dispatch site falls through to the dense reference
+    // path (decompress + dense matmul). The active path is in
+    // `crate::cusparselt::gpu_sparse_matmul_24`.
+
+    #[cfg(feature = "cusparselt")]
+    fn sparse_matmul_24_f32(
+        &self,
+        a: &GpuBufferHandle,
+        b_dense_decompressed: &GpuBufferHandle,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let a_buf = Self::unwrap_buffer(a)?;
+        let b_buf = Self::unwrap_buffer(b_dense_decompressed)?;
+        let dev = self.device(a.device_ordinal())?;
+        let handle = self.cusparselt()?;
+        let out = crate::cusparselt::gpu_sparse_matmul_24::<f32>(
+            handle,
+            a_buf,
+            b_buf,
+            m,
+            k,
+            n,
+            crate::cusparselt::CuSpLtDType::F32,
+            dev,
+        )
+        .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(out, a.device_ordinal()))
+    }
+
+    // f16 / bf16 trait methods inherit the default `Err(InvalidArgument)`
+    // because ferrotorch's `GpuBufferHandle` does not yet expose a
+    // `CudaBuffer<u16>` downcast convention for storing f16/bf16 bit
+    // patterns. Wiring those is a follow-up — the f32 path (TF32 mode)
+    // is the only one currently exercised through this trait surface,
+    // matching the SemiStructuredSparseTensor<T: Float> = f32/f64
+    // generic constraint.
 }
 
 // ---------------------------------------------------------------------------
