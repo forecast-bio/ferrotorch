@@ -1,0 +1,10 @@
+{
+  "uuid": "34347faa-4396-4b68-be96-3ebf89b531e1",
+  "display_id": 911,
+  "title": "Fix XpuDevice::is_available() to probe wgpu adapter list instead of assuming feature-compile equals availability",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T17:47:29.246046472Z",
+  "updated_at": "2026-05-07T17:47:29.246046472Z"
+}
