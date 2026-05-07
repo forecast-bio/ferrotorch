@@ -1,0 +1,10 @@
+{
+  "uuid": "3fb2eb41-5f0a-42ad-a6ff-1d5ef194ad85",
+  "issue_uuid": "1037d00c-eb4f-4257-8fbf-6cc2e4d4b259",
+  "author": "y4rr",
+  "content": "Observation: fixtures_v_parity.json was created by V.3 and already has all ViT-B/16 fixtures. V.4 agent merged metadata. All V.3 ViT fixture IDs are present and correct. Now adding conformance test entries to conformance_vision_models.rs referencing this new fixture file.",
+  "created_at": "2026-05-07T22:40:33.958991539Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzf2z+vYmQTpuafw/Kk0bkWf4zNHT3Sh3nN8KUvmmODSNYY10P0TwOACdRAcE8ak2IKaklCkEJqXPdWFHsMWyDA=="
+}
