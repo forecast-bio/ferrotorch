@@ -1,0 +1,10 @@
+{
+  "uuid": "a7237581-f29c-4897-a67a-e84e5aeaefd8",
+  "issue_uuid": "b4c4fbc5-e4ed-4e72-b74e-bc7d3c435234",
+  "author": "y4rr",
+  "content": "Plan: Implement Faster R-CNN with ResNet-50 FPN backbone matching torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None). Files: detection/mod.rs, detection/faster_rcnn.rs, detection/fpn.rs, detection/rpn.rs, detection/anchor_utils.rs. Reuses existing resnet50 backbone (forward_features), roi_align from ops.rs, and ferrotorch-nn Conv2d/Linear. Adds conformance test at tests/conformance_vision_detection.rs. Registers in model registry + hub. No GPU kernels needed — all compute is compositional over existing primitives. Mask R-CNN and SSD are explicitly out of scope (follow-up issues to file).",
+  "created_at": "2026-05-07T21:27:46.986819830Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA59VTBED5JQvuKAOLolVZNroO0+j1CINYx/YlkVxv+p3b2BHsJYJtlcGlfNSSKUh5Snm1cWxYvPgyRAfrUAEhAQ=="
+}
