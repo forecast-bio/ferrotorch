@@ -1,0 +1,10 @@
+{
+  "uuid": "67b99734-d286-41e2-aba1-18dab23c17da",
+  "display_id": 882,
+  "title": "Add C6.4 LR scheduler conformance suite with Layer-2 fixture script, Layer-3 tests, and Layer-4 coverage gate",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T15:46:14.724335915Z",
+  "updated_at": "2026-05-07T15:46:14.724335915Z"
+}
