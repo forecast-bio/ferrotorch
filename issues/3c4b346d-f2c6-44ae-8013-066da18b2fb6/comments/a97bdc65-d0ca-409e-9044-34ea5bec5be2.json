@@ -1,0 +1,10 @@
+{
+  "uuid": "a97bdc65-d0ca-409e-9044-34ea5bec5be2",
+  "issue_uuid": "3c4b346d-f2c6-44ae-8013-066da18b2fb6",
+  "author": "y4rr",
+  "content": "Observation: QuantizedModel struct fields (weights, weight_qparams, config) are private. Integration tests cannot construct via struct literal. Resolution: replaced struct-literal test with ObserverType variant distinctness test, which still covers the qat module.",
+  "created_at": "2026-05-07T17:07:55.806012186Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAuhUzU054ZIhRfcC9NCFuKOktiAycHPELWMFLy+5ISQD8FNQZn/ATlE+Wt5Z7c1e7Ysl/sLYh8qIlIiJai3lSDw=="
+}
