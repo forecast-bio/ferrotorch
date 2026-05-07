@@ -1,0 +1,10 @@
+{
+  "uuid": "44132851-2d52-4302-864f-b3426bebbf0e",
+  "display_id": 864,
+  "title": "vision/models: InceptionV3 full forward-pass parity (needs fixture without pretrained weights)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T15:17:32.787503939Z",
+  "updated_at": "2026-05-07T15:17:32.787503939Z"
+}
