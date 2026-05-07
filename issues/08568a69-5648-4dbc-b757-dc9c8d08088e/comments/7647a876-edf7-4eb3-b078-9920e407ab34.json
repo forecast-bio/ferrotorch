@@ -1,0 +1,10 @@
+{
+  "uuid": "7647a876-edf7-4eb3-b078-9920e407ab34",
+  "issue_uuid": "08568a69-5648-4dbc-b757-dc9c8d08088e",
+  "author": "y4rr",
+  "content": "Resolution: Fixed rng.rs — vision_manual_seed now captures VISION_COUNTER as epoch baseline. random_f64() computes draw index as (global_counter - epoch_base), making seeded sequences reproducible regardless of concurrent thread counter activity. Analogous to how a seeded RNG tracks 'how many draws since seed' rather than absolute sequence position.",
+  "created_at": "2026-05-07T19:57:45.482839080Z",
+  "kind": "resolution",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAA9476gfVD7WxLw/FTUMyNBJhsJBMfs2O1eBjQXYp8Ti7rWPtKstwpv9kmlwmspnbk813n1ioNSL8KgBH0appCQ=="
+}
