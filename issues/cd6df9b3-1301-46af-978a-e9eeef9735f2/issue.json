@@ -2,11 +2,12 @@
   "uuid": "cd6df9b3-1301-46af-978a-e9eeef9735f2",
   "display_id": 880,
   "title": "Conformance Buildout C6 — Tier-3 ferrotorch-optim (4 sub-phases)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T15:44:22.243979746Z",
-  "updated_at": "2026-05-07T15:44:23.728130392Z",
+  "updated_at": "2026-05-07T16:03:59.323001202Z",
+  "closed_at": "2026-05-07T16:03:59.323001202Z",
   "labels": [
     "conformance,test"
   ]
