@@ -1,0 +1,10 @@
+{
+  "uuid": "4cc1846c-554c-4e0b-843c-255b558441de",
+  "issue_uuid": "da626c61-a6fd-4b57-a3fc-b691d6e8eab5",
+  "author": "y4rr",
+  "content": "Closed by Bugfix C9 cleanup pass — conformance_nn_attention.rs compile errors fixed (16 clippy errors + missing named_parameters_mut handled via test rewrites). Tests pass clean: cargo test -p ferrotorch-nn --test conformance_nn_attention. Verified 22/22 green.",
+  "created_at": "2026-05-07T17:43:30.930140178Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAdX0qN6pGkwlWHkQwfY64pOVQW1SdEFYRvq5D+I4A8MDRsV2qjc848xksuev/4skRfPB0bI3NbMkLGklUDaM5AQ=="
+}
