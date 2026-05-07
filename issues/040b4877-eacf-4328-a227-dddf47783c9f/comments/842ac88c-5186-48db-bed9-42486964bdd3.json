@@ -1,0 +1,10 @@
+{
+  "uuid": "842ac88c-5186-48db-bed9-42486964bdd3",
+  "issue_uuid": "040b4877-eacf-4328-a227-dddf47783c9f",
+  "author": "y4rr",
+  "content": "FIXED: Removed false §3 violation from blas.rs module docstring. The doc claimed silent CPU fallback + eprintln! on cuBLAS handle failure. Production code never had this; the doc was wrong. Replaced with explicit error-policy section: cuBLAS failures propagate as Err(GpuError::Blas(...)), no CPU fallback, matching PyTorch's RuntimeError behaviour. Three test eprintln! calls remain in #[test] functions (perf logging only — acceptable). Workspace build + clippy -D warnings clean.",
+  "created_at": "2026-05-07T19:35:21.226466847Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAeh17dxbhSDYKjkVXOBXd+zA3InQZbh8Baakl8On6k2YRKEo04VQXfrj9vAG1qASPYcGaEkZP2H5nuEotXw/IAg=="
+}
