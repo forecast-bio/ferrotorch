@@ -1,0 +1,10 @@
+{
+  "uuid": "40706941-94e2-4d60-82a6-c9c263515475",
+  "issue_uuid": "34347faa-4396-4b68-be96-3ebf89b531e1",
+  "author": "y4rr",
+  "content": "Committed: fix(xpu): probe wgpu adapter list in is_available() instead of cfg! check (#828) | Files: 2 files changed, 41 insertions(+), 17 deletions(-) | Commit: cee5cea4",
+  "created_at": "2026-05-07T17:51:28.597378528Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAXR/8vS1SPgZ0kQQZmvM97hdF5KK/KqkX5oeIh4UdlY9UaoUFRga/D4dvvJFRPkCQHw523Rka0KwG5jPLhBSiDQ=="
+}
