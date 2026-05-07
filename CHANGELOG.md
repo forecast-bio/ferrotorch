@@ -340,6 +340,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- Conformance Buildout C7 — Tier-3 ferrotorch-jit (4 sub-phases) (#883)
+- Conformance Buildout C6 — Tier-3 ferrotorch-optim (4 sub-phases) (#880)
 - Conformance Buildout C5 — Tier-2 (distributions + vision) (#858)
 - Conformance Buildout C4 — Tier-2 (serialize + distributed) (#847)
 - Conformance Buildout C3 — Tier-2 (train + cubecl + data + llama) (#842)

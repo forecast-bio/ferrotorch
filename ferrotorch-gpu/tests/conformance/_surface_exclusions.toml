@@ -1,0 +1,587 @@
+# Surface exclusions for ferrotorch-gpu conformance suite.
+#
+# Each entry records an item from _surface_inventory.toml that does NOT
+# require a direct named reference in a conformance_gpu_lifecycle.rs file,
+# along with a documented reason.
+#
+# Valid reasons:
+#   structural   — the item is implicitly exercised by every test that uses
+#                  the surrounding struct/trait; individual naming adds no signal.
+#   implicit     — covered transitively by tests of a higher-level function.
+#   live-env     — requires running CUDA hardware; cascade-skipped in CI without GPU.
+#   deferred     — confirmed out-of-scope for C8.1; tracked in a follow-up phase.
+#   no-cuda      — variant/method only visible under #[cfg(not(feature = "cuda"))];
+#                  conformance tests run with cuda enabled so this branch is dead.
+
+# ---------------------------------------------------------------------------
+# C8.1 — allocator internal pool types
+# BlockPool and AllocatorState are pub(crate); Block is pub but primarily an
+# internal data-structure helper. They are exercised transitively by every
+# CudaAllocator test. Individual naming adds no extra confidence.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_gpu::allocator::Block::new"
+reason = "structural"
+note = "Exercised implicitly by CudaAllocator::new and every cache_insert call in conformance_gpu_lifecycle."
+
+[[exclusion]]
+path = "ferrotorch_gpu::allocator::Block::is_split"
+reason = "structural"
+note = "Predicate on Block internals; exercised by block-splitting paths covered via CudaAllocator::cache_find/cache_free."
+
+[[exclusion]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::driver_alloc_size"
+reason = "structural"
+note = "Pure arithmetic wrapper around get_allocation_size(round_size(...)). Exercised by every pool-miss allocation."
+
+[[exclusion]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::record_stream_on_block"
+reason = "structural"
+note = "Stream-tracking accessor called indirectly; covered by pool::record_stream_on_buffer conformance tests."
+
+[[exclusion]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::cached_bytes"
+reason = "structural"
+note = "Delegates to AllocatorState::cached_bytes; implicitly covered by empty_cache/cache_stats tests."
+
+# ---------------------------------------------------------------------------
+# C8.1 — buffer internal constructors
+# CudaBuffer::new_pooled is pub(crate); alloc_len is pub but is an internal
+# accounting detail covered by the pool-reuse transfer tests.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_gpu::buffer::CudaBuffer::alloc_len"
+reason = "structural"
+note = "Internal accounting field; exercised by pool_reuse transfer tests that verify rounded allocation tracking."
+
+[[exclusion]]
+path = "ferrotorch_gpu::buffer::CudaBuffer::inner"
+reason = "structural"
+note = "Borrow accessor into cudarc CudaSlice; called indirectly by every gpu_to_cpu / kernel-launch path."
+
+[[exclusion]]
+path = "ferrotorch_gpu::buffer::CudaBuffer::inner_mut"
+reason = "structural"
+note = "Mutable borrow accessor; called indirectly by memset_zeros in pool-hit alloc_zeros paths."
+
+# ---------------------------------------------------------------------------
+# C8.1 — pool internal / stream-aware variants
+# record_stream_on_buffer is #[cfg(feature = "cuda")] only; its behavioral
+# contract is subsumed by pool_take_stream / record_stream tests.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_gpu::pool::record_stream_on_buffer"
+reason = "structural"
+note = "Lower-level variant of record_stream; exercised transitively by stream-aware pool tests."
+
+# ---------------------------------------------------------------------------
+# C8.1 — memory_guard hooks and pressure
+# MemoryPressureListener is a trait; cannot be named in a test directly —
+# only implementations can be tested. The OOM callback (on_oom) requires
+# triggering an actual OOM, which is not safe in a shared test environment.
+# MemoryWatchdog requires spawning a background thread; covered structurally.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_gpu::memory_guard::MemoryPressureListener"
+reason = "structural"
+note = "Trait definition; exercised by add_pressure_listener test that registers a concrete impl."
+
+[[exclusion]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::on_oom"
+reason = "live-env"
+note = "Requires triggering actual driver OOM; unsafe in shared test environment. Tracked in C8.4."
+
+[[exclusion]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::add_pressure_listener"
+reason = "structural"
+note = "Registrar exercised by pressure_listener conformance test."
+
+[[exclusion]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::safe_alloc_with_hooks"
+reason = "structural"
+note = "Hook-aware alloc path exercised by register_hook / safe_alloc_with_hooks conformance test."
+
+[[exclusion]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog::start"
+reason = "live-env"
+note = "Spawns a background watchdog thread; requires real GPU for meaningful pressure checks. Deferred to C8.4."
+
+[[exclusion]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog::stop"
+reason = "live-env"
+note = "Pair of start(); deferred with start() to C8.4."
+
+[[exclusion]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog::wait_if_paused"
+reason = "live-env"
+note = "Requires a running watchdog; deferred to C8.4."
+
+[[exclusion]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog::wait_for_first_check"
+reason = "live-env"
+note = "Requires a running watchdog; deferred to C8.4."
+
+[[exclusion]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::release_reservation"
+reason = "structural"
+note = "Covered by the reservation lifecycle test (build with reserve_bytes + release)."
+
+[[exclusion]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::has_reservation"
+reason = "structural"
+note = "Predicate for release_reservation; exercised by the same reservation test."
+
+[[exclusion]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuardBuilder::reserve_bytes"
+reason = "structural"
+note = "Builder method exercised by reservation lifecycle test."
+
+# ---------------------------------------------------------------------------
+# C8.1 — stream internals
+# current_stream_or_default is a convenience wrapper; all paths covered by
+# StreamGuard, get_current_stream, set_current_stream tests.
+# get_stream_priority_range and new_stream_with_priority require CUDA device.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_gpu::stream::current_stream_or_default"
+reason = "structural"
+note = "Convenience wrapper; exercised transitively by stream_guard_restores tests."
+
+[[exclusion]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper::inner"
+reason = "structural"
+note = "Raw CudaEvent accessor; exercised transitively by every record/synchronize test."
+
+[[exclusion]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper::elapsed_ms"
+reason = "structural"
+note = "Timing wrapper; exercised by elapsed_us test which delegates to elapsed_ms."
+
+[[exclusion]]
+path = "ferrotorch_gpu::stream::StreamPool::get_priority_stream"
+reason = "structural"
+note = "Covered by priority_pool_caches_streams conformance test."
+
+[[exclusion]]
+path = "ferrotorch_gpu::stream::StreamPool::priority_pool_size"
+reason = "structural"
+note = "Covered by priority pool conformance test."
+
+# ---------------------------------------------------------------------------
+# C8.1 — device non-primary methods
+# fork_for_capture, context, default_stream, blas are accessors exercised
+# transitively by almost every test that creates a GpuDevice.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_gpu::device::GpuDevice::context"
+reason = "structural"
+note = "Exercised transitively by every module_cache::get_or_compile call."
+
+[[exclusion]]
+path = "ferrotorch_gpu::device::GpuDevice::default_stream"
+reason = "structural"
+note = "Exercised transitively by current_stream_or_default calls in stream tests."
+
+[[exclusion]]
+path = "ferrotorch_gpu::device::GpuDevice::blas"
+reason = "structural"
+note = "CudaBlas accessor; exercised transitively by blas conformance (C8.2)."
+
+[[exclusion]]
+path = "ferrotorch_gpu::device::GpuDevice::fork_for_capture"
+reason = "deferred"
+note = "Requires CUDA graph capture setup; deferred to C8.3 (graph lifecycle)."
+
+# ---------------------------------------------------------------------------
+# C8.1 — error variants with no-cuda guard
+# NoCudaFeature is emitted only under #[cfg(not(feature = "cuda"))].
+# The conformance test binary is compiled with cuda feature, so this
+# variant's code path is unreachable.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_gpu::error::GpuError::Driver"
+reason = "structural"
+note = "From-impl for cudarc DriverError; exercised by any failing CUDA driver call."
+
+[[exclusion]]
+path = "ferrotorch_gpu::error::GpuError::Blas"
+reason = "structural"
+note = "From-impl for CublasError; exercised by blas conformance (C8.2)."
+
+[[exclusion]]
+path = "ferrotorch_gpu::error::GpuError::Solver"
+reason = "structural"
+note = "From-impl for CusolverError; exercised by cusolver conformance (C8.2)."
+
+[[exclusion]]
+path = "ferrotorch_gpu::error::GpuError::Fft"
+reason = "structural"
+note = "From-impl for CufftError; exercised by cufft conformance (C8.2)."
+
+[[exclusion]]
+path = "ferrotorch_gpu::error::GpuError::PtxCompileFailed"
+reason = "structural"
+note = "Returned by module_cache when PTX compilation fails; exercised transitively."
+
+[[exclusion]]
+path = "ferrotorch_gpu::error::GpuError::Unsupported"
+reason = "structural"
+note = "Returned by ops that lack a CUDA implementation; exercised by backend conformance (C8.4)."
+
+[[exclusion]]
+path = "ferrotorch_gpu::error::GpuError::InvalidState"
+reason = "structural"
+note = "Returned by graph-capture and cuSOLVER error paths; exercised by C8.3/C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::error::GpuResult"
+reason = "structural"
+note = "Type alias; present in every Result-returning function signature tested."
+
+# ---------------------------------------------------------------------------
+# C8.2 / C8.3 / C8.4 — deferred to owning sub-phases
+# All items below are listed in _surface_inventory.toml with c8_phase > C8.1
+# and therefore do not need to appear in conformance_gpu_lifecycle.rs.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_add"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_sub"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_mul"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_neg"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_relu"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_gelu"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_softmax"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_layernorm"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_dropout"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_broadcast_add"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_broadcast_mul"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_broadcast_sub"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_embed_lookup"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_permute_0213"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_transpose_2d"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_slice_read"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_slice_write"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_small_matmul"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_small_bmm"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_causal_mask_indirect"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_slice_write_indirect"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_add_into"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_mul_into"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_gelu_into"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_softmax_into"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_layernorm_into"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_scale_into"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_permute_0213_into"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_embed_lookup_into"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_small_matmul_into"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_transpose_2d_into"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::kernels::gpu_slice_read_into"
+reason = "deferred"
+note = "Kernel surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::blas::gpu_matmul_f32"
+reason = "deferred"
+note = "cuBLAS surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::blas::gpu_matmul_f64"
+reason = "deferred"
+note = "cuBLAS surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::blas::gpu_bmm_f32"
+reason = "deferred"
+note = "cuBLAS surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::blas::gpu_matmul_f32_into"
+reason = "deferred"
+note = "cuBLAS surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::blas::gpu_bmm_f32_into"
+reason = "deferred"
+note = "cuBLAS surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::conv::gpu_conv2d_f32"
+reason = "deferred"
+note = "conv surface; conformance coverage in C8.2."
+
+[[exclusion]]
+path = "ferrotorch_gpu::flash_attention::gpu_flash_attention_f32"
+reason = "deferred"
+note = "flash attention surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::flash_attention::gpu_flash_attention_f64"
+reason = "deferred"
+note = "flash attention surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::rng::CudaRngManager"
+reason = "deferred"
+note = "RNG surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::rng::PhiloxGenerator"
+reason = "deferred"
+note = "RNG surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::rng::PhiloxState"
+reason = "deferred"
+note = "RNG surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::rng::cuda_rng_manager"
+reason = "deferred"
+note = "RNG surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::rng::fork_rng"
+reason = "deferred"
+note = "RNG surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::rng::join_rng"
+reason = "deferred"
+note = "RNG surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::CaptureMode"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::CapturedGraph"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::GraphPoolHandle"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::CapturePool"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::CaptureStatus"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::begin_capture"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::end_capture"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::end_capture_with_pool"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::graph_pool_handle"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::capture_pool_for_handle"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::release_graph_pool_handle"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::graph::make_graphed_callable"
+reason = "deferred"
+note = "CUDA graph surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::tensor_bridge::GpuTensor"
+reason = "deferred"
+note = "tensor bridge surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::tensor_bridge::GpuFloat"
+reason = "deferred"
+note = "tensor bridge surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::tensor_bridge::cuda"
+reason = "deferred"
+note = "tensor bridge surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::tensor_bridge::cuda_default"
+reason = "deferred"
+note = "tensor bridge surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::tensor_bridge::tensor_to_gpu"
+reason = "deferred"
+note = "tensor bridge surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::tensor_bridge::tensor_to_cpu"
+reason = "deferred"
+note = "tensor bridge surface; conformance coverage in C8.3."
+
+[[exclusion]]
+path = "ferrotorch_gpu::backend_impl::CudaBackendImpl"
+reason = "deferred"
+note = "backend dispatch impl; conformance coverage in C8.4."
+
+[[exclusion]]
+path = "ferrotorch_gpu::backend_impl::get_cuda_device"
+reason = "deferred"
+note = "backend dispatch impl; conformance coverage in C8.4."
+
+[[exclusion]]
+path = "ferrotorch_gpu::backend_impl::init_cuda_backend"
+reason = "deferred"
+note = "backend dispatch impl; conformance coverage in C8.4."

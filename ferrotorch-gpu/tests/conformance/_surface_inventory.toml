@@ -1,0 +1,1234 @@
+# Surface inventory for ferrotorch-gpu
+# Authored for C8.1 (Lifecycle + infrastructure).
+# Subsequent sub-phases C8.2, C8.3, C8.4 REUSE this file without replacing it.
+# DO NOT replace this file in later sub-phases — only extend [[item]] entries.
+#
+# Inventory date: 2026-05-07
+# Total items: 322
+#
+# Modules covered (full crate):
+#   allocator      — MIN_BLOCK_SIZE, SMALL_SIZE, SMALL_BUFFER, MIN_LARGE_ALLOC,
+#                    LARGE_BUFFER, ROUND_LARGE, StreamId, Block, CudaAllocator (+methods)
+#                    round_size, get_allocation_size
+#   buffer         — CudaBuffer (+methods)
+#   pool           — pool_stats, reset_pool_stats, round_len, pool_take,
+#                    pool_take_stream, pool_return, pool_return_with_stream,
+#                    record_stream, record_stream_on_buffer, empty_cache,
+#                    empty_cache_all, cached_bytes
+#   memory_guard   — OomPolicy, MemoryHook, PressureLevel, MemoryPressureListener,
+#                    MemoryReservation, MemoryStats, MemoryGuard, MemoryGuardBuilder,
+#                    MemoryWatchdog, MemoryGuardedDevice (+methods)
+#   stream         — StreamPriority, CudaEventWrapper, StreamPool, StreamGuard,
+#                    get_stream_priority_range, new_stream_with_priority,
+#                    get_current_stream, set_current_stream, clear_current_stream,
+#                    current_stream_or_default
+#   transfer       — cpu_to_gpu, gpu_to_cpu, alloc_zeros, alloc_zeros_f32,
+#                    alloc_zeros_f64, cpu_to_gpu_pinned
+#   device         — GpuDevice (+methods)
+#   module_cache   — get_or_compile
+#   error          — GpuError (enum + variants), GpuResult
+#
+# Modules present in crate but out-of-scope for C8.1–C8.4 lifecycle phase
+# (kernels, blas, conv, flash_attention, graph, rng, sparse, tensor_bridge,
+#  backend_impl, cufft, cusolver, cusparselt, bf16) are inventoried with a
+# c8_phase marker set to the owning phase so C8.2/C8.3/C8.4 can extend this
+# file in place.
+
+# ============================================================
+# allocator — caching block allocator
+# ============================================================
+
+[[item]]
+path = "ferrotorch_gpu::allocator::MIN_BLOCK_SIZE"
+kind = "const"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::SMALL_SIZE"
+kind = "const"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::SMALL_BUFFER"
+kind = "const"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::MIN_LARGE_ALLOC"
+kind = "const"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::LARGE_BUFFER"
+kind = "const"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::ROUND_LARGE"
+kind = "const"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::StreamId"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::Block"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::Block::new"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::Block::is_split"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::round_size"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::get_allocation_size"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::new"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::alloc_zeros"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::alloc_copy"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::free"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::memory_allocated"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::max_memory_allocated"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::memory_reserved"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::reset_peak_stats"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::empty_cache"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::device"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::record_stream_on_block"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::block_count"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::free_block_count"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::cache_stats"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::cached_bytes"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::cache_find"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::cache_insert"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::cache_free"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::allocator::CudaAllocator::driver_alloc_size"
+kind = "method"
+c8_phase = "C8.1"
+
+# ============================================================
+# buffer — GPU memory buffer
+# ============================================================
+
+[[item]]
+path = "ferrotorch_gpu::buffer::CudaBuffer"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::buffer::CudaBuffer::len"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::buffer::CudaBuffer::alloc_len"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::buffer::CudaBuffer::is_empty"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::buffer::CudaBuffer::device_ordinal"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::buffer::CudaBuffer::inner"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::buffer::CudaBuffer::inner_mut"
+kind = "method"
+c8_phase = "C8.1"
+
+# ============================================================
+# pool — global caching buffer pool
+# ============================================================
+
+[[item]]
+path = "ferrotorch_gpu::pool::pool_stats"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::pool::reset_pool_stats"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::pool::round_len"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::pool::pool_take"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::pool::pool_take_stream"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::pool::pool_return"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::pool::pool_return_with_stream"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::pool::record_stream"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::pool::record_stream_on_buffer"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::pool::empty_cache"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::pool::empty_cache_all"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::pool::cached_bytes"
+kind = "fn"
+c8_phase = "C8.1"
+
+# ============================================================
+# memory_guard — OOM recovery and pressure monitoring
+# ============================================================
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::OomPolicy"
+kind = "enum"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::OomPolicy::Fail"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::OomPolicy::RetryAfterFree"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::OomPolicy::WaitAndRetry"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::OomPolicy::CheckpointAndFail"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryHook"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryHook::new"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::PressureLevel"
+kind = "enum"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::PressureLevel::None"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::PressureLevel::Low"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::PressureLevel::Medium"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::PressureLevel::High"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::PressureLevel::Critical"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryPressureListener"
+kind = "trait"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryReservation"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryReservation::reserved_bytes"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryReservation::device_ordinal"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryStats"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::set_budget"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::budget"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::on_oom"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::set_oom_policy"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::register_hook"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::remove_hook"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::pressure_level"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::add_pressure_listener"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::safe_alloc_with_hooks"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::release_reservation"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::has_reservation"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::safe_alloc"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::safe_alloc_copy"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::free"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::stats"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::reset_peak_stats"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::device"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuard::device_arc"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuardBuilder"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuardBuilder::new"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuardBuilder::budget_bytes"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuardBuilder::reserve_bytes"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuardBuilder::oom_policy"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuardBuilder::build"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog::new"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog::start"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog::stop"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog::check_pressure"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog::wait_if_paused"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog::wait_for_first_check"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryWatchdog::pressure_threshold_bytes"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuardedDevice"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuardedDevice::device"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuardedDevice::guard"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::memory_guard::MemoryGuardedDevice::memory_info"
+kind = "method"
+c8_phase = "C8.1"
+
+# ============================================================
+# stream — CUDA streams, events, thread-local dispatch
+# ============================================================
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamPriority"
+kind = "enum"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamPriority::High"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamPriority::Normal"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamPriority::Low"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamPriority::to_cuda_priority"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::get_stream_priority_range"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::new_stream_with_priority"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper::new"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper::new_with_timing"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper::record"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper::synchronize"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper::query"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper::wait_on"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper::elapsed_ms"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper::elapsed_us"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::CudaEventWrapper::inner"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamPool"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamPool::get_stream"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamPool::pool_size"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamPool::get_priority_stream"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamPool::priority_pool_size"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::get_current_stream"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::set_current_stream"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::clear_current_stream"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::current_stream_or_default"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamGuard"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::stream::StreamGuard::new"
+kind = "method"
+c8_phase = "C8.1"
+
+# ============================================================
+# transfer — host/device memory transfers
+# ============================================================
+
+[[item]]
+path = "ferrotorch_gpu::transfer::cpu_to_gpu"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::transfer::gpu_to_cpu"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::transfer::alloc_zeros"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::transfer::alloc_zeros_f32"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::transfer::alloc_zeros_f64"
+kind = "fn"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::transfer::cpu_to_gpu_pinned"
+kind = "fn"
+c8_phase = "C8.1"
+
+# ============================================================
+# device — GpuDevice
+# ============================================================
+
+[[item]]
+path = "ferrotorch_gpu::device::GpuDevice"
+kind = "struct"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::device::GpuDevice::new"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::device::GpuDevice::fork_for_capture"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::device::GpuDevice::context"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::device::GpuDevice::default_stream"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::device::GpuDevice::stream"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::device::GpuDevice::blas"
+kind = "method"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::device::GpuDevice::ordinal"
+kind = "method"
+c8_phase = "C8.1"
+
+# ============================================================
+# module_cache — compiled PTX cache
+# ============================================================
+
+[[item]]
+path = "ferrotorch_gpu::module_cache::get_or_compile"
+kind = "fn"
+c8_phase = "C8.1"
+
+# ============================================================
+# error — GpuError enum
+# ============================================================
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError"
+kind = "enum"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::Driver"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::InvalidDevice"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::DeviceMismatch"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::OutOfMemory"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::BudgetExceeded"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::LengthMismatch"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::ShapeMismatch"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::Blas"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::Solver"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::Fft"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::PtxCompileFailed"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::Unsupported"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuError::InvalidState"
+kind = "variant"
+c8_phase = "C8.1"
+
+[[item]]
+path = "ferrotorch_gpu::error::GpuResult"
+kind = "type"
+c8_phase = "C8.1"
+
+# ============================================================
+# Out-of-scope for C8.1 — reserved for C8.2/C8.3/C8.4
+# These items are listed here so the FULL crate inventory is
+# contained in this single file. Later sub-phases populate
+# their test coverage; the exclusions file records why they
+# are excluded from the C8.1 gate.
+# ============================================================
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_add"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_sub"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_mul"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_neg"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_relu"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_gelu"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_softmax"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_layernorm"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_dropout"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_broadcast_add"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_broadcast_mul"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_broadcast_sub"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_embed_lookup"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_permute_0213"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_transpose_2d"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_slice_read"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_slice_write"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_small_matmul"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_small_bmm"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_causal_mask_indirect"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_slice_write_indirect"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_add_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_mul_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_gelu_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_softmax_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_layernorm_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_scale_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_permute_0213_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_embed_lookup_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_small_matmul_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_transpose_2d_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::kernels::gpu_slice_read_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::blas::gpu_matmul_f32"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::blas::gpu_matmul_f64"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::blas::gpu_bmm_f32"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::blas::gpu_matmul_f32_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::blas::gpu_bmm_f32_into"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::conv::gpu_conv2d_f32"
+kind = "fn"
+c8_phase = "C8.2"
+
+[[item]]
+path = "ferrotorch_gpu::flash_attention::gpu_flash_attention_f32"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::flash_attention::gpu_flash_attention_f64"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::rng::CudaRngManager"
+kind = "struct"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::rng::PhiloxGenerator"
+kind = "struct"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::rng::PhiloxState"
+kind = "struct"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::rng::cuda_rng_manager"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::rng::fork_rng"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::rng::join_rng"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::CaptureMode"
+kind = "enum"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::CapturedGraph"
+kind = "struct"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::GraphPoolHandle"
+kind = "struct"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::CapturePool"
+kind = "struct"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::CaptureStatus"
+kind = "enum"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::begin_capture"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::end_capture"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::end_capture_with_pool"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::graph_pool_handle"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::capture_pool_for_handle"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::release_graph_pool_handle"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::graph::make_graphed_callable"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::tensor_bridge::GpuTensor"
+kind = "struct"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::tensor_bridge::GpuFloat"
+kind = "trait"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::tensor_bridge::cuda"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::tensor_bridge::cuda_default"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::tensor_bridge::tensor_to_gpu"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::tensor_bridge::tensor_to_cpu"
+kind = "fn"
+c8_phase = "C8.3"
+
+[[item]]
+path = "ferrotorch_gpu::backend_impl::CudaBackendImpl"
+kind = "struct"
+c8_phase = "C8.4"
+
+[[item]]
+path = "ferrotorch_gpu::backend_impl::get_cuda_device"
+kind = "fn"
+c8_phase = "C8.4"
+
+[[item]]
+path = "ferrotorch_gpu::backend_impl::init_cuda_backend"
+kind = "fn"
+c8_phase = "C8.4"

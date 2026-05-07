@@ -40,5 +40,10 @@ tracing.workspace = true
 # pull libclang.
 bindgen = { workspace = true, optional = true }
 
+[dev-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "0.8"
+
 [package.metadata.docs.rs]
 features = []

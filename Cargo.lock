@@ -2576,7 +2576,10 @@ dependencies = [
  "ferrotorch-core",
  "half",
  "num-traits",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
+ "toml 0.8.23",
  "tracing",
 ]
 
@@ -2609,8 +2612,11 @@ dependencies = [
  "ferrotorch-nn",
  "libm",
  "num-traits",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+ "toml 0.8.23",
 ]
 
 [[package]]
