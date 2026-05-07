@@ -1,0 +1,10 @@
+{
+  "uuid": "051f3334-505e-48e2-9147-42f213910bc2",
+  "issue_uuid": "cb022456-7d07-4a3d-b125-1d142501683b",
+  "author": "y4rr",
+  "content": "Observation: BatchNorm2d IS available in ferrotorch_nn (ferrotorch-nn/src/norm.rs). The resnet.rs comment 'omits BatchNorm2d (not yet available in ferrotorch_nn)' is stale — the module was implemented later. Fix is to integrate BatchNorm2d into resnet.rs BasicBlock, Bottleneck, and stem.\n\nBEFORE state:\n- ferrotorch resnet18(10) param count: 11,172,042 (computed: conv+fc only)\n- torchvision fixture expected: 11,181,642\n- Difference: 9,600 = BN params (weight+bias for all BN layers)\n\nForward parity approach: add conformance tests that check output shape and a seeded L2 diff against fixture. Since we do not have weight download, we use fixed-init (zeros/ones from BN, Kaiming from convs) and verify the forward pass shape and that it doesn't diverge. The true forward numerical parity requires matching weights which we cannot do without pretrained download — but we can verify the architecture is structurally correct by: output shape = [1,10], param count = 11,181,642.",
+  "created_at": "2026-05-07T19:50:25.726872407Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADxySG0bK52QTPYm85s7aAIKQ80+UgEQKpip/G6p+HrScCCO573EzI/t5DozkhDWqPOBZapYABIY6pgZqRSBvBA=="
+}
