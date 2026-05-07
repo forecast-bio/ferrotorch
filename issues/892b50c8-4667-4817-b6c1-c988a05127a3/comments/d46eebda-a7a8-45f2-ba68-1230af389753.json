@@ -1,0 +1,10 @@
+{
+  "uuid": "d46eebda-a7a8-45f2-ba68-1230af389753",
+  "issue_uuid": "892b50c8-4667-4817-b6c1-c988a05127a3",
+  "author": "y4rr",
+  "content": "Found during conformance suite C1.4: conformance_event.rs (pre-existing) was broken — it accessed ferrotorch_profiler::event::DeviceType and ::GpuTimingPair through the private event module. Fixed by adding DeviceType and GpuTimingPair to the pub use re-exports in lib.rs. Fix is landed.",
+  "created_at": "2026-05-07T13:43:12.373775789Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA+IYc1cM/db7Q/rpffSsvdwLsWIpElIY+cAZV3pvwS5U6tAl2rMdzsjZjUobP0qvCHxn8P/42eejHmkGPgn8rAA=="
+}
