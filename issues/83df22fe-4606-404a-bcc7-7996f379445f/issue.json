@@ -2,11 +2,12 @@
   "uuid": "83df22fe-4606-404a-bcc7-7996f379445f",
   "display_id": 907,
   "title": "Add mmap load variant integration tests for ferrotorch-serialize",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T17:46:40.666782134Z",
-  "updated_at": "2026-05-07T17:46:42.200181353Z",
+  "updated_at": "2026-05-07T17:52:12.016515446Z",
+  "closed_at": "2026-05-07T17:52:12.016515446Z",
   "labels": [
     "feature"
   ]
