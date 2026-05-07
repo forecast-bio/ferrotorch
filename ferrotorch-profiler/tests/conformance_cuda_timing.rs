@@ -198,7 +198,7 @@ fn cuda_timing_push_gpu_event_inactive_returns_none() {
 #[test]
 fn cuda_timing_has_gpu_events_transitions_on_push() {
     let ((), report) = with_profiler(ProfileConfig::default(), |p| {
-        assert!(!p.is_active() || true); // always active at start; just verify API
+        let _ = p.is_active(); // verify API surface; value not asserted
         // Before any GPU event.
         let pre_report = {
             // Use an inner with_profiler to snapshot state without GPU events.

@@ -76,10 +76,10 @@ fn run_schedule_fixture(fixture_id: &str) {
         .find(|f| f["id"].as_str() == Some(fixture_id))
         .unwrap_or_else(|| panic!("fixture {fixture_id:?} not found"));
 
-    let wait = fix["wait"].as_u64().expect("wait") as u64;
-    let warmup = fix["warmup"].as_u64().expect("warmup") as u64;
-    let active = fix["active"].as_u64().expect("active") as u64;
-    let repeat = fix["repeat"].as_u64().expect("repeat") as u64;
+    let wait = fix["wait"].as_u64().expect("wait");
+    let warmup = fix["warmup"].as_u64().expect("warmup");
+    let active = fix["active"].as_u64().expect("active");
+    let repeat = fix["repeat"].as_u64().expect("repeat");
 
     let expected: Vec<SchedulePhase> = fix["expected_phase_sequence"]
         .as_array()
@@ -139,10 +139,10 @@ fn schedule_on_trace_ready_fires_once_per_cycle() {
         .find(|f| f["id"].as_str() == Some("schedule_active1_repeat3"))
         .expect("schedule_active1_repeat3 fixture");
 
-    let wait   = fix["wait"].as_u64().unwrap() as u64;
-    let warmup = fix["warmup"].as_u64().unwrap() as u64;
-    let active = fix["active"].as_u64().unwrap() as u64;
-    let repeat = fix["repeat"].as_u64().unwrap() as u64;
+    let wait   = fix["wait"].as_u64().unwrap();
+    let warmup = fix["warmup"].as_u64().unwrap();
+    let active = fix["active"].as_u64().unwrap();
+    let repeat = fix["repeat"].as_u64().unwrap();
     let expected_calls = fix["expected_on_trace_ready_calls"]
         .as_u64()
         .expect("expected_on_trace_ready_calls") as usize;

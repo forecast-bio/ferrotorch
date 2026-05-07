@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - Add AsyncCheckpointer conformance tests using background threads (#910)
+- Add AsyncCheckpointer conformance tests using background threads (#910)
 - Add sharded safetensors multi-file fixture and conformance tests (#908)
 - Add mmap load variant integration tests for ferrotorch-serialize (#907)
 - Add ferrotorch-nn C9.1 conformance suite for basic layers (#899)
