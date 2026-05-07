@@ -2,11 +2,12 @@
   "uuid": "a4488607-f387-4e6a-828f-e2d2c237fb2b",
   "display_id": 943,
   "title": "Add MSL kernels for MPS activation backward passes: relu, sigmoid, softmax, log_softmax",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T21:07:37.801092341Z",
-  "updated_at": "2026-05-07T21:07:39.158292832Z",
+  "updated_at": "2026-05-07T22:32:36.525386667Z",
+  "closed_at": "2026-05-07T22:32:36.525386667Z",
   "labels": [
     "feature"
   ]
