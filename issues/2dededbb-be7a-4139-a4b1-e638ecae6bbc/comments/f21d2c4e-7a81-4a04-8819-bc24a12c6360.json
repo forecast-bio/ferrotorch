@@ -1,0 +1,10 @@
+{
+  "uuid": "f21d2c4e-7a81-4a04-8819-bc24a12c6360",
+  "issue_uuid": "2dededbb-be7a-4139-a4b1-e638ecae6bbc",
+  "author": "y4rr",
+  "content": "Surfaced by C8.1 conformance test lifecycle::memory_guard_hook_fires_before_budget_error.\n\nRoot cause: MemoryGuard::run_hooks() decrements used_bytes via fetch_update(|c| Some(c.saturating_sub(freed))). When used_bytes is 0 (no prior safe_alloc tracked usage), saturating_sub keeps it at 0. The subsequent check_budget() call still reads used_bytes=0 and computes 0+alloc_bytes > budget, which is the same check that originally failed.\n\nResult: safe_alloc_with_hooks always returns BudgetExceeded when the guard has no prior tracked allocations, regardless of how much a hook claims to free. The hook mechanism only works when there is pre-existing tracked usage for the hook to offset against.\n\nRepro path in conformance test: budget=512, used_bytes=0, alloc=800 bytes, hook frees=1024 bytes -> still BudgetExceeded.\n\nFix direction: run_hooks should increase available headroom independently from used_bytes (e.g. track 'externally_freed_bytes' accumulator), or check_budget after hooks should compute: used_bytes + alloc_bytes - freed <= budget.",
+  "created_at": "2026-05-07T16:41:17.155077080Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAEEfqKfxo/t99wK29erFYM1FTKYDEv2klocd95Ls0qCJp2TB4orNhM5jQUWy3em/otdN0iLzxwi091TaPC6kyBw=="
+}
