@@ -2,11 +2,12 @@
   "uuid": "fa6c6c61-bc4a-4367-ae46-396198e8e2d4",
   "display_id": 886,
   "title": "C7.4 cascade: DataDependentControlFlow and RecompilationError JitError variants not triggered in C7.4 — deferred to C7.5 full-graph tracing",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-07T16:21:37.440878088Z",
-  "updated_at": "2026-05-07T16:21:39.376941575Z",
+  "updated_at": "2026-05-07T17:49:43.153029688Z",
+  "closed_at": "2026-05-07T17:49:43.153029688Z",
   "labels": [
     "bug"
   ]
