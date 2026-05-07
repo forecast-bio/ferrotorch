@@ -1,0 +1,10 @@
+{
+  "uuid": "496fa387-6820-4874-b563-014d298b8cb3",
+  "issue_uuid": "79faf31d-50b6-4a88-8811-329d2a3d0b60",
+  "author": "y4rr",
+  "content": "Follow-up from Sprint C.7 (#626). GpuBackend methods: conv_f32/f64 (with stride/padding/dilation), avgpool_f32/f64, maxpool_f32/f64. Best approach: use MPSCNNConvolution / MPSCNNPoolingAverage / MPSCNNPoolingMax from the Metal Performance Shaders CNN framework rather than custom MSL.",
+  "created_at": "2026-05-07T21:08:55.440080586Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABApmTZsHYVa+FRX+NuHWZUoIs/tdzBUC7OKId6k24kfEGtFKqk4J3+8ZgetjiWz3ME2l7ES0hdxj+wMsPg5vHTCA=="
+}
