@@ -1,0 +1,10 @@
+{
+  "uuid": "bcc90aba-76dc-473d-909b-5a397387ea1f",
+  "issue_uuid": "f241b066-6acc-4b30-95f9-6a238987ad81",
+  "author": "y4rr",
+  "content": "Decision: For #855 (DeviceMesh), the test reads f.mesh_shape/f.mesh_world_size but fixture only has 'shape'/'world_size'. Since the Fixture struct already has both 'shape' and 'world_size' fields (used by other fixtures), the correct fix is to change the test to read f.shape and f.world_size instead of f.mesh_shape/f.mesh_world_size. This is purely test-side — no fixture modification or struct field addition needed.",
+  "created_at": "2026-05-07T18:16:22.450182484Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAD2n39vWy8FMi1Q2yw1ErmL3Z59tV1sV/cSj99W8Q2ykvk+KUz5f+3t7ug8MU3vpBHxVJ2I/ig04zy80gM/VXDQ=="
+}
