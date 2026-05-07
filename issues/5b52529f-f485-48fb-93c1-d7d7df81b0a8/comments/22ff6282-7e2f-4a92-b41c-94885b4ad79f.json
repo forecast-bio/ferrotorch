@@ -1,0 +1,10 @@
+{
+  "uuid": "22ff6282-7e2f-4a92-b41c-94885b4ad79f",
+  "issue_uuid": "5b52529f-f485-48fb-93c1-d7d7df81b0a8",
+  "author": "y4rr",
+  "content": "Plan: 4-layer conformance suite per docs/conformance-suites.md.\n\nLayer 1 (Surface inventory): TOML at ferrotorch-llama/tests/conformance/_surface_inventory.toml\n  - Enumerate all pub items across attention.rs, config.rs, generation.rs, layer.rs, mlp.rs, model.rs\n  - Also gguf_remap, quant_loaders\n\nLayer 2 (Reference fixtures): scripts/regenerate_llama_fixtures.py\n  - Uses transformers==4.50.3 (just installed), torch==2.11.0+cu130\n  - Tiny 2-layer synthetic Llama config with seed=42 for reproducibility\n  - Covers: RMSNorm, RoPE, MLP (SwiGLU), Attention (GQA), DecoderLayer, full LlamaForCausalLM forward\n  - NO model downloads - seeded random weights only\n\nLayer 3 (Conformance tests): ferrotorch-llama/tests/conformance_llama.rs\n  - Load fixtures/llama.json, assert per-op outputs match reference within tolerance\n  - tolerances: RMSNorm/elem 1e-5, Attention 1e-4, full forward 1e-3 (O(n^3) accumulation)\n  - cascade_skip with crosslink quick for any divergences found\n\nLayer 4 (Surface gate): ferrotorch-llama/tests/conformance_surface_coverage.rs\n  - Read _surface_inventory.toml + _surface_exclusions.toml\n  - Scan conformance_llama.rs for references to each item\n  - Fail if any item uncovered without exclusion+tracking_issue\n\nReference: transformers==4.50.3, torch==2.11.0+cu130\nTiny model config: vocab=64, hidden=32, intermediate=64, layers=2, heads=4, kv_heads=2, rope_theta=10000, eps=1e-5",
+  "created_at": "2026-05-07T14:00:03.306484238Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABATmFgn/mjkryqxh92SqyEubT2ENf+taaATuhBxRbgpzzsgpow839s97DuDl9AchXsKt8kQCqzFkBKmdBu3GiFAg=="
+}
