@@ -1,0 +1,10 @@
+{
+  "uuid": "e342e855-0e29-4f06-a45b-cd2c05e5e58f",
+  "issue_uuid": "254df36f-aa66-4f8b-aceb-cf380f49b033",
+  "author": "y4rr",
+  "content": "Plan: Implement C9.2 conformance suite covering 7 ferrotorch-nn modules per the dispatch spec.\n\nModules in scope:\n1. norm.rs — LayerNorm, GroupNorm, BatchNorm1d/2d/3d, InstanceNorm1d/2d/3d, RMSNorm, LocalResponseNorm\n2. activation.rs — ReLU, Sigmoid, Tanh, GELU, SiLU, Softmax, LogSoftmax, ELU, SELU, Mish, LeakyReLU, etc.\n3. loss.rs — MSELoss, CrossEntropyLoss, BCELoss, BCEWithLogitsLoss, L1Loss, NLLLoss\n4. init.rs — uniform, normal, xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal, constant, zeros, ones\n5. functional.rs — linear, relu, sigmoid, tanh, gelu, silu, softmax, layer_norm, batch_norm\n6. lazy_norm.rs — LazyLayerNorm (if present)\n7. utils.rs — clip_grad_norm_, clip_grad_value_\n\nSteps:\n1. Create ferrotorch-nn/tests/conformance/fixtures/ directory\n2. Write scripts/regenerate_nn_norm_fixtures.py for all 7 modules (torch==2.11.0 pin)\n3. Run fixture script to generate ferrotorch-nn/tests/conformance/fixtures/nn_norm_activation_loss.json\n4. Write ferrotorch-nn/tests/conformance_nn_norm_activation_loss.rs as Layer 3 conformance test\n5. Verify cargo test -p ferrotorch-nn --test conformance_nn_norm_activation_loss passes\n6. File cascade bugs (cascade_skip) for any failures found\n7. Run cascade-skip + crosslink-quick pattern for bugs discovered\n\nConstraint: NO bug fixing. Cascade-skip + file issues only.",
+  "created_at": "2026-05-07T16:59:40.206278476Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAOHJLN7G+D7EZoyvhd9AZ0zPCOn91l92N8rLTnLzKFsR2XBUyH6CGiU0A2mWQ3w98V+FgPHHuGKmNm8+co3dgBg=="
+}
