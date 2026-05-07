@@ -1,0 +1,10 @@
+{
+  "uuid": "216062df-c40d-4c8c-a35c-0c9b1f5fdd3e",
+  "issue_uuid": "a0163f60-a638-474b-a94b-f4e3ac1b0819",
+  "author": "y4rr",
+  "content": "Plan: Sprint B.5.d implements 4 torchvision parity issues. #870: CIFAR::from_dir (binary batch format) + synthetic fixtures + conformance test. #871: IO round-trip tests (PNG lossless exact, JPEG lossy tolerant). #872: Distribution-moment tests for stochastic transforms (RandomFlip p=0.5 → ~50% rate over N=10000). #874: IMG_EXTENSIONS already matches torchvision (verify and document). Will create subissues per task.",
+  "created_at": "2026-05-07T19:48:59.625604187Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAuIXlHp4eXkrCg+EdgQhcKHf7D/TTDcDIuD3P9HPNnQAx0GFoIM2u2usXD6gh3fNYJJv15QGqyuj17uebsTl0DQ=="
+}
