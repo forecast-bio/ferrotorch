@@ -1,0 +1,10 @@
+{
+  "uuid": "41dbd415-ad82-4a32-b7a5-e6c6e2449d84",
+  "issue_uuid": "bc791e48-f407-4ac3-9f60-a790f1032487",
+  "author": "y4rr",
+  "content": "sanitize_path_component in ferrotorch-hub/src/download.rs is pub(crate). The conformance suite (integration test) cannot call it directly; the 20 accept/reject cases from the fixture are tested indirectly via HubCache::store (which calls validate_cache_relative) rather than the sanitizer itself. The full unit-level coverage of all 20 cases (colon rejection, overlong string, dotfile, backslash, etc.) lives only in the same-file #[cfg(test)] module. To fix: either promote sanitize_path_component to pub (with a stability note) or add a thin pub conformance-test shim gated on #[cfg(test)], so the integration conformance test can assert all 20 fixture cases directly. Exclusion filed in _surface_exclusions.toml with tracking_issue = #840.",
+  "created_at": "2026-05-07T13:54:53.096083808Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAxdYxpvXEPhmrIAvy3yUP09vSgl/bGR1NGn987a749v3NWa3pgW4XdPyhpuy7+kPhr7oZNwIixtKiMgYIXArJDA=="
+}
