@@ -1,0 +1,10 @@
+{
+  "uuid": "0c302b84-a488-4d4f-94b9-0b9dd848accf",
+  "issue_uuid": "2dededbb-be7a-4139-a4b1-e638ecae6bbc",
+  "author": "y4rr",
+  "content": "Fixed: safe_alloc_with_hooks in ferrotorch-gpu/src/memory_guard.rs now tracks hook-freed bytes as an independent headroom accumulator. Post-hook budget check uses 'budget - used_now + freed >= alloc_bytes' instead of check_budget() which saturates at used_bytes=0. conformance_gpu_lifecycle::memory_guard_hook_fires_before_budget_error tightened to assert success; 68/68 tests pass.",
+  "created_at": "2026-05-07T19:21:23.986517770Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAyPv/EYlyCjnH+1eer9QU8BPxCXESpB/FJ+9+UeOgzgd1b2zlMQQzd8mvd7S43ixCz1E5HVk7kv9U1b2b5fhlCg=="
+}
