@@ -1,0 +1,10 @@
+{
+  "uuid": "fe6d5b5f-21f4-438b-ba1e-bb8fde2bd922",
+  "issue_uuid": "f10fa38f-242b-4922-8a00-98a361f0b9d9",
+  "author": "y4rr",
+  "content": "Implemented on GPU: gpu_fftn_axes_c2c_f32/f64 via cufftPlanMany (rank=axes.len(), n=shape[axes[i]], idist=transform_vol, batch=spatial/transform_vol). Dispatcher in fft.rs routes innermost-axes cases to GPU; non-innermost axes (e.g. axes=[0] on [d,h,w,2]) fall back with NotImplementedOnCuda (pre-permute step not yet implemented). Removed cascade_skip for ndim_3_axes_neg1 and ndim_3_axes_n2_n1 in conformance_fft.rs. 6 probe tests pass in _probe_966_fftn_axes_planmany.rs. All 14 GPU FFT conformance tests pass.",
+  "created_at": "2026-05-07T23:11:34.707982995Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABACJEG5QRC8iQXHCO6v+70yxYOPVFDaFsIuGpu0I4HWyGwAYgM8muUyadXOk/ocFOZPVhw4V5LaCCH2n6aAWrVDg=="
+}
