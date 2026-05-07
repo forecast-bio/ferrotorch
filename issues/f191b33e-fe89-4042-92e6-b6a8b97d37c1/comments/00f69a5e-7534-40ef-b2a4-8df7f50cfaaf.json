@@ -1,0 +1,10 @@
+{
+  "uuid": "00f69a5e-7534-40ef-b2a4-8df7f50cfaaf",
+  "issue_uuid": "f191b33e-fe89-4042-92e6-b6a8b97d37c1",
+  "author": "y4rr",
+  "content": "Decision for #839: The cascade_skip!() tests in conformance_hub.rs are already green (they early-return), but they don't provide real test coverage. The plan:\n1. Remove the 5 cascade_skip tests from conformance_hub.rs\n2. Add proper #[ignore] integration tests for the 5 network ops — these go into a new hub_online_tests section in conformance_hub.rs or load_pretrained_smoke.rs. Since load_pretrained_smoke.rs already has proper ignored tests for the download path, we integrate the 5 new ignored tests there (or keep them in conformance_hub.rs with proper #[ignore] and meaningful assertions).\n3. Update _surface_exclusions.toml: the 7 exclusion entries for network ops and sanitize_path_component are still valid — the network ops remain excluded (now covered by #[ignore] tests, not cascade_skip). The tracking_issue fields can be updated to closed status.\n\nSince the exclusions reference op coverage, not the cascade_skip mechanism, the exclusions can STAY as they accurately document why these items are excluded from the offline coverage requirement.",
+  "created_at": "2026-05-07T17:47:48.480482746Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA4mlaPH8542IfndpZvazYrjip92P8l7UUBZO+kkrxktmbFPWh1Y1B83eMnAoZ/F/z/ykjoAUMn0zpzGUpmc2ACA=="
+}
