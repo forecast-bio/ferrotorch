@@ -1,0 +1,10 @@
+{
+  "uuid": "f448b4c4-a72d-44f2-90bd-ea1359c3d815",
+  "display_id": 932,
+  "title": "Add MobileNetV2/V3 forward parity conformance lane (#865)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T19:50:06.502509102Z",
+  "updated_at": "2026-05-07T19:50:06.502509102Z"
+}
