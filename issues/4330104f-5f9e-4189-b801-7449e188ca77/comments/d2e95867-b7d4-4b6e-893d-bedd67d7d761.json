@@ -1,0 +1,10 @@
+{
+  "uuid": "d2e95867-b7d4-4b6e-893d-bedd67d7d761",
+  "issue_uuid": "4330104f-5f9e-4189-b801-7449e188ca77",
+  "author": "y4rr",
+  "content": "Implemented on GPU: add_bf16_f32, sub_bf16_f32, mul_bf16_f32, div_bf16_f32 (PTX elementwise), sum_axis_bf16_f32, mean_axis_bf16_f32 (PTX axis reductions), relu_bf16_f32, sigmoid_bf16_f32 (PTX activations). All 8 ops: bf16 u16 input decoded on-device, f32 accumulation throughout, f32 output. PTX JIT on RTX 3090 / sm_52+. 13 probe tests pass in _probe_963_bf16_elementwise_reductions.rs.",
+  "created_at": "2026-05-07T23:11:29.436022102Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAqHJYrlmptOzZZe2sIuwx01Jitym/sZeq/hFriK/HkSh1DXKv79SyXi1HCburgAwDGftKlwXDzYNIANK7GmSvBA=="
+}
