@@ -1,0 +1,10 @@
+{
+  "uuid": "b84fa6ad-64a7-4e66-a8f2-519b73a94587",
+  "issue_uuid": "d0ac9f84-cb56-4d21-83e1-0fa0fd286262",
+  "author": "y4rr",
+  "content": "Follow-up from Sprint C.7 (#626). GpuBackend methods: qr_f32/f64, svd_f32/f64, cholesky_f32/f64, lu_factor_f32/f64, eig_f32/f64, eigh_f32/f64, eigvalsh_f32/f64, lstsq_f32/f64, solve_f32/f64. Best approach on MPS: use Accelerate framework (LAPACK) via Metal command buffer completion callback, or MPSMatrixDecompositionCholesky. Dependency: macOS 14+.",
+  "created_at": "2026-05-07T21:08:22.671175663Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAE7l6cH+PZ0G9rK/h604b/smvUDV70gqbdI49BXwp0nepYI/5vfKoiWDkWEGgNSXUVew6h5JYMLaXOD3CGb9IAg=="
+}
