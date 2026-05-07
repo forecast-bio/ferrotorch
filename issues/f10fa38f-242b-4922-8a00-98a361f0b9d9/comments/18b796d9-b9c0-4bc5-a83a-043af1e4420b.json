@@ -1,0 +1,10 @@
+{
+  "uuid": "18b796d9-b9c0-4bc5-a83a-043af1e4420b",
+  "issue_uuid": "f10fa38f-242b-4922-8a00-98a361f0b9d9",
+  "author": "y4rr",
+  "content": "Committed: feat(core,gpu): hfft/fftn/ifftn 3-D+2-D GPU via cuFFT (C.6 cleanup / #636) | Files: 6 files changed, 847 insertions(+), 3 deletions(-)",
+  "created_at": "2026-05-07T21:48:40.267681186Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAy6R4+1fombnT1VYYus1PyJVpA3U9vkTSyuQ222hADDpr93NVYruHe0xUCsn0VvFdC+276HVHVRz1rDGKPwi2Bg=="
+}
