@@ -1,0 +1,10 @@
+{
+  "uuid": "d670fb11-6611-4d7a-a874-d577f0b008c6",
+  "issue_uuid": "8a37dcdd-8dbe-4626-8cfc-befa3907c3ae",
+  "author": "y4rr",
+  "content": "Fixture regeneration needed: encoder_layer_forward and decoder_layer_forward_with_memory fixture items must use keys matching the test's extract calls: weight_q_proj, weight_k_proj, weight_v_proj, weight_out_proj (not attn_q_proj etc.). Also need ffn_w3 for the SwiGLU third gate weight. cascade_skip::ENCODER_DECODER_FIXTURE_KEY_MISMATCH must be flipped to false once done.",
+  "created_at": "2026-05-07T22:58:04.729159512Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABApsNeTVFjzHgrBz6QrCac9YDj+OIwfFvt8KE+wYX+rMic8f4QnTe5tkp41kjNqsv0odmpKB10jM8gXTdEnfvzCQ=="
+}
