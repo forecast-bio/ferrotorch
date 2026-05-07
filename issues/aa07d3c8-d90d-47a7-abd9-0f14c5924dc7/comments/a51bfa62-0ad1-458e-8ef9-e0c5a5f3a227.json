@@ -1,0 +1,10 @@
+{
+  "uuid": "a51bfa62-0ad1-458e-8ef9-e0c5a5f3a227",
+  "issue_uuid": "aa07d3c8-d90d-47a7-abd9-0f14c5924dc7",
+  "author": "y4rr",
+  "content": "Closing as partial-superseded. Sprint C.7 (commit eaa20c0f) landed MtlBackend scaffold + 10 MSL kernels. Sprint M subsequently closed all 18 follow-up sub-issues: #941 (elementwise unary), #942 (activations), #943 (activation backward), #944 (reductions), #945 (broadcast binary), #946 (linalg f64), #947 (linalg solvers), #948 (normalization), #949 (dropout Philox), #950 (conv2d/pool), #951 (flash attention), #952 (FFT), #953 (indexing/slicing), #954 (sparse tensor ops), #955 (embedding), #956 (optimizer fusion), #957 (gradient checkpoint RNG), #958 (masked fill/zero). All ~80 GpuBackend trait methods now covered. Closing umbrella.",
+  "created_at": "2026-05-07T22:58:31.601974483Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAA0zk73Ugcgol3P3kdpMyiffHCrv94CDn1z+4b2I1bn8hqX8pf0V5cK95ozJfu09Nudljjj2zJ5396zdzxF2zCg=="
+}
