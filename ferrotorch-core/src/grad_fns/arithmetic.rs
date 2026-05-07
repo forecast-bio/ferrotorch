@@ -27,6 +27,84 @@ fn is_f32<T: Float>() -> bool {
     TypeId::of::<T>() == TypeId::of::<f32>()
 }
 
+/// Materialize a CUDA tensor into a fresh buffer whose backing storage
+/// length exactly matches the logical numel, when needed.
+///
+/// Why this exists (#812). The GPU elementwise kernels in this module take
+/// raw `gpu_handle()` references and length-check against the *underlying*
+/// buffer length. A view's `gpu_handle()` returns the WHOLE underlying
+/// storage. The view may be non-contiguous (`narrow` on an interior axis,
+/// `transpose`, `permute`) — but it may also be a *contiguous-by-strides*
+/// view that nonetheless covers only a subset of the storage (`narrow` on
+/// the outer axis, the residual of a single-element narrow on any axis,
+/// or any `storage_offset != 0` slice). Both cases trip the kernel's
+/// `LengthMismatch` guard with messages like `"buffer length mismatch:
+/// 32 vs 16"`. PyTorch parity expects all elementwise ops to accept any
+/// view transparently.
+///
+/// The right test is "does the view's storage exactly cover the view's
+/// logical extent" — i.e. `is_contiguous() && storage_offset == 0 &&
+/// numel == storage_len`. All three must hold to skip materialization.
+///
+/// Note: `Tensor::contiguous()` early-returns `clone()` when
+/// `is_contiguous()` is true, which is insufficient here — a view that is
+/// "contiguous-by-strides" may still cover only part of the underlying
+/// buffer. So when the view is contiguous-by-strides but the buffer is
+/// oversize, we dispatch directly to `strided_copy_{f32,f64}` (mirroring
+/// `methods::contiguous_t`'s GPU fast path / CL-496). The materialization
+/// stays on device, NEVER detours through host memory.
+///
+/// Returns `t.clone()` for the fast path. CPU tensors are returned as-is
+/// (CPU elementwise paths handle stride views via `data_vec()`
+/// independently and don't need this guard).
+#[inline]
+fn ensure_contig_for_gpu<T: Float>(t: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+    if !t.is_cuda() {
+        return Ok(t.clone());
+    }
+    let view_matches_buffer =
+        t.is_contiguous() && t.storage_offset() == 0 && t.numel() == t.storage_len();
+    if view_matches_buffer {
+        return Ok(t.clone());
+    }
+
+    // Non-contiguous OR (contiguous-by-strides but offset>0 / oversized
+    // buffer): route to the on-device `strided_copy_*` kernel directly.
+    // `Tensor::contiguous()` would early-return a `clone()` for the
+    // contiguous-but-oversized-buffer case, leaving the bug unfixed; so
+    // we bypass that path via the strided_copy kernel directly.
+    if t.shape().len() <= 8 {
+        if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+            let in_handle = t.gpu_handle()?;
+            let out_shape = t.shape().to_vec();
+            let src_strides = t.strides().to_vec();
+            let src_offset = t.storage_offset();
+            let out_handle = if is_f32::<T>() {
+                backend
+                    .strided_copy_f32(in_handle, &out_shape, &src_strides, src_offset)
+                    .ok()
+            } else if is_f64::<T>() {
+                backend
+                    .strided_copy_f64(in_handle, &out_shape, &src_strides, src_offset)
+                    .ok()
+            } else {
+                None
+            };
+            if let Some(handle) = out_handle {
+                let storage = TensorStorage::gpu(handle);
+                return Tensor::from_storage(storage, out_shape, false);
+            }
+        }
+    }
+
+    // Fallback (rank > 8, missing backend, or unsupported dtype): use
+    // the public `contiguous` path. For genuinely non-contiguous views
+    // this still routes through the on-device strided_copy in
+    // `contiguous_t`. For the "contiguous-but-oversized" edge case the
+    // host-memory fallback there is acceptable as a last resort.
+    t.contiguous()
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -81,8 +159,12 @@ pub(crate) fn reduce_grad_to_shape<T: Float>(
     if grad.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-        let mut handle = backend.clone_buffer(grad.gpu_handle()?)?;
-        let mut current_shape = grad.shape().to_vec();
+        // #812 cluster: a non-contiguous grad view's `gpu_handle()` is the
+        // whole underlying buffer; cloning it would carry stale entries
+        // outside the logical view into the reduction. Materialize first.
+        let grad_c = ensure_contig_for_gpu(grad)?;
+        let mut handle = backend.clone_buffer(grad_c.gpu_handle()?)?;
+        let mut current_shape = grad_c.shape().to_vec();
 
         let target_ndim = target_shape.len();
 
@@ -246,36 +328,44 @@ fn add_inner<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
 
-        let needs_broadcast = a.shape() != b.shape();
+        // #812: non-contiguous CUDA inputs (e.g., narrowed views) must be
+        // materialized via the on-device `strided_copy_*` kernel before the
+        // raw `gpu_handle()` is handed to the elementwise kernel — otherwise
+        // the kernel's length guard sees the underlying buffer (potentially
+        // larger than the logical view) and panics with `LengthMismatch`.
+        let a_c = ensure_contig_for_gpu(a)?;
+        let b_c = ensure_contig_for_gpu(b)?;
+
+        let needs_broadcast = a_c.shape() != b_c.shape();
         let (handle, out_shape) = if needs_broadcast {
-            let out_shape = broadcast_shapes(a.shape(), b.shape())?;
+            let out_shape = broadcast_shapes(a_c.shape(), b_c.shape())?;
             let h = if is_f64::<T>() {
                 backend.broadcast_add_f64(
-                    a.gpu_handle()?,
-                    b.gpu_handle()?,
-                    a.shape(),
-                    b.shape(),
+                    a_c.gpu_handle()?,
+                    b_c.gpu_handle()?,
+                    a_c.shape(),
+                    b_c.shape(),
                     &out_shape,
                 )?
             } else {
                 backend.broadcast_add_f32(
-                    a.gpu_handle()?,
-                    b.gpu_handle()?,
-                    a.shape(),
-                    b.shape(),
+                    a_c.gpu_handle()?,
+                    b_c.gpu_handle()?,
+                    a_c.shape(),
+                    b_c.shape(),
                     &out_shape,
                 )?
             };
             (h, out_shape)
         } else if is_f64::<T>() {
             (
-                backend.add_f64(a.gpu_handle()?, b.gpu_handle()?)?,
-                a.shape().to_vec(),
+                backend.add_f64(a_c.gpu_handle()?, b_c.gpu_handle()?)?,
+                a_c.shape().to_vec(),
             )
         } else {
             (
-                backend.add_f32(a.gpu_handle()?, b.gpu_handle()?)?,
-                a.shape().to_vec(),
+                backend.add_f32(a_c.gpu_handle()?, b_c.gpu_handle()?)?,
+                a_c.shape().to_vec(),
             )
         };
         let storage = TensorStorage::gpu(handle);
@@ -372,36 +462,40 @@ fn sub_inner<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
 
-        let needs_broadcast = a.shape() != b.shape();
+        // #812 cluster: materialize non-contiguous CUDA views before kernel.
+        let a_c = ensure_contig_for_gpu(a)?;
+        let b_c = ensure_contig_for_gpu(b)?;
+
+        let needs_broadcast = a_c.shape() != b_c.shape();
         let (handle, out_shape) = if needs_broadcast {
-            let out_shape = broadcast_shapes(a.shape(), b.shape())?;
+            let out_shape = broadcast_shapes(a_c.shape(), b_c.shape())?;
             let h = if is_f64::<T>() {
                 backend.broadcast_sub_f64(
-                    a.gpu_handle()?,
-                    b.gpu_handle()?,
-                    a.shape(),
-                    b.shape(),
+                    a_c.gpu_handle()?,
+                    b_c.gpu_handle()?,
+                    a_c.shape(),
+                    b_c.shape(),
                     &out_shape,
                 )?
             } else {
                 backend.broadcast_sub_f32(
-                    a.gpu_handle()?,
-                    b.gpu_handle()?,
-                    a.shape(),
-                    b.shape(),
+                    a_c.gpu_handle()?,
+                    b_c.gpu_handle()?,
+                    a_c.shape(),
+                    b_c.shape(),
                     &out_shape,
                 )?
             };
             (h, out_shape)
         } else if is_f64::<T>() {
             (
-                backend.sub_f64(a.gpu_handle()?, b.gpu_handle()?)?,
-                a.shape().to_vec(),
+                backend.sub_f64(a_c.gpu_handle()?, b_c.gpu_handle()?)?,
+                a_c.shape().to_vec(),
             )
         } else {
             (
-                backend.sub_f32(a.gpu_handle()?, b.gpu_handle()?)?,
-                a.shape().to_vec(),
+                backend.sub_f32(a_c.gpu_handle()?, b_c.gpu_handle()?)?,
+                a_c.shape().to_vec(),
             )
         };
         let storage = TensorStorage::gpu(handle);
@@ -526,36 +620,40 @@ fn mul_inner<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
 
-        let needs_broadcast = a.shape() != b.shape();
+        // #812 cluster: materialize non-contiguous CUDA views before kernel.
+        let a_c = ensure_contig_for_gpu(a)?;
+        let b_c = ensure_contig_for_gpu(b)?;
+
+        let needs_broadcast = a_c.shape() != b_c.shape();
         let (handle, out_shape) = if needs_broadcast {
-            let out_shape = broadcast_shapes(a.shape(), b.shape())?;
+            let out_shape = broadcast_shapes(a_c.shape(), b_c.shape())?;
             let h = if is_f64::<T>() {
                 backend.broadcast_mul_f64(
-                    a.gpu_handle()?,
-                    b.gpu_handle()?,
-                    a.shape(),
-                    b.shape(),
+                    a_c.gpu_handle()?,
+                    b_c.gpu_handle()?,
+                    a_c.shape(),
+                    b_c.shape(),
                     &out_shape,
                 )?
             } else {
                 backend.broadcast_mul_f32(
-                    a.gpu_handle()?,
-                    b.gpu_handle()?,
-                    a.shape(),
-                    b.shape(),
+                    a_c.gpu_handle()?,
+                    b_c.gpu_handle()?,
+                    a_c.shape(),
+                    b_c.shape(),
                     &out_shape,
                 )?
             };
             (h, out_shape)
         } else if is_f64::<T>() {
             (
-                backend.mul_f64(a.gpu_handle()?, b.gpu_handle()?)?,
-                a.shape().to_vec(),
+                backend.mul_f64(a_c.gpu_handle()?, b_c.gpu_handle()?)?,
+                a_c.shape().to_vec(),
             )
         } else {
             (
-                backend.mul_f32(a.gpu_handle()?, b.gpu_handle()?)?,
-                a.shape().to_vec(),
+                backend.mul_f32(a_c.gpu_handle()?, b_c.gpu_handle()?)?,
+                a_c.shape().to_vec(),
             )
         };
         let storage = TensorStorage::gpu(handle);
@@ -665,34 +763,38 @@ fn div_inner<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<Tensor<
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
 
-        let needs_broadcast = a.shape() != b.shape();
+        // #812 cluster: materialize non-contiguous CUDA views before kernel.
+        let a_c = ensure_contig_for_gpu(a)?;
+        let b_c = ensure_contig_for_gpu(b)?;
+
+        let needs_broadcast = a_c.shape() != b_c.shape();
         let (handle, out_shape) = if needs_broadcast {
-            let out_shape = broadcast_shapes(a.shape(), b.shape())?;
+            let out_shape = broadcast_shapes(a_c.shape(), b_c.shape())?;
             let h = if is_f64::<T>() {
                 backend.broadcast_div_f64(
-                    a.gpu_handle()?,
-                    b.gpu_handle()?,
-                    a.shape(),
-                    b.shape(),
+                    a_c.gpu_handle()?,
+                    b_c.gpu_handle()?,
+                    a_c.shape(),
+                    b_c.shape(),
                     &out_shape,
                 )?
             } else {
                 backend.broadcast_div_f32(
-                    a.gpu_handle()?,
-                    b.gpu_handle()?,
-                    a.shape(),
-                    b.shape(),
+                    a_c.gpu_handle()?,
+                    b_c.gpu_handle()?,
+                    a_c.shape(),
+                    b_c.shape(),
                     &out_shape,
                 )?
             };
             (h, out_shape)
         } else {
             let h = if is_f32::<T>() {
-                backend.div_f32(a.gpu_handle()?, b.gpu_handle()?)?
+                backend.div_f32(a_c.gpu_handle()?, b_c.gpu_handle()?)?
             } else {
-                backend.div_f64(a.gpu_handle()?, b.gpu_handle()?)?
+                backend.div_f64(a_c.gpu_handle()?, b_c.gpu_handle()?)?
             };
-            (h, a.shape().to_vec())
+            (h, a_c.shape().to_vec())
         };
         let storage = TensorStorage::gpu(handle);
 
@@ -770,13 +872,15 @@ fn neg_inner<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.is_cuda() {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+        // #812 cluster: materialize non-contiguous CUDA views before kernel.
+        let a_c = ensure_contig_for_gpu(a)?;
         let handle = if is_f64::<T>() {
-            backend.neg_f64(a.gpu_handle()?)?
+            backend.neg_f64(a_c.gpu_handle()?)?
         } else {
-            backend.neg_f32(a.gpu_handle()?)?
+            backend.neg_f32(a_c.gpu_handle()?)?
         };
         let storage = TensorStorage::gpu(handle);
-        let shape = a.shape().to_vec();
+        let shape = a_c.shape().to_vec();
 
         if needs_grad_unary(a) {
             Tensor::from_operation(storage, shape, Arc::new(NegBackward { a: a.clone() }))
@@ -887,13 +991,15 @@ fn pow_inner<T: Float>(a: &Tensor<T>, exp: f64) -> FerrotorchResult<Tensor<T>> {
     if a.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+        // #812 cluster: materialize non-contiguous CUDA views before kernel.
+        let a_c = ensure_contig_for_gpu(a)?;
         let handle = if is_f32::<T>() {
-            backend.pow_f32(a.gpu_handle()?, exp as f32)?
+            backend.pow_f32(a_c.gpu_handle()?, exp as f32)?
         } else {
-            backend.pow_f64(a.gpu_handle()?, exp)?
+            backend.pow_f64(a_c.gpu_handle()?, exp)?
         };
         let storage = TensorStorage::gpu(handle);
-        let shape = a.shape().to_vec();
+        let shape = a_c.shape().to_vec();
 
         if needs_grad_unary(a) {
             Tensor::from_operation(storage, shape, Arc::new(PowBackward { a: a.clone(), exp }))
@@ -986,13 +1092,15 @@ fn sqrt_inner<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+        // #812 cluster: materialize non-contiguous CUDA views before kernel.
+        let a_c = ensure_contig_for_gpu(a)?;
         let handle = if is_f32::<T>() {
-            backend.sqrt_f32(a.gpu_handle()?)?
+            backend.sqrt_f32(a_c.gpu_handle()?)?
         } else {
-            backend.sqrt_f64(a.gpu_handle()?)?
+            backend.sqrt_f64(a_c.gpu_handle()?)?
         };
         let storage = TensorStorage::gpu(handle);
-        let shape = a.shape().to_vec();
+        let shape = a_c.shape().to_vec();
 
         if needs_grad_unary(a) {
             Tensor::from_operation(storage, shape, Arc::new(SqrtBackward { a: a.clone() }))
@@ -1031,10 +1139,13 @@ impl<T: Float> GradFn<T> for AbsBackward<T> {
             // GPU-native path for f32/f64 when both tensors live on CUDA.
             if grad_output.is_cuda() && self.a.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
                 let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+                // #812 cluster: materialize non-contiguous CUDA views.
+                let go_c = ensure_contig_for_gpu(grad_output)?;
+                let a_c = ensure_contig_for_gpu(&self.a)?;
                 let handle = if is_f32::<T>() {
-                    backend.abs_backward_f32(grad_output.gpu_handle()?, self.a.gpu_handle()?)?
+                    backend.abs_backward_f32(go_c.gpu_handle()?, a_c.gpu_handle()?)?
                 } else {
-                    backend.abs_backward_f64(grad_output.gpu_handle()?, self.a.gpu_handle()?)?
+                    backend.abs_backward_f64(go_c.gpu_handle()?, a_c.gpu_handle()?)?
                 };
                 let grad_a = Tensor::from_storage(
                     TensorStorage::gpu(handle),
@@ -1098,13 +1209,15 @@ fn abs_inner<T: Float>(a: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
     if a.is_cuda() && (is_f32::<T>() || is_f64::<T>()) {
         let backend =
             crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+        // #812 cluster: materialize non-contiguous CUDA views before kernel.
+        let a_c = ensure_contig_for_gpu(a)?;
         let handle = if is_f32::<T>() {
-            backend.abs_f32(a.gpu_handle()?)?
+            backend.abs_f32(a_c.gpu_handle()?)?
         } else {
-            backend.abs_f64(a.gpu_handle()?)?
+            backend.abs_f64(a_c.gpu_handle()?)?
         };
         let storage = TensorStorage::gpu(handle);
-        let shape = a.shape().to_vec();
+        let shape = a_c.shape().to_vec();
 
         if needs_grad_unary(a) {
             Tensor::from_operation(storage, shape, Arc::new(AbsBackward { a: a.clone() }))

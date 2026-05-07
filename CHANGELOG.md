@@ -334,6 +334,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- ferrotorch-core: RfftBackward / IrfftBackward / HfftBackward / IhfftBackward / RfftnBackward / IrfftnBackward missing N normalization scale — surfaced by phase 2.7 (#769) (#809)
+- ferrotorch-core: irfftn / hfft / ihfft strict-Hermitian rejection — surfaced by phase 2.7 (#769) (#808)
+- ferrotorch-core: irfft CPU pad/truncate semantics differ from PyTorch when half_n != output_n/2+1 — surfaced by phase 2.7 (#769) (#807)
 - ferrotorch-gpu: einsum 2-input multi-axis/permuted contractions need broader primitive coverage — partial of #803 (#822)
 - ferrotorch-gpu: einsum repeated-index ('ii->', 'ii->i') needs on-device diagonal kernel — partial of #803 (#821)
 - ferrotorch-core: GPU reduce(Max/Min) returns first-row instead of last — surfaced by phase 2.6 (#768) (#790)

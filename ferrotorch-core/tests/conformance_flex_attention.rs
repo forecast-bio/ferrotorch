@@ -386,42 +386,37 @@ fn check_f64(label: &str, actual: &[f64], expected: &[f64], tol: f64) {
 ///
 /// # Active skips
 ///
-/// * **#812** — `flex_attention` GPU forward + backward fail on any shape
-///   where `batch * heads > 1` for variants that go through the
-///   `score_mod` closure (causal / block_diag / alibi / empty_mask). The
-///   per-(b, h) narrow yields a non-contiguous view; `add_inner`'s CUDA
-///   path reads `gpu_handle()` directly without materializing the view,
-///   so the kernel's length guard trips with `32 vs 16` (or similar)
-///   when the underlying buffer is larger than the narrowed slice.
-///   Single-(b, h) shapes (`single_head_4x4_*`) still pass because the
-///   narrowed view spans the full buffer.
-/// * **#813** — `flex_attention` GPU forward + backward on `dtype=float64`
-///   panic with `"GPU handle does not contain a CudaBuffer<f32>"` even
-///   for the baseline (no score_mod) path. One of the device-aware ops
-///   in the composed chain (bmm_differentiable / softmax / mul / reshape)
-///   is hardcoded to f32 internally on CUDA. f32 baseline + f32 single-
-///   (b, h) score_mod variants still run.
-fn cascade_skip(_op: &str, device_label: &str, dtype: &str, tag: &str) -> Option<&'static str> {
-    if device_label == "cuda:0" {
-        // #813: the entire f64 GPU lane is broken inside flex_attention.
-        if dtype == "float64" {
-            return Some(
-                "#813 flex_attention GPU f64 hits f32-typed CUDA dispatch in composed chain",
-            );
-        }
-        // #812: any (B*H > 1) non-baseline tag trips the
-        // narrow→add length-mismatch on CUDA.
-        let multi_bh = tag.starts_with("two_heads_4x4_")
-            || tag.starts_with("rect_3x5_")
-            || tag.starts_with("dv_neq_d_");
-        let needs_score_mod = !tag.ends_with("_baseline");
-        if multi_bh && needs_score_mod {
-            return Some(
-                "#812 flex_attention GPU narrow→add length mismatch (batch*heads > 1 \
-                 with score_mod closure)",
-            );
-        }
-    }
+/// *(none — both regressions previously gated here have been fixed in
+/// Bugfix Batch 8.)*
+///
+/// # Closed (no longer skipping)
+///
+/// * **#812** — *closed by Bugfix Batch 8 / Dispatch A1.* The arithmetic
+///   GPU `*_inner` dispatchers (`add` / `sub` / `mul` / `div` plus the
+///   unary `neg` / `pow` / `sqrt` / `abs` and `reduce_grad_to_shape`'s
+///   GPU fast path) now branch on `is_contiguous()` and route
+///   non-contiguous CUDA inputs through `Tensor::contiguous()` (which
+///   dispatches to the on-device `strided_copy_{f32,f64}` kernel) before
+///   reading `gpu_handle()`. Multi-(b, h) score_mod variants no longer
+///   trip the `LengthMismatch` guard.
+/// * **#813** — *closed by Bugfix Batch 8 / Dispatch A2.* The f64 GPU
+///   dispatch chain (`reshape` → `transpose` → `bmm_differentiable` →
+///   `mul` (scale) → `softmax` → `reshape` → `bmm_differentiable` →
+///   `reshape`) was supposed to be panicking with
+///   `"GPU handle does not contain a CudaBuffer<f32>"` because some op
+///   was hardcoded to f32 internally on CUDA. The probe walked every
+///   step of the chain on f64 CUDA and found that all of them dispatch
+///   correctly — `bmm_f64` (cuBLAS dgemm strided-batched) had its f64
+///   branch added by #800, the broadcast-bmm f64 path by #819,
+///   `softmax_f64` already exists, and `mul_f64` / `broadcast_mul_f64`
+///   already route on `is_f64::<T>()`. f64 baseline GPU now matches
+///   PyTorch parity end-to-end on every fixture shape.
+fn cascade_skip(
+    _op: &str,
+    _device_label: &str,
+    _dtype: &str,
+    _tag: &str,
+) -> Option<&'static str> {
     None
 }
 

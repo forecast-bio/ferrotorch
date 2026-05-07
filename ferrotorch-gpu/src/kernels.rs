@@ -8423,6 +8423,8 @@ pub(crate) const SOFTMAX_F64_PTX: &str = "\
     .reg .f64 %e_nf, %e_r, %e_p, %e_half, %e_one;\n\
     .reg .s32 %e_ni;\n\
     .reg .s64 %e_ni64, %e_bits;\n\
+    .reg .f64 %neg_inf;\n\
+    .reg .pred %p_underflow;\n\
 \n\
     ld.param.u64 %in, [input_ptr];\n\
     ld.param.u64 %out, [output_ptr];\n\
@@ -8501,6 +8503,18 @@ SUM_EXP:\n\
     add.u64 %off, %off, %row_off;\n\
     ld.global.f64 %val, [%off];\n\
     sub.f64 %val, %val, %max_val;\n\
+    // Underflow guard: when `val == -inf` (e.g. from a `-inf` mask\n\
+    // addend used by causal/block_diag/empty_mask attention masks), the\n\
+    // inlined `2^x` polynomial below converts -inf -> s32 via\n\
+    // `cvt.rni.s32.f64`, which produces an out-of-range value that the\n\
+    // subsequent `add+shl+bitcast` reinterprets as a NaN-bit-pattern,\n\
+    // poisoning the row sum. Detect val <= -inf (the only ordered way to\n\
+    // hit `==-inf`) and short-circuit to exp_val = 0.0; this matches the\n\
+    // hardware `ex2.approx.f32` semantics that the f32 softmax kernel\n\
+    // gets for free.\n\
+    mov.f64 %neg_inf, 0dFFF0000000000000;\n\
+    setp.le.f64 %p_underflow, %val, %neg_inf;\n\
+    @%p_underflow bra SUM_EXP_UNDERFLOW;\n\
     mov.f64 %e_one, 0d3FF0000000000000;\n\
     mov.f64 %e_half, 0d3FE0000000000000;\n\
     mul.f64 %e_nf, %val, 0d3FF71547652B82FE;\n\
@@ -8525,6 +8539,10 @@ SUM_EXP:\n\
     shl.b64 %e_bits, %e_ni64, 52;\n\
     mov.b64 %e_nf, %e_bits;\n\
     mul.f64 %exp_val, %exp_val, %e_nf;\n\
+    bra SUM_EXP_STORE;\n\
+SUM_EXP_UNDERFLOW:\n\
+    mov.f64 %exp_val, 0d0000000000000000;\n\
+SUM_EXP_STORE:\n\
     add.f64 %sum_val, %sum_val, %exp_val;\n\
     cvt.u64.u32 %off, %j;\n\
     shl.b64 %off, %off, 3;\n\
