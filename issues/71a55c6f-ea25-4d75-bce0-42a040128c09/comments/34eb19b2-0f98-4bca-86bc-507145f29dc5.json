@@ -1,0 +1,10 @@
+{
+  "uuid": "34eb19b2-0f98-4bca-86bc-507145f29dc5",
+  "issue_uuid": "71a55c6f-ea25-4d75-bce0-42a040128c09",
+  "author": "y4rr",
+  "content": "B.5 cleanup complete. Closed: #860 (ResNet BN param count), #861 #863 #865 #866 #868 (B.5.b shape/finite/determinism conformance for 5 modern architectures). B.5.c+e and B.5.d already closed in prior commits. Deferred with follow-up: #862 (DenseNet, #935), #864 (Inception, #936). Full logit-parity for B.5.b deferred to #930–#934.",
+  "created_at": "2026-05-07T20:16:52.480683907Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA8WOMyCpdcKGibCMr+OnC8pHo374+VinOJY4U7srMPpT6bexz3sdjRYmD7zIM2y731G7+4iWUFsCy+cjsFuzaBQ=="
+}
