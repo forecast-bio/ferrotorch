@@ -2,11 +2,12 @@
   "uuid": "318ed0c3-bf34-422c-ae45-ea58e9bb940f",
   "display_id": 919,
   "title": "Add mathematical-property and snapshot tests for UNet vision model",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T19:48:15.551972983Z",
-  "updated_at": "2026-05-07T19:48:17.648144269Z",
+  "updated_at": "2026-05-07T19:58:07.341818455Z",
+  "closed_at": "2026-05-07T19:58:07.341818455Z",
   "labels": [
     "feature"
   ]
