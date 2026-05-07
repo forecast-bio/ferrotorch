@@ -2,11 +2,12 @@
   "uuid": "fdcbd158-32e9-4a85-a4ec-7a8fcd5d5abe",
   "display_id": 915,
   "title": "Sprint B.1 GPU kernel bugfixes: batchnorm stub, gelu_tanh PTX, avgpool2d PTX, capture stream",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T18:25:13.953327774Z",
-  "updated_at": "2026-05-07T18:25:15.384841842Z",
+  "updated_at": "2026-05-07T18:42:19.223906034Z",
+  "closed_at": "2026-05-07T18:42:19.223906034Z",
   "labels": [
     "feature"
   ]
