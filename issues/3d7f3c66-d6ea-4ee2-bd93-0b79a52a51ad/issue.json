@@ -2,11 +2,12 @@
   "uuid": "3d7f3c66-d6ea-4ee2-bd93-0b79a52a51ad",
   "display_id": 843,
   "title": "Add ferrotorch-train conformance suite (surface inventory, fixtures, tests, surface gate)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T13:59:09.533304165Z",
-  "updated_at": "2026-05-07T13:59:11.173331392Z",
+  "updated_at": "2026-05-07T17:44:08.540796867Z",
+  "closed_at": "2026-05-07T17:44:08.540796867Z",
   "labels": [
     "feature"
   ]
