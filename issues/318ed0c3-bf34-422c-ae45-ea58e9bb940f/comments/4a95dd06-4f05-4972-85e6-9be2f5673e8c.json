@@ -1,0 +1,10 @@
+{
+  "uuid": "4a95dd06-4f05-4972-85e6-9be2f5673e8c",
+  "issue_uuid": "318ed0c3-bf34-422c-ae45-ea58e9bb940f",
+  "author": "y4rr",
+  "content": "Plan: Add conformance tests in conformance_vision_models.rs for UNet (#867). \n\nTests to add:\n1. unet_output_shape_contract — input [B,3,H,W] with H,W div by 16 → output [B,num_classes,H,W]. Test multiple sizes (32x32, 64x64, 16x16) and classes.\n2. unet_forward_backward_gradient_finite — loss.backward() + verify grads not NaN/Inf.\n3. unet_gradient_nonzero_on_params — at least one param.grad has nonzero elements (verifies all params connected to graph).\n4. unet_snapshot — fixed-seed deterministic output comparison against a pre-computed hash.\n\nRemove cascade_skip from create_feature_extractor_smoke (#880 guard replaced by actual integration test).\n\nStrategy: UNet has no torchvision reference so tests are self-referential (output shape formula + forward-backward stability). Snapshot uses parameter initialization seed via fixed random state.",
+  "created_at": "2026-05-07T19:48:45.814156031Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAIXHSNiVSQ0K4/yElGswtC+KSMbD8LSDrZ6vTivwy4l4UqvBLrK8Y/NvpbrXFySX3/dRfZBYgnOXeDlJNBgpwDg=="
+}
