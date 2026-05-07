@@ -1,0 +1,10 @@
+{
+  "uuid": "74cc1f78-679b-458c-8d3e-97bfd984e984",
+  "display_id": 894,
+  "title": "avgpool2d_forward_kernel PTX fails to JIT-compile on sm_86 (RTX 3090)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T16:51:37.978525974Z",
+  "updated_at": "2026-05-07T16:51:37.978525974Z"
+}
