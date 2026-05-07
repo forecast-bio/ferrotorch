@@ -1,0 +1,10 @@
+{
+  "uuid": "ebea97d6-2c45-4862-9e42-ef5b7c52e373",
+  "issue_uuid": "7a27d3e4-98e9-4106-8b6d-f4dddf03f73b",
+  "author": "y4rr",
+  "content": "Plan: Add conformance tests for YOLO (#869) in conformance_vision_models.rs.\n\nTests to add:\n1. yolo_detection_head_output_shape — [B, num_anchors*(5+num_classes), 13, 13] for 416x416 input. Verify with VOC (20 cls, 3 anch), COCO (80 cls, 3 anch), custom (10 cls, 5 anch).\n2. yolo_anchor_box_prediction_structure — output channels = num_anchors*(5+num_classes) encodes objectness+classes+xywh. Verify formula at construction and on forward output dims.\n3. yolo_forward_backward_gradient_finite — tiny input (32x32 -> 1x1 grid), backward + no NaN/Inf.\n4. yolo_snapshot — deterministic forward output comparison for fixed seed.\n\nNo torchvision reference. Tests encode YOLO paper invariants.",
+  "created_at": "2026-05-07T19:49:16.300505633Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABActZwAQgNYhXLz5T/4y9k1md701tgvffdBI/DssG0Pk+U1hkCzb1A9M++3L+64DxxCcn6ejqoMDQHdZyWKkWIDw=="
+}
