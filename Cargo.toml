@@ -65,7 +65,7 @@ ferray-core = { version = "0.3", features = ["bf16"] }
 ferray-ufunc = "0.3"
 ferray-linalg = "0.3"
 ferray-random = "0.3"
-ferray-fft = "0.3"
+ferray-fft = "0.3.8"
 ferray-stride-tricks = "0.3"
 ferray-window = "0.3.7"
 ferray-ma = "0.3"

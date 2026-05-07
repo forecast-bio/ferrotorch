@@ -334,6 +334,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- ferrotorch-core: bumped ferray-fft pin to 0.3.8 and retired Hermitian-projection mitigation; ferray-fft 0.3.8 now does the Hermitian projection internally so `project_hermitian_in_place`, `compute_linear_index`, and the two-staged `irfftn` body are removed; conformance unchanged (W4-W6, #808)
+- ferrotorch-core: signal::taylor diverges from scipy.signal.windows.taylor by 1.5e-3 (LSL-level) — surfaced by phase 2.7 (#769) (#810)
 - Pinned ferrotorch to ferray-window 0.3.7 (post-W2 fix); #810 cascade_skip retired; conformance phase 2.7 cpu_window_taylor now runs live and passes F64_WINDOW = 1e-6
 - ferrotorch-core: higher-order grad fails reduce_grad_to_shape on shape [1] leaf — surfaced by phase 2.10 (#772) (#814)
 - ferrotorch-core: flex_attention GPU baseline f64 hits f32-typed CUDA dispatch — surfaced by phase 2.11 (#773) (#813)

@@ -760,147 +760,6 @@ pub fn ifftn<T: Float>(
 }
 
 // ---------------------------------------------------------------------------
-// Hermitian projection (#808)
-// ---------------------------------------------------------------------------
-
-/// Zero the imaginary parts of the boundary frequency bins (DC, and Nyquist
-/// when present) along a single axis of a complex array, in place. This
-/// projects an arbitrary complex spectrum onto the Hermitian subspace —
-/// matches the pre-pass that PyTorch's `aten::_fft_c2r` runs before the
-/// underlying FFTW/cuFFT call.
-///
-/// `axis` is the index of the c2r axis in `arr`'s shape. `output_n` is the
-/// real-axis output length: for even `output_n`, bin `output_n / 2` is the
-/// Nyquist bin and its imaginary part is zeroed (when that bin actually
-/// exists in the input shape — otherwise it is a no-op for that bin).
-/// For odd `output_n`, only DC is touched.
-fn project_hermitian_in_place(
-    arr: &mut FerrayArray<Complex<f64>, FerrayIxDyn>,
-    axis: usize,
-    output_n: usize,
-) {
-    let shape = arr.shape().to_vec();
-    let axis_len = shape[axis];
-    if axis_len == 0 {
-        return;
-    }
-
-    // Identify the bins along `axis` to zero the imaginary part on:
-    //   * DC (index 0) — always.
-    //   * Nyquist (index output_n / 2) — only when `output_n` is even and
-    //     that index actually exists in the input array.
-    let mut nyq_idx: Option<usize> = None;
-    if output_n % 2 == 0 {
-        let nyq = output_n / 2;
-        if nyq < axis_len {
-            nyq_idx = Some(nyq);
-        }
-    }
-
-    // Walk every index whose `axis`-coordinate is 0 (DC) or `nyq_idx`,
-    // setting `im = 0` in place. The array was just built via
-    // `Array::from_vec` (in `tensor_to_complex_array`) so it is
-    // C-contiguous and `as_slice_mut` returns `Some(..)`. If a future
-    // call site hands us a non-contiguous array we fall back to a
-    // no-op rather than panic — this matches the spirit of the §3
-    // mitigation (PyTorch silently projects, never errors).
-    let Some(buf) = arr.as_slice_mut() else {
-        return;
-    };
-    let ndim = shape.len();
-    let mut idx = vec![0usize; ndim];
-    loop {
-        let on_dc = idx[axis] == 0;
-        let on_nyq = nyq_idx == Some(idx[axis]);
-        if on_dc || on_nyq {
-            let lin = compute_linear_index(&shape, &idx);
-            let v = buf[lin];
-            buf[lin] = Complex::new(v.re, 0.0);
-        }
-        // Increment the multi-dimensional index in row-major order.
-        let mut carry = ndim;
-        for d in (0..ndim).rev() {
-            idx[d] += 1;
-            if idx[d] < shape[d] {
-                carry = d;
-                break;
-            }
-            idx[d] = 0;
-        }
-        if carry == ndim {
-            break;
-        }
-    }
-}
-
-/// Row-major linear index for a multi-dimensional index `idx` against
-/// `shape`. Used by [`project_hermitian_in_place`].
-#[inline]
-fn compute_linear_index(shape: &[usize], idx: &[usize]) -> usize {
-    let mut lin = 0usize;
-    let mut stride = 1usize;
-    for d in (0..shape.len()).rev() {
-        lin += idx[d] * stride;
-        stride *= shape[d];
-    }
-    lin
-}
-
-/// Resolve the axes and per-axis output sizes for an `irfftn`-style call.
-/// Mirrors `ferray_fft::real::irfftn_impl`'s defaults: `axes=None` selects
-/// all axes; for each axis, the corresponding entry of `s` overrides the
-/// output length, and the LAST axis defaults to `2 * (input_len - 1)`
-/// (real-axis length) while inner axes default to the input shape.
-///
-/// Returns `None` if `axes` resolves to an empty set (callers should defer
-/// directly to ferray-fft for that no-op case) or if `s.len()` mismatches
-/// `axes.len()` (also deferred for native error reporting).
-fn resolve_irfftn_axes(
-    input_shape: &[usize],
-    s: Option<&[usize]>,
-    axes: Option<&[isize]>,
-) -> Option<(Vec<usize>, Vec<usize>)> {
-    let ndim = input_shape.len();
-    let resolved_axes: Vec<usize> = match axes {
-        Some(ax) => ax
-            .iter()
-            .map(|&a| {
-                let a = if a < 0 { a + ndim as isize } else { a };
-                if a < 0 || a as usize >= ndim {
-                    return None;
-                }
-                Some(a as usize)
-            })
-            .collect::<Option<Vec<_>>>()?,
-        None => (0..ndim).collect(),
-    };
-    if resolved_axes.is_empty() {
-        return None;
-    }
-    let last_idx = resolved_axes.len() - 1;
-    let sizes: Vec<usize> = match s {
-        Some(sizes) => {
-            if sizes.len() != resolved_axes.len() {
-                return None;
-            }
-            sizes.to_vec()
-        }
-        None => resolved_axes
-            .iter()
-            .enumerate()
-            .map(|(i, &ax)| {
-                if i < last_idx {
-                    input_shape[ax]
-                } else {
-                    2 * (input_shape[ax] - 1)
-                }
-            })
-            .collect(),
-    };
-    Some((resolved_axes, sizes))
-}
-
-// ---------------------------------------------------------------------------
 // N-D real FFT (rfftn, irfftn)
 // ---------------------------------------------------------------------------
 
@@ -935,70 +794,15 @@ pub fn irfftn<T: Float>(
     s: Option<&[usize]>,
     axes: Option<&[isize]>,
 ) -> FerrotorchResult<Tensor<T>> {
-    let mut arr = tensor_to_complex_array(input, "irfftn")?;
-    // #808: ferray-fft's c2r path panics if the input spectrum's DC and
-    // Nyquist bins (along the c2r axis, at the c2r step) have non-zero
-    // imaginary parts. PyTorch's analogous `torch.fft.irfftn` silently
-    // projects onto the Hermitian subspace inside `aten::_fft_c2r`.
-    //
-    // For a *single*-axis irfftn the input bins ARE the c2r-step bins, so
-    // pre-projecting the input is sufficient. For a *multi*-axis irfftn
-    // the inverse complex FFTs along axes[..last] mix bins across the
-    // c2r axis, so we must project AFTER those inner inverses, not on
-    // the input. We therefore explicitly do the c2c inverses ourselves
-    // (via `ferray_fft::ifftn`), project the intermediate, then run a
-    // single-axis `ferray_fft::irfftn` on axes[-1]. The total
-    // normalization with `FftNorm::Backward` is `1 / prod(s)`, identical
-    // to a single multi-axis `ferray_fft::irfftn` call.
-    let resolved = resolve_irfftn_axes(arr.shape(), s, axes);
-    let Some((resolved_axes, sizes)) = resolved else {
-        // Empty `axes` slice (no-op) — defer to ferray-fft for shape handling.
-        return real_array_to_tensor(
-            &ferray_fft::irfftn(&arr, s, axes, FftNorm::Backward).map_err(|e| {
-                FerrotorchError::InvalidArgument {
-                    message: format!("irfftn: {e}"),
-                }
-            })?,
-        );
-    };
-    let last_idx = resolved_axes.len() - 1;
-    let c2r_axis = resolved_axes[last_idx];
-    let output_n = sizes[last_idx];
-
-    if last_idx == 0 {
-        // Single-axis path: project the input directly, then call the
-        // ferray-fft helper exactly as before.
-        project_hermitian_in_place(&mut arr, c2r_axis, output_n);
-        let result = ferray_fft::irfftn(&arr, s, axes, FftNorm::Backward).map_err(|e| {
-            FerrotorchError::InvalidArgument {
-                message: format!("irfftn: {e}"),
-            }
-        })?;
-        return real_array_to_tensor(&result);
-    }
-
-    // Multi-axis path: inverse complex FFTs on axes[..last], project,
-    // then single-axis c2r on axes[last].
-    let inner_axes: Vec<isize> = resolved_axes[..last_idx]
-        .iter()
-        .map(|&a| a as isize)
-        .collect();
-    let inner_sizes: Vec<usize> = sizes[..last_idx].to_vec();
-    let intermediate =
-        ferray_fft::ifftn(&arr, Some(&inner_sizes), Some(&inner_axes), FftNorm::Backward)
-            .map_err(|e| FerrotorchError::InvalidArgument {
-                message: format!("irfftn: {e}"),
-            })?;
-    let mut intermediate = intermediate;
-    project_hermitian_in_place(&mut intermediate, c2r_axis, output_n);
-    let result = ferray_fft::irfftn(
-        &intermediate,
-        Some(&[output_n]),
-        Some(&[c2r_axis as isize]),
-        FftNorm::Backward,
-    )
-    .map_err(|e| FerrotorchError::InvalidArgument {
-        message: format!("irfftn: {e}"),
+    let arr = tensor_to_complex_array(input, "irfftn")?;
+    // #808: ferray-fft 0.3.8 now performs the Hermitian projection
+    // internally inside its c2r path (matches PyTorch's `aten::_fft_c2r`
+    // and scipy/pocketfft semantics). The downstream pre-projection
+    // mitigation is no longer needed.
+    let result = ferray_fft::irfftn(&arr, s, axes, FftNorm::Backward).map_err(|e| {
+        FerrotorchError::InvalidArgument {
+            message: format!("irfftn: {e}"),
+        }
     })?;
     real_array_to_tensor(&result)
 }
@@ -1014,21 +818,11 @@ pub fn irfftn<T: Float>(
 ///
 /// The Hermitian condition `X[k] = conj(X[-k])` is implicit in the input.
 pub fn hfft<T: Float>(input: &Tensor<T>, n: Option<usize>) -> FerrotorchResult<Tensor<T>> {
-    let mut arr = tensor_to_complex_array(input, "hfft")?;
-    // #808: ferray-fft's `hfft` is `irfft(conj(a))` and inherits the same
-    // strict-Hermitian rejection. PyTorch's `torch.fft.hfft` accepts any
-    // complex spectrum and projects to Hermitian internally. We pre-project
-    // the input here to match those semantics. The c2r axis is always the
-    // last axis (this is the 1-D wrapper); the output length is `n`,
-    // defaulting to `2 * (input_len - 1)`.
-    let shape = arr.shape().to_vec();
-    if let Some(&half_n) = shape.last() {
-        if half_n > 0 {
-            let last_ax = shape.len() - 1;
-            let output_n = n.unwrap_or(2 * (half_n - 1));
-            project_hermitian_in_place(&mut arr, last_ax, output_n);
-        }
-    }
+    let arr = tensor_to_complex_array(input, "hfft")?;
+    // #808: ferray-fft 0.3.8 performs the Hermitian projection internally
+    // (its `hfft` delegates to `irfft`, which now projects the c2r axis
+    // bins before invoking realfft). The downstream pre-projection
+    // mitigation is no longer needed.
     let result = ferray_fft::hfft(&arr, n, None, FftNorm::Backward).map_err(|e| {
         FerrotorchError::InvalidArgument {
             message: format!("hfft: {e}"),
