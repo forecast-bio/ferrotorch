@@ -1,0 +1,10 @@
+{
+  "uuid": "3b5be3ea-ce8f-4efc-b975-304f915cda31",
+  "issue_uuid": "2723e891-fdaf-499f-a722-bb2f1003ff25",
+  "author": "y4rr",
+  "content": "Result: 24 new conformance tests in conformance_serialize_sharded.rs. Coverage: load_safetensors_sharded (merge all shards, preserve values/shapes, ignore unlisted tensors, errors for missing tensor/shard/malformed-index), load_safetensors_sharded_filtered (matching-only, no-match empty, all-match full, value parity), load_safetensors_sharded_with_progress (fires-once-per-shard, 0-based index, shard_count, total_tensors, loaded_so_far monotonic, shard_file non-empty, tensors_in_shard positive, result matches plain), load_safetensors_auto (single-file dispatch, sharded dispatch, result matches explicit, missing-file error). ShardProgress fields fully exercised. Five #851 exclusion entries removed. 24/24 pass, clippy clean.",
+  "created_at": "2026-05-07T17:52:24.362268711Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAp6Dnw+YcdRdnpv0a7d8J1gv0vXmvSnCzVwi6m/3skSIE8wCuw7zTDoxLvoqgGarhuXpBf92PPmBO8ijSgvtsCQ=="
+}
