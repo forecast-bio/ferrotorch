@@ -1,0 +1,10 @@
+{
+  "uuid": "dd619b29-2a31-431e-9fad-fc00b08d253b",
+  "issue_uuid": "254df36f-aa66-4f8b-aceb-cf380f49b033",
+  "author": "y4rr",
+  "content": "Decision: Fixture strategy for init statistical tests — generating N independent [fan_out, fan_in] params (500 trials) rather than one large param. A large single param changes fan_in/fan_out (compute_fans uses shape dims), which changes expected_std. 500 independent small params preserve the fan values while accumulating enough samples for a reliable std estimate. 10% relative tolerance is sufficient at that sample count.",
+  "created_at": "2026-05-07T17:09:58.457873850Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABACVphywlyLWsrukT76VlQZJFRB4fSdsIp8bhaxw6x5/i8e9Bn9tuoBTr+JCvfGhli/jOkljwV8t0tr2S6xMpyDQ=="
+}
