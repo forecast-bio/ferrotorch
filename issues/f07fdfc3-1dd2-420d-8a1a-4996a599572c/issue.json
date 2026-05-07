@@ -2,11 +2,12 @@
   "uuid": "f07fdfc3-1dd2-420d-8a1a-4996a599572c",
   "display_id": 890,
   "title": "Conformance Buildout C8 — Tier-3 ferrotorch-gpu (4 sub-phases)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T16:27:56.616322204Z",
-  "updated_at": "2026-05-07T16:27:58.192462984Z",
+  "updated_at": "2026-05-07T16:57:02.223075196Z",
+  "closed_at": "2026-05-07T16:57:02.223075196Z",
   "labels": [
     "conformance,test"
   ]
