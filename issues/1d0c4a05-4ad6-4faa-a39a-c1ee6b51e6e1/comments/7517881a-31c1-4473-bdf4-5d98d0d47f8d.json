@@ -1,0 +1,10 @@
+{
+  "uuid": "7517881a-31c1-4473-bdf4-5d98d0d47f8d",
+  "issue_uuid": "1d0c4a05-4ad6-4faa-a39a-c1ee6b51e6e1",
+  "author": "y4rr",
+  "content": "Added SqueezeBackward, UnsqueezeBackward, CatBackward to map_name_to_op in trace.rs and graph_break.rs with shape-inference helpers for the axis parameter. Added all three to KNOWN_OPS in graph_break.rs. Tracing graphs containing these shape ops now succeeds.",
+  "created_at": "2026-05-07T18:23:11.902910806Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA9Pw2KZYawa9HUp4Ncz8HXfuI6IxO/zks6JkKYCIArDvdFvckJz4/Ozw5cJReoVE0cCW/b9DZw4np9rBZQOTyAg=="
+}
