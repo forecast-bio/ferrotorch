@@ -1,0 +1,10 @@
+{
+  "uuid": "3c7c08f0-dac3-47f6-8574-7ee3fd003718",
+  "issue_uuid": "a7163d5a-249d-45eb-9039-2b0c9d168d64",
+  "author": "y4rr",
+  "content": "Decision: Adding new() constructors to GptqQ4, AwqQ4, HqqWeights in quant_loaders.rs. The sprint says 'no bug fixing in quant_loaders.rs — test-only dispatch' but constructors are a testability addition (not a dequantization logic change) required because #[non_exhaustive] prevents external struct literal construction from integration tests. The alternative (using pub fields via unsafe transmute or removing #[non_exhaustive]) would be worse. Adding constructors is the idiomatic Rust approach for #[non_exhaustive] structs.",
+  "created_at": "2026-05-07T21:04:41.491779971Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAZbP+Jw4rMa/K4NuR2/25oD00Gb+aQSMVUWHPNXn15k123hldl0S6RYj7us7Xg45SlCPB7lMyjf1MEpYlSZ7hAg=="
+}
