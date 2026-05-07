@@ -1,0 +1,10 @@
+{
+  "uuid": "eceb2faf-430e-415b-ace9-43ae88911762",
+  "display_id": 958,
+  "title": "Add MSL kernel for MPS masked fill and masked zero ops",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T21:10:00.899591688Z",
+  "updated_at": "2026-05-07T21:10:00.899591688Z"
+}
