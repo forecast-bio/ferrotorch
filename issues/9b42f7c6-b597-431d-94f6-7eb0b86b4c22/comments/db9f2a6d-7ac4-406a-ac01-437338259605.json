@@ -1,0 +1,10 @@
+{
+  "uuid": "db9f2a6d-7ac4-406a-ac01-437338259605",
+  "issue_uuid": "9b42f7c6-b597-431d-94f6-7eb0b86b4c22",
+  "author": "y4rr",
+  "content": "Follow-up from Sprint C.7 (#626). GpuBackend methods: flash_attention_forward_f32/f64. On MPS use MPSGraphTensor scaled dot-product attention or a custom MSL FlashAttention-2 implementation (analogous to the PTX kernel in ferrotorch-gpu P5/#806). Dependency: macOS 14+ for full MPS graph support.",
+  "created_at": "2026-05-07T21:09:04.929565938Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAJbBJ1u98MaY326/KGXg9ZmyFj5O4PWvWe6dtUCx8H7VY6P2JRfDXUWF/CxV2EshcOXH52C1sKfwv+S3bhqQTAg=="
+}
