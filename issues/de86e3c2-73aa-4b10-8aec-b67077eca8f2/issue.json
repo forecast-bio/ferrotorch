@@ -2,11 +2,12 @@
   "uuid": "de86e3c2-73aa-4b10-8aec-b67077eca8f2",
   "display_id": 863,
   "title": "vision/models: EfficientNet full forward-pass parity (needs fixture without pretrained weights)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T15:17:25.949634395Z",
-  "updated_at": "2026-05-07T15:17:27.479048038Z",
+  "updated_at": "2026-05-07T20:16:15.516986646Z",
+  "closed_at": "2026-05-07T20:16:15.516986646Z",
   "labels": [
     "rust,bug,conformance,vision"
   ]
