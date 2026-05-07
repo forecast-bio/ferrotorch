@@ -886,20 +886,51 @@ mod tests {
     }
 
     #[test]
-    fn test_reduce_grad_to_shape_returns_error_on_underflow() {
-        // Defensive guard: if any code path produces a gradient with
-        // fewer dims than the target, reduce_grad_to_shape should return
-        // a clean ShapeMismatch instead of panicking with subtract overflow.
+    fn test_reduce_grad_to_shape_reshape_when_same_numel() {
+        // Post-#814: `grad_ndim < target_ndim` with matching numel is a
+        // valid reshape, not an error. The original defensive guard was
+        // too strict — it rejected the `[] -> [1]` case that the
+        // higher-order grad chain naturally produces.
+        let grad =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![7.5]), vec![], false).unwrap();
+        let out = crate::grad_fns::arithmetic::reduce_grad_to_shape(&grad, &[1])
+            .expect("reshape [] -> [1] must succeed (numel matches)");
+        assert_eq!(out.shape(), &[1]);
+        assert!((out.data().unwrap()[0] - 7.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_reduce_grad_to_shape_returns_error_on_numel_mismatch_underflow() {
+        // Defensive guard: when grad has fewer dims than target AND the
+        // numels don't match, no reshape is possible and the function
+        // must return a clean `ShapeMismatch` instead of panicking with
+        // subtract overflow at `grad_ndim - target_ndim`. CL-498, #814.
         let grad =
             Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0]), vec![], false).unwrap();
-        let result = crate::grad_fns::arithmetic::reduce_grad_to_shape(&grad, &[1]);
+        let result = crate::grad_fns::arithmetic::reduce_grad_to_shape(&grad, &[2]);
         let err_msg = match result {
-            Ok(_) => panic!("expected error for grad_ndim < target_ndim"),
+            Ok(_) => panic!("expected error for grad_ndim < target_ndim AND numel mismatch"),
             Err(e) => format!("{e}"),
         };
         assert!(
             err_msg.contains("grad_ndim"),
             "expected mismatch message, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_reduce_grad_to_shape_reshape_branch_does_not_swallow_numel_mismatch() {
+        // The new rank-mismatch-but-same-numel reshape branch (#814)
+        // must NOT activate when numels differ — that's a different
+        // bug class. Here grad shape `[]` (numel 1) -> target `[2]`
+        // (numel 2) should NOT silently reshape; it must still hit
+        // the underflow guard and error.
+        let grad =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0]), vec![], false).unwrap();
+        let result = crate::grad_fns::arithmetic::reduce_grad_to_shape(&grad, &[2]);
+        assert!(
+            matches!(result, Err(FerrotorchError::ShapeMismatch { .. })),
+            "grad [] -> target [2] (numel mismatch) must error, got: {result:?}"
         );
     }
 }

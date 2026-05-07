@@ -431,22 +431,13 @@ fn check_f64(label: &str, actual: &[f64], expected: &[f64], tol: f64) {
 ///
 /// # Surfaced cascades
 ///
-/// * `higher_order_grad x_cubed_at_2` / `x_squared_at_5` — second
-///   derivative reshape fails: the autograd engine's
-///   `reduce_grad_to_shape` rejects scalar grad ([]) → leaf shape [1] in
-///   the second-order pass. Tracked as issue #814; first derivative still
-///   verified inline below for `Tensor::grad_wrt`.
-fn cascade_skip(op: &str, tag: &str, _dtype: &str) -> Option<&'static str> {
-    match (op, tag) {
-        ("higher_order_grad", "x_cubed_at_2" | "x_squared_at_5") => {
-            // #814 — `reduce_grad_to_shape` fails when gradient is 0-D
-            // but leaf is shape [1]. The first-derivative path works;
-            // we exercise that via `grad_wrt`. Second-derivative reshape
-            // is the surfaced bug.
-            Some("#814")
-        }
-        _ => None,
-    }
+/// (#814 closed in Bugfix Batch 9 — `reduce_grad_to_shape` now handles
+/// rank-mismatch-but-same-numel cases via reshape; second-derivative grad
+/// path on shape-`[1]` leafs works.)
+fn cascade_skip(_op: &str, _tag: &str, _dtype: &str) -> Option<&'static str> {
+    // No surfaced cascades currently. Retained as the canonical opt-out
+    // point for future tolerance escapes — see doc comment above.
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -1106,14 +1097,11 @@ fn cpu_higher_order_x_cubed_first_and_second_derivative() {
             tolerance::F32_GRAD_CPU,
         );
 
-        // Second derivative — surfaced cascade #814 (reduce_grad_to_shape
-        // mismatch on shape [1] leaf). When that's fixed, the
-        // `cascade_skip` opt-out can be removed and the assertion below
-        // re-enabled.
-        if let Some(reason) = cascade_skip("higher_order_grad", "x_cubed_at_2", &f.dtype) {
-            eprintln!("skipping second-derivative for {label}: {reason}");
-            continue;
-        }
+        // Second derivative — #814 closed in Bugfix Batch 9.
+        // `reduce_grad_to_shape` now handles rank-mismatch-but-same-numel
+        // (e.g. grad shape `[]` -> target shape `[1]`) via reshape, so
+        // the chain through `PowBackward`'s scalar intermediate aligns
+        // with the shape-`[1]` leaf. Assertion re-enabled.
         let exp_second = f
             .second_deriv
             .as_ref()

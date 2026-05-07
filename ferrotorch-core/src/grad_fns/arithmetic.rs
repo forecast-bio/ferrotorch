@@ -204,6 +204,36 @@ pub(crate) fn reduce_grad_to_shape<T: Float>(
     let grad_ndim = grad_shape.len();
     let target_ndim = target_shape.len();
 
+    // Rank-mismatch-but-same-numel reshape branch — #814.
+    //
+    // When `grad.numel() == target.numel()` the operation is a pure
+    // reshape, not a broadcast reduction. This arises in higher-order grad
+    // chains where, e.g., a `PowBackward` produces a 0-D scalar
+    // intermediate that the downstream node must align with a shape-`[1]`
+    // leaf. Pre-#814 the `grad_ndim < target_ndim` arm rejected this with
+    // `ShapeMismatch` even though the data is one-to-one. PyTorch's
+    // `torch.autograd.grad` works on shape-`[1]` leafs unconditionally;
+    // this branch closes that parity gap. Cases covered:
+    //   * grad []      -> target [1]       (cited fixture)
+    //   * grad []      -> target [1, 1]    (general invariant)
+    //   * grad [1]     -> target [1, 1]
+    //   * grad [1, 1]  -> target [1]       (also matches via padding below,
+    //                                       handled here for symmetry)
+    // Numel-mismatch (e.g. `[1] -> [2]`) still falls through to the
+    // existing rejection guard and broadcast-reduction logic.
+    let grad_numel: usize = grad_shape.iter().product();
+    let target_numel: usize = target_shape.iter().product();
+    if grad_numel == target_numel {
+        // Pure reshape: same elements, different rank. The CPU storage is
+        // already row-major contiguous over `grad_data`, so we can rebuild
+        // a tensor of the target shape directly from the same data.
+        return Tensor::from_storage(
+            TensorStorage::cpu(grad_data.to_vec()),
+            target_shape.to_vec(),
+            false,
+        );
+    }
+
     // Standard broadcasting requires grad_ndim >= target_ndim. The reverse
     // case (gradient has fewer dims than target) used to trigger an integer
     // underflow at `grad_ndim - target_ndim`. The graph::backward seed
