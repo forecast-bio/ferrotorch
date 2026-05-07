@@ -1,0 +1,10 @@
+{
+  "uuid": "d0ac9f84-cb56-4d21-83e1-0fa0fd286262",
+  "display_id": 947,
+  "title": "Add MSL kernels for MPS linear algebra solvers: qr, svd, cholesky, lu, eig, lstsq, solve",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T21:08:14.752428582Z",
+  "updated_at": "2026-05-07T21:08:14.752428582Z"
+}
