@@ -1,0 +1,10 @@
+{
+  "uuid": "9112f7e3-a28e-4575-8d86-c850f1cf017f",
+  "issue_uuid": "83df22fe-4606-404a-bcc7-7996f379445f",
+  "author": "y4rr",
+  "content": "Sprint A.1 complete. #828 fixed: XpuDevice::is_available() now probes wgpu adapter list via catch_unwind(CubeRuntime::new(Wgpu(0)).is_ok()) instead of cfg!(feature='wgpu'). cascade_skip removed from xpu_is_available_matches_fixture. Pre-existing clippy::type_complexity in all_op_symbols_resolve suppressed with targeted allow. Commit cee5cea4. #829-836 closed-as-deferred with result comments. All 38 ferrotorch-xpu tests pass, clippy clean. No other crates touched.",
+  "created_at": "2026-05-07T17:51:47.437311446Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA2bdodb3Y5pzxOz/oEeUfrAcCDvtvtpXfdyDe0qJbH5wWxrJeTlO4VN2mkAFTseLzU7Ag/i3V3+q/U9rze9ohBg=="
+}
