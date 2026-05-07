@@ -102,8 +102,9 @@ pub use io::{
     tensor_to_raw_image, write_image, write_tensor_as_image,
 };
 pub use models::{
-    FeatureExtractor, ModelConstructor, ModelRegistry, create_feature_extractor, get_model,
-    list_models, register_model,
+    AnchorGenerator, Detections, FPN_OUT_CHANNELS, FasterRcnn, FeatureExtractor,
+    FeaturePyramidNetwork, ModelConstructor, ModelRegistry, Rpn, RpnConfig, RpnHead, TwoMlpHead,
+    create_feature_extractor, fasterrcnn_resnet50_fpn, get_model, list_models, register_model,
 };
 pub use transforms::{
     CenterCrop, ColorJitter, IMAGENET_MEAN, IMAGENET_STD, RandomApply, RandomChoice,

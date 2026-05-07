@@ -1131,6 +1131,105 @@ def add_vit_b5b_fixtures():
 
 add_vit_b5b_fixtures()
 
+
+def add_fasterrcnn_fixtures():
+    """Faster R-CNN (#456 partial): structural invariants with synthetic config.
+
+    No pretrained weights. Uses torchvision.models.detection.fasterrcnn_resnet50_fpn
+    with weights=None to record architecture facts that ferrotorch must match.
+    """
+    from torchvision.models.detection import fasterrcnn_resnet50_fpn
+
+    # Instantiate with weights=None (no download).
+    model = fasterrcnn_resnet50_fpn(weights=None, num_classes=91)
+    model.eval()
+
+    # ---- Parameter count ----
+    total_params = sum(p.numel() for p in model.parameters())
+    fixtures.append({
+        "id": "fasterrcnn_resnet50_fpn_param_count_range",
+        "op": "fasterrcnn_resnet50_fpn_param_count",
+        "params": {"num_classes": 91},
+        "expected_min_params": 40_000_000,
+        "expected_max_params": 70_000_000,
+        "actual_torchvision_params": total_params,
+        "note": (
+            f"torchvision fasterrcnn_resnet50_fpn(weights=None, num_classes=91) "
+            f"has {total_params:,} parameters. "
+            "ferrotorch impl may differ slightly due to head architecture; "
+            "40M-70M is the accepted range."
+        ),
+    })
+
+    # ---- FPN output shape (via backbone + FPN forward) ----
+    # Use a small 64x64 image for speed.
+    torch.manual_seed(42)
+    with torch.no_grad():
+        img = torch.rand(1, 3, 64, 64)
+        # Run through backbone + FPN only (not full detection head).
+        backbone_out = model.backbone(img)
+    # backbone_out is an OrderedDict with keys '0'..'3' (FPN levels) + 'pool'.
+    fpn_keys = list(backbone_out.keys())
+    fixtures.append({
+        "id": "fasterrcnn_resnet50_fpn_fpn_output_channels",
+        "op": "fasterrcnn_resnet50_fpn_fpn_channels",
+        "params": {"input_shape": [1, 3, 64, 64]},
+        "expected_out_channels": 256,
+        "fpn_level_keys": fpn_keys,
+        "note": (
+            "torchvision FPN always outputs 256 channels per level. "
+            f"Level keys for 64x64 input: {fpn_keys}."
+        ),
+        "torchvision_version": tv_ver,
+    })
+
+    # ---- End-to-end forward: detection list structure ----
+    with torch.no_grad():
+        img_list = [torch.rand(3, 64, 64)]
+        predictions = model(img_list)
+    pred = predictions[0]
+    boxes_shape = list(pred["boxes"].shape)
+    scores_shape = list(pred["scores"].shape)
+    labels_shape = list(pred["labels"].shape)
+    fixtures.append({
+        "id": "fasterrcnn_resnet50_fpn_forward_output_structure",
+        "op": "fasterrcnn_resnet50_fpn_forward",
+        "params": {"num_classes": 91, "input_shape": [1, 3, 64, 64]},
+        "expected_boxes_ndim": 2,
+        "expected_boxes_last_dim": 4,
+        "expected_scores_ndim": 1,
+        "expected_labels_ndim": 1,
+        "torchvision_boxes_shape": boxes_shape,
+        "torchvision_scores_shape": scores_shape,
+        "torchvision_labels_shape": labels_shape,
+        "note": (
+            "torchvision returns boxes [N,4] xyxy, scores [N], labels [N] per image. "
+            "ferrotorch matches this structure; exact N varies with random weights."
+        ),
+        "torchvision_version": tv_ver,
+    })
+
+    # ---- Anchor count: 5 levels, default sizes/ratios ----
+    # torchvision default: sizes=((32,),(64,),(128,),(256,),(512,)),
+    # aspect_ratios=((0.5,1.0,2.0),)*5 => 3 anchors/cell.
+    fixtures.append({
+        "id": "fasterrcnn_resnet50_fpn_anchor_config",
+        "op": "fasterrcnn_resnet50_fpn_anchor_config",
+        "params": {},
+        "expected_anchors_per_cell": 3,
+        "expected_num_fpn_levels": 5,
+        "expected_anchor_sizes": [32, 64, 128, 256, 512],
+        "expected_aspect_ratios": [0.5, 1.0, 2.0],
+        "note": (
+            "torchvision default AnchorGenerator: 5 FPN levels, "
+            "3 aspect ratios per size, 3 anchors per spatial location."
+        ),
+    })
+
+
+add_fasterrcnn_fixtures()
+
+
 # ---------------------------------------------------------------------------
 # Assemble and write
 # ---------------------------------------------------------------------------

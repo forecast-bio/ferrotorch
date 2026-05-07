@@ -206,6 +206,21 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::SafeTensors,
         num_parameters: 27_161_264,
     },
+    // #456 partial: Faster R-CNN with ResNet-50 FPN backbone.
+    // No authoritative public SafeTensors checkpoint identified yet;
+    // SHA-256 is the all-zero placeholder which causes download_and_verify
+    // to return Err(InvalidArgument) with a clear message (security audit #6,
+    // follow-up #456-weights). Until a checkpoint is pinned, `pretrained=true`
+    // fails fast rather than silently skipping verification.
+    ModelInfo {
+        name: "fasterrcnn_resnet50_fpn",
+        description: "Faster R-CNN with ResNet-50 FPN backbone for object detection (#456 partial)",
+        weights_url: "https://huggingface.co/ferrotorch/fasterrcnn_resnet50_fpn/resolve/main/model.safetensors",
+        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        format: WeightsFormat::SafeTensors,
+        // ResNet-50 (~25.6M) + FPN (~3.3M) + RPN (~1.2M) + TwoMLP head (~26M) ≈ 56M.
+        num_parameters: 56_000_000,
+    },
 ];
 
 /// List all available pretrained models.

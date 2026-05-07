@@ -1,5 +1,6 @@
 pub mod convnext;
 pub mod densenet;
+pub mod detection;
 pub mod efficientnet;
 pub mod feature_extractor;
 pub mod inception;
@@ -22,6 +23,10 @@ pub use mobilenet::{
 };
 pub use registry::{
     ModelConstructor, ModelRegistry, REGISTRY, get_model, list_models, register_model,
+};
+pub use detection::{
+    AnchorGenerator, Detections, FPN_OUT_CHANNELS, FasterRcnn, FeaturePyramidNetwork, Rpn,
+    RpnConfig, RpnHead, TwoMlpHead, fasterrcnn_resnet50_fpn,
 };
 pub use resnet::{BasicBlock, Bottleneck, ResNet, resnet18, resnet34, resnet50};
 pub use swin::{SwinBlock, SwinTransformer, swin_tiny};

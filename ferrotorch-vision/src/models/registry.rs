@@ -250,6 +250,20 @@ fn default_registry() -> ModelRegistry<f32> {
         }),
     );
 
+    // #456 partial: Faster R-CNN with ResNet-50 FPN backbone.
+    // `num_classes` includes background (index 0); COCO default is 91.
+    // Pretrained weights are not yet published to ferrotorch-hub;
+    // `pretrained=true` will return an `Err` with a clear message until a
+    // checkpoint is pinned (follow-up #456-weights).
+    registry.register_model(
+        "fasterrcnn_resnet50_fpn",
+        Box::new(|pretrained, num_classes| {
+            maybe_load_pretrained(pretrained, "fasterrcnn_resnet50_fpn", || {
+                super::detection::fasterrcnn_resnet50_fpn::<f32>(num_classes)
+            })
+        }),
+    );
+
     registry
 }
 
@@ -377,6 +391,7 @@ mod tests {
         assert!(names.contains(&"mobilenet_v3_small".to_string()));
         assert!(names.contains(&"densenet121".to_string()));
         assert!(names.contains(&"inception_v3".to_string()));
+        assert!(names.contains(&"fasterrcnn_resnet50_fpn".to_string()));
     }
 
     #[test]
@@ -429,6 +444,7 @@ mod tests {
             "mobilenet_v3_small",
             "densenet121",
             "inception_v3",
+            "fasterrcnn_resnet50_fpn",
         ];
         for name in canonical {
             let info = ferrotorch_hub::registry::get_model_info(name);
