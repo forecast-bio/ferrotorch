@@ -2,11 +2,12 @@
   "uuid": "a442c7dc-2fab-43ab-8d2e-66a8fcfb7c38",
   "display_id": 969,
   "title": "Add Sprint V.1 ConvNeXt and EfficientNet logit-parity conformance tests",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T22:36:53.902561603Z",
-  "updated_at": "2026-05-07T22:36:55.377050614Z",
+  "updated_at": "2026-05-07T22:47:46.729963974Z",
+  "closed_at": "2026-05-07T22:47:46.729963974Z",
   "labels": [
     "feature"
   ]
