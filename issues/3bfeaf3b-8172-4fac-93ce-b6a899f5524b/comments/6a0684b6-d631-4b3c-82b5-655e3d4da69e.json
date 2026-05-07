@@ -1,0 +1,10 @@
+{
+  "uuid": "6a0684b6-d631-4b3c-82b5-655e3d4da69e",
+  "issue_uuid": "3bfeaf3b-8172-4fac-93ce-b6a899f5524b",
+  "author": "y4rr",
+  "content": "Added 5 conformance tests: output-shape, finite-values, param-count, custom-classes, determinism. All pass with random-init weights. Full logit-level parity vs torchvision pretrained weights deferred to follow-up issues #930-#934 (requires pretrained weight fixtures not available in-batch).",
+  "created_at": "2026-05-07T20:16:06.522929483Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAv20hH6oXHm5Kv0X6kMyDbrX9358K5uQDAOvLbybcVs2NtfK1CpS3+3khztUjM2ThSXHelk0U6eIoCJXwEEPdAA=="
+}
