@@ -1,0 +1,10 @@
+{
+  "uuid": "10c62ba0-ca0c-4314-a37c-7bb3118ddbff",
+  "issue_uuid": "8e5fe4ab-8437-4893-8e32-f489e39567b1",
+  "author": "y4rr",
+  "content": "Surfaced by C7.3 conformance suite (conformance_jit_optimize_codegen.rs). constant_fold replaces the op node with a Constant result but leaves the source constant nodes as orphans. A subsequent DCE pass is required to remove them. The full optimize() pipeline does run DCE after folding, so end-users of optimize() are unaffected. However, callers who invoke constant_fold() directly get a graph with dangling constant nodes that inflate node_count. The fix is either to auto-chain DCE inside constant_fold or document that constant_fold does not guarantee minimal node count. Ref: opt_constant_fold_add_two_constants, opt_constant_fold_neg, opt_constant_fold_relu, opt_constant_fold_chain_add_then_mul conformance tests.",
+  "created_at": "2026-05-07T16:21:36.369506328Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAhPWjG+E2zECyOcskG+l6Ig8t7odc0/tSe/U3vywwqiBLPFxMkUhmYvPXQvYYewLYUwkGfGJWbW610HK+ejw5Ag=="
+}
