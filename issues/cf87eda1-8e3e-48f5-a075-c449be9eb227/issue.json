@@ -1,0 +1,10 @@
+{
+  "uuid": "cf87eda1-8e3e-48f5-a075-c449be9eb227",
+  "display_id": 831,
+  "title": "ferrotorch-xpu: live XPU unary ops (neg/abs/relu/exp/ln/sqrt/sin/cos/tanh/sigmoid) not conformance-tested — no Intel GPU on test box",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T13:34:35.600579554Z",
+  "updated_at": "2026-05-07T13:34:35.600579554Z"
+}
