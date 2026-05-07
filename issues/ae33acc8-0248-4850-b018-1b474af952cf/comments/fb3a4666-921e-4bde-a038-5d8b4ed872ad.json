@@ -1,0 +1,10 @@
+{
+  "uuid": "fb3a4666-921e-4bde-a038-5d8b4ed872ad",
+  "issue_uuid": "ae33acc8-0248-4850-b018-1b474af952cf",
+  "author": "y4rr",
+  "content": "Plan (Sprint C.8 / #628): Implement speculative decoding per Leviathan et al. 2023 (arXiv:2211.17192).\n\nScope:\n- ferrotorch-llama/src/spec_decode.rs — SpecDecodeConfig, SpecDecoder<T> with ModelHandle trait, speculative_decode fn\n- ferrotorch-llama/src/lib.rs — re-export pub mod spec_decode + public items\n- ferrotorch-llama/tests/spec_decode_test.rs — synthetic 2-layer draft+target test including draft==target sanity check\n- ferrotorch-llama/tests/_probe_c8_spec_decode.rs — K=4 probe, acceptance rate vs random, quoted source criterion\n\nAlgorithm:\n1. Draft model runs K autoregressive steps: produces tokens d_0..d_{K-1} and draft log-probs\n2. Target model verifies K tokens in one forward pass: produces target log-probs at each position\n3. Token-level acceptance: accept token k if uniform U < target_p[k]/draft_p[k], else reject and sample from residual = max(0, target - draft) / sum(max(0, target - draft))\n4. Rollback: first rejection at j -> accept j tokens, sample 1 corrected token, return j+1 total\n\nKey decision to document: ModelHandle trait (not LlamaForCausalLM directly) for testability with synthetic models.",
+  "created_at": "2026-05-07T21:21:21.339273246Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAV0ii/V/n0hKIMpPNsqxh1NwnvZHjuiqDk4zvqZTQi8j5+yhl4i/etK/k1IxD5ElYa9/r0KkNhpXc2kdYnrWXCw=="
+}
