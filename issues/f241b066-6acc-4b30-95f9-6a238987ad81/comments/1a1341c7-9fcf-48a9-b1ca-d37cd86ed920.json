@@ -1,0 +1,10 @@
+{
+  "uuid": "1a1341c7-9fcf-48a9-b1ca-d37cd86ed920",
+  "issue_uuid": "f241b066-6acc-4b30-95f9-6a238987ad81",
+  "author": "y4rr",
+  "content": "Plan: Fix 5 distributed conformance bugs spanning 2 files.\n\n#853 — all_gather fixture-key mismatch: fixture JSON uses 'input_shape' key; Fixture struct has no such field, tests fall through to f.shape which is None for this fixture. Fix: add input_shape field to Fixture struct, update test to use f.input_shape.\n\n#854 — reduce_scatter fixture-key mismatch: same pattern — fixture has 'input_shape' key, test reads f.shape which is missing. Same fix.\n\n#855 — DeviceMesh fixture key mismatch: fixture has 'shape'/'world_size' keys; test reads f.mesh_shape/f.mesh_world_size. Test-side fix: read f.shape and f.world_size (both already present in Fixture struct).\n\n#856/#857 — SubBackend rank test: test calls create_group(4).into_iter().next() which gives rank=0. Then SubBackend::new(rank0_backend, [1,2,3]) fails because rank 0 is not in members [1,2,3] — correctly rejected. Fix: use the rank-1 backend (first member of [1,2,3]) as parent, and for rank_mapping test use rank-1 as well.\n\nFiles changed:\n- ferrotorch-distributed/tests/conformance_distributed.rs (fixture key reads + cascade_skip removals)\nNo source-side changes needed for #856/#857 — SubBackend::new validation is correct.",
+  "created_at": "2026-05-07T18:16:10.498368306Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzLNbdI0O/6b0dV69J4e/P7K2PCoLxFQLjqmTt5/kXvb/7dp3k2zzIfon0UqxK+UlDB7dMlErL/0SYiR+VjN6AA=="
+}
