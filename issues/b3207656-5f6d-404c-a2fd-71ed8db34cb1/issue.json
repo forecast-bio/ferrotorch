@@ -2,11 +2,12 @@
   "uuid": "b3207656-5f6d-404c-a2fd-71ed8db34cb1",
   "display_id": 972,
   "title": "Add InceptionV3 forward parity conformance lane and close #929 umbrella",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T22:38:47.454717104Z",
-  "updated_at": "2026-05-07T22:38:48.827495766Z",
+  "updated_at": "2026-05-07T22:47:27.365463164Z",
+  "closed_at": "2026-05-07T22:47:27.365463164Z",
   "labels": [
     "feature"
   ]
