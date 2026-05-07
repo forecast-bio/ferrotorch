@@ -1,0 +1,10 @@
+{
+  "uuid": "11925b9a-c6ca-4c77-a67d-112d77892092",
+  "issue_uuid": "a442c7dc-2fab-43ab-8d2e-66a8fcfb7c38",
+  "author": "y4rr",
+  "content": "Decision: Architecture mismatch (depthwise vs regular conv) means true numerical parity vs torchvision is impossible for ConvNeXt and EfficientNet. Correct approach for Sprint V.1:\n\n1. Use a TINY model variant (small channels: e.g. ConvNeXt with dims=[4,8,16,32], depths=[1,1,1,1]; EfficientNet with all out_ch/8) \n2. Set all weights to deterministic constant values (weight=const, bias=0) using load_state_dict  \n3. Python script computes expected outputs using numpy, mirroring ferrotorch's exact computation (Conv2d as explicit correlation, LayerNorm, GELU, AdaptiveAvgPool, Linear)\n4. fixtures_v_parity.json stores: all weight tensors, input, expected output\n5. Rust test loads weights via load_state_dict, runs forward, asserts within F32_MATMUL=1e-3\n\nThis is stronger than shape-only tests (B.5.b) because it verifies numerical correctness of the forward pass against an independent computation.\n\nPer-stage intermediate assertions: also record stem_output, stage0_output, etc. in fixture so test can localize divergence.",
+  "created_at": "2026-05-07T22:39:05.789115324Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAgPQABThtkXI9d9mgkQ2m6WIl428T2IAaLMLJj7DheUyqH5zg0OQEvZDk9GcD8q7jfkwBfhDJcaXq707ZyUJ+DQ=="
+}
