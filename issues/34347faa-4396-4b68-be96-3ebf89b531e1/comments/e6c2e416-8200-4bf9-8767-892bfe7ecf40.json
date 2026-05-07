@@ -1,0 +1,10 @@
+{
+  "uuid": "e6c2e416-8200-4bf9-8767-892bfe7ecf40",
+  "issue_uuid": "34347faa-4396-4b68-be96-3ebf89b531e1",
+  "author": "y4rr",
+  "content": "Plan: XpuDevice::is_available() currently returns cfg!(feature = 'wgpu') — a compile-time check only. torch.xpu.is_available() probes for actual hardware and returns False on machines with no Intel GPU. The fix: under the wgpu feature, use catch_unwind around CubeRuntime::new(CubeDevice::Wgpu(0)) to probe for an actual adapter at runtime. If new() succeeds, return true; if it panics or errors, return false. This matches the existing xpu() helper pattern used in lib.rs unit tests, and requires no new dependencies (CubeRuntime and CubeDevice are already imported under cfg(feature='wgpu')). Conformance: remove cascade_skip in xpu_is_available_matches_fixture and xpu_device_new_errors_without_backend once the assertion holds. §3 phrasing: Fixed XpuDevice::is_available() to probe wgpu adapter list for Intel GPU instead of assuming feature-compile-time means available.",
+  "created_at": "2026-05-07T17:47:44.531867449Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAeeaLxDx2+hro9tWCaYUAtjLZNiK0Oi6THlNSv3IdET4NLH09ww7jATgWeTpEVdTv3JpEvqHUuPsqjjkd1Fu6Bg=="
+}
