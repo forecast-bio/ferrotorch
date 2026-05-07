@@ -1,0 +1,10 @@
+{
+  "uuid": "0d658a53-c1ef-4263-b4fb-1f980a8f1929",
+  "issue_uuid": "f179c01c-1f3e-4e29-ba9d-043e5f868699",
+  "author": "y4rr",
+  "content": "FIXED: gpu_svd_f32/f64 and gpu_qr_f32/f64 in backend_impl.rs were bouncing through host Vec<T> — 4 host<->device copies per SVD call, 3 per QR. Added gpu_svd_f32_dev / gpu_svd_f64_dev / gpu_qr_f32_dev / gpu_qr_f64_dev in cusolver.rs: accept &CudaBuffer<T>, return CudaBuffer<T> outputs, zero host bounce. Row<->col-major conversions via gpu_transpose_2d (existing on-device PTX). R extraction and Q column extraction via new on-device PTX kernels (extract_upper_tri_colmaj_f32/f64, extract_cols_colmaj_f32/f64). backend_impl.rs svd_f32/f64 and qr_f32/f64 now call _dev variants. Conforms with torch.linalg.svd/qr on CUDA returning CUDA tensors (§3). 8 conformance tests pass, 5 probe tests pass.",
+  "created_at": "2026-05-07T19:35:27.218917759Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAUYKdSafw2RMSAHBkDqPglJoaSMCy49OPdaStDZ2nnxI0v2KYbc5gr30p8ZBCW6sMWx/zcRIrZnm48eJYa2bnDg=="
+}
