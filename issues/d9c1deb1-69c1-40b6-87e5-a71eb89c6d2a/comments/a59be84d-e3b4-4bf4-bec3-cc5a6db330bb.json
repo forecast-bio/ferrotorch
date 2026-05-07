@@ -1,0 +1,10 @@
+{
+  "uuid": "a59be84d-e3b4-4bf4-bec3-cc5a6db330bb",
+  "issue_uuid": "d9c1deb1-69c1-40b6-87e5-a71eb89c6d2a",
+  "author": "y4rr",
+  "content": "Result: Removed cascade_skip from create_feature_extractor_smoke (#880 guard). Added 8 integration tests for FeatureExtractor in conformance_vision_models.rs:\n- create_feature_extractor_smoke: real integration test wrapping UNet, requesting enc1+head\n- feature_extractor_unet_enc1_shape: enc1 -> [1,64,32,32]\n- feature_extractor_unet_bottleneck_shape: bottleneck -> [1,1024,2,2]\n- feature_extractor_unet_all_nodes_present: all feature_node_names() keys appear in forward_features()\n- feature_extractor_yolo_stage5_shape: stage5 -> [1,512,13,13] for 416x416 input\n- feature_extractor_yolo_output_matches_module_forward: head intermediate == Module::forward\n- feature_extractor_rejects_invalid_unet_node: construction fails for 'bogus_encoder'\n- feature_extractor_rejects_invalid_yolo_node: construction fails for 'layer3'\nBase models: UNet + YOLO (both implement IntermediateFeatures, no dependency on B.5.a ResNet fix).\nExtended regenerate_vision_fixtures.py with feature_extractor_unet_node_shapes, _yolo_stage5_shape, _head_matches_module_forward fixtures.\n45/45 conformance tests pass, clippy -D warnings clean.",
+  "created_at": "2026-05-07T19:57:56.153465499Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAJXOcqqzccGr6kFpbD6dZ1Z8GQXauqbVwF7XvVJ2+qra7sQUy6mgkxfqul53jfHELJjU2V4CUi9x9y54KEitpCg=="
+}
