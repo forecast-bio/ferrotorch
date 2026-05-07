@@ -1,0 +1,10 @@
+{
+  "uuid": "92acccf5-5248-412b-bfcc-ea7b3c4cd8c9",
+  "display_id": 967,
+  "title": "Add DeepLabV3 and FCN segmentation models with ResNet-50 backbone",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T21:50:20.752093418Z",
+  "updated_at": "2026-05-07T21:50:20.752093418Z"
+}
