@@ -1,0 +1,10 @@
+{
+  "uuid": "5a63308e-cb9f-48e0-978f-db0c43ff4a40",
+  "issue_uuid": "618b9cbf-303a-4579-9c25-8a9916ae0f59",
+  "author": "y4rr",
+  "content": "Implementation lands per torch.xpu contract; live conformance verification awaits Intel GPU hardware in CI. Cascade-skip remains in test for environment-detection.",
+  "created_at": "2026-05-07T17:50:23.362751789Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQ+DbjPnIiBc2YhDFgBvAljpscAZoskMd2BdQNaB1P1mS9y1XHibtyCbmGkWVw97i87AsC0UzV1FyjVmSWzNSCg=="
+}
