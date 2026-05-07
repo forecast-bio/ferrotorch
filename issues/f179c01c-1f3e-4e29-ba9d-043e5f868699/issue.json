@@ -1,0 +1,10 @@
+{
+  "uuid": "f179c01c-1f3e-4e29-ba9d-043e5f868699",
+  "display_id": 896,
+  "title": "cusolver.rs gpu_svd_*, gpu_cholesky_*, gpu_solve_* download every output buffer to host Vec — synchronous full readback; GPU-resident outputs never returned",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T16:51:59.163951675Z",
+  "updated_at": "2026-05-07T16:51:59.163951675Z"
+}
