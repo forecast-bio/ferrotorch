@@ -2,11 +2,12 @@
   "uuid": "46a44131-2b39-44e2-9af8-942bf2af1250",
   "display_id": 936,
   "title": "Add InceptionV3 full forward parity conformance test",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T19:50:35.896818646Z",
-  "updated_at": "2026-05-07T19:50:39.908403609Z",
+  "updated_at": "2026-05-07T22:46:25.061746625Z",
+  "closed_at": "2026-05-07T22:46:25.061746625Z",
   "labels": [
     "feature"
   ]
