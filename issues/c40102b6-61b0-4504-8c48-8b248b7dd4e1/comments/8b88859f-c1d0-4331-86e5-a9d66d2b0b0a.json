@@ -1,0 +1,10 @@
+{
+  "uuid": "8b88859f-c1d0-4331-86e5-a9d66d2b0b0a",
+  "issue_uuid": "c40102b6-61b0-4504-8c48-8b248b7dd4e1",
+  "author": "y4rr",
+  "content": "patch_reshape_for_symbolic_dims changed from pub(crate) to pub and re-exported from lib.rs; symbolic-shape consumers can now call it directly without going through compile_symbolic.",
+  "created_at": "2026-05-07T18:23:05.526609575Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAbFVR3/dq7se3P+fi8YhpmNA0+WId3I3BW/0/jO8ug7P3cnFb1HQ+6+bha8x95R6W4Ie2rgh9QRy5vuSs3Nd/Cg=="
+}
