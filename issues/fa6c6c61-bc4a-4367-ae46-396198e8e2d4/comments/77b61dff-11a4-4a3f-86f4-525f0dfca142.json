@@ -1,0 +1,10 @@
+{
+  "uuid": "77b61dff-11a4-4a3f-86f4-525f0dfca142",
+  "issue_uuid": "fa6c6c61-bc4a-4367-ae46-396198e8e2d4",
+  "author": "y4rr",
+  "content": "Conformance tests added in ferrotorch-jit/tests/conformance_jit_error_variants.rs (Sprint A.4). Both variants were already defined in error.rs but had no test coverage. Added 4 tests for DataDependentControlFlow (Display, From<JitError>, field access, 'static control flow' wording) and 4 tests for RecompilationError (Display, From<JitError>, field access, empty shape). _surface_exclusions.toml updated: reason changed from 'deferred' to 'implicit' with notes pointing at the new test file. Variants will be wired to auto-raise during C7.5 full-graph tracing; Display/From/field API is confirmed stable.",
+  "created_at": "2026-05-07T17:49:29.314863401Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPcLtHtETb/OY3rw+P85Fi458R4+n6XCnUMn3EoJ8ECYtdrVyyPHY1baAN1RJH8gFGepve9YhB468UR4d2nj1Aw=="
+}
