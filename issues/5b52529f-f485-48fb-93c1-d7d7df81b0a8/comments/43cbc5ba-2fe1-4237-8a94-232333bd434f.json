@@ -1,0 +1,10 @@
+{
+  "uuid": "43cbc5ba-2fe1-4237-8a94-232333bd434f",
+  "issue_uuid": "5b52529f-f485-48fb-93c1-d7d7df81b0a8",
+  "author": "y4rr",
+  "content": "Decision: Use ferrotorch-llama's existing tiny_config pattern (from model.rs unit tests) as the basis for the synthetic reference model. The config used: vocab=64, hidden=32, intermediate=64, layers=2, heads=4, kv_heads=2 (GQA group=2), rope_theta=10000, rms_eps=1e-5. This is tiny enough to run in Python in <1s, large enough to exercise GQA (num_heads != num_kv_heads). Seed=42 for reproducibility. All weights generated with torch.manual_seed(42) + torch.randn(...) rescaled to prevent overflow in attention.",
+  "created_at": "2026-05-07T14:00:27.502877775Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAInIILuKO+Yr3mAcv+RwFUwtRpQvWj1CabHfVPd7k7f0RSac3fjYoilBZPmK94z36jx7Vw8Y8+Jp8WJGVnH4sBg=="
+}
