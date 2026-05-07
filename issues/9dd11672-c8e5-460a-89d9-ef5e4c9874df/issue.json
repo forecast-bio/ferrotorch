@@ -2,11 +2,12 @@
   "uuid": "9dd11672-c8e5-460a-89d9-ef5e4c9874df",
   "display_id": 833,
   "title": "ferrotorch-xpu: live XPU device residency contract (make_xpu_tensor + data() error + cpu() readback) not conformance-tested — no Intel GPU on test box",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T13:34:54.361326757Z",
-  "updated_at": "2026-05-07T13:34:55.921037412Z",
+  "updated_at": "2026-05-07T17:50:18.676072230Z",
+  "closed_at": "2026-05-07T17:50:18.676072230Z",
   "labels": [
     "rust,bug,conformance,xpu"
   ]
