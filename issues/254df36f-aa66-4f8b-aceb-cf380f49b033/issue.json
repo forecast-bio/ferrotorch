@@ -1,0 +1,10 @@
+{
+  "uuid": "254df36f-aa66-4f8b-aceb-cf380f49b033",
+  "display_id": 901,
+  "title": "Add C9.2 conformance suite for ferrotorch-nn norm, activation, loss, init, and functional modules",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T16:59:22.102352660Z",
+  "updated_at": "2026-05-07T16:59:22.102352660Z"
+}
