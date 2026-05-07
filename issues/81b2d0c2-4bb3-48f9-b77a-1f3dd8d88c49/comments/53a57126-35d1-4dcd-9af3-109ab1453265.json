@@ -1,0 +1,10 @@
+{
+  "uuid": "53a57126-35d1-4dcd-9af3-109ab1453265",
+  "issue_uuid": "81b2d0c2-4bb3-48f9-b77a-1f3dd8d88c49",
+  "author": "y4rr",
+  "content": "Cascade skip ENCODER_DECODER_FIXTURE_KEY_MISMATCH is still true. Verified: fixture encoder_layer_forward entries have keys attn_q_proj/attn_k_proj/attn_v_proj/attn_out_proj/ffn_w1/ffn_b1/ffn_w2/ffn_b2, but the test extracts weight_q_proj/weight_k_proj/weight_v_proj/weight_out_proj. Real key mismatch confirmed. Fixture regeneration required (scripts/regenerate_nn_attention_fixtures.py or equivalent). Filed crosslink follow-up for fixture regen work. Leaving open as active divergence.",
+  "created_at": "2026-05-07T22:57:39.114622478Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAe1cxnJisP7ztA2xAUdslvQ/G06TFFVgF7D9xWXU23e5eRqMMr8nC5CIPOF3NTLSSguK0veQnObFS+WdmP8XzCg=="
+}
