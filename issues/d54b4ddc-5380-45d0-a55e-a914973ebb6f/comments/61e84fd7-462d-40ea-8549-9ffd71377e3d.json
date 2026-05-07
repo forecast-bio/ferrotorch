@@ -1,0 +1,10 @@
+{
+  "uuid": "61e84fd7-462d-40ea-8549-9ffd71377e3d",
+  "issue_uuid": "d54b4ddc-5380-45d0-a55e-a914973ebb6f",
+  "author": "y4rr",
+  "content": "Deferred — no Apple hardware on test box. Sprint C.7 landed MtlBackend scaffold + 10 highest-priority MSL kernels (commit eaa20c0f). Implementation per torch.mps spec is well-documented; live verification + remaining ~70 GpuBackend method MSL bodies awaits Apple Silicon hardware in CI. Tracking preserved here; close to keep the active queue focused.",
+  "created_at": "2026-05-07T22:32:13.846022747Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAXYiufQwVCEWrkm05YRo5gJtOwR5sxI0M2qJZjYlNTTXa615Pjcue2pJXvmceD67MzqsrqIGiYem8GPZzzE6MBg=="
+}
