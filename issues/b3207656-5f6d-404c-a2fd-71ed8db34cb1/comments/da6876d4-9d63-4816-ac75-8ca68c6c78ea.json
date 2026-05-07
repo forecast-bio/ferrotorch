@@ -1,0 +1,10 @@
+{
+  "uuid": "da6876d4-9d63-4816-ac75-8ca68c6c78ea",
+  "issue_uuid": "b3207656-5f6d-404c-a2fd-71ed8db34cb1",
+  "author": "y4rr",
+  "content": "Plan: Sprint V.4 — InceptionV3 (#936) forward parity conformance + #929 umbrella close.\n\nApproach:\n1. PROBE BEFORE: Run existing inception unit tests to establish baseline. Note: no conformance tests exist yet for inception in conformance_vision_models.rs.\n2. Create scripts/regenerate_vision_v_fixtures.py — generates ferrotorch-vision/tests/conformance/fixtures_v_parity.json with InceptionV3 fixture data (299x299 input, random init, shape+finiteness contracts). Since ferrotorch InceptionV3 is a simplified architecture vs torchvision (simplified 3-module vs full 11-module InceptionV3), we pin our own param count range and output shape. The 299x299 input is the PyTorch standard; ferrotorch handles it correctly via AdaptiveAvgPool2d(1,1).\n3. Extend conformance_vision_models.rs inception entry with: output_shape (299x299->1,1000), finite, param count, custom classes, deterministic.\n4. Verify #930-#934 are confirmed passing (tests exist in conformance_vision_models.rs, run in BEFORE step). If all 5 pass, close #930-#934 then close #929 umbrella.\n5. Workspace build + clippy clean.\n6. Close #936, then #929.\n\nKey constraint: InceptionV3 ferrotorch is structurally simplified (3 InceptionA-style modules) vs torchvision (full 11-module Szegedy architecture with Inception A/B/C/D reduction modules). Param counts differ significantly. Parity = correct output shape [1,1000] for 299x299 input, finite values, architectural self-consistency.",
+  "created_at": "2026-05-07T22:39:04.136192514Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAx9r6cI0CAqW0vKNYW3yRhZkKqQSU9LQVysmFD0t2ABbWv5JVY8MnGulursEjf7TBk5V/6smKjzQhAlfhCIESAQ=="
+}
