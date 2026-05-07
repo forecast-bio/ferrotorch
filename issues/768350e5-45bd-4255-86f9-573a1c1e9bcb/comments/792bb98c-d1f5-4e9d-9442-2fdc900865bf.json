@@ -1,0 +1,10 @@
+{
+  "uuid": "792bb98c-d1f5-4e9d-9442-2fdc900865bf",
+  "issue_uuid": "768350e5-45bd-4255-86f9-573a1c1e9bcb",
+  "author": "y4rr",
+  "content": "Follow-up from Sprint C.7 (#626). GpuBackend methods: save_rng_state, restore_rng_state, stream_count, synchronize. Required for gradient checkpointing with dropout (Philox CBRNG state must be saved/restored to reproduce identical dropout masks). synchronize() maps to MTLCommandBuffer::waitUntilCompleted(). stream_count returns 1 on MPS (single command queue).",
+  "created_at": "2026-05-07T21:09:59.471509233Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAWuZPyeDd/skrlcEvpW3JmVGSANcNWIRiYckPcT2cSANV5j9PoTx4QOytb3FixgOLjFxfinTCUGIMH8eemRMGAg=="
+}
