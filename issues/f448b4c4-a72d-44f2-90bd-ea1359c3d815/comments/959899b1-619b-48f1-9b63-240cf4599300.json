@@ -1,0 +1,10 @@
+{
+  "uuid": "959899b1-619b-48f1-9b63-240cf4599300",
+  "issue_uuid": "f448b4c4-a72d-44f2-90bd-ea1359c3d815",
+  "author": "y4rr",
+  "content": "Result: Delivered Sprint V.2 MobileNetV2/V3 forward parity (#932). Added 10 fixture-backed conformance tests (5 per model: output_shape, param_count, output_finite, custom_classes, determinism) to conformance_vision_models.rs. Extended scripts/regenerate_vision_v_fixtures.py with V.2 sections. Updated fixtures_v_parity.json (15 new V.2 entries, 40 total). All 115 conformance_vision_models tests pass. Workspace build and clippy --workspace --all-targets clean. No source changes to mobilenet.rs needed.",
+  "created_at": "2026-05-07T22:50:38.653940880Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAhuNMnxiDrrqtiVoCD+zAPfpXjLy0taRcN4mtrn3CXaqHnv9KbzeI9/z6vMr02s0/q5ixDw3dFS+U5/5nWzDmBw=="
+}
