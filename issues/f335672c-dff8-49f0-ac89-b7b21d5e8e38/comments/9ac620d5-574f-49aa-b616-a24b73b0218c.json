@@ -1,0 +1,10 @@
+{
+  "uuid": "9ac620d5-574f-49aa-b616-a24b73b0218c",
+  "issue_uuid": "f335672c-dff8-49f0-ac89-b7b21d5e8e38",
+  "author": "y4rr",
+  "content": "Implement Sprint C.3: bf16 x f32-accumulator mixed-precision kernels (#518 partial). Three kernels: (1) matmul_bf16_f32 via cublasGemmEx CUDA_R_16BF/CUBLAS_COMPUTE_32F — blas.rs already has gpu_matmul_bf16, just needs trait wiring; (2) bmm_bf16_f32 via new gpu_bmm_bf16 in blas.rs using cublasGemmStridedBatchedEx with same dtypes; (3) softmax_bf16_f32 via new PTX kernel SOFTMAX_BF16_F32_PTX in kernels.rs — bf16 input (u16 bit patterns) loaded via ld.global.u16 + cvt.f32.bf16, all accumulation in f32, f32 output. Trait methods added to gpu_dispatch.rs, wired in backend_impl.rs. Probe: _probe_c3_bf16_mixed_prec.rs. Fix needed: cpu_to_gpu needs elem_size=2 arm for CudaSlice<u16> upload (bf16 softmax probe path), and matmul tolerance needs widening to 5e-3 for bf16 precision.",
+  "created_at": "2026-05-07T21:28:08.397776932Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAgbHM9Miz4V629Z39V+RleaRhLkJAVPtYbfI4Vz4BVuyyWNTAo7S2MdniGzwyU3/M0BEEnLZg5GL8lqIplFhLCw=="
+}
