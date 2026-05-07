@@ -1,0 +1,175 @@
+{
+  "metadata": {
+    "torch_version": "2.11.0+cu130",
+    "python_executable": "/usr/sbin/python3",
+    "python_platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "generated_at": "2026-05-07T13:30:20.758342Z",
+    "description": "Reference fixtures for ferrotorch-jit-script conformance suite. torch.jit.script is a code-transformation annotation with no numeric output \u2014 parity is structural (module is callable, forward returns correct values). Fixtures encode (input_values, expected_output) pairs derived from equivalent PyTorch arithmetic expressions."
+  },
+  "fixtures": [
+    {
+      "case": "two_arg_weighted_sum_f32",
+      "op": "script",
+      "description": "Weighted element-wise sum: sum(a * w). Tests that #[script] produces a TracedModule whose forward_multi returns the correct scalar.",
+      "input_a": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "input_w": [
+        4.0,
+        5.0,
+        6.0
+      ],
+      "shape_a": [
+        3
+      ],
+      "shape_w": [
+        3
+      ],
+      "dtype": "float32",
+      "expected_output": [
+        32.0
+      ],
+      "expected_shape": [
+        1
+      ],
+      "torch_reference": "a = torch.tensor([1.0,2.0,3.0]); w = torch.tensor([4.0,5.0,6.0]); (a*w).sum().item() == 32.0"
+    },
+    {
+      "case": "three_arg_add_f32",
+      "op": "script",
+      "description": "Three-argument addition: a + b + c element-wise. Tests that #[script] handles multi-arg functions correctly.",
+      "input_a": [
+        1.0,
+        2.0
+      ],
+      "input_b": [
+        3.0,
+        4.0
+      ],
+      "input_c": [
+        5.0,
+        6.0
+      ],
+      "shape_a": [
+        2
+      ],
+      "shape_b": [
+        2
+      ],
+      "shape_c": [
+        2
+      ],
+      "dtype": "float32",
+      "expected_output": [
+        9.0,
+        12.0
+      ],
+      "expected_shape": [
+        2
+      ],
+      "torch_reference": "a=torch.tensor([1.,2.]); b=torch.tensor([3.,4.]); c=torch.tensor([5.,6.]); (a+b+c).tolist() == [9.0, 12.0]"
+    },
+    {
+      "case": "module_save_load_roundtrip_f32",
+      "op": "script",
+      "description": "TracedModule serialization round-trip: to_bytes then from_bytes should produce a module that re-executes correctly.",
+      "input_a": [
+        2.0,
+        3.0
+      ],
+      "input_w": [
+        4.0,
+        5.0
+      ],
+      "shape_a": [
+        2
+      ],
+      "shape_w": [
+        2
+      ],
+      "dtype": "float32",
+      "expected_output": [
+        23.0
+      ],
+      "expected_shape": [
+        1
+      ],
+      "torch_reference": "a=torch.tensor([2.,3.]); w=torch.tensor([4.,5.]); (a*w).sum().item() == 23.0"
+    },
+    {
+      "case": "scalar_type_preservation_f64",
+      "op": "script",
+      "description": "The macro must preserve the scalar type T: a function returning Tensor<f64> must produce TracedModule<f64>, not TracedModule<f32>. This is the regression guard for the silent-f32-fallback bug.",
+      "input_a": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "input_w": [
+        4.0,
+        5.0,
+        6.0
+      ],
+      "shape_a": [
+        3
+      ],
+      "shape_w": [
+        3
+      ],
+      "dtype": "float64",
+      "expected_output": [
+        32.0
+      ],
+      "expected_shape": [
+        1
+      ],
+      "torch_reference": "a=torch.tensor([1.,2.,3.], dtype=torch.float64); w=torch.tensor([4.,5.,6.], dtype=torch.float64); (a*w).sum().item() == 32.0"
+    },
+    {
+      "case": "module_reuse_f32",
+      "op": "script",
+      "description": "A TracedModule can be re-executed multiple times with different inputs, returning different outputs each time.",
+      "input_a_first": [
+        1.0,
+        1.0
+      ],
+      "input_w_first": [
+        2.0,
+        2.0
+      ],
+      "input_a_second": [
+        3.0,
+        4.0
+      ],
+      "input_w_second": [
+        1.0,
+        2.0
+      ],
+      "shape": [
+        2
+      ],
+      "dtype": "float32",
+      "expected_output_first": [
+        4.0
+      ],
+      "expected_output_second": [
+        11.0
+      ],
+      "torch_reference": "sum([1*2,1*2])==4.0; sum([3*1,4*2])==11.0"
+    },
+    {
+      "case": "unrecognized_return_type_emits_compile_error",
+      "op": "script_error",
+      "description": "spec-only: the macro must emit compile_error! when the return type is not Tensor<T>, FerrotorchResult<Tensor<T>>, or Result<Tensor<T>,_>. Verified via compile_fail tests only \u2014 no runtime fixture.",
+      "cascade_skip": "spec-only marker, no PyTorch reference"
+    },
+    {
+      "case": "missing_return_type_emits_compile_error",
+      "op": "script_error",
+      "description": "spec-only: the macro must emit compile_error! when the annotated function has no return type. Verified via compile_fail tests only \u2014 no runtime fixture.",
+      "cascade_skip": "spec-only marker, no PyTorch reference"
+    }
+  ]
+}

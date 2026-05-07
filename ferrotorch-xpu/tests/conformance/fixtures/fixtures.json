@@ -1,0 +1,977 @@
+{
+  "metadata": {
+    "torch_version": "2.11.0+cu130",
+    "xpu_available": false,
+    "xpu_device_count": 0,
+    "python_executable": "/usr/sbin/python3",
+    "python_platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "generated_at": "2026-05-07T13:33:21.242309+00:00",
+    "rng_seed": 42,
+    "note": "Fixtures generated on a WSL2 box with no Intel XPU. Live-XPU fixtures are tagged cascade_skip_live_xpu=True with reason 'no Intel XPU on test box'. They serve as reference values for a future environment where torch.xpu.is_available() == True."
+  },
+  "fixtures": [
+    {
+      "op": "xpu_is_available",
+      "result": false,
+      "note": "torch.xpu.is_available() on this machine"
+    },
+    {
+      "op": "xpu_device_count",
+      "result": 0,
+      "note": "torch.xpu.device_count() on this machine"
+    },
+    {
+      "op": "has_xpu_module",
+      "result": true,
+      "note": "hasattr(torch, 'xpu') \u2014 module presence probe"
+    },
+    {
+      "op": "xpu_device_metadata",
+      "ordinal": 0,
+      "device_str": "xpu:0",
+      "is_available_when_wgpu_disabled": false,
+      "note": "XpuDevice::new(0) errors with DeviceUnavailable when wgpu feature is absent; is_available() returns false; device() returns Device::Xpu(0) rendered as 'xpu:0' via Display."
+    },
+    {
+      "op": "xpu_add",
+      "a": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b": [
+        10.0,
+        20.0,
+        30.0,
+        40.0
+      ],
+      "expected": [
+        11.0,
+        22.0,
+        33.0,
+        44.0
+      ],
+      "shape": [
+        4
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_add",
+      "a": [
+        -1.5,
+        0.0,
+        2.5
+      ],
+      "b": [
+        3.0,
+        1.0,
+        -0.5
+      ],
+      "expected": [
+        1.5,
+        1.0,
+        2.0
+      ],
+      "shape": [
+        3
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_sub",
+      "a": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b": [
+        10.0,
+        20.0,
+        30.0,
+        40.0
+      ],
+      "expected": [
+        -9.0,
+        -18.0,
+        -27.0,
+        -36.0
+      ],
+      "shape": [
+        4
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_sub",
+      "a": [
+        -1.5,
+        0.0,
+        2.5
+      ],
+      "b": [
+        3.0,
+        1.0,
+        -0.5
+      ],
+      "expected": [
+        -4.5,
+        -1.0,
+        3.0
+      ],
+      "shape": [
+        3
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_mul",
+      "a": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b": [
+        10.0,
+        20.0,
+        30.0,
+        40.0
+      ],
+      "expected": [
+        10.0,
+        40.0,
+        90.0,
+        160.0
+      ],
+      "shape": [
+        4
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_mul",
+      "a": [
+        -1.5,
+        0.0,
+        2.5
+      ],
+      "b": [
+        3.0,
+        1.0,
+        -0.5
+      ],
+      "expected": [
+        -4.5,
+        0.0,
+        -1.25
+      ],
+      "shape": [
+        3
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_div",
+      "a": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "b": [
+        10.0,
+        20.0,
+        30.0,
+        40.0
+      ],
+      "expected": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.10000000149011612,
+        0.10000000149011612
+      ],
+      "shape": [
+        4
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_div",
+      "a": [
+        -1.5,
+        0.0,
+        2.5
+      ],
+      "b": [
+        3.0,
+        1.0,
+        -0.5
+      ],
+      "expected": [
+        -0.5,
+        0.0,
+        -5.0
+      ],
+      "shape": [
+        3
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_matmul",
+      "a": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "b": [
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0
+      ],
+      "a_shape": [
+        2,
+        3
+      ],
+      "b_shape": [
+        3,
+        2
+      ],
+      "expected": [
+        58.0,
+        64.0,
+        139.0,
+        154.0
+      ],
+      "expected_shape": [
+        2,
+        2
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_neg",
+      "x": [
+        1.0,
+        -2.0,
+        0.0,
+        3.5
+      ],
+      "expected": [
+        -1.0,
+        2.0,
+        -0.0,
+        -3.5
+      ],
+      "shape": [
+        4
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_abs",
+      "x": [
+        -3.0,
+        1.0,
+        0.0,
+        -0.5
+      ],
+      "expected": [
+        3.0,
+        1.0,
+        0.0,
+        0.5
+      ],
+      "shape": [
+        4
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_relu",
+      "x": [
+        -3.0,
+        -1.0,
+        0.0,
+        1.0,
+        3.0
+      ],
+      "expected": [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        3.0
+      ],
+      "shape": [
+        5
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_exp",
+      "x": [
+        0.0,
+        1.0,
+        2.0,
+        -1.0
+      ],
+      "expected": [
+        1.0,
+        2.7182817459106445,
+        7.389056205749512,
+        0.3678794503211975
+      ],
+      "shape": [
+        4
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_ln",
+      "x": [
+        1.0,
+        2.718281828459045,
+        10.0,
+        0.5
+      ],
+      "expected": [
+        0.0,
+        1.0,
+        2.3025851249694824,
+        -0.6931471824645996
+      ],
+      "shape": [
+        4
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_sqrt",
+      "x": [
+        0.0,
+        1.0,
+        4.0,
+        9.0
+      ],
+      "expected": [
+        0.0,
+        1.0,
+        2.0,
+        3.0
+      ],
+      "shape": [
+        4
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_sin",
+      "x": [
+        0.0,
+        0.5235987755982988,
+        1.5707963267948966,
+        3.141592653589793
+      ],
+      "expected": [
+        0.0,
+        0.5,
+        1.0,
+        -8.742277657347586e-08
+      ],
+      "shape": [
+        4
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_cos",
+      "x": [
+        0.0,
+        1.0471975511965976,
+        1.5707963267948966,
+        3.141592653589793
+      ],
+      "expected": [
+        1.0,
+        0.4999999701976776,
+        -4.371138828673793e-08,
+        -1.0
+      ],
+      "shape": [
+        4
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_tanh",
+      "x": [
+        -2.0,
+        -1.0,
+        0.0,
+        1.0,
+        2.0
+      ],
+      "expected": [
+        -0.9640275835990906,
+        -0.7615941762924194,
+        0.0,
+        0.7615941762924194,
+        0.9640275835990906
+      ],
+      "shape": [
+        5
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_sigmoid",
+      "x": [
+        -4.0,
+        -1.0,
+        0.0,
+        1.0,
+        4.0
+      ],
+      "expected": [
+        0.01798621006309986,
+        0.2689414322376251,
+        0.5,
+        0.7310585975646973,
+        0.9820137619972229
+      ],
+      "shape": [
+        5
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_t",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 1,
+      "expected": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_u",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 1,
+      "expected": [
+        -2.0,
+        -1.0,
+        0.0,
+        1.0,
+        2.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_v",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 1,
+      "expected": [
+        -3.0,
+        -2.0,
+        -1.0,
+        0.0,
+        1.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_w",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 1,
+      "expected": [
+        -1.0,
+        0.0,
+        1.0,
+        2.0,
+        3.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_hermite_polynomial_h",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 1,
+      "expected": [
+        -2.0,
+        -1.0,
+        0.0,
+        1.0,
+        2.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_hermite_polynomial_he",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 1,
+      "expected": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_laguerre_polynomial_l",
+      "x": [
+        0.0,
+        0.5,
+        1.0,
+        2.0,
+        4.0
+      ],
+      "n": 1,
+      "expected": [
+        1.0,
+        0.5,
+        0.0,
+        -1.0,
+        -3.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_legendre_polynomial_p",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 1,
+      "expected": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_t",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 2,
+      "expected": [
+        1.0,
+        -0.5,
+        -1.0,
+        -0.5,
+        1.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_u",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 2,
+      "expected": [
+        3.0,
+        0.0,
+        -1.0,
+        0.0,
+        3.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_v",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 2,
+      "expected": [
+        5.0,
+        1.0,
+        -1.0,
+        -1.0,
+        1.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_w",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 2,
+      "expected": [
+        1.0,
+        -1.0,
+        -1.0,
+        1.0,
+        5.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_hermite_polynomial_h",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 2,
+      "expected": [
+        2.0,
+        -1.0,
+        -2.0,
+        -1.0,
+        2.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_hermite_polynomial_he",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 2,
+      "expected": [
+        0.0,
+        -0.75,
+        -1.0,
+        -0.75,
+        0.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_laguerre_polynomial_l",
+      "x": [
+        0.0,
+        0.5,
+        1.0,
+        2.0,
+        4.0
+      ],
+      "n": 2,
+      "expected": [
+        1.0,
+        0.125,
+        -0.5,
+        -1.0,
+        1.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_legendre_polynomial_p",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 2,
+      "expected": [
+        1.0,
+        -0.125,
+        -0.5,
+        -0.125,
+        1.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_t",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 3,
+      "expected": [
+        -1.0,
+        1.0,
+        -0.0,
+        -1.0,
+        1.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_u",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 3,
+      "expected": [
+        -4.0,
+        1.0,
+        -0.0,
+        -1.0,
+        4.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_v",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 3,
+      "expected": [
+        -7.0,
+        1.0,
+        1.0,
+        -1.0,
+        1.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_chebyshev_polynomial_w",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 3,
+      "expected": [
+        -1.0,
+        1.0,
+        -1.0,
+        -1.0,
+        7.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_hermite_polynomial_h",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 3,
+      "expected": [
+        4.0,
+        5.0,
+        -0.0,
+        -5.0,
+        -4.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_hermite_polynomial_he",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 3,
+      "expected": [
+        2.0,
+        1.375,
+        -0.0,
+        -1.375,
+        -2.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_laguerre_polynomial_l",
+      "x": [
+        0.0,
+        0.5,
+        1.0,
+        2.0,
+        4.0
+      ],
+      "n": 3,
+      "expected": [
+        1.0,
+        -0.1458333283662796,
+        -0.6666666865348816,
+        -0.3333333432674408,
+        2.3333332538604736
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_legendre_polynomial_p",
+      "x": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "n": 3,
+      "expected": [
+        -1.0,
+        0.4375,
+        -0.0,
+        -0.4375,
+        1.0
+      ],
+      "cascade_skip_live_xpu": true,
+      "cascade_skip_reason": "no Intel XPU on test box"
+    },
+    {
+      "op": "xpu_add_rejects_cpu_input",
+      "note": "xpu_add(cpu_tensor, cpu_tensor, xpu) must return Err(DeviceMismatch) when both inputs are on CPU. When wgpu is disabled, the op returns Err(DeviceUnavailable) before it even checks device placement.",
+      "expected_error_variants": [
+        "DeviceMismatch",
+        "DeviceUnavailable"
+      ]
+    },
+    {
+      "op": "xpu_matmul_rejects_1d_input",
+      "note": "xpu_matmul([3], [3]) must return Err(ShapeMismatch). 1-D \u00d7 1-D is not a valid 2-D matrix multiply in ferrotorch-xpu. Mirrors the existing unit test xpu_matmul_rejects_non_2d_inputs.",
+      "expected_error_variant": "ShapeMismatch"
+    },
+    {
+      "op": "xpu_no_backend_stub",
+      "wgpu_feature_enabled": false,
+      "xpu_device_new_result": "Err(DeviceUnavailable)",
+      "is_available_result": false,
+      "note": "Without the wgpu feature, XpuDevice::new returns DeviceUnavailable and is_available() returns false. Matches torch.xpu.is_available() on a box with no Intel XPU."
+    }
+  ]
+}

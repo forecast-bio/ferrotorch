@@ -1,0 +1,166 @@
+# Surface inventory for ferrotorch-xpu — Layer 1 of the conformance suite.
+#
+# Tracking issue: #827 (XPU conformance suite).
+#
+# Every public item exported from `ferrotorch-xpu/src/lib.rs`. This file is
+# the denominator for the Layer-4 strict coverage gate
+# (`conformance_surface_coverage.rs`). Items must be either:
+#
+#   (a) referenced by name in `tests/conformance_xpu.rs` (or any other
+#       `tests/conformance_*.rs` file), OR
+#   (b) listed with a reason + tracking_issue in `_surface_exclusions.toml`.
+#
+# Any item added to the public API without one of those two states will cause
+# the coverage gate test to fail.
+#
+# 31 items total (Layer-1 count).
+
+[[item]]
+path = "ferrotorch_xpu::XpuDevice"
+kind = "struct"
+signature = "pub struct XpuDevice"
+
+[[item]]
+path = "ferrotorch_xpu::XpuDevice::new"
+kind = "method"
+signature = "pub fn new(ordinal: usize) -> FerrotorchResult<Self>"
+
+[[item]]
+path = "ferrotorch_xpu::XpuDevice::ordinal"
+kind = "method"
+signature = "pub fn ordinal(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_xpu::XpuDevice::device"
+kind = "method"
+signature = "pub fn device(&self) -> Device"
+
+[[item]]
+path = "ferrotorch_xpu::XpuDevice::is_available"
+kind = "method"
+signature = "pub fn is_available() -> bool"
+
+[[item]]
+path = "ferrotorch_xpu::XpuDevice::runtime"
+kind = "method"
+signature = "pub fn runtime(&self) -> &Arc<CubeRuntime>  [cfg(feature = \"wgpu\")]"
+
+[[item]]
+path = "ferrotorch_xpu::make_xpu_tensor"
+kind = "fn"
+signature = "pub fn make_xpu_tensor(data: Vec<f32>, shape: &[usize], xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_add"
+kind = "fn"
+signature = "pub fn xpu_add(a: &Tensor<f32>, b: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_sub"
+kind = "fn"
+signature = "pub fn xpu_sub(a: &Tensor<f32>, b: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_mul"
+kind = "fn"
+signature = "pub fn xpu_mul(a: &Tensor<f32>, b: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_div"
+kind = "fn"
+signature = "pub fn xpu_div(a: &Tensor<f32>, b: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_matmul"
+kind = "fn"
+signature = "pub fn xpu_matmul(a: &Tensor<f32>, b: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_neg"
+kind = "fn"
+signature = "pub fn xpu_neg(x: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_abs"
+kind = "fn"
+signature = "pub fn xpu_abs(x: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_relu"
+kind = "fn"
+signature = "pub fn xpu_relu(x: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_exp"
+kind = "fn"
+signature = "pub fn xpu_exp(x: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_ln"
+kind = "fn"
+signature = "pub fn xpu_ln(x: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_sqrt"
+kind = "fn"
+signature = "pub fn xpu_sqrt(x: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_sin"
+kind = "fn"
+signature = "pub fn xpu_sin(x: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_cos"
+kind = "fn"
+signature = "pub fn xpu_cos(x: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_tanh"
+kind = "fn"
+signature = "pub fn xpu_tanh(x: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_sigmoid"
+kind = "fn"
+signature = "pub fn xpu_sigmoid(x: &Tensor<f32>, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_chebyshev_polynomial_t"
+kind = "fn"
+signature = "pub fn xpu_chebyshev_polynomial_t(x: &Tensor<f32>, n: usize, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_chebyshev_polynomial_u"
+kind = "fn"
+signature = "pub fn xpu_chebyshev_polynomial_u(x: &Tensor<f32>, n: usize, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_chebyshev_polynomial_v"
+kind = "fn"
+signature = "pub fn xpu_chebyshev_polynomial_v(x: &Tensor<f32>, n: usize, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_chebyshev_polynomial_w"
+kind = "fn"
+signature = "pub fn xpu_chebyshev_polynomial_w(x: &Tensor<f32>, n: usize, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_hermite_polynomial_h"
+kind = "fn"
+signature = "pub fn xpu_hermite_polynomial_h(x: &Tensor<f32>, n: usize, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_hermite_polynomial_he"
+kind = "fn"
+signature = "pub fn xpu_hermite_polynomial_he(x: &Tensor<f32>, n: usize, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_laguerre_polynomial_l"
+kind = "fn"
+signature = "pub fn xpu_laguerre_polynomial_l(x: &Tensor<f32>, n: usize, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"
+
+[[item]]
+path = "ferrotorch_xpu::xpu_legendre_polynomial_p"
+kind = "fn"
+signature = "pub fn xpu_legendre_polynomial_p(x: &Tensor<f32>, n: usize, xpu: &XpuDevice) -> FerrotorchResult<Tensor<f32>>"

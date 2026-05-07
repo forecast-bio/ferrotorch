@@ -1,0 +1,17 @@
+# Strict coverage-gate exclusions for the ferrotorch-xpu conformance suite.
+#
+# Tracking issue: #827 (XPU conformance suite).
+#
+# Format: `[[exclusion]]` table-array entries with three required fields:
+#   path           — fully qualified item path as written in `_surface_inventory.toml`
+#   reason         — one or more sentences (not a placeholder)
+#   tracking_issue — `#NNN` (crosslink convention) or full GitHub URL
+#
+# Every item listed here is either:
+#   (a) cfg-gated in a way that makes it untestable in the default build, OR
+#   (b) implicitly covered by another test that names the parent type.
+
+[[exclusion]]
+path = "ferrotorch_xpu::XpuDevice::runtime"
+reason = "Gated on cfg(feature = 'wgpu'); absent from the default (no-wgpu) CI build. Testable only when the wgpu feature is enabled AND a wgpu adapter is present. Deferred to the live-XPU follow-up dispatch."
+tracking_issue = "#834"

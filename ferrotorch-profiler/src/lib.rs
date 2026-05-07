@@ -37,7 +37,7 @@ pub mod schedule;
 // queue-internal end-of-region marker) is `pub(crate)` and not re-exported.
 #[cfg(feature = "cuda")]
 pub use cuda_timing::CudaKernelScope;
-pub use event::{MemoryCategory, ProfileEvent};
+pub use event::{DeviceType, GpuTimingPair, MemoryCategory, ProfileEvent};
 pub use profiler::{ProfileConfig, Profiler, with_profiler};
 pub use report::{OpSummary, ProfileReport};
 pub use schedule::{ProfileSchedule, SchedulePhase};

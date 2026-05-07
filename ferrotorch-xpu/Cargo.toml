@@ -21,3 +21,14 @@ wgpu = ["ferrotorch-cubecl/wgpu"]
 [dependencies]
 ferrotorch-core = { workspace = true }
 ferrotorch-cubecl = { workspace = true }
+
+# Conformance suite scaffolding (XPU conformance — issue #827):
+#   * `toml` parses `_surface_inventory.toml` and `_surface_exclusions.toml`
+#     for the Layer-4 strict coverage gate.
+#   * `serde`/`serde_json` deserialise the Python-generated fixtures in
+#     `tests/conformance/fixtures/fixtures.json`.
+# All three are already transitive workspace deps; no new crates pulled.
+[dev-dependencies]
+toml = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }

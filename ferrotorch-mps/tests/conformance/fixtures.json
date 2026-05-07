@@ -1,0 +1,68 @@
+{
+  "metadata": {
+    "torch_version": "2.11.0+cu130",
+    "mps_available": false,
+    "python_executable": "/usr/sbin/python3",
+    "python_platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "generated_at": "2026-05-07T13:27:35.725709+00:00",
+    "conformance_note": "torch.mps is Apple-Silicon-specific. On Linux/WSL the backend is always unavailable. Fixtures record device-detection and lifecycle behaviour which is meaningful on all platforms."
+  },
+  "fixtures": [
+    {
+      "op": "is_mps_available",
+      "expected": false,
+      "platform_note": "always False on non-Apple platforms; always False in ferrotorch stub"
+    },
+    {
+      "op": "mps_device_count",
+      "expected": 0,
+      "platform_note": "always 0 on non-Apple platforms; always 0 in ferrotorch stub"
+    },
+    {
+      "op": "MpsDevice_new",
+      "torch_device_type": "mps",
+      "torch_device_default_index": null,
+      "torch_device_ordinal_0_index": 0,
+      "expected_ferrotorch_error": "DeviceUnavailable",
+      "note": "torch.device('mps') construction is always valid; ferrotorch MpsDevice::new always returns Err(DeviceUnavailable) until #451"
+    },
+    {
+      "op": "MpsDevice_count",
+      "expected": 0,
+      "note": "Same as mps_device_count(); both must return 0 on non-MPS platforms"
+    },
+    {
+      "op": "MpsDevice_ordinal",
+      "ordinal_input": 0,
+      "expected_ordinal": 0,
+      "note": "ordinal() round-trips the value from ::new; test is structural (via Display) since ::new always errors"
+    },
+    {
+      "op": "init_mps_backend",
+      "mps_available_at_fixture_time": false,
+      "expected_ferrotorch_error": "DeviceUnavailable",
+      "note": "ferrotorch init_mps_backend always returns Err(DeviceUnavailable) until #451; torch has no direct equivalent \u2014 synchronize() would raise on non-MPS"
+    },
+    {
+      "op": "MpsDevice_display",
+      "ordinal": 0,
+      "torch_repr": "mps:0",
+      "expected_ferrotorch_display": "mps:0",
+      "note": "ferrotorch Display mirrors torch.mps device ordinal in 'mps:N' form"
+    },
+    {
+      "op": "MpsDevice_display",
+      "ordinal": 1,
+      "torch_repr": "mps:1",
+      "expected_ferrotorch_display": "mps:1",
+      "note": "ferrotorch Display mirrors torch.mps device ordinal in 'mps:N' form"
+    },
+    {
+      "op": "MpsDevice_display",
+      "ordinal": 2,
+      "torch_repr": "mps:2",
+      "expected_ferrotorch_display": "mps:2",
+      "note": "ferrotorch Display mirrors torch.mps device ordinal in 'mps:N' form"
+    }
+  ]
+}

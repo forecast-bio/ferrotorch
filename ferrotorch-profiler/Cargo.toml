@@ -23,4 +23,5 @@ cudarc = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+serde_json = { workspace = true }
 ferrotorch-gpu = { workspace = true }

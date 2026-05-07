@@ -1,0 +1,9 @@
+# ferrotorch-mps surface exclusions
+# Items listed here are intentionally excluded from the strict conformance gate.
+# Each entry requires: path, reason, tracking_issue.
+#
+# Format mirrors ferrotorch-core's _surface_exclusions.toml.
+# tracking_issue must be #NNN or a full https:// URL — "TBD"/"pending"/etc. fail the gate.
+#
+# Current exclusions: 0
+# Every inventoried item is covered by conformance_mps.rs directly.

@@ -2607,7 +2607,10 @@ dependencies = [
  "ferrotorch-jit",
  "proc-macro2",
  "quote",
+ "serde",
+ "serde_json",
  "syn 2.0.117",
+ "toml",
 ]
 
 [[package]]
@@ -2652,6 +2655,9 @@ name = "ferrotorch-mps"
 version = "0.4.7"
 dependencies = [
  "ferrotorch-core",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -2693,6 +2699,7 @@ dependencies = [
  "ferrotorch-core",
  "ferrotorch-gpu",
  "num-traits",
+ "serde_json",
  "tempfile",
 ]
 
@@ -2760,6 +2767,9 @@ version = "0.4.7"
 dependencies = [
  "ferrotorch-core",
  "ferrotorch-cubecl",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

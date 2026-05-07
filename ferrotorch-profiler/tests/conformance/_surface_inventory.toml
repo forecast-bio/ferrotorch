@@ -1,0 +1,435 @@
+# Surface inventory for ferrotorch-profiler.
+#
+# This file lists every public item in the ferrotorch-profiler crate that is
+# part of the documented API contract.  It is the Layer-1 denominator for the
+# conformance coverage gate (conformance_surface_coverage.rs).
+#
+# Generated from: manual audit of src/lib.rs, src/event.rs, src/schedule.rs,
+# src/profiler.rs, src/report.rs, src/flops.rs, src/cuda_timing.rs.
+#
+# Items gated on `feature = "cuda"` are tagged with `cfg = "cuda"` and are
+# excluded from non-CUDA builds by the coverage gate.
+#
+# Format: [[item]] table arrays with:
+#   path      — fully-qualified item path (used as coverage key in the gate)
+#   kind      — "fn" | "struct" | "enum" | "method" | "field" | "variant"
+#   signature — human-readable signature (informational only)
+#   cfg       — optional; "cuda" means cuda-feature-gated
+
+# ---------------------------------------------------------------------------
+# Top-level free functions
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_profiler::with_profiler"
+kind = "fn"
+signature = "fn with_profiler<F, R>(config: ProfileConfig, f: F) -> (R, ProfileReport)"
+
+# ---------------------------------------------------------------------------
+# ProfileConfig struct
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_profiler::ProfileConfig"
+kind = "struct"
+signature = "pub struct ProfileConfig { pub record_shapes: bool, pub record_memory: bool, pub with_stack: bool }"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileConfig::default"
+kind = "method"
+signature = "fn default() -> Self"
+
+# ---------------------------------------------------------------------------
+# Profiler struct
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_profiler::Profiler"
+kind = "struct"
+signature = "pub struct Profiler"
+
+[[item]]
+path = "ferrotorch_profiler::Profiler::record"
+kind = "method"
+signature = "fn record(&self, name: &str, category: &str, shapes: &[&[usize]])"
+
+[[item]]
+path = "ferrotorch_profiler::Profiler::record_with_duration"
+kind = "method"
+signature = "fn record_with_duration(&self, name: &str, category: &str, duration_us: u64)"
+
+[[item]]
+path = "ferrotorch_profiler::Profiler::record_memory"
+kind = "method"
+signature = "fn record_memory(&self, name: &str, bytes: i64)"
+
+[[item]]
+path = "ferrotorch_profiler::Profiler::record_memory_categorized"
+kind = "method"
+signature = "fn record_memory_categorized(&self, name: &str, bytes: i64, category: MemoryCategory)"
+
+[[item]]
+path = "ferrotorch_profiler::Profiler::push_gpu_event"
+kind = "method"
+signature = "fn push_gpu_event(&self, name: &str, category: &str, timing: GpuTimingPair) -> Option<usize>"
+
+[[item]]
+path = "ferrotorch_profiler::Profiler::is_active"
+kind = "method"
+signature = "fn is_active(&self) -> bool"
+
+[[item]]
+path = "ferrotorch_profiler::Profiler::stop"
+kind = "method"
+signature = "fn stop(&self)"
+
+[[item]]
+path = "ferrotorch_profiler::Profiler::flush_cuda_kernels"
+kind = "method"
+signature = "fn flush_cuda_kernels(&self)"
+
+[[item]]
+path = "ferrotorch_profiler::Profiler::pending_cuda_count"
+kind = "method"
+signature = "fn pending_cuda_count(&self) -> usize"
+
+# ---------------------------------------------------------------------------
+# ProfileReport struct
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport"
+kind = "struct"
+signature = "pub struct ProfileReport"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::events"
+kind = "method"
+signature = "fn events(&self) -> &[ProfileEvent]"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::total_time_us"
+kind = "method"
+signature = "fn total_time_us(&self) -> u64"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::has_gpu_events"
+kind = "method"
+signature = "fn has_gpu_events(&self) -> bool"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::total_flops"
+kind = "method"
+signature = "fn total_flops(&self) -> u64"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::flops_per_second"
+kind = "method"
+signature = "fn flops_per_second(&self) -> f64"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::memory_by_category"
+kind = "method"
+signature = "fn memory_by_category(&self) -> Vec<(MemoryCategory, i64)>"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::has_stack_traces"
+kind = "method"
+signature = "fn has_stack_traces(&self) -> bool"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::top_ops"
+kind = "method"
+signature = "fn top_ops(&self, n: usize) -> Vec<OpSummary>"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::table"
+kind = "method"
+signature = "fn table(&self, top_n: usize) -> String"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::chrome_trace_json"
+kind = "method"
+signature = "fn chrome_trace_json(&self) -> String"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::save_chrome_trace"
+kind = "method"
+signature = "fn save_chrome_trace(&self, path: impl AsRef<Path>) -> FerrotorchResult<()>"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileReport::save_tensorboard_trace"
+kind = "method"
+signature = "fn save_tensorboard_trace(&self, logdir: impl AsRef<Path>, run_id: Option<&str>, hostname: Option<&str>) -> FerrotorchResult<PathBuf>"
+
+# ---------------------------------------------------------------------------
+# OpSummary struct (all public fields)
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary"
+kind = "struct"
+signature = "pub struct OpSummary"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::name"
+kind = "field"
+signature = "pub name: String"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::count"
+kind = "field"
+signature = "pub count: usize"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::cpu_total_us"
+kind = "field"
+signature = "pub cpu_total_us: u64"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::cpu_avg_us"
+kind = "field"
+signature = "pub cpu_avg_us: u64"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::cpu_max_us"
+kind = "field"
+signature = "pub cpu_max_us: u64"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::cpu_count"
+kind = "field"
+signature = "pub cpu_count: usize"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::gpu_total_us"
+kind = "field"
+signature = "pub gpu_total_us: u64"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::gpu_avg_us"
+kind = "field"
+signature = "pub gpu_avg_us: u64"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::gpu_max_us"
+kind = "field"
+signature = "pub gpu_max_us: u64"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::gpu_count"
+kind = "field"
+signature = "pub gpu_count: usize"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::total_us"
+kind = "field"
+signature = "pub total_us: u64"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::avg_us"
+kind = "field"
+signature = "pub avg_us: u64"
+
+[[item]]
+path = "ferrotorch_profiler::OpSummary::max_us"
+kind = "field"
+signature = "pub max_us: u64"
+
+# ---------------------------------------------------------------------------
+# ProfileEvent struct (all public fields)
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent"
+kind = "struct"
+signature = "pub struct ProfileEvent"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent::name"
+kind = "field"
+signature = "pub name: String"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent::category"
+kind = "field"
+signature = "pub category: String"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent::start_us"
+kind = "field"
+signature = "pub start_us: u64"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent::duration_us"
+kind = "field"
+signature = "pub duration_us: u64"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent::input_shapes"
+kind = "field"
+signature = "pub input_shapes: Vec<Vec<usize>>"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent::memory_bytes"
+kind = "field"
+signature = "pub memory_bytes: Option<i64>"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent::memory_category"
+kind = "field"
+signature = "pub memory_category: Option<MemoryCategory>"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent::thread_id"
+kind = "field"
+signature = "pub thread_id: u64"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent::device_type"
+kind = "field"
+signature = "pub device_type: DeviceType"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent::flops"
+kind = "field"
+signature = "pub flops: Option<u64>"
+
+[[item]]
+path = "ferrotorch_profiler::ProfileEvent::stack_trace"
+kind = "field"
+signature = "pub stack_trace: Option<String>"
+
+# ---------------------------------------------------------------------------
+# MemoryCategory enum
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_profiler::MemoryCategory"
+kind = "enum"
+signature = "pub enum MemoryCategory"
+
+[[item]]
+path = "ferrotorch_profiler::MemoryCategory::Activations"
+kind = "variant"
+signature = "Activations"
+
+[[item]]
+path = "ferrotorch_profiler::MemoryCategory::Parameters"
+kind = "variant"
+signature = "Parameters"
+
+[[item]]
+path = "ferrotorch_profiler::MemoryCategory::OptimizerState"
+kind = "variant"
+signature = "OptimizerState"
+
+[[item]]
+path = "ferrotorch_profiler::MemoryCategory::Gradients"
+kind = "variant"
+signature = "Gradients"
+
+[[item]]
+path = "ferrotorch_profiler::MemoryCategory::Other"
+kind = "variant"
+signature = "Other"
+
+# ---------------------------------------------------------------------------
+# schedule module: ProfileSchedule + SchedulePhase
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_profiler::schedule::ProfileSchedule"
+kind = "struct"
+signature = "pub struct ProfileSchedule"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::ProfileSchedule::new"
+kind = "method"
+signature = "fn new(wait: u64, warmup: u64, active: u64, repeat: u64) -> Self"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::ProfileSchedule::set_on_trace_ready"
+kind = "method"
+signature = "fn set_on_trace_ready(&mut self, cb: impl FnMut(u64) + Send + 'static)"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::ProfileSchedule::phase"
+kind = "method"
+signature = "fn phase(&self) -> SchedulePhase"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::ProfileSchedule::is_active"
+kind = "method"
+signature = "fn is_active(&self) -> bool"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::ProfileSchedule::current_step"
+kind = "method"
+signature = "fn current_step(&self) -> u64"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::ProfileSchedule::current_cycle"
+kind = "method"
+signature = "fn current_cycle(&self) -> u64"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::ProfileSchedule::step"
+kind = "method"
+signature = "fn step(&mut self) -> SchedulePhase"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::SchedulePhase"
+kind = "enum"
+signature = "pub enum SchedulePhase"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::SchedulePhase::Waiting"
+kind = "variant"
+signature = "Waiting"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::SchedulePhase::Warmup"
+kind = "variant"
+signature = "Warmup"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::SchedulePhase::Active"
+kind = "variant"
+signature = "Active"
+
+[[item]]
+path = "ferrotorch_profiler::schedule::SchedulePhase::Done"
+kind = "variant"
+signature = "Done"
+
+# ---------------------------------------------------------------------------
+# flops module
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_profiler::flops::estimate"
+kind = "fn"
+signature = "fn estimate(op_name: &str, input_shapes: &[Vec<usize>]) -> Option<u64>"
+
+# ---------------------------------------------------------------------------
+# cuda_timing module (cfg = "cuda" — excluded from non-CUDA builds)
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_profiler::cuda_timing::CudaKernelScope"
+kind = "struct"
+signature = "pub struct CudaKernelScope"
+cfg = "cuda"
+
+[[item]]
+path = "ferrotorch_profiler::cuda_timing::CudaKernelScope::new"
+kind = "method"
+signature = "fn new(ctx: &Arc<CudaContext>, stream: &Arc<CudaStream>, name: impl Into<String>, category: impl Into<String>) -> Result<Self, DriverError>"
+cfg = "cuda"
+
+[[item]]
+path = "ferrotorch_profiler::cuda_timing::CudaKernelScope::stop"
+kind = "method"
+signature = "fn stop(self, profiler: &Profiler) -> Result<(), DriverError>"
+cfg = "cuda"

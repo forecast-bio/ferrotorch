@@ -1,0 +1,219 @@
+{
+  "metadata": {
+    "torch_version": "2.11.0",
+    "generated_at": "2026-05-07",
+    "note": "Profiler conformance fixtures capture structural and aggregation behavior, not wall-clock timings. Timing-dependent fields (start_us, duration_us) are not pinned. Generated from torch.profiler reference behavior as documented in scripts/regenerate_profiler_fixtures.py.",
+    "pinning_strategy": "structural: event counts, event categorization, schedule phase sequences, flops formulas. NOT pinned: absolute timings, thread IDs, process IDs."
+  },
+  "schedule_fixtures": [
+    {
+      "id": "schedule_wait1_warmup1_active2_repeat1",
+      "wait": 1,
+      "warmup": 1,
+      "active": 2,
+      "repeat": 1,
+      "expected_phase_sequence": ["Waiting", "Warmup", "Active", "Active", "Done"],
+      "note": "torch.profiler.schedule(wait=1, warmup=1, active=2, repeat=1) — matches PyTorch ProfilerAction sequence"
+    },
+    {
+      "id": "schedule_no_wait_no_warmup_active3_repeat1",
+      "wait": 0,
+      "warmup": 0,
+      "active": 3,
+      "repeat": 1,
+      "expected_phase_sequence": ["Active", "Active", "Active", "Done"],
+      "note": "Immediate-active schedule: torch.profiler.schedule(wait=0, warmup=0, active=3)"
+    },
+    {
+      "id": "schedule_warmup_only_active1_repeat1",
+      "wait": 0,
+      "warmup": 2,
+      "active": 1,
+      "repeat": 1,
+      "expected_phase_sequence": ["Warmup", "Warmup", "Active", "Done"],
+      "note": "Warmup-only prefix: torch.profiler.schedule(wait=0, warmup=2, active=1)"
+    },
+    {
+      "id": "schedule_active1_repeat3",
+      "wait": 0,
+      "warmup": 0,
+      "active": 1,
+      "repeat": 3,
+      "expected_phase_sequence": ["Active", "Active", "Active", "Done"],
+      "expected_on_trace_ready_calls": 3,
+      "note": "Repeat-3 schedule fires on_trace_ready 3 times: torch.profiler.schedule(wait=0, warmup=0, active=1, repeat=3)"
+    }
+  ],
+  "flops_fixtures": [
+    {
+      "id": "flops_add_2d",
+      "op": "add",
+      "input_shapes": [[3, 4], [3, 4]],
+      "expected_flops": 12,
+      "note": "torch.profiler FLOPS estimate for elementwise add [3,4]+[3,4]: 12 MACs = 12 FLOPs (1 per element)"
+    },
+    {
+      "id": "flops_matmul_2d",
+      "op": "matmul",
+      "input_shapes": [[4, 5], [5, 6]],
+      "expected_flops": 240,
+      "note": "torch.profiler matmul [4,5]@[5,6]: 2*4*6*5 = 240 FLOPs"
+    },
+    {
+      "id": "flops_matmul_batched",
+      "op": "bmm",
+      "input_shapes": [[3, 4, 5], [3, 5, 6]],
+      "expected_flops": 720,
+      "note": "batched matmul [3,4,5]@[3,5,6]: 3*2*4*6*5 = 720 FLOPs"
+    },
+    {
+      "id": "flops_relu",
+      "op": "relu",
+      "input_shapes": [[10, 10]],
+      "expected_flops": 100,
+      "note": "relu [10,10]: 100 FLOPs (1 per element)"
+    },
+    {
+      "id": "flops_conv2d",
+      "op": "conv2d",
+      "input_shapes": [[1, 3, 32, 32], [16, 3, 3, 3]],
+      "expected_flops": 884736,
+      "note": "conv2d batch=1 C_in=3 C_out=16 kernel=3x3 spatial=32x32: 2*1*16*3*9*1024 = 884736 FLOPs"
+    },
+    {
+      "id": "flops_layer_norm",
+      "op": "layer_norm",
+      "input_shapes": [[32, 768]],
+      "expected_flops": 196608,
+      "note": "layer_norm [32,768]: 8*32*768 = 196608 FLOPs (approximate, matches torch.profiler convention)"
+    },
+    {
+      "id": "flops_softmax",
+      "op": "softmax",
+      "input_shapes": [[2, 5]],
+      "expected_flops": 50,
+      "note": "softmax [2,5]: 5*numel = 5*10 = 50 FLOPs (approximate, matches torch.profiler ~3-pass convention)"
+    },
+    {
+      "id": "flops_sum_reduction",
+      "op": "sum",
+      "input_shapes": [[10, 10]],
+      "expected_flops": 99,
+      "note": "sum [10,10]: numel-1 = 99 adds"
+    },
+    {
+      "id": "flops_unknown_op",
+      "op": "custom_unknown_op",
+      "input_shapes": [[3, 4]],
+      "expected_flops": null,
+      "note": "Unknown op should return None/null — torch.profiler also returns 0/None for unrecognized ops"
+    }
+  ],
+  "event_fixtures": [
+    {
+      "id": "event_cpu_op_record",
+      "op": "add",
+      "category": "tensor_op",
+      "shapes": [[3, 4], [3, 4]],
+      "expected_device_type": "CPU",
+      "expected_flops": 12,
+      "note": "CPU tensor op: device_type must be CPU, flops estimated from shapes"
+    },
+    {
+      "id": "event_memory_alloc",
+      "op": "alloc_tensor",
+      "category": "memory",
+      "memory_bytes": 4096,
+      "memory_category": "Other",
+      "note": "Memory event: bytes positive = allocation, category defaults to Other"
+    },
+    {
+      "id": "event_memory_free",
+      "op": "free_tensor",
+      "category": "memory",
+      "memory_bytes": -4096,
+      "memory_category": "Other",
+      "note": "Memory free event: bytes negative"
+    },
+    {
+      "id": "event_memory_categorized_parameters",
+      "op": "alloc_weight",
+      "category": "memory",
+      "memory_bytes": 8192,
+      "memory_category": "Parameters",
+      "note": "Categorized memory event: Parameters category"
+    },
+    {
+      "id": "event_memory_categorized_activations",
+      "op": "alloc_act",
+      "category": "memory",
+      "memory_bytes": 16384,
+      "memory_category": "Activations",
+      "note": "Categorized memory event: Activations category"
+    },
+    {
+      "id": "event_memory_categorized_gradients",
+      "op": "alloc_grad",
+      "category": "memory",
+      "memory_bytes": 8192,
+      "memory_category": "Gradients",
+      "note": "Categorized memory event: Gradients category"
+    },
+    {
+      "id": "event_memory_categorized_optimizer_state",
+      "op": "alloc_optim",
+      "category": "memory",
+      "memory_bytes": 16384,
+      "memory_category": "OptimizerState",
+      "note": "Categorized memory event: OptimizerState category"
+    }
+  ],
+  "report_fixtures": [
+    {
+      "id": "report_top_ops_sorted",
+      "events": [
+        {"name": "relu",   "category": "activation", "duration_us": 100},
+        {"name": "relu",   "category": "activation", "duration_us": 100},
+        {"name": "relu",   "category": "activation", "duration_us": 100},
+        {"name": "matmul", "category": "linalg",     "duration_us": 500},
+        {"name": "matmul", "category": "linalg",     "duration_us": 500},
+        {"name": "conv2d", "category": "tensor_op",  "duration_us": 600}
+      ],
+      "expected_top3_names": ["matmul", "conv2d", "relu"],
+      "expected_top3_total_us": [1000, 600, 300],
+      "expected_top3_counts": [2, 1, 3],
+      "note": "top_ops() sorts by cumulative duration descending: matmul(1000) > conv2d(600) > relu(300)"
+    },
+    {
+      "id": "report_chrome_trace_structure",
+      "events": [
+        {"name": "mm", "category": "tensor_op", "duration_us": 500}
+      ],
+      "expected_json_prefix": "{\"traceEvents\":[",
+      "expected_json_suffix": "]}",
+      "expected_fields": ["name", "cat", "ph", "ts", "dur", "pid", "tid", "args"],
+      "note": "Chrome trace JSON: must have traceEvents array with X-type events"
+    },
+    {
+      "id": "report_memory_by_category_aggregation",
+      "note": "torch.profiler.key_averages() groups memory events by category; net bytes are sum of allocs minus frees",
+      "input_events": [
+        {"name": "w1",     "memory_bytes":  1000, "memory_category": "Parameters"},
+        {"name": "w2",     "memory_bytes":  5000, "memory_category": "Parameters"},
+        {"name": "a1",     "memory_bytes": 12000, "memory_category": "Activations"},
+        {"name": "a1_free","memory_bytes": -2000, "memory_category": "Activations"}
+      ],
+      "expected_categories": ["Activations", "Parameters"],
+      "expected_net_bytes":  [10000, 6000]
+    }
+  ],
+  "profiler_config_fixtures": [
+    {
+      "id": "config_default",
+      "record_shapes": true,
+      "record_memory": false,
+      "with_stack": false,
+      "note": "torch.profile() default: record_shapes=True, profile_memory=False, with_stack=False"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+# Strict coverage-gate exclusions for the ferrotorch-jit-script conformance suite.
+#
+# Tracking issue: #826 (Conformance Buildout C1 — Tier-1 crates).
+#
+# Format: `[[exclusion]]` table-array entries with three required fields:
+#   path           — fully qualified item path matching _surface_inventory.toml
+#   reason         — one or more sentences (not a placeholder)
+#   tracking_issue — `#NNN` (crosslink convention) or full GitHub URL
+#
+# ferrotorch-jit-script has exactly 1 public item: `script`. That item IS
+# covered by conformance_jit_script.rs (see tests there), so this file has
+# no exclusions for the live surface.
+#
+# This file is intentionally empty of exclusion entries. It exists so the
+# coverage gate can parse it without error, and to document that the single
+# public item is fully covered rather than excluded.

@@ -1,0 +1,26 @@
+# ferrotorch-jit-script public surface inventory
+#
+# Auto-enumerated from ferrotorch-jit-script/src/lib.rs.
+# Tracking issue: #826 (Conformance Buildout C1).
+#
+# This crate is a proc-macro crate (lib.proc-macro = true). Its public
+# surface is exactly the set of proc-macro items exported from lib.rs.
+# Private helpers (script_impl, extract_tensor_param,
+# extract_tensor_param_inner, MAX_RETURN_TYPE_DEPTH) are not part of the
+# public contract and are excluded from the inventory.
+#
+# Item count: 1
+
+[[item]]
+path = "ferrotorch_jit_script::script"
+kind = "proc_macro_attribute"
+signature = "pub fn script(attr: TokenStream, item: TokenStream) -> TokenStream"
+description = """
+Apply `#[script]` to a function `fn(args..) -> Tensor<T>` to compile it
+into a `ferrotorch_jit::TracedModule<T>`-returning function. The macro
+rewrites the body to build an IrGraph via `ferrotorch_jit::trace` so the
+function returns `FerrotorchResult<TracedModule<T>>` rather than running
+eagerly.
+
+PyTorch reference: `torch.jit.script` (eager-mode tracing annotation).
+"""
