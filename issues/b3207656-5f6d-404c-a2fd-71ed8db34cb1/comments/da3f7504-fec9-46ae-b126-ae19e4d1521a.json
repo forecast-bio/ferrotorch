@@ -1,0 +1,10 @@
+{
+  "uuid": "da3f7504-fec9-46ae-b126-ae19e4d1521a",
+  "issue_uuid": "b3207656-5f6d-404c-a2fd-71ed8db34cb1",
+  "author": "y4rr",
+  "content": "Observation: InceptionV3 BEFORE state:\n- 6 internal unit tests pass (test_inception_module_concat_channel_count, test_inception_v3_output_shape, etc.)\n- Zero conformance tests exist for inception in conformance_vision_models.rs (confirmed by running cargo test --test conformance_vision_models -- inception = 0 tests)\n- Param count for InceptionV3(1000): ~510,536 parameters (simplified 3-module arch: stem ~19K, 3x InceptionA ~234K, classifier ~257K)\n- Input 299x299 works: stem_conv1 stride=2 -> 150x150, subsequent modules preserve spatial, AdaptiveAvgPool2d(1,1) -> 1x1 regardless of input size\n- No source fixes needed; the architecture handles 299x299 correctly",
+  "created_at": "2026-05-07T22:39:32.235926616Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABARPEZiRZi2Rv6wLME0fKxPbg6OwPdQiOmsqLiYP5Fl+PeCvY9Qs4yDM/i5w1CiKQxsOHqrQkpRCzKoAh+1KREBA=="
+}
