@@ -1,0 +1,10 @@
+{
+  "uuid": "6e9cbfde-6a4d-4eec-8198-7ae63433878e",
+  "issue_uuid": "7cd87ca3-43a5-4fc7-baf2-844e2c765818",
+  "author": "y4rr",
+  "content": "Result: 11 new conformance tests in conformance_serialize_async.rs. Coverage: AsyncCheckpointer::new (not in-flight), Default (not in-flight), Debug format, save+wait+load round-trip (values/epoch/step/optimizer_state preserved), sequential saves (3 individual + 1 reuse-saver test), is_saving() false after wait(), wait() with no in-flight save, invalid-path errors on wait(). No Tokio dep needed — AsyncCheckpointer uses std::thread. One #852 exclusion entry removed. cascade_skip removed. 11/11 pass, clippy clean.",
+  "created_at": "2026-05-07T17:52:39.785554731Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAEviEdMA70eCEaYy+8qsfsCMXZxp4zmrT+N28bcHajhJ0f9xkJyDUfxvIFmCrkm8tTT8x0vpzOJKRbqfJq6nvDw=="
+}
