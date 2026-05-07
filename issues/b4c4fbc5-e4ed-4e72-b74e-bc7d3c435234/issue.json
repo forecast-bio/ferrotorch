@@ -2,11 +2,12 @@
   "uuid": "b4c4fbc5-e4ed-4e72-b74e-bc7d3c435234",
   "display_id": 961,
   "title": "Add Faster R-CNN with ResNet-50 FPN backbone for object detection (#456 partial)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T21:27:33.625220923Z",
-  "updated_at": "2026-05-07T21:27:35.260674245Z",
+  "updated_at": "2026-05-07T21:36:56.368378794Z",
+  "closed_at": "2026-05-07T21:36:56.368378794Z",
   "labels": [
     "feature"
   ]
