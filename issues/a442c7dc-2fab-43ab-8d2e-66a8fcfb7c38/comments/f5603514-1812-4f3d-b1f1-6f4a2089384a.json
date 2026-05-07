@@ -1,0 +1,10 @@
+{
+  "uuid": "f5603514-1812-4f3d-b1f1-6f4a2089384a",
+  "issue_uuid": "a442c7dc-2fab-43ab-8d2e-66a8fcfb7c38",
+  "author": "y4rr",
+  "content": "Result: Sprint V.1 ConvNeXt + EfficientNet forward parity complete.\n\nDelivered:\n1. scripts/regenerate_vision_v_fixtures.py — extended with V.1 ConvNeXt-Tiny and EfficientNet-B0 sections (torchvision seeded fixture generation)\n2. ferrotorch-vision/tests/conformance/fixtures_v_parity.json — 10 new fixture entries (5 per model)\n3. ferrotorch-vision/tests/conformance_vision_models.rs — 10 new test functions (5 per model, matching V.3/V.4 audit pattern)\n\nTest evidence:\n- cargo test -p ferrotorch-vision --test conformance_vision_models: 100/100 PASS\n- cargo build --workspace: CLEAN\n- cargo clippy --workspace --all-targets: CLEAN (pre-existing unused import warning in conformance_shape.rs unrelated to sprint)\n\nIssues closed: #930, #931",
+  "created_at": "2026-05-07T22:47:42.112460233Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAb27KMATpK2OQs5Pf3EBjIdkoalbGcvAeyvkrE7g7gAMyqNf9Xn+L9/3VT5UN3QrdLuOD8BMcKG8VnMdNhP6NBQ=="
+}
