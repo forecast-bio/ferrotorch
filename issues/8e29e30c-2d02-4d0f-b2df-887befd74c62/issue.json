@@ -1,0 +1,10 @@
+{
+  "uuid": "8e29e30c-2d02-4d0f-b2df-887befd74c62",
+  "display_id": 859,
+  "title": "Add ferrotorch-distributions conformance suite (4-layer: surface inventory, fixtures, tests, coverage gate)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T14:41:14.692480381Z",
+  "updated_at": "2026-05-07T14:41:14.692480381Z"
+}
