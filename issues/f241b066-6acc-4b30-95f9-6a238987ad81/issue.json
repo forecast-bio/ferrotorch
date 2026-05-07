@@ -2,11 +2,12 @@
   "uuid": "f241b066-6acc-4b30-95f9-6a238987ad81",
   "display_id": 914,
   "title": "Fix 5 ferrotorch-distributed conformance bugs (fixture key mismatches + SubBackend rank test)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T18:15:55.036737205Z",
-  "updated_at": "2026-05-07T18:15:56.672740930Z",
+  "updated_at": "2026-05-07T18:18:22.221385378Z",
+  "closed_at": "2026-05-07T18:18:22.221385378Z",
   "labels": [
     "bug"
   ]
