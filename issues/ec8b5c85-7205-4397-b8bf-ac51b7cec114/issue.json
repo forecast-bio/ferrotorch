@@ -2,11 +2,12 @@
   "uuid": "ec8b5c85-7205-4397-b8bf-ac51b7cec114",
   "display_id": 934,
   "title": "Add ViT-B/16 forward parity conformance lane (#868)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T19:50:14.434922571Z",
-  "updated_at": "2026-05-07T19:50:18.774832035Z",
+  "updated_at": "2026-05-07T22:47:07.512652859Z",
+  "closed_at": "2026-05-07T22:47:07.512652859Z",
   "labels": [
     "feature"
   ]
