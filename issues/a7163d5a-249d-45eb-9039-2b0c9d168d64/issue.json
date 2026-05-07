@@ -2,11 +2,12 @@
   "uuid": "a7163d5a-249d-45eb-9039-2b0c9d168d64",
   "display_id": 939,
   "title": "Add GPTQ/AWQ/HQQ integration test scaffolding for quantized loader smoke tests",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T20:59:43.702413163Z",
-  "updated_at": "2026-05-07T20:59:45.157382241Z",
+  "updated_at": "2026-05-07T22:27:58.472499398Z",
+  "closed_at": "2026-05-07T22:27:58.472499398Z",
   "labels": [
     "feature"
   ]
