@@ -1,0 +1,10 @@
+{
+  "uuid": "fbde17a4-c575-4fbf-9db3-653fffc47880",
+  "issue_uuid": "f448b4c4-a72d-44f2-90bd-ea1359c3d815",
+  "author": "y4rr",
+  "content": "Observation: BEFORE probes (pre-V.2) — all 5 B.5.b MobileNetV2 and MobileNetV3-Small shape/finite/param/custom-classes/determinism tests passed. AFTER probes (post-V.2) — 5 new fixture-backed tests per model added (10 total for mobilenet_v2_v2_* and mobilenet_v3_small_v2_*), all 10 passing. No source changes to mobilenet.rs required.",
+  "created_at": "2026-05-07T22:50:26.125225102Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAcIycS7fFLU22CDHNzcpFnUBhtNmb7E7iBmqvdcnuHkAVeQmelKKd8HoNfihZzpfeIlE42ctHmaZd1YTMc8uZBA=="
+}
