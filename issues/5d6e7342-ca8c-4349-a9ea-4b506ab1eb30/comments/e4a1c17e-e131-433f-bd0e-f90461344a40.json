@@ -1,0 +1,10 @@
+{
+  "uuid": "e4a1c17e-e131-433f-bd0e-f90461344a40",
+  "issue_uuid": "5d6e7342-ca8c-4349-a9ea-4b506ab1eb30",
+  "author": "y4rr",
+  "content": "Divergence found in conformance_distributions_discrete::relaxed_bernoulli_fixtures_log_prob. For temp=0.5, probs=0.7, x=0.2: implementation returns 1.6186 but expected -0.7893. The current formula (Maddison eqn 21 direct) produces wrong results. Correct formula (PyTorch source): y=logit(x), diff=logits-y*temp, log_prob_logit=log(temp)+diff-2*softplus(diff), log_prob=log_prob_logit - log(x) - log(1-x). This is the LogitRelaxedBernoulli density plus change-of-variable Jacobian.",
+  "created_at": "2026-05-07T15:40:44.942183294Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGpPVoclVvOtJEV1R3a5JMTlKVtJxUXQ2Ytgb3FY0srUQtZnuOSbwO00U2WqK0v7tQdWTArXYGIzMz2Di1QLhAQ=="
+}
