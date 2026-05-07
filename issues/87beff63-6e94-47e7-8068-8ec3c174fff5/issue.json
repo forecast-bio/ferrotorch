@@ -3,9 +3,10 @@
   "display_id": 628,
   "title": "Llama speculative decoding (draft + target model verifier)",
   "description": "Spun out from #612 which landed beam search. Speculative decoding (Leviathan et al. 2023) uses a small draft model to propose K tokens, then verifies them with the big target model in a single forward pass. If the target accepts all K, you advance K tokens for one big-model forward.\n\nImplementation needs:\n- A 'draft' model handle separate from the 'target' model.\n- Token-level acceptance criterion: accept if target_prob[token] >= draft_prob[token], else with prob target/draft.\n- Rollback on rejection: take a corrected sample from the residual distribution.\n\nHeavier than beam search because it touches the model interface (need a way to run K candidate tokens through the big model in parallel rather than autoregressively).",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-02T00:21:48.921619314Z",
-  "updated_at": "2026-05-02T00:21:48.921619314Z"
+  "updated_at": "2026-05-07T21:26:04.756470246Z",
+  "closed_at": "2026-05-07T21:26:04.756470246Z"
 }
