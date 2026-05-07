@@ -762,12 +762,208 @@ def add_color_jitter_fixtures():
 
 add_color_jitter_fixtures()
 
+# ── #867 UNet shape/snapshot contracts (no torchvision reference) ─────────
+#
+# UNet is a custom architecture (not in torchvision). Fixtures encode the
+# paper's mathematical invariants: output shape == input shape (H×W preserved),
+# output channels == num_classes.  The snapshot fixtures note the determinism
+# property tested in Rust (two forward passes on the same model give identical
+# output) rather than providing reference values.
+
+def add_unet_fixtures():
+    # Output-shape contracts for several (num_classes, input_shape) configs.
+    unet_configs = [
+        {"num_classes": 1,  "batch": 1, "H": 32,  "W": 32},
+        {"num_classes": 21, "batch": 1, "H": 64,  "W": 64},
+        {"num_classes": 5,  "batch": 2, "H": 32,  "W": 32},
+        {"num_classes": 2,  "batch": 1, "H": 16,  "W": 16},  # minimum
+    ]
+    for cfg in unet_configs:
+        nc, B, H, W = cfg["num_classes"], cfg["batch"], cfg["H"], cfg["W"]
+        fixtures.append({
+            "id": f"unet_output_shape_{nc}cls_{B}b_{H}x{W}",
+            "op": "unet_output_shape",
+            "params": cfg,
+            "expected_output_shape": [B, nc, H, W],
+            "note": (
+                "UNet shape contract: [B,3,H,W] -> [B,num_classes,H,W]. "
+                "H and W must be divisible by 16 (4 encoder halvings). "
+                "No torchvision reference — self-referential invariant."
+            ),
+        })
+
+    # Snapshot / determinism contract.
+    fixtures.append({
+        "id": "unet_snapshot_determinism",
+        "op": "unet_snapshot",
+        "params": {"num_classes": 1, "input_shape": [1, 3, 16, 16]},
+        "note": (
+            "Two forward passes on the same UNet instance with the same input "
+            "must produce bit-for-bit identical outputs. Tested in Rust via "
+            "unet_snapshot_deterministic_output. No fixed reference values — "
+            "ferrotorch has no seeded RNG at the model level."
+        ),
+    })
+
+    # Gradient-finite contract.
+    fixtures.append({
+        "id": "unet_gradient_finite",
+        "op": "unet_gradient_finite",
+        "params": {"num_classes": 1, "input_shape": [1, 3, 16, 16]},
+        "note": (
+            "After loss.backward() on a UNet forward pass, all input gradients "
+            "must be finite (no NaN/Inf). Tested in Rust via "
+            "unet_forward_backward_gradient_finite."
+        ),
+    })
+
+
+add_unet_fixtures()
+
+# ── #869 YOLO shape/snapshot contracts (no torchvision reference) ──────────
+#
+# YOLO is a custom architecture (not in torchvision). Fixtures encode the
+# detection-head invariant: output channels == num_anchors * (5 + num_classes),
+# grid size == input_size / 32 for DarkNet-style 5-stage backbone.
+
+def add_yolo_fixtures():
+    # Detection-head output-shape contracts.
+    yolo_configs = [
+        {"num_classes": 20, "num_anchors": 3, "batch": 1, "H": 416, "W": 416,
+         "grid_h": 13, "grid_w": 13},   # VOC
+        {"num_classes": 80, "num_anchors": 3, "batch": 1, "H": 416, "W": 416,
+         "grid_h": 13, "grid_w": 13},   # COCO
+        {"num_classes": 20, "num_anchors": 3, "batch": 2, "H": 416, "W": 416,
+         "grid_h": 13, "grid_w": 13},   # batch=2
+    ]
+    for cfg in yolo_configs:
+        nc = cfg["num_classes"]
+        na = cfg["num_anchors"]
+        B, H, W = cfg["batch"], cfg["H"], cfg["W"]
+        gh, gw = cfg["grid_h"], cfg["grid_w"]
+        out_ch = na * (5 + nc)
+        fixtures.append({
+            "id": f"yolo_output_shape_{nc}cls_{na}anch_{B}b",
+            "op": "yolo_output_shape",
+            "params": cfg,
+            "expected_output_shape": [B, out_ch, gh, gw],
+            "anchor_formula": f"num_anchors * (5 + num_classes) = {na} * (5 + {nc}) = {out_ch}",
+            "note": (
+                "YOLO detection-head shape contract. "
+                "Output channels encode (x,y,w,h,objectness) + num_classes per anchor. "
+                "Grid size = input_size / 32 for the 5-stage maxpool backbone. "
+                "No torchvision reference — self-referential paper invariant."
+            ),
+        })
+
+    # Anchor-structure formula across configurations.
+    fixtures.append({
+        "id": "yolo_anchor_structure_formula",
+        "op": "yolo_anchor_formula",
+        "configs": [
+            {"num_classes": nc, "num_anchors": na, "expected_out_ch": na * (5 + nc)}
+            for nc, na in [(20, 3), (80, 3), (10, 5), (1, 1), (90, 9)]
+        ],
+        "note": (
+            "Verifies output_channels == num_anchors * (5 + num_classes) for "
+            "multiple (num_classes, num_anchors) pairs. "
+            "Encodes the YOLO paper prediction layout."
+        ),
+    })
+
+    # Snapshot / determinism contract.
+    fixtures.append({
+        "id": "yolo_snapshot_determinism",
+        "op": "yolo_snapshot",
+        "params": {"num_classes": 2, "num_anchors": 3, "input_shape": [1, 3, 32, 32]},
+        "note": (
+            "Two forward passes on the same YOLO instance with the same input "
+            "must produce bit-for-bit identical outputs. Tested in Rust via "
+            "yolo_snapshot_deterministic_output."
+        ),
+    })
+
+    # Gradient-finite contract.
+    fixtures.append({
+        "id": "yolo_gradient_finite",
+        "op": "yolo_gradient_finite",
+        "params": {"num_classes": 2, "num_anchors": 3, "input_shape": [1, 3, 32, 32]},
+        "note": (
+            "After loss.backward() on a YOLO forward pass with tiny 32x32 input, "
+            "all input gradients must be finite. Tested in Rust via "
+            "yolo_forward_backward_gradient_finite."
+        ),
+    })
+
+
+add_yolo_fixtures()
+
+# ── #873 FeatureExtractor cross-model integration contracts ────────────────
+
+def add_feature_extractor_fixtures():
+    # UNet integration: named node shapes.
+    unet_node_shapes = {
+        "enc1":       [1, 64, 32, 32],   # first encoder, no pool
+        "enc2":       [1, 128, 16, 16],  # after pool
+        "enc3":       [1, 256, 8, 8],
+        "enc4":       [1, 512, 4, 4],
+        "bottleneck": [1, 1024, 2, 2],   # 32/16 = 2
+        "dec4":       [1, 512, 4, 4],
+        "dec3":       [1, 256, 8, 8],
+        "dec2":       [1, 128, 16, 16],
+        "dec1":       [1, 64, 32, 32],
+        "head":       [1, 1, 32, 32],    # num_classes=1
+    }
+    fixtures.append({
+        "id": "feature_extractor_unet_node_shapes",
+        "op": "feature_extractor_unet",
+        "params": {"num_classes": 1, "input_shape": [1, 3, 32, 32]},
+        "node_shapes": unet_node_shapes,
+        "note": (
+            "FeatureExtractor on UNet(num_classes=1) with [1,3,32,32] input. "
+            "Each node's output shape follows U-Net encoder/decoder downsampling. "
+            "Tested in Rust via feature_extractor_unet_enc1_shape, "
+            "feature_extractor_unet_bottleneck_shape."
+        ),
+    })
+
+    # YOLO integration: stage5 shape.
+    fixtures.append({
+        "id": "feature_extractor_yolo_stage5_shape",
+        "op": "feature_extractor_yolo",
+        "params": {"num_classes": 20, "num_anchors": 3, "input_shape": [1, 3, 416, 416]},
+        "expected_stage5_shape": [1, 512, 13, 13],
+        "note": (
+            "FeatureExtractor on YOLO with 416x416 input. "
+            "stage5 output is [B, 512, 13, 13] (5 maxpool halvings of 416). "
+            "Tested in Rust via feature_extractor_yolo_stage5_shape."
+        ),
+    })
+
+    # head==Module::forward equivalence.
+    fixtures.append({
+        "id": "feature_extractor_head_matches_module_forward",
+        "op": "feature_extractor_head_equiv",
+        "note": (
+            "The 'head' intermediate from IntermediateFeatures::forward_features "
+            "must equal Module::forward output on the same input. "
+            "Verified in Rust via feature_extractor_yolo_output_matches_module_forward."
+        ),
+    })
+
+
+add_feature_extractor_fixtures()
+
 # ── FeatureExtractor smoke ─────────────────────────────────────────────────
 
 fixtures.append({
     "id": "create_feature_extractor_smoke",
     "op": "create_feature_extractor",
-    "note": "Smoke test: FeatureExtractor wraps a resnet18 and extracts named features. No reference output needed.",
+    "note": (
+        "Integration smoke test: FeatureExtractor wraps UNet(num_classes=1) and "
+        "extracts 'enc1' and 'head' nodes. Cascade_skip removed in sprint B.5.c+e "
+        "(#927). UNet and YOLO implement IntermediateFeatures."
+    ),
 })
 
 # ── list_models smoke ─────────────────────────────────────────────────────
