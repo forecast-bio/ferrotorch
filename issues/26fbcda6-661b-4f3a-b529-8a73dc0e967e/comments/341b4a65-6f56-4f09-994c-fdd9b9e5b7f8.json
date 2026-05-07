@@ -1,0 +1,10 @@
+{
+  "uuid": "341b4a65-6f56-4f09-994c-fdd9b9e5b7f8",
+  "issue_uuid": "26fbcda6-661b-4f3a-b529-8a73dc0e967e",
+  "author": "y4rr",
+  "content": "Verified VD.1 (#964 Mask R-CNN) and VD.2 (#965 SSD) are both still open. Per cleanup policy: leaving #456 open until both land. Faster R-CNN is done (#961 closed). Blocking on #964 and #965.",
+  "created_at": "2026-05-07T22:58:41.385165430Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAfLY5qSSnJzczEy1yRfiP57VY6NSKxCKTL30nZQH6Q8/odnumfQfD1qXLt3tKWtqanHzNju14N6jSD+j60r4/CA=="
+}
