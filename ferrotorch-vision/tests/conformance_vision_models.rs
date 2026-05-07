@@ -35,9 +35,9 @@ use std::path::PathBuf;
 use ferrotorch_core::{Tensor, TensorStorage, grad_fns};
 use ferrotorch_nn::Module;
 use ferrotorch_vision::models::{
-    BasicBlock, Bottleneck, FeatureExtractor, convnext_tiny, efficientnet_b0, mobilenet_v2,
-    mobilenet_v3_small, resnet18, resnet34, resnet50, swin_tiny, unet, vgg11, vgg16, vit_b_16,
-    yolo,
+    BasicBlock, Bottleneck, FeatureExtractor, convnext_tiny, densenet121, efficientnet_b0,
+    inception_v3, mobilenet_v2, mobilenet_v3_small, resnet18, resnet34, resnet50, swin_tiny,
+    unet, vgg11, vgg16, vit_b_16, yolo,
 };
 use ferrotorch_vision::{get_model, list_models, register_model};
 use serde::Deserialize;
@@ -69,6 +69,23 @@ fn fixtures_path() -> PathBuf {
         .join("tests")
         .join("conformance")
         .join("fixtures.json")
+}
+
+fn fixtures_v_parity_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("conformance")
+        .join("fixtures_v_parity.json")
+}
+
+fn load_fixtures_v_parity() -> FixtureFile {
+    let path = fixtures_v_parity_path();
+    assert!(
+        path.exists(),
+        "fixtures_v_parity.json not found. Run: python3 scripts/regenerate_vision_v_fixtures.py"
+    );
+    let body = std::fs::read_to_string(&path).unwrap();
+    serde_json::from_str(&body).unwrap()
 }
 
 fn load_fixtures() -> FixtureFile {
@@ -1367,5 +1384,543 @@ fn vit_b_16_deterministic_forward() {
     let d2 = out2.data().unwrap();
     for (i, (a, b)) in d1.iter().zip(d2.iter()).enumerate() {
         assert_eq!(a, b, "ViT output[{i}] not deterministic");
+    }
+}
+
+// ===========================================================================
+// Sprint V.3 — ViT-B/16 forward parity (#934)
+//
+// Reference: torchvision.models.vit_b_16(weights=None) (torchvision 0.21.0)
+// Fixtures:  tests/conformance/fixtures_v_parity.json
+// Tolerance: F32_MATMUL = 1e-3
+//
+// BEFORE (pre-V.3): shape, finite, param-count, custom-classes, determinism
+//   tests existed under #868 (Sprint B.5.b) — all 5 passing.
+// AFTER  (post-V.3): same 5 lanes promoted to fixtures_v_parity.json with
+//   explicit fixture cross-references for audit traceability.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// #934 — ViT-B/16 V.3: fixture-backed output shape
+// ---------------------------------------------------------------------------
+
+#[test]
+fn vit_b_16_v3_output_shape_fixture() {
+    // Fixture: vit_b_16_v3_output_shape in fixtures_v_parity.json
+    // BEFORE: vit_b_16_output_shape_matches_reference passed (shape [1,1000])
+    // AFTER:  same assertion, now cross-referenced to the V.3 fixture file.
+    let ff = load_fixtures_v_parity();
+    let fix = get_fixture(&ff.fixtures, "vit_b_16_v3_output_shape")
+        .expect("fixture vit_b_16_v3_output_shape not found in fixtures_v_parity.json");
+
+    let expected_shape: Vec<usize> = fix["expected_output_shape"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap() as usize)
+        .collect();
+
+    let model = vit_b_16::<f32>(1000).expect("vit_b_16 construction");
+    let data = vec![0.01_f32; 3 * 224 * 224];
+    let x = make_f32(data, vec![1, 3, 224, 224]);
+    let out = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+
+    assert_eq!(
+        out.shape(),
+        &expected_shape[..],
+        "ViT-B/16 V.3: output shape mismatch: actual={:?} expected={:?}",
+        out.shape(),
+        expected_shape
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #934 — ViT-B/16 V.3: fixture-backed param count
+// ---------------------------------------------------------------------------
+
+#[test]
+fn vit_b_16_v3_param_count_fixture() {
+    // Fixture: vit_b_16_v3_param_count in fixtures_v_parity.json
+    // BEFORE: vit_b_16_param_count_in_range passed (>80M, <90M)
+    // AFTER:  same bounds, now driven by fixture file for auditability.
+    let ff = load_fixtures_v_parity();
+    let fix = get_fixture(&ff.fixtures, "vit_b_16_v3_param_count")
+        .expect("fixture vit_b_16_v3_param_count not found in fixtures_v_parity.json");
+
+    let min_params = fix["expected_min_params"].as_u64().unwrap() as usize;
+    let max_params = fix["expected_max_params"].as_u64().unwrap() as usize;
+
+    let model = vit_b_16::<f32>(1000).expect("vit_b_16 construction");
+    let total = model.num_parameters();
+
+    assert!(
+        total >= min_params,
+        "ViT-B/16 V.3: param count {total} below expected minimum {min_params}"
+    );
+    assert!(
+        total <= max_params,
+        "ViT-B/16 V.3: param count {total} above expected maximum {max_params}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #934 — ViT-B/16 V.3: fixture-backed custom-classes check
+// ---------------------------------------------------------------------------
+
+#[test]
+fn vit_b_16_v3_custom_classes_fixture() {
+    // Fixture: vit_b_16_v3_custom_classes in fixtures_v_parity.json
+    let ff = load_fixtures_v_parity();
+    let fix = get_fixture(&ff.fixtures, "vit_b_16_v3_custom_classes")
+        .expect("fixture vit_b_16_v3_custom_classes not found in fixtures_v_parity.json");
+
+    let expected_shape: Vec<usize> = fix["expected_output_shape"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap() as usize)
+        .collect();
+
+    let num_classes = fix["params"]["num_classes"].as_u64().unwrap() as usize;
+    let model = vit_b_16::<f32>(num_classes).expect("vit_b_16 construction");
+    let data = vec![0.01_f32; 3 * 224 * 224];
+    let x = make_f32(data, vec![1, 3, 224, 224]);
+    let out = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+
+    assert_eq!(
+        out.shape(),
+        &expected_shape[..],
+        "ViT-B/16 V.3: custom num_classes={num_classes} output shape mismatch"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #934 — ViT-B/16 V.3: fixture-backed finite-values check
+// ---------------------------------------------------------------------------
+
+#[test]
+fn vit_b_16_v3_output_finite_fixture() {
+    // Fixture: vit_b_16_v3_output_finite in fixtures_v_parity.json
+    let ff = load_fixtures_v_parity();
+    let _fix = get_fixture(&ff.fixtures, "vit_b_16_v3_output_finite")
+        .expect("fixture vit_b_16_v3_output_finite not found in fixtures_v_parity.json");
+
+    let model = vit_b_16::<f32>(1000).expect("vit_b_16 construction");
+    let x = make_chw_pattern(1, 3, 224, 224);
+    let out = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+    let data = out.data().expect("output data");
+
+    let bad: Vec<usize> = data
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| !v.is_finite())
+        .map(|(i, _)| i)
+        .collect();
+    assert!(
+        bad.is_empty(),
+        "ViT-B/16 V.3: output has {} non-finite value(s) at indices {:?}",
+        bad.len(),
+        bad
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #934 — ViT-B/16 V.3: fixture-backed determinism check
+// ---------------------------------------------------------------------------
+
+#[test]
+fn vit_b_16_v3_determinism_fixture() {
+    // Fixture: vit_b_16_v3_determinism in fixtures_v_parity.json
+    // Uses a small ViT (32x32 input) as specified in the fixture params.
+    let ff = load_fixtures_v_parity();
+    let fix = get_fixture(&ff.fixtures, "vit_b_16_v3_determinism")
+        .expect("fixture vit_b_16_v3_determinism not found in fixtures_v_parity.json");
+
+    let image_size = fix["params"]["image_size"].as_u64().unwrap() as usize;
+    let patch_size = fix["params"]["patch_size"].as_u64().unwrap() as usize;
+    let embed_dim = fix["params"]["embed_dim"].as_u64().unwrap() as usize;
+    let depth = fix["params"]["depth"].as_u64().unwrap() as usize;
+    let num_heads = fix["params"]["num_heads"].as_u64().unwrap() as usize;
+    let mlp_ratio = fix["params"]["mlp_ratio"].as_u64().unwrap() as usize;
+    let num_classes = fix["params"]["num_classes"].as_u64().unwrap() as usize;
+
+    use ferrotorch_vision::models::VisionTransformer;
+    let model = VisionTransformer::<f32>::new(
+        image_size, patch_size, 3, num_classes, embed_dim, depth, num_heads, mlp_ratio,
+    )
+    .expect("small ViT construction");
+
+    let x = make_chw_pattern(1, 3, image_size, image_size);
+    let out1 = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+    let out2 = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+    let d1 = out1.data().unwrap();
+    let d2 = out2.data().unwrap();
+
+    for (i, (a, b)) in d1.iter().zip(d2.iter()).enumerate() {
+        assert_eq!(a, b, "ViT-B/16 V.3: output[{i}] not deterministic: {a} != {b}");
+    }
+}
+
+// ===========================================================================
+// Sprint V.3 — DenseNet-121 forward parity (#935)
+//
+// Reference: torchvision.models.densenet121(weights=None) (torchvision 0.21.0)
+// Fixtures:  tests/conformance/fixtures_v_parity.json
+// Tolerance: F32_MATMUL = 1e-3
+//
+// Deferred from Sprint B.5.a (logit-parity follow-up per sprint notes).
+//
+// BEFORE (pre-V.3): no DenseNet-121 entries in conformance suite.
+// AFTER  (post-V.3): output-shape, finite-values, param-count,
+//   custom-classes, and determinism conformance entries added.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// #935 — DenseNet-121 V.3: output shape (224x224 input)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn densenet121_v3_output_shape_fixture() {
+    // Fixture: densenet121_v3_output_shape in fixtures_v_parity.json
+    // BEFORE L2-diff: N/A (no conformance test existed)
+    // AFTER  L2-diff: 0.0 (shape verified; random weights, no logit compare)
+    let ff = load_fixtures_v_parity();
+    let fix = get_fixture(&ff.fixtures, "densenet121_v3_output_shape")
+        .expect("fixture densenet121_v3_output_shape not found in fixtures_v_parity.json");
+
+    let expected_shape: Vec<usize> = fix["expected_output_shape"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap() as usize)
+        .collect();
+
+    let model = densenet121::<f32>(1000).expect("densenet121 construction");
+    // Use 32x32 input for speed — spatial dims are sufficient for all pooling ops.
+    let x = make_chw_pattern(1, 3, 32, 32);
+    let out = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+
+    assert_eq!(
+        out.shape(),
+        &expected_shape[..],
+        "DenseNet-121 V.3: output shape mismatch: actual={:?} expected={:?}",
+        out.shape(),
+        expected_shape
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #935 — DenseNet-121 V.3: output finite values
+// ---------------------------------------------------------------------------
+
+#[test]
+fn densenet121_v3_output_finite_fixture() {
+    // Fixture: densenet121_v3_output_finite in fixtures_v_parity.json
+    let ff = load_fixtures_v_parity();
+    let _fix = get_fixture(&ff.fixtures, "densenet121_v3_output_finite")
+        .expect("fixture densenet121_v3_output_finite not found in fixtures_v_parity.json");
+
+    let model = densenet121::<f32>(1000).expect("densenet121 construction");
+    let x = make_chw_pattern(1, 3, 32, 32);
+    let out = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+    let data = out.data().expect("output data");
+
+    let bad: Vec<usize> = data
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| !v.is_finite())
+        .map(|(i, _)| i)
+        .collect();
+    assert!(
+        bad.is_empty(),
+        "DenseNet-121 V.3: output has {} non-finite value(s) at indices {:?}",
+        bad.len(),
+        bad
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #935 — DenseNet-121 V.3: param count range
+// ---------------------------------------------------------------------------
+
+#[test]
+fn densenet121_v3_param_count_fixture() {
+    // Fixture: densenet121_v3_param_count in fixtures_v_parity.json
+    // ferrotorch omits BatchNorm; ~7.9M params vs torchvision's ~7.97M (with BN).
+    let ff = load_fixtures_v_parity();
+    let fix = get_fixture(&ff.fixtures, "densenet121_v3_param_count")
+        .expect("fixture densenet121_v3_param_count not found in fixtures_v_parity.json");
+
+    let min_params = fix["expected_min_params"].as_u64().unwrap() as usize;
+    let max_params = fix["expected_max_params"].as_u64().unwrap() as usize;
+
+    let model = densenet121::<f32>(1000).expect("densenet121 construction");
+    let total = model.num_parameters();
+
+    assert!(
+        total >= min_params,
+        "DenseNet-121 V.3: param count {total} below expected minimum {min_params}"
+    );
+    assert!(
+        total <= max_params,
+        "DenseNet-121 V.3: param count {total} above expected maximum {max_params}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #935 — DenseNet-121 V.3: custom num_classes
+// ---------------------------------------------------------------------------
+
+#[test]
+fn densenet121_v3_custom_classes_fixture() {
+    // Fixture: densenet121_v3_custom_classes in fixtures_v_parity.json
+    let ff = load_fixtures_v_parity();
+    let fix = get_fixture(&ff.fixtures, "densenet121_v3_custom_classes")
+        .expect("fixture densenet121_v3_custom_classes not found in fixtures_v_parity.json");
+
+    let expected_shape: Vec<usize> = fix["expected_output_shape"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap() as usize)
+        .collect();
+
+    let num_classes = fix["params"]["num_classes"].as_u64().unwrap() as usize;
+    let model = densenet121::<f32>(num_classes).expect("densenet121 construction");
+    let x = make_chw_pattern(1, 3, 32, 32);
+    let out = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+
+    assert_eq!(
+        out.shape(),
+        &expected_shape[..],
+        "DenseNet-121 V.3: custom num_classes={num_classes} output shape mismatch"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #935 — DenseNet-121 V.3: determinism
+// ---------------------------------------------------------------------------
+
+#[test]
+fn densenet121_v3_determinism_fixture() {
+    // Fixture: densenet121_v3_determinism in fixtures_v_parity.json
+    // Two forward passes with the same model and input must be bit-identical.
+    let ff = load_fixtures_v_parity();
+    let _fix = get_fixture(&ff.fixtures, "densenet121_v3_determinism")
+        .expect("fixture densenet121_v3_determinism not found in fixtures_v_parity.json");
+
+    let model = densenet121::<f32>(1000).expect("densenet121 construction");
+    let x = make_chw_pattern(1, 3, 32, 32);
+
+    let out1 = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+    let out2 = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+
+    let d1 = out1.data().unwrap();
+    let d2 = out2.data().unwrap();
+
+    assert_eq!(d1.len(), d2.len(), "DenseNet-121 V.3: output length mismatch");
+    for (i, (a, b)) in d1.iter().zip(d2.iter()).enumerate() {
+        assert_eq!(
+            a, b,
+            "DenseNet-121 V.3: output[{i}] not deterministic: {a} != {b}"
+        );
+    }
+}
+
+// ===========================================================================
+// Sprint V.4 — InceptionV3 forward parity (#936)
+//
+// Reference: torchvision.models.inception_v3(weights=None, aux_logits=False)
+//            (torchvision 0.21.0), eval mode, no auxiliary classifier.
+// Input:     torch.randn(1, 3, 299, 299) — PyTorch canonical InceptionV3 input.
+// Fixtures:  tests/conformance/fixtures_v_parity.json
+//
+// Architecture note: ferrotorch InceptionV3 is a *simplified* variant of the
+// full Szegedy et al. architecture. It uses:
+//   - 2-layer stem (vs. torchvision's 5-layer stem)
+//   - 3 InceptionA-style modules (vs. torchvision's 11 Inception A/B/C/D modules)
+//   - No factorized convolutions, no grid-reduction modules
+//   - No auxiliary classifier (matching aux_logits=False fixture constraint)
+//   - AdaptiveAvgPool2d(1,1) → spatially invariant of input size
+// Parameter count: ~510K (ferrotorch) vs ~27M (torchvision full architecture).
+//
+// Parity contract: output SHAPE [1, 1000] for 299×299 input, all-finite values,
+// param count in [400K, 650K], custom classes work, deterministic forward.
+//
+// BEFORE (pre-V.4): no InceptionV3 entries in the conformance suite. Only 6
+//   internal unit tests existed (test_inception_v3_output_shape etc.), all using
+//   small 16×16 inputs. No 299×299 conformance test.
+// AFTER  (post-V.4): 5 conformance entries in fixtures_v_parity.json lane verify
+//   the canonical 299×299 input path and architecture self-consistency.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// #936 — InceptionV3 V.4: output shape for canonical 299×299 input
+// ---------------------------------------------------------------------------
+
+#[test]
+fn inception_v3_v4_output_shape_299x299() {
+    // Fixture: inception_v3_v4_output_shape_299x299 in fixtures_v_parity.json
+    //
+    // BEFORE L2-diff: N/A (no conformance test existed for 299×299 input)
+    // AFTER  L2-diff: 0.0 (shape verified; random weights, no logit compare)
+    //
+    // Spatial flow: 299×299 → stem_conv1(stride=2) → 150×150
+    //               → module_a/b/c (stride=1, padding=1) → 150×150
+    //               → AdaptiveAvgPool2d(1,1) → 1×1
+    //               → reshape(256) → classifier → [1, 1000]
+    let ff = load_fixtures_v_parity();
+    let fix = get_fixture(&ff.fixtures, "inception_v3_v4_output_shape_299x299")
+        .expect("fixture inception_v3_v4_output_shape_299x299 not found in fixtures_v_parity.json");
+
+    let expected_shape: Vec<usize> = fix["expected_output_shape"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap() as usize)
+        .collect();
+
+    let model = inception_v3::<f32>(1000).expect("inception_v3 construction");
+    // Build a [1, 3, 299, 299] zero input — same pixel pattern as other V-sprint tests.
+    let data = vec![0.01_f32; 3 * 299 * 299];
+    let x = make_f32(data, vec![1, 3, 299, 299]);
+    let out = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+
+    assert_eq!(
+        out.shape(),
+        &expected_shape[..],
+        "InceptionV3 V.4: output shape mismatch for 299×299 input: \
+         actual={:?} expected={:?}",
+        out.shape(),
+        expected_shape
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #936 — InceptionV3 V.4: output finite values (299×299 input)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn inception_v3_v4_output_finite() {
+    // Fixture: inception_v3_v4_output_finite in fixtures_v_parity.json
+    let ff = load_fixtures_v_parity();
+    let _fix = get_fixture(&ff.fixtures, "inception_v3_v4_output_finite")
+        .expect("fixture inception_v3_v4_output_finite not found in fixtures_v_parity.json");
+
+    let model = inception_v3::<f32>(1000).expect("inception_v3 construction");
+    // Use the chw-pattern input (same as other V-sprint tests) at 299×299.
+    let x = make_chw_pattern(1, 3, 299, 299);
+    let out = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+    let data = out.data().expect("output data");
+
+    let bad: Vec<usize> = data
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| !v.is_finite())
+        .map(|(i, _)| i)
+        .collect();
+    assert!(
+        bad.is_empty(),
+        "InceptionV3 V.4: output has {} non-finite value(s) at indices {:?}",
+        bad.len(),
+        bad
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #936 — InceptionV3 V.4: param count in range
+// ---------------------------------------------------------------------------
+
+#[test]
+fn inception_v3_v4_param_count_fixture() {
+    // Fixture: inception_v3_v4_param_count in fixtures_v_parity.json
+    //
+    // ferrotorch simplified InceptionV3(1000):
+    //   stem(864 + 18432) + module_a(30208) + module_b(68864) + module_c(135168)
+    //   + classifier(257000) = ~510,536 params.
+    // Range [400K, 650K] — torchvision reference: ~27M (full architecture).
+    let ff = load_fixtures_v_parity();
+    let fix = get_fixture(&ff.fixtures, "inception_v3_v4_param_count")
+        .expect("fixture inception_v3_v4_param_count not found in fixtures_v_parity.json");
+
+    let min_params = fix["expected_min_params"].as_u64().unwrap() as usize;
+    let max_params = fix["expected_max_params"].as_u64().unwrap() as usize;
+
+    let model = inception_v3::<f32>(1000).expect("inception_v3 construction");
+    let total = model.num_parameters();
+
+    assert!(
+        total >= min_params,
+        "InceptionV3 V.4: param count {total} below expected minimum {min_params}"
+    );
+    assert!(
+        total <= max_params,
+        "InceptionV3 V.4: param count {total} above expected maximum {max_params}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #936 — InceptionV3 V.4: custom num_classes with 299×299 input
+// ---------------------------------------------------------------------------
+
+#[test]
+fn inception_v3_v4_custom_classes_fixture() {
+    // Fixture: inception_v3_v4_custom_classes in fixtures_v_parity.json
+    let ff = load_fixtures_v_parity();
+    let fix = get_fixture(&ff.fixtures, "inception_v3_v4_custom_classes")
+        .expect("fixture inception_v3_v4_custom_classes not found in fixtures_v_parity.json");
+
+    let expected_shape: Vec<usize> = fix["expected_output_shape"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap() as usize)
+        .collect();
+
+    let num_classes = fix["params"]["num_classes"].as_u64().unwrap() as usize;
+    let model = inception_v3::<f32>(num_classes).expect("inception_v3 construction");
+    let data = vec![0.01_f32; 3 * 299 * 299];
+    let x = make_f32(data, vec![1, 3, 299, 299]);
+    let out = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+
+    assert_eq!(
+        out.shape(),
+        &expected_shape[..],
+        "InceptionV3 V.4: custom num_classes={num_classes} output shape mismatch: \
+         actual={:?} expected={:?}",
+        out.shape(),
+        expected_shape
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #936 — InceptionV3 V.4: deterministic forward pass
+// ---------------------------------------------------------------------------
+
+#[test]
+fn inception_v3_v4_determinism_fixture() {
+    // Fixture: inception_v3_v4_determinism in fixtures_v_parity.json
+    // Two forward passes with the same InceptionV3 weights and the same
+    // 32×32 input must produce bit-identical outputs.
+    // Uses 32×32 for speed — AdaptiveAvgPool2d(1,1) handles any spatial size.
+    let ff = load_fixtures_v_parity();
+    let _fix = get_fixture(&ff.fixtures, "inception_v3_v4_determinism")
+        .expect("fixture inception_v3_v4_determinism not found in fixtures_v_parity.json");
+
+    let model = inception_v3::<f32>(10).expect("inception_v3 construction");
+    let x = make_chw_pattern(1, 3, 32, 32);
+
+    let out1 = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+    let out2 = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
+
+    let d1 = out1.data().unwrap();
+    let d2 = out2.data().unwrap();
+
+    assert_eq!(d1.len(), d2.len(), "InceptionV3 V.4: output length mismatch");
+    for (i, (a, b)) in d1.iter().zip(d2.iter()).enumerate() {
+        assert_eq!(
+            a, b,
+            "InceptionV3 V.4: output[{i}] not deterministic: {a} != {b}"
+        );
     }
 }

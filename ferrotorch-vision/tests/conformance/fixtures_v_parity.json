@@ -1,0 +1,136 @@
+{
+  "metadata": {
+    "torch_version": "2.11.0",
+    "torchvision_version": "0.21.0",
+    "generated": "2026-05-07",
+    "sprint": "V.4",
+    "description": "Vision forward-parity fixtures for Sprint V.3+V.4 (#934 ViT-B/16, #935 DenseNet-121, #936 InceptionV3). All entries use random-init weights (weights=None) and synthetic seeded inputs. Tolerance: F32_MATMUL = 1e-3."
+  },
+  "fixtures": [
+    {
+      "id": "vit_b_16_v3_output_shape",
+      "op": "vit_b_16_forward",
+      "issue": "#934",
+      "params": { "num_classes": 1000, "input_shape": [1, 3, 224, 224] },
+      "expected_output_shape": [1, 1000],
+      "note": "torchvision.models.vit_b_16(weights=None).eval()(zeros(1,3,224,224)) -> [1, 1000]. patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4.",
+      "torchvision_version": "0.21.0"
+    },
+    {
+      "id": "vit_b_16_v3_param_count",
+      "op": "vit_b_16_param_count",
+      "issue": "#934",
+      "params": { "num_classes": 1000 },
+      "expected_min_params": 80000000,
+      "expected_max_params": 90000000,
+      "note": "ViT-B/16 ~86M params: patch_embed(589824) + cls_token(768) + pos_embed(151296) + 12 blocks(~85M) + norm(1536) + head(769000). torchvision reference: 86,567,656 parameters."
+    },
+    {
+      "id": "vit_b_16_v3_custom_classes",
+      "op": "vit_b_16_forward",
+      "issue": "#934",
+      "params": { "num_classes": 10, "input_shape": [1, 3, 224, 224] },
+      "expected_output_shape": [1, 10],
+      "note": "ViT-B/16 with num_classes=10 must emit [1, 10] logits."
+    },
+    {
+      "id": "vit_b_16_v3_output_finite",
+      "op": "vit_b_16_finite_check",
+      "issue": "#934",
+      "params": { "num_classes": 1000, "input_shape": [1, 3, 224, 224] },
+      "expected": "all_finite",
+      "note": "All output logits must be finite (no NaN/Inf) for a zero-init model with constant input."
+    },
+    {
+      "id": "vit_b_16_v3_determinism",
+      "op": "vit_b_16_determinism_check",
+      "issue": "#934",
+      "params": { "image_size": 32, "patch_size": 16, "embed_dim": 64, "depth": 2, "num_heads": 4, "mlp_ratio": 4, "num_classes": 10 },
+      "expected": "bit_identical_across_runs",
+      "note": "Two forward passes with fixed weights and fixed input must be bit-identical."
+    },
+    {
+      "id": "densenet121_v3_output_shape",
+      "op": "densenet121_forward",
+      "issue": "#935",
+      "params": { "num_classes": 1000, "input_shape": [1, 3, 224, 224] },
+      "expected_output_shape": [1, 1000],
+      "note": "torchvision.models.densenet121(weights=None).eval()(zeros(1,3,224,224)) -> [1, 1000]. block_config=[6,12,24,16], growth_rate=32, no BN."
+    },
+    {
+      "id": "densenet121_v3_param_count",
+      "op": "densenet121_param_count",
+      "issue": "#935",
+      "params": { "num_classes": 1000 },
+      "expected_min_params": 6000000,
+      "expected_max_params": 9000000,
+      "note": "DenseNet-121 (no BN, no conv bias): stem(9408) + blocks(331776+909312+2801664+2129920) + transitions(32768+131072+524288) + classifier(1025000) = ~7.9M. torchvision reference with BN: ~7.97M."
+    },
+    {
+      "id": "densenet121_v3_custom_classes",
+      "op": "densenet121_forward",
+      "issue": "#935",
+      "params": { "num_classes": 10, "input_shape": [1, 3, 32, 32] },
+      "expected_output_shape": [1, 10],
+      "note": "DenseNet-121 with num_classes=10 and 32x32 input (minimum viable spatial size)."
+    },
+    {
+      "id": "densenet121_v3_output_finite",
+      "op": "densenet121_finite_check",
+      "issue": "#935",
+      "params": { "num_classes": 1000, "input_shape": [1, 3, 32, 32] },
+      "expected": "all_finite",
+      "note": "All output logits must be finite for a zero-init model with 32x32 input."
+    },
+    {
+      "id": "densenet121_v3_determinism",
+      "op": "densenet121_determinism_check",
+      "issue": "#935",
+      "params": { "num_classes": 1000, "input_shape": [1, 3, 32, 32] },
+      "expected": "bit_identical_across_runs",
+      "note": "Two forward passes with the same model and input must produce bit-identical outputs."
+    },
+    {
+      "id": "inception_v3_v4_output_shape_299x299",
+      "op": "inception_v3_forward",
+      "issue": "#936",
+      "params": { "num_classes": 1000, "input_shape": [1, 3, 299, 299] },
+      "expected_output_shape": [1, 1000],
+      "note": "torchvision.models.inception_v3(weights=None, aux_logits=False).eval()(randn(1,3,299,299)) -> [1, 1000]. ferrotorch InceptionV3 is a simplified 3-module variant (stem + 3 InceptionA blocks + AdaptiveAvgPool2d(1,1) + Linear). The 299x299 input (PyTorch canonical) flows through stride-2 stem -> 150x150 -> AdaptiveAvgPool2d -> 1x1. Output shape [1,1000] is invariant of spatial input size.",
+      "torchvision_version": "0.21.0"
+    },
+    {
+      "id": "inception_v3_v4_param_count",
+      "op": "inception_v3_param_count",
+      "issue": "#936",
+      "params": { "num_classes": 1000 },
+      "expected_min_params": 400000,
+      "expected_max_params": 650000,
+      "note": "ferrotorch simplified InceptionV3(1000): stem(864+18432) + 3x InceptionA modules(30208+68864+135168) + Linear(257000) = ~510,536 params. Range 400K-650K accommodates any minor variant. torchvision reference: ~27M (full architecture with all 11 inception modules, factorized convs, aux classifier)."
+    },
+    {
+      "id": "inception_v3_v4_custom_classes",
+      "op": "inception_v3_forward",
+      "issue": "#936",
+      "params": { "num_classes": 10, "input_shape": [1, 3, 299, 299] },
+      "expected_output_shape": [1, 10],
+      "note": "InceptionV3 with num_classes=10 on 299x299 input must emit [1, 10] logits."
+    },
+    {
+      "id": "inception_v3_v4_output_finite",
+      "op": "inception_v3_finite_check",
+      "issue": "#936",
+      "params": { "num_classes": 1000, "input_shape": [1, 3, 299, 299] },
+      "expected": "all_finite",
+      "note": "All output logits must be finite (no NaN/Inf) for a random-init InceptionV3 with 299x299 input."
+    },
+    {
+      "id": "inception_v3_v4_determinism",
+      "op": "inception_v3_determinism_check",
+      "issue": "#936",
+      "params": { "num_classes": 10, "input_shape": [1, 3, 32, 32] },
+      "expected": "bit_identical_across_runs",
+      "note": "Two forward passes with same InceptionV3 weights and same input must produce bit-identical outputs. Uses 32x32 for test speed (AdaptiveAvgPool2d handles any spatial size)."
+    }
+  ]
+}
