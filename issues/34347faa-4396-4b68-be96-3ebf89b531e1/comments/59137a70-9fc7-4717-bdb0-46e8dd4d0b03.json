@@ -1,0 +1,10 @@
+{
+  "uuid": "59137a70-9fc7-4717-bdb0-46e8dd4d0b03",
+  "issue_uuid": "34347faa-4396-4b68-be96-3ebf89b531e1",
+  "author": "y4rr",
+  "content": "Decision: Using catch_unwind(|| CubeRuntime::new(CubeDevice::Wgpu(0)).is_ok()) as the probe. Alternatives considered: (1) wgpu::Instance::new + enumerate_adapters + filter by vendor 0x8086 — requires adding wgpu as a direct dep and async executor; (2) CubeRuntime::auto() — returns Some when any adapter available, not Intel-specific; (3) catch_unwind(CubeRuntime::new) — reuses existing imports, no new deps, matches the xpu() helper pattern in tests. Chose option 3: consistent with how hardware absence is already handled, minimal diff, no new deps. Note: CubeRuntime::new on wgpu panics in the worker thread when no Vulkan adapter exists (WSL2 path), so catch_unwind is required. After fix, is_available() → false on this box because CubeRuntime::new panics → catch_unwind returns Err → is_ok() = false.",
+  "created_at": "2026-05-07T17:48:06.357429660Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA4/aegzZJtfvMaGTKCGqgtFKZD74eAKjLSG2S2sZgRA5kMcC6+DqWvWl7CrQjXkhjxK12Sa66liSlV235S8zMBA=="
+}
