@@ -1,0 +1,10 @@
+{
+  "uuid": "dd5ee71d-c859-4c1f-a3be-f7b35e354a95",
+  "issue_uuid": "f7d62e93-edf5-472a-8fbd-9c1060aad44b",
+  "author": "y4rr",
+  "content": "Plan: IO round-trip conformance (#871). PNG is lossless (exact byte match already tested). JPEG is lossy — need tolerance test: write tensor as JPEG, read back, verify values within quantization tolerance (~10/255 for JPEG quality 75-95). Also add raw tensor binary round-trip (write f32 values to file, read back, verify exact). Existing conformance_vision_io.rs already covers PNG round-trip; extend it with JPEG tolerance test.",
+  "created_at": "2026-05-07T19:54:15.815702088Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAOWXijuOglshGn7RDZ+fVNfQXVM+fuTFdBuraJIsa6/1VZeaAOt0IuPWJfxc3SyuSfoHJle95BDC2SZij6C6dBQ=="
+}
