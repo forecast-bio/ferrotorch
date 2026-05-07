@@ -2,11 +2,12 @@
   "uuid": "136f9b78-bcfa-4aa1-a295-bcf9f2f885d5",
   "display_id": 935,
   "title": "Add DenseNet121 full forward parity conformance test",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T19:50:30.998934151Z",
-  "updated_at": "2026-05-07T19:50:33.865406195Z",
+  "updated_at": "2026-05-07T22:57:27.237361259Z",
+  "closed_at": "2026-05-07T22:57:27.237361259Z",
   "labels": [
     "feature"
   ]
