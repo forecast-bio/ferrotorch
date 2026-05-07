@@ -1,0 +1,10 @@
+{
+  "uuid": "3fd61c4c-4a53-46ca-b15d-02f19b1c84c5",
+  "issue_uuid": "b4c4fbc5-e4ed-4e72-b74e-bc7d3c435234",
+  "author": "y4rr",
+  "content": "Decision: FPN outputs p2-p6 (five levels) matching torchvision BackboneWithFPN defaults. P6 is a 3x3 maxpool on P5 with stride 2, not a separate conv level. This matches torchvision exactly. Alternative was to stop at P5 but that would miss the extra anchor scale used for large objects.",
+  "created_at": "2026-05-07T21:27:56.261490331Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA9mMPydEJ0+LNvOUK7ddYTnfyD5x75shuhiFgAcK9PcsFB9URBTaRwhRHDP1pv5MzdUYyjfoWZS1UaaKU+7JxBQ=="
+}
