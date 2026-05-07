@@ -1,0 +1,10 @@
+{
+  "uuid": "cd88e04b-b1a0-4bae-8728-53072bf0f5f4",
+  "issue_uuid": "14e9b06a-4347-40fd-bb3a-270400b770b7",
+  "author": "y4rr",
+  "content": "Duplicate of #964 (closed). VD.1 subagent filed this as a fresh tracking issue when it should have used the existing #964. Mask R-CNN ResNet-50 FPN was delivered in commit 27159e1c with full conformance coverage.",
+  "created_at": "2026-05-07T23:22:09.660356298Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAj8S7T5ROq5slYcKfez59SI+byrkIeAWSM5k86yiOQfFYEc/3J1gvqYuqZfpU9qUQqfaFeYhpFWd6dylXMMI4Cw=="
+}
