@@ -1,0 +1,10 @@
+{
+  "uuid": "899dabef-28e1-465d-a620-9c26e22c3ed6",
+  "display_id": 955,
+  "title": "Add MSL kernels for MPS embedding ops: embed_lookup, embed_lookup_batch",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T21:09:34.415527040Z",
+  "updated_at": "2026-05-07T21:09:34.415527040Z"
+}
