@@ -1,0 +1,10 @@
+{
+  "uuid": "1419f01d-a901-49d8-bb7e-474733cdceb2",
+  "issue_uuid": "6d02c98f-b05d-43cc-b909-f285b85cd4a2",
+  "author": "y4rr",
+  "content": "Decision: Use objc2-metal 0.3.2 (already in Cargo.lock transitively). Added as direct dep gated by [target.'cfg(target_os=\"macos\")'.dependencies] so it does not introduce any new transitive deps and the WSL2 build stays clean. Alternative was metal-rs crate — rejected because objc2-metal is already present and provides idiomatic Rust bindings for the exact same Metal API surface.",
+  "created_at": "2026-05-07T21:00:31.850002082Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA6nbtAYcvyxtWdFnL9VpStnQlviwIFVPu18jEDTjPpxcKqzRtRRbI2aOBLipdX/W31YiuDXp5vBhnnqHMqxKCBw=="
+}
