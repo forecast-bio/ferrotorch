@@ -1,0 +1,10 @@
+{
+  "uuid": "7e9c4f3d-1ce2-4714-99c6-9c163d17430f",
+  "issue_uuid": "cb02a74c-10bc-4165-a106-e1e87d7540cd",
+  "author": "y4rr",
+  "content": "Observation: the ferrotorch-optim/tests/ directory contains pre-existing stub files for future sub-phases that were not authored by this dispatch:\n- conformance_optim_adam_family.rs (C6.2) — has 2 clippy errors: unused cascade_skip macro (needs #[allow(unused_macros)]), needless_range_loop\n- conformance_optim_advanced.rs (C6.3) — has ~20 compile errors: #[non_exhaustive] struct literals, private field access via .params, type mismatch in 1 test, non-constant in array size\n- conformance_optim_schedulers.rs (C6.4) — not checked in detail\n- conformance_surface_coverage.rs — not checked in detail\n\nThese are NOT regressions introduced by C6.1. They pre-existed in the untracked files. C6.2-C6.4 agents will fix them. The C6.1-scoped clippy target (--test conformance_optim_sgd_family) exits 0 with -D warnings.",
+  "created_at": "2026-05-07T15:53:43.302586026Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQEAJ952NVpz2xAfWGyzOfq/27y7QG3gYYjPALaaP/0feFViKAEKRu70G4kNoIuV/Rhd+Rm3nCPfn6fuLO76qDA=="
+}
