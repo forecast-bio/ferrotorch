@@ -6,5 +6,8 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T13:35:15.302838110Z",
-  "updated_at": "2026-05-07T13:35:15.302838110Z"
+  "updated_at": "2026-05-07T13:35:16.737274991Z",
+  "labels": [
+    "rust,bug,conformance,xpu"
+  ]
 }
