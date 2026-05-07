@@ -7,6 +7,7 @@ pub mod inception;
 pub mod mobilenet;
 pub mod registry;
 pub mod resnet;
+pub mod segmentation;
 pub mod swin;
 pub mod unet;
 pub mod vgg;
@@ -27,6 +28,10 @@ pub use registry::{
 pub use detection::{
     AnchorGenerator, Detections, FPN_OUT_CHANNELS, FasterRcnn, FeaturePyramidNetwork, Rpn,
     RpnConfig, RpnHead, TwoMlpHead, fasterrcnn_resnet50_fpn,
+};
+pub use segmentation::{
+    Aspp, DeepLabV3, DeepLabV3Head, Fcn, FcnHead, ResNet50Dilated,
+    deeplabv3_resnet50, fcn_resnet50,
 };
 pub use resnet::{BasicBlock, Bottleneck, ResNet, resnet18, resnet34, resnet50};
 pub use swin::{SwinBlock, SwinTransformer, swin_tiny};

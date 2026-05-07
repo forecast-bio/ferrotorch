@@ -264,6 +264,28 @@ fn default_registry() -> ModelRegistry<f32> {
         }),
     );
 
+    // #457: DeepLabV3 + FCN segmentation models with ResNet-50 backbone.
+    // Pretrained weights are not yet published to ferrotorch-hub;
+    // `pretrained=true` will return an `Err` with a clear message until
+    // checkpoints are pinned (follow-up #457-weights).
+    registry.register_model(
+        "deeplabv3_resnet50",
+        Box::new(|pretrained, num_classes| {
+            maybe_load_pretrained(pretrained, "deeplabv3_resnet50", || {
+                super::segmentation::deeplabv3_resnet50::<f32>(num_classes)
+            })
+        }),
+    );
+
+    registry.register_model(
+        "fcn_resnet50",
+        Box::new(|pretrained, num_classes| {
+            maybe_load_pretrained(pretrained, "fcn_resnet50", || {
+                super::segmentation::fcn_resnet50::<f32>(num_classes)
+            })
+        }),
+    );
+
     registry
 }
 
@@ -445,6 +467,8 @@ mod tests {
             "densenet121",
             "inception_v3",
             "fasterrcnn_resnet50_fpn",
+            "deeplabv3_resnet50",
+            "fcn_resnet50",
         ];
         for name in canonical {
             let info = ferrotorch_hub::registry::get_model_info(name);

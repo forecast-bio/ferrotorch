@@ -1230,6 +1230,79 @@ def add_fasterrcnn_fixtures():
 add_fasterrcnn_fixtures()
 
 
+# ── segmentation: DeepLabV3 + FCN (Sprint C.2, #457) ─────────────────────────
+
+def add_segmentation_fixtures():
+    """
+    DeepLabV3 and FCN segmentation model fixtures.
+
+    Reference:
+        torchvision.models.segmentation.deeplabv3_resnet50(weights=None, num_classes=21)
+        torchvision.models.segmentation.fcn_resnet50(weights=None, num_classes=21)
+
+    We record only output *shape* fixtures (no numerical values) because the
+    models use random initialisation — numerical parity requires a shared seed
+    mechanism that torchvision doesn't expose.  The shape contracts are:
+        input  [B, 3, H, W]  →  output [B, num_classes, H, W]
+    These are the binding conformance invariants tested in
+    conformance_vision_segmentation.rs.
+    """
+    from torchvision.models.segmentation import deeplabv3_resnet50, fcn_resnet50
+
+    for model_name, model_fn in [
+        ("deeplabv3_resnet50", deeplabv3_resnet50),
+        ("fcn_resnet50", fcn_resnet50),
+    ]:
+        model = model_fn(weights=None, num_classes=21)
+        model.eval()
+
+        # Small input to keep fixture generation fast.
+        torch.manual_seed(42)
+        x = torch.randn(1, 3, 32, 32)
+        with torch.no_grad():
+            out = model(x)
+        # torchvision returns an OrderedDict; extract 'out' key.
+        if isinstance(out, dict):
+            out_tensor = out["out"]
+        else:
+            out_tensor = out
+
+        fixtures.append({
+            "id": f"{model_name}_shape_32x32",
+            "op": f"segmentation_{model_name}",
+            "input_shape": [1, 3, 32, 32],
+            "num_classes": 21,
+            "expected_shape": list(out_tensor.shape),
+            "note": (
+                "Shape-only fixture: output [B, num_classes, H, W] must equal "
+                "input spatial dims. Numerical values are random-init dependent."
+            ),
+        })
+
+        # Batch=2 check.
+        x2 = torch.randn(2, 3, 16, 16)
+        with torch.no_grad():
+            out2 = model(x2)
+        if isinstance(out2, dict):
+            out2_tensor = out2["out"]
+        else:
+            out2_tensor = out2
+        fixtures.append({
+            "id": f"{model_name}_shape_batch2_16x16",
+            "op": f"segmentation_{model_name}",
+            "input_shape": [2, 3, 16, 16],
+            "num_classes": 21,
+            "expected_shape": list(out2_tensor.shape),
+            "note": "Batch=2 shape fixture.",
+        })
+
+        print(f"  {model_name}: 32×32 → {list(out_tensor.shape)}, "
+              f"batch=2 16×16 → {list(out2_tensor.shape)}")
+
+
+add_segmentation_fixtures()
+
+
 # ---------------------------------------------------------------------------
 # Assemble and write
 # ---------------------------------------------------------------------------

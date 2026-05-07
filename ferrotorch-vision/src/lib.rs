@@ -102,9 +102,11 @@ pub use io::{
     tensor_to_raw_image, write_image, write_tensor_as_image,
 };
 pub use models::{
-    AnchorGenerator, Detections, FPN_OUT_CHANNELS, FasterRcnn, FeatureExtractor,
-    FeaturePyramidNetwork, ModelConstructor, ModelRegistry, Rpn, RpnConfig, RpnHead, TwoMlpHead,
-    create_feature_extractor, fasterrcnn_resnet50_fpn, get_model, list_models, register_model,
+    AnchorGenerator, Aspp, DeepLabV3, DeepLabV3Head, Detections, FPN_OUT_CHANNELS, FasterRcnn,
+    Fcn, FcnHead, FeatureExtractor, FeaturePyramidNetwork, ModelConstructor, ModelRegistry,
+    ResNet50Dilated, Rpn, RpnConfig, RpnHead, TwoMlpHead, create_feature_extractor,
+    deeplabv3_resnet50, fasterrcnn_resnet50_fpn, fcn_resnet50, get_model, list_models,
+    register_model,
 };
 pub use transforms::{
     CenterCrop, ColorJitter, IMAGENET_MEAN, IMAGENET_STD, RandomApply, RandomChoice,

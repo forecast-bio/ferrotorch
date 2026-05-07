@@ -221,6 +221,29 @@ static MODELS: &[ModelInfo] = &[
         // ResNet-50 (~25.6M) + FPN (~3.3M) + RPN (~1.2M) + TwoMLP head (~26M) ≈ 56M.
         num_parameters: 56_000_000,
     },
+    // #457: DeepLabV3 with ResNet-50 dilated backbone + ASPP head.
+    // No authoritative public SafeTensors checkpoint identified yet;
+    // SHA-256 is the all-zero placeholder — pretrained=true fails fast
+    // until a checkpoint is pinned (follow-up #457-weights).
+    ModelInfo {
+        name: "deeplabv3_resnet50",
+        description: "DeepLabV3 with ResNet-50 dilated backbone for semantic segmentation (#457)",
+        weights_url: "https://huggingface.co/ferrotorch/deeplabv3_resnet50/resolve/main/model.safetensors",
+        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        format: WeightsFormat::SafeTensors,
+        // ResNet-50 dilated (~25.6M) + ASPP head (~13.6M) ≈ 39M.
+        num_parameters: 39_000_000,
+    },
+    // #457: FCN with ResNet-50 backbone + FCN head.
+    ModelInfo {
+        name: "fcn_resnet50",
+        description: "FCN with ResNet-50 backbone for semantic segmentation (#457)",
+        weights_url: "https://huggingface.co/ferrotorch/fcn_resnet50/resolve/main/model.safetensors",
+        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        format: WeightsFormat::SafeTensors,
+        // ResNet-50 (~25.6M) + FCN head (~2.6M) + ResNet fc (~0.5M) ≈ 29M.
+        num_parameters: 29_000_000,
+    },
 ];
 
 /// List all available pretrained models.
@@ -308,6 +331,9 @@ mod tests {
             "mobilenet_v3_small",
             "densenet121",
             "inception_v3",
+            "fasterrcnn_resnet50_fpn",
+            "deeplabv3_resnet50",
+            "fcn_resnet50",
         ];
         for name in expected {
             assert!(

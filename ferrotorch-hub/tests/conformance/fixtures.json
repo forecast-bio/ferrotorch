@@ -604,7 +604,7 @@
     },
     {
       "op": "registry_list_models_count",
-      "expected_count": 15
+      "expected_count": 18
     },
     {
       "op": "registry_known_models",
