@@ -1,0 +1,10 @@
+{
+  "uuid": "4889e00e-75df-4516-861f-9934189e7eb4",
+  "issue_uuid": "d0170c9b-f483-47f4-96f6-84f6b4c3c312",
+  "author": "y4rr",
+  "content": "Result: Delivered Sprint V.2 SwinTransformer forward parity (#933). Added 5 fixture-backed conformance tests (swin_tiny_v2_output_shape_fixture, swin_tiny_v2_param_count_fixture, swin_tiny_v2_output_finite_fixture, swin_tiny_v2_custom_classes_fixture, swin_tiny_v2_determinism_fixture) to conformance_vision_models.rs. Extended scripts/regenerate_vision_v_fixtures.py with V.2 Swin section. Updated fixtures_v_parity.json. All 115 conformance_vision_models tests pass. Workspace build and clippy clean. No source changes to swin.rs needed.",
+  "created_at": "2026-05-07T22:50:44.267776362Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAz8k4/7knuS8JilwSNUJ/JYJkhSnSoFacTmxJu/iVu7Q/KdoanRUZhw3OJxdcHKb+BVzEXhgdVy+fQqPBAlxABQ=="
+}
