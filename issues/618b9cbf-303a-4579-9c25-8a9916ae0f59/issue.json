@@ -2,11 +2,12 @@
   "uuid": "618b9cbf-303a-4579-9c25-8a9916ae0f59",
   "display_id": 834,
   "title": "ferrotorch-xpu: live XPU chained ops device residency not conformance-tested — no Intel GPU on test box",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T13:35:01.184578619Z",
-  "updated_at": "2026-05-07T13:35:02.658026756Z",
+  "updated_at": "2026-05-07T17:50:24.732614192Z",
+  "closed_at": "2026-05-07T17:50:24.732614192Z",
   "labels": [
     "rust,bug,conformance,xpu"
   ]
