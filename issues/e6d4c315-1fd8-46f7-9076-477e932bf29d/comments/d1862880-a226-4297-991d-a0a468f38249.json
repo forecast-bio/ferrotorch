@@ -1,0 +1,10 @@
+{
+  "uuid": "d1862880-a226-4297-991d-a0a468f38249",
+  "issue_uuid": "e6d4c315-1fd8-46f7-9076-477e932bf29d",
+  "author": "y4rr",
+  "content": "Decision: Used derived formula H = (1-1/a)*(euler+digamma(b+1)) + (1-1/b) - log(a) - log(b) for Kumaraswamy entropy rather than the PyTorch source formula (which has a sign error). The derivation via E[log X] = (-euler-digamma(b+1))/a and E[log(1-X^a)] = -1/b (exact, since X^a ~ Power(b)) matches the fixture values. digamma(b+1) computed via shift-then-asymptotic (valid for all real b>0, unlike the previous integer-step loop which diverged for fractional b in (0,1)).",
+  "created_at": "2026-05-07T18:23:24.552866188Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA3ls27hG5XgrHBs3WK/ufFe+i35oNJ+omHpI13HsEvR8tbz64oBykkr0QiBHjwhbjhzufOzkDaJE3/tVxT8jpBA=="
+}
