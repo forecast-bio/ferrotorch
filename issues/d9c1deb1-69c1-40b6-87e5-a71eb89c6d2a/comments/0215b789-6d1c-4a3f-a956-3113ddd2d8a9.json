@@ -1,0 +1,10 @@
+{
+  "uuid": "0215b789-6d1c-4a3f-a956-3113ddd2d8a9",
+  "issue_uuid": "d9c1deb1-69c1-40b6-87e5-a71eb89c6d2a",
+  "author": "y4rr",
+  "content": "Plan: Add FeatureExtractor integration tests for #873 in conformance_vision_models.rs.\n\nTests to add:\n1. feature_extractor_unet_integration — FeatureExtractor on UNet, request enc1+bottleneck+head, verify shapes match expected.\n2. feature_extractor_yolo_integration — FeatureExtractor on Yolo, request stage1+stage5+head, verify shapes.\n3. feature_extractor_output_matches_manual_forward — extracted features at a named node == running model up to that layer manually. Use Yolo.stage5 (512 channels) or UNet enc1 (64 channels).\n4. Remove cascade_skip from create_feature_extractor_smoke — replace with real test.\n\nDecision: Use UNet + Yolo as base models (not ResNet/DenseNet) since they are the focus of this sprint and already implement IntermediateFeatures. This avoids dependency on B.5.a ResNet fix. DenseNet/VGG are also valid as backup.\n\ncascade_skip removal: The create_feature_extractor_smoke test in conformance_vision_models.rs currently cascade_skips. This sprint removes that skip and replaces it with a real integration test.",
+  "created_at": "2026-05-07T19:49:39.161509825Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAKU7lSoMi6hANp5cV036bUCm6SiG0mw62DDcr1GZDHLKhLtII8uNdxcDkdp4JaDacMUC4cPkG8WaBFMIhT7UTDQ=="
+}
