@@ -1,0 +1,10 @@
+{
+  "uuid": "42ab0ade-91e5-4c5c-a7ae-ae4e436d8af6",
+  "issue_uuid": "ec6eac05-01c8-463d-9268-25154e0e4e18",
+  "author": "y4rr",
+  "content": "Follow-up from Sprint C.7 (#626). GpuBackend methods: spmm_csr_f32/f64, sparse_matmul_f32/f64, csr_to_coo_f32/f64, coo_to_csr_f32/f64, csr_to_csc_f32/f64, dense_to_sparse_csr_f32/f64, sparse_to_dense_csr_f32/f64, csc_to_dense_f32/f64. Analogous to the cuSPARSE path in ferrotorch-gpu (P2-P3/#806). On MPS use MPSGraph sparse matmul nodes (macOS 13+) or custom CSR SpMM MSL.",
+  "created_at": "2026-05-07T21:09:32.786078724Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAv2KwynLDh3yiR5EOTadyJ89vZ9yRhDDSbRoBjk1D2xyqtter/IP3Az4aUAxIhMB75DvCN0b26ztAIxpmq2ddCw=="
+}
