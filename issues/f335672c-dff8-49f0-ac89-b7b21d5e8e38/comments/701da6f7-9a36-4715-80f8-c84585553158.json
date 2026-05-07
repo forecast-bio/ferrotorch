@@ -1,0 +1,10 @@
+{
+  "uuid": "701da6f7-9a36-4715-80f8-c84585553158",
+  "issue_uuid": "f335672c-dff8-49f0-ac89-b7b21d5e8e38",
+  "author": "y4rr",
+  "content": "Implemented bf16 x f32-accum mixed-precision matmul/bmm/softmax via cuBLAS GemmEx/GemmStridedBatchedEx and PTX softmax_bf16_f32_kernel; matches torch.bfloat16 + autocast contract. All 10 probe tests pass on RTX 3090 (CUDA 12.8). Follow-up for remaining ~7 elementwise/reduction bf16 ops filed as #963.",
+  "created_at": "2026-05-07T21:32:45.732737206Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAthlWKQVhXM8154MmxG1D1rri4iX7XobJ/5Nh78SbMe+80beyp0q+f6Zn+uAugiNkLvAxCWaPhYLwXK8Qm5NNBg=="
+}
