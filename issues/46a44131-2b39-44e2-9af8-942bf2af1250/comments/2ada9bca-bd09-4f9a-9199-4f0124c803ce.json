@@ -1,0 +1,10 @@
+{
+  "uuid": "2ada9bca-bd09-4f9a-9199-4f0124c803ce",
+  "issue_uuid": "46a44131-2b39-44e2-9af8-942bf2af1250",
+  "author": "y4rr",
+  "content": "Plan: Sprint B.5.a — #864 InceptionV3 forward parity.\n\nApproach:\n- InceptionV3 already has output shape test in unit tests\n- Need conformance test in conformance_vision_models.rs that:\n  1. Verifies param count against a new fixture (inception_v3_num_classes_10_param_count)\n  2. Verifies forward output shape [1,10] for 32x32 input\n  3. Verifies forward runs without error\n  4. Eval mode (no aux classifier; our simplified InceptionV3 has no aux classifier so eval and train are equivalent for structure)\n- Add fixtures to scripts/regenerate_vision_fixtures.py and fixtures.json\n- ferrotorch InceptionV3 is a simplified architecture (3 InceptionModules, not full Szegedy); we fixture against our own param count not torchvision\n- Note: scope says 'torchvision.models.inception_v3() reference, fixed input' — we document that this is a structurally equivalent simplified impl, not a weight-exact port",
+  "created_at": "2026-05-07T19:51:00.357631883Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABASh+7DyV7nJdOXwZOj1Gsle7HBv77H32Ky8tYuZdg/+QYDsBD7m4JI8dUIslWOwzFewjRBzePbYuv3sVxTQK5Aw=="
+}
