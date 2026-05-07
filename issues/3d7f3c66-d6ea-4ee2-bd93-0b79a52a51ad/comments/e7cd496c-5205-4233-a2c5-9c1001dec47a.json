@@ -1,0 +1,10 @@
+{
+  "uuid": "e7cd496c-5205-4233-a2c5-9c1001dec47a",
+  "issue_uuid": "3d7f3c66-d6ea-4ee2-bd93-0b79a52a51ad",
+  "author": "y4rr",
+  "content": "Already delivered by C3 Bugfix dispatch (commit 91900631). 51 conformance tests + Layer-4 gate covering 110 items in ferrotorch-train. cargo test -p ferrotorch-train clean.",
+  "created_at": "2026-05-07T17:44:06.918156947Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAMNMg2OzmncMXLaRBDfQ4mG+gXcD2IrUa9BG4Ddwn2wwDy43SZ5XFMgGX/PEfDzKbyWeu2H8Ov1hBM53d98/5BA=="
+}
