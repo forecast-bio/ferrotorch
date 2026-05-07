@@ -667,6 +667,542 @@ pub fn gpu_flash_attention_f32(
 }
 
 // ---------------------------------------------------------------------------
+// FlashAttention f64 PTX kernel (P5)
+// ---------------------------------------------------------------------------
+
+/// PTX kernel for FlashAttention in f64.
+///
+/// Mirrors the f32 kernel structure but uses:
+/// - 8-byte shared memory alignment + double the byte stride for loads/stores;
+/// - polynomial 2^x expansion (no `ex2.approx.f64` exists in PTX);
+/// - `div.rn.f64` instead of `div.approx.f32`;
+/// - f64 bit patterns for -inf / 0 / 1 / log2(e).
+///
+/// All comments are ASCII to stay safe through the cudarc PTX JIT (Batch 4
+/// established that non-ASCII characters in PTX comments cause the JIT to
+/// reject the module).
+#[cfg(feature = "cuda")]
+const FLASH_ATTENTION_F64_PTX: &str = "\
+.version 7.0
+.target sm_60
+.address_size 64
+
+// Dynamic shared memory declared externally -- size set at launch.
+.extern .shared .align 8 .b8 smem[];
+
+.visible .entry flash_attention_f64_kernel(
+    .param .u64 Q_ptr,
+    .param .u64 K_ptr,
+    .param .u64 V_ptr,
+    .param .u64 O_ptr,
+    .param .u32 N_q,
+    .param .u32 N_k,
+    .param .u32 d_param,
+    .param .u32 d_v_param,
+    .param .f64 scale,
+    .param .u32 causal,
+    .param .u32 tile_k
+) {
+    .reg .u32 %ltid, %bid, %bdim, %gid;
+    .reg .u32 %nq, %nk, %d, %dv, %caus, %tk;
+    .reg .f64 %sc;
+    .reg .u64 %Q, %K, %V, %O;
+    .reg .u32 %t0, %t1;
+    .reg .u64 %addr, %off64, %smem_base;
+    .reg .f64 %dot, %m_reg, %l_reg, %m_new, %l_new;
+    .reg .f64 %corr, %p_val, %rescale_old, %rescale_new;
+    .reg .f64 %neg_inf, %zero, %one;
+    .reg .pred %p_oob, %p_lnew_pos, %p_dloop;
+    .reg .pred %p_causal_en, %p_tile_done, %p_load_valid;
+    .reg .u32 %zi;
+    .reg .u64 %zaddr;
+    .reg .u32 %k_start, %k_end, %bk;
+    .reg .u32 %total_k, %li;
+    .reg .u64 %ld_src, %ld_dst;
+    .reg .f64 %ld_val;
+    .reg .u32 %total_v, %vi, %v_smem_off;
+    .reg .u32 %ki, %di, %k_abs;
+    .reg .f64 %q_val, %k_val, %s_val, %v_val;
+    .reg .pred %p_ki_done, %p_di_done, %p_masked_elem;
+    // poly-exp scratch
+    .reg .f64 %arg_corr, %arg_p, %ex_in;
+    .reg .f64 %e_nf, %e_r, %e_p, %e_half, %e_one;
+    .reg .s32 %e_ni;
+    .reg .s64 %e_ni64, %e_bits;
+    .reg .pred %p_underflow_corr, %p_underflow_p;
+    .reg .u32 %ovi, %v_smem_off_reg;
+    .reg .f64 %o_cur;
+    .reg .u64 %o_addr, %v_addr;
+
+    ld.param.u64 %Q,     [Q_ptr];
+    ld.param.u64 %K,     [K_ptr];
+    ld.param.u64 %V,     [V_ptr];
+    ld.param.u64 %O,     [O_ptr];
+    ld.param.u32 %nq,    [N_q];
+    ld.param.u32 %nk,    [N_k];
+    ld.param.u32 %d,     [d_param];
+    ld.param.u32 %dv,    [d_v_param];
+    ld.param.f64 %sc,    [scale];
+    ld.param.u32 %caus,  [causal];
+    ld.param.u32 %tk,    [tile_k];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %ltid, %tid.x;
+    mad.lo.u32 %gid, %bid, %bdim, %ltid;
+
+    setp.ge.u32 %p_oob, %gid, %nq;
+    setp.ne.u32 %p_causal_en, %caus, 0;
+
+    // Constants in f64 bit patterns.
+    mov.f64 %neg_inf, 0dFFF0000000000000;     // -inf
+    mov.f64 %zero,    0d0000000000000000;     // 0.0
+    mov.f64 %one,     0d3FF0000000000000;     // 1.0
+
+    mov.u64 %smem_base, smem;
+
+    mov.f64 %m_reg, %neg_inf;
+    mov.f64 %l_reg, %zero;
+
+    // Zero output O[gid, 0..d_v] if in-bounds.
+    @%p_oob bra SKIP_ZERO_OUTPUT;
+        mov.u32 %zi, 0;
+ZERO_LOOP:
+        setp.ge.u32 %p_dloop, %zi, %dv;
+        @%p_dloop bra ZERO_DONE;
+
+        mad.lo.u32 %t0, %gid, %dv, %zi;
+        cvt.u64.u32 %off64, %t0;
+        shl.b64 %off64, %off64, 3;
+        add.u64 %zaddr, %O, %off64;
+        st.global.f64 [%zaddr], %zero;
+
+        add.u32 %zi, %zi, 1;
+        bra ZERO_LOOP;
+ZERO_DONE:
+SKIP_ZERO_OUTPUT:
+
+        mov.u32 %k_start, 0;
+TILE_LOOP:
+        setp.ge.u32 %p_tile_done, %k_start, %nk;
+        @%p_tile_done bra TILE_LOOP_END;
+
+        add.u32 %k_end, %k_start, %tk;
+        min.u32 %k_end, %k_end, %nk;
+        sub.u32 %bk, %k_end, %k_start;
+
+        // Cooperative load: K tile into smem[0 .. bk*d] (8-byte stride).
+        mul.lo.u32 %total_k, %bk, %d;
+            mov.u32 %li, %ltid;
+LOAD_K_LOOP:
+            setp.ge.u32 %p_load_valid, %li, %total_k;
+            @%p_load_valid bra LOAD_K_DONE;
+
+            mad.lo.u32 %t0, %k_start, %d, %li;
+            cvt.u64.u32 %off64, %t0;
+            shl.b64 %off64, %off64, 3;
+            add.u64 %ld_src, %K, %off64;
+            ld.global.f64 %ld_val, [%ld_src];
+
+            cvt.u64.u32 %off64, %li;
+            shl.b64 %off64, %off64, 3;
+            add.u64 %ld_dst, %smem_base, %off64;
+            st.shared.f64 [%ld_dst], %ld_val;
+
+            add.u32 %li, %li, %bdim;
+            bra LOAD_K_LOOP;
+LOAD_K_DONE:
+
+            mul.lo.u32 %total_v, %bk, %dv;
+            mul.lo.u32 %v_smem_off, %tk, %d;
+
+            mov.u32 %vi, %ltid;
+LOAD_V_LOOP:
+            setp.ge.u32 %p_load_valid, %vi, %total_v;
+            @%p_load_valid bra LOAD_V_DONE;
+
+            mad.lo.u32 %t0, %k_start, %dv, %vi;
+            cvt.u64.u32 %off64, %t0;
+            shl.b64 %off64, %off64, 3;
+            add.u64 %ld_src, %V, %off64;
+            ld.global.f64 %ld_val, [%ld_src];
+
+            add.u32 %t1, %v_smem_off, %vi;
+            cvt.u64.u32 %off64, %t1;
+            shl.b64 %off64, %off64, 3;
+            add.u64 %ld_dst, %smem_base, %off64;
+            st.shared.f64 [%ld_dst], %ld_val;
+
+            add.u32 %vi, %vi, %bdim;
+            bra LOAD_V_LOOP;
+LOAD_V_DONE:
+
+        bar.sync 0;
+
+        @%p_oob bra SKIP_COMPUTE;
+
+            mov.u32 %ki, 0;
+KEY_LOOP:
+            setp.ge.u32 %p_ki_done, %ki, %bk;
+            @%p_ki_done bra KEY_LOOP_END;
+
+            add.u32 %k_abs, %k_start, %ki;
+
+            // Dot product over d.
+            mov.f64 %dot, %zero;
+            mov.u32 %di, 0;
+DOT_LOOP:
+            setp.ge.u32 %p_di_done, %di, %d;
+            @%p_di_done bra DOT_DONE;
+
+            mad.lo.u32 %t0, %gid, %d, %di;
+            cvt.u64.u32 %off64, %t0;
+            shl.b64 %off64, %off64, 3;
+            add.u64 %addr, %Q, %off64;
+            ld.global.f64 %q_val, [%addr];
+
+            mad.lo.u32 %t0, %ki, %d, %di;
+            cvt.u64.u32 %off64, %t0;
+            shl.b64 %off64, %off64, 3;
+            add.u64 %addr, %smem_base, %off64;
+            ld.shared.f64 %k_val, [%addr];
+
+            fma.rn.f64 %dot, %q_val, %k_val, %dot;
+
+            add.u32 %di, %di, 1;
+            bra DOT_LOOP;
+DOT_DONE:
+            mul.f64 %s_val, %dot, %sc;
+
+            // Causal mask: if causal and k_abs > gid, set s = -inf.
+            @!%p_causal_en bra SKIP_CAUSAL_MASK;
+            setp.gt.u32 %p_masked_elem, %k_abs, %gid;
+            @%p_masked_elem mov.f64 %s_val, %neg_inf;
+SKIP_CAUSAL_MASK:
+
+            // Online softmax update.
+            max.f64 %m_new, %m_reg, %s_val;
+
+            // corr = exp(m_reg - m_new). Use polynomial 2^x with underflow
+            // guard: if (m_reg - m_new) <= -inf return 0.
+            sub.f64 %arg_corr, %m_reg, %m_new;
+            setp.le.f64 %p_underflow_corr, %arg_corr, %neg_inf;
+            @%p_underflow_corr bra CORR_UNDERFLOW;
+            mov.f64 %ex_in, %arg_corr;
+            mov.f64 %e_one, 0d3FF0000000000000;
+            mov.f64 %e_half, 0d3FE0000000000000;
+            // Multiply by log2(e) = 1.4426950408889634
+            mul.f64 %e_nf, %ex_in, 0d3FF71547652B82FE;
+            cvt.rni.f64.f64 %e_nf, %e_nf;
+            cvt.rni.s32.f64 %e_ni, %e_nf;
+            // Reduce r = ex_in - n*ln2  (split as Cody-Waite)
+            fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %ex_in;
+            fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
+            // Polynomial: ~ 1 + r + r^2/2 + ... up through r^11.
+            mov.f64 %e_p, 0d3E5AE64567F544E4;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
+            fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
+            fma.rn.f64 %e_p, %e_p, %e_r, %e_one;
+            fma.rn.f64 %corr, %e_p, %e_r, %e_one;
+            // Multiply by 2^n via bit-pattern.
+            cvt.s64.s32 %e_ni64, %e_ni;
+            add.s64 %e_ni64, %e_ni64, 1023;
+            shl.b64 %e_bits, %e_ni64, 52;
+            mov.b64 %e_nf, %e_bits;
+            mul.f64 %corr, %corr, %e_nf;
+            bra CORR_DONE;
+CORR_UNDERFLOW:
+            mov.f64 %corr, %zero;
+CORR_DONE:
+
+            // p = exp(s_val - m_new), same polynomial.
+            sub.f64 %arg_p, %s_val, %m_new;
+            setp.le.f64 %p_underflow_p, %arg_p, %neg_inf;
+            @%p_underflow_p bra P_UNDERFLOW;
+            mov.f64 %ex_in, %arg_p;
+            mov.f64 %e_one, 0d3FF0000000000000;
+            mov.f64 %e_half, 0d3FE0000000000000;
+            mul.f64 %e_nf, %ex_in, 0d3FF71547652B82FE;
+            cvt.rni.f64.f64 %e_nf, %e_nf;
+            cvt.rni.s32.f64 %e_ni, %e_nf;
+            fma.rn.f64 %e_r, %e_nf, 0dBFE62E42FEFA3800, %ex_in;
+            fma.rn.f64 %e_r, %e_nf, 0dBD2EF35793C76730, %e_r;
+            mov.f64 %e_p, 0d3E5AE64567F544E4;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3E927E4FB7789F5C;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3EC71DE3A556C734;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3EFA01A01A01A01A;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3F2A01A01A01A01A;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3F56C16C16C16C17;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3F81111111111111;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3FA5555555555555;
+            fma.rn.f64 %e_p, %e_p, %e_r, 0d3FC5555555555555;
+            fma.rn.f64 %e_p, %e_p, %e_r, %e_half;
+            fma.rn.f64 %e_p, %e_p, %e_r, %e_one;
+            fma.rn.f64 %p_val, %e_p, %e_r, %e_one;
+            cvt.s64.s32 %e_ni64, %e_ni;
+            add.s64 %e_ni64, %e_ni64, 1023;
+            shl.b64 %e_bits, %e_ni64, 52;
+            mov.b64 %e_nf, %e_bits;
+            mul.f64 %p_val, %p_val, %e_nf;
+            bra P_DONE;
+P_UNDERFLOW:
+            mov.f64 %p_val, %zero;
+P_DONE:
+
+            // l_new = corr * l_reg + p_val.
+            fma.rn.f64 %l_new, %corr, %l_reg, %p_val;
+
+            setp.gt.f64 %p_lnew_pos, %l_new, %zero;
+            @!%p_lnew_pos bra SKIP_OUTPUT_UPDATE;
+
+            mul.f64 %rescale_old, %corr, %l_reg;
+            div.rn.f64 %rescale_old, %rescale_old, %l_new;
+            div.rn.f64 %rescale_new, %p_val, %l_new;
+
+                mul.lo.u32 %v_smem_off_reg, %tk, %d;
+
+                mov.u32 %ovi, 0;
+OV_LOOP:
+                setp.ge.u32 %p_di_done, %ovi, %dv;
+                @%p_di_done bra OV_DONE;
+
+                mad.lo.u32 %t0, %gid, %dv, %ovi;
+                cvt.u64.u32 %off64, %t0;
+                shl.b64 %off64, %off64, 3;
+                add.u64 %o_addr, %O, %off64;
+                ld.global.f64 %o_cur, [%o_addr];
+
+                mad.lo.u32 %t0, %ki, %dv, %ovi;
+                add.u32 %t0, %t0, %v_smem_off_reg;
+                cvt.u64.u32 %off64, %t0;
+                shl.b64 %off64, %off64, 3;
+                add.u64 %v_addr, %smem_base, %off64;
+                ld.shared.f64 %v_val, [%v_addr];
+
+                mul.f64 %o_cur, %rescale_old, %o_cur;
+                fma.rn.f64 %o_cur, %rescale_new, %v_val, %o_cur;
+
+                st.global.f64 [%o_addr], %o_cur;
+
+                add.u32 %ovi, %ovi, 1;
+                bra OV_LOOP;
+OV_DONE:
+
+SKIP_OUTPUT_UPDATE:
+            mov.f64 %m_reg, %m_new;
+            mov.f64 %l_reg, %l_new;
+
+            add.u32 %ki, %ki, 1;
+            bra KEY_LOOP;
+KEY_LOOP_END:
+SKIP_COMPUTE:
+
+        bar.sync 0;
+
+        add.u32 %k_start, %k_start, %tk;
+        bra TILE_LOOP;
+TILE_LOOP_END:
+
+    ret;
+}
+";
+
+/// Compute FlashAttention on the GPU in f64.
+///
+/// `softmax(Q @ K^T * scale) @ V` with on-device tiled online softmax.
+/// Mirrors the f32 wrapper but takes f64 buffers + scale.
+#[allow(clippy::too_many_arguments)]
+#[cfg(feature = "cuda")]
+pub fn gpu_flash_attention_f64(
+    query: &CudaBuffer<f64>,
+    key: &CudaBuffer<f64>,
+    value: &CudaBuffer<f64>,
+    n_q: usize,
+    n_k: usize,
+    d: usize,
+    d_v: usize,
+    batch_heads: usize,
+    scale: f64,
+    causal: bool,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    use cudarc::driver::PushKernelArg;
+
+    if d > D_MAX {
+        return Err(GpuError::ShapeMismatch {
+            op: "flash_attention_f64",
+            expected: vec![D_MAX],
+            got: vec![d],
+        });
+    }
+    if d_v > D_MAX {
+        return Err(GpuError::ShapeMismatch {
+            op: "flash_attention_f64",
+            expected: vec![D_MAX],
+            got: vec![d_v],
+        });
+    }
+
+    // 8-byte elements -> twice the shared-memory footprint.
+    let smem_required = (TILE_K * d + TILE_K * d_v) * std::mem::size_of::<f64>();
+    const SMEM_LIMIT: usize = 48 * 1024;
+    if smem_required > SMEM_LIMIT {
+        return Err(GpuError::ShapeMismatch {
+            op: "flash_attention_f64",
+            expected: vec![SMEM_LIMIT],
+            got: vec![smem_required],
+        });
+    }
+
+    let expected_q = batch_heads * n_q * d;
+    if query.len() != expected_q {
+        return Err(GpuError::ShapeMismatch {
+            op: "flash_attention_f64",
+            expected: vec![batch_heads, n_q, d],
+            got: vec![query.len()],
+        });
+    }
+    let expected_k = batch_heads * n_k * d;
+    if key.len() != expected_k {
+        return Err(GpuError::ShapeMismatch {
+            op: "flash_attention_f64",
+            expected: vec![batch_heads, n_k, d],
+            got: vec![key.len()],
+        });
+    }
+    let expected_v = batch_heads * n_k * d_v;
+    if value.len() != expected_v {
+        return Err(GpuError::ShapeMismatch {
+            op: "flash_attention_f64",
+            expected: vec![batch_heads, n_k, d_v],
+            got: vec![value.len()],
+        });
+    }
+
+    if query.device_ordinal() != device.ordinal() {
+        return Err(GpuError::DeviceMismatch {
+            expected: device.ordinal(),
+            got: query.device_ordinal(),
+        });
+    }
+    if key.device_ordinal() != device.ordinal() {
+        return Err(GpuError::DeviceMismatch {
+            expected: device.ordinal(),
+            got: key.device_ordinal(),
+        });
+    }
+    if value.device_ordinal() != device.ordinal() {
+        return Err(GpuError::DeviceMismatch {
+            expected: device.ordinal(),
+            got: value.device_ordinal(),
+        });
+    }
+
+    let total_out = batch_heads * n_q * d_v;
+    if batch_heads == 0 || n_q == 0 || d_v == 0 {
+        return crate::transfer::alloc_zeros_f64(0, device);
+    }
+
+    let mut output = crate::transfer::alloc_zeros_f64(total_out, device)?;
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let kernel_fn = crate::module_cache::get_or_compile(
+        ctx,
+        FLASH_ATTENTION_F64_PTX,
+        "flash_attention_f64_kernel",
+        device.ordinal() as u32,
+    )?;
+
+    let smem_bytes = (TILE_K * d + TILE_K * d_v) * std::mem::size_of::<f64>();
+
+    const BLOCK: u32 = 256;
+
+    if n_q > u32::MAX as usize {
+        return Err(GpuError::ShapeMismatch {
+            op: "flash_attention_f64",
+            expected: vec![u32::MAX as usize],
+            got: vec![n_q],
+        });
+    }
+    let grid_x = ((n_q as u32).saturating_add(BLOCK - 1)) / BLOCK;
+
+    let cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (grid_x.max(1), 1, 1),
+        block_dim: (BLOCK, 1, 1),
+        shared_mem_bytes: smem_bytes as u32,
+    };
+
+    let n_q_u32 = n_q as u32;
+    let n_k_u32 = n_k as u32;
+    let d_u32 = d as u32;
+    let d_v_u32 = d_v as u32;
+    let causal_u32: u32 = if causal { 1 } else { 0 };
+    let tile_k_u32 = TILE_K as u32;
+
+    for bh in 0..batch_heads {
+        let q_offset = bh * n_q * d;
+        let k_offset = bh * n_k * d;
+        let v_offset = bh * n_k * d_v;
+        let o_offset = bh * n_q * d_v;
+
+        let q_view = query.inner().slice(q_offset..q_offset + n_q * d);
+        let k_view = key.inner().slice(k_offset..k_offset + n_k * d);
+        let v_view = value.inner().slice(v_offset..v_offset + n_k * d_v);
+        let mut o_view = output.inner_mut().slice_mut(o_offset..o_offset + n_q * d_v);
+
+        // SAFETY: Same justification as `gpu_flash_attention_f32` -- all
+        // sub-slices are device-resident with sufficient length, the
+        // grid covers N_q threads with OOB guards, and shared memory is
+        // sized to hold TILE_K * (d + d_v) f64 values.
+        unsafe {
+            stream
+                .launch_builder(&kernel_fn)
+                .arg(&q_view)
+                .arg(&k_view)
+                .arg(&v_view)
+                .arg(&mut o_view)
+                .arg(&n_q_u32)
+                .arg(&n_k_u32)
+                .arg(&d_u32)
+                .arg(&d_v_u32)
+                .arg(&scale)
+                .arg(&causal_u32)
+                .arg(&tile_k_u32)
+                .launch(cfg)?;
+        }
+    }
+
+    Ok(output)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_flash_attention_f64(
+    _query: &CudaBuffer<f64>,
+    _key: &CudaBuffer<f64>,
+    _value: &CudaBuffer<f64>,
+    _n_q: usize,
+    _n_k: usize,
+    _d: usize,
+    _d_v: usize,
+    _batch_heads: usize,
+    _scale: f64,
+    _causal: bool,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+// ---------------------------------------------------------------------------
 // CPU reference (for testing)
 // ---------------------------------------------------------------------------
 

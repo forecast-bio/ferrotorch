@@ -2519,6 +2519,56 @@ pub trait GpuBackend: Send + Sync {
     fn stream_count(&self, _device: usize) -> usize {
         1
     }
+
+    // ---------------------------------------------------------------------
+    // FlashAttention forward (P5).
+    //
+    // Per-component dispatch from `nested_scaled_dot_product_attention`.
+    // Computes `softmax(Q @ K^T * scale) @ V` with on-device tiled
+    // online-softmax (FlashAttention-2 forward) without materialising the
+    // full [seq_q, seq_k] scores matrix.
+    //
+    // Default impls return `InvalidArgument` so backends without CUDA
+    // declare unsupported, and the caller falls through to the GPU
+    // composite path (`bmm + softmax_rows + bmm`).
+    // ---------------------------------------------------------------------
+
+    /// FlashAttention forward (f32). `query`/`key` are `[seq_q, d]` /
+    /// `[seq_k, d]`; `value` is `[seq_k, d_v]`. Returns `[seq_q, d_v]`.
+    /// `scale` is typically `1 / sqrt(d)`. Single-head (no batch dim) —
+    /// the caller folds batch into per-component dispatch.
+    fn flash_attention_forward_f32(
+        &self,
+        _query: &GpuBufferHandle,
+        _key: &GpuBufferHandle,
+        _value: &GpuBufferHandle,
+        _seq_q: usize,
+        _seq_k: usize,
+        _d: usize,
+        _d_v: usize,
+        _scale: f32,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "flash_attention_forward_f32 GPU op not yet implemented".into(),
+        })
+    }
+
+    /// FlashAttention forward (f64). See [`flash_attention_forward_f32`].
+    fn flash_attention_forward_f64(
+        &self,
+        _query: &GpuBufferHandle,
+        _key: &GpuBufferHandle,
+        _value: &GpuBufferHandle,
+        _seq_q: usize,
+        _seq_k: usize,
+        _d: usize,
+        _d_v: usize,
+        _scale: f64,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "flash_attention_forward_f64 GPU op not yet implemented".into(),
+        })
+    }
 }
 
 static GPU_BACKEND: OnceLock<Box<dyn GpuBackend>> = OnceLock::new();

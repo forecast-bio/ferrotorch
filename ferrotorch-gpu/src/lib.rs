@@ -186,7 +186,7 @@ pub use buffer::CudaBuffer;
 pub use conv::gpu_conv2d_f32;
 pub use device::GpuDevice;
 pub use error::{GpuError, GpuResult};
-pub use flash_attention::gpu_flash_attention_f32;
+pub use flash_attention::{gpu_flash_attention_f32, gpu_flash_attention_f64};
 pub use graph::{
     CaptureMode, CapturePool, CaptureStatus, CapturedGraph, GraphPoolHandle, begin_capture,
     capture_pool_for_handle, end_capture, end_capture_with_pool, graph_pool_handle,

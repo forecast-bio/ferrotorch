@@ -1793,10 +1793,98 @@ mod gpu {
         }
     }
 
+    /// Live GPU FlashAttention forward via
+    /// `nested_scaled_dot_product_attention` (P5 of #806). Pre-P5 the
+    /// nested SDPA materialised the `[seq_q, seq_k]` scores matrix on
+    /// CPU even when every component lived on CUDA; post-P5 each
+    /// component routes through `flash_attention_forward_{f32,f64}` in
+    /// the registered `GpuBackend`, computing the attention output via
+    /// an on-device tiled online softmax (FlashAttention-2 forward,
+    /// scalar-fma path). Output remains on CUDA.
     #[test]
     fn gpu_nested_scaled_dot_product_attention() {
         ensure_cuda_backend();
-        note_cascade_skip("gpu_nested_scaled_dot_product_attention");
+
+        let sq = 16;
+        let sk = 16;
+        let d = 16;
+        let dv = 16;
+
+        let q_data: Vec<f32> = (0..sq * d)
+            .map(|i| ((i * 7 + 3) % 50) as f32 / 50.0 - 0.5)
+            .collect();
+        let k_data: Vec<f32> = (0..sk * d)
+            .map(|i| ((i * 11 + 5) % 50) as f32 / 50.0 - 0.5)
+            .collect();
+        let v_data: Vec<f32> = (0..sk * dv)
+            .map(|i| ((i * 13 + 7) % 50) as f32 / 50.0 - 0.5)
+            .collect();
+
+        // CPU oracle: full-materialised composite reference.
+        let cpu_q = make_tensor_f32(
+            &q_data.iter().map(|x| *x as f64).collect::<Vec<_>>(),
+            &[sq, d],
+        );
+        let cpu_k = make_tensor_f32(
+            &k_data.iter().map(|x| *x as f64).collect::<Vec<_>>(),
+            &[sk, d],
+        );
+        let cpu_v = make_tensor_f32(
+            &v_data.iter().map(|x| *x as f64).collect::<Vec<_>>(),
+            &[sk, dv],
+        );
+        let cpu_q_n = NestedTensor::new(vec![cpu_q], 0).expect("cpu qn");
+        let cpu_k_n = NestedTensor::new(vec![cpu_k], 0).expect("cpu kn");
+        let cpu_v_n = NestedTensor::new(vec![cpu_v], 0).expect("cpu vn");
+        let cpu_out = nested_scaled_dot_product_attention(&cpu_q_n, &cpu_k_n, &cpu_v_n)
+            .expect("cpu sdpa oracle");
+        let oracle = cpu_out.tensors()[0]
+            .data()
+            .expect("oracle data")
+            .to_vec();
+
+        // GPU path through the FlashAttention kernel.
+        let gpu_q = make_tensor_f32(
+            &q_data.iter().map(|x| *x as f64).collect::<Vec<_>>(),
+            &[sq, d],
+        )
+        .to(ferrotorch_core::Device::Cuda(0))
+        .expect("q->gpu");
+        let gpu_k = make_tensor_f32(
+            &k_data.iter().map(|x| *x as f64).collect::<Vec<_>>(),
+            &[sk, d],
+        )
+        .to(ferrotorch_core::Device::Cuda(0))
+        .expect("k->gpu");
+        let gpu_v = make_tensor_f32(
+            &v_data.iter().map(|x| *x as f64).collect::<Vec<_>>(),
+            &[sk, dv],
+        )
+        .to(ferrotorch_core::Device::Cuda(0))
+        .expect("v->gpu");
+
+        let gpu_q_n = NestedTensor::new(vec![gpu_q], 0).expect("gpu qn");
+        let gpu_k_n = NestedTensor::new(vec![gpu_k], 0).expect("gpu kn");
+        let gpu_v_n = NestedTensor::new(vec![gpu_v], 0).expect("gpu vn");
+
+        let gpu_out = nested_scaled_dot_product_attention(&gpu_q_n, &gpu_k_n, &gpu_v_n)
+            .expect("gpu sdpa");
+        let comp = &gpu_out.tensors()[0];
+        assert!(
+            comp.is_cuda(),
+            "FlashAttention output must remain on CUDA (no CPU detour)"
+        );
+        assert_eq!(comp.shape(), &[sq, dv], "output shape");
+
+        let host = comp.cpu().expect("gpu->cpu").data().expect("data").to_vec();
+        assert_eq!(host.len(), oracle.len(), "len");
+        for (i, (g, e)) in host.iter().zip(oracle.iter()).enumerate() {
+            let diff = (g - e).abs();
+            assert!(
+                diff <= 1e-3 + 1e-3 * e.abs(),
+                "elem {i}: got {g}, expected {e}, diff {diff}"
+            );
+        }
     }
 
     #[test]

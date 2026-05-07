@@ -3522,6 +3522,54 @@ impl GpuBackend for CudaBackendImpl {
         crate::sparse::gpu_dense_to_sparse_csr_f64(handle, dense_buf, m, n, dev)
             .map_err(Self::map_gpu_err)
     }
+
+    // -- FlashAttention forward (P5) ---------------------------------------
+
+    fn flash_attention_forward_f32(
+        &self,
+        query: &GpuBufferHandle,
+        key: &GpuBufferHandle,
+        value: &GpuBufferHandle,
+        seq_q: usize,
+        seq_k: usize,
+        d: usize,
+        d_v: usize,
+        scale: f32,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let q_buf = Self::unwrap_buffer(query)?;
+        let k_buf = Self::unwrap_buffer(key)?;
+        let v_buf = Self::unwrap_buffer(value)?;
+        let dev = self.device(query.device_ordinal())?;
+        let result = crate::flash_attention::gpu_flash_attention_f32(
+            q_buf, k_buf, v_buf, seq_q, seq_k, d, d_v, /* batch_heads */ 1, scale,
+            /* causal */ false, dev,
+        )
+        .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, query.device_ordinal()))
+    }
+
+    fn flash_attention_forward_f64(
+        &self,
+        query: &GpuBufferHandle,
+        key: &GpuBufferHandle,
+        value: &GpuBufferHandle,
+        seq_q: usize,
+        seq_k: usize,
+        d: usize,
+        d_v: usize,
+        scale: f64,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let q_buf = Self::unwrap_buffer_f64(query)?;
+        let k_buf = Self::unwrap_buffer_f64(key)?;
+        let v_buf = Self::unwrap_buffer_f64(value)?;
+        let dev = self.device(query.device_ordinal())?;
+        let result = crate::flash_attention::gpu_flash_attention_f64(
+            q_buf, k_buf, v_buf, seq_q, seq_k, d, d_v, /* batch_heads */ 1, scale,
+            /* causal */ false, dev,
+        )
+        .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer_f64(result, query.device_ordinal()))
+    }
 }
 
 // ---------------------------------------------------------------------------

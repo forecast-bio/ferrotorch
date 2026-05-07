@@ -702,6 +702,26 @@ pub fn nested_scaled_dot_product_attention<T: Float>(
             });
         }
 
+        // GPU FlashAttention forward dispatch. Per #806, when the
+        // component lives on CUDA and falls within the kernel's regime
+        // (d_k <= 128 and d_v <= 128), route to the on-device tiled
+        // online-softmax kernel via the registered `GpuBackend`. If the
+        // backend declines (unsupported dtype, shape, etc.), fall
+        // through to the composite path below -- never CPU detour.
+        if try_flash_attention_gpu_component::<T>(
+            q,
+            k,
+            v,
+            seq_q,
+            seq_k,
+            d_k,
+            d_v,
+            &mut outputs,
+            i,
+        )? {
+            continue;
+        }
+
         let q_data = q.data()?;
         let k_data = k.data()?;
         let v_data = v.data()?;
@@ -743,6 +763,132 @@ pub fn nested_scaled_dot_product_attention<T: Float>(
     }
 
     NestedTensor::new(outputs, query.ragged_dim())
+}
+
+/// GPU dispatch for one nested SDPA component. Returns `Ok(true)` when the
+/// FlashAttention kernel handled the component (and pushed the result into
+/// `outputs`); `Ok(false)` when the caller must fall through to the CPU /
+/// composite path (e.g. tensors are not on CUDA, dtype is unsupported,
+/// `d > 128`, or no GPU backend is registered).
+///
+/// Falling back to the GPU composite path (`bmm + softmax_rows + bmm`) for
+/// shapes outside the kernel regime is filed as a follow-up; today we only
+/// re-route to the existing CPU loop.
+#[allow(clippy::too_many_arguments)]
+fn try_flash_attention_gpu_component<T: Float>(
+    q: &Tensor<T>,
+    k: &Tensor<T>,
+    v: &Tensor<T>,
+    seq_q: usize,
+    seq_k: usize,
+    d_k: usize,
+    d_v: usize,
+    outputs: &mut Vec<Tensor<T>>,
+    component_idx: usize,
+) -> FerrotorchResult<bool> {
+    use std::any::TypeId;
+
+    let is_f32 = TypeId::of::<T>() == TypeId::of::<f32>();
+    let is_f64 = TypeId::of::<T>() == TypeId::of::<f64>();
+    if !is_f32 && !is_f64 {
+        return Ok(false);
+    }
+
+    // All three components must be on the same CUDA device.
+    let ordinal = match q.device() {
+        Device::Cuda(o) => o,
+        _ => return Ok(false),
+    };
+    match k.device() {
+        Device::Cuda(o) if o == ordinal => {}
+        Device::Cuda(o) => {
+            return Err(FerrotorchError::DeviceMismatch {
+                expected: Device::Cuda(ordinal),
+                got: Device::Cuda(o),
+            });
+        }
+        _ => return Ok(false),
+    }
+    match v.device() {
+        Device::Cuda(o) if o == ordinal => {}
+        Device::Cuda(o) => {
+            return Err(FerrotorchError::DeviceMismatch {
+                expected: Device::Cuda(ordinal),
+                got: Device::Cuda(o),
+            });
+        }
+        _ => return Ok(false),
+    }
+
+    // Kernel regime: d_head <= 128, scalar-fma path.
+    if d_k > 128 || d_v > 128 {
+        return Ok(false);
+    }
+
+    // Empty seq_q -> a [0, d_v] tensor on the same device.
+    if seq_q == 0 {
+        // Build a zero-length GPU tensor so the result remains on CUDA.
+        let backend = match crate::gpu_dispatch::gpu_backend() {
+            Some(b) => b,
+            None => return Ok(false),
+        };
+        let handle = if is_f32 {
+            backend.fill_f32(0, 0.0, ordinal)?
+        } else {
+            backend.fill_f64(0, 0.0, ordinal)?
+        };
+        outputs.push(Tensor::from_storage(
+            TensorStorage::gpu(handle),
+            vec![0, d_v],
+            false,
+        )?);
+        let _ = component_idx;
+        return Ok(true);
+    }
+
+    let backend = match crate::gpu_dispatch::gpu_backend() {
+        Some(b) => b,
+        None => return Ok(false),
+    };
+
+    // Components must be contiguous (the kernel walks row-major).
+    let q_h = q.contiguous()?;
+    let k_h = k.contiguous()?;
+    let v_h = v.contiguous()?;
+
+    let q_handle = q_h.gpu_handle()?;
+    let k_handle = k_h.gpu_handle()?;
+    let v_handle = v_h.gpu_handle()?;
+
+    let scale_t = T::from(d_k).unwrap().sqrt().recip();
+
+    let out_handle = if is_f32 {
+        let scale_f32 = <T as num_traits::ToPrimitive>::to_f32(&scale_t).ok_or_else(|| {
+            FerrotorchError::InvalidArgument {
+                message: "flash_attention: scale not representable as f32".into(),
+            }
+        })?;
+        backend.flash_attention_forward_f32(
+            q_handle, k_handle, v_handle, seq_q, seq_k, d_k, d_v, scale_f32,
+        )?
+    } else {
+        let scale_f64 = <T as num_traits::ToPrimitive>::to_f64(&scale_t).ok_or_else(|| {
+            FerrotorchError::InvalidArgument {
+                message: "flash_attention: scale not representable as f64".into(),
+            }
+        })?;
+        backend.flash_attention_forward_f64(
+            q_handle, k_handle, v_handle, seq_q, seq_k, d_k, d_v, scale_f64,
+        )?
+    };
+
+    outputs.push(Tensor::from_storage(
+        TensorStorage::gpu(out_handle),
+        vec![seq_q, d_v],
+        false,
+    )?);
+
+    Ok(true)
 }
 
 // ===========================================================================
