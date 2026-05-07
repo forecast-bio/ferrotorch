@@ -1,0 +1,10 @@
+{
+  "uuid": "7e3a6730-be4f-4c96-bb41-ecb0668a2f45",
+  "issue_uuid": "12f5d4bf-8773-486b-94b2-51c5702b78f6",
+  "author": "y4rr",
+  "content": "Result: All 5 vision forward parity sub-issues are now closed. Sprint V.1/V.2/V.3 delivered:\n\n- #930 ConvNeXt-Tiny (Sprint V.1 / B.5.b): closed — 5 conformance tests pass\n- #931 EfficientNet-B0 (Sprint V.1 / B.5.b): closed — 5 conformance tests pass\n- #932 MobileNetV2+V3-Small (Sprint V.2 / B.5.b): closed — 10 conformance tests pass\n- #933 SwinTransformer-Tiny (Sprint V.2 / B.5.b): closed — 5 conformance tests pass\n- #934 ViT-B/16 (Sprint V.3): closed — 5 fixture-backed conformance tests pass\n\nAll 25 architecture conformance tests confirmed passing in conformance_vision_models.rs. Umbrella is complete.",
+  "created_at": "2026-05-07T22:47:15.331530146Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAt4n0T6e3ZAIK0axBVtJbRAY5qStoP7mYulxQmx7xEcBckJ+TlCMv+icNNULOWaqXIgVG4yqwgEx4AkplZ2+ZBw=="
+}
