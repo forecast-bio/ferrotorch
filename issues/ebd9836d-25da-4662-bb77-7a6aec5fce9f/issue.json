@@ -3,9 +3,10 @@
   "display_id": 635,
   "title": "GPU svd / qr drop host bounces",
   "description": "Spun out from #632 partial close (solve + cholesky landed). svd and qr are trickier:\n\n- svd has 3 outputs (U, S, Vt) requiring 3 device buffers + transpose dance\n- qr needs Householder reflector unpacking via cusolverDnSorgqr to get Q; R is just the upper triangle of the factored buffer\n\nBoth use cuSOLVER ops that already exist in cusolver.rs but with &[T] / Vec<T> signatures; need to refactor to &CudaBuffer<T> / CudaBuffer<T>.",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-02T02:31:37.702658575Z",
-  "updated_at": "2026-05-02T02:31:37.702658575Z"
+  "updated_at": "2026-05-07T19:35:49.030550848Z",
+  "closed_at": "2026-05-07T19:35:49.030550848Z"
 }
