@@ -2420,6 +2420,95 @@ pub trait GpuBackend: Send + Sync {
         })
     }
 
+    // -- Sparse <-> Dense conversion (cuSPARSE) -------------------------------
+    //
+    // P3 covers `SparseTensor::to_dense_on(Device::Cuda)` and the GPU branch
+    // of `SparseTensor::from_dense` when the dense tensor lives on CUDA.
+    // PyTorch parity (rust-gpu-discipline §3): `torch.Tensor.to_dense()` and
+    // `torch.Tensor.to_sparse()` keep the result on the input device and
+    // dispatch to cuSPARSE on CUDA. We mirror that.
+    //
+    // These are CSR-shaped: ferrotorch's internal SpMM path is CSR, and
+    // cuSPARSE's `*_to_dense`/`*_to_sparse` accept CSR descriptors. The COO
+    // → CSR build (host-side row-pointer prefix sum) reuses the same code
+    // path as `SparseTensor::spmm`.
+    //
+    // See ferrotorch-gpu/src/sparse.rs for the implementation.
+
+    /// CSR-form sparse → dense materialization on GPU (f32 dtype).
+    ///
+    /// Inputs:
+    /// - `crow_indices`: `m + 1` host `u32` row pointers.
+    /// - `col_indices`: `nnz` host `u32` column indices.
+    /// - `values`: `nnz` host f32 non-zero values.
+    /// - `device_ordinal`: target CUDA ordinal; output buffer lives there.
+    /// - `m`, `n`: output dense shape `[m, n]`, row-major.
+    ///
+    /// Returns a device buffer holding the `[m, n]` row-major dense result.
+    fn sparse_to_dense_csr_f32(
+        &self,
+        _crow_indices: &[u32],
+        _col_indices: &[u32],
+        _values: &[f32],
+        _device_ordinal: usize,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "sparse_to_dense_csr_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// CSR-form sparse → dense materialization on GPU (f64 dtype).
+    /// Companion of [`Self::sparse_to_dense_csr_f32`].
+    fn sparse_to_dense_csr_f64(
+        &self,
+        _crow_indices: &[u32],
+        _col_indices: &[u32],
+        _values: &[f64],
+        _device_ordinal: usize,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "sparse_to_dense_csr_f64 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// Dense → CSR-form sparse extraction on GPU (f32 dtype).
+    ///
+    /// Reads a row-major `[m, n]` device dense matrix and returns the CSR
+    /// triplet `(crow_indices, col_indices, values)` with **only exact-zero**
+    /// entries dropped (PyTorch's `torch.Tensor.to_sparse()` semantics — non-
+    /// zero thresholds must be applied by the caller).
+    ///
+    /// Returns host-side `Vec`s — the caller decides whether to coalesce or
+    /// store on device. ferrotorch's `SparseTensor` is CPU-resident so the
+    /// host-side return matches that storage model.
+    fn dense_to_sparse_csr_f32(
+        &self,
+        _dense: &GpuBufferHandle,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "dense_to_sparse_csr_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// Dense → CSR-form sparse extraction on GPU (f64 dtype).
+    /// Companion of [`Self::dense_to_sparse_csr_f32`].
+    fn dense_to_sparse_csr_f64(
+        &self,
+        _dense: &GpuBufferHandle,
+        _m: usize,
+        _n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "dense_to_sparse_csr_f64 GPU op not implemented for this backend".into(),
+        })
+    }
+
     /// Synchronize the current stream on the given device, blocking until
     /// all enqueued operations have completed.
     fn synchronize(&self, _device: usize) -> FerrotorchResult<()> {

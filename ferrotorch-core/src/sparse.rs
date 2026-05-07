@@ -1,10 +1,82 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+use crate::device::Device;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::storage::TensorStorage;
 use crate::tensor::Tensor;
+
+/// Reinterpret a `Vec<U>` as a `Vec<T>` when `T == U` (TypeId-checked by the
+/// caller). Used by `SparseTensor::from_dense` to convert the typed cuSPARSE
+/// output (`Vec<f32>` / `Vec<f64>`) back into `Vec<T>` without allocating.
+///
+/// # Safety
+///
+/// The caller must establish `TypeId::of::<T>() == TypeId::of::<U>()`. The
+/// transmute is layout-preserving in that case (`Vec<T>` and `Vec<U>` have
+/// identical layout when `T == U`); we use a `ManuallyDrop` + raw-parts
+/// reconstruction so the underlying allocation is reused.
+#[inline]
+fn vals_to_t<T, U>(vals: Vec<U>) -> Vec<T>
+where
+    T: 'static,
+    U: 'static,
+{
+    debug_assert_eq!(
+        std::any::TypeId::of::<T>(),
+        std::any::TypeId::of::<U>(),
+        "vals_to_t: TypeId mismatch — caller must ensure T == U"
+    );
+    debug_assert_eq!(std::mem::size_of::<T>(), std::mem::size_of::<U>());
+    debug_assert_eq!(std::mem::align_of::<T>(), std::mem::align_of::<U>());
+    let mut v = std::mem::ManuallyDrop::new(vals);
+    let len = v.len();
+    let cap = v.capacity();
+    let ptr = v.as_mut_ptr().cast::<T>();
+    // SAFETY: TypeId guard from the caller establishes T == U; therefore
+    // `Vec<U>` and `Vec<T>` share size/alignment/representation. The
+    // ManuallyDrop wrapper prevents the source Vec from running its
+    // destructor; we then reconstruct a Vec<T> from the same allocation
+    // pointer with the same len/cap.
+    unsafe { Vec::from_raw_parts(ptr, len, cap) }
+}
+
+/// Convert a CSR triplet `(crow_indices, col_indices, values)` (host-side,
+/// `u32` indices) back into the COO `(Vec<Vec<usize>>, Vec<T>)` shape used
+/// by `SparseTensor`.
+///
+/// Used by `SparseTensor::from_dense` after a `cusparseDenseToSparse` call.
+fn csr_to_coo_t<T: Float>(
+    crow_indices: &[u32],
+    col_indices: &[u32],
+    values: Vec<T>,
+) -> FerrotorchResult<(Vec<Vec<usize>>, Vec<T>)> {
+    if crow_indices.is_empty() {
+        return Ok((Vec::new(), values));
+    }
+    let m = crow_indices.len() - 1;
+    let nnz = values.len();
+    if col_indices.len() != nnz {
+        return Err(FerrotorchError::InvalidArgument {
+            message: format!(
+                "csr_to_coo: col_indices ({}) and values ({}) must have equal length",
+                col_indices.len(),
+                nnz
+            ),
+        });
+    }
+
+    let mut indices: Vec<Vec<usize>> = Vec::with_capacity(nnz);
+    for row in 0..m {
+        let start = crow_indices[row] as usize;
+        let end = crow_indices[row + 1] as usize;
+        for j in start..end {
+            indices.push(vec![row, col_indices[j] as usize]);
+        }
+    }
+    Ok((indices, values))
+}
 
 /// A sparse tensor in COO (Coordinate List) format.
 ///
@@ -98,7 +170,70 @@ impl<T: Float> SparseTensor<T> {
     ///
     /// Elements whose absolute value is strictly greater than `threshold`
     /// are stored as non-zero entries.
+    ///
+    /// # GPU dispatch (P3)
+    ///
+    /// When the input dense tensor lives on `Device::Cuda(_)`, the sparse
+    /// extraction runs on cuSPARSE via `cusparseDenseToSparse_*` for the
+    /// `T == f32 | f64` and `threshold == 0` case (PyTorch's
+    /// `torch.Tensor.to_sparse()` semantics: only exact-zero entries are
+    /// dropped, and the input device is honoured).
+    ///
+    /// For `threshold > 0` on a CUDA input we currently fall through to the
+    /// CPU path (which forces a D2H readback via `tensor.data()?`); that
+    /// will return `Err(GpuTensorNotAccessible)` because cuSPARSE has no
+    /// notion of a non-zero threshold. Callers wanting GPU extraction with
+    /// a threshold should manually mask the dense tensor first and then
+    /// call `from_dense(&masked, T::zero())`.
     pub fn from_dense(tensor: &Tensor<T>, threshold: T) -> FerrotorchResult<Self> {
+        use std::any::TypeId;
+
+        // -- CUDA fast path (threshold == 0, f32/f64) -----------------------
+        //
+        // PyTorch parity (rust-gpu-discipline §3): `tensor.to_sparse()` runs
+        // on `cusparseDenseToSparse_*` when the input is CUDA. SparseTensor
+        // storage stays CPU-resident — we read the CSR triplet back to host
+        // (the storage model the CPU path also produces).
+        if tensor.is_cuda()
+            && <T as num_traits::Zero>::is_zero(&threshold)
+            && tensor.ndim() == 2
+        {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                let dense_contig = tensor.contiguous()?;
+                let dense_handle = dense_contig.gpu_handle()?;
+                let m = dense_contig.shape()[0];
+                let n = dense_contig.shape()[1];
+
+                let csr_opt: Option<(Vec<Vec<usize>>, Vec<T>)> =
+                    if TypeId::of::<T>() == TypeId::of::<f32>() {
+                        let (crow, col, vals) =
+                            backend.dense_to_sparse_csr_f32(dense_handle, m, n)?;
+                        let (idx, vals_t) = csr_to_coo_t::<T>(&crow, &col, vals_to_t::<T, f32>(vals))?;
+                        Some((idx, vals_t))
+                    } else if TypeId::of::<T>() == TypeId::of::<f64>() {
+                        let (crow, col, vals) =
+                            backend.dense_to_sparse_csr_f64(dense_handle, m, n)?;
+                        let (idx, vals_t) = csr_to_coo_t::<T>(&crow, &col, vals_to_t::<T, f64>(vals))?;
+                        Some((idx, vals_t))
+                    } else {
+                        None
+                    };
+
+                if let Some((indices, values)) = csr_opt {
+                    let nnz = values.len();
+                    return Ok(Self {
+                        indices,
+                        values,
+                        shape: vec![m, n],
+                        nnz,
+                    });
+                }
+                // Unsupported dtype — fall through. `tensor.data()?` below
+                // will return GpuTensorNotAccessible, which is the same
+                // observable as before P3.
+            }
+        }
+
         let data = tensor.data()?;
         let shape = tensor.shape().to_vec();
         let ndim = shape.len();
@@ -132,10 +267,136 @@ impl<T: Float> SparseTensor<T> {
         })
     }
 
-    /// Convert this sparse tensor to a dense `Tensor<T>`.
+    /// Convert this sparse tensor to a dense `Tensor<T>` on CPU.
     ///
     /// Duplicate indices are summed during conversion.
+    ///
+    /// To materialize directly onto a CUDA device (avoiding a host
+    /// detour), use [`Self::to_dense_on`].
     pub fn to_dense(&self) -> FerrotorchResult<Tensor<T>> {
+        self.to_dense_on(Device::Cpu)
+    }
+
+    /// Convert this sparse tensor to a dense `Tensor<T>` on the given device.
+    ///
+    /// Duplicate indices are summed during conversion.
+    ///
+    /// # GPU dispatch (P3)
+    ///
+    /// When `device` is `Device::Cuda(_)` and `T` is `f32` or `f64`, the
+    /// dense materialization runs on cuSPARSE via
+    /// `cusparseSparseToDense`. The output `Tensor<T>` lives on the
+    /// requested CUDA device — no host buffer is allocated. PyTorch
+    /// parity: `torch.sparse_coo_tensor(...).to_dense()` keeps the result
+    /// on the input device.
+    ///
+    /// For non-2-D sparse tensors, non-CUDA devices, or unsupported dtypes,
+    /// the CPU path materializes the dense tensor and (when `device` is
+    /// CUDA-but-dtype-unsupported) errors via the missing GPU primitive.
+    pub fn to_dense_on(&self, device: Device) -> FerrotorchResult<Tensor<T>> {
+        use std::any::TypeId;
+
+        // -- CUDA fast path (2-D, f32/f64) ----------------------------------
+        //
+        // PyTorch parity (rust-gpu-discipline §3): cuSPARSE materializes
+        // sparse CSR → dense directly on device. CSR build follows the same
+        // code path as `SparseTensor::spmm`.
+        if let Device::Cuda(_) = device {
+            if self.ndim() == 2
+                && (TypeId::of::<T>() == TypeId::of::<f32>()
+                    || TypeId::of::<T>() == TypeId::of::<f64>())
+            {
+                if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                    let m = self.shape[0];
+                    let n = self.shape[1];
+
+                    // Coalesce + CSR build (same as spmm).
+                    let coalesced = self.coalesce();
+                    let nnz = coalesced.nnz;
+
+                    let mut crow_indices: Vec<u32> = vec![0; m + 1];
+                    for idx in &coalesced.indices {
+                        let row = idx[0];
+                        if row >= m {
+                            return Err(FerrotorchError::IndexOutOfBounds {
+                                index: row,
+                                axis: 0,
+                                size: m,
+                            });
+                        }
+                        crow_indices[row + 1] += 1;
+                    }
+                    for r in 0..m {
+                        crow_indices[r + 1] += crow_indices[r];
+                    }
+
+                    let mut col_indices: Vec<u32> = Vec::with_capacity(nnz);
+                    let mut values_csr: Vec<T> = Vec::with_capacity(nnz);
+                    for (idx, &v) in coalesced.indices.iter().zip(coalesced.values.iter()) {
+                        col_indices.push(idx[1] as u32);
+                        values_csr.push(v);
+                    }
+
+                    let device_ord = match device {
+                        Device::Cuda(o) => o,
+                        _ => unreachable!(),
+                    };
+
+                    let out_handle = if TypeId::of::<T>() == TypeId::of::<f32>() {
+                        // SAFETY: TypeId guard establishes T == f32; the
+                        // re-interpret slice is layout-preserving for the
+                        // duration of this call.
+                        let values_f32 = unsafe {
+                            std::slice::from_raw_parts(
+                                values_csr.as_ptr().cast::<f32>(),
+                                values_csr.len(),
+                            )
+                        };
+                        backend.sparse_to_dense_csr_f32(
+                            &crow_indices,
+                            &col_indices,
+                            values_f32,
+                            device_ord,
+                            m,
+                            n,
+                        )?
+                    } else {
+                        // SAFETY: TypeId guard establishes T == f64.
+                        let values_f64 = unsafe {
+                            std::slice::from_raw_parts(
+                                values_csr.as_ptr().cast::<f64>(),
+                                values_csr.len(),
+                            )
+                        };
+                        backend.sparse_to_dense_csr_f64(
+                            &crow_indices,
+                            &col_indices,
+                            values_f64,
+                            device_ord,
+                            m,
+                            n,
+                        )?
+                    };
+
+                    let storage = TensorStorage::gpu(out_handle);
+                    return Tensor::from_storage(storage, vec![m, n], false);
+                }
+            }
+            // CUDA requested but no backend / unsupported shape or dtype —
+            // produce CPU first, then user-side `.to(device)`. This mirrors
+            // the rest of ferrotorch's gp dispatch (composite path that
+            // handles dtypes/shapes the GPU primitive doesn't cover).
+            let cpu_dense = self.to_dense_cpu()?;
+            return cpu_dense.to(device);
+        }
+
+        // -- CPU path -------------------------------------------------------
+        self.to_dense_cpu()
+    }
+
+    /// CPU dense materialization. Pulled out from the inlined body so
+    /// `to_dense_on` can call it as the composite fallback.
+    fn to_dense_cpu(&self) -> FerrotorchResult<Tensor<T>> {
         let numel: usize = self.shape.iter().product();
         let mut data = vec![<T as num_traits::Zero>::zero(); numel];
         let ndim = self.shape.len();

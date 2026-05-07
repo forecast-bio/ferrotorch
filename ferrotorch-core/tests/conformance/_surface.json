@@ -992,6 +992,7 @@
     { "path": "ferrotorch_core::sparse::SparseTensor <T>::spmm", "kind": "method", "signature": "fn spmm (& self , dense : & Tensor < T >) -> FerrotorchResult < Tensor < T > >" },
     { "path": "ferrotorch_core::sparse::SparseTensor <T>::t", "kind": "method", "signature": "fn t (& self) -> FerrotorchResult < SparseTensor < T > >" },
     { "path": "ferrotorch_core::sparse::SparseTensor <T>::to_dense", "kind": "method", "signature": "fn to_dense (& self) -> FerrotorchResult < Tensor < T > >" },
+    { "path": "ferrotorch_core::sparse::SparseTensor <T>::to_dense_on", "kind": "method", "signature": "fn to_dense_on (& self , device : Device) -> FerrotorchResult < Tensor < T > >" },
     { "path": "ferrotorch_core::sparse::SparseTensor <T>::values", "kind": "method", "signature": "fn values (& self) -> & [T]" },
     { "path": "ferrotorch_core::sparse::sparse_matmul_24", "kind": "fn", "signature": "fn sparse_matmul_24 < T : Float > (a : & Tensor < T > , b : & SemiStructuredSparseTensor < T > ,) -> FerrotorchResult < Tensor < T > >" },
     { "path": "ferrotorch_core::sparse_matmul_24", "kind": "re-export", "signature": "pub use sparse::sparse_matmul_24;" },

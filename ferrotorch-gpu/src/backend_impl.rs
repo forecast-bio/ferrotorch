@@ -3456,6 +3456,72 @@ impl GpuBackend for CudaBackendImpl {
         .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer_f64(out, dense.device_ordinal()))
     }
+
+    // -- Sparse <-> Dense conversion (cuSPARSE) -- P3 -------------------------
+    //
+    // PyTorch parity (rust-gpu-discipline §3): `.to_dense()` and `.to_sparse()`
+    // dispatch to `cusparseSparseToDense` / `cusparseDenseToSparse` when the
+    // input lives on CUDA. Implementations live in `crate::sparse`.
+
+    fn sparse_to_dense_csr_f32(
+        &self,
+        crow_indices: &[u32],
+        col_indices: &[u32],
+        values: &[f32],
+        device_ordinal: usize,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let dev = self.device(device_ordinal)?;
+        let handle = self.cusparse()?;
+        let out =
+            crate::sparse::gpu_sparse_to_dense_csr_f32(handle, crow_indices, col_indices, values, m, n, dev)
+                .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(out, device_ordinal))
+    }
+
+    fn sparse_to_dense_csr_f64(
+        &self,
+        crow_indices: &[u32],
+        col_indices: &[u32],
+        values: &[f64],
+        device_ordinal: usize,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let dev = self.device(device_ordinal)?;
+        let handle = self.cusparse()?;
+        let out =
+            crate::sparse::gpu_sparse_to_dense_csr_f64(handle, crow_indices, col_indices, values, m, n, dev)
+                .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer_f64(out, device_ordinal))
+    }
+
+    fn dense_to_sparse_csr_f32(
+        &self,
+        dense: &GpuBufferHandle,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
+        let dense_buf = Self::unwrap_buffer(dense)?;
+        let dev = self.device(dense.device_ordinal())?;
+        let handle = self.cusparse()?;
+        crate::sparse::gpu_dense_to_sparse_csr_f32(handle, dense_buf, m, n, dev)
+            .map_err(Self::map_gpu_err)
+    }
+
+    fn dense_to_sparse_csr_f64(
+        &self,
+        dense: &GpuBufferHandle,
+        m: usize,
+        n: usize,
+    ) -> FerrotorchResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+        let dense_buf = Self::unwrap_buffer_f64(dense)?;
+        let dev = self.device(dense.device_ordinal())?;
+        let handle = self.cusparse()?;
+        crate::sparse::gpu_dense_to_sparse_csr_f64(handle, dense_buf, m, n, dev)
+            .map_err(Self::map_gpu_err)
+    }
 }
 
 // ---------------------------------------------------------------------------

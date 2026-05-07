@@ -1681,10 +1681,86 @@ mod gpu {
         note_cascade_skip("gpu_packed_nested_tensor_ops");
     }
 
+    /// Live GPU `SparseTensor::to_dense_on(Device::Cuda(0))` test (P3).
+    /// PyTorch parity: `torch.sparse_coo_tensor(...).to_dense()` on a CUDA
+    /// sparse tensor materialises via `cusparseSparseToDense`. Pre-P3 the
+    /// only path was `to_dense()` (CPU) followed by `.to(Device::Cuda)`,
+    /// which is a host detour; this test asserts the on-device materialisation.
     #[test]
     fn gpu_sparse_tensor_to_dense() {
         ensure_cuda_backend();
-        note_cascade_skip("gpu_sparse_tensor_to_dense");
+        let sp = SparseTensor::<f32>::new(
+            vec![
+                vec![0, 1],
+                vec![0, 3],
+                vec![1, 2],
+                vec![2, 0],
+                vec![2, 3],
+                vec![3, 1],
+            ],
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            vec![4, 4],
+        )
+        .expect("sparse fixture");
+
+        let cpu_dense = sp.to_dense().expect("cpu to_dense");
+        let cpu_data = cpu_dense.data().expect("cpu data").to_vec();
+
+        let gpu_dense = sp
+            .to_dense_on(ferrotorch_core::Device::Cuda(0))
+            .expect("gpu to_dense_on");
+        assert!(
+            gpu_dense.is_cuda(),
+            "to_dense_on(Cuda) output must remain on CUDA"
+        );
+        assert_eq!(gpu_dense.shape(), &[4, 4]);
+
+        let gpu_back = gpu_dense.cpu().expect("gpu->cpu");
+        let gpu_data = gpu_back.data().expect("gpu->cpu data");
+        for (i, (&a, &b)) in gpu_data.iter().zip(cpu_data.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "to_dense_on f32 elem {i}: gpu={a} cpu={b}"
+            );
+        }
+    }
+
+    /// Live GPU `SparseTensor::from_dense(&cuda_tensor, 0.0)` test (P3).
+    /// PyTorch parity: `tensor.to_sparse()` on a CUDA dense tensor
+    /// dispatches to `cusparseDenseToSparse_*`. Pre-P3 this errored with
+    /// `GpuTensorNotAccessible` because `from_dense` called `tensor.data()?`
+    /// which fails on CUDA.
+    #[test]
+    fn gpu_sparse_tensor_from_dense() {
+        ensure_cuda_backend();
+
+        let dense_data: Vec<f64> = vec![
+            0.0, 1.0, 0.0, 2.0,
+            0.0, 0.0, 3.0, 0.0,
+            4.0, 0.0, 0.0, 5.0,
+            0.0, 6.0, 0.0, 0.0,
+        ];
+        let dense_cpu = make_tensor_f32(&dense_data, &[4, 4]);
+        let dense_gpu = dense_cpu
+            .to(ferrotorch_core::Device::Cuda(0))
+            .expect("dense->gpu");
+
+        // Pre-fix: SparseTensor::from_dense calls tensor.data() which
+        // returns GpuTensorNotAccessible for a CUDA tensor.
+        let sp = SparseTensor::<f32>::from_dense(&dense_gpu, 0.0)
+            .expect("gpu from_dense");
+        assert_eq!(sp.shape(), &[4, 4]);
+        assert_eq!(sp.nnz(), 6, "expected 6 non-zero entries");
+
+        // Round-trip via CPU to_dense.
+        let re_dense = sp.to_dense().expect("re-densify");
+        let re_data = re_dense.data().expect("re data");
+        for (i, (&got, &exp)) in re_data.iter().zip(dense_data.iter()).enumerate() {
+            assert!(
+                ((got as f64) - exp).abs() < 1e-5,
+                "from_dense round-trip f32 elem {i}: got {got}, exp {exp}"
+            );
+        }
     }
 
     /// Live GPU SpMM test (P2): `SparseTensor::spmm` dispatches to
