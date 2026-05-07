@@ -1,0 +1,10 @@
+{
+  "uuid": "45d6fea5-d424-447c-95b6-16d1546f9414",
+  "issue_uuid": "8746f15c-fc46-4ae7-b244-886be5ab36bd",
+  "author": "y4rr",
+  "content": "Follow-up from Sprint C.7 (#626). GpuBackend methods: broadcast_add_f32/f64, broadcast_sub_f32/f64, broadcast_mul_f32/f64, broadcast_div_f32/f64, broadcast_bmm_f32/f64. Requires stride-aware indexing kernel that maps flat output index to broadcasted input indices. Pattern identical to NumPy broadcast semantics.",
+  "created_at": "2026-05-07T21:08:04.153809921Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvHpS1e6hHCR14zl45mrNAG2uXHGVioyzibmBDdvUuO/ve3usZYmjKHALWSD2rh7TXuCQgxicp4K3d75T7QqEBw=="
+}
