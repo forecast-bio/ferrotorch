@@ -1,0 +1,10 @@
+{
+  "uuid": "4932dbc7-3d5b-4b64-9b5c-c41ddcb60adb",
+  "issue_uuid": "f241b066-6acc-4b30-95f9-6a238987ad81",
+  "author": "y4rr",
+  "content": "Observation: The Fixture struct has 'shape: Option<Vec<usize>>' but NOT 'input_shape'. The all_gather_world_size_2 and reduce_scatter_world_size_2_sum fixtures in fixtures.json emit 'input_shape' not 'shape' for the input tensor shape. Since serde skips unknown fields by default, input_shape is silently dropped and f.shape is None, triggering a panic on .expect(). The fix is adding an input_shape field to the Fixture struct with serde(default) and reading it in the affected tests.",
+  "created_at": "2026-05-07T18:16:16.698837167Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAcVI1pQZyFv+hjfqwwjFm8O0U4ZraMSkUDUeUq8d74Eipgyk+oiyMm/5ZDWi+/szQfQQfEH6Tcwz2Lkj5W26FBA=="
+}
