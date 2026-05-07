@@ -152,6 +152,7 @@ pub mod layer;
 pub mod mlp;
 pub mod model;
 pub mod quant_loaders;
+pub mod spec_decode;
 
 pub use attention::LlamaAttention;
 pub use config::{LlamaActivation, LlamaConfig};
@@ -164,6 +165,9 @@ pub use layer::LlamaDecoderLayer;
 pub use mlp::LlamaMLP;
 pub use model::{LlamaForCausalLM, LlamaModel};
 pub use quant_loaders::{AwqQ4, GptqQ4, dequantize_awq_q4, dequantize_gptq_q4};
+pub use spec_decode::{
+    LlamaHandle, ModelHandle, SpecDecodeConfig, SpecDecodeOutput, speculative_decode,
+};
 
 #[cfg(feature = "cuda")]
 pub use gpu::{LlamaGpuInferencer, LlamaGpuLayer, ProfiledForwardResult};
