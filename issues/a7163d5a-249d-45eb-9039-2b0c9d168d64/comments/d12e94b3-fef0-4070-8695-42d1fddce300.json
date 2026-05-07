@@ -1,0 +1,10 @@
+{
+  "uuid": "d12e94b3-fef0-4070-8695-42d1fddce300",
+  "issue_uuid": "a7163d5a-249d-45eb-9039-2b0c9d168d64",
+  "author": "y4rr",
+  "content": "Decision: Integration test file uses #[cfg(feature = http)] guard from ferrotorch-hub to gate the hf_download_model calls (same pattern as load_pretrained_smoke.rs in ferrotorch-hub). Tests are also #[ignore]-gated so cargo test -p ferrotorch-llama --tests runs clean in CI with no network. The Python fixture generator uses auto-gptq==0.7.1 / autoawq==0.2.6 / hqq==0.2.1 plus transformers==4.50.3 — same transformers pin as regenerate_llama_fixtures.py for consistency. Fixture file goes to ferrotorch-llama/tests/fixtures/quant_loader_expected.json (parallel to conformance/fixtures/llama.json pattern). No Cargo.toml changes needed: ferrotorch-hub and ferrotorch-serialize are already regular [dependencies] in ferrotorch-llama.",
+  "created_at": "2026-05-07T21:01:03.178126587Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAh37jR5H+IjnXIDwUMHvT8ZGa6pZJAi1xubIL3zBcU3xL7T+YZ9Z9FSLxvkneZu4DkQXkuLnWyL1v3dQY44CmDQ=="
+}
