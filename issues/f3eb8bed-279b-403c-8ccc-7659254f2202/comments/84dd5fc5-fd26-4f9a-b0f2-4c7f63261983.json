@@ -1,0 +1,10 @@
+{
+  "uuid": "84dd5fc5-fd26-4f9a-b0f2-4c7f63261983",
+  "issue_uuid": "f3eb8bed-279b-403c-8ccc-7659254f2202",
+  "author": "y4rr",
+  "content": "Conformance tests added in ferrotorch-jit/tests/conformance_jit_error_variants.rs (Sprint A.4). GpuBackendUnavailable fires unconditionally from InductorBackend::compile() with GpuCuda/GpuPtx targets — no physical GPU required; the error surfaces because no runtime executor is wired through the JIT path. Added: Display + From<JitError> tests (2 tests), InductorBackend::compile() with GpuCuda and GpuPtx each returning the error (2 tests), opt-in CPU fallback pattern demonstration (1 test), #[cfg(feature='cuda')] path showing runtime-layer rejection after NVRTC succeeds (1 test), #[cfg(not(feature='cuda'))] path showing codegen-layer Unsupported rejection (1 test) — 7 tests total for this issue. _surface_exclusions.toml updated: reason changed from 'live-env' to 'implicit' with notes. cargo test -p ferrotorch-jit --tests clean (541 tests); cargo clippy -p ferrotorch-jit --all-targets -- -D warnings clean.",
+  "created_at": "2026-05-07T17:49:38.831598481Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABASfDDGvvflIjfPZrnK1us12PcEU0Dyl8gY7Omcgjva5m2UPoO71HWKtgy7L93LyLABofWwQPjvv8KEy/HMwMHBg=="
+}
