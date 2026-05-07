@@ -1,0 +1,714 @@
+{
+  "metadata": {
+    "torch_version": "2.11.0+cu130",
+    "python_executable": "/usr/sbin/python3",
+    "python_platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "generated_at": "2026-05-07T14:01:10.584140Z",
+    "rng_seed": 42,
+    "reference": "torch==2.11.0",
+    "note": "Multi-worker DataLoader fixtures are omitted: multi-worker requires OS process spawning, single-worker conformance only."
+  },
+  "fixtures": [
+    {
+      "kind": "vec_dataset",
+      "subtest": "len",
+      "n": 10,
+      "expected_len": 10
+    },
+    {
+      "kind": "vec_dataset",
+      "subtest": "get",
+      "n": 10,
+      "index": 0,
+      "expected_value": 0
+    },
+    {
+      "kind": "vec_dataset",
+      "subtest": "get",
+      "n": 10,
+      "index": 4,
+      "expected_value": 4
+    },
+    {
+      "kind": "vec_dataset",
+      "subtest": "get",
+      "n": 10,
+      "index": 9,
+      "expected_value": 9
+    },
+    {
+      "kind": "vec_dataset",
+      "subtest": "get_oob",
+      "n": 10,
+      "index": 10,
+      "expected_error": "IndexOutOfBounds"
+    },
+    {
+      "kind": "tensor_dataset",
+      "subtest": "len",
+      "x_shape": [
+        5,
+        2
+      ],
+      "y_shape": [
+        5
+      ],
+      "expected_len": 5
+    },
+    {
+      "kind": "tensor_dataset",
+      "subtest": "get",
+      "index": 0,
+      "x_shape": [
+        5,
+        2
+      ],
+      "y_shape": [
+        5
+      ],
+      "x_data": [
+        [
+          0.0,
+          1.0
+        ],
+        [
+          2.0,
+          3.0
+        ],
+        [
+          4.0,
+          5.0
+        ],
+        [
+          6.0,
+          7.0
+        ],
+        [
+          8.0,
+          9.0
+        ]
+      ],
+      "y_data": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "expected_x": [
+        0.0,
+        1.0
+      ],
+      "expected_y": 0.0
+    },
+    {
+      "kind": "tensor_dataset",
+      "subtest": "get",
+      "index": 2,
+      "x_shape": [
+        5,
+        2
+      ],
+      "y_shape": [
+        5
+      ],
+      "x_data": [
+        [
+          0.0,
+          1.0
+        ],
+        [
+          2.0,
+          3.0
+        ],
+        [
+          4.0,
+          5.0
+        ],
+        [
+          6.0,
+          7.0
+        ],
+        [
+          8.0,
+          9.0
+        ]
+      ],
+      "y_data": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "expected_x": [
+        4.0,
+        5.0
+      ],
+      "expected_y": 2.0
+    },
+    {
+      "kind": "tensor_dataset",
+      "subtest": "get",
+      "index": 4,
+      "x_shape": [
+        5,
+        2
+      ],
+      "y_shape": [
+        5
+      ],
+      "x_data": [
+        [
+          0.0,
+          1.0
+        ],
+        [
+          2.0,
+          3.0
+        ],
+        [
+          4.0,
+          5.0
+        ],
+        [
+          6.0,
+          7.0
+        ],
+        [
+          8.0,
+          9.0
+        ]
+      ],
+      "y_data": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "expected_x": [
+        8.0,
+        9.0
+      ],
+      "expected_y": 4.0
+    },
+    {
+      "kind": "concat_dataset",
+      "subtest": "len",
+      "sizes": [
+        3,
+        2
+      ],
+      "expected_len": 5
+    },
+    {
+      "kind": "concat_dataset",
+      "subtest": "get",
+      "sizes": [
+        3,
+        2
+      ],
+      "index": 0,
+      "expected_value": 10
+    },
+    {
+      "kind": "concat_dataset",
+      "subtest": "get",
+      "sizes": [
+        3,
+        2
+      ],
+      "index": 1,
+      "expected_value": 20
+    },
+    {
+      "kind": "concat_dataset",
+      "subtest": "get",
+      "sizes": [
+        3,
+        2
+      ],
+      "index": 2,
+      "expected_value": 30
+    },
+    {
+      "kind": "concat_dataset",
+      "subtest": "get",
+      "sizes": [
+        3,
+        2
+      ],
+      "index": 3,
+      "expected_value": 40
+    },
+    {
+      "kind": "concat_dataset",
+      "subtest": "get",
+      "sizes": [
+        3,
+        2
+      ],
+      "index": 4,
+      "expected_value": 50
+    },
+    {
+      "kind": "chain_dataset",
+      "subtest": "iter_order",
+      "a_values": [
+        1,
+        2,
+        3
+      ],
+      "b_values": [
+        4,
+        5
+      ],
+      "expected_items": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "kind": "sequential_sampler",
+      "subtest": "indices",
+      "n": 8,
+      "expected_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "kind": "random_sampler",
+      "subtest": "is_permutation",
+      "n": 10,
+      "seed": 42,
+      "indices": [
+        2,
+        6,
+        1,
+        8,
+        4,
+        5,
+        0,
+        9,
+        3,
+        7
+      ],
+      "note": "ferrotorch uses a different PRNG (xorshift64) \u2014 exact values will differ. Assert only that the output is a permutation of 0..n. The fixture records PyTorch's specific output for reference but the Rust test asserts permutation-completeness only."
+    },
+    {
+      "kind": "batch_sampler",
+      "subtest": "sequential_no_drop",
+      "n": 10,
+      "batch_size": 3,
+      "drop_last": false,
+      "expected_batches": [
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          3,
+          4,
+          5
+        ],
+        [
+          6,
+          7,
+          8
+        ],
+        [
+          9
+        ]
+      ]
+    },
+    {
+      "kind": "batch_sampler",
+      "subtest": "sequential_drop_last",
+      "n": 10,
+      "batch_size": 3,
+      "drop_last": true,
+      "expected_batches": [
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          3,
+          4,
+          5
+        ],
+        [
+          6,
+          7,
+          8
+        ]
+      ]
+    },
+    {
+      "kind": "batch_sampler",
+      "subtest": "exact_division",
+      "n": 15,
+      "batch_size": 5,
+      "drop_last": false,
+      "expected_batches": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        [
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        [
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      ]
+    },
+    {
+      "kind": "weighted_random_sampler",
+      "subtest": "heavy_bias",
+      "weights": [
+        1.0,
+        1.0,
+        100.0,
+        1.0
+      ],
+      "n_samples": 200,
+      "heavy_index": 2,
+      "heavy_count_reference": 195,
+      "note": "ferrotorch uses a different PRNG. Assert heavy_index count > n_samples * 0.7 (heavy weight is 100\u00d7 others)."
+    },
+    {
+      "kind": "distributed_sampler",
+      "subtest": "sequential_partition",
+      "n": 10,
+      "num_replicas": 3,
+      "rank": 0,
+      "expected_indices": [
+        0,
+        3,
+        6,
+        9
+      ],
+      "expected_per_rank_len": 4
+    },
+    {
+      "kind": "distributed_sampler",
+      "subtest": "sequential_partition",
+      "n": 10,
+      "num_replicas": 3,
+      "rank": 1,
+      "expected_indices": [
+        1,
+        4,
+        7,
+        0
+      ],
+      "expected_per_rank_len": 4
+    },
+    {
+      "kind": "distributed_sampler",
+      "subtest": "sequential_partition",
+      "n": 10,
+      "num_replicas": 3,
+      "rank": 2,
+      "expected_indices": [
+        2,
+        5,
+        8,
+        1
+      ],
+      "expected_per_rank_len": 4
+    },
+    {
+      "kind": "dataloader",
+      "subtest": "sequential",
+      "n": 8,
+      "batch_size": 3,
+      "shuffle": false,
+      "drop_last": false,
+      "expected_batches": [
+        [
+          0.0,
+          1.0,
+          2.0
+        ],
+        [
+          3.0,
+          4.0,
+          5.0
+        ],
+        [
+          6.0,
+          7.0
+        ]
+      ]
+    },
+    {
+      "kind": "dataloader",
+      "subtest": "drop_last",
+      "n": 10,
+      "batch_size": 3,
+      "shuffle": false,
+      "drop_last": true,
+      "expected_batches": [
+        [
+          0.0,
+          1.0,
+          2.0
+        ],
+        [
+          3.0,
+          4.0,
+          5.0
+        ],
+        [
+          6.0,
+          7.0,
+          8.0
+        ]
+      ],
+      "expected_num_batches": 3
+    },
+    {
+      "kind": "dataloader",
+      "subtest": "shuffle_coverage",
+      "n": 10,
+      "batch_size": 10,
+      "shuffle": true,
+      "note": "ferrotorch uses a different PRNG. Assert that the full epoch covers all n samples exactly once (permutation completeness).",
+      "expected_sorted_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "kind": "dataloader",
+      "subtest": "num_batches",
+      "n": 10,
+      "batch_size": 3,
+      "drop_last": false,
+      "expected_num_batches": 4
+    },
+    {
+      "kind": "dataloader",
+      "subtest": "num_batches",
+      "n": 10,
+      "batch_size": 3,
+      "drop_last": true,
+      "expected_num_batches": 3
+    },
+    {
+      "kind": "dataloader",
+      "subtest": "num_batches",
+      "n": 9,
+      "batch_size": 3,
+      "drop_last": false,
+      "expected_num_batches": 3
+    },
+    {
+      "kind": "dataloader",
+      "subtest": "num_batches",
+      "n": 9,
+      "batch_size": 3,
+      "drop_last": true,
+      "expected_num_batches": 3
+    },
+    {
+      "kind": "dataloader",
+      "subtest": "num_batches",
+      "n": 1,
+      "batch_size": 5,
+      "drop_last": false,
+      "expected_num_batches": 1
+    },
+    {
+      "kind": "dataloader",
+      "subtest": "num_batches",
+      "n": 0,
+      "batch_size": 5,
+      "drop_last": false,
+      "expected_num_batches": 0
+    },
+    {
+      "kind": "collate",
+      "subtest": "stack_1d",
+      "samples": [
+        [
+          1.0,
+          2.0,
+          3.0
+        ],
+        [
+          4.0,
+          5.0,
+          6.0
+        ]
+      ],
+      "input_shape": [
+        3
+      ],
+      "expected_shape": [
+        2,
+        3
+      ],
+      "expected_data": [
+        [
+          1.0,
+          2.0,
+          3.0
+        ],
+        [
+          4.0,
+          5.0,
+          6.0
+        ]
+      ]
+    },
+    {
+      "kind": "collate",
+      "subtest": "stack_2d",
+      "num_samples": 3,
+      "input_shape": [
+        2,
+        2
+      ],
+      "expected_shape": [
+        3,
+        2,
+        2
+      ],
+      "expected_data": [
+        [
+          [
+            1.0,
+            2.0
+          ],
+          [
+            3.0,
+            4.0
+          ]
+        ],
+        [
+          [
+            5.0,
+            6.0
+          ],
+          [
+            7.0,
+            8.0
+          ]
+        ],
+        [
+          [
+            9.0,
+            10.0
+          ],
+          [
+            11.0,
+            12.0
+          ]
+        ]
+      ]
+    },
+    {
+      "kind": "normalize",
+      "subtest": "two_channel",
+      "input": [
+        [
+          2.0,
+          4.0,
+          6.0
+        ],
+        [
+          10.0,
+          20.0,
+          30.0
+        ]
+      ],
+      "input_shape": [
+        2,
+        3
+      ],
+      "mean": [
+        4.0,
+        20.0
+      ],
+      "std": [
+        2.0,
+        10.0
+      ],
+      "expected": [
+        [
+          -1.0,
+          0.0,
+          1.0
+        ],
+        [
+          -1.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "expected_shape": [
+        2,
+        3
+      ]
+    },
+    {
+      "kind": "normalize",
+      "subtest": "identity",
+      "input": [
+        [
+          1.0,
+          2.0,
+          3.0
+        ]
+      ],
+      "mean": [
+        0.0
+      ],
+      "std": [
+        1.0
+      ],
+      "expected": [
+        [
+          1.0,
+          2.0,
+          3.0
+        ]
+      ]
+    }
+  ]
+}

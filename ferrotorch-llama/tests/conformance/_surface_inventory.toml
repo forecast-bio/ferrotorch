@@ -1,0 +1,231 @@
+# ferrotorch-llama public surface inventory.
+# Generated manually from src/lib.rs re-exports and all pub items in each module.
+# Regenerate after any public-API change.
+#
+# Tracking issue: #844
+# Reference: transformers==4.50.3
+
+[[item]]
+path = "ferrotorch_llama::LlamaConfig"
+kind = "struct"
+signature = "pub struct LlamaConfig"
+
+[[item]]
+path = "ferrotorch_llama::LlamaConfig::llama3_8b"
+kind = "method"
+signature = "pub fn llama3_8b() -> Self"
+
+[[item]]
+path = "ferrotorch_llama::LlamaConfig::llama2_7b"
+kind = "method"
+signature = "pub fn llama2_7b() -> Self"
+
+[[item]]
+path = "ferrotorch_llama::LlamaConfig::prosparse_7b"
+kind = "method"
+signature = "pub fn prosparse_7b() -> Self"
+
+[[item]]
+path = "ferrotorch_llama::LlamaConfig::llama3_3_70b_instruct"
+kind = "method"
+signature = "pub fn llama3_3_70b_instruct() -> Self"
+
+[[item]]
+path = "ferrotorch_llama::LlamaConfig::from_hf"
+kind = "method"
+signature = "pub fn from_hf(hf: &HfTransformerConfig) -> FerrotorchResult<Self>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaConfig::head_dim"
+kind = "method"
+signature = "pub fn head_dim(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_llama::LlamaConfig::kv_group_size"
+kind = "method"
+signature = "pub fn kv_group_size(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_llama::LlamaConfig::validate"
+kind = "method"
+signature = "pub fn validate(&self) -> FerrotorchResult<()>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaActivation"
+kind = "enum"
+signature = "pub enum LlamaActivation"
+
+[[item]]
+path = "ferrotorch_llama::LlamaAttention"
+kind = "struct"
+signature = "pub struct LlamaAttention<T: Float>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaAttention::new"
+kind = "method"
+signature = "pub fn new(cfg: &LlamaConfig) -> FerrotorchResult<Self>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaAttention::num_heads"
+kind = "method"
+signature = "pub fn num_heads(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_llama::LlamaAttention::num_kv_heads"
+kind = "method"
+signature = "pub fn num_kv_heads(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_llama::LlamaAttention::head_dim"
+kind = "method"
+signature = "pub fn head_dim(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_llama::LlamaMLP"
+kind = "struct"
+signature = "pub struct LlamaMLP<T: Float>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaMLP::new"
+kind = "method"
+signature = "pub fn new(cfg: &LlamaConfig) -> FerrotorchResult<Self>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaDecoderLayer"
+kind = "struct"
+signature = "pub struct LlamaDecoderLayer<T: Float>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaDecoderLayer::new"
+kind = "method"
+signature = "pub fn new(cfg: &LlamaConfig) -> FerrotorchResult<Self>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaModel"
+kind = "struct"
+signature = "pub struct LlamaModel<T: Float>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaModel::new"
+kind = "method"
+signature = "pub fn new(cfg: &LlamaConfig) -> FerrotorchResult<Self>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaForCausalLM"
+kind = "struct"
+signature = "pub struct LlamaForCausalLM<T: Float>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaForCausalLM::new"
+kind = "method"
+signature = "pub fn new(cfg: LlamaConfig) -> FerrotorchResult<Self>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaForCausalLM::forward_from_ids"
+kind = "method"
+signature = "pub fn forward_from_ids(&self, ids: &[u32]) -> FerrotorchResult<Tensor<T>>"
+
+[[item]]
+path = "ferrotorch_llama::LlamaForCausalLM::load_hf_state_dict"
+kind = "method"
+signature = "pub fn load_hf_state_dict(&mut self, hf_state: &StateDict<T>, strict: bool) -> FerrotorchResult<()>"
+
+[[item]]
+path = "ferrotorch_llama::GenerationConfig"
+kind = "struct"
+signature = "pub struct GenerationConfig"
+
+[[item]]
+path = "ferrotorch_llama::GenerationConfig::greedy"
+kind = "method"
+signature = "pub fn greedy(max_new_tokens: usize) -> Self"
+
+[[item]]
+path = "ferrotorch_llama::GenerationConfig::sampling"
+kind = "method"
+signature = "pub fn sampling(max_new_tokens: usize, temperature: f64) -> Self"
+
+[[item]]
+path = "ferrotorch_llama::GenerationConfig::nucleus"
+kind = "method"
+signature = "pub fn nucleus(max_new_tokens: usize, top_p: f64, temperature: f64) -> Self"
+
+[[item]]
+path = "ferrotorch_llama::generate"
+kind = "fn"
+signature = "pub fn generate<T: Float>(model: &LlamaForCausalLM<T>, prompt_ids: &[u32], config: &GenerationConfig) -> FerrotorchResult<Vec<u32>>"
+
+[[item]]
+path = "ferrotorch_llama::generate_with_streamer"
+kind = "fn"
+signature = "pub fn generate_with_streamer<T: Float>(model: &LlamaForCausalLM<T>, prompt_ids: &[u32], config: &GenerationConfig, streamer: &mut dyn FnMut(u32) -> bool) -> FerrotorchResult<Vec<u32>>"
+
+[[item]]
+path = "ferrotorch_llama::apply_repetition_penalty"
+kind = "fn"
+signature = "pub fn apply_repetition_penalty(logits: &mut [f64], context: &[u32], penalty: f64)"
+
+[[item]]
+path = "ferrotorch_llama::apply_temperature"
+kind = "fn"
+signature = "pub fn apply_temperature(logits: &mut [f64], temperature: f64)"
+
+[[item]]
+path = "ferrotorch_llama::argmax"
+kind = "fn"
+signature = "pub fn argmax(logits: &[f64]) -> u32"
+
+[[item]]
+path = "ferrotorch_llama::sample_softmax"
+kind = "fn"
+signature = "pub fn sample_softmax(logits: &[f64], rng_state: &mut u64) -> u32"
+
+[[item]]
+path = "ferrotorch_llama::top_k_filter"
+kind = "fn"
+signature = "pub fn top_k_filter(logits: &mut [f64], k: usize)"
+
+[[item]]
+path = "ferrotorch_llama::top_p_filter"
+kind = "fn"
+signature = "pub fn top_p_filter(logits: &mut [f64], top_p: f64)"
+
+[[item]]
+path = "ferrotorch_llama::gguf_key_to_hf"
+kind = "fn"
+signature = "pub fn gguf_key_to_hf(key: &str) -> Option<String>"
+
+[[item]]
+path = "ferrotorch_llama::gguf_to_hf_state_dict"
+kind = "fn"
+signature = "pub fn gguf_to_hf_state_dict<T: Float>(gguf: &StateDict<T>) -> StateDict<T>"
+
+[[item]]
+path = "ferrotorch_llama::AwqQ4"
+kind = "struct"
+signature = "pub struct AwqQ4"
+
+[[item]]
+path = "ferrotorch_llama::GptqQ4"
+kind = "struct"
+signature = "pub struct GptqQ4"
+
+[[item]]
+path = "ferrotorch_llama::dequantize_awq_q4"
+kind = "fn"
+signature = "pub fn dequantize_awq_q4(q: &AwqQ4) -> FerrotorchResult<Vec<f32>>"
+
+[[item]]
+path = "ferrotorch_llama::dequantize_gptq_q4"
+kind = "fn"
+signature = "pub fn dequantize_gptq_q4(q: &GptqQ4) -> FerrotorchResult<Vec<f32>>"
+
+[[item]]
+path = "ferrotorch_llama::BeamSearchConfig"
+kind = "struct"
+signature = "pub struct BeamSearchConfig"
+
+[[item]]
+path = "ferrotorch_llama::generation::beam_search"
+kind = "fn"
+signature = "pub fn beam_search<T: Float>(model: &LlamaForCausalLM<T>, prompt_ids: &[u32], config: &BeamSearchConfig) -> FerrotorchResult<Vec<Vec<u32>>>"

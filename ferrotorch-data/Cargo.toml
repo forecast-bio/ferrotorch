@@ -34,3 +34,14 @@ arrow = ["dep:arrow", "dep:ferray-numpy-interop", "ferray-numpy-interop/arrow"]
 polars = ["arrow", "dep:polars", "ferray-numpy-interop/polars"]
 
 [dev-dependencies]
+# Conformance suite (Layer 1 surface inventory + Layer 2 fixture loading +
+# Layer 4 strict coverage gate). Mirrors the ferrotorch-core pattern.
+#   * `syn`/`quote` parse `src/lib.rs` to emit the surface inventory JSON.
+#   * `toml` parses `_surface_exclusions.toml`.
+#   * `serde`/`serde_json` parse the inventory JSON and Python-generated
+#     fixture files.
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+toml = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }

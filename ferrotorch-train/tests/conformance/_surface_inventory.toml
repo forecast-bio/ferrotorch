@@ -1,0 +1,585 @@
+# ferrotorch-train public surface inventory (Layer 1).
+#
+# Tracking issue: #843 — ferrotorch-train conformance suite.
+# Reference: torch == 2.11.0
+#
+# This file enumerates every public item exported by ferrotorch-train.
+# It is the "denominator" for the Layer 4 strict surface-coverage gate.
+# Regenerate by inspecting ferrotorch-train/src/*.rs for `pub` items.
+#
+# Format: [[item]] entries with:
+#   path      — crate-relative qualified path
+#   kind      — "fn" | "method" | "type_alias" | "struct" | "trait" | "re_export"
+#   signature — short human-readable signature (not parsed by the gate)
+#
+# Items are grouped by source module.
+
+# ── lib.rs re-exports ───────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_train::Callback"
+kind = "re_export"
+signature = "pub use callback::Callback"
+
+[[item]]
+path = "ferrotorch_train::EarlyStopping"
+kind = "re_export"
+signature = "pub use callback::EarlyStopping"
+
+[[item]]
+path = "ferrotorch_train::EmaCallback"
+kind = "re_export"
+signature = "pub use callback::EmaCallback"
+
+[[item]]
+path = "ferrotorch_train::ProgressLogger"
+kind = "re_export"
+signature = "pub use callback::ProgressLogger"
+
+[[item]]
+path = "ferrotorch_train::checkpoint"
+kind = "re_export"
+signature = "pub use checkpoint::checkpoint"
+
+[[item]]
+path = "ferrotorch_train::checkpoint_sequential"
+kind = "re_export"
+signature = "pub use checkpoint::checkpoint_sequential"
+
+[[item]]
+path = "ferrotorch_train::clip_grad_norm_"
+kind = "re_export"
+signature = "pub use grad_utils::clip_grad_norm_"
+
+[[item]]
+path = "ferrotorch_train::clip_grad_value_"
+kind = "re_export"
+signature = "pub use grad_utils::clip_grad_value_"
+
+[[item]]
+path = "ferrotorch_train::EpochResult"
+kind = "re_export"
+signature = "pub use history::EpochResult"
+
+[[item]]
+path = "ferrotorch_train::EvalResult"
+kind = "re_export"
+signature = "pub use history::EvalResult"
+
+[[item]]
+path = "ferrotorch_train::TrainingHistory"
+kind = "re_export"
+signature = "pub use history::TrainingHistory"
+
+[[item]]
+path = "ferrotorch_train::Learner"
+kind = "re_export"
+signature = "pub use learner::Learner"
+
+[[item]]
+path = "ferrotorch_train::LossFn"
+kind = "re_export"
+signature = "pub use learner::LossFn"
+
+[[item]]
+path = "ferrotorch_train::AccuracyMetric"
+kind = "re_export"
+signature = "pub use metric::AccuracyMetric"
+
+[[item]]
+path = "ferrotorch_train::LossMetric"
+kind = "re_export"
+signature = "pub use metric::LossMetric"
+
+[[item]]
+path = "ferrotorch_train::Metric"
+kind = "re_export"
+signature = "pub use metric::Metric"
+
+[[item]]
+path = "ferrotorch_train::RunningAverage"
+kind = "re_export"
+signature = "pub use metric::RunningAverage"
+
+[[item]]
+path = "ferrotorch_train::TopKAccuracy"
+kind = "re_export"
+signature = "pub use metric::TopKAccuracy"
+
+[[item]]
+path = "ferrotorch_train::TensorBoardCallback"
+kind = "re_export"
+signature = "pub use tensorboard::TensorBoardCallback"
+
+[[item]]
+path = "ferrotorch_train::TensorBoardWriter"
+kind = "re_export"
+signature = "pub use tensorboard::TensorBoardWriter"
+
+# ── amp module ───────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_train::amp::AmpContext"
+kind = "struct"
+signature = "pub struct AmpContext<T: Float>"
+
+[[item]]
+path = "ferrotorch_train::amp::AmpContext::new"
+kind = "method"
+signature = "pub fn new(dtype: AutocastDtype, scaler_config: GradScalerConfig) -> Self"
+
+[[item]]
+path = "ferrotorch_train::amp::AmpContext::autocast_forward"
+kind = "method"
+signature = "pub fn autocast_forward<F, R>(&self, f: F) -> R"
+
+[[item]]
+path = "ferrotorch_train::amp::AmpContext::backward_step"
+kind = "method"
+signature = "pub fn backward_step(&mut self, loss: &Tensor<T>, optimizer: &mut dyn Optimizer<T>) -> FerrotorchResult<bool>"
+
+[[item]]
+path = "ferrotorch_train::amp::AmpContext::scaler"
+kind = "method"
+signature = "pub fn scaler(&self) -> &GradScaler<T>"
+
+[[item]]
+path = "ferrotorch_train::amp::AmpContext::scaler_mut"
+kind = "method"
+signature = "pub fn scaler_mut(&mut self) -> &mut GradScaler<T>"
+
+[[item]]
+path = "ferrotorch_train::amp::AmpContext::dtype"
+kind = "method"
+signature = "pub fn dtype(&self) -> AutocastDtype"
+
+[[item]]
+path = "ferrotorch_train::amp::AmpContext::get_scale"
+kind = "method"
+signature = "pub fn get_scale(&self) -> f64"
+
+[[item]]
+path = "ferrotorch_train::amp::AmpContext::is_enabled"
+kind = "method"
+signature = "pub fn is_enabled(&self) -> bool"
+
+[[item]]
+path = "ferrotorch_train::amp::AmpContext::scaler_state_dict"
+kind = "method"
+signature = "pub fn scaler_state_dict(&self) -> GradScalerState"
+
+[[item]]
+path = "ferrotorch_train::amp::AmpContext::load_scaler_state_dict"
+kind = "method"
+signature = "pub fn load_scaler_state_dict(&mut self, state: &GradScalerState)"
+
+# amp re-exports from core / optim
+
+[[item]]
+path = "ferrotorch_train::amp::autocast"
+kind = "re_export"
+signature = "pub use ferrotorch_core::autograd::autocast::autocast"
+
+[[item]]
+path = "ferrotorch_train::amp::AutocastDtype"
+kind = "re_export"
+signature = "pub use ferrotorch_core::autograd::autocast::AutocastDtype"
+
+[[item]]
+path = "ferrotorch_train::amp::autocast_dtype"
+kind = "re_export"
+signature = "pub use ferrotorch_core::autograd::autocast::autocast_dtype"
+
+[[item]]
+path = "ferrotorch_train::amp::is_autocast_enabled"
+kind = "re_export"
+signature = "pub use ferrotorch_core::autograd::autocast::is_autocast_enabled"
+
+[[item]]
+path = "ferrotorch_train::amp::AutocastCategory"
+kind = "re_export"
+signature = "pub use ferrotorch_core::autograd::autocast_ops::AutocastCategory"
+
+[[item]]
+path = "ferrotorch_train::amp::autocast_category"
+kind = "re_export"
+signature = "pub use ferrotorch_core::autograd::autocast_ops::autocast_category"
+
+[[item]]
+path = "ferrotorch_train::amp::autocast_guard"
+kind = "re_export"
+signature = "pub use ferrotorch_core::autograd::autocast_ops::autocast_guard"
+
+[[item]]
+path = "ferrotorch_train::amp::should_cast_to_reduced"
+kind = "re_export"
+signature = "pub use ferrotorch_core::autograd::autocast_ops::should_cast_to_reduced"
+
+[[item]]
+path = "ferrotorch_train::amp::should_keep_full_precision"
+kind = "re_export"
+signature = "pub use ferrotorch_core::autograd::autocast_ops::should_keep_full_precision"
+
+[[item]]
+path = "ferrotorch_train::amp::GradScaler"
+kind = "re_export"
+signature = "pub use ferrotorch_optim::GradScaler"
+
+[[item]]
+path = "ferrotorch_train::amp::GradScalerConfig"
+kind = "re_export"
+signature = "pub use ferrotorch_optim::GradScalerConfig"
+
+[[item]]
+path = "ferrotorch_train::amp::GradScalerState"
+kind = "re_export"
+signature = "pub use ferrotorch_optim::GradScalerState"
+
+# ── callback module ──────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_train::callback::Callback"
+kind = "trait"
+signature = "pub trait Callback<T: Float>: Send + Sync"
+
+[[item]]
+path = "ferrotorch_train::callback::EarlyStopping"
+kind = "struct"
+signature = "pub struct EarlyStopping"
+
+[[item]]
+path = "ferrotorch_train::callback::EarlyStopping::new"
+kind = "method"
+signature = "pub fn new(patience: usize, min_delta: f64) -> Self"
+
+[[item]]
+path = "ferrotorch_train::callback::EarlyStopping::best_loss"
+kind = "method"
+signature = "pub fn best_loss(&self) -> f64"
+
+[[item]]
+path = "ferrotorch_train::callback::EarlyStopping::wait"
+kind = "method"
+signature = "pub fn wait(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_train::callback::EarlyStopping::patience"
+kind = "method"
+signature = "pub fn patience(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_train::callback::ProgressLogger"
+kind = "struct"
+signature = "pub struct ProgressLogger"
+
+[[item]]
+path = "ferrotorch_train::callback::ProgressLogger::new"
+kind = "method"
+signature = "pub fn new(log_every_n_batches: usize) -> Self"
+
+[[item]]
+path = "ferrotorch_train::callback::EmaCallback"
+kind = "struct"
+signature = "pub struct EmaCallback"
+
+[[item]]
+path = "ferrotorch_train::callback::EmaCallback::new"
+kind = "method"
+signature = "pub fn new(decay: f64) -> Self"
+
+[[item]]
+path = "ferrotorch_train::callback::EmaCallback::decay"
+kind = "method"
+signature = "pub fn decay(&self) -> f64"
+
+[[item]]
+path = "ferrotorch_train::callback::EmaCallback::num_updates"
+kind = "method"
+signature = "pub fn num_updates(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_train::callback::EmaCallback::is_initialized"
+kind = "method"
+signature = "pub fn is_initialized(&self) -> bool"
+
+[[item]]
+path = "ferrotorch_train::callback::EmaCallback::shadow_params"
+kind = "method"
+signature = "pub fn shadow_params(&self) -> &[Vec<f64>]"
+
+[[item]]
+path = "ferrotorch_train::callback::EmaCallback::init_from_params"
+kind = "method"
+signature = "pub fn init_from_params<T: Float>(&mut self, params: &[Vec<T>]) -> FerrotorchResult<()>"
+
+[[item]]
+path = "ferrotorch_train::callback::EmaCallback::update_from_params"
+kind = "method"
+signature = "pub fn update_from_params<T: Float>(&mut self, params: &[Vec<T>]) -> FerrotorchResult<()>"
+
+# ── checkpoint module ────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_train::checkpoint::checkpoint"
+kind = "re_export"
+signature = "pub use ferrotorch_core::autograd::checkpoint::checkpoint"
+
+[[item]]
+path = "ferrotorch_train::checkpoint::checkpoint_sequential"
+kind = "fn"
+signature = "pub fn checkpoint_sequential<M, T>(modules: &[M], segments: usize, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>>"
+
+# ── grad_utils module ────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_train::grad_utils::clip_grad_norm_"
+kind = "fn"
+signature = "pub fn clip_grad_norm_<T: Float>(params: &[&Parameter<T>], max_norm: f64, norm_type: f64) -> FerrotorchResult<f64>"
+
+[[item]]
+path = "ferrotorch_train::grad_utils::clip_grad_value_"
+kind = "fn"
+signature = "pub fn clip_grad_value_<T: Float>(params: &[&Parameter<T>], clip_value: f64) -> FerrotorchResult<()>"
+
+# ── history module ───────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_train::history::EpochResult"
+kind = "struct"
+signature = "pub struct EpochResult (non_exhaustive)"
+
+[[item]]
+path = "ferrotorch_train::history::EvalResult"
+kind = "struct"
+signature = "pub struct EvalResult (non_exhaustive)"
+
+[[item]]
+path = "ferrotorch_train::history::TrainingHistory"
+kind = "struct"
+signature = "pub struct TrainingHistory (non_exhaustive)"
+
+[[item]]
+path = "ferrotorch_train::history::TrainingHistory::new"
+kind = "method"
+signature = "pub fn new() -> Self"
+
+[[item]]
+path = "ferrotorch_train::history::TrainingHistory::push"
+kind = "method"
+signature = "pub fn push(&mut self, result: EpochResult)"
+
+[[item]]
+path = "ferrotorch_train::history::TrainingHistory::len"
+kind = "method"
+signature = "pub fn len(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_train::history::TrainingHistory::is_empty"
+kind = "method"
+signature = "pub fn is_empty(&self) -> bool"
+
+[[item]]
+path = "ferrotorch_train::history::TrainingHistory::best_train_loss"
+kind = "method"
+signature = "pub fn best_train_loss(&self) -> Option<(usize, f64)>"
+
+[[item]]
+path = "ferrotorch_train::history::TrainingHistory::best_val_loss"
+kind = "method"
+signature = "pub fn best_val_loss(&self) -> Option<(usize, f64)>"
+
+[[item]]
+path = "ferrotorch_train::history::TrainingHistory::train_losses"
+kind = "method"
+signature = "pub fn train_losses(&self) -> Vec<f64>"
+
+[[item]]
+path = "ferrotorch_train::history::TrainingHistory::val_losses"
+kind = "method"
+signature = "pub fn val_losses(&self) -> Vec<Option<f64>>"
+
+# ── learner module ───────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_train::learner::LossFn"
+kind = "type_alias"
+signature = "pub type LossFn<T> = Box<dyn Fn(...)>"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner"
+kind = "struct"
+signature = "pub struct Learner<M, T: Float>"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::new"
+kind = "method"
+signature = "pub fn new(model: M, optimizer: Box<dyn Optimizer<T>>, loss_fn: LossFn<T>) -> Self"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::with_scheduler"
+kind = "method"
+signature = "pub fn with_scheduler(self, scheduler: Box<dyn LrScheduler<T>>) -> Self"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::with_grad_scaler"
+kind = "method"
+signature = "pub fn with_grad_scaler(self, scaler: GradScaler<T>) -> Self"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::skipped_steps"
+kind = "method"
+signature = "pub fn skipped_steps(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::with_train_metric"
+kind = "method"
+signature = "pub fn with_train_metric(self, metric: Box<dyn Metric<Input = f64>>) -> Self"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::with_val_metric"
+kind = "method"
+signature = "pub fn with_val_metric(self, metric: Box<dyn Metric<Input = f64>>) -> Self"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::with_callback"
+kind = "method"
+signature = "pub fn with_callback(self, callback: Box<dyn Callback<T>>) -> Self"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::with_checkpointing"
+kind = "method"
+signature = "pub fn with_checkpointing(self, dir: PathBuf) -> Self"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::model"
+kind = "method"
+signature = "pub fn model(&self) -> &M"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::model_mut"
+kind = "method"
+signature = "pub fn model_mut(&mut self) -> &mut M"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::epoch"
+kind = "method"
+signature = "pub fn epoch(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::step"
+kind = "method"
+signature = "pub fn step(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::load_checkpoint"
+kind = "method"
+signature = "pub fn load_checkpoint(&mut self, path: impl AsRef<Path>) -> FerrotorchResult<()>"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::fit"
+kind = "method"
+signature = "pub fn fit<I,V>(&mut self, train_data: &dyn Fn() -> I, val_data: Option<...>, num_epochs: usize) -> FerrotorchResult<TrainingHistory>"
+
+[[item]]
+path = "ferrotorch_train::learner::Learner::evaluate"
+kind = "method"
+signature = "pub fn evaluate<V>(&mut self, val_data: &dyn Fn() -> V) -> FerrotorchResult<EvalResult>"
+
+# ── metric module ────────────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_train::metric::Metric"
+kind = "trait"
+signature = "pub trait Metric: Send + Sync"
+
+[[item]]
+path = "ferrotorch_train::metric::LossMetric"
+kind = "struct"
+signature = "pub struct LossMetric"
+
+[[item]]
+path = "ferrotorch_train::metric::LossMetric::new"
+kind = "method"
+signature = "pub fn new() -> Self"
+
+[[item]]
+path = "ferrotorch_train::metric::AccuracyMetric"
+kind = "struct"
+signature = "pub struct AccuracyMetric"
+
+[[item]]
+path = "ferrotorch_train::metric::AccuracyMetric::new"
+kind = "method"
+signature = "pub fn new() -> Self"
+
+[[item]]
+path = "ferrotorch_train::metric::TopKAccuracy"
+kind = "struct"
+signature = "pub struct TopKAccuracy"
+
+[[item]]
+path = "ferrotorch_train::metric::TopKAccuracy::new"
+kind = "method"
+signature = "pub fn new(k: usize) -> Self"
+
+[[item]]
+path = "ferrotorch_train::metric::TopKAccuracy::k"
+kind = "method"
+signature = "pub fn k(&self) -> usize"
+
+[[item]]
+path = "ferrotorch_train::metric::RunningAverage"
+kind = "struct"
+signature = "pub struct RunningAverage"
+
+[[item]]
+path = "ferrotorch_train::metric::RunningAverage::new"
+kind = "method"
+signature = "pub fn new(window_size: usize) -> Self"
+
+[[item]]
+path = "ferrotorch_train::metric::RunningAverage::window_size"
+kind = "method"
+signature = "pub fn window_size(&self) -> usize"
+
+# ── tensorboard module ───────────────────────────────────────────────────────
+
+[[item]]
+path = "ferrotorch_train::tensorboard::TensorBoardWriter"
+kind = "struct"
+signature = "pub struct TensorBoardWriter"
+
+[[item]]
+path = "ferrotorch_train::tensorboard::TensorBoardWriter::new"
+kind = "method"
+signature = "pub fn new(log_dir: impl AsRef<Path>) -> FerrotorchResult<Self>"
+
+[[item]]
+path = "ferrotorch_train::tensorboard::TensorBoardWriter::add_scalar"
+kind = "method"
+signature = "pub fn add_scalar(&mut self, tag: &str, value: f64, step: i64) -> FerrotorchResult<()>"
+
+[[item]]
+path = "ferrotorch_train::tensorboard::TensorBoardWriter::add_scalars"
+kind = "method"
+signature = "pub fn add_scalars(&mut self, main_tag: &str, values: &HashMap<String,f64>, step: i64) -> FerrotorchResult<()>"
+
+[[item]]
+path = "ferrotorch_train::tensorboard::TensorBoardWriter::flush"
+kind = "method"
+signature = "pub fn flush(&mut self) -> FerrotorchResult<()>"
+
+[[item]]
+path = "ferrotorch_train::tensorboard::TensorBoardWriter::log_dir"
+kind = "method"
+signature = "pub fn log_dir(&self) -> &Path"
+
+[[item]]
+path = "ferrotorch_train::tensorboard::TensorBoardCallback"
+kind = "struct"
+signature = "pub struct TensorBoardCallback"
+
+[[item]]
+path = "ferrotorch_train::tensorboard::TensorBoardCallback::new"
+kind = "method"
+signature = "pub fn new(log_dir: impl AsRef<Path>) -> FerrotorchResult<Self>"

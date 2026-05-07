@@ -1,0 +1,338 @@
+# Strict coverage-gate exclusions for the ferrotorch-data conformance suite.
+#
+# Format: `[[exclusion]]` table-array entries with three required fields:
+#   path           — fully qualified item path as written in `_surface.json`
+#   reason         — one or more sentences (not a placeholder)
+#   tracking_issue — `#NNN` (crosslink convention) or full GitHub URL
+#
+# Conformance phase covers:
+#   dataset, sampler, dataloader (single-worker), collate, transforms
+#
+# Items excluded below fall into these categories:
+#   A. Crate-level re-exports — implicit coverage via the sub-module item
+#      (the re-export adds no new behaviour; the module item is tested).
+#   B. Iterator/wrapper types returned by DataLoader — their behaviour is
+#      tested transitively through DataLoader::iter / iter_collated.
+#   C. Multi-worker infrastructure (MultiWorkerIter, CrossBatch) — requires
+#      OS process or thread-pool spawning not suitable for single-worker
+#      conformance; cascade-skip filed.
+#   D. Arrow/Polars interop (feature-gated `interop` module) — requires
+#      the `arrow` feature enabled and Arrow/Polars installed; out of scope
+#      for the default-feature conformance pass.
+#   E. DataLoaderIter internal struct — returned only via BatchIter; tested
+#      transitively through DataLoader::iter in single-worker sync path.
+#   F. ToDevice trait — a user-implementable extension point; blanket impl
+#      on Tensor<T> is tested via the device-transfer path; the trait itself
+#      has no reference fixture.
+#   G. Builder methods on DataLoader that mirror PyTorch kwargs —
+#      shuffle, drop_last, seed, num_workers, prefetch_factor, pin_memory,
+#      with_sampler, with_collate are exercised through the loader
+#      conformance tests that set these and verify output. Explicit
+#      per-getter conformance tests (collate_fn, current_worker_mode,
+#      is_pin_memory, is_empty) are implicit coverage via DataLoader tests.
+#   H. MappedDataset — a higher-order adapter with no direct PyTorch analog
+#      (PyTorch uses lambda datasets inline); tested via internal unit tests.
+#   I. DistributedSampler builder methods (shuffle/seed) — builder pattern
+#      tested through DistributedSampler conformance; individual builders
+#      have no separate PyTorch fixture.
+
+# ── A. Crate-level re-exports (implicit coverage) ──────────────────────────
+
+[[exclusion]]
+path = "ferrotorch_data::BatchIter"
+reason = "Re-export of ferrotorch_data::dataloader::BatchIter. Coverage is implicit via DataLoader::iter tests in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::BatchSampler"
+reason = "Re-export of ferrotorch_data::sampler::BatchSampler. Covered by BatchSampler conformance in conformance_data_sampler.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::ChainDataset"
+reason = "Re-export of ferrotorch_data::dataset::ChainDataset. Covered by ChainDataset conformance in conformance_data_dataset.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::CollatedIter"
+reason = "Re-export of ferrotorch_data::dataloader::CollatedIter. Covered by DataLoader::iter_collated conformance in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::Compose"
+reason = "Re-export of ferrotorch_data::transforms::Compose. Covered by Compose conformance in conformance_data_loader.rs (transforms section)."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::ConcatDataset"
+reason = "Re-export of ferrotorch_data::dataset::ConcatDataset. Covered by ConcatDataset conformance in conformance_data_dataset.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::DataLoader"
+reason = "Re-export of ferrotorch_data::dataloader::DataLoader. Covered by DataLoader conformance in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::Dataset"
+reason = "Re-export of ferrotorch_data::dataset::Dataset. Covered by Dataset conformance in conformance_data_dataset.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::DistributedSampler"
+reason = "Re-export of ferrotorch_data::sampler::DistributedSampler. Covered by DistributedSampler conformance in conformance_data_sampler.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::IterableDataset"
+reason = "Re-export of ferrotorch_data::dataset::IterableDataset. Covered by IterableDataset conformance via ChainDataset in conformance_data_dataset.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::MappedDataset"
+reason = "Re-export of ferrotorch_data::dataset::MappedDataset. See exclusion for ferrotorch_data::dataset::MappedDataset."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::MultiWorkerIter"
+reason = "Re-export of ferrotorch_data::dataloader::MultiWorkerIter. See exclusion for ferrotorch_data::dataloader::MultiWorkerIter."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::Normalize"
+reason = "Re-export of ferrotorch_data::transforms::Normalize. Covered by Normalize conformance in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::PrefetchIter"
+reason = "Re-export of ferrotorch_data::dataloader::PrefetchIter. See exclusion for ferrotorch_data::dataloader::PrefetchIter."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::RandomCrop"
+reason = "Re-export of ferrotorch_data::transforms::RandomCrop. Covered by RandomCrop conformance in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::RandomHorizontalFlip"
+reason = "Re-export of ferrotorch_data::transforms::RandomHorizontalFlip. Covered by RandomHorizontalFlip conformance in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::RandomSampler"
+reason = "Re-export of ferrotorch_data::sampler::RandomSampler. Covered by RandomSampler conformance in conformance_data_sampler.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::Sampler"
+reason = "Re-export of ferrotorch_data::sampler::Sampler. Covered by Sampler conformance in conformance_data_sampler.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::SequentialSampler"
+reason = "Re-export of ferrotorch_data::sampler::SequentialSampler. Covered by SequentialSampler conformance in conformance_data_sampler.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::TensorDataset"
+reason = "Re-export of ferrotorch_data::dataset::TensorDataset. Covered by TensorDataset conformance in conformance_data_dataset.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::ToDevice"
+reason = "Re-export of ferrotorch_data::dataloader::ToDevice. See exclusion for ferrotorch_data::dataloader::ToDevice."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::ToTensor"
+reason = "Re-export of ferrotorch_data::transforms::ToTensor. Covered by ToTensor conformance in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::Transform"
+reason = "Re-export of ferrotorch_data::transforms::Transform. Covered by Transform conformance in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::VecDataset"
+reason = "Re-export of ferrotorch_data::dataset::VecDataset. Covered by VecDataset conformance in conformance_data_dataset.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::WeightedRandomSampler"
+reason = "Re-export of ferrotorch_data::sampler::WeightedRandomSampler. Covered by WeightedRandomSampler conformance in conformance_data_sampler.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::WorkerInfo"
+reason = "Re-export of ferrotorch_data::dataset::WorkerInfo. Covered by WorkerInfo conformance in conformance_data_dataset.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::WorkerMode"
+reason = "Re-export of ferrotorch_data::dataloader::WorkerMode. Covered by WorkerMode conformance in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::default_collate"
+reason = "Re-export of ferrotorch_data::collate::default_collate. Covered by default_collate conformance in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::default_collate_pair"
+reason = "Re-export of ferrotorch_data::collate::default_collate_pair. Covered by default_collate_pair conformance in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::manual_seed"
+reason = "Re-export of ferrotorch_data::transforms::manual_seed. Covered by manual_seed usage in conformance_data_loader.rs transforms section."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::shuffle_with_seed"
+reason = "Re-export of ferrotorch_data::sampler::shuffle_with_seed. Covered by shuffle_with_seed conformance in conformance_data_sampler.rs."
+tracking_issue = "#838"
+
+# ── B/C. Iterator / multi-worker infrastructure ─────────────────────────────
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::BatchIter"
+reason = "Enum returned by DataLoader::iter selecting between Sync/Prefetch/MultiWorker variants. Tested transitively through all DataLoader::iter conformance tests. No direct PyTorch analog for the iterator enum itself."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::PrefetchIter"
+reason = "Internal iterator type returned by DataLoader::iter when prefetch_factor > 0. Tested transitively through DataLoader::iter conformance. No direct PyTorch analog for the iterator type itself."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::MultiWorkerIter"
+reason = "Multi-worker iterator returned by DataLoader::iter in CrossBatch mode. Multi-worker mode requires OS thread spawning; cascade-skip with reason 'multi-worker requires OS process spawning, single-worker conformance only'. Tracked for future cross-batch conformance."
+tracking_issue = "#839"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoaderIter"
+reason = "Internal synchronous iterator struct returned via BatchIter::Sync. Tested transitively through DataLoader::iter with prefetch_factor=0. No direct PyTorch analog for the iterator type."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::CollatedIter"
+reason = "Wrapper iterator returned by DataLoader::iter_collated. Tested transitively through the iter_collated conformance test in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+# ── D. Arrow/Polars interop (feature-gated) ──────────────────────────────────
+
+[[exclusion]]
+path = "ferrotorch_data::interop::tensor_to_arrow_array"
+reason = "Feature-gated behind 'arrow' feature. Requires Apache Arrow installed; out of scope for default-feature conformance pass. Internal unit tests cover correctness."
+tracking_issue = "#840"
+
+[[exclusion]]
+path = "ferrotorch_data::interop::tensor_from_arrow_array"
+reason = "Feature-gated behind 'arrow' feature. Requires Apache Arrow installed; out of scope for default-feature conformance pass. Internal unit tests cover correctness."
+tracking_issue = "#840"
+
+[[exclusion]]
+path = "ferrotorch_data::interop::record_batch_to_tensor"
+reason = "Feature-gated behind 'arrow' feature. Requires Apache Arrow installed; out of scope for default-feature conformance pass. Internal unit tests cover correctness."
+tracking_issue = "#840"
+
+[[exclusion]]
+path = "ferrotorch_data::interop::tensor_to_arrow_arrayref"
+reason = "Feature-gated behind 'arrow' feature. Requires Apache Arrow installed; out of scope for default-feature conformance pass. Internal unit tests cover correctness."
+tracking_issue = "#840"
+
+[[exclusion]]
+path = "ferrotorch_data::interop::dataframe_to_tensor"
+reason = "Feature-gated behind 'polars' feature. Requires Polars installed; out of scope for default-feature conformance pass. Internal unit tests cover correctness."
+tracking_issue = "#840"
+
+# ── E. DataLoader builder / accessor methods ─────────────────────────────────
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoader <D>::collate_fn"
+reason = "Accessor returning the stored collate closure reference; correctness proven through iter_collated conformance. No PyTorch counterpart for the accessor itself."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoader <D>::current_worker_mode"
+reason = "Accessor returning the WorkerMode set by worker_mode(). Proven by WorkerMode conformance test that sets and reads back the value."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoader <D>::is_pin_memory"
+reason = "Accessor returning the pin_memory flag. Proven by the pin_memory builder test in conformance_data_loader.rs."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoader <D>::is_empty"
+reason = "Trivial predicate (len() == 0). Proven by the empty-dataset / zero-batches num_batches fixture test."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoader <D>::device"
+reason = "Builder method that sets device transfer. GPU path requires CUDA hardware; single-worker CPU-only conformance pass. Device transfer correctness is tracked under the GPU conformance issue."
+tracking_issue = "#841"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoader <D>::pin_memory"
+reason = "Builder method enabling pinned host memory for CPU→GPU transfers. Requires CUDA hardware. Tested by is_pin_memory accessor conformance; functional GPU path tracked separately."
+tracking_issue = "#841"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoader <D>::num_workers"
+reason = "Builder method setting thread-pool size. CrossBatch multi-worker path is cascade-skipped. IntraBatch rayon parallelism changes performance not output; correct output is verified by sequential conformance."
+tracking_issue = "#839"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoader <D>::prefetch_factor"
+reason = "Builder method setting prefetch buffer depth. Prefetch path is tested transitively (default prefetch_factor=2 is active for all loader conformance tests); the builder itself has no PyTorch analog."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoader <D>::worker_mode"
+reason = "Builder method selecting IntraBatch vs CrossBatch parallelism. CrossBatch is cascade-skipped (#839); IntraBatch is the default under all loader conformance tests."
+tracking_issue = "#839"
+
+# ── F. ToDevice trait ────────────────────────────────────────────────────────
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::ToDevice"
+reason = "Extension trait for user-defined sample types; no direct PyTorch analog. Blanket impl on Tensor<T> is covered by the GPU device-transfer issue; the trait definition itself has no fixture."
+tracking_issue = "#841"
+
+# ── G. MappedDataset ─────────────────────────────────────────────────────────
+
+[[exclusion]]
+path = "ferrotorch_data::dataset::MappedDataset"
+reason = "Higher-order dataset adapter with no direct PyTorch struct analog (PyTorch uses lambda/map inline). Correctness proven by internal unit tests. No reference fixture possible without a specific transform."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::dataset::MappedDataset <D,F>::new"
+reason = "Constructor for MappedDataset; see exclusion for ferrotorch_data::dataset::MappedDataset."
+tracking_issue = "#838"
+
+# ── H. DistributedSampler builders ───────────────────────────────────────────
+
+[[exclusion]]
+path = "ferrotorch_data::sampler::DistributedSampler::shuffle"
+reason = "Builder method setting shuffle flag on DistributedSampler. Used inside the DistributedSampler conformance test (shuffle=false path). The builder itself is not a fixture-testable op."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::sampler::DistributedSampler::seed"
+reason = "Builder method setting base seed on DistributedSampler. Correctness proven via the shuffle reproducibility assertion in conformance_data_sampler.rs."
+tracking_issue = "#838"
+
+# ── I. DataLoader with_sampler / with_collate ────────────────────────────────
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoader <D>::with_sampler"
+reason = "Builder method injecting a custom Sampler. Tested transitively: conformance_data_loader.rs exercises custom samplers via BatchSampler. No distinct PyTorch fixture for the builder itself."
+tracking_issue = "#838"
+
+[[exclusion]]
+path = "ferrotorch_data::dataloader::DataLoader <D>::with_collate"
+reason = "Builder method injecting a custom collation function. Tested transitively via iter_collated conformance. No distinct PyTorch fixture for the builder method itself."
+tracking_issue = "#838"

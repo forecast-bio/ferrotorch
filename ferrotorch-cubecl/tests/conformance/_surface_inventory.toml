@@ -1,0 +1,306 @@
+# Surface inventory for ferrotorch-cubecl conformance suite.
+#
+# Tracking issue: #860 (ferrotorch-cubecl conformance suite)
+# Reference: ferrotorch-core CPU (same-op, same-input, same output within tolerance)
+# Reference rev: f1cd5d540e7531ccbd21f83cd6c70e8705409017
+#
+# Generated from manual inspection of ferrotorch-cubecl/src/{lib,ops,kernels,runtime,storage,quant,grammar}.rs
+# Public surface is the re-exported API from lib.rs plus all pub fn / pub struct / pub enum items.
+#
+# Format: [[item]] table-array entries with path / kind / description fields.
+# This file is the Layer 1 "denominator" for the coverage gate.
+
+# ---------------------------------------------------------------------------
+# runtime module — CubeDevice / CubeClient / CubeRuntime
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_cubecl::CubeDevice"
+kind = "enum"
+description = "Device selector enum (Cuda, Wgpu, Rocm) with ordinal"
+
+[[item]]
+path = "ferrotorch_cubecl::CubeDevice::ordinal"
+kind = "method"
+description = "Return the device ordinal as usize"
+
+[[item]]
+path = "ferrotorch_cubecl::CubeDevice::backend_name"
+kind = "method"
+description = "Return the backend name string"
+
+[[item]]
+path = "ferrotorch_cubecl::CubeClient"
+kind = "enum"
+description = "Per-backend compute client enum (Wgpu, Cuda, Rocm variants)"
+
+[[item]]
+path = "ferrotorch_cubecl::CubeRuntime"
+kind = "struct"
+description = "Runtime wrapper holding a CubeClient for one device"
+
+[[item]]
+path = "ferrotorch_cubecl::CubeRuntime::new"
+kind = "method"
+description = "Construct a CubeRuntime targeting the given CubeDevice"
+
+[[item]]
+path = "ferrotorch_cubecl::CubeRuntime::device"
+kind = "method"
+description = "Return reference to the CubeDevice"
+
+[[item]]
+path = "ferrotorch_cubecl::CubeRuntime::client"
+kind = "method"
+description = "Return reference to the CubeClient"
+
+[[item]]
+path = "ferrotorch_cubecl::CubeRuntime::auto"
+kind = "method"
+description = "Auto-detect best available backend, returns Option<CubeRuntime>"
+
+[[item]]
+path = "ferrotorch_cubecl::CubeRuntime::is_available"
+kind = "method"
+description = "Compile-time check: true iff any backend feature is compiled in"
+
+# ---------------------------------------------------------------------------
+# storage module — CubeclStorageHandle + helpers
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_cubecl::CubeclStorageHandle"
+kind = "struct"
+description = "Device-resident buffer handle for CubeCL-backed tensors"
+
+[[item]]
+path = "ferrotorch_cubecl::cubecl_handle_of"
+kind = "fn"
+description = "Extract a CubeclStorageHandle from a Tensor if it is device-resident"
+
+[[item]]
+path = "ferrotorch_cubecl::upload_f32"
+kind = "fn"
+description = "Upload a host f32 slice to device, returning a CubeclStorageHandle"
+
+[[item]]
+path = "ferrotorch_cubecl::wrap_kernel_output"
+kind = "fn"
+description = "Wrap a raw cubecl Handle as a CubeclStorageHandle"
+
+# ---------------------------------------------------------------------------
+# ops module — portable_* GPU ops
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_add"
+kind = "fn"
+description = "Elementwise a + b on the GPU, returns device-resident handle + shape"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_sub"
+kind = "fn"
+description = "Elementwise a - b on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_mul"
+kind = "fn"
+description = "Elementwise a * b on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_div"
+kind = "fn"
+description = "Elementwise a / b on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_relu"
+kind = "fn"
+description = "Elementwise relu(x) on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_neg"
+kind = "fn"
+description = "Elementwise -x on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_abs"
+kind = "fn"
+description = "Elementwise |x| on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_exp"
+kind = "fn"
+description = "Elementwise exp(x) on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_ln"
+kind = "fn"
+description = "Elementwise ln(x) on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_sqrt"
+kind = "fn"
+description = "Elementwise sqrt(x) on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_sin"
+kind = "fn"
+description = "Elementwise sin(x) on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_cos"
+kind = "fn"
+description = "Elementwise cos(x) on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_tanh"
+kind = "fn"
+description = "Elementwise tanh(x) on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_sigmoid"
+kind = "fn"
+description = "Elementwise sigmoid(x) on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_matmul"
+kind = "fn"
+description = "2-D matrix multiplication on the GPU, returns device-resident handle + shape"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_chebyshev_polynomial_t"
+kind = "fn"
+description = "Chebyshev T_n(x) polynomial evaluated elementwise on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_chebyshev_polynomial_u"
+kind = "fn"
+description = "Chebyshev U_n(x) polynomial evaluated elementwise on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_chebyshev_polynomial_v"
+kind = "fn"
+description = "Chebyshev V_n(x) polynomial evaluated elementwise on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_chebyshev_polynomial_w"
+kind = "fn"
+description = "Chebyshev W_n(x) polynomial evaluated elementwise on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_hermite_polynomial_h"
+kind = "fn"
+description = "Hermite physicist H_n(x) polynomial evaluated elementwise on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_hermite_polynomial_he"
+kind = "fn"
+description = "Hermite probabilist He_n(x) polynomial evaluated elementwise on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_laguerre_polynomial_l"
+kind = "fn"
+description = "Laguerre L_n(x) polynomial evaluated elementwise on the GPU"
+
+[[item]]
+path = "ferrotorch_cubecl::ops::portable_legendre_polynomial_p"
+kind = "fn"
+description = "Legendre P_n(x) polynomial evaluated elementwise on the GPU"
+
+# ---------------------------------------------------------------------------
+# quant module — GGUF dequantization API
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_cubecl::GgufBlockKind"
+kind = "enum"
+description = "Enum of supported GGUF block layouts (Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1)"
+
+[[item]]
+path = "ferrotorch_cubecl::GgufBlockKind::block_elements"
+kind = "method"
+description = "Number of weights per GGUF block (always 32)"
+
+[[item]]
+path = "ferrotorch_cubecl::GgufBlockKind::block_bytes"
+kind = "method"
+description = "Number of bytes per packed block on disk"
+
+[[item]]
+path = "ferrotorch_cubecl::split_q4_0_blocks"
+kind = "fn"
+description = "Parse Q4_0 byte stream into scales + packed bits"
+
+[[item]]
+path = "ferrotorch_cubecl::split_q4_1_blocks"
+kind = "fn"
+description = "Parse Q4_1 byte stream into scales + mins + packed bits"
+
+[[item]]
+path = "ferrotorch_cubecl::split_q5_0_blocks"
+kind = "fn"
+description = "Parse Q5_0 byte stream into scales + packed bits"
+
+[[item]]
+path = "ferrotorch_cubecl::split_q5_1_blocks"
+kind = "fn"
+description = "Parse Q5_1 byte stream into scales + mins + packed bits"
+
+[[item]]
+path = "ferrotorch_cubecl::split_q8_0_blocks"
+kind = "fn"
+description = "Parse Q8_0 byte stream into scales + packed bytes"
+
+[[item]]
+path = "ferrotorch_cubecl::split_q8_1_blocks"
+kind = "fn"
+description = "Parse Q8_1 byte stream into scales + mins + packed bytes"
+
+[[item]]
+path = "ferrotorch_cubecl::dequantize_q4_0_to_gpu"
+kind = "fn"
+description = "Upload Q4_0 split blocks to GPU and dequantize to f32 handle"
+
+[[item]]
+path = "ferrotorch_cubecl::dequantize_q4_1_to_gpu"
+kind = "fn"
+description = "Upload Q4_1 split blocks to GPU and dequantize to f32 handle"
+
+[[item]]
+path = "ferrotorch_cubecl::dequantize_q5_0_to_gpu"
+kind = "fn"
+description = "Upload Q5_0 split blocks to GPU and dequantize to f32 handle"
+
+[[item]]
+path = "ferrotorch_cubecl::dequantize_q5_1_to_gpu"
+kind = "fn"
+description = "Upload Q5_1 split blocks to GPU and dequantize to f32 handle"
+
+[[item]]
+path = "ferrotorch_cubecl::dequantize_q8_0_to_gpu"
+kind = "fn"
+description = "Upload Q8_0 split blocks to GPU and dequantize to f32 handle"
+
+[[item]]
+path = "ferrotorch_cubecl::dequantize_q8_1_to_gpu"
+kind = "fn"
+description = "Upload Q8_1 split blocks to GPU and dequantize to f32 handle"
+
+# ---------------------------------------------------------------------------
+# grammar module — DFA token-mask kernel
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_cubecl::DfaMaskInputs"
+kind = "struct"
+description = "Inputs to the GPU DFA token-mask computation kernel"
+
+[[item]]
+path = "ferrotorch_cubecl::compute_token_mask_dfa_to_gpu"
+kind = "fn"
+description = "Launch the DFA token-mask kernel, return device-resident allow mask handle"
+
+[[item]]
+path = "ferrotorch_cubecl::kernel_compute_token_mask_dfa"
+kind = "fn"
+description = "Public CubeCL kernel function for DFA token-mask (launched via launch_unchecked)"

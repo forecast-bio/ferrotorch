@@ -35,6 +35,40 @@ pub struct EpochResult {
     pub duration_secs: f64,
 }
 
+impl Default for EpochResult {
+    fn default() -> Self {
+        Self {
+            epoch: 0,
+            train_loss: 0.0,
+            val_loss: None,
+            metrics: HashMap::new(),
+            lr: 0.0,
+            duration_secs: 0.0,
+        }
+    }
+}
+
+impl EpochResult {
+    /// Construct an `EpochResult` with the given core fields and sensible defaults
+    /// for the rest. Intended for testing and serialization round-trips; production
+    /// callers should obtain `EpochResult` from [`Learner::fit`](crate::Learner::fit).
+    pub fn new_with_defaults(
+        epoch: usize,
+        train_loss: f64,
+        val_loss: Option<f64>,
+        lr: f64,
+    ) -> Self {
+        Self {
+            epoch,
+            train_loss,
+            val_loss,
+            metrics: HashMap::new(),
+            lr,
+            duration_secs: 0.0,
+        }
+    }
+}
+
 impl fmt::Display for EpochResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "epoch {}: train_loss={:.6}", self.epoch, self.train_loss)?;
@@ -65,6 +99,19 @@ pub struct EvalResult {
     pub loss: f64,
     /// Named metric values.
     pub metrics: HashMap<String, f64>,
+}
+
+impl EvalResult {
+    /// Construct an `EvalResult` with the given loss and no named metrics.
+    /// Intended for testing and serialization round-trips; production callers
+    /// should obtain `EvalResult` from
+    /// [`Learner::evaluate`](crate::Learner::evaluate).
+    pub fn new_with_defaults(loss: f64) -> Self {
+        Self {
+            loss,
+            metrics: HashMap::new(),
+        }
+    }
 }
 
 impl fmt::Display for EvalResult {

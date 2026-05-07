@@ -1,0 +1,94 @@
+# Strict coverage-gate exclusions for the ferrotorch-cubecl conformance suite.
+#
+# Tracking issue: #860 (ferrotorch-cubecl conformance suite)
+# Reference: ferrotorch-core CPU
+# Reference rev: f1cd5d540e7531ccbd21f83cd6c70e8705409017
+#
+# Format: [[exclusion]] table-array entries with three required fields:
+#   path           — fully qualified item path as written in _surface_inventory.toml
+#   reason         — one or more sentences (not a placeholder)
+#   tracking_issue — `#NNN` (crosslink convention) or full GitHub URL
+#
+# Every item here is either (a) not independently testable without a running GPU
+# backend (addressed by the cascade-skip pattern in conformance_cubecl.rs), or
+# (b) a type whose contract is exercised transitively.
+
+[[exclusion]]
+path = "ferrotorch_cubecl::CubeClient"
+reason = "CubeClient is a runtime-variant enum; each variant requires an active backend feature to construct. The enum type itself is exercised transitively by CubeRuntime::client() in cube_runtime_is_available_compile_flag_consistent and in the wgpu_runtime_new_and_device test in runtime.rs. A standalone conformance test would duplicate the backend-probe logic without adding coverage. Covered transitively via CubeRuntime tests."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::CubeRuntime::device"
+reason = "CubeRuntime::device() is a trivial field accessor tested transitively by cube_runtime_is_available_compile_flag_consistent (which calls CubeRuntime::auto) and by the wgpu_runtime_new_and_device inline test in runtime.rs that asserts *rt.device() == CubeDevice::Wgpu(0). No fixture-based test adds value over the existing inline coverage."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::CubeRuntime::client"
+reason = "CubeRuntime::client() is a trivial field accessor. Exercised transitively by every GPU dispatch path (portable_add, etc.) and by the inline wgpu_runtime_new_and_device test in runtime.rs which asserts matches!(rt.client(), CubeClient::Wgpu(_)). Standalone fixture-based test adds no meaningful coverage."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::CubeRuntime::auto"
+reason = "CubeRuntime::auto() is exercised transitively by cube_runtime_is_available_compile_flag_consistent in conformance_cubecl.rs (catches the auto() case) and by the cube_runtime_auto_returns_something_or_none inline test in runtime.rs. The auto() function is a thin wrapper over CubeRuntime::new; its behavior depends entirely on runtime hardware availability and cannot be captured in a deterministic fixture."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::CubeclStorageHandle"
+reason = "CubeclStorageHandle is a concrete storage type constructed exclusively by upload_f32 and wrap_kernel_output. It has no standalone public constructors visible outside the crate (from_raw is pub but not re-exported). Its contract (device-resident buffer, CubeStorageHandle trait) is exercised transitively by every GPU dispatch test and by ferrotorch-xpu's integration tests. A fixture-based test would require a live GPU backend."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::cubecl_handle_of"
+reason = "cubecl_handle_of() extracts a CubeclStorageHandle from a device-resident tensor. It is exercised transitively by every portable_* op (dispatch_binary! / dispatch_unary! macros in ops.rs call it). Requires a live GPU backend; no CPU-only path exists for this function."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::upload_f32"
+reason = "upload_f32 performs H2D upload; requires an active GPU backend to execute. Exercised transitively by every GPU dispatch path. No standalone fixture-based test is possible without a live backend."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::wrap_kernel_output"
+reason = "wrap_kernel_output wraps a raw cubecl Handle as a CubeclStorageHandle; requires a live GPU backend to obtain a valid Handle. Exercised transitively by ferrotorch-xpu which wraps portable_* results. Cannot be fixture-tested without a running backend."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::dequantize_q4_0_to_gpu"
+reason = "GPU dequantization launcher; requires an active cubecl backend to dispatch the kernel. Exercised by inline tests in quant.rs under #[cfg(feature = 'cuda')]. A fixture-based conformance test would be identical to the existing inline test and adds no coverage value without a GPU. Tracked with cascade-skip intent pending GPU CI."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::dequantize_q4_1_to_gpu"
+reason = "Same exclusion as dequantize_q4_0_to_gpu: GPU kernel launcher requiring an active backend. Exercised by inline CUDA tests in quant.rs."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::dequantize_q5_0_to_gpu"
+reason = "Same exclusion as dequantize_q4_0_to_gpu: GPU kernel launcher requiring an active backend."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::dequantize_q5_1_to_gpu"
+reason = "Same exclusion as dequantize_q4_0_to_gpu: GPU kernel launcher requiring an active backend."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::dequantize_q8_0_to_gpu"
+reason = "Same exclusion as dequantize_q4_0_to_gpu: GPU kernel launcher requiring an active backend."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::dequantize_q8_1_to_gpu"
+reason = "Same exclusion as dequantize_q4_0_to_gpu: GPU kernel launcher requiring an active backend."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::compute_token_mask_dfa_to_gpu"
+reason = "GPU DFA token-mask launcher; requires an active cubecl Runtime to call. Exercised by the inline CUDA runtime tests in grammar.rs. A fixture-based conformance test would need a live backend; cascade-skip pending GPU CI. DfaMaskInputs::new constructor validation is covered in conformance_cubecl.rs."
+tracking_issue = "#860"
+
+[[exclusion]]
+path = "ferrotorch_cubecl::kernel_compute_token_mask_dfa"
+reason = "A #[cube] kernel function expanded by the cubecl macro. The kernel is the implementation detail behind compute_token_mask_dfa_to_gpu; the re-exported symbol is the cubecl generated launcher struct, not callable directly in host code. Contract exercised through compute_token_mask_dfa_to_gpu."
+tracking_issue = "#860"

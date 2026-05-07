@@ -1,0 +1,126 @@
+# ferrotorch-llama public surface exclusions.
+#
+# Items listed here are intentionally excluded from the Layer 4 coverage gate.
+# Each entry must carry a `reason` explaining the exclusion.
+#
+# Tracking issue: #844
+
+[[excluded]]
+path = "ferrotorch_llama::generation::beam_search"
+reason = "Beam search uses LlamaForCausalLM::forward internally; the model forward is already gated in the coverage suite. The search algorithm itself has no numeric fixture from transformers (beam search output is non-deterministic by position order)."
+
+[[excluded]]
+path = "ferrotorch_llama::LlamaForCausalLM::load_hf_state_dict"
+reason = "Tested via causal_lm_forward fixtures (the fixture state dict is loaded with load_hf_state_dict). Separate fixture not needed — it is in COVERED via the causal_lm tests."
+
+[[excluded]]
+path = "ferrotorch_llama::GenerationConfig"
+reason = "Pure-data config struct — no numeric output to compare against transformers. Covered by unit tests in generation.rs."
+
+[[excluded]]
+path = "ferrotorch_llama::GenerationConfig::greedy"
+reason = "Constructor; no numeric fixture needed."
+
+[[excluded]]
+path = "ferrotorch_llama::GenerationConfig::sampling"
+reason = "Constructor; no numeric fixture needed."
+
+[[excluded]]
+path = "ferrotorch_llama::GenerationConfig::nucleus"
+reason = "Constructor; no numeric fixture needed."
+
+[[excluded]]
+path = "ferrotorch_llama::generate"
+reason = "Calls forward_from_ids plus token selection; forward is gated. Token-level generation depends on model weights not in tiny fixtures and stochastic sampling is not numerically reproducible against transformers."
+
+[[excluded]]
+path = "ferrotorch_llama::generate_with_streamer"
+reason = "Same rationale as generate; also covered by unit tests in generation.rs."
+
+[[excluded]]
+path = "ferrotorch_llama::apply_repetition_penalty"
+reason = "Pure-function logit mutation; covered by unit tests in generation.rs. No transformers reference fixture."
+
+[[excluded]]
+path = "ferrotorch_llama::apply_temperature"
+reason = "Same as apply_repetition_penalty."
+
+[[excluded]]
+path = "ferrotorch_llama::argmax"
+reason = "Trivial deterministic reduction; covered by unit tests."
+
+[[excluded]]
+path = "ferrotorch_llama::sample_softmax"
+reason = "Stochastic sampler — not numerically reproducible against transformers without a pinned RNG state per call."
+
+[[excluded]]
+path = "ferrotorch_llama::top_k_filter"
+reason = "Pure logit mutation; covered by unit tests."
+
+[[excluded]]
+path = "ferrotorch_llama::top_p_filter"
+reason = "Pure logit mutation; covered by unit tests."
+
+[[excluded]]
+path = "ferrotorch_llama::gguf_key_to_hf"
+reason = "Pure string transformation; no numeric fixture. Covered by unit tests in gguf_remap.rs."
+
+[[excluded]]
+path = "ferrotorch_llama::gguf_to_hf_state_dict"
+reason = "Key-remapping utility; no numeric fixture. Covered by unit tests."
+
+[[excluded]]
+path = "ferrotorch_llama::AwqQ4"
+reason = "Quantization data container — dequantization accuracy is tracked separately in ferrotorch-core's quant conformance suite."
+
+[[excluded]]
+path = "ferrotorch_llama::GptqQ4"
+reason = "Same as AwqQ4."
+
+[[excluded]]
+path = "ferrotorch_llama::dequantize_awq_q4"
+reason = "Same as AwqQ4."
+
+[[excluded]]
+path = "ferrotorch_llama::dequantize_gptq_q4"
+reason = "Same as GptqQ4."
+
+[[excluded]]
+path = "ferrotorch_llama::BeamSearchConfig"
+reason = "Config struct; no numeric fixture."
+
+[[excluded]]
+path = "ferrotorch_llama::LlamaConfig::from_hf"
+reason = "Covered by unit tests in config.rs. No numeric fixture needed — field-by-field equality is verified there."
+
+[[excluded]]
+path = "ferrotorch_llama::LlamaConfig::llama2_7b"
+reason = "Config constructor; correctness verified in config::tests."
+
+[[excluded]]
+path = "ferrotorch_llama::LlamaConfig::prosparse_7b"
+reason = "Config constructor; correctness verified in config::tests."
+
+[[excluded]]
+path = "ferrotorch_llama::LlamaConfig::llama3_3_70b_instruct"
+reason = "Config constructor; correctness verified in config::tests."
+
+[[excluded]]
+path = "ferrotorch_llama::LlamaConfig::llama3_8b"
+reason = "Config constructor; correctness verified in config::tests."
+
+[[excluded]]
+path = "ferrotorch_llama::LlamaConfig::head_dim"
+reason = "Trivial arithmetic; covered by config::tests."
+
+[[excluded]]
+path = "ferrotorch_llama::LlamaConfig::kv_group_size"
+reason = "Trivial arithmetic; covered by config::tests."
+
+[[excluded]]
+path = "ferrotorch_llama::LlamaModel::new"
+reason = "Tested transitively by LlamaForCausalLM causal_lm_forward fixtures."
+
+[[excluded]]
+path = "ferrotorch_llama::LlamaDecoderLayer::new"
+reason = "Tested transitively by decoder_layer_forward fixtures."

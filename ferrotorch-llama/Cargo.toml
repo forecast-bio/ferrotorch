@@ -43,7 +43,9 @@ thiserror = { workspace = true }
 [dev-dependencies]
 ferrotorch-tokenize = { workspace = true }
 half = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+toml = "1"
 
 [[example]]
 name = "llama3_8b"

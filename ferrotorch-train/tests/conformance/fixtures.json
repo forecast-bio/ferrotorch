@@ -1,0 +1,490 @@
+{
+  "metadata": {
+    "torch_version": "2.11.0+cu130",
+    "cuda_available": true,
+    "python_executable": "/usr/sbin/python3",
+    "python_platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "generated_at": "2026-05-07T14:01:02.577829+00:00",
+    "rng_seed": 2882343476
+  },
+  "metric": [
+    {
+      "kind": "loss_metric",
+      "batches": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "expected_mean": 2.5,
+      "label": "LossMetric basic mean"
+    },
+    {
+      "kind": "loss_metric_empty",
+      "batches": [],
+      "expected_mean": 0.0,
+      "label": "LossMetric empty returns 0"
+    },
+    {
+      "kind": "loss_metric_single",
+      "batches": [
+        42.0
+      ],
+      "expected_mean": 42.0,
+      "label": "LossMetric single value"
+    },
+    {
+      "kind": "loss_metric_after_reset",
+      "batches_before_reset": [
+        10.0,
+        20.0
+      ],
+      "batches_after_reset": [
+        5.0,
+        7.0
+      ],
+      "expected_mean_before": 15.0,
+      "expected_mean_after": 6.0,
+      "label": "LossMetric reset then accumulate"
+    },
+    {
+      "kind": "accuracy_metric",
+      "batches": [
+        [
+          8,
+          10
+        ],
+        [
+          9,
+          10
+        ]
+      ],
+      "expected": 0.85,
+      "label": "AccuracyMetric two batches"
+    },
+    {
+      "kind": "accuracy_metric_perfect",
+      "batches": [
+        [
+          10,
+          10
+        ]
+      ],
+      "expected": 1.0,
+      "label": "AccuracyMetric perfect"
+    },
+    {
+      "kind": "topk_accuracy",
+      "k": 5,
+      "batches": [
+        [
+          9,
+          10
+        ]
+      ],
+      "expected": 0.9,
+      "label": "TopKAccuracy k=5"
+    },
+    {
+      "kind": "running_average",
+      "window_size": 3,
+      "values": [
+        1.0,
+        2.0,
+        3.0,
+        6.0
+      ],
+      "expected_after_all": 3.6666666666666665,
+      "expected_after_3": 2.0,
+      "label": "RunningAverage window eviction"
+    }
+  ],
+  "grad_utils": [
+    {
+      "kind": "clip_grad_norm_l2_clips",
+      "grads": [
+        [
+          3.0,
+          4.0
+        ]
+      ],
+      "max_norm": 2.5,
+      "norm_type": 2.0,
+      "expected_total_norm": 5.0,
+      "expected_clipped": [
+        [
+          1.49999970000006,
+          1.99999960000008
+        ]
+      ],
+      "label": "clip_grad_norm_ L2 clips [3,4] max_norm=2.5"
+    },
+    {
+      "kind": "clip_grad_norm_l2_noclip",
+      "grads": [
+        [
+          0.1,
+          0.2
+        ]
+      ],
+      "max_norm": 1.0,
+      "norm_type": 2.0,
+      "expected_total_norm": 0.223606797749979,
+      "expected_clipped": [
+        [
+          0.1,
+          0.2
+        ]
+      ],
+      "label": "clip_grad_norm_ L2 no-clip [0.1,0.2] max_norm=1.0"
+    },
+    {
+      "kind": "clip_grad_norm_l1",
+      "grads": [
+        [
+          3.0,
+          -4.0
+        ]
+      ],
+      "max_norm": 3.5,
+      "norm_type": 1.0,
+      "expected_total_norm": 7.0,
+      "expected_clipped": [
+        [
+          1.4999997857143161,
+          -1.9999997142857548
+        ]
+      ],
+      "label": "clip_grad_norm_ L1 [3,-4] max_norm=3.5"
+    },
+    {
+      "kind": "clip_grad_norm_inf",
+      "grads": [
+        [
+          3.0,
+          -7.0
+        ]
+      ],
+      "max_norm": 3.5,
+      "norm_type": Infinity,
+      "expected_total_norm": 7.0,
+      "expected_clipped": [
+        [
+          1.4999997857143161,
+          -3.499999500000071
+        ]
+      ],
+      "label": "clip_grad_norm_ inf norm [3,-7] max_norm=3.5"
+    },
+    {
+      "kind": "clip_grad_norm_multi_param",
+      "grads": [
+        [
+          3.0
+        ],
+        [
+          4.0
+        ]
+      ],
+      "max_norm": 2.5,
+      "norm_type": 2.0,
+      "expected_total_norm": 5.0,
+      "expected_clipped": [
+        [
+          1.49999970000006
+        ],
+        [
+          1.99999960000008
+        ]
+      ],
+      "label": "clip_grad_norm_ two params L2"
+    },
+    {
+      "kind": "clip_grad_value",
+      "grads": [
+        [
+          10.0,
+          -10.0,
+          0.5
+        ]
+      ],
+      "clip_value": 1.0,
+      "expected_clipped": [
+        [
+          1.0,
+          -1.0,
+          0.5
+        ]
+      ],
+      "label": "clip_grad_value_ [10,-10,0.5] clip=1.0"
+    },
+    {
+      "kind": "clip_grad_value_noclip",
+      "grads": [
+        [
+          0.3,
+          -0.3
+        ]
+      ],
+      "clip_value": 1.0,
+      "expected_clipped": [
+        [
+          0.3,
+          -0.3
+        ]
+      ],
+      "label": "clip_grad_value_ [0.3,-0.3] clip=1.0 no clip"
+    }
+  ],
+  "ema": [
+    {
+      "kind": "ema_single_step",
+      "decay": 0.9,
+      "initial": [
+        10.0
+      ],
+      "update": [
+        20.0
+      ],
+      "expected_after_1": [
+        11.0
+      ],
+      "label": "EMA single step decay=0.9"
+    },
+    {
+      "kind": "ema_multi_step",
+      "decay": 0.5,
+      "initial": [
+        0.0
+      ],
+      "updates": [
+        [
+          10.0
+        ],
+        [
+          10.0
+        ],
+        [
+          10.0
+        ]
+      ],
+      "expected_after_each": [
+        5.0,
+        7.5,
+        8.75
+      ],
+      "label": "EMA three steps decay=0.5"
+    },
+    {
+      "kind": "ema_decay_zero",
+      "decay": 0.0,
+      "initial": [
+        100.0
+      ],
+      "update": [
+        42.0
+      ],
+      "expected_after_1": [
+        42.0
+      ],
+      "label": "EMA decay=0 full replace"
+    },
+    {
+      "kind": "ema_decay_one",
+      "decay": 1.0,
+      "initial": [
+        100.0
+      ],
+      "update": [
+        42.0
+      ],
+      "expected_after_1": [
+        100.0
+      ],
+      "label": "EMA decay=1 no change"
+    }
+  ],
+  "history": [
+    {
+      "kind": "history_best_train_loss",
+      "epochs": [
+        {
+          "epoch": 0,
+          "train_loss": 2.0,
+          "val_loss": null
+        },
+        {
+          "epoch": 1,
+          "train_loss": 0.5,
+          "val_loss": null
+        },
+        {
+          "epoch": 2,
+          "train_loss": 1.0,
+          "val_loss": null
+        }
+      ],
+      "expected_best_epoch": 1,
+      "expected_best_loss": 0.5,
+      "label": "history best_train_loss"
+    },
+    {
+      "kind": "history_best_val_loss",
+      "epochs": [
+        {
+          "epoch": 0,
+          "train_loss": 2.0,
+          "val_loss": 1.5
+        },
+        {
+          "epoch": 1,
+          "train_loss": 1.0,
+          "val_loss": 0.8
+        },
+        {
+          "epoch": 2,
+          "train_loss": 0.5,
+          "val_loss": 0.9
+        }
+      ],
+      "expected_best_epoch": 1,
+      "expected_best_loss": 0.8,
+      "label": "history best_val_loss"
+    },
+    {
+      "kind": "history_loss_vectors",
+      "epochs": [
+        {
+          "epoch": 0,
+          "train_loss": 2.0,
+          "val_loss": 1.5
+        },
+        {
+          "epoch": 1,
+          "train_loss": 1.0,
+          "val_loss": 0.8
+        },
+        {
+          "epoch": 2,
+          "train_loss": 0.5,
+          "val_loss": 0.9
+        }
+      ],
+      "expected_train_losses": [
+        2.0,
+        1.0,
+        0.5
+      ],
+      "expected_val_losses": [
+        1.5,
+        0.8,
+        0.9
+      ],
+      "label": "history train_losses/val_losses vectors"
+    }
+  ],
+  "early_stopping": [
+    {
+      "kind": "early_stopping_triggers",
+      "patience": 2,
+      "min_delta": 0.0,
+      "val_losses": [
+        1.0,
+        1.0,
+        1.1
+      ],
+      "expected_stopped_after_n": 3,
+      "expected_wait_sequence": [
+        0,
+        1,
+        2
+      ],
+      "label": "EarlyStopping triggers after patience=2"
+    },
+    {
+      "kind": "early_stopping_min_delta",
+      "patience": 3,
+      "min_delta": 0.1,
+      "val_losses": [
+        1.0,
+        0.95,
+        0.8
+      ],
+      "expected_wait_sequence": [
+        0,
+        1,
+        0
+      ],
+      "label": "EarlyStopping min_delta filtering"
+    },
+    {
+      "kind": "early_stopping_resets",
+      "patience": 3,
+      "min_delta": 0.0,
+      "val_losses": [
+        1.0,
+        1.1,
+        1.2,
+        0.5
+      ],
+      "expected_wait_sequence": [
+        0,
+        1,
+        2,
+        0
+      ],
+      "label": "EarlyStopping resets on improvement"
+    }
+  ],
+  "grad_accum": [
+    {
+      "kind": "grad_accum_mean",
+      "batch_losses": [
+        2.0,
+        3.0,
+        1.5,
+        2.5
+      ],
+      "n_accumulate": 4,
+      "expected_mean_loss": 2.25,
+      "label": "gradient accumulation mean over 4 batches"
+    }
+  ],
+  "checkpoint_sequential": [
+    {
+      "kind": "checkpoint_sequential_product",
+      "input_val": 1.0,
+      "scale_factors": [
+        2.0,
+        3.0,
+        4.0
+      ],
+      "expected_output": 24.0,
+      "segments": 2,
+      "label": "checkpoint_sequential: product of scale factors"
+    },
+    {
+      "kind": "checkpoint_sequential_single",
+      "input_val": 1.0,
+      "scale_factors": [
+        5.0
+      ],
+      "expected_output": 5.0,
+      "segments": 1,
+      "label": "checkpoint_sequential: single module"
+    }
+  ],
+  "amp": [
+    {
+      "kind": "grad_scaler_default_scale",
+      "expected_init_scale": 65536.0,
+      "label": "GradScaler default init_scale == 2**16"
+    },
+    {
+      "kind": "grad_scaler_state_dict_roundtrip",
+      "init_scale": 1024.0,
+      "expected_scale_after_load": 1024.0,
+      "label": "GradScaler state dict round-trip preserves scale"
+    }
+  ]
+}
