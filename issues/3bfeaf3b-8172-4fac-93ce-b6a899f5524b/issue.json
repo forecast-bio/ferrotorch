@@ -1,0 +1,10 @@
+{
+  "uuid": "3bfeaf3b-8172-4fac-93ce-b6a899f5524b",
+  "display_id": 868,
+  "title": "vision/models: VisionTransformer full forward-pass parity (needs fixture without pretrained weights)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T15:18:01.764553281Z",
+  "updated_at": "2026-05-07T15:18:01.764553281Z"
+}
