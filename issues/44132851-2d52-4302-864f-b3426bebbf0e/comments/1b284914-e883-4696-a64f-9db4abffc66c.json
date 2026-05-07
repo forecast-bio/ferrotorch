@@ -1,0 +1,10 @@
+{
+  "uuid": "1b284914-e883-4696-a64f-9db4abffc66c",
+  "issue_uuid": "44132851-2d52-4302-864f-b3426bebbf0e",
+  "author": "y4rr",
+  "content": "Untouched in B.5.a dispatch (truncated before reaching InceptionV3). Architecture smoke-tested via inception_v3 constructor. Full forward-parity fixture requires pretrained weights tracked separately in #936. Leaving open as deferred — not cascade-skipped, just no conformance entry yet.",
+  "created_at": "2026-05-07T20:16:43.026392805Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGNPaPm3XosUSCmDVMMJWB0RLATzGC9Be6/Rgd9dlDLgtHb8B/DgwD0stAsIoEl0gwC18z0iCD/JFAb3hYvBKAQ=="
+}
