@@ -1,0 +1,10 @@
+{
+  "uuid": "6bf4deba-7102-43be-9651-e2b5be2bbe77",
+  "display_id": 892,
+  "title": "gpu_batchnorm_forward is a stub returning ShapeMismatch unconditionally; pass-1 loop kernel implementation pending",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T16:51:18.484673838Z",
+  "updated_at": "2026-05-07T16:51:18.484673838Z"
+}
