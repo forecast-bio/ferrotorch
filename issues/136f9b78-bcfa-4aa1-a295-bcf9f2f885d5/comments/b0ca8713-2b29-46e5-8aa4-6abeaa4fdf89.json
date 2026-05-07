@@ -1,0 +1,10 @@
+{
+  "uuid": "b0ca8713-2b29-46e5-8aa4-6abeaa4fdf89",
+  "issue_uuid": "136f9b78-bcfa-4aa1-a295-bcf9f2f885d5",
+  "author": "y4rr",
+  "content": "Plan: Sprint B.5.a — #862 DenseNet121 forward parity.\n\nApproach:\n- DenseNet121 already has output shape test in unit tests (test_densenet121_output_shape)\n- Need conformance test in conformance_vision_models.rs that:\n  1. Verifies param count against a new fixture (densenet121_num_classes_10_param_count)\n  2. Verifies forward output shape [1,10] for 32x32 input (densenet121_output_shape_32x32)\n  3. Verifies forward runs without error (structural parity)\n- Per-layer intermediate activations via forward_features for localization on divergence\n- Add fixtures to scripts/regenerate_vision_fixtures.py and fixtures.json\n- Remove cascade_skip (currently no cascade_skip in conformance for densenet — test doesn't exist yet, add new tests)\n- ferrotorch DenseNet omits BN (same as ResNet), so param count will differ from torchvision; we fixture our own count\n\nDenseNet-121 param count (no BN, our own architecture):\n- stem: 3*64*7*7 = 9408 (no bias)\n- block1 (6 layers, growth=32, bn_size=4): layer_i has (in_ch=64+i*32), inter=128, then 128*32*3*3=36864 + in_ch_i*128*1*1\n- trans1/2/3: 1x1 conv only\n- classifier: in_ch*10 + 10\nWill compute exact count in fixture.",
+  "created_at": "2026-05-07T19:50:53.088641742Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA9v2tqoGYV7arI47TgP1bMSQtA2isf2AgNZIiTkvnXVcRcqbKD1jCxLo2hG0+jJPdM/qHz3ONe8lujkGbvVPYDQ=="
+}
