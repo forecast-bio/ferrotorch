@@ -1,0 +1,10 @@
+{
+  "uuid": "8abf497b-f4ba-4eca-b763-99d4853fb78b",
+  "issue_uuid": "8e29e30c-2d02-4d0f-b2df-887befd74c62",
+  "author": "y4rr",
+  "content": "Already delivered by C5 (commit 0979e49b). 101 conformance tests across continuous + discrete distributions + Layer-4 gate covering 100+ items.",
+  "created_at": "2026-05-07T17:44:32.745392054Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAT19RFN4gRE6eCk1Sv+Lk4HRl5oP6VChOK3EZVDyQ/MKdsDbSL0S/MwJ7AvI75ZL7NImwgfyDj8ledKaR/ea5CQ=="
+}
