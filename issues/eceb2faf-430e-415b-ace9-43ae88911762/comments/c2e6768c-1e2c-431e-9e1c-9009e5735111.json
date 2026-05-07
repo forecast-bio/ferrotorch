@@ -1,0 +1,10 @@
+{
+  "uuid": "c2e6768c-1e2c-431e-9e1c-9009e5735111",
+  "issue_uuid": "eceb2faf-430e-415b-ace9-43ae88911762",
+  "author": "y4rr",
+  "content": "Follow-up from Sprint C.7 (#626). GpuBackend methods: masked_fill_f32/f64, masked_zero_f32/f64. One thread per element: if mask[i] != 0 then out[i] = fill_value else out[i] = in[i]. Used by nn.MultiheadAttention padding masks and autoregressive causal masking.",
+  "created_at": "2026-05-07T21:10:07.807658817Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzpfSxivSqoRffBpcMhMf7uhxWLRu8DjbjaI35mF5+NheT7684hGzagVtqAujrBPlfAZNHsFNSFR/juT1Oh/ODg=="
+}
