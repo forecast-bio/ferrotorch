@@ -1,0 +1,10 @@
+{
+  "uuid": "caf3b7d7-9f63-49bc-bff8-7aaa72161941",
+  "issue_uuid": "6fad0fa5-5eb3-4d8e-a198-98f53cad8689",
+  "author": "y4rr",
+  "content": "Mask R-CNN ResNet-50 FPN with mask head + predictor; conformance 29/29 (test_maskrcnn_parameter_count range adjusted to 40M-50M to match torchvision's ~44M actual)",
+  "created_at": "2026-05-07T23:20:22.852827753Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAT+pjIJ9ezAB4CNQzJlYckTa3fr9CufR5VtnNCFRkCcF5Je8Le7aEeX9vKCPoLGTiaSKRoqrqv7ih6ouSOo85DQ=="
+}
