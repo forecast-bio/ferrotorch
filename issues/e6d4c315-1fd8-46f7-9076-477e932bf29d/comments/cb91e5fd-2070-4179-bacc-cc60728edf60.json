@@ -1,0 +1,10 @@
+{
+  "uuid": "cb91e5fd-2070-4179-bacc-cc60728edf60",
+  "issue_uuid": "e6d4c315-1fd8-46f7-9076-477e932bf29d",
+  "author": "y4rr",
+  "content": "Plan: Fix 5 distribution bugs from Sprint B.3 per GitHub issues #875-#879.\n\n#875 Missing mean() implementations:\n- MultivariateNormal: mean = loc (clone)\n- LowRankMultivariateNormal: mean = loc (clone)  \n- Dirichlet: mean[i] = alpha[i]/sum(alpha), variance[i] = alpha[i]*(alpha0-alpha[i])/(alpha0^2*(alpha0+1))\n- Pareto: mean = alpha*xm/(alpha-1) for alpha>1 else inf; variance = xm^2*alpha/((alpha-1)^2*(alpha-2)) for alpha>2 else inf\n- VonMises: mean = loc\n\n#876 Independent::sample() shape bug:\n- sample(shape) must pass shape++batch_dims to inner distribution\n- Fix: pass batch_shape appended to sample_shape when calling base.sample()\n\n#877 Kumaraswamy::entropy() wrong digamma for non-integer b in (0,1):\n- Integer loop walks x += 1.0 which steps past b+1 for fractional b\n- Fix: replace integer loop with proper asymptotic digamma using shift-then-expand\n\n#878 RelaxedBernoulli::log_prob wrong formula:\n- Reference: log(temp) + diff - 2*softplus(diff) - log(x) - log(1-x)\n  where diff = logits - logit(x)*temp\n- Current impl uses Maddison eq21 direct expansion which gives wrong sign/structure\n\n#879 Multinomial missing mean/variance:\n- mean[k] = n * p[k]\n- variance[k] = n * p[k] * (1 - p[k])\n\nThen remove cascade_skip calls from conformance tests for all 5.",
+  "created_at": "2026-05-07T18:16:03.942200647Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAahDuTW7QX386ZHQdI9U1mYjUtzOKb83i2E2tqbNCH/K22eXrCbNWh1p8CCxyScoOXBVj1nDOr7/F5v+KPNmgBg=="
+}
