@@ -1,0 +1,10 @@
+{
+  "uuid": "18b288e9-722d-4bd2-afa6-f3cc401832f6",
+  "display_id": 893,
+  "title": "gelu_tanh_kernel PTX fails to JIT-compile on sm_86 (RTX 3090)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T16:51:28.281398176Z",
+  "updated_at": "2026-05-07T16:51:28.281398176Z"
+}
