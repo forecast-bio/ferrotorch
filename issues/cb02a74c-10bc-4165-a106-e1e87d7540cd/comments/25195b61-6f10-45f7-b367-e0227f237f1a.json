@@ -1,0 +1,10 @@
+{
+  "uuid": "25195b61-6f10-45f7-b367-e0227f237f1a",
+  "issue_uuid": "cb02a74c-10bc-4165-a106-e1e87d7540cd",
+  "author": "y4rr",
+  "content": "Result: C6.1 SGD-family conformance suite delivered.\n\nSurface inventory: 290 items total across all C6 sub-phases\n  C6.1 (SGD-family, this dispatch): 71 items\n  C6.2 (Adam-family, deferred): 68 items\n  C6.3 (misc/utilities, deferred): 91 items\n  C6.4 (schedulers, deferred): 60 items\n\nFixture script: scripts/regenerate_optim_fixtures.py — exits 0, live torch validation passes (torch 2.6 installed, max_err < 9.1e-6 on all variants). Fixtures: 5 SGD + 3 Adagrad + 2 ASGD + 1 Rprop + 4 RMSprop = 15 fixture variants, 5 steps each.\n\nConformance tests: 15 tests in ferrotorch-optim/tests/conformance_optim_sgd_family.rs — all pass.\n  - SGD: plain, momentum, nesterov, weight_decay, dampening (5 tests)\n  - Adagrad: plain, lr_decay, weight_decay (3 tests)\n  - ASGD: plain, weight_decay (2 tests)\n  - Rprop: plain (1 test)\n  - RMSprop: plain, centered, momentum, weight_decay (4 tests)\n\nClippy: cargo clippy -p ferrotorch-optim --test conformance_optim_sgd_family -- -D warnings exits 0.\n\nCascade bugs filed: 0 — all 15 tests pass within tolerance (1e-4 abs f32). No divergences.\n\nLayer 4: DEFERRED to C6.4 wrap-up.",
+  "created_at": "2026-05-07T15:53:59.771207194Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAJlZcSIj0qc7H3pqbQVFVttVuj5s7t4pxc+rlHdTfpKFH/L1YM99FqNtLK3jEYWIhGT9j3hGu308frLaZ4ssZBA=="
+}
