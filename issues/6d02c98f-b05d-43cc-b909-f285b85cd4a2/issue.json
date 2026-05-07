@@ -1,0 +1,10 @@
+{
+  "uuid": "6d02c98f-b05d-43cc-b909-f285b85cd4a2",
+  "display_id": 940,
+  "title": "Add MtlBackend scaffold and 10 MSL kernels for Apple Silicon MPS backend",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T20:59:59.780223683Z",
+  "updated_at": "2026-05-07T20:59:59.780223683Z"
+}
