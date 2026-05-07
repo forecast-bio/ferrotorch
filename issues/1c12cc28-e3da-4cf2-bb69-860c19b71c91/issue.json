@@ -1,0 +1,10 @@
+{
+  "uuid": "1c12cc28-e3da-4cf2-bb69-860c19b71c91",
+  "display_id": 862,
+  "title": "vision/models: DenseNet full forward-pass parity (needs fixture without pretrained weights)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T15:17:18.850379053Z",
+  "updated_at": "2026-05-07T15:17:18.850379053Z"
+}
