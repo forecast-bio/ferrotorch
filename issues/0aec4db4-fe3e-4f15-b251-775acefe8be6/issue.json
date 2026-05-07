@@ -1,0 +1,10 @@
+{
+  "uuid": "0aec4db4-fe3e-4f15-b251-775acefe8be6",
+  "display_id": 871,
+  "title": "vision/io: write_image / write_tensor_as_image fixture-level coverage (tempfile-based)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T15:18:30.088661520Z",
+  "updated_at": "2026-05-07T15:18:30.088661520Z"
+}
