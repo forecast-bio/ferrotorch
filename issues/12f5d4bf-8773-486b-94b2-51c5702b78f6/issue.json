@@ -6,8 +6,11 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T19:49:35.038424753Z",
-  "updated_at": "2026-05-07T19:49:36.420669498Z",
+  "updated_at": "2026-05-07T19:50:22.804346448Z",
   "labels": [
     "feature"
+  ],
+  "related": [
+    "d434c791-87b8-4368-87e0-c53a731a4be6"
   ]
 }
