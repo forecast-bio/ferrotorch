@@ -2,11 +2,12 @@
   "uuid": "cb022456-7d07-4a3d-b125-1d142501683b",
   "display_id": 918,
   "title": "Fix ResNet18 param count divergence and add forward parity conformance test",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T19:47:45.129192162Z",
-  "updated_at": "2026-05-07T19:47:46.450987626Z",
+  "updated_at": "2026-05-07T20:15:50.688681769Z",
+  "closed_at": "2026-05-07T20:15:50.688681769Z",
   "labels": [
     "bug"
   ]
