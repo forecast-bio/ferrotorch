@@ -26,8 +26,10 @@ pub use registry::{
     ModelConstructor, ModelRegistry, REGISTRY, get_model, list_models, register_model,
 };
 pub use detection::{
-    AnchorGenerator, Detections, FPN_OUT_CHANNELS, FasterRcnn, FeaturePyramidNetwork, Rpn,
-    RpnConfig, RpnHead, TwoMlpHead, fasterrcnn_resnet50_fpn,
+    AnchorGenerator, Detections, FPN_OUT_CHANNELS, FasterRcnn, FeaturePyramidNetwork,
+    MaskDetections, MaskHead, MaskPredictor, MaskRcnn, Rpn, RpnConfig, RpnHead,
+    SSD_ANCHORS_PER_SCALE, SSD_FM_SIZES, SSD_TOTAL_ANCHORS, Ssd300, SsdDetections, TwoMlpHead,
+    fasterrcnn_resnet50_fpn, maskrcnn_resnet50_fpn, ssd300_vgg16,
 };
 pub use segmentation::{
     Aspp, DeepLabV3, DeepLabV3Head, Fcn, FcnHead, ResNet50Dilated,

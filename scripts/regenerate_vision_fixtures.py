@@ -1303,6 +1303,112 @@ def add_segmentation_fixtures():
 add_segmentation_fixtures()
 
 
+# ── Mask R-CNN (Sprint VD.1, #964) ───────────────────────────────────────────
+
+def add_maskrcnn_fixtures():
+    """
+    Mask R-CNN fixtures.
+
+    No pretrained weights. Uses torchvision.models.detection.maskrcnn_resnet50_fpn
+    with weights=None and a small synthetic input.
+
+    Reference: torchvision 0.21.x maskrcnn_resnet50_fpn(weights=None, num_classes=91).
+    """
+    from torchvision.models.detection import maskrcnn_resnet50_fpn
+
+    torch.manual_seed(0)
+    model = maskrcnn_resnet50_fpn(weights=None, num_classes=91)
+    model.eval()
+
+    # ---- Parameter count range ----
+    total_params = sum(p.numel() for p in model.parameters())
+    fixtures.append({
+        "id": "maskrcnn_resnet50_fpn_param_count_range",
+        "op": "maskrcnn_resnet50_fpn_param_count",
+        "input": {"num_classes": 91},
+        "expected": {
+            "min": 55_000_000,
+            "max": 85_000_000,
+            "actual": total_params,
+        },
+        "note": (
+            f"torchvision maskrcnn_resnet50_fpn(weights=None, num_classes=91) "
+            f"has {total_params:,} parameters."
+        ),
+    })
+
+    # ---- Mask head output channels ----
+    # torchvision MaskRCNNHeads: 4 conv layers, all 256 channels.
+    mask_head = model.roi_heads.mask_head
+    # Count convolutions in the mask head.
+    mask_head_convs = [m for m in mask_head.modules()
+                       if isinstance(m, torch.nn.Conv2d)]
+    fixtures.append({
+        "id": "maskrcnn_resnet50_fpn_mask_head_conv_count",
+        "op": "maskrcnn_resnet50_fpn_mask_head",
+        "expected": {
+            "num_convs": len(mask_head_convs),
+            "out_channels": 256,
+        },
+        "note": "torchvision MaskRCNNHeads uses 4 conv layers, all producing 256 channels.",
+    })
+
+    # ---- Mask predictor output channels ----
+    mask_predictor = model.roi_heads.mask_predictor
+    dim_reduced = mask_predictor.conv5_mask.in_channels
+    num_classes = mask_predictor.mask_fcn_logits.out_channels
+    fixtures.append({
+        "id": "maskrcnn_resnet50_fpn_mask_predictor_channels",
+        "op": "maskrcnn_resnet50_fpn_mask_predictor",
+        "expected": {
+            "in_channels": dim_reduced,
+            "num_classes": num_classes,
+        },
+        "note": "MaskRCNNPredictor: ConvTranspose2d(256→256) + Conv2d(256→num_classes).",
+    })
+
+    # ---- Forward output structure (small synthetic input) ----
+    torch.manual_seed(42)
+    # Use a list of images (torchvision detection API).
+    img = torch.rand(3, 64, 64)
+    with torch.no_grad():
+        outputs = model([img])
+    out = outputs[0]
+    boxes_shape = list(out["boxes"].shape)
+    scores_shape = list(out["scores"].shape)
+    masks_shape = list(out["masks"].shape)
+
+    fixtures.append({
+        "id": "maskrcnn_resnet50_fpn_forward_output_structure",
+        "op": "maskrcnn_resnet50_fpn_forward",
+        "input": {
+            "image_shape": [3, 64, 64],
+            "seed": 42,
+            "num_classes": 91,
+        },
+        "expected": {
+            "boxes_ndim": len(boxes_shape),
+            "boxes_last_dim": boxes_shape[-1] if boxes_shape else 4,
+            "scores_ndim": len(scores_shape),
+            "masks_ndim": len(masks_shape),
+            "masks_spatial": [28, 28] if len(masks_shape) >= 3 else None,
+            "num_detections": boxes_shape[0] if boxes_shape else 0,
+        },
+        "note": (
+            "torchvision Mask R-CNN forward: boxes [N,4], scores [N], "
+            "masks [N,1,28,28] (torchvision returns top-scoring class mask). "
+            "ferrotorch returns [N, num_classes, 28, 28] (all-class logits)."
+        ),
+    })
+
+    print(f"  maskrcnn_resnet50_fpn: {total_params:,} params, "
+          f"mask_head_convs={len(mask_head_convs)}, "
+          f"masks_shape={masks_shape}")
+
+
+add_maskrcnn_fixtures()
+
+
 # ---------------------------------------------------------------------------
 # Assemble and write
 # ---------------------------------------------------------------------------

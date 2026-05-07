@@ -894,6 +894,116 @@ pub trait GpuBackend: Send + Sync {
         })
     }
 
+    // -- bf16 elementwise (#963) ---------------------------------------------
+
+    /// Elementwise add: bf16 inputs (u16 bit-pattern buffers) -> f32 output.
+    ///
+    /// PyTorch parity: `torch.add(a.bfloat16(), b.bfloat16())` under autocast
+    /// uses f32 accumulators on CUDA. Both handles must contain
+    /// `CudaSlice<u16>` (bf16 bit patterns) of the same length `n`.
+    fn add_bf16_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "add_bf16_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// Elementwise subtract: bf16 inputs -> f32 output.
+    fn sub_bf16_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "sub_bf16_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// Elementwise multiply: bf16 inputs -> f32 output.
+    fn mul_bf16_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "mul_bf16_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// Elementwise divide: bf16 inputs -> f32 output.
+    fn div_bf16_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _b: &GpuBufferHandle,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "div_bf16_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    // -- bf16 reductions (#963) ----------------------------------------------
+
+    /// Sum along an axis: bf16 input [outer, axis_size, inner] (u16) -> f32
+    /// [outer, inner]. Accumulates in f32.
+    fn sum_axis_bf16_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _outer: usize,
+        _axis_size: usize,
+        _inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "sum_axis_bf16_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// Mean along an axis: bf16 input [outer, axis_size, inner] (u16) -> f32
+    /// [outer, inner]. Accumulates in f32, divides by axis_size in f32.
+    fn mean_axis_bf16_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _outer: usize,
+        _axis_size: usize,
+        _inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "mean_axis_bf16_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    // -- bf16 activations (#963) ---------------------------------------------
+
+    /// ReLU activation: bf16 input (u16) -> f32 output.
+    /// `out[i] = max(0.0, bf16_to_f32(a[i]))`.
+    fn relu_bf16_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "relu_bf16_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// Sigmoid activation: bf16 input (u16) -> f32 output.
+    /// `out[i] = 1 / (1 + exp(-bf16_to_f32(a[i])))`.
+    fn sigmoid_bf16_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _n: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "sigmoid_bf16_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
     // GELU activation f32 (sigmoid approximation)
     fn gelu_f32(&self, a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle>;
     fn gelu_f64(&self, _a: &GpuBufferHandle) -> FerrotorchResult<GpuBufferHandle> {
@@ -2391,6 +2501,45 @@ pub trait GpuBackend: Send + Sync {
     ) -> FerrotorchResult<GpuBufferHandle> {
         Err(FerrotorchError::InvalidArgument {
             message: "fftn2d_c2c_f64 GPU op not yet implemented".into(),
+        })
+    }
+
+    // -- axes-aware N-D FFT via cufftPlanMany (#966) -------------------------
+
+    /// Axes-aware N-D complex-to-complex FFT for f32 via `cufftPlanMany`. (#966)
+    ///
+    /// Transforms over the specified `axes` (normalized to non-negative in
+    /// `[0, ndim)`) of the complex input tensor. Input layout: interleaved
+    /// `[..., 2]` (re/im pairs); the trailing complex dim is always the last
+    /// and is NOT included in `axes`. `shape` is the tensor's spatial dims
+    /// (excluding the trailing 2).
+    ///
+    /// `inverse=true` applies `1 / product(shape[ax] for ax in axes)`
+    /// normalization to match `torch.fft.ifftn`.
+    ///
+    /// Default impl returns `Err` so existing backends compile unchanged.
+    fn fftn_axes_c2c_f32(
+        &self,
+        _a: &GpuBufferHandle,
+        _shape: &[usize],
+        _axes: &[usize],
+        _inverse: bool,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "fftn_axes_c2c_f32 GPU op not implemented for this backend".into(),
+        })
+    }
+
+    /// f64 variant of [`Self::fftn_axes_c2c_f32`]. (#966)
+    fn fftn_axes_c2c_f64(
+        &self,
+        _a: &GpuBufferHandle,
+        _shape: &[usize],
+        _axes: &[usize],
+        _inverse: bool,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "fftn_axes_c2c_f64 GPU op not implemented for this backend".into(),
         })
     }
 

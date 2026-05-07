@@ -26,7 +26,8 @@
 use ferrotorch_core::{no_grad, randn};
 use ferrotorch_nn::Module;
 use ferrotorch_vision::models::detection::{
-    AnchorGenerator, FeaturePyramidNetwork, TwoMlpHead, fasterrcnn_resnet50_fpn,
+    AnchorGenerator, FeaturePyramidNetwork, MaskHead, MaskPredictor, TwoMlpHead,
+    fasterrcnn_resnet50_fpn, maskrcnn_resnet50_fpn,
 };
 use ferrotorch_vision::{get_model, list_models};
 
@@ -310,4 +311,170 @@ fn test_train_eval_toggle() {
     assert!(model.is_training(), "model.train() should set training=true");
     model.eval();
     assert!(!model.is_training(), "model.eval() should set training=false");
+}
+
+// ===========================================================================
+// Mask R-CNN conformance tests (M-series)
+// Sprint VD.1 — #964
+// ===========================================================================
+
+/// M1 - MaskHead constructs and preserves spatial dimensions.
+///
+/// 4 conv layers with 3×3 kernel + pad=1: input 14×14 → output 14×14.
+#[test]
+fn test_mask_head_spatial_preservation() {
+    let head = MaskHead::<f32>::new(256).unwrap();
+    let x = randn(&[4, 256, 14, 14]).unwrap();
+    let out = no_grad(|| head.forward(&x).unwrap());
+    assert_eq!(out.shape(), &[4, 256, 14, 14], "MaskHead must preserve 14×14 spatial size");
+}
+
+/// M2 - MaskPredictor doubles spatial resolution via deconv.
+///
+/// Input [N, 256, 14, 14] → output [N, num_classes, 28, 28].
+#[test]
+fn test_mask_predictor_output_shape() {
+    let predictor = MaskPredictor::<f32>::new(256, 91).unwrap();
+    let x = randn(&[4, 256, 14, 14]).unwrap();
+    let out = no_grad(|| predictor.forward(&x).unwrap());
+    assert_eq!(
+        out.shape(),
+        &[4, 91, 28, 28],
+        "MaskPredictor must output [N, num_classes, 28, 28]"
+    );
+}
+
+/// M3 - Full Mask R-CNN forward: output structure is correct.
+///
+/// boxes [N,4], scores [N,91], labels [N], masks [N,91,28,28].
+#[test]
+fn test_maskrcnn_forward_output_structure() {
+    let model = maskrcnn_resnet50_fpn::<f32>(91).unwrap();
+    let img = no_grad(|| randn(&[1, 3, 64, 64]).unwrap());
+    let dets = no_grad(|| model.forward(&img).unwrap());
+
+    assert_eq!(dets.len(), 1, "one MaskDetections per image");
+    let d = &dets[0];
+    let n = d.boxes.shape()[0];
+    assert_eq!(d.boxes.shape().len(), 2,   "boxes must be 2-D");
+    assert_eq!(d.boxes.shape()[1], 4,       "boxes must have 4 coords");
+    assert_eq!(d.scores.shape().len(), 2,   "scores must be 2-D");
+    assert_eq!(d.scores.shape()[1], 91,     "scores must have 91 classes");
+    assert_eq!(d.labels.len(), n,           "label count must match box count");
+    assert_eq!(d.masks.shape()[0], n,       "mask batch dim must match proposal count");
+    assert_eq!(d.masks.shape()[1], 91,      "masks must have 91 class channels");
+    assert_eq!(d.masks.shape()[2], 28,      "mask height must be 28");
+    assert_eq!(d.masks.shape()[3], 28,      "mask width must be 28");
+}
+
+/// M4 - Batch of 2 images returns two MaskDetections entries.
+#[test]
+fn test_maskrcnn_forward_batch2() {
+    let model = maskrcnn_resnet50_fpn::<f32>(91).unwrap();
+    let imgs = no_grad(|| randn(&[2, 3, 64, 64]).unwrap());
+    let dets = no_grad(|| model.forward(&imgs).unwrap());
+    assert_eq!(dets.len(), 2, "expect one MaskDetections per image in batch");
+}
+
+/// M5 - Named parameters carry expected prefix hierarchy.
+///
+/// faster_rcnn.* covers backbone+FPN+RPN+head; mask_head.* and
+/// mask_predictor.* are the new Sprint VD.1 layers.
+#[test]
+fn test_maskrcnn_named_parameter_prefixes() {
+    let model = maskrcnn_resnet50_fpn::<f32>(91).unwrap();
+    let names: Vec<String> = model
+        .named_parameters()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    assert!(
+        names.iter().any(|n| n.starts_with("faster_rcnn.")),
+        "missing faster_rcnn.* params"
+    );
+    assert!(
+        names.iter().any(|n| n.starts_with("mask_head.")),
+        "missing mask_head.* params"
+    );
+    assert!(
+        names.iter().any(|n| n.starts_with("mask_predictor.")),
+        "missing mask_predictor.* params"
+    );
+}
+
+/// M6 - Mask R-CNN total parameter count is in the expected range.
+///
+/// torchvision maskrcnn_resnet50_fpn reports ~44M trainable parameters
+/// (ResNet-50 backbone + FPN + RPN + ROIAlign heads + Mask head/predictor).
+/// Accepted range: 40M-50M to allow head-size variation across class counts.
+#[test]
+fn test_maskrcnn_parameter_count() {
+    let model = maskrcnn_resnet50_fpn::<f32>(91).unwrap();
+    let np = model.num_parameters();
+    assert!(np > 40_000_000, "MaskRCNN param count too low: {np}");
+    assert!(np < 50_000_000, "MaskRCNN param count too high: {np}");
+}
+
+/// M7 - Model registry contains `maskrcnn_resnet50_fpn`.
+#[test]
+fn test_registry_contains_maskrcnn() {
+    let names = list_models().unwrap();
+    assert!(
+        names.contains(&"maskrcnn_resnet50_fpn".to_string()),
+        "maskrcnn_resnet50_fpn missing from registry; got: {names:?}"
+    );
+}
+
+/// M8 - Registry construct with `pretrained=false` succeeds.
+#[test]
+fn test_registry_maskrcnn_pretrained_false() {
+    let result = get_model("maskrcnn_resnet50_fpn", false, 91);
+    assert!(
+        result.is_ok(),
+        "registry get_model maskrcnn_resnet50_fpn pretrained=false failed: {:?}",
+        result.err()
+    );
+}
+
+/// M9 - Hub registry has an entry for `maskrcnn_resnet50_fpn`.
+#[test]
+fn test_hub_registry_maskrcnn_entry_exists() {
+    let info = ferrotorch_hub::registry::get_model_info("maskrcnn_resnet50_fpn");
+    assert!(
+        info.is_some(),
+        "maskrcnn_resnet50_fpn missing from ferrotorch_hub::registry"
+    );
+}
+
+/// M10 - Train/eval toggle propagates through the full Mask R-CNN.
+#[test]
+fn test_maskrcnn_train_eval_toggle() {
+    let mut model = maskrcnn_resnet50_fpn::<f32>(91).unwrap();
+    assert!(!model.is_training(), "model should start in eval mode");
+    model.train();
+    assert!(model.is_training(), "model.train() should set training=true");
+    model.eval();
+    assert!(!model.is_training(), "model.eval() should set training=false");
+}
+
+/// M11 - 512×512 end-to-end forward completes without error.
+///
+/// Uses synthetic random weights (no pretrained download). Asserts
+/// structure only, not numerical values.
+#[test]
+fn test_maskrcnn_forward_512x512_end_to_end() {
+    let model = maskrcnn_resnet50_fpn::<f32>(91).unwrap();
+    let img = no_grad(|| randn(&[1, 3, 512, 512]).unwrap());
+    let dets = no_grad(|| model.forward(&img).unwrap());
+
+    assert_eq!(dets.len(), 1);
+    let d = &dets[0];
+    let n = d.boxes.shape()[0];
+    assert_eq!(d.boxes.shape()[1], 4);
+    assert_eq!(d.scores.shape()[1], 91);
+    assert_eq!(d.labels.len(), n);
+    assert_eq!(d.masks.shape()[0], n);
+    assert_eq!(d.masks.shape()[1], 91);
+    assert_eq!(d.masks.shape()[2], 28);
+    assert_eq!(d.masks.shape()[3], 28);
 }

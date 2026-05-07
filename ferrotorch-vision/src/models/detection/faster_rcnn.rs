@@ -238,6 +238,33 @@ impl<T: Float> FasterRcnn<T> {
         })
     }
 
+    /// Run backbone only and return the four intermediate feature maps.
+    ///
+    /// Returns `HashMap` with keys `"layer1"`, `"layer2"`, `"layer3"`,
+    /// `"layer4"` (C2–C5 outputs from ResNet-50).
+    ///
+    /// Exposed so that `MaskRcnn` can reuse backbone features for mask ROI
+    /// Align without running the full detection pipeline twice.
+    pub fn forward_backbone(
+        &self,
+        images: &Tensor<T>,
+    ) -> FerrotorchResult<HashMap<String, Tensor<T>>> {
+        self.backbone.forward_features(images)
+    }
+
+    /// Run FPN over backbone features and return the five pyramid levels.
+    ///
+    /// Returns `HashMap` with keys `"p2"` .. `"p6"`.
+    ///
+    /// Exposed so that `MaskRcnn` can reuse FPN features for mask ROI Align
+    /// without running the full detection pipeline twice.
+    pub fn forward_fpn(
+        &self,
+        backbone_features: &HashMap<String, Tensor<T>>,
+    ) -> FerrotorchResult<HashMap<String, Tensor<T>>> {
+        self.fpn.forward(backbone_features)
+    }
+
     /// End-to-end forward pass.
     ///
     /// `images` — `[B, 3, H, W]` float tensor (RGB, any scale).

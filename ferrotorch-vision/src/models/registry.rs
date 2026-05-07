@@ -264,6 +264,21 @@ fn default_registry() -> ModelRegistry<f32> {
         }),
     );
 
+    // #964: Mask R-CNN with ResNet-50 FPN backbone.
+    // Extends Faster R-CNN with a 4-conv FCN mask head + deconv predictor.
+    // `num_classes` includes background (index 0); COCO default is 91.
+    // Pretrained weights not yet published to ferrotorch-hub;
+    // `pretrained=true` will return an `Err` with a clear message until a
+    // checkpoint is pinned (follow-up #964-weights).
+    registry.register_model(
+        "maskrcnn_resnet50_fpn",
+        Box::new(|pretrained, num_classes| {
+            maybe_load_pretrained(pretrained, "maskrcnn_resnet50_fpn", || {
+                super::detection::maskrcnn_resnet50_fpn::<f32>(num_classes)
+            })
+        }),
+    );
+
     // #457: DeepLabV3 + FCN segmentation models with ResNet-50 backbone.
     // Pretrained weights are not yet published to ferrotorch-hub;
     // `pretrained=true` will return an `Err` with a clear message until
@@ -414,6 +429,7 @@ mod tests {
         assert!(names.contains(&"densenet121".to_string()));
         assert!(names.contains(&"inception_v3".to_string()));
         assert!(names.contains(&"fasterrcnn_resnet50_fpn".to_string()));
+        assert!(names.contains(&"maskrcnn_resnet50_fpn".to_string()));
     }
 
     #[test]
@@ -467,6 +483,7 @@ mod tests {
             "densenet121",
             "inception_v3",
             "fasterrcnn_resnet50_fpn",
+            "maskrcnn_resnet50_fpn",
             "deeplabv3_resnet50",
             "fcn_resnet50",
         ];

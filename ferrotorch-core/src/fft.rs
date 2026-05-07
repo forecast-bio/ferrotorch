@@ -737,40 +737,108 @@ pub fn fftn<T: Float>(
     s: Option<&[usize]>,
     axes: Option<&[isize]>,
 ) -> FerrotorchResult<Tensor<T>> {
-    // GPU fast paths (#636): dispatch by rank when s=None, axes=None.
-    // - shape [h, w, 2]    (rank-2 complex) -> cufftPlanMany rank=2
-    // - shape [d, h, w, 2] (rank-3 complex) -> cufftPlan3d
-    // Other shapes / non-None s or axes fall through to CPU (NotImplementedOnCuda).
-    if input.is_cuda()
-        && (is_f32::<T>() || is_f64::<T>())
-        && s.is_none()
-        && axes.is_none()
-    {
+    // GPU fast paths (#636, #966):
+    // - axes=None, s=None: dispatch by rank (rank-2 -> cufftPlanMany rank=2,
+    //   rank-3 -> cufftPlan3d).
+    // - axes=Some(...), s=None: axes-aware dispatch via cufftPlanMany (#966).
+    //   The axes list is normalized to non-negative indices and passed to
+    //   gpu_fftn_axes_c2c_f32/f64. s!=None still falls through to CPU
+    //   (pad/truncate requires a separate pre-pass not yet implemented on GPU).
+    if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) && s.is_none() {
         let shape = input.shape();
-        let backend =
-            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-        if shape.len() == 3 && shape[2] == 2 {
-            // 2-D complex: [h, w, 2]
-            let h = shape[0];
-            let w = shape[1];
-            let h_out = if is_f32::<T>() {
-                backend.fftn2d_c2c_f32(input.gpu_handle()?, h, w, false)?
-            } else {
-                backend.fftn2d_c2c_f64(input.gpu_handle()?, h, w, false)?
-            };
-            return Tensor::from_storage(TensorStorage::gpu(h_out), shape.to_vec(), false);
-        }
-        if shape.len() == 4 && shape[3] == 2 {
-            // 3-D complex: [d, h, w, 2]
-            let d = shape[0];
-            let h = shape[1];
-            let w = shape[2];
-            let h_out = if is_f32::<T>() {
-                backend.fftn3d_c2c_f32(input.gpu_handle()?, d, h, w, false)?
-            } else {
-                backend.fftn3d_c2c_f64(input.gpu_handle()?, d, h, w, false)?
-            };
-            return Tensor::from_storage(TensorStorage::gpu(h_out), shape.to_vec(), false);
+        let ndim = shape.len();
+        // Last dim must be 2 (interleaved complex).
+        if ndim >= 2 && shape[ndim - 1] == 2 {
+            let spatial_ndim = ndim - 1; // dims excluding the trailing complex dim
+            let backend =
+                crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+
+            if axes.is_none() {
+                // Default: transform all spatial dims.
+                if spatial_ndim == 2 {
+                    let h = shape[0];
+                    let w = shape[1];
+                    let h_out = if is_f32::<T>() {
+                        backend.fftn2d_c2c_f32(input.gpu_handle()?, h, w, false)?
+                    } else {
+                        backend.fftn2d_c2c_f64(input.gpu_handle()?, h, w, false)?
+                    };
+                    return Tensor::from_storage(
+                        TensorStorage::gpu(h_out),
+                        shape.to_vec(),
+                        false,
+                    );
+                }
+                if spatial_ndim == 3 {
+                    let d = shape[0];
+                    let h = shape[1];
+                    let w = shape[2];
+                    let h_out = if is_f32::<T>() {
+                        backend.fftn3d_c2c_f32(input.gpu_handle()?, d, h, w, false)?
+                    } else {
+                        backend.fftn3d_c2c_f64(input.gpu_handle()?, d, h, w, false)?
+                    };
+                    return Tensor::from_storage(
+                        TensorStorage::gpu(h_out),
+                        shape.to_vec(),
+                        false,
+                    );
+                }
+            } else if let Some(ax) = axes {
+                // Axes-override path (#966): normalize isize axes to usize.
+                let norm_axes: Vec<usize> = ax
+                    .iter()
+                    .map(|&a| {
+                        if a < 0 {
+                            (spatial_ndim as isize + a) as usize
+                        } else {
+                            a as usize
+                        }
+                    })
+                    .collect();
+                // cufftPlanMany with inembed=NULL, istride=1 is only correct
+                // when the transform axes are the innermost (last) spatial
+                // dimensions in contiguous order. For other axes layouts
+                // cuFFT would need stride/embed parameters encoding the full
+                // tensor layout, which requires a pre-permute step not yet
+                // implemented. Fall through to CPU for non-innermost axes.
+                // A set of axes is "innermost" iff it equals the last
+                // norm_axes.len() spatial dimensions: {spatial_ndim - r,
+                // ..., spatial_ndim - 1} in any order.
+                let r = norm_axes.len();
+                let innermost_set: std::collections::HashSet<usize> =
+                    (spatial_ndim - r..spatial_ndim).collect();
+                let axes_set: std::collections::HashSet<usize> =
+                    norm_axes.iter().copied().collect();
+                if norm_axes.iter().all(|&a| a < spatial_ndim)
+                    && axes_set == innermost_set
+                {
+                    // Sort axes ascending so cufftPlanMany rank matches shape order.
+                    let mut sorted_axes = norm_axes.clone();
+                    sorted_axes.sort_unstable();
+                    let spatial_shape = &shape[..spatial_ndim];
+                    let h_out = if is_f32::<T>() {
+                        backend.fftn_axes_c2c_f32(
+                            input.gpu_handle()?,
+                            spatial_shape,
+                            &sorted_axes,
+                            false,
+                        )?
+                    } else {
+                        backend.fftn_axes_c2c_f64(
+                            input.gpu_handle()?,
+                            spatial_shape,
+                            &sorted_axes,
+                            false,
+                        )?
+                    };
+                    return Tensor::from_storage(
+                        TensorStorage::gpu(h_out),
+                        shape.to_vec(),
+                        false,
+                    );
+                }
+            }
         }
     }
     let arr = tensor_to_complex_array(input, "fftn")?;
@@ -796,40 +864,93 @@ pub fn ifftn<T: Float>(
     s: Option<&[usize]>,
     axes: Option<&[isize]>,
 ) -> FerrotorchResult<Tensor<T>> {
-    // GPU fast paths (#636): dispatch by rank when s=None, axes=None.
-    // - shape [h, w, 2]    (rank-2 complex) -> cufftPlanMany rank=2
-    // - shape [d, h, w, 2] (rank-3 complex) -> cufftPlan3d
-    // Other shapes / non-None s or axes fall through to CPU (NotImplementedOnCuda).
-    if input.is_cuda()
-        && (is_f32::<T>() || is_f64::<T>())
-        && s.is_none()
-        && axes.is_none()
-    {
+    // GPU fast paths (#636, #966): mirrors fftn dispatch logic exactly,
+    // with inverse=true for all cuFFT calls.
+    if input.is_cuda() && (is_f32::<T>() || is_f64::<T>()) && s.is_none() {
         let shape = input.shape();
-        let backend =
-            crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
-        if shape.len() == 3 && shape[2] == 2 {
-            // 2-D complex: [h, w, 2]
-            let h = shape[0];
-            let w = shape[1];
-            let h_out = if is_f32::<T>() {
-                backend.fftn2d_c2c_f32(input.gpu_handle()?, h, w, true)?
-            } else {
-                backend.fftn2d_c2c_f64(input.gpu_handle()?, h, w, true)?
-            };
-            return Tensor::from_storage(TensorStorage::gpu(h_out), shape.to_vec(), false);
-        }
-        if shape.len() == 4 && shape[3] == 2 {
-            // 3-D complex: [d, h, w, 2]
-            let d = shape[0];
-            let h = shape[1];
-            let w = shape[2];
-            let h_out = if is_f32::<T>() {
-                backend.fftn3d_c2c_f32(input.gpu_handle()?, d, h, w, true)?
-            } else {
-                backend.fftn3d_c2c_f64(input.gpu_handle()?, d, h, w, true)?
-            };
-            return Tensor::from_storage(TensorStorage::gpu(h_out), shape.to_vec(), false);
+        let ndim = shape.len();
+        if ndim >= 2 && shape[ndim - 1] == 2 {
+            let spatial_ndim = ndim - 1;
+            let backend =
+                crate::gpu_dispatch::gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+
+            if axes.is_none() {
+                if spatial_ndim == 2 {
+                    let h = shape[0];
+                    let w = shape[1];
+                    let h_out = if is_f32::<T>() {
+                        backend.fftn2d_c2c_f32(input.gpu_handle()?, h, w, true)?
+                    } else {
+                        backend.fftn2d_c2c_f64(input.gpu_handle()?, h, w, true)?
+                    };
+                    return Tensor::from_storage(
+                        TensorStorage::gpu(h_out),
+                        shape.to_vec(),
+                        false,
+                    );
+                }
+                if spatial_ndim == 3 {
+                    let d = shape[0];
+                    let h = shape[1];
+                    let w = shape[2];
+                    let h_out = if is_f32::<T>() {
+                        backend.fftn3d_c2c_f32(input.gpu_handle()?, d, h, w, true)?
+                    } else {
+                        backend.fftn3d_c2c_f64(input.gpu_handle()?, d, h, w, true)?
+                    };
+                    return Tensor::from_storage(
+                        TensorStorage::gpu(h_out),
+                        shape.to_vec(),
+                        false,
+                    );
+                }
+            } else if let Some(ax) = axes {
+                let norm_axes: Vec<usize> = ax
+                    .iter()
+                    .map(|&a| {
+                        if a < 0 {
+                            (spatial_ndim as isize + a) as usize
+                        } else {
+                            a as usize
+                        }
+                    })
+                    .collect();
+                // Same innermost-axes restriction as fftn: GPU path only when
+                // axes form the last r spatial dimensions (cufftPlanMany
+                // inembed=NULL, istride=1 contract).
+                let r = norm_axes.len();
+                let innermost_set: std::collections::HashSet<usize> =
+                    (spatial_ndim - r..spatial_ndim).collect();
+                let axes_set: std::collections::HashSet<usize> =
+                    norm_axes.iter().copied().collect();
+                if norm_axes.iter().all(|&a| a < spatial_ndim)
+                    && axes_set == innermost_set
+                {
+                    let mut sorted_axes = norm_axes.clone();
+                    sorted_axes.sort_unstable();
+                    let spatial_shape = &shape[..spatial_ndim];
+                    let h_out = if is_f32::<T>() {
+                        backend.fftn_axes_c2c_f32(
+                            input.gpu_handle()?,
+                            spatial_shape,
+                            &sorted_axes,
+                            true,
+                        )?
+                    } else {
+                        backend.fftn_axes_c2c_f64(
+                            input.gpu_handle()?,
+                            spatial_shape,
+                            &sorted_axes,
+                            true,
+                        )?
+                    };
+                    return Tensor::from_storage(
+                        TensorStorage::gpu(h_out),
+                        shape.to_vec(),
+                        false,
+                    );
+                }
+            }
         }
     }
     let arr = tensor_to_complex_array(input, "ifftn")?;

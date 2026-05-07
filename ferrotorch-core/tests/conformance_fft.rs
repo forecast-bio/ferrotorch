@@ -445,22 +445,22 @@ fn cascade_skip(
     // the centre-value normalization fix so the output matches scipy within
     // F64_WINDOW = 1e-6. The matching cascade_skip block has been retired.
 
-    // C.6 cleanup (#636): fftn/ifftn CUDA GPU paths support only rank-2
-    // (shape [h,w,2]) and rank-3 (shape [d,h,w,2]) with no s/axes override.
-    // Cases with explicit axes or non-None s require axes-aware cufftPlanMany
-    // dispatch (arbitrary-rank with stride/embed parameters) which is beyond
-    // the C.6 scope. Filed as cascade bug for the next N-D FFT sprint.
+    // Issue #966: closed by GPU-misc sprint for innermost-axes cases.
+    // ndim_3_axes_neg1 and ndim_3_axes_n2_n1 now dispatch to cufftPlanMany
+    // on CUDA (innermost spatial axes, inembed=NULL contract satisfied).
+    //
+    // Still skipped on CUDA:
+    //   ndim_3_axes_0: axes=[0] is NOT innermost for [d,h,w,2]; non-innermost
+    //     axis GPU support requires a pre-permute step (not yet implemented).
+    //     Returns NotImplementedOnCuda on CUDA input.
+    //   ndim_2_with_s: s-override (pad/truncate) not yet GPU-accelerated;
+    //     falls through but ferray-fft rejects CUDA tensors.
     if (_op == "fftn" || _op == "ifftn") && _device_label == "cuda:0" {
-        if let Some(
-            "ndim_3_axes_neg1"
-            | "ndim_3_axes_0"
-            | "ndim_3_axes_n2_n1"
-            | "ndim_2_with_s",
-        ) = _tag
-        {
+        if let Some("ndim_3_axes_0" | "ndim_2_with_s") = _tag {
             return Some(
-                "C.6: axes/s-override fftn on CUDA not yet implemented \
-                 (cufftPlanMany axes-aware dispatch deferred)",
+                "#966 partial: non-innermost axis (axes_0) and s-override (with_s) \
+                 not yet GPU-accelerated; innermost-axes cases (axes_neg1, axes_n2_n1) \
+                 now run live via cufftPlanMany",
             );
         }
     }

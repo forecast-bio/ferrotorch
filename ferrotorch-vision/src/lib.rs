@@ -103,10 +103,11 @@ pub use io::{
 };
 pub use models::{
     AnchorGenerator, Aspp, DeepLabV3, DeepLabV3Head, Detections, FPN_OUT_CHANNELS, FasterRcnn,
-    Fcn, FcnHead, FeatureExtractor, FeaturePyramidNetwork, ModelConstructor, ModelRegistry,
-    ResNet50Dilated, Rpn, RpnConfig, RpnHead, TwoMlpHead, create_feature_extractor,
-    deeplabv3_resnet50, fasterrcnn_resnet50_fpn, fcn_resnet50, get_model, list_models,
-    register_model,
+    Fcn, FcnHead, FeatureExtractor, FeaturePyramidNetwork, MaskDetections, MaskHead,
+    MaskPredictor, MaskRcnn, ModelConstructor, ModelRegistry, ResNet50Dilated, Rpn, RpnConfig,
+    RpnHead, SSD_ANCHORS_PER_SCALE, SSD_FM_SIZES, SSD_TOTAL_ANCHORS, Ssd300, SsdDetections,
+    TwoMlpHead, create_feature_extractor, deeplabv3_resnet50, fasterrcnn_resnet50_fpn,
+    fcn_resnet50, get_model, list_models, maskrcnn_resnet50_fpn, register_model, ssd300_vgg16,
 };
 pub use transforms::{
     CenterCrop, ColorJitter, IMAGENET_MEAN, IMAGENET_STD, RandomApply, RandomChoice,

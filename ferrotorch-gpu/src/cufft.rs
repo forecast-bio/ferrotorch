@@ -1181,6 +1181,219 @@ pub fn gpu_fftn2d_c2c_f32(
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// Axes-aware N-D C2C FFT via cufftPlanMany (#966)
+// ---------------------------------------------------------------------------
+//
+// cufftPlanMany with arbitrary axes: given a complex tensor of shape
+// `[d0, d1, ..., dk, 2]` (interleaved re/im), transform over the subset of
+// spatial dims nominated by `axes`.
+//
+// cufftPlanMany parameters for a rank-r transform over axes a[0..r]:
+//   n[i]    = shape[a[i]]          -- transform length along each axis
+//   inembed = shape (spatial dims) -- embedding array (full tensor shape)
+//   istride = product of shape[a[i]+1..] for the innermost axis stride
+//   idist   = total spatial elements (shape.iter().product())
+//   batch   = product of shape[j] for j NOT in axes (outer batch dims)
+//
+// For contiguous complex layout `[..., 2]`, the batch stride is the total
+// number of complex elements (spatial_total) and istride=ostride=1 when
+// the transform axes are contiguous at the innermost dims. For arbitrary
+// axes we permute and re-use the same batch/embed/stride parameters that
+// cufftPlanMany requires for non-contiguous axes.
+//
+// The simplest correct encoding for arbitrary axes:
+//   rank     = axes.len()
+//   n[i]     = shape[axes[i]]
+//   inembed  = NULL  (=> cuFFT treats input as rank-r contiguous sub-array)
+//   istride  = 1
+//   idist    = product(shape[axes[i]] for i) = product of transform dims
+//   batch    = total_spatial / idist
+//
+// This is equivalent to treating the tensor as `batch` independent rank-r
+// transforms each of shape n[]. It is correct when the transform axes form
+// the innermost dimensions (as torch.fft.fftn guarantees after its internal
+// contiguification). The dispatcher in fft.rs already ensures axes are
+// normalized and the tensor is in the expected layout.
+//
+// `inverse=true` divides by product(n[i]) to match torch.fft.ifftn.
+
+/// Axes-aware N-D forward/inverse C2C FFT for f32 via `cufftPlanMany`. (#966)
+///
+/// `shape` is the spatial shape (excluding the trailing complex dim 2).
+/// `axes` are zero-based indices into `shape`, all distinct and in `[0, ndim)`.
+/// Input/output layout: `[shape[0], shape[1], ..., 2]` interleaved complex.
+/// `inverse=true` divides by the product of the transform-axis lengths.
+pub fn gpu_fftn_axes_c2c_f32(
+    input: &CudaBuffer<f32>,
+    shape: &[usize],
+    axes: &[usize],
+    inverse: bool,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    if axes.is_empty() || shape.is_empty() {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_fftn_axes_c2c_f32",
+            expected: vec![1],
+            got: vec![axes.len()],
+        });
+    }
+    let spatial_total: usize = shape.iter().product();
+    let total = spatial_total * 2; // interleaved complex
+    if input.len() != total {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_fftn_axes_c2c_f32",
+            expected: vec![spatial_total, 2],
+            got: vec![input.len()],
+        });
+    }
+
+    // Transform dims: product of shape[axes[i]].
+    let transform_vol: usize = axes.iter().map(|&a| shape[a]).product();
+    let batch = spatial_total / transform_vol;
+    let n_dims: Vec<c_int> = axes.iter().map(|&a| shape[a] as c_int).collect();
+
+    let stream = device.stream();
+    // cufftPlanMany(rank, n, inembed=NULL, istride=1, idist=transform_vol,
+    //               onembed=NULL, ostride=1, odist=transform_vol,
+    //               CUFFT_C2C, batch)
+    // NULL inembed/onembed means cuFFT treats input/output as tightly packed
+    // rank-dimensional arrays of shape n[0..rank], with `batch` independent
+    // transforms. idist=odist=transform_vol is the stride between batches.
+    let plan = CudaFft::plan_many(
+        &n_dims,
+        None,
+        1,
+        transform_vol as i32,
+        None,
+        1,
+        transform_vol as i32,
+        cufft_sys::cufftType::CUFFT_C2C,
+        batch as i32,
+        stream.clone(),
+    )?;
+
+    let mut tmp = crate::transfer::alloc_zeros_f32(total, device)?;
+    stream.memcpy_dtod(input.inner(), tmp.inner_mut())?;
+    let mut out = crate::transfer::alloc_zeros_f32(total, device)?;
+
+    let direction = if inverse {
+        FftDirection::Inverse
+    } else {
+        FftDirection::Forward
+    };
+    // SAFETY:
+    // - `cufft_result::exec_c2c` wraps `cufftExecC2C` (NVIDIA cuFFT,
+    //   single-precision C2C). Plan created via `plan_many` with rank=axes.len(),
+    //   n=shape[axes[i]], CUFFT_C2C, batch=spatial_total/transform_vol, on
+    //   this device's stream.
+    // - Buffer dtype: `cufftComplex` is byte-equivalent to interleaved `(re, im)`
+    //   f32 pairs. `tmp` and `out` are each `[spatial_total * 2]` f32 (validated
+    //   against `total = spatial_total * 2` above). cuFFT reads/writes
+    //   `batch * transform_vol` complex samples, matching the allocations.
+    // - `_isync`/`_osync` `SyncOnDrop` guards stay alive across the FFI call
+    //   so completion events fire on `stream`.
+    // - Aliasing: `tmp` and `out` are distinct allocations.
+    // - Direction: enum cast to `c_int`; only legal values produced.
+    unsafe {
+        let (idata, _isync) = tmp.inner_mut().device_ptr_mut(&stream);
+        let (odata, _osync) = out.inner_mut().device_ptr_mut(&stream);
+        cufft_result::exec_c2c(
+            plan.handle(),
+            idata as *mut cufft_sys::cufftComplex,
+            odata as *mut cufft_sys::cufftComplex,
+            direction as c_int,
+        )?;
+    }
+
+    if inverse {
+        let scale = 1.0_f32 / transform_vol as f32;
+        out = crate::kernels::gpu_scale(&out, scale, device)?;
+    }
+    Ok(out)
+}
+
+/// f64 variant of [`gpu_fftn_axes_c2c_f32`].
+pub fn gpu_fftn_axes_c2c_f64(
+    input: &CudaBuffer<f64>,
+    shape: &[usize],
+    axes: &[usize],
+    inverse: bool,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    if axes.is_empty() || shape.is_empty() {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_fftn_axes_c2c_f64",
+            expected: vec![1],
+            got: vec![axes.len()],
+        });
+    }
+    let spatial_total: usize = shape.iter().product();
+    let total = spatial_total * 2;
+    if input.len() != total {
+        return Err(GpuError::ShapeMismatch {
+            op: "gpu_fftn_axes_c2c_f64",
+            expected: vec![spatial_total, 2],
+            got: vec![input.len()],
+        });
+    }
+
+    let transform_vol: usize = axes.iter().map(|&a| shape[a]).product();
+    let batch = spatial_total / transform_vol;
+    let n_dims: Vec<c_int> = axes.iter().map(|&a| shape[a] as c_int).collect();
+
+    let stream = device.stream();
+    let plan = CudaFft::plan_many(
+        &n_dims,
+        None,
+        1,
+        transform_vol as i32,
+        None,
+        1,
+        transform_vol as i32,
+        cufft_sys::cufftType::CUFFT_Z2Z,
+        batch as i32,
+        stream.clone(),
+    )?;
+
+    let mut tmp = crate::transfer::alloc_zeros_f64(total, device)?;
+    stream.memcpy_dtod(input.inner(), tmp.inner_mut())?;
+    let mut out = crate::transfer::alloc_zeros_f64(total, device)?;
+
+    let direction = if inverse {
+        FftDirection::Inverse
+    } else {
+        FftDirection::Forward
+    };
+    // SAFETY:
+    // - `cufft_result::exec_z2z` wraps `cufftExecZ2Z` (NVIDIA cuFFT,
+    //   double-precision C2C). Plan created via `plan_many` with rank=axes.len(),
+    //   n=shape[axes[i]], CUFFT_Z2Z, batch=spatial_total/transform_vol, on
+    //   this device's stream.
+    // - Buffer dtype: `cufftDoubleComplex` is byte-equivalent to interleaved
+    //   `(re, im)` f64 pairs. `tmp` and `out` are each `[spatial_total * 2]`
+    //   f64 (validated against `total = spatial_total * 2` above).
+    // - `_isync`/`_osync` guards stay alive across the FFI call.
+    // - Aliasing: `tmp` and `out` are distinct allocations.
+    // - Direction: only legal values produced.
+    unsafe {
+        let (idata, _isync) = tmp.inner_mut().device_ptr_mut(&stream);
+        let (odata, _osync) = out.inner_mut().device_ptr_mut(&stream);
+        cufft_result::exec_z2z(
+            plan.handle(),
+            idata as *mut cufft_sys::cufftDoubleComplex,
+            odata as *mut cufft_sys::cufftDoubleComplex,
+            direction as c_int,
+        )?;
+    }
+
+    if inverse {
+        let scale = 1.0_f64 / transform_vol as f64;
+        out = crate::kernels::gpu_scale_f64(&out, scale, device)?;
+    }
+    Ok(out)
+}
+
 /// f64 variant of [`gpu_fftn2d_c2c_f32`].
 pub fn gpu_fftn2d_c2c_f64(
     input: &CudaBuffer<f64>,

@@ -221,6 +221,19 @@ static MODELS: &[ModelInfo] = &[
         // ResNet-50 (~25.6M) + FPN (~3.3M) + RPN (~1.2M) + TwoMLP head (~26M) ≈ 56M.
         num_parameters: 56_000_000,
     },
+    // #964: Mask R-CNN with ResNet-50 FPN backbone + mask head.
+    // No authoritative public SafeTensors checkpoint identified yet;
+    // SHA-256 is the all-zero placeholder — pretrained=true fails fast
+    // until a checkpoint is pinned (follow-up #964-weights).
+    ModelInfo {
+        name: "maskrcnn_resnet50_fpn",
+        description: "Mask R-CNN with ResNet-50 FPN backbone for instance segmentation (#964)",
+        weights_url: "https://huggingface.co/ferrotorch/maskrcnn_resnet50_fpn/resolve/main/model.safetensors",
+        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        format: WeightsFormat::SafeTensors,
+        // FasterRCNN (~56M) + MaskHead (~2.4M) + MaskPredictor (~200K) ≈ 59M.
+        num_parameters: 59_000_000,
+    },
     // #457: DeepLabV3 with ResNet-50 dilated backbone + ASPP head.
     // No authoritative public SafeTensors checkpoint identified yet;
     // SHA-256 is the all-zero placeholder — pretrained=true fails fast
@@ -332,6 +345,7 @@ mod tests {
             "densenet121",
             "inception_v3",
             "fasterrcnn_resnet50_fpn",
+            "maskrcnn_resnet50_fpn",
             "deeplabv3_resnet50",
             "fcn_resnet50",
         ];

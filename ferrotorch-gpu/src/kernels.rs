@@ -9213,6 +9213,539 @@ DONE:\n\
 ";
 
 // ---------------------------------------------------------------------------
+// bf16 elementwise binary PTX kernels (#963)
+// ---------------------------------------------------------------------------
+//
+// Each kernel: two bf16 inputs (stored as u16, 2 bytes each) -> f32 output.
+// bf16 decoding: load u16, zero-extend to u32, shift left 16, reinterpret
+// as f32. This is the canonical bf16->f32 expansion on sm_52+ (no hw bf16).
+// Arithmetic is all in f32; output is f32 (PyTorch autocast contract).
+// Launch: flat 1-D, 256 threads/block.
+
+#[cfg(feature = "cuda")]
+pub(crate) const ADD_BF16_F32_PTX: &str = "\
+.version 7.0\n\
+.target sm_52\n\
+.address_size 64\n\
+\n\
+.visible .entry add_bf16_f32_kernel(\n\
+    .param .u64 a_ptr,\n\
+    .param .u64 b_ptr,\n\
+    .param .u64 out_ptr,\n\
+    .param .u32 n\n\
+) {\n\
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;\n\
+    .reg .u64 %pa, %pb, %pout, %off, %addr;\n\
+    .reg .u16 %ra, %rb;\n\
+    .reg .u32 %ba, %bb;\n\
+    .reg .f32 %fa, %fb, %res;\n\
+    .reg .pred %p;\n\
+\n\
+    ld.param.u64 %pa, [a_ptr];\n\
+    ld.param.u64 %pb, [b_ptr];\n\
+    ld.param.u64 %pout, [out_ptr];\n\
+    ld.param.u32 %n_reg, [n];\n\
+\n\
+    mov.u32 %bid, %ctaid.x;\n\
+    mov.u32 %bdim, %ntid.x;\n\
+    mov.u32 %r_tid, %tid.x;\n\
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;\n\
+\n\
+    setp.ge.u32 %p, %r_tid, %n_reg;\n\
+    @%p bra DONE;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 1;\n\
+    add.u64 %addr, %pa, %off;\n\
+    ld.global.u16 %ra, [%addr];\n\
+    add.u64 %addr, %pb, %off;\n\
+    ld.global.u16 %rb, [%addr];\n\
+\n\
+    mov.b32 %ba, 0;\n\
+    cvt.u32.u16 %ba, %ra;\n\
+    shl.b32 %ba, %ba, 16;\n\
+    mov.b32 %fa, %ba;\n\
+\n\
+    mov.b32 %bb, 0;\n\
+    cvt.u32.u16 %bb, %rb;\n\
+    shl.b32 %bb, %bb, 16;\n\
+    mov.b32 %fb, %bb;\n\
+\n\
+    add.f32 %res, %fa, %fb;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %addr, %pout, %off;\n\
+    st.global.f32 [%addr], %res;\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+#[cfg(feature = "cuda")]
+pub(crate) const SUB_BF16_F32_PTX: &str = "\
+.version 7.0\n\
+.target sm_52\n\
+.address_size 64\n\
+\n\
+.visible .entry sub_bf16_f32_kernel(\n\
+    .param .u64 a_ptr,\n\
+    .param .u64 b_ptr,\n\
+    .param .u64 out_ptr,\n\
+    .param .u32 n\n\
+) {\n\
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;\n\
+    .reg .u64 %pa, %pb, %pout, %off, %addr;\n\
+    .reg .u16 %ra, %rb;\n\
+    .reg .u32 %ba, %bb;\n\
+    .reg .f32 %fa, %fb, %res;\n\
+    .reg .pred %p;\n\
+\n\
+    ld.param.u64 %pa, [a_ptr];\n\
+    ld.param.u64 %pb, [b_ptr];\n\
+    ld.param.u64 %pout, [out_ptr];\n\
+    ld.param.u32 %n_reg, [n];\n\
+\n\
+    mov.u32 %bid, %ctaid.x;\n\
+    mov.u32 %bdim, %ntid.x;\n\
+    mov.u32 %r_tid, %tid.x;\n\
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;\n\
+\n\
+    setp.ge.u32 %p, %r_tid, %n_reg;\n\
+    @%p bra DONE;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 1;\n\
+    add.u64 %addr, %pa, %off;\n\
+    ld.global.u16 %ra, [%addr];\n\
+    add.u64 %addr, %pb, %off;\n\
+    ld.global.u16 %rb, [%addr];\n\
+\n\
+    mov.b32 %ba, 0;\n\
+    cvt.u32.u16 %ba, %ra;\n\
+    shl.b32 %ba, %ba, 16;\n\
+    mov.b32 %fa, %ba;\n\
+\n\
+    mov.b32 %bb, 0;\n\
+    cvt.u32.u16 %bb, %rb;\n\
+    shl.b32 %bb, %bb, 16;\n\
+    mov.b32 %fb, %bb;\n\
+\n\
+    sub.f32 %res, %fa, %fb;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %addr, %pout, %off;\n\
+    st.global.f32 [%addr], %res;\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+#[cfg(feature = "cuda")]
+pub(crate) const MUL_BF16_F32_PTX: &str = "\
+.version 7.0\n\
+.target sm_52\n\
+.address_size 64\n\
+\n\
+.visible .entry mul_bf16_f32_kernel(\n\
+    .param .u64 a_ptr,\n\
+    .param .u64 b_ptr,\n\
+    .param .u64 out_ptr,\n\
+    .param .u32 n\n\
+) {\n\
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;\n\
+    .reg .u64 %pa, %pb, %pout, %off, %addr;\n\
+    .reg .u16 %ra, %rb;\n\
+    .reg .u32 %ba, %bb;\n\
+    .reg .f32 %fa, %fb, %res;\n\
+    .reg .pred %p;\n\
+\n\
+    ld.param.u64 %pa, [a_ptr];\n\
+    ld.param.u64 %pb, [b_ptr];\n\
+    ld.param.u64 %pout, [out_ptr];\n\
+    ld.param.u32 %n_reg, [n];\n\
+\n\
+    mov.u32 %bid, %ctaid.x;\n\
+    mov.u32 %bdim, %ntid.x;\n\
+    mov.u32 %r_tid, %tid.x;\n\
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;\n\
+\n\
+    setp.ge.u32 %p, %r_tid, %n_reg;\n\
+    @%p bra DONE;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 1;\n\
+    add.u64 %addr, %pa, %off;\n\
+    ld.global.u16 %ra, [%addr];\n\
+    add.u64 %addr, %pb, %off;\n\
+    ld.global.u16 %rb, [%addr];\n\
+\n\
+    mov.b32 %ba, 0;\n\
+    cvt.u32.u16 %ba, %ra;\n\
+    shl.b32 %ba, %ba, 16;\n\
+    mov.b32 %fa, %ba;\n\
+\n\
+    mov.b32 %bb, 0;\n\
+    cvt.u32.u16 %bb, %rb;\n\
+    shl.b32 %bb, %bb, 16;\n\
+    mov.b32 %fb, %bb;\n\
+\n\
+    mul.f32 %res, %fa, %fb;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %addr, %pout, %off;\n\
+    st.global.f32 [%addr], %res;\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+#[cfg(feature = "cuda")]
+pub(crate) const DIV_BF16_F32_PTX: &str = "\
+.version 7.0\n\
+.target sm_52\n\
+.address_size 64\n\
+\n\
+.visible .entry div_bf16_f32_kernel(\n\
+    .param .u64 a_ptr,\n\
+    .param .u64 b_ptr,\n\
+    .param .u64 out_ptr,\n\
+    .param .u32 n\n\
+) {\n\
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg;\n\
+    .reg .u64 %pa, %pb, %pout, %off, %addr;\n\
+    .reg .u16 %ra, %rb;\n\
+    .reg .u32 %ba, %bb;\n\
+    .reg .f32 %fa, %fb, %res;\n\
+    .reg .pred %p;\n\
+\n\
+    ld.param.u64 %pa, [a_ptr];\n\
+    ld.param.u64 %pb, [b_ptr];\n\
+    ld.param.u64 %pout, [out_ptr];\n\
+    ld.param.u32 %n_reg, [n];\n\
+\n\
+    mov.u32 %bid, %ctaid.x;\n\
+    mov.u32 %bdim, %ntid.x;\n\
+    mov.u32 %r_tid, %tid.x;\n\
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;\n\
+\n\
+    setp.ge.u32 %p, %r_tid, %n_reg;\n\
+    @%p bra DONE;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 1;\n\
+    add.u64 %addr, %pa, %off;\n\
+    ld.global.u16 %ra, [%addr];\n\
+    add.u64 %addr, %pb, %off;\n\
+    ld.global.u16 %rb, [%addr];\n\
+\n\
+    mov.b32 %ba, 0;\n\
+    cvt.u32.u16 %ba, %ra;\n\
+    shl.b32 %ba, %ba, 16;\n\
+    mov.b32 %fa, %ba;\n\
+\n\
+    mov.b32 %bb, 0;\n\
+    cvt.u32.u16 %bb, %rb;\n\
+    shl.b32 %bb, %bb, 16;\n\
+    mov.b32 %fb, %bb;\n\
+\n\
+    div.approx.f32 %res, %fa, %fb;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %addr, %pout, %off;\n\
+    st.global.f32 [%addr], %res;\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+// ---------------------------------------------------------------------------
+// bf16 axis-reduction PTX kernels (#963)
+// ---------------------------------------------------------------------------
+//
+// sum_axis: input [outer, axis_size, inner] bf16 (u16), output [outer, inner] f32.
+// mean_axis: same layout; output = sum / axis_size.
+// Each thread handles one (outer_idx, inner_idx) pair. Load is via u16
+// decoded to f32; accumulation in f32. Mirrors SUM_AXIS_PTX but u16 input.
+
+#[cfg(feature = "cuda")]
+pub(crate) const SUM_AXIS_BF16_F32_PTX: &str = "\
+.version 7.0\n\
+.target sm_52\n\
+.address_size 64\n\
+\n\
+.visible .entry sum_axis_bf16_f32_kernel(\n\
+    .param .u64 input_ptr,\n\
+    .param .u64 output_ptr,\n\
+    .param .u32 outer_size,\n\
+    .param .u32 axis_size,\n\
+    .param .u32 inner_size,\n\
+    .param .u32 total_output\n\
+) {\n\
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %outer_sz, %axis_sz, %inner_sz;\n\
+    .reg .u32 %outer_idx, %inner_idx, %k, %tmp, %elem_idx;\n\
+    .reg .u64 %in, %out, %off, %addr;\n\
+    .reg .u16 %raw;\n\
+    .reg .u32 %bits;\n\
+    .reg .f32 %val, %sum;\n\
+    .reg .pred %p, %lp;\n\
+\n\
+    ld.param.u64 %in, [input_ptr];\n\
+    ld.param.u64 %out, [output_ptr];\n\
+    ld.param.u32 %outer_sz, [outer_size];\n\
+    ld.param.u32 %axis_sz, [axis_size];\n\
+    ld.param.u32 %inner_sz, [inner_size];\n\
+    ld.param.u32 %n_reg, [total_output];\n\
+\n\
+    mov.u32 %bid, %ctaid.x;\n\
+    mov.u32 %bdim, %ntid.x;\n\
+    mov.u32 %r_tid, %tid.x;\n\
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;\n\
+\n\
+    setp.ge.u32 %p, %r_tid, %n_reg;\n\
+    @%p bra DONE;\n\
+\n\
+    div.u32 %outer_idx, %r_tid, %inner_sz;\n\
+    rem.u32 %inner_idx, %r_tid, %inner_sz;\n\
+\n\
+    mul.lo.u32 %tmp, %outer_idx, %axis_sz;\n\
+    mul.lo.u32 %tmp, %tmp, %inner_sz;\n\
+    add.u32 %tmp, %tmp, %inner_idx;\n\
+\n\
+    mov.f32 %sum, 0f00000000;\n\
+    mov.u32 %k, 0;\n\
+SUM_BF16_LOOP:\n\
+    setp.ge.u32 %lp, %k, %axis_sz;\n\
+    @%lp bra SUM_BF16_LOOP_DONE;\n\
+\n\
+    mul.lo.u32 %elem_idx, %k, %inner_sz;\n\
+    add.u32 %elem_idx, %tmp, %elem_idx;\n\
+    cvt.u64.u32 %off, %elem_idx;\n\
+    shl.b64 %off, %off, 1;\n\
+    add.u64 %addr, %in, %off;\n\
+    ld.global.u16 %raw, [%addr];\n\
+    mov.b32 %bits, 0;\n\
+    cvt.u32.u16 %bits, %raw;\n\
+    shl.b32 %bits, %bits, 16;\n\
+    mov.b32 %val, %bits;\n\
+    add.f32 %sum, %sum, %val;\n\
+\n\
+    add.u32 %k, %k, 1;\n\
+    bra SUM_BF16_LOOP;\n\
+SUM_BF16_LOOP_DONE:\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %addr, %out, %off;\n\
+    st.global.f32 [%addr], %sum;\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+#[cfg(feature = "cuda")]
+pub(crate) const MEAN_AXIS_BF16_F32_PTX: &str = "\
+.version 7.0\n\
+.target sm_52\n\
+.address_size 64\n\
+\n\
+.visible .entry mean_axis_bf16_f32_kernel(\n\
+    .param .u64 input_ptr,\n\
+    .param .u64 output_ptr,\n\
+    .param .u32 outer_size,\n\
+    .param .u32 axis_size,\n\
+    .param .u32 inner_size,\n\
+    .param .u32 total_output\n\
+) {\n\
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %outer_sz, %axis_sz, %inner_sz;\n\
+    .reg .u32 %outer_idx, %inner_idx, %k, %tmp, %elem_idx;\n\
+    .reg .u64 %in, %out, %off, %addr;\n\
+    .reg .u16 %raw;\n\
+    .reg .u32 %bits;\n\
+    .reg .f32 %val, %sum, %cnt, %mean;\n\
+    .reg .pred %p, %lp;\n\
+\n\
+    ld.param.u64 %in, [input_ptr];\n\
+    ld.param.u64 %out, [output_ptr];\n\
+    ld.param.u32 %outer_sz, [outer_size];\n\
+    ld.param.u32 %axis_sz, [axis_size];\n\
+    ld.param.u32 %inner_sz, [inner_size];\n\
+    ld.param.u32 %n_reg, [total_output];\n\
+\n\
+    mov.u32 %bid, %ctaid.x;\n\
+    mov.u32 %bdim, %ntid.x;\n\
+    mov.u32 %r_tid, %tid.x;\n\
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;\n\
+\n\
+    setp.ge.u32 %p, %r_tid, %n_reg;\n\
+    @%p bra DONE;\n\
+\n\
+    div.u32 %outer_idx, %r_tid, %inner_sz;\n\
+    rem.u32 %inner_idx, %r_tid, %inner_sz;\n\
+\n\
+    mul.lo.u32 %tmp, %outer_idx, %axis_sz;\n\
+    mul.lo.u32 %tmp, %tmp, %inner_sz;\n\
+    add.u32 %tmp, %tmp, %inner_idx;\n\
+\n\
+    mov.f32 %sum, 0f00000000;\n\
+    mov.u32 %k, 0;\n\
+MEAN_BF16_LOOP:\n\
+    setp.ge.u32 %lp, %k, %axis_sz;\n\
+    @%lp bra MEAN_BF16_LOOP_DONE;\n\
+\n\
+    mul.lo.u32 %elem_idx, %k, %inner_sz;\n\
+    add.u32 %elem_idx, %tmp, %elem_idx;\n\
+    cvt.u64.u32 %off, %elem_idx;\n\
+    shl.b64 %off, %off, 1;\n\
+    add.u64 %addr, %in, %off;\n\
+    ld.global.u16 %raw, [%addr];\n\
+    mov.b32 %bits, 0;\n\
+    cvt.u32.u16 %bits, %raw;\n\
+    shl.b32 %bits, %bits, 16;\n\
+    mov.b32 %val, %bits;\n\
+    add.f32 %sum, %sum, %val;\n\
+\n\
+    add.u32 %k, %k, 1;\n\
+    bra MEAN_BF16_LOOP;\n\
+MEAN_BF16_LOOP_DONE:\n\
+\n\
+    cvt.rn.f32.u32 %cnt, %axis_sz;\n\
+    div.approx.f32 %mean, %sum, %cnt;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %addr, %out, %off;\n\
+    st.global.f32 [%addr], %mean;\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+// ---------------------------------------------------------------------------
+// bf16 activation PTX kernels (#963)
+// ---------------------------------------------------------------------------
+//
+// relu_bf16: input bf16 (u16), output f32. relu(x) = max(0, x).
+// sigmoid_bf16: input bf16 (u16), output f32.
+//   sigmoid(x) = 1 / (1 + exp(-x)), approximated via
+//   ex2.approx.f32 (2^x) with log2(e) * x for the exponent.
+// Output is f32 per PyTorch autocast contract.
+
+#[cfg(feature = "cuda")]
+pub(crate) const RELU_BF16_F32_PTX: &str = "\
+.version 7.0\n\
+.target sm_52\n\
+.address_size 64\n\
+\n\
+.visible .entry relu_bf16_f32_kernel(\n\
+    .param .u64 in_ptr,\n\
+    .param .u64 out_ptr,\n\
+    .param .u32 n\n\
+) {\n\
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %bits;\n\
+    .reg .u64 %pin, %pout, %off, %addr;\n\
+    .reg .u16 %raw;\n\
+    .reg .f32 %val, %zero, %res;\n\
+    .reg .pred %p;\n\
+\n\
+    ld.param.u64 %pin, [in_ptr];\n\
+    ld.param.u64 %pout, [out_ptr];\n\
+    ld.param.u32 %n_reg, [n];\n\
+\n\
+    mov.u32 %bid, %ctaid.x;\n\
+    mov.u32 %bdim, %ntid.x;\n\
+    mov.u32 %r_tid, %tid.x;\n\
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;\n\
+\n\
+    setp.ge.u32 %p, %r_tid, %n_reg;\n\
+    @%p bra DONE;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 1;\n\
+    add.u64 %addr, %pin, %off;\n\
+    ld.global.u16 %raw, [%addr];\n\
+    mov.b32 %bits, 0;\n\
+    cvt.u32.u16 %bits, %raw;\n\
+    shl.b32 %bits, %bits, 16;\n\
+    mov.b32 %val, %bits;\n\
+\n\
+    mov.f32 %zero, 0f00000000;\n\
+    max.f32 %res, %val, %zero;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %addr, %pout, %off;\n\
+    st.global.f32 [%addr], %res;\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+#[cfg(feature = "cuda")]
+pub(crate) const SIGMOID_BF16_F32_PTX: &str = "\
+.version 7.0\n\
+.target sm_52\n\
+.address_size 64\n\
+\n\
+.visible .entry sigmoid_bf16_f32_kernel(\n\
+    .param .u64 in_ptr,\n\
+    .param .u64 out_ptr,\n\
+    .param .u32 n\n\
+) {\n\
+    .reg .u32 %r_tid, %bid, %bdim, %n_reg, %bits;\n\
+    .reg .u64 %pin, %pout, %off, %addr;\n\
+    .reg .u16 %raw;\n\
+    .reg .f32 %val, %neg, %exp_arg, %ex2, %denom, %res;\n\
+    .reg .pred %p;\n\
+\n\
+    ld.param.u64 %pin, [in_ptr];\n\
+    ld.param.u64 %pout, [out_ptr];\n\
+    ld.param.u32 %n_reg, [n];\n\
+\n\
+    mov.u32 %bid, %ctaid.x;\n\
+    mov.u32 %bdim, %ntid.x;\n\
+    mov.u32 %r_tid, %tid.x;\n\
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;\n\
+\n\
+    setp.ge.u32 %p, %r_tid, %n_reg;\n\
+    @%p bra DONE;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 1;\n\
+    add.u64 %addr, %pin, %off;\n\
+    ld.global.u16 %raw, [%addr];\n\
+    mov.b32 %bits, 0;\n\
+    cvt.u32.u16 %bits, %raw;\n\
+    shl.b32 %bits, %bits, 16;\n\
+    mov.b32 %val, %bits;\n\
+\n\
+    neg.f32 %neg, %val;\n\
+    mul.f32 %exp_arg, %neg, 0f3FB8AA3B;\n\
+    ex2.approx.f32 %ex2, %exp_arg;\n\
+    add.f32 %denom, 0f3F800000, %ex2;\n\
+    rcp.approx.f32 %res, %denom;\n\
+\n\
+    cvt.u64.u32 %off, %r_tid;\n\
+    shl.b64 %off, %off, 2;\n\
+    add.u64 %addr, %pout, %off;\n\
+    st.global.f32 [%addr], %res;\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+// ---------------------------------------------------------------------------
 // Dropout PTX kernel (inverted dropout with xorshift RNG)
 // ---------------------------------------------------------------------------
 
@@ -25292,6 +25825,551 @@ pub fn gpu_conj_f64(
     _buf: CudaBuffer<f64>,
     _device: &GpuDevice,
 ) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+// ---------------------------------------------------------------------------
+// bf16 elementwise binary dispatch functions (#963)
+// ---------------------------------------------------------------------------
+
+/// Elementwise add: bf16 inputs (u16 bit-pattern buffers) -> f32 output.
+///
+/// PyTorch parity: `torch.add(a.bfloat16(), b.bfloat16())` under autocast
+/// accumulates in f32 on CUDA. Both inputs are the same length `n`.
+///
+/// # Errors
+///
+/// - [`GpuError::PtxCompileFailed`] if the PTX kernel cannot be compiled (sm_52+).
+/// - [`GpuError::LengthMismatch`] if `a.len() != b.len()`.
+/// - [`GpuError::Driver`] on CUDA launch errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_add_bf16_f32(
+    a: &cudarc::driver::CudaSlice<u16>,
+    b: &cudarc::driver::CudaSlice<u16>,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+    if n == 0 {
+        return alloc_zeros_f32(0, device);
+    }
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        ADD_BF16_F32_PTX,
+        "add_bf16_f32_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "add_bf16_f32_kernel",
+                source: e,
+            });
+        }
+    };
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `add_bf16_f32_kernel`
+    //   resolved by `module_cache::get_or_compile`; ABI is
+    //   `(a_ptr, b_ptr, out_ptr, n)` matching `ADD_BF16_F32_PTX`.
+    // - `a` and `b` are `CudaSlice<u16>` of length `n` (caller contract;
+    //   `n == 0` is early-returned above so both are non-empty).
+    // - `out` is a freshly allocated `CudaBuffer<f32>` of length `n`.
+    //   No aliasing between `a`, `b`, and `out`.
+    // - `n_u32 = n as u32` is safe: `launch_cfg(n)?` already errors if
+    //   `n > u32::MAX` so this cast is infallible.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a)
+            .arg(b)
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+/// Stub for non-CUDA builds.
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_add_bf16_f32(
+    _a: &(),
+    _b: &(),
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Elementwise subtract: bf16 inputs (u16) -> f32 output.
+#[cfg(feature = "cuda")]
+pub fn gpu_sub_bf16_f32(
+    a: &cudarc::driver::CudaSlice<u16>,
+    b: &cudarc::driver::CudaSlice<u16>,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+    if n == 0 {
+        return alloc_zeros_f32(0, device);
+    }
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        SUB_BF16_F32_PTX,
+        "sub_bf16_f32_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "sub_bf16_f32_kernel",
+                source: e,
+            });
+        }
+    };
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+    // SAFETY: same invariants as `gpu_add_bf16_f32`; kernel ABI is
+    // `(a_ptr, b_ptr, out_ptr, n)` matching `SUB_BF16_F32_PTX`.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a)
+            .arg(b)
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+/// Stub for non-CUDA builds.
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_sub_bf16_f32(
+    _a: &(),
+    _b: &(),
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Elementwise multiply: bf16 inputs (u16) -> f32 output.
+#[cfg(feature = "cuda")]
+pub fn gpu_mul_bf16_f32(
+    a: &cudarc::driver::CudaSlice<u16>,
+    b: &cudarc::driver::CudaSlice<u16>,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+    if n == 0 {
+        return alloc_zeros_f32(0, device);
+    }
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        MUL_BF16_F32_PTX,
+        "mul_bf16_f32_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "mul_bf16_f32_kernel",
+                source: e,
+            });
+        }
+    };
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+    // SAFETY: same invariants as `gpu_add_bf16_f32`; kernel ABI is
+    // `(a_ptr, b_ptr, out_ptr, n)` matching `MUL_BF16_F32_PTX`.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a)
+            .arg(b)
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+/// Stub for non-CUDA builds.
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_mul_bf16_f32(
+    _a: &(),
+    _b: &(),
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Elementwise divide: bf16 inputs (u16) -> f32 output.
+///
+/// Uses `div.approx.f32` (~23-bit accuracy, sufficient for bf16 inputs).
+#[cfg(feature = "cuda")]
+pub fn gpu_div_bf16_f32(
+    a: &cudarc::driver::CudaSlice<u16>,
+    b: &cudarc::driver::CudaSlice<u16>,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+    if n == 0 {
+        return alloc_zeros_f32(0, device);
+    }
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        DIV_BF16_F32_PTX,
+        "div_bf16_f32_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "div_bf16_f32_kernel",
+                source: e,
+            });
+        }
+    };
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+    // SAFETY: same invariants as `gpu_add_bf16_f32`; kernel ABI is
+    // `(a_ptr, b_ptr, out_ptr, n)` matching `DIV_BF16_F32_PTX`.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a)
+            .arg(b)
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+/// Stub for non-CUDA builds.
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_div_bf16_f32(
+    _a: &(),
+    _b: &(),
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+// ---------------------------------------------------------------------------
+// bf16 axis-reduction dispatch functions (#963)
+// ---------------------------------------------------------------------------
+
+/// Axis sum: bf16 input [outer, axis_size, inner] (u16) -> f32 [outer, inner].
+///
+/// Each thread handles one (outer_idx, inner_idx) pair; accumulates in f32.
+///
+/// # Errors
+///
+/// - [`GpuError::PtxCompileFailed`] if the PTX kernel cannot be compiled.
+/// - [`GpuError::Driver`] on CUDA launch errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_sum_axis_bf16_f32(
+    a: &cudarc::driver::CudaSlice<u16>,
+    outer: usize,
+    axis_size: usize,
+    inner: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+    let total_output = outer * inner;
+    if total_output == 0 {
+        return alloc_zeros_f32(0, device);
+    }
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        SUM_AXIS_BF16_F32_PTX,
+        "sum_axis_bf16_f32_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "sum_axis_bf16_f32_kernel",
+                source: e,
+            });
+        }
+    };
+    let mut out = alloc_zeros_f32(total_output, device)?;
+    let cfg = launch_cfg(total_output)?;
+    let outer_u32 = outer as u32;
+    let axis_u32 = axis_size as u32;
+    let inner_u32 = inner as u32;
+    let total_u32 = total_output as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `sum_axis_bf16_f32_kernel`
+    //   resolved by `module_cache::get_or_compile`; ABI matches
+    //   `SUM_AXIS_BF16_F32_PTX`: `(input_ptr, output_ptr, outer_size,
+    //   axis_size, inner_size, total_output)`.
+    // - `a` is a `CudaSlice<u16>` of length `outer * axis_size * inner`
+    //   (caller contract). The kernel accesses elements in
+    //   `[0, outer * axis_size * inner)` (outer_idx * axis_sz * inner_sz
+    //   + k * inner_sz + inner_idx < outer * axis_size * inner for all
+    //   valid k, outer_idx, inner_idx).
+    // - `out` is freshly allocated as `total_output = outer * inner` f32
+    //   elements. No aliasing with `a`.
+    // - All u32 casts are safe: `launch_cfg(total_output)?` guards
+    //   total_output <= u32::MAX; other dimensions are caller-supplied and
+    //   their products are bounded by the same `total_output` check.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a)
+            .arg(out.inner_mut())
+            .arg(&outer_u32)
+            .arg(&axis_u32)
+            .arg(&inner_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+/// Stub for non-CUDA builds.
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_sum_axis_bf16_f32(
+    _a: &(),
+    _outer: usize,
+    _axis_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Axis mean: bf16 input [outer, axis_size, inner] (u16) -> f32 [outer, inner].
+///
+/// Each thread accumulates in f32, then divides by `axis_size` in f32.
+///
+/// # Errors
+///
+/// - [`GpuError::PtxCompileFailed`] if the PTX kernel cannot be compiled.
+/// - [`GpuError::Driver`] on CUDA launch errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_mean_axis_bf16_f32(
+    a: &cudarc::driver::CudaSlice<u16>,
+    outer: usize,
+    axis_size: usize,
+    inner: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+    let total_output = outer * inner;
+    if total_output == 0 {
+        return alloc_zeros_f32(0, device);
+    }
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        MEAN_AXIS_BF16_F32_PTX,
+        "mean_axis_bf16_f32_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "mean_axis_bf16_f32_kernel",
+                source: e,
+            });
+        }
+    };
+    let mut out = alloc_zeros_f32(total_output, device)?;
+    let cfg = launch_cfg(total_output)?;
+    let outer_u32 = outer as u32;
+    let axis_u32 = axis_size as u32;
+    let inner_u32 = inner as u32;
+    let total_u32 = total_output as u32;
+    // SAFETY: same invariants as `gpu_sum_axis_bf16_f32`; kernel ABI
+    // matches `MEAN_AXIS_BF16_F32_PTX`. The additional `cvt.rn.f32.u32`
+    // + `div.approx.f32` in the kernel body do not affect memory safety.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a)
+            .arg(out.inner_mut())
+            .arg(&outer_u32)
+            .arg(&axis_u32)
+            .arg(&inner_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+/// Stub for non-CUDA builds.
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_mean_axis_bf16_f32(
+    _a: &(),
+    _outer: usize,
+    _axis_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+// ---------------------------------------------------------------------------
+// bf16 activation dispatch functions (#963)
+// ---------------------------------------------------------------------------
+
+/// ReLU activation: bf16 input (u16 bit-patterns) -> f32 output.
+///
+/// `out[i] = max(0.0, f32_from_bf16(a[i]))`.
+///
+/// # Errors
+///
+/// - [`GpuError::PtxCompileFailed`] if the PTX kernel cannot be compiled.
+/// - [`GpuError::Driver`] on CUDA launch errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_relu_bf16_f32(
+    a: &cudarc::driver::CudaSlice<u16>,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+    if n == 0 {
+        return alloc_zeros_f32(0, device);
+    }
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        RELU_BF16_F32_PTX,
+        "relu_bf16_f32_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "relu_bf16_f32_kernel",
+                source: e,
+            });
+        }
+    };
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `relu_bf16_f32_kernel`
+    //   resolved by `module_cache::get_or_compile`; ABI is
+    //   `(in_ptr, out_ptr, n)` matching `RELU_BF16_F32_PTX`.
+    // - `a` is a `CudaSlice<u16>` of length `n` (caller contract).
+    //   `out` is `n` f32 elements. No aliasing.
+    // - `n_u32 = n as u32` is safe: `launch_cfg(n)?` guards n <= u32::MAX.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a)
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+/// Stub for non-CUDA builds.
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_relu_bf16_f32(
+    _a: &(),
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Sigmoid activation: bf16 input (u16 bit-patterns) -> f32 output.
+///
+/// `out[i] = 1 / (1 + exp(-f32_from_bf16(a[i])))`.
+///
+/// Uses `ex2.approx.f32` for the exponential (~23-bit precision, exceeds
+/// bf16's 7-bit mantissa). The constant `0x3FB8AA3B = log2(e)` converts
+/// the natural exponent to a base-2 exponent for `ex2.approx`.
+///
+/// # Errors
+///
+/// - [`GpuError::PtxCompileFailed`] if the PTX kernel cannot be compiled.
+/// - [`GpuError::Driver`] on CUDA launch errors.
+#[cfg(feature = "cuda")]
+pub fn gpu_sigmoid_bf16_f32(
+    a: &cudarc::driver::CudaSlice<u16>,
+    n: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+    if n == 0 {
+        return alloc_zeros_f32(0, device);
+    }
+    let ctx = device.context();
+    let stream = device.stream();
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        SIGMOID_BF16_F32_PTX,
+        "sigmoid_bf16_f32_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "sigmoid_bf16_f32_kernel",
+                source: e,
+            });
+        }
+    };
+    let mut out = alloc_zeros_f32(n, device)?;
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `sigmoid_bf16_f32_kernel`
+    //   resolved by `module_cache::get_or_compile`; ABI is
+    //   `(in_ptr, out_ptr, n)` matching `SIGMOID_BF16_F32_PTX`.
+    // - `a` is a `CudaSlice<u16>` of length `n` (caller contract).
+    //   `out` is `n` f32 elements. No aliasing.
+    // - `n_u32 = n as u32` is safe: `launch_cfg(n)?` guards n <= u32::MAX.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a)
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+    Ok(out)
+}
+
+/// Stub for non-CUDA builds.
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_sigmoid_bf16_f32(
+    _a: &(),
+    _n: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
     Err(GpuError::NoCudaFeature)
 }
 
