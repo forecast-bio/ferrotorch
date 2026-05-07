@@ -1,0 +1,10 @@
+{
+  "uuid": "c40102b6-61b0-4504-8c48-8b248b7dd4e1",
+  "display_id": 888,
+  "title": "C7.1 cascade: symbolic::patch_reshape_for_symbolic_dims is pub(crate) — integration tests cannot call it directly",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T16:25:51.517533744Z",
+  "updated_at": "2026-05-07T16:25:51.517533744Z"
+}
