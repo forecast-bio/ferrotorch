@@ -1,0 +1,10 @@
+{
+  "uuid": "666c7ca6-9e49-4656-864b-76d4a573a2e4",
+  "issue_uuid": "3c4b346d-f2c6-44ae-8013-066da18b2fb6",
+  "author": "y4rr",
+  "content": "Observation: RNN::with_nonlinearity does not exist — the actual constructor is RNN::with_options(input_size, hidden_size, num_layers, nonlinearity). The fixture script assumed with_nonlinearity by analogy with RNNCell::with_nonlinearity.",
+  "created_at": "2026-05-07T17:07:44.861817681Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAmgLs2J+MU038t9zTY9XWcj3oGFhVRKH38F1vFbY0QjucNYhbraR0MzFkVrmJpV+ypSxVMf6+JDud3iXYOK3UAg=="
+}
