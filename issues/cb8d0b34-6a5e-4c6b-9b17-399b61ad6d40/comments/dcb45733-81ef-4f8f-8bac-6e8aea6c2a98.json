@@ -1,0 +1,10 @@
+{
+  "uuid": "dcb45733-81ef-4f8f-8bac-6e8aea6c2a98",
+  "issue_uuid": "cb8d0b34-6a5e-4c6b-9b17-399b61ad6d40",
+  "author": "y4rr",
+  "content": "Result: IMG_EXTENSIONS already matches torchvision 0.21 exactly — 9 extensions, same set, same order. The leading-dot difference (torchvision uses '.jpg' vs ferrotorch 'jpg') is intentional by design: has_extension_ci extracts the extension without the dot using Path::extension(). Zero code changes required. BEFORE/AFTER: same value.",
+  "created_at": "2026-05-07T19:50:09.188808640Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA9rjhXGhFUMrUBolbbtM5PiVhOvg3R0SoKNICEYmchyR6oRkcyjMxrUiOmj5BUbn3Ele1Y7pIx2nuVPLtMcarBQ=="
+}
