@@ -1,0 +1,10 @@
+{
+  "uuid": "5db6b761-ca5e-44b7-a607-514b320d0711",
+  "issue_uuid": "a7163d5a-249d-45eb-9039-2b0c9d168d64",
+  "author": "y4rr",
+  "content": "Observation: #![cfg(feature = \"http\")] on the test file causes unexpected_cfg warning because ferrotorch-llama has no 'http' feature of its own. The hub http feature is always enabled (it's the hub's default, and ferrotorch-llama depends on hub with default features). The fix: remove the cfg guard entirely — the tests compile unconditionally; the #[ignore] attribute is the only CI gate needed. The hf_download_model function is always available because ferrotorch-hub is in [dependencies] with its default http feature.",
+  "created_at": "2026-05-07T21:03:55.091102080Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAg6+20POEqsVfPzpfZVasxtgu2VR9ZAC2MyDe4U6ZuqCYj9rbgvOV9fb5Y7Hs2uGCgMpf0kQtKud8YaLJ1SSsDQ=="
+}
