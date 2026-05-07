@@ -1,0 +1,10 @@
+{
+  "uuid": "f191b33e-fe89-4042-92e6-b6a8b97d37c1",
+  "display_id": 909,
+  "title": "Add ignored integration tests for ferrotorch-hub network ops and fix clippy warnings",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T17:47:07.369774191Z",
+  "updated_at": "2026-05-07T17:47:07.369774191Z"
+}
