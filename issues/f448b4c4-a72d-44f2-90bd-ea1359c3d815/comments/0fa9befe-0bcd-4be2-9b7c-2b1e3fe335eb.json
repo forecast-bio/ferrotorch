@@ -1,0 +1,10 @@
+{
+  "uuid": "0fa9befe-0bcd-4be2-9b7c-2b1e3fe335eb",
+  "issue_uuid": "f448b4c4-a72d-44f2-90bd-ea1359c3d815",
+  "author": "y4rr",
+  "content": "Decision: For logit parity, use tiny model variants (MobileNetV2 with num_classes=4, 8x8 input, 2 inverted-residual stages) rather than full ImageNet scale. Rationale: (1) full MobileNetV2 has ~3.4M params — storing as JSON would be >40MB; (2) tiny variants still exercise the same forward-pass math (conv, relu, residual add, adaptive pool, linear); (3) approach matches ferrotorch-llama's tiny-config pattern. Fixture stores: weights dict (named params) + input tensor + expected output from torch.manual_seed(42).",
+  "created_at": "2026-05-07T22:40:03.001886056Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABALt3I5FQ3umvYYJEMBKPalSkQdkEUjRBN2V+kl3UHgi7CPrz9s4smBPKkOZ/SXOA+hd0/ZEBcALx8Q62fAOfGAA=="
+}
