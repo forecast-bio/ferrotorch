@@ -1,0 +1,10 @@
+{
+  "uuid": "fbfb9b93-9c13-43d5-a07a-21c4a48feaea",
+  "issue_uuid": "1fa961c6-d26f-4e72-b85d-e403e0d00cfa",
+  "author": "y4rr",
+  "content": "Added GradFn::scalar_args() default method to ferrotorch-core; PowBackward overrides it with vec![self.exp]. OpRecord captures scalar_args during BFS; map_name_to_op uses scalar_args[0] for PowBackward instead of hardcoding 0.0. Fixed in trace.rs and graph_break.rs.",
+  "created_at": "2026-05-07T18:22:54.653258365Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAxoUpFYJEmif7BghZ/lpYI9mHO4r9ymUAU+dfV3CPCim4UWyrdeFoZRRB8+BzzwyZZA8f/7TPB2W5ZFK+7g+YDg=="
+}
