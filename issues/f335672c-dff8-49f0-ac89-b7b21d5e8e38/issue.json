@@ -1,0 +1,10 @@
+{
+  "uuid": "f335672c-dff8-49f0-ac89-b7b21d5e8e38",
+  "display_id": 962,
+  "title": "Add bf16 mixed-precision matmul/bmm/softmax GPU kernels for autocast (Sprint C.3 #518)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T21:27:49.402056808Z",
+  "updated_at": "2026-05-07T21:27:49.402056808Z"
+}
