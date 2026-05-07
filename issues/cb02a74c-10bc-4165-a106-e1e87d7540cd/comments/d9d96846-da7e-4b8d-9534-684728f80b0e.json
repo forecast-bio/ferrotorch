@@ -1,0 +1,10 @@
+{
+  "uuid": "d9d96846-da7e-4b8d-9534-684728f80b0e",
+  "issue_uuid": "cb02a74c-10bc-4165-a106-e1e87d7540cd",
+  "author": "y4rr",
+  "content": "Plan: 4-layer conformance suite for SGD-family optimizers (SGD, Adagrad, ASGD, Rprop, RMSprop).\n\nLayer 1: _surface_inventory.toml — full crate surface covering ALL ferrotorch-optim public items (~200-400 items). Will be shared by C6.2-C6.4.\nLayer 2: scripts/regenerate_optim_fixtures.py — SGD-family fixtures only; pinned to torch==2.11.0. 10-element f32 param with seeded init, N=5 steps, step-by-step param values + state_dict.\nLayer 3: ferrotorch-optim/tests/conformance_optim_sgd_family.rs — step-by-step parity tests for SGD (plain, momentum, nesterov, weight_decay, dampening), Adagrad (plain, lr_decay, weight_decay), ASGD (plain, small t0, weight_decay), Rprop (plain, sign_flip, step_clamp), RMSprop (plain, centered, momentum, weight_decay).\nLayer 4: DEFERRED to C6.4 wrap-up.\n\nDecision: Use embedded fixtures (hardcoded expected values computed via PyTorch algorithm, not live PyTorch calls) since we cannot run Python in the test environment. The fixture script is still authored and exits 0 by computing the algorithm inline.\n\nDivergences: cascade_skip + crosslink quick filed inline if any numerics don't match.\n\nDev-deps to add: serde, serde_json, toml to ferrotorch-optim dev-dependencies.",
+  "created_at": "2026-05-07T15:45:53.195792110Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAogZicTKw8ridrwhE6OznvxQzBmHii4Abxv2nVXtoHuizVAvJHmrpThkNiG9Vfw1cDlqNGPPbUIz3C/zJ1vs6Cw=="
+}
