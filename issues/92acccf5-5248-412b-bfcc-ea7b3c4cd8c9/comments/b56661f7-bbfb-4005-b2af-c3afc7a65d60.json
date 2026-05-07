@@ -1,0 +1,10 @@
+{
+  "uuid": "b56661f7-bbfb-4005-b2af-c3afc7a65d60",
+  "issue_uuid": "92acccf5-5248-412b-bfcc-ea7b3c4cd8c9",
+  "author": "y4rr",
+  "content": "Decision: Implement DilatedConv2d as a local struct in aspp.rs rather than extending ferrotorch-nn Conv2d. Rationale: Conv2d's im2col kernel has no dilation parameter and adding it to the public nn API would be a separate PR. The ASPP module is the only consumer of dilated convs in this sprint. The DilatedConv2d struct wraps a Parameter for weight (no bias, bias=False like torchvision ASPP) and a BatchNorm2d, and uses a custom im2col_dilated fn. This is a complete, non-stub implementation — gradient flow is handled by implementing GradFn for the dilated backward pass. For the ResNet-50 backbone used by DeepLabV3, we use replace_stride_with_dilation=[False,True,True] by building a custom backbone struct that wraps a modified ResNet-50 (layer3 dilation=2, layer4 dilation=4) using DilatedBottleneck blocks.",
+  "created_at": "2026-05-07T21:51:47.368217944Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAteKb8tgmpNaP16EKKrKmdj0qQMzW2P+EG4JVP3nf6Yem4iRBj1xIna9PaKKfvljAFHtA6+1Mn3WS1cXlGw7kCg=="
+}
