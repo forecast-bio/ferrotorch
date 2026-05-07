@@ -1,0 +1,830 @@
+{
+  "metadata": {
+    "huggingface_hub_version": "0.24.3",
+    "python_version": "3.13.13 (main, Apr  8 2026, 00:00:00) [GCC 15.2.1 20260123 (Red Hat 15.2.1-7)]",
+    "python_executable": "/usr/sbin/python3",
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "generated_at": "2026-05-07T13:55:38.168547Z",
+    "offline_only": true,
+    "network_calls_made": false
+  },
+  "fixtures": [
+    {
+      "op": "extract_author",
+      "repo_id": "microsoft/resnet-50",
+      "expected_author": "microsoft"
+    },
+    {
+      "op": "extract_author",
+      "repo_id": "meta-llama/Meta-Llama-3-8B",
+      "expected_author": "meta-llama"
+    },
+    {
+      "op": "extract_author",
+      "repo_id": "timm/resnet50.a1_in1k",
+      "expected_author": "timm"
+    },
+    {
+      "op": "extract_author",
+      "repo_id": "HuggingFaceFW/fineweb",
+      "expected_author": "HuggingFaceFW"
+    },
+    {
+      "op": "extract_author",
+      "repo_id": "bert-base-uncased",
+      "expected_author": null
+    },
+    {
+      "op": "extract_author",
+      "repo_id": "",
+      "expected_author": null
+    },
+    {
+      "op": "extract_author",
+      "repo_id": "a/b/c",
+      "expected_author": "a"
+    },
+    {
+      "op": "resolve_url",
+      "repo": "meta-llama/Meta-Llama-3-8B",
+      "revision": "main",
+      "filename": "config.json",
+      "expected_url": "https://huggingface.co/meta-llama/Meta-Llama-3-8B/resolve/main/config.json"
+    },
+    {
+      "op": "resolve_url",
+      "repo": "timm/resnet50.a1_in1k",
+      "revision": "main",
+      "filename": "model.safetensors",
+      "expected_url": "https://huggingface.co/timm/resnet50.a1_in1k/resolve/main/model.safetensors"
+    },
+    {
+      "op": "resolve_url",
+      "repo": "timm/resnet50.a1_in1k",
+      "revision": "v1.0",
+      "filename": "model-00001-of-00004.safetensors",
+      "expected_url": "https://huggingface.co/timm/resnet50.a1_in1k/resolve/v1.0/model-00001-of-00004.safetensors"
+    },
+    {
+      "op": "api_model_url",
+      "repo_id": "microsoft/resnet-50",
+      "expected_url": "https://huggingface.co/api/models/microsoft/resnet-50"
+    },
+    {
+      "op": "api_model_url",
+      "repo_id": "bert-base-uncased",
+      "expected_url": "https://huggingface.co/api/models/bert-base-uncased"
+    },
+    {
+      "op": "search_query_string",
+      "kwargs": {},
+      "expected_query_string": "/api/models"
+    },
+    {
+      "op": "search_query_string",
+      "kwargs": {
+        "search": "resnet"
+      },
+      "expected_query_string": "/api/models?search=resnet"
+    },
+    {
+      "op": "search_query_string",
+      "kwargs": {
+        "search": "image classification"
+      },
+      "expected_query_string": "/api/models?search=image%20classification"
+    },
+    {
+      "op": "search_query_string",
+      "kwargs": {
+        "pipeline_tag": "image-classification"
+      },
+      "expected_query_string": "/api/models?pipeline_tag=image-classification"
+    },
+    {
+      "op": "search_query_string",
+      "kwargs": {
+        "library": "pytorch"
+      },
+      "expected_query_string": "/api/models?library=pytorch"
+    },
+    {
+      "op": "search_query_string",
+      "kwargs": {
+        "limit": 25
+      },
+      "expected_query_string": "/api/models?limit=25"
+    },
+    {
+      "op": "search_query_string",
+      "kwargs": {
+        "sort": "downloads"
+      },
+      "expected_query_string": "/api/models?sort=downloads"
+    },
+    {
+      "op": "search_query_string",
+      "kwargs": {
+        "search": "resnet",
+        "pipeline_tag": "image-classification",
+        "library": "pytorch",
+        "limit": 25,
+        "sort": "downloads"
+      },
+      "expected_query_string": "/api/models?search=resnet&pipeline_tag=image-classification&library=pytorch&limit=25&sort=downloads"
+    },
+    {
+      "op": "search_query_string",
+      "kwargs": {
+        "search": "a/b"
+      },
+      "expected_query_string": "/api/models?search=a%2Fb"
+    },
+    {
+      "op": "search_query_string",
+      "kwargs": {
+        "search": "hello world"
+      },
+      "expected_query_string": "/api/models?search=hello%20world"
+    },
+    {
+      "op": "search_query_string",
+      "kwargs": {
+        "search": "a&b=c"
+      },
+      "expected_query_string": "/api/models?search=a%26b%3Dc"
+    },
+    {
+      "op": "url_encode",
+      "input": "resnet50",
+      "expected": "resnet50"
+    },
+    {
+      "op": "url_encode",
+      "input": "my-model.v1_beta",
+      "expected": "my-model.v1_beta"
+    },
+    {
+      "op": "url_encode",
+      "input": "hello world",
+      "expected": "hello%20world"
+    },
+    {
+      "op": "url_encode",
+      "input": "a/b",
+      "expected": "a%2Fb"
+    },
+    {
+      "op": "url_encode",
+      "input": "a&b=c",
+      "expected": "a%26b%3Dc"
+    },
+    {
+      "op": "url_encode",
+      "input": "image-classification",
+      "expected": "image-classification"
+    },
+    {
+      "op": "url_encode",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "op": "url_encode",
+      "input": "~tilde~",
+      "expected": "~tilde~"
+    },
+    {
+      "op": "url_encode",
+      "input": "100%done",
+      "expected": "100%25done"
+    },
+    {
+      "op": "url_encode",
+      "input": "r\u00e9seau",
+      "expected": "r%C3%A9seau"
+    },
+    {
+      "op": "hf_config_parse",
+      "label": "llama3_8b",
+      "json": "{\"architectures\": [\"LlamaForCausalLM\"], \"attention_bias\": false, \"hidden_act\": \"silu\", \"hidden_size\": 4096, \"intermediate_size\": 14336, \"max_position_embeddings\": 8192, \"model_type\": \"llama\", \"num_attention_heads\": 32, \"num_hidden_layers\": 32, \"num_key_value_heads\": 8, \"rms_norm_eps\": 1e-05, \"rope_theta\": 500000.0, \"tie_word_embeddings\": false, \"torch_dtype\": \"bfloat16\", \"vocab_size\": 128256}",
+      "expected": {
+        "hidden_size": 4096,
+        "num_hidden_layers": 32,
+        "num_attention_heads": 32,
+        "num_key_value_heads_resolved": 8,
+        "intermediate_size": 14336,
+        "rms_norm_eps": 1e-05,
+        "rope_theta": 500000.0,
+        "max_position_embeddings": 8192,
+        "vocab_size": 128256,
+        "tie_word_embeddings": false,
+        "hidden_act": "silu",
+        "torch_dtype": "bfloat16",
+        "architectures": [
+          "LlamaForCausalLM"
+        ],
+        "model_type": "llama",
+        "head_dim": 128,
+        "is_gqa": true
+      }
+    },
+    {
+      "op": "hf_config_parse",
+      "label": "bert_base_mha",
+      "json": "{\"hidden_size\": 768, \"num_hidden_layers\": 12, \"num_attention_heads\": 12, \"intermediate_size\": 3072, \"max_position_embeddings\": 512, \"vocab_size\": 30522}",
+      "expected": {
+        "hidden_size": 768,
+        "num_hidden_layers": 12,
+        "num_attention_heads": 12,
+        "num_key_value_heads_resolved": 12,
+        "intermediate_size": 3072,
+        "rms_norm_eps": 1e-06,
+        "rope_theta": 10000.0,
+        "max_position_embeddings": 512,
+        "vocab_size": 30522,
+        "tie_word_embeddings": false,
+        "hidden_act": "silu",
+        "torch_dtype": null,
+        "architectures": [],
+        "model_type": null,
+        "head_dim": 64,
+        "is_gqa": false
+      }
+    },
+    {
+      "op": "hf_config_parse",
+      "label": "llama2_7b_gqa",
+      "json": "{\"hidden_size\": 4096, \"num_hidden_layers\": 32, \"num_attention_heads\": 32, \"num_key_value_heads\": 8, \"intermediate_size\": 11008, \"max_position_embeddings\": 4096, \"vocab_size\": 32000, \"rms_norm_eps\": 1e-06, \"rope_theta\": 10000.0, \"hidden_act\": \"silu\"}",
+      "expected": {
+        "hidden_size": 4096,
+        "num_hidden_layers": 32,
+        "num_attention_heads": 32,
+        "num_key_value_heads_resolved": 8,
+        "intermediate_size": 11008,
+        "rms_norm_eps": 1e-06,
+        "rope_theta": 10000.0,
+        "max_position_embeddings": 4096,
+        "vocab_size": 32000,
+        "tie_word_embeddings": false,
+        "hidden_act": "silu",
+        "torch_dtype": null,
+        "architectures": [],
+        "model_type": null,
+        "head_dim": 128,
+        "is_gqa": true
+      }
+    },
+    {
+      "op": "hf_config_validate",
+      "label": "llama3_8b_passes",
+      "json": "{\"architectures\": [\"LlamaForCausalLM\"], \"attention_bias\": false, \"hidden_act\": \"silu\", \"hidden_size\": 4096, \"intermediate_size\": 14336, \"max_position_embeddings\": 8192, \"model_type\": \"llama\", \"num_attention_heads\": 32, \"num_hidden_layers\": 32, \"num_key_value_heads\": 8, \"rms_norm_eps\": 1e-05, \"rope_theta\": 500000.0, \"tie_word_embeddings\": false, \"torch_dtype\": \"bfloat16\", \"vocab_size\": 128256}",
+      "expected_valid": true
+    },
+    {
+      "op": "hf_config_validate",
+      "label": "bad_divisibility_fails",
+      "json": "{\"hidden_size\": 769, \"num_hidden_layers\": 12, \"num_attention_heads\": 12, \"intermediate_size\": 3072, \"max_position_embeddings\": 512, \"vocab_size\": 30522}",
+      "expected_valid": false,
+      "fail_reason": "hidden_size not divisible by num_attention_heads"
+    },
+    {
+      "op": "hf_config_validate",
+      "label": "zero_hidden_size_fails",
+      "json": "{\"hidden_size\": 0, \"num_hidden_layers\": 12, \"num_attention_heads\": 12, \"intermediate_size\": 3072, \"max_position_embeddings\": 512, \"vocab_size\": 30522}",
+      "expected_valid": false,
+      "fail_reason": "hidden_size is zero"
+    },
+    {
+      "op": "hf_config_validate",
+      "label": "unsupported_activation_fails",
+      "json": "{\"hidden_size\": 768, \"num_hidden_layers\": 12, \"num_attention_heads\": 12, \"intermediate_size\": 3072, \"max_position_embeddings\": 512, \"vocab_size\": 30522, \"hidden_act\": \"tanh_xyz\"}",
+      "expected_valid": false,
+      "fail_reason": "unsupported hidden_act"
+    },
+    {
+      "op": "hf_config_parse_error",
+      "label": "bad_json",
+      "json": "{ not valid json",
+      "expected_error": true
+    },
+    {
+      "op": "hf_config_parse_error",
+      "label": "missing_required_field",
+      "json": "{\"num_hidden_layers\": 2}",
+      "expected_error": true
+    },
+    {
+      "op": "model_summary_deserialize",
+      "label": "minimal_modelId",
+      "json": "{\"modelId\": \"microsoft/resnet-50\"}",
+      "expected": {
+        "model_id": "microsoft/resnet-50",
+        "author": null,
+        "downloads": null,
+        "likes": null,
+        "tags": [],
+        "library_name": null,
+        "pipeline_tag": null
+      }
+    },
+    {
+      "op": "model_summary_deserialize",
+      "label": "id_alias",
+      "json": "{\"id\": \"bert-base-uncased\"}",
+      "expected": {
+        "model_id": "bert-base-uncased",
+        "author": null,
+        "downloads": null,
+        "likes": null,
+        "tags": [],
+        "library_name": null,
+        "pipeline_tag": null
+      }
+    },
+    {
+      "op": "model_summary_deserialize",
+      "label": "full_fields",
+      "json": "{\"modelId\": \"microsoft/resnet-50\", \"downloads\": 1234567, \"likes\": 42, \"tags\": [\"image-classification\", \"pytorch\", \"safetensors\"], \"library_name\": \"transformers\", \"pipeline_tag\": \"image-classification\"}",
+      "expected": {
+        "model_id": "microsoft/resnet-50",
+        "author": null,
+        "downloads": 1234567,
+        "likes": 42,
+        "tags": [
+          "image-classification",
+          "pytorch",
+          "safetensors"
+        ],
+        "library_name": "transformers",
+        "pipeline_tag": "image-classification"
+      }
+    },
+    {
+      "op": "model_summary_deserialize",
+      "label": "unknown_fields_ignored",
+      "json": "{\"modelId\": \"microsoft/resnet-50\", \"private\": false, \"sha\": \"abc123def456\", \"gated\": false}",
+      "expected": {
+        "model_id": "microsoft/resnet-50",
+        "author": null,
+        "downloads": null,
+        "likes": null,
+        "tags": [],
+        "library_name": null,
+        "pipeline_tag": null
+      }
+    },
+    {
+      "op": "populate_author",
+      "model_id": "microsoft/resnet-50",
+      "expected_author": "microsoft"
+    },
+    {
+      "op": "populate_author",
+      "model_id": "meta-llama/Llama-2-7b",
+      "expected_author": "meta-llama"
+    },
+    {
+      "op": "populate_author",
+      "model_id": "bert-base-uncased",
+      "expected_author": null
+    },
+    {
+      "op": "populate_author",
+      "model_id": "",
+      "expected_author": null
+    },
+    {
+      "op": "model_info_deserialize",
+      "label": "with_siblings",
+      "json": "{\"modelId\": \"microsoft/resnet-50\", \"siblings\": [{\"rfilename\": \"config.json\"}, {\"rfilename\": \"model.safetensors\"}, {\"rfilename\": \"README.md\"}]}",
+      "expected": {
+        "model_id": "microsoft/resnet-50",
+        "siblings_count": 3,
+        "siblings_filenames": [
+          "config.json",
+          "model.safetensors",
+          "README.md"
+        ]
+      }
+    },
+    {
+      "op": "get_model_empty_repo_id",
+      "label": "empty_repo_id_errors",
+      "repo_id": "",
+      "expected_error": true,
+      "expected_error_contains": "must not be empty"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "",
+      "expected_ok": false,
+      "expected_error_contains": "must not be empty"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "..",
+      "expected_ok": false,
+      "expected_error_contains": "dot-path"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": ".",
+      "expected_ok": false,
+      "expected_error_contains": "dot-path"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "/etc/passwd",
+      "expected_ok": false,
+      "expected_error_contains": "path separator"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "foo/bar",
+      "expected_ok": false,
+      "expected_error_contains": "path separator"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "foo\\bar",
+      "expected_ok": false,
+      "expected_error_contains": "path separator"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "foo\u0000bar",
+      "expected_ok": false,
+      "expected_error_contains": "null byte"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "foo/../../../etc/passwd",
+      "expected_ok": false,
+      "expected_error_contains": "path separator"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "../../.bashrc",
+      "expected_ok": false,
+      "expected_error_contains": "path separator"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": ".hidden",
+      "expected_ok": false,
+      "expected_error_contains": "starts with '.'"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "foo:bar",
+      "expected_ok": false,
+      "expected_error_contains": "colon"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "model.safetensors:secret",
+      "expected_ok": false,
+      "expected_error_contains": "colon"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected_ok": false,
+      "expected_error_contains": "too long"
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "model-00001-of-00004.safetensors",
+      "expected_ok": true
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "config.json",
+      "expected_ok": true
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "main",
+      "expected_ok": true
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "v1.0",
+      "expected_ok": true
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "abc123def456",
+      "expected_ok": true
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "feature-branch",
+      "expected_ok": true
+    },
+    {
+      "op": "sanitize_path_component",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected_ok": true
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": "",
+      "expected_ok": false,
+      "reject_reason": "empty"
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": "../etc/passwd",
+      "expected_ok": false,
+      "reject_reason": "traversal"
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": "../../Windows/System32/drivers/etc/hosts",
+      "expected_ok": false,
+      "reject_reason": "traversal"
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": "/etc/passwd",
+      "expected_ok": false,
+      "reject_reason": "absolute"
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": "path/../../escape",
+      "expected_ok": false,
+      "reject_reason": "traversal"
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": "path\u0000null",
+      "expected_ok": false,
+      "reject_reason": "null"
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": "..",
+      "expected_ok": false,
+      "reject_reason": "traversal"
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": ".",
+      "expected_ok": false,
+      "reject_reason": "traversal or CurDir"
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": "./foo",
+      "expected_ok": false,
+      "reject_reason": "traversal or CurDir"
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": "resnet50.safetensors",
+      "expected_ok": true
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": "meta-llama/Llama-3-8B/config.json",
+      "expected_ok": true
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": ".gitkeep",
+      "expected_ok": true
+    },
+    {
+      "op": "validate_cache_relative",
+      "input": "simple",
+      "expected_ok": true
+    },
+    {
+      "op": "registry_list_models_count",
+      "expected_count": 15
+    },
+    {
+      "op": "registry_known_models",
+      "models": [
+        {
+          "name": "resnet18",
+          "num_parameters": 11689512,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "resnet34",
+          "num_parameters": 21797672,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "resnet50",
+          "num_parameters": 25557032,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "vgg11",
+          "num_parameters": 132863336,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "vgg16",
+          "num_parameters": 138357544,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "vit_b_16",
+          "num_parameters": 86567656,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "efficientnet_b0",
+          "num_parameters": 5288548,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "swin_tiny",
+          "num_parameters": 28288354,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "convnext_tiny",
+          "num_parameters": 28589128,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "unet",
+          "num_parameters": 31037633,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "yolo",
+          "num_parameters": 61949149,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "mobilenet_v2",
+          "num_parameters": 3504872,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "mobilenet_v3_small",
+          "num_parameters": 2542856,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "densenet121",
+          "num_parameters": 7978856,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "inception_v3",
+          "num_parameters": 27161264,
+          "format": "SafeTensors"
+        }
+      ]
+    },
+    {
+      "op": "registry_get_model_info_unknown",
+      "name": "nonexistent_model",
+      "expected_some": false
+    },
+    {
+      "op": "registry_get_model_info_empty",
+      "name": "",
+      "expected_some": false
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "resnet18",
+      "expected_some": true,
+      "expected_num_parameters": 11689512,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "resnet34",
+      "expected_some": true,
+      "expected_num_parameters": 21797672,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "resnet50",
+      "expected_some": true,
+      "expected_num_parameters": 25557032,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "vgg11",
+      "expected_some": true,
+      "expected_num_parameters": 132863336,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "vgg16",
+      "expected_some": true,
+      "expected_num_parameters": 138357544,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "vit_b_16",
+      "expected_some": true,
+      "expected_num_parameters": 86567656,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "efficientnet_b0",
+      "expected_some": true,
+      "expected_num_parameters": 5288548,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "swin_tiny",
+      "expected_some": true,
+      "expected_num_parameters": 28288354,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "convnext_tiny",
+      "expected_some": true,
+      "expected_num_parameters": 28589128,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "unet",
+      "expected_some": true,
+      "expected_num_parameters": 31037633,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "yolo",
+      "expected_some": true,
+      "expected_num_parameters": 61949149,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "mobilenet_v2",
+      "expected_some": true,
+      "expected_num_parameters": 3504872,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "mobilenet_v3_small",
+      "expected_some": true,
+      "expected_num_parameters": 2542856,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "densenet121",
+      "expected_some": true,
+      "expected_num_parameters": 7978856,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "registry_get_model_info",
+      "name": "inception_v3",
+      "expected_some": true,
+      "expected_num_parameters": 27161264,
+      "expected_format": "SafeTensors"
+    },
+    {
+      "op": "hf_download_model",
+      "cascade_skip": true,
+      "skip_reason": "network-dependent \u2014 covered by integration tests (ferrotorch-hub/tests/load_pretrained_smoke.rs)"
+    },
+    {
+      "op": "search_models",
+      "cascade_skip": true,
+      "skip_reason": "network-dependent \u2014 covered by integration tests (ferrotorch-hub/tests/load_pretrained_smoke.rs)"
+    },
+    {
+      "op": "get_model",
+      "cascade_skip": true,
+      "skip_reason": "network-dependent \u2014 covered by integration tests (ferrotorch-hub/tests/load_pretrained_smoke.rs)"
+    },
+    {
+      "op": "download_weights_http",
+      "cascade_skip": true,
+      "skip_reason": "network-dependent \u2014 covered by integration tests (ferrotorch-hub/tests/load_pretrained_smoke.rs)"
+    },
+    {
+      "op": "load_pretrained_http",
+      "cascade_skip": true,
+      "skip_reason": "network-dependent \u2014 covered by integration tests (ferrotorch-hub/tests/load_pretrained_smoke.rs)"
+    }
+  ]
+}

@@ -27,3 +27,7 @@ ferrolearn-decomp = "0.3"
 ferrolearn-datasets = "0.3"
 
 [dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+ndarray = "0.17"

@@ -31,3 +31,5 @@ sha2 = { version = "0.10", optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+serde_json = { workspace = true }
+toml = "1"

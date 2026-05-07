@@ -1,0 +1,61 @@
+# Strict coverage-gate exclusions for the ferrotorch-hub conformance suite.
+#
+# Every `pub` item in ferrotorch-hub MUST be either:
+#   (a) referenced from at least one `tests/conformance_*.rs` source file, OR
+#   (b) listed here with a `reason` and a `tracking_issue` field pointing at a
+#       filed issue. New `pub` items added without one of these two states fail CI.
+#
+# Format: `[[exclusion]]` table-array entries with three required fields:
+#   path           — fully qualified item path as written in `_surface_inventory.toml`
+#   reason         — one or more sentences (not a placeholder)
+#   tracking_issue — `#NNN` (crosslink convention), `#SLUG-NNN`, or full GitHub URL
+#
+# ---------------------------------------------------------------------------
+# Items excluded because they require network access
+# (network-dependent behavior is covered by tests/load_pretrained_smoke.rs)
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_hub::auth::hf_token"
+reason = "hf_token reads HF_TOKEN env var and ~/.cache/huggingface/token; the observable public-boundary behavior (token injected into Authorization header, no-op when absent) is tested via with_auth unit tests in ferrotorch-hub/src/auth.rs. Integration-level coverage is provided by load_pretrained_smoke.rs which exercises the auth path end-to-end."
+tracking_issue = "#839"
+
+[[exclusion]]
+path = "ferrotorch_hub::auth::with_auth"
+reason = "with_auth decorates a ureq::Request with Authorization: Bearer when hf_token() returns Some. The function is http-feature-gated; its no-op path (no token) is tested by auth.rs unit tests. Network-dependent path covered by load_pretrained_smoke.rs."
+tracking_issue = "#839"
+
+[[exclusion]]
+path = "ferrotorch_hub::discovery::search_models"
+reason = "search_models makes a blocking HTTPS call to huggingface.co/api/models; cannot be tested offline. The query-string construction and deserialization are tested indirectly via SearchQuery builder and HfModelSummary fixture tests. Network path covered by load_pretrained_smoke.rs."
+tracking_issue = "#839"
+
+[[exclusion]]
+path = "ferrotorch_hub::discovery::get_model"
+reason = "get_model makes a blocking HTTPS call to huggingface.co/api/models/{repo_id}. The empty-repo-id error path is tested in conformance_hub.rs::get_model_empty_repo_id_errors; the full network path is covered by load_pretrained_smoke.rs."
+tracking_issue = "#839"
+
+[[exclusion]]
+path = "ferrotorch_hub::download::hf_download_model"
+reason = "hf_download_model requires a live HuggingFace endpoint to fetch config.json, index.json, and weight shards. Cannot be exercised offline. Network path covered by load_pretrained_smoke.rs."
+tracking_issue = "#839"
+
+[[exclusion]]
+path = "ferrotorch_hub::download::download_weights"
+reason = "download_weights' no-op cached path (file already present) is tested by conformance_hub.rs indirectly via HubCache::store + has. The HTTP download sub-path (calls download_and_verify) requires network. Network path covered by load_pretrained_smoke.rs."
+tracking_issue = "#839"
+
+[[exclusion]]
+path = "ferrotorch_hub::download::load_pretrained"
+reason = "load_pretrained calls download_weights which may trigger a network request. The error path (unknown model) is tested in conformance_hub.rs::load_pretrained_unknown_model_errors. The full happy path requires a live mirror or cached weights; covered by load_pretrained_smoke.rs."
+tracking_issue = "#839"
+
+# ---------------------------------------------------------------------------
+# Items excluded because sanitize_path_component is pub(crate)
+# (full unit-level tests live in ferrotorch-hub/src/download.rs)
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_hub::download::sanitize_path_component"
+reason = "sanitize_path_component is pub(crate) and cannot be called from an integration test. The security properties it enforces (path separator rejection, null bytes, leading dots, colons, length limit) are all exercised by the unit tests in ferrotorch-hub/src/download.rs #[cfg(test)] mod. The observable public-boundary effect is tested in conformance_hub.rs::sanitize_behavior_via_hub_cache_store_matches_reference."
+tracking_issue = "#840"

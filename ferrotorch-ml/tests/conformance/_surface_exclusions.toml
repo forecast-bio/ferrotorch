@@ -1,0 +1,34 @@
+# Strict coverage-gate exclusions for the ferrotorch-ml conformance suite.
+#
+# Tracking issue: #840 (ferrotorch-ml sklearn-parity conformance).
+# Reference library: scikit-learn 1.5.2
+#
+# Format: [[exclusion]] table-array entries with three required fields:
+#   path           — fully qualified item path as written in _surface_inventory.toml
+#   reason         — one or more sentences (not a placeholder)
+#   tracking_issue — `#NNN` (crosslink convention) or full GitHub URL
+#
+# Every item listed here is either (a) a glob re-export whose transitive
+# coverage is implicit in the ferrolearn sub-crate's own test suite, or
+# (b) a type alias / enum that is exercised indirectly by the functions
+# that accept it as a parameter.
+
+[[exclusion]]
+path = "ferrotorch_ml::metrics::Average"
+reason = "Re-export of ferrolearn_metrics::classification::Average enum; exercised transitively by every call to precision_score, recall_score, and f1_score in conformance_ml_metrics.rs — the enum variant values are round-tripped through those calls. No standalone fixture is possible because Average is a pure enum passed to other functions."
+tracking_issue = "#840"
+
+[[exclusion]]
+path = "ferrotorch_ml::preprocess::*"
+reason = "Glob re-export of ferrolearn_preprocess. These types (StandardScaler, MinMaxScaler, OneHotEncoder, PolynomialFeatures, KBinsDiscretizer, SimpleImputer, etc.) are CPU-only ndarray-shaped objects from the ferrolearn sub-crate; their correctness is the ferrolearn sub-crate's responsibility. ferrotorch-ml's contract here is purely the re-export linkage — that the symbols are reachable via ferrotorch_ml::preprocess. Conformance for the re-export surface is tracked separately."
+tracking_issue = "#840"
+
+[[exclusion]]
+path = "ferrotorch_ml::decomposition::*"
+reason = "Glob re-export of ferrolearn_decomp (PCA, IncrementalPCA, FastICA, NMF, KernelPCA, t-SNE, UMAP, etc.). Correctness is the ferrolearn_decomp sub-crate's responsibility; ferrotorch-ml's contract is the re-export linkage only. Conformance for the decomposition surface is tracked separately."
+tracking_issue = "#840"
+
+[[exclusion]]
+path = "ferrotorch_ml::model_selection::*"
+reason = "Glob re-export of ferrolearn_model_sel (KFold, StratifiedKFold, train_test_split, GridSearchCV, etc.). Correctness is the ferrolearn_model_sel sub-crate's responsibility; ferrotorch-ml's contract is the re-export linkage only. Conformance for the model-selection surface is tracked separately."
+tracking_issue = "#840"

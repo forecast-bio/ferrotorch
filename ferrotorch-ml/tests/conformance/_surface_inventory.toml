@@ -1,0 +1,323 @@
+# Surface inventory for ferrotorch-ml conformance suite.
+#
+# Tracking issue: #840 (ferrotorch-ml sklearn-parity conformance).
+# Reference library: scikit-learn 1.5.2
+#
+# Generated from manual inspection of ferrotorch-ml/src/{adapter,metrics,datasets,lib}.rs
+# Public surface is organised into four modules: adapter, metrics, datasets, re-exports.
+#
+# Format: [[item]] table-array entries with path / kind / description fields.
+# This file is the Layer 1 "denominator" for the coverage gate.
+
+# ---------------------------------------------------------------------------
+# adapter module — Tensor ↔ ndarray bridging primitives
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_ml::adapter::tensor_to_array1"
+kind = "fn"
+description = "Convert 1-D Tensor<T> to Array1<T>"
+
+[[item]]
+path = "ferrotorch_ml::adapter::tensor_to_array2"
+kind = "fn"
+description = "Convert 2-D Tensor<T> to Array2<T>"
+
+[[item]]
+path = "ferrotorch_ml::adapter::array1_to_tensor"
+kind = "fn"
+description = "Convert Array1<T> to Tensor<T>"
+
+[[item]]
+path = "ferrotorch_ml::adapter::array2_to_tensor"
+kind = "fn"
+description = "Convert Array2<T> to Tensor<T>"
+
+[[item]]
+path = "ferrotorch_ml::adapter::array1_usize_to_tensor"
+kind = "fn"
+description = "Convert Array1<usize> label vector to Tensor<T>"
+
+[[item]]
+path = "ferrotorch_ml::adapter::tensor_to_array1_usize"
+kind = "fn"
+description = "Convert 1-D Tensor<T> of class labels to Array1<usize>"
+
+# ---------------------------------------------------------------------------
+# metrics module — regression metrics
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_ml::metrics::r2_score"
+kind = "fn"
+description = "R² coefficient of determination (sklearn.metrics.r2_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::mean_squared_error"
+kind = "fn"
+description = "Mean squared error (sklearn.metrics.mean_squared_error)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::root_mean_squared_error"
+kind = "fn"
+description = "Root mean squared error"
+
+[[item]]
+path = "ferrotorch_ml::metrics::mean_absolute_error"
+kind = "fn"
+description = "Mean absolute error (sklearn.metrics.mean_absolute_error)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::mean_absolute_percentage_error"
+kind = "fn"
+description = "Mean absolute percentage error (sklearn.metrics.mean_absolute_percentage_error)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::median_absolute_error"
+kind = "fn"
+description = "Median absolute error (sklearn.metrics.median_absolute_error)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::max_error"
+kind = "fn"
+description = "Maximum residual error (sklearn.metrics.max_error)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::explained_variance_score"
+kind = "fn"
+description = "Explained variance score (sklearn.metrics.explained_variance_score)"
+
+# ---------------------------------------------------------------------------
+# metrics module — classification metrics
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_ml::metrics::accuracy_score"
+kind = "fn"
+description = "Classification accuracy (sklearn.metrics.accuracy_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::Average"
+kind = "re-export"
+description = "Re-export of ferrolearn_metrics::classification::Average enum"
+
+[[item]]
+path = "ferrotorch_ml::metrics::precision_score"
+kind = "fn"
+description = "Precision score (sklearn.metrics.precision_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::recall_score"
+kind = "fn"
+description = "Recall score (sklearn.metrics.recall_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::f1_score"
+kind = "fn"
+description = "F1 score (sklearn.metrics.f1_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::roc_auc_score"
+kind = "fn"
+description = "ROC-AUC score (sklearn.metrics.roc_auc_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::log_loss"
+kind = "fn"
+description = "Log loss / cross-entropy (sklearn.metrics.log_loss)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::confusion_matrix"
+kind = "fn"
+description = "Confusion matrix (sklearn.metrics.confusion_matrix)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::hamming_loss"
+kind = "fn"
+description = "Hamming loss (sklearn.metrics.hamming_loss)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::balanced_accuracy_score"
+kind = "fn"
+description = "Balanced accuracy (sklearn.metrics.balanced_accuracy_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::matthews_corrcoef"
+kind = "fn"
+description = "Matthews correlation coefficient (sklearn.metrics.matthews_corrcoef)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::cohen_kappa_score"
+kind = "fn"
+description = "Cohen's kappa (sklearn.metrics.cohen_kappa_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::brier_score_loss"
+kind = "fn"
+description = "Brier score loss (sklearn.metrics.brier_score_loss)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::d2_brier_score"
+kind = "fn"
+description = "D² Brier score"
+
+[[item]]
+path = "ferrotorch_ml::metrics::top_k_accuracy_score"
+kind = "fn"
+description = "Top-K accuracy (sklearn.metrics.top_k_accuracy_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::zero_one_loss"
+kind = "fn"
+description = "0/1 loss (sklearn.metrics.zero_one_loss)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::average_precision_score"
+kind = "fn"
+description = "Average precision score (sklearn.metrics.average_precision_score)"
+
+# ---------------------------------------------------------------------------
+# metrics module — ranking metrics
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_ml::metrics::dcg_score"
+kind = "fn"
+description = "Discounted Cumulative Gain (sklearn.metrics.dcg_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::ndcg_score"
+kind = "fn"
+description = "Normalized DCG (sklearn.metrics.ndcg_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::coverage_error"
+kind = "fn"
+description = "Coverage error (sklearn.metrics.coverage_error)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::label_ranking_average_precision_score"
+kind = "fn"
+description = "Label-ranking average precision (sklearn.metrics.label_ranking_average_precision_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::label_ranking_loss"
+kind = "fn"
+description = "Label-ranking loss (sklearn.metrics.label_ranking_loss)"
+
+# ---------------------------------------------------------------------------
+# metrics module — clustering metrics
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_ml::metrics::adjusted_rand_score"
+kind = "fn"
+description = "Adjusted Rand index (sklearn.metrics.adjusted_rand_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::adjusted_mutual_info_score"
+kind = "fn"
+description = "Adjusted mutual information (sklearn.metrics.adjusted_mutual_info_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::normalized_mutual_info_score"
+kind = "fn"
+description = "Normalized mutual information (sklearn.metrics.normalized_mutual_info_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::homogeneity_score"
+kind = "fn"
+description = "Homogeneity score (sklearn.metrics.homogeneity_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::completeness_score"
+kind = "fn"
+description = "Completeness score (sklearn.metrics.completeness_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::v_measure_score"
+kind = "fn"
+description = "V-measure score (sklearn.metrics.v_measure_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::fowlkes_mallows_score"
+kind = "fn"
+description = "Fowlkes-Mallows score (sklearn.metrics.fowlkes_mallows_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::silhouette_score"
+kind = "fn"
+description = "Silhouette score (sklearn.metrics.silhouette_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::davies_bouldin_score"
+kind = "fn"
+description = "Davies-Bouldin score (sklearn.metrics.davies_bouldin_score)"
+
+[[item]]
+path = "ferrotorch_ml::metrics::calinski_harabasz_score"
+kind = "fn"
+description = "Calinski-Harabasz score (sklearn.metrics.calinski_harabasz_score)"
+
+# ---------------------------------------------------------------------------
+# datasets module
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_ml::datasets::make_classification"
+kind = "fn"
+description = "Random classification dataset (sklearn.datasets.make_classification)"
+
+[[item]]
+path = "ferrotorch_ml::datasets::make_regression"
+kind = "fn"
+description = "Random regression dataset (sklearn.datasets.make_regression)"
+
+[[item]]
+path = "ferrotorch_ml::datasets::make_blobs"
+kind = "fn"
+description = "Isotropic Gaussian blobs (sklearn.datasets.make_blobs)"
+
+[[item]]
+path = "ferrotorch_ml::datasets::make_moons"
+kind = "fn"
+description = "Two-moons dataset (sklearn.datasets.make_moons)"
+
+[[item]]
+path = "ferrotorch_ml::datasets::make_circles"
+kind = "fn"
+description = "Concentric circles dataset (sklearn.datasets.make_circles)"
+
+[[item]]
+path = "ferrotorch_ml::datasets::load_iris"
+kind = "fn"
+description = "Iris toy dataset (sklearn.datasets.load_iris)"
+
+[[item]]
+path = "ferrotorch_ml::datasets::load_wine"
+kind = "fn"
+description = "Wine toy dataset (sklearn.datasets.load_wine)"
+
+[[item]]
+path = "ferrotorch_ml::datasets::load_breast_cancer"
+kind = "fn"
+description = "Breast cancer Wisconsin dataset (sklearn.datasets.load_breast_cancer)"
+
+# ---------------------------------------------------------------------------
+# re-exported modules (glob re-exports from ferrolearn)
+# ---------------------------------------------------------------------------
+
+[[item]]
+path = "ferrotorch_ml::preprocess::*"
+kind = "re-export"
+description = "Re-export of ferrolearn_preprocess — StandardScaler, MinMaxScaler, OneHotEncoder, etc."
+
+[[item]]
+path = "ferrotorch_ml::decomposition::*"
+kind = "re-export"
+description = "Re-export of ferrolearn_decomp — PCA, IncrementalPCA, FastICA, NMF, etc."
+
+[[item]]
+path = "ferrotorch_ml::model_selection::*"
+kind = "re-export"
+description = "Re-export of ferrolearn_model_sel — KFold, StratifiedKFold, train_test_split, etc."
