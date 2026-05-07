@@ -1,0 +1,10 @@
+{
+  "uuid": "a4cdd52e-60e4-40aa-a4c7-d31d4fceabeb",
+  "issue_uuid": "855f54fa-0c95-4be7-8adf-69d9760fe163",
+  "author": "y4rr",
+  "content": "Plan: CIFAR-10 binary batch format: each sample = 1 byte label + 3072 bytes pixels (channel-major: R-plane 32x32, G-plane 32x32, B-plane 32x32). CIFAR-100: 1 byte coarse_label + 1 byte fine_label + 3072 bytes. File names: train: data_batch_1 ... data_batch_5, test: test_batch. CIFAR-100: train.bin, test.bin. Will implement from_dir for Cifar10 and Cifar100, write synthetic 4-image fixture files, add conformance_vision_datasets.rs test.",
+  "created_at": "2026-05-07T19:50:32.452739370Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAugAkbM1l/ORppys51zLoZbeC1bqS/S+qUEY3fn8tUpQTL7FkACGwfkJAxwKdABioyPrVRXBQYTW8Hm+7SWvYDA=="
+}
