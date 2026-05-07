@@ -1,0 +1,10 @@
+{
+  "uuid": "265553dd-f0ab-4b3b-8fd9-cb2929a24df9",
+  "issue_uuid": "083ff538-0726-461f-8163-380559659e43",
+  "author": "y4rr",
+  "content": "Follow-up from Sprint C.7 (#626). GpuBackend methods: prod_f32/f64, prod_backward_f32/f64, min_f32/f64, max_f32/f64, cumsum_f32/f64, cumprod_f32/f64, cummin_f32/f64, cummax_f32/f64, logcumsumexp_f32/f64, sum_axis_f64, masked_min_f32/f64, masked_max_f32/f64, has_inf_nan_f32/f64. Threadgroup reduction pattern; use threadgroup shared memory.",
+  "created_at": "2026-05-07T21:07:55.617548215Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAJuHyEsh3C4+C/tDkZJ3NmkC0ZLWYSphCx+av0WrbYFMnSLDITTJ/tsq50qFPK5wRv9zAzHHIr4gb9zAnjLf2AQ=="
+}
