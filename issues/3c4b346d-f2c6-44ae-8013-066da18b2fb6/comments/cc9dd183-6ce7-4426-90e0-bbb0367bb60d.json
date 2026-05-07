@@ -1,0 +1,10 @@
+{
+  "uuid": "cc9dd183-6ce7-4426-90e0-bbb0367bb60d",
+  "issue_uuid": "3c4b346d-f2c6-44ae-8013-066da18b2fb6",
+  "author": "y4rr",
+  "content": "Result: C9.3 conformance suite live. 55 tests covering 10 modules: container (5 tests), module (6 tests), parameter (4 tests), parameter_container (4 tests), buffer (3 tests), hooks (5 tests), rnn/lstm (5 tests), rnn/gru (3 tests), rnn/rnn (3 tests), rnn_utils (5 tests), lora (5 tests), qat (7 tests). Fixture script exits 0 (38 fixtures). cargo test -p ferrotorch-nn --test conformance_nn_structural: 55 passed, 0 failed. 0 cascade bugs filed.",
+  "created_at": "2026-05-07T17:08:10.220929216Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA4h25J+1smu+HdUpydAe5pJpsgT/wTzGIMP+n5u2Za510Xhz5k6CG4WqkSVB66jLw2+XC9CiBxqB3mTsW32MGAg=="
+}
