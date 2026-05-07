@@ -47,7 +47,7 @@ fn probe_b1_avgpool2d_ptx_after() {
     // tile (0,1): mean(2,3,6,7)  = 4.5
     // tile (1,0): mean(8,9,12,13)= 10.5
     // tile (1,1): mean(10,11,14,15)=12.5
-    let expected = vec![2.5f32, 4.5, 10.5, 12.5];
+    let expected = [2.5f32, 4.5, 10.5, 12.5];
 
     let inp = cpu_to_gpu(&input, &dev).unwrap();
 

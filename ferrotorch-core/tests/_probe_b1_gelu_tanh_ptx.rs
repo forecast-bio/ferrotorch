@@ -30,7 +30,7 @@ fn ensure_cuda() {
 /// CPU reference for gelu_tanh (tanh approximation).
 fn gelu_tanh_ref(x: f32) -> f32 {
     // sqrt(2/pi) = 0.7978845608
-    let sqrt2_pi: f32 = 0.7978845608;
+    let sqrt2_pi: f32 = 0.797_884_5_f32;
     let inner = x + 0.044715 * x * x * x;
     0.5 * x * (1.0 + (sqrt2_pi * inner).tanh())
 }
