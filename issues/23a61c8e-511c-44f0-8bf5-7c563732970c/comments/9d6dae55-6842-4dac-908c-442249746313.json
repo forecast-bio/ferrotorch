@@ -1,0 +1,10 @@
+{
+  "uuid": "9d6dae55-6842-4dac-908c-442249746313",
+  "issue_uuid": "23a61c8e-511c-44f0-8bf5-7c563732970c",
+  "author": "y4rr",
+  "content": "Fixed in commit 92a19db3 as part of Sprint B.4 (#914). Root cause: fixture emits 'input_shape' key but test read f.shape. Fix: reduce_scatter_world_size_2_sum_matches_reference now reads f.input_shape. cascade_skip removed. Test passes.",
+  "created_at": "2026-05-07T18:18:44.342001640Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAeDr1YDWHTzB49UYa6csq8DRbJmq1zJovkaWjrDk83/xEAXPvelbhmTTCNivoZ0Rjhg2TXygNXTCsSmWVDKxZBA=="
+}
