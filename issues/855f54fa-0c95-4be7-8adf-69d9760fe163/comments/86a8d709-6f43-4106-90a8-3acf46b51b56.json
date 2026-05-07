@@ -1,0 +1,10 @@
+{
+  "uuid": "86a8d709-6f43-4106-90a8-3acf46b51b56",
+  "issue_uuid": "855f54fa-0c95-4be7-8adf-69d9760fe163",
+  "author": "y4rr",
+  "content": "Result: Cifar10::from_dir and Cifar100::from_dir implemented in ferrotorch-vision/src/datasets/cifar.rs. Synthetic fixture files created in tests/conformance/fixtures/datasets_synthetic/ (8 files, all <13KB): MNIST IDX files (train/test, 4x4 images) + CIFAR-10 batch files + CIFAR-100 batch files. conformance_vision_datasets.rs: 25 tests all passing covering shape, dtype, label parsing, pixel normalization, error cases, and f32/f64.",
+  "created_at": "2026-05-07T19:53:47.824965040Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAIUjuFD590GpYdbkiUEOxy5CYJo412V+j+0bu3fXRg9eGS6892MQ5GQr2KGhSvg02IHUU42J8tY28oBer36P+AQ=="
+}
