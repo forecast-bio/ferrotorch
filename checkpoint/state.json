@@ -30,12 +30,16 @@
     "827": {
       "agent_id": "y4rr",
       "claimed_at": "2026-05-07T13:31:03.744745485Z"
+    },
+    "828": {
+      "agent_id": "y4rr",
+      "claimed_at": "2026-05-07T13:34:01.822799093Z"
     }
   },
   "issues": {},
   "watermark": {
-    "timestamp": "2026-05-07T13:31:03.744745485Z",
+    "timestamp": "2026-05-07T13:34:01.822799093Z",
     "agent_id": "y4rr",
-    "agent_seq": 703
+    "agent_seq": 704
   }
 }
