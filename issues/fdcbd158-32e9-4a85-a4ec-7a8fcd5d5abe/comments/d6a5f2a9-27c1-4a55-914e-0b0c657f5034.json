@@ -1,0 +1,10 @@
+{
+  "uuid": "d6a5f2a9-27c1-4a55-914e-0b0c657f5034",
+  "issue_uuid": "fdcbd158-32e9-4a85-a4ec-7a8fcd5d5abe",
+  "author": "y4rr",
+  "content": "Sprint B.1 complete. Fixed 4 GPU kernel bugs:\n\n#892 gpu_batchnorm_forward stub: real two-pass PTX kernel (pass-1 parallel reduce mean+var, pass-2 normalize+affine). Fixed smem addressing (mov.u64 base + add.u64 offset pattern), fixed tree reduction init from bdim/2 instead of hardcoded 128 (caused OOB smem reads with <256 threads -> NaN). Output has ~zero mean / ~unit std per channel in training mode.\n\n#893 gelu_tanh_kernel INVALID_PTX: non-ASCII chars pi and superscript-3 in PTX comment bytes caused CUDA_ERROR_INVALID_PTX on sm_86 JIT. Replaced with ASCII 'pi' and '^3'.\n\n#894 avgpool2d_forward_kernel INVALID_PTX: em-dash in PTX comment caused same CUDA_ERROR_INVALID_PTX. Replaced with '--'.\n\n#897 capture stream invalidation: added gpu_add_into_on_stream for explicit stream dispatch. Conformance test now uses dedicated non-default stream with ThreadLocal capture mode; parallel tests on device.stream() cannot invalidate the capture.\n\n79+108 conformance tests live, 5 probe tests pass, clippy clean.",
+  "created_at": "2026-05-07T18:42:15.251332526Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAs7Q8d8N1Tt2phEbOaH5MewxA+9A9DNqdai6ctTbzGaa/bzo3U+B9jV64lhbFV8vp4vghkd8dXsQaZ/5EI13iAA=="
+}
