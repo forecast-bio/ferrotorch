@@ -1,0 +1,10 @@
+{
+  "uuid": "c08d82f8-bbf5-41a4-b4a0-9b606652747b",
+  "issue_uuid": "06a40b6c-f036-4480-9b63-4031e839332f",
+  "author": "y4rr",
+  "content": "Fixed in commit 92a19db3 as part of Sprint B.4 (#914). Same root cause as #856 (wrong parent rank). sub_backend_rank_mapping_matches_fixture now uses first-member backend as parent. to_global/to_local mapping verified: to_global(0)=1, to_global(1)=2, to_global(2)=3; to_local(1)=Some(0), to_local(0)=None. cascade_skip removed. Test passes.",
+  "created_at": "2026-05-07T18:19:18.028738115Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAsbvrrlMWkUhPIK+I4HsOaaQyLpUqV0elKdKS0q54s5iZXXnMYhXswzU38o6J0mBJjSGoTDdCLbb8HTBuVmz+CQ=="
+}
