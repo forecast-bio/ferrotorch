@@ -1,0 +1,10 @@
+{
+  "uuid": "758ce04b-bdbf-4973-999e-d709c79f91b9",
+  "display_id": 974,
+  "title": "Sprint final cleanup — Mask R-CNN + SSD + bf16 + fftn + misc",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T22:54:48.385197760Z",
+  "updated_at": "2026-05-07T22:54:48.385197760Z"
+}
