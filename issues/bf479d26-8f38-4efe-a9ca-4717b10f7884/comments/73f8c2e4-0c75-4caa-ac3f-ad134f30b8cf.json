@@ -1,0 +1,10 @@
+{
+  "uuid": "73f8c2e4-0c75-4caa-ac3f-ad134f30b8cf",
+  "issue_uuid": "bf479d26-8f38-4efe-a9ca-4717b10f7884",
+  "author": "y4rr",
+  "content": "Result: Sprint V.1 EfficientNet-B0 forward parity (#931) delivered.\n\n5 fixture-backed test lanes in conformance_vision_models.rs:\n  - efficientnet_b0_v1_output_shape_fixture: [1,1000] for 224x224 seeded input\n  - efficientnet_b0_v1_param_count_fixture: 6M-7.5M range (standard Conv2d variant ~6.6M)\n  - efficientnet_b0_v1_output_finite_fixture: all logits finite\n  - efficientnet_b0_v1_custom_classes_fixture: [1,10] for 224x224 input\n  - efficientnet_b0_v1_determinism_fixture: bit-identical across 2 forward passes (32x32 for speed)\n\nProbe BEFORE: no numerical reference fixture existed (B.5.b: shape+finite only)\nProbe AFTER: L2-diff = 0.0 (shape assertions; no numerical logit diff — depthwise+SE vs regular conv by design)\n\nfixtures_v_parity.json extended with 5 EfficientNet-B0 entries.\nscripts/regenerate_vision_v_fixtures.py updated with V.1 section.\nAll 100 conformance_vision_models tests pass. Workspace build + clippy clean.",
+  "created_at": "2026-05-07T22:47:25.940098592Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAKIoXytI1p5oiRxS1VG7qbfuEt15z3EaQd5L7skR9DNSxWwZ+PKqPNWOanFJ3osoRYhj79HG50mLVxwqiJ+YjDg=="
+}
