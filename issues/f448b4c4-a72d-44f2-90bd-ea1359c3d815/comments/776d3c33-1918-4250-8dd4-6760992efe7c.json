@@ -1,0 +1,10 @@
+{
+  "uuid": "776d3c33-1918-4250-8dd4-6760992efe7c",
+  "issue_uuid": "f448b4c4-a72d-44f2-90bd-ea1359c3d815",
+  "author": "y4rr",
+  "content": "Plan: Add conformance tests for MobileNetV2 and MobileNetV3-Small forward parity. Two distinct configs as required by #865. Reference: mobilenet_v2() and mobilenet_v3_small().",
+  "created_at": "2026-05-07T19:50:55.915373993Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAfjtmjgNy5TyBbBsSDmroRDLbBai8wWTYc1Euypxf4VLLhsURDWfZ4MWVSv7WvwvPLD6EzUPbWd0nqGYdSAIUAA=="
+}
