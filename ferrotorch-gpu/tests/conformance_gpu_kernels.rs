@@ -238,6 +238,8 @@ fn assert_close_f64(actual: &[f64], expected: &[f64], tol: f64, label: &str) {
 /// Print a loud cascade-skip notice and return `true` to signal that the
 /// calling test should abort early (not fail).  Per `conformance-suites.md §5`
 /// the notice is printed to stderr and includes the tracking issue.
+/// Retained for future cascade bugs; Sprint B.1 fixed all current callers (#892 #893 #894).
+#[allow(dead_code)]
 fn cascade_skip(test_name: &str, issue: &str) {
     eprintln!(
         "CONFORMANCE CASCADE-SKIP [{test_name}]: {issue} \
@@ -541,31 +543,25 @@ fn kernel_sqrt_f32_positive_matches_reference() {
 }
 
 /// gpu_gelu_tanh and gpu_gelu_erf variants.
+/// Fix #893: gelu_tanh_kernel PTX had non-ASCII UTF-8 chars (pi, superscript-3)
+/// in comments, causing CUDA_ERROR_INVALID_PTX on sm_86 JIT. Replaced with ASCII.
 #[test]
 fn kernel_gelu_variants_f32() {
     ensure_cuda();
     let all = load_fixtures();
 
-    // gelu_tanh — cascade-skip: PTX JIT failure (CUDA_ERROR_INVALID_PTX).
-    // Cascade bug #827: gelu_tanh_kernel PTX fails to JIT-compile on sm_86 (RTX 3090).
+    // gelu_tanh — fix #893: cascade_skip removed; PTX is now ASCII-clean.
     {
         let f = pick(&all, "kernels", "gelu_tanh");
         let a_h = as_f32_vec(&f["input_a"]);
+        let expected = as_f32_vec(&f["expected"]);
         let dev = device();
         let a = cpu_to_gpu(&a_h, &dev).unwrap();
-        let result = ferrotorch_gpu::kernels::gpu_gelu_tanh(&a, &dev);
-        if let Ok(out) = result {
-            let expected = as_f32_vec(&f["expected"]);
-            let actual = gpu_to_cpu(&out, &dev).unwrap();
-            assert_close_f32(&actual, &expected, TOL_TRANSCENDENTAL, "gpu_gelu_tanh");
-        } else {
-            cascade_skip(
-                "kernel_gelu_variants_f32/gelu_tanh",
-                "#827 — gelu_tanh_kernel PTX JIT fails on sm_86; filed as cascade bug",
-            );
-        }
+        let out = ferrotorch_gpu::kernels::gpu_gelu_tanh(&a, &dev).unwrap();
+        let actual = gpu_to_cpu(&out, &dev).unwrap();
+        assert_close_f32(&actual, &expected, TOL_TRANSCENDENTAL, "gpu_gelu_tanh");
     }
-    // gelu_erf
+    // gelu_erf (unchanged, was already working)
     {
         let f = pick(&all, "kernels", "gelu");
         // reuse the gelu fixture (erf is the non-approx form PyTorch uses for gelu(approximate="none"))
@@ -1028,45 +1024,74 @@ fn kernel_rmsnorm_matches_reference() {
     assert_close_f32(&actual, &expected, TOL_NORMALISATION, "gpu_rmsnorm");
 }
 
-/// gpu_batchnorm_forward: verify shape and that output has zero mean + unit var
-/// (approximate, since the fixture is computed from PyTorch which may differ by
-/// implementation detail; this is a coverage/reachability test).
+/// gpu_batchnorm_forward: verify output has zero mean + unit variance per channel.
+/// Fix #892: real two-pass PTX kernel replaces the stub that returned ShapeMismatch.
+/// Input [N=4, C=2, H=2, W=2] with gamma=1, beta=0 in training mode: output
+/// must have per-channel mean ~0 and std ~1.
 #[test]
 fn kernel_batchnorm_forward_shape_and_stats() {
     ensure_cuda();
     let dev = device();
 
     // BatchNorm requires at least 2 samples for variance to be non-trivial.
-    // Shape: [N=4, C=2, H=2, W=2] flattened to [N * H * W, C] = [16, 2]
-    let n_hw = 16usize; // N * H * W
+    // Shape: [N=4, C=2, H=2, W=2] flattened to N*C*H*W = 32
+    let n = 4usize;
     let c = 2usize;
-    let input_data: Vec<f32> = (0..n_hw * c).map(|i| (i as f32 * 0.1) - 0.8).collect();
+    let h = 2usize;
+    let w = 2usize;
+    let spatial = h * w;          // H*W = 4
+    let total_per_ch = n * spatial; // N*H*W = 16
+
+    // Input values spread so per-channel mean != 0 and std != 1 before normalisation.
+    let input_data: Vec<f32> = (0..n * c * h * w)
+        .map(|i| (i as f32 * 0.3) - 2.0)
+        .collect();
+    // gamma=1, beta=0 => output should be normalised with zero mean and unit std.
     let weight = vec![1.0f32; c];
     let bias = vec![0.0f32; c];
-    // running_mean / running_var (not updated; just needed for the kernel signature).
     let running_mean = vec![0.0f32; c];
     let running_var = vec![1.0f32; c];
 
     let inp = cpu_to_gpu(&input_data, &dev).unwrap();
-    let w = cpu_to_gpu(&weight, &dev).unwrap();
-    let b = cpu_to_gpu(&bias, &dev).unwrap();
+    let wt = cpu_to_gpu(&weight, &dev).unwrap();
+    let bi = cpu_to_gpu(&bias, &dev).unwrap();
     let mut rm = cpu_to_gpu(&running_mean, &dev).unwrap();
     let mut rv = cpu_to_gpu(&running_var, &dev).unwrap();
 
-    // gpu_batchnorm_forward is currently a known stub that returns Err
-    // (implementation pending — pass-1 loop indexing needs refinement per the source).
-    // This test verifies the PTX module is at least reachable (it runs get_or_compile)
-    // and that the signature compiles correctly.  The cascade bug is tracked below.
-    let result = ferrotorch_gpu::kernels::gpu_batchnorm_forward(
-        &inp, &w, &b, &mut rm, &mut rv, c, n_hw, 1e-5, 0.1, true, &dev,
-    );
-    // Cascade bug #826: gpu_batchnorm_forward is a stub returning ShapeMismatch.
-    // When fixed this should become: result.unwrap()
-    cascade_skip(
-        "kernel_batchnorm_forward_shape_and_stats",
-        "#826 — gpu_batchnorm_forward is a stub; full kernel implementation pending",
-    );
-    let _ = result; // acknowledged stub; don't panic on Err
+    // Fix #892: cascade_skip removed; real kernel must succeed now.
+    // §3: Implemented on GPU via PTX kernel; returns Err(PtxCompileFailed) if JIT fails.
+    let (out, _save_mean, _save_invstd) = ferrotorch_gpu::kernels::gpu_batchnorm_forward(
+        &inp, &wt, &bi, &mut rm, &mut rv, c, spatial, 1e-5, 0.1, true, &dev,
+    )
+    .expect("gpu_batchnorm_forward must succeed after fix #892");
+
+    let actual = gpu_to_cpu(&out, &dev).unwrap();
+    assert_eq!(actual.len(), n * c * h * w, "output length");
+
+    // Check per-channel mean ~0 and std ~1 (gamma=1, beta=0 in training mode).
+    for ch in 0..c {
+        let mut ch_vals: Vec<f32> = Vec::with_capacity(total_per_ch);
+        for bi in 0..n {
+            for hi in 0..h {
+                for wi in 0..w {
+                    let flat = bi * c * h * w + ch * h * w + hi * w + wi;
+                    ch_vals.push(actual[flat]);
+                }
+            }
+        }
+        let mean: f32 = ch_vals.iter().sum::<f32>() / ch_vals.len() as f32;
+        let var: f32 = ch_vals.iter().map(|x| (x - mean).powi(2)).sum::<f32>()
+            / ch_vals.len() as f32;
+        let std = var.sqrt();
+        assert!(
+            mean.abs() < 1e-4,
+            "channel {ch} mean {mean} not near 0 after batch norm"
+        );
+        assert!(
+            (std - 1.0).abs() < 1e-3,
+            "channel {ch} std {std} not near 1 after batch norm"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1551,18 +1576,12 @@ fn kernel_avgpool2d_matches_reference() {
     let dev = device();
     let inp = cpu_to_gpu(&inp_h, &dev).unwrap();
     let [b, c, h, w] = [inp_shape[0], inp_shape[1], inp_shape[2], inp_shape[3]];
-    // gpu_avgpool2d returns (CudaBuffer<f32>, [usize; 4])
-    // gpu_avgpool2d returns (CudaBuffer<f32>, [usize; 4])
-    // Cascade bug #828: avgpool2d_forward_kernel PTX fails to JIT-compile on sm_86.
-    let result = ferrotorch_gpu::kernels::gpu_avgpool2d(&inp, b, c, h, w, kh, kw, sh, sw, 0, 0, &dev);
-    if result.is_err() {
-        cascade_skip(
-            "kernel_avgpool2d_matches_reference",
-            "#828 — avgpool2d_forward_kernel PTX JIT fails on sm_86; filed as cascade bug",
-        );
-        return;
-    }
-    let (out, _out_shape) = result.unwrap();
+    // Fix #894: cascade_skip removed. avgpool2d_forward_kernel PTX had a non-ASCII
+    // em-dash in comments causing CUDA_ERROR_INVALID_PTX on sm_86 JIT; replaced with --.
+    let (out, _out_shape) = ferrotorch_gpu::kernels::gpu_avgpool2d(
+        &inp, b, c, h, w, kh, kw, sh, sw, 0, 0, &dev,
+    )
+    .unwrap();
     let actual = gpu_to_cpu(&out, &dev).unwrap();
     assert_close_f32(&actual, &expected, TOL_ELEMENTWISE, "gpu_avgpool2d");
 }

@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - ferrotorch-core: `gelu()` (no-arg) default is now `GeluApproximate::None` (exact erf-based: `x * 0.5 * (1 + erf(x / √2))`), matching `torch.nn.GELU()`'s `approximate='none'` default. Previously the no-arg path defaulted to `GeluApproximate::Sigmoid` (`x * sigmoid(1.702 * x)`), producing ~6e-3 absolute deviation from PyTorch. **Migration**: callers relying on the historical fast-sigmoid default must opt in explicitly via `gelu_with(input, GeluApproximate::Sigmoid)` (LLM/transformer paths in `ferrotorch-llama` etc. will silently get the slower-but-more-precise erf path after upgrade — adjust if performance matters more than parity in your call site). `gelu_with(_, GeluApproximate::Tanh)` (PyTorch's `approximate='tanh'`) and `gelu_with(_, GeluApproximate::None)` are unchanged. The enum discriminant order is unchanged; only the `#[default]` attribute moved (closes #794).
 
 ### Fixed
+- Fix 5 ferrotorch-distributions math bugs (Sprint B.3) (#913)
 - Fix 5 ferrotorch-distributed conformance bugs (fixture key mismatches + SubBackend rank test) (#914)
 - Fix XpuDevice::is_available() to probe wgpu adapter list instead of assuming feature-compile equals availability (#911)
 - C7.4 cascade: JitError::GpuBackendUnavailable not exercised in default CI — requires InductorBackend with gpu target on non-GPU build (#884)
@@ -28,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `ptx_f32_to_f64` converter coverage gaps surfaced by the `_probe_backward_f64.rs` cascade verification: extended the converter (`ferrotorch-gpu/src/kernels.rs`) to handle (a) the `%row_off` register's byte-stride rewrite (`shl.b64 %row_off, %row_off, 2 → 3`) so the f32 → f64 lift of `LAYERNORM_BACKWARD_PTX` and `RMSNORM_BACKWARD_PTX` produces correct stride math, (b) the `*.approx.f32` floats — `rcp.approx.f32`, `div.approx.f32`, `sqrt.approx.f32` — which have no `*.approx.f64` PTX form so the converter promotes them to `*.rn.f64` (correct rounding, no precision loss), and (c) `.target sm_52 → sm_60` because `atom.add.f64.global` (used by the per-column gradient accumulation in layernorm_backward / rmsnorm_backward) requires sm_60+. Also fixed an em-dash character (U+2014) inside a comment in `LOG_SOFTMAX_BACKWARD_F64_PTX` that ptxas rejected as an invalid byte. New `_probe_backward_f64.rs` regression sentinel covering all 13 backward kernels. (#784 cascade)
 
 ### Added
+- Sprint B.1 GPU kernel bugfixes: batchnorm stub, gelu_tanh PTX, avgpool2d PTX, capture stream (#915)
 - Add AsyncCheckpointer conformance tests using background threads (#910)
 - Add AsyncCheckpointer conformance tests using background threads (#910)
 - Add sharded safetensors multi-file fixture and conformance tests (#908)

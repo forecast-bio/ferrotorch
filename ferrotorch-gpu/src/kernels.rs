@@ -1493,10 +1493,13 @@ DONE:
 ";
 
 /// PTX source for `gelu_tanh_kernel`: tanh approximation of GELU.
-/// `out[i] = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))`
+/// `out[i] = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))`
 ///
 /// Uses `ex2.approx.f32` for exp and Horner-form tanh approximation via
 /// `tanh(y) = (e^(2y) - 1) / (e^(2y) + 1)`.
+///
+/// Fix #893: comments must be ASCII-only; non-ASCII bytes (pi, superscript-3)
+/// inside the PTX string cause CUDA_ERROR_INVALID_PTX on sm_86 JIT.
 #[cfg(feature = "cuda")]
 pub(crate) const GELU_TANH_PTX: &str = "\
 .version 7.0
@@ -1533,8 +1536,8 @@ pub(crate) const GELU_TANH_PTX: &str = "\
 
     ld.global.f32 %x, [%in];
 
-    // inner = sqrt(2/π) * (x + 0.044715 * x³)
-    // sqrt(2/π) = 0.7978845608 = 0x3F4C422A
+    // inner = sqrt(2/pi) * (x + 0.044715 * x^3)
+    // sqrt(2/pi) = 0.7978845608 = 0x3F4C422A
     // 0.044715 = 0x3D372713
     mul.f32 %x3, %x, %x;
     mul.f32 %x3, %x3, %x;
@@ -8053,25 +8056,46 @@ RNB_DONE:
 //   rows       - number of rows (outer dimension)
 //   cols       - number of columns (softmax dimension, = last_dim)
 
-/// PTX kernel for BatchNorm2d forward: per-channel normalize + affine.
+/// PTX kernel for BatchNorm2d forward: per-channel mean+variance reduce then
+/// normalize+scale+shift. Matches torch.nn.functional.batch_norm semantics.
 ///
-/// Input layout: [B*C*spatial] flattened, where spatial = H*W.
-/// One block per channel. Each block computes mean + variance for its
-/// channel across all batch elements and spatial positions, then
-/// normalizes in a second pass.
+/// Input layout: NCHW, stored as [N*C*H*W] row-major. One block per channel C.
+/// Each block covers all N*H*W = total_per_ch elements for its channel.
 ///
-/// Parameters:
-///   input[B*C*S], output[B*C*S], weight[C], bias[C],
-///   running_mean[C], running_var[C], save_mean[C], save_invstd[C],
-///   channels, spatial, eps, momentum, total_per_channel (= B*S),
+/// Pass 1 (intra-block parallel sum):
+///   Each thread accumulates sum and sum-of-squares for indices
+///   tid, tid+bdim, tid+2*bdim, ... over [0, total_per_ch).
+///   The element at flat-loop-index k in channel ch is located at:
+///     flat = (k / spatial)*channels*spatial + ch*spatial + (k % spatial)
+///   Block reduction collapses to thread-0, which writes mean/invstd to smem.
+///
+/// Pass 2 (normalize + affine):
+///   All threads read mean/invstd from smem and write
+///     out[flat] = gamma * (in[flat] - mean) * invstd + beta
+///   over the same flat indices.
+///
+/// training=1: update running_mean/running_var with momentum and save
+///   mean/invstd for backward. training=0: use running_mean/running_var
+///   directly (inference path).
+///
+/// Parameters (all pointer arguments are f32 arrays of length C except
+/// input/output which are length N*C*H*W):
+///   input_ptr, output_ptr, weight_ptr (gamma), bias_ptr (beta),
+///   rmean_ptr (running_mean), rvar_ptr (running_var),
+///   save_mean_ptr, save_invstd_ptr,
+///   channels, spatial (=H*W), eps, momentum, total_per_ch (=N*H*W),
 ///   training (0 or 1)
+///
+/// Launch: blocks = channels, threads = min(total_per_ch, 256).
+/// ASCII-only comments (fix #892, #893 lesson).
 #[cfg(feature = "cuda")]
 pub(crate) const BATCHNORM_FORWARD_PTX: &str = "\
 .version 7.0
 .target sm_52
 .address_size 64
 
-// Shared memory for block reduction
+// smem_sum[256] holds per-thread partial sums in pass 1,
+// then mean (index 0) and invstd (index 1) after reduction.
 .shared .align 4 .f32 smem_sum[256];
 .shared .align 4 .f32 smem_sq[256];
 
@@ -8091,13 +8115,20 @@ pub(crate) const BATCHNORM_FORWARD_PTX: &str = "\
     .param .u32 total_per_ch,
     .param .u32 training
 ) {
-    .reg .u32 %my_tid, %bid, %bdim, %ch, %n_ch, %sp, %tpc, %idx, %train;
+    // k_loop = loop counter over [0, total_per_ch) for this thread
+    // flat = linearised NCHW index for the current k_loop value
+    // bidx, sidx = batch-element index and spatial index derived from k_loop
+    // sbase_sum/sbase_sq = base addresses of the two smem arrays held in
+    //   registers, so we can do [base + offset] with a register offset.
+    .reg .u32 %my_tid, %bid, %bdim, %ch, %n_ch, %sp, %tpc, %train;
+    .reg .u32 %k_loop, %flat, %bidx, %sidx;
+    .reg .u32 %half, %peer;
     .reg .u64 %in, %out, %w, %b, %rm, %rv, %sm, %si, %off64, %tmp64;
+    .reg .u64 %sbase_sum, %sbase_sq, %saddr_tid, %saddr_peer, %saddr_sq_tid;
     .reg .f32 %sum, %sqsum, %val, %mean, %var, %invstd;
     .reg .f32 %gamma, %beta, %eps_reg, %mom, %other;
-    .reg .f32 %n_f, %one, %normalized;
+    .reg .f32 %n_f, %one, %normalized, %rm_old, %rv_old, %one_m_mom;
     .reg .pred %p, %ptrain, %ptid0;
-    .reg .u32 %half;
 
     ld.param.u64 %in, [input_ptr];
     ld.param.u64 %out, [output_ptr];
@@ -8120,74 +8151,92 @@ pub(crate) const BATCHNORM_FORWARD_PTX: &str = "\
     mov.u32 %ch, %bid;
     mov.f32 %one, 0f3F800000;
 
+    // Load smem array base addresses into registers.
+    // PTX requires [reg] or [reg + imm_offset] for shared accesses;
+    // [label + reg_offset] is not valid syntax. Use mov.u64 to get
+    // the base address into a register, then add the byte offset.
+    mov.u64 %sbase_sum, smem_sum;
+    mov.u64 %sbase_sq, smem_sq;
+
+    // Per-thread slot address: saddr_tid = sbase_sum + tid*4
+    cvt.u64.u32 %off64, %my_tid;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %saddr_tid, %sbase_sum, %off64;
+    add.u64 %saddr_sq_tid, %sbase_sq, %off64;
+
+    // Out-of-range block guard
     setp.ge.u32 %p, %ch, %n_ch;
     @%p bra END;
 
     setp.ne.u32 %ptrain, %train, 0;
 
-    // ---- Pass 1: compute sum and sum-of-squares for this channel ----
+    // ===== Pass 1: accumulate per-thread sum and sum-of-squares =====
     mov.f32 %sum, 0f00000000;
     mov.f32 %sqsum, 0f00000000;
 
-    // Grid-stride loop over B*spatial for this channel
-    mov.u32 %idx, %my_tid;
+    // Grid-stride over k_loop in [0, tpc), step = bdim.
+    // k_loop is the loop counter; flat is recomputed fresh each iteration
+    // so the loop counter is never clobbered by address arithmetic.
+    mov.u32 %k_loop, %my_tid;
 PASS1_LOOP:
-    setp.ge.u32 %p, %idx, %tpc;
+    setp.ge.u32 %p, %k_loop, %tpc;
     @%p bra PASS1_DONE;
 
-    // Linear offset = (idx / spatial) * channels * spatial + ch * spatial + idx % spatial
-    div.u32 %half, %idx, %sp;
-    rem.u32 %half, %idx, %sp;  // reuse half as spatial_idx
-    // batch_offset = (idx / sp) * (n_ch * sp) + ch * sp + (idx % sp)
-    div.u32 %half, %idx, %sp;  // batch_idx
-    mul.lo.u32 %half, %half, %n_ch;
-    add.u32 %half, %half, %ch;
-    mul.lo.u32 %half, %half, %sp;
-    rem.u32 %idx, %idx, %sp;   // spatial_idx
-    add.u32 %half, %half, %idx;
+    // Flat NCHW index:
+    //   k_loop in [0, N*H*W) for this channel.
+    //   bidx = k_loop / spatial  (batch element)
+    //   sidx = k_loop % spatial  (spatial element)
+    //   flat = bidx * (C * spatial) + ch * spatial + sidx
+    div.u32 %bidx, %k_loop, %sp;
+    rem.u32 %sidx, %k_loop, %sp;
+    mul.lo.u32 %flat, %bidx, %n_ch;
+    add.u32 %flat, %flat, %ch;
+    mul.lo.u32 %flat, %flat, %sp;
+    add.u32 %flat, %flat, %sidx;
 
-    cvt.u64.u32 %off64, %half;
+    cvt.u64.u32 %off64, %flat;
     shl.b64 %off64, %off64, 2;
     add.u64 %tmp64, %in, %off64;
     ld.global.f32 %val, [%tmp64];
     add.f32 %sum, %sum, %val;
     fma.rn.f32 %sqsum, %val, %val, %sqsum;
 
-    // Restore idx for stride
-    // Recompute idx from tid + iteration * bdim
-    add.u32 %idx, %idx, %bdim;  // This is wrong - need proper loop counter
+    add.u32 %k_loop, %k_loop, %bdim;
     bra PASS1_LOOP;
 
 PASS1_DONE:
-    // Store to shared memory for block reduction
-    cvt.u64.u32 %off64, %my_tid;
-    shl.b64 %off64, %off64, 2;
-    st.shared.f32 [smem_sum + %off64], %sum;
-    st.shared.f32 [smem_sq + %off64], %sqsum;
+    // Store partial sums to smem slots for this thread
+    st.shared.f32 [%saddr_tid], %sum;
+    st.shared.f32 [%saddr_sq_tid], %sqsum;
     bar.sync 0;
 
-    // Tree reduction
-    mov.u32 %half, 128;
+    // Tree reduction: start at half = bdim/2 so peer indices are always in
+    // [0, bdim) regardless of block size. Fixed hardcoded 128 start caused
+    // out-of-bounds smem reads when bdim < 256 (e.g. bdim=16 => half=128
+    // tries to read smem[16..143] which are uninitialized, producing NaN).
+    shr.u32 %half, %bdim, 1;
 REDUCE_LOOP:
     setp.lt.u32 %p, %half, 1;
     @%p bra REDUCE_DONE;
     setp.ge.u32 %p, %my_tid, %half;
     @%p bra REDUCE_SKIP;
 
-    add.u32 %idx, %my_tid, %half;
-    cvt.u64.u32 %off64, %idx;
+    // sum: load peer slot, load my slot, add, store back to my slot
+    add.u32 %peer, %my_tid, %half;
+    cvt.u64.u32 %off64, %peer;
     shl.b64 %off64, %off64, 2;
-    ld.shared.f32 %other, [smem_sum + %off64];
-    cvt.u64.u32 %tmp64, %my_tid;
-    shl.b64 %tmp64, %tmp64, 2;
-    ld.shared.f32 %sum, [smem_sum + %tmp64];
+    add.u64 %saddr_peer, %sbase_sum, %off64;
+    ld.shared.f32 %other, [%saddr_peer];
+    ld.shared.f32 %sum, [%saddr_tid];
     add.f32 %sum, %sum, %other;
-    st.shared.f32 [smem_sum + %tmp64], %sum;
+    st.shared.f32 [%saddr_tid], %sum;
 
-    ld.shared.f32 %other, [smem_sq + %off64];
-    ld.shared.f32 %sqsum, [smem_sq + %tmp64];
+    // sqsum: same pattern using sbase_sq
+    add.u64 %saddr_peer, %sbase_sq, %off64;
+    ld.shared.f32 %other, [%saddr_peer];
+    ld.shared.f32 %sqsum, [%saddr_sq_tid];
     add.f32 %sqsum, %sqsum, %other;
-    st.shared.f32 [smem_sq + %tmp64], %sqsum;
+    st.shared.f32 [%saddr_sq_tid], %sqsum;
 
 REDUCE_SKIP:
     bar.sync 0;
@@ -8195,47 +8244,77 @@ REDUCE_SKIP:
     bra REDUCE_LOOP;
 
 REDUCE_DONE:
-    // Thread 0 computes mean and invstd
+    // Thread 0 computes mean and invstd (or reads them from running stats)
     setp.ne.u32 %ptid0, %my_tid, 0;
-
     @%ptid0 bra WAIT_STATS;
 
-    ld.shared.f32 %sum, [smem_sum];
-    ld.shared.f32 %sqsum, [smem_sq];
+    // Channel byte offset for scalar per-channel arrays
+    cvt.u64.u32 %off64, %ch;
+    shl.b64 %off64, %off64, 2;
+
+    @!%ptrain bra USE_RUNNING_STATS;
+
+    // --- training mode: compute mean and biased variance from data ---
+    ld.shared.f32 %sum, [%sbase_sum];
+    ld.shared.f32 %sqsum, [%sbase_sq];
     cvt.rn.f32.u32 %n_f, %tpc;
     div.rn.f32 %mean, %sum, %n_f;
-    // var = sqsum/n - mean^2
+    // biased_var = E[x^2] - mean^2 = sqsum/n - mean^2
     div.rn.f32 %var, %sqsum, %n_f;
-    fma.rn.f32 %var, %mean, %mean, %var;  // This adds mean^2, need to subtract
-    // Actually: var = E[x^2] - E[x]^2, so var = sqsum/n - mean^2
-    // We had: var = sqsum/n, now subtract mean^2
     neg.f32 %other, %mean;
-    fma.rn.f32 %var, %other, %mean, %var; // var = var + (-mean)*mean = sqsum/n - mean^2
+    fma.rn.f32 %var, %other, %mean, %var;
 
-    // invstd = 1/sqrt(var + eps)
+    // invstd = 1 / sqrt(var + eps)
     add.f32 %other, %var, %eps_reg;
     sqrt.rn.f32 %other, %other;
     div.rn.f32 %invstd, %one, %other;
 
-    // Save mean and invstd
-    cvt.u64.u32 %off64, %ch;
-    shl.b64 %off64, %off64, 2;
+    // Save mean and invstd for backward
     add.u64 %tmp64, %sm, %off64;
     st.global.f32 [%tmp64], %mean;
     add.u64 %tmp64, %si, %off64;
     st.global.f32 [%tmp64], %invstd;
 
-    // Store to shared for other threads
-    st.shared.f32 [smem_sum], %mean;
-    st.shared.f32 [smem_sq], %invstd;
+    // Update running_mean: rm = (1-mom)*rm + mom*mean
+    sub.f32 %one_m_mom, %one, %mom;
+    add.u64 %tmp64, %rm, %off64;
+    ld.global.f32 %rm_old, [%tmp64];
+    mul.f32 %other, %one_m_mom, %rm_old;
+    fma.rn.f32 %other, %mom, %mean, %other;
+    st.global.f32 [%tmp64], %other;
+
+    // Update running_var: rv = (1-mom)*rv + mom*var
+    add.u64 %tmp64, %rv, %off64;
+    ld.global.f32 %rv_old, [%tmp64];
+    mul.f32 %other, %one_m_mom, %rv_old;
+    fma.rn.f32 %other, %mom, %var, %other;
+    st.global.f32 [%tmp64], %other;
+
+    bra STATS_DONE;
+
+USE_RUNNING_STATS:
+    // --- inference mode: read running_mean and running_var ---
+    add.u64 %tmp64, %rm, %off64;
+    ld.global.f32 %mean, [%tmp64];
+    add.u64 %tmp64, %rv, %off64;
+    ld.global.f32 %var, [%tmp64];
+
+    // invstd = 1 / sqrt(var + eps)
+    add.f32 %other, %var, %eps_reg;
+    sqrt.rn.f32 %other, %other;
+    div.rn.f32 %invstd, %one, %other;
+
+STATS_DONE:
+    // Broadcast mean/invstd to smem slot [0] so all threads can read them
+    st.shared.f32 [%sbase_sum], %mean;
+    st.shared.f32 [%sbase_sq], %invstd;
 
 WAIT_STATS:
     bar.sync 0;
-    // All threads read mean and invstd from shared
-    ld.shared.f32 %mean, [smem_sum];
-    ld.shared.f32 %invstd, [smem_sq];
+    ld.shared.f32 %mean, [%sbase_sum];
+    ld.shared.f32 %invstd, [%sbase_sq];
 
-    // Load weight and bias for this channel
+    // Load gamma (weight) and beta (bias) for this channel
     cvt.u64.u32 %off64, %ch;
     shl.b64 %off64, %off64, 2;
     add.u64 %tmp64, %w, %off64;
@@ -8243,10 +8322,38 @@ WAIT_STATS:
     add.u64 %tmp64, %b, %off64;
     ld.global.f32 %beta, [%tmp64];
 
-    // ---- Pass 2: normalize + affine ----
-    // For now this is a placeholder - the indexing needs to match pass 1
-    // Each thread normalizes its elements
+    // ===== Pass 2: normalize + affine, same grid-stride as pass 1 =====
+    mov.u32 %k_loop, %my_tid;
+PASS2_LOOP:
+    setp.ge.u32 %p, %k_loop, %tpc;
+    @%p bra PASS2_DONE;
 
+    // Reconstruct flat index (same formula as pass 1)
+    div.u32 %bidx, %k_loop, %sp;
+    rem.u32 %sidx, %k_loop, %sp;
+    mul.lo.u32 %flat, %bidx, %n_ch;
+    add.u32 %flat, %flat, %ch;
+    mul.lo.u32 %flat, %flat, %sp;
+    add.u32 %flat, %flat, %sidx;
+
+    cvt.u64.u32 %off64, %flat;
+    shl.b64 %off64, %off64, 2;
+    add.u64 %tmp64, %in, %off64;
+    ld.global.f32 %val, [%tmp64];
+
+    // normalized = (val - mean) * invstd
+    sub.f32 %normalized, %val, %mean;
+    mul.f32 %normalized, %normalized, %invstd;
+    // output = gamma * normalized + beta
+    fma.rn.f32 %normalized, %gamma, %normalized, %beta;
+
+    add.u64 %tmp64, %out, %off64;
+    st.global.f32 [%tmp64], %normalized;
+
+    add.u32 %k_loop, %k_loop, %bdim;
+    bra PASS2_LOOP;
+
+PASS2_DONE:
 END:
     ret;
 }
@@ -8398,6 +8505,9 @@ END:
 ///
 /// One thread per output element. Same structure as MaxPool2d but
 /// computes sum / count instead of max.
+///
+/// Fix #894: comments must be ASCII-only; the em-dash in "-- same as MaxPool2d"
+/// caused CUDA_ERROR_INVALID_PTX on sm_86 JIT (same root cause as #893).
 #[cfg(feature = "cuda")]
 pub(crate) const AVGPOOL2D_PTX: &str = "\
 .version 7.0
@@ -8457,7 +8567,7 @@ LOOP:
     setp.ge.u32 %p, %idx, %total_reg;
     @%p bra END;
 
-    // Decompose idx into (b, c, oh, ow) — same as MaxPool2d
+    // Decompose idx into (b, c, oh, ow) -- same as MaxPool2d
     mov.u32 %rem, %idx;
     rem.u32 %ow, %rem, %w_out_reg;
     div.u32 %rem, %rem, %w_out_reg;
@@ -19583,38 +19693,119 @@ pub fn gpu_avgpool2d(
 // Public API -- BatchNorm2d
 // ---------------------------------------------------------------------------
 
-/// BatchNorm2d forward on GPU (placeholder — kernel pass-1 indexing needs
-/// refinement). Currently validates the kernel compiles and falls back to
-/// returning an error so callers use the CPU path.
+/// BatchNorm2d forward on GPU. Implements torch.nn.functional.batch_norm.
+///
+/// `input`: `[N * C * H * W]` flattened row-major.
+/// `weight` (gamma), `bias` (beta): per-channel `[C]`.
+/// `running_mean`, `running_var`: per-channel `[C]`, updated in-place when
+///   `training=true`.
+/// `channels`: C, `spatial`: H*W, `eps`: numerical stabiliser,
+/// `momentum`: EMA coefficient for running stats.
+///
+/// Returns `(output, save_mean, save_invstd)`:
+///   output — normalised + affine-transformed, shape `[N*C*H*W]`.
+///   save_mean  — per-channel batch mean `[C]` (needed for backward).
+///   save_invstd — per-channel 1/sqrt(var+eps) `[C]` (needed for backward).
+///
+/// §3 phrasing: Implemented on GPU via PTX kernel; returns
+/// `Err(GpuError::PtxCompileFailed)` if the kernel JIT fails.
 #[cfg(feature = "cuda")]
 #[allow(clippy::too_many_arguments)]
 pub fn gpu_batchnorm_forward(
-    _input: &CudaBuffer<f32>,
-    _weight: &CudaBuffer<f32>,
-    _bias: &CudaBuffer<f32>,
-    _running_mean: &mut CudaBuffer<f32>,
-    _running_var: &mut CudaBuffer<f32>,
-    _channels: usize,
-    _spatial: usize,
-    _eps: f32,
-    _momentum: f32,
-    _training: bool,
+    input: &CudaBuffer<f32>,
+    weight: &CudaBuffer<f32>,
+    bias: &CudaBuffer<f32>,
+    running_mean: &mut CudaBuffer<f32>,
+    running_var: &mut CudaBuffer<f32>,
+    channels: usize,
+    spatial: usize,
+    eps: f32,
+    momentum: f32,
+    training: bool,
     device: &GpuDevice,
 ) -> GpuResult<(CudaBuffer<f32>, CudaBuffer<f32>, CudaBuffer<f32>)> {
-    // Validate the PTX compiles (catches syntax errors at first call).
+    use cudarc::driver::PushKernelArg;
+
     let ctx = device.context();
-    let _f = crate::module_cache::get_or_compile(
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
         ctx,
         BATCHNORM_FORWARD_PTX,
         "batchnorm_forward_kernel",
         device.ordinal() as u32,
-    );
-    // Full implementation pending — pass-1 loop indexing needs refinement.
-    Err(GpuError::ShapeMismatch {
-        op: "batchnorm_forward",
-        expected: vec![0],
-        got: vec![1],
-    })
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "batchnorm_forward_kernel",
+                source: e,
+            });
+        }
+    };
+
+    let total = input.len();                    // N * C * H * W
+    let total_per_ch = total / channels;        // N * H * W  (= N * spatial)
+
+    let mut output = alloc_zeros_f32(total, device)?;
+    let mut save_mean = alloc_zeros_f32(channels, device)?;
+    let mut save_invstd = alloc_zeros_f32(channels, device)?;
+
+    // One block per channel, up to 256 threads per block.
+    // The kernel uses 256-element shared memory for the intra-block reduction,
+    // so block_dim must not exceed 256.
+    let threads = (total_per_ch as u32).clamp(1, 256);
+    let cfg = LaunchConfig {
+        grid_dim: (channels as u32, 1, 1),
+        block_dim: (threads, 1, 1),
+        // Two 256-element f32 smem arrays for pass-1 reduction.
+        shared_mem_bytes: 256 * 4 * 2,
+    };
+
+    let channels_u32    = channels as u32;
+    let spatial_u32     = spatial as u32;
+    let total_per_ch_u32 = total_per_ch as u32;
+    let training_u32    = u32::from(training);
+
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `batchnorm_forward_kernel`
+    //   resolved by `module_cache::get_or_compile` immediately above;
+    //   its 14-parameter ABI matches `BATCHNORM_FORWARD_PTX`.
+    // - `input: &CudaBuffer<f32>` and `weight`/`bias`/`running_mean`/
+    //   `running_var`: all on `device` (caller contract). `output`,
+    //   `save_mean`, `save_invstd` are freshly allocated on `device`
+    //   above with correct sizes (`total`, `channels`, `channels`).
+    // - Grid = `channels` blocks x `threads` threads; each block's
+    //   grid-stride loop covers `[0, total_per_ch)` for channel `blockIdx.x`,
+    //   bounded by the `setp.ge.u32 @%p bra END` guard in the PTX.
+    // - Two f32 smem arrays of 256 elements each are declared statically
+    //   in the PTX; `shared_mem_bytes` matches (256 * 4 * 2 = 2 KiB).
+    // - `channels_u32`, `spatial_u32`, `total_per_ch_u32` are cast from
+    //   `usize` values bounded by the input tensor size; overflow not
+    //   possible for realistic NCHW tensors.
+    // - cudarc enqueues the launch on `stream`; all arg refs live until
+    //   the trailing `?`. Stream sync is the caller's responsibility.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(output.inner_mut())
+            .arg(weight.inner())
+            .arg(bias.inner())
+            .arg(running_mean.inner_mut())
+            .arg(running_var.inner_mut())
+            .arg(save_mean.inner_mut())
+            .arg(save_invstd.inner_mut())
+            .arg(&channels_u32)
+            .arg(&spatial_u32)
+            .arg(&eps)
+            .arg(&momentum)
+            .arg(&total_per_ch_u32)
+            .arg(&training_u32)
+            .launch(cfg)?;
+    }
+
+    Ok((output, save_mean, save_invstd))
 }
 
 /// Stub.
@@ -20097,9 +20288,22 @@ pub fn gpu_rmsnorm_backward(
 // These are used for CUDA graph capture, where all buffer addresses must be
 // fixed at capture time. The PTX kernels are identical — only the Rust
 // wrapper skips allocation.
+//
+// Fix #897: gpu_add_into previously always dispatched on device.stream() (the
+// device default stream). Under CUDA graph capture with ThreadLocal mode the
+// capture-stream and the device default stream can be different objects; any
+// kernel launched on device.stream() is NOT recorded into the capture.
+// gpu_add_into_on_stream allows the caller to pass the capture stream directly
+// so the kernel lands in the graph being built. gpu_add_into is kept for
+// callers that do not have a capture stream (it dispatches on device.stream()
+// as before, which is correct outside of a graph capture context).
 // ===========================================================================
 
 /// Elementwise add into pre-allocated output: `out[i] = a[i] + b[i]`.
+///
+/// Dispatches on `device.stream()` (the device default stream). Use
+/// [`gpu_add_into_on_stream`] during CUDA graph capture so the kernel is
+/// recorded on the capture stream rather than the default stream.
 #[cfg(feature = "cuda")]
 pub fn gpu_add_into(
     a: &CudaBuffer<f32>,
@@ -20116,6 +20320,69 @@ pub fn gpu_add_into(
         });
     }
     try_launch_binary_into(a, b, out, device, ADD_PTX, "add_kernel")
+}
+
+/// Elementwise add into pre-allocated output on an explicit stream.
+///
+/// Identical to [`gpu_add_into`] but launches on `stream` instead of
+/// `device.stream()`. Required for CUDA graph capture: the kernel must
+/// be issued on the capture stream so it is recorded into the graph.
+///
+/// §3 phrasing: Implemented on GPU; returns `Err(GpuError::PtxCompileFailed)`
+/// if the PTX JIT fails.
+#[cfg(feature = "cuda")]
+pub fn gpu_add_into_on_stream(
+    a: &CudaBuffer<f32>,
+    b: &CudaBuffer<f32>,
+    out: &mut CudaBuffer<f32>,
+    device: &GpuDevice,
+    stream: &std::sync::Arc<cudarc::driver::CudaStream>,
+) -> GpuResult<()> {
+    use cudarc::driver::PushKernelArg;
+    validate_binary(a, b, device)?;
+    if out.len() < a.len() {
+        return Err(GpuError::ShapeMismatch {
+            op: "add_into_on_stream",
+            expected: vec![a.len()],
+            got: vec![out.len()],
+        });
+    }
+    let n = a.len();
+    let ctx = device.context();
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        ADD_PTX,
+        "add_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "add_kernel",
+                source: e,
+            });
+        }
+    };
+    let cfg = launch_cfg(n)?;
+    let n_u32 = n as u32;
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for `add_kernel` resolved via
+    //   `module_cache::get_or_compile` immediately above. ABI matches ADD_PTX.
+    // - `a`, `b`, `out` are validated same-device and `out.len() >= n`.
+    //   `out: &mut CudaBuffer<f32>` cannot alias `a` or `b` per Rust rules.
+    // - `n_u32 = n as u32` is safe: `launch_cfg(n)?` returns Err if n > u32::MAX.
+    // - cudarc enqueues the launch on `stream` (the caller-supplied capture
+    //   stream), not device.stream(), so the kernel is recorded in the graph.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(a.inner())
+            .arg(b.inner())
+            .arg(out.inner_mut())
+            .arg(&n_u32)
+            .launch(cfg)?;
+    }
+    Ok(())
 }
 
 /// Elementwise mul into pre-allocated output: `out[i] = a[i] * b[i]`.

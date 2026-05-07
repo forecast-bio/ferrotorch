@@ -201,9 +201,9 @@ pub use graph::{
 };
 pub use kernels::{gpu_add, gpu_mul, gpu_neg, gpu_relu, gpu_sub};
 pub use kernels::{
-    gpu_add_into, gpu_embed_lookup_into, gpu_gelu_into, gpu_layernorm_into, gpu_mul_into,
-    gpu_permute_0213_into, gpu_scale_into, gpu_slice_read_into, gpu_small_matmul_into,
-    gpu_softmax_into, gpu_transpose_2d_into,
+    gpu_add_into, gpu_add_into_on_stream, gpu_embed_lookup_into, gpu_gelu_into,
+    gpu_layernorm_into, gpu_mul_into, gpu_permute_0213_into, gpu_scale_into,
+    gpu_slice_read_into, gpu_small_matmul_into, gpu_softmax_into, gpu_transpose_2d_into,
 };
 pub use kernels::{gpu_broadcast_add, gpu_broadcast_mul, gpu_broadcast_sub};
 pub use kernels::{gpu_causal_mask_indirect, gpu_slice_write_indirect};
