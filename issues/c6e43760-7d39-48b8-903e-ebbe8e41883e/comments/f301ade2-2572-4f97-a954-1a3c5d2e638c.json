@@ -1,0 +1,10 @@
+{
+  "uuid": "f301ade2-2572-4f97-a954-1a3c5d2e638c",
+  "issue_uuid": "c6e43760-7d39-48b8-903e-ebbe8e41883e",
+  "author": "y4rr",
+  "content": "Verified still open: conformance_serialize.rs has onnx_export_items_cascade_skip() that always skips. OnnxExportConfig/export_onnx/export_from_program/export_ir_graph_to_onnx/ir_graph_to_onnx all remain excluded pending ferrotorch-jit IR graph availability. Leaving open.",
+  "created_at": "2026-05-07T22:58:26.804458260Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvUZH1WnHbBS9RnhiSNhHb+qTtqMhsWa04aQE+mfO4xkbHOrQGX9L402ciqVgqKK7SKh9Nae+SsRs9VAjDABgCA=="
+}
