@@ -1,0 +1,10 @@
+{
+  "uuid": "040b4877-eacf-4328-a227-dddf47783c9f",
+  "display_id": 895,
+  "title": "blas.rs module doc promises silent CPU fallback on cuBLAS handle failure with eprintln — §3 violation; non-opt-in CPU fallback",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T16:51:48.774433100Z",
+  "updated_at": "2026-05-07T16:51:48.774433100Z"
+}
