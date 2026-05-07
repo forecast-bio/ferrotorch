@@ -1,0 +1,10 @@
+{
+  "uuid": "7e6cb5d6-c310-4672-b0ca-ad89f92b11bc",
+  "display_id": 836,
+  "title": "ferrotorch-xpu: live make_xpu_tensor path not conformance-tested — no Intel GPU on test box",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T13:35:15.302838110Z",
+  "updated_at": "2026-05-07T13:35:15.302838110Z"
+}
