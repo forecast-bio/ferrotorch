@@ -1,0 +1,10 @@
+{
+  "uuid": "1efa74fb-6dff-4e7b-9465-695402c352d6",
+  "issue_uuid": "2723e891-fdaf-499f-a722-bb2f1003ff25",
+  "author": "y4rr",
+  "content": "Plan: Build conformance_serialize_sharded.rs. The source already has all sharded loader functions; this is purely test infrastructure. Use tempfile to create an in-memory fixture directory with index.json + 2-3 shard .safetensors files. Tests: load_safetensors_sharded round-trip, load_safetensors_sharded_filtered, load_safetensors_sharded_with_progress, load_safetensors_auto (sharded dispatch), ShardProgress fields. Remove corresponding cascade_skip in conformance_serialize.rs and #851 exclusion entries from _surface_exclusions.toml.",
+  "created_at": "2026-05-07T17:47:16.520695376Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAWcK+iMzBWKCve5UOmu1hcldAJJazo1MIZUD0GxCNY6SV3otab9PdNH9Er6a0mDsGHTYPKcelIcYNTZccDHSfDg=="
+}
