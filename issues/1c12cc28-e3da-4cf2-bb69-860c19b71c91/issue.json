@@ -6,5 +6,8 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T15:17:18.850379053Z",
-  "updated_at": "2026-05-07T15:17:18.850379053Z"
+  "updated_at": "2026-05-07T15:17:20.279933201Z",
+  "labels": [
+    "rust,bug,conformance,vision"
+  ]
 }
