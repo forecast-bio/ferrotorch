@@ -1,0 +1,10 @@
+{
+  "uuid": "b47db309-ea29-4da1-b3b9-76eb8710304d",
+  "issue_uuid": "e6d4c315-1fd8-46f7-9076-477e932bf29d",
+  "author": "y4rr",
+  "content": "Result: All 5 bugs fixed. 362 unit + 60 continuous conformance + 41 discrete conformance + 1 surface = 464 tests pass. cargo clippy -D warnings clean. All cascade_skip calls removed from #875-#879 fixtures. Probe values: RelaxedBernoulli(temp=2.0, probs→logits=0.5, x=0.7): now -0.7893 (was 1.6186). Kumaraswamy(a=0.5,b=0.5) entropy: now -0.2274 (was divergent). Pareto(alpha=1, xm=1): mean=inf, variance=inf correct. Multinomial(n=10, p=[0.2,0.3,0.5]): mean=[2,3,5], variance=[1.6,2.1,2.5] correct.",
+  "created_at": "2026-05-07T18:23:40.101317966Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABATshe3+GOnjWFvGvS0G8fFthS5oBQtNkKQT9p/fGHuvsz2/rmf7NHCU6xijhw7Ifww/IIJxgJWM6+L5u/a6yNCQ=="
+}
