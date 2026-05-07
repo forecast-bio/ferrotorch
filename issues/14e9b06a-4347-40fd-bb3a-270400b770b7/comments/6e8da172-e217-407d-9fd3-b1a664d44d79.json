@@ -1,0 +1,10 @@
+{
+  "uuid": "6e8da172-e217-407d-9fd3-b1a664d44d79",
+  "issue_uuid": "14e9b06a-4347-40fd-bb3a-270400b770b7",
+  "author": "y4rr",
+  "content": "Decision: ConvTranspose2d(256,256,kernel=(2,2),stride=(2,2),padding=(0,0),output_padding=(0,0),bias=true) for the upsampling step in MaskPredictor — this matches torchvision's MaskRCNNPredictor exactly (2x spatial upsample). The mask ROI pool size is 14×14, producing 28×28 output masks after the deconv.",
+  "created_at": "2026-05-07T22:56:57.089063013Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAKH6a5LZk6ebHovUkHiQQUZluLAbXJbGN7WYkjprO37/yYqOuZ1WGGHGNLBwm7rVtTEgaEhSnKlk0q00zXR6pBg=="
+}
