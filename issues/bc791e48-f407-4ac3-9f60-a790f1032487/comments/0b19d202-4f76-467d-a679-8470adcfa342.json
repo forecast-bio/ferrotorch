@@ -1,0 +1,10 @@
+{
+  "uuid": "0b19d202-4f76-467d-a679-8470adcfa342",
+  "issue_uuid": "bc791e48-f407-4ac3-9f60-a790f1032487",
+  "author": "y4rr",
+  "content": "Sprint A.3: sanitize_path_component is transitively covered by HubCache public-boundary tests; the function is genuinely an internal utility per huggingface_hub's parity contract. Documented as exclusion with 'transitive coverage via HubCache' reason; no source visibility change needed.",
+  "created_at": "2026-05-07T17:55:22.616941080Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAaoiW6b36lm/5SxHhIMEQV95IkAS4AiQVsls4nkVQ4JE9h7PfOe1SE6Maj27V9BtMBPnKWiW7GMifuoLd6k3rAQ=="
+}
