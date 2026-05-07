@@ -1,0 +1,10 @@
+{
+  "uuid": "5850eaf5-56d9-44ca-98fc-4ec26a3e5537",
+  "issue_uuid": "d434c791-87b8-4368-87e0-c53a731a4be6",
+  "author": "y4rr",
+  "content": "Result: ConvNeXt-Tiny V.1 forward parity conformance lane delivered in Sprint B.5.b / V.1. 5 conformance tests in conformance_vision_models.rs (output_shape, output_finite, param_count_in_range, custom_num_classes, deterministic_forward). All tests pass. fixtures.json + fixtures_v_parity.json contain fixture entries.",
+  "created_at": "2026-05-07T22:46:32.147731085Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQI5KLbrn5nyMNIUC5vKT0whGtSbbx63EgnZJTJNLV0EUnP+0GX2IwIJmhz+OMtwyMZr3WTiZlUEv2yxyYfgDBQ=="
+}
