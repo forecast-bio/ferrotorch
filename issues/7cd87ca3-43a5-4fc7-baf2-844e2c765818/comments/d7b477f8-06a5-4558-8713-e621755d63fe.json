@@ -1,0 +1,10 @@
+{
+  "uuid": "d7b477f8-06a5-4558-8713-e621755d63fe",
+  "issue_uuid": "7cd87ca3-43a5-4fc7-baf2-844e2c765818",
+  "author": "y4rr",
+  "content": "Plan: The sprint brief mentions Tokio, but reviewing checkpoint.rs reveals AsyncCheckpointer uses std::thread (not async/await), so no Tokio runtime is needed. Tests: (1) async save -> wait -> load round-trip, (2) sequential saves (second save waits for first), (3) is_saving() flag state. Write conformance_serialize_async.rs. Remove cascade_skip in conformance_serialize.rs and #852 exclusion entry from _surface_exclusions.toml.",
+  "created_at": "2026-05-07T17:47:37.258958434Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA1Pry85yLY6vFgWSSld+36q5m18QoKmRGqGOwg0fx2V29kQyBglalLhNuvegUMuADStz2QbIuJDIGjJHY8/wJAw=="
+}
