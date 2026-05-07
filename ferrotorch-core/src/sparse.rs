@@ -2170,6 +2170,32 @@ impl<T: Float> SparseGrad<T> {
     /// Apply this sparse gradient to a dense parameter tensor: update
     /// `param[indices[i]] -= lr * values[i]` for every i. The leading
     /// dim of `param` is the indexed dim; the rest must match `slab_shape`.
+    ///
+    /// # GPU dispatch (P8 of #806)
+    ///
+    /// When `param` lives on `Device::Cuda(_)` and `T = f32`, the update
+    /// runs entirely on device by composing existing `GpuBackend`
+    /// primitives:
+    ///
+    /// 1. Upload `(values, indices_as_f32)` to CUDA.
+    /// 2. `scatter_add_rows_f32` materialises a dense gradient buffer of
+    ///    shape `[leading * slab_size]` with the slabs scattered into the
+    ///    rows named by `indices` (duplicates accumulate, matching
+    ///    `coalesce` + scatter semantics).
+    /// 3. `scale_f32(dense_grad, lr)` produces `lr * dense_grad`.
+    /// 4. `sub_f32(param, scaled)` produces the updated param.
+    ///
+    /// PyTorch parity (`rust-gpu-discipline` §3 composite-implicit-autograd):
+    /// `optim.SGD` with `sparse=True` decomposes into the same scatter +
+    /// scaled subtraction on CUDA tensors via the dispatcher's element-wise
+    /// kernels. No new GpuBackend trait method is required for this phase
+    /// — the composite already runs on-device with the existing primitives.
+    ///
+    /// `T = f64` on CUDA falls through to the structured `Err` path because
+    /// `scatter_add_rows_f64` is not yet implemented (the underlying
+    /// `GpuBackend` returns `InvalidArgument`); that error surfaces verbatim
+    /// rather than silently host-rounding (PyTorch parity: dispatcher raises
+    /// on missing CUDA kernels, never silently degrades to CPU).
     pub fn apply_sgd(&self, param: &mut Tensor<T>, lr: T) -> FerrotorchResult<()> {
         let shape = param.shape().to_vec();
         if shape.len() != 1 + self.slab_shape.len() {
@@ -2191,13 +2217,167 @@ impl<T: Float> SparseGrad<T> {
         }
         let slab_size = self.slab_size();
         let leading = shape[0];
-        let mut data = param.data_vec()?;
+
+        // Validate indices once up-front so the GPU and CPU lanes share
+        // the same precondition errors (PyTorch parity: `IndexError` is
+        // raised before any kernel launch).
         for (k, &idx) in self.indices.iter().enumerate() {
             if idx >= leading {
                 return Err(FerrotorchError::InvalidArgument {
-                    message: format!("SparseGrad::apply_sgd: index {idx} >= {leading}"),
+                    message: format!(
+                        "SparseGrad::apply_sgd: index {idx} >= {leading} (slot {k})"
+                    ),
                 });
             }
+        }
+
+        // -- CUDA fast path ---------------------------------------------------
+        //
+        // Composite of existing primitives (cpu_to_gpu + scatter_add_rows_f32
+        // + scale_f32 + sub_f32). Output stays on CUDA. The composite
+        // matches the CPU semantics including duplicate-index accumulation.
+        if param.is_cuda() {
+            if let Some(backend) = crate::gpu_dispatch::gpu_backend() {
+                use std::any::TypeId;
+                let nnz = self.indices.len();
+
+                if nnz == 0 {
+                    // Nothing to update. Param keeps its current device
+                    // and contents; PyTorch's no-op semantics for empty
+                    // sparse grads.
+                    return Ok(());
+                }
+
+                if TypeId::of::<T>() == TypeId::of::<f32>() {
+                    let ordinal = param.gpu_handle()?.device_ordinal();
+
+                    // 1. Upload values (slab buffer) to CUDA.
+                    // SAFETY: TypeId guard establishes T == f32; the byte
+                    // reinterpret of `&[T]` as `&[u8]` is layout-preserving
+                    // (T is f32, no padding). The borrow lives only for
+                    // the cpu_to_gpu call.
+                    let values_bytes = unsafe {
+                        std::slice::from_raw_parts(
+                            self.values.as_ptr().cast::<u8>(),
+                            self.values.len() * std::mem::size_of::<f32>(),
+                        )
+                    };
+                    let values_handle = backend.cpu_to_gpu(
+                        values_bytes,
+                        std::mem::size_of::<f32>(),
+                        ordinal,
+                    )?;
+
+                    // 2. Indices as f32 (scatter_add_rows_f32 ABI).
+                    let indices_f32: Vec<f32> =
+                        self.indices.iter().map(|&i| i as f32).collect();
+                    // SAFETY: indices_f32 is a freshly-built Vec<f32> living
+                    // for the duration of the call.
+                    let idx_bytes = unsafe {
+                        std::slice::from_raw_parts(
+                            indices_f32.as_ptr().cast::<u8>(),
+                            indices_f32.len() * std::mem::size_of::<f32>(),
+                        )
+                    };
+                    let idx_handle = backend.cpu_to_gpu(
+                        idx_bytes,
+                        std::mem::size_of::<f32>(),
+                        ordinal,
+                    )?;
+
+                    // 3. Scatter-add rows to a dense [leading, slab_size]
+                    //    buffer (zero-initialized inside the kernel).
+                    let dense_grad = backend.scatter_add_rows_f32(
+                        &values_handle,
+                        &idx_handle,
+                        leading,
+                        slab_size,
+                    )?;
+
+                    // 4. Scale by lr (lr is T = f32 under the TypeId guard).
+                    let lr_f32: f32 = num_traits::ToPrimitive::to_f32(&lr).ok_or_else(|| {
+                        FerrotorchError::InvalidArgument {
+                            message: "SparseGrad::apply_sgd: lr not representable as f32"
+                                .into(),
+                        }
+                    })?;
+                    let scaled = backend.scale_f32(&dense_grad, lr_f32)?;
+
+                    // 5. param -= scaled (full-buffer sub).
+                    let param_handle = param.gpu_handle()?;
+                    let updated = backend.sub_f32(param_handle, &scaled)?;
+
+                    let storage = TensorStorage::gpu(updated);
+                    *param = Tensor::from_storage(storage, shape, param.requires_grad())?;
+                    return Ok(());
+                }
+
+                if TypeId::of::<T>() == TypeId::of::<f64>() {
+                    // f64 lane: scatter_add_rows_f64 is not implemented in
+                    // the current backend trait (returns
+                    // `InvalidArgument`). PyTorch-parity §3 says we should
+                    // surface that as a structured error rather than
+                    // silently fall back to CPU. Hand off to the f64
+                    // primitives so the error message names the missing
+                    // kernel.
+                    let ordinal = param.gpu_handle()?.device_ordinal();
+                    // SAFETY: TypeId guard establishes T == f64.
+                    let values_bytes = unsafe {
+                        std::slice::from_raw_parts(
+                            self.values.as_ptr().cast::<u8>(),
+                            self.values.len() * std::mem::size_of::<f64>(),
+                        )
+                    };
+                    let values_handle = backend.cpu_to_gpu(
+                        values_bytes,
+                        std::mem::size_of::<f64>(),
+                        ordinal,
+                    )?;
+                    let indices_f32: Vec<f32> =
+                        self.indices.iter().map(|&i| i as f32).collect();
+                    // SAFETY: see above.
+                    let idx_bytes = unsafe {
+                        std::slice::from_raw_parts(
+                            indices_f32.as_ptr().cast::<u8>(),
+                            indices_f32.len() * std::mem::size_of::<f32>(),
+                        )
+                    };
+                    let idx_handle = backend.cpu_to_gpu(
+                        idx_bytes,
+                        std::mem::size_of::<f32>(),
+                        ordinal,
+                    )?;
+
+                    let dense_grad = backend.scatter_add_rows_f64(
+                        &values_handle,
+                        &idx_handle,
+                        leading,
+                        slab_size,
+                    )?;
+                    let lr_f64: f64 = num_traits::ToPrimitive::to_f64(&lr).ok_or_else(|| {
+                        FerrotorchError::InvalidArgument {
+                            message: "SparseGrad::apply_sgd: lr not representable as f64"
+                                .into(),
+                        }
+                    })?;
+                    let scaled = backend.scale_f64(&dense_grad, lr_f64)?;
+                    let param_handle = param.gpu_handle()?;
+                    let updated = backend.sub_f64(param_handle, &scaled)?;
+                    let storage = TensorStorage::gpu(updated);
+                    *param = Tensor::from_storage(storage, shape, param.requires_grad())?;
+                    return Ok(());
+                }
+
+                // Other dtypes fall through; `param.data_vec()?` will
+                // surface `GpuTensorNotAccessible` rather than silently
+                // host-detour (PyTorch parity: structured error).
+            }
+        }
+
+        // -- CPU path ---------------------------------------------------------
+        let mut data = param.data_vec()?;
+        for (k, &idx) in self.indices.iter().enumerate() {
+            // Bounds were validated above.
             let row_start = idx * slab_size;
             let val_start = k * slab_size;
             for j in 0..slab_size {

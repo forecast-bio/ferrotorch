@@ -1134,6 +1134,82 @@ impl<T: Float> PackedNestedTensor<T> {
         &self.data[self.offsets[i]..self.offsets[i + 1]]
     }
 
+    /// Materialise the flat packed buffer as a 1-D CPU [`Tensor<T>`] of
+    /// shape `[total_numel]`, with no autograd hookup. P8 of #806.
+    ///
+    /// This is the bridge between `PackedNestedTensor`'s `Vec<T>` storage
+    /// and the device-aware `Tensor<T>` API. Callers wanting on-device
+    /// element-wise composition (`Tensor + Tensor` etc.) call this, then
+    /// `.to(Device::Cuda(0))`, do their dispatched arithmetic on the flat
+    /// buffer (offsets are layout metadata only — they don't influence the
+    /// bulk arithmetic), and round-trip back via [`Self::from_data_tensor`].
+    ///
+    /// PyTorch parity (`rust-gpu-discipline` §3): the analog is
+    /// `torch.nested.nested_tensor(...).values()` on the
+    /// `jagged`/`packed` layout, which exposes the underlying contiguous
+    /// buffer for element-wise composition.
+    pub fn data_to_tensor(&self) -> FerrotorchResult<Tensor<T>> {
+        Tensor::from_storage(
+            TensorStorage::cpu(self.data.clone()),
+            vec![self.data.len()],
+            false,
+        )
+    }
+
+    /// Build a `PackedNestedTensor` from a flat 1-D `Tensor<T>` plus
+    /// offsets and tail shape. Inverse of [`Self::data_to_tensor`].
+    ///
+    /// If `tensor` lives on CUDA, its data is read back to host (this
+    /// reconstructs the CPU-resident `Vec<T>` storage that
+    /// `PackedNestedTensor` owns by construction). The expected workflow is
+    /// "upload, compose, download once" — not per-call round-trips.
+    ///
+    /// # Errors
+    ///
+    /// - `tensor.shape() != [offsets[N]]` (length must match the offsets'
+    ///   final entry)
+    /// - `offsets` is empty or not monotonically non-decreasing.
+    pub fn from_data_tensor(
+        tensor: &Tensor<T>,
+        offsets: Vec<usize>,
+        tail_shape: Vec<usize>,
+    ) -> FerrotorchResult<Self> {
+        if offsets.is_empty() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "PackedNestedTensor::from_data_tensor: offsets must be non-empty".into(),
+            });
+        }
+        for w in offsets.windows(2) {
+            if w[1] < w[0] {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "PackedNestedTensor::from_data_tensor: offsets not monotonic: {offsets:?}"
+                    ),
+                });
+            }
+        }
+        let expected_len = *offsets.last().unwrap();
+        if tensor.numel() != expected_len {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "PackedNestedTensor::from_data_tensor: tensor numel {} != offsets[N] {}",
+                    tensor.numel(),
+                    expected_len
+                ),
+            });
+        }
+        let host = if tensor.is_cuda() {
+            tensor.cpu()?.data()?.to_vec()
+        } else {
+            tensor.data()?.to_vec()
+        };
+        Ok(Self {
+            data: host,
+            offsets,
+            tail_shape,
+        })
+    }
+
     /// Elementwise map that applies `f` to every value in the
     /// packed buffer and returns a new `PackedNestedTensor` with
     /// the same offsets and tail shape.
@@ -1141,6 +1217,18 @@ impl<T: Float> PackedNestedTensor<T> {
     /// This is the workhorse for implementing nested-level
     /// elementwise ops (relu, neg, abs, etc.) without writing per-
     /// component loops. CL-291.
+    ///
+    /// # GPU policy (P8 of #806)
+    ///
+    /// `map` is **CPU-only by design** because Rust closures cannot be
+    /// JIT-compiled into PTX kernels. This is the canonical
+    /// `rust-gpu-discipline` §3 composite-implicit-autograd shape: callers
+    /// who want GPU execution decompose their `map(|v| ...)` into a sequence
+    /// of dispatched primitives (e.g. `Tensor::relu`, `Tensor::sigmoid`,
+    /// `Tensor::neg`), each of which routes correctly to the device the
+    /// inputs live on. PyTorch's analog is identical — `torch.Tensor.apply_`
+    /// is documented as CPU-only and users are directed to the dispatched
+    /// element-wise ops for CUDA.
     pub fn map(&self, f: impl Fn(T) -> T) -> Self {
         let data: Vec<T> = self.data.iter().copied().map(f).collect();
         Self {
@@ -1156,21 +1244,32 @@ impl<T: Float> PackedNestedTensor<T> {
     /// # Errors
     ///
     /// Returns an error if the offsets or tail shapes don't match.
+    ///
+    /// # GPU policy (P8 of #806)
+    ///
+    /// `PackedNestedTensor` stores the flat buffer in `Vec<T>` (CPU-resident
+    /// by definition). The GPU lane is a `rust-gpu-discipline` §3
+    /// composite-implicit-autograd: callers materialise the flat buffer as
+    /// a `Tensor<T>` on CUDA via `data_to_tensor` (P8), use the dispatched
+    /// `Tensor + Tensor` (which routes to `add_f32` / `add_f64` /
+    /// `broadcast_add_*` on-device), and re-pack via `from_data_tensor`. The
+    /// offsets and tail shape are layout metadata only — they don't
+    /// influence the bulk arithmetic, which operates on the flat buffer.
     pub fn add(&self, other: &Self) -> FerrotorchResult<Self> {
         self.zip_with(other, "add", |a, b| a + b)
     }
 
-    /// Elementwise subtraction.
+    /// Elementwise subtraction. See [`Self::add`] for the §3 GPU lane.
     pub fn sub(&self, other: &Self) -> FerrotorchResult<Self> {
         self.zip_with(other, "sub", |a, b| a - b)
     }
 
-    /// Elementwise multiplication.
+    /// Elementwise multiplication. See [`Self::add`] for the §3 GPU lane.
     pub fn mul(&self, other: &Self) -> FerrotorchResult<Self> {
         self.zip_with(other, "mul", |a, b| a * b)
     }
 
-    /// Elementwise division.
+    /// Elementwise division. See [`Self::add`] for the §3 GPU lane.
     pub fn div(&self, other: &Self) -> FerrotorchResult<Self> {
         self.zip_with(other, "div", |a, b| a / b)
     }
