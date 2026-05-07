@@ -1,0 +1,10 @@
+{
+  "uuid": "3f181544-4255-4365-8122-768a69be37bc",
+  "display_id": 877,
+  "title": "Kumaraswamy::entropy() uses incorrect digamma approximation for non-integer b in (0,1)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T15:34:55.919470665Z",
+  "updated_at": "2026-05-07T15:34:55.919470665Z"
+}
