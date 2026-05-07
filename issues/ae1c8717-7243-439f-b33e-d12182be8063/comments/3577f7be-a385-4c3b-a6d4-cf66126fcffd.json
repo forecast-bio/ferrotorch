@@ -1,0 +1,10 @@
+{
+  "uuid": "3577f7be-a385-4c3b-a6d4-cf66126fcffd",
+  "issue_uuid": "ae1c8717-7243-439f-b33e-d12182be8063",
+  "author": "y4rr",
+  "content": "Discovered during C3.1 conformance suite work (#843). Both EpochResult and EvalResult are #[non_exhaustive] but had no public constructor usable from outside the crate (E0639 blocks both struct literals and ..Default::default() spread). Fix: added EpochResult::Default impl, EpochResult::new_with_defaults(), and EvalResult::new_with_defaults() to history.rs. These methods are needed by conformance_train.rs and any downstream crate that builds test fixtures. Not a regression — the structs were always non_exhaustive but the conformance suite is the first external consumer that needs to construct them.",
+  "created_at": "2026-05-07T14:15:50.268387669Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA5ql7jYGqL7PzIPoNeemudwFeYl/cVTXUx3Iij/1kD83ehifItujIhH4gnR9YMC0myyhtpwM+hVOGRh0adotIAg=="
+}
