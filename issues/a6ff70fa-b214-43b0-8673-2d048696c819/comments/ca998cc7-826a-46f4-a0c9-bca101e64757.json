@@ -1,0 +1,10 @@
+{
+  "uuid": "ca998cc7-826a-46f4-a0c9-bca101e64757",
+  "issue_uuid": "a6ff70fa-b214-43b0-8673-2d048696c819",
+  "author": "y4rr",
+  "content": "Follow-up from Sprint C.7 (#626). GpuBackend methods: rfft_r_f32/f64, fft_f32/f64, irfft_c_f32/f64, fft_c_f32/f64, pad_truncate_complex_f32/f64. Best approach: use MPSMatrixFFT on macOS 14+ or vDSP (Accelerate) with a Metal blit encoder for data movement. Custom MSL Cooley-Tukey is feasible for power-of-2 sizes.",
+  "created_at": "2026-05-07T21:09:14.513515620Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAWOImIp10PcTNxDp+fuMcxoq5hsdetEQWZLkqVQNfl/4pcgCqGR3IDQSRo1uzFGUZ1D3Wdd5O+BcMTIkF6EZyAg=="
+}
