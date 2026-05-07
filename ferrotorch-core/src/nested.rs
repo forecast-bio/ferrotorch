@@ -1,3 +1,4 @@
+use crate::device::Device;
 use crate::dtype::Float;
 use crate::error::{FerrotorchError, FerrotorchResult};
 use crate::storage::TensorStorage;
@@ -139,6 +140,26 @@ impl<T: Float> NestedTensor<T> {
     ///
     /// For a nested tensor with components of shape `[L_i, D]` and
     /// `ragged_dim=0`, the output is `[batch, max_L, D]`.
+    ///
+    /// # GPU dispatch (P4 of #806)
+    ///
+    /// When every component is on the same CUDA device and `T` is `f32`
+    /// or `f64`, the padded tensor is materialized **entirely on-device**:
+    ///
+    /// 1. Allocate the output buffer pre-filled with `pad_value` via the
+    ///    existing `fill_f{32,64}` GPU primitive.
+    /// 2. For each component, dispatch `strided_scatter_f{32,64}` to write
+    ///    its values into the corresponding slice of the output buffer.
+    ///
+    /// This composes from the existing GPU primitives (`fill`, the
+    /// `strided_copy`/`strided_scatter` cluster from #802 / CL-496); no new
+    /// `GpuBackend` trait surface is added. PyTorch parity:
+    /// `torch.nested.to_padded_tensor` on a CUDA nested tensor produces a
+    /// CUDA padded tensor without host bounce.
+    ///
+    /// Mixed-device or unsupported-dtype components fall through to the
+    /// CPU path which materializes via `tensor.data()?` (so callers get
+    /// `GpuTensorNotAccessible` rather than silent corruption).
     pub fn to_padded(&self, pad_value: T) -> FerrotorchResult<Tensor<T>> {
         let batch = self.tensors.len();
         let ndim = self.ndim();
@@ -161,15 +182,32 @@ impl<T: Float> NestedTensor<T> {
             }
         }
 
+        // Compute output strides as isize (row-major). Used by both paths;
+        // the GPU path passes them straight to `strided_scatter`, the CPU
+        // path indexes into a flat Vec.
+        let full_ndim = ndim + 1;
+        let mut out_strides_i: Vec<isize> = vec![0; full_ndim];
+        if full_ndim > 0 {
+            out_strides_i[full_ndim - 1] = 1;
+            for d in (0..full_ndim - 1).rev() {
+                out_strides_i[d] = out_strides_i[d + 1] * out_shape[d + 1] as isize;
+            }
+        }
+
+        // GPU fast path — every component on the same CUDA device, dtype
+        // is f32 or f64, every component is rank-≤8 (the strided_scatter
+        // kernel's hard cap). Composes from `fill_f{32,64}` +
+        // `strided_scatter_f{32,64}`.
+        if let Some(out) = self.try_to_padded_gpu(pad_value, &out_shape, &out_strides_i)? {
+            return Ok(out);
+        }
+
+        // CPU path — original semantics preserved verbatim.
         let numel: usize = out_shape.iter().product();
         let mut data = vec![pad_value; numel];
 
-        // Compute strides for the output tensor (row-major).
-        let mut out_strides = vec![0usize; ndim + 1];
-        out_strides[ndim] = 1;
-        for d in (0..ndim).rev() {
-            out_strides[d] = out_strides[d + 1] * out_shape[d + 1];
-        }
+        // Convert isize strides to usize for index math (CPU path).
+        let out_strides: Vec<usize> = out_strides_i.iter().map(|&s| s as usize).collect();
 
         for (b, t) in self.tensors.iter().enumerate() {
             let t_data = t.data()?;
@@ -201,6 +239,143 @@ impl<T: Float> NestedTensor<T> {
         Tensor::from_storage(TensorStorage::cpu(data), out_shape, false)
     }
 
+    /// GPU fast path for [`to_padded`]. Returns `Ok(None)` when any
+    /// precondition fails (component not on CUDA, mixed devices,
+    /// unsupported dtype, no backend installed) so the caller falls
+    /// through to the CPU path.
+    ///
+    /// All work happens on-device:
+    ///  - one `fill_f{32,64}` allocates the padded buffer pre-loaded with
+    ///    `pad_value`,
+    ///  - one `strided_scatter_f{32,64}` per component writes its values
+    ///    into the corresponding slot.
+    ///
+    /// Each component is materialised via `.contiguous()` before the
+    /// scatter, which itself routes through the GPU `strided_copy_*`
+    /// kernel for non-contiguous inputs (#802) — the upshot is that
+    /// stride views (narrow / permute) of CUDA components stay on device
+    /// throughout.
+    fn try_to_padded_gpu(
+        &self,
+        pad_value: T,
+        out_shape: &[usize],
+        out_strides_i: &[isize],
+    ) -> FerrotorchResult<Option<Tensor<T>>> {
+        use std::any::TypeId;
+
+        let is_f32 = TypeId::of::<T>() == TypeId::of::<f32>();
+        let is_f64 = TypeId::of::<T>() == TypeId::of::<f64>();
+        if !is_f32 && !is_f64 {
+            return Ok(None);
+        }
+
+        // All components must live on the same CUDA device.
+        let ordinal = match self.tensors[0].device() {
+            Device::Cuda(o) => o,
+            _ => return Ok(None),
+        };
+        for t in &self.tensors {
+            match t.device() {
+                Device::Cuda(o) if o == ordinal => {}
+                Device::Cuda(o) => {
+                    return Err(FerrotorchError::DeviceMismatch {
+                        expected: Device::Cuda(ordinal),
+                        got: Device::Cuda(o),
+                    });
+                }
+                _ => return Ok(None),
+            }
+        }
+
+        // Rank-≤8 cap: strided_scatter / strided_copy reject ranks above
+        // that. Output rank is `ndim() + 1`.
+        if out_shape.len() > 8 {
+            return Ok(None);
+        }
+
+        let backend = match crate::gpu_dispatch::gpu_backend() {
+            Some(b) => b,
+            None => return Ok(None),
+        };
+
+        let numel: usize = out_shape.iter().product();
+
+        // Step 1: allocate padded output buffer pre-filled with pad_value.
+        let mut out_handle = if is_f32 {
+            let pad_f32 = <T as num_traits::ToPrimitive>::to_f32(&pad_value).ok_or_else(|| {
+                FerrotorchError::InvalidArgument {
+                    message: "to_padded: pad_value not representable as f32".into(),
+                }
+            })?;
+            backend.fill_f32(numel, pad_f32, ordinal)?
+        } else {
+            let pad_f64 = <T as num_traits::ToPrimitive>::to_f64(&pad_value).ok_or_else(|| {
+                FerrotorchError::InvalidArgument {
+                    message: "to_padded: pad_value not representable as f64".into(),
+                }
+            })?;
+            backend.fill_f64(numel, pad_f64, ordinal)?
+        };
+
+        // Step 2: scatter each component into its slot.
+        // The slot view shares the output buffer's strides on the
+        // component dims (everything after the leading batch axis); the
+        // offset is `b * out_strides[0]` (the stride of the batch dim).
+        //
+        // Each component is materialised into a fresh contiguous CUDA
+        // buffer via `strided_copy_f{32,64}` first. Plain `.contiguous()`
+        // is insufficient because it short-circuits on stride-contiguous
+        // tensors but leaves a non-zero `storage_offset` (e.g. a
+        // `narrow(0, k, n)` view), and we pass the raw buffer handle to
+        // `strided_scatter` which has no offset parameter for the source.
+        // `strided_copy_*` always produces a fresh `[0..numel)` buffer
+        // that exactly matches the view's logical extent — which is
+        // what `strided_scatter` expects.
+        let comp_strides_out: Vec<isize> = out_strides_i[1..].to_vec();
+        let batch_stride = out_strides_i[0] as usize;
+
+        for (b, t) in self.tensors.iter().enumerate() {
+            let src_buf = t.gpu_handle()?;
+            let comp_shape = t.shape().to_vec();
+            let comp_view_strides = t.strides().to_vec();
+            let comp_view_offset = t.storage_offset();
+            let scatter_offset = b * batch_stride;
+
+            if is_f32 {
+                let materialised = backend.strided_copy_f32(
+                    src_buf,
+                    &comp_shape,
+                    &comp_view_strides,
+                    comp_view_offset,
+                )?;
+                backend.strided_scatter_f32(
+                    &materialised,
+                    &mut out_handle,
+                    &comp_shape,
+                    &comp_strides_out,
+                    scatter_offset,
+                )?;
+            } else {
+                let materialised = backend.strided_copy_f64(
+                    src_buf,
+                    &comp_shape,
+                    &comp_view_strides,
+                    comp_view_offset,
+                )?;
+                backend.strided_scatter_f64(
+                    &materialised,
+                    &mut out_handle,
+                    &comp_shape,
+                    &comp_strides_out,
+                    scatter_offset,
+                )?;
+            }
+        }
+
+        let storage = TensorStorage::gpu(out_handle);
+        Tensor::from_storage(storage, out_shape.to_vec(), false).map(Some)
+    }
+
     /// Reconstruct a nested tensor from a padded dense tensor and per-component
     /// lengths along the ragged dimension.
     ///
@@ -213,6 +388,16 @@ impl<T: Float> NestedTensor<T> {
     /// * `lengths` - Length of each component along the ragged dimension.
     ///   Must have length equal to the batch dimension.
     /// * `ragged_dim` - Which dimension (in the component tensors) is ragged.
+    ///
+    /// # GPU dispatch (P4 of #806)
+    ///
+    /// When `tensor` is on CUDA and `T` is `f32` or `f64`, each component
+    /// is sliced out **on-device** by walking through `narrow` (a
+    /// zero-copy stride view) and then `.contiguous()`, which dispatches
+    /// to the existing `strided_copy_f{32,64}` GPU kernel from #802 /
+    /// CL-496. The resulting components are CUDA tensors — no host
+    /// bounce. PyTorch parity: `torch.nested.nested_tensor` over slices
+    /// of a CUDA padded tensor produces CUDA components.
     pub fn from_padded(
         tensor: &Tensor<T>,
         lengths: &[usize],
@@ -243,6 +428,29 @@ impl<T: Float> NestedTensor<T> {
                     "ragged_dim {ragged_dim} out of range for {comp_ndim}-D component tensors"
                 ),
             });
+        }
+
+        // Per-component length must not exceed the padded extent on the
+        // ragged axis (otherwise the narrow would walk off the buffer).
+        let max_len = full_shape[ragged_dim + 1];
+        for (i, &len) in lengths.iter().enumerate() {
+            if len > max_len {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "from_padded: lengths[{i}] = {len} exceeds padded extent \
+                         {max_len} on ragged dim {ragged_dim}"
+                    ),
+                });
+            }
+        }
+
+        // GPU fast path — CUDA padded tensor + f32/f64 dtype. Composes
+        // from `narrow` (zero-copy stride view) + `.contiguous()` (which
+        // routes through `strided_copy_*` for non-contiguous CUDA views).
+        if tensor.is_cuda() {
+            if let Some(nested) = Self::try_from_padded_gpu(tensor, lengths, ragged_dim)? {
+                return Ok(nested);
+            }
         }
 
         let padded_data = tensor.data()?;
@@ -304,6 +512,77 @@ impl<T: Float> NestedTensor<T> {
         }
 
         Self::new(tensors, ragged_dim)
+    }
+
+    /// GPU fast path for [`from_padded`]. Returns `Ok(None)` when the
+    /// dtype isn't f32/f64 so the caller falls through to the CPU path
+    /// (which will surface `GpuTensorNotAccessible` for an unsupported
+    /// CUDA dtype rather than silently corrupting).
+    ///
+    /// For each component `b`:
+    ///  1. `narrow(0, b, 1)` → batch-slice view (zero-copy stride view),
+    ///     then `narrow(ragged_dim+1, 0, lengths[b])` → ragged-slice view.
+    ///  2. `view_reshape` collapses the leading 1-batch axis (composes
+    ///     through `.contiguous()` on the GPU strided view).
+    ///  3. `.contiguous()` materialises the (possibly non-contiguous)
+    ///     CUDA view into a fresh contiguous CUDA buffer via the existing
+    ///     `strided_copy_f{32,64}` kernel — never bounces through host.
+    fn try_from_padded_gpu(
+        tensor: &Tensor<T>,
+        lengths: &[usize],
+        ragged_dim: usize,
+    ) -> FerrotorchResult<Option<Self>> {
+        use std::any::TypeId;
+
+        let is_f32 = TypeId::of::<T>() == TypeId::of::<f32>();
+        let is_f64 = TypeId::of::<T>() == TypeId::of::<f64>();
+        if !is_f32 && !is_f64 {
+            return Ok(None);
+        }
+
+        let full_shape = tensor.shape().to_vec();
+        let comp_ndim = full_shape.len() - 1;
+
+        let mut tensors = Vec::with_capacity(lengths.len());
+        for (b, &len_b) in lengths.iter().enumerate() {
+            // narrow on the batch axis: shape [1, d0, ..., d_{r}=max_len, ...]
+            let batch_view = tensor.narrow(0, b, 1)?;
+
+            // narrow on the ragged axis (now at index `ragged_dim + 1` of
+            // the padded tensor): shape [1, d0, ..., d_{r}=len_b, ...]
+            let ragged_view = if len_b == full_shape[ragged_dim + 1] {
+                batch_view
+            } else {
+                batch_view.narrow(ragged_dim + 1, 0, len_b)?
+            };
+
+            // Materialise the (potentially non-contiguous) view into a
+            // fresh contiguous CUDA buffer. `contiguous()` dispatches to
+            // `strided_copy_f{32,64}` on CUDA — entirely on-device.
+            let materialised = ragged_view.contiguous()?;
+
+            // Drop the leading 1-batch axis so the component shape is
+            // `[d0, ..., d_{r}=len_b, ...]`. Build a fresh tensor that
+            // re-wraps the same GPU storage with the trimmed shape — the
+            // materialised tensor is already contiguous and its data
+            // layout already matches the trimmed shape (size 1 at the
+            // front contributes nothing to the linear index).
+            let comp_shape: Vec<usize> = (0..comp_ndim)
+                .map(|d| if d == ragged_dim { len_b } else { full_shape[d + 1] })
+                .collect();
+
+            // Sanity check: the linear extent must match the materialised
+            // tensor's numel (size-1 leading dim trivially preserves it).
+            let comp_numel: usize = comp_shape.iter().product();
+            debug_assert_eq!(comp_numel, materialised.numel());
+
+            // Rewrap into the trimmed shape via `view_reshape` (no copy:
+            // contiguous storage, same numel).
+            let comp = materialised.view_reshape(comp_shape)?;
+            tensors.push(comp);
+        }
+
+        Self::new(tensors, ragged_dim).map(Some)
     }
 }
 

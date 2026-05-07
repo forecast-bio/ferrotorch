@@ -1657,16 +1657,140 @@ mod gpu {
         }
     }
 
+    /// Live GPU `NestedTensor::to_padded` / `from_padded` round-trip,
+    /// ragged_dim = 0 (P4 of #806). Pre-P4 both methods called
+    /// `tensor.data()?` which returns `GpuTensorNotAccessible` for any
+    /// CUDA-resident component; post-P4 the path composes from the
+    /// existing `fill_f{32,64}` + `strided_scatter_f{32,64}` +
+    /// `strided_copy_f{32,64}` GPU primitives. PyTorch parity:
+    /// `torch.nested.to_padded_tensor` on a CUDA nested tensor stays on
+    /// device.
     #[test]
     fn gpu_nested_to_padded_ragged_dim0() {
         ensure_cuda_backend();
-        note_cascade_skip("gpu_nested_to_padded_ragged_dim0");
+
+        // 3 components of shapes [(2,4), (3,4), (1,4)] on CUDA. Padded
+        // output shape: [3, 3, 4].
+        let cpu_t1 = make_tensor_f32(&(1..=8).map(|i| i as f64).collect::<Vec<_>>(), &[2, 4]);
+        let cpu_t2 = make_tensor_f32(
+            &(1..=12).map(|i| (i as f64) + 10.0).collect::<Vec<_>>(),
+            &[3, 4],
+        );
+        let cpu_t3 = make_tensor_f32(
+            &(1..=4).map(|i| (i as f64) + 100.0).collect::<Vec<_>>(),
+            &[1, 4],
+        );
+
+        let t1 = cpu_t1.to(ferrotorch_core::Device::Cuda(0)).expect("t1->gpu");
+        let t2 = cpu_t2.to(ferrotorch_core::Device::Cuda(0)).expect("t2->gpu");
+        let t3 = cpu_t3.to(ferrotorch_core::Device::Cuda(0)).expect("t3->gpu");
+
+        let nt = NestedTensor::new(vec![t1, t2, t3], 0).expect("nested");
+        let padded = nt.to_padded(0.0_f32).expect("gpu to_padded");
+        assert!(
+            padded.is_cuda(),
+            "to_padded output must remain on CUDA when components are CUDA"
+        );
+        assert_eq!(padded.shape(), &[3, 3, 4]);
+
+        // Round-trip back to a NestedTensor on CUDA.
+        let lengths = nt.ragged_lengths();
+        let recovered =
+            NestedTensor::<f32>::from_padded(&padded, &lengths, 0).expect("gpu from_padded");
+        for comp in recovered.tensors() {
+            assert!(
+                comp.is_cuda(),
+                "from_padded components must stay on CUDA when input is CUDA"
+            );
+        }
+        assert_eq!(recovered.tensors()[0].shape(), &[2, 4]);
+        assert_eq!(recovered.tensors()[1].shape(), &[3, 4]);
+        assert_eq!(recovered.tensors()[2].shape(), &[1, 4]);
+
+        // Compare the materialised values against the CPU oracle.
+        let cpu_oracle = NestedTensor::new(
+            vec![
+                make_tensor_f32(&(1..=8).map(|i| i as f64).collect::<Vec<_>>(), &[2, 4]),
+                make_tensor_f32(
+                    &(1..=12).map(|i| (i as f64) + 10.0).collect::<Vec<_>>(),
+                    &[3, 4],
+                ),
+                make_tensor_f32(
+                    &(1..=4).map(|i| (i as f64) + 100.0).collect::<Vec<_>>(),
+                    &[1, 4],
+                ),
+            ],
+            0,
+        )
+        .expect("cpu oracle nested");
+        let cpu_padded = cpu_oracle.to_padded(0.0_f32).expect("cpu to_padded");
+
+        let gpu_padded_host = padded.cpu().expect("padded gpu->cpu");
+        assert_eq!(
+            gpu_padded_host.data().expect("padded data"),
+            cpu_padded.data().expect("cpu padded data"),
+            "gpu to_padded vs cpu oracle parity (ragged_dim=0)"
+        );
+
+        for (i, comp) in recovered.tensors().iter().enumerate() {
+            let comp_host = comp.cpu().expect("comp gpu->cpu");
+            assert_eq!(
+                comp_host.data().expect("comp data"),
+                cpu_oracle.tensors()[i].data().expect("oracle data"),
+                "gpu from_padded vs cpu oracle parity, component {i}"
+            );
+        }
     }
 
+    /// Live GPU `to_padded` / `from_padded` with ragged_dim != 0 (P4 of
+    /// #806). Components are shape [d0, L_i] with the inner dim ragged;
+    /// padded output is `[batch, d0, max_L]`. Exercises the
+    /// non-contiguous narrow path inside `from_padded` (narrowing the
+    /// inner dim produces a non-contiguous CUDA view, which materialises
+    /// via `strided_copy_f{32,64}`).
     #[test]
     fn gpu_nested_to_padded_ragged_dim1() {
         ensure_cuda_backend();
-        note_cascade_skip("gpu_nested_to_padded_ragged_dim1");
+
+        let cpu_t1 = make_tensor_f32(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]);
+        let cpu_t2 = make_tensor_f32(&[7.0, 8.0, 9.0, 10.0], &[2, 2]);
+        let t1 = cpu_t1.to(ferrotorch_core::Device::Cuda(0)).expect("t1->gpu");
+        let t2 = cpu_t2.to(ferrotorch_core::Device::Cuda(0)).expect("t2->gpu");
+
+        let nt = NestedTensor::new(vec![t1, t2], 1).expect("nested ragged_dim=1");
+        let padded = nt.to_padded(0.0_f32).expect("gpu to_padded");
+        assert!(padded.is_cuda());
+        assert_eq!(padded.shape(), &[2, 2, 3]);
+
+        // CPU oracle for parity.
+        let cpu_oracle = NestedTensor::new(
+            vec![
+                make_tensor_f32(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]),
+                make_tensor_f32(&[7.0, 8.0, 9.0, 10.0], &[2, 2]),
+            ],
+            1,
+        )
+        .expect("cpu oracle");
+        let cpu_padded = cpu_oracle.to_padded(0.0_f32).expect("cpu to_padded");
+        let gpu_padded_host = padded.cpu().expect("gpu->cpu");
+        assert_eq!(
+            gpu_padded_host.data().expect("data"),
+            cpu_padded.data().expect("oracle data"),
+            "gpu to_padded vs cpu oracle parity (ragged_dim=1)"
+        );
+
+        let lengths = nt.ragged_lengths();
+        let recovered =
+            NestedTensor::<f32>::from_padded(&padded, &lengths, 1).expect("gpu from_padded");
+        for (i, comp) in recovered.tensors().iter().enumerate() {
+            assert!(comp.is_cuda(), "component {i} must remain CUDA");
+            let comp_host = comp.cpu().expect("gpu->cpu");
+            assert_eq!(
+                comp_host.data().expect("data"),
+                cpu_oracle.tensors()[i].data().expect("oracle data"),
+                "gpu from_padded vs cpu oracle parity (ragged_dim=1), component {i}"
+            );
+        }
     }
 
     #[test]

@@ -881,6 +881,11 @@ reason = "Implicit coverage: SparseTensor::to_dense method tested via SparseTens
 tracking_issue = "#770"
 
 [[exclusion]]
+path = "ferrotorch_core::sparse::SparseTensor <T>::to_dense_on"
+reason = "Implicit coverage: SparseTensor::to_dense_on method tested via the live GPU lane in conformance_nested_sparse.rs (gpu_sparse_tensor_to_dense, P3 of #806); gate substring mismatch on method-call syntax."
+tracking_issue = "#806"
+
+[[exclusion]]
 path = "ferrotorch_core::sparse::SparseTensor <T>::values"
 reason = "Implicit coverage: SparseTensor::values method tested via SparseTensor integration tests in conformance_nested_sparse.rs; gate substring mismatch on method-call syntax."
 tracking_issue = "#770"
