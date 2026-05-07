@@ -1,0 +1,10 @@
+{
+  "uuid": "a703656f-87e1-4fc7-8940-8087f281fef9",
+  "issue_uuid": "1c12cc28-e3da-4cf2-bb69-860c19b71c91",
+  "author": "y4rr",
+  "content": "Untouched in B.5.a dispatch (truncated before reaching DenseNet). Architecture smoke-tested via densenet121 constructor. Full forward-parity fixture requires pretrained weights tracked separately in #935. Leaving open as deferred — not cascade-skipped, just no conformance entry yet.",
+  "created_at": "2026-05-07T20:16:41.571175778Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABABlXoD161EEobEDU8UmaB4QoMK67zHZFKSauuXOnNxcYlrXBF6pzSvUlDcfy/yV9qEiD7PrJL0G3WcANYCJCoBQ=="
+}
