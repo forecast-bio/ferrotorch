@@ -1,0 +1,10 @@
+{
+  "uuid": "fa65002f-acff-4504-9cd9-e7402a1c9452",
+  "issue_uuid": "e6d4c315-1fd8-46f7-9076-477e932bf29d",
+  "author": "y4rr",
+  "content": "Decision: Added batch_shape() method to Distribution trait (default vec![]) and implemented it for Normal. Independent::sample/rsample now appends the reinterpreted batch dims to the caller's sample_shape. The existing test test_independent_sample_shape_unchanged was written against the old broken behavior (sample(&[5,2]) on Normal(loc=[2]) expected [5,2] instead of [5,2,2]) — corrected the test to call sample(&[5]) to get [5,2] per PyTorch semantics.",
+  "created_at": "2026-05-07T18:23:31.926707682Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA37pX7MKCNZkavRSK2tm4PkviADSBTWOxGHd7NjTf3dz2jUhGVmM2zL0I/kwzbZC5dSeILkpBBVMNMbLWtGyLAQ=="
+}
