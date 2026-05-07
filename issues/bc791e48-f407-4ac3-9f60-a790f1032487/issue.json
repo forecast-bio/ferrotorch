@@ -1,0 +1,10 @@
+{
+  "uuid": "bc791e48-f407-4ac3-9f60-a790f1032487",
+  "display_id": 840,
+  "title": "ferrotorch-hub: sanitize_path_component is pub(crate) — conformance tests reach it only via HubCache boundary",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T13:54:37.544282023Z",
+  "updated_at": "2026-05-07T13:54:37.544282023Z"
+}
