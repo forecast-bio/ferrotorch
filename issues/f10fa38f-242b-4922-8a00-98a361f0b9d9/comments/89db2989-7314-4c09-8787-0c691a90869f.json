@@ -1,0 +1,10 @@
+{
+  "uuid": "89db2989-7314-4c09-8787-0c691a90869f",
+  "issue_uuid": "f10fa38f-242b-4922-8a00-98a361f0b9d9",
+  "author": "y4rr",
+  "content": "fftn/ifftn on CUDA currently dispatches to cufftPlan3d (rank-3, shape [d,h,w,2]) and cufftPlanMany rank=2 (shape [h,w,2]) when s=None and axes=None. Cases with explicit axes or non-None s still fall through to tensor_to_complex_array which returns NotImplementedOnCuda. Affected fixture tags: ndim_3_axes_neg1, ndim_3_axes_0, ndim_3_axes_n2_n1, ndim_2_with_s. Fix requires axes-aware cufftPlanMany dispatch with correct stride/embed/idist/odist parameters. 16 fixture cases cascade-skipped in conformance_fft.rs with ref to this issue.",
+  "created_at": "2026-05-07T21:48:06.388192246Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABATt+LWufAr5BaYlPksypq6kLinYS8IkCLCzuIV0HGwfPf52ZhHK3FWwmW8eR6HWnSNeaFmlB9A2k/dtbMdpmSDQ=="
+}
