@@ -1,0 +1,10 @@
+{
+  "uuid": "e3febab9-f66d-41ad-a0b8-432af8b77b62",
+  "issue_uuid": "d54b4ddc-5380-45d0-a55e-a914973ebb6f",
+  "author": "y4rr",
+  "content": "Follow-up from Sprint C.7 (#626). GpuBackend methods without MSL implementations: neg_f32/f64, abs_f32/f64, exp_f32/f64, log_f32/f64, sqrt_f32/f64, pow_f32/f64, fill_f32/f64, scale_f32/f64, clamp_f32/f64. Each should be a single-thread-per-element MSL kernel in src/kernels/elementwise_unary_f32.metal. Requires Apple Silicon CI to validate.",
+  "created_at": "2026-05-07T21:07:27.548807010Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA+lxzIwK1zNVlkO3Kmg2t08HGOJ6jsTs7xLPF4EyENLSP59FwteGWKYuCB2fUAOQ8lDyyxaaxCTjHulcNHV5SCw=="
+}
