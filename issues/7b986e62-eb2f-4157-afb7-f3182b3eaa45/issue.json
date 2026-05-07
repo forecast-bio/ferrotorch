@@ -1,0 +1,10 @@
+{
+  "uuid": "7b986e62-eb2f-4157-afb7-f3182b3eaa45",
+  "display_id": 860,
+  "title": "vision/models: resnet18 param count diverges from torchvision (BatchNorm2d absent)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T15:16:57.772040320Z",
+  "updated_at": "2026-05-07T15:16:57.772040320Z"
+}
