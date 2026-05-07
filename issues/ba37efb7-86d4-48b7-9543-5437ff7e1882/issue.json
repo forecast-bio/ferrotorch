@@ -2,11 +2,12 @@
   "uuid": "ba37efb7-86d4-48b7-9543-5437ff7e1882",
   "display_id": 968,
   "title": "Sprint V — vision forward parity (#929-936, 8 architectures, 4 parallel batches)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T22:35:51.507335283Z",
-  "updated_at": "2026-05-07T22:35:52.866964210Z",
+  "updated_at": "2026-05-07T22:54:18.812318307Z",
+  "closed_at": "2026-05-07T22:54:18.812318307Z",
   "labels": [
     "feature,sprint"
   ]
