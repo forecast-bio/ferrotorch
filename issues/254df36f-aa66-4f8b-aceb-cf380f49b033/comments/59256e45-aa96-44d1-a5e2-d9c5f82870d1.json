@@ -1,0 +1,10 @@
+{
+  "uuid": "59256e45-aa96-44d1-a5e2-d9c5f82870d1",
+  "issue_uuid": "254df36f-aa66-4f8b-aceb-cf380f49b033",
+  "author": "y4rr",
+  "content": "Result: C9.2 conformance suite complete.\n\nDeliverables:\n- scripts/regenerate_nn_norm_fixtures.py — 149 fixtures, exits 0 (torch 2.11.0 pin)\n- ferrotorch-nn/tests/conformance/fixtures/nn_norm_activation_loss.json — 149 fixtures across 54 ops\n- ferrotorch-nn/tests/conformance_nn_norm_activation_loss.rs — 54 tests, 54/54 pass, 0 warnings\n\nModules covered (7):\n1. norm: LayerNorm, GroupNorm, BatchNorm1d/2d/3d, InstanceNorm1d/2d, RMSNorm (8 tests)\n2. activation: ReLU, ReLU6, Sigmoid, Tanh, GELU exact/tanh, SiLU, Softmax, LogSoftmax, ELU, SELU, Mish, LeakyReLU, HardSigmoid, HardSwish, Softplus, LogSigmoid, Hardtanh (18 tests)\n3. loss: MSELoss, L1Loss, BCELoss, BCEWithLogitsLoss, CrossEntropyLoss, NLLLoss — mean/sum/none (6 tests)\n4. init: zeros, ones, constant, xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal, uniform, normal (9 tests)\n5. functional: linear, relu, sigmoid, tanh, gelu, silu, softmax, log_softmax, leaky_relu, mse_loss (10 tests)\n6. lazy_norm: LazyBatchNorm1d (1 test)\n7. utils: clip_grad_norm_, clip_grad_value_ (2 tests)\n\nNo cascade bugs found — all 54 tests pass at expected tolerances.\nCascade-skip function left in file for future use pattern.",
+  "created_at": "2026-05-07T17:10:09.659658012Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAu964C8Um81L+jS1Pguhp/lMRtHslKjcWMe58wlDvTYw6S+qsnxPNPoOJI0I0AQI/pjoq9zUU9ilLjo89L7nZDw=="
+}
