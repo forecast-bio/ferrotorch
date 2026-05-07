@@ -1,0 +1,10 @@
+{
+  "uuid": "20e8d63f-559c-4f07-9cff-5d1ae30c8cce",
+  "issue_uuid": "4754e720-0159-431c-b581-6d0a1398cde1",
+  "author": "y4rr",
+  "content": "Follow-up from Sprint C.7 (#626). GpuBackend methods: fused_adam_f32/f64, fused_gru_cell_f32/f64. Fused Adam updates param, first-moment, and second-moment in a single MSL pass (avoids 3 separate kernel launches). fused_gru_cell computes gates + hidden state update in one dispatch. Both are performance wins over the unfused path.",
+  "created_at": "2026-05-07T21:09:50.026674367Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAnceUnxOJw/wP9BrRWWwJfz+NJ6EdfybSkUklBOWcB6P0biMBt65iJxx/MpNaZirN4pDNOUXRJmjypt308ALuDA=="
+}
