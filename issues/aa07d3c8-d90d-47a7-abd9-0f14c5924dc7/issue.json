@@ -2,11 +2,12 @@
   "uuid": "aa07d3c8-d90d-47a7-abd9-0f14c5924dc7",
   "display_id": 626,
   "title": "MPS kernel layer: MSL implementations for each GpuBackend trait method (~80 fns)",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-01T23:06:53.374877708Z",
-  "updated_at": "2026-05-01T23:06:54.729089695Z",
+  "updated_at": "2026-05-07T22:58:36.503921119Z",
+  "closed_at": "2026-05-07T22:58:36.503921119Z",
   "labels": [
     "gpu"
   ]
