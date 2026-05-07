@@ -1,0 +1,10 @@
+{
+  "uuid": "e3a16d5f-2df9-416a-a879-09376eece62e",
+  "issue_uuid": "d0170c9b-f483-47f4-96f6-84f6b4c3c312",
+  "author": "y4rr",
+  "content": "Observation: BEFORE probes (pre-V.2) — all 5 B.5.b Swin-T shape/finite/param/custom-classes/determinism tests passed (swin_tiny_output_shape_matches_reference, swin_tiny_output_finite, swin_tiny_param_count_in_range, swin_tiny_custom_num_classes, swin_tiny_deterministic_forward). AFTER probes (post-V.2) — 5 new fixture-backed swin_tiny_v2_* tests added, all passing. No source changes to swin.rs required.",
+  "created_at": "2026-05-07T22:50:31.698901585Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA8P8mmpjCaZDgO2dxB+GQRkb97v19IB6kUGycBOzIs0rrylKUC2WZUTA15bHSppEbetxaAJEqBrSD+tCDj2I+AA=="
+}
