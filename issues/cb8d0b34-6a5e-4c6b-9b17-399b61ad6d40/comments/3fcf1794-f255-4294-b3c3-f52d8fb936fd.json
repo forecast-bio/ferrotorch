@@ -1,0 +1,10 @@
+{
+  "uuid": "3fcf1794-f255-4294-b3c3-f52d8fb936fd",
+  "issue_uuid": "cb8d0b34-6a5e-4c6b-9b17-399b61ad6d40",
+  "author": "y4rr",
+  "content": "Plan: Verify IMG_EXTENSIONS in folder.rs matches torchvision 0.21 exactly. Expected: jpg, jpeg, png, ppm, bmp, pgm, tif, tiff, webp (9 entries). Already appears correct from code review — confirm and close.",
+  "created_at": "2026-05-07T19:49:53.141339707Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA48JZ8Ykmnd/lSnldqEcuLr4H6b67qgbK36pM156KJ/2kcR68YdyNC0RA2Hihh9qlqBVQnxEB6QPwn7QAydNwBg=="
+}
