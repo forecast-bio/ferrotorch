@@ -2,11 +2,12 @@
   "uuid": "4e539336-af8b-4bf3-b0a0-a9bc8b608291",
   "display_id": 835,
   "title": "ferrotorch-xpu: live XPU DeviceMismatch error contract not conformance-tested — no Intel GPU on test box",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T13:35:08.424451185Z",
-  "updated_at": "2026-05-07T13:35:09.944603076Z",
+  "updated_at": "2026-05-07T17:50:31.053791462Z",
+  "closed_at": "2026-05-07T17:50:31.053791462Z",
   "labels": [
     "rust,bug,conformance,xpu"
   ]
