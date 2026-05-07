@@ -1,0 +1,10 @@
+{
+  "uuid": "77f98a31-541e-469d-a21b-61ac78ad7820",
+  "issue_uuid": "f0d67b10-9193-40af-aa5d-34b08067e4ae",
+  "author": "y4rr",
+  "content": "SSD300 with VGG-16 backbone + extra feature layers + multi-scale detection heads; conformance 29/29; clippy clean",
+  "created_at": "2026-05-07T23:20:28.400953751Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAnIz1r5xqh/pccGOTghOVx7ObY2RjXyoi4aDLidV4hM3eDZgP0wrXuka958Y2+5FaEPspy1Wcd8rL4YTewso1Dw=="
+}
