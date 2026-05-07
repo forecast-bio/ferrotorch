@@ -124,18 +124,18 @@ note = "Pure arithmetic helper. Exercised implicitly by fusion tests."
 
 [[exclusion]]
 path = "ferrotorch_jit::error::JitError::DataDependentControlFlow"
-reason = "deferred"
-note = "Triggered only by data-dependent branches in trace; integration test deferred to C7.5 (full-graph tracing)."
+reason = "implicit"
+note = "Display, From<JitError>, and field-access covered by conformance_jit_error_variants.rs (Sprint A.4 / #886). Full-graph tracing integration (the only code path that raises this automatically) is deferred to C7.5."
 
 [[exclusion]]
 path = "ferrotorch_jit::error::JitError::RecompilationError"
-reason = "deferred"
-note = "Triggered only by symbolic recompilation paths; deferred to C7.5."
+reason = "implicit"
+note = "Display, From<JitError>, and field-access covered by conformance_jit_error_variants.rs (Sprint A.4 / #886). Symbolic recompilation integration deferred to C7.5."
 
 [[exclusion]]
 path = "ferrotorch_jit::error::JitError::GpuBackendUnavailable"
-reason = "live-env"
-note = "Requires constructing an InductorBackend with a GPU target on a non-GPU build. Error path tested structurally via JitError::fmt in C7.4."
+reason = "implicit"
+note = "Covered by conformance_jit_error_variants.rs (Sprint A.4 / #884): InductorBackend::compile() with GpuCuda/GpuPtx targets fires this variant without a physical GPU. Both #[cfg(feature=\"cuda\")] and #[cfg(not(feature=\"cuda\"))] paths are exercised."
 
 [[exclusion]]
 path = "ferrotorch_jit::export::ExportedProgram::to_json"

@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - ferrotorch-core: `gelu()` (no-arg) default is now `GeluApproximate::None` (exact erf-based: `x * 0.5 * (1 + erf(x / √2))`), matching `torch.nn.GELU()`'s `approximate='none'` default. Previously the no-arg path defaulted to `GeluApproximate::Sigmoid` (`x * sigmoid(1.702 * x)`), producing ~6e-3 absolute deviation from PyTorch. **Migration**: callers relying on the historical fast-sigmoid default must opt in explicitly via `gelu_with(input, GeluApproximate::Sigmoid)` (LLM/transformer paths in `ferrotorch-llama` etc. will silently get the slower-but-more-precise erf path after upgrade — adjust if performance matters more than parity in your call site). `gelu_with(_, GeluApproximate::Tanh)` (PyTorch's `approximate='tanh'`) and `gelu_with(_, GeluApproximate::None)` are unchanged. The enum discriminant order is unchanged; only the `#[default]` attribute moved (closes #794).
 
 ### Fixed
+- C7.4 cascade: JitError::GpuBackendUnavailable not exercised in default CI — requires InductorBackend with gpu target on non-GPU build (#884)
+- C7.4 cascade: DataDependentControlFlow and RecompilationError JitError variants not triggered in C7.4 — deferred to C7.5 full-graph tracing (#886)
 - einsum GPU: 2-input equations with operand repeats (e.g. 'ii,j->j') (#825)
 - einsum GPU: support mixed repeated/free indices (e.g. 'iij->j') (#824)
 - ferrotorch-core: Implemented FlashAttention-2 forward PTX kernel for nested SDPA; on-device tiled online-softmax matches composite reference within F32_MATMUL_GPU / F64_MATMUL_GPU; d <= 128, scalar-fma (no tensor core); per-component dispatch from `nested_scaled_dot_product_attention`. P5 of nested+sparse migration (#806). Two new `GpuBackend` trait methods (`flash_attention_forward_f32` / `_f64`) wrap the existing `gpu_flash_attention_f32` plus a brand-new `gpu_flash_attention_f64` (hand-written PTX with polynomial 2^x for `exp` since PTX has no `ex2.approx.f64`, 8-byte stride, `div.rn.f64`). Per-component the kernel runs as one CUDA block per Q-tile of 32 rows, cooperatively staging K/V tiles through dynamic shared memory, computing dot products + online softmax + V-accumulation in registers, then writing the normalised output row to global memory. Out-of-regime shapes (`d_head > 128`, non-CUDA inputs, non-{f32,f64} dtypes) fall through to the existing CPU composite — no host detour for the on-device fast path. Live GPU lane `gpu_nested_scaled_dot_product_attention` in `conformance_nested_sparse.rs` replaces the prior cascade-skip stub; new `_probe_p5_flash_attention_forward.rs` (8 sub-tests) covers canonical shapes (16/32/64/128 seq, 16/32/64 d), seq below tile, non-tile-aligned (33), large seq (256), empty seq_q, numerical-stability under large logits, and multi-component nested input (#806).
@@ -343,6 +345,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- Conformance Buildout C9 — Tier-3 ferrotorch-nn (4 sub-phases, final) (#898)
 - Conformance Buildout C8 — Tier-3 ferrotorch-gpu (4 sub-phases) (#890)
 - Conformance Buildout C7 — Tier-3 ferrotorch-jit (4 sub-phases) (#883)
 - Conformance Buildout C6 — Tier-3 ferrotorch-optim (4 sub-phases) (#880)
