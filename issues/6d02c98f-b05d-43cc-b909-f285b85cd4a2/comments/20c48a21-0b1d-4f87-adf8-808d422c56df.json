@@ -1,0 +1,10 @@
+{
+  "uuid": "20c48a21-0b1d-4f87-adf8-808d422c56df",
+  "issue_uuid": "6d02c98f-b05d-43cc-b909-f285b85cd4a2",
+  "author": "y4rr",
+  "content": "Plan: Sprint C.7 — MPS kernel layer scaffold + 10 kernels (#626).\n\nScope:\n1. Add objc2-metal dep to ferrotorch-mps/Cargo.toml (target_os=macos gating) — already in Cargo.lock transitively\n2. Create ferrotorch-mps/src/kernels/ directory with 10 .metal source strings\n3. Create ferrotorch-mps/src/backend.rs — MtlBackend struct implementing GpuBackend trait\n4. Extend ferrotorch-mps/src/lib.rs to re-export MtlBackend and kernel entry points\n5. Extend tests/conformance_mps.rs — 10 new cascade_skip tests (no Apple Silicon on this box)\n6. Update _surface_inventory.toml and _surface_exclusions.toml for new public items\n7. cargo build --workspace must pass (cross-platform compile verification)\n8. clippy --workspace --all-targets must be clean\n9. File ~70 follow-up crosslink issues for remaining GpuBackend methods not covered\n\nDesign decisions to document:\n- metal-rs vs objc2-metal: objc2-metal is already in Cargo.lock (transitive); use it\n- MSL kernel shape: embed as include_str! const strings; compiled at runtime by MtlBackend::compile_kernel\n- GpuBackend impl: platform-gated via #[cfg(target_os='macos')]; all methods return Err(DeviceUnavailable) on non-Apple\n- No silent CPU fallback (§3 rule): every method returns Err(FerrotorchError::DeviceUnavailable) on non-Apple, Err(FerrotorchError::InvalidArgument) on Metal compile failure",
+  "created_at": "2026-05-07T21:00:19.593029625Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAM9F6CWEgo4GTkiVHWvQ3yv1askQygFtkbO/nSCzgvoM/1MHbafYU7084Rjf3LDr8uogxfvILqKrkOW5KTT5AAg=="
+}
