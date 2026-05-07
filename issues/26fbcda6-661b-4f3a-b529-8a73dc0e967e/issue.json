@@ -2,11 +2,12 @@
   "uuid": "26fbcda6-661b-4f3a-b529-8a73dc0e967e",
   "display_id": 456,
   "title": "Add vision detection models: Faster R-CNN, Mask R-CNN, SSD",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-04-03T22:22:06.533510706Z",
-  "updated_at": "2026-04-03T22:22:08.449910926Z",
+  "updated_at": "2026-05-07T23:20:46.657004939Z",
+  "closed_at": "2026-05-07T23:20:46.657004939Z",
   "labels": [
     "vision"
   ]
