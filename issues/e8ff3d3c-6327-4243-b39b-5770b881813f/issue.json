@@ -1,0 +1,10 @@
+{
+  "uuid": "e8ff3d3c-6327-4243-b39b-5770b881813f",
+  "display_id": 948,
+  "title": "Add MSL kernels for MPS normalization: layernorm, rmsnorm",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T21:08:24.262751025Z",
+  "updated_at": "2026-05-07T21:08:24.262751025Z"
+}
