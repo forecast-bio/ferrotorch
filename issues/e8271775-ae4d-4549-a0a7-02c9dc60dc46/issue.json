@@ -1,0 +1,10 @@
+{
+  "uuid": "e8271775-ae4d-4549-a0a7-02c9dc60dc46",
+  "display_id": 850,
+  "title": "ferrotorch-serialize: mmap load variant integration tests — load_pytorch_state_dict_mmap, load_safetensors_mmap, load_safetensors_sharded_mmap need mmap-specific integration test",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T14:30:30.436110056Z",
+  "updated_at": "2026-05-07T14:30:30.436110056Z"
+}
