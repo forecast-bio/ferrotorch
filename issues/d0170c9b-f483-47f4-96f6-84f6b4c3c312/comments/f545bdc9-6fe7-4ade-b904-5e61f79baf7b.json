@@ -1,0 +1,10 @@
+{
+  "uuid": "f545bdc9-6fe7-4ade-b904-5e61f79baf7b",
+  "issue_uuid": "d0170c9b-f483-47f4-96f6-84f6b4c3c312",
+  "author": "y4rr",
+  "content": "Plan: Sprint V.2 scope for #933 — extend conformance_vision_models.rs with seeded logit-parity tests for swin_tiny. Approach: (1) extend fixtures_v_parity.json with swin_t reference logits captured via manual_seed=42, (2) add test fn swin_tiny_logit_parity_seeded with F32_MATMUL=1e-3 tolerance, (3) verify output shape and finite values. BEFORE: tests exist with shape/finite/param-count checks but no logit comparison. AFTER: full parity check against pinned torchvision 0.21 reference.",
+  "created_at": "2026-05-07T22:37:40.470225232Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAjp0K+cmjzxPqlf/fzMPI31LpvlT75odaH4AMgvmvmj8hdOzPFSFSagZ4w7yPpMNtOU2T7nDFUZ3UAI/sJfLyAw=="
+}
