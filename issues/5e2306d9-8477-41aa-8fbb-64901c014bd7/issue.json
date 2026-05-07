@@ -3,11 +3,12 @@
   "display_id": 845,
   "title": "ferrotorch-cubecl conformance suite: GPU ops require backend active in CI for live execution",
   "description": "The conformance suite for ferrotorch-cubecl (ferrotorch-cubecl/tests/conformance_cubecl.rs) was built and all structural tests pass. GPU op tests (portable_add, portable_sub, portable_mul, portable_div, portable_relu, portable_neg, portable_abs, portable_exp, portable_ln, portable_sqrt, portable_sin, portable_cos, portable_tanh, portable_sigmoid, portable_matmul, all 8 polynomial families) cascade-skip with reason 'cubecl backend not active in test environment' because no WGPU/CUDA/ROCm adapter is available in the current test runner. These tests will execute and may surface divergences when run in a GPU-enabled CI environment. Reference rev: f1cd5d540e7531ccbd21f83cd6c70e8705409017. Suite: 62 conformance tests + 1 surface gate.",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T14:06:30.531935407Z",
-  "updated_at": "2026-05-07T14:06:32.287995885Z",
+  "updated_at": "2026-05-07T22:31:23.548414584Z",
+  "closed_at": "2026-05-07T22:31:23.548414584Z",
   "labels": [
     "rust,bug,conformance,cubecl"
   ]
