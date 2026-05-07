@@ -2,11 +2,12 @@
   "uuid": "cb02a74c-10bc-4165-a106-e1e87d7540cd",
   "display_id": 881,
   "title": "Add SGD-family conformance suite for ferrotorch-optim (C6.1)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T15:45:35.895935115Z",
-  "updated_at": "2026-05-07T15:45:37.306316269Z",
+  "updated_at": "2026-05-07T15:54:04.247652192Z",
+  "closed_at": "2026-05-07T15:54:04.247652192Z",
   "labels": [
     "feature"
   ]
