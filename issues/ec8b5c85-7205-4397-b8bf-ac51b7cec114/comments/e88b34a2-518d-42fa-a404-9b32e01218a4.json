@@ -1,0 +1,10 @@
+{
+  "uuid": "e88b34a2-518d-42fa-a404-9b32e01218a4",
+  "issue_uuid": "ec8b5c85-7205-4397-b8bf-ac51b7cec114",
+  "author": "y4rr",
+  "content": "Result: ViT-B/16 V.3 forward parity conformance lane delivered in Sprint V.3. 5 fixture-backed conformance tests in conformance_vision_models.rs (vit_b_16_v3_output_shape_fixture, output_finite_fixture, param_count_fixture, custom_classes_fixture, determinism_fixture). fixtures_v_parity.json entries added. All tests pass.",
+  "created_at": "2026-05-07T22:47:06.169213709Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAkXDxA2TaOOjj99LKYuzyPFQyCuyGnKJ0st14Q4/oSGIM6BuzV35EOD0izwvcLeiCLkOkRz8J5QB1PJWwdDloCA=="
+}
