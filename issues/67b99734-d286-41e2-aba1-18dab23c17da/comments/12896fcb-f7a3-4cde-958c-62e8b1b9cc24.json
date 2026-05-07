@@ -1,0 +1,10 @@
+{
+  "uuid": "12896fcb-f7a3-4cde-958c-62e8b1b9cc24",
+  "issue_uuid": "67b99734-d286-41e2-aba1-18dab23c17da",
+  "author": "y4rr",
+  "content": "Plan: \n  1. Layer-2: write scripts/regenerate_optim_scheduler_fixtures.py — generates fixtures.json with torch==2.11.0 LR values for N=10 epochs per scheduler: StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, CosineAnnealingWarmRestarts, CyclicLR, OneCycleLR, PolynomialLR, ConstantLR, LinearLR, LinearWarmup, ReduceLROnPlateau.\n  2. Layer-3: write ferrotorch-optim/tests/conformance_optim_schedulers.rs — loads fixtures.json, runs each scheduler for N steps, asserts LR at each step within 1e-9 abs tolerance (these are pure closed-form computations, no GPU).\n  3. Layer-4: write ferrotorch-optim/tests/conformance_surface_coverage.rs — grep-based gate covering scheduler + C6.1/C6.2/C6.3 files (even if not on disk yet).\n  4. Create fixtures dir, generate fixture JSON (analytically computed, not runtime torch since we have no torch install).\n  5. Cascade-skip + crosslink quick bug issues for any behavioral differences found.\n  Decision: using analytically-computed fixtures (pure Python math matching torch formulas) rather than requiring a live torch install — matches the repo pattern of pre-committed fixture JSON.",
+  "created_at": "2026-05-07T15:46:32.392617826Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAwrsaVrRi7WdIYOCQ6bEvwNYsHo6IHYzfg7xsS4HY16wMJL96zzKvgj3H1EXKAJgWVgVBuRzUK6e2fN1n7TXTCw=="
+}
