@@ -1,0 +1,10 @@
+{
+  "uuid": "05919cc4-d7cd-4ba3-8310-7bb53f368418",
+  "display_id": 875,
+  "title": "MultivariateNormal / LowRankMultivariateNormal / Dirichlet / Pareto / VonMises missing Distribution::mean() implementation",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-07T15:34:36.161946024Z",
+  "updated_at": "2026-05-07T15:34:36.161946024Z"
+}
