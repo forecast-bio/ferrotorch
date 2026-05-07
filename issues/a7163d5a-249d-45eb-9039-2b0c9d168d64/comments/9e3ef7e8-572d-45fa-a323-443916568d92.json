@@ -1,0 +1,10 @@
+{
+  "uuid": "9e3ef7e8-572d-45fa-a323-443916568d92",
+  "issue_uuid": "a7163d5a-249d-45eb-9039-2b0c9d168d64",
+  "author": "y4rr",
+  "content": "Plan (Sprint C.9): Add 3 #[ignore]-gated integration tests in ferrotorch-llama/tests/integration_quant_loaders.rs — gptq_smoke, awq_smoke, hqq_smoke. Each test: (1) calls ferrotorch_hub::hf_download_model to fetch a small quantized HF checkpoint, (2) loads via the appropriate quant_loader (GptqQ4/AwqQ4/HqqWeights), (3) runs forward on a fixed prompt, (4) compares logits against JSON reference fixture at F32_TRANSCENDENTAL=1e-5 tolerance. Also add scripts/regenerate_quant_loader_fixtures.py — a Python reference generator that runs the same 3 model+prompt forward passes through HF transformers + auto_gptq/autoawq/hqq and saves expected logits to ferrotorch-llama/tests/fixtures/quant_loader_expected.json. Tests are #[ignore]'d so CI remains clean; run with: cargo test -p ferrotorch-llama -- --ignored quant_loader_smoke. No changes to quant_loaders.rs source — test-only work per sprint scope.",
+  "created_at": "2026-05-07T21:00:02.280586291Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQt6M92fDSX4ugr4jKVoflmmW3hgdwO7M8SU/jnp6mZfSg2k/j+tJ5erfQ/q7XtM8cPkrwZzcdFsxzYgY6xEBDA=="
+}
