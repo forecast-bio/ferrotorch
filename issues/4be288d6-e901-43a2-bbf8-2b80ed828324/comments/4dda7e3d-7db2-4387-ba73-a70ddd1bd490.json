@@ -1,0 +1,10 @@
+{
+  "uuid": "4dda7e3d-7db2-4387-ba73-a70ddd1bd490",
+  "issue_uuid": "4be288d6-e901-43a2-bbf8-2b80ed828324",
+  "author": "y4rr",
+  "content": "Plan: Build C9.1 conformance suite for ferrotorch-nn basic layers following the 4-layer architecture from docs/conformance-suites.md.\n\nLayer 1: Full surface inventory at ferrotorch-nn/tests/conformance/_surface_inventory.toml — all 11 in-scope modules (linear, conv, lazy_linear, lazy_conv, lazy_conv_transpose, embedding, identity, padding, upsample, pooling, dropout).\n\nLayer 2: Reference fixtures via scripts/regenerate_nn_layers_fixtures.py pinned to torch==2.11.0. One fixture set per layer: small input, manual_seed=42 weight init, forward output captured.\n\nLayer 3: conformance_nn_layers.rs integration test covering all 11 modules. Cascade-skip pattern for any divergences found.\n\nLayer 4: DEFER to C9.4 per spec.\n\nDev deps serde_json and toml will be added to ferrotorch-nn/Cargo.toml if not present.",
+  "created_at": "2026-05-07T16:59:01.993027410Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA99SxOnd1wYG59ZZCkLs3hjQMgDakHageP96eFDupHo3HmcElXH8J0c3ZQclYDx+MVO2KV1RZWDXUf31OK2VXDA=="
+}
