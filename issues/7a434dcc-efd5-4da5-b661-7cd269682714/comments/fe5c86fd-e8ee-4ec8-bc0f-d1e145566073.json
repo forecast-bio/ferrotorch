@@ -1,0 +1,10 @@
+{
+  "uuid": "fe5c86fd-e8ee-4ec8-bc0f-d1e145566073",
+  "issue_uuid": "7a434dcc-efd5-4da5-b661-7cd269682714",
+  "author": "y4rr",
+  "content": "Plan: Implement 4 GPU FFT ops for Sprint C.6 (#636):\n1. hfft_f32/f64: conj kernel (PTX) + irfft via cuFFT C2R — added to kernels.rs + cufft.rs\n2. ihfft_f32/f64: rfft via cuFFT R2C + conj kernel — same files\n3. fftn3d_c2c_f32/f64: cufftPlan3d for 3-D C2C — new functions in cufft.rs\n4. New trait methods in gpu_dispatch.rs GpuBackend trait\n5. Impl wired in backend_impl.rs\n6. Dispatch branches in fft.rs (hfft/ihfft/fftn/ifftn)\n7. Conformance tests in conformance_fft.rs (gpu_hfft, gpu_ihfft, gpu_fftn, gpu_ifftn)\n8. Probe file _probe_c6_fft_3d.rs\n\nCONJ PTX approach: thread i negates buf[2*i+1] in-place. f64 variant via get_f64_ptx.\nhfft = memcpy + conj + irfft (cuFFT C2R)\nihfft = rfft (cuFFT R2C) + scale(1/n) + conj\nfftn3d = cufftPlan3d(d,h,w,C2C/Z2Z) — unbatched [d,h,w,2] complex\nTolerance: F64_FFT = 1e-10 for probe assertions.\ncascade_skip removals: comment out the fftn/ifftn/hfft/ihfft CPU-only note in conformance_fft.rs.",
+  "created_at": "2026-05-07T21:27:02.864015465Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAc3twlXR62inJCRAHr+u43IugGSayLdjDozOh6n9DH30xENSWMCEI28cHJ/iVunDVV8Y8BQ5EIF9PYm66w47zCg=="
+}
