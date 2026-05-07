@@ -1,0 +1,10 @@
+{
+  "uuid": "49df3db3-1265-4702-bec4-a227cfa84382",
+  "issue_uuid": "7840dca7-1238-4e68-a1d2-1b1798a867b5",
+  "author": "y4rr",
+  "content": "Closed by Bugfix C9 cleanup pass — needless_range_loop fixed test-side: replaced 'for b in 0..batch' with 'for (b, &len_b) in lengths.iter().enumerate()'. cargo clippy -p ferrotorch-nn --all-targets -- -D warnings clean.",
+  "created_at": "2026-05-07T17:43:45.858784014Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA2HkBv3QB47KcHQjfH4xDhUT54oWttq+Ty79JbkqYzDHoNALOOyVd5kwBKypGdgvwGdRAQG1gKOq6Tzf5f4hUAw=="
+}
