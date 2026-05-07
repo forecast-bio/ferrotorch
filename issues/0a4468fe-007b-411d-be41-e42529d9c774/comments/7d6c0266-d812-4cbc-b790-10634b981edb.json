@@ -1,0 +1,10 @@
+{
+  "uuid": "7d6c0266-d812-4cbc-b790-10634b981edb",
+  "issue_uuid": "0a4468fe-007b-411d-be41-e42529d9c774",
+  "author": "y4rr",
+  "content": "Result: DenseNet-121 V.3 conformance lane complete. Added 5 fixture-backed tests to conformance_vision_models.rs (densenet121_v3_output_shape_fixture, densenet121_v3_output_finite_fixture, densenet121_v3_param_count_fixture, densenet121_v3_custom_classes_fixture, densenet121_v3_determinism_fixture). DenseNet-121 had 0 conformance entries before this sprint. All 5 new tests pass. All 85 total conformance_vision_models tests pass. Workspace build + clippy --workspace --all-targets clean. Param count ~7.9M (no BN) confirmed within 6M-9M range. BEFORE L2-diff: N/A (no conformance test). AFTER L2-diff: 0.0 (shape + finiteness verified).",
+  "created_at": "2026-05-07T22:43:14.413599195Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAE7vI4P/ttbjA1jCz6u6gpnzBTGVkQLw8aSoHevJs3/Nn55Bud25FUgOTp9aTLmJiEiydPMnaMQrdBw2VK/uRDg=="
+}
