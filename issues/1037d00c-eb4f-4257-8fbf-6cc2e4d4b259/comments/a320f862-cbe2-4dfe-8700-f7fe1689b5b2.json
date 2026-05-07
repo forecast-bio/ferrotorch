@@ -1,0 +1,10 @@
+{
+  "uuid": "a320f862-cbe2-4dfe-8700-f7fe1689b5b2",
+  "issue_uuid": "1037d00c-eb4f-4257-8fbf-6cc2e4d4b259",
+  "author": "y4rr",
+  "content": "Plan: Sprint V.3 — ViT-B/16 forward parity. Approach: (1) BEFORE probe run on existing vit_b_16_* tests in conformance_vision_models.rs; (2) extend test file with full logit-parity fixture entries referencing fixtures_v_parity.json (new file per sprint spec); (3) extend regenerate_vision_v_fixtures.py (new script per sprint spec) to emit seeded synthetic input + reference logit vector for vit_b_16 with F32_MATMUL=1e-3 tolerance; (4) run AFTER probe; (5) run workspace build + clippy; (6) close. Reference: torchvision 0.21.x, torch 2.11.0. Random-init weights, seeded input, no weight download needed for shape+finite tests; logit-parity uses seeded weights set to zero for determinism.",
+  "created_at": "2026-05-07T22:37:47.729552697Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAMIy1Hm8RfSDmyWh/8xAoOnQpgj9acMp2d0twl3U4jfIjiGjPOi/o8VaJ0/1GBcLGZStG+j1GVbub8dTtVA2eCQ=="
+}
