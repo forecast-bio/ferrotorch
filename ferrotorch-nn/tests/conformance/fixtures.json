@@ -1,0 +1,1280 @@
+{
+  "version": "2.6.0+cu124",
+  "generated_by": "scripts/regenerate_nn_layers_fixtures.py",
+  "generated_at": "2026-05-07T17:13:44.632781+00:00",
+  "torch_pin": "torch==2.11.0",
+  "rng_seed": 42,
+  "description": "Reference fixtures for ferrotorch-nn C9.1 conformance suite. Forward outputs captured from PyTorch with manual_seed=42. Tolerance: 1e-5 absolute for f32 CPU.",
+  "fixtures": [
+    {
+      "id": "linear_forward_2x4_to_3",
+      "module": "Linear",
+      "op": "forward",
+      "config": {
+        "in_features": 4,
+        "out_features": 3,
+        "bias": true
+      },
+      "input_shape": [
+        2,
+        4
+      ],
+      "input_data": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0
+      ],
+      "weight": [
+        0.3822692632675171,
+        0.4150039553642273,
+        -0.11713624000549316,
+        0.45930564403533936,
+        -0.10955178737640381,
+        0.10089534521102905,
+        -0.24342751502990723,
+        0.2936413288116455,
+        0.4407714605331421,
+        -0.3668140769004822,
+        0.43459808826446533,
+        0.09357964992523193
+      ],
+      "bias_data": [
+        0.3694044351577759,
+        0.06771528720855713,
+        0.24109405279159546
+      ],
+      "expected_shape": [
+        2,
+        3
+      ],
+      "expected_output": [
+        1.9280527830123901,
+        0.5626795887947083,
+        1.0242151021957397,
+        6.485823154449463,
+        0.7289091348648071,
+        3.432755470275879
+      ],
+      "tolerance": 0.001,
+      "note": "Linear(4,3) with bias, 2-sample batch. Weights from torch.manual_seed(42)."
+    },
+    {
+      "id": "linear_forward_no_bias",
+      "module": "Linear",
+      "op": "forward",
+      "config": {
+        "in_features": 3,
+        "out_features": 2,
+        "bias": false
+      },
+      "input_shape": [
+        2,
+        3
+      ],
+      "input_data": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "weight": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "bias_data": null,
+      "expected_shape": [
+        2,
+        2
+      ],
+      "expected_output": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "tolerance": 1e-06,
+      "note": "Linear(3,2) no bias, identity-like weight."
+    },
+    {
+      "id": "linear_forward_1d_input",
+      "module": "Linear",
+      "op": "forward",
+      "config": {
+        "in_features": 3,
+        "out_features": 2,
+        "bias": false
+      },
+      "input_shape": [
+        3
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "weight": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "bias_data": null,
+      "expected_shape": [
+        2
+      ],
+      "expected_output": [
+        1.0,
+        2.0
+      ],
+      "tolerance": 1e-06,
+      "note": "Linear 1-D input: (in_features,) -> (out_features,)."
+    },
+    {
+      "id": "embedding_forward_basic",
+      "module": "Embedding",
+      "op": "forward",
+      "config": {
+        "num_embeddings": 5,
+        "embedding_dim": 3
+      },
+      "input_indices": [
+        0,
+        2,
+        4
+      ],
+      "weight": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0
+      ],
+      "expected_shape": [
+        3,
+        3
+      ],
+      "expected_output": [
+        0.0,
+        1.0,
+        2.0,
+        6.0,
+        7.0,
+        8.0,
+        12.0,
+        13.0,
+        14.0
+      ],
+      "tolerance": 1e-06,
+      "note": "Embedding(5,3) lookup for indices [0,2,4]. Weight set manually."
+    },
+    {
+      "id": "embedding_forward_padding_idx",
+      "module": "Embedding",
+      "op": "forward_with_padding",
+      "config": {
+        "num_embeddings": 4,
+        "embedding_dim": 2,
+        "padding_idx": 0
+      },
+      "input_indices": [
+        0,
+        1,
+        0,
+        2
+      ],
+      "weight": [
+        0.0,
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "expected_shape": [
+        4,
+        2
+      ],
+      "expected_output": [
+        0.0,
+        0.0,
+        1.0,
+        2.0,
+        0.0,
+        0.0,
+        3.0,
+        4.0
+      ],
+      "tolerance": 1e-06,
+      "note": "Embedding with padding_idx=0: indices 0 map to zero vectors."
+    },
+    {
+      "id": "identity_forward_2x3",
+      "module": "Identity",
+      "op": "forward",
+      "config": {},
+      "input_shape": [
+        2,
+        3
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "expected_shape": [
+        2,
+        3
+      ],
+      "expected_output": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0
+      ],
+      "tolerance": 1e-07,
+      "note": "Identity pass-through."
+    },
+    {
+      "id": "flatten_default_2x3x4",
+      "module": "Flatten",
+      "op": "forward",
+      "config": {
+        "start_dim": 1,
+        "end_dim": -1
+      },
+      "input_shape": [
+        2,
+        3,
+        4
+      ],
+      "expected_shape": [
+        2,
+        12
+      ],
+      "note": "Flatten default (batch dim preserved)."
+    },
+    {
+      "id": "constant_pad1d_basic",
+      "module": "ConstantPad1d",
+      "op": "forward",
+      "config": {
+        "padding": [
+          1,
+          2
+        ],
+        "value": 0.0
+      },
+      "input_shape": [
+        1,
+        4
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "expected_shape": [
+        1,
+        7
+      ],
+      "expected_output": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        0.0,
+        0.0
+      ],
+      "tolerance": 1e-07,
+      "note": "ConstantPad1d(1,2) value=0."
+    },
+    {
+      "id": "zero_pad2d_basic",
+      "module": "ZeroPad2d",
+      "op": "forward",
+      "config": {
+        "padding": [
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "input_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        4,
+        4
+      ],
+      "expected_output": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        2.0,
+        0.0,
+        0.0,
+        3.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "tolerance": 1e-07,
+      "note": "ZeroPad2d(1,1,1,1) on [1,1,2,2] input."
+    },
+    {
+      "id": "reflection_pad2d_basic",
+      "module": "ReflectionPad2d",
+      "op": "forward",
+      "config": {
+        "padding": [
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "input_shape": [
+        1,
+        1,
+        3,
+        3
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        5,
+        5
+      ],
+      "expected_output": [
+        5.0,
+        4.0,
+        5.0,
+        6.0,
+        5.0,
+        2.0,
+        1.0,
+        2.0,
+        3.0,
+        2.0,
+        5.0,
+        4.0,
+        5.0,
+        6.0,
+        5.0,
+        8.0,
+        7.0,
+        8.0,
+        9.0,
+        8.0,
+        5.0,
+        4.0,
+        5.0,
+        6.0,
+        5.0
+      ],
+      "tolerance": 1e-07,
+      "note": "ReflectionPad2d(1,1,1,1) on 3x3 input."
+    },
+    {
+      "id": "replication_pad1d_basic",
+      "module": "ReplicationPad1d",
+      "op": "forward",
+      "config": {
+        "padding": [
+          2,
+          3
+        ]
+      },
+      "input_shape": [
+        1,
+        1,
+        4
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        9
+      ],
+      "expected_output": [
+        1.0,
+        1.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        4.0,
+        4.0,
+        4.0
+      ],
+      "tolerance": 1e-07,
+      "note": "ReplicationPad1d(2,3): edges repeated."
+    },
+    {
+      "id": "max_pool2d_basic",
+      "module": "MaxPool2d",
+      "op": "forward",
+      "config": {
+        "kernel_size": [
+          2,
+          2
+        ],
+        "stride": [
+          2,
+          2
+        ],
+        "padding": [
+          0,
+          0
+        ]
+      },
+      "input_shape": [
+        1,
+        1,
+        4,
+        4
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "expected_output": [
+        6.0,
+        8.0,
+        14.0,
+        16.0
+      ],
+      "tolerance": 1e-06,
+      "note": "MaxPool2d(2,2) on 4x4 input. Non-overlapping 2x2 windows."
+    },
+    {
+      "id": "avg_pool2d_basic",
+      "module": "AvgPool2d",
+      "op": "forward",
+      "config": {
+        "kernel_size": [
+          2,
+          2
+        ],
+        "stride": [
+          2,
+          2
+        ],
+        "padding": [
+          0,
+          0
+        ]
+      },
+      "input_shape": [
+        1,
+        1,
+        4,
+        4
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "expected_output": [
+        3.5,
+        5.5,
+        11.5,
+        13.5
+      ],
+      "tolerance": 1e-05,
+      "note": "AvgPool2d(2,2) averages each 2x2 tile."
+    },
+    {
+      "id": "adaptive_avg_pool2d_2x2",
+      "module": "AdaptiveAvgPool2d",
+      "op": "forward",
+      "config": {
+        "output_size": [
+          2,
+          2
+        ]
+      },
+      "input_shape": [
+        1,
+        1,
+        4,
+        4
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "expected_output": [
+        3.5,
+        5.5,
+        11.5,
+        13.5
+      ],
+      "tolerance": 1e-05,
+      "note": "AdaptiveAvgPool2d(2,2) on 4x4 input."
+    },
+    {
+      "id": "max_pool1d_basic",
+      "module": "MaxPool1d",
+      "op": "forward",
+      "config": {
+        "kernel_size": 2,
+        "stride": 2,
+        "padding": 0
+      },
+      "input_shape": [
+        1,
+        1,
+        6
+      ],
+      "input_data": [
+        1.0,
+        3.0,
+        2.0,
+        5.0,
+        4.0,
+        6.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        3
+      ],
+      "expected_output": [
+        3.0,
+        5.0,
+        6.0
+      ],
+      "tolerance": 1e-06,
+      "note": "MaxPool1d(2,2) on 1D length-6 input."
+    },
+    {
+      "id": "avg_pool1d_basic",
+      "module": "AvgPool1d",
+      "op": "forward",
+      "config": {
+        "kernel_size": 2,
+        "stride": 2,
+        "padding": 0
+      },
+      "input_shape": [
+        1,
+        1,
+        4
+      ],
+      "input_data": [
+        1.0,
+        3.0,
+        5.0,
+        7.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        2
+      ],
+      "expected_output": [
+        2.0,
+        6.0
+      ],
+      "tolerance": 1e-06,
+      "note": "AvgPool1d(2,2) averages pairs."
+    },
+    {
+      "id": "lp_pool1d_basic",
+      "module": "LPPool1d",
+      "op": "forward",
+      "config": {
+        "norm_type": 2.0,
+        "kernel_size": 2,
+        "stride": 2
+      },
+      "input_shape": [
+        1,
+        1,
+        4
+      ],
+      "input_data": [
+        3.0,
+        4.0,
+        0.0,
+        5.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        2
+      ],
+      "expected_output": [
+        5.0,
+        5.0
+      ],
+      "tolerance": 1e-05,
+      "note": "LPPool1d p=2, k=2, stride=2: L2([3,4])=5, L2([0,5])=5."
+    },
+    {
+      "id": "adaptive_max_pool2d_basic",
+      "module": "AdaptiveMaxPool2d",
+      "op": "forward",
+      "config": {
+        "output_size": [
+          2,
+          2
+        ]
+      },
+      "input_shape": [
+        1,
+        1,
+        4,
+        4
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "expected_output": [
+        6.0,
+        8.0,
+        14.0,
+        16.0
+      ],
+      "tolerance": 1e-06,
+      "note": "AdaptiveMaxPool2d(2,2) on 4x4: max of each 2x2 tile."
+    },
+    {
+      "id": "upsample_nearest_2x",
+      "module": "Upsample",
+      "op": "forward",
+      "config": {
+        "size": [
+          4,
+          4
+        ],
+        "mode": "nearest"
+      },
+      "input_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        4,
+        4
+      ],
+      "expected_output": [
+        1.0,
+        1.0,
+        2.0,
+        2.0,
+        1.0,
+        1.0,
+        2.0,
+        2.0,
+        3.0,
+        3.0,
+        4.0,
+        4.0,
+        3.0,
+        3.0,
+        4.0,
+        4.0
+      ],
+      "tolerance": 1e-06,
+      "note": "Upsample nearest-neighbor 2x from [2,2] to [4,4]."
+    },
+    {
+      "id": "pixel_shuffle_r2",
+      "module": "PixelShuffle",
+      "op": "forward",
+      "config": {
+        "upscale_factor": 2
+      },
+      "input_shape": [
+        1,
+        4,
+        2,
+        2
+      ],
+      "input_data": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0
+      ],
+      "expected_shape": [
+        1,
+        1,
+        4,
+        4
+      ],
+      "expected_output": [
+        1.0,
+        5.0,
+        2.0,
+        6.0,
+        9.0,
+        13.0,
+        10.0,
+        14.0,
+        3.0,
+        7.0,
+        4.0,
+        8.0,
+        11.0,
+        15.0,
+        12.0,
+        16.0
+      ],
+      "tolerance": 1e-06,
+      "note": "PixelShuffle upscale_factor=2: [1,4,2,2] -> [1,1,4,4]."
+    },
+    {
+      "id": "pixel_unshuffle_r2",
+      "module": "PixelUnshuffle",
+      "op": "forward",
+      "config": {
+        "downscale_factor": 2
+      },
+      "input_shape": [
+        1,
+        1,
+        4,
+        4
+      ],
+      "input_data": [
+        1.0,
+        5.0,
+        2.0,
+        6.0,
+        9.0,
+        13.0,
+        10.0,
+        14.0,
+        3.0,
+        7.0,
+        4.0,
+        8.0,
+        11.0,
+        15.0,
+        12.0,
+        16.0
+      ],
+      "expected_shape": [
+        1,
+        4,
+        2,
+        2
+      ],
+      "expected_output": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0
+      ],
+      "tolerance": 1e-06,
+      "note": "PixelUnshuffle downscale_factor=2: inverse of pixel_shuffle."
+    },
+    {
+      "id": "dropout_eval_passthrough",
+      "module": "Dropout",
+      "op": "forward_eval",
+      "config": {
+        "p": 0.5
+      },
+      "input_shape": [
+        3,
+        4
+      ],
+      "input_data": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0
+      ],
+      "expected_shape": [
+        3,
+        4
+      ],
+      "expected_output": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0
+      ],
+      "tolerance": 1e-07,
+      "note": "Dropout in eval mode is identity."
+    },
+    {
+      "id": "dropout2d_eval_passthrough",
+      "module": "Dropout2d",
+      "op": "forward_eval",
+      "config": {
+        "p": 0.5
+      },
+      "input_shape": [
+        1,
+        4,
+        2,
+        2
+      ],
+      "input_data": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "expected_shape": [
+        1,
+        4,
+        2,
+        2
+      ],
+      "expected_output": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "tolerance": 1e-07,
+      "note": "Dropout2d in eval mode is identity."
+    },
+    {
+      "id": "alphadropout_eval_passthrough",
+      "module": "AlphaDropout",
+      "op": "forward_eval",
+      "config": {
+        "p": 0.1
+      },
+      "input_shape": [
+        3,
+        4
+      ],
+      "input_data": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0
+      ],
+      "expected_shape": [
+        3,
+        4
+      ],
+      "expected_output": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0
+      ],
+      "tolerance": 1e-07,
+      "note": "AlphaDropout in eval mode is identity."
+    },
+    {
+      "id": "conv2d_forward_shape",
+      "module": "Conv2d",
+      "op": "forward_shape",
+      "config": {
+        "in_channels": 1,
+        "out_channels": 2,
+        "kernel_size": 3,
+        "stride": 1,
+        "padding": 0,
+        "bias": false
+      },
+      "input_shape": [
+        1,
+        1,
+        5,
+        5
+      ],
+      "expected_shape": [
+        1,
+        2,
+        3,
+        3
+      ],
+      "note": "Conv2d(1->2, kernel=3, stride=1, no pad) on 5x5: output is 3x3."
+    },
+    {
+      "id": "conv1d_forward_shape",
+      "module": "Conv1d",
+      "op": "forward_shape",
+      "config": {
+        "in_channels": 2,
+        "out_channels": 4,
+        "kernel_size": 3,
+        "stride": 1,
+        "padding": 1,
+        "bias": true
+      },
+      "input_shape": [
+        2,
+        2,
+        8
+      ],
+      "expected_shape": [
+        2,
+        4,
+        8
+      ],
+      "note": "Conv1d(2->4, kernel=3, stride=1, pad=1) length=8: output length=8."
+    },
+    {
+      "id": "conv_transpose2d_forward_shape",
+      "module": "ConvTranspose2d",
+      "op": "forward_shape",
+      "config": {
+        "in_channels": 2,
+        "out_channels": 1,
+        "kernel_size": 3,
+        "stride": 2,
+        "padding": 1,
+        "output_padding": 1,
+        "bias": false
+      },
+      "input_shape": [
+        1,
+        2,
+        4,
+        4
+      ],
+      "expected_shape": [
+        1,
+        1,
+        8,
+        8
+      ],
+      "note": "ConvTranspose2d(2->1, k=3, stride=2, pad=1, out_pad=1) 4x4->8x8."
+    },
+    {
+      "id": "lazy_linear_materialize",
+      "module": "LazyLinear",
+      "op": "forward_materialize",
+      "config": {
+        "out_features": 3,
+        "bias": true
+      },
+      "input_shape": [
+        2,
+        4
+      ],
+      "input_data_zeros": true,
+      "expected_shape": [
+        2,
+        3
+      ],
+      "note": "LazyLinear materializes on first forward call; output shape checked only."
+    },
+    {
+      "id": "lazy_conv2d_materialize",
+      "module": "LazyConv2d",
+      "op": "forward_materialize",
+      "config": {
+        "out_channels": 4,
+        "kernel_size": 3,
+        "stride": 1,
+        "padding": 1
+      },
+      "input_shape": [
+        1,
+        2,
+        5,
+        5
+      ],
+      "input_data_zeros": true,
+      "expected_shape": [
+        1,
+        4,
+        5,
+        5
+      ],
+      "note": "LazyConv2d materializes in_channels=2 on first forward. Shape only."
+    },
+    {
+      "id": "embedding_bag_sum",
+      "module": "EmbeddingBag",
+      "op": "forward_bag",
+      "config": {
+        "num_embeddings": 5,
+        "embedding_dim": 3,
+        "mode": "sum"
+      },
+      "input_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "offsets": [
+        0,
+        2
+      ],
+      "weight": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "expected_shape": [
+        2,
+        3
+      ],
+      "expected_output": [
+        1.0,
+        1.0,
+        0.0,
+        1.0,
+        2.0,
+        2.0
+      ],
+      "tolerance": 1e-06,
+      "note": "EmbeddingBag sum: bag [0,1]=row0+row1, bag [2,3,4]=row2+row3+row4."
+    }
+  ]
+}

@@ -1,0 +1,2696 @@
+# Surface inventory for ferrotorch-nn
+# Authored for C9.1 (Basic layers — Linear, Conv*, Embedding, Identity, Padding,
+# Upsample, Pooling, Dropout, Lazy*).
+# Subsequent sub-phases C9.2, C9.3, C9.4 REUSE this file without replacing it.
+# DO NOT replace this file in later sub-phases — only extend [[item]] entries.
+#
+# Inventory date: 2026-05-07
+# Total items: 648
+#
+# Modules covered (full crate, 11 in-scope for C9.1):
+#   linear             — Linear struct + methods (new, in_features, out_features,
+#                        Module impl: forward, parameters*, named_parameters,
+#                        train, eval, is_training, state_dict, load_state_dict,
+#                        to_device, Display)
+#   conv               — Conv1d/2d/3d, ConvTranspose1d/2d/3d (+new, from_parts,
+#                        num_parameters, Module impl methods)
+#   lazy_linear        — LazyLinear (+new, is_initialized, out_features, in_features,
+#                        materialize, Module impl)
+#   lazy_conv          — LazyConv1d/2d/3d (+new, is_initialized, materialize, Module impl)
+#   lazy_conv_transpose — LazyConvTranspose1d/2d/3d (+new, is_initialized, materialize,
+#                         Module impl)
+#   embedding          — Embedding, EmbeddingBackward, EmbeddingBag, EmbeddingBagMode
+#   identity           — Identity, Flatten, Unflatten, ChannelShuffle,
+#                        CosineSimilarity, PairwiseDistance
+#   padding            — PaddingMode, functional_pad_1d/2d/3d,
+#                        ConstantPad1d/2d/3d, ZeroPad1d/2d/3d,
+#                        ReflectionPad1d/2d/3d, ReplicationPad1d/2d/3d,
+#                        CircularPad1d/2d/3d
+#   upsample           — InterpolateMode, GridSamplePaddingMode, GridSampleMode,
+#                        interpolate, Upsample, grid_sample, affine_grid,
+#                        PixelShuffle, PixelUnshuffle, pixel_shuffle, pixel_unshuffle,
+#                        Unfold, Fold, unfold, fold
+#   pooling            — MaxPool1d/2d/3d, AvgPool1d/2d/3d,
+#                        AdaptiveAvgPool1d/2d/3d, AdaptiveMaxPool1d/2d/3d,
+#                        MaxUnpool2d, FractionalMaxPool2d, LPPool1d/2d,
+#                        free-function variants (max_pool1d/2d/3d, avg_pool1d/2d/3d,
+#                        adaptive_avg_pool1d/2d/3d, adaptive_max_pool1d/2d/3d,
+#                        lp_pool1d/2d, max_unpool2d)
+#   dropout            — Dropout, Dropout1d, Dropout2d, Dropout3d, AlphaDropout
+#
+# Additional public items from the full crate surface not in C9.1 scope have
+# a c9_phase marker pointing to their owning sub-phase so later agents can
+# extend this file without rewriting it.
+
+# ============================================================
+# linear — fully connected layer
+# ============================================================
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::in_features"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::out_features"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::weight"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::bias"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::parameters_mut"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::state_dict"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::load_state_dict"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::linear::Linear::to_device"
+kind = "method"
+c9_phase = "C9.1"
+
+# ============================================================
+# conv — Conv1d/2d/3d + ConvTranspose1d/2d/3d
+# ============================================================
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv2d::from_parts"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv2d::num_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv2d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv2d::parameters_mut"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv2d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv2d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv2d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv2d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv1d::from_parts"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv1d::num_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv1d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv1d::parameters_mut"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv1d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv1d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv1d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv1d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv3d::from_parts"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv3d::num_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv3d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv3d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv3d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv3d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::Conv3d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose2d::from_parts"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose2d::num_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose2d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose2d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose2d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose2d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose2d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose1d::from_parts"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose1d::num_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose1d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose1d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose1d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose1d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose1d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose3d::from_parts"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose3d::num_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose3d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose3d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose3d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose3d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::conv::ConvTranspose3d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+# ============================================================
+# lazy_linear — LazyLinear
+# ============================================================
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear::is_initialized"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear::out_features"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear::in_features"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear::materialize"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_linear::LazyLinear::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+# ============================================================
+# lazy_conv — LazyConv1d/2d/3d
+# ============================================================
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv1d::is_initialized"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv1d::materialize"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv1d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv1d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv1d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv1d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv1d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv2d::is_initialized"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv2d::materialize"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv2d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv2d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv2d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv2d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv2d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv3d::is_initialized"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv3d::materialize"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv3d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv3d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv3d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv3d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv::LazyConv3d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+# ============================================================
+# lazy_conv_transpose — LazyConvTranspose1d/2d/3d
+# ============================================================
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d::is_initialized"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d::materialize"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose2d::is_initialized"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose2d::materialize"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose2d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose2d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose2d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose2d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose2d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d::is_initialized"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d::materialize"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+# ============================================================
+# embedding — Embedding, EmbeddingBag, EmbeddingBagMode
+# ============================================================
+
+[[item]]
+path = "ferrotorch_nn::embedding::EmbeddingBagMode"
+kind = "enum"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::from_pretrained"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::with_sparse"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::sparse_grad"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::num_embeddings"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::embedding_dim"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::padding_idx"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::weight"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::sparse"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::named_parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::Embedding::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::EmbeddingBag"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::EmbeddingBag::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::EmbeddingBag::forward_bag"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::EmbeddingBag::num_embeddings"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::EmbeddingBag::embedding_dim"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::EmbeddingBag::mode"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::EmbeddingBag::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::embedding::EmbeddingBackward"
+kind = "struct"
+c9_phase = "C9.1"
+
+# ============================================================
+# identity — Identity, Flatten, Unflatten, ChannelShuffle,
+#             CosineSimilarity, PairwiseDistance
+# ============================================================
+
+[[item]]
+path = "ferrotorch_nn::identity::Identity"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Identity::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Identity::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Identity::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Identity::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Identity::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Identity::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Flatten"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Flatten::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Flatten::start_dim"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Flatten::end_dim"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Flatten::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Unflatten"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Unflatten::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Unflatten::dim"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Unflatten::unflattened_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::Unflatten::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::ChannelShuffle"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::ChannelShuffle::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::ChannelShuffle::groups"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::ChannelShuffle::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::CosineSimilarity"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::CosineSimilarity::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::CosineSimilarity::dim"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::CosineSimilarity::eps"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::CosineSimilarity::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::PairwiseDistance"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::PairwiseDistance::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::PairwiseDistance::p"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::PairwiseDistance::eps"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::PairwiseDistance::keepdim"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::identity::PairwiseDistance::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+# ============================================================
+# padding — PaddingMode + functional + struct pads
+# ============================================================
+
+[[item]]
+path = "ferrotorch_nn::padding::PaddingMode"
+kind = "enum"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::functional_pad_1d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::functional_pad_2d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::functional_pad_3d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad1d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad1d::value"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad2d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad2d::value"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad3d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad3d::value"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ConstantPad3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad1d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad2d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad3d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ZeroPad3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad1d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad2d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad3d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReflectionPad3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad1d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad2d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad3d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::ReplicationPad3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad1d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad2d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad3d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::padding::CircularPad3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+# ============================================================
+# upsample — Upsample, PixelShuffle, PixelUnshuffle, Unfold, Fold
+#             and free functions
+# ============================================================
+
+[[item]]
+path = "ferrotorch_nn::upsample::InterpolateMode"
+kind = "enum"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::GridSamplePaddingMode"
+kind = "enum"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::GridSampleMode"
+kind = "enum"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::interpolate"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Upsample"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Upsample::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Upsample::with_scale_factor"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Upsample::align_corners"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Upsample::size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Upsample::scale_factor"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Upsample::mode"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Upsample::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::grid_sample"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::affine_grid"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::PixelShuffle"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::PixelShuffle::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::PixelShuffle::upscale_factor"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::PixelShuffle::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::PixelUnshuffle"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::PixelUnshuffle::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::PixelUnshuffle::downscale_factor"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::PixelUnshuffle::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::pixel_shuffle"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::pixel_unshuffle"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Unfold"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Unfold::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Unfold::kernel_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Unfold::dilation"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Unfold::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Unfold::stride"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Unfold::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Fold"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Fold::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Fold::output_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Fold::kernel_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Fold::dilation"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Fold::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Fold::stride"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::Fold::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::unfold"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::upsample::fold"
+kind = "fn"
+c9_phase = "C9.1"
+
+# ============================================================
+# pooling — MaxPool/AvgPool/AdaptivePool/MaxUnpool/LP/Fractional
+# ============================================================
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool2d::kernel_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool2d::stride"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool2d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool2d::kernel_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool2d::stride"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool2d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool2d::output_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool1d::kernel_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool1d::stride"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool1d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool3d::kernel_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool3d::stride"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool3d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxPool3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool1d::kernel_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool1d::stride"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool1d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool3d::kernel_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool3d::stride"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool3d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AvgPool3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool2d::output_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool1d::output_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool3d::output_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxUnpool2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxUnpool2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxUnpool2d::kernel_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxUnpool2d::stride"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxUnpool2d::padding"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::MaxUnpool2d::forward_with_indices"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::max_unpool2d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool1d::output_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool3d::output_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::FractionalMaxPool2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::FractionalMaxPool2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::FractionalMaxPool2d::output_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::FractionalMaxPool2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool1d::norm_type"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool1d::kernel_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool1d::stride"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool2d::norm_type"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool2d::kernel_size"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool2d::stride"
+kind = "field"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::LPPool2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::max_pool1d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::max_pool2d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::max_pool3d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::avg_pool1d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::avg_pool2d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::avg_pool3d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::adaptive_avg_pool1d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::adaptive_avg_pool2d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::adaptive_avg_pool3d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::adaptive_max_pool2d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::adaptive_max_pool1d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::adaptive_max_pool3d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::lp_pool1d"
+kind = "fn"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::pooling::lp_pool2d"
+kind = "fn"
+c9_phase = "C9.1"
+
+# ============================================================
+# dropout — Dropout, Dropout1d/2d/3d, AlphaDropout
+# ============================================================
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout::parameters"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout1d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout1d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout1d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout1d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout1d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout1d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout2d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout2d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout2d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout2d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout2d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout2d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout3d"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout3d::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout3d::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout3d::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout3d::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::Dropout3d::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::AlphaDropout"
+kind = "struct"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::AlphaDropout::new"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::AlphaDropout::forward"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::AlphaDropout::train"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::AlphaDropout::eval"
+kind = "method"
+c9_phase = "C9.1"
+
+[[item]]
+path = "ferrotorch_nn::dropout::AlphaDropout::is_training"
+kind = "method"
+c9_phase = "C9.1"
+
+# ============================================================
+# C9.4 — attention + grad_fns dispatch
+# Added by C9.4 dispatch, 2026-05-07
+# ============================================================
+
+# attention — MultiheadAttention
+
+[[item]]
+path = "ferrotorch_nn::attention::MultiheadAttention"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::MultiheadAttention::new"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::MultiheadAttention::with_gqa"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::MultiheadAttention::forward_qkv"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::MultiheadAttention::forward_2d"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::MultiheadAttention::embed_dim"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::MultiheadAttention::num_heads"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::MultiheadAttention::num_kv_heads"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::MultiheadAttention::head_dim"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::MultiheadAttention::is_gqa"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::reshape_to_heads"
+kind = "fn"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::transpose_heads_to_2d"
+kind = "fn"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::attention::repeat_kv"
+kind = "fn"
+c9_phase = "C9.4"
+
+# flash_attention
+
+[[item]]
+path = "ferrotorch_nn::flash_attention::flash_attention"
+kind = "fn"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::flash_attention::standard_attention"
+kind = "fn"
+c9_phase = "C9.4"
+
+# flex_attention
+
+[[item]]
+path = "ferrotorch_nn::flex_attention::BlockMask"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::flex_attention::flex_attention"
+kind = "fn"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::flex_attention::causal_score_mod"
+kind = "fn"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::flex_attention::alibi_score_mod"
+kind = "fn"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::flex_attention::relative_position_bias_score_mod"
+kind = "fn"
+c9_phase = "C9.4"
+
+# paged_attention
+
+[[item]]
+path = "ferrotorch_nn::paged_attention::KVPage"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::paged_attention::PagePool"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::paged_attention::PagedKVCache"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::paged_attention::PagedAttentionManager"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::paged_attention::PagedAttentionManager::new"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::paged_attention::PagedAttentionManager::add_sequence"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::paged_attention::PagedAttentionManager::append_kv"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::paged_attention::PagedAttentionManager::get_kv"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::paged_attention::PagedKVCache::seq_len"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::paged_attention::PagePool::available"
+kind = "method"
+c9_phase = "C9.4"
+
+# transformer
+
+[[item]]
+path = "ferrotorch_nn::transformer::RoPEConvention"
+kind = "enum"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::RoPEScaling"
+kind = "enum"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::new"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::with_convention"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::with_scaling"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::apply"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::dim"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::max_seq_len"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::base"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::convention"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::scaling"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::SwiGLU"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::SwiGLU::new"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::KVCache"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::KVCache::new"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::KVCache::with_dims"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::KVCache::update"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::KVCache::reset"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::KVCache::seq_len"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::KVCache::is_empty"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::KVCache::max_seq_len"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::KVCache::num_kv_heads"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::KVCache::head_dim"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::KVCache::batch_size"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerEncoderLayer"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerEncoderLayer::new"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerDecoderLayer"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerDecoderLayer::new"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerDecoderLayer::forward_with_memory"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerEncoder"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerEncoder::new"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerEncoder::num_layers"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerDecoder"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerDecoder::new"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerDecoder::num_layers"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::TransformerDecoder::forward_with_memory"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::Transformer"
+kind = "struct"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::Transformer::new"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::Transformer::forward_transformer"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::Transformer::num_encoder_layers"
+kind = "method"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::transformer::Transformer::num_decoder_layers"
+kind = "method"
+c9_phase = "C9.4"
+
+# grad_fns (covered via conformance tests exercising ferrotorch-core)
+
+[[item]]
+path = "ferrotorch_nn::grad_fns::softmax_backward"
+kind = "fn"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::grad_fns::layernorm_backward"
+kind = "fn"
+c9_phase = "C9.4"
+
+[[item]]
+path = "ferrotorch_nn::grad_fns::cross_entropy_backward"
+kind = "fn"
+c9_phase = "C9.4"

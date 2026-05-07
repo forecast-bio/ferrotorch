@@ -25,3 +25,6 @@ half = { workspace = true }
 ferrotorch-gpu = { workspace = true, optional = true }
 
 [dev-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "1"

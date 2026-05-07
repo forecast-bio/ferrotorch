@@ -1059,11 +1059,11 @@ fn rnn_utils_pad_packed_sequence_roundtrip() {
 
     // Non-padding positions must match original.
     let out_data = output.data().unwrap();
-    for b in 0..batch {
+    for (b, &len_b) in lengths.iter().enumerate() {
         for t in 0..max_seq {
             for f in 0..features {
                 let idx = b * max_seq * features + t * features + f;
-                if t < lengths[b] {
+                if t < len_b {
                     assert_eq!(out_data[idx], data[idx], "roundtrip mismatch at b={b} t={t} f={f}");
                 } else {
                     assert_eq!(out_data[idx], 0.0f32, "padding must be 0.0 at b={b} t={t} f={f}");

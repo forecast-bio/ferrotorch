@@ -1,0 +1,880 @@
+# Surface exclusions for ferrotorch-nn conformance suite (C9.1 — Basic Layers).
+#
+# Each entry records an item from _surface_inventory.toml that does NOT
+# require a direct named reference in a conformance_nn_layers.rs test,
+# along with a documented reason.
+#
+# Valid reasons:
+#   structural   — implicitly exercised by every test that uses the surrounding
+#                  struct/trait; individual naming adds no extra signal.
+#   implicit     — covered transitively by tests of a higher-level function.
+#   live-env     — requires running CUDA hardware; cascade-skipped without GPU.
+#   deferred     — confirmed out-of-scope for C9.1; tracked in a follow-up phase.
+#   rng          — involves non-deterministic output by design; asserted via
+#                  distribution moments or train/eval behaviour only.
+
+# ---------------------------------------------------------------------------
+# linear — pub fields are exercised transitively by every parameter access
+# test; naming them individually adds no conformance signal.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_nn::linear::Linear::weight"
+reason = "structural"
+note = "Accessed and mutated by forward, named_parameters, and state_dict tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::linear::Linear::bias"
+reason = "structural"
+note = "Accessed and mutated by forward, named_parameters, and state_dict tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::linear::Linear::parameters_mut"
+reason = "structural"
+note = "Covered transitively by state_dict load tests that mutate parameters."
+
+[[exclusion]]
+path = "ferrotorch_nn::linear::Linear::state_dict"
+reason = "structural"
+note = "Covered by state_dict round-trip test in conformance_nn_layers.rs."
+
+[[exclusion]]
+path = "ferrotorch_nn::linear::Linear::load_state_dict"
+reason = "structural"
+note = "Covered by state_dict round-trip test."
+
+[[exclusion]]
+path = "ferrotorch_nn::linear::Linear::to_device"
+reason = "structural"
+note = "CPU no-op path exercised by train/eval tests; CUDA path requires live GPU."
+
+# ---------------------------------------------------------------------------
+# conv — from_parts and num_parameters are constructors/accessors whose
+# behaviour is transitively covered by Module forward tests.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::Conv2d::from_parts"
+reason = "structural"
+note = "Lower-level constructor; Conv2d::new is the canonical path tested."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::Conv2d::num_parameters"
+reason = "structural"
+note = "Arithmetic accessor; covered by parameter-count assertions in Conv2d tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::Conv2d::parameters_mut"
+reason = "structural"
+note = "Mutable accessor exercised transitively by forward + backward tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::Conv1d::from_parts"
+reason = "structural"
+note = "Lower-level constructor; Conv1d::new is the canonical path tested."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::Conv1d::num_parameters"
+reason = "structural"
+note = "Arithmetic accessor; covered by parameter-count assertions."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::Conv1d::parameters_mut"
+reason = "structural"
+note = "Mutable accessor exercised transitively."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::Conv3d::from_parts"
+reason = "structural"
+note = "Lower-level constructor; Conv3d::new is the canonical path tested."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::Conv3d::num_parameters"
+reason = "structural"
+note = "Arithmetic accessor; covered by parameter-count assertions."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::ConvTranspose2d::from_parts"
+reason = "structural"
+note = "Lower-level constructor; ConvTranspose2d::new is the canonical path."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::ConvTranspose2d::num_parameters"
+reason = "structural"
+note = "Arithmetic accessor; covered by parameter-count assertions."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::ConvTranspose1d::from_parts"
+reason = "structural"
+note = "Lower-level constructor."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::ConvTranspose1d::num_parameters"
+reason = "structural"
+note = "Arithmetic accessor."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::ConvTranspose3d::from_parts"
+reason = "structural"
+note = "Lower-level constructor."
+
+[[exclusion]]
+path = "ferrotorch_nn::conv::ConvTranspose3d::num_parameters"
+reason = "structural"
+note = "Arithmetic accessor."
+
+# ---------------------------------------------------------------------------
+# lazy_conv — train/eval accessors are structural/transitively covered.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_nn::lazy_conv::LazyConv1d::is_training"
+reason = "structural"
+note = "Covered by train/eval toggle test."
+
+# ---------------------------------------------------------------------------
+# lazy_conv_transpose — some train/eval accessors are
+# transitively covered by the forward + materialize tests.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d::named_parameters"
+reason = "structural"
+note = "Covered by forward test that asserts parameter visibility after materialize."
+
+[[exclusion]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose1d::is_training"
+reason = "structural"
+note = "Covered by train/eval toggle test on LazyConvTranspose2d."
+
+## ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose2d::parameters_mut
+## was removed from the inventory (not a public item in scope) — exclusion
+## entry removed to prevent stale-exclusion gate failure.
+
+[[exclusion]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d::named_parameters"
+reason = "structural"
+note = "Covered transitively by LazyConvTranspose2d tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::lazy_conv_transpose::LazyConvTranspose3d::is_training"
+reason = "structural"
+note = "Covered transitively by LazyConvTranspose2d train/eval test."
+
+# ---------------------------------------------------------------------------
+# embedding — pub fields are exercised by every embedding forward test.
+# EmbeddingBackward is a grad_fn struct exercised when backward runs.
+# sparse_grad returns an Option only when backward has run — covered by
+# the backward conformance test.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_nn::embedding::Embedding::weight"
+reason = "structural"
+note = "Accessed by every Embedding forward + backward test."
+
+[[exclusion]]
+path = "ferrotorch_nn::embedding::Embedding::num_embeddings"
+reason = "structural"
+note = "Accessed during Embedding construction and fixture validation."
+
+[[exclusion]]
+path = "ferrotorch_nn::embedding::Embedding::embedding_dim"
+reason = "structural"
+note = "Accessed during Embedding construction and fixture validation."
+
+[[exclusion]]
+path = "ferrotorch_nn::embedding::Embedding::padding_idx"
+reason = "structural"
+note = "Exercised by padding_idx test in embedding conformance."
+
+[[exclusion]]
+path = "ferrotorch_nn::embedding::Embedding::sparse"
+reason = "structural"
+note = "Exercised by with_sparse builder test."
+
+[[exclusion]]
+path = "ferrotorch_nn::embedding::Embedding::sparse_grad"
+reason = "structural"
+note = "Accessed after backward in embedding sparse-gradient test."
+
+[[exclusion]]
+path = "ferrotorch_nn::embedding::EmbeddingBackward"
+reason = "implicit"
+note = "GradFn struct; exercised transitively by every Embedding backward test."
+
+[[exclusion]]
+path = "ferrotorch_nn::embedding::EmbeddingBag::forward"
+reason = "structural"
+note = "Module::forward delegates to forward_bag; covered by forward_bag test."
+
+# ---------------------------------------------------------------------------
+# identity — Default impls, named_parameters, and parameters_mut are
+# all zero-parameter paths covered by any test that inspects Module state.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_nn::identity::Identity::parameters"
+reason = "structural"
+note = "Returns empty vec; exercised by every identity conformance test."
+
+[[exclusion]]
+path = "ferrotorch_nn::identity::Flatten::start_dim"
+reason = "structural"
+note = "Public field accessed by Flatten forward tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::identity::Flatten::end_dim"
+reason = "structural"
+note = "Public field accessed by Flatten forward tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::identity::Unflatten::dim"
+reason = "structural"
+note = "Public field accessed by Unflatten forward tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::identity::Unflatten::unflattened_size"
+reason = "structural"
+note = "Public field accessed by Unflatten forward tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::identity::ChannelShuffle::groups"
+reason = "structural"
+note = "Public field accessed by ChannelShuffle construction tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::identity::CosineSimilarity::dim"
+reason = "structural"
+note = "Public field accessed by CosineSimilarity tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::identity::CosineSimilarity::eps"
+reason = "structural"
+note = "Public field accessed by CosineSimilarity tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::identity::PairwiseDistance::p"
+reason = "structural"
+note = "Public field accessed by PairwiseDistance tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::identity::PairwiseDistance::eps"
+reason = "structural"
+note = "Public field accessed by PairwiseDistance tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::identity::PairwiseDistance::keepdim"
+reason = "structural"
+note = "Public field accessed by PairwiseDistance tests."
+
+# ---------------------------------------------------------------------------
+# padding — pub fields are structural; pad functional helpers are covered
+# by the struct test when each struct's forward calls them internally.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ConstantPad1d::padding"
+reason = "structural"
+note = "Public field; exercised by ConstantPad1d forward test."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ConstantPad1d::value"
+reason = "structural"
+note = "Public field; exercised by ConstantPad1d forward test."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ConstantPad2d::padding"
+reason = "structural"
+note = "Public field; exercised by ConstantPad2d forward test."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ConstantPad2d::value"
+reason = "structural"
+note = "Public field; exercised by ConstantPad2d forward test."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ConstantPad3d::padding"
+reason = "structural"
+note = "Public field; exercised by ConstantPad3d forward test."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ConstantPad3d::value"
+reason = "structural"
+note = "Public field; exercised by ConstantPad3d forward test."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ZeroPad1d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ZeroPad2d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ZeroPad3d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ReflectionPad1d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ReflectionPad2d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ReflectionPad3d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ReplicationPad1d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ReplicationPad2d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::ReplicationPad3d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::CircularPad1d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::CircularPad2d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::CircularPad3d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::functional_pad_1d"
+reason = "implicit"
+note = "Exercised transitively by ConstantPad1d / ZeroPad1d / ReflectionPad1d forward tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::functional_pad_2d"
+reason = "implicit"
+note = "Exercised transitively by ConstantPad2d / ZeroPad2d / ReflectionPad2d forward tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::padding::functional_pad_3d"
+reason = "implicit"
+note = "Exercised transitively by ConstantPad3d / ZeroPad3d / ReflectionPad3d forward tests."
+
+# ---------------------------------------------------------------------------
+# upsample — pub fields of Upsample are exercised by the forward tests.
+# grid_sample, affine_grid, and fold/unfold free functions are exercised
+# transitively by the corresponding struct-forward tests.
+# Unfold/Fold pub fields are structural.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Upsample::size"
+reason = "structural"
+note = "Public field set by Upsample::new and with_scale_factor; accessed in forward tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Upsample::scale_factor"
+reason = "structural"
+note = "Public field; exercised by Upsample::with_scale_factor test."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Upsample::mode"
+reason = "structural"
+note = "Public field; exercised by Upsample::new test."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::PixelShuffle::upscale_factor"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::PixelUnshuffle::downscale_factor"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Unfold::kernel_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Unfold::dilation"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Unfold::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Unfold::stride"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Fold::output_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Fold::kernel_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Fold::dilation"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Fold::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::Fold::stride"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::grid_sample"
+reason = "implicit"
+note = "Free function called internally by tests that use spatial grid sampling."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::affine_grid"
+reason = "implicit"
+note = "Free function exercised by affine_grid shape-output test."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::unfold"
+reason = "implicit"
+note = "Free function exercised by Unfold::forward conformance test."
+
+[[exclusion]]
+path = "ferrotorch_nn::upsample::fold"
+reason = "implicit"
+note = "Free function exercised by Fold::forward conformance test."
+
+# ---------------------------------------------------------------------------
+# pooling — pub fields are structural; MaxUnpool2d::forward is covered
+# via forward_with_indices (the Module impl delegates there). lp_pool
+# free functions are covered transitively.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxPool2d::kernel_size"
+reason = "structural"
+note = "Public field accessed by MaxPool2d construction tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxPool2d::stride"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxPool2d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AvgPool2d::kernel_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AvgPool2d::stride"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AvgPool2d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool2d::output_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxPool1d::kernel_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxPool1d::stride"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxPool1d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxPool3d::kernel_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxPool3d::stride"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxPool3d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AvgPool1d::kernel_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AvgPool1d::stride"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AvgPool1d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AvgPool3d::kernel_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AvgPool3d::stride"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AvgPool3d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool2d::output_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool1d::output_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AdaptiveAvgPool3d::output_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxUnpool2d::kernel_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxUnpool2d::stride"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::MaxUnpool2d::padding"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool1d::output_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::AdaptiveMaxPool3d::output_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::FractionalMaxPool2d::output_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::LPPool1d::norm_type"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::LPPool1d::kernel_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::LPPool1d::stride"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::LPPool2d::norm_type"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::LPPool2d::kernel_size"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::LPPool2d::stride"
+reason = "structural"
+note = "Public field."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::lp_pool1d"
+reason = "implicit"
+note = "Free function exercised transitively by LPPool1d::forward conformance test."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::lp_pool2d"
+reason = "implicit"
+note = "Free function exercised transitively by LPPool2d::forward conformance test."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::adaptive_max_pool1d"
+reason = "implicit"
+note = "Free function exercised transitively by AdaptiveMaxPool1d::forward test."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::adaptive_max_pool3d"
+reason = "implicit"
+note = "Free function exercised transitively by AdaptiveMaxPool3d::forward test."
+
+[[exclusion]]
+path = "ferrotorch_nn::pooling::max_unpool2d"
+reason = "implicit"
+note = "Free function exercised by MaxUnpool2d::forward_with_indices conformance test."
+
+# ---------------------------------------------------------------------------
+# dropout — dropout modules produce stochastic output; train-mode output
+# correctness is asserted via eval-mode identity and probability bounds.
+# The RNG state is not deterministic across torch/ferrotorch without seeding.
+# ---------------------------------------------------------------------------
+
+[[exclusion]]
+path = "ferrotorch_nn::dropout::Dropout::parameters"
+reason = "structural"
+note = "Returns empty vec; exercised by Dropout zero-parameter test."
+
+# ---------------------------------------------------------------------------
+# C9.4 — attention + grad_fns exclusions
+# Added by C9.4 dispatch, 2026-05-07
+# ---------------------------------------------------------------------------
+
+# MultiheadAttention accessor getters: these return Copy scalar fields set
+# at construction time. They are implicitly verified by every conformance
+# test that constructs a MultiheadAttention and calls forward.
+[[exclusion]]
+path = "ferrotorch_nn::attention::MultiheadAttention::embed_dim"
+reason = "structural"
+note = "Scalar accessor verified implicitly by every MHA forward test (construction parameters)."
+
+[[exclusion]]
+path = "ferrotorch_nn::attention::MultiheadAttention::num_heads"
+reason = "structural"
+note = "Scalar accessor verified implicitly by MHA forward tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::attention::MultiheadAttention::num_kv_heads"
+reason = "structural"
+note = "Scalar accessor; GQA test verifies it transitively."
+
+[[exclusion]]
+path = "ferrotorch_nn::attention::MultiheadAttention::head_dim"
+reason = "structural"
+note = "Derived field (embed_dim / num_heads); verified by forward shape checks."
+
+[[exclusion]]
+path = "ferrotorch_nn::attention::MultiheadAttention::is_gqa"
+reason = "structural"
+note = "Boolean predicate: true when num_kv_heads < num_heads; verified by GQA forward test."
+
+[[exclusion]]
+path = "ferrotorch_nn::attention::MultiheadAttention::forward_2d"
+reason = "implicit"
+note = "2-D convenience wrapper over forward_qkv; covered transitively by Module::forward test."
+
+# transpose_heads_to_2d is the inverse of reshape_to_heads; verified
+# transitively by every MHA forward test (heads → merged back).
+[[exclusion]]
+path = "ferrotorch_nn::attention::transpose_heads_to_2d"
+reason = "implicit"
+note = "Inverse of reshape_to_heads; exercised by MHA forward path in conformance_nn_attention."
+
+# RoPE accessor getters: scalar fields set at construction; verified by
+# the apply() conformance test that constructs the embedding and calls apply.
+[[exclusion]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::dim"
+reason = "structural"
+note = "Accessor; verified by rope_apply fixture constructing the embedding."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::max_seq_len"
+reason = "structural"
+note = "Accessor; verified by rope_apply fixture."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::base"
+reason = "structural"
+note = "Accessor; verified by rope_apply fixture."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::convention"
+reason = "structural"
+note = "Accessor; verified by rope_apply fixture (convention determines algorithm branch)."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::scaling"
+reason = "structural"
+note = "Accessor; RoPEScaling::None is the default; non-None paths tracked in separate scaling test."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::RotaryPositionEmbedding::with_scaling"
+reason = "implicit"
+note = "Builder; default (no scaling) is exercised by rope_apply fixtures; YaRN/linear scaling tracked separately."
+
+# KVCache accessors
+[[exclusion]]
+path = "ferrotorch_nn::transformer::KVCache::max_seq_len"
+reason = "structural"
+note = "Accessor; exercised by kvcache_update_retrieve fixture construction."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::KVCache::num_kv_heads"
+reason = "structural"
+note = "Accessor; verified by KVCache::with_dims fixture."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::KVCache::head_dim"
+reason = "structural"
+note = "Accessor; verified by KVCache::with_dims fixture."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::KVCache::batch_size"
+reason = "structural"
+note = "Accessor; returns None until first update; verified by kvcache_update_retrieve test."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::KVCache::is_empty"
+reason = "structural"
+note = "Predicate; verified by kvcache empty-before-update assertion."
+
+# TransformerEncoder / TransformerDecoder / Transformer full-stack forward:
+# These are multi-layer stacks built from the layer conformance-tested
+# components. Full-stack numeric conformance is tracked in the C9.4
+# cascade queue (crosslink issue #C9.4-CASCADE-1) pending GPU dispatch.
+[[exclusion]]
+path = "ferrotorch_nn::transformer::TransformerEncoder::new"
+reason = "implicit"
+note = "Stack constructor; layers are individually conformance-tested. Full-stack numeric test in cascade queue."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::TransformerEncoder::num_layers"
+reason = "structural"
+note = "Accessor."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::TransformerDecoder::forward_with_memory"
+reason = "implicit"
+note = "Multi-layer version of TransformerDecoderLayer::forward_with_memory; layer is conformance-tested."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::TransformerDecoder::num_layers"
+reason = "structural"
+note = "Accessor."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::Transformer::new"
+reason = "implicit"
+note = "Full encoder-decoder stack; components are individually tested."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::Transformer::forward_transformer"
+reason = "implicit"
+note = "Dispatches to TransformerEncoder + TransformerDecoder which are individually tested."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::Transformer::num_encoder_layers"
+reason = "structural"
+note = "Accessor."
+
+[[exclusion]]
+path = "ferrotorch_nn::transformer::Transformer::num_decoder_layers"
+reason = "structural"
+note = "Accessor."
+
+# PagePool::available: a pool availability counter; verified transitively by
+# PagedAttentionManager tests that check alloc/free pairs complete without error.
+[[exclusion]]
+path = "ferrotorch_nn::paged_attention::PagePool::available"
+reason = "structural"
+note = "Counter accessor; alloc/free cycle verified by paged_manager_multi_seq test."
+
+# PagedKVCache::seq_len: scalar state; verified by paged_kv_append_retrieve fixture.
+[[exclusion]]
+path = "ferrotorch_nn::paged_attention::PagedKVCache::seq_len"
+reason = "structural"
+note = "Accessor; verified by paged_kv_append_retrieve test (token count matches)."
+
+# KVPage and PagePool constructors are pub(crate)-internal helpers; they
+# are exercised by PagedAttentionManager::new which is the public entry point.
+[[exclusion]]
+path = "ferrotorch_nn::paged_attention::KVPage"
+reason = "structural"
+note = "Internal page buffer; exercised transitively by PagedAttentionManager tests."
+
+[[exclusion]]
+path = "ferrotorch_nn::paged_attention::PagePool"
+reason = "structural"
+note = "Internal pool; exercised transitively by PagedAttentionManager tests."
+
+# grad_fns items are not real items in ferrotorch_nn (grad_fns is in
+# ferrotorch_core); we listed them in the inventory as coverage anchors
+# but they resolve to implicit coverage via backward pass tests in
+# conformance_nn_attention.rs (softmax_backward, layernorm_backward,
+# cross_entropy_backward).
+[[exclusion]]
+path = "ferrotorch_nn::grad_fns::softmax_backward"
+reason = "implicit"
+note = "ferrotorch-core grad_fn; exercised by softmax_backward conformance test in conformance_nn_attention.rs."
+
+[[exclusion]]
+path = "ferrotorch_nn::grad_fns::layernorm_backward"
+reason = "implicit"
+note = "ferrotorch-core grad_fn; exercised by layernorm_backward conformance test."
+
+[[exclusion]]
+path = "ferrotorch_nn::grad_fns::cross_entropy_backward"
+reason = "implicit"
+note = "ferrotorch-core grad_fn; exercised by cross_entropy_backward conformance test."
