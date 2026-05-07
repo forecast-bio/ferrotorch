@@ -1,0 +1,10 @@
+{
+  "uuid": "c9979fff-b48d-41ad-b166-28378b07fcc7",
+  "issue_uuid": "cb8d0b34-6a5e-4c6b-9b17-399b61ad6d40",
+  "author": "y4rr",
+  "content": "Observation: folder.rs line 43-45 defines IMG_EXTENSIONS = ['jpg', 'jpeg', 'png', 'ppm', 'bmp', 'pgm', 'tif', 'tiff', 'webp'] — 9 entries. torchvision 0.21.x datasets/folder.py IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tiff', '.webp') — identical set (ferrotorch drops the leading dot since has_extension_ci compares to path.extension()). No code change needed.",
+  "created_at": "2026-05-07T19:50:00.998385826Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzH6ycq2K7qahW0fzhodMJ40MvdRrtZegTWV3g01+fhcWxoRVgX10g4faDHJjjOScyW0C0A4CAmRw5h5ZkIUcDw=="
+}
