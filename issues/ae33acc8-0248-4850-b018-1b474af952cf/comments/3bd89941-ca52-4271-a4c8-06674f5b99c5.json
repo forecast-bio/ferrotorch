@@ -1,0 +1,10 @@
+{
+  "uuid": "3bd89941-ca52-4271-a4c8-06674f5b99c5",
+  "issue_uuid": "ae33acc8-0248-4850-b018-1b474af952cf",
+  "author": "y4rr",
+  "content": "Result: spec_decode.rs (350 lines), spec_decode_test.rs (6 integration tests), _probe_c8_spec_decode.rs (4 probes), lib.rs re-exports. All 103 unit + 4 probe + 6 integration tests pass. Workspace clippy --all-targets clean (0 new warnings). Evidence collected: (1) K=4 probe shows rate=1.0 for identical models; (2) PeakedModel probe confirms draft rejection + residual sampling correctness; (3) autoregressive parity check passes; (4) acceptance_rate metric verified.",
+  "created_at": "2026-05-07T21:25:34.435779464Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAgDqrNtVAd/WFVVeUxPjkuTnurGKSWg2t9oKLw9lyVz6nOS43gfy8w1ojkElvZ79c+wODIOrA1Ayy8WYtPsp1DA=="
+}
