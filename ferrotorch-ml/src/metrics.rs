@@ -137,8 +137,12 @@ where
 
 /// Mean absolute percentage error: `mean(|y_true - y_pred| / |y_true|)`.
 ///
-/// Returned as a fraction (matching ferrolearn's convention; multiply by
-/// 100 to get a percentage). Mirrors `sklearn.metrics.mean_absolute_percentage_error`.
+/// Returned as a **fraction** (e.g. 0.05 = 5 % error), matching
+/// `sklearn.metrics.mean_absolute_percentage_error`.
+///
+/// Note: `ferrolearn_metrics::mean_absolute_percentage_error` returns the
+/// percentage form (multiplied by 100). This wrapper divides by 100 to
+/// convert to the sklearn fraction convention (#841).
 ///
 /// # Examples
 ///
@@ -160,7 +164,11 @@ where
 {
     let yt = tensor_to_array1(y_true)?;
     let yp = tensor_to_array1(y_pred)?;
-    ferrolearn_metrics::mean_absolute_percentage_error(&yt, &yp).map_err(map_metric_err)
+    let pct = ferrolearn_metrics::mean_absolute_percentage_error(&yt, &yp)
+        .map_err(map_metric_err)?;
+    // ferrolearn returns the percentage form (×100); divide back to fraction.
+    let hundred = <T as num_traits::NumCast>::from(100_u8).unwrap_or_else(num_traits::one::<T>);
+    Ok(pct / hundred)
 }
 
 /// Median absolute error.

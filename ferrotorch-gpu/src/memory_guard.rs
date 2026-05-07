@@ -479,15 +479,25 @@ impl MemoryGuard {
         let freed = self.run_hooks(shortfall, budget, used);
 
         if freed > 0 {
-            // Re-check budget after hooks freed memory.
-            if self.check_budget(alloc_bytes).is_ok() {
+            // Re-check headroom after hooks freed memory.
+            //
+            // `check_budget` reads `used_bytes`, but hooks may have freed
+            // memory that was never tracked by this guard (external freed
+            // headroom). When `used_bytes` starts at zero the saturating_sub
+            // in `run_hooks` is a no-op, so `check_budget` would still report
+            // BudgetExceeded even though the hooks freed enough real bytes
+            // (#891). Use the `freed` accumulator as an independent headroom
+            // source to cover that case.
+            let used_now = self.used_bytes.load(Ordering::Relaxed);
+            let headroom = budget.saturating_sub(used_now).saturating_add(freed);
+            if headroom >= alloc_bytes {
                 let result = self.try_alloc_zeros::<T>(count, alloc_bytes);
                 if result.is_ok() {
                     self.notify_pressure_change();
                     return result;
                 }
-                // Driver-level OOM despite budget check passing -- fall through
-                // to OomPolicy.
+                // Driver-level OOM despite headroom check passing — fall
+                // through to OomPolicy.
                 if let Err(e) = result {
                     if self.is_oom(&e) {
                         return self.handle_oom(count, alloc_bytes, e);
@@ -497,16 +507,18 @@ impl MemoryGuard {
             }
         }
 
-        // Hooks were not enough. Re-check budget — if still over, enforce
-        // the budget rather than letting the driver allocate beyond it.
-        if self.check_budget(alloc_bytes).is_err() {
-            let budget = self.budget_bytes.load(Ordering::Relaxed);
-            let used = self.used_bytes.load(Ordering::Relaxed);
-            return Err(crate::error::GpuError::BudgetExceeded {
-                requested_bytes: alloc_bytes,
-                budget_bytes: budget,
-                used_bytes: used,
-            });
+        // Hooks were not enough. Compute post-hook headroom the same way and
+        // enforce the budget rather than letting the driver allocate beyond it.
+        {
+            let used_now = self.used_bytes.load(Ordering::Relaxed);
+            let headroom = budget.saturating_sub(used_now).saturating_add(freed);
+            if headroom < alloc_bytes {
+                return Err(crate::error::GpuError::BudgetExceeded {
+                    requested_bytes: alloc_bytes,
+                    budget_bytes: budget,
+                    used_bytes: used_now,
+                });
+            }
         }
 
         // Budget check passed (hooks freed enough). Try the driver.

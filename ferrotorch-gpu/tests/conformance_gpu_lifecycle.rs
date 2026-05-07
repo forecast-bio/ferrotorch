@@ -1133,42 +1133,31 @@ mod lifecycle {
     /// conformance_gpu_lifecycle: ferrotorch_gpu::memory_guard::MemoryGuard::safe_alloc_with_hooks
     #[test]
     fn memory_guard_hook_fires_before_budget_error() {
-        // cascade-skip: CL-XXXX
-        // safe_alloc_with_hooks hook-unblocking path requires used_bytes > 0 before
-        // the hook fires (run_hooks decrements used_bytes; it cannot reduce it below 0,
-        // so a hook cannot unblock an allocation when used_bytes is already 0 even if
-        // the hook claims to free enough bytes). This is a known behavioral gap: the
-        // hook mechanism only works when there is prior tracked usage for the hook to
-        // offset against. Filed as a cascade bug via crosslink quick below.
-        //
-        // This test verifies the hook infrastructure works (register/remove/fire)
-        // but cascade-skips the allocation path that exposes the bug.
+        // #891 fixed: hook-freed headroom now unblocks alloc even when used_bytes=0.
+        // The fix tracks hook-freed bytes as an independent headroom accumulator
+        // rather than relying solely on used_bytes decrement (which saturates at 0).
         let device = cascade_skip!();
+
+        // Budget = 2048 bytes, used_bytes starts at 0. Hook claims to free 2048
+        // bytes of externally-managed memory. Request 2048 bytes (512 f32) — this
+        // would exceed the budget without the hook, but the hook frees enough.
         let guard = cascade_skip!(
             MemoryGuardBuilder::new(Arc::new(device))
                 .budget_bytes(2048)
                 .build()
         );
 
-        // Register a hook that "frees" 1024 bytes.
-        let hook = MemoryHook::new("free_1kib", 1024, 0, 10, || 1024usize);
+        let hook = MemoryHook::new("free_2kib", 2048, 0, 10, || 2048usize);
         guard.register_hook(hook);
 
-        // Allocate 256 bytes to give used_bytes a non-zero value the hook can offset.
-        let buf = cascade_skip!(guard.safe_alloc::<f32>(64)); // 64*4 = 256 bytes
-        assert!(guard.stats().used_bytes >= 256);
-
-        // Register a second larger allocation attempt — this exercises the hook path
-        // but we accept BudgetExceeded (the cascade bug) or Ok (if fixed).
-        let result = guard.safe_alloc_with_hooks::<f32>(600); // 600*4=2400 > 2048-256=1792
+        // used_bytes=0; alloc_bytes=2048=budget => shortfall=2048; hook frees 2048.
+        // After fix: headroom = (2048-0) + 2048 = 4096 >= 2048 => proceeds.
+        let result = guard.safe_alloc_with_hooks::<f32>(512); // 512*4 = 2048 bytes
         match result {
-            Ok(buf2) => guard.free(buf2),
-            // BudgetExceeded is acceptable here; the hook unblocking gap is the cascade bug.
-            Err(GpuError::BudgetExceeded { .. }) => {}
-            Err(GpuError::Driver(_)) => {}
-            Err(e) => panic!("unexpected error from safe_alloc_with_hooks: {:?}", e),
+            Ok(buf) => guard.free(buf),
+            Err(GpuError::Driver(_)) => {} // no GPU — acceptable skip
+            Err(e) => panic!("#891 regression: hook should have unblocked alloc with used_bytes=0, got {:?}", e),
         }
-        guard.free(buf);
     }
 
     /// conformance_gpu_lifecycle: ferrotorch_gpu::memory_guard::MemoryGuard::set_budget

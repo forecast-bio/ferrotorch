@@ -269,12 +269,9 @@ fn mean_absolute_error_perfect_is_zero() {
     check_f64(actual, 0.0, 1e-12, "mae_perfect");
 }
 
-// cascade_skip: #841 — ferrolearn returns MAPE as a percentage (e.g. 2.93)
-// whereas sklearn returns it as a fraction (e.g. 0.0293). The 100× divergence
-// is a behavioral mismatch in ferrolearn_metrics::mean_absolute_percentage_error;
-// do not fix here — file #841 tracks the root-cause fix.
+// #841 fixed: ferrolearn returns MAPE as percentage; the wrapper now divides
+// by 100 to produce the sklearn-compatible fraction.
 #[test]
-#[ignore = "cascade_skip #841: MAPE 100x divergence (ferrolearn percentage vs sklearn fraction)"]
 fn mean_absolute_percentage_error_matches_sklearn() {
     let file = load_fixtures();
     let f = find(&file, "mean_absolute_percentage_error");

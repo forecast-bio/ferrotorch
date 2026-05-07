@@ -353,6 +353,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- EpochResult / EvalResult missing external-construction helpers blocks conformance testing (#846)
+- ferrotorch-profiler: DeviceType and GpuTimingPair not re-exported from crate root (#837)
+- safe_alloc_with_hooks: hook freed-bytes not unblocking alloc when used_bytes starts at zero (#891)
+- ferrotorch_ml::metrics::mean_absolute_percentage_error returns percentage (100x) instead of fraction vs sklearn (#841)
 - C7.1 cascade: trace::map_name_to_op missing Squeeze/Unsqueeze/Cat backward names — tracing these ops returns Err(unsupported) (#889)
 - C7.1 cascade: symbolic::patch_reshape_for_symbolic_dims is pub(crate) — integration tests cannot call it directly (#888)
 - C7.1 cascade: trace::PowBackward always emits exponent=0.0 — backward node loses pow exponent (#887)
