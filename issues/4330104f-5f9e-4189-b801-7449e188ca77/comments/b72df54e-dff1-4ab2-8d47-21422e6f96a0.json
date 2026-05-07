@@ -1,0 +1,10 @@
+{
+  "uuid": "b72df54e-dff1-4ab2-8d47-21422e6f96a0",
+  "issue_uuid": "4330104f-5f9e-4189-b801-7449e188ca77",
+  "author": "y4rr",
+  "content": "Committed: feat(core,gpu): bf16 x f32-accum mixed-precision matmul/bmm/softmax (Sprint C.3 / #518) | Files: 6 files changed, 1442 insertions(+), 1 deletion(-)",
+  "created_at": "2026-05-07T21:33:39.372938722Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvta3Ll0qRaLrQaam9/6xH84ZjaMbLHB8MjtchmSxBD/RbJpIakSJpsk3SMmfxLSzGBREUGNxC9WGdtj0fpyPBg=="
+}
