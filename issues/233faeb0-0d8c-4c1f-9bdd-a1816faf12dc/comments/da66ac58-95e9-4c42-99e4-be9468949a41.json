@@ -1,0 +1,10 @@
+{
+  "uuid": "da66ac58-95e9-4c42-99e4-be9468949a41",
+  "issue_uuid": "233faeb0-0d8c-4c1f-9bdd-a1816faf12dc",
+  "author": "y4rr",
+  "content": "Probe-before-fix PASSED: 5 probes (vit_patch_embed_bcp_to_bpc, convnext_nhwc_from_nchw, convnext_nchw_from_nhwc, swin_bchw_to_bhwc_flat, swin_bhwc_to_bchw_flat) all produce byte-identical output between manual data_vec loop and Tensor::permute().contiguous() chain. Safe to migrate. Probe lives at ferrotorch-vision/tests/probe_permute_migration.rs and stays in the repo as a regression net.",
+  "created_at": "2026-05-08T10:45:18.623732937Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA4e3J4B9O37k5NevXtXbGLis6Tas/ISSnhHTFVueR5XE2h5moyAvymBPEg9Mw8eAdviwDOxdO99NhkrCsP4CKBA=="
+}
