@@ -1,0 +1,10 @@
+{
+  "uuid": "dcf1fcd4-11c5-4ddf-a6d7-16f199ba5921",
+  "issue_uuid": "1429406f-026a-4dd9-ba4e-bf05ad058aea",
+  "author": "y4rr",
+  "content": "Phase 1B (#985) value-parity attempt failed at strict loader's UnmappedFixtureKey check.\n\nVerbatim panic: 'MobileNetV3-Small: loader failed on well-formed fixture: invalid argument: MobileNetV3-Small value-parity loader: torchvision key \"features.8.block.3.0.weight\" has no mapping to a ferrotorch parameter and is not a declared BN buffer'\n\nRoot cause: ferrotorch-vision/src/models/mobilenet.rs documents MobileNetV3-Small as omitting depthwise+pointwise, SE attention, h-swish, and BN. torchvision's mobilenet_v3_small has features.N.block.M.0/1 (Conv+BN groups including SE fc1/fc2), 142 params + 68 fp_buffers. Ferrotorch's MobileNetV3-Small has only Conv2d weights, no SE, no BN.\n\nPhase 1B test infra in place; tests #[ignore = \"#991 ...\"] until ferrotorch impl gains the missing layers.",
+  "created_at": "2026-05-08T03:06:07.704655708Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAlofLVeUE1g8SirM+bPFgR5OgrifaY5gBowQoon/t7pWsxPyYXV4RArxNwPfS3L8gJPMFtPQ89RpfmiBlWf+UBQ=="
+}
