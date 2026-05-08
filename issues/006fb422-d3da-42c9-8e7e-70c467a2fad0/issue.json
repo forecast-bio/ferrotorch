@@ -1,0 +1,10 @@
+{
+  "uuid": "006fb422-d3da-42c9-8e7e-70c467a2fad0",
+  "display_id": 1008,
+  "title": "Phase 8: ConvNeXt-T residuals (#1005) + DeepLabV3 head naming (#1006) → 2 more PASS-able models",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T19:23:09.752192566Z",
+  "updated_at": "2026-05-08T19:23:09.752192566Z"
+}
