@@ -2,11 +2,12 @@
   "uuid": "397cc160-3d32-4c9d-99c5-6c7e6ef7b041",
   "display_id": 905,
   "title": "C9.4: flex_attention alibi slope hardcoded in test does not match fixture generation slope",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T17:22:58.157021139Z",
-  "updated_at": "2026-05-07T17:22:59.719028878Z",
+  "updated_at": "2026-05-08T00:34:36.816494650Z",
+  "closed_at": "2026-05-08T00:34:36.816494650Z",
   "labels": [
     "rust,bug,conformance,nn"
   ]
