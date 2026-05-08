@@ -62,12 +62,26 @@ if not tv_ver.startswith("0.21"):
 # fixtures.json regeneration runs unchanged.
 # ---------------------------------------------------------------------------
 
-_VALUE_PARITY_MODELS = {"resnet50"}
+# Phase 1A: resnet50. Phase 1B (#985): six additional candidates.
+# Each value-parity model has a builder function below; they all flow through
+# `_emit_value_parity_descriptor` to keep the fixture format and tolerance
+# discipline uniform across models.
+_VALUE_PARITY_MODELS = {
+    "resnet50",
+    "densenet121",
+    "mobilenet_v2",
+    "mobilenet_v3_small",
+    "efficientnet_b0",
+    "inception_v3",
+    "fcn_resnet50",
+}
 
 
 def _value_parity_main(model_names):
     """
-    Generate value-parity artefacts for each requested model.
+    Generate value-parity artefacts for each requested model and merge the
+    descriptors into `fixtures_value_parity.json` (preserving any existing
+    entries for models not in `model_names`).
 
     For each name we:
       1. Build the torchvision module with `weights=None`, deterministic seed.
@@ -76,8 +90,16 @@ def _value_parity_main(model_names):
          (`.bin`) — same wire format as `Tensor::data()` so the Rust side
          loads it via a single byte-slurp.
       4. Run the model in eval mode and capture the f32 output, save as
-         `.bin` the same way.
-      5. Append a JSON descriptor with sha256 checksums and key counts.
+         `.bin` the same way (extracting the relevant tensor for multi-output
+         models — e.g. fcn_resnet50 returns a dict `{"out": ...}` and we save
+         only `out`, NOT a tautological self-reference).
+      5. Merge the JSON descriptor (with sha256 checksums + key sets) into
+         the on-disk fixtures_value_parity.json — replacing any existing
+         entry with the same id, preserving entries for unrequested models.
+
+    Tolerance discipline (#11/#16): each model picks a per-element abs/rel
+    tolerance pair. The Rust side uses `torch.allclose` semantics
+    (|a - e| <= abs_tol + rel_tol * |e|, all elements).
     """
     try:
         from safetensors.torch import save_file as st_save_file
@@ -89,20 +111,42 @@ def _value_parity_main(model_names):
     fixtures_dir = repo_root / "ferrotorch-vision" / "tests" / "conformance" / "fixtures"
     fixtures_dir.mkdir(parents=True, exist_ok=True)
 
-    descriptors = []
+    builders = {
+        "resnet50": _value_parity_resnet50,
+        "densenet121": _value_parity_densenet121,
+        "mobilenet_v2": _value_parity_mobilenet_v2,
+        "mobilenet_v3_small": _value_parity_mobilenet_v3_small,
+        "efficientnet_b0": _value_parity_efficientnet_b0,
+        "inception_v3": _value_parity_inception_v3,
+        "fcn_resnet50": _value_parity_fcn_resnet50,
+    }
 
+    new_descriptors = []
     for name in model_names:
         if name not in _VALUE_PARITY_MODELS:
-            print(f"ERROR: --models target '{name}' not supported in Phase 1A. "
+            print(f"ERROR: --models target '{name}' not supported. "
                   f"Supported: {sorted(_VALUE_PARITY_MODELS)}")
             sys.exit(2)
-
-        if name == "resnet50":
-            descriptors.append(_value_parity_resnet50(fixtures_dir, st_save_file))
-        else:  # pragma: no cover - guarded above
-            raise AssertionError(f"unreachable model: {name}")
+        builder = builders[name]
+        new_descriptors.append(builder(fixtures_dir, st_save_file))
 
     out_path = fixtures_dir.parent / "fixtures_value_parity.json"
+    # Merge: read existing entries (if any), drop entries we are regenerating,
+    # then append the new descriptors. This preserves Phase 1A's resnet50 entry
+    # when running `--models densenet121` and vice versa.
+    existing = {}
+    if out_path.exists():
+        try:
+            with out_path.open("r") as f:
+                existing_payload = json.load(f)
+            for d in existing_payload.get("fixtures", []):
+                existing[d["id"]] = d
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+    for d in new_descriptors:
+        existing[d["id"]] = d
+    merged = sorted(existing.values(), key=lambda d: d["id"])
+
     payload = {
         "metadata": {
             "torch_version": torch_ver,
@@ -117,79 +161,98 @@ def _value_parity_main(model_names):
                 "-p ferrotorch-vision`."
             ),
         },
-        "fixtures": descriptors,
+        "fixtures": merged,
     }
     with out_path.open("w") as f:
         json.dump(payload, f, indent=2)
-    print(f"\nWrote {len(descriptors)} value-parity fixture(s) to {out_path}")
-    for d in descriptors:
+    print(f"\nWrote {len(new_descriptors)} new + {len(merged) - len(new_descriptors)} "
+          f"preserved fixture(s) to {out_path}")
+    for d in new_descriptors:
         print(f"  {d['id']}: ref_output_sha256={d['expected_output_sha256']}")
     print(f"\nDONE: torch {torch_ver} + torchvision {tv_ver}")
 
 
-def _value_parity_resnet50(fixtures_dir, st_save_file):
+def _emit_value_parity_descriptor(
+    *,
+    fixtures_dir,
+    st_save_file,
+    fixture_id,
+    model_name,
+    issue,
+    construction_note,
+    weight_seed,
+    input_seed,
+    input_shape,
+    model_factory,
+    output_extractor=lambda out: out,
+    abs_tolerance=1.0e-3,
+    rel_tolerance=1.0e-2,
+    descriptor_note="",
+):
     """
-    Build a torchvision ResNet50, deterministically initialise weights, save
-    state_dict + input + reference output as separate artefacts. Returns a
-    JSON-friendly descriptor.
-    """
-    import torchvision.models as tvm
+    Generic value-parity descriptor builder. Every Phase 1A/1B model flows
+    through this helper so the fixture file format, sha256 capture, and
+    parameter/buffer enumeration cannot drift between models.
 
-    # Determinism: re-seed before construction (Kaiming init draws from RNG).
-    torch.manual_seed(0)
-    model = tvm.resnet50(weights=None)
+    `model_factory()` must return the seeded torchvision model (in eval mode
+    will be enforced here). `output_extractor(out)` lets multi-output models
+    (e.g. fcn_resnet50, which returns `{"out": tensor}`) pick the canonical
+    reference tensor — getting this wrong is failure mode #12 (tautological
+    reference) so the call is explicit at every site.
+    """
+    # Build & seed the model.
+    torch.manual_seed(weight_seed)
+    model = model_factory()
     model.eval()
 
-    # State dict — strip persistent num_batches_tracked from the loaded set
-    # to keep the safetensors file aligned with what ferrotorch-nn can ever
-    # validate today (BN integer counters are an unrelated escalation; see
-    # the test loader for the deferred buffer-load story). We DO write the
-    # `.running_mean` / `.running_var` keys so the loader can confirm the
-    # fixture is structurally complete.
+    # State dict — strip num_batches_tracked, keep BN running buffers as f32.
     state = {k: v.detach().contiguous().cpu()
              for k, v in model.state_dict().items()
              if not k.endswith(".num_batches_tracked")}
-
-    # Cast everything to f32 for cross-platform parity (some buffers are f64).
     state = {k: (v.to(torch.float32) if v.is_floating_point() else v)
              for k, v in state.items()}
 
-    weights_name = "resnet50_value_parity.safetensors"
+    weights_name = f"{fixture_id}.safetensors"
     weights_path = fixtures_dir / weights_name
     st_save_file(state, str(weights_path))
     weights_sha = _sha256_file(weights_path)
 
-    # Deterministic input: torch.randn is reproducible under manual_seed.
-    torch.manual_seed(1234)
-    inp = torch.randn(1, 3, 224, 224, dtype=torch.float32)
-    input_name = "resnet50_value_parity_input.bin"
+    # Deterministic input.
+    torch.manual_seed(input_seed)
+    inp = torch.randn(*input_shape, dtype=torch.float32)
+    input_name = f"{fixture_id}_input.bin"
     input_path = fixtures_dir / input_name
     _write_f32_bin(input_path, inp)
     input_sha = _sha256_file(input_path)
 
-    # Reference output via eval() forward.
+    # Reference output — extract the canonical tensor (failure mode #12).
     with torch.no_grad():
-        out = model(inp)
+        raw_out = model(inp)
+    out = output_extractor(raw_out)
+    if not torch.is_tensor(out):
+        raise TypeError(
+            f"{fixture_id}: output_extractor must return a torch.Tensor, got "
+            f"{type(raw_out).__name__} → {type(out).__name__}. Fix the extractor."
+        )
     out = out.detach().contiguous().to(torch.float32)
-    output_name = "resnet50_value_parity_output.bin"
+    output_name = f"{fixture_id}_output.bin"
     output_path = fixtures_dir / output_name
     _write_f32_bin(output_path, out)
     output_sha = _sha256_file(output_path)
 
-    # Enumerate parameter-vs-buffer key sets so the loader can honest-fail on
-    # missing keys without re-deriving torchvision schema knowledge.
+    # Key enumeration.
     param_keys = sorted(k for k, _ in model.named_parameters())
-    buffer_keys = sorted(k for k, v in model.named_buffers()
+    buffer_keys = sorted(k for k, _ in model.named_buffers()
                          if not k.endswith("num_batches_tracked"))
-    int_buffer_keys = sorted(k for k, v in model.named_buffers()
+    int_buffer_keys = sorted(k for k, _ in model.named_buffers()
                              if k.endswith("num_batches_tracked"))
 
     return {
-        "id": "resnet50_value_parity",
-        "model": "resnet50",
-        "issue": "#983",
-        "construction": "tvm.resnet50(weights=None) under torch.manual_seed(0)",
-        "input_seed": 1234,
+        "id": fixture_id,
+        "model": model_name,
+        "issue": issue,
+        "construction": construction_note,
+        "input_seed": input_seed,
         "input_shape": list(inp.shape),
         "input_dtype": "f32",
         "output_shape": list(out.shape),
@@ -203,9 +266,27 @@ def _value_parity_resnet50(fixtures_dir, st_save_file):
         "param_keys": param_keys,
         "buffer_keys": buffer_keys,
         "skipped_int_buffer_keys": int_buffer_keys,
-        "abs_tolerance": 1.0e-3,
-        "rel_tolerance": 1.0e-2,
-        "note": (
+        "abs_tolerance": abs_tolerance,
+        "rel_tolerance": rel_tolerance,
+        "note": descriptor_note,
+    }
+
+
+def _value_parity_resnet50(fixtures_dir, st_save_file):
+    """torchvision.models.resnet50(weights=None), 1×3×224×224 input."""
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="resnet50_value_parity",
+        model_name="resnet50",
+        issue="#983",
+        construction_note="tvm.resnet50(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.resnet50(weights=None),
+        descriptor_note=(
             "Reference produced via torchvision.models.resnet50(weights=None) "
             "with deterministic seeded initialisation, run in eval() mode "
             "with default running_mean=0 / running_var=1 in every BN. "
@@ -215,7 +296,181 @@ def _value_parity_resnet50(fixtures_dir, st_save_file):
             "Phase 1A. num_batches_tracked is integer-typed so it is "
             "excluded from the safetensors payload by design."
         ),
-    }
+    )
+
+
+def _value_parity_densenet121(fixtures_dir, st_save_file):
+    """torchvision.models.densenet121(weights=None), 1×3×224×224 input."""
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="densenet121_value_parity",
+        model_name="densenet121",
+        issue="#985",
+        construction_note="tvm.densenet121(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.densenet121(weights=None),
+        descriptor_note=(
+            "Reference produced via torchvision.models.densenet121(weights=None). "
+            "Eval-mode + default-BN-stats workaround per #984. The ferrotorch "
+            "DenseNet121 impl is documented as BN-free (see "
+            "ferrotorch-vision/src/models/densenet.rs header), so the strict "
+            "loader is expected to reject this fixture's torchvision keys "
+            "until the ferrotorch impl regains BN — see #989."
+        ),
+    )
+
+
+def _value_parity_mobilenet_v2(fixtures_dir, st_save_file):
+    """torchvision.models.mobilenet_v2(weights=None), 1×3×224×224 input."""
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="mobilenet_v2_value_parity",
+        model_name="mobilenet_v2",
+        issue="#985",
+        construction_note="tvm.mobilenet_v2(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.mobilenet_v2(weights=None),
+        descriptor_note=(
+            "Reference produced via torchvision.models.mobilenet_v2(weights=None). "
+            "Eval-mode + default-BN-stats workaround per #984. Ferrotorch's "
+            "MobileNetV2 uses standard Conv2d (no depthwise+pointwise) — "
+            "see #990."
+        ),
+    )
+
+
+def _value_parity_mobilenet_v3_small(fixtures_dir, st_save_file):
+    """torchvision.models.mobilenet_v3_small(weights=None), 1×3×224×224 input."""
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="mobilenet_v3_small_value_parity",
+        model_name="mobilenet_v3_small",
+        issue="#985",
+        construction_note="tvm.mobilenet_v3_small(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.mobilenet_v3_small(weights=None),
+        descriptor_note=(
+            "Reference produced via torchvision.models.mobilenet_v3_small(weights=None). "
+            "Eval-mode + default-BN-stats workaround per #984. Ferrotorch's "
+            "MobileNetV3-Small uses standard Conv2d (no depthwise+pointwise, "
+            "no SE, no h-swish) — see #991."
+        ),
+    )
+
+
+def _value_parity_efficientnet_b0(fixtures_dir, st_save_file):
+    """torchvision.models.efficientnet_b0(weights=None), 1×3×224×224 input."""
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="efficientnet_b0_value_parity",
+        model_name="efficientnet_b0",
+        issue="#985",
+        construction_note="tvm.efficientnet_b0(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.efficientnet_b0(weights=None),
+        descriptor_note=(
+            "Reference produced via torchvision.models.efficientnet_b0(weights=None). "
+            "Eval-mode + default-BN-stats workaround per #984. Ferrotorch's "
+            "EfficientNet-B0 uses standard Conv2d (no MBConv depthwise+"
+            "pointwise, no SE) — see #992."
+        ),
+    )
+
+
+def _value_parity_inception_v3(fixtures_dir, st_save_file):
+    """torchvision.models.inception_v3(weights=None, aux_logits=False),
+    1×3×299×299 input (Inception-V3's native input size).
+
+    Eval-mode forward returns a single tensor (the main logits); training-
+    mode would return an `InceptionOutputs(logits, aux_logits)` namedtuple,
+    but eval-mode collapses to logits-only. We pass `aux_logits=False` so
+    AuxLogits parameters are NOT in the state dict — matching ferrotorch's
+    no-aux-head simplified InceptionV3 closer (see ferrotorch-vision/src/
+    models/inception.rs, which still differs structurally — see #993).
+    """
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="inception_v3_value_parity",
+        model_name="inception_v3",
+        issue="#985",
+        construction_note=(
+            "tvm.inception_v3(weights=None, aux_logits=False, init_weights=True) "
+            "under torch.manual_seed(0) — eval() mode forward returns the main "
+            "logits Tensor (no Inception namedtuple in eval)."
+        ),
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 299, 299),
+        model_factory=lambda: tvm.inception_v3(
+            weights=None, aux_logits=False, init_weights=True
+        ),
+        descriptor_note=(
+            "Reference produced via torchvision.models.inception_v3(weights=None, "
+            "aux_logits=False). Eval-mode + default-BN-stats workaround per #984. "
+            "299x299 is Inception-V3's design input size. Ferrotorch's "
+            "InceptionV3 is a 3-Inception-A simplified variant — see #993."
+        ),
+    )
+
+
+def _value_parity_fcn_resnet50(fixtures_dir, st_save_file):
+    """torchvision.models.segmentation.fcn_resnet50(weights=None,
+    weights_backbone=None, num_classes=21), 1×3×224×224 input.
+
+    fcn_resnet50 returns `OrderedDict({"out": [B, 21, H, W]})` in eval mode
+    (`{"out": ..., "aux": ...}` if aux_loss=True; we omit aux). The
+    `output_extractor` picks `out_dict["out"]` — getting this wrong is
+    failure mode #12 (tautological reference).
+    """
+    import torchvision.models.segmentation as tvs
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="fcn_resnet50_value_parity",
+        model_name="fcn_resnet50",
+        issue="#985",
+        construction_note=(
+            "tvs.fcn_resnet50(weights=None, weights_backbone=None, "
+            "num_classes=21) under torch.manual_seed(0) — eval() mode "
+            "forward returns OrderedDict({'out': [B, 21, H, W]}); we "
+            "extract 'out' explicitly."
+        ),
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvs.fcn_resnet50(
+            weights=None, weights_backbone=None, num_classes=21
+        ),
+        # Multi-output extraction — explicit per-call to avoid tautology.
+        output_extractor=lambda raw: raw["out"],
+        descriptor_note=(
+            "Reference produced via torchvision.models.segmentation."
+            "fcn_resnet50(weights=None, weights_backbone=None, num_classes=21). "
+            "Eval-mode + default-BN-stats workaround per #984. Output is the "
+            "'out' tensor from the OrderedDict (NOT 'aux', which is gated by "
+            "aux_loss=True and not generated here). Ferrotorch's "
+            "FCN-ResNet50 backbone is non-dilated whereas torchvision uses "
+            "replace_stride_with_dilation=[False, True, True] — see #994."
+        ),
+    )
 
 
 def _write_f32_bin(path, tensor):
