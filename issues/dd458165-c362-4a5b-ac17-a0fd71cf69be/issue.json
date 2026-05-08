@@ -1,0 +1,10 @@
+{
+  "uuid": "dd458165-c362-4a5b-ac17-a0fd71cf69be",
+  "display_id": 998,
+  "title": "Add shifted-window attention so Swin-T matches torchvision parameter schema",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T10:57:06.479242247Z",
+  "updated_at": "2026-05-08T10:57:06.479242247Z"
+}
