@@ -1,0 +1,10 @@
+{
+  "uuid": "50ed97af-4423-4e76-8faa-f94b7f5358b8",
+  "display_id": 997,
+  "title": "Add depthwise (grouped) Conv2d so ConvNeXt-T matches torchvision parameter schema",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T10:56:41.801988336Z",
+  "updated_at": "2026-05-08T10:56:41.801988336Z"
+}
