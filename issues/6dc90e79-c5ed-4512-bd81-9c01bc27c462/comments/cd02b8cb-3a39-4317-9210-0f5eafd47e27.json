@@ -1,0 +1,10 @@
+{
+  "uuid": "cd02b8cb-3a39-4317-9210-0f5eafd47e27",
+  "issue_uuid": "6dc90e79-c5ed-4512-bd81-9c01bc27c462",
+  "author": "y4rr",
+  "content": "Resolved: ResNet50Dilated rewritten as a thin wrapper around resnet::resnet50_dilated([false, true, true]) (Option a per the dispatch). Forward path uses IntermediateFeatures::forward_features('layer4') (FCN's exact pattern). The standard Bottleneck inherited from resnet.rs threads previous_dilation correctly: layer3[0]=dil 1, layer3[1..]=dil 2, layer4[0]=dil 2, layer4[1..]=dil 4. DilatedBottleneck struct + make_dilated_layer + make_bottleneck_layer + run_layer + collect_params*/named_layer_params helpers removed (now dead). Test-side state_remap simplified — bn2 → conv2.bn rewrite removed (Bottleneck exposes bn2.<...> natively, identical to torchvision); backbone keys pass through verbatim. Loader rejection probes (4) all preserved. value-parity now PASSes: max_abs_err=8.941e-6 vs abs_tol=1.000e-3 (well within band, ~100× margin). Down from 9.085e-2 (pre-fix, 10× out of band).",
+  "created_at": "2026-05-08T21:17:39.642742783Z",
+  "kind": "resolution",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA33JdIrHLjakB6aVYUTwFZMJum5rxaAx8mxcFbaudzz5UtyCPjF8tK/8wAA05k6UVsWGFRkXjjf1E+jppJfgQDA=="
+}
