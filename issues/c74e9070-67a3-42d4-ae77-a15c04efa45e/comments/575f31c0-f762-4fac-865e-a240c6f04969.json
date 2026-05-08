@@ -1,0 +1,10 @@
+{
+  "uuid": "575f31c0-f762-4fac-865e-a240c6f04969",
+  "issue_uuid": "c74e9070-67a3-42d4-ae77-a15c04efa45e",
+  "author": "y4rr",
+  "content": "Sprint Final-7 complete. Closed: #848 #849 #904 #905 #976 #977 #979. Two commits: ba830c58 (nn fixture regen) + 2cdc4e23 (serialize GGUF+ONNX live coverage). All cascade_skip placeholders for these issues removed. Tracker now at 0 actionable issues.",
+  "created_at": "2026-05-08T00:36:29.282247593Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABACUjJi1M7CbBXjbnldpsNfv0Aso6vMDL0dp2YQFQweAg+hnF9c+tIGVFYlm8Spd6rij8g8EiV+S7XhYSqQi57Dw=="
+}
