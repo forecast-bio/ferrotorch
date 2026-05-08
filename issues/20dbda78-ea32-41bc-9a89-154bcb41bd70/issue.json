@@ -2,11 +2,12 @@
   "uuid": "20dbda78-ea32-41bc-9a89-154bcb41bd70",
   "display_id": 1010,
   "title": "Phase 9: DeepLabV3 structural fix (#1009 + #1006 closure) → 13/14 PASS",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-08T20:26:21.291261610Z",
-  "updated_at": "2026-05-08T20:26:22.668639696Z",
+  "updated_at": "2026-05-08T21:21:26.988832292Z",
+  "closed_at": "2026-05-08T21:21:26.988832292Z",
   "labels": [
     "vision,conformance"
   ]
