@@ -1,0 +1,10 @@
+{
+  "uuid": "fdf52bd5-c3cb-42e4-94e3-59943497b41b",
+  "issue_uuid": "7eecc9b4-deb5-4eb6-8fb9-d125955735a6",
+  "author": "y4rr",
+  "content": "Observation: ResNet50 (and other vision models) do NOT override Module::named_children / Module::children. ferrotorch-nn defines named_modules() / named_descendants_dyn() with a default implementation that traverses children(); since ResNet50.children() returns Vec::new() by default, named_modules() on a ResNet50 yields just (\"\", &self) — no BN subtree. The pre-flight's recommended dispatch (loader walks named_modules() and downcasts each to a BN type) thus cannot apply BN buffers in any current ferrotorch-vision model. Coordination boundary 'NO changes to ferrotorch-vision/src/' blocks the obvious fix (overriding named_children on ResNet/etc.). This is a Phase 1B-audit-style architectural-completion gap. Will treat as a hard-failure path in the loader (no silent skip) so the failure surfaces, file a follow-up issue, and report REDIRECT-NEEDED to the architect for them to weigh in on whether to relax the boundary or accept resnet50_value_parity failing.",
+  "created_at": "2026-05-08T09:57:19.249462476Z",
+  "kind": "blocker",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABApBqElAN39TKfmxsE1CHiY9AbxkZi54KgbphRWPuPcXMy27ziAhigcqZ2H8dM1QaOW253VeY/WVYxrMh+lAbVDA=="
+}
