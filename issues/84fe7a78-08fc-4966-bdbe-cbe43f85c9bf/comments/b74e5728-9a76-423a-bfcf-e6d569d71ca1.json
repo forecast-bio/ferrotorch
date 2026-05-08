@@ -1,0 +1,10 @@
+{
+  "uuid": "b74e5728-9a76-423a-bfcf-e6d569d71ca1",
+  "issue_uuid": "84fe7a78-08fc-4966-bdbe-cbe43f85c9bf",
+  "author": "y4rr",
+  "content": "Phase 8 (#1008) probe-before-fix on DeepLabV3 surfaced structural (not just naming) divergence from torchvision deeplabv3_resnet50, beyond #1006's classifier.0/1/2/4 naming remap scope: (1) ferrotorch Aspp::new hardcodes dilation rates (6,12,18) — torchvision default is (12,24,36); changing rates is a src/ change with numerical impact. (2) torchvision DeepLabHead is Sequential[ASPP, Conv2d(256,256,3,bias=False), BatchNorm2d(256), ReLU, Conv2d(256,N,1,bias=True)] — ferrotorch DeepLabV3Head is just aspp + Conv2d(256,N,1,bias=False) (missing the 3x3-conv + BN + ReLU intermediate, plus the final Conv has bias=False where torchvision has bias=True). (3) ASPPPooling's submodule order in torchvision places AdaptiveAvgPool2d at index 0, Conv at index 1, BN at index 2, ReLU at 3 — keys appear as classifier.0.convs.4.{1,2}.* — ferrotorch's ASPPPooling has conv at index 0 (named 'conv') and bn at 'bn'. Filing for follow-up: needs Aspp::new to accept atrous_rates parameter, DeepLabV3Head to use the full 5-element Sequential, and ASPPPooling to expose its 1-prefix on the conv. Pure test-side remap insufficient.",
+  "created_at": "2026-05-08T19:41:04.250668217Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAsuXgkQYOEqKsXkH2G5xNJHPT7SkvBM94w1hkBZpBkR8aY//t1rIJDOVjNka8l2EbM4JKkScCkJ4c4+YWZVz5Bw=="
+}
