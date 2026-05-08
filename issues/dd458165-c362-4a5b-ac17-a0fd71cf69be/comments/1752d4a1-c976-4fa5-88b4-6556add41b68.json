@@ -1,0 +1,10 @@
+{
+  "uuid": "1752d4a1-c976-4fa5-88b4-6556add41b68",
+  "issue_uuid": "dd458165-c362-4a5b-ac17-a0fd71cf69be",
+  "author": "y4rr",
+  "content": "Plan: Swin-T's blocks currently use ferrotorch_nn::MultiheadAttention (standard global attention) — see ferrotorch-vision/src/models/swin.rs:6-9 'uses standard (global) multi-head attention from ferrotorch_nn instead of shifted-window attention'. Torchvision swin_t uses shifted-window attention with relative-position-bias tables. The named_parameters() schema therefore cannot match torchvision swin_t state_dict keys (no relative_position_bias_table / relative_position_index entries on the ferrotorch side; presence of standard MHA's in_proj_weight/in_proj_bias on the ferrotorch side that don't exist on torchvision).\n\nPhase 3 (#996) migrated Swin's permute-pattern CPU-pull bugs (4 sites: stage downsample in/out, main forward post-patch-embed, IntermediateFeatures sibling) onto Tensor::permute(...).contiguous(). The CPU-pull bug is fixed. The architectural divergence (shifted-window attention) remains and is escalated here.\n\nAcceptance: ferrotorch-nn or ferrotorch-vision gains a ShiftedWindowAttention module with relative-position-bias support; swin.rs swaps MultiheadAttention for it; swin_t_value_parity drops the #[ignore] and passes torch.allclose against tvm.swin_t(weights=None).\n\nOut of scope here: any change to the Phase 3 permute migration.",
+  "created_at": "2026-05-08T10:57:27.428387500Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQvTO7RXVqouoylz+YRqa/3B8EqBOgSyc1hX8SlpIOF72uxuioz0KU9SyKBojAB3qfbAM7HmSuiE7aMzTF/bsBA=="
+}
