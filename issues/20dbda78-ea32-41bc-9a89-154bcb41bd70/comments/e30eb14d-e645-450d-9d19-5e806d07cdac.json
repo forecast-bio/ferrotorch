@@ -1,0 +1,10 @@
+{
+  "uuid": "e30eb14d-e645-450d-9d19-5e806d07cdac",
+  "issue_uuid": "20dbda78-ea32-41bc-9a89-154bcb41bd70",
+  "author": "y4rr",
+  "content": "BLOCKER (6th divergence surfaced): ferrotorch ResNet50Dilated::new in deeplabv3.rs:280-303 builds layer3 with dilation=2 uniformly across all 6 blocks and layer4 with dilation=4 uniformly across all 3 blocks. Torchvision's deeplabv3_resnet50 (via _make_layer's previous_dilation-then-update pattern in torchvision/models/resnet.py) gives layer3[0]=dilation 1, layer3[1..]=dilation 2, layer4[0]=dilation 2, layer4[1..]=dilation 4. Confirmed via 'python3 -c \"...layer3[0].conv2.dilation...\"': torchvision (1,1)/(2,2)/(2,2) for layer3 and (2,2)/(4,4)/(4,4) for layer4. Ferrotorch ResNet50Dilated forwards through DilatedBottleneck with uniform dilation, so the layer3[0] and layer4[0] outputs differ from the torchvision reference even with identical weights. Tests confirm: 4/5 probes PASS (loader plumbing OK, BN buffer remap helper works) but value-parity FAILs at element 0 with max_abs=9.09e-2 vs tol=9.34e-3 (≈10x out of band). FCN-ResNet50 doesn't hit this because it uses resnet.rs::resnet50_dilated whose make_bottleneck_layer uses the proper previous_dilation pattern; deeplabv3.rs has a hand-rolled make_dilated_layer (lines 466-484) that ignores it. This is a 6th architectural divergence beyond the pre-flight's 5-item list (head-side only); per protocol STOP-AND-REPORT and file a fresh issue.",
+  "created_at": "2026-05-08T20:48:38.329149188Z",
+  "kind": "blocker",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABApsLaenQtnZeRPEeClt3k5k1LqoQBgWt07fpe6hzQN9bk1I3abta227xXntuBoeg+pwkumFIHyCUbnZTPWMWDDA=="
+}
