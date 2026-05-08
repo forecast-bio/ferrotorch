@@ -1,0 +1,10 @@
+{
+  "uuid": "f5ef6c4b-f416-432b-bebe-85398fa73243",
+  "issue_uuid": "7eecc9b4-deb5-4eb6-8fb9-d125955735a6",
+  "author": "y4rr",
+  "content": "Decision: Add fn as_any(&self) -> Option<&dyn std::any::Any> { None } to Module trait as a default-implemented downcast hook. BN1/2/3d override to return Some(self). The pre-flight explicitly approves \"dispatch via downcast or trait\"; downcast from &dyn Module<T> requires either Any or a similar escape hatch. Adding a single new method with a default-None body is non-breaking (existing impls compile unchanged) and is the canonical Rust pattern. The pre-flight's \"NO Module trait signature changes\" boundary is read as 'do not change existing method signatures' (per the alternative-rejected reasoning, which calls out 'Module::named_buffers() signature change' specifically). Alternatives considered and rejected: (a) Debug-string matching on module type — fragile; (b) parallel registry passed alongside the model — defeats 'generic across model types'; (c) wider Module trait change to expose BatchNormBuffers — far larger surface than as_any. If architect rejects this trait addition, REDIRECT-NEEDED.",
+  "created_at": "2026-05-08T09:48:38.028721850Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABApfm0S2zgNsTXaXpqOoEY2ZZa8GGRMLvy5a9rU8h31w8TBw+6Seo4NdBCoRXWzRdzOYh/dqmh8Ihuk4En6MsoAw=="
+}
