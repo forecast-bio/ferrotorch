@@ -1,0 +1,10 @@
+{
+  "uuid": "0b31a9e7-293d-40e1-b00f-18cde20e652d",
+  "issue_uuid": "e888784e-344f-4c4e-8405-c186fcda91e9",
+  "author": "y4rr",
+  "content": "Plan: F1 sprint — 4-issue batch (#904 #976 #905 #977). Steps: (1) Update regenerate_nn_attention_fixtures.py to rename encoder attn_ keys → weight_ keys, add ffn_w3 to encoder and decoder, regenerate expected_output using SwiGLU 3-weight math. (2) Update regenerate_flex_attention_fixtures.py to emit slope field in alibi fixture. (3) Run both scripts. (4) Update conformance_nn_attention.rs: flip ENCODER_DECODER_FIXTURE_KEY_MISMATCH and FLEX_ALIBI_SLOPE_MISMATCH to false, update alibi arm to read slope from fixture.",
+  "created_at": "2026-05-08T00:28:39.194450450Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAU/Wk7ABU87lEYE51erE7AZbSqpLI0BHD42fZHKcGjQDLbh0h1UMYXxSEasB/Ccb4NmUiCeN/CAX2kwuaZ5zoDA=="
+}
