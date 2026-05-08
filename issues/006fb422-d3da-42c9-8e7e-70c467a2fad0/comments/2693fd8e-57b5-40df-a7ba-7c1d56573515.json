@@ -1,0 +1,10 @@
+{
+  "uuid": "2693fd8e-57b5-40df-a7ba-7c1d56573515",
+  "issue_uuid": "006fb422-d3da-42c9-8e7e-70c467a2fad0",
+  "author": "y4rr",
+  "content": "[action] Phase 8 dispatch: ConvNeXt #1005 (LayerScale src/ addition + stem bias + naming remap + Linear/Conv1×1 reshape) + DeepLabV3 #1006 (pure naming state_remap). Both follow ViT #999 remap pattern. ASPP branch-order verification mandatory. Existing 11 PASSes must preserve.",
+  "created_at": "2026-05-08T19:34:55.118458629Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA3s2rOyu3ERQ93tI5C1H0oCey9ZGtlmdc3CYap6o1oV5H5xwwAUi5p8mSZwc7KuKgXU1LkoJ4sE3LmSCrCNq6CA=="
+}
