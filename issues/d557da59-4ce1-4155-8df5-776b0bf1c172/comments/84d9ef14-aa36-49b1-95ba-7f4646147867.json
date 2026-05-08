@@ -1,0 +1,10 @@
+{
+  "uuid": "84d9ef14-aa36-49b1-95ba-7f4646147867",
+  "issue_uuid": "d557da59-4ce1-4155-8df5-776b0bf1c172",
+  "author": "y4rr",
+  "content": "Probe-before-fix landed in tests/conv2d_groups_dilation_probe.rs and FAILS with E0599 (Conv2d::new_full not found). Confirms hand-computed reference path; now implementing.",
+  "created_at": "2026-05-08T16:05:23.526964178Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAU6mK1hhWcXwhY6ISeSom9d2KcN5FUK2upT4SQrLYh2QvpNbSijwcBJHYPYthIgLspbLxnN1UdJWtjsX07iwXBQ=="
+}
