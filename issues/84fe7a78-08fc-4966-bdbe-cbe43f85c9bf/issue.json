@@ -2,11 +2,12 @@
   "uuid": "84fe7a78-08fc-4966-bdbe-cbe43f85c9bf",
   "display_id": 1009,
   "title": "Fix DeepLabV3 head structural divergence from torchvision (atrous_rates, head Sequential, classifier bias)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-08T19:40:49.084108285Z",
-  "updated_at": "2026-05-08T19:40:50.399416538Z",
+  "updated_at": "2026-05-08T21:21:21.713589866Z",
+  "closed_at": "2026-05-08T21:21:21.713589866Z",
   "labels": [
     "bug"
   ]
