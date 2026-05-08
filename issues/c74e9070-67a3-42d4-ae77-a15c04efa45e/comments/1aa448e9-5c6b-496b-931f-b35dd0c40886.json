@@ -1,0 +1,10 @@
+{
+  "uuid": "1aa448e9-5c6b-496b-931f-b35dd0c40886",
+  "issue_uuid": "c74e9070-67a3-42d4-ae77-a15c04efa45e",
+  "author": "y4rr",
+  "content": "Result: F2+F3 complete. Commit 2cdc4e23. GGUF fixture at ferrotorch-serialize/tests/conformance/fixtures/serialize_gguf.bin (386 bytes). 12 GGUF + 5 ONNX live conformance tests replace both cascade_skip placeholders. Issues #848 and #849 closed.",
+  "created_at": "2026-05-08T00:34:34.136370120Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABALLP7K3FxScDEgLCx2bUM3qS5w6Ebt0gCkbdnCTMsF8ONTi01+o6zUnxSdSDVJuTTTlVnu811ARiYrgGzhf2WAQ=="
+}
