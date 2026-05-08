@@ -589,14 +589,31 @@ impl<T: Float> ResNet<T> {
         let dilate_flags = replace_stride_with_dilation.unwrap_or([false, false, false]);
         let mut current_dilation: usize = 1;
 
-        let layer1 =
-            Self::make_basic_layer(64, 64, layers[0], 1, false, &mut current_dilation)?;
-        let layer2 =
-            Self::make_basic_layer(64, 128, layers[1], 2, dilate_flags[0], &mut current_dilation)?;
-        let layer3 =
-            Self::make_basic_layer(128, 256, layers[2], 2, dilate_flags[1], &mut current_dilation)?;
-        let layer4 =
-            Self::make_basic_layer(256, 512, layers[3], 2, dilate_flags[2], &mut current_dilation)?;
+        let layer1 = Self::make_basic_layer(64, 64, layers[0], 1, false, &mut current_dilation)?;
+        let layer2 = Self::make_basic_layer(
+            64,
+            128,
+            layers[1],
+            2,
+            dilate_flags[0],
+            &mut current_dilation,
+        )?;
+        let layer3 = Self::make_basic_layer(
+            128,
+            256,
+            layers[2],
+            2,
+            dilate_flags[1],
+            &mut current_dilation,
+        )?;
+        let layer4 = Self::make_basic_layer(
+            256,
+            512,
+            layers[3],
+            2,
+            dilate_flags[2],
+            &mut current_dilation,
+        )?;
 
         let avgpool = AdaptiveAvgPool2d::new((1, 1));
         let fc = Linear::new(512 * BasicBlock::<T>::EXPANSION, num_classes, true)?;
@@ -629,14 +646,8 @@ impl<T: Float> ResNet<T> {
         let dilate_flags = replace_stride_with_dilation.unwrap_or([false, false, false]);
         let mut current_dilation: usize = 1;
 
-        let layer1 = Self::make_bottleneck_layer(
-            64,
-            64,
-            layers[0],
-            1,
-            false,
-            &mut current_dilation,
-        )?;
+        let layer1 =
+            Self::make_bottleneck_layer(64, 64, layers[0], 1, false, &mut current_dilation)?;
         let layer2 = Self::make_bottleneck_layer(
             64 * Bottleneck::<T>::EXPANSION,
             128,

@@ -211,7 +211,10 @@ impl<T: Float> Module<T> for InceptionModule<T> {
             ("branch1x1".to_string(), &self.branch1x1),
             ("branch3x3_reduce".to_string(), &self.branch3x3_reduce),
             ("branch3x3".to_string(), &self.branch3x3),
-            ("branch_double_reduce".to_string(), &self.branch_double_reduce),
+            (
+                "branch_double_reduce".to_string(),
+                &self.branch_double_reduce,
+            ),
             ("branch_double_3x3a".to_string(), &self.branch_double_3x3a),
             ("branch_double_3x3b".to_string(), &self.branch_double_3x3b),
             ("branch_pool".to_string(), &self.branch_pool),

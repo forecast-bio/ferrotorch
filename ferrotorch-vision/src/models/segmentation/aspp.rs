@@ -142,10 +142,7 @@ impl<T: Float> Module<T> for DilatedConv2d<T> {
         // the path → module index keeps `bn.<...>` reachable but does
         // not double-prefix the conv weight. Pair the conv with the
         // empty path here for path consistency with named_parameters.
-        vec![
-            (String::new(), &self.conv),
-            ("bn".to_string(), &self.bn),
-        ]
+        vec![(String::new(), &self.conv), ("bn".to_string(), &self.bn)]
     }
 
     fn train(&mut self) {

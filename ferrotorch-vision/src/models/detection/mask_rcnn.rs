@@ -474,7 +474,10 @@ impl<T: Float> Module<T> for MaskRcnn<T> {
             ("mask_head.conv2".to_string(), &self.mask_head.conv2),
             ("mask_head.conv3".to_string(), &self.mask_head.conv3),
             ("mask_head.conv4".to_string(), &self.mask_head.conv4),
-            ("mask_predictor.deconv".to_string(), &self.mask_predictor.deconv),
+            (
+                "mask_predictor.deconv".to_string(),
+                &self.mask_predictor.deconv,
+            ),
             (
                 "mask_predictor.conv_logits".to_string(),
                 &self.mask_predictor.conv_logits,

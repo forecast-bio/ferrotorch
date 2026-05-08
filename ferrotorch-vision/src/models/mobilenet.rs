@@ -258,16 +258,8 @@ impl<T: Float> V2InvertedResidual<T> {
             V2_BN_MOM,
             Some(ActivationKind::Relu6),
         )?;
-        let project_conv = Conv2d::new_full(
-            hidden,
-            out_ch,
-            (1, 1),
-            (1, 1),
-            (0, 0),
-            (1, 1),
-            1,
-            false,
-        )?;
+        let project_conv =
+            Conv2d::new_full(hidden, out_ch, (1, 1), (1, 1), (0, 0), (1, 1), 1, false)?;
         let project_bn = BatchNorm2d::new(out_ch, V2_BN_EPS, V2_BN_MOM, true)?;
         Ok(Self {
             expand,
@@ -425,13 +417,48 @@ struct V2Stage {
 }
 
 const MOBILENET_V2_STAGES: [V2Stage; 7] = [
-    V2Stage { t: 1, c: 16, n: 1, s: 1 },
-    V2Stage { t: 6, c: 24, n: 2, s: 2 },
-    V2Stage { t: 6, c: 32, n: 3, s: 2 },
-    V2Stage { t: 6, c: 64, n: 4, s: 2 },
-    V2Stage { t: 6, c: 96, n: 3, s: 1 },
-    V2Stage { t: 6, c: 160, n: 3, s: 2 },
-    V2Stage { t: 6, c: 320, n: 1, s: 1 },
+    V2Stage {
+        t: 1,
+        c: 16,
+        n: 1,
+        s: 1,
+    },
+    V2Stage {
+        t: 6,
+        c: 24,
+        n: 2,
+        s: 2,
+    },
+    V2Stage {
+        t: 6,
+        c: 32,
+        n: 3,
+        s: 2,
+    },
+    V2Stage {
+        t: 6,
+        c: 64,
+        n: 4,
+        s: 2,
+    },
+    V2Stage {
+        t: 6,
+        c: 96,
+        n: 3,
+        s: 1,
+    },
+    V2Stage {
+        t: 6,
+        c: 160,
+        n: 3,
+        s: 2,
+    },
+    V2Stage {
+        t: 6,
+        c: 320,
+        n: 1,
+        s: 1,
+    },
 ];
 
 const V2_LAST_CHANNEL: usize = 1280;
@@ -696,17 +723,105 @@ fn make_divisible(v: usize, divisor: usize) -> usize {
 /// MobileNetV3-Small block configuration (matches torchvision's
 /// `_mobilenet_v3_conf("mobilenet_v3_small")` exactly).
 const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
-    V3BlockCfg { in_ch: 16, kernel: 3, expanded: 16, out_ch: 16, use_se: true, use_hs: false, stride: 2 },
-    V3BlockCfg { in_ch: 16, kernel: 3, expanded: 72, out_ch: 24, use_se: false, use_hs: false, stride: 2 },
-    V3BlockCfg { in_ch: 24, kernel: 3, expanded: 88, out_ch: 24, use_se: false, use_hs: false, stride: 1 },
-    V3BlockCfg { in_ch: 24, kernel: 5, expanded: 96, out_ch: 40, use_se: true, use_hs: true, stride: 2 },
-    V3BlockCfg { in_ch: 40, kernel: 5, expanded: 240, out_ch: 40, use_se: true, use_hs: true, stride: 1 },
-    V3BlockCfg { in_ch: 40, kernel: 5, expanded: 240, out_ch: 40, use_se: true, use_hs: true, stride: 1 },
-    V3BlockCfg { in_ch: 40, kernel: 5, expanded: 120, out_ch: 48, use_se: true, use_hs: true, stride: 1 },
-    V3BlockCfg { in_ch: 48, kernel: 5, expanded: 144, out_ch: 48, use_se: true, use_hs: true, stride: 1 },
-    V3BlockCfg { in_ch: 48, kernel: 5, expanded: 288, out_ch: 96, use_se: true, use_hs: true, stride: 2 },
-    V3BlockCfg { in_ch: 96, kernel: 5, expanded: 576, out_ch: 96, use_se: true, use_hs: true, stride: 1 },
-    V3BlockCfg { in_ch: 96, kernel: 5, expanded: 576, out_ch: 96, use_se: true, use_hs: true, stride: 1 },
+    V3BlockCfg {
+        in_ch: 16,
+        kernel: 3,
+        expanded: 16,
+        out_ch: 16,
+        use_se: true,
+        use_hs: false,
+        stride: 2,
+    },
+    V3BlockCfg {
+        in_ch: 16,
+        kernel: 3,
+        expanded: 72,
+        out_ch: 24,
+        use_se: false,
+        use_hs: false,
+        stride: 2,
+    },
+    V3BlockCfg {
+        in_ch: 24,
+        kernel: 3,
+        expanded: 88,
+        out_ch: 24,
+        use_se: false,
+        use_hs: false,
+        stride: 1,
+    },
+    V3BlockCfg {
+        in_ch: 24,
+        kernel: 5,
+        expanded: 96,
+        out_ch: 40,
+        use_se: true,
+        use_hs: true,
+        stride: 2,
+    },
+    V3BlockCfg {
+        in_ch: 40,
+        kernel: 5,
+        expanded: 240,
+        out_ch: 40,
+        use_se: true,
+        use_hs: true,
+        stride: 1,
+    },
+    V3BlockCfg {
+        in_ch: 40,
+        kernel: 5,
+        expanded: 240,
+        out_ch: 40,
+        use_se: true,
+        use_hs: true,
+        stride: 1,
+    },
+    V3BlockCfg {
+        in_ch: 40,
+        kernel: 5,
+        expanded: 120,
+        out_ch: 48,
+        use_se: true,
+        use_hs: true,
+        stride: 1,
+    },
+    V3BlockCfg {
+        in_ch: 48,
+        kernel: 5,
+        expanded: 144,
+        out_ch: 48,
+        use_se: true,
+        use_hs: true,
+        stride: 1,
+    },
+    V3BlockCfg {
+        in_ch: 48,
+        kernel: 5,
+        expanded: 288,
+        out_ch: 96,
+        use_se: true,
+        use_hs: true,
+        stride: 2,
+    },
+    V3BlockCfg {
+        in_ch: 96,
+        kernel: 5,
+        expanded: 576,
+        out_ch: 96,
+        use_se: true,
+        use_hs: true,
+        stride: 1,
+    },
+    V3BlockCfg {
+        in_ch: 96,
+        kernel: 5,
+        expanded: 576,
+        out_ch: 96,
+        use_se: true,
+        use_hs: true,
+        stride: 1,
+    },
 ];
 
 /// V3 last-stage head channel count is computed as `6 * last_block_out_ch`
@@ -798,7 +913,6 @@ impl<T: Float> V3InvertedResidual<T> {
             training: true,
         })
     }
-
 }
 
 impl<T: Float> Module<T> for V3InvertedResidual<T> {

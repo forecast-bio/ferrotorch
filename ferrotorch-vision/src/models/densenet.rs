@@ -250,10 +250,7 @@ impl<T: Float> Module<T> for DenseBlock<T> {
         p
     }
     fn children(&self) -> Vec<&dyn Module<T>> {
-        self.layers
-            .iter()
-            .map(|l| l as &dyn Module<T>)
-            .collect()
+        self.layers.iter().map(|l| l as &dyn Module<T>).collect()
     }
     fn named_children(&self) -> Vec<(String, &dyn Module<T>)> {
         self.layers
@@ -788,12 +785,12 @@ mod tests {
             .collect();
         assert!(names.iter().any(|n| n.starts_with("features.conv0.")));
         assert!(names.iter().any(|n| n.starts_with("features.norm0.")));
-        assert!(names
-            .iter()
-            .any(|n| n.starts_with("features.denseblock1.denselayer1.")));
-        assert!(names
-            .iter()
-            .any(|n| n.starts_with("features.transition1.")));
+        assert!(
+            names
+                .iter()
+                .any(|n| n.starts_with("features.denseblock1.denselayer1."))
+        );
+        assert!(names.iter().any(|n| n.starts_with("features.transition1.")));
         assert!(names.iter().any(|n| n.starts_with("features.norm5.")));
         assert!(names.iter().any(|n| n.starts_with("classifier.")));
     }

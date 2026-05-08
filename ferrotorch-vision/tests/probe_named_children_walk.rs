@@ -93,8 +93,7 @@ fn probe_resnet50_named_descendants_walk_exposes_bn_paths() {
          every fixture key (see #995 dispatch summary)."
     );
 
-    let walked_set: std::collections::HashSet<&str> =
-        walked.iter().map(String::as_str).collect();
+    let walked_set: std::collections::HashSet<&str> = walked.iter().map(String::as_str).collect();
 
     let mut missing: Vec<&str> = Vec::new();
     for expected in expected_resnet50_named_descendant_paths() {

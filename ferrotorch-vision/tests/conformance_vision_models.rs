@@ -3480,21 +3480,23 @@ mod value_parity_pipeline {
             // ── Per-block renames ──
             if let Some(rest) = key.strip_prefix("encoder.layers.encoder_layer_") {
                 // rest looks like "<N>.ln_1.weight" / "<N>.self_attention.in_proj_weight" etc.
-                let (idx_str, suffix) = rest
-                    .split_once('.')
-                    .ok_or_else(|| FerrotorchError::InvalidArgument {
-                        message: format!(
-                            "ViT remap: malformed encoder layer key {key:?} \
+                let (idx_str, suffix) =
+                    rest.split_once('.')
+                        .ok_or_else(|| FerrotorchError::InvalidArgument {
+                            message: format!(
+                                "ViT remap: malformed encoder layer key {key:?} \
                              — expected `encoder.layers.encoder_layer_<N>.<...>`"
-                        ),
-                    })?;
+                            ),
+                        })?;
                 let block_idx: usize =
-                    idx_str.parse().map_err(|_| FerrotorchError::InvalidArgument {
-                        message: format!(
-                            "ViT remap: encoder layer key {key:?} has \
+                    idx_str
+                        .parse()
+                        .map_err(|_| FerrotorchError::InvalidArgument {
+                            message: format!(
+                                "ViT remap: encoder layer key {key:?} has \
                              non-integer block index {idx_str:?}"
-                        ),
-                    })?;
+                            ),
+                        })?;
                 let prefix = format!("blocks.{block_idx}");
 
                 // ln_1 → norm1, ln_2 → norm2.
@@ -3597,9 +3599,7 @@ mod value_parity_pipeline {
         let data = fused
             .data()
             .map_err(|e| FerrotorchError::InvalidArgument {
-                message: format!(
-                    "ViT remap: failed to read fused QKV weight {diag_key:?}: {e}"
-                ),
+                message: format!("ViT remap: failed to read fused QKV weight {diag_key:?}: {e}"),
             })?
             .to_vec();
         let row_bytes = cols;
@@ -3641,9 +3641,7 @@ mod value_parity_pipeline {
         let data = fused
             .data()
             .map_err(|e| FerrotorchError::InvalidArgument {
-                message: format!(
-                    "ViT remap: failed to read fused QKV bias {diag_key:?}: {e}"
-                ),
+                message: format!("ViT remap: failed to read fused QKV bias {diag_key:?}: {e}"),
             })?
             .to_vec();
         let q = Tensor::from_storage(
@@ -3662,6 +3660,242 @@ mod value_parity_pipeline {
             false,
         )?;
         Ok((q, k, v))
+    }
+
+    // ── ConvNeXt-T (Phase 8 #1005) remap ─────────────────────────────────
+    //
+    // Schema map (torchvision convnext_tiny → ferrotorch ConvNeXt):
+    //
+    //   features.0.0.{weight,bias}                        → stem.conv.{weight,bias}
+    //   features.0.1.{weight,bias}                        → stem.norm.{weight,bias}
+    //   features.<2*s+1>.<j>.block.0.{weight,bias}        → stages.<s>.<j>.dwconv.{weight,bias}
+    //   features.<2*s+1>.<j>.block.2.{weight,bias}        → stages.<s>.<j>.norm.{weight,bias}
+    //   features.<2*s+1>.<j>.block.3.{weight,bias}        → stages.<s>.<j>.pwconv1.{weight,bias}
+    //                                                       (RESHAPE 2-D Linear → 4-D Conv1×1)
+    //   features.<2*s+1>.<j>.block.5.{weight,bias}        → stages.<s>.<j>.pwconv2.{weight,bias}
+    //                                                       (RESHAPE 2-D Linear → 4-D Conv1×1)
+    //   features.<2*s+1>.<j>.layer_scale                  → stages.<s>.<j>.layer_scale_gamma
+    //   features.<2*d>.0.{weight,bias}                    → downsample.<d-1>.norm.{weight,bias}  (LayerNorm; d=1,2,3)
+    //   features.<2*d>.1.{weight,bias}                    → downsample.<d-1>.conv.{weight,bias}  (Conv2d 2×2; d=1,2,3)
+    //   classifier.0.{weight,bias}                        → head.norm.{weight,bias}
+    //   classifier.2.{weight,bias}                        → head.fc.{weight,bias}
+    //
+    // Stage-index parity:
+    //   torchvision indices `features.{1, 3, 5, 7}` are stage 0..3 BLOCK groups
+    //   torchvision indices `features.{2, 4, 6}` are inter-stage DOWNSAMPLES (d=1..3)
+    //   ferrotorch's `Downsample` orders LayerNorm BEFORE Conv2d in
+    //   named_parameters (`norm.<...>`, `conv.<...>`), and torchvision's
+    //   downsample Sequential indexes them as `<2*d>.0` (LayerNorm) then
+    //   `<2*d>.1` (Conv2d) — order matches.
+    //
+    // Why `pwconv{1,2}` weight is reshaped: torchvision's CNBlock pwconv
+    // is `nn.Linear(C, 4C)` operating on `[B, H, W, C]`, so the weight
+    // tensor is 2-D of shape `[4C, C]`. ferrotorch's `pwconv1` is a
+    // 1×1 Conv2d operating on `[B, C, H, W]`, so its parameter is 4-D
+    // of shape `[4C, C, 1, 1]`. The element-wise math is equivalent —
+    // a 1×1 conv on NCHW with weight `[O, I, 1, 1]` produces the same
+    // values as a Linear on NHWC with weight `[O, I]`, plus a permute
+    // pair. We surface this via a tensor RESHAPE inside the remap (the
+    // Phase 4 ViT QKV split also performed tensor surgery in the
+    // remap path; this is the same Phase-4 pattern, applied to a
+    // shape-only equivalence rather than a chunk split).
+
+    /// Reshape a 2-D Linear weight `[O, I]` (torchvision pwconv) into a
+    /// 4-D 1×1 Conv weight `[O, I, 1, 1]` (ferrotorch pwconv).
+    ///
+    /// Returns `Err(FerrotorchError::ShapeMismatch)` on a non-2-D input
+    /// so the loader's downstream shape check is never reached with a
+    /// silently-wrong tensor (failure mode #11 / #13).
+    fn pwconv_linear_to_conv1x1(
+        linear: &Tensor<f32>,
+        diag_key: &str,
+    ) -> FerrotorchResult<Tensor<f32>> {
+        let shape = linear.shape();
+        if shape.len() != 2 {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "ConvNeXt remap: pwconv weight {diag_key:?} must be 2-D \
+                     [O, I] (torchvision Linear); got shape {shape:?}"
+                ),
+            });
+        }
+        let (o, i) = (shape[0], shape[1]);
+        let data = linear
+            .data()
+            .map_err(|e| FerrotorchError::InvalidArgument {
+                message: format!("ConvNeXt remap: failed to read pwconv weight {diag_key:?}: {e}"),
+            })?
+            .to_vec();
+        Tensor::from_storage(TensorStorage::cpu(data), vec![o, i, 1, 1], false)
+    }
+
+    /// Translate a torchvision `convnext_tiny` state dict into
+    /// ferrotorch's schema. Returns the rewritten state dict on success;
+    /// returns `Err` on any unrecognised key (the loader's strict
+    /// "no extra keys" check then reports the offending name with full
+    /// diagnostic context — failure mode #21).
+    pub(super) fn remap_torchvision_to_ferrotorch_convnext_keys(
+        state: StateDict<f32>,
+    ) -> FerrotorchResult<StateDict<f32>> {
+        let mut out: StateDict<f32> = StateDict::new();
+
+        for (key, tensor) in state.into_iter() {
+            // ── Stem renames ──
+            if let Some(rest) = key.strip_prefix("features.0.0.") {
+                out.insert(format!("stem.conv.{rest}"), tensor);
+                continue;
+            }
+            if let Some(rest) = key.strip_prefix("features.0.1.") {
+                out.insert(format!("stem.norm.{rest}"), tensor);
+                continue;
+            }
+
+            // ── Classifier head ──
+            if let Some(rest) = key.strip_prefix("classifier.0.") {
+                out.insert(format!("head.norm.{rest}"), tensor);
+                continue;
+            }
+            if let Some(rest) = key.strip_prefix("classifier.2.") {
+                out.insert(format!("head.fc.{rest}"), tensor);
+                continue;
+            }
+
+            // ── Per-block / inter-stage downsample renames ──
+            if let Some(rest) = key.strip_prefix("features.") {
+                let (idx_str, suffix) =
+                    rest.split_once('.')
+                        .ok_or_else(|| FerrotorchError::InvalidArgument {
+                            message: format!(
+                                "ConvNeXt remap: malformed features key {key:?} \
+                             — expected `features.<N>.<...>`"
+                            ),
+                        })?;
+                let outer: usize =
+                    idx_str
+                        .parse()
+                        .map_err(|_| FerrotorchError::InvalidArgument {
+                            message: format!(
+                                "ConvNeXt remap: features outer index {idx_str:?} \
+                             is not an integer in key {key:?}"
+                            ),
+                        })?;
+
+                // outer ∈ {1,3,5,7} → block stage; outer ∈ {2,4,6} → downsample.
+                if outer % 2 == 1 {
+                    let stage = (outer - 1) / 2; // 0..3
+                    let (block_idx_str, sub) =
+                        suffix
+                            .split_once('.')
+                            .ok_or_else(|| FerrotorchError::InvalidArgument {
+                                message: format!(
+                                    "ConvNeXt remap: malformed block key {key:?} \
+                                 — expected `features.<N>.<j>.<...>`"
+                                ),
+                            })?;
+                    let block_idx: usize =
+                        block_idx_str
+                            .parse()
+                            .map_err(|_| FerrotorchError::InvalidArgument {
+                                message: format!(
+                                    "ConvNeXt remap: block index {block_idx_str:?} \
+                                 not an integer in key {key:?}"
+                                ),
+                            })?;
+                    let prefix = format!("stages.{stage}.{block_idx}");
+
+                    // CNBlock leaf scale: `features.<N>.<j>.layer_scale`.
+                    if sub == "layer_scale" {
+                        out.insert(format!("{prefix}.layer_scale_gamma"), tensor);
+                        continue;
+                    }
+
+                    // Inner Sequential children: `block.0/2/3/5.<...>`.
+                    if let Some(inner) = sub.strip_prefix("block.") {
+                        let (k_str, leaf) = inner.split_once('.').ok_or_else(|| {
+                            FerrotorchError::InvalidArgument {
+                                message: format!("ConvNeXt remap: malformed block.<k> key {key:?}"),
+                            }
+                        })?;
+                        match k_str {
+                            "0" => {
+                                out.insert(format!("{prefix}.dwconv.{leaf}"), tensor);
+                                continue;
+                            }
+                            "2" => {
+                                out.insert(format!("{prefix}.norm.{leaf}"), tensor);
+                                continue;
+                            }
+                            "3" => {
+                                if leaf == "weight" {
+                                    let reshaped = pwconv_linear_to_conv1x1(&tensor, &key)?;
+                                    out.insert(format!("{prefix}.pwconv1.weight"), reshaped);
+                                } else {
+                                    out.insert(format!("{prefix}.pwconv1.{leaf}"), tensor);
+                                }
+                                continue;
+                            }
+                            "5" => {
+                                if leaf == "weight" {
+                                    let reshaped = pwconv_linear_to_conv1x1(&tensor, &key)?;
+                                    out.insert(format!("{prefix}.pwconv2.weight"), reshaped);
+                                } else {
+                                    out.insert(format!("{prefix}.pwconv2.{leaf}"), tensor);
+                                }
+                                continue;
+                            }
+                            _ => {
+                                return Err(FerrotorchError::InvalidArgument {
+                                    message: format!(
+                                        "ConvNeXt remap: unhandled block child index \
+                                         {k_str:?} in key {key:?}"
+                                    ),
+                                });
+                            }
+                        }
+                    }
+
+                    return Err(FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "ConvNeXt remap: unhandled block suffix {sub:?} in key {key:?}"
+                        ),
+                    });
+                }
+
+                // Downsample stages (outer ∈ {2,4,6}). torchvision's stem
+                // already lives under outer=0; outer=2 downsample feeds
+                // stage-1 blocks (outer=3), outer=4 feeds outer=5, etc.
+                // ferrotorch's `downsamples[d-1]` is the (LayerNorm, Conv2d)
+                // pair sitting between stages d-1 and d (d ∈ {1, 2, 3}).
+                let d = outer / 2; // 1, 2, 3
+                if d == 0 || d > 3 {
+                    return Err(FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "ConvNeXt remap: unexpected outer index {outer} in key {key:?}"
+                        ),
+                    });
+                }
+                let ds_prefix = format!("downsample.{}", d - 1);
+                if let Some(inner) = suffix.strip_prefix("0.") {
+                    out.insert(format!("{ds_prefix}.norm.{inner}"), tensor);
+                    continue;
+                }
+                if let Some(inner) = suffix.strip_prefix("1.") {
+                    out.insert(format!("{ds_prefix}.conv.{inner}"), tensor);
+                    continue;
+                }
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "ConvNeXt remap: unhandled downsample suffix {suffix:?} in key {key:?}"
+                    ),
+                });
+            }
+
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("ConvNeXt remap: unrecognised torchvision key {key:?}"),
+            });
+        }
+
+        Ok(out)
     }
 
     // ── Per-element allclose ─────────────────────────────────────────────
@@ -3851,8 +4085,7 @@ mod value_parity_pipeline {
     /// any future per-model schema translators. Lives at module scope
     /// so clippy's `type_complexity` lint stops complaining about the
     /// public surfaces that thread this signature through.
-    pub(super) type StateDictRemapFn =
-        fn(StateDict<f32>) -> FerrotorchResult<StateDict<f32>>;
+    pub(super) type StateDictRemapFn = fn(StateDict<f32>) -> FerrotorchResult<StateDict<f32>>;
 
     /// Variant of [`run_value_parity_test`] that applies a caller-supplied
     /// state-dict remap BEFORE the strict loader runs. Used by ViT-B/16
@@ -3902,9 +4135,9 @@ mod value_parity_pipeline {
         // formedness check (no extra keys, no missing ferrotorch
         // params, no shape mismatch) runs against the remapped names.
         let state = match remap {
-            Some(f) => f(state).unwrap_or_else(|e| {
-                panic!("{model_label}: state-dict remap failed: {e}")
-            }),
+            Some(f) => {
+                f(state).unwrap_or_else(|e| panic!("{model_label}: state-dict remap failed: {e}"))
+            }
             None => state,
         };
 
@@ -4035,14 +4268,10 @@ mod value_parity_pipeline {
     /// (possibly transformed) state. Probes call this once at the
     /// start so all subsequent perturbations operate on the
     /// post-remap key set the loader will see.
-    fn apply_probe_remap(
-        cfg: &ProbeConfig<'_>,
-        state: StateDict<f32>,
-    ) -> StateDict<f32> {
+    fn apply_probe_remap(cfg: &ProbeConfig<'_>, state: StateDict<f32>) -> StateDict<f32> {
         match cfg.state_remap {
-            Some(f) => f(state).unwrap_or_else(|e| {
-                panic!("{}: state-dict remap failed: {e}", cfg.model_label)
-            }),
+            Some(f) => f(state)
+                .unwrap_or_else(|e| panic!("{}: state-dict remap failed: {e}", cfg.model_label)),
             None => state,
         }
     }
@@ -4866,11 +5095,31 @@ mod value_parity_pipeline {
     }
 
     // -- ConvNeXt-T (torchvision: convnext_tiny) ------------------------ //
+    //
+    // Phase 8 (#1005, #1008) closes the ConvNeXt-T value-parity gap:
+    //   * src/convnext.rs adds `layer_scale_gamma` per CNBlock (γ shape
+    //     `[C, 1, 1]`, init 1e-6, multiply pre-residual), sets stem
+    //     bias=true, sets pwconv1/pwconv2 bias=true.
+    //   * test-side `remap_torchvision_to_ferrotorch_convnext_keys`
+    //     translates the torchvision `features.<i>.<j>.block.<k>` /
+    //     `classifier.<j>` schema into ferrotorch's `stages.<s>.<j>.<...>` /
+    //     `head.<...>` paths and reshapes the 2-D Linear pwconv weights
+    //     into 4-D `[O, I, 1, 1]` Conv1×1 weights (Phase 4 ViT-style
+    //     RESHAPE inside a remap).
+    //
+    // The remap is referenced from the value-parity test AND from the
+    // probe set (REMAPPED variant), so the loader's strict 4-way checks
+    // run against the post-remap key set — same shape Phase 4 used for ViT.
 
     fn build_convnext_tiny() -> Box<dyn Module<f32>> {
         Box::new(convnext_tiny::<f32>(1000).expect("convnext_tiny construction"))
     }
 
+    /// Pre-Phase-8 probe descriptor: targets pre-remap torchvision keys.
+    /// Kept (unused at the call sites — the REMAPPED variant below is
+    /// what the active probe tests reference) to document the key
+    /// `classifier.2.bias` that torchvision uses at the leaf.
+    #[allow(dead_code)]
     const CONVNEXT_TINY_PROBE: ProbeConfig<'static> = ProbeConfig {
         fixture_id: "convnext_tiny_value_parity",
         regenerate_target: "convnext_tiny",
@@ -4886,33 +5135,48 @@ mod value_parity_pipeline {
         state_remap: None,
     };
 
+    /// Phase 8 (#1005) ConvNeXt-T probe variant that runs the
+    /// torchvision → ferrotorch state-dict remap before perturbing the
+    /// state. After the remap, `classifier.2.bias` becomes `head.fc.bias`.
+    const CONVNEXT_TINY_REMAPPED_PROBE: ProbeConfig<'static> = ProbeConfig {
+        fixture_id: "convnext_tiny_value_parity",
+        regenerate_target: "convnext_tiny",
+        model_label: "ConvNeXt-T",
+        build_model: build_convnext_tiny,
+        // After the remap, `classifier.2.bias` becomes `head.fc.bias`
+        // (see `remap_torchvision_to_ferrotorch_convnext_keys`).
+        missing_param_key: "head.fc.bias",
+        // ConvNeXt has no BN buffers; populated with a post-remap
+        // ferrotorch LayerNorm weight key so the precondition
+        // typechecks (consumed by no enabled probe).
+        bn_buffer_key: "stem.norm.weight",
+        state_remap: Some(remap_torchvision_to_ferrotorch_convnext_keys),
+    };
+
     #[test]
-    #[ignore = "#1005 ConvNeXt-T residual divergences from torchvision (Phase 6 #997 closed depthwise; layer_scale gamma, Linear-vs-Conv1x1 pwconv, features.<i>.<j>.block.<k> naming, classifier.{0,2} schema, depthwise bias remain)"]
     fn convnext_tiny_value_parity() {
-        run_value_parity_test(
-            CONVNEXT_TINY_PROBE.fixture_id,
-            CONVNEXT_TINY_PROBE.regenerate_target,
-            CONVNEXT_TINY_PROBE.model_label,
+        run_value_parity_test_with_state_remap(
+            CONVNEXT_TINY_REMAPPED_PROBE.fixture_id,
+            CONVNEXT_TINY_REMAPPED_PROBE.regenerate_target,
+            CONVNEXT_TINY_REMAPPED_PROBE.model_label,
             build_convnext_tiny,
+            remap_torchvision_to_ferrotorch_convnext_keys,
         );
     }
 
     #[test]
-    #[ignore = "#1005 ConvNeXt-T residual divergences (post-#997 depthwise): layer_scale, Linear-vs-Conv1x1 pwconv, naming"]
     fn convnext_tiny_loader_rejects_unmapped_torchvision_key() {
-        probe_loader_rejects_unmapped_torchvision_key(&CONVNEXT_TINY_PROBE);
+        probe_loader_rejects_unmapped_torchvision_key(&CONVNEXT_TINY_REMAPPED_PROBE);
     }
 
     #[test]
-    #[ignore = "#1005 ConvNeXt-T residual divergences (post-#997 depthwise): layer_scale, Linear-vs-Conv1x1 pwconv, naming"]
     fn convnext_tiny_loader_rejects_missing_ferrotorch_param() {
-        probe_loader_rejects_missing_ferrotorch_param(&CONVNEXT_TINY_PROBE);
+        probe_loader_rejects_missing_ferrotorch_param(&CONVNEXT_TINY_REMAPPED_PROBE);
     }
 
     #[test]
-    #[ignore = "#1005 ConvNeXt-T residual divergences (post-#997 depthwise): layer_scale, Linear-vs-Conv1x1 pwconv, naming"]
     fn convnext_tiny_loader_rejects_shape_mismatch() {
-        probe_loader_rejects_shape_mismatch(&CONVNEXT_TINY_PROBE);
+        probe_loader_rejects_shape_mismatch(&CONVNEXT_TINY_REMAPPED_PROBE);
     }
 
     // -- Swin-T (torchvision: swin_t) ----------------------------------- //
@@ -5341,8 +5605,14 @@ mod value_parity_pipeline {
         for (path, expected_mean, expected_var) in [
             (
                 target_bn1_path,
-                synthetic_mean_bn1.iter().map(|&v| v as f64).collect::<Vec<_>>(),
-                synthetic_var_bn1.iter().map(|&v| v as f64).collect::<Vec<_>>(),
+                synthetic_mean_bn1
+                    .iter()
+                    .map(|&v| v as f64)
+                    .collect::<Vec<_>>(),
+                synthetic_var_bn1
+                    .iter()
+                    .map(|&v| v as f64)
+                    .collect::<Vec<_>>(),
             ),
             (
                 target_layer1_path,
@@ -5363,9 +5633,9 @@ mod value_parity_pipeline {
             let any = bn_module
                 .as_any()
                 .unwrap_or_else(|| panic!("BN at {path} did not opt into as_any"));
-            let bn = any.downcast_ref::<BatchNorm2d<f32>>().unwrap_or_else(|| {
-                panic!("BN at {path} did not downcast to BatchNorm2d<f32>")
-            });
+            let bn = any
+                .downcast_ref::<BatchNorm2d<f32>>()
+                .unwrap_or_else(|| panic!("BN at {path} did not downcast to BatchNorm2d<f32>"));
             let post_mean = bn.running_mean();
             let post_var = bn.running_var();
             assert_eq!(
@@ -5373,10 +5643,7 @@ mod value_parity_pipeline {
                 "{path}: running_mean was not loaded — \
                  named_children sweep failed to expose this BN to the loader"
             );
-            assert_eq!(
-                post_var, expected_var,
-                "{path}: running_var was not loaded"
-            );
+            assert_eq!(post_var, expected_var, "{path}: running_var was not loaded");
         }
 
         // Confirm the loader did NOT apply the synthetic values to a

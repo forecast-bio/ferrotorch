@@ -96,12 +96,10 @@ fn manual_dilated_conv2d_forward(
                     for ci in 0..c_in {
                         for kh in 0..3usize {
                             for kw in 0..3usize {
-                                let ih_signed = oh as isize
-                                    + kh as isize * dilation as isize
-                                    - pad as isize;
-                                let iw_signed = ow as isize
-                                    + kw as isize * dilation as isize
-                                    - pad as isize;
+                                let ih_signed =
+                                    oh as isize + kh as isize * dilation as isize - pad as isize;
+                                let iw_signed =
+                                    ow as isize + kw as isize * dilation as isize - pad as isize;
                                 if ih_signed >= 0
                                     && ih_signed < h_in as isize
                                     && iw_signed >= 0
@@ -109,10 +107,8 @@ fn manual_dilated_conv2d_forward(
                                 {
                                     let ih = ih_signed as usize;
                                     let iw = iw_signed as usize;
-                                    let in_idx = b * c_in * h_in * w_in
-                                        + ci * h_in * w_in
-                                        + ih * w_in
-                                        + iw;
+                                    let in_idx =
+                                        b * c_in * h_in * w_in + ci * h_in * w_in + ih * w_in + iw;
                                     let w_idx = co * c_in * 9 + ci * 9 + kh * 3 + kw;
                                     acc += input[in_idx] * weight[w_idx];
                                 }
@@ -159,7 +155,8 @@ fn conv2d_new_full_forward(
     // weight does not materialise an autograd tape that the test does
     // not consume.
     let out = ferrotorch_core::no_grad(|| {
-        conv.forward(input).expect("Conv2d forward (dilated, groups=1)")
+        conv.forward(input)
+            .expect("Conv2d forward (dilated, groups=1)")
     });
 
     out.data_vec().expect("output data_vec")
@@ -176,16 +173,8 @@ fn probe_aspp_dilated_conv2d_rate_2() {
     let weight_data = weight_payload(c_out * c_in * 9);
     let input = make_cpu_tensor(input_data.clone(), vec![b, c_in, h, w]);
 
-    let manual_out = manual_dilated_conv2d_forward(
-        &input_data,
-        &weight_data,
-        b,
-        c_in,
-        c_out,
-        h,
-        w,
-        dilation,
-    );
+    let manual_out =
+        manual_dilated_conv2d_forward(&input_data, &weight_data, b, c_in, c_out, h, w, dilation);
     let primitive_out = conv2d_new_full_forward(&input, weight_data, c_in, c_out, dilation);
 
     assert_eq!(
@@ -214,16 +203,8 @@ fn probe_aspp_dilated_conv2d_rate_6() {
     let weight_data = weight_payload(c_out * c_in * 9);
     let input = make_cpu_tensor(input_data.clone(), vec![b, c_in, h, w]);
 
-    let manual_out = manual_dilated_conv2d_forward(
-        &input_data,
-        &weight_data,
-        b,
-        c_in,
-        c_out,
-        h,
-        w,
-        dilation,
-    );
+    let manual_out =
+        manual_dilated_conv2d_forward(&input_data, &weight_data, b, c_in, c_out, h, w, dilation);
     let primitive_out = conv2d_new_full_forward(&input, weight_data, c_in, c_out, dilation);
 
     assert_eq!(manual_out.len(), primitive_out.len());
@@ -246,16 +227,8 @@ fn probe_aspp_dilated_conv2d_rate_12() {
     let weight_data = weight_payload(c_out * c_in * 9);
     let input = make_cpu_tensor(input_data.clone(), vec![b, c_in, h, w]);
 
-    let manual_out = manual_dilated_conv2d_forward(
-        &input_data,
-        &weight_data,
-        b,
-        c_in,
-        c_out,
-        h,
-        w,
-        dilation,
-    );
+    let manual_out =
+        manual_dilated_conv2d_forward(&input_data, &weight_data, b, c_in, c_out, h, w, dilation);
     let primitive_out = conv2d_new_full_forward(&input, weight_data, c_in, c_out, dilation);
 
     assert_eq!(manual_out.len(), primitive_out.len());
@@ -278,16 +251,8 @@ fn probe_aspp_dilated_conv2d_rate_18() {
     let weight_data = weight_payload(c_out * c_in * 9);
     let input = make_cpu_tensor(input_data.clone(), vec![b, c_in, h, w]);
 
-    let manual_out = manual_dilated_conv2d_forward(
-        &input_data,
-        &weight_data,
-        b,
-        c_in,
-        c_out,
-        h,
-        w,
-        dilation,
-    );
+    let manual_out =
+        manual_dilated_conv2d_forward(&input_data, &weight_data, b, c_in, c_out, h, w, dilation);
     let primitive_out = conv2d_new_full_forward(&input, weight_data, c_in, c_out, dilation);
 
     assert_eq!(manual_out.len(), primitive_out.len());

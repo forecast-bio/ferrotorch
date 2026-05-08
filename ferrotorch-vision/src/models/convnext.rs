@@ -22,7 +22,7 @@
 //! normalizes over the last dimension, the forward pass permutes the data to
 //! `[B, H, W, C]`, applies LayerNorm, and permutes back to `[B, C, H, W]`.
 
-use ferrotorch_core::grad_fns::arithmetic::add;
+use ferrotorch_core::grad_fns::arithmetic::{add, mul};
 use ferrotorch_core::grad_fns::shape::reshape;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor};
 
@@ -80,16 +80,31 @@ fn channel_layer_norm<T: Float>(
 /// A single ConvNeXt block.
 ///
 /// ```text
-/// x -> Conv2d(C, C, 7, pad=3, groups=C) -> LayerNorm -> Conv2d(C, 4*C, 1) -> GELU -> Conv2d(4*C, C, 1) -> (+x) -> out
+/// x -> Conv2d(C, C, 7, pad=3, groups=C) -> LayerNorm -> Conv2d(C, 4*C, 1, bias=true) -> GELU -> Conv2d(4*C, C, 1, bias=true) -> (* layer_scale_gamma) -> (+x) -> out
 /// ```
 ///
 /// The first convolution is a depthwise 7×7 (one filter per input channel,
 /// `groups=C`), exactly matching torchvision's `convnext_tiny` reference.
+///
+/// Phase 8 (#1005): added `layer_scale_gamma` (shape `[C, 1, 1]`, init `1e-6`)
+/// applied per-channel just before the residual addition. Torchvision's
+/// `CNBlock` calls this `layer_scale` (and the state-dict key is
+/// `features.<i>.<j>.layer_scale`); the test-side
+/// `remap_torchvision_to_ferrotorch_convnext_keys` translates it. The pwconv
+/// 1×1 layers carry `bias=true` to mirror torchvision's `nn.Linear` pwconv1/2
+/// (the state-dict bias entries `features.<i>.<j>.block.{3,5}.bias` would
+/// otherwise be unmapped).
 pub struct ConvNeXtBlock<T: Float> {
     dwconv: Conv2d<T>,
     norm: LayerNorm<T>,
     pwconv1: Conv2d<T>,
     pwconv2: Conv2d<T>,
+    /// Per-channel learnable scale γ (shape `[C, 1, 1]`, init `1e-6`).
+    /// Multiplied element-wise (broadcast over H, W) AFTER pwconv2 and
+    /// BEFORE the residual add. Mirrors torchvision's
+    /// `CNBlock.layer_scale` and matches the state-dict key
+    /// `features.<i>.<j>.layer_scale` pre-remap.
+    layer_scale_gamma: Parameter<T>,
     gelu: GELU,
     training: bool,
 }
@@ -117,17 +132,33 @@ impl<T: Float> ConvNeXtBlock<T> {
         )?;
         // LayerNorm over the channel dimension.
         let norm = LayerNorm::new(vec![channels], 1e-6, true)?;
-        // Pointwise expansion: C -> 4*C.
-        let pwconv1 = Conv2d::new(channels, 4 * channels, (1, 1), (1, 1), (0, 0), false)?;
-        // Pointwise contraction: 4*C -> C.
-        let pwconv2 = Conv2d::new(4 * channels, channels, (1, 1), (1, 1), (0, 0), false)?;
+        // Pointwise expansion: C -> 4*C. Phase 8 (#1005): bias=true to
+        // mirror torchvision's nn.Linear pwconv1 (state-dict carries
+        // `features.<i>.<j>.block.3.bias`). Weight remapping handles the
+        // 2-D Linear → 4-D Conv1x1 reshape on the test side.
+        let pwconv1 = Conv2d::new(channels, 4 * channels, (1, 1), (1, 1), (0, 0), true)?;
+        // Pointwise contraction: 4*C -> C. Phase 8 (#1005): bias=true.
+        let pwconv2 = Conv2d::new(4 * channels, channels, (1, 1), (1, 1), (0, 0), true)?;
         let gelu = GELU::new();
+
+        // Phase 8 (#1005): per-channel learnable scale γ.
+        // torchvision initialises it with `nn.Parameter(layer_scale * ones(...))`
+        // where `layer_scale = 1e-6` is the CNBlock default. We mirror that
+        // exactly so the post-remap fixture loader's shape + value contract
+        // is met without a second random-init detour.
+        let init_value: T = T::from(1e-6_f64).ok_or_else(|| FerrotorchError::InvalidArgument {
+            message: "ConvNeXtBlock: T::from(1e-6) failed; layer_scale_gamma init unsupported"
+                .to_string(),
+        })?;
+        let init_data = vec![init_value; channels];
+        let layer_scale_gamma = Parameter::from_slice(&init_data, &[channels, 1, 1])?;
 
         Ok(Self {
             dwconv,
             norm,
             pwconv1,
             pwconv2,
+            layer_scale_gamma,
             gelu,
             training: true,
         })
@@ -147,8 +178,16 @@ impl<T: Float> Module<T> for ConvNeXtBlock<T> {
         let out = self.gelu.forward(&out)?;
         let out = self.pwconv2.forward(&out)?;
 
+        // Phase 8 (#1005): per-channel learnable scale γ broadcast over
+        // (B, H, W) — γ has shape `[C, 1, 1]` and the activations are
+        // `[B, C, H, W]`. The autograd-aware `mul` primitive applies the
+        // scale element-wise BEFORE the residual add, matching
+        // torchvision's CNBlock forward (`return self.layer_scale *
+        // result + input`). Stays on `out.device()` end-to-end.
+        let scaled = mul(&out, self.layer_scale_gamma.tensor())?;
+
         // Residual connection.
-        add(&out, input)
+        add(&scaled, input)
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
@@ -157,6 +196,7 @@ impl<T: Float> Module<T> for ConvNeXtBlock<T> {
         params.extend(self.norm.parameters());
         params.extend(self.pwconv1.parameters());
         params.extend(self.pwconv2.parameters());
+        params.push(&self.layer_scale_gamma);
         params
     }
 
@@ -166,6 +206,7 @@ impl<T: Float> Module<T> for ConvNeXtBlock<T> {
         params.extend(self.norm.parameters_mut());
         params.extend(self.pwconv1.parameters_mut());
         params.extend(self.pwconv2.parameters_mut());
+        params.push(&mut self.layer_scale_gamma);
         params
     }
 
@@ -183,10 +224,16 @@ impl<T: Float> Module<T> for ConvNeXtBlock<T> {
         for (name, p) in self.pwconv2.named_parameters() {
             params.push((format!("pwconv2.{name}"), p));
         }
+        params.push(("layer_scale_gamma".to_string(), &self.layer_scale_gamma));
         params
     }
 
     // Phase 4 (#995): expose direct children mirroring `named_parameters`.
+    // `layer_scale_gamma` is a leaf Parameter (not a Module), so it is
+    // intentionally NOT included in children() — children() exposes
+    // sub-Modules only; named_parameters() above already exposes the γ
+    // parameter under the correct dotted-path name for the strict
+    // loader to bind it directly via the per-name parameter setter.
     fn children(&self) -> Vec<&dyn Module<T>> {
         vec![&self.dwconv, &self.norm, &self.pwconv1, &self.pwconv2]
     }
@@ -231,7 +278,11 @@ struct Downsample<T: Float> {
 impl<T: Float> Downsample<T> {
     fn new(in_channels: usize, out_channels: usize) -> FerrotorchResult<Self> {
         let norm = LayerNorm::new(vec![in_channels], 1e-6, true)?;
-        let conv = Conv2d::new(in_channels, out_channels, (2, 2), (2, 2), (0, 0), false)?;
+        // Phase 8 (#1005): bias=true matches torchvision convnext_tiny's
+        // inter-stage downsample Conv2d (`features.{2,4,6}.1` carries
+        // a bias). Without this the loader reports
+        // UnmappedFixtureKey on `downsample.<d>.conv.bias` after remap.
+        let conv = Conv2d::new(in_channels, out_channels, (2, 2), (2, 2), (0, 0), true)?;
         Ok(Self {
             norm,
             conv,
@@ -354,8 +405,12 @@ impl<T: Float> ConvNeXt<T> {
             });
         }
 
-        // Patchify stem: Conv2d(3, dims[0], 4, 4) + LayerNorm.
-        let stem_conv = Conv2d::new(3, dims[0], (4, 4), (4, 4), (0, 0), false)?;
+        // Patchify stem: Conv2d(3, dims[0], 4, 4, bias=true) + LayerNorm.
+        // Phase 8 (#1005): bias=true mirrors torchvision's
+        // `convnext_tiny.features.0[0]`, which is a default-bias Conv2d.
+        // The state-dict carries `features.0.0.bias` (shape [dims[0]])
+        // and the loader would surface UnmappedFixtureKey without it.
+        let stem_conv = Conv2d::new(3, dims[0], (4, 4), (4, 4), (0, 0), true)?;
         let stem_norm = LayerNorm::new(vec![dims[0]], 1e-6, true)?;
 
         // Build stages.
@@ -660,12 +715,14 @@ mod tests {
         let count: usize = block.parameters().iter().map(|p| p.numel()).sum();
 
         // Phase 6 (#997): depthwise 7×7 (groups=channels) + bias=true.
+        // Phase 8 (#1005): pwconv1/2 bias=true; layer_scale_gamma added.
         // dwconv weight: C * (C/C) * 7 * 7 = C * 49     (depthwise, one filter per channel)
         // dwconv bias:   C
         // norm:          2 * C   (weight + bias)
-        // pwconv1:       4 * C^2 (1×1 conv)
-        // pwconv2:       4 * C^2 (1×1 conv)
-        let expected = c * 49 + c + 2 * c + 4 * c * c + 4 * c * c;
+        // pwconv1:       4 * C^2 (weight) + 4 * C (bias)
+        // pwconv2:       4 * C^2 (weight) + C     (bias)
+        // layer_scale_gamma: C  (shape [C, 1, 1])
+        let expected = c * 49 + c + 2 * c + (4 * c * c + 4 * c) + (4 * c * c + c) + c;
         assert_eq!(count, expected);
     }
 
@@ -695,8 +752,9 @@ mod tests {
         let ds = Downsample::<f32>::new(96, 192).unwrap();
         let count: usize = ds.parameters().iter().map(|p| p.numel()).sum();
         // LayerNorm(96): 2*96 = 192
-        // Conv2d(96, 192, 2, 2): 96 * 192 * 2 * 2 = 73728
-        let expected = 2 * 96 + 96 * 192 * 2 * 2;
+        // Conv2d(96, 192, 2, 2, bias=true): 96 * 192 * 2 * 2 + 192
+        // Phase 8 (#1005): bias=true mirrors torchvision's downsample Conv.
+        let expected = 2 * 96 + 96 * 192 * 2 * 2 + 192;
         assert_eq!(count, expected);
     }
 

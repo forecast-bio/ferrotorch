@@ -94,11 +94,7 @@ impl<T: Float> Module<T> for ConvBnSiLU<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let x = self.conv.forward(input)?;
         let x = Module::<T>::forward(&self.bn, &x)?;
-        if self.apply_silu {
-            silu_fn(&x)
-        } else {
-            Ok(x)
-        }
+        if self.apply_silu { silu_fn(&x) } else { Ok(x) }
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
@@ -166,7 +162,13 @@ struct MBConvCfg {
 }
 
 impl MBConvCfg {
-    fn from_block_input(in_ch: usize, out_ch: usize, kernel: usize, stride: usize, expand_ratio: usize) -> Self {
+    fn from_block_input(
+        in_ch: usize,
+        out_ch: usize,
+        kernel: usize,
+        stride: usize,
+        expand_ratio: usize,
+    ) -> Self {
         Self {
             in_ch,
             expanded: in_ch * expand_ratio,
@@ -368,13 +370,55 @@ struct Stage {
 /// EfficientNet-B0 stage table — matches torchvision's
 /// `_MBConvConfig`-derived stages exactly.
 const EFFICIENTNET_B0_STAGES: [Stage; 7] = [
-    Stage { num_blocks: 1, out_ch: 16,  kernel: 3, stride: 1, expand_ratio: 1 },
-    Stage { num_blocks: 2, out_ch: 24,  kernel: 3, stride: 2, expand_ratio: 6 },
-    Stage { num_blocks: 2, out_ch: 40,  kernel: 5, stride: 2, expand_ratio: 6 },
-    Stage { num_blocks: 3, out_ch: 80,  kernel: 3, stride: 2, expand_ratio: 6 },
-    Stage { num_blocks: 3, out_ch: 112, kernel: 5, stride: 1, expand_ratio: 6 },
-    Stage { num_blocks: 4, out_ch: 192, kernel: 5, stride: 2, expand_ratio: 6 },
-    Stage { num_blocks: 1, out_ch: 320, kernel: 3, stride: 1, expand_ratio: 6 },
+    Stage {
+        num_blocks: 1,
+        out_ch: 16,
+        kernel: 3,
+        stride: 1,
+        expand_ratio: 1,
+    },
+    Stage {
+        num_blocks: 2,
+        out_ch: 24,
+        kernel: 3,
+        stride: 2,
+        expand_ratio: 6,
+    },
+    Stage {
+        num_blocks: 2,
+        out_ch: 40,
+        kernel: 5,
+        stride: 2,
+        expand_ratio: 6,
+    },
+    Stage {
+        num_blocks: 3,
+        out_ch: 80,
+        kernel: 3,
+        stride: 2,
+        expand_ratio: 6,
+    },
+    Stage {
+        num_blocks: 3,
+        out_ch: 112,
+        kernel: 5,
+        stride: 1,
+        expand_ratio: 6,
+    },
+    Stage {
+        num_blocks: 4,
+        out_ch: 192,
+        kernel: 5,
+        stride: 2,
+        expand_ratio: 6,
+    },
+    Stage {
+        num_blocks: 1,
+        out_ch: 320,
+        kernel: 3,
+        stride: 1,
+        expand_ratio: 6,
+    },
 ];
 
 const EN_B0_LAST_CHANNEL: usize = 1280;
