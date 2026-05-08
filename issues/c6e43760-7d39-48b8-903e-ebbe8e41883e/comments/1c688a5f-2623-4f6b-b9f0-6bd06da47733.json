@@ -1,0 +1,10 @@
+{
+  "uuid": "1c688a5f-2623-4f6b-b9f0-6bd06da47733",
+  "issue_uuid": "c6e43760-7d39-48b8-903e-ebbe8e41883e",
+  "author": "y4rr",
+  "content": "Result: ONNX export conformance coverage now live. Stale 'blocked on JIT IR' claim removed — IrGraph public API was confirmed available (IrGraph::new/add_input/add_node/set_outputs/topological_order). Replaced onnx_export_items_cascade_skip() with 5 live test functions covering: ir_graph_to_onnx (verifies ONNX protobuf magic byte 0x08), export_ir_graph_to_onnx (file write), export_onnx (trace+export closure), export_from_program (ExportedProgram path), OnnxExportConfig (struct fields + mutability). All 53 conformance_serialize tests pass. cargo clippy -D warnings clean.",
+  "created_at": "2026-05-08T00:34:04.209586411Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAfem5OgHgfwoq2Dxk7L53U+XXbFke35/zm5pqCovcn3oD9s8Eb2TpGZ7Q1vdMInfWIuQNb4rRqDIS/YUP5v1cCg=="
+}
