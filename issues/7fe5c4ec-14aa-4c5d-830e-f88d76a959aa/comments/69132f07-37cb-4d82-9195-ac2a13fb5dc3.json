@@ -1,0 +1,10 @@
+{
+  "uuid": "69132f07-37cb-4d82-9195-ac2a13fb5dc3",
+  "issue_uuid": "7fe5c4ec-14aa-4c5d-830e-f88d76a959aa",
+  "author": "y4rr",
+  "content": "Phase 7 plan loaded: SE primitive (Movement 1) → MobileNetV2 (Movement 2, all-Conv2d expand+depthwise+project + BN, ReLU6) → MobileNetV3-Small (Movement 3, V3 conf table, SE+HardSigmoid scale) → EfficientNet-B0 (Movement 4, MBConv+SE+SiLU+Sigmoid scale, stochastic depth = identity in eval). Probe-before-fix: dump named_parameters() against torchvision sorted set per model; STOP-AND-REPORT on unexpected divergence. Existing 8 PASSes (resnet18/34/50, vgg11/16, densenet121, fcn_resnet50, vit_b_16) preserved.",
+  "created_at": "2026-05-08T18:07:54.964059115Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA76TVKJJAoQ6W7iOjRKymgghgheGvgVzeAZD+FThjk1B5Lp2LFdpoBq3KgPj8drGd2RmnBzotcju5Wg5bf2s5Cg=="
+}
