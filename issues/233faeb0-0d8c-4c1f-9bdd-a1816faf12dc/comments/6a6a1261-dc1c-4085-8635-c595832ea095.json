@@ -1,0 +1,10 @@
+{
+  "uuid": "6a6a1261-dc1c-4085-8635-c595832ea095",
+  "issue_uuid": "233faeb0-0d8c-4c1f-9bdd-a1816faf12dc",
+  "author": "y4rr",
+  "content": "Result (READY-FOR-AUDIT-WITH-ESCALATIONS): All Phase 3 evidence floor met.\n\nMigrations applied:\n- vit.rs PatchEmbed: 1 site, removed 14 LoC manual loop, added 3 LoC primitive chain (view->permute->contiguous).\n- convnext.rs nhwc_from_nchw + nchw_from_nhwc: 2 helpers, removed ~50 LoC of indexed loops, added 2 LoC permute().contiguous() each.\n- swin.rs stage_forward downsample-in/out + main forward post-patch-embed + IntermediateFeatures sibling: 4 sites, removed ~70 LoC of indexed loops, added view/permute/contiguous chains.\n\nProbe: 5 patterns asserted byte-identical between manual loops and primitive chains; runs BEFORE migration as the safety net for #18 (mass workaround propagation).\n\nOutcomes:\n- ViT-B/16: REPORTED — schema divergence (blocks.<N>.norm1.* vs encoder.layers.encoder_layer_<N>.ln_1.*) escalated as #999.\n- ConvNeXt-T: REPORTED — depthwise 7x7 divergence escalated as #997.\n- Swin-T: REPORTED — shifted-window attention divergence escalated as #998.\n\nOut-of-Phase-3-scope CPU-pull patterns (cls_token concat, pos_embed broadcast, batched MLP unrolling, manual mean reduction) escalated as #1000.\n\nTests: 121 pass + 42 ignored + 0 fail in conformance_vision_models; 5/5 probe tests pass; full vision crate test result: ok across all suites. Clippy clean. NO changes to ferrotorch-core/src/ or ferrotorch-nn/src/. CHANGELOG ### Changed entry added citing #986/#987 closure.",
+  "created_at": "2026-05-08T11:10:14.406735141Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA+Zj2ExaOKv3eitJCLOO0tccb2XF8sHn3eqrLuJRdb0xjqErEK9jRsuHXTkBxIw25aq35efgPLJZ3zTUL9BdeAA=="
+}
