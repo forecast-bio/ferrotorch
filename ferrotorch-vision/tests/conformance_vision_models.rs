@@ -2866,8 +2866,9 @@ mod value_parity_pipeline {
     use ferrotorch_nn::parameter::Parameter;
     use ferrotorch_serialize::load_safetensors;
     use ferrotorch_vision::models::{
-        convnext_tiny, densenet121, efficientnet_b0, fcn_resnet50, inception_v3, mobilenet_v2,
-        mobilenet_v3_small, resnet18, resnet34, resnet50, swin_tiny, vgg11, vgg16, vit_b_16,
+        convnext_tiny, deeplabv3_resnet50, densenet121, efficientnet_b0, fcn_resnet50,
+        inception_v3, mobilenet_v2, mobilenet_v3_small, resnet18, resnet34, resnet50, swin_tiny,
+        vgg11, vgg16, vit_b_16,
     };
     use serde::Deserialize;
 
@@ -3399,6 +3400,77 @@ mod value_parity_pipeline {
         d.buffer_keys.clone()
     }
 
+    /// Phase 9 (#1010): when a `StateDictRemapFn` rewrites parameter
+    /// names, the descriptor's BN buffer keys (captured pre-remap from
+    /// torchvision's state dict) must be translated through the same
+    /// remap so the loader's `(ft_param_set ∪ buffer_set)` admit-set
+    /// stays in lock-step with the post-remap state-dict keys.
+    ///
+    /// We drive the existing `StateDictRemapFn` with a synthetic
+    /// state dict of length-1 tensors so a single function defines the
+    /// translation for both parameters and buffers (no duplication of
+    /// the rewriting rules between two different code paths). The
+    /// returned vector preserves descriptor ordering after translation.
+    fn remap_buffer_keys_via_state_remap(
+        keys: &[String],
+        remap: StateDictRemapFn,
+        model_label: &str,
+    ) -> Vec<String> {
+        let mut synth: StateDict<f32> = StateDict::new();
+        for k in keys {
+            synth.insert(
+                k.clone(),
+                ferrotorch_core::zeros::<f32>(&[1])
+                    .expect("synth zeros for buffer-key remap"),
+            );
+        }
+        let remapped = remap(synth)
+            .unwrap_or_else(|e| panic!("{model_label}: buffer-key remap failed: {e}"));
+        // Preserve the original descriptor ordering by re-applying the
+        // remap to each input key in order.
+        let mut out = Vec::with_capacity(keys.len());
+        for k in keys {
+            // Find the (single) post-remap key whose value originated
+            // from this input key. We rely on the post-remap StateDict
+            // having exactly one entry per input (the remap is bijective
+            // on the well-formed input we feed it) and the original key
+            // not appearing as a post-remap key for any *other* input.
+            // Since names differ per input, scanning the remapped dict
+            // by value-presence isn't necessary: we re-run the remap
+            // with a 1-element dict per input.
+            let mut one: StateDict<f32> = StateDict::new();
+            one.insert(
+                k.clone(),
+                ferrotorch_core::zeros::<f32>(&[1])
+                    .expect("synth zeros for single-key remap"),
+            );
+            let single = remap(one).unwrap_or_else(|e| {
+                panic!("{model_label}: buffer-key single-remap failed: {e}")
+            });
+            assert_eq!(
+                single.len(),
+                1,
+                "{model_label}: buffer-key remap must yield 1 output for input {k:?}, \
+                 got {} (remapped keys: {:?})",
+                single.len(),
+                single.keys().collect::<Vec<_>>(),
+            );
+            out.push(single.keys().next().expect("len==1").clone());
+        }
+        // Sanity: post-remap dict from the bulk run must have the same
+        // number of distinct keys as we just produced. Catches any
+        // remap that secretly fuses or drops keys.
+        assert_eq!(
+            remapped.len(),
+            out.len(),
+            "{model_label}: buffer-key remap produced inconsistent count: \
+             bulk={} per-key={}",
+            remapped.len(),
+            out.len(),
+        );
+        out
+    }
+
     // ── ViT-B/16 torchvision → ferrotorch state-dict remap (#999) ───────
     //
     // Closes the parameter-naming divergence the Phase 3 ViT value-parity
@@ -3898,6 +3970,149 @@ mod value_parity_pipeline {
         Ok(out)
     }
 
+    // ── DeepLabV3-ResNet50 (Phase 9 #1009 / #1006) remap ─────────────────
+    //
+    // torchvision's `deeplabv3_resnet50` exports two top-level subtrees:
+    //
+    //   `backbone.<...>`    — ResNet-50 (replace_stride_with_dilation=
+    //                          [false, true, true]); layer3/layer4 use
+    //                          dilated bottlenecks.
+    //   `classifier.<i>.<...>` — 5-element DeepLabHead Sequential
+    //                            (ASPP, Conv, BN, ReLU, Conv).
+    //
+    // Ferrotorch's deeplabv3.rs exposes:
+    //
+    //   `backbone.<...>`    — Phase 9 follow-up (#1011): ferrotorch's
+    //                          `ResNet50Dilated` is now a thin wrapper
+    //                          around `resnet::resnet50_dilated([false,
+    //                          true, true])` (the same backbone factory
+    //                          FCN-ResNet50 uses). The dilated layer3 /
+    //                          layer4 use the standard `Bottleneck`
+    //                          struct, which exposes `bn2.<...>`
+    //                          natively — identical to torchvision's
+    //                          schema. The previous `bn2 ↔ conv2.bn`
+    //                          rewrite is therefore no longer needed
+    //                          and backbone keys pass through verbatim.
+    //   `head.aspp.<...>`   — see aspp.rs (5 branches at indices 0..4
+    //                          plus `project` + `project_bn`).
+    //   `head.conv_intermediate.<...>` — Phase 9 (#1009) added.
+    //   `head.bn_intermediate.<...>`   — Phase 9 (#1009) added.
+    //   `head.classifier.<...>`        — final 1×1 conv (now bias=true).
+    //
+    // The remap below covers both backbone- and classifier-side keys so
+    // the loader's strict 4-way checks run against the post-remap names.
+    // Coverage is asserted up-front by `tests/probe_deeplabv3_remap.rs`
+    // (probe-before-fix); this function is the production translator.
+
+    /// Translate a torchvision `deeplabv3_resnet50` state dict into
+    /// ferrotorch's schema.
+    pub(super) fn remap_torchvision_to_ferrotorch_deeplabv3_keys(
+        state: StateDict<f32>,
+    ) -> FerrotorchResult<StateDict<f32>> {
+        let mut out: StateDict<f32> = StateDict::new();
+
+        for (key, tensor) in state.into_iter() {
+            // ── Backbone (#1011): pass-through ──────────────────────────
+            //
+            // The Phase 9 follow-up replaced the hand-rolled
+            // `ResNet50Dilated` (DilatedBottleneck wrapping conv+BN as one
+            // module under `conv2.bn.<...>`) with a thin wrapper around
+            // `resnet::resnet50_dilated`. The standard `Bottleneck`
+            // exposes `bn2.<...>` natively, so torchvision's
+            // `backbone.layer{3,4}.<j>.bn2.<k>` keys (and every other
+            // backbone key) pass through unchanged.
+            if key.starts_with("backbone.") {
+                out.insert(key, tensor);
+                continue;
+            }
+
+            // ── Classifier (DeepLabHead) ────────────────────────────────
+            //
+            // 5-element Sequential layout (post-Phase 9):
+            //   classifier.0 -> head.aspp
+            //   classifier.1 -> head.conv_intermediate (Conv 256→256, 3×3)
+            //   classifier.2 -> head.bn_intermediate
+            //   classifier.3 — ReLU, no params
+            //   classifier.4 -> head.classifier (Conv 256→N, 1×1, bias=T)
+            if let Some(rest) = key.strip_prefix("classifier.0.project.0.") {
+                // Project conv: 1×1 (256, 1280, 1, 1).
+                out.insert(format!("head.aspp.project.{rest}"), tensor);
+                continue;
+            }
+            if let Some(rest) = key.strip_prefix("classifier.0.project.1.") {
+                // Project BN.
+                out.insert(format!("head.aspp.project_bn.{rest}"), tensor);
+                continue;
+            }
+            if let Some(rest) = key.strip_prefix("classifier.0.convs.") {
+                // ASPP branches: classifier.0.convs.<i>.<j>.<tail>.
+                let mut parts = rest.splitn(3, '.');
+                let i = parts.next().ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "DeepLabV3 remap: malformed ASPP convs key {key:?} \
+                         — expected `classifier.0.convs.<i>.<j>.<...>`"
+                    ),
+                })?;
+                let j = parts.next().ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "DeepLabV3 remap: malformed ASPP convs key {key:?} \
+                         — expected `classifier.0.convs.<i>.<j>.<...>`"
+                    ),
+                })?;
+                let tail = parts.next().ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "DeepLabV3 remap: malformed ASPP convs key {key:?} \
+                         — expected `classifier.0.convs.<i>.<j>.<tail>`"
+                    ),
+                })?;
+                let mapped = match (i, j) {
+                    // Branch 0 — ASPPConv1x1: [Conv2d(1×1), BN, ReLU].
+                    ("0", "0") => format!("head.aspp.0.conv.{tail}"),
+                    ("0", "1") => format!("head.aspp.0.bn.{tail}"),
+                    // Branches 1/2/3 — DilatedConv2d. ferrotorch flattens
+                    // the conv key down (no `conv.` prefix per
+                    // aspp.rs:117-122) but keeps `bn.<...>` nested.
+                    ("1", "0") | ("2", "0") | ("3", "0") => format!("head.aspp.{i}.{tail}"),
+                    ("1", "1") | ("2", "1") | ("3", "1") => format!("head.aspp.{i}.bn.{tail}"),
+                    // Branch 4 — ASPPPooling: [AdaptiveAvgPool2d (slot 0,
+                    // no params), Conv2d (slot 1), BN (slot 2)].
+                    ("4", "1") => format!("head.aspp.4.conv.{tail}"),
+                    ("4", "2") => format!("head.aspp.4.bn.{tail}"),
+                    _ => {
+                        return Err(FerrotorchError::InvalidArgument {
+                            message: format!(
+                                "DeepLabV3 remap: unhandled ASPP branch index \
+                                 ({i:?}, {j:?}) in key {key:?}"
+                            ),
+                        });
+                    }
+                };
+                out.insert(mapped, tensor);
+                continue;
+            }
+            // Top-level classifier slots (1, 2, 4 — slot 3 is ReLU and
+            // carries no parameters).
+            if let Some(rest) = key.strip_prefix("classifier.1.") {
+                out.insert(format!("head.conv_intermediate.{rest}"), tensor);
+                continue;
+            }
+            if let Some(rest) = key.strip_prefix("classifier.2.") {
+                out.insert(format!("head.bn_intermediate.{rest}"), tensor);
+                continue;
+            }
+            if let Some(rest) = key.strip_prefix("classifier.4.") {
+                out.insert(format!("head.classifier.{rest}"), tensor);
+                continue;
+            }
+
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("DeepLabV3 remap: unrecognised torchvision key {key:?}"),
+            });
+        }
+
+        Ok(out)
+    }
+
     // ── Per-element allclose ─────────────────────────────────────────────
 
     /// Per-element `torch.allclose`-shaped check.
@@ -4153,7 +4368,19 @@ mod value_parity_pipeline {
             );
         }
 
-        let buffer_keys = buffer_keys_from_descriptor(&descriptor);
+        // Phase 9 (#1010): when a remap rewrote parameter names, also
+        // rewrite the descriptor's BN buffer keys through the same remap.
+        // Without this, the loader sees post-remap state-dict keys but a
+        // buffer_set built from torchvision-named keys, and rejects every
+        // BN buffer as "no mapping to a ferrotorch parameter".
+        let buffer_keys = match remap {
+            Some(f) => remap_buffer_keys_via_state_remap(
+                &buffer_keys_from_descriptor(&descriptor),
+                f,
+                model_label,
+            ),
+            None => buffer_keys_from_descriptor(&descriptor),
+        };
         load_torchvision_state_into_module(model_label, model.as_mut(), &state, &buffer_keys)
             .unwrap_or_else(|e| panic!("{model_label}: loader failed on well-formed fixture: {e}"));
 
@@ -4276,6 +4503,23 @@ mod value_parity_pipeline {
         }
     }
 
+    /// Phase 9 (#1010): mirror of `apply_probe_remap` for the BN
+    /// buffer-key list. When the probe carries a `state_remap`, the
+    /// buffer keys captured pre-remap from torchvision's state dict
+    /// must be translated through the same function so the loader's
+    /// `buffer_set` admit-check matches the post-remap state-dict
+    /// keys.
+    fn apply_probe_buffer_remap(
+        cfg: &ProbeConfig<'_>,
+        descriptor: &ValueParityDescriptor,
+    ) -> Vec<String> {
+        let raw = buffer_keys_from_descriptor(descriptor);
+        match cfg.state_remap {
+            Some(f) => remap_buffer_keys_via_state_remap(&raw, f, cfg.model_label),
+            None => raw,
+        }
+    }
+
     pub(super) fn probe_loader_rejects_unmapped_torchvision_key(cfg: &ProbeConfig<'_>) {
         let fix = require_fixture_for_probe(cfg);
         let LoadedFixture {
@@ -4290,7 +4534,7 @@ mod value_parity_pipeline {
             ferrotorch_core::zeros::<f32>(&[1]).unwrap(),
         );
         let mut model = (cfg.build_model)();
-        let buffer_keys = buffer_keys_from_descriptor(&descriptor);
+        let buffer_keys = apply_probe_buffer_remap(cfg, &descriptor);
         let err = load_torchvision_state_into_module(
             cfg.model_label,
             model.as_mut(),
@@ -4325,7 +4569,7 @@ mod value_parity_pipeline {
             .remove(key)
             .unwrap_or_else(|| panic!("{key} present (asserted above)"));
         let mut model = (cfg.build_model)();
-        let buffer_keys = buffer_keys_from_descriptor(&descriptor);
+        let buffer_keys = apply_probe_buffer_remap(cfg, &descriptor);
         let err = load_torchvision_state_into_module(
             cfg.model_label,
             model.as_mut(),
@@ -4362,7 +4606,7 @@ mod value_parity_pipeline {
             ferrotorch_core::zeros::<f32>(&[7, 13]).unwrap(),
         );
         let mut model = (cfg.build_model)();
-        let buffer_keys = buffer_keys_from_descriptor(&descriptor);
+        let buffer_keys = apply_probe_buffer_remap(cfg, &descriptor);
         let err = load_torchvision_state_into_module(
             cfg.model_label,
             model.as_mut(),
@@ -4379,20 +4623,32 @@ mod value_parity_pipeline {
     }
 
     pub(super) fn probe_loader_rejects_missing_bn_buffer(cfg: &ProbeConfig<'_>) {
-        let mut fix = require_fixture_for_probe(cfg);
+        let fix = require_fixture_for_probe(cfg);
+        let LoadedFixture {
+            descriptor,
+            state,
+            input: _,
+            expected: _,
+        } = fix;
+        // Phase 9 (#1010): apply the optional state remap FIRST so the
+        // post-remap state's key set matches the post-remap buffer key
+        // set the loader will check against. Then remove the bn_buffer_key
+        // (which the probe descriptor names in the post-remap namespace)
+        // so the loader's "BN buffer missing" branch fires.
+        let mut state = apply_probe_remap(cfg, state);
         let target = cfg.bn_buffer_key;
         assert!(
-            fix.state.contains_key(target),
-            "{}: fixture must contain {target} for the probe to be meaningful",
+            state.contains_key(target),
+            "{}: fixture must contain {target} (post-remap) for the probe to be meaningful",
             cfg.model_label
         );
-        fix.state.remove(target);
+        state.remove(target);
         let mut model = (cfg.build_model)();
-        let buffer_keys = buffer_keys_from_descriptor(&fix.descriptor);
+        let buffer_keys = apply_probe_buffer_remap(cfg, &descriptor);
         let err = load_torchvision_state_into_module(
             cfg.model_label,
             model.as_mut(),
-            &fix.state,
+            &state,
             &buffer_keys,
         )
         .expect_err("loader must reject missing BN buffer");
@@ -4764,6 +5020,78 @@ mod value_parity_pipeline {
     #[test]
     fn fcn_resnet50_loader_rejects_missing_bn_buffer() {
         probe_loader_rejects_missing_bn_buffer(&FCN_RESNET50_PROBE);
+    }
+
+    // -- DeepLabV3-ResNet50 (torchvision: deeplabv3_resnet50) ─────────── //
+    //
+    // Phase 9 (#1010, closes #1009 and #1006) closes the structural
+    // divergence between ferrotorch's DeepLabV3 and torchvision's
+    // `deeplabv3_resnet50`:
+    //
+    //   * src/aspp.rs — `Aspp::new` now takes `atrous_rates`. The
+    //     factory passes (12, 24, 36) (torchvision default for
+    //     `deeplabv3_resnet50`); the prior hard-coded (6, 12, 18)
+    //     matched DeepLabV3+, not DeepLabV3.
+    //   * src/deeplabv3.rs — DeepLabV3Head is now a 5-element
+    //     Sequential matching torchvision's `DeepLabHead`:
+    //     ASPP -> Conv(256, 256, 3×3, bias=F) -> BN -> ReLU
+    //     -> Conv(256, N, 1×1, bias=T). The final classifier carries
+    //     bias=true.
+    //   * test-side `remap_torchvision_to_ferrotorch_deeplabv3_keys`
+    //     translates torchvision's `backbone.<...>` + `classifier.<i>`
+    //     schema into ferrotorch's `backbone.<...>` + `head.<...>`
+    //     paths; the layer3/layer4 dilated bottleneck `bn2` ↔
+    //     `conv2.bn` rename and the ASPPPooling slot index rename are
+    //     handled there.
+
+    fn build_deeplabv3_resnet50() -> Box<dyn Module<f32>> {
+        // Pascal VOC default: 21 classes.
+        Box::new(deeplabv3_resnet50::<f32>(21).expect("deeplabv3_resnet50 construction"))
+    }
+
+    const DEEPLABV3_RESNET50_PROBE: ProbeConfig<'static> = ProbeConfig {
+        fixture_id: "deeplabv3_resnet50_value_parity",
+        regenerate_target: "deeplabv3_resnet50",
+        model_label: "DeepLabV3-ResNet50",
+        build_model: build_deeplabv3_resnet50,
+        // After the remap, the final 1×1 classifier (Phase 9 bias=true)
+        // lands at `head.classifier.bias`.
+        missing_param_key: "head.classifier.bias",
+        // BN buffer present in the descriptor; backbone bn1 is the
+        // canonical sentinel (same key the FCN-ResNet50 probe uses).
+        bn_buffer_key: "backbone.bn1.running_mean",
+        state_remap: Some(remap_torchvision_to_ferrotorch_deeplabv3_keys),
+    };
+
+    #[test]
+    fn deeplabv3_resnet50_value_parity() {
+        run_value_parity_test_with_state_remap(
+            DEEPLABV3_RESNET50_PROBE.fixture_id,
+            DEEPLABV3_RESNET50_PROBE.regenerate_target,
+            DEEPLABV3_RESNET50_PROBE.model_label,
+            build_deeplabv3_resnet50,
+            remap_torchvision_to_ferrotorch_deeplabv3_keys,
+        );
+    }
+
+    #[test]
+    fn deeplabv3_resnet50_loader_rejects_unmapped_torchvision_key() {
+        probe_loader_rejects_unmapped_torchvision_key(&DEEPLABV3_RESNET50_PROBE);
+    }
+
+    #[test]
+    fn deeplabv3_resnet50_loader_rejects_missing_ferrotorch_param() {
+        probe_loader_rejects_missing_ferrotorch_param(&DEEPLABV3_RESNET50_PROBE);
+    }
+
+    #[test]
+    fn deeplabv3_resnet50_loader_rejects_shape_mismatch() {
+        probe_loader_rejects_shape_mismatch(&DEEPLABV3_RESNET50_PROBE);
+    }
+
+    #[test]
+    fn deeplabv3_resnet50_loader_rejects_missing_bn_buffer() {
+        probe_loader_rejects_missing_bn_buffer(&DEEPLABV3_RESNET50_PROBE);
     }
 
     // ── Phase 6 (#1004): Tier 1 sweep — small-model PASS candidates ──────

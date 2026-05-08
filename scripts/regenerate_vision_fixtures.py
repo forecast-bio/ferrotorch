@@ -92,6 +92,11 @@ _VALUE_PARITY_MODELS = {
     "resnet34",
     "vgg11",
     "vgg16",
+    # Phase 9 (#1010, closes #1009 + #1006): DeepLabV3-ResNet50 lands its
+    # value-parity fixture once the src/ structural changes (atrous_rates
+    # = (12, 24, 36), 5-element DeepLabHead, classifier bias=true) and
+    # the test-side state-dict remap are in place.
+    "deeplabv3_resnet50",
 }
 
 
@@ -145,6 +150,8 @@ def _value_parity_main(model_names):
         "resnet34": _value_parity_resnet34,
         "vgg11": _value_parity_vgg11,
         "vgg16": _value_parity_vgg16,
+        # Phase 9 (#1010) DeepLabV3-ResNet50 value-parity fixture
+        "deeplabv3_resnet50": _value_parity_deeplabv3_resnet50,
     }
 
     new_descriptors = []
@@ -527,6 +534,59 @@ def _value_parity_fcn_resnet50(fixtures_dir, st_save_file):
             "aux_loss=True and not generated here). Ferrotorch's "
             "FCN-ResNet50 backbone is non-dilated whereas torchvision uses "
             "replace_stride_with_dilation=[False, True, True] — see #994."
+        ),
+    )
+
+
+def _value_parity_deeplabv3_resnet50(fixtures_dir, st_save_file):
+    """torchvision.models.segmentation.deeplabv3_resnet50(weights=None,
+    weights_backbone=None, num_classes=21), 1×3×224×224 input.
+
+    Phase 9 (#1010, closes #1009 + #1006): the ferrotorch DeepLabV3 src/
+    now mirrors torchvision's `DeepLabHead` 5-element Sequential
+    (ASPP → Conv(3×3, bias=False) → BN → ReLU → Conv(1×1, bias=True))
+    and the default atrous rates `(12, 24, 36)`. Combined with the
+    test-side `remap_torchvision_to_ferrotorch_deeplabv3_keys` translator
+    in `tests/conformance_vision_models.rs`, this fixture exercises the
+    full strict loader + per-element allclose path.
+
+    Like `fcn_resnet50`, the model returns
+    `OrderedDict({"out": [B, 21, H, W]})` in eval mode; we extract `"out"`
+    explicitly so failure mode #12 (tautological reference) cannot bite.
+    """
+    import torchvision.models.segmentation as tvs
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="deeplabv3_resnet50_value_parity",
+        model_name="deeplabv3_resnet50",
+        issue="#1010",
+        construction_note=(
+            "tvs.deeplabv3_resnet50(weights=None, weights_backbone=None, "
+            "num_classes=21) under torch.manual_seed(0) — eval() mode "
+            "forward returns OrderedDict({'out': [B, 21, H, W]}); we "
+            "extract 'out' explicitly. Atrous rates default (12, 24, 36)."
+        ),
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvs.deeplabv3_resnet50(
+            weights=None, weights_backbone=None, num_classes=21
+        ),
+        # Multi-output extraction — explicit per-call to avoid tautology.
+        output_extractor=lambda raw: raw["out"],
+        descriptor_note=(
+            "Reference produced via torchvision.models.segmentation."
+            "deeplabv3_resnet50(weights=None, weights_backbone=None, "
+            "num_classes=21). Eval-mode + default-BN-stats workaround per "
+            "#984. Output is the 'out' tensor from the OrderedDict (NOT "
+            "'aux', which is gated by aux_loss=True and not generated "
+            "here). Phase 9 (#1010): structural divergences from #1009 + "
+            "#1006 are now closed (atrous rates (12, 24, 36); 5-element "
+            "DeepLabHead Sequential; classifier bias=True); the test-side "
+            "state-dict remap translates the layer3/layer4 dilated "
+            "bottleneck `bn2` ↔ `conv2.bn` rename and the ASPPPooling "
+            "slot index rename."
         ),
     )
 

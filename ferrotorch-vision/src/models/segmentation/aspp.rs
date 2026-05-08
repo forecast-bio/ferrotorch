@@ -353,13 +353,18 @@ impl<T: Float> Module<T> for ASPPPooling<T> {
 /// Five branches are concatenated (totalling `5 * 256 = 1280` channels) and
 /// projected back to 256 channels via a 1×1 conv + BN + ReLU, with dropout
 /// p=0.5 preceding the projection (matching torchvision).
+///
+/// Phase 9 (#1009): the dilated 3×3 atrous rates are now plumbed through
+/// [`Aspp::new`] as a `(usize, usize, usize)` triplet. torchvision's
+/// `deeplabv3_resnet50` default is `(12, 24, 36)`; the prior hard-coded
+/// `(6, 12, 18)` matched DeepLabV3+'s smaller head rather than DeepLabV3.
 pub struct Aspp<T: Float> {
     /// 1×1 convolution branch.
     conv1: ASPPConv1x1<T>,
-    /// Dilated 3×3 conv branches at rates 6, 12, 18.
-    conv_r6: DilatedConv2d<T>,
-    conv_r12: DilatedConv2d<T>,
-    conv_r18: DilatedConv2d<T>,
+    /// Dilated 3×3 conv branches at the configured atrous rates.
+    conv_r1: DilatedConv2d<T>,
+    conv_r2: DilatedConv2d<T>,
+    conv_r3: DilatedConv2d<T>,
     /// Global average pool branch.
     pool: ASPPPooling<T>,
     /// 1×1 projection conv (maps 1280 → 256).
@@ -374,11 +379,18 @@ impl<T: Float> Aspp<T> {
     ///
     /// * `in_channels` — number of input feature channels (2048 for ResNet-50 layer4).
     /// * `out_channels` — output channels (256, torchvision default).
-    pub fn new(in_channels: usize, out_channels: usize) -> FerrotorchResult<Self> {
+    /// * `atrous_rates` — three dilation rates for the 3×3 dilated branches.
+    ///   torchvision's `deeplabv3_resnet50` default is `(12, 24, 36)`.
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        atrous_rates: (usize, usize, usize),
+    ) -> FerrotorchResult<Self> {
+        let (r1, r2, r3) = atrous_rates;
         let conv1 = ASPPConv1x1::new(in_channels, out_channels)?;
-        let conv_r6 = DilatedConv2d::new(in_channels, out_channels, 6)?;
-        let conv_r12 = DilatedConv2d::new(in_channels, out_channels, 12)?;
-        let conv_r18 = DilatedConv2d::new(in_channels, out_channels, 18)?;
+        let conv_r1 = DilatedConv2d::new(in_channels, out_channels, r1)?;
+        let conv_r2 = DilatedConv2d::new(in_channels, out_channels, r2)?;
+        let conv_r3 = DilatedConv2d::new(in_channels, out_channels, r3)?;
         let pool = ASPPPooling::new(in_channels, out_channels)?;
 
         // 5 branches × 256 channels = 1280 → 256 via 1×1 conv.
@@ -395,9 +407,9 @@ impl<T: Float> Aspp<T> {
 
         Ok(Self {
             conv1,
-            conv_r6,
-            conv_r12,
-            conv_r18,
+            conv_r1,
+            conv_r2,
+            conv_r3,
             pool,
             project,
             project_bn,
@@ -410,9 +422,9 @@ impl<T: Float> Aspp<T> {
 impl<T: Float> Module<T> for Aspp<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let b1 = self.conv1.forward(input)?;
-        let b2 = self.conv_r6.forward(input)?;
-        let b3 = self.conv_r12.forward(input)?;
-        let b4 = self.conv_r18.forward(input)?;
+        let b2 = self.conv_r1.forward(input)?;
+        let b3 = self.conv_r2.forward(input)?;
+        let b4 = self.conv_r3.forward(input)?;
         let b5 = self.pool.forward(input)?;
 
         // Concatenate along channel dim (axis=1): [B, 1280, H, W]. Phase 6
@@ -434,9 +446,9 @@ impl<T: Float> Module<T> for Aspp<T> {
     fn parameters(&self) -> Vec<&Parameter<T>> {
         let mut p = Vec::new();
         p.extend(self.conv1.parameters());
-        p.extend(self.conv_r6.parameters());
-        p.extend(self.conv_r12.parameters());
-        p.extend(self.conv_r18.parameters());
+        p.extend(self.conv_r1.parameters());
+        p.extend(self.conv_r2.parameters());
+        p.extend(self.conv_r3.parameters());
         p.extend(self.pool.parameters());
         p.extend(self.project.parameters());
         p.extend(self.project_bn.parameters());
@@ -446,9 +458,9 @@ impl<T: Float> Module<T> for Aspp<T> {
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
         let mut p = Vec::new();
         p.extend(self.conv1.parameters_mut());
-        p.extend(self.conv_r6.parameters_mut());
-        p.extend(self.conv_r12.parameters_mut());
-        p.extend(self.conv_r18.parameters_mut());
+        p.extend(self.conv_r1.parameters_mut());
+        p.extend(self.conv_r2.parameters_mut());
+        p.extend(self.conv_r3.parameters_mut());
         p.extend(self.pool.parameters_mut());
         p.extend(self.project.parameters_mut());
         p.extend(self.project_bn.parameters_mut());
@@ -460,13 +472,13 @@ impl<T: Float> Module<T> for Aspp<T> {
         for (k, v) in self.conv1.named_parameters() {
             out.push((format!("0.{k}"), v));
         }
-        for (k, v) in self.conv_r6.named_parameters() {
+        for (k, v) in self.conv_r1.named_parameters() {
             out.push((format!("1.{k}"), v));
         }
-        for (k, v) in self.conv_r12.named_parameters() {
+        for (k, v) in self.conv_r2.named_parameters() {
             out.push((format!("2.{k}"), v));
         }
-        for (k, v) in self.conv_r18.named_parameters() {
+        for (k, v) in self.conv_r3.named_parameters() {
             out.push((format!("3.{k}"), v));
         }
         for (k, v) in self.pool.named_parameters() {
@@ -485,9 +497,9 @@ impl<T: Float> Module<T> for Aspp<T> {
     fn children(&self) -> Vec<&dyn Module<T>> {
         vec![
             &self.conv1,
-            &self.conv_r6,
-            &self.conv_r12,
-            &self.conv_r18,
+            &self.conv_r1,
+            &self.conv_r2,
+            &self.conv_r3,
             &self.pool,
             &self.project,
             &self.project_bn,
@@ -497,9 +509,9 @@ impl<T: Float> Module<T> for Aspp<T> {
     fn named_children(&self) -> Vec<(String, &dyn Module<T>)> {
         vec![
             ("0".to_string(), &self.conv1),
-            ("1".to_string(), &self.conv_r6),
-            ("2".to_string(), &self.conv_r12),
-            ("3".to_string(), &self.conv_r18),
+            ("1".to_string(), &self.conv_r1),
+            ("2".to_string(), &self.conv_r2),
+            ("3".to_string(), &self.conv_r3),
             ("4".to_string(), &self.pool),
             ("project".to_string(), &self.project),
             ("project_bn".to_string(), &self.project_bn),
@@ -510,9 +522,9 @@ impl<T: Float> Module<T> for Aspp<T> {
     fn train(&mut self) {
         self.training = true;
         self.conv1.train();
-        self.conv_r6.train();
-        self.conv_r12.train();
-        self.conv_r18.train();
+        self.conv_r1.train();
+        self.conv_r2.train();
+        self.conv_r3.train();
         self.pool.train();
         self.project_bn.train();
     }
@@ -520,9 +532,9 @@ impl<T: Float> Module<T> for Aspp<T> {
     fn eval(&mut self) {
         self.training = false;
         self.conv1.eval();
-        self.conv_r6.eval();
-        self.conv_r12.eval();
-        self.conv_r18.eval();
+        self.conv_r1.eval();
+        self.conv_r2.eval();
+        self.conv_r3.eval();
         self.pool.eval();
         self.project_bn.eval();
     }
@@ -553,7 +565,8 @@ mod tests {
 
     #[test]
     fn test_aspp_output_shape() {
-        let aspp = Aspp::<f32>::new(2048, 256).unwrap();
+        // torchvision deeplabv3_resnet50 default rates (Phase 9 #1009).
+        let aspp = Aspp::<f32>::new(2048, 256, (12, 24, 36)).unwrap();
         // Tiny spatial: 4×4 to keep test fast.
         let x = no_grad(|| randn_4d([1, 2048, 4, 4]));
         let y = no_grad(|| aspp.forward(&x).unwrap());
@@ -562,7 +575,10 @@ mod tests {
 
     #[test]
     fn test_aspp_preserves_spatial_dims() {
-        let aspp = Aspp::<f32>::new(256, 256).unwrap();
+        // Use the smaller (6, 12, 18) DeepLabV3+ rates for the 256-channel
+        // smaller-input test path; both rate sets must produce same-size
+        // output for the spatial-preservation contract to hold.
+        let aspp = Aspp::<f32>::new(256, 256, (6, 12, 18)).unwrap();
         let x = no_grad(|| randn_4d([2, 256, 8, 8]));
         let y = no_grad(|| aspp.forward(&x).unwrap());
         assert_eq!(y.shape(), &[2, 256, 8, 8]);
@@ -578,7 +594,7 @@ mod tests {
 
     #[test]
     fn test_aspp_parameter_count() {
-        let aspp = Aspp::<f32>::new(2048, 256).unwrap();
+        let aspp = Aspp::<f32>::new(2048, 256, (12, 24, 36)).unwrap();
         let np: usize = aspp.parameters().iter().map(|p| p.numel()).sum();
         // Rough lower bound: 5 branches × 2048*256 params + project ~1M.
         assert!(np > 2_000_000, "ASPP params too low: {np}");

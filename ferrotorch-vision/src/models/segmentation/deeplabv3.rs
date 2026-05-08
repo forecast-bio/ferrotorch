@@ -6,243 +6,54 @@
 //!
 //! ```text
 //! image [B, 3, H, W]
-//!   └─ ResNet-50 backbone (dilated)
+//!   └─ ResNet-50 backbone (replace_stride_with_dilation=[False, True, True])
 //!        layer3: dilation=2  (output stride 16 total from input)
 //!        layer4: dilation=4  (output stride 16 — stride=1, keeps spatial dims)
 //!         └─ features [B, 2048, H/16, W/16]
 //!              └─ ASPP head → [B, 256, H/16, W/16]
-//!                   └─ 1×1 classifier → [B, num_classes, H/16, W/16]
-//!                        └─ bilinear upsample → [B, num_classes, H, W]
+//!                   └─ 3×3 conv → BN → ReLU
+//!                        └─ 1×1 classifier → [B, num_classes, H/16, W/16]
+//!                             └─ bilinear upsample → [B, num_classes, H, W]
 //! ```
 //!
-//! The `replace_stride_with_dilation` flag mirrors torchvision's
-//! `[False, True, True]` (layer1 unchanged, layer2 stride=2 unchanged, layer3
-//! and layer4 get dilation instead of stride).
+//! Phase 9 follow-up (#1011): the backbone is now a thin wrapper around
+//! [`crate::models::resnet::resnet50_dilated`] with
+//! `replace_stride_with_dilation=[false, true, true]`. The previous
+//! hand-rolled `ResNet50Dilated` used uniform dilation across blocks within a
+//! stage; torchvision's `ResNet._make_layer` threads `previous_dilation` so
+//! the *first* block in a dilated stage carries the prior stage's dilation
+//! while subsequent blocks carry the new one. Concretely:
+//!
+//! ```text
+//! layer3[0]: dilation=1   (previous_dilation; before stage's ×2 update)
+//! layer3[1..]: dilation=2
+//! layer4[0]: dilation=2   (previous_dilation; before stage's ×4 update)
+//! layer4[1..]: dilation=4
+//! ```
+//!
+//! Reusing `resnet50_dilated` (which already implements the threading
+//! correctly — `fcn_resnet50_value_parity` is the binding regression test)
+//! also unifies the ResNet path: layer3/layer4 now use the same standard
+//! `Bottleneck` blocks as the rest of the network, exposing native
+//! `bn2.<...>` keys (no more `conv2.bn.<...>` divergence to translate
+//! test-side).
 //!
 //! ## Reference
 //! Chen et al., "Rethinking Atrous Convolution for Semantic Image Segmentation",
 //! arXiv:1706.05587. torchvision 0.21.x `deeplabv3_resnet50(weights=None,
 //! num_classes=21)`.
 
-use ferrotorch_core::grad_fns::activation::relu;
-use ferrotorch_core::grad_fns::arithmetic::add;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_nn::Conv2d;
 use ferrotorch_nn::module::Module;
 use ferrotorch_nn::norm::BatchNorm2d;
 use ferrotorch_nn::parameter::Parameter;
-use ferrotorch_nn::pooling::MaxPool2d;
 use ferrotorch_nn::upsample::{InterpolateMode, interpolate};
+use ferrotorch_core::grad_fns::activation::relu;
 
-use super::aspp::{Aspp, DilatedConv2d};
-
-// ---------------------------------------------------------------------------
-// Helper: standard conv helpers (mirrors resnet.rs helpers)
-// ---------------------------------------------------------------------------
-
-fn conv1x1<T: Float>(
-    in_planes: usize,
-    out_planes: usize,
-    stride: usize,
-) -> FerrotorchResult<Conv2d<T>> {
-    Conv2d::new(
-        in_planes,
-        out_planes,
-        (1, 1),
-        (stride, stride),
-        (0, 0),
-        false,
-    )
-}
-
-// ---------------------------------------------------------------------------
-// DilatedBottleneck — Bottleneck with dilated 3×3 conv for DeepLabV3
-// ---------------------------------------------------------------------------
-
-/// Bottleneck block where the 3×3 conv uses dilation > 1.
-///
-/// Used in ResNet-50 layer3 (dilation=2) and layer4 (dilation=4) for
-/// DeepLabV3. Stride is always 1 (spatial resolution is preserved by
-/// replacing stride with dilation, matching torchvision's
-/// `replace_stride_with_dilation=[False, True, True]`).
-struct DilatedBottleneck<T: Float> {
-    conv1: Conv2d<T>,
-    bn1: BatchNorm2d<T>,
-    conv2_dilated: DilatedConv2d<T>,
-    conv3: Conv2d<T>,
-    bn3: BatchNorm2d<T>,
-    downsample: Option<(Conv2d<T>, BatchNorm2d<T>)>,
-    training: bool,
-}
-
-const EXPANSION: usize = 4;
-
-impl<T: Float> DilatedBottleneck<T> {
-    /// Create a dilated bottleneck.
-    ///
-    /// `dilation` is applied to the 3×3 middle conv. Stride is always 1.
-    fn new(in_planes: usize, planes: usize, dilation: usize) -> FerrotorchResult<Self> {
-        let conv1 = conv1x1(in_planes, planes, 1)?;
-        let bn1 = BatchNorm2d::new(planes, 1e-5, 0.1, true)?;
-        let conv2_dilated = DilatedConv2d::new(planes, planes, dilation)?;
-        let conv3 = conv1x1(planes, planes * EXPANSION, 1)?;
-        let bn3 = BatchNorm2d::new(planes * EXPANSION, 1e-5, 0.1, true)?;
-
-        let downsample = if in_planes == planes * EXPANSION {
-            None
-        } else {
-            let ds_conv = conv1x1(in_planes, planes * EXPANSION, 1)?;
-            let ds_bn = BatchNorm2d::new(planes * EXPANSION, 1e-5, 0.1, true)?;
-            Some((ds_conv, ds_bn))
-        };
-
-        Ok(Self {
-            conv1,
-            bn1,
-            conv2_dilated,
-            conv3,
-            bn3,
-            downsample,
-            training: true,
-        })
-    }
-}
-
-impl<T: Float> Module<T> for DilatedBottleneck<T> {
-    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        let out = self.conv1.forward(input)?;
-        let out = Module::<T>::forward(&self.bn1, &out)?;
-        let out = relu(&out)?;
-
-        // Dilated 3×3.
-        let out = self.conv2_dilated.forward(&out)?;
-        // Note: DilatedConv2d.forward already applies BN + ReLU.
-
-        let out = self.conv3.forward(&out)?;
-        let out = Module::<T>::forward(&self.bn3, &out)?;
-
-        let identity = match &self.downsample {
-            Some((ds_conv, ds_bn)) => {
-                let x = ds_conv.forward(input)?;
-                Module::<T>::forward(ds_bn, &x)?
-            }
-            None => input.clone(),
-        };
-
-        let out = add(&out, &identity)?;
-        relu(&out)
-    }
-
-    fn parameters(&self) -> Vec<&Parameter<T>> {
-        let mut p = Vec::new();
-        p.extend(self.conv1.parameters());
-        p.extend(self.bn1.parameters());
-        p.extend(self.conv2_dilated.parameters());
-        p.extend(self.conv3.parameters());
-        p.extend(self.bn3.parameters());
-        if let Some((ref c, ref b)) = self.downsample {
-            p.extend(c.parameters());
-            p.extend(b.parameters());
-        }
-        p
-    }
-
-    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-        let mut p = Vec::new();
-        p.extend(self.conv1.parameters_mut());
-        p.extend(self.bn1.parameters_mut());
-        p.extend(self.conv2_dilated.parameters_mut());
-        p.extend(self.conv3.parameters_mut());
-        p.extend(self.bn3.parameters_mut());
-        if let Some((ref mut c, ref mut b)) = self.downsample {
-            p.extend(c.parameters_mut());
-            p.extend(b.parameters_mut());
-        }
-        p
-    }
-
-    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-        let mut out = Vec::new();
-        for (k, v) in self.conv1.named_parameters() {
-            out.push((format!("conv1.{k}"), v));
-        }
-        for (k, v) in self.bn1.named_parameters() {
-            out.push((format!("bn1.{k}"), v));
-        }
-        for (k, v) in self.conv2_dilated.named_parameters() {
-            out.push((format!("conv2.{k}"), v));
-        }
-        for (k, v) in self.conv3.named_parameters() {
-            out.push((format!("conv3.{k}"), v));
-        }
-        for (k, v) in self.bn3.named_parameters() {
-            out.push((format!("bn3.{k}"), v));
-        }
-        if let Some((ref c, ref b)) = self.downsample {
-            for (k, v) in c.named_parameters() {
-                out.push((format!("downsample.0.{k}"), v));
-            }
-            for (k, v) in b.named_parameters() {
-                out.push((format!("downsample.1.{k}"), v));
-            }
-        }
-        out
-    }
-
-    // Phase 4 (#995): expose direct children mirroring `named_parameters`.
-    fn children(&self) -> Vec<&dyn Module<T>> {
-        let mut out: Vec<&dyn Module<T>> = vec![
-            &self.conv1,
-            &self.bn1,
-            &self.conv2_dilated,
-            &self.conv3,
-            &self.bn3,
-        ];
-        if let Some((ref c, ref b)) = self.downsample {
-            out.push(c);
-            out.push(b);
-        }
-        out
-    }
-    fn named_children(&self) -> Vec<(String, &dyn Module<T>)> {
-        let mut out: Vec<(String, &dyn Module<T>)> = vec![
-            ("conv1".to_string(), &self.conv1),
-            ("bn1".to_string(), &self.bn1),
-            ("conv2".to_string(), &self.conv2_dilated),
-            ("conv3".to_string(), &self.conv3),
-            ("bn3".to_string(), &self.bn3),
-        ];
-        if let Some((ref c, ref b)) = self.downsample {
-            out.push(("downsample.0".to_string(), c));
-            out.push(("downsample.1".to_string(), b));
-        }
-        out
-    }
-
-    fn train(&mut self) {
-        self.training = true;
-        self.bn1.train();
-        self.conv2_dilated.train();
-        self.bn3.train();
-        if let Some((_, ref mut b)) = self.downsample {
-            b.train();
-        }
-    }
-
-    fn eval(&mut self) {
-        self.training = false;
-        self.bn1.eval();
-        self.conv2_dilated.eval();
-        self.bn3.eval();
-        if let Some((_, ref mut b)) = self.downsample {
-            b.eval();
-        }
-    }
-
-    fn is_training(&self) -> bool {
-        self.training
-    }
-}
+use super::aspp::Aspp;
+use crate::models::feature_extractor::IntermediateFeatures;
+use crate::models::resnet::{ResNet, resnet50_dilated};
 
 // ---------------------------------------------------------------------------
 // ResNet50Dilated — ResNet-50 backbone with dilated layer3 + layer4
@@ -250,70 +61,55 @@ impl<T: Float> Module<T> for DilatedBottleneck<T> {
 
 /// ResNet-50 backbone with dilated convolutions in layer3 and layer4.
 ///
-/// Matches torchvision's `resnet50(replace_stride_with_dilation=[False, True, True])`:
-/// - layer1: standard stride=1 bottlenecks, output [B, 256, H/4, W/4]
-/// - layer2: standard stride=2 bottlenecks, output [B, 512, H/8, W/8]
-/// - layer3: dilation=2 (stride=1), output [B, 1024, H/16, W/16]
-/// - layer4: dilation=4 (stride=1), output [B, 2048, H/16, W/16]
+/// Phase 9 follow-up (#1011): this is now a thin wrapper around
+/// [`resnet50_dilated`] with `replace_stride_with_dilation=[false, true, true]`.
+/// The torchvision `_make_layer` threading of `previous_dilation` is therefore
+/// inherited verbatim:
+///
+/// - layer1: 3 standard bottlenecks (stride=1), output [B, 256, H/4, W/4]
+/// - layer2: 4 standard bottlenecks (stride=2), output [B, 512, H/8, W/8]
+/// - layer3: 6 bottlenecks; block 0 dilation=1 (previous_dilation), blocks 1..5
+///   dilation=2; output [B, 1024, H/16, W/16]
+/// - layer4: 3 bottlenecks; block 0 dilation=2 (previous_dilation), blocks 1..2
+///   dilation=4; output [B, 2048, H/16, W/16]
 ///
 /// layer3 and layer4 keep the same spatial resolution as layer2 because
 /// stride is replaced by dilation. The output stride is effectively 16.
+///
+/// The classifier head (`fc`) on the inner `ResNet` is unused: only layer4
+/// activations are extracted via [`IntermediateFeatures::forward_features`].
+/// Both `parameters()` and `named_parameters()` filter the `fc.*` keys so the
+/// strict loader's view matches torchvision's
+/// `IntermediateLayerGetter`-wrapped backbone schema (no `backbone.fc.*`).
 pub struct ResNet50Dilated<T: Float> {
-    // Stem
-    conv1: Conv2d<T>,
-    bn1: BatchNorm2d<T>,
-    maxpool: MaxPool2d,
-
-    // Residual stages (standard Bottleneck for layer1/2)
-    layer1: Vec<Box<dyn Module<T>>>,
-    layer2: Vec<Box<dyn Module<T>>>,
-
-    // Dilated stages
-    layer3: Vec<Box<dyn Module<T>>>,
-    layer4: Vec<Box<dyn Module<T>>>,
-
+    inner: ResNet<T>,
     training: bool,
 }
 
 impl<T: Float> ResNet50Dilated<T> {
-    /// Build a dilated ResNet-50 backbone (no classifier head).
+    /// Build a dilated ResNet-50 backbone (no classifier head exposed).
     pub fn new() -> FerrotorchResult<Self> {
-        let conv1 = Conv2d::new(3, 64, (7, 7), (2, 2), (3, 3), false)?;
-        let bn1 = BatchNorm2d::new(64, 1e-5, 0.1, true)?;
-        let maxpool = MaxPool2d::new([3, 3], [2, 2], [1, 1]);
-
-        // Layer 1: 3 standard bottleneck blocks (in=64 → out=256)
-        let layer1 = make_bottleneck_layer::<T>(64, 64, 3, 1)?;
-        // Layer 2: 4 standard bottleneck blocks (in=256 → out=512, stride=2)
-        let layer2 = make_bottleneck_layer::<T>(256, 128, 4, 2)?;
-        // Layer 3: 6 dilated bottleneck blocks (dilation=2, stride=1)
-        let layer3 = make_dilated_layer::<T>(512, 256, 6, 2)?;
-        // Layer 4: 3 dilated bottleneck blocks (dilation=4, stride=1)
-        let layer4 = make_dilated_layer::<T>(1024, 512, 3, 4)?;
-
+        let inner = resnet50_dilated::<T>(1000, [false, true, true])?;
         Ok(Self {
-            conv1,
-            bn1,
-            maxpool,
-            layer1,
-            layer2,
-            layer3,
-            layer4,
-            training: true,
+            inner,
+            training: false, // torchvision starts in eval mode
         })
     }
 
     /// Extract layer4 features: `[B, 2048, H/16, W/16]`.
+    ///
+    /// Routes through `IntermediateFeatures::forward_features` and pulls the
+    /// `"layer4"` activation, mirroring torchvision's
+    /// `IntermediateLayerGetter(return_layers={"layer4": "out"})` plumbing
+    /// inside `deeplabv3_resnet50`.
     pub fn forward_layer4(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        let x = self.conv1.forward(input)?;
-        let x = Module::<T>::forward(&self.bn1, &x)?;
-        let x = relu(&x)?;
-        let x = Module::<T>::forward(&self.maxpool, &x)?;
-
-        let x = run_layer(&self.layer1, &x)?;
-        let x = run_layer(&self.layer2, &x)?;
-        let x = run_layer(&self.layer3, &x)?;
-        run_layer(&self.layer4, &x)
+        let all_features = self.inner.forward_features(input)?;
+        all_features
+            .get("layer4")
+            .cloned()
+            .ok_or_else(|| ferrotorch_core::FerrotorchError::Internal {
+                message: "ResNet50Dilated: backbone did not produce 'layer4' features".into(),
+            })
     }
 }
 
@@ -325,114 +121,75 @@ impl<T: Float> Module<T> for ResNet50Dilated<T> {
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
-        let mut p = Vec::new();
-        p.extend(self.conv1.parameters());
-        p.extend(self.bn1.parameters());
-        p.extend(collect_params(&self.layer1));
-        p.extend(collect_params(&self.layer2));
-        p.extend(collect_params(&self.layer3));
-        p.extend(collect_params(&self.layer4));
-        p
+        // Filter out the unused `fc.*` head — torchvision's
+        // `deeplabv3_resnet50` wraps the backbone in
+        // `IntermediateLayerGetter`, which strips avgpool + fc. The
+        // state dict therefore has NO `backbone.fc.*` keys. Mirror that
+        // here so the loader's view matches.
+        self.inner
+            .named_parameters()
+            .into_iter()
+            .filter_map(|(n, p)| if n.starts_with("fc.") { None } else { Some(p) })
+            .collect()
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-        let mut p = Vec::new();
-        p.extend(self.conv1.parameters_mut());
-        p.extend(self.bn1.parameters_mut());
-        p.extend(collect_params_mut(&mut self.layer1));
-        p.extend(collect_params_mut(&mut self.layer2));
-        p.extend(collect_params_mut(&mut self.layer3));
-        p.extend(collect_params_mut(&mut self.layer4));
-        p
+        // Order MUST match `named_parameters()` — the value-parity loader
+        // does `.zip(parameters_mut())` against
+        // `named_parameters().map(name)`. Collect names first via an
+        // immutable borrow, then index into `parameters_mut()` by position.
+        let names: Vec<String> = self
+            .inner
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        self.inner
+            .parameters_mut()
+            .into_iter()
+            .zip(names.iter())
+            .filter_map(|(p, n)| if n.starts_with("fc.") { None } else { Some(p) })
+            .collect()
     }
 
     fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-        let mut out = Vec::new();
-        for (k, v) in self.conv1.named_parameters() {
-            out.push((format!("backbone.conv1.{k}"), v));
-        }
-        for (k, v) in self.bn1.named_parameters() {
-            out.push((format!("backbone.bn1.{k}"), v));
-        }
-        named_layer_params(&self.layer1, "backbone.layer1", &mut out);
-        named_layer_params(&self.layer2, "backbone.layer2", &mut out);
-        named_layer_params(&self.layer3, "backbone.layer3", &mut out);
-        named_layer_params(&self.layer4, "backbone.layer4", &mut out);
-        out
+        self.inner
+            .named_parameters()
+            .into_iter()
+            .filter(|(n, _)| !n.starts_with("fc."))
+            .map(|(n, p)| (format!("backbone.{n}"), p))
+            .collect()
     }
 
-    // Phase 4 (#995): expose direct children mirroring the
-    // `backbone.<...>` paths in `named_parameters`.
+    // Phase 4 (#995): expose stem + every residual block under
+    // `backbone.<...>` so the strict loader's `named_descendants_dyn()`
+    // walk reaches every BN. We forward the inner `ResNet`'s
+    // `named_children` and re-prefix with `backbone.`. The `fc` and
+    // `avgpool` children carry no relevant keys for the head; they are
+    // filtered to keep the backbone view clean (avgpool has no params,
+    // fc is excluded above).
     fn children(&self) -> Vec<&dyn Module<T>> {
-        let mut out: Vec<&dyn Module<T>> = vec![&self.conv1, &self.bn1, &self.maxpool];
-        for b in &self.layer1 {
-            out.push(b.as_ref());
-        }
-        for b in &self.layer2 {
-            out.push(b.as_ref());
-        }
-        for b in &self.layer3 {
-            out.push(b.as_ref());
-        }
-        for b in &self.layer4 {
-            out.push(b.as_ref());
-        }
-        out
+        // Direct children of the wrapper: just the inner ResNet. The
+        // strict loader walks `named_children` recursively, so prefixing
+        // happens via `named_children` below.
+        vec![&self.inner]
     }
-
     fn named_children(&self) -> Vec<(String, &dyn Module<T>)> {
-        let mut out: Vec<(String, &dyn Module<T>)> = vec![
-            ("backbone.conv1".to_string(), &self.conv1),
-            ("backbone.bn1".to_string(), &self.bn1),
-            ("backbone.maxpool".to_string(), &self.maxpool),
-        ];
-        for (i, b) in self.layer1.iter().enumerate() {
-            out.push((format!("backbone.layer1.{i}"), b.as_ref()));
-        }
-        for (i, b) in self.layer2.iter().enumerate() {
-            out.push((format!("backbone.layer2.{i}"), b.as_ref()));
-        }
-        for (i, b) in self.layer3.iter().enumerate() {
-            out.push((format!("backbone.layer3.{i}"), b.as_ref()));
-        }
-        for (i, b) in self.layer4.iter().enumerate() {
-            out.push((format!("backbone.layer4.{i}"), b.as_ref()));
-        }
-        out
+        // Empty path: `backbone.<...>` prefix is materialised in
+        // `named_parameters` directly. We expose the inner ResNet under
+        // the path `backbone` so a recursive walk produces
+        // `backbone.<inner-child>`.
+        vec![("backbone".to_string(), &self.inner)]
     }
 
     fn train(&mut self) {
         self.training = true;
-        self.bn1.train();
-        for b in &mut self.layer1 {
-            b.train();
-        }
-        for b in &mut self.layer2 {
-            b.train();
-        }
-        for b in &mut self.layer3 {
-            b.train();
-        }
-        for b in &mut self.layer4 {
-            b.train();
-        }
+        self.inner.train();
     }
 
     fn eval(&mut self) {
         self.training = false;
-        self.bn1.eval();
-        for b in &mut self.layer1 {
-            b.eval();
-        }
-        for b in &mut self.layer2 {
-            b.eval();
-        }
-        for b in &mut self.layer3 {
-            b.eval();
-        }
-        for b in &mut self.layer4 {
-            b.eval();
-        }
+        self.inner.eval();
     }
 
     fn is_training(&self) -> bool {
@@ -441,93 +198,37 @@ impl<T: Float> Module<T> for ResNet50Dilated<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Layer builders
-// ---------------------------------------------------------------------------
-
-/// Build a stage of standard Bottleneck blocks.
-fn make_bottleneck_layer<T: Float>(
-    in_planes: usize,
-    planes: usize,
-    num_blocks: usize,
-    stride: usize,
-) -> FerrotorchResult<Vec<Box<dyn Module<T>>>> {
-    use crate::models::resnet::Bottleneck;
-
-    let mut blocks: Vec<Box<dyn Module<T>>> = Vec::with_capacity(num_blocks);
-    blocks.push(Box::new(Bottleneck::new(in_planes, planes, stride)?));
-    let out_planes = planes * Bottleneck::<T>::EXPANSION;
-    for _ in 1..num_blocks {
-        blocks.push(Box::new(Bottleneck::new(out_planes, planes, 1)?));
-    }
-    Ok(blocks)
-}
-
-/// Build a stage of DilatedBottleneck blocks (stride=1, all at same dilation).
-fn make_dilated_layer<T: Float>(
-    in_planes: usize,
-    planes: usize,
-    num_blocks: usize,
-    dilation: usize,
-) -> FerrotorchResult<Vec<Box<dyn Module<T>>>> {
-    let mut blocks: Vec<Box<dyn Module<T>>> = Vec::with_capacity(num_blocks);
-    // First block may need a downsample projection if channels change.
-    blocks.push(Box::new(DilatedBottleneck::new(
-        in_planes, planes, dilation,
-    )?));
-    let out_planes = planes * EXPANSION;
-    for _ in 1..num_blocks {
-        blocks.push(Box::new(DilatedBottleneck::new(
-            out_planes, planes, dilation,
-        )?));
-    }
-    Ok(blocks)
-}
-
-// ---------------------------------------------------------------------------
-// Layer iteration helpers
-// ---------------------------------------------------------------------------
-
-fn run_layer<T: Float>(
-    blocks: &[Box<dyn Module<T>>],
-    input: &Tensor<T>,
-) -> FerrotorchResult<Tensor<T>> {
-    let mut x = blocks[0].forward(input)?;
-    for b in &blocks[1..] {
-        x = b.forward(&x)?;
-    }
-    Ok(x)
-}
-
-fn collect_params<T: Float>(blocks: &[Box<dyn Module<T>>]) -> Vec<&Parameter<T>> {
-    blocks.iter().flat_map(|b| b.parameters()).collect()
-}
-
-fn collect_params_mut<T: Float>(blocks: &mut [Box<dyn Module<T>>]) -> Vec<&mut Parameter<T>> {
-    blocks.iter_mut().flat_map(|b| b.parameters_mut()).collect()
-}
-
-fn named_layer_params<'a, T: Float>(
-    blocks: &'a [Box<dyn Module<T>>],
-    prefix: &str,
-    out: &mut Vec<(String, &'a Parameter<T>)>,
-) {
-    for (i, block) in blocks.iter().enumerate() {
-        for (k, v) in block.named_parameters() {
-            out.push((format!("{prefix}.{i}.{k}"), v));
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // DeepLabV3Head
 // ---------------------------------------------------------------------------
 
-/// DeepLabV3 segmentation head: ASPP + classifier.
+/// DeepLabV3 segmentation head.
 ///
 /// Input: `[B, 2048, H', W']`
 /// Output: `[B, num_classes, H', W']`
+///
+/// Structurally a 5-element `Sequential` mirroring torchvision's
+/// `DeepLabHead`:
+/// ```text
+///   index 0: ASPP                                  (`aspp`)
+///   index 1: Conv2d(256, 256, 3×3, pad=1, bias=F)  (`conv_intermediate`)
+///   index 2: BatchNorm2d(256, eps=1e-5, mom=0.1)   (`bn_intermediate`)
+///   index 3: ReLU                                  (inline in `forward`)
+///   index 4: Conv2d(256, N, 1×1, bias=T)           (`classifier`)
+/// ```
+///
+/// Phase 9 (#1009 / #1006): the head was previously a 2-element
+/// `[ASPP, Conv2d(bias=False)]` Sequential. The new layout matches
+/// torchvision's `DeepLabHead(in_channels, num_classes, atrous_rates=(12,
+/// 24, 36))` exactly so the strict loader can adopt torchvision state
+/// dicts via the test-side `remap_torchvision_to_ferrotorch_deeplabv3_keys`
+/// translator.
 pub struct DeepLabV3Head<T: Float> {
     aspp: Aspp<T>,
+    /// 3×3 intermediate refinement conv (256→256, bias=False).
+    conv_intermediate: Conv2d<T>,
+    /// BN immediately after the intermediate conv.
+    bn_intermediate: BatchNorm2d<T>,
+    /// Final 1×1 classifier (256→num_classes, bias=True).
     classifier: Conv2d<T>,
     training: bool,
 }
@@ -537,11 +238,26 @@ impl<T: Float> DeepLabV3Head<T> {
     ///
     /// * `in_channels` — backbone feature channels (2048).
     /// * `num_classes` — number of segmentation classes.
-    pub fn new(in_channels: usize, num_classes: usize) -> FerrotorchResult<Self> {
-        let aspp = Aspp::new(in_channels, 256)?;
-        let classifier = Conv2d::new(256, num_classes, (1, 1), (1, 1), (0, 0), false)?;
+    /// * `atrous_rates` — three dilation rates for the dilated 3×3
+    ///   branches inside ASPP. torchvision's `deeplabv3_resnet50` default
+    ///   is `(12, 24, 36)`.
+    pub fn new(
+        in_channels: usize,
+        num_classes: usize,
+        atrous_rates: (usize, usize, usize),
+    ) -> FerrotorchResult<Self> {
+        let aspp = Aspp::new(in_channels, 256, atrous_rates)?;
+        // 3×3 conv with same-size padding, bias=False (torchvision uses
+        // bias=False because the BN that follows absorbs any constant).
+        let conv_intermediate = Conv2d::new(256, 256, (3, 3), (1, 1), (1, 1), false)?;
+        let bn_intermediate = BatchNorm2d::new(256, 1e-5, 0.1, true)?;
+        // Final classifier 1×1 conv carries bias=True (last layer before
+        // the upsample, matching torchvision).
+        let classifier = Conv2d::new(256, num_classes, (1, 1), (1, 1), (0, 0), true)?;
         Ok(Self {
             aspp,
+            conv_intermediate,
+            bn_intermediate,
             classifier,
             training: true,
         })
@@ -550,18 +266,27 @@ impl<T: Float> DeepLabV3Head<T> {
 
 impl<T: Float> Module<T> for DeepLabV3Head<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        // Phase 9 (#1009): aspp → conv_intermediate → bn_intermediate
+        // → relu → classifier (5-element torchvision DeepLabHead).
         let x = self.aspp.forward(input)?;
+        let x = self.conv_intermediate.forward(&x)?;
+        let x = Module::<T>::forward(&self.bn_intermediate, &x)?;
+        let x = relu(&x)?;
         self.classifier.forward(&x)
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
         let mut p = self.aspp.parameters();
+        p.extend(self.conv_intermediate.parameters());
+        p.extend(self.bn_intermediate.parameters());
         p.extend(self.classifier.parameters());
         p
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
         let mut p = self.aspp.parameters_mut();
+        p.extend(self.conv_intermediate.parameters_mut());
+        p.extend(self.bn_intermediate.parameters_mut());
         p.extend(self.classifier.parameters_mut());
         p
     }
@@ -571,19 +296,34 @@ impl<T: Float> Module<T> for DeepLabV3Head<T> {
         for (k, v) in self.aspp.named_parameters() {
             out.push((format!("aspp.{k}"), v));
         }
+        for (k, v) in self.conv_intermediate.named_parameters() {
+            out.push((format!("conv_intermediate.{k}"), v));
+        }
+        for (k, v) in self.bn_intermediate.named_parameters() {
+            out.push((format!("bn_intermediate.{k}"), v));
+        }
         for (k, v) in self.classifier.named_parameters() {
             out.push((format!("classifier.{k}"), v));
         }
         out
     }
 
-    // Phase 4 (#995): expose aspp + classifier children.
+    // Phase 4 (#995) / Phase 9 (#1009): expose all four parameter-bearing
+    // children mirroring `named_parameters`. The torchvision Sequential
+    // index slot 3 is occupied by ReLU (no params, no submodule here).
     fn children(&self) -> Vec<&dyn Module<T>> {
-        vec![&self.aspp, &self.classifier]
+        vec![
+            &self.aspp,
+            &self.conv_intermediate,
+            &self.bn_intermediate,
+            &self.classifier,
+        ]
     }
     fn named_children(&self) -> Vec<(String, &dyn Module<T>)> {
         vec![
             ("aspp".to_string(), &self.aspp),
+            ("conv_intermediate".to_string(), &self.conv_intermediate),
+            ("bn_intermediate".to_string(), &self.bn_intermediate),
             ("classifier".to_string(), &self.classifier),
         ]
     }
@@ -591,11 +331,13 @@ impl<T: Float> Module<T> for DeepLabV3Head<T> {
     fn train(&mut self) {
         self.training = true;
         self.aspp.train();
+        self.bn_intermediate.train();
     }
 
     fn eval(&mut self) {
         self.training = false;
         self.aspp.eval();
+        self.bn_intermediate.eval();
     }
 
     fn is_training(&self) -> bool {
@@ -626,10 +368,23 @@ pub struct DeepLabV3<T: Float> {
 }
 
 impl<T: Float> DeepLabV3<T> {
-    /// Construct a DeepLabV3 model.
+    /// Construct a DeepLabV3 model with torchvision's default
+    /// `deeplabv3_resnet50` atrous rates `(12, 24, 36)`.
     pub fn new(num_classes: usize) -> FerrotorchResult<Self> {
+        Self::with_atrous_rates(num_classes, (12, 24, 36))
+    }
+
+    /// Construct a DeepLabV3 model with explicit atrous rates.
+    ///
+    /// Phase 9 (#1009) plumbs the atrous rates through `Aspp::new` so
+    /// callers can build either the torchvision `deeplabv3_resnet50`
+    /// default `(12, 24, 36)` or DeepLabV3+'s smaller `(6, 12, 18)`.
+    pub fn with_atrous_rates(
+        num_classes: usize,
+        atrous_rates: (usize, usize, usize),
+    ) -> FerrotorchResult<Self> {
         let backbone = ResNet50Dilated::new()?;
-        let head = DeepLabV3Head::new(2048, num_classes)?;
+        let head = DeepLabV3Head::new(2048, num_classes, atrous_rates)?;
         Ok(Self {
             backbone,
             head,
@@ -678,6 +433,7 @@ impl<T: Float> Module<T> for DeepLabV3<T> {
 
     fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
         let mut out = Vec::new();
+        // Backbone already prefixes each key with `backbone.<...>`.
         for (k, v) in self.backbone.named_parameters() {
             out.push((k, v));
         }
@@ -687,11 +443,10 @@ impl<T: Float> Module<T> for DeepLabV3<T> {
         out
     }
 
-    // Phase 4 (#995): expose backbone + head children. Note that the
-    // backbone's own `named_children` already prefixes its children
-    // with `backbone.<...>`, so we forward it as the empty path here
-    // (root-level pass-through) to keep the descendant walk consistent
-    // with `named_parameters` above.
+    // Phase 4 (#995): expose backbone + head children. The backbone's own
+    // `named_children` already wraps the inner ResNet under
+    // `backbone`, so we forward both children at the empty top-level path
+    // here and let the recursive walk concatenate prefixes.
     fn children(&self) -> Vec<&dyn Module<T>> {
         vec![&self.backbone, &self.head]
     }
