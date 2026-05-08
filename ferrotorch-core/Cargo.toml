@@ -29,7 +29,10 @@ gpu = []
 # on the workspace driver crate) to also turn on the live FFI. The
 # probe gates on this feature so a default `cargo test --features gpu`
 # build still produces a clean test binary.
-cusparselt = ["ferrotorch-gpu/cusparselt"]
+#
+# Marker-only (no inner ref) so `cargo publish` doesn't see a feature
+# pointing at a dev-dep — `ferrotorch-gpu` is dev-only here.
+cusparselt = []
 
 [dependencies]
 ferray-core = { workspace = true }

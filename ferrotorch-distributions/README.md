@@ -88,6 +88,10 @@ let z = posterior.rsample(&[batch])?;          // [batch, 16]
 let log_q = posterior.log_prob(&z)?;           // [batch]
 ```
 
+## Math correctness
+
+The `MultivariateNormal`, `Dirichlet`, `Pareto`, and `VonMises` implementations carry verified log-probability and entropy formulae. In v0.5.0 a sweep of these and related distributions fixed accumulated drift from the PyTorch reference — `log_prob`, `entropy`, and `rsample` now match PyTorch to floating-point precision across all tested parameterisations.
+
 ## Part of ferrotorch
 
 This crate is one component of the [ferrotorch](https://github.com/dollspace-gay/ferrotorch) workspace.

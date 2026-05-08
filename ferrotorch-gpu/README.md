@@ -1,6 +1,6 @@
 # ferrotorch-gpu
 
-CUDA GPU backend for ferrotorch.
+CUDA GPU backend for ferrotorch — BLAS, cuSPARSE, cuFFT, FlashAttention-2, bf16 mixed-precision, and memory safety.
 
 ## What it provides
 
@@ -9,8 +9,12 @@ CUDA GPU backend for ferrotorch.
 - **`GpuTensor`** -- GPU-resident tensor wrapper with `cuda()` and `cuda_default()` helpers
 - **CUDA buffer** -- `CudaBuffer` for raw GPU memory, `CudaAllocator` for memory management
 - **BLAS** -- `gpu_matmul_f32`, `gpu_matmul_f64` via cuBLAS, `gpu_bmm_*` batched
+- **bf16 mixed-precision** -- `gpu_matmul_bf16`, `gpu_bmm_bf16` via cuBLAS, plus 8 elementwise/reduction/activation kernels (`gpu_add_bf16`, `gpu_mul_bf16`, `gpu_silu_bf16`, `gpu_relu_bf16`, `gpu_softmax_bf16`, `gpu_rmsnorm_bf16`, `gpu_rope_half_bf16`, `gpu_scale_bf16`) and supporting utilities for LLM bf16 pipelines
 - **cuSOLVER** -- `gpu_lu_solve`, `gpu_cholesky`, `gpu_eigh`, `gpu_eig`, `gpu_lstsq` via cuSOLVER
-- **cuFFT** -- `gpu_fft_*`, `gpu_rfft_*`, `gpu_ifft_*` interleaved-complex FFTs
+- **cuFFT** -- axes-aware FFT via `cufftPlanMany`: `gpu_rfft_r2c_*`, `gpu_irfft_c2r_*`, `gpu_hfft_*`, `gpu_ihfft_*`, `gpu_fftn_axes_c2c_*` (n-d, arbitrary axis selection), `gpu_fftn2d_c2c_*`, `gpu_fftn3d_c2c_*`
+- **cuSPARSE** -- `gpu_spmm_csr_*` SpMM, `gpu_sparse_to_dense_csr_*` / `gpu_dense_to_sparse_csr_*` CSR conversions, `gpu_csc_to_dense_*`, `gpu_csr_to_csc_*`, `gpu_coo_to_csr_*`, `gpu_csr_to_coo_*` format conversions
+- **cuSPARSELt** -- `gpu_sparse_matmul_24` for 2:4 structured sparse matrix multiply (NVIDIA Ampere and later)
+- **FlashAttention-2** -- `gpu_flash_attention_f32` / `gpu_flash_attention_f64` forward-pass PTX kernel
 - **Convolution** -- `gpu_conv2d_f32`
 - **Element-wise kernels** -- `gpu_add`, `gpu_sub`, `gpu_mul`, `gpu_neg`, `gpu_relu`, plus 50+ PTX kernels for reductions, scans, masked ops, scatter/gather, strided copies
 - **Graph capture** -- `GpuGraphPool` for CUDA-graph stream capture and replay

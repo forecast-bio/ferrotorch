@@ -18,7 +18,8 @@ Neural network modules for ferrotorch — layers, losses, hooks, and parameter m
 | Normalization   | `BatchNorm1d`/`2d`/`3d`, `LayerNorm`, `GroupNorm`, `RMSNorm`, `InstanceNorm*`, `LocalResponseNorm` |
 | Activation      | `ReLU`, `LeakyReLU`, `PReLU`, `ELU`, `GELU`, `SiLU`, `Mish`, `Sigmoid`, `Tanh`, `Softmax`, `LogSoftmax`, `Softplus`, `Hardswish`, `Hardsigmoid` |
 | Recurrent       | `LSTM`, `LSTMCell`, `GRU`, `GRUCell`, `RNN`, `RNNCell`                   |
-| Transformer     | `MultiheadAttention`, `TransformerEncoderLayer`, `TransformerDecoderLayer`, `RotaryPositionEmbedding`, `KVCache`, `SwiGLU` |
+| Transformer     | `MultiheadAttention`, `TransformerEncoderLayer`, `TransformerDecoderLayer` (SwiGLU 3-weight FFN, pre-norm, causal mask support), `RotaryPositionEmbedding`, `KVCache`, `SwiGLU`, `PagedKVCache` |
+| Flex attention  | `flex_attention` with `score_mod` callbacks (causal, ALiBi, relative position bias), `BlockMask` |
 | Embedding       | `Embedding`, `EmbeddingBag`                                              |
 | Dropout         | `Dropout`, `Dropout1d`/`2d`/`3d`, `AlphaDropout`                         |
 | Container       | `Sequential`, `ModuleList`, `ModuleDict`                                 |

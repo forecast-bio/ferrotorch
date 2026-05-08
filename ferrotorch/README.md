@@ -11,11 +11,11 @@ This is the umbrella crate that re-exports all ferrotorch sub-crates through a s
 - **ferrotorch-nn** — Module trait, 30+ layers (Linear, Conv1d/2d, LSTM, GRU, Attention, norms, activations, lazy modules), losses, LoRA
 - **ferrotorch-optim** — 19 optimizers (SGD, Adam, AdamW, Adamax, NAdam, RAdam, Adagrad, Adadelta, Adafactor, RMSprop, Rprop, ASGD, SparseAdam, L-BFGS, Muon, K-FAC, EMA, SWA), 12+ LR schedulers, gradient clipping
 - **ferrotorch-data** — Dataset, DataLoader (parallel via rayon), DistributedSampler, collation, transforms, NumPy/Arrow interop
-- **ferrotorch-vision** — ResNet, VGG, ViT, Swin, ConvNeXt, EfficientNet, U-Net, YOLO; MNIST/CIFAR/ImageFolder datasets; image I/O
+- **ferrotorch-vision** — 10 classification (ResNet, VGG, ViT-B/16, EfficientNet-B0, ConvNeXt-T, Swin-T, MobileNetV2, MobileNetV3, DenseNet-121, InceptionV3), 3 detection (Faster R-CNN, Mask R-CNN, SSD300), 2 segmentation (DeepLabV3, FCN), plus U-Net and YOLO; MNIST/CIFAR/ImageFolder datasets; image I/O
 
 ### Default features (opt-out with `default-features = false`)
 - **ferrotorch-train** — Learner training loop, callbacks, metrics, checkpointing
-- **ferrotorch-serialize** — ONNX export, PyTorch .pt import, safetensors, GGUF
+- **ferrotorch-serialize** — ONNX export (via IrGraph), PyTorch .pt import, SafeTensors, GGUF (parse/load/dequantize)
 - **ferrotorch-jit** — Tracing JIT, IR graph, optimization passes, code generation
 - **ferrotorch-jit-script** — `#[script]` proc macro for source-based graph capture
 - **ferrotorch-distributions** — Probability distributions for sampling and VI

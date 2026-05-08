@@ -62,14 +62,14 @@ Core tensor and autograd engine for ferrotorch — PyTorch in Rust.
 - **Einsum** — differentiable Einstein summation
 - **Activations** (differentiable) — `relu`, `gelu`, `silu`, `elu`,
   `mish`, `sigmoid`, `tanh`, `softmax`, `log_softmax`
-- **FFT** — `fft`, `ifft`, `rfft`, `irfft`, `fft2`, `ifft2`, `fftn`,
-  `ifftn`, `rfftn`, `irfftn`, with cuFFT GPU dispatch
+- **FFT** — `fft`, `ifft`, `rfft`, `irfft`, `hfft`, `ihfft`, `fft2`, `ifft2`, `fftn`,
+  `ifftn`, `rfftn`, `irfftn`, with axes-aware cuFFT GPU dispatch (`cufftPlanMany`)
 - **Signal processing** — `signal::{stft, istft, hilbert,
   spectrogram, hann/hamming/blackman}` window functions
 - **Complex tensors** — interleaved-real complex storage, complex-aware
   arithmetic, FFT, and `eig` non-symmetric eigendecomposition
-- **Sparse** — `SparseTensor` (COO format) with sparse arithmetic and
-  sparse-grad support for embedding tables
+- **Sparse** — `SparseTensor` (COO format) with sparse arithmetic, `spmm`, `to_dense`/`from_dense` with GPU dispatch (cuSPARSE CSR path), and sparse-grad support for embedding tables
+- **Nested tensors** — `NestedTensor<T>` for ragged-dim sequences; `to_padded`/`from_padded` with GPU fast path; `nested_scaled_dot_product_attention` for variable-length SDPA
 - **Named tensors** — `NamedTensor<T>` with `refine_names`, `align_to`,
   `rename` for advisory dim labels (PyTorch parity)
 - **Stride tricks** — `as_strided`, `sliding_window_view`,

@@ -27,12 +27,9 @@ if is_mps_available() {
 | `is_mps_available()` runtime probe | shipping (returns `false` off-Apple) |
 | `MpsDevice` ordinal handle | shipping |
 | `Device::Mps(_)` core enum integration | shipping |
-| MSL kernel layer (`metal-backend`) | scaffolded; needs macOS CI |
+| MSL kernel layer (`metal-backend`) | 10 kernels scaffolded (matmul, bmm, softmax, sum_axis, add/sub/mul/div, relu, sigmoid); ~80 `GpuBackend` trait methods pending macOS CI |
 
-The kernel layer parity with `GpuBackend` (~80 ops) lands incrementally;
-the public API contract is already stable so downstream code can wire
-`Device::Mps(0)` paths today and pick up kernel coverage without source
-changes.
+The 10 scaffolded MSL kernels cover the critical path for single-layer inference. Full `GpuBackend` parity (~80 methods) is deferred pending Apple hardware access in CI. The public API contract is stable so downstream code can wire `Device::Mps(0)` paths today and pick up kernel coverage without source changes.
 
 ## Why split out
 
