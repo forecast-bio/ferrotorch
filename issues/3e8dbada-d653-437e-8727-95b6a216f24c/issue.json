@@ -2,11 +2,12 @@
   "uuid": "3e8dbada-d653-437e-8727-95b6a216f24c",
   "display_id": 980,
   "title": "Release prep: version bump + fmt + clippy",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-08T00:39:06.998164893Z",
-  "updated_at": "2026-05-08T00:39:08.371548999Z",
+  "updated_at": "2026-05-08T00:41:06.302310158Z",
+  "closed_at": "2026-05-08T00:41:06.302310158Z",
   "labels": [
     "chore"
   ]
