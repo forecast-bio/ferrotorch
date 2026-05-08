@@ -1,0 +1,10 @@
+{
+  "uuid": "3f31aa54-ce40-4665-8345-f10064e95643",
+  "issue_uuid": "d557da59-4ce1-4155-8df5-776b0bf1c172",
+  "author": "y4rr",
+  "content": "Plan: Conv2d struct gains groups: usize and dilation: (usize, usize) fields. new_full() takes 8 args (in,out,kernel,stride,padding,dilation,groups,bias) with full validation. new() shims to new_full(...,(1,1),1,bias). im2col/col2im helpers extended with dilation params; grouped path computes per-group convolutions over per-group im2col slices. GPU dispatch gated to groups==1 && dilation==(1,1) only. Backward updated similarly. Probe-before-fix lands first in tests, then forward; both grouped+dilated forward and backward (vs finite-differences) covered.",
+  "created_at": "2026-05-08T16:03:53.664817615Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAegU4jQV/Wm56srf+ZBlUDmKTL1JwHzh7PvSMAOsB99qKLZ/jfPPORAgSLscVFKi/JXvJ9twfkFQt80Nrp1sMBQ=="
+}
