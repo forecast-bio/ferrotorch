@@ -379,6 +379,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - M≤4 cuBLAS bypass: route vector-matrix multiplies through PTX `small_matmul` kernel instead of cuBLAS SGEMM
 
 ### Changed
+- Phase 1B: promote 9 vision models to value-parity (DenseNet/MobileNet/ConvNeXt/EfficientNet/Swin/Inception/DeepLabV3/FCN), refactor 1A helpers, fix tolerance template (#985)
 - Vision conformance tests: promote shape-only to value-vs-fixture parity (#983)
 - fftn/ifftn CUDA: axes-aware cufftPlanMany dispatch not implemented (C.6 deferred) (#966)
 - Add bf16 mixed-precision elementwise and reduction GPU kernels (Sprint C.3 follow-up) (#963)
