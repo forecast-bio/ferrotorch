@@ -1,0 +1,10 @@
+{
+  "uuid": "6d97cd15-e153-4b7b-b0c8-2a0d2d7fba47",
+  "display_id": 1005,
+  "title": "Track ConvNeXt-T residual divergences from torchvision: layer_scale (gamma), Linear pwconv1/2 vs Conv1x1, features.<i>.<j>.block.<k> naming, classifier.{0,2}.* schema",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T17:07:53.663991378Z",
+  "updated_at": "2026-05-08T17:07:53.663991378Z"
+}
