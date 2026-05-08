@@ -1,0 +1,10 @@
+{
+  "uuid": "03926fb4-ecd2-4ac1-a12f-04c3cc8e2b3c",
+  "issue_uuid": "1dcc794e-50ea-4969-8e48-e62bfb3f5889",
+  "author": "y4rr",
+  "content": "Result: alibi fixture now emits slope=0.5 field. regenerate_nn_attention_fixtures.py updated to use signed bias slope*(q-k) matching Rust alibi_score_mod formula. regenerate_flex_attention_fixtures.py adds slope field to all alibi forward fixtures. Rust test reads slope from fixture instead of hardcoding.",
+  "created_at": "2026-05-08T00:34:18.604710235Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAEXDzNY5DlQ8wIG3mmkswpJT+Z73FflYQgbEX+uL+DjYziEqvSxkP2Nw6qHbiTL1dtjZd1/Wc/OO4dAiQ2QNIDw=="
+}
