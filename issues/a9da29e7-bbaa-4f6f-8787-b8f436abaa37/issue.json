@@ -2,11 +2,12 @@
   "uuid": "a9da29e7-bbaa-4f6f-8787-b8f436abaa37",
   "display_id": 988,
   "title": "ferrotorch-vision: DeepLabV3 ASPP dilated 3x3 conv runs hand-coded on CPU with 7-deep nested loop AND drops autograd (requires_grad=false)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-08T02:49:03.335149275Z",
-  "updated_at": "2026-05-08T02:49:04.755229516Z",
+  "updated_at": "2026-05-08T17:48:29.823634623Z",
+  "closed_at": "2026-05-08T17:48:29.823634623Z",
   "labels": [
     "rust,vision,bug,gpu,autograd"
   ]
