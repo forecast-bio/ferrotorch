@@ -1,0 +1,10 @@
+{
+  "uuid": "51c524d5-bc11-4282-bf81-086d7f17259e",
+  "display_id": 1001,
+  "title": "Phase 4: ViT remap (#999) + named_children sweep (#995) + ResNet50 pretrained-weights upgrade",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T12:06:54.966766377Z",
+  "updated_at": "2026-05-08T12:06:54.966766377Z"
+}
