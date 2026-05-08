@@ -1,0 +1,10 @@
+{
+  "uuid": "390a684d-48f9-422a-9fba-cc56b3442f03",
+  "issue_uuid": "496b040d-d883-4bc0-bad5-2aa8e788b253",
+  "author": "y4rr",
+  "content": "Phase 1B (#985) value-parity attempt failed at strict loader's UnmappedFixtureKey check.\n\nVerbatim panic: 'Inception-V3: loader failed on well-formed fixture: invalid argument: Inception-V3 value-parity loader: torchvision key \"Conv2d_2a_3x3.bn.bias\" has no mapping to a ferrotorch parameter and is not a declared BN buffer'\n\nRoot cause: ferrotorch-vision/src/models/inception.rs documents impl as a 3-Inception-A simplified variant — single module type used 3x (64→128→192→256 channels), 2-layer compressed stem, no AuxLogits, no factorized convolutions, no Mixed_5/6/7 blocks. torchvision's inception_v3(aux_logits=False) has Conv2d_1a/2a/2b_3x3, Conv2d_3b/4a, Mixed_5b/c/d, Mixed_6a-6e, Mixed_7a-c, fc — 284 params + 188 fp_buffers vs ferrotorch's much smaller param set.\n\nNote: even the stem 'Conv2d_2a_3x3.bn.bias' fails to map because ferrotorch uses 'stem_conv1' / 'stem_conv2' naming and has no BN.\n\nPhase 1B test infra in place; tests #[ignore = \"#993 ...\"] until ferrotorch impl lands the full architecture.",
+  "created_at": "2026-05-08T03:06:41.712706835Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA9MI57kiKf5iW5F7aQy2v5FWujKg2yvslQ5q9fedIFG5XiyIh9dDT/gHQNDGX6gD22RFM68DwXvhSIFu4qsUtBw=="
+}
