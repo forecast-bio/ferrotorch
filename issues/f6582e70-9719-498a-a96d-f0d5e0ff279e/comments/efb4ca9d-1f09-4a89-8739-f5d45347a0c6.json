@@ -1,0 +1,10 @@
+{
+  "uuid": "efb4ca9d-1f09-4a89-8739-f5d45347a0c6",
+  "issue_uuid": "f6582e70-9719-498a-a96d-f0d5e0ff279e",
+  "author": "y4rr",
+  "content": "[action] Phase 6 dispatch: Tier 1 parity sweep — 5 deliverables. ConvNeXt depthwise (#997), ResNet18/34/VGG11/16 value-parity tests, DeepLabV3 ASPP migration (#988), DenseNet121 BN (#989), FCN dilated backbone (#994). Probe-before-fix on ASPP migration mandatory. Bottleneck refactor must preserve ResNet50 PASS. STOP-AND-REPORT per deliverable on unexpected divergences.",
+  "created_at": "2026-05-08T16:56:51.340227963Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAs87znA1SoNuACRwUzyTMShNKqCQjIRGfBNJCbf0BeMVPwpkMSkX+cq9cSn+tlmmylzG+BwxzQReis23yIRbKDA=="
+}
