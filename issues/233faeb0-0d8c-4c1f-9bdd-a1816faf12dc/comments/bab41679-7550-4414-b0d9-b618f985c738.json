@@ -1,0 +1,10 @@
+{
+  "uuid": "bab41679-7550-4414-b0d9-b618f985c738",
+  "issue_uuid": "233faeb0-0d8c-4c1f-9bdd-a1816faf12dc",
+  "author": "y4rr",
+  "content": "[action] Phase 3 dispatch: permute-pattern sweep ViT+ConvNeXt+Swin. Probe-before-fix mandatory. ViT expected PASS; ConvNeXt+Swin expected REPORTED with new architectural-divergence issues filed by subagent. Closes #986/#987 in commit.",
+  "created_at": "2026-05-08T10:39:36.100044179Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAFaJW8uDnpPVU9bxwdZSH/DIUBj1XRKnVXLxt40W9PbV+VKXSugaDPLzMkyiIXcMGx45fgUqrf8j5jmelkRnMBw=="
+}
