@@ -1,0 +1,10 @@
+{
+  "uuid": "f4a739a9-4a09-42c0-8d83-61aae5ed929c",
+  "display_id": 981,
+  "title": "Fix publish blockers: cusparselt feature ref + README audit",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T00:45:08.339193483Z",
+  "updated_at": "2026-05-08T00:45:08.339193483Z"
+}
