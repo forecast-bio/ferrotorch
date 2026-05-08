@@ -22,13 +22,14 @@ use crate::parameter::Parameter;
 // im2col / col2im helpers
 // ---------------------------------------------------------------------------
 
-/// Extract image patches into columns.
+/// Extract image patches into columns (no dilation — calls [`im2col_dilated`]
+/// with `(1, 1)` for the dilation rate).
 ///
 /// Given a 4-D input `[B, C, H, W]`, produces a 3-D output
 /// `[B, C * kH * kW, H_out * W_out]` where each column is one
 /// flattened receptive-field patch.
 // Internal kernel: argument set mirrors the 2-D convolution descriptor
-// (B, C, H, W, kH, kW, padH, padW, strideH, strideW, dilH, dilW); a config
+// (B, C, H, W, kH, kW, padH, padW, strideH, strideW); a config
 // struct would force allocation on every call in convolution hot paths.
 #[allow(clippy::too_many_arguments)]
 fn im2col<T: Float>(
@@ -44,8 +45,48 @@ fn im2col<T: Float>(
     pad_h: usize,
     pad_w: usize,
 ) -> (Vec<T>, usize, usize) {
-    let h_out = (height + 2 * pad_h - kernel_h) / stride_h + 1;
-    let w_out = (width + 2 * pad_w - kernel_w) / stride_w + 1;
+    im2col_dilated(
+        input, batch, channels, height, width, kernel_h, kernel_w, stride_h, stride_w, pad_h,
+        pad_w, 1, 1,
+    )
+}
+
+/// Extract image patches into columns, supporting dilation `(dil_h, dil_w)`.
+///
+/// Given a 4-D input `[B, C, H, W]`, produces a 3-D output
+/// `[B, C * kH * kW, H_out * W_out]` where each column is one flattened
+/// receptive-field patch with kernel taps spaced by `dil_h`/`dil_w` along the
+/// spatial axes.
+///
+/// Output spatial sizes follow the standard formula:
+///
+/// ```text
+/// H_out = (H + 2*pad_h - dil_h*(kH - 1) - 1) / stride_h + 1
+/// W_out = (W + 2*pad_w - dil_w*(kW - 1) - 1) / stride_w + 1
+/// ```
+// Internal kernel: argument set mirrors the 2-D convolution descriptor
+// (B, C, H, W, kH, kW, strideH, strideW, padH, padW, dilH, dilW); a config
+// struct would force allocation on every call in convolution hot paths.
+#[allow(clippy::too_many_arguments)]
+fn im2col_dilated<T: Float>(
+    input: &[T],
+    batch: usize,
+    channels: usize,
+    height: usize,
+    width: usize,
+    kernel_h: usize,
+    kernel_w: usize,
+    stride_h: usize,
+    stride_w: usize,
+    pad_h: usize,
+    pad_w: usize,
+    dil_h: usize,
+    dil_w: usize,
+) -> (Vec<T>, usize, usize) {
+    let eff_kh = dil_h * (kernel_h - 1) + 1;
+    let eff_kw = dil_w * (kernel_w - 1) + 1;
+    let h_out = (height + 2 * pad_h - eff_kh) / stride_h + 1;
+    let w_out = (width + 2 * pad_w - eff_kw) / stride_w + 1;
     let col_rows = channels * kernel_h * kernel_w;
     let col_cols = h_out * w_out;
 
@@ -59,8 +100,9 @@ fn im2col<T: Float>(
                     let row = c * kernel_h * kernel_w + kh * kernel_w + kw;
                     for oh in 0..h_out {
                         for ow in 0..w_out {
-                            let ih = oh * stride_h + kh;
-                            let iw = ow * stride_w + kw;
+                            // The padded-coordinate of this kernel tap.
+                            let ih = oh * stride_h + kh * dil_h;
+                            let iw = ow * stride_w + kw * dil_w;
                             let col = oh * w_out + ow;
 
                             // Account for padding: the "virtual" input coordinate
@@ -91,7 +133,7 @@ fn im2col<T: Float>(
     (cols, col_rows, col_cols)
 }
 
-/// Scatter columns back into an image tensor (adjoint of im2col).
+/// Scatter columns back into an image tensor (adjoint of [`im2col`]).
 ///
 /// Given columns of shape `[B, C * kH * kW, H_out * W_out]`, accumulates
 /// values back into a `[B, C, H, W]` tensor (with padding stripped).
@@ -114,6 +156,39 @@ fn col2im<T: Float>(
     h_out: usize,
     w_out: usize,
 ) -> Vec<T> {
+    col2im_dilated(
+        cols, batch, channels, height, width, kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w,
+        1, 1, h_out, w_out,
+    )
+}
+
+/// Scatter columns back into an image tensor with dilation support
+/// (adjoint of [`im2col_dilated`]).
+///
+/// Given columns of shape `[B, C * kH * kW, H_out * W_out]`, accumulates
+/// values back into a `[B, C, H, W]` tensor (with padding stripped),
+/// honouring `dil_h`/`dil_w` so kernel taps are spaced apart in the input.
+// Internal kernel: argument set is the adjoint of `im2col_dilated` (same
+// descriptor inputs); refactoring to a config struct would diverge the two
+// helpers' signatures unhelpfully.
+#[allow(clippy::too_many_arguments)]
+fn col2im_dilated<T: Float>(
+    cols: &[T],
+    batch: usize,
+    channels: usize,
+    height: usize,
+    width: usize,
+    kernel_h: usize,
+    kernel_w: usize,
+    stride_h: usize,
+    stride_w: usize,
+    pad_h: usize,
+    pad_w: usize,
+    dil_h: usize,
+    dil_w: usize,
+    h_out: usize,
+    w_out: usize,
+) -> Vec<T> {
     let zero = <T as num_traits::Zero>::zero();
     let mut output = vec![zero; batch * channels * height * width];
 
@@ -127,8 +202,8 @@ fn col2im<T: Float>(
                     let row = c * kernel_h * kernel_w + kh * kernel_w + kw;
                     for oh in 0..h_out {
                         for ow in 0..w_out {
-                            let ih = oh * stride_h + kh;
-                            let iw = ow * stride_w + kw;
+                            let ih = oh * stride_h + kh * dil_h;
+                            let iw = ow * stride_w + kw * dil_w;
                             let col = oh * w_out + ow;
 
                             if ih >= pad_h
@@ -161,17 +236,30 @@ fn col2im<T: Float>(
 /// A 2-D convolution layer.
 ///
 /// Applies a spatial convolution over an input `[B, C_in, H, W]` using
-/// the im2col + matmul algorithm. Equivalent to `torch.nn.Conv2d`.
+/// the im2col + matmul algorithm. Equivalent to `torch.nn.Conv2d`,
+/// including the `groups` and `dilation` arguments (see
+/// [`Conv2d::new_full`]).
 ///
 /// # Shape
 ///
 /// - Input: `[B, in_channels, H, W]`
 /// - Output: `[B, out_channels, H_out, W_out]`
 ///
-/// where `H_out = (H + 2 * padding.0 - kernel_size.0) / stride.0 + 1`.
+/// where `H_out = (H + 2 * padding.0 - dilation.0 * (kernel_size.0 - 1) - 1)
+/// / stride.0 + 1`.
+///
+/// # GPU coverage
+///
+/// The CUDA fast path supplied by `ferrotorch-gpu` currently only covers
+/// `groups == 1 && dilation == (1, 1)`. When the layer is constructed with
+/// `groups > 1` or `dilation != (1, 1)`, [`Module::forward`] explicitly
+/// skips the GPU dispatch at the gate (see the `if groups == 1 && dilation
+/// == (1, 1)` guard in the forward) and runs the entire convolution on the
+/// CPU. Wiring `groups`/`dilation` through the GPU backend signature is
+/// tracked separately as a backend extension issue.
 #[derive(Debug)]
 pub struct Conv2d<T: Float> {
-    /// Learnable kernel weights `[out_channels, in_channels, kH, kW]`.
+    /// Learnable kernel weights `[out_channels, in_channels / groups, kH, kW]`.
     weight: Parameter<T>,
     /// Optional learnable bias `[out_channels]`.
     bias: Option<Parameter<T>>,
@@ -185,21 +273,67 @@ pub struct Conv2d<T: Float> {
     stride: (usize, usize),
     /// Zero-padding `(pH, pW)` applied to both sides.
     padding: (usize, usize),
+    /// Dilation `(dilH, dilW)`. `(1, 1)` is the dense default.
+    dilation: (usize, usize),
+    /// Number of blocked input/output channel groups. `1` is dense, `in_channels`
+    /// is depthwise. Must divide both `in_channels` and `out_channels`.
+    groups: usize,
     /// Whether the module is in training mode.
     training: bool,
 }
 
 impl<T: Float> Conv2d<T> {
-    /// Create a new `Conv2d` layer.
+    /// Create a new `Conv2d` layer (dense, dilation `(1, 1)`, `groups = 1`).
     ///
     /// Weight is initialized with Kaiming uniform (ReLU gain).
     /// Bias, if enabled, is initialized to zeros.
+    ///
+    /// This is a thin shim over [`Conv2d::new_full`] preserved for
+    /// backwards compatibility with existing callers (see Phase 5 of #1002).
     pub fn new(
         in_channels: usize,
         out_channels: usize,
         kernel_size: (usize, usize),
         stride: (usize, usize),
         padding: (usize, usize),
+        bias: bool,
+    ) -> FerrotorchResult<Self> {
+        Self::new_full(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            (1, 1),
+            1,
+            bias,
+        )
+    }
+
+    /// Create a new `Conv2d` layer with the full PyTorch-shaped argument set,
+    /// including `dilation` and `groups`.
+    ///
+    /// `groups` must divide BOTH `in_channels` and `out_channels` (PyTorch
+    /// `torch.nn.Conv2d` raises `ValueError` otherwise). `dilation` must be
+    /// strictly positive in both dimensions. Weight is initialised with
+    /// Kaiming uniform (ReLU gain), bias (if enabled) with zeros.
+    ///
+    /// # GPU coverage caveat
+    ///
+    /// `Conv2d::forward`'s CUDA fast path is only taken when `groups == 1 &&
+    /// dilation == (1, 1)`. With grouped or dilated configurations the
+    /// dispatch gate explicitly falls through to the CPU implementation;
+    /// kernel-side `groups`/`dilation` plumbing in the `ferrotorch-gpu`
+    /// backend is a separate workitem.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_full(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+        padding: (usize, usize),
+        dilation: (usize, usize),
+        groups: usize,
         bias: bool,
     ) -> FerrotorchResult<Self> {
         if in_channels == 0 || out_channels == 0 {
@@ -217,9 +351,36 @@ impl<T: Float> Conv2d<T> {
                 message: "stride must be > 0 in both dimensions".into(),
             });
         }
+        if dilation.0 == 0 || dilation.1 == 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "Conv2d::new_full: dilation must be > 0 in both dimensions, got {dilation:?}"
+                ),
+            });
+        }
+        if groups == 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "Conv2d::new_full: groups must be > 0".into(),
+            });
+        }
+        if in_channels % groups != 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "Conv2d::new_full: groups={groups} must divide in_channels={in_channels}"
+                ),
+            });
+        }
+        if out_channels % groups != 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "Conv2d::new_full: groups={groups} must divide out_channels={out_channels}"
+                ),
+            });
+        }
 
         let (kh, kw) = kernel_size;
-        let mut weight = Parameter::zeros(&[out_channels, in_channels, kh, kw])?;
+        // PyTorch weight layout is [C_out, C_in / groups, kH, kW].
+        let mut weight = Parameter::zeros(&[out_channels, in_channels / groups, kh, kw])?;
         kaiming_uniform(&mut weight, NonLinearity::ReLU)?;
 
         let bias_param = if bias {
@@ -238,13 +399,55 @@ impl<T: Float> Conv2d<T> {
             kernel_size,
             stride,
             padding,
+            dilation,
+            groups,
             training: true,
         })
     }
 
+    /// Replace the kernel weights with a caller-supplied [`Parameter`].
+    ///
+    /// The new weight must have shape `[out_channels, in_channels / groups,
+    /// kH, kW]` (i.e. the same shape as the existing parameter). Used by
+    /// tests and tooling that need deterministic weights without going
+    /// through [`Conv2d::from_parts`].
+    pub fn set_weight(&mut self, weight: Parameter<T>) -> FerrotorchResult<()> {
+        let expected = [
+            self.out_channels,
+            self.in_channels / self.groups,
+            self.kernel_size.0,
+            self.kernel_size.1,
+        ];
+        let got = weight.tensor().shape();
+        if got != expected {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!("Conv2d::set_weight: expected shape {expected:?}, got {got:?}"),
+            });
+        }
+        self.weight = weight;
+        Ok(())
+    }
+
+    /// Number of channel groups (`1` is dense, `in_channels` is depthwise).
+    pub fn groups(&self) -> usize {
+        self.groups
+    }
+
+    /// Dilation `(dilH, dilW)` (`(1, 1)` is the dense default).
+    pub fn dilation(&self) -> (usize, usize) {
+        self.dilation
+    }
+
     /// The number of learnable scalar parameters.
+    ///
+    /// For grouped convolutions the weight tensor has shape
+    /// `[out_channels, in_channels / groups, kH, kW]` so the count is
+    /// scaled by `1 / groups`.
     pub fn num_parameters(&self) -> usize {
-        let w = self.out_channels * self.in_channels * self.kernel_size.0 * self.kernel_size.1;
+        let w = self.out_channels
+            * (self.in_channels / self.groups)
+            * self.kernel_size.0
+            * self.kernel_size.1;
         let b = if self.bias.is_some() {
             self.out_channels
         } else {
@@ -257,7 +460,9 @@ impl<T: Float> Conv2d<T> {
     ///
     /// `weight` must have shape `[out_channels, in_channels, kH, kW]`. If
     /// `bias` is provided, it must be 1-D of length `out_channels`. The
-    /// stride and padding are passed through unchanged. This is the constructor
+    /// stride and padding are passed through unchanged; the resulting layer
+    /// is dense (`groups = 1`, `dilation = (1, 1)`) so this constructor is
+    /// API-compatible with the pre-Phase-5 surface. This is the constructor
     /// used by `nn::functional::conv2d` so callers can drive the existing
     /// im2col + matmul forward path with their own parameters (e.g. for
     /// stateless functional dispatch or weight sharing across modules).
@@ -297,6 +502,8 @@ impl<T: Float> Conv2d<T> {
             kernel_size,
             stride,
             padding,
+            dilation: (1, 1),
+            groups: 1,
             training: true,
         })
     }
@@ -334,27 +541,42 @@ impl<T: Float> Module<T> for Conv2d<T> {
         let (kh, kw) = self.kernel_size;
         let (sh, sw) = self.stride;
         let (ph, pw) = self.padding;
+        let (dh, dw) = self.dilation;
+        let groups = self.groups;
 
-        // Check that the kernel fits.
+        // Effective kernel extent after dilation.
+        let eff_kh = dh * (kh - 1) + 1;
+        let eff_kw = dw * (kw - 1) + 1;
+
+        // Check that the (effective) kernel fits.
         let h_padded = h + 2 * ph;
         let w_padded = w + 2 * pw;
-        if h_padded < kh || w_padded < kw {
+        if h_padded < eff_kh || w_padded < eff_kw {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
-                    "Conv2d: padded input ({h_padded}, {w_padded}) is smaller than kernel ({kh}, {kw})"
+                    "Conv2d: padded input ({h_padded}, {w_padded}) is smaller than effective kernel ({eff_kh}, {eff_kw})"
                 ),
             });
         }
 
-        let h_out = (h_padded - kh) / sh + 1;
-        let w_out = (w_padded - kw) / sw + 1;
+        let h_out = (h_padded - eff_kh) / sh + 1;
+        let w_out = (w_padded - eff_kw) / sw + 1;
 
         // Save the input device so we can restore it on the output.
         let input_device = input.device();
 
         // ---- GPU fast path: fully on-device conv2d ----
+        //
+        // The CUDA backend's `conv2d_f32` signature does NOT accept groups
+        // or dilation (see ferrotorch-gpu/src/conv.rs); extending it is
+        // backend territory and tracked separately. Until that lands we
+        // EXPLICITLY gate the GPU dispatch on the dense + non-dilated case.
+        // Failure mode #15 (CPU-pull-disguised-as-device-op) is avoided by
+        // making the detour visible at the dispatch boundary, NOT inside
+        // the kernel.
         let is_f32 = std::mem::size_of::<T>() == 4;
-        if is_f32 && input.is_cuda() {
+        let gpu_eligible = groups == 1 && self.dilation == (1, 1);
+        if gpu_eligible && is_f32 && input.is_cuda() {
             if let Some(backend) = ferrotorch_core::gpu_dispatch::gpu_backend() {
                 let bias_handle = self
                     .bias
@@ -396,6 +618,8 @@ impl<T: Float> Module<T> for Conv2d<T> {
                         kernel_size: self.kernel_size,
                         stride: self.stride,
                         padding: self.padding,
+                        dilation: self.dilation,
+                        groups: self.groups,
                         cols,
                         col_rows,
                         col_cols,
@@ -413,39 +637,113 @@ impl<T: Float> Module<T> for Conv2d<T> {
             }
         }
 
-        // ---- CPU path ----
+        // ---- CPU path (handles dense, dilated, grouped, and grouped+dilated) ----
         let input_data = input.data_vec()?;
-
-        // im2col: [B, C_in * kH * kW, H_out * W_out]
-        let (cols, col_rows, col_cols) =
-            im2col(&input_data, batch, c_in, h, w, kh, kw, sh, sw, ph, pw);
-
-        // Reshape weight to 2D: [C_out, C_in * kH * kW]
         let weight_data = self.weight.data_vec()?;
-        let weight_2d = Tensor::from_storage(
-            TensorStorage::cpu(weight_data),
-            vec![self.out_channels, col_rows],
-            false,
-        )?;
 
-        // Per-batch matmul: weight_2d @ cols_b -> [C_out, H_out * W_out]
         let zero = <T as num_traits::Zero>::zero();
         let mut output = vec![zero; batch * self.out_channels * h_out * w_out];
 
-        for b in 0..batch {
-            let col_start = b * col_rows * col_cols;
-            let col_end = col_start + col_rows * col_cols;
-            let cols_b = Tensor::from_storage(
-                TensorStorage::cpu(cols[col_start..col_end].to_vec()),
-                vec![col_rows, col_cols],
+        // Per-group dimensions.
+        let in_per_group = self.in_channels / groups;
+        let out_per_group = self.out_channels / groups;
+        let weight_per_group_numel = out_per_group * in_per_group * kh * kw;
+        let group_col_rows = in_per_group * kh * kw;
+        let col_cols = h_out * w_out;
+
+        // Saved im2col columns for autograd (full, ungrouped layout — channel
+        // axis kept dense at C_in so the backward can accumulate grad_input
+        // back into a `[B, C_in, H, W]` tensor uniformly across groups).
+        let saved_cols_rows = self.in_channels * kh * kw;
+        let mut saved_cols: Vec<T> = if is_grad_enabled()
+            && (input.requires_grad()
+                || self.weight.requires_grad()
+                || self.bias.as_ref().is_some_and(|b| b.requires_grad()))
+        {
+            vec![zero; batch * saved_cols_rows * col_cols]
+        } else {
+            Vec::new()
+        };
+        let save_cols = !saved_cols.is_empty();
+
+        for g in 0..groups {
+            // Slice the input channels belonging to this group: [B, in_per_group, H, W].
+            let mut group_input = vec![zero; batch * in_per_group * h * w];
+            for b in 0..batch {
+                for c in 0..in_per_group {
+                    let src_c = g * in_per_group + c;
+                    let src_start = b * self.in_channels * h * w + src_c * h * w;
+                    let dst_start = b * in_per_group * h * w + c * h * w;
+                    group_input[dst_start..dst_start + h * w]
+                        .copy_from_slice(&input_data[src_start..src_start + h * w]);
+                }
+            }
+
+            let (g_cols, g_col_rows, g_col_cols) = im2col_dilated(
+                &group_input,
+                batch,
+                in_per_group,
+                h,
+                w,
+                kh,
+                kw,
+                sh,
+                sw,
+                ph,
+                pw,
+                dh,
+                dw,
+            );
+            debug_assert_eq!(g_col_rows, group_col_rows);
+            debug_assert_eq!(g_col_cols, col_cols);
+
+            // Save into the dense [C_in*kH*kW, col_cols] layout if backward will need it.
+            if save_cols {
+                for b in 0..batch {
+                    for c in 0..in_per_group {
+                        let dst_c = g * in_per_group + c;
+                        for kk in 0..(kh * kw) {
+                            let src_row = c * kh * kw + kk;
+                            let dst_row = dst_c * kh * kw + kk;
+                            let src_off = b * group_col_rows * col_cols + src_row * col_cols;
+                            let dst_off = b * saved_cols_rows * col_cols + dst_row * col_cols;
+                            saved_cols[dst_off..dst_off + col_cols]
+                                .copy_from_slice(&g_cols[src_off..src_off + col_cols]);
+                        }
+                    }
+                }
+            }
+
+            // Group's slice of the weight: [out_per_group, in_per_group, kh, kw]
+            // flattened to [out_per_group, group_col_rows].
+            let w_group_start = g * weight_per_group_numel;
+            let w_group_end = w_group_start + weight_per_group_numel;
+            let weight_group_2d = Tensor::from_storage(
+                TensorStorage::cpu(weight_data[w_group_start..w_group_end].to_vec()),
+                vec![out_per_group, group_col_rows],
                 false,
             )?;
 
-            let out_b = mm(&weight_2d, &cols_b)?;
-            let out_data = out_b.data()?;
-            let out_start = b * self.out_channels * h_out * w_out;
-            output[out_start..out_start + self.out_channels * h_out * w_out]
-                .copy_from_slice(out_data);
+            for b in 0..batch {
+                let col_start = b * group_col_rows * col_cols;
+                let col_end = col_start + group_col_rows * col_cols;
+                let cols_b = Tensor::from_storage(
+                    TensorStorage::cpu(g_cols[col_start..col_end].to_vec()),
+                    vec![group_col_rows, col_cols],
+                    false,
+                )?;
+
+                let out_b = mm(&weight_group_2d, &cols_b)?;
+                let out_data = out_b.data()?;
+                // Place this group's output channels into [b, g*out_per_group..(g+1)*out_per_group, :, :].
+                for oc in 0..out_per_group {
+                    let dst_c = g * out_per_group + oc;
+                    let dst_start = b * self.out_channels * h_out * w_out + dst_c * h_out * w_out;
+                    let src_start = oc * h_out * w_out;
+                    output[dst_start..dst_start + h_out * w_out]
+                        .copy_from_slice(&out_data[src_start..src_start + h_out * w_out]);
+                }
+            }
         }
 
         // Add bias if present: broadcast [C_out] over [B, C_out, H_out, W_out].
@@ -469,11 +767,7 @@ impl<T: Float> Module<T> for Conv2d<T> {
         )?;
 
         // Attach backward if gradients are enabled and any input/param requires grad.
-        if is_grad_enabled()
-            && (input.requires_grad()
-                || self.weight.requires_grad()
-                || self.bias.as_ref().is_some_and(|b| b.requires_grad()))
-        {
+        if save_cols {
             let grad_fn = Arc::new(Conv2dBackward {
                 input: input.clone(),
                 weight: self.weight.tensor().clone(),
@@ -483,8 +777,10 @@ impl<T: Float> Module<T> for Conv2d<T> {
                 kernel_size: self.kernel_size,
                 stride: self.stride,
                 padding: self.padding,
-                cols,
-                col_rows,
+                dilation: self.dilation,
+                groups: self.groups,
+                cols: saved_cols,
+                col_rows: saved_cols_rows,
                 col_cols,
                 h_out,
                 w_out,
@@ -545,9 +841,15 @@ impl<T: Float> Module<T> for Conv2d<T> {
 ///
 /// Saved tensors:
 /// - `input`: the original 4-D input
-/// - `weight`: the 4-D kernel
+/// - `weight`: the 4-D kernel `[C_out, C_in / groups, kH, kW]`
 /// - `bias`: optional 1-D bias
-/// - `cols`: the im2col columns from the forward pass (avoids recomputation)
+/// - `cols`: the im2col columns from the forward pass with **dense channel
+///   layout** `[B, C_in * kH * kW, H_out * W_out]`. The forward saves into
+///   this shape regardless of `groups` so the backward can reuse a uniform
+///   indexing scheme; for `groups > 1` the per-group slice is taken at
+///   gradient-computation time.
+/// - `dilation`, `groups`: extra descriptors needed to reconstruct the
+///   per-group + dilated math without re-reading them off the layer.
 #[derive(Debug)]
 struct Conv2dBackward<T: Float> {
     input: Tensor<T>,
@@ -558,6 +860,8 @@ struct Conv2dBackward<T: Float> {
     kernel_size: (usize, usize),
     stride: (usize, usize),
     padding: (usize, usize),
+    dilation: (usize, usize),
+    groups: usize,
     cols: Vec<T>,
     col_rows: usize,
     col_cols: usize,
@@ -593,51 +897,78 @@ impl<T: Float> GradFn<T> for Conv2dBackward<T> {
         let (kh, kw) = self.kernel_size;
         let (sh, sw) = self.stride;
         let (ph, pw) = self.padding;
+        let (dh, dw) = self.dilation;
+        let groups = self.groups;
+        let in_per_group = self.in_channels / groups;
+        let out_per_group = self.out_channels / groups;
+        let group_col_rows = in_per_group * kh * kw;
+        let zero = <T as num_traits::Zero>::zero();
 
         // --- grad_weight ---
-        // For each batch element:
-        //   grad_output_b: [C_out, H_out * W_out]
-        //   cols_b:        [col_rows, col_cols] = [C_in * kH * kW, H_out * W_out]
-        //   grad_weight += grad_output_b @ cols_b^T
-        // Result shape: [C_out, C_in * kH * kW] -> reshape to [C_out, C_in, kH, kW]
+        // Per group `g`:
+        //   grad_output_b_g : [out_per_group, H_out * W_out]
+        //   cols_b_g        : [in_per_group * kH * kW, H_out * W_out]
+        //   gw_g           += grad_output_b_g @ cols_b_g^T
+        // Stack groups along the C_out axis to recover [C_out, C_in/G, kH, kW].
         let grad_weight = if self.weight.requires_grad() {
-            let zero = <T as num_traits::Zero>::zero();
-            let weight_numel = self.out_channels * self.col_rows;
+            let weight_numel = self.out_channels * in_per_group * kh * kw;
             let mut gw_accum = vec![zero; weight_numel];
+            let weight_per_group_numel = out_per_group * group_col_rows;
 
-            for b in 0..batch {
-                // grad_output for this batch: [C_out, H_out * W_out]
-                let go_start = b * self.out_channels * self.h_out * self.w_out;
-                let go_end = go_start + self.out_channels * self.h_out * self.w_out;
-                let go_b = Tensor::from_storage(
-                    TensorStorage::cpu(go_data[go_start..go_end].to_vec()),
-                    vec![self.out_channels, self.h_out * self.w_out],
-                    false,
-                )?;
+            for g in 0..groups {
+                for b in 0..batch {
+                    // Slice grad_output for this group: [out_per_group, h_out * w_out].
+                    let mut go_g = vec![zero; out_per_group * self.h_out * self.w_out];
+                    for oc in 0..out_per_group {
+                        let src_c = g * out_per_group + oc;
+                        let src_start = b * self.out_channels * self.h_out * self.w_out
+                            + src_c * self.h_out * self.w_out;
+                        let dst_start = oc * self.h_out * self.w_out;
+                        go_g[dst_start..dst_start + self.h_out * self.w_out].copy_from_slice(
+                            &go_data[src_start..src_start + self.h_out * self.w_out],
+                        );
+                    }
+                    let go_b_g = Tensor::from_storage(
+                        TensorStorage::cpu(go_g),
+                        vec![out_per_group, self.h_out * self.w_out],
+                        false,
+                    )?;
 
-                // cols for this batch: [col_rows, col_cols]
-                let col_start = b * self.col_rows * self.col_cols;
-                let col_end = col_start + self.col_rows * self.col_cols;
-                let cols_b = Tensor::from_storage(
-                    TensorStorage::cpu(self.cols[col_start..col_end].to_vec()),
-                    vec![self.col_rows, self.col_cols],
-                    false,
-                )?;
+                    // Slice cols for this group: [in_per_group * kH * kW, col_cols].
+                    let mut cols_g = vec![zero; group_col_rows * self.col_cols];
+                    for c in 0..in_per_group {
+                        let src_c = g * in_per_group + c;
+                        for kk in 0..(kh * kw) {
+                            let src_row = src_c * kh * kw + kk;
+                            let dst_row = c * kh * kw + kk;
+                            let src_off =
+                                b * self.col_rows * self.col_cols + src_row * self.col_cols;
+                            let dst_off = dst_row * self.col_cols;
+                            cols_g[dst_off..dst_off + self.col_cols]
+                                .copy_from_slice(&self.cols[src_off..src_off + self.col_cols]);
+                        }
+                    }
+                    let cols_b_g = Tensor::from_storage(
+                        TensorStorage::cpu(cols_g),
+                        vec![group_col_rows, self.col_cols],
+                        false,
+                    )?;
 
-                // go_b @ cols_b^T -> [C_out, col_rows]
-                let cols_bt = transpose(&cols_b)?;
-                let gw_b = mm(&go_b, &cols_bt)?;
-                let gw_data = gw_b.data()?;
+                    let cols_bt = transpose(&cols_b_g)?;
+                    let gw_b = mm(&go_b_g, &cols_bt)?;
+                    let gw_data = gw_b.data()?;
 
-                for i in 0..weight_numel {
-                    gw_accum[i] += gw_data[i];
+                    let dst_off = g * weight_per_group_numel;
+                    for i in 0..weight_per_group_numel {
+                        gw_accum[dst_off + i] += gw_data[i];
+                    }
                 }
             }
 
             Some(
                 Tensor::from_storage(
                     TensorStorage::cpu(gw_accum),
-                    vec![self.out_channels, self.in_channels, kh, kw],
+                    vec![self.out_channels, in_per_group, kh, kw],
                     false,
                 )?
                 .to(weight_device)?,
@@ -648,10 +979,10 @@ impl<T: Float> GradFn<T> for Conv2dBackward<T> {
 
         // --- grad_bias ---
         // Sum grad_output over batch, height, width: sum over [B, *, H_out, W_out]
-        // Result shape: [C_out]
+        // Result shape: [C_out]. Bias is per-output-channel, identical for any
+        // groups setting (shape `[C_out]`), so this is unchanged from the dense path.
         let grad_bias = match &self.bias {
             Some(b) if b.requires_grad() => {
-                let zero = <T as num_traits::Zero>::zero();
                 let mut gb = vec![zero; self.out_channels];
                 for batch_idx in 0..batch {
                     for c in 0..self.out_channels {
@@ -673,59 +1004,88 @@ impl<T: Float> GradFn<T> for Conv2dBackward<T> {
         };
 
         // --- grad_input ---
-        // For each batch element:
-        //   weight_2d^T @ grad_output_b -> [col_rows, H_out * W_out]
-        //   then col2im to get [C_in, H, W]
+        // Per group `g`:
+        //   weight_g_2d_T @ grad_output_b_g -> [in_per_group * kH * kW, H_out * W_out]
+        //   then col2im_dilated -> [in_per_group, H, W] -> place into the right
+        //   in-channel slice of [B, C_in, H, W].
         let grad_input = if self.input.requires_grad() {
             let weight_data = self.weight.data_vec()?;
-            let weight_2d = Tensor::from_storage(
-                TensorStorage::cpu(weight_data),
-                vec![self.out_channels, self.col_rows],
-                false,
-            )?;
-            let weight_2d_t = transpose(&weight_2d)?;
+            let mut grad_input_data = vec![zero; batch * self.in_channels * h * w];
+            let weight_per_group_numel = out_per_group * group_col_rows;
 
-            let zero = <T as num_traits::Zero>::zero();
-            let mut grad_cols = vec![zero; batch * self.col_rows * self.col_cols];
-
-            for b in 0..batch {
-                let go_start = b * self.out_channels * self.h_out * self.w_out;
-                let go_end = go_start + self.out_channels * self.h_out * self.w_out;
-                let go_b = Tensor::from_storage(
-                    TensorStorage::cpu(go_data[go_start..go_end].to_vec()),
-                    vec![self.out_channels, self.h_out * self.w_out],
+            for g in 0..groups {
+                let w_off = g * weight_per_group_numel;
+                let weight_g_2d = Tensor::from_storage(
+                    TensorStorage::cpu(weight_data[w_off..w_off + weight_per_group_numel].to_vec()),
+                    vec![out_per_group, group_col_rows],
                     false,
                 )?;
+                let weight_g_t = transpose(&weight_g_2d)?;
 
-                // weight_2d^T @ go_b -> [col_rows, H_out * W_out]
-                let gc_b = mm(&weight_2d_t, &go_b)?;
-                let gc_data = gc_b.data()?;
+                let mut grad_cols_g = vec![zero; batch * group_col_rows * self.col_cols];
+                for b in 0..batch {
+                    // Slice grad_output for this group/batch.
+                    let mut go_g = vec![zero; out_per_group * self.h_out * self.w_out];
+                    for oc in 0..out_per_group {
+                        let src_c = g * out_per_group + oc;
+                        let src_start = b * self.out_channels * self.h_out * self.w_out
+                            + src_c * self.h_out * self.w_out;
+                        let dst_start = oc * self.h_out * self.w_out;
+                        go_g[dst_start..dst_start + self.h_out * self.w_out].copy_from_slice(
+                            &go_data[src_start..src_start + self.h_out * self.w_out],
+                        );
+                    }
+                    let go_b_g = Tensor::from_storage(
+                        TensorStorage::cpu(go_g),
+                        vec![out_per_group, self.h_out * self.w_out],
+                        false,
+                    )?;
 
-                let gc_start = b * self.col_rows * self.col_cols;
-                grad_cols[gc_start..gc_start + self.col_rows * self.col_cols]
-                    .copy_from_slice(gc_data);
+                    let gc_b = mm(&weight_g_t, &go_b_g)?;
+                    let gc_data = gc_b.data()?;
+                    let gc_start = b * group_col_rows * self.col_cols;
+                    grad_cols_g[gc_start..gc_start + group_col_rows * self.col_cols]
+                        .copy_from_slice(gc_data);
+                }
+
+                // col2im_dilated scatters group's columns back to [B, in_per_group, H, W].
+                let gi_g = col2im_dilated(
+                    &grad_cols_g,
+                    batch,
+                    in_per_group,
+                    h,
+                    w,
+                    kh,
+                    kw,
+                    sh,
+                    sw,
+                    ph,
+                    pw,
+                    dh,
+                    dw,
+                    self.h_out,
+                    self.w_out,
+                );
+
+                // Place into the corresponding slice of the dense [B, C_in, H, W] tensor.
+                for b in 0..batch {
+                    for c in 0..in_per_group {
+                        let dst_c = g * in_per_group + c;
+                        let dst_start = b * self.in_channels * h * w + dst_c * h * w;
+                        let src_start = b * in_per_group * h * w + c * h * w;
+                        grad_input_data[dst_start..dst_start + h * w]
+                            .copy_from_slice(&gi_g[src_start..src_start + h * w]);
+                    }
+                }
             }
 
-            // col2im to scatter back to [B, C_in, H, W]
-            let gi = col2im(
-                &grad_cols,
-                batch,
-                self.in_channels,
-                h,
-                w,
-                kh,
-                kw,
-                sh,
-                sw,
-                ph,
-                pw,
-                self.h_out,
-                self.w_out,
-            );
-
             Some(
-                Tensor::from_storage(TensorStorage::cpu(gi), self.input.shape().to_vec(), false)?
-                    .to(input_device)?,
+                Tensor::from_storage(
+                    TensorStorage::cpu(grad_input_data),
+                    self.input.shape().to_vec(),
+                    false,
+                )?
+                .to(input_device)?,
             )
         } else {
             None
@@ -3897,6 +4257,8 @@ mod tests {
             kernel_size: (1, 1),
             stride: (1, 1),
             padding: (0, 0),
+            dilation: (1, 1),
+            groups: 1,
             training: false,
         };
 
@@ -3941,6 +4303,8 @@ mod tests {
             kernel_size: (1, 1),
             stride: (1, 1),
             padding: (0, 0),
+            dilation: (1, 1),
+            groups: 1,
             training: false,
         };
 
@@ -3972,6 +4336,8 @@ mod tests {
             kernel_size: (3, 3),
             stride: (1, 1),
             padding: (0, 0),
+            dilation: (1, 1),
+            groups: 1,
             training: false,
         };
 
@@ -4168,6 +4534,8 @@ mod tests {
             kernel_size: (3, 3),
             stride: (1, 1),
             padding: (0, 0),
+            dilation: (1, 1),
+            groups: 1,
             training: false,
         };
 
@@ -4200,6 +4568,8 @@ mod tests {
             kernel_size: (3, 3),
             stride: (1, 1),
             padding: (1, 1),
+            dilation: (1, 1),
+            groups: 1,
             training: false,
         };
 
