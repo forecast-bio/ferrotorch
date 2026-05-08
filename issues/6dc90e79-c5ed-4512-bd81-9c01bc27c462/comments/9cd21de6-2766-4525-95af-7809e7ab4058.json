@@ -1,0 +1,10 @@
+{
+  "uuid": "9cd21de6-2766-4525-95af-7809e7ab4058",
+  "issue_uuid": "6dc90e79-c5ed-4512-bd81-9c01bc27c462",
+  "author": "y4rr",
+  "content": "Plan (Option a — reuse resnet50_dilated): Replace ResNet50Dilated with a thin wrapper around resnet::resnet50_dilated([false,true,true]). The wrapper uses IntermediateFeatures::forward_features('layer4') to extract layer4 features (FCN's exact pattern). named_parameters/named_children/parameters_mut filter out fc.{weight,bias} and prefix with 'backbone.' to match torchvision's IntermediateLayerGetter schema. This delivers correct per-block dilation threading (previous_dilation pattern in resnet.rs::make_bottleneck_layer), eliminates the bn2->conv2.bn remap divergence (since the backbone now uses standard Bottleneck with raw 'bn2' keys), and unifies the ResNet path. Test-side remap simplifies — backbone.layer{3,4}.<j>.bn2.<k> now passes through unchanged (no rename). The DilatedBottleneck struct + make_dilated_layer helper become dead code; they will be removed entirely. DilatedConv2d in aspp.rs stays (still used by ASPP branches 1/2/3).",
+  "created_at": "2026-05-08T21:04:26.524581628Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAw0f7lXh/R4CpOR4Bs56o3ezoI039VIVY7muew89MIC9BZADfvbG1FLa2KD2wmG0V5y0jaG2Y0oau/OKndEEcAA=="
+}
