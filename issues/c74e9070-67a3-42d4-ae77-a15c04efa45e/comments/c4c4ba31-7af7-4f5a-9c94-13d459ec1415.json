@@ -1,0 +1,10 @@
+{
+  "uuid": "c4c4ba31-7af7-4f5a-9c94-13d459ec1415",
+  "issue_uuid": "c74e9070-67a3-42d4-ae77-a15c04efa45e",
+  "author": "y4rr",
+  "content": "Plan: Implement F2+F3 sprint work. Step 1: Write Python script to generate GGUF v3 binary fixture at ferrotorch-serialize/tests/conformance/fixtures/serialize_gguf.bin with 2 metadata KVs + 2 f32 tensors + 1 Q8_0 tensor. Step 2: Replace gguf_items_cascade_skip() in conformance_serialize.rs with live test fns for all 11 GGUF public items. Step 3: Replace onnx_export_items_cascade_skip() with live ONNX tests using IrGraph directly (no tracing required — confirmed IrGraph::new/add_input/add_node/set_outputs public API). Step 4: Verify tests pass. Step 5: Close #848 and #849.",
+  "created_at": "2026-05-08T00:30:01.940488498Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABABdbhneBqR41+FbfLskYqbb8liDUTi8ZstVR7G9r4QaAeq37nqjF+fJb6eef9DdGBqc2VpL+86k4QJy4tF12HBA=="
+}
