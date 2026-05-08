@@ -1,0 +1,10 @@
+{
+  "uuid": "96b9f4fa-5537-4732-806b-5d1512b25802",
+  "issue_uuid": "e888784e-344f-4c4e-8405-c186fcda91e9",
+  "author": "y4rr",
+  "content": "Committed: feat(nn): regenerate encoder/decoder/alibi fixtures for SwiGLU w3 + alibi slope (#904 #905 #976 #977) | Files: 6 files changed, 7753 insertions(+), 6790 deletions(-) | Commit: ba830c58",
+  "created_at": "2026-05-08T00:35:20.240695398Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAmo2Cx7b3OsBQwR1sBgjIAPpBNB9b6nXnCfZ3pF3YvEJ/trlyOB2iQn2PIEUfZlEcD7E3wAQRdvEqw6gKZoAIBg=="
+}
