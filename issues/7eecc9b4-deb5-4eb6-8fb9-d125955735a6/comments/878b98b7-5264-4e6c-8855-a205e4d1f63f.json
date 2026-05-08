@@ -1,0 +1,10 @@
+{
+  "uuid": "878b98b7-5264-4e6c-8855-a205e4d1f63f",
+  "issue_uuid": "7eecc9b4-deb5-4eb6-8fb9-d125955735a6",
+  "author": "y4rr",
+  "content": "Decision: Loader dispatches via named_modules + as_any (the pre-flight's recommended generic mechanism). When a BN path isn't reachable in named_modules() (i.e. the parent model doesn't override Module::named_children), the loader emits a hard FerrotorchError::InvalidArgument naming the gap — no silent skip, no cascade_skip-shaped smoothing. This is consistent with the project's 'failure modes surface, not smooth' bind. The current ferrotorch-vision models (ResNet50 etc.) do NOT override named_children, so resnet50_value_parity will FAIL after this change. The boundary 'NO changes to ferrotorch-vision/src/' blocks the obvious fix (add named_children to ResNet50). Reporting REDIRECT-NEEDED to architect; filing a follow-up issue covering the architectural-completion gap.",
+  "created_at": "2026-05-08T09:58:48.312237529Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAxxi/8kDgCFYNqXHyF5qO5rkj7sdpBNjwk5c8EJcW5GhjbHpfUFmkDDCChowqg4JapdyPakPaEd74kNZgetdgBA=="
+}
