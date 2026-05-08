@@ -92,13 +92,11 @@ mod cascade_skip {
     /// crosslink #904 — encoder/decoder layer fixture keys use legacy naming
     /// (attn_q_proj, ffn_w1/w2 only) that does not match the actual
     /// named_parameters() paths (self_attn.q_proj.weight, ffn.w1.weight,
-    /// ffn.w2.weight, ffn.w3.weight). Fixture regeneration required.
-    pub const ENCODER_DECODER_FIXTURE_KEY_MISMATCH: bool = true;
+    /// ffn.w2.weight, ffn.w3.weight). Fixed: fixture regenerated with
+    /// weight_q/k/v/out_proj keys and SwiGLU ffn_w3 (#976).
+    pub const ENCODER_DECODER_FIXTURE_KEY_MISMATCH: bool = false;
 
-    /// crosslink #905 — flex_attention alibi test hardcodes slope=0.5 but
-    /// fixture was generated with a different slope; numeric mismatch > tol.
-    /// Fixture must be regenerated with the slope stored as a fixture field.
-    pub const FLEX_ALIBI_SLOPE_MISMATCH: bool = true;
+
 }
 
 // ── Tolerances ─────────────────────────────────────────────────────────────
@@ -624,8 +622,6 @@ fn flex_attention_composite_forward() {
         let k = tensor_f32(&k_data, vec![bh, n_k, d]);
         let v = tensor_f32(&v_data, vec![bh, n_k, d]);
 
-        // skip_numeric_check is set true when a cascade guard suppresses tol::assert_close.
-        let mut skip_numeric_check = false;
         let out = match variant {
             "baseline" => flex_attention::<f32>(&q, &k, &v, None, None)
                 .unwrap_or_else(|e| panic!("[{tag}] flex_attention baseline failed: {e}")),
@@ -634,18 +630,11 @@ fn flex_attention_composite_forward() {
                 flex_attention::<f32>(&q, &k, &v, Some(&score_mod), None)
                     .unwrap_or_else(|e| panic!("[{tag}] flex_attention causal failed: {e}"))
             }
-            "alibi" if cascade_skip::FLEX_ALIBI_SLOPE_MISMATCH => {
-                // cascade #905 — slope is hardcoded; fixture was generated with a
-                // different value. Skip numeric check; just verify the call succeeds.
-                eprintln!("SKIP [{tag}] flex_attention alibi numeric check — cascade #905");
-                skip_numeric_check = true;
-                let slope = f32::from(1_u8) / 2.0_f32;
-                let score_mod = alibi_score_mod::<f32>(slope);
-                flex_attention::<f32>(&q, &k, &v, Some(&score_mod), None)
-                    .unwrap_or_else(|e| panic!("[{tag}] flex_attention alibi smoke failed: {e}"))
-            }
             "alibi" => {
-                let slope = f32::from(1_u8) / 2.0_f32;
+                let slope = fix["slope"]
+                    .as_f64()
+                    .unwrap_or_else(|| panic!("[{tag}] missing slope field in alibi fixture"))
+                    as f32;
                 let score_mod = alibi_score_mod::<f32>(slope);
                 flex_attention::<f32>(&q, &k, &v, Some(&score_mod), None)
                     .unwrap_or_else(|e| panic!("[{tag}] flex_attention alibi failed: {e}"))
@@ -656,9 +645,7 @@ fn flex_attention_composite_forward() {
         assert_eq!(out.shape(), &[bh, n_q, d], "[{tag}] shape");
         // The reference was computed with the same flat-batch-of-heads layout so
         // element counts match even though shapes differ from the 4-D fixture input.
-        if !skip_numeric_check {
-            tol::assert_close(&data_f32(&out), &expected, tol::F32_MATMUL, tag);
-        }
+        tol::assert_close(&data_f32(&out), &expected, tol::F32_MATMUL, tag);
     }
 }
 
@@ -1047,21 +1034,23 @@ fn transformer_encoder_layer_forward_matches_reference() {
         let mut enc = TransformerEncoderLayer::<f32>::new(d_model, nhead, d_ff, 0.0, 1e-5, false)
             .unwrap_or_else(|e| panic!("[{tag}] EncoderLayer construction failed: {e}"));
 
-        // Map fixture keys → parameter names as returned by named_parameters_mut.
-        // The encoder uses: self_attn.{q,k,v,out}_proj, ffn.w{1,2,3}.weight,
-        // norm1.{weight,bias}, norm2.{weight,bias}.
+        // Map fixture keys → parameter names as returned by named_parameters().
+        // MultiheadAttention emits "q_proj.weight" etc.; the encoder prefixes
+        // with "self_attn." giving full paths like "self_attn.q_proj.weight".
+        // SwiGLU emits "w1.weight" etc.; the encoder prefixes with "ffn."
+        // giving "ffn.w1.weight". LayerNorm emits "weight" / "bias" directly.
         let enc_params: Vec<(&str, &str, Vec<usize>)> = vec![
-            ("self_attn.q_proj",   "weight_q_proj",  vec![d_model, d_model]),
-            ("self_attn.k_proj",   "weight_k_proj",  vec![d_model, d_model]),
-            ("self_attn.v_proj",   "weight_v_proj",  vec![d_model, d_model]),
-            ("self_attn.out_proj", "weight_out_proj", vec![d_model, d_model]),
-            ("ffn.w1.weight",      "ffn_w1",         vec![d_ff, d_model]),
-            ("ffn.w2.weight",      "ffn_w2",         vec![d_ff, d_model]),
-            ("ffn.w3.weight",      "ffn_w3",         vec![d_model, d_ff]),
-            ("norm1.weight",       "ln1_w",          vec![d_model]),
-            ("norm1.bias",         "ln1_b",          vec![d_model]),
-            ("norm2.weight",       "ln2_w",          vec![d_model]),
-            ("norm2.bias",         "ln2_b",          vec![d_model]),
+            ("self_attn.q_proj.weight",   "weight_q_proj",  vec![d_model, d_model]),
+            ("self_attn.k_proj.weight",   "weight_k_proj",  vec![d_model, d_model]),
+            ("self_attn.v_proj.weight",   "weight_v_proj",  vec![d_model, d_model]),
+            ("self_attn.out_proj.weight", "weight_out_proj", vec![d_model, d_model]),
+            ("ffn.w1.weight",             "ffn_w1",         vec![d_ff, d_model]),
+            ("ffn.w2.weight",             "ffn_w2",         vec![d_ff, d_model]),
+            ("ffn.w3.weight",             "ffn_w3",         vec![d_model, d_ff]),
+            ("norm1.weight",              "ln1_w",          vec![d_model]),
+            ("norm1.bias",                "ln1_b",          vec![d_model]),
+            ("norm2.weight",              "ln2_w",          vec![d_model]),
+            ("norm2.bias",                "ln2_b",          vec![d_model]),
         ];
         // Inject weights via load_state_dict — API drift fix (#902):
         // named_parameters_mut was removed; use load_state_dict instead.
@@ -1117,25 +1106,28 @@ fn transformer_decoder_layer_forward_matches_reference() {
         let mut dec = TransformerDecoderLayer::<f32>::new(d_model, nhead, d_ff, 0.0, 1e-5, false)
             .unwrap_or_else(|e| panic!("[{tag}] DecoderLayer construction failed: {e}"));
 
-        // Inject weights via named_parameters_mut.
+        // Inject weights via load_state_dict.
+        // MultiheadAttention emits "q_proj.weight" etc.; decoder prefixes with
+        // "self_attn." or "cross_attn." giving full dotted paths. SwiGLU emits
+        // "w1.weight" etc. prefixed with "ffn.". LayerNorm emits "weight"/"bias".
         let dec_params: Vec<(&str, &str, Vec<usize>)> = vec![
-            ("self_attn.q_proj",    "self_attn_q_proj",   vec![d_model, d_model]),
-            ("self_attn.k_proj",    "self_attn_k_proj",   vec![d_model, d_model]),
-            ("self_attn.v_proj",    "self_attn_v_proj",   vec![d_model, d_model]),
-            ("self_attn.out_proj",  "self_attn_out_proj", vec![d_model, d_model]),
-            ("cross_attn.q_proj",   "cross_attn_q_proj",  vec![d_model, d_model]),
-            ("cross_attn.k_proj",   "cross_attn_k_proj",  vec![d_model, d_model]),
-            ("cross_attn.v_proj",   "cross_attn_v_proj",  vec![d_model, d_model]),
-            ("cross_attn.out_proj", "cross_attn_out_proj",vec![d_model, d_model]),
-            ("ffn.w1.weight",       "ffn_w1",             vec![d_ff, d_model]),
-            ("ffn.w2.weight",       "ffn_w2",             vec![d_ff, d_model]),
-            ("ffn.w3.weight",       "ffn_w3",             vec![d_model, d_ff]),
-            ("norm1.weight",        "ln1_w",              vec![d_model]),
-            ("norm1.bias",          "ln1_b",              vec![d_model]),
-            ("norm2.weight",        "ln2_w",              vec![d_model]),
-            ("norm2.bias",          "ln2_b",              vec![d_model]),
-            ("norm3.weight",        "ln3_w",              vec![d_model]),
-            ("norm3.bias",          "ln3_b",              vec![d_model]),
+            ("self_attn.q_proj.weight",    "self_attn_q_proj",   vec![d_model, d_model]),
+            ("self_attn.k_proj.weight",    "self_attn_k_proj",   vec![d_model, d_model]),
+            ("self_attn.v_proj.weight",    "self_attn_v_proj",   vec![d_model, d_model]),
+            ("self_attn.out_proj.weight",  "self_attn_out_proj", vec![d_model, d_model]),
+            ("cross_attn.q_proj.weight",   "cross_attn_q_proj",  vec![d_model, d_model]),
+            ("cross_attn.k_proj.weight",   "cross_attn_k_proj",  vec![d_model, d_model]),
+            ("cross_attn.v_proj.weight",   "cross_attn_v_proj",  vec![d_model, d_model]),
+            ("cross_attn.out_proj.weight", "cross_attn_out_proj",vec![d_model, d_model]),
+            ("ffn.w1.weight",              "ffn_w1",             vec![d_ff, d_model]),
+            ("ffn.w2.weight",              "ffn_w2",             vec![d_ff, d_model]),
+            ("ffn.w3.weight",              "ffn_w3",             vec![d_model, d_ff]),
+            ("norm1.weight",               "ln1_w",              vec![d_model]),
+            ("norm1.bias",                 "ln1_b",              vec![d_model]),
+            ("norm2.weight",               "ln2_w",              vec![d_model]),
+            ("norm2.bias",                 "ln2_b",              vec![d_model]),
+            ("norm3.weight",               "ln3_w",              vec![d_model]),
+            ("norm3.bias",                 "ln3_b",              vec![d_model]),
         ];
         // Inject weights via load_state_dict — API drift fix (#902):
         // named_parameters_mut was removed; use load_state_dict instead.

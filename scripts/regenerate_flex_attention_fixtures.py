@@ -277,9 +277,11 @@ def _empty_mask(n_q: int, n_k: int) -> torch.Tensor:
 VARIANTS = ("baseline", "causal", "block_diag", "alibi", "empty_mask")
 
 
+ALIBI_SLOPE: float = 0.5  # deterministic, seed-independent; stored in fixture
+
 def _bias_for(variant: str, n_q: int, n_k: int, dtype: str) -> torch.Tensor | None:
     if variant == "alibi":
-        return _alibi_bias(n_q, n_k, slope=0.5, dtype=dtype)
+        return _alibi_bias(n_q, n_k, slope=ALIBI_SLOPE, dtype=dtype)
     return None
 
 
@@ -344,6 +346,8 @@ def _emit_forward(
         row["bias"] = to_listf(bias)
     if mask is not None:
         row["mask_2d"] = [bool(b) for b in mask.reshape(-1).tolist()]
+    if variant == "alibi":
+        row["slope"] = ALIBI_SLOPE
     return row
 
 

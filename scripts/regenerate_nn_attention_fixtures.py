@@ -496,13 +496,16 @@ def fixture_flex_attention() -> list[dict[str, Any]]:
         bias_t: torch.Tensor | None = None
         mask_t: torch.Tensor | None = None
 
+        # slope=0.5; deterministic, seed-independent; stored in fixture.
+        # Formula matches ferrotorch::flex_attention::alibi_score_mod which
+        # computes slope * (q_idx - kv_idx) — signed, NOT -slope * |q-k|.
+        alibi_slope: float = 0.5
         if variant == "causal":
             mask_t = torch.tril(torch.ones(n_q, n_k, dtype=torch.bool))
         elif variant == "alibi":
-            slope = 0.5
             rows = torch.arange(n_q, dtype=dtype).unsqueeze(1)
             cols = torch.arange(n_k, dtype=dtype).unsqueeze(0)
-            bias_t = -slope * (rows - cols).abs()
+            bias_t = alibi_slope * (rows - cols)
 
         out = _manual_flex(q, k, v, bias=bias_t, mask=mask_t)
 
@@ -525,6 +528,8 @@ def fixture_flex_attention() -> list[dict[str, Any]]:
             row["bias"] = to_listf(bias_t)
         if mask_t is not None:
             row["mask_2d"] = [bool(b) for b in mask_t.reshape(-1).tolist()]
+        if variant == "alibi":
+            row["slope"] = alibi_slope
         fixtures.append(row)
     return fixtures
 
@@ -792,21 +797,33 @@ def _manual_layer_norm(
     return weight * x_norm + bias
 
 
-def _manual_ffn(
+def _manual_swiglu_ffn(
     x: torch.Tensor,
     w1: torch.Tensor,
-    b1: torch.Tensor,
     w2: torch.Tensor,
-    b2: torch.Tensor,
+    w3: torch.Tensor,
 ) -> torch.Tensor:
-    return F.relu(x @ w1.T + b1) @ w2.T + b2
+    """SwiGLU FFN matching ferrotorch::transformer::SwiGLU.
+
+    SwiGLU(x) = w3(silu(w1(x)) * w2(x))
+    w1, w2: [d_ff, d_model] (gate and up projections)
+    w3:     [d_model, d_ff] (down projection)
+    """
+    gate = F.silu(x @ w1.T)
+    up = x @ w2.T
+    return (gate * up) @ w3.T
 
 
 def fixture_encoder_layer() -> list[dict[str, Any]]:
     """
     TransformerEncoderLayer: pre-norm forward.
 
-    Architecture: norm1 -> self-attn -> residual -> norm2 -> ffn -> residual
+    Architecture: norm1 -> self-attn -> residual -> norm2 -> SwiGLU-ffn -> residual
+
+    Keys emitted match the Rust named_parameters() paths:
+      weight_q_proj / weight_k_proj / weight_v_proj / weight_out_proj
+      ffn_w1 [d_ff, d_model], ffn_w2 [d_ff, d_model], ffn_w3 [d_model, d_ff]
+    The forward uses the 3-weight SwiGLU math: w3(silu(w1(x)) * w2(x)).
     """
     fixtures: list[dict[str, Any]] = []
     batch, seq, d_model, nhead, d_ff = 2, 4, 16, 4, 32
@@ -816,7 +833,7 @@ def fixture_encoder_layer() -> list[dict[str, Any]]:
     g = torch.Generator()
     g.manual_seed(seed)
 
-    # Attention weights
+    # Attention weights (seeded independent of g so regen is stable)
     attn_w = _mha_seeded_weights(d_model, nhead, nhead, bias=False, seed=seed)
     attn_w = {k: v.to(dtype) for k, v in attn_w.items()}
 
@@ -824,11 +841,12 @@ def fixture_encoder_layer() -> list[dict[str, Any]]:
     ln1_w = torch.ones(d_model, dtype=dtype)
     ln1_b = torch.zeros(d_model, dtype=dtype)
 
-    # FFN weights
+    # SwiGLU FFN weights:
+    #   w1, w2: [d_ff, d_model] — gate and up projections
+    #   w3:     [d_model, d_ff] — down projection
     ffn_w1 = torch.randn(d_ff, d_model, generator=g, dtype=dtype)
-    ffn_b1 = torch.zeros(d_ff, dtype=dtype)
-    ffn_w2 = torch.randn(d_model, d_ff, generator=g, dtype=dtype)
-    ffn_b2 = torch.zeros(d_model, dtype=dtype)
+    ffn_w2 = torch.randn(d_ff, d_model, generator=g, dtype=dtype)
+    ffn_w3 = torch.randn(d_model, d_ff, generator=g, dtype=dtype)
 
     # Layer norm 2
     ln2_w = torch.ones(d_model, dtype=dtype)
@@ -836,13 +854,13 @@ def fixture_encoder_layer() -> list[dict[str, Any]]:
 
     x = torch.randn(batch, seq, d_model, generator=g, dtype=dtype)
 
-    # Pre-norm forward
+    # Pre-norm forward with SwiGLU FFN
     normed = _manual_layer_norm(x, ln1_w, ln1_b)
     attn_out = _manual_mha_forward(normed, attn_w, d_model, nhead, nhead, causal_mask=False)
     x2 = x + attn_out
 
     normed2 = _manual_layer_norm(x2, ln2_w, ln2_b)
-    ffn_out = _manual_ffn(normed2, ffn_w1, ffn_b1, ffn_w2, ffn_b2)
+    ffn_out = _manual_swiglu_ffn(normed2, ffn_w1, ffn_w2, ffn_w3)
     out = x2 + ffn_out
 
     row: dict[str, Any] = {
@@ -857,16 +875,18 @@ def fixture_encoder_layer() -> list[dict[str, Any]]:
         "ln1_w": to_listf(ln1_w),
         "ln1_b": to_listf(ln1_b),
         "ffn_w1": to_listf(ffn_w1),
-        "ffn_b1": to_listf(ffn_b1),
         "ffn_w2": to_listf(ffn_w2),
-        "ffn_b2": to_listf(ffn_b2),
+        "ffn_w3": to_listf(ffn_w3),
         "ln2_w": to_listf(ln2_w),
         "ln2_b": to_listf(ln2_b),
         "input_data": to_listf(x),
         "expected_output": to_listf(out),
     }
-    for k, v in attn_w.items():
-        row[f"attn_{k}"] = to_listf(v)
+    # Emit attn weights under weight_* keys matching Rust named_parameters()
+    row["weight_q_proj"]   = to_listf(attn_w["q_proj"])
+    row["weight_k_proj"]   = to_listf(attn_w["k_proj"])
+    row["weight_v_proj"]   = to_listf(attn_w["v_proj"])
+    row["weight_out_proj"] = to_listf(attn_w["out_proj"])
     fixtures.append(row)
     return fixtures
 
@@ -897,19 +917,22 @@ def fixture_decoder_layer() -> list[dict[str, Any]]:
     ln2_w, ln2_b = torch.ones(d_model), torch.zeros(d_model)
     ln3_w, ln3_b = torch.ones(d_model), torch.zeros(d_model)
 
+    # SwiGLU FFN weights for decoder:
+    #   w1, w2: [d_ff, d_model] — gate and up projections
+    #   w3:     [d_model, d_ff] — down projection
     ffn_w1 = torch.randn(d_ff, d_model, generator=g, dtype=dtype)
-    ffn_b1 = torch.zeros(d_ff)
-    ffn_w2 = torch.randn(d_model, d_ff, generator=g, dtype=dtype)
-    ffn_b2 = torch.zeros(d_model)
+    ffn_w2 = torch.randn(d_ff, d_model, generator=g, dtype=dtype)
+    ffn_w3 = torch.randn(d_model, d_ff, generator=g, dtype=dtype)
 
     x = torch.randn(batch, seq_q, d_model, generator=g, dtype=dtype)
     # memory has seq_k tokens but is broadcast-projected via cross-attn
     mem = torch.randn(batch, seq_k, d_model, generator=g, dtype=dtype)
 
     # --- pre-norm decoder step ---
-    # self-attn block
+    # self-attn block — causal mask matches Rust TransformerDecoderLayer.forward_with_memory
+    # which calls self.self_attn.forward_qkv(..., causal_mask=true)
     normed_x = _manual_layer_norm(x, ln1_w, ln1_b)
-    self_attn_out = _manual_mha_forward(normed_x, attn_self_w, d_model, nhead, nhead, causal_mask=False)
+    self_attn_out = _manual_mha_forward(normed_x, attn_self_w, d_model, nhead, nhead, causal_mask=True)
     x2 = x + self_attn_out
 
     # cross-attn block — ferrotorch passes (query, key, value) = (x2, mem, mem)
@@ -935,9 +958,9 @@ def fixture_decoder_layer() -> list[dict[str, Any]]:
     cross_attn_out = cross_attn_val @ attn_cross_w["out_proj"].T
     x3 = x2 + cross_attn_out
 
-    # ffn block
+    # ffn block — SwiGLU 3-weight: w3(silu(w1(x)) * w2(x))
     normed_x3 = _manual_layer_norm(x3, ln3_w, ln3_b)
-    ffn_out = _manual_ffn(normed_x3, ffn_w1, ffn_b1, ffn_w2, ffn_b2)
+    ffn_out = _manual_swiglu_ffn(normed_x3, ffn_w1, ffn_w2, ffn_w3)
     out = x3 + ffn_out
 
     row: dict[str, Any] = {
@@ -957,9 +980,8 @@ def fixture_decoder_layer() -> list[dict[str, Any]]:
         "ln3_w": to_listf(ln3_w),
         "ln3_b": to_listf(ln3_b),
         "ffn_w1": to_listf(ffn_w1),
-        "ffn_b1": to_listf(ffn_b1),
         "ffn_w2": to_listf(ffn_w2),
-        "ffn_b2": to_listf(ffn_b2),
+        "ffn_w3": to_listf(ffn_w3),
         "input_data": to_listf(x),
         "memory_data": to_listf(mem),
         "expected_output": to_listf(out),
