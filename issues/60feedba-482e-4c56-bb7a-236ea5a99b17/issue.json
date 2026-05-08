@@ -1,0 +1,10 @@
+{
+  "uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "display_id": 982,
+  "title": "Paranoid code review of ferrotorch v0.5.0: search for stubs, GPU/CPU mismatches, test integrity, arch issues",
+  "status": "open",
+  "priority": "critical",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T01:29:56.765465350Z",
+  "updated_at": "2026-05-08T01:29:56.765465350Z"
+}
