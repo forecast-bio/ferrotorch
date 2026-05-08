@@ -1,0 +1,10 @@
+{
+  "uuid": "c581bf62-9702-4a0d-9d2c-d511611f8e17",
+  "issue_uuid": "9c0cc388-19fc-4fcd-ab91-54719ca9fcc1",
+  "author": "y4rr",
+  "content": "Observation: Phase 1A baseline tests confirmed passing locally (5/5). Now starting refactor of resnet50_value_parity_pipeline into model-agnostic helpers. Will report each model honestly: PASS or REPORTED-with-issue#.",
+  "created_at": "2026-05-08T02:57:40.760618605Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAklOz7hLO+Mh6yCifslvQgXzLg5dlqjxqKp/fve+ls4zMn2216PCkqeM1hLmM/rDkt6p8wr4NhiHD5mGJJguwAg=="
+}
