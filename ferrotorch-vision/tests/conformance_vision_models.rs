@@ -930,15 +930,23 @@ fn convnext_tiny_output_finite() {
 
 #[test]
 fn convnext_tiny_param_count_in_range() {
+    // Phase 6 (#997 closure): the spatial 7×7 conv is now depthwise
+    // (groups=channels) matching torchvision convnext_tiny. The parameter
+    // count drops from ~187M (regular 7×7) to ~28.6M, in the same
+    // ballpark as torchvision's ~28.59M. We check a tight band rather than
+    // matching the torchvision count exactly because residual structural
+    // divergences from torchvision (layer_scale, Linear-vs-Conv1x1 pwconv,
+    // depthwise bias) are tracked separately in #1005 and may shift the
+    // count by a few hundred thousand parameters once they land.
     let model = convnext_tiny::<f32>(1000).expect("convnext_tiny");
     let total = model.num_parameters();
     assert!(
-        total > 180_000_000,
-        "ConvNeXt-Tiny param count should be >180M (regular conv), got {total}"
+        total > 27_000_000,
+        "ConvNeXt-Tiny param count should be >27M (depthwise 7×7), got {total}"
     );
     assert!(
-        total < 200_000_000,
-        "ConvNeXt-Tiny param count should be <200M (regular conv), got {total}"
+        total < 32_000_000,
+        "ConvNeXt-Tiny param count should be <32M (depthwise 7×7), got {total}"
     );
 }
 
@@ -2859,7 +2867,7 @@ mod value_parity_pipeline {
     use ferrotorch_serialize::load_safetensors;
     use ferrotorch_vision::models::{
         convnext_tiny, densenet121, efficientnet_b0, fcn_resnet50, inception_v3, mobilenet_v2,
-        mobilenet_v3_small, resnet50, swin_tiny, vit_b_16,
+        mobilenet_v3_small, resnet18, resnet34, resnet50, swin_tiny, vgg11, vgg16, vit_b_16,
     };
     use serde::Deserialize;
 
@@ -4249,7 +4257,6 @@ mod value_parity_pipeline {
     };
 
     #[test]
-    #[ignore = "#989 DenseNet121 ferrotorch impl is BN-free; named_parameters cannot match torchvision densenet121 state_dict keys"]
     fn densenet121_value_parity() {
         run_value_parity_test(
             DENSENET121_PROBE.fixture_id,
@@ -4260,25 +4267,21 @@ mod value_parity_pipeline {
     }
 
     #[test]
-    #[ignore = "#989 DenseNet121 BN-free impl"]
     fn densenet121_loader_rejects_unmapped_torchvision_key() {
         probe_loader_rejects_unmapped_torchvision_key(&DENSENET121_PROBE);
     }
 
     #[test]
-    #[ignore = "#989 DenseNet121 BN-free impl"]
     fn densenet121_loader_rejects_missing_ferrotorch_param() {
         probe_loader_rejects_missing_ferrotorch_param(&DENSENET121_PROBE);
     }
 
     #[test]
-    #[ignore = "#989 DenseNet121 BN-free impl"]
     fn densenet121_loader_rejects_shape_mismatch() {
         probe_loader_rejects_shape_mismatch(&DENSENET121_PROBE);
     }
 
     #[test]
-    #[ignore = "#989 DenseNet121 BN-free impl"]
     fn densenet121_loader_rejects_missing_bn_buffer() {
         probe_loader_rejects_missing_bn_buffer(&DENSENET121_PROBE);
     }
@@ -4499,13 +4502,15 @@ mod value_parity_pipeline {
         regenerate_target: "fcn_resnet50",
         model_label: "FCN-ResNet50",
         build_model: build_fcn_resnet50,
-        missing_param_key: "head.4.weight",
+        // Phase 6 (#994): top-level head prefix is `classifier.` not `head.`
+        // (matches torchvision fcn_resnet50). The probe targets the final
+        // 1×1 conv inside FCNHead — `classifier.4.weight`.
+        missing_param_key: "classifier.4.weight",
         bn_buffer_key: "backbone.bn1.running_mean",
         state_remap: None,
     };
 
     #[test]
-    #[ignore = "#994 FCN-ResNet50 ferrotorch backbone is non-dilated resnet50 (torchvision uses replace_stride_with_dilation=[False,True,True]); structural mismatch in layer3/4 stride and dilation prevents key parity"]
     fn fcn_resnet50_value_parity() {
         run_value_parity_test(
             FCN_RESNET50_PROBE.fixture_id,
@@ -4516,27 +4521,215 @@ mod value_parity_pipeline {
     }
 
     #[test]
-    #[ignore = "#994 FCN-ResNet50 non-dilated backbone"]
     fn fcn_resnet50_loader_rejects_unmapped_torchvision_key() {
         probe_loader_rejects_unmapped_torchvision_key(&FCN_RESNET50_PROBE);
     }
 
     #[test]
-    #[ignore = "#994 FCN-ResNet50 non-dilated backbone"]
     fn fcn_resnet50_loader_rejects_missing_ferrotorch_param() {
         probe_loader_rejects_missing_ferrotorch_param(&FCN_RESNET50_PROBE);
     }
 
     #[test]
-    #[ignore = "#994 FCN-ResNet50 non-dilated backbone"]
     fn fcn_resnet50_loader_rejects_shape_mismatch() {
         probe_loader_rejects_shape_mismatch(&FCN_RESNET50_PROBE);
     }
 
     #[test]
-    #[ignore = "#994 FCN-ResNet50 non-dilated backbone"]
     fn fcn_resnet50_loader_rejects_missing_bn_buffer() {
         probe_loader_rejects_missing_bn_buffer(&FCN_RESNET50_PROBE);
+    }
+
+    // ── Phase 6 (#1004): Tier 1 sweep — small-model PASS candidates ──────
+    //
+    // ResNet18, ResNet34, VGG11, and VGG16 ferrotorch impls have parameter
+    // schemas that match torchvision's reference exactly:
+    //   * ResNet18/34 — BasicBlock carries BN per #860; `bn1.<...>`,
+    //     `layer<i>.<j>.{conv,bn,downsample}.<...>`, `fc.<...>` already
+    //     mirrors torchvision.
+    //   * VGG11/16 — flat `features.<i>.{weight,bias}` and
+    //     `classifier.<j>.{weight,bias}` indices match torchvision (BN-free
+    //     variant). Conv layers carry bias=true on both sides per #1001.
+    //
+    // The fixtures land via `python3 scripts/regenerate_vision_fixtures.py
+    // --models resnet18 resnet34 vgg11 vgg16` and exercise the same strict
+    // loader / per-element allclose path as Phase 1A's resnet50.
+
+    // -- ResNet18 (torchvision: resnet18) ------------------------------- //
+
+    fn build_resnet18() -> Box<dyn Module<f32>> {
+        Box::new(resnet18::<f32>(1000).expect("resnet18 construction"))
+    }
+
+    const RESNET18_PROBE: ProbeConfig<'static> = ProbeConfig {
+        fixture_id: "resnet18_value_parity",
+        regenerate_target: "resnet18",
+        model_label: "ResNet18",
+        build_model: build_resnet18,
+        missing_param_key: "fc.bias",
+        bn_buffer_key: "bn1.running_mean",
+        state_remap: None,
+    };
+
+    #[test]
+    fn resnet18_value_parity() {
+        run_value_parity_test(
+            RESNET18_PROBE.fixture_id,
+            RESNET18_PROBE.regenerate_target,
+            RESNET18_PROBE.model_label,
+            build_resnet18,
+        );
+    }
+
+    #[test]
+    fn resnet18_loader_rejects_unmapped_torchvision_key() {
+        probe_loader_rejects_unmapped_torchvision_key(&RESNET18_PROBE);
+    }
+
+    #[test]
+    fn resnet18_loader_rejects_missing_ferrotorch_param() {
+        probe_loader_rejects_missing_ferrotorch_param(&RESNET18_PROBE);
+    }
+
+    #[test]
+    fn resnet18_loader_rejects_shape_mismatch() {
+        probe_loader_rejects_shape_mismatch(&RESNET18_PROBE);
+    }
+
+    #[test]
+    fn resnet18_loader_rejects_missing_bn_buffer() {
+        probe_loader_rejects_missing_bn_buffer(&RESNET18_PROBE);
+    }
+
+    // -- ResNet34 (torchvision: resnet34) ------------------------------- //
+
+    fn build_resnet34() -> Box<dyn Module<f32>> {
+        Box::new(resnet34::<f32>(1000).expect("resnet34 construction"))
+    }
+
+    const RESNET34_PROBE: ProbeConfig<'static> = ProbeConfig {
+        fixture_id: "resnet34_value_parity",
+        regenerate_target: "resnet34",
+        model_label: "ResNet34",
+        build_model: build_resnet34,
+        missing_param_key: "fc.bias",
+        bn_buffer_key: "bn1.running_mean",
+        state_remap: None,
+    };
+
+    #[test]
+    fn resnet34_value_parity() {
+        run_value_parity_test(
+            RESNET34_PROBE.fixture_id,
+            RESNET34_PROBE.regenerate_target,
+            RESNET34_PROBE.model_label,
+            build_resnet34,
+        );
+    }
+
+    #[test]
+    fn resnet34_loader_rejects_unmapped_torchvision_key() {
+        probe_loader_rejects_unmapped_torchvision_key(&RESNET34_PROBE);
+    }
+
+    #[test]
+    fn resnet34_loader_rejects_missing_ferrotorch_param() {
+        probe_loader_rejects_missing_ferrotorch_param(&RESNET34_PROBE);
+    }
+
+    #[test]
+    fn resnet34_loader_rejects_shape_mismatch() {
+        probe_loader_rejects_shape_mismatch(&RESNET34_PROBE);
+    }
+
+    #[test]
+    fn resnet34_loader_rejects_missing_bn_buffer() {
+        probe_loader_rejects_missing_bn_buffer(&RESNET34_PROBE);
+    }
+
+    // -- VGG11 (torchvision: vgg11) ------------------------------------- //
+
+    fn build_vgg11() -> Box<dyn Module<f32>> {
+        Box::new(vgg11::<f32>(1000).expect("vgg11 construction"))
+    }
+
+    const VGG11_PROBE: ProbeConfig<'static> = ProbeConfig {
+        fixture_id: "vgg11_value_parity",
+        regenerate_target: "vgg11",
+        model_label: "VGG11",
+        build_model: build_vgg11,
+        missing_param_key: "classifier.6.bias",
+        // VGG (BN-free variant) has no BN buffers; populated with a
+        // torchvision-side weight key so the precondition typechecks
+        // (consumed by no enabled probe).
+        bn_buffer_key: "features.0.weight",
+        state_remap: None,
+    };
+
+    #[test]
+    fn vgg11_value_parity() {
+        run_value_parity_test(
+            VGG11_PROBE.fixture_id,
+            VGG11_PROBE.regenerate_target,
+            VGG11_PROBE.model_label,
+            build_vgg11,
+        );
+    }
+
+    #[test]
+    fn vgg11_loader_rejects_unmapped_torchvision_key() {
+        probe_loader_rejects_unmapped_torchvision_key(&VGG11_PROBE);
+    }
+
+    #[test]
+    fn vgg11_loader_rejects_missing_ferrotorch_param() {
+        probe_loader_rejects_missing_ferrotorch_param(&VGG11_PROBE);
+    }
+
+    #[test]
+    fn vgg11_loader_rejects_shape_mismatch() {
+        probe_loader_rejects_shape_mismatch(&VGG11_PROBE);
+    }
+
+    // -- VGG16 (torchvision: vgg16) ------------------------------------- //
+
+    fn build_vgg16() -> Box<dyn Module<f32>> {
+        Box::new(vgg16::<f32>(1000).expect("vgg16 construction"))
+    }
+
+    const VGG16_PROBE: ProbeConfig<'static> = ProbeConfig {
+        fixture_id: "vgg16_value_parity",
+        regenerate_target: "vgg16",
+        model_label: "VGG16",
+        build_model: build_vgg16,
+        missing_param_key: "classifier.6.bias",
+        bn_buffer_key: "features.0.weight",
+        state_remap: None,
+    };
+
+    #[test]
+    fn vgg16_value_parity() {
+        run_value_parity_test(
+            VGG16_PROBE.fixture_id,
+            VGG16_PROBE.regenerate_target,
+            VGG16_PROBE.model_label,
+            build_vgg16,
+        );
+    }
+
+    #[test]
+    fn vgg16_loader_rejects_unmapped_torchvision_key() {
+        probe_loader_rejects_unmapped_torchvision_key(&VGG16_PROBE);
+    }
+
+    #[test]
+    fn vgg16_loader_rejects_missing_ferrotorch_param() {
+        probe_loader_rejects_missing_ferrotorch_param(&VGG16_PROBE);
+    }
+
+    #[test]
+    fn vgg16_loader_rejects_shape_mismatch() {
+        probe_loader_rejects_shape_mismatch(&VGG16_PROBE);
     }
 
     // ── Phase 3 (#996): permute-pattern sweep across ViT/ConvNeXt/Swin ──
@@ -4697,7 +4890,7 @@ mod value_parity_pipeline {
     };
 
     #[test]
-    #[ignore = "#997 ConvNeXt-T uses regular 7x7 conv (not depthwise/grouped) — named_parameters cannot match torchvision convnext_tiny state_dict keys; #996 permute-pattern CPU-pull bug is fixed but architectural divergence remains"]
+    #[ignore = "#1005 ConvNeXt-T residual divergences from torchvision (Phase 6 #997 closed depthwise; layer_scale gamma, Linear-vs-Conv1x1 pwconv, features.<i>.<j>.block.<k> naming, classifier.{0,2} schema, depthwise bias remain)"]
     fn convnext_tiny_value_parity() {
         run_value_parity_test(
             CONVNEXT_TINY_PROBE.fixture_id,
@@ -4708,19 +4901,19 @@ mod value_parity_pipeline {
     }
 
     #[test]
-    #[ignore = "#997 ConvNeXt-T regular-vs-depthwise 7x7 divergence"]
+    #[ignore = "#1005 ConvNeXt-T residual divergences (post-#997 depthwise): layer_scale, Linear-vs-Conv1x1 pwconv, naming"]
     fn convnext_tiny_loader_rejects_unmapped_torchvision_key() {
         probe_loader_rejects_unmapped_torchvision_key(&CONVNEXT_TINY_PROBE);
     }
 
     #[test]
-    #[ignore = "#997 ConvNeXt-T regular-vs-depthwise 7x7 divergence"]
+    #[ignore = "#1005 ConvNeXt-T residual divergences (post-#997 depthwise): layer_scale, Linear-vs-Conv1x1 pwconv, naming"]
     fn convnext_tiny_loader_rejects_missing_ferrotorch_param() {
         probe_loader_rejects_missing_ferrotorch_param(&CONVNEXT_TINY_PROBE);
     }
 
     #[test]
-    #[ignore = "#997 ConvNeXt-T regular-vs-depthwise 7x7 divergence"]
+    #[ignore = "#1005 ConvNeXt-T residual divergences (post-#997 depthwise): layer_scale, Linear-vs-Conv1x1 pwconv, naming"]
     fn convnext_tiny_loader_rejects_shape_mismatch() {
         probe_loader_rejects_shape_mismatch(&CONVNEXT_TINY_PROBE);
     }

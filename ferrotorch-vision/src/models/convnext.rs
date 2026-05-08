@@ -1,16 +1,20 @@
 //! ConvNeXt-Tiny architecture.
 //!
 //! Implements the ConvNeXt-Tiny model from "A ConvNet for the 2020s"
-//! (Liu et al., 2022). This implementation replaces the depthwise 7x7
-//! convolution with a regular 7x7 convolution because grouped/depthwise
-//! convolutions are not yet available in `ferrotorch_nn`. This changes the
-//! parameter count but preserves the overall architecture.
+//! (Liu et al., 2022).
+//!
+//! Phase 6 (#997) migrated the spatial 7×7 convolution from a regular
+//! `Conv2d` to a depthwise `Conv2d::new_full(.., dilation=(1,1), groups=C, ..)`,
+//! restoring true torchvision parity. The grouped CUDA fast path is not
+//! enabled for `groups>1` (see [`ferrotorch_nn::conv::Conv2d::forward`]'s
+//! gate), so depthwise blocks transparently fall back to the CPU im2col
+//! path while preserving the parameter count + element-wise output.
 //!
 //! Architecture summary:
 //!
 //! 1. Patchify stem: `Conv2d(3, 96, kernel=4, stride=4)` + `LayerNorm`
 //! 2. Four stages: `[3, 3, 9, 3]` blocks with channels `[96, 192, 384, 768]`
-//! 3. Each block: `Conv2d(C, C, 7, pad=3)` -> `LayerNorm` -> `Conv2d(C, 4*C, 1)` -> `GELU` -> `Conv2d(4*C, C, 1)` + residual
+//! 3. Each block: `Conv2d(C, C, 7, pad=3, groups=C)` (depthwise) -> `LayerNorm` -> `Conv2d(C, 4*C, 1)` -> `GELU` -> `Conv2d(4*C, C, 1)` + residual
 //! 4. Downsampling between stages: `LayerNorm` -> `Conv2d(C, 2*C, kernel=2, stride=2)`
 //! 5. Head: `AdaptiveAvgPool2d(1,1)` -> `LayerNorm` -> `Linear(768, num_classes)`
 //!
@@ -76,11 +80,11 @@ fn channel_layer_norm<T: Float>(
 /// A single ConvNeXt block.
 ///
 /// ```text
-/// x -> Conv2d(C, C, 7, pad=3) -> LayerNorm -> Conv2d(C, 4*C, 1) -> GELU -> Conv2d(4*C, C, 1) -> (+x) -> out
+/// x -> Conv2d(C, C, 7, pad=3, groups=C) -> LayerNorm -> Conv2d(C, 4*C, 1) -> GELU -> Conv2d(4*C, C, 1) -> (+x) -> out
 /// ```
 ///
-/// The first convolution is a regular 7x7 (replacing the depthwise 7x7 from
-/// the original paper, since grouped convolutions are not yet available).
+/// The first convolution is a depthwise 7×7 (one filter per input channel,
+/// `groups=C`), exactly matching torchvision's `convnext_tiny` reference.
 pub struct ConvNeXtBlock<T: Float> {
     dwconv: Conv2d<T>,
     norm: LayerNorm<T>,
@@ -95,8 +99,22 @@ impl<T: Float> ConvNeXtBlock<T> {
     ///
     /// * `channels` -- number of input and output channels.
     pub fn new(channels: usize) -> FerrotorchResult<Self> {
-        // Regular 7x7 conv (replaces depthwise 7x7).
-        let dwconv = Conv2d::new(channels, channels, (7, 7), (1, 1), (3, 3), false)?;
+        // Depthwise 7×7 conv via Conv2d::new_full with groups=channels
+        // (Phase 5 of #1002 + Phase 6 #997). bias=true matches torchvision
+        // convnext_tiny which uses the default bias=True for the depthwise
+        // 7×7. Without this the per-block bias parameter (1 per channel)
+        // would be missing from `named_parameters` and the fixture loader
+        // would surface an UnmappedFixtureKey on `features.<i>.<j>.block.0.bias`.
+        let dwconv = Conv2d::new_full(
+            channels,
+            channels,
+            (7, 7),
+            (1, 1),
+            (3, 3),
+            (1, 1),
+            channels,
+            true,
+        )?;
         // LayerNorm over the channel dimension.
         let norm = LayerNorm::new(vec![channels], 1e-6, true)?;
         // Pointwise expansion: C -> 4*C.
@@ -641,11 +659,13 @@ mod tests {
         let block = ConvNeXtBlock::<f32>::new(c).unwrap();
         let count: usize = block.parameters().iter().map(|p| p.numel()).sum();
 
-        // dwconv: C * C * 7 * 7 (regular 7x7)
-        // norm: weight(C) + bias(C) = 2*C
-        // pwconv1: C * 4*C * 1 * 1 = 4*C^2
-        // pwconv2: 4*C * C * 1 * 1 = 4*C^2
-        let expected = c * c * 7 * 7 + 2 * c + 4 * c * c + 4 * c * c;
+        // Phase 6 (#997): depthwise 7×7 (groups=channels) + bias=true.
+        // dwconv weight: C * (C/C) * 7 * 7 = C * 49     (depthwise, one filter per channel)
+        // dwconv bias:   C
+        // norm:          2 * C   (weight + bias)
+        // pwconv1:       4 * C^2 (1×1 conv)
+        // pwconv2:       4 * C^2 (1×1 conv)
+        let expected = c * 49 + c + 2 * c + 4 * c * c + 4 * c * c;
         assert_eq!(count, expected);
     }
 
@@ -722,29 +742,19 @@ mod tests {
         let model = convnext_tiny::<f32>(1000).unwrap();
         let total = model.num_parameters();
 
-        // With regular (non-depthwise) 7x7 convolutions, the parameter count
-        // is much larger than the original ConvNeXt-Tiny (~28M). The exact
-        // expected count is ~186.7M.
-        //
-        // Breakdown per stage (C = channel width):
-        //   block params = C*C*49 + 2*C + 4*C^2 + 4*C^2 = 57*C^2 + 2*C
-        //   stem: 3*96*16 + 2*96 = 4800
-        //   stage0: 3*(57*96^2 + 192) = 1,576,512
-        //   ds0: 2*96 + 96*192*4 = 73,920
-        //   stage1: 3*(57*192^2 + 384) = 6,304,896
-        //   ds1: 2*192 + 192*384*4 = 295,296
-        //   stage2: 9*(57*384^2 + 768) = 75,651,840
-        //   ds2: 2*384 + 384*768*4 = 1,180,416
-        //   stage3: 3*(57*768^2 + 1536) = 100,864,512
-        //   head: 2*768 + 768*1000 + 1000 = 770,536
-        //   total: ~186,722,728
+        // Phase 6 (#997): the spatial 7×7 conv is depthwise (groups=channels)
+        // matching torchvision convnext_tiny. The parameter count drops
+        // from ~187M (regular 7×7) to ~28.5M, in the same ballpark as
+        // torchvision's reference 28,589,128. The wider band tolerates
+        // residual structural divergences (layer_scale, Linear-vs-Conv1x1
+        // pwconv) tracked under #1005.
         assert!(
-            total > 180_000_000,
-            "ConvNeXt-Tiny should have >180M params (regular conv), got {total}"
+            total > 27_000_000,
+            "ConvNeXt-Tiny should have >27M params (depthwise 7×7), got {total}"
         );
         assert!(
-            total < 195_000_000,
-            "ConvNeXt-Tiny should have <195M params (regular conv), got {total}"
+            total < 32_000_000,
+            "ConvNeXt-Tiny should have <32M params (depthwise 7×7), got {total}"
         );
     }
 

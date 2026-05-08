@@ -32,13 +32,13 @@
     {
       "id": "convnext_tiny_v1_param_count",
       "op": "convnext_tiny_param_count",
-      "issue": "#930",
+      "issue": "#997",
       "params": {
         "num_classes": 1000
       },
-      "expected_min_params": 180000000,
-      "expected_max_params": 200000000,
-      "note": "ferrotorch ConvNeXt-Tiny uses regular 7x7 conv in place of depthwise: ~187M params (vs ~28M in torchvision). torchvision reference: 28,589,128. Accepted range: 180M\u2013200M."
+      "expected_min_params": 27000000,
+      "expected_max_params": 32000000,
+      "note": "Phase 6 (#997 closure): ConvNeXt-Tiny migrated to depthwise 7\u00d77 (groups=channels) via Conv2d::new_full. ~28.5M params, in the same ballpark as torchvision's reference 28,589,128 and the wider band tolerates residual structural divergences (layer_scale + Linear-vs-Conv1x1 pwconv) tracked under #1005."
     },
     {
       "id": "convnext_tiny_v1_output_finite",

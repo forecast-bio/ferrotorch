@@ -42,6 +42,30 @@ fn conv3x3<T: Float>(
     )
 }
 
+/// Create a 3×3 conv with explicit `dilation` (and matching `padding=dilation`
+/// for same-size output when `stride=1`). Used by Bottleneck/BasicBlock when
+/// the stage was constructed with `replace_stride_with_dilation`.
+fn conv3x3_dilated<T: Float>(
+    in_planes: usize,
+    out_planes: usize,
+    stride: usize,
+    dilation: (usize, usize),
+) -> FerrotorchResult<Conv2d<T>> {
+    Conv2d::new_full(
+        in_planes,
+        out_planes,
+        (3, 3),
+        (stride, stride),
+        // padding = dilation preserves same-size output for kernel=3 / stride=1.
+        // For stride=2 the spatial halves; the FCN/DeepLab dilated paths use
+        // stride=1 + dilation, so this padding choice mirrors torchvision.
+        dilation,
+        dilation,
+        1,
+        false,
+    )
+}
+
 /// Create a 1x1 conv with given stride and no padding.
 fn conv1x1<T: Float>(
     in_planes: usize,
@@ -87,15 +111,38 @@ impl<T: Float> BasicBlock<T> {
     /// Expansion factor for BasicBlock (channels are not expanded).
     pub const EXPANSION: usize = 1;
 
-    /// Create a new `BasicBlock`.
+    /// Create a new `BasicBlock` (no dilation; first conv stride is `stride`).
     ///
     /// * `in_planes`  -- number of input channels.
     /// * `planes`     -- number of output channels (before expansion, but
     ///   expansion=1 for BasicBlock so this is also the final channel count).
     /// * `stride`     -- spatial stride for the first 3x3 conv. Use 2 for
     ///   downsampling layers.
+    ///
+    /// Phase 6 (#994): one-line shim over [`BasicBlock::new_full`] with
+    /// `dilation=(1, 1)` so the existing `Bottleneck::new(...)` call sites
+    /// (and ResNet18/34 factories) stay byte-equivalent — the value-parity
+    /// PASS observed in Phase 6 Movement 2 is the binding regression test.
     pub fn new(in_planes: usize, planes: usize, stride: usize) -> FerrotorchResult<Self> {
-        let conv1 = conv3x3(in_planes, planes, stride)?;
+        Self::new_full(in_planes, planes, stride, (1, 1))
+    }
+
+    /// Create a new `BasicBlock` with explicit `dilation` (Phase 6 #994).
+    ///
+    /// torchvision's `BasicBlock` applies dilation to the 3×3 conv1 (the
+    /// first conv) when `replace_stride_with_dilation` is True for that
+    /// stage. The 3×3 conv2 stays at dilation=1.
+    pub fn new_full(
+        in_planes: usize,
+        planes: usize,
+        stride: usize,
+        dilation: (usize, usize),
+    ) -> FerrotorchResult<Self> {
+        let conv1 = if dilation == (1, 1) {
+            conv3x3(in_planes, planes, stride)?
+        } else {
+            conv3x3_dilated(in_planes, planes, stride, dilation)?
+        };
         let bn1 = BatchNorm2d::new(planes, 1e-5, 0.1, true)?;
         let conv2 = conv3x3(planes, planes, 1)?;
         let bn2 = BatchNorm2d::new(planes, 1e-5, 0.1, true)?;
@@ -277,17 +324,42 @@ impl<T: Float> Bottleneck<T> {
     /// Expansion factor for Bottleneck.
     pub const EXPANSION: usize = 4;
 
-    /// Create a new `Bottleneck`.
+    /// Create a new `Bottleneck` (no dilation, 3×3 conv stride is `stride`).
     ///
     /// * `in_planes`  -- number of input channels.
     /// * `planes`     -- bottleneck width (intermediate channel count).
     /// * `stride`     -- spatial stride for the 3x3 conv.
+    ///
+    /// Phase 6 (#994): one-line shim over [`Bottleneck::new_full`] with
+    /// `dilation=(1, 1)`. ResNet50 (which goes through this path everywhere)
+    /// stays byte-equivalent — the existing `resnet50_value_parity` PASS is
+    /// the binding regression test for the shim.
     pub fn new(in_planes: usize, planes: usize, stride: usize) -> FerrotorchResult<Self> {
+        Self::new_full(in_planes, planes, stride, (1, 1))
+    }
+
+    /// Create a new `Bottleneck` with explicit `dilation` (Phase 6 #994).
+    ///
+    /// torchvision's `Bottleneck` applies dilation to the 3×3 conv2 (the
+    /// middle conv); conv1/conv3 are 1×1 and unaffected. Padding for the
+    /// 3×3 is set to `dilation` to keep the output spatial size constant
+    /// when `stride=1` (the case torchvision uses for
+    /// `replace_stride_with_dilation`).
+    pub fn new_full(
+        in_planes: usize,
+        planes: usize,
+        stride: usize,
+        dilation: (usize, usize),
+    ) -> FerrotorchResult<Self> {
         let width = planes; // No group convolution, so width = planes.
 
         let conv1 = conv1x1(in_planes, width, 1)?;
         let bn1 = BatchNorm2d::new(width, 1e-5, 0.1, true)?;
-        let conv2 = conv3x3(width, width, stride)?;
+        let conv2 = if dilation == (1, 1) {
+            conv3x3(width, width, stride)?
+        } else {
+            conv3x3_dilated(width, width, stride, dilation)?
+        };
         let bn2 = BatchNorm2d::new(width, 1e-5, 0.1, true)?;
         let conv3 = conv1x1(width, planes * Self::EXPANSION, 1)?;
         let bn3 = BatchNorm2d::new(planes * Self::EXPANSION, 1e-5, 0.1, true)?;
@@ -499,16 +571,32 @@ impl<T: Float> ResNet<T> {
     /// Build a ResNet from BasicBlocks.
     ///
     /// `layers` is `[n1, n2, n3, n4]` giving the number of blocks in each
-    /// of the four stages.
-    fn from_basic(layers: [usize; 4], num_classes: usize) -> FerrotorchResult<Self> {
+    /// of the four stages. `replace_stride_with_dilation` (Phase 6 #994),
+    /// when supplied, swaps the stride-2 downsample at layers 2/3/4 for a
+    /// dilated 3×3 conv per torchvision; `None` preserves the existing
+    /// dense behaviour bit-for-bit.
+    fn from_basic(
+        layers: [usize; 4],
+        num_classes: usize,
+        replace_stride_with_dilation: Option<[bool; 3]>,
+    ) -> FerrotorchResult<Self> {
         let conv1 = Conv2d::new(3, 64, (7, 7), (2, 2), (3, 3), false)?;
         let bn1 = BatchNorm2d::new(64, 1e-5, 0.1, true)?;
         let maxpool = MaxPool2d::new([3, 3], [2, 2], [1, 1]);
 
-        let layer1 = Self::make_basic_layer(64, 64, layers[0], 1)?;
-        let layer2 = Self::make_basic_layer(64, 128, layers[1], 2)?;
-        let layer3 = Self::make_basic_layer(128, 256, layers[2], 2)?;
-        let layer4 = Self::make_basic_layer(256, 512, layers[3], 2)?;
+        // torchvision: self.dilation starts at 1; layer1 is always stride=1
+        // and dilate=False; layer{2,3,4} consult the flag.
+        let dilate_flags = replace_stride_with_dilation.unwrap_or([false, false, false]);
+        let mut current_dilation: usize = 1;
+
+        let layer1 =
+            Self::make_basic_layer(64, 64, layers[0], 1, false, &mut current_dilation)?;
+        let layer2 =
+            Self::make_basic_layer(64, 128, layers[1], 2, dilate_flags[0], &mut current_dilation)?;
+        let layer3 =
+            Self::make_basic_layer(128, 256, layers[2], 2, dilate_flags[1], &mut current_dilation)?;
+        let layer4 =
+            Self::make_basic_layer(256, 512, layers[3], 2, dilate_flags[2], &mut current_dilation)?;
 
         let avgpool = AdaptiveAvgPool2d::new((1, 1));
         let fc = Linear::new(512 * BasicBlock::<T>::EXPANSION, num_classes, true)?;
@@ -527,19 +615,52 @@ impl<T: Float> ResNet<T> {
         })
     }
 
-    /// Build a ResNet from Bottleneck blocks.
-    fn from_bottleneck(layers: [usize; 4], num_classes: usize) -> FerrotorchResult<Self> {
+    /// Build a ResNet from Bottleneck blocks. See [`from_basic`] for the
+    /// `replace_stride_with_dilation` semantics; the threading is identical.
+    fn from_bottleneck(
+        layers: [usize; 4],
+        num_classes: usize,
+        replace_stride_with_dilation: Option<[bool; 3]>,
+    ) -> FerrotorchResult<Self> {
         let conv1 = Conv2d::new(3, 64, (7, 7), (2, 2), (3, 3), false)?;
         let bn1 = BatchNorm2d::new(64, 1e-5, 0.1, true)?;
         let maxpool = MaxPool2d::new([3, 3], [2, 2], [1, 1]);
 
-        let layer1 = Self::make_bottleneck_layer(64, 64, layers[0], 1)?;
-        let layer2 =
-            Self::make_bottleneck_layer(64 * Bottleneck::<T>::EXPANSION, 128, layers[1], 2)?;
-        let layer3 =
-            Self::make_bottleneck_layer(128 * Bottleneck::<T>::EXPANSION, 256, layers[2], 2)?;
-        let layer4 =
-            Self::make_bottleneck_layer(256 * Bottleneck::<T>::EXPANSION, 512, layers[3], 2)?;
+        let dilate_flags = replace_stride_with_dilation.unwrap_or([false, false, false]);
+        let mut current_dilation: usize = 1;
+
+        let layer1 = Self::make_bottleneck_layer(
+            64,
+            64,
+            layers[0],
+            1,
+            false,
+            &mut current_dilation,
+        )?;
+        let layer2 = Self::make_bottleneck_layer(
+            64 * Bottleneck::<T>::EXPANSION,
+            128,
+            layers[1],
+            2,
+            dilate_flags[0],
+            &mut current_dilation,
+        )?;
+        let layer3 = Self::make_bottleneck_layer(
+            128 * Bottleneck::<T>::EXPANSION,
+            256,
+            layers[2],
+            2,
+            dilate_flags[1],
+            &mut current_dilation,
+        )?;
+        let layer4 = Self::make_bottleneck_layer(
+            256 * Bottleneck::<T>::EXPANSION,
+            512,
+            layers[3],
+            2,
+            dilate_flags[2],
+            &mut current_dilation,
+        )?;
 
         let avgpool = AdaptiveAvgPool2d::new((1, 1));
         let fc = Linear::new(512 * Bottleneck::<T>::EXPANSION, num_classes, true)?;
@@ -558,44 +679,84 @@ impl<T: Float> ResNet<T> {
         })
     }
 
-    /// Create a stage of BasicBlocks.
+    /// Create a stage of BasicBlocks. Phase 6 (#994) added the
+    /// `dilate` flag and the `current_dilation` thread-through state to
+    /// match torchvision's `_make_layer`:
     ///
-    /// The first block may downsample (stride > 1). Subsequent blocks
-    /// have stride 1 and preserve spatial dimensions.
+    /// * `previous_dilation = *current_dilation` (snapshot BEFORE update)
+    /// * if `dilate`: `*current_dilation *= stride`, then `stride := 1`
+    /// * the FIRST block uses `previous_dilation` and the
+    ///   (possibly-overridden) `stride`; SUBSEQUENT blocks use the new
+    ///   `*current_dilation` with stride=1.
     fn make_basic_layer(
         in_planes: usize,
         planes: usize,
         num_blocks: usize,
-        stride: usize,
+        mut stride: usize,
+        dilate: bool,
+        current_dilation: &mut usize,
     ) -> FerrotorchResult<Vec<Box<dyn Module<T>>>> {
+        let previous_dilation = *current_dilation;
+        if dilate {
+            *current_dilation *= stride;
+            stride = 1;
+        }
+
         let mut blocks: Vec<Box<dyn Module<T>>> = Vec::with_capacity(num_blocks);
 
-        // First block may change channels/stride.
-        blocks.push(Box::new(BasicBlock::new(in_planes, planes, stride)?));
+        blocks.push(Box::new(BasicBlock::new_full(
+            in_planes,
+            planes,
+            stride,
+            (previous_dilation, previous_dilation),
+        )?));
 
-        // Remaining blocks.
         let current_planes = planes * BasicBlock::<T>::EXPANSION;
         for _ in 1..num_blocks {
-            blocks.push(Box::new(BasicBlock::new(current_planes, planes, 1)?));
+            blocks.push(Box::new(BasicBlock::new_full(
+                current_planes,
+                planes,
+                1,
+                (*current_dilation, *current_dilation),
+            )?));
         }
 
         Ok(blocks)
     }
 
-    /// Create a stage of Bottleneck blocks.
+    /// Create a stage of Bottleneck blocks. See [`make_basic_layer`] for
+    /// the `dilate`/`current_dilation` semantics.
     fn make_bottleneck_layer(
         in_planes: usize,
         planes: usize,
         num_blocks: usize,
-        stride: usize,
+        mut stride: usize,
+        dilate: bool,
+        current_dilation: &mut usize,
     ) -> FerrotorchResult<Vec<Box<dyn Module<T>>>> {
+        let previous_dilation = *current_dilation;
+        if dilate {
+            *current_dilation *= stride;
+            stride = 1;
+        }
+
         let mut blocks: Vec<Box<dyn Module<T>>> = Vec::with_capacity(num_blocks);
 
-        blocks.push(Box::new(Bottleneck::new(in_planes, planes, stride)?));
+        blocks.push(Box::new(Bottleneck::new_full(
+            in_planes,
+            planes,
+            stride,
+            (previous_dilation, previous_dilation),
+        )?));
 
         let current_planes = planes * Bottleneck::<T>::EXPANSION;
         for _ in 1..num_blocks {
-            blocks.push(Box::new(Bottleneck::new(current_planes, planes, 1)?));
+            blocks.push(Box::new(Bottleneck::new_full(
+                current_planes,
+                planes,
+                1,
+                (*current_dilation, *current_dilation),
+            )?));
         }
 
         Ok(blocks)
@@ -867,23 +1028,39 @@ impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for Res
 
 /// Construct a ResNet-18 model.
 ///
-/// Architecture: `[2, 2, 2, 2]` BasicBlocks, ~11.2M parameters (without BN).
+/// Architecture: `[2, 2, 2, 2]` BasicBlocks. With BN (#860) the parameter
+/// count matches torchvision's ~11.7M.
 pub fn resnet18<T: Float>(num_classes: usize) -> FerrotorchResult<ResNet<T>> {
-    ResNet::from_basic([2, 2, 2, 2], num_classes)
+    ResNet::from_basic([2, 2, 2, 2], num_classes, None)
 }
 
 /// Construct a ResNet-34 model.
-///
-/// Architecture: `[3, 4, 6, 3]` BasicBlocks, ~21.3M parameters (without BN).
 pub fn resnet34<T: Float>(num_classes: usize) -> FerrotorchResult<ResNet<T>> {
-    ResNet::from_basic([3, 4, 6, 3], num_classes)
+    ResNet::from_basic([3, 4, 6, 3], num_classes, None)
 }
 
 /// Construct a ResNet-50 model.
 ///
-/// Architecture: `[3, 4, 6, 3]` Bottlenecks, ~23.5M parameters (without BN).
+/// Architecture: `[3, 4, 6, 3]` Bottlenecks. Matches torchvision's ~25.6M
+/// parameters with BN.
 pub fn resnet50<T: Float>(num_classes: usize) -> FerrotorchResult<ResNet<T>> {
-    ResNet::from_bottleneck([3, 4, 6, 3], num_classes)
+    ResNet::from_bottleneck([3, 4, 6, 3], num_classes, None)
+}
+
+/// Construct a ResNet-50 model with `replace_stride_with_dilation` (Phase 6
+/// #994). Mirrors torchvision's `resnet50(replace_stride_with_dilation=...)`:
+/// for each entry that is `true`, the corresponding stage's stride-2 is
+/// swapped for dilation×2 in the 3×3 conv2 of every block. Used by
+/// `fcn_resnet50` (which uses `[false, true, true]`).
+pub fn resnet50_dilated<T: Float>(
+    num_classes: usize,
+    replace_stride_with_dilation: [bool; 3],
+) -> FerrotorchResult<ResNet<T>> {
+    ResNet::from_bottleneck(
+        [3, 4, 6, 3],
+        num_classes,
+        Some(replace_stride_with_dilation),
+    )
 }
 
 // ===========================================================================

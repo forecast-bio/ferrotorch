@@ -6,13 +6,20 @@
 //!
 //! ```text
 //! image [B, 3, H, W]
-//!   └─ ResNet-50 backbone (standard strides)
-//!        layer4 output: [B, 2048, H/32, W/32]
+//!   └─ ResNet-50 backbone (replace_stride_with_dilation=[False, True, True])
+//!        layer4 output: [B, 2048, H/8, W/8]
 //!         └─ FCN head
 //!              ├─ conv 3×3, 2048→512, BN, ReLU
 //!              └─ conv 1×1, 512→num_classes
 //!                   └─ bilinear upsample → [B, num_classes, H, W]
 //! ```
+//!
+//! Phase 6 (#994): the backbone is now built via `resnet50_dilated([false,
+//! true, true])`, dilating layer3 (×2) and layer4 (×4) instead of striding —
+//! exactly matching torchvision's `fcn_resnet50` reference. The previous
+//! non-dilated backbone produced a structural mismatch with the
+//! torchvision state-dict layer3/4 conv2 dilation/padding entries, blocking
+//! `fcn_resnet50_value_parity` (architect's pre-flight Movement 5).
 //!
 //! The FCN head is a simplified version of the torchvision `FCNHead` which
 //! applies a 3×3 conv + BN + ReLU + dropout (p=0.1) + 1×1 conv.
@@ -30,7 +37,7 @@ use ferrotorch_nn::upsample::{InterpolateMode, interpolate};
 use ferrotorch_nn::{Conv2d, Dropout};
 
 use crate::models::feature_extractor::IntermediateFeatures;
-use crate::models::resnet::{ResNet, resnet50};
+use crate::models::resnet::{ResNet, resnet50_dilated};
 
 // ---------------------------------------------------------------------------
 // FCNHead
@@ -62,7 +69,11 @@ impl<T: Float> FcnHead<T> {
         let conv = Conv2d::new(in_channels, inter, (3, 3), (1, 1), (1, 1), false)?;
         let bn = BatchNorm2d::new(inter, 1e-5, 0.1, true)?;
         let dropout = Dropout::new(0.1)?;
-        let classifier = Conv2d::new(inter, num_classes, (1, 1), (1, 1), (0, 0), false)?;
+        // torchvision's FCNHead final 1×1 classifier conv carries bias=True
+        // (it's the last layer before the upsample, so the bias is read by
+        // the loader's `classifier.4.bias` key). Phase 6 (#994) closed the
+        // bias=False structural divergence here.
+        let classifier = Conv2d::new(inter, num_classes, (1, 1), (1, 1), (0, 0), true)?;
         Ok(Self {
             conv,
             bn,
@@ -172,11 +183,12 @@ pub struct Fcn<T: Float> {
 impl<T: Float> Fcn<T> {
     /// Construct an FCN model.
     ///
-    /// The backbone is a ResNet-50 with `num_classes=1000` (the head is
-    /// ignored; only the backbone feature stages are used).
+    /// The backbone is a ResNet-50 with `replace_stride_with_dilation=[false,
+    /// true, true]` (Phase 6 #994), exactly matching torchvision's
+    /// `fcn_resnet50`. The fc head is unused; only the backbone feature
+    /// stages are read.
     pub fn new(num_classes: usize) -> FerrotorchResult<Self> {
-        // Build backbone. The ResNet fc head is unused; we only need layer4.
-        let backbone = resnet50::<T>(1000)?;
+        let backbone = resnet50_dilated::<T>(1000, [false, true, true])?;
         let head = FcnHead::new(2048, num_classes)?;
         Ok(Self {
             backbone,
@@ -218,24 +230,67 @@ impl<T: Float> Module<T> for Fcn<T> {
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
-        let mut p = self.backbone.parameters();
-        p.extend(self.head.parameters());
-        p
+        // torchvision's fcn_resnet50 wraps the ResNet-50 backbone in
+        // IntermediateLayerGetter, which strips the final `fc` head
+        // (avgpool + Linear). The backbone state dict therefore has NO
+        // `backbone.fc.{weight,bias}` keys. We mirror that here by
+        // filtering the fc params out of `parameters()` and the loader's
+        // `parameters_mut()` view (Phase 6 #994).
+        let mut out: Vec<&Parameter<T>> = self
+            .backbone
+            .named_parameters()
+            .into_iter()
+            .filter_map(|(n, p)| if n.starts_with("fc.") { None } else { Some(p) })
+            .collect();
+        out.extend(self.head.parameters());
+        out
     }
 
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-        let mut p = self.backbone.parameters_mut();
-        p.extend(self.head.parameters_mut());
-        p
+        // Filter the backbone's `fc.*` params out (see `parameters()` above).
+        // The order MUST match `named_parameters()` because the value-parity
+        // loader does `.zip(parameters_mut())` against
+        // `named_parameters().map(name)`.
+        //
+        // We collect the names first (immutable borrow), then index into
+        // `parameters_mut()` by position so we can apply the same filter.
+        let names: Vec<String> = self
+            .backbone
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        let backbone_params: Vec<&mut Parameter<T>> = self
+            .backbone
+            .parameters_mut()
+            .into_iter()
+            .zip(names.iter())
+            .filter_map(|(p, n)| if n.starts_with("fc.") { None } else { Some(p) })
+            .collect();
+        let mut out = backbone_params;
+        out.extend(self.head.parameters_mut());
+        out
     }
 
     fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
         let mut out = Vec::new();
         for (k, v) in self.backbone.named_parameters() {
+            // Strip the unused fc head — torchvision's fcn_resnet50 backbone
+            // (wrapped in IntermediateLayerGetter) does the same, so the
+            // state dict has no `backbone.fc.*` keys.
+            if k.starts_with("fc.") {
+                continue;
+            }
             out.push((format!("backbone.{k}"), v));
         }
+        // torchvision exposes the FCN head under the top-level path
+        // `classifier.<{0,1,4}.<...>>` (FCNHead is `Sequential[Conv, BN,
+        // ReLU, Dropout, Conv]`, with the ReLU+Dropout claiming index 2/3
+        // and only Conv/BN/Conv carrying parameters). We mirror that
+        // exactly so the strict loader can adopt torchvision state dicts
+        // without remap.
         for (k, v) in self.head.named_parameters() {
-            out.push((format!("head.{k}"), v));
+            out.push((format!("classifier.{k}"), v));
         }
         out
     }
@@ -249,7 +304,7 @@ impl<T: Float> Module<T> for Fcn<T> {
     fn named_children(&self) -> Vec<(String, &dyn Module<T>)> {
         vec![
             ("backbone".to_string(), &self.backbone),
-            ("head".to_string(), &self.head),
+            ("classifier".to_string(), &self.head),
         ]
     }
 
@@ -339,7 +394,9 @@ mod tests {
             .map(|(n, _)| n)
             .collect();
         assert!(names.iter().any(|n| n.starts_with("backbone.")));
-        assert!(names.iter().any(|n| n.starts_with("head.")));
+        // Phase 6 (#994): top-level head prefix renamed `head.` →
+        // `classifier.` to match torchvision fcn_resnet50.
+        assert!(names.iter().any(|n| n.starts_with("classifier.")));
     }
 
     #[test]

@@ -249,11 +249,22 @@ mod tests {
 
     #[test]
     fn test_densenet_feature_extractor_roundtrip() {
+        // Phase 6 (#989): DenseNet feature node names switched to the
+        // torchvision-flat layout (`features.denseblock<i>` /
+        // `features.transition<i>`).
         use crate::models::densenet::densenet121;
-        let model: crate::models::densenet::DenseNet<f32> = densenet121(10).unwrap();
+        let mut model: crate::models::densenet::DenseNet<f32> = densenet121(10).unwrap();
+        // BN layers default to training mode; with batch=1 the BN
+        // running-stats update divides by zero variance which surfaces
+        // as NaN. Switch to eval-mode for this roundtrip probe.
+        model.eval();
         let extractor = FeatureExtractor::new(
             model,
-            vec!["block1".into(), "trans2".into(), "block4".into()],
+            vec![
+                "features.denseblock1".into(),
+                "features.transition2".into(),
+                "features.denseblock4".into(),
+            ],
         )
         .unwrap();
         let input: Tensor<f32> = randn(&[1, 3, 32, 32]).unwrap();

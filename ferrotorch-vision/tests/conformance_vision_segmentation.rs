@@ -116,8 +116,10 @@ fn test_fcn_constructs() {
 /// A5 - FCN has expected named-parameter prefixes.
 ///
 /// Matches torchvision:
-///   `backbone.*` — ResNet-50 stem + stages
-///   `head.*`     — FCN head (conv → BN → classifier)
+///   `backbone.*`    — ResNet-50 dilated stem + stages
+///   `classifier.*`  — FCN head (Phase 6 #994 renamed `head.*` → `classifier.*`
+///                     to match torchvision fcn_resnet50; the inner Sequential
+///                     `0/1/4` indices for Conv→BN→Conv are kept).
 #[test]
 fn test_fcn_named_parameter_prefixes() {
     let model = fcn_resnet50::<f32>(21).unwrap();
@@ -132,8 +134,8 @@ fn test_fcn_named_parameter_prefixes() {
         "missing backbone.* params"
     );
     assert!(
-        names.iter().any(|n| n.starts_with("head.")),
-        "missing head.* params"
+        names.iter().any(|n| n.starts_with("classifier.")),
+        "missing classifier.* params"
     );
 }
 

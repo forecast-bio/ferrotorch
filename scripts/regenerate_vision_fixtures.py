@@ -82,6 +82,16 @@ _VALUE_PARITY_MODELS = {
     "vit_b_16",
     "convnext_tiny",
     "swin_t",
+    # Phase 6 (#1004): Tier 1 sweep adds the four cheapest small-model
+    # candidates whose ferrotorch named_parameters layout already matches
+    # torchvision's (resnet18/34 — BN-bearing BasicBlocks per #860; vgg11/16
+    # — flat features.<i> + classifier.<i> indices, no BN). Adding the
+    # fixture entries lets the regenerator + value-parity test land
+    # together in one dispatch.
+    "resnet18",
+    "resnet34",
+    "vgg11",
+    "vgg16",
 }
 
 
@@ -130,6 +140,11 @@ def _value_parity_main(model_names):
         "vit_b_16": _value_parity_vit_b_16,
         "convnext_tiny": _value_parity_convnext_tiny,
         "swin_t": _value_parity_swin_t,
+        # Phase 6 (#1004) Tier 1 sweep
+        "resnet18": _value_parity_resnet18,
+        "resnet34": _value_parity_resnet34,
+        "vgg11": _value_parity_vgg11,
+        "vgg16": _value_parity_vgg16,
     }
 
     new_descriptors = []
@@ -625,6 +640,130 @@ def _value_parity_swin_t(fixtures_dir, st_save_file):
             "impl still uses standard global attention, not shifted-window "
             "attention (per swin.rs:6-9). The strict loader is therefore "
             "expected to REPORT structural divergence."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 (#1004): Tier 1 sweep — ResNet18/34 + VGG11/16
+# ---------------------------------------------------------------------------
+#
+# These four builders flow through the same `_emit_value_parity_descriptor`
+# helper as Phase 1A/1B/3, so the fixture-format and tolerance discipline are
+# uniform. Each is `weights=None` (random-init under torch.manual_seed(0))
+# rather than pretrained — Phase 6 is closing the per-model PASS gap on the
+# strict loader path; pretrained weight checks (#1001-style for resnet18/34)
+# are a follow-up.
+
+def _value_parity_resnet18(fixtures_dir, st_save_file):
+    """torchvision.models.resnet18(weights=None), 1×3×224×224 input.
+
+    Per #860, ferrotorch's BasicBlock now carries BN. The named_parameters
+    layout (`bn1.<...>`, `layer<i>.<j>.{conv,bn,downsample}.<...>`,
+    `fc.<...>`) matches torchvision's resnet18 keys exactly, so this
+    fixture is expected to PASS the strict loader.
+    """
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="resnet18_value_parity",
+        model_name="resnet18",
+        issue="#1004",
+        construction_note="tvm.resnet18(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.resnet18(weights=None),
+        descriptor_note=(
+            "Reference produced via torchvision.models.resnet18(weights=None). "
+            "Eval-mode + default-BN-stats (#984 workaround). Phase 6 (#1004) "
+            "small-model PASS candidate — ferrotorch BasicBlock carries BN "
+            "after #860, so named_parameters matches torchvision's resnet18 "
+            "key set."
+        ),
+    )
+
+
+def _value_parity_resnet34(fixtures_dir, st_save_file):
+    """torchvision.models.resnet34(weights=None), 1×3×224×224 input.
+
+    Same architectural rationale as resnet18 — ferrotorch BasicBlock with
+    BN matches torchvision's resnet34 key set; differs only in stage block
+    counts (2/2/2/2 → 3/4/6/3).
+    """
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="resnet34_value_parity",
+        model_name="resnet34",
+        issue="#1004",
+        construction_note="tvm.resnet34(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.resnet34(weights=None),
+        descriptor_note=(
+            "Reference produced via torchvision.models.resnet34(weights=None). "
+            "Eval-mode + default-BN-stats (#984 workaround). Phase 6 (#1004) "
+            "small-model PASS candidate."
+        ),
+    )
+
+
+def _value_parity_vgg11(fixtures_dir, st_save_file):
+    """torchvision.models.vgg11(weights=None), 1×3×224×224 input.
+
+    ferrotorch VGG (no BN) uses flat `features.<i>.{weight,bias}` and
+    `classifier.<j>.{weight,bias}` indices — exactly matching torchvision's
+    vgg11 (without _bn) layout. Conv layers carry bias=true on both sides
+    (Phase 4 #1001 fix). Expected PASS.
+    """
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="vgg11_value_parity",
+        model_name="vgg11",
+        issue="#1004",
+        construction_note="tvm.vgg11(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.vgg11(weights=None),
+        descriptor_note=(
+            "Reference produced via torchvision.models.vgg11(weights=None) — "
+            "BN-free variant. ferrotorch VGG (also BN-free) shares the flat "
+            "features.<i>/classifier.<j> indexing, so the strict loader is "
+            "expected to PASS."
+        ),
+    )
+
+
+def _value_parity_vgg16(fixtures_dir, st_save_file):
+    """torchvision.models.vgg16(weights=None), 1×3×224×224 input.
+
+    Same architectural rationale as vgg11; differs only in conv stack
+    depth (8 vs 13 conv layers).
+    """
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="vgg16_value_parity",
+        model_name="vgg16",
+        issue="#1004",
+        construction_note="tvm.vgg16(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.vgg16(weights=None),
+        descriptor_note=(
+            "Reference produced via torchvision.models.vgg16(weights=None) — "
+            "BN-free variant. ferrotorch VGG (also BN-free) shares the flat "
+            "features.<i>/classifier.<j> indexing, so the strict loader is "
+            "expected to PASS."
         ),
     )
 

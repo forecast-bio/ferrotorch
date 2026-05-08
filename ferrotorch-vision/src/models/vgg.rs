@@ -5,127 +5,24 @@
 //!
 //! Batch normalization is omitted (not yet available in `ferrotorch_nn`).
 //! All convolutions use 3x3 kernels with padding=1 (same convolution).
+//!
+//! Phase 6 (#1004) restored torchvision-flat indexing: `features` is now a
+//! flat `Vec<Box<dyn Module>>` of `Conv2d`, `ReLU`, and `MaxPool2d` modules
+//! (no thin Conv+ReLU compound), and `classifier` likewise stores `Linear`,
+//! `ReLU`, and `Dropout` as separate entries. This makes `named_parameters`
+//! produce `features.0.weight, features.3.weight, ..., classifier.0.weight,
+//! classifier.3.weight, classifier.6.weight` exactly matching
+//! `torchvision.models.vgg{11,16}` (BN-free variant) so the strict
+//! value-parity loader can adopt a torchvision state dict without remap.
 
-use ferrotorch_core::grad_fns::activation::relu;
 use ferrotorch_core::grad_fns::shape::reshape;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 
+use ferrotorch_nn::activation::ReLU;
 use ferrotorch_nn::module::Module;
 use ferrotorch_nn::parameter::Parameter;
 use ferrotorch_nn::pooling::{AdaptiveAvgPool2d, MaxPool2d};
 use ferrotorch_nn::{Conv2d, Dropout, Linear};
-
-// ===========================================================================
-// Thin wrappers so relu / dropout compose into Vec<Box<dyn Module<T>>>
-// ===========================================================================
-
-/// Conv2d followed by ReLU (no learnable params beyond the conv).
-struct ConvReLU<T: Float> {
-    conv: Conv2d<T>,
-    training: bool,
-}
-
-impl<T: Float> ConvReLU<T> {
-    fn new(in_channels: usize, out_channels: usize) -> FerrotorchResult<Self> {
-        Ok(Self {
-            // bias=true matches torchvision `vgg11/16` (which uses the
-            // default `bias=True` of `nn.Conv2d`). Phase 4 (#1001)
-            // surfaced the prior bias=false as a structural divergence
-            // — the `vgg11_num_parameters_matches_reference` fixture
-            // expected 128_807_306 params, ferrotorch produced
-            // 128_804_554 (diff 2752 = sum of per-stage conv biases).
-            // The dead-defensive `cascade_skip!(... #860)` branch had
-            // hidden this divergence; cleaning it up surfaced the
-            // real fix needed here.
-            conv: Conv2d::new(in_channels, out_channels, (3, 3), (1, 1), (1, 1), true)?,
-            training: true,
-        })
-    }
-}
-
-impl<T: Float> Module<T> for ConvReLU<T> {
-    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        let x = self.conv.forward(input)?;
-        relu(&x)
-    }
-
-    fn parameters(&self) -> Vec<&Parameter<T>> {
-        self.conv.parameters()
-    }
-
-    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-        self.conv.parameters_mut()
-    }
-
-    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-        self.conv.named_parameters()
-    }
-
-    fn train(&mut self) {
-        self.training = true;
-        self.conv.train();
-    }
-
-    fn eval(&mut self) {
-        self.training = false;
-        self.conv.eval();
-    }
-
-    fn is_training(&self) -> bool {
-        self.training
-    }
-}
-
-/// Linear -> ReLU -> Dropout (classifier block).
-struct LinearReLUDropout<T: Float> {
-    linear: Linear<T>,
-    dropout: Dropout<T>,
-    training: bool,
-}
-
-impl<T: Float> LinearReLUDropout<T> {
-    fn new(in_features: usize, out_features: usize, drop_p: f64) -> FerrotorchResult<Self> {
-        Ok(Self {
-            linear: Linear::new(in_features, out_features, true)?,
-            dropout: Dropout::new(drop_p)?,
-            training: true,
-        })
-    }
-}
-
-impl<T: Float> Module<T> for LinearReLUDropout<T> {
-    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        let x = self.linear.forward(input)?;
-        let x = relu(&x)?;
-        self.dropout.forward(&x)
-    }
-
-    fn parameters(&self) -> Vec<&Parameter<T>> {
-        self.linear.parameters()
-    }
-
-    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
-        self.linear.parameters_mut()
-    }
-
-    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
-        self.linear.named_parameters()
-    }
-
-    fn train(&mut self) {
-        self.training = true;
-        self.dropout.train();
-    }
-
-    fn eval(&mut self) {
-        self.training = false;
-        self.dropout.eval();
-    }
-
-    fn is_training(&self) -> bool {
-        self.training
-    }
-}
 
 // ===========================================================================
 // VGG configuration
@@ -190,8 +87,13 @@ fn vgg16_cfg() -> Vec<VggCfg> {
 
 /// Build the feature extraction layers from a VGG configuration.
 ///
-/// Each `Conv` entry becomes a `ConvReLU` (3x3, pad=1), each `Pool`
-/// becomes a `MaxPool2d(2, 2)`.
+/// Each `Conv` entry becomes a `Conv2d(in, out, 3, pad=1, bias=true)` followed by
+/// a `ReLU`; each `Pool` becomes a `MaxPool2d(2, 2)`. Conv and ReLU are
+/// pushed as separate flat entries so `named_parameters()` produces the
+/// torchvision indices `features.0.weight, features.3.weight, ...`
+/// instead of the prior collapsed `features.0, features.2, ...`. bias=true
+/// matches torchvision (default `nn.Conv2d(... bias=True)` for the BN-free
+/// VGG variant) — Phase 4 (#1001) closed the bias=false divergence.
 fn make_features<T: Float>(cfg: Vec<VggCfg>) -> FerrotorchResult<Vec<Box<dyn Module<T>>>> {
     let mut layers: Vec<Box<dyn Module<T>>> = Vec::new();
     let mut in_channels: usize = 3;
@@ -199,7 +101,15 @@ fn make_features<T: Float>(cfg: Vec<VggCfg>) -> FerrotorchResult<Vec<Box<dyn Mod
     for entry in cfg {
         match entry {
             VggCfg::Conv(out_channels) => {
-                layers.push(Box::new(ConvReLU::new(in_channels, out_channels)?));
+                layers.push(Box::new(Conv2d::<T>::new(
+                    in_channels,
+                    out_channels,
+                    (3, 3),
+                    (1, 1),
+                    (1, 1),
+                    true,
+                )?));
+                layers.push(Box::new(ReLU::new()));
                 in_channels = out_channels;
             }
             VggCfg::Pool => {
@@ -218,11 +128,20 @@ fn make_features<T: Float>(cfg: Vec<VggCfg>) -> FerrotorchResult<Vec<Box<dyn Mod
 /// Linear(4096, 4096)    -> ReLU -> Dropout(0.5)
 /// Linear(4096, num_classes)
 /// ```
+///
+/// Each component is pushed as a separate flat module so
+/// `named_parameters()` yields the torchvision-shaped
+/// `classifier.0.weight, classifier.3.weight, classifier.6.weight`
+/// indices.
 fn make_classifier<T: Float>(num_classes: usize) -> FerrotorchResult<Vec<Box<dyn Module<T>>>> {
     let layers: Vec<Box<dyn Module<T>>> = vec![
-        Box::new(LinearReLUDropout::new(512 * 7 * 7, 4096, 0.5)?),
-        Box::new(LinearReLUDropout::new(4096, 4096, 0.5)?),
-        Box::new(Linear::new(4096, num_classes, true)?),
+        Box::new(Linear::<T>::new(512 * 7 * 7, 4096, true)?),
+        Box::new(ReLU::new()),
+        Box::new(Dropout::<T>::new(0.5)?),
+        Box::new(Linear::<T>::new(4096, 4096, true)?),
+        Box::new(ReLU::new()),
+        Box::new(Dropout::<T>::new(0.5)?),
+        Box::new(Linear::<T>::new(4096, num_classes, true)?),
     ];
 
     Ok(layers)
@@ -421,8 +340,8 @@ impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for VGG
         input: &Tensor<T>,
     ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
         let mut out = std::collections::HashMap::new();
-        // Each entry in `features` is either a ConvReLU or a MaxPool.
-        // Emit one output per layer for maximum flexibility.
+        // Each entry in `features` is one of Conv2d / ReLU / MaxPool2d
+        // (Phase 6 #1004 flattening). Emit one output per layer.
         let mut x = self.features[0].forward(input)?;
         out.insert("features.0".to_string(), x.clone());
         for (i, layer) in self.features.iter().enumerate().skip(1) {
