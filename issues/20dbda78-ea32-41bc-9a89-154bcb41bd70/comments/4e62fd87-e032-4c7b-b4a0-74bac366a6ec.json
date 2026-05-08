@@ -1,0 +1,10 @@
+{
+  "uuid": "4e62fd87-e032-4c7b-b4a0-74bac366a6ec",
+  "issue_uuid": "20dbda78-ea32-41bc-9a89-154bcb41bd70",
+  "author": "y4rr",
+  "content": "Probe-before-fix dump (deeplabv3_remap probe PASSes 3/3): ferrotorch backbone uses 'backbone.layer3.0.conv2.bn.{weight,bias,running_*}' / 'backbone.layer3.0.conv2.weight' for the dilated bottleneck (DilatedConv2d wrapper flattens conv to bare key + bn nested under 'conv2.bn'). Torchvision uses 'backbone.layer3.0.conv2.weight' + 'backbone.layer3.0.bn2.{weight,bias,running_*}'. This is a 6th naming-layout divergence vs the pre-flight's 5-item list, but it is structurally identical to ASPPPooling indexing (also called out as 'handled test-side' in the pre-flight) — the remap function will translate 'backbone.layer<i>.<j>.bn2.<k>' -> 'backbone.layer<i>.<j>.conv2.bn.<k>' for layer3 + layer4 dilated stages. Treating as in-scope for Phase 9's test-side remap (no STOP-AND-REPORT). Layer1/layer2 use standard Bottleneck and follow torchvision's 'bn2' naming directly.",
+  "created_at": "2026-05-08T20:41:08.135788457Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAVOVlAuGirv3MlD6VB9hB9BCk9STUrIStykTcMTmsep0wqoovPQ1wdZeX+/brUaU8pG9mFTJ5KomcexyZHyfHAw=="
+}
