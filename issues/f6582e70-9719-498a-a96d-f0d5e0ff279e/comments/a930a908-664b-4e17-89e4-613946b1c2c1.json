@@ -1,0 +1,10 @@
+{
+  "uuid": "a930a908-664b-4e17-89e4-613946b1c2c1",
+  "issue_uuid": "f6582e70-9719-498a-a96d-f0d5e0ff279e",
+  "author": "y4rr",
+  "content": "Movement 2 result: ResNet18, ResNet34, VGG11, VGG16 — all 4 PASS strict value-parity. VGG required source-side flattening (separate ReLU/Dropout/MaxPool flat-list entries) to match torchvision's features.{0,3,6...} indexing. ResNet50/ViT cross-cut still PASS. resnet18/34 and 4 VGG fixtures regenerated.",
+  "created_at": "2026-05-08T17:14:30.396320277Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAHZyEWWGNFzYXVz3mndi1Jm0LAZhEsEOXtlUoIniZC8vodvpshz8HB3aaCtvd8pU9VBMn5+J8oSiFZC12z7t8BA=="
+}
