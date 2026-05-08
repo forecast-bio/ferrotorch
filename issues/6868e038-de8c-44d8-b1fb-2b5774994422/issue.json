@@ -1,0 +1,10 @@
+{
+  "uuid": "6868e038-de8c-44d8-b1fb-2b5774994422",
+  "display_id": 990,
+  "title": "Add depthwise+pointwise convs and BN to MobileNetV2 to match torchvision mobilenet_v2 state_dict schema",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T03:05:40.695644992Z",
+  "updated_at": "2026-05-08T03:05:40.695644992Z"
+}
