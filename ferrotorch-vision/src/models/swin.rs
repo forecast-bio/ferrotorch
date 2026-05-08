@@ -253,8 +253,6 @@ impl<T: Float> SwinStage<T> {
         spatial_h: usize,
         spatial_w: usize,
     ) -> FerrotorchResult<Tensor<T>> {
-        let device = input.device();
-
         // Run transformer blocks on [B, H*W, C]
         let mut x = self.blocks[0].forward(input)?;
         for block in &self.blocks[1..] {
@@ -267,29 +265,15 @@ impl<T: Float> SwinStage<T> {
             let batch = shape[0];
             let dim = shape[2];
 
-            // Transpose [B, H*W, C] -> [B, C, H, W]
-            let x_data = x.data_vec()?;
-            let num_tokens = spatial_h * spatial_w;
-            let mut transposed = vec![<T as num_traits::Zero>::zero(); batch * dim * num_tokens];
-
-            for b in 0..batch {
-                for t in 0..num_tokens {
-                    for c in 0..dim {
-                        // src: [b, t, c] in [B, H*W, C]
-                        let src = b * num_tokens * dim + t * dim + c;
-                        // dst: [b, c, t] in [B, C, H*W]
-                        let dst = b * dim * num_tokens + c * num_tokens + t;
-                        transposed[dst] = x_data[src];
-                    }
-                }
-            }
-
-            let x_4d = Tensor::from_storage(
-                TensorStorage::cpu(transposed),
-                vec![batch, dim, spatial_h, spatial_w],
-                x.requires_grad(),
-            )?
-            .to(device)?;
+            // Transpose [B, H*W, C] -> [B, C, H, W] via the autograd-correct
+            // primitive chain (#996, closes #986/#987). Equivalence to the
+            // previous manual data_vec()+indexed-loop is proved element-for-
+            // element by tests/probe_permute_migration.rs::probe_swin_bhwc_to_bchw_flat.
+            // Stays on `input.device()` end-to-end — no CPU pull-in-the-middle.
+            let x_4d = x
+                .view(&[batch as i64, spatial_h as i64, spatial_w as i64, dim as i64])?
+                .permute(&[0, 3, 1, 2])?
+                .contiguous()?;
 
             // Conv2d downsample: [B, C, H, W] -> [B, 2*C, H/2, W/2]
             let ds_out = ds.forward(&x_4d)?;
@@ -299,26 +283,14 @@ impl<T: Float> SwinStage<T> {
             let new_w = ds_shape[3];
             let new_tokens = new_h * new_w;
 
-            // Transpose [B, 2*C, H/2, W/2] -> [B, (H/2)*(W/2), 2*C]
-            let ds_data = ds_out.data_vec()?;
-            let mut out = vec![<T as num_traits::Zero>::zero(); batch * new_tokens * new_dim];
-
-            for b in 0..batch {
-                for c in 0..new_dim {
-                    for t in 0..new_tokens {
-                        let src = b * new_dim * new_tokens + c * new_tokens + t;
-                        let dst = b * new_tokens * new_dim + t * new_dim + c;
-                        out[dst] = ds_data[src];
-                    }
-                }
-            }
-
-            Tensor::from_storage(
-                TensorStorage::cpu(out),
-                vec![batch, new_tokens, new_dim],
-                x.requires_grad(),
-            )?
-            .to(device)
+            // Transpose [B, 2*C, H/2, W/2] -> [B, (H/2)*(W/2), 2*C] via the
+            // primitive chain — equivalence proved by the probe
+            // probe_swin_bchw_to_bhwc_flat.
+            ds_out.permute(&[0, 2, 3, 1])?.contiguous()?.view(&[
+                batch as i64,
+                new_tokens as i64,
+                new_dim as i64,
+            ])
         } else {
             Ok(x)
         }
@@ -425,26 +397,15 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
         let mut spatial_w = x_shape[3];
         let num_tokens = spatial_h * spatial_w;
 
-        // Transpose [B, C, H, W] -> [B, H*W, C]
-        let x_data = x.data_vec()?;
-        let mut seq_data = vec![<T as num_traits::Zero>::zero(); batch * num_tokens * embed_dim];
-
-        for b in 0..batch {
-            for c in 0..embed_dim {
-                for t in 0..num_tokens {
-                    let src = b * embed_dim * num_tokens + c * num_tokens + t;
-                    let dst = b * num_tokens * embed_dim + t * embed_dim + c;
-                    seq_data[dst] = x_data[src];
-                }
-            }
-        }
-
-        let mut x = Tensor::from_storage(
-            TensorStorage::cpu(seq_data),
-            vec![batch, num_tokens, embed_dim],
-            input.requires_grad(),
-        )?
-        .to(device)?;
+        // Transpose [B, C, H, W] -> [B, H*W, C] via the autograd-correct
+        // primitive chain (#996, closes #986/#987). Equivalence to the
+        // previous manual data_vec()+indexed-loop is proved element-for-
+        // element by tests/probe_permute_migration.rs::probe_swin_bchw_to_bhwc_flat.
+        let mut x = x.permute(&[0, 2, 3, 1])?.contiguous()?.view(&[
+            batch as i64,
+            num_tokens as i64,
+            embed_dim as i64,
+        ])?;
 
         // 2. Process through stages.
         for stage in &self.stages {
@@ -587,24 +548,14 @@ impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for Swi
         let mut spatial_w = x_shape[3];
         let num_tokens = spatial_h * spatial_w;
 
-        // Transpose [B, C, H, W] -> [B, H*W, C].
-        let x_data = x.data_vec()?;
-        let mut seq_data = vec![<T as num_traits::Zero>::zero(); batch * num_tokens * embed_dim];
-        for b in 0..batch {
-            for c in 0..embed_dim {
-                for t in 0..num_tokens {
-                    let src = b * embed_dim * num_tokens + c * num_tokens + t;
-                    let dst = b * num_tokens * embed_dim + t * embed_dim + c;
-                    seq_data[dst] = x_data[src];
-                }
-            }
-        }
-        let mut x = Tensor::from_storage(
-            TensorStorage::cpu(seq_data),
-            vec![batch, num_tokens, embed_dim],
-            input.requires_grad(),
-        )?
-        .to(device)?;
+        // Transpose [B, C, H, W] -> [B, H*W, C] via the autograd-correct
+        // primitive chain (#996, closes #986/#987). Equivalence proved by
+        // tests/probe_permute_migration.rs::probe_swin_bchw_to_bhwc_flat.
+        let mut x = x.permute(&[0, 2, 3, 1])?.contiguous()?.view(&[
+            batch as i64,
+            num_tokens as i64,
+            embed_dim as i64,
+        ])?;
 
         // 2. Stages.
         for (i, stage) in self.stages.iter().enumerate() {

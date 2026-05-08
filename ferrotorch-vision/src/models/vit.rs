@@ -76,39 +76,19 @@ impl<T: Float> Module<T> for PatchEmbed<T> {
         let h = shape[2];
         let w = shape[3];
         let num_patches = (h / self.patch_size) * (w / self.patch_size);
-        let device = input.device();
 
         // Conv2d: [B, C, H, W] -> [B, embed_dim, H/patch_size, W/patch_size]
         let x = self.proj.forward(input)?;
 
-        // Reshape to [B, embed_dim, num_patches] then transpose to [B, num_patches, embed_dim].
-        // Since we don't have a general transpose, we reshape the flat data manually.
-        //
-        // x has shape [B, embed_dim, grid_h, grid_w] stored row-major.
-        // We need [B, num_patches, embed_dim] where num_patches = grid_h * grid_w.
-        // This is equivalent to: reshape to [B, embed_dim, num_patches], then
-        // permute(0, 2, 1) -> [B, num_patches, embed_dim].
-        let x_data = x.data_vec()?;
-        let mut out = vec![<T as num_traits::Zero>::zero(); batch * num_patches * self.embed_dim];
-
-        for b in 0..batch {
-            for e in 0..self.embed_dim {
-                for p in 0..num_patches {
-                    // Source: [b, e, p] in [B, embed_dim, num_patches]
-                    let src = b * self.embed_dim * num_patches + e * num_patches + p;
-                    // Dest: [b, p, e] in [B, num_patches, embed_dim]
-                    let dst = b * num_patches * self.embed_dim + p * self.embed_dim + e;
-                    out[dst] = x_data[src];
-                }
-            }
-        }
-
-        Tensor::from_storage(
-            TensorStorage::cpu(out),
-            vec![batch, num_patches, self.embed_dim],
-            input.requires_grad(),
-        )?
-        .to(device)
+        // Migrate to autograd-correct primitive chain (#996, closes #986/#987):
+        // [B, embed_dim, grid_h, grid_w] -> view([B, embed_dim, num_patches])
+        // -> permute(0, 2, 1) -> [B, num_patches, embed_dim] -> contiguous().
+        // The probe at tests/probe_permute_migration.rs proves this matches the
+        // previous manual data_vec()+indexed-loop output element-for-element.
+        // Stays on `input.device()` end-to-end — no CPU pull-in-the-middle.
+        x.view(&[batch as i64, self.embed_dim as i64, num_patches as i64])?
+            .permute(&[0, 2, 1])?
+            .contiguous()
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {

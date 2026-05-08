@@ -2855,8 +2855,8 @@ mod value_parity_pipeline {
     use ferrotorch_nn::parameter::Parameter;
     use ferrotorch_serialize::load_safetensors;
     use ferrotorch_vision::models::{
-        densenet121, efficientnet_b0, fcn_resnet50, inception_v3, mobilenet_v2, mobilenet_v3_small,
-        resnet50,
+        convnext_tiny, densenet121, efficientnet_b0, fcn_resnet50, inception_v3, mobilenet_v2,
+        mobilenet_v3_small, resnet50, swin_tiny, vit_b_16,
     };
     use serde::Deserialize;
 
@@ -4159,6 +4159,211 @@ mod value_parity_pipeline {
     #[ignore = "#994 FCN-ResNet50 non-dilated backbone"]
     fn fcn_resnet50_loader_rejects_missing_bn_buffer() {
         probe_loader_rejects_missing_bn_buffer(&FCN_RESNET50_PROBE);
+    }
+
+    // ── Phase 3 (#996): permute-pattern sweep across ViT/ConvNeXt/Swin ──
+    //
+    // Phase 3 closes #986/#987 (CPU-pull-disguised-as-device-op in ViT and
+    // Swin) by migrating the manual `data_vec()` + indexed-loop permute
+    // patterns onto `Tensor::permute(...).contiguous()`. The probe at
+    // tests/probe_permute_migration.rs proves element-for-element
+    // equivalence between the old manual loops and the new primitive
+    // chain on five 4-D / 3-D-flat layouts; existing model tests
+    // (output_finite, deterministic_forward, output_shape_matches_reference)
+    // remain green after the migration.
+    //
+    // Per-model outcome under the strict value-parity loader:
+    //
+    //   * ViT-B/16 — vit.rs:1-13 declares "All operations use differentiable
+    //     primitives from ferrotorch_core" with no architectural-divergence
+    //     note. The Phase 3 pre-flight expected PASS, but the strict loader
+    //     surfaced a previously-unrecorded named_parameters() schema
+    //     divergence (encoder.layers.encoder_layer_<N>.ln_1.* vs
+    //     blocks.<N>.norm1.*). This is NOT in Phase 3 scope — Phase 3 only
+    //     migrates permute-pattern CPU pulls. Escalated under #999;
+    //     value-parity tests are #[ignore]'d with that issue number.
+    //
+    //   * ConvNeXt-T — convnext.rs:5-7 declares "regular 7×7 convolution
+    //     because grouped/depthwise convolutions are not yet available in
+    //     ferrotorch_nn. This changes the parameter count". The depthwise
+    //     divergence is escalated under #997. REPORTED.
+    //
+    //   * Swin-T — swin.rs:6-9 declares "uses standard (global) multi-head
+    //     attention from ferrotorch_nn instead of shifted-window attention".
+    //     The shifted-window divergence is escalated under #998. REPORTED.
+    //
+    // Each Phase 3 test below uses the same `run_value_parity_test` and
+    // probe-config helpers as Phase 1B, so the surface is uniform.
+
+    // -- ViT-B/16 (torchvision: vit_b_16) ------------------------------- //
+
+    fn build_vit_b_16() -> Box<dyn Module<f32>> {
+        Box::new(vit_b_16::<f32>(1000).expect("vit_b_16 construction"))
+    }
+
+    const VIT_B_16_PROBE: ProbeConfig<'static> = ProbeConfig {
+        fixture_id: "vit_b_16_value_parity",
+        regenerate_target: "vit_b_16",
+        model_label: "ViT-B/16",
+        build_model: build_vit_b_16,
+        missing_param_key: "heads.head.bias",
+        // ViT has no BN buffers; the BN-buffer probe is therefore not
+        // meaningful and is omitted below. We keep the descriptor field
+        // populated with a known torchvision tensor key so the
+        // `require_fixture_for_probe` precondition still typechecks; the
+        // probe call sites that consume `bn_buffer_key` are gated by an
+        // explicit `#[ignore]` on this model.
+        bn_buffer_key: "encoder.layers.encoder_layer_0.ln_1.weight",
+    };
+
+    // STOP-AND-REPORT under the Phase 3 pre-flight (#996): the architect's
+    // pre-flight expected ViT to PASS torch.allclose — the src/ header
+    // declares no architectural divergence. The strict value-parity loader
+    // discovered an unrecorded divergence at the parameter-naming layer:
+    // torchvision's vit_b_16 uses
+    //   encoder.layers.encoder_layer_<N>.ln_{1,2}.*
+    //   encoder.layers.encoder_layer_<N>.self_attention.*
+    //   encoder.layers.encoder_layer_<N>.mlp.{0,3}.*
+    //   heads.head.*  /  class_token  /  encoder.pos_embedding  /  conv_proj.*
+    // while ferrotorch (vit.rs:479-498) exposes
+    //   blocks.<N>.norm{1,2}.*  /  blocks.<N>.attn.*
+    //   blocks.<N>.mlp.fc{1,2}.*
+    //   head.*  /  cls_token  /  pos_embed  /  patch_embed.proj.*
+    // The math agrees, but the loader's strict 4-way check (failure modes
+    // 1+2 of the ProbeConfig contract) cannot adopt torchvision weights
+    // without a schema-rename phase. Tracked separately under #999;
+    // #[ignore]'d here per the Phase 3 pre-flight rule "no #[ignore]
+    // without freshly-filed tracking issue number".
+    //
+    // The Phase 3 PERMUTE-PATTERN migration (the actual scope of #996) is
+    // independently green: probe_permute_migration.rs::probe_vit_patch_embed_*
+    // proves byte-for-byte equivalence of the new primitive chain to the
+    // old manual loop, and existing vit_b_16_output_shape /
+    // _output_finite / _custom_num_classes / _deterministic_forward
+    // tests continue to pass post-migration.
+
+    #[test]
+    #[ignore = "#999 ViT-B/16 named_parameters schema (blocks.<N>.norm1, attn, mlp.fc1) does not match torchvision vit_b_16 (encoder.layers.encoder_layer_<N>.ln_1, self_attention, mlp.0/3); strict loader cannot adopt torchvision weights until a schema-rename phase lands. #996 permute-pattern CPU-pull bug is fixed but parameter-schema divergence remains."]
+    fn vit_b_16_value_parity() {
+        run_value_parity_test(
+            VIT_B_16_PROBE.fixture_id,
+            VIT_B_16_PROBE.regenerate_target,
+            VIT_B_16_PROBE.model_label,
+            build_vit_b_16,
+        );
+    }
+
+    #[test]
+    #[ignore = "#999 ViT-B/16 named_parameters schema divergence vs torchvision vit_b_16"]
+    fn vit_b_16_loader_rejects_unmapped_torchvision_key() {
+        probe_loader_rejects_unmapped_torchvision_key(&VIT_B_16_PROBE);
+    }
+
+    #[test]
+    #[ignore = "#999 ViT-B/16 named_parameters schema divergence vs torchvision vit_b_16"]
+    fn vit_b_16_loader_rejects_missing_ferrotorch_param() {
+        probe_loader_rejects_missing_ferrotorch_param(&VIT_B_16_PROBE);
+    }
+
+    #[test]
+    #[ignore = "#999 ViT-B/16 named_parameters schema divergence vs torchvision vit_b_16"]
+    fn vit_b_16_loader_rejects_shape_mismatch() {
+        probe_loader_rejects_shape_mismatch(&VIT_B_16_PROBE);
+    }
+
+    // -- ConvNeXt-T (torchvision: convnext_tiny) ------------------------ //
+
+    fn build_convnext_tiny() -> Box<dyn Module<f32>> {
+        Box::new(convnext_tiny::<f32>(1000).expect("convnext_tiny construction"))
+    }
+
+    const CONVNEXT_TINY_PROBE: ProbeConfig<'static> = ProbeConfig {
+        fixture_id: "convnext_tiny_value_parity",
+        regenerate_target: "convnext_tiny",
+        model_label: "ConvNeXt-T",
+        build_model: build_convnext_tiny,
+        // torchvision convnext_tiny exposes a final classifier head as
+        // `classifier.2.bias` — the LayerNorm + Flatten + Linear sequence.
+        missing_param_key: "classifier.2.bias",
+        // ConvNeXt has no BN buffers; the field is populated with a
+        // torchvision-side LayerNorm weight key so the precondition
+        // typechecks (consumed by no enabled probe).
+        bn_buffer_key: "features.0.1.weight",
+    };
+
+    #[test]
+    #[ignore = "#997 ConvNeXt-T uses regular 7x7 conv (not depthwise/grouped) — named_parameters cannot match torchvision convnext_tiny state_dict keys; #996 permute-pattern CPU-pull bug is fixed but architectural divergence remains"]
+    fn convnext_tiny_value_parity() {
+        run_value_parity_test(
+            CONVNEXT_TINY_PROBE.fixture_id,
+            CONVNEXT_TINY_PROBE.regenerate_target,
+            CONVNEXT_TINY_PROBE.model_label,
+            build_convnext_tiny,
+        );
+    }
+
+    #[test]
+    #[ignore = "#997 ConvNeXt-T regular-vs-depthwise 7x7 divergence"]
+    fn convnext_tiny_loader_rejects_unmapped_torchvision_key() {
+        probe_loader_rejects_unmapped_torchvision_key(&CONVNEXT_TINY_PROBE);
+    }
+
+    #[test]
+    #[ignore = "#997 ConvNeXt-T regular-vs-depthwise 7x7 divergence"]
+    fn convnext_tiny_loader_rejects_missing_ferrotorch_param() {
+        probe_loader_rejects_missing_ferrotorch_param(&CONVNEXT_TINY_PROBE);
+    }
+
+    #[test]
+    #[ignore = "#997 ConvNeXt-T regular-vs-depthwise 7x7 divergence"]
+    fn convnext_tiny_loader_rejects_shape_mismatch() {
+        probe_loader_rejects_shape_mismatch(&CONVNEXT_TINY_PROBE);
+    }
+
+    // -- Swin-T (torchvision: swin_t) ----------------------------------- //
+
+    fn build_swin_t() -> Box<dyn Module<f32>> {
+        Box::new(swin_tiny::<f32>(1000).expect("swin_tiny construction"))
+    }
+
+    const SWIN_T_PROBE: ProbeConfig<'static> = ProbeConfig {
+        fixture_id: "swin_t_value_parity",
+        regenerate_target: "swin_t",
+        model_label: "Swin-T",
+        build_model: build_swin_t,
+        missing_param_key: "head.bias",
+        // Swin has no BN buffers; populated with a torchvision-side
+        // LayerNorm weight key so the precondition typechecks.
+        bn_buffer_key: "features.0.2.weight",
+    };
+
+    #[test]
+    #[ignore = "#998 Swin-T uses standard global attention (not shifted-window) — named_parameters cannot match torchvision swin_t state_dict keys; #996 permute-pattern CPU-pull bug is fixed but architectural divergence remains"]
+    fn swin_t_value_parity() {
+        run_value_parity_test(
+            SWIN_T_PROBE.fixture_id,
+            SWIN_T_PROBE.regenerate_target,
+            SWIN_T_PROBE.model_label,
+            build_swin_t,
+        );
+    }
+
+    #[test]
+    #[ignore = "#998 Swin-T global-vs-shifted-window attention divergence"]
+    fn swin_t_loader_rejects_unmapped_torchvision_key() {
+        probe_loader_rejects_unmapped_torchvision_key(&SWIN_T_PROBE);
+    }
+
+    #[test]
+    #[ignore = "#998 Swin-T global-vs-shifted-window attention divergence"]
+    fn swin_t_loader_rejects_missing_ferrotorch_param() {
+        probe_loader_rejects_missing_ferrotorch_param(&SWIN_T_PROBE);
+    }
+
+    #[test]
+    #[ignore = "#998 Swin-T global-vs-shifted-window attention divergence"]
+    fn swin_t_loader_rejects_shape_mismatch() {
+        probe_loader_rejects_shape_mismatch(&SWIN_T_PROBE);
     }
 
     // ── Phase 2 (#984): full BN-buffer-applied loader path ──────────────

@@ -20,7 +20,7 @@
 
 use ferrotorch_core::grad_fns::arithmetic::add;
 use ferrotorch_core::grad_fns::shape::reshape;
-use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor};
 
 use ferrotorch_nn::activation::GELU;
 use ferrotorch_nn::conv::Conv2d;
@@ -35,61 +35,25 @@ use ferrotorch_nn::pooling::AdaptiveAvgPool2d;
 // ===========================================================================
 
 /// Permute a 4-D tensor from `[B, C, H, W]` to `[B, H, W, C]`.
+///
+/// Migrated from a manual `data_vec()`+indexed-loop CPU-detour pattern to the
+/// autograd-correct `Tensor::permute(...).contiguous()` primitive chain
+/// (#996, closes #986/#987). Equivalence proved element-for-element by
+/// `tests/probe_permute_migration.rs::probe_convnext_nhwc_from_nchw`.
+/// Stays on `input.device()` end-to-end — no CPU pull-in-the-middle.
 fn nhwc_from_nchw<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let shape = input.shape();
-    let (b, c, h, w) = (shape[0], shape[1], shape[2], shape[3]);
-    let device = input.device();
-    let data = input.data_vec()?;
-    let total = b * c * h * w;
-    let mut out = vec![<T as num_traits::Zero>::zero(); total];
-
-    for bi in 0..b {
-        for ci in 0..c {
-            for hi in 0..h {
-                for wi in 0..w {
-                    let src = bi * c * h * w + ci * h * w + hi * w + wi;
-                    let dst = bi * h * w * c + hi * w * c + wi * c + ci;
-                    out[dst] = data[src];
-                }
-            }
-        }
-    }
-
-    Tensor::from_storage(
-        TensorStorage::cpu(out),
-        vec![b, h, w, c],
-        input.requires_grad(),
-    )?
-    .to(device)
+    input.permute(&[0, 2, 3, 1])?.contiguous()
 }
 
 /// Permute a 4-D tensor from `[B, H, W, C]` to `[B, C, H, W]`.
+///
+/// Migrated from a manual `data_vec()`+indexed-loop CPU-detour pattern to the
+/// autograd-correct `Tensor::permute(...).contiguous()` primitive chain
+/// (#996, closes #986/#987). Equivalence proved element-for-element by
+/// `tests/probe_permute_migration.rs::probe_convnext_nchw_from_nhwc`.
+/// Stays on `input.device()` end-to-end — no CPU pull-in-the-middle.
 fn nchw_from_nhwc<T: Float>(input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let shape = input.shape();
-    let (b, h, w, c) = (shape[0], shape[1], shape[2], shape[3]);
-    let device = input.device();
-    let data = input.data_vec()?;
-    let total = b * c * h * w;
-    let mut out = vec![<T as num_traits::Zero>::zero(); total];
-
-    for bi in 0..b {
-        for hi in 0..h {
-            for wi in 0..w {
-                for ci in 0..c {
-                    let src = bi * h * w * c + hi * w * c + wi * c + ci;
-                    let dst = bi * c * h * w + ci * h * w + hi * w + wi;
-                    out[dst] = data[src];
-                }
-            }
-        }
-    }
-
-    Tensor::from_storage(
-        TensorStorage::cpu(out),
-        vec![b, c, h, w],
-        input.requires_grad(),
-    )?
-    .to(device)
+    input.permute(&[0, 3, 1, 2])?.contiguous()
 }
 
 /// Apply `LayerNorm` on the channel dimension of a `[B, C, H, W]` tensor.

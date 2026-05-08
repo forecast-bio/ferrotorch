@@ -63,6 +63,11 @@ if not tv_ver.startswith("0.21"):
 # ---------------------------------------------------------------------------
 
 # Phase 1A: resnet50. Phase 1B (#985): six additional candidates.
+# Phase 3 (#996): three Transformer-family models added after the permute-
+# pattern sweep migrated their CPU-pull permute sites onto Tensor::permute()
+# .contiguous(). ViT-B/16 expected PASS; ConvNeXt-T and Swin-T expected
+# REPORT (their src/ headers document architectural divergence from
+# torchvision — depthwise 7×7 in ConvNeXt, shifted-window attention in Swin).
 # Each value-parity model has a builder function below; they all flow through
 # `_emit_value_parity_descriptor` to keep the fixture format and tolerance
 # discipline uniform across models.
@@ -74,6 +79,9 @@ _VALUE_PARITY_MODELS = {
     "efficientnet_b0",
     "inception_v3",
     "fcn_resnet50",
+    "vit_b_16",
+    "convnext_tiny",
+    "swin_t",
 }
 
 
@@ -119,6 +127,9 @@ def _value_parity_main(model_names):
         "efficientnet_b0": _value_parity_efficientnet_b0,
         "inception_v3": _value_parity_inception_v3,
         "fcn_resnet50": _value_parity_fcn_resnet50,
+        "vit_b_16": _value_parity_vit_b_16,
+        "convnext_tiny": _value_parity_convnext_tiny,
+        "swin_t": _value_parity_swin_t,
     }
 
     new_descriptors = []
@@ -205,12 +216,17 @@ def _emit_value_parity_descriptor(
     model = model_factory()
     model.eval()
 
-    # State dict — strip num_batches_tracked, keep BN running buffers as f32.
+    # State dict — strip every integer-typed entry (BN's num_batches_tracked,
+    # and Swin shifted-window attention's relative_position_index — both are
+    # int64 and excluded from the safetensors payload by design; the
+    # safetensors loader on the Rust side rejects non-f32 dtype). Keep
+    # BN running buffers as f32. The list of stripped keys is recorded
+    # in `skipped_int_buffer_keys` so the Rust-side fixture validator
+    # can assert their *absence* from the on-disk safetensors file.
     state = {k: v.detach().contiguous().cpu()
              for k, v in model.state_dict().items()
-             if not k.endswith(".num_batches_tracked")}
-    state = {k: (v.to(torch.float32) if v.is_floating_point() else v)
-             for k, v in state.items()}
+             if v.is_floating_point()}
+    state = {k: v.to(torch.float32) for k, v in state.items()}
 
     weights_name = f"{fixture_id}.safetensors"
     weights_path = fixtures_dir / weights_name
@@ -240,12 +256,17 @@ def _emit_value_parity_descriptor(
     _write_f32_bin(output_path, out)
     output_sha = _sha256_file(output_path)
 
-    # Key enumeration.
+    # Key enumeration. `buffer_keys` lists every f32 buffer (BN running
+    # stats today; can include other f32 buffers as new models land).
+    # `skipped_int_buffer_keys` lists every int-typed buffer that was
+    # excluded from the safetensors payload — historically this was only
+    # BN's num_batches_tracked, but Swin-T's relative_position_index
+    # (int64) joins the same list once shifted-window attention lands.
     param_keys = sorted(k for k, _ in model.named_parameters())
-    buffer_keys = sorted(k for k, _ in model.named_buffers()
-                         if not k.endswith("num_batches_tracked"))
-    int_buffer_keys = sorted(k for k, _ in model.named_buffers()
-                             if k.endswith("num_batches_tracked"))
+    buffer_keys = sorted(k for k, v in model.named_buffers()
+                         if v.is_floating_point())
+    int_buffer_keys = sorted(k for k, v in model.named_buffers()
+                             if not v.is_floating_point())
 
     return {
         "id": fixture_id,
@@ -469,6 +490,119 @@ def _value_parity_fcn_resnet50(fixtures_dir, st_save_file):
             "aux_loss=True and not generated here). Ferrotorch's "
             "FCN-ResNet50 backbone is non-dilated whereas torchvision uses "
             "replace_stride_with_dilation=[False, True, True] — see #994."
+        ),
+    )
+
+
+def _value_parity_vit_b_16(fixtures_dir, st_save_file):
+    """torchvision.models.vit_b_16(weights=None), 1×3×224×224 input.
+
+    Phase 3 (#996, closes #986/#987): the ferrotorch ViT-B/16 forward path
+    used to pull through CPU mid-graph in the PatchEmbed reshape; that site
+    is migrated to ``Tensor::permute(...).contiguous()``. With the migration
+    in place ViT is the *only* one of the three Phase 3 models with no
+    documented architectural divergence from its torchvision reference
+    (see vit.rs:1-13 — "All operations use differentiable primitives from
+    ferrotorch_core"), so it is expected to PASS value parity end-to-end.
+    """
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="vit_b_16_value_parity",
+        model_name="vit_b_16",
+        issue="#996",
+        construction_note="tvm.vit_b_16(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.vit_b_16(weights=None),
+        descriptor_note=(
+            "Reference produced via torchvision.models.vit_b_16(weights=None). "
+            "Eval-mode workaround per #984 (no BN). Phase 3 (#996) value-"
+            "parity probe for the post-migration ferrotorch ViT-B/16 — the "
+            "PatchEmbed reshape now uses Tensor::permute(0,2,1).contiguous() "
+            "instead of a manual data_vec()+indexed-loop CPU detour. ViT "
+            "carries no architectural-divergence note, so this fixture is "
+            "expected to PASS torch.allclose semantics."
+        ),
+    )
+
+
+def _value_parity_convnext_tiny(fixtures_dir, st_save_file):
+    """torchvision.models.convnext_tiny(weights=None), 1×3×224×224 input.
+
+    Phase 3 (#996): the ferrotorch ConvNeXt-T forward path used to pull
+    through CPU mid-graph in the channel_layer_norm helper's
+    nhwc_from_nchw / nchw_from_nhwc workers; both are migrated to
+    Tensor::permute(...).contiguous() under #996. The ferrotorch
+    ConvNeXt-T impl is independently documented as architecturally
+    divergent: its first 7×7 conv is a *regular* conv, not a depthwise
+    one (see convnext.rs:5-7), which changes the parameter count and
+    therefore the named_parameters() schema relative to torchvision.
+    The strict value-parity loader is therefore expected to REPORT
+    (not load) — tracked under a freshly-filed Phase 3 issue.
+    """
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="convnext_tiny_value_parity",
+        model_name="convnext_tiny",
+        issue="#996",
+        construction_note="tvm.convnext_tiny(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.convnext_tiny(weights=None),
+        descriptor_note=(
+            "Reference produced via torchvision.models.convnext_tiny(weights=None). "
+            "Eval-mode workaround per #984. Phase 3 (#996) value-parity probe "
+            "for the post-migration ferrotorch ConvNeXt-T — the channel-layer-"
+            "norm helpers now use Tensor::permute(...).contiguous() instead of "
+            "a manual data_vec()+indexed-loop CPU detour. The ferrotorch impl "
+            "still uses a regular 7×7 conv where torchvision uses a depthwise "
+            "7×7 conv (per convnext.rs:5-7). The strict loader is therefore "
+            "expected to REPORT structural divergence."
+        ),
+    )
+
+
+def _value_parity_swin_t(fixtures_dir, st_save_file):
+    """torchvision.models.swin_t(weights=None), 1×3×224×224 input.
+
+    Phase 3 (#996): the ferrotorch Swin-T forward path used to pull
+    through CPU mid-graph in four [B,C,H,W] ↔ [B,H*W,C] permute sites
+    (stage downsample in/out, main forward post-patch-embed, IntermediateFeatures
+    sibling). All four are migrated to Tensor::permute(...).contiguous()
+    under #996. The ferrotorch Swin-T impl is independently documented
+    as architecturally divergent: it uses standard global attention
+    instead of shifted-window attention (see swin.rs:6-9), so its
+    named_parameters() schema cannot match torchvision's. The strict
+    value-parity loader is therefore expected to REPORT — tracked under
+    a freshly-filed Phase 3 issue.
+    """
+    import torchvision.models as tvm
+    return _emit_value_parity_descriptor(
+        fixtures_dir=fixtures_dir,
+        st_save_file=st_save_file,
+        fixture_id="swin_t_value_parity",
+        model_name="swin_t",
+        issue="#996",
+        construction_note="tvm.swin_t(weights=None) under torch.manual_seed(0)",
+        weight_seed=0,
+        input_seed=1234,
+        input_shape=(1, 3, 224, 224),
+        model_factory=lambda: tvm.swin_t(weights=None),
+        descriptor_note=(
+            "Reference produced via torchvision.models.swin_t(weights=None). "
+            "Eval-mode workaround per #984. Phase 3 (#996) value-parity probe "
+            "for the post-migration ferrotorch Swin-T — the four B[CHW]↔B[N,C] "
+            "transpose sites now use Tensor::permute(...).contiguous() instead "
+            "of manual data_vec()+indexed-loop CPU detours. The ferrotorch "
+            "impl still uses standard global attention, not shifted-window "
+            "attention (per swin.rs:6-9). The strict loader is therefore "
+            "expected to REPORT structural divergence."
         ),
     )
 
