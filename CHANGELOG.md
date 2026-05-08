@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- Phase 7 (Tier 2): SE block primitive + MobileNetV2/V3-Small + EfficientNet-B0 migrations to value-parity (#1007)
+- Add MBConv (depthwise+pointwise+SE) and BN to EfficientNet-B0 to match torchvision state_dict schema (#992)
+- Add depthwise+pointwise convs, SE blocks, h-swish, and BN to MobileNetV3-Small to match torchvision state_dict schema (#991)
+- Add depthwise+pointwise convs and BN to MobileNetV2 to match torchvision mobilenet_v2 state_dict schema (#990)
 - Phase 6: Tier 1 parity sweep — ConvNeXt depthwise + ResNet18/34/VGG11/16 value-parity + DeepLabV3 ASPP + DenseNet121 BN + FCN dilated (#1004)
 - Add depthwise (grouped) Conv2d so ConvNeXt-T matches torchvision parameter schema (#997)
 - Add dilation support to ResNet50 (replace_stride_with_dilation) so FCN-ResNet50 backbone matches torchvision schema (#994)
