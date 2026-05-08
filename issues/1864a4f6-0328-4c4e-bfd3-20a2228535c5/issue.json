@@ -2,11 +2,12 @@
   "uuid": "1864a4f6-0328-4c4e-bfd3-20a2228535c5",
   "display_id": 986,
   "title": "ferrotorch-vision: ConvNeXt LayerNorm uses CPU-detour permute helpers (nhwc_from_nchw / nchw_from_nhwc) called from every block",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-08T02:48:46.697129577Z",
-  "updated_at": "2026-05-08T02:48:48.450874121Z",
+  "updated_at": "2026-05-08T11:18:07.440015465Z",
+  "closed_at": "2026-05-08T11:18:07.440015465Z",
   "labels": [
     "rust,vision,bug,gpu"
   ]
