@@ -1,0 +1,10 @@
+{
+  "uuid": "d8328d59-4272-4524-8a1d-e4b2bcd0f95c",
+  "issue_uuid": "aba9e214-790d-4101-a7a1-f28ff1844751",
+  "author": "y4rr",
+  "content": "[action] Phase 1A dispatch: ResNet50 value-parity pipeline beachhead, no bug fixes, no core/nn API changes",
+  "created_at": "2026-05-08T01:42:05.693845236Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABArz3OE0SIwvPpa+ha7g4iRbWgIoqU0+mx5Tfno1exL0atpSFqG8eZdi88T5LCnSQgAlARQuRfp0kX0CVwz5QNDw=="
+}
