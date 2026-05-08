@@ -1,0 +1,10 @@
+{
+  "uuid": "7f014cb5-d802-45de-b984-9e29636d1930",
+  "issue_uuid": "f6582e70-9719-498a-a96d-f0d5e0ff279e",
+  "author": "y4rr",
+  "content": "Observation: DenseNet121 — torchvision schema is features.denseblock<i>.denselayer<j>.{norm1,conv1,norm2,conv2}.* with features.{conv0,norm0,transition<i>,norm5}.* prefixes; ferrotorch is stem/block<i>.layer<j>.{bn_conv,body_conv}/trans<i>/classifier. Adding BN alone is insufficient — need either full source rename to match torchvision schema OR a test-side state_remap (like ViT #1001). Will choose source-rename for honest parity with the architect's spirit.",
+  "created_at": "2026-05-08T17:05:57.175980157Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAcKZkWXz4w1DU/p9W/Nk9Ez9jewxvGEBsYx6UbYFDTNLMk1h/keKlbcVYHc00thv4TYQEDEIgP+0wd6bPtHv+Bw=="
+}
