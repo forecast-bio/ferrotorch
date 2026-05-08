@@ -2,11 +2,12 @@
   "uuid": "c74e9070-67a3-42d4-ae77-a15c04efa45e",
   "display_id": 978,
   "title": "Sprint Final-7 close remaining issues 848 849 904 905 976 977",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-07T23:28:40.349984942Z",
-  "updated_at": "2026-05-07T23:28:41.724017906Z",
+  "updated_at": "2026-05-08T00:36:30.714226978Z",
+  "closed_at": "2026-05-08T00:36:30.714226978Z",
   "labels": [
     "sprint"
   ]
