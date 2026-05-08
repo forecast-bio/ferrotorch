@@ -1,0 +1,10 @@
+{
+  "uuid": "46da41cb-5843-4976-affb-0b9e7133d1e6",
+  "issue_uuid": "81b2d0c2-4bb3-48f9-b77a-1f3dd8d88c49",
+  "author": "y4rr",
+  "content": "Result: cascade resolved — ENCODER_DECODER_FIXTURE_KEY_MISMATCH flipped to false. Encoder test now injects weights via load_state_dict with correct dotted paths (self_attn.q_proj.weight etc.). Both encoder and decoder layer forward tests pass within F32_MATMUL=1e-4.",
+  "created_at": "2026-05-08T00:34:12.656893785Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAApsDrnpOBRyCNrguQaLfs01X2HRaZ3e5V3rj+5p3IUDIN2zBWgLPtM7yoSN4PCV/FKxBH9u8c/NIKix55YKyCA=="
+}
