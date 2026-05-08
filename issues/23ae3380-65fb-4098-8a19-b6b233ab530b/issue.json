@@ -1,0 +1,10 @@
+{
+  "uuid": "23ae3380-65fb-4098-8a19-b6b233ab530b",
+  "display_id": 995,
+  "title": "ferrotorch-vision: model Module impls don't override named_children/children, so generic state-dict loaders see empty descendants_dyn() trees",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T10:10:43.298405075Z",
+  "updated_at": "2026-05-08T10:10:43.298405075Z"
+}
