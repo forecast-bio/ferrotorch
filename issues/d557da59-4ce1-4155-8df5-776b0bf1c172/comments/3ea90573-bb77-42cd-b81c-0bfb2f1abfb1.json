@@ -1,0 +1,10 @@
+{
+  "uuid": "3ea90573-bb77-42cd-b81c-0bfb2f1abfb1",
+  "issue_uuid": "d557da59-4ce1-4155-8df5-776b0bf1c172",
+  "author": "y4rr",
+  "content": "Result: landed Conv2d::new_full(in,out,kernel,stride,padding,dilation,groups,bias) + 1-line shim from Conv2d::new. New helpers im2col_dilated/col2im_dilated. Forward gated on groups==1 && dilation==(1,1) for GPU; CPU handles all other cases including grouped+dilated. Backward updated to slice per-group at gradient time. set_weight() helper added for tests. 11 new integration tests + probe-before-fix all pass; ferrotorch-nn 1184 lib tests + ferrotorch-vision 387 lib tests + ferrotorch-core 1278 lib tests all green; clippy -D warnings clean; workspace builds. CHANGELOG updated. Phase 6 (#1003) filed for GPU backend extension.",
+  "created_at": "2026-05-08T16:24:49.827449491Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAi31e2zqFbLsw5FDvzkvIa57R5We/6L0WnkNJk/7B2kgXPZk/HqnlZzGtvMAL6sHMkapvwhEHewKlFQbt0TKnBg=="
+}
