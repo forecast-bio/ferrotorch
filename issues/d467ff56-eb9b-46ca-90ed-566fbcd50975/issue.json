@@ -1,0 +1,10 @@
+{
+  "uuid": "d467ff56-eb9b-46ca-90ed-566fbcd50975",
+  "display_id": 989,
+  "title": "Add BN to DenseNet121 to match torchvision densenet121 state_dict schema",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T03:05:03.090830727Z",
+  "updated_at": "2026-05-08T03:05:03.090830727Z"
+}
