@@ -2,11 +2,12 @@
   "uuid": "233faeb0-0d8c-4c1f-9bdd-a1816faf12dc",
   "display_id": 996,
   "title": "Phase 3: permute-pattern sweep across ViT/ConvNeXt/Swin (closes #986/#987, value-parity tests + tracked architectural divergences)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-08T10:39:23.554770065Z",
-  "updated_at": "2026-05-08T10:39:25.152962702Z",
+  "updated_at": "2026-05-08T11:18:18.184569163Z",
+  "closed_at": "2026-05-08T11:18:18.184569163Z",
   "labels": [
     "vision,conformance,bug,gpu"
   ]
