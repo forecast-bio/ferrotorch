@@ -1,0 +1,10 @@
+{
+  "uuid": "9c5165ea-5eda-4ab3-91d4-ef07226a7d2f",
+  "issue_uuid": "f6582e70-9719-498a-a96d-f0d5e0ff279e",
+  "author": "y4rr",
+  "content": "Observation: VGG11/16 ferrotorch named_parameters (features.<i>.weight/bias, classifier.<i>.weight/bias) MATCH torchvision vgg11/16 (no BN) keys exactly. Expected PASS for VGG once fixtures regenerated.",
+  "created_at": "2026-05-08T17:05:54.077518278Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABASrovDCkpNII1DwZxtCYoRFDNiIn2JltOp2wSxpEjE5/L0zh2eZKYKdzEoHos4NFO90KQNftgV6d9Nnsh2ru1Bw=="
+}
