@@ -2,11 +2,12 @@
   "uuid": "9c0cc388-19fc-4fcd-ab91-54719ca9fcc1",
   "display_id": 985,
   "title": "Phase 1B: promote 9 vision models to value-parity (DenseNet/MobileNet/ConvNeXt/EfficientNet/Swin/Inception/DeepLabV3/FCN), refactor 1A helpers, fix tolerance template",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-08T02:46:42.618820152Z",
-  "updated_at": "2026-05-08T02:46:43.947197104Z",
+  "updated_at": "2026-05-08T03:30:54.314903606Z",
+  "closed_at": "2026-05-08T03:30:54.314903606Z",
   "labels": [
     "conformance,test,vision"
   ]
