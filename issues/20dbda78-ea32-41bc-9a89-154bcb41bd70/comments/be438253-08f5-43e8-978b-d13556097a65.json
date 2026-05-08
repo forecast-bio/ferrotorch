@@ -1,0 +1,10 @@
+{
+  "uuid": "be438253-08f5-43e8-978b-d13556097a65",
+  "issue_uuid": "20dbda78-ea32-41bc-9a89-154bcb41bd70",
+  "author": "y4rr",
+  "content": "[action] Phase 9 dispatch: DeepLabV3 structural fix (#1009 + #1006 closure). Aspp::new gains atrous_rates param, DeepLabV3Head gains conv_intermediate + bn_intermediate fields (5-element Sequential structure), classifier bias=true. Test-side state_remap for naming. Probe-before-fix on remap. STOP-AND-REPORT if 6th divergence surfaces.",
+  "created_at": "2026-05-08T20:32:07.020179131Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAbdIXkGtk7zNHUTtAcwtfwc2LyOhCT0PWlRBFO1EaPOQExKwN7jkad0rnl43/OXMhIiFi7GDe5j++loe8HQrQCQ=="
+}
