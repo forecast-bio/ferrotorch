@@ -1,0 +1,10 @@
+{
+  "uuid": "496b040d-d883-4bc0-bad5-2aa8e788b253",
+  "display_id": 993,
+  "title": "Add full Inception-V3 architecture (Mixed_5b/c/d, 6a-e, 7a-c, factorized convs, BN) to match torchvision state_dict schema",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T03:06:34.389619349Z",
+  "updated_at": "2026-05-08T03:06:34.389619349Z"
+}
