@@ -1303,6 +1303,117 @@ impl<T: Float> BatchNorm2d<T> {
     pub fn num_batches_tracked(&self) -> usize {
         *self.num_batches_tracked.lock().unwrap()
     }
+
+    /// Set the running mean from a slice of length [`num_features`].
+    ///
+    /// Used to load `running_mean` from a state dict (#984). Validates:
+    ///
+    /// 1. `value.len() == num_features` (else [`FerrotorchError::ShapeMismatch`]).
+    /// 2. Every entry is finite (else [`FerrotorchError::InvalidArgument`]).
+    ///
+    /// Storage is `Mutex<Vec<f64>>` for numerical stability across BN's
+    /// running-stat update; entries are widened from `T` to `f64` here
+    /// and narrowed back to `T` when the eval-mode forward path reads
+    /// them. The same `Mutex` used by the forward path is acquired so
+    /// concurrent forward + setter remains safe.
+    ///
+    /// Round-trip: after `set_running_mean(&v)`,
+    /// [`running_mean`](Self::running_mean) returns a `Vec<f64>` whose
+    /// elements equal `v[i]` widened to `f64`.
+    ///
+    /// [`num_features`]: Self::num_features
+    pub fn set_running_mean(&self, value: &[T]) -> FerrotorchResult<()> {
+        if value.len() != self.num_features {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "BatchNorm2d::set_running_mean: expected slice of length \
+                     num_features={}, got {}",
+                    self.num_features,
+                    value.len()
+                ),
+            });
+        }
+        for (i, x) in value.iter().enumerate() {
+            if !num_traits::Float::is_finite(*x) {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "BatchNorm2d::set_running_mean: non-finite value at \
+                         index {i} (running_mean must be finite)"
+                    ),
+                });
+            }
+        }
+        let mut rm = self.running_mean.lock().unwrap();
+        for (slot, x) in rm.iter_mut().zip(value.iter()) {
+            *slot = x.to_f64().unwrap();
+        }
+        Ok(())
+    }
+
+    /// Set the running variance from a slice of length [`num_features`].
+    ///
+    /// Used to load `running_var` from a state dict (#984). Validates:
+    ///
+    /// 1. `value.len() == num_features` (else [`FerrotorchError::ShapeMismatch`]).
+    /// 2. Every entry is finite (else [`FerrotorchError::InvalidArgument`]).
+    /// 3. Every entry is non-negative — variance is by definition `>= 0`.
+    ///    A negative entry yields a `NaN` `inv_std` in the forward path
+    ///    and silently corrupts downstream activations; rejecting at
+    ///    the API boundary surfaces the bug instead.
+    ///
+    /// Same `Mutex<Vec<f64>>` storage and `T → f64` widening as
+    /// [`set_running_mean`](Self::set_running_mean).
+    ///
+    /// [`num_features`]: Self::num_features
+    pub fn set_running_var(&self, value: &[T]) -> FerrotorchResult<()> {
+        if value.len() != self.num_features {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "BatchNorm2d::set_running_var: expected slice of length \
+                     num_features={}, got {}",
+                    self.num_features,
+                    value.len()
+                ),
+            });
+        }
+        let zero_t = zero::<T>();
+        for (i, x) in value.iter().enumerate() {
+            if !num_traits::Float::is_finite(*x) {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "BatchNorm2d::set_running_var: non-finite value at \
+                         index {i} (running_var must be finite)"
+                    ),
+                });
+            }
+            if *x < zero_t {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "BatchNorm2d::set_running_var: negative value {} at \
+                         index {i} (running_var must be non-negative)",
+                        x.to_f64().unwrap()
+                    ),
+                });
+            }
+        }
+        let mut rv = self.running_var.lock().unwrap();
+        for (slot, x) in rv.iter_mut().zip(value.iter()) {
+            *slot = x.to_f64().unwrap();
+        }
+        Ok(())
+    }
+
+    /// Set the number of training batches tracked. (#984)
+    ///
+    /// Used to load `num_batches_tracked` from a state dict. The value
+    /// is a non-negative integer in PyTorch's reference impl; this
+    /// setter accepts any `usize` and writes through the same `Mutex`
+    /// the forward path uses.
+    pub fn set_num_batches_tracked(&self, value: usize) -> FerrotorchResult<()> {
+        let mut nbt = self.num_batches_tracked.lock().unwrap();
+        *nbt = value;
+        Ok(())
+    }
 }
 
 impl<T: Float> Module<T> for BatchNorm2d<T> {
@@ -1507,6 +1618,15 @@ impl<T: Float> Module<T> for BatchNorm2d<T> {
 
     fn is_training(&self) -> bool {
         *self.training.lock().unwrap()
+    }
+
+    /// Downcast hook for state-dict loaders that need to populate
+    /// BN's running mean / variance / `num_batches_tracked` (#984).
+    /// Returning `Some(self)` lets a generic loader walking
+    /// [`Module::named_modules`] downcast a `&dyn Module<T>` to
+    /// `&BatchNorm2d<T>` and call the typed setters.
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
     }
 }
 
@@ -1813,6 +1933,95 @@ impl<T: Float> BatchNorm1d<T> {
     pub fn num_batches_tracked(&self) -> usize {
         *self.num_batches_tracked.lock().unwrap()
     }
+
+    /// Set the running mean from a slice of length [`num_features`].
+    ///
+    /// See [`BatchNorm2d::set_running_mean`] for full semantics — the
+    /// shape, validation, storage, and round-trip contract are
+    /// identical (#984).
+    ///
+    /// [`num_features`]: Self::num_features
+    pub fn set_running_mean(&self, value: &[T]) -> FerrotorchResult<()> {
+        if value.len() != self.num_features {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "BatchNorm1d::set_running_mean: expected slice of length \
+                     num_features={}, got {}",
+                    self.num_features,
+                    value.len()
+                ),
+            });
+        }
+        for (i, x) in value.iter().enumerate() {
+            if !num_traits::Float::is_finite(*x) {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "BatchNorm1d::set_running_mean: non-finite value at \
+                         index {i} (running_mean must be finite)"
+                    ),
+                });
+            }
+        }
+        let mut rm = self.running_mean.lock().unwrap();
+        for (slot, x) in rm.iter_mut().zip(value.iter()) {
+            *slot = x.to_f64().unwrap();
+        }
+        Ok(())
+    }
+
+    /// Set the running variance from a slice of length [`num_features`].
+    ///
+    /// See [`BatchNorm2d::set_running_var`] for full semantics —
+    /// validation rejects wrong-length, non-finite, and negative
+    /// entries (#984).
+    ///
+    /// [`num_features`]: Self::num_features
+    pub fn set_running_var(&self, value: &[T]) -> FerrotorchResult<()> {
+        if value.len() != self.num_features {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "BatchNorm1d::set_running_var: expected slice of length \
+                     num_features={}, got {}",
+                    self.num_features,
+                    value.len()
+                ),
+            });
+        }
+        let zero_t = zero::<T>();
+        for (i, x) in value.iter().enumerate() {
+            if !num_traits::Float::is_finite(*x) {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "BatchNorm1d::set_running_var: non-finite value at \
+                         index {i} (running_var must be finite)"
+                    ),
+                });
+            }
+            if *x < zero_t {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "BatchNorm1d::set_running_var: negative value {} at \
+                         index {i} (running_var must be non-negative)",
+                        x.to_f64().unwrap()
+                    ),
+                });
+            }
+        }
+        let mut rv = self.running_var.lock().unwrap();
+        for (slot, x) in rv.iter_mut().zip(value.iter()) {
+            *slot = x.to_f64().unwrap();
+        }
+        Ok(())
+    }
+
+    /// Set the number of training batches tracked. (#984)
+    ///
+    /// See [`BatchNorm2d::set_num_batches_tracked`] for semantics.
+    pub fn set_num_batches_tracked(&self, value: usize) -> FerrotorchResult<()> {
+        let mut nbt = self.num_batches_tracked.lock().unwrap();
+        *nbt = value;
+        Ok(())
+    }
 }
 
 impl<T: Float> Module<T> for BatchNorm1d<T> {
@@ -2014,6 +2223,12 @@ impl<T: Float> Module<T> for BatchNorm1d<T> {
 
     fn is_training(&self) -> bool {
         *self.training.lock().unwrap()
+    }
+
+    /// Downcast hook for state-dict loaders (#984). See
+    /// [`BatchNorm2d::as_any`].
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
     }
 }
 
@@ -2298,6 +2513,92 @@ impl<T: Float> BatchNorm3d<T> {
     pub fn num_batches_tracked(&self) -> usize {
         *self.num_batches_tracked.lock().unwrap()
     }
+
+    /// Set the running mean from a slice of length [`num_features`].
+    ///
+    /// See [`BatchNorm2d::set_running_mean`] for full semantics (#984).
+    ///
+    /// [`num_features`]: Self::num_features
+    pub fn set_running_mean(&self, value: &[T]) -> FerrotorchResult<()> {
+        if value.len() != self.num_features {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "BatchNorm3d::set_running_mean: expected slice of length \
+                     num_features={}, got {}",
+                    self.num_features,
+                    value.len()
+                ),
+            });
+        }
+        for (i, x) in value.iter().enumerate() {
+            if !num_traits::Float::is_finite(*x) {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "BatchNorm3d::set_running_mean: non-finite value at \
+                         index {i} (running_mean must be finite)"
+                    ),
+                });
+            }
+        }
+        let mut rm = self.running_mean.lock().unwrap();
+        for (slot, x) in rm.iter_mut().zip(value.iter()) {
+            *slot = x.to_f64().unwrap();
+        }
+        Ok(())
+    }
+
+    /// Set the running variance from a slice of length [`num_features`].
+    ///
+    /// See [`BatchNorm2d::set_running_var`] for full semantics — rejects
+    /// wrong-length, non-finite, and negative entries (#984).
+    ///
+    /// [`num_features`]: Self::num_features
+    pub fn set_running_var(&self, value: &[T]) -> FerrotorchResult<()> {
+        if value.len() != self.num_features {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "BatchNorm3d::set_running_var: expected slice of length \
+                     num_features={}, got {}",
+                    self.num_features,
+                    value.len()
+                ),
+            });
+        }
+        let zero_t = zero::<T>();
+        for (i, x) in value.iter().enumerate() {
+            if !num_traits::Float::is_finite(*x) {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "BatchNorm3d::set_running_var: non-finite value at \
+                         index {i} (running_var must be finite)"
+                    ),
+                });
+            }
+            if *x < zero_t {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "BatchNorm3d::set_running_var: negative value {} at \
+                         index {i} (running_var must be non-negative)",
+                        x.to_f64().unwrap()
+                    ),
+                });
+            }
+        }
+        let mut rv = self.running_var.lock().unwrap();
+        for (slot, x) in rv.iter_mut().zip(value.iter()) {
+            *slot = x.to_f64().unwrap();
+        }
+        Ok(())
+    }
+
+    /// Set the number of training batches tracked. (#984)
+    ///
+    /// See [`BatchNorm2d::set_num_batches_tracked`] for semantics.
+    pub fn set_num_batches_tracked(&self, value: usize) -> FerrotorchResult<()> {
+        let mut nbt = self.num_batches_tracked.lock().unwrap();
+        *nbt = value;
+        Ok(())
+    }
 }
 
 impl<T: Float> Module<T> for BatchNorm3d<T> {
@@ -2498,6 +2799,12 @@ impl<T: Float> Module<T> for BatchNorm3d<T> {
 
     fn is_training(&self) -> bool {
         *self.training.lock().unwrap()
+    }
+
+    /// Downcast hook for state-dict loaders (#984). See
+    /// [`BatchNorm2d::as_any`].
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
     }
 }
 
@@ -5116,5 +5423,420 @@ mod tests {
         assert!(InstanceNorm1d::<f32>::new(0, 1e-5, true).is_err());
         assert!(InstanceNorm2d::<f32>::new(0, 1e-5, true).is_err());
         assert!(InstanceNorm3d::<f32>::new(0, 1e-5, true).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // BatchNorm running-stat setters — Phase 2 of value-parity pipeline (#984)
+    //
+    // These tests cover the surface added in #984:
+    //  • set_running_mean / set_running_var / set_num_batches_tracked on
+    //    BatchNorm1d / BatchNorm2d / BatchNorm3d
+    //  • the as_any() downcast hook on Module that lets a state-dict
+    //    loader walking named_modules() route buffer keys to the right BN
+    //
+    // Coverage map:
+    //  - round_trip_*: setter + getter equality across all three BN types
+    //  - validate_*: each rejection branch (length / non-finite / negative)
+    //  - flow_through_eval_forward_*: non-default running stats actually
+    //      shape the eval-mode forward output (the bit Phase 1A's workaround
+    //      could not exercise)
+    //  - as_any_downcast_*: the hook returns a Some that downcasts back
+    //      to the concrete BN type
+    // -----------------------------------------------------------------------
+
+    /// Round-trip: set_running_mean → running_mean returns the same values.
+    #[test]
+    fn bn2d_set_running_mean_round_trip() {
+        let bn = BatchNorm2d::<f32>::new(4, 1e-5, 0.1, true).unwrap();
+        let v: [f32; 4] = [0.5, -1.25, 2.0, 0.0];
+        bn.set_running_mean(&v).unwrap();
+        let got = bn.running_mean();
+        assert_eq!(got.len(), 4);
+        for (i, (g, e)) in got.iter().zip(v.iter()).enumerate() {
+            assert!(
+                (g - *e as f64).abs() < 1e-7,
+                "channel {i}: got={g}, expected={e}"
+            );
+        }
+    }
+
+    #[test]
+    fn bn2d_set_running_var_round_trip() {
+        let bn = BatchNorm2d::<f32>::new(4, 1e-5, 0.1, true).unwrap();
+        let v: [f32; 4] = [1.5, 0.25, 2.0, 0.0];
+        bn.set_running_var(&v).unwrap();
+        let got = bn.running_var();
+        for (i, (g, e)) in got.iter().zip(v.iter()).enumerate() {
+            assert!(
+                (g - *e as f64).abs() < 1e-7,
+                "channel {i}: got={g}, expected={e}"
+            );
+        }
+    }
+
+    #[test]
+    fn bn2d_set_num_batches_tracked_round_trip() {
+        let bn = BatchNorm2d::<f32>::new(4, 1e-5, 0.1, true).unwrap();
+        bn.set_num_batches_tracked(42).unwrap();
+        assert_eq!(bn.num_batches_tracked(), 42);
+        // Overwrite (idempotent).
+        bn.set_num_batches_tracked(0).unwrap();
+        assert_eq!(bn.num_batches_tracked(), 0);
+    }
+
+    #[test]
+    fn bn1d_set_running_mean_round_trip() {
+        let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
+        let v: [f32; 3] = [-0.1, 0.2, 0.3];
+        bn.set_running_mean(&v).unwrap();
+        let got = bn.running_mean();
+        for (i, (g, e)) in got.iter().zip(v.iter()).enumerate() {
+            assert!(
+                (g - *e as f64).abs() < 1e-7,
+                "channel {i}: got={g}, expected={e}"
+            );
+        }
+    }
+
+    #[test]
+    fn bn1d_set_running_var_round_trip() {
+        let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
+        let v: [f32; 3] = [0.5, 1.0, 4.0];
+        bn.set_running_var(&v).unwrap();
+        let got = bn.running_var();
+        for (i, (g, e)) in got.iter().zip(v.iter()).enumerate() {
+            assert!(
+                (g - *e as f64).abs() < 1e-7,
+                "channel {i}: got={g}, expected={e}"
+            );
+        }
+    }
+
+    #[test]
+    fn bn1d_set_num_batches_tracked_round_trip() {
+        let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
+        bn.set_num_batches_tracked(7).unwrap();
+        assert_eq!(bn.num_batches_tracked(), 7);
+    }
+
+    #[test]
+    fn bn3d_set_running_mean_round_trip() {
+        let bn = BatchNorm3d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        let v: [f32; 2] = [-2.0, 3.0];
+        bn.set_running_mean(&v).unwrap();
+        let got = bn.running_mean();
+        for (i, (g, e)) in got.iter().zip(v.iter()).enumerate() {
+            assert!(
+                (g - *e as f64).abs() < 1e-7,
+                "channel {i}: got={g}, expected={e}"
+            );
+        }
+    }
+
+    #[test]
+    fn bn3d_set_running_var_round_trip() {
+        let bn = BatchNorm3d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        let v: [f32; 2] = [1.0, 0.5];
+        bn.set_running_var(&v).unwrap();
+        let got = bn.running_var();
+        for (i, (g, e)) in got.iter().zip(v.iter()).enumerate() {
+            assert!(
+                (g - *e as f64).abs() < 1e-7,
+                "channel {i}: got={g}, expected={e}"
+            );
+        }
+    }
+
+    #[test]
+    fn bn3d_set_num_batches_tracked_round_trip() {
+        let bn = BatchNorm3d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        bn.set_num_batches_tracked(11).unwrap();
+        assert_eq!(bn.num_batches_tracked(), 11);
+    }
+
+    // ── Validation rejections ────────────────────────────────────────────
+
+    #[test]
+    fn bn2d_set_running_mean_rejects_wrong_length() {
+        let bn = BatchNorm2d::<f32>::new(4, 1e-5, 0.1, true).unwrap();
+        let too_short: [f32; 3] = [0.0, 0.0, 0.0];
+        let err = bn
+            .set_running_mean(&too_short)
+            .expect_err("wrong length should error");
+        match err {
+            FerrotorchError::ShapeMismatch { message } => {
+                assert!(message.contains("BatchNorm2d::set_running_mean"));
+                assert!(message.contains("num_features=4"));
+            }
+            other => panic!("expected ShapeMismatch, got {other:?}"),
+        }
+        let too_long: [f32; 5] = [0.0; 5];
+        bn.set_running_mean(&too_long)
+            .expect_err("wrong length should error");
+    }
+
+    #[test]
+    fn bn2d_set_running_mean_rejects_non_finite() {
+        let bn = BatchNorm2d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        let nan_val: [f32; 2] = [0.0, f32::NAN];
+        match bn.set_running_mean(&nan_val).expect_err("nan should error") {
+            FerrotorchError::InvalidArgument { message } => {
+                assert!(message.contains("non-finite"));
+                assert!(message.contains("index 1"));
+            }
+            other => panic!("expected InvalidArgument, got {other:?}"),
+        }
+        let inf_val: [f32; 2] = [f32::INFINITY, 0.0];
+        bn.set_running_mean(&inf_val).expect_err("inf should error");
+    }
+
+    #[test]
+    fn bn2d_set_running_var_rejects_negative() {
+        let bn = BatchNorm2d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        let v: [f32; 2] = [1.0, -0.5];
+        match bn
+            .set_running_var(&v)
+            .expect_err("negative variance should error")
+        {
+            FerrotorchError::InvalidArgument { message } => {
+                assert!(message.contains("negative"));
+                assert!(message.contains("index 1"));
+            }
+            other => panic!("expected InvalidArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bn2d_set_running_var_rejects_non_finite() {
+        let bn = BatchNorm2d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        let v: [f32; 2] = [1.0, f32::NAN];
+        match bn
+            .set_running_var(&v)
+            .expect_err("nan variance should error")
+        {
+            FerrotorchError::InvalidArgument { message } => {
+                assert!(message.contains("non-finite"));
+            }
+            other => panic!("expected InvalidArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bn1d_set_running_var_rejects_negative_and_wrong_length() {
+        let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
+        let bad_neg: [f32; 3] = [1.0, -1.0, 1.0];
+        bn.set_running_var(&bad_neg)
+            .expect_err("negative should error");
+        let bad_len: [f32; 2] = [1.0, 1.0];
+        bn.set_running_var(&bad_len)
+            .expect_err("wrong length should error");
+    }
+
+    #[test]
+    fn bn3d_set_running_mean_rejects_non_finite_and_wrong_length() {
+        let bn = BatchNorm3d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        let bad_nan: [f32; 2] = [f32::NAN, 0.0];
+        bn.set_running_mean(&bad_nan).expect_err("nan should error");
+        let bad_len: [f32; 1] = [0.0];
+        bn.set_running_mean(&bad_len)
+            .expect_err("wrong length should error");
+    }
+
+    // ── Flow-through eval forward ───────────────────────────────────────
+    //
+    // Construct a BatchNorm2d, set non-default running stats via the
+    // setters, run eval-mode forward on a known input, and compare to a
+    // hand-computed expected value derived from the SET running stats.
+    //
+    // This is the key Phase 2 evidence: the new setters actually cause
+    // forward-time normalization to use the loaded values, not BN's
+    // construction-time defaults (mean=0, var=1).
+
+    #[test]
+    fn bn2d_set_running_stats_flow_through_eval_forward() {
+        // 1 batch, 2 channels, 1×1 spatial — keeps the math byte-trivial.
+        let mut bn = BatchNorm2d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        bn.set_running_mean(&[3.0_f32, -2.0]).unwrap();
+        bn.set_running_var(&[4.0_f32, 0.25]).unwrap();
+        bn.eval();
+
+        // Affine defaults are weight=1, bias=0, so output = (x - mean) / sqrt(var + eps).
+        // Channel 0: (5.0 - 3.0) / sqrt(4 + 1e-5) = 2 / 2.000002... ≈ 0.9999975
+        // Channel 1: (1.0 - (-2.0)) / sqrt(0.25 + 1e-5) = 3 / 0.5000099... ≈ 5.99988
+        let input = Tensor::from_storage(
+            TensorStorage::cpu(vec![5.0_f32, 1.0]),
+            vec![1, 2, 1, 1],
+            false,
+        )
+        .unwrap();
+        let out = bn.forward(&input).unwrap();
+        let data = out.data_vec().unwrap();
+        assert_eq!(data.len(), 2);
+
+        let expected_0 = 2.0_f32 / (4.0_f32 + 1e-5).sqrt();
+        let expected_1 = 3.0_f32 / (0.25_f32 + 1e-5).sqrt();
+
+        assert!(
+            (data[0] - expected_0).abs() < 1e-5,
+            "channel 0: got {}, expected {}",
+            data[0],
+            expected_0
+        );
+        assert!(
+            (data[1] - expected_1).abs() < 1e-5,
+            "channel 1: got {}, expected {}",
+            data[1],
+            expected_1
+        );
+
+        // Sanity: the construction-default expectation (mean=0, var=1) gives
+        //   out_0 = 5 / sqrt(1+eps) ≈ 5.0   (vs our 0.9999..., factor of 5 off)
+        //   out_1 = 1 / sqrt(1+eps) ≈ 1.0   (vs our 5.999..., factor of 6 off)
+        // — i.e. without the setters, the values would be very different.
+        // This is the "set stats actually flow through forward" check.
+        assert!(
+            (data[0] - 5.0_f32).abs() > 1.0,
+            "data[0]={} too close to default-stats output (5.0); setter is not flowing through",
+            data[0]
+        );
+        assert!(
+            (data[1] - 1.0_f32).abs() > 1.0,
+            "data[1]={} too close to default-stats output (1.0); setter is not flowing through",
+            data[1]
+        );
+    }
+
+    #[test]
+    fn bn1d_set_running_stats_flow_through_eval_forward() {
+        // 1 batch, 2 channels, 2D input [N, C].
+        let mut bn = BatchNorm1d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        bn.set_running_mean(&[1.0_f32, 0.0]).unwrap();
+        bn.set_running_var(&[9.0_f32, 4.0]).unwrap();
+        bn.eval();
+
+        let input = Tensor::from_storage(TensorStorage::cpu(vec![4.0_f32, 6.0]), vec![1, 2], false)
+            .unwrap();
+        let out = bn.forward(&input).unwrap();
+        let data = out.data_vec().unwrap();
+
+        // (4 - 1) / sqrt(9 + 1e-5) ≈ 1.0
+        // (6 - 0) / sqrt(4 + 1e-5) ≈ 3.0
+        let expected_0 = 3.0_f32 / (9.0_f32 + 1e-5).sqrt();
+        let expected_1 = 6.0_f32 / (4.0_f32 + 1e-5).sqrt();
+        assert!(
+            (data[0] - expected_0).abs() < 1e-5,
+            "BN1d ch0: got {}, expected {}",
+            data[0],
+            expected_0
+        );
+        assert!(
+            (data[1] - expected_1).abs() < 1e-5,
+            "BN1d ch1: got {}, expected {}",
+            data[1],
+            expected_1
+        );
+    }
+
+    #[test]
+    fn bn3d_set_running_stats_flow_through_eval_forward() {
+        // 1 batch, 2 channels, 1×1×1 spatial.
+        let mut bn = BatchNorm3d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        bn.set_running_mean(&[2.0_f32, -1.0]).unwrap();
+        bn.set_running_var(&[1.0_f32, 16.0]).unwrap();
+        bn.eval();
+
+        let input = Tensor::from_storage(
+            TensorStorage::cpu(vec![3.0_f32, 7.0]),
+            vec![1, 2, 1, 1, 1],
+            false,
+        )
+        .unwrap();
+        let out = bn.forward(&input).unwrap();
+        let data = out.data_vec().unwrap();
+
+        let expected_0 = 1.0_f32 / (1.0_f32 + 1e-5).sqrt();
+        let expected_1 = 8.0_f32 / (16.0_f32 + 1e-5).sqrt();
+        assert!(
+            (data[0] - expected_0).abs() < 1e-5,
+            "BN3d ch0: got {}, expected {}",
+            data[0],
+            expected_0
+        );
+        assert!(
+            (data[1] - expected_1).abs() < 1e-5,
+            "BN3d ch1: got {}, expected {}",
+            data[1],
+            expected_1
+        );
+    }
+
+    // ── Module::as_any downcast hook ─────────────────────────────────────
+
+    #[test]
+    fn bn2d_as_any_downcasts_to_concrete_type() {
+        let bn = BatchNorm2d::<f32>::new(4, 1e-5, 0.1, true).unwrap();
+        let dyn_module: &dyn Module<f32> = &bn;
+        let any = dyn_module
+            .as_any()
+            .expect("BatchNorm2d::as_any returns Some");
+        let concrete = any
+            .downcast_ref::<BatchNorm2d<f32>>()
+            .expect("any must downcast to BatchNorm2d<f32>");
+        assert_eq!(concrete.num_features, 4);
+        // Wrong-type downcast must fail.
+        assert!(any.downcast_ref::<BatchNorm1d<f32>>().is_none());
+        assert!(any.downcast_ref::<BatchNorm3d<f32>>().is_none());
+    }
+
+    #[test]
+    fn bn1d_as_any_downcasts_to_concrete_type() {
+        let bn = BatchNorm1d::<f32>::new(3, 1e-5, 0.1, true).unwrap();
+        let dyn_module: &dyn Module<f32> = &bn;
+        let any = dyn_module
+            .as_any()
+            .expect("BatchNorm1d::as_any returns Some");
+        let concrete = any
+            .downcast_ref::<BatchNorm1d<f32>>()
+            .expect("any must downcast to BatchNorm1d<f32>");
+        assert_eq!(concrete.num_features, 3);
+    }
+
+    #[test]
+    fn bn3d_as_any_downcasts_to_concrete_type() {
+        let bn = BatchNorm3d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        let dyn_module: &dyn Module<f32> = &bn;
+        let any = dyn_module
+            .as_any()
+            .expect("BatchNorm3d::as_any returns Some");
+        let concrete = any
+            .downcast_ref::<BatchNorm3d<f32>>()
+            .expect("any must downcast to BatchNorm3d<f32>");
+        assert_eq!(concrete.num_features, 2);
+    }
+
+    /// Sanity: the default `as_any` on Module returns None for a non-BN
+    /// module (LayerNorm here), so a generic loader walking
+    /// named_modules() correctly skips non-BN modules.
+    #[test]
+    fn non_bn_module_as_any_returns_none() {
+        let ln = LayerNorm::<f32>::new(vec![4], 1e-5, true).unwrap();
+        let dyn_module: &dyn Module<f32> = &ln;
+        assert!(
+            dyn_module.as_any().is_none(),
+            "non-BN modules must not opt into the as_any downcast hook"
+        );
+    }
+
+    /// Setting running stats does NOT bump num_batches_tracked — the two
+    /// counters are independent. Tracked batches only advances during
+    /// training-mode forward.
+    #[test]
+    fn bn2d_set_running_mean_does_not_touch_nbt() {
+        let bn = BatchNorm2d::<f32>::new(2, 1e-5, 0.1, true).unwrap();
+        assert_eq!(bn.num_batches_tracked(), 0);
+        bn.set_running_mean(&[0.5_f32, 0.5]).unwrap();
+        assert_eq!(bn.num_batches_tracked(), 0);
+        bn.set_running_var(&[1.0_f32, 1.0]).unwrap();
+        assert_eq!(bn.num_batches_tracked(), 0);
     }
 }

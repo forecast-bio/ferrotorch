@@ -100,6 +100,34 @@ pub trait Module<T: Float>: Send + Sync {
         Vec::new()
     }
 
+    /// Downcast hook for type-erased buffer-loader dispatch. (#984)
+    ///
+    /// Returns `Some(&self as &dyn Any)` for concrete module types whose
+    /// non-`Buffer<T>` persistent state needs to be applied from a state
+    /// dict (currently `BatchNorm1d` / `BatchNorm2d` / `BatchNorm3d`'s
+    /// running mean / variance / `num_batches_tracked` — see Phase 2
+    /// of the value-parity pipeline in `ferrotorch-vision/tests`).
+    ///
+    /// The default returns `None`, so existing modules are unaffected:
+    /// type-erased callers walking `named_modules()` will simply skip
+    /// modules that do not opt in. Implementors MUST return
+    /// `Some(self)`; returning `Some` for an unrelated `Any` would
+    /// violate the contract.
+    ///
+    /// Why a downcast hook instead of a wider trait surface (e.g. a
+    /// dedicated `set_buffer_value(&self, &str, &Tensor<T>)` method on
+    /// `Module`)? Buffers carrying torch-shaped state (running mean /
+    /// variance, `num_batches_tracked: usize`) currently live outside
+    /// the [`Buffer<T>`] abstraction (BN keeps `Mutex<Vec<f64>>` for
+    /// numerical stability and the integer counter has no `Buffer`
+    /// at all), so a single typed setter on `Module` would force a
+    /// premature unification that #984 explicitly defers. The downcast
+    /// hook keeps `Module` free of BN-specific shape and lets concrete
+    /// modules expose their own typed setters at full precision.
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
+
     // -----------------------------------------------------------------
     // Submodule iteration. (#583)
     // -----------------------------------------------------------------
