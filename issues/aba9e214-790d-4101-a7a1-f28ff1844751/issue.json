@@ -2,11 +2,12 @@
   "uuid": "aba9e214-790d-4101-a7a1-f28ff1844751",
   "display_id": 983,
   "title": "Vision conformance tests: promote shape-only to value-vs-fixture parity",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-08T01:36:49.741855720Z",
-  "updated_at": "2026-05-08T01:36:51.143101648Z",
+  "updated_at": "2026-05-08T02:37:29.985830678Z",
+  "closed_at": "2026-05-08T02:37:29.985830678Z",
   "labels": [
     "conformance,test,vision"
   ]
