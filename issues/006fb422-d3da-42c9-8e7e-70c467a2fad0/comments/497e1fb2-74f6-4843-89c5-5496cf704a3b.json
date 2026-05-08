@@ -1,0 +1,10 @@
+{
+  "uuid": "497e1fb2-74f6-4843-89c5-5496cf704a3b",
+  "issue_uuid": "006fb422-d3da-42c9-8e7e-70c467a2fad0",
+  "author": "y4rr",
+  "content": "Phase 8 PROBE-BEFORE-FIX, DeepLabV3 Movement 2: STOP-AND-REPORT signal. torchvision deeplabv3_resnet50 has structural (not pure naming) divergence from ferrotorch DeepLabV3: (1) ASPP atrous_rates=(12,24,36) torchvision default vs ferrotorch hardcoded (6,12,18); (2) DeepLabHead is Sequential[ASPP, Conv3x3(256,256,bias=False), BN256, ReLU, Conv1x1(256,N,bias=True)] — ferrotorch's DeepLabV3Head is just aspp + 1x1 classifier (missing 3x3 conv + BN intermediate); (3) final classifier bias=True in torchvision but bias=False in ferrotorch; (4) ASPPPooling submodule indexing places conv at convs.4.1 (after avgpool=4.0) and BN at 4.2 — ferrotorch ASPPPooling exposes (conv, bn) at indices that don't match. Pure naming remap insufficient; src/ changes to atrous rates + DeepLabHead structure are required. Filing as separate issue, redirect Movement 2 to scope-narrow.",
+  "created_at": "2026-05-08T19:40:39.060090165Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAKh1ZXXTJqDxuTH02euhDIv4edzXN7pAfXGUa6j4hVMNsVqwOYrPCKmBVrofebFMMaBKAePEYMA1ECJyO3M8+Aw=="
+}
