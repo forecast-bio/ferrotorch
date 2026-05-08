@@ -1,0 +1,10 @@
+{
+  "uuid": "e888784e-344f-4c4e-8405-c186fcda91e9",
+  "display_id": 979,
+  "title": "Regenerate nn_attention and flex_attention fixtures for SwiGLU w3 and alibi slope",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T00:28:24.519754471Z",
+  "updated_at": "2026-05-08T00:28:24.519754471Z"
+}
