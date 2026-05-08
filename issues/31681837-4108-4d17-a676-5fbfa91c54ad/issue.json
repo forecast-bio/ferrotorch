@@ -2,11 +2,12 @@
   "uuid": "31681837-4108-4d17-a676-5fbfa91c54ad",
   "display_id": 848,
   "title": "ferrotorch-serialize: GGUF conformance fixtures — synthetic GGUF binary generation for parse_gguf_bytes, load_gguf, dequantize_gguf_tensor",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-07T14:30:00.344379902Z",
-  "updated_at": "2026-05-07T14:30:02.320812809Z",
+  "updated_at": "2026-05-08T00:33:53.744420658Z",
+  "closed_at": "2026-05-08T00:33:53.744420658Z",
   "labels": [
     "rust,conformance,serialize"
   ]
