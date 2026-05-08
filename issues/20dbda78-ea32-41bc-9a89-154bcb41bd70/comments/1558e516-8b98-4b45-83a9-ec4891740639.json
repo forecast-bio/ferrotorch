@@ -1,0 +1,10 @@
+{
+  "uuid": "1558e516-8b98-4b45-83a9-ec4891740639",
+  "issue_uuid": "20dbda78-ea32-41bc-9a89-154bcb41bd70",
+  "author": "y4rr",
+  "content": "Approach (Phase 9 dispatch grounded): src/ structural changes confined to aspp.rs + deeplabv3.rs. (1) Aspp::new gains atrous_rates: (usize,usize,usize) param; deeplabv3_resnet50 passes (12,24,36) per torchvision default. (2) DeepLabV3Head restructure: add conv_intermediate (256→256, 3×3, pad=1, bias=false), bn_intermediate (256, eps=1e-5, momentum=0.1, affine=true); classifier becomes bias=true; forward: aspp → conv_intermediate → bn_intermediate → relu → classifier; named_children now exposes 4 modules under indices '0' (aspp), '1' (conv_intermediate), '2' (bn_intermediate), '4' (classifier) — torchvision's classifier.{0,1,2,4} convention. (3) Test-side state_remap rewrites torchvision keys → ferrotorch head.<...>: classifier.0.<...> → head.aspp.<...>, classifier.1 → head.conv_intermediate, classifier.2 → head.bn_intermediate, classifier.4 → head.classifier. (4) Probe-before-fix: dump fresh-built deeplabv3_resnet50 named_parameters and torchvision reference state_dict keys, assert 1:1 mapping. (5) Generate fixture (random-init via the existing regenerator), add value-parity test + 4 honest-fail probes. FCN-ResNet50 uses resnet.rs::resnet50_dilated NOT ResNet50Dilated in deeplabv3.rs — backbone changes do not touch FCN.",
+  "created_at": "2026-05-08T20:34:57.597309086Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAU7EFuLoWj7oPbiX0laivI9WwbpOWG8nM8KbRITsP8eEwcNWQOA6p7l/etOnxJhf+JT9b2rVXlsEWU8K49I7YCw=="
+}
