@@ -1,0 +1,10 @@
+{
+  "uuid": "cce42f14-ebba-4fbb-8870-b53bd10a0bd3",
+  "display_id": 1000,
+  "title": "Migrate non-permute CPU-pull patterns in ViT and Swin (cls_token concat, pos_embed broadcast, batched MLP unrolling, manual mean reduction)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T11:08:18.431256326Z",
+  "updated_at": "2026-05-08T11:08:18.431256326Z"
+}
