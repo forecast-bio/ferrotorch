@@ -1,0 +1,10 @@
+{
+  "uuid": "542b9584-c4f8-4afd-a79c-cc4f40f8db74",
+  "issue_uuid": "50ed97af-4423-4e76-8faa-f94b7f5358b8",
+  "author": "y4rr",
+  "content": "Plan: ConvNeXt-T's first 7×7 conv per block is currently a regular 7×7 Conv2d (see ferrotorch-vision/src/models/convnext.rs:5-7 'regular 7x7 convolution because grouped/depthwise convolutions are not yet available in ferrotorch_nn. This changes the parameter count'). Torchvision's ConvNeXt-T uses depthwise 7×7 (groups=C). Until ferrotorch_nn gains grouped/depthwise Conv2d the named_parameters() schema cannot match torchvision convnext_tiny state_dict keys.\n\nPhase 3 (#996) migrated ConvNeXt's permute-pattern CPU-pull bug (the channel_layer_norm helpers nhwc_from_nchw / nchw_from_nhwc) onto Tensor::permute(...).contiguous(). The CPU-pull bug is fixed. The architectural divergence (depthwise) remains and is escalated here.\n\nAcceptance: ferrotorch-nn gains grouped/depthwise Conv2d primitive; convnext.rs swaps the regular 7×7 for depthwise; convnext_tiny_value_parity in conformance_vision_models.rs drops the #[ignore] and passes torch.allclose against tvm.convnext_tiny(weights=None).\n\nOut of scope here: any change to the Phase 3 permute migration.",
+  "created_at": "2026-05-08T10:57:05.020333767Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAuwD6Qoq7dps5HJdZYTmJtuSxk0xaZCw1sbJ6xrQ0Aaqz0fJZP2urTmZRXtc94/5znWAXqY6MAyrtbeLBKZl2Dg=="
+}
