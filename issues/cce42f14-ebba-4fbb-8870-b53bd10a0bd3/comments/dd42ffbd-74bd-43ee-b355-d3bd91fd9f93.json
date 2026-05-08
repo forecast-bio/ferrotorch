@@ -1,0 +1,10 @@
+{
+  "uuid": "dd42ffbd-74bd-43ee-b355-d3bd91fd9f93",
+  "issue_uuid": "cce42f14-ebba-4fbb-8870-b53bd10a0bd3",
+  "author": "y4rr",
+  "content": "Plan: Phase 3 (#996) was scoped strictly to PERMUTE-pattern CPU-pull bugs. Five additional CPU-pull sites in ViT and Swin remain after Phase 3, each calling for a different ferrotorch-core primitive than permute:\n\nViT (vit.rs):\n- 202-246: batched MLP unrolling — slices each batch element [B,seq_len,embed_dim]→[seq_len,embed_dim], runs MLP, concatenates back. Wants tensor-level broadcasting Linear or batched matmul that accepts 3-D input.\n- 381-421 / 534-549: cls_token concat (1 leading-token prepend along dim 1). Wants ferrotorch-core ::cat(dim) or torch-shaped torch.cat.\n- 405-422 / 552-566: pos_embed add with broadcast across batch. Wants broadcast addition or arithmetic::add to accept [B,S,E] + [1,S,E].\n- 433-447 / 580-592: cls slice (narrow dim=1 length=1). Wants ::narrow / ::select / ::index_select.\n\nSwin (swin.rs):\n- 110-136: batched MLP unrolling — same as ViT. Wants 3-D Linear / batched matmul.\n- 422-456 / 571-602: manual mean reduction over the token dim (sum-then-divide). Wants ::mean(dim=1, keepdim=false).\n\nThese are out-of-Phase-3 scope. Phase 3 scope was strictly permute-pattern migration as per the architect's pre-flight. Filed here as a Phase 4 candidate so they don't fall through.\n\nOut of scope for #996. Acceptance: each of the 5 sites above replaced with the matching primitive once it lands in ferrotorch-core; ViT and Swin forward stays on input.device() end-to-end with no .data_vec()/TensorStorage::cpu/.to(device) round-trip in production code.",
+  "created_at": "2026-05-08T11:08:45.756927432Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA2mj0aFi4lqSMAKy6lnSUokAWiN3pAsQI7Z/LxPTsB1zQR0X73KtXlbSmaEhC2BEckYCasZXcHYfzxitQkPAzBA=="
+}
