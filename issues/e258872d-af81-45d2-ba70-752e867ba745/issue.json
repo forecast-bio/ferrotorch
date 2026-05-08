@@ -2,11 +2,12 @@
   "uuid": "e258872d-af81-45d2-ba70-752e867ba745",
   "display_id": 987,
   "title": "ferrotorch-vision: Swin Transformer forward has 18 production-path data_vec/TensorStorage::cpu round-trips",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-08T02:48:55.047265349Z",
-  "updated_at": "2026-05-08T02:48:56.435141572Z",
+  "updated_at": "2026-05-08T11:18:12.768955218Z",
+  "closed_at": "2026-05-08T11:18:12.768955218Z",
   "labels": [
     "rust,vision,bug,gpu"
   ]
