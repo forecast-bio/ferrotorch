@@ -1,0 +1,10 @@
+{
+  "uuid": "8d280f11-f772-497c-a7c9-80e24e0bf5ee",
+  "display_id": 1006,
+  "title": "Track DeepLabV3 segmentation-head naming divergence from torchvision: classifier.0.convs.<i>.<j>/project vs ferrotorch head.aspp.<i>/project",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T17:18:34.513851392Z",
+  "updated_at": "2026-05-08T17:18:34.513851392Z"
+}
