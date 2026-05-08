@@ -6,9 +6,10 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-08T10:57:06.479242247Z",
-  "updated_at": "2026-05-08T10:57:09.103940887Z",
+  "updated_at": "2026-05-08T10:57:10.468452855Z",
   "labels": [
     "vision",
-    "conformance"
+    "conformance",
+    "blocked-by-architecture"
   ]
 }
