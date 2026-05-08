@@ -22,12 +22,10 @@ pub use detection::{
     SSD_ANCHORS_PER_SCALE, SSD_FM_SIZES, SSD_TOTAL_ANCHORS, Ssd300, SsdDetections, TwoMlpHead,
     fasterrcnn_resnet50_fpn, maskrcnn_resnet50_fpn, ssd300_vgg16,
 };
-pub use efficientnet::{ConvBlock, EfficientNet, efficientnet_b0};
+pub use efficientnet::{EfficientNet, efficientnet_b0};
 pub use feature_extractor::{FeatureExtractor, IntermediateFeatures, create_feature_extractor};
 pub use inception::{InceptionModule, InceptionV3, inception_v3};
-pub use mobilenet::{
-    InvertedResidual, MobileNetV2, MobileNetV3Small, V3Block, mobilenet_v2, mobilenet_v3_small,
-};
+pub use mobilenet::{MobileNetV2, MobileNetV3Small, mobilenet_v2, mobilenet_v3_small};
 pub use registry::{
     ModelConstructor, ModelRegistry, REGISTRY, get_model, list_models, register_model,
 };

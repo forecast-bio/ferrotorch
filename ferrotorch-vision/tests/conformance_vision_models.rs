@@ -1024,12 +1024,12 @@ fn efficientnet_b0_param_count_in_range() {
     let model = efficientnet_b0::<f32>(1000).expect("efficientnet_b0");
     let total = model.num_parameters();
     assert!(
-        total > 6_000_000,
-        "EfficientNet-B0 param count should be >6M, got {total}"
+        total > 4_900_000,
+        "EfficientNet-B0 param count should be >4.9M (Phase 7 MBConv), got {total}"
     );
     assert!(
-        total < 7_500_000,
-        "EfficientNet-B0 param count should be <7.5M, got {total}"
+        total < 5_700_000,
+        "EfficientNet-B0 param count should be <5.7M (Phase 7 MBConv), got {total}"
     );
 }
 
@@ -4303,8 +4303,11 @@ mod value_parity_pipeline {
     };
 
     #[test]
-    #[ignore = "#990 MobileNetV2 ferrotorch impl uses standard Conv2d (no depthwise+pointwise) and no BN; cannot match torchvision mobilenet_v2 state_dict keys"]
     fn mobilenet_v2_value_parity() {
+        // Phase 7 (#1007): closes #990. ferrotorch MobileNetV2 now uses
+        // expand+depthwise (Phase 5 groups) + BN per torchvision; the
+        // strict loader's adoption of `mobilenet_v2(weights=None)` is the
+        // 9th value-parity PASS in the 3-vision-Tier-2 dispatch.
         run_value_parity_test(
             MOBILENET_V2_PROBE.fixture_id,
             MOBILENET_V2_PROBE.regenerate_target,
@@ -4314,25 +4317,21 @@ mod value_parity_pipeline {
     }
 
     #[test]
-    #[ignore = "#990 MobileNetV2 simplified impl"]
     fn mobilenet_v2_loader_rejects_unmapped_torchvision_key() {
         probe_loader_rejects_unmapped_torchvision_key(&MOBILENET_V2_PROBE);
     }
 
     #[test]
-    #[ignore = "#990 MobileNetV2 simplified impl"]
     fn mobilenet_v2_loader_rejects_missing_ferrotorch_param() {
         probe_loader_rejects_missing_ferrotorch_param(&MOBILENET_V2_PROBE);
     }
 
     #[test]
-    #[ignore = "#990 MobileNetV2 simplified impl"]
     fn mobilenet_v2_loader_rejects_shape_mismatch() {
         probe_loader_rejects_shape_mismatch(&MOBILENET_V2_PROBE);
     }
 
     #[test]
-    #[ignore = "#990 MobileNetV2 simplified impl"]
     fn mobilenet_v2_loader_rejects_missing_bn_buffer() {
         probe_loader_rejects_missing_bn_buffer(&MOBILENET_V2_PROBE);
     }
@@ -4354,8 +4353,10 @@ mod value_parity_pipeline {
     };
 
     #[test]
-    #[ignore = "#991 MobileNetV3-Small ferrotorch impl uses standard Conv2d (no depthwise+pointwise, no SE, no h-swish), no BN; cannot match torchvision mobilenet_v3_small state_dict keys"]
     fn mobilenet_v3_small_value_parity() {
+        // Phase 7 (#1007): closes #991. ferrotorch MobileNetV3-Small now
+        // uses the full inverted-residual + SE (HardSigmoid scale) + per-
+        // block ReLU/HardSwish layout per the V3 conf table.
         run_value_parity_test(
             MOBILENET_V3_SMALL_PROBE.fixture_id,
             MOBILENET_V3_SMALL_PROBE.regenerate_target,
@@ -4365,25 +4366,21 @@ mod value_parity_pipeline {
     }
 
     #[test]
-    #[ignore = "#991 MobileNetV3-Small simplified impl"]
     fn mobilenet_v3_small_loader_rejects_unmapped_torchvision_key() {
         probe_loader_rejects_unmapped_torchvision_key(&MOBILENET_V3_SMALL_PROBE);
     }
 
     #[test]
-    #[ignore = "#991 MobileNetV3-Small simplified impl"]
     fn mobilenet_v3_small_loader_rejects_missing_ferrotorch_param() {
         probe_loader_rejects_missing_ferrotorch_param(&MOBILENET_V3_SMALL_PROBE);
     }
 
     #[test]
-    #[ignore = "#991 MobileNetV3-Small simplified impl"]
     fn mobilenet_v3_small_loader_rejects_shape_mismatch() {
         probe_loader_rejects_shape_mismatch(&MOBILENET_V3_SMALL_PROBE);
     }
 
     #[test]
-    #[ignore = "#991 MobileNetV3-Small simplified impl"]
     fn mobilenet_v3_small_loader_rejects_missing_bn_buffer() {
         probe_loader_rejects_missing_bn_buffer(&MOBILENET_V3_SMALL_PROBE);
     }
@@ -4405,8 +4402,12 @@ mod value_parity_pipeline {
     };
 
     #[test]
-    #[ignore = "#992 EfficientNet-B0 ferrotorch impl uses standard Conv2d (no MBConv depthwise+pointwise, no SE), no BN; cannot match torchvision efficientnet_b0 state_dict keys"]
     fn efficientnet_b0_value_parity() {
+        // Phase 7 (#1007): closes #992. ferrotorch EfficientNet-B0 now uses
+        // the full MBConv (expand+depthwise+SE+project) layout with SiLU
+        // activation and Sigmoid SE scale per torchvision. Stochastic
+        // depth is identity in eval — training-mode parity tracked
+        // separately (Phase 7 finding §15).
         run_value_parity_test(
             EFFICIENTNET_B0_PROBE.fixture_id,
             EFFICIENTNET_B0_PROBE.regenerate_target,
@@ -4416,25 +4417,21 @@ mod value_parity_pipeline {
     }
 
     #[test]
-    #[ignore = "#992 EfficientNet-B0 simplified impl"]
     fn efficientnet_b0_loader_rejects_unmapped_torchvision_key() {
         probe_loader_rejects_unmapped_torchvision_key(&EFFICIENTNET_B0_PROBE);
     }
 
     #[test]
-    #[ignore = "#992 EfficientNet-B0 simplified impl"]
     fn efficientnet_b0_loader_rejects_missing_ferrotorch_param() {
         probe_loader_rejects_missing_ferrotorch_param(&EFFICIENTNET_B0_PROBE);
     }
 
     #[test]
-    #[ignore = "#992 EfficientNet-B0 simplified impl"]
     fn efficientnet_b0_loader_rejects_shape_mismatch() {
         probe_loader_rejects_shape_mismatch(&EFFICIENTNET_B0_PROBE);
     }
 
     #[test]
-    #[ignore = "#992 EfficientNet-B0 simplified impl"]
     fn efficientnet_b0_loader_rejects_missing_bn_buffer() {
         probe_loader_rejects_missing_bn_buffer(&EFFICIENTNET_B0_PROBE);
     }

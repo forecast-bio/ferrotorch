@@ -120,9 +120,9 @@
       "params": {
         "num_classes": 1000
       },
-      "expected_min_params": 6000000,
-      "expected_max_params": 7500000,
-      "note": "ferrotorch EfficientNet-B0 uses standard Conv2d (no depthwise/SE): ~6.6M params. torchvision reference: 5,288,548. Accepted range: 6M\u20137.5M."
+      "expected_min_params": 4900000,
+      "expected_max_params": 5700000,
+      "note": "Phase 7 (#1007): ferrotorch EfficientNet-B0 now matches torchvision (MBConv depthwise+SE+SiLU+Sigmoid): 5,288,548 parameters. Accepted range tightened to 4.9M\u20135.7M (was 6M\u20137.5M when ferrotorch used standard-Conv2d placeholder)."
     },
     {
       "id": "efficientnet_b0_v1_output_finite",
