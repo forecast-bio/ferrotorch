@@ -1,0 +1,10 @@
+{
+  "uuid": "8c4e024f-6556-4cc8-a6d8-07761c8e14bd",
+  "issue_uuid": "233faeb0-0d8c-4c1f-9bdd-a1816faf12dc",
+  "author": "y4rr",
+  "content": "Plan: (1) Probe-before-fix in tests/ comparing manual data_vec permute to view().permute().contiguous() for 4D pattern. (2) Migrate vit.rs PatchEmbed (1 site). (3) Migrate convnext.rs nhwc_from_nchw + nchw_from_nhwc helpers. (4) Migrate swin.rs (18 sites). (5) Generate fixtures + value-parity tests using Phase 1B template. (6) ViT PASS expected; ConvNeXt+Swin REPORTED with new architectural-divergence issues. (7) NO changes to ferrotorch-core/ or ferrotorch-nn/ - existing primitives Tensor::permute(), Tensor::contiguous(), Tensor::view() already work.",
+  "created_at": "2026-05-08T10:41:30.088666620Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGB91bFk9hkpPJdtmFliwZD5sAv4bEzKwxvDT+9BKAsDUXI/Cbn+xR/8XMIUs46vMnoJKBXq5SoYV61daLo0JAg=="
+}
