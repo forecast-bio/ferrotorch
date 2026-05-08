@@ -1,0 +1,10 @@
+{
+  "uuid": "900a0d4d-d873-4831-a686-fa085b116f05",
+  "issue_uuid": "6dc90e79-c5ed-4512-bd81-9c01bc27c462",
+  "author": "y4rr",
+  "content": "Result: deeplabv3_resnet50_value_parity PASSES per-element allclose (max_abs=8.941e-6, max_rel=1.755 [PyTorch sees rel as absolute when |e| is small, so the per-element rule |a-e|<=abs_tol+rel_tol*|e| still holds; numerically validated by the test runner]). Regressions checked: fcn_resnet50_value_parity PASS (max_abs=1.383e-4); resnet50_value_parity PASS; all 63 value_parity_pipeline tests PASS (deeplabv3 + 4 probes). Probe-before-fix tests (probe_deeplabv3_remap.rs): all 3 PASS — head-side schema is stable. Full ferrotorch-vision: 14 binaries × test results all green (375+178+29+25+24+22+56+12+5+4+3+2+1+1, all pass; 14 ignored = pre-existing #998 Swin / #995 BN-fallback / etc.). ferrotorch-nn: 1193 + 9 result groups all green. clippy -p ferrotorch-vision -p ferrotorch-nn --tests --all-targets -- -D warnings: clean. git diff --stat -- ferrotorch-core/ ferrotorch-gpu/ ferrotorch-nn/: empty (no forbidden modifications). 13/14 vision models now have value-parity PASS (Swin remains under #998).",
+  "created_at": "2026-05-08T21:17:47.765858013Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAptFV2c6hXxpahs1TJ5+JeV+9WnufxJ5abwIhWil32o2dak0UY63QzugCqO4Lf130XMg13r8XMMc5rhg7OJ1ZDg=="
+}
