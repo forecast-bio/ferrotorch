@@ -1,0 +1,10 @@
+{
+  "uuid": "c811ae1d-209b-43e9-b870-51e2ce5dbd26",
+  "issue_uuid": "8d280f11-f772-497c-a7c9-80e24e0bf5ee",
+  "author": "y4rr",
+  "content": "Surfaced during Phase 6 #988 ASPP migration. Aspp branches now use Conv2d::new_full(dilation, groups=1, bias=false) directly — the 7-deep CPU loop is gone. Adding a DeepLabV3 value-parity fixture surfaces a deeper, structurally-different gap: torchvision's deeplabv3_resnet50 segmentation head is classifier.0.{convs.<i>.<j>, project.<i>}.* and classifier.{1,2,4}.* while ferrotorch produces head.aspp.{0,1,2,3,4}.<...>, head.aspp.project.<...>, head.classifier.<...>. The named_parameters layouts cannot align without a substantial naming-side rename or a state_remap function. Out-of-Phase-6 scope; this issue tracks it.",
+  "created_at": "2026-05-08T17:18:53.022779821Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABALvkbBJGrwlVrbEjpCb9AohohgeoqbPDFBuiXsFbmc05dwVeoNllmSjFtNCG0wvz7+YCp2AfaVd/bRWf1idNxDA=="
+}
