@@ -1,0 +1,10 @@
+{
+  "uuid": "71217a5b-5299-4fd9-a701-e1b745bedfea",
+  "issue_uuid": "6868e038-de8c-44d8-b1fb-2b5774994422",
+  "author": "y4rr",
+  "content": "Phase 1B (#985) value-parity attempt failed at strict loader's UnmappedFixtureKey check.\n\nVerbatim panic: 'MobileNetV2: loader failed on well-formed fixture: invalid argument: MobileNetV2 value-parity loader: torchvision key \"features.13.conv.3.bias\" has no mapping to a ferrotorch parameter and is not a declared BN buffer'\n\nRoot cause: ferrotorch-vision/src/models/mobilenet.rs documents impl as 'simplified' — uses standard Conv2d in place of depthwise+pointwise pairs and omits BN. torchvision's mobilenet_v2 has features.N.conv.0/1/2/3 (depthwise + pointwise + BN), 158 params + 104 fp_buffers. Ferrotorch's MobileNetV2 has only Conv2d weights, no BN.\n\nPhase 1B test infra in place; tests #[ignore = \"#990 ...\"] until ferrotorch impl gains depthwise + BN.",
+  "created_at": "2026-05-08T03:05:47.864940311Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAf/HcHwvfRe2jK4nEyny6sPvFyQlDhHhl2XVpTa+oqNzsZ7G1kYruyX5zJ4cb3KZ96FSLv5rp8ohLe49lZT9vCA=="
+}
