@@ -1,0 +1,10 @@
+{
+  "uuid": "7a4c5d80-31b3-494c-9d95-91f2356854d3",
+  "display_id": 1003,
+  "title": "Add groups + dilation parameters to ferrotorch-gpu conv2d_f32 backend signature",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-08T16:24:16.501405274Z",
+  "updated_at": "2026-05-08T16:24:16.501405274Z"
+}
