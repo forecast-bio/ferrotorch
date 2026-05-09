@@ -1,0 +1,10 @@
+{
+  "uuid": "2bfa3b17-baa7-4449-b5c1-69f0fd8d2ff8",
+  "display_id": 1033,
+  "title": "BROKEN train: grad_accum_mean_loss doesn't exercise n_accumulate (conformance_train.rs:1165) — tests LossMetric::compute, not gradient accumulation plumbing; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:30:06.181614371Z",
+  "updated_at": "2026-05-09T04:30:06.181614371Z"
+}
