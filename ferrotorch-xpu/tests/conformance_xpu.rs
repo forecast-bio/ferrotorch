@@ -308,6 +308,15 @@ fn fixture_file_covers_every_expected_op() {
 /// build) or panic/error cleanly when the wgpu feature is compiled in but no
 /// Vulkan adapter is present (e.g. WSL2). Mirrors `torch.xpu.is_available()
 /// == False` on a machine with no Intel GPU.
+///
+/// Phase 4 (#1056): the previous `Ok(Err(_)) => {}` arm accepted ANY
+/// `FerrotorchError` variant — a contract violation (e.g. `Internal` or
+/// `LockPoisoned`) would have passed silently. This test now enumerates the
+/// accept-list explicitly: `DeviceUnavailable` (no-wgpu stub build) and
+/// `Gpu { source: _ }` (wgpu adapter / driver init failure type-erased
+/// through the cross-crate boundary). Any other error variant fails with a
+/// descriptive message naming the unexpected variant — that catches a future
+/// regression where init failures are misrouted to e.g. `Internal`.
 #[test]
 fn xpu_device_new_errors_without_backend() {
     let file = load_fixtures();
@@ -315,16 +324,35 @@ fn xpu_device_new_errors_without_backend() {
     assert!(!cases.is_empty(), "fixture xpu_no_backend_stub not found");
 
     // XpuDevice::new may panic internally (wgpu adapter missing) or return
-    // Err(DeviceUnavailable). Use catch_unwind to handle both.
+    // an Err. Use catch_unwind to handle both.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| XpuDevice::new(0)));
     match result {
-        // Clean Err — expected when wgpu feature is disabled.
-        Ok(Err(FerrotorchError::DeviceUnavailable)) => {}
-        // Other clean Err — also acceptable (driver/surface init failure).
-        Ok(Err(_)) => {}
+        // Accept-list: only these two variants represent a legitimate
+        // "no XPU available" outcome on this machine.
+        Ok(Err(FerrotorchError::DeviceUnavailable)) => {
+            // Expected on a build without the `wgpu` feature; matches the
+            // stub `Err(DeviceUnavailable)` returned from src/lib.rs L117.
+        }
+        Ok(Err(FerrotorchError::Gpu { source: _ })) => {
+            // Expected when wgpu is compiled in but the underlying runtime
+            // surfaces an error from CubeRuntime::new (driver / surface
+            // init failure on a host without a usable adapter).
+        }
+        // Anything else is a contract violation — name the variant.
+        Ok(Err(other)) => {
+            panic!(
+                "XpuDevice::new(0) returned unexpected error variant: {other:?} \
+                 — expected DeviceUnavailable or Gpu {{ source }}; if this is a \
+                 legitimate new variant, update the accept-list in this test \
+                 (#1056) and document the contract change"
+            );
+        }
         // Panic — expected when wgpu is compiled in but no Vulkan adapter.
         Err(_panic) => {
             // This is the wgpu "no adapter" path; acceptable on WSL2.
+            // (CubeRuntime::new panics from a worker thread when no Vulkan
+            // ICD is present; XpuDevice::is_available wraps this internally
+            // but XpuDevice::new does not.)
         }
         Ok(Ok(_)) => {
             // Actual XPU device found — live-XPU path; cascade_skip.
@@ -334,16 +362,6 @@ fn xpu_device_new_errors_without_backend() {
             );
         }
     }
-
-    // is_available() must agree with torch.xpu.is_available() on this box.
-    // The fixture records False; if ferrotorch returns True on a no-hardware
-    // box that is an over-reporting bug.
-    if !XpuDevice::is_available() {
-        // Consistent with no-hardware; nothing more to assert.
-    }
-    // If is_available() returns True but we couldn't construct a device above,
-    // that's a divergence worth noting but not failing on — the fixture-level
-    // assertion in xpu_is_available_matches_fixture handles it.
 }
 
 /// `XpuDevice::is_available()` parity with `torch.xpu.is_available()`.
@@ -385,6 +403,17 @@ fn xpu_is_available_matches_fixture() {
 
 /// `XpuDevice::device()` must return `Device::Xpu(ordinal)` and the
 /// Display impl must produce `"xpu:0"`.
+///
+/// Phase 4 (#1055): the previous body compared two literals
+/// (`"xpu:0" == "xpu:0"`), which is a tautology. This test now formats a
+/// real `Device::Xpu(ordinal)` value through `core::fmt::Display` and
+/// asserts the result matches the fixture's `device_str` — exercising
+/// the actual `Device::Display` impl in `ferrotorch-core/src/device.rs`.
+/// If that impl is changed (e.g. to `"intel-xpu:0"`) this test fails.
+///
+/// `XpuDevice::Display` itself cannot be exercised here because we
+/// cannot construct an `XpuDevice` without a wgpu adapter. That branch
+/// is `cascade_skip`'d to follow-up #1076 (test-only constructor).
 #[test]
 fn xpu_device_metadata_parity() {
     let file = load_fixtures();
@@ -395,21 +424,42 @@ fn xpu_device_metadata_parity() {
     let expected_ordinal = f.ordinal.unwrap_or(0) as usize;
     let expected_device_str = f.device_str.as_deref().unwrap_or("xpu:0");
 
-    // XpuDevice::new will fail without hardware; but we can still verify the
-    // Display trait produces the right string from whatever we can construct.
-    // Use a mock path: verify the Device::Xpu enum variant itself.
+    // Real `Device::Display` invocation — not literal-vs-literal.
     let dev = Device::Xpu(expected_ordinal);
+    let actual_device_str = format!("{dev}");
+    assert_eq!(
+        actual_device_str, expected_device_str,
+        "Device::Xpu({expected_ordinal}).to_string() must match fixture device_str; \
+         got {actual_device_str:?}, expected {expected_device_str:?}"
+    );
+
+    // Round-trip the ordinal through the variant — if the discriminant
+    // ever shifts, this fails before the Display assertion would.
     match dev {
         Device::Xpu(o) => assert_eq!(o, expected_ordinal, "ordinal must round-trip"),
         other => panic!("Device::Xpu({expected_ordinal}) should be Xpu variant, got {other:?}"),
     }
 
-    // Verify Display on a constructed XpuDevice if available; if not, verify
-    // the fixture's expected string is "xpu:0" (we know the format is correct
-    // from the lib.rs Display impl).
-    assert_eq!(
-        expected_device_str, "xpu:0",
-        "fixture must encode 'xpu:0' for ordinal 0"
+    // Verify XpuDevice's own Display impl mirrors Device::Display.
+    // Cannot construct XpuDevice without a wgpu adapter (struct fields are
+    // private; XpuDevice::new probes the adapter list and either errors or
+    // panics on this hardware-less box). cascade_skip until #1076 lands a
+    // test-only constructor that bypasses adapter init.
+    let device_result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| XpuDevice::new(0)));
+    if let Ok(Ok(dev)) = device_result {
+        // Live device present — exercise XpuDevice::Display directly.
+        let s = format!("{dev}");
+        assert_eq!(
+            s, expected_device_str,
+            "XpuDevice::Display must match fixture device_str on live hardware"
+        );
+        return;
+    }
+    cascade_skip!(
+        "XpuDevice::Display verification deferred — cannot construct XpuDevice \
+         without hardware; follow-up #1076 (pub(crate) fn new_for_testing) \
+         needed to assert Display impl in stub mode"
     );
 }
 
@@ -419,36 +469,54 @@ fn xpu_device_metadata_parity() {
 
 /// `make_xpu_tensor` must return `Err(DeviceUnavailable)` when the wgpu
 /// feature is not enabled, regardless of input shape or data.
+///
+/// Phase 4 (#1053): the previous body terminated with `cascade_skip!` on
+/// every path before reaching any assertion. The strengthened version
+/// pins `make_xpu_tensor`'s signature with a typed function-pointer
+/// reference — if the signature drifts (e.g. `&[f32]` instead of
+/// `Vec<f32>`, or shape encoded as `Vec<usize>` instead of `&[usize]`) a
+/// type-check error fires at compile time naming this test specifically.
+/// The runtime stub-mode assertion is genuinely blocked: invoking
+/// `make_xpu_tensor` requires an `&XpuDevice`, and the struct's fields
+/// are private — there is no constructor that bypasses the wgpu adapter
+/// probe. Follow-up #1076 unblocks runtime stub-mode verification.
 #[test]
+// The fully-spelled fn-pointer type below is the verification mechanism;
+// factoring it into a type alias would hide the signature details and
+// defeat the purpose. Matches the precedent on `op_symbols_resolve_at_compile_time`.
+#[allow(clippy::type_complexity)]
 fn make_xpu_tensor_errors_without_backend() {
-    // We can't call XpuDevice::new() to get an xpu handle; but the stub
-    // definition of make_xpu_tensor ignores its arguments and always returns
-    // DeviceUnavailable.
-    //
-    // Construct a dummy XpuDevice via the stub new() error path — we can't
-    // build one, so test via a catch_unwind boundary to inspect the error
-    // without an actual device.
-    //
-    // The point of this test: verify that make_xpu_tensor's function signature
-    // is present in the API surface and returns the right error type when
-    // it can't allocate.
-    // XpuDevice::new may panic (wgpu/Vulkan absent) or return Err; both mean
-    // no device is constructable and make_xpu_tensor's live path is untestable.
+    // Compile-time signature pin for `make_xpu_tensor`. A signature drift
+    // (parameter order, dtype generification, shape encoding) fails to
+    // type-check here. This is the strongest assertion the no-hardware
+    // box permits without follow-up #1076.
+    let _signature_pin: fn(
+        Vec<f32>,
+        &[usize],
+        &XpuDevice,
+    ) -> ferrotorch_core::FerrotorchResult<ferrotorch_core::Tensor<f32>> = make_xpu_tensor;
+
+    // XpuDevice::new may panic (wgpu/Vulkan absent) or return Err; both
+    // mean no device is constructable and make_xpu_tensor's live path is
+    // untestable on this box.
     let device_result =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| XpuDevice::new(0)));
-    let have_device = matches!(device_result, Ok(Ok(_)));
-    if have_device {
+    if matches!(device_result, Ok(Ok(_))) {
         cascade_skip!(
-            "make_xpu_tensor live path requires XpuDevice; live device present but \
-             skipped — no Intel XPU on test box. Crosslink bug #836 filed."
+            "make_xpu_tensor live path requires Intel XPU hardware; live device \
+             present but skipped on this CI lane — crosslink bug #836 filed for \
+             live-path coverage"
         );
     }
     // No device available; make_xpu_tensor is unreachable without XpuDevice.
-    // The symbol resolution test (`all_op_symbols_resolve`) verifies the
-    // function exists in the API surface. Live-path coverage is cascade_skipped.
+    // Compile-time signature is pinned above; runtime stub-mode assertion
+    // requires follow-up #1076 (pub(crate) fn new_for_testing).
     cascade_skip!(
-        "make_xpu_tensor live path requires XpuDevice; skipped — no Intel XPU \
-         on test box. Crosslink bug #836 filed for live-path coverage."
+        "make_xpu_tensor stub-mode runtime assertion deferred — cannot construct \
+         XpuDevice without hardware on this box; follow-up #1076 needed for the \
+         pub(crate) fn new_for_testing constructor that would unblock the \
+         Err(DeviceUnavailable) runtime check. Crosslink bug #836 covers the \
+         live-XPU side."
     );
 }
 
@@ -456,59 +524,138 @@ fn make_xpu_tensor_errors_without_backend() {
 // Binary ops — stub path verifies error contract; live path cascade_skip
 // ---------------------------------------------------------------------------
 
-fn assert_stub_op_returns_device_unavailable(op_label: &str) {
-    // Without the wgpu feature every binary/unary/polynomial op returns
-    // Err(DeviceUnavailable). We can't call them without an XpuDevice; but we
-    // exercise the stub via the ops defined in the crate. The no_backend_tests
-    // module in lib.rs already covers the XpuDevice::new path; here we add an
-    // integration-test-level assertion that the module compiles without the
-    // wgpu feature and that the symbol names are correct (by referencing them).
-    //
-    // This helper just records that we've checked the op exists with the right
-    // name and returns early — the real API-shape test is that this file
-    // compiles, which requires all the use-imports at the top of this file to
-    // resolve.
-    let _ = op_label;
+// ---------------------------------------------------------------------------
+// Typed signature-pin helpers (Phase 4 #1050/#1051/#1052)
+//
+// The previous `assert_stub_op_returns_device_unavailable(name: &str)` helper
+// took a string literal and discarded it (`let _ = op_label;`) — a pure
+// no-op that produced no compile-time or runtime check. The fact that the
+// imports at the top of the file resolved was the *only* discrimination,
+// and a test caller could have passed any string (including a name for an
+// op that doesn't exist) and it would still pass.
+//
+// These three helpers accept a typed function pointer per category. If
+// any op's signature drifts from the documented contract — e.g. `xpu_add`
+// switching to `fn(Tensor<f32>, ...)` (by-value), or `xpu_relu` adding a
+// stream-handle parameter, or `xpu_chebyshev_polynomial_t` taking `u32`
+// instead of `usize` for the degree — the call site fails to type-check
+// at compile time, naming the offending op in the error.
+//
+// The runtime stub-mode invocation (`xpu_add(&a, &b, &device)` →
+// `Err(DeviceUnavailable)`) is genuinely blocked because the helpers
+// can't fabricate an `&XpuDevice`. Follow-up #1076 unblocks that.
+// ---------------------------------------------------------------------------
+
+/// Binary-op signature: `fn(&Tensor<f32>, &Tensor<f32>, &XpuDevice)
+/// -> FerrotorchResult<Tensor<f32>>`.
+type XpuBinaryOp = fn(
+    &ferrotorch_core::Tensor<f32>,
+    &ferrotorch_core::Tensor<f32>,
+    &XpuDevice,
+) -> ferrotorch_core::FerrotorchResult<ferrotorch_core::Tensor<f32>>;
+
+/// Unary-op signature: `fn(&Tensor<f32>, &XpuDevice)
+/// -> FerrotorchResult<Tensor<f32>>`.
+type XpuUnaryOp = fn(
+    &ferrotorch_core::Tensor<f32>,
+    &XpuDevice,
+) -> ferrotorch_core::FerrotorchResult<ferrotorch_core::Tensor<f32>>;
+
+/// Polynomial-op signature: `fn(&Tensor<f32>, usize, &XpuDevice)
+/// -> FerrotorchResult<Tensor<f32>>`.
+type XpuPolynomialOp = fn(
+    &ferrotorch_core::Tensor<f32>,
+    usize,
+    &XpuDevice,
+) -> ferrotorch_core::FerrotorchResult<ferrotorch_core::Tensor<f32>>;
+
+/// Pin a binary-op symbol's signature. Expansion fails at compile time
+/// if `op` cannot coerce to `XpuBinaryOp` — i.e. if its parameter list
+/// or return type drifted from the documented contract. The typed
+/// function-pointer parameter (not a generic / `impl Fn` / by-name
+/// reference) is what enforces the signature: passing `xpu_add` here
+/// requires `xpu_add: fn(&Tensor<f32>, &Tensor<f32>, &XpuDevice)
+/// -> FerrotorchResult<Tensor<f32>>`; any drift fires `error[E0308]`.
+///
+/// The body asserts the pointer is non-null at runtime so the helper
+/// can't be optimised away into a no-op even at -O3. (Function pointers
+/// are guaranteed non-null by the language; this assertion is defensive
+/// against future toolchain changes that might allow null fn-pointers
+/// in test binaries — and it documents that the helper has runtime
+/// observable behaviour, not just a compile-time check.)
+fn pin_binary_op_signature(op: XpuBinaryOp) {
+    assert!(
+        (op as usize) != 0,
+        "xpu binary-op function pointer must be non-null"
+    );
 }
 
-/// Binary ops (add/sub/mul/div/matmul) are present in the API surface and
-/// error correctly without hardware.
+/// Pin a unary-op symbol's signature. See [`pin_binary_op_signature`].
+fn pin_unary_op_signature(op: XpuUnaryOp) {
+    assert!(
+        (op as usize) != 0,
+        "xpu unary-op function pointer must be non-null"
+    );
+}
+
+/// Pin a polynomial-op symbol's signature. See [`pin_binary_op_signature`].
+fn pin_polynomial_op_signature(op: XpuPolynomialOp) {
+    assert!(
+        (op as usize) != 0,
+        "xpu polynomial-op function pointer must be non-null"
+    );
+}
+
+/// Binary ops (add/sub/mul/div/matmul) are present in the API surface
+/// with the documented binary-op signature.
+///
+/// Phase 4 (#1050): the previous body called a no-op helper that took
+/// a string label and discarded it; this version pins each op's
+/// signature through a typed function-pointer reference. A signature
+/// drift on any op fires `error[E0308]` (mismatched types) at compile
+/// time, naming the test and the offending op. Runtime stub-mode
+/// invocation (`Err(DeviceUnavailable)`) is blocked by lack of an
+/// `XpuDevice` constructor; follow-up #1076 unblocks it.
 #[test]
 fn binary_ops_api_shape() {
-    // Verify symbol resolution (would fail to compile if any op is missing).
-    assert_stub_op_returns_device_unavailable("xpu_add");
-    assert_stub_op_returns_device_unavailable("xpu_sub");
-    assert_stub_op_returns_device_unavailable("xpu_mul");
-    assert_stub_op_returns_device_unavailable("xpu_div");
-    assert_stub_op_returns_device_unavailable("xpu_matmul");
+    pin_binary_op_signature(xpu_add);
+    pin_binary_op_signature(xpu_sub);
+    pin_binary_op_signature(xpu_mul);
+    pin_binary_op_signature(xpu_div);
+    pin_binary_op_signature(xpu_matmul);
 }
 
-/// Unary ops are present and resolve.
+/// Unary ops are present with the documented unary-op signature.
+///
+/// Phase 4 (#1051): see [`binary_ops_api_shape`].
 #[test]
 fn unary_ops_api_shape() {
-    assert_stub_op_returns_device_unavailable("xpu_neg");
-    assert_stub_op_returns_device_unavailable("xpu_abs");
-    assert_stub_op_returns_device_unavailable("xpu_relu");
-    assert_stub_op_returns_device_unavailable("xpu_exp");
-    assert_stub_op_returns_device_unavailable("xpu_ln");
-    assert_stub_op_returns_device_unavailable("xpu_sqrt");
-    assert_stub_op_returns_device_unavailable("xpu_sin");
-    assert_stub_op_returns_device_unavailable("xpu_cos");
-    assert_stub_op_returns_device_unavailable("xpu_tanh");
-    assert_stub_op_returns_device_unavailable("xpu_sigmoid");
+    pin_unary_op_signature(xpu_neg);
+    pin_unary_op_signature(xpu_abs);
+    pin_unary_op_signature(xpu_relu);
+    pin_unary_op_signature(xpu_exp);
+    pin_unary_op_signature(xpu_ln);
+    pin_unary_op_signature(xpu_sqrt);
+    pin_unary_op_signature(xpu_sin);
+    pin_unary_op_signature(xpu_cos);
+    pin_unary_op_signature(xpu_tanh);
+    pin_unary_op_signature(xpu_sigmoid);
 }
 
-/// Polynomial ops are present and resolve.
+/// Polynomial ops are present with the documented polynomial-op signature
+/// (Tensor + degree + device).
+///
+/// Phase 4 (#1052): see [`binary_ops_api_shape`].
 #[test]
 fn polynomial_ops_api_shape() {
-    assert_stub_op_returns_device_unavailable("xpu_chebyshev_polynomial_t");
-    assert_stub_op_returns_device_unavailable("xpu_chebyshev_polynomial_u");
-    assert_stub_op_returns_device_unavailable("xpu_chebyshev_polynomial_v");
-    assert_stub_op_returns_device_unavailable("xpu_chebyshev_polynomial_w");
-    assert_stub_op_returns_device_unavailable("xpu_hermite_polynomial_h");
-    assert_stub_op_returns_device_unavailable("xpu_hermite_polynomial_he");
-    assert_stub_op_returns_device_unavailable("xpu_laguerre_polynomial_l");
-    assert_stub_op_returns_device_unavailable("xpu_legendre_polynomial_p");
+    pin_polynomial_op_signature(xpu_chebyshev_polynomial_t);
+    pin_polynomial_op_signature(xpu_chebyshev_polynomial_u);
+    pin_polynomial_op_signature(xpu_chebyshev_polynomial_v);
+    pin_polynomial_op_signature(xpu_chebyshev_polynomial_w);
+    pin_polynomial_op_signature(xpu_hermite_polynomial_h);
+    pin_polynomial_op_signature(xpu_hermite_polynomial_he);
+    pin_polynomial_op_signature(xpu_laguerre_polynomial_l);
+    pin_polynomial_op_signature(xpu_legendre_polynomial_p);
 }
 
 // ---------------------------------------------------------------------------
@@ -697,6 +844,18 @@ fn xpu_add_rejects_non_xpu_input_contract() {
 /// `xpu_matmul` rejects 1-D inputs with `ShapeMismatch`. In stub mode the
 /// error will be `DeviceUnavailable` before shape validation fires, but the
 /// fixture documents the live-path contract.
+///
+/// Phase 4 (#1054): the previous body only asserted the fixture's
+/// `expected_error_variant == "ShapeMismatch"`, never invoking
+/// `xpu_matmul`. The strengthened version (a) keeps the fixture
+/// well-formedness check (it documents the live-path contract a fixture
+/// regeneration must preserve), (b) pins `xpu_matmul`'s signature with
+/// a typed function-pointer reference so a contract drift fails to
+/// type-check, and (c) cascade_skip's the live invocation to crosslink
+/// bug #836 because we cannot construct an `XpuDevice` here. The
+/// in-crate `xpu_matmul_rejects_non_2d_inputs` test in src/lib.rs
+/// (line 704) covers the live-path assertion when wgpu hardware is
+/// present.
 #[test]
 fn xpu_matmul_rejects_1d_input_contract() {
     let file = load_fixtures();
@@ -712,8 +871,31 @@ fn xpu_matmul_rejects_1d_input_contract() {
         "ShapeMismatch",
         "fixture must document ShapeMismatch for 1-D matmul"
     );
-    // Live-path assertion cascade_skip'd — no Intel XPU on this box.
-    // The structural contract is documented by the fixture.
+
+    // Pin `xpu_matmul`'s signature — a drift (e.g. removing the device
+    // parameter, or changing the result type) fails to type-check here.
+    pin_binary_op_signature(xpu_matmul);
+
+    // Live-path invocation requires an XpuDevice; cascade_skip with the
+    // existing live-XPU follow-up. The src/ test
+    // `xpu_matmul_rejects_non_2d_inputs` (lib.rs:704) exercises this
+    // contract when wgpu hardware is present.
+    let device_result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| XpuDevice::new(0)));
+    if matches!(device_result, Ok(Ok(_))) {
+        cascade_skip!(
+            "xpu_matmul live-path 1-D rejection assertion deferred — \
+             live XPU device present but skipped on this CI lane; the in-crate \
+             test xpu_matmul_rejects_non_2d_inputs covers it. crosslink bug #836"
+        );
+    }
+    cascade_skip!(
+        "xpu_matmul live-path 1-D rejection assertion deferred — cannot \
+         construct XpuDevice without hardware on this box; in-crate test \
+         xpu_matmul_rejects_non_2d_inputs (lib.rs:704) is the live-path \
+         coverage. crosslink bug #836; follow-up #1076 would unblock a \
+         stub-mode runtime check via pub(crate) fn new_for_testing."
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -802,17 +984,45 @@ fn live_xpu_make_xpu_tensor() {
 // any missing symbol causes a compile error, not a link error.
 // ---------------------------------------------------------------------------
 
-/// Compile-time symbol verification: ensure all op functions imported at the
-/// top of this file resolve. This test's body is dead code; the value is in
-/// the function pointer references below which force the linker to resolve
-/// every symbol.
+/// Compile-time signature verification for every op symbol exported by
+/// `ferrotorch-xpu`.
+///
+/// Phase 4 (#1057): renamed from `all_op_symbols_resolve` to communicate
+/// intent — the discriminating power of this test is at *compile time*,
+/// not run time. The function body is reachable at runtime but its
+/// statements are bare let-bindings whose RHS is a function pointer
+/// coerced to a fully-spelled `fn(...) -> ...` type. The compile-time
+/// effect is the contract:
+///
+/// 1. **Symbol existence**: every `xpu_*` and `make_xpu_tensor` must be
+///    importable at the top of this file. A renamed/removed symbol fails
+///    `error[E0432]: unresolved import` before this function is reached.
+/// 2. **Signature shape**: each `let _: fn(...) = name;` coerces the
+///    function pointer to the spelled-out type. A drifted signature
+///    (parameter order, by-value vs. by-ref, return-type generic shape)
+///    fires `error[E0308]: mismatched types` here.
+///
+/// At runtime the body executes successfully (the let-bindings are
+/// no-ops) and the test reports as passing — that pass is the "green
+/// after a clean compile" half of the contract; the other half is that
+/// any signature drift would have prevented this binary from being
+/// produced in the first place.
+///
+/// This test deliberately does NOT use the `pin_*_op_signature`
+/// helpers above: those helpers are partitioned by category so a drift
+/// in (say) `xpu_add` produces a localised failure naming the binary
+/// op test, while this consolidated version provides a single
+/// authoritative manifest of every public symbol's signature in one
+/// place. The duplication is the point — defence in depth against a
+/// future test deletion accidentally erasing both the partitioned and
+/// consolidated coverage at once.
 #[test]
 // The explicit function-pointer type annotations below are intentionally
 // verbose — they serve as the verification mechanism (wrong signature →
 // type error at compile time). Factoring them into type aliases would hide
 // the signature details and defeat the purpose of the test.
 #[allow(clippy::type_complexity)]
-fn all_op_symbols_resolve() {
+fn op_symbols_resolve_at_compile_time() {
     // Reference each function pointer. These are never called; the test just
     // needs them to type-check and link.
     let _: fn(
