@@ -2,11 +2,12 @@
   "uuid": "a191db2a-3411-4d01-9203-423c70bbc46d",
   "display_id": 1078,
   "title": "Audit-Fix Phase 6: jit zero-input shape-only tests (#1015 #1034 #1035)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-09T19:37:45.329173089Z",
-  "updated_at": "2026-05-09T19:37:46.701316261Z",
+  "updated_at": "2026-05-09T20:09:37.374914797Z",
+  "closed_at": "2026-05-09T20:09:37.374914797Z",
   "labels": [
     "epic,audit,test"
   ]
