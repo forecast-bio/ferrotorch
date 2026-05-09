@@ -1,0 +1,10 @@
+{
+  "uuid": "365bddda-5e5f-4479-a142-ef53d9359e5e",
+  "issue_uuid": "5cccc82d-a475-4411-af4a-64569912a9cf",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 2 complete. APPROVE-WITH-FOLLOW-UPS (with REDIRECT). 6 BROKEN tests closed (#1063-#1068). 1 real bug found in ferrolearn-metrics AMI implementation, filed as #1073 and gated via #[ignore=#1073] in adjusted_mutual_info_score_mixed_matches_sklearn — bug remains detectable via --include-ignored. The audit-fix series surfaced exactly the class of bug it was designed to find.",
+  "created_at": "2026-05-09T13:47:33.688460445Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA9VYOpNs/XO/SmQO002R0ZPC2A2nlWFGdpD6z7GEiXFydcIH0GnJJRjH//2tlUs1njdYJN9sMg8Jy8QXB48EmBA=="
+}
