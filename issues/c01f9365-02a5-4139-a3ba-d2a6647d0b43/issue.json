@@ -1,0 +1,11 @@
+{
+  "uuid": "c01f9365-02a5-4139-a3ba-d2a6647d0b43",
+  "display_id": 1076,
+  "title": "ferrotorch-xpu: add pub(crate) fn XpuDevice::new_for_testing(ordinal) so stub-mode op error contract can be verified without hardware (Phase 4 follow-up)",
+  "description": "Follow-up from Audit-Fix Phase 4 (#1075). The conformance suite at ferrotorch-xpu/tests/conformance_xpu.rs cannot verify the stub-mode runtime contract for op functions or for make_xpu_tensor without an XpuDevice handle. Today this requires constructing one through XpuDevice::new(0), which is impossible on hardware-less boxes (WSL2: panics on missing Vulkan adapter; no-feature build: returns DeviceUnavailable before allocation).\n\nAdd a test-only constructor that bypasses the wgpu adapter probe so stub-mode runtime behaviour can be asserted directly:\n\n  pub(crate) fn new_for_testing(ordinal: usize) -> XpuDevice\n\nWithout wgpu: trivially constructs the struct (ordinal-only).\nWith wgpu: gated #[cfg(test)] or feature='_internal_test'; constructs a minimal handle solely so test harnesses can call op functions and observe the error contract.\n\nOnce available, the following cascade_skip points in conformance_xpu.rs become real assertions:\n\n- make_xpu_tensor_errors_without_backend (Phase 4 #1053): assert make_xpu_tensor(vec![1.0], &[1], &dev) returns Err(DeviceUnavailable) on stub builds.\n- xpu_device_metadata_parity (Phase 4 #1055): assert format!(\"{}\", dev) == \"xpu:0\" exercising XpuDevice's Display impl directly (currently only Device::Xpu(0)'s Display is exercised).\n- The 23 binary/unary/polynomial op symbols can be invoked with stub args to verify they all return Err(DeviceUnavailable) at runtime.\n\nAudit-fix series is test-only; this src/ change is filed as the unblocking follow-up. Cited from the strengthened Phase 4 tests' cascade_skip messages.",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T15:05:22.338639558Z",
+  "updated_at": "2026-05-09T15:05:22.338639558Z"
+}
