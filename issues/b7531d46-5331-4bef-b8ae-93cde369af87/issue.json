@@ -1,0 +1,10 @@
+{
+  "uuid": "b7531d46-5331-4bef-b8ae-93cde369af87",
+  "display_id": 1059,
+  "title": "BROKEN hub: hub_smoke_download_weights is eprintln-only stub (conformance_hub.rs:1184) — zero assertions, claims coverage in load_pretrained_smoke.rs out-of-scope; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:34:53.924358667Z",
+  "updated_at": "2026-05-09T04:34:53.924358667Z"
+}
