@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- Audit-Fix Phase 8: nn cluster (#1015 #1021 #1022 #1023) (#1081)
 - Audit-Fix Phase 7: core BROKENs (#1015 #1016-#1020) (#1079)
 - Audit-Fix Phase 6: jit zero-input shape-only tests (#1015 #1034 #1035) (#1078)
 - Audit-Fix Phase 5: train assertion-free stubs (#1015 #1030-#1033) (#1077)
@@ -48,6 +49,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - ferrotorch-core: `gelu()` (no-arg) default is now `GeluApproximate::None` (exact erf-based: `x * 0.5 * (1 + erf(x / √2))`), matching `torch.nn.GELU()`'s `approximate='none'` default. Previously the no-arg path defaulted to `GeluApproximate::Sigmoid` (`x * sigmoid(1.702 * x)`), producing ~6e-3 absolute deviation from PyTorch. **Migration**: callers relying on the historical fast-sigmoid default must opt in explicitly via `gelu_with(input, GeluApproximate::Sigmoid)` (LLM/transformer paths in `ferrotorch-llama` etc. will silently get the slower-but-more-precise erf path after upgrade — adjust if performance matters more than parity in your call site). `gelu_with(_, GeluApproximate::Tanh)` (PyTorch's `approximate='tanh'`) and `gelu_with(_, GeluApproximate::None)` are unchanged. The enum discriminant order is unchanged; only the `#[default]` attribute moved (closes #794).
 
 ### Fixed
+- BROKEN nn: layernorm_backward_matches_reference silently drops bias grad (conformance_nn_attention.rs:1373) — let _expected_grad_bias never asserted; #1015 (#1023)
+- BROKEN nn: lora_merge_produces_same_output is pure self-consistency (conformance_nn_structural.rs:1441) — pre-merge vs post-merge with no external reference; #1015 (#1022)
+- BROKEN nn: flash_and_standard_attention_agree compares two ferrotorch impls vs each other (conformance_nn_attention.rs:553) — shared bug invisible; #1015 (#1021)
 - BROKEN core: profiler_hook_set_get_clear only checks profiler_current is_some/is_none (conformance_plumbing.rs:1652) — record_op could no-op; #1015 (#1020)
 - BROKEN core: forward_only_helpers_smoke only checks finiteness+monotonicity, not values (conformance_reduction.rs:1381) — wrong logcumsumexp values pass; #1015 (#1019)
 - BROKEN core: cpu_empty_amax_amin_returns_err_or_inf accepts both Err and Ok(±inf) (conformance_reduction.rs:779) — silently-incorrect impl returning ±inf would pass; #1015 (#1018)
