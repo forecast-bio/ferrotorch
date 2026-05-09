@@ -1,0 +1,10 @@
+{
+  "uuid": "3ec45050-b781-45a0-aee1-50a4dab56020",
+  "issue_uuid": "0f014150-0bc2-4a43-85c7-b32b570b3606",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 8 APPROVE (clean). 3 BROKEN tests (#1021-#1023) strengthened with external-reference grounding: fixture-filtered flash+standard both vs PyTorch expected (#1021); LoRA pre_merge vs PyTorch-computed expected_output via regen-script extension (#1022); LayerNorm bias_grad assertion via existing fixture data (#1023). #1023 'cascade-deferred' comment was editorial — actual implementation matches PyTorch within F32_MATMUL tolerance, no divergence. Sabotage demo: expected_grad_bias[0] += 0.5 caught at line 134. No src/ changes, no new workspace deps.",
+  "created_at": "2026-05-09T21:23:52.312245375Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA/Z2bpzBlOfpS+lA0s79Q+bMpvDOub/3xCm4G1aDzzlBKqauHRnWRSrLiCncRkH5bhQokzRv7PmxP0A8UY9s3Dw=="
+}
