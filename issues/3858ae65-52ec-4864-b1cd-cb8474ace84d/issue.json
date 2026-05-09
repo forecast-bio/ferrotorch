@@ -1,0 +1,10 @@
+{
+  "uuid": "3858ae65-52ec-4864-b1cd-cb8474ace84d",
+  "display_id": 1026,
+  "title": "BROKEN nn: norm_batch_norm_3d_matches_pytorch elides running_mean/var (conformance_nn_norm_activation_loss.rs:379) — same elision pattern; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:28:46.504244324Z",
+  "updated_at": "2026-05-09T04:28:46.504244324Z"
+}
