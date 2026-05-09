@@ -1,0 +1,10 @@
+{
+  "uuid": "de06c157-a4d4-4462-ac4f-0fdb43293907",
+  "display_id": 1017,
+  "title": "BROKEN core: float_trait_implementors is compile-time only (conformance_plumbing.rs:581) — runtime body is no-op fn calls; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:27:04.215478719Z",
+  "updated_at": "2026-05-09T04:27:04.215478719Z"
+}
