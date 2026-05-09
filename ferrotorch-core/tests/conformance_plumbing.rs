@@ -588,6 +588,51 @@ fn float_trait_implementors() {
     assert_float::<f32>();
     assert_float::<f64>();
     assert_float::<half::bf16>();
+
+    // Runtime probes: exercise `num_traits::Float` methods (and the
+    // `AddAssign` supertrait that ferrotorch's `Float` adds on top)
+    // through the `Float` bound. The compile-time `assert_float` above
+    // only proves the trait bounds are satisfied; without a runtime
+    // call, a stub impl that returns `unreachable!()` from a `Float`
+    // method would still compile and pass. Force a real method dispatch
+    // on every implementor:
+    //   - `Float::nan()` round-trips through `Float::is_nan()`
+    //   - `Float::one() + Float::zero()` via `num_traits::{One, Zero}`
+    //     (both are required supertraits of `num_traits::Float`)
+    //   - `AddAssign` is exercised via `acc += zero`
+    fn float_runtime_probe<T: Float>() -> T {
+        // 1. NaN round-trip: a stub returning a non-NaN sentinel from
+        //    `Float::nan()` (or always-false `is_nan`) would fail here.
+        let nan_t: T = <T as num_traits::Float>::nan();
+        assert!(
+            <T as num_traits::Float>::is_nan(nan_t),
+            "Float::nan() must satisfy Float::is_nan()"
+        );
+        // 2. one + zero with an `AddAssign` step; this exercises `Num`
+        //    (supertrait of `Float`) AND ferrotorch-Float's `AddAssign`
+        //    requirement.
+        let one_t: T = <T as num_traits::One>::one();
+        let zero_t: T = <T as num_traits::Zero>::zero();
+        let mut acc: T = one_t + zero_t;
+        acc += zero_t;
+        acc
+    }
+    assert_eq!(
+        float_runtime_probe::<f32>(),
+        1.0_f32,
+        "f32: Float runtime probe must yield 1.0"
+    );
+    assert_eq!(
+        float_runtime_probe::<f64>(),
+        1.0_f64,
+        "f64: Float runtime probe must yield 1.0"
+    );
+    let bf16_one: half::bf16 = float_runtime_probe::<half::bf16>();
+    assert_eq!(
+        f32::from(bf16_one),
+        1.0_f32,
+        "bf16: Float runtime probe must yield 1.0 after f32 lift"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1388,18 +1433,32 @@ fn gpu_buffer_handle_empty() {
 
 #[test]
 fn gpu_dispatch_module_query_apis() {
-    // `has_gpu_backend()` returns whether a backend has been registered.
-    // Without `--features gpu` this is `false`; with the feature, the
-    // dev-dep `ferrotorch-gpu` registers the backend at first use, but
-    // the test crate doesn't auto-init it. We assert only the API
-    // shape — both functions must be callable and return the documented
-    // types.
-    let _has = has_gpu_backend();
-    let backend_opt: Option<&'static dyn ferrotorch_core::gpu_dispatch::GpuBackend> = gpu_backend();
-    // Whether `Some` or `None` is implementation-defined for the test
-    // process; both are valid. The substring grep covers
-    // `gpu_backend` / `has_gpu_backend`.
-    let _ = backend_opt.is_some();
+    // `has_gpu_backend()` and `gpu_backend()` are two query APIs over the
+    // SAME process-global backend slot, so by construction they MUST
+    // agree: `has_gpu_backend()` ⇔ `gpu_backend().is_some()`. Whether the
+    // slot is currently populated is implementation-defined for the test
+    // process (no GPU feature → empty; gpu feature → may or may not be
+    // initialised yet), but disagreement between the two queries would
+    // signal a stub where one accessor diverged from the other (e.g. one
+    // returns a hardcoded `false` while the other lazily resolves).
+    //
+    // Pin the typed function pointers as well, so a signature drift on
+    // either accessor (e.g. dropping the `&'static dyn GpuBackend` return
+    // type or making `has_gpu_backend` take an argument) is caught at
+    // compile time.
+    let has_fn: fn() -> bool = has_gpu_backend;
+    let backend_fn: fn() -> Option<&'static dyn ferrotorch_core::gpu_dispatch::GpuBackend> =
+        gpu_backend;
+    let has = has_fn();
+    let backend_opt = backend_fn();
+    assert_eq!(
+        has,
+        backend_opt.is_some(),
+        "has_gpu_backend() and gpu_backend().is_some() disagree — both \
+         queries view the same backend slot and must report the same \
+         value (has={has}, gpu_backend.is_some()={})",
+        backend_opt.is_some(),
+    );
     // `register_gpu_backend` cannot be safely invoked here because the
     // backend slot is process-global and other tests may already have
     // registered (or be about to register) a real backend. Substring
@@ -1653,9 +1712,29 @@ fn profiler_hook_set_get_clear() {
     // Run on a dedicated thread so the thread-local doesn't leak.
     std::thread::spawn(|| {
         assert!(profiler_current().is_none());
-        let p: Arc<dyn OpProfiler> = Arc::new(CountingProfiler::default());
-        profiler_set_current(Some(p.clone()));
+        let p: Arc<CountingProfiler> = Arc::new(CountingProfiler::default());
+        profiler_set_current(Some(p.clone() as Arc<dyn OpProfiler>));
         assert!(profiler_current().is_some());
+        // Drive a real op through the installed hook so set/get are
+        // observably wired to the profiler instance — not just to a
+        // thread-local that holds a pointer no one ever calls. A stub
+        // that swaps the slot but never invokes `record_op` would leave
+        // `events` empty here and fail the assertion below.
+        profile_op_scope("test_op", "test_cat", &[], || ());
+        {
+            let events = p.events.lock().expect("mutex");
+            assert_eq!(
+                events.len(),
+                1,
+                "profile_op_scope under installed profiler must record exactly one event, got {}",
+                events.len()
+            );
+            assert_eq!(
+                events[0], "test_op:test_cat",
+                "recorded event payload mismatch: got {:?}",
+                events[0],
+            );
+        }
         profiler_set_current(None);
         assert!(profiler_current().is_none());
     })

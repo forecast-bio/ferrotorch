@@ -811,6 +811,28 @@ fn cpu_empty_amax_amin_returns_err_or_inf() {
             );
         }
     }
+
+    // Non-empty path: a stub that returns `Err(_)` for every input would
+    // satisfy the empty-branch above, and a stub returning a constant
+    // would satisfy the inf-fold branch. Pin the actual reduction values
+    // for `[1.0, 2.0, 3.0]` so neither shortcut survives.
+    let b = make_cpu_f32(&[1.0, 2.0, 3.0], &[3], false);
+    let amax_b = amax(&b).expect("amax over non-empty must succeed");
+    let amax_v = read_back_f32(&amax_b);
+    assert_eq!(
+        amax_v.len(),
+        1,
+        "amax of 1-D non-empty must reduce to scalar"
+    );
+    assert_eq!(amax_v[0], 3.0_f32, "amax([1,2,3]) must be 3.0");
+    let amin_b = amin(&b).expect("amin over non-empty must succeed");
+    let amin_v = read_back_f32(&amin_b);
+    assert_eq!(
+        amin_v.len(),
+        1,
+        "amin of 1-D non-empty must reduce to scalar"
+    );
+    assert_eq!(amin_v[0], 1.0_f32, "amin([1,2,3]) must be 1.0");
 }
 
 /// Tie-mass distribution test for amax/amin: input `[1.0, 1.0, 1.0]`,
@@ -1403,17 +1425,31 @@ fn forward_only_helpers_smoke() {
     let cmin = cummin_forward(&a, 0).expect("cummin_forward");
     assert_eq!(cmin.indices, vec![0, 0, 0, 0]);
 
-    // logcumsumexp: log(exp(1)) = 1, log(exp(1) + exp(2)) ~ 2.313, etc.
+    // logcumsumexp: pin the actual prefix log-sum-exp values, not just
+    // monotonicity + finiteness. The expected array was computed at f32
+    // precision via the numerically-stable shift form
+    //   lc[i] = m + log(exp(lc[i-1] - m) + exp(a[i] - m))   m = max(...)
+    // i.e.
+    //   lc[0] = 1.0
+    //   lc[1] = log(e + e^2)            ≈ 2.31326175
+    //   lc[2] = log(e + e^2 + e^3)      ≈ 3.40760612
+    //   lc[3] = log(e + e^2 + e^3 + e^4) ≈ 4.44018984
+    // A finiteness+monotonicity-only check would let a stub returning
+    // `[1.0, 1.5, 2.0, 2.5]` pass; pinning the values catches it.
     let lc = logcumsumexp_forward(&a, 0).expect("logcumsumexp_forward");
     let lc_v = read_back_f32(&lc);
-    assert!(
-        lc_v.iter().all(|v| v.is_finite()),
-        "logcumsumexp_forward returned non-finite values: {lc_v:?}"
+    let expected: [f32; 4] = [
+        1.0_f32,
+        2.313_261_7_f32,
+        3.407_606_1_f32,
+        4.440_19_f32,
+    ];
+    tolerance::assert_close_f32(
+        &lc_v,
+        &expected,
+        tolerance::F32_REDUCTION_CPU,
+        "logcumsumexp_forward",
     );
-    // Monotonic non-decreasing for a strictly positive ascending input.
-    for w in lc_v.windows(2) {
-        assert!(w[1] >= w[0], "logcumsumexp_forward not monotonic: {lc_v:?}");
-    }
 }
 
 // ---------------------------------------------------------------------------
