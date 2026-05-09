@@ -1,0 +1,10 @@
+{
+  "uuid": "11fcdbc3-855d-464c-8529-69777491bbc1",
+  "display_id": 1051,
+  "title": "BROKEN xpu: unary_ops_api_shape uses null-sink helper (conformance_xpu.rs) — ten calls through assertion-free helper; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:33:25.930996881Z",
+  "updated_at": "2026-05-09T04:33:25.930996881Z"
+}
