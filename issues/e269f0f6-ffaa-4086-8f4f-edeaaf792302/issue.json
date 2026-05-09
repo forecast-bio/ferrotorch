@@ -1,0 +1,10 @@
+{
+  "uuid": "e269f0f6-ffaa-4086-8f4f-edeaaf792302",
+  "display_id": 1046,
+  "title": "BROKEN cubecl: cube_runtime_new_without_backend_feature_errors early-returns when backend present (conformance_cubecl.rs) — interesting case never tested; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:32:31.952223469Z",
+  "updated_at": "2026-05-09T04:32:31.952223469Z"
+}
