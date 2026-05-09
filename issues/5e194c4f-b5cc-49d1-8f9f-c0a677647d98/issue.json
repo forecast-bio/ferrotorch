@@ -6,5 +6,8 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-09T02:18:30.513466512Z",
-  "updated_at": "2026-05-09T02:18:30.513466512Z"
+  "updated_at": "2026-05-09T02:18:31.985653663Z",
+  "labels": [
+    "vision,conformance"
+  ]
 }
