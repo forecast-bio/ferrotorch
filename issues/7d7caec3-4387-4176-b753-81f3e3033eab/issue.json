@@ -1,0 +1,10 @@
+{
+  "uuid": "7d7caec3-4387-4176-b753-81f3e3033eab",
+  "display_id": 1071,
+  "title": "BROKEN ml: ndcg_score_perfect_matches_sklearn y_true == y_score (conformance_ml_metrics.rs) — identity path only, normalisation path untested; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:37:03.300254562Z",
+  "updated_at": "2026-05-09T04:37:03.300254562Z"
+}
