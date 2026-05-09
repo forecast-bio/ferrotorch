@@ -1,0 +1,10 @@
+{
+  "uuid": "21e1b6e4-d735-495f-bc82-6f33f9a5e467",
+  "display_id": 1018,
+  "title": "BROKEN core: cpu_empty_amax_amin_returns_err_or_inf accepts both Err and Ok(±inf) (conformance_reduction.rs:779) — silently-incorrect impl returning ±inf would pass; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:27:15.149312827Z",
+  "updated_at": "2026-05-09T04:27:15.149312827Z"
+}
