@@ -1,0 +1,10 @@
+{
+  "uuid": "576e44ff-e8e3-413f-943c-d782eddc4aef",
+  "issue_uuid": "0113318b-ccfd-4c71-a0df-b6b68fb2b508",
+  "author": "y4rr",
+  "content": "[action] Audit-fix Phase 1 dispatch: BN running-stats elision cluster (#1024-#1027). Replace let _ = running_mean / running_var lines in 4 tests with set_running_mean/var calls + round-trip getter assertion. Use Phase 2's setter API. Lazy-BN test (#1027) hand-computes post-training running stats via momentum formula if fixture lacks them. STOP-AND-REPORT on Phase 2 API anomalies.",
+  "created_at": "2026-05-09T05:44:21.873428996Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAlxfGxozsnYqN9qSbuvkliXmFbvFnaGHKQFR50Umu5Qbu6ej6T2r0tYhNShYlW7e+FsbQIviYrehPbzaatVuBAA=="
+}
