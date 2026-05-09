@@ -6,10 +6,11 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-09T04:32:19.041950333Z",
-  "updated_at": "2026-05-09T04:32:23.909639452Z",
+  "updated_at": "2026-05-09T04:32:25.808005435Z",
   "labels": [
     "bug",
     "test",
-    "conformance"
+    "conformance",
+    "ferrotorch-cubecl"
   ]
 }
