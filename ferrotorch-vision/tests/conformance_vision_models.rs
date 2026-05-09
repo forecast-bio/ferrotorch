@@ -2344,10 +2344,10 @@ fn inception_v3_v4_output_finite() {
 fn inception_v3_v4_param_count_fixture() {
     // Fixture: inception_v3_v4_param_count in fixtures_v_parity.json
     //
-    // ferrotorch simplified InceptionV3(1000):
-    //   stem(864 + 18432) + module_a(30208) + module_b(68864) + module_c(135168)
-    //   + classifier(257000) = ~510,536 params.
-    // Range [400K, 650K] — torchvision reference: ~27M (full architecture).
+    // Phase 10 (#993, #1012): ferrotorch's InceptionV3 is now the full
+    // torchvision-parity rebuild — 23,834,568 params (exact match to
+    // torchvision.models.inception_v3(weights=None, aux_logits=False)).
+    // Range [23.5M, 24.5M] brackets the reference with margin.
     let ff = load_fixtures_v_parity();
     let fix = get_fixture(&ff.fixtures, "inception_v3_v4_param_count")
         .expect("fixture inception_v3_v4_param_count not found in fixtures_v_parity.json");
@@ -2410,14 +2410,22 @@ fn inception_v3_v4_custom_classes_fixture() {
 fn inception_v3_v4_determinism_fixture() {
     // Fixture: inception_v3_v4_determinism in fixtures_v_parity.json
     // Two forward passes with the same InceptionV3 weights and the same
-    // 32×32 input must produce bit-identical outputs.
-    // Uses 32×32 for speed — AdaptiveAvgPool2d(1,1) handles any spatial size.
+    // 299×299 input must produce bit-identical outputs.
+    // 299×299 is Inception-V3's native input size — the full
+    // torchvision-parity rebuild (#993, #1012) needs the canonical input
+    // because the Mixed_6a/7a stride-2 reductions and factorized 7×7
+    // stack underflow at smaller spatial sizes.
     let ff = load_fixtures_v_parity();
     let _fix = get_fixture(&ff.fixtures, "inception_v3_v4_determinism")
         .expect("fixture inception_v3_v4_determinism not found in fixtures_v_parity.json");
 
-    let model = inception_v3::<f32>(10).expect("inception_v3 construction");
-    let x = make_chw_pattern(1, 3, 32, 32);
+    let mut model = inception_v3::<f32>(10).expect("inception_v3 construction");
+    // Phase 10 (#993, #1012): the full torchvision-parity rebuild adds a
+    // `Dropout(p=0.5)` before `fc`. Determinism requires eval() so dropout
+    // is identity; in training mode every forward draws fresh noise and
+    // the test would fail by design.
+    model.eval();
+    let x = make_chw_pattern(1, 3, 299, 299);
 
     let out1 = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
     let out2 = ferrotorch_core::no_grad(|| model.forward(&x).unwrap());
@@ -4932,13 +4940,15 @@ mod value_parity_pipeline {
         regenerate_target: "inception_v3",
         model_label: "Inception-V3",
         build_model: build_inception_v3,
-        missing_param_key: "classifier.bias",
+        // Phase 10 (#993, #1012): full torchvision-parity rebuild — the
+        // classifier head is `fc` (matches `torchvision.models.Inception3.fc`),
+        // not `classifier`.
+        missing_param_key: "fc.bias",
         bn_buffer_key: "Conv2d_1a_3x3.bn.running_mean",
         state_remap: None,
     };
 
     #[test]
-    #[ignore = "#993 Inception-V3 ferrotorch impl is a 3-Inception-A simplified variant (no Mixed_5b/c/d, 6a-e, 7a-c, no AuxLogits, no factorized convs); cannot match torchvision inception_v3 state_dict keys"]
     fn inception_v3_value_parity() {
         run_value_parity_test(
             INCEPTION_V3_PROBE.fixture_id,
@@ -4949,25 +4959,21 @@ mod value_parity_pipeline {
     }
 
     #[test]
-    #[ignore = "#993 Inception-V3 simplified impl"]
     fn inception_v3_loader_rejects_unmapped_torchvision_key() {
         probe_loader_rejects_unmapped_torchvision_key(&INCEPTION_V3_PROBE);
     }
 
     #[test]
-    #[ignore = "#993 Inception-V3 simplified impl"]
     fn inception_v3_loader_rejects_missing_ferrotorch_param() {
         probe_loader_rejects_missing_ferrotorch_param(&INCEPTION_V3_PROBE);
     }
 
     #[test]
-    #[ignore = "#993 Inception-V3 simplified impl"]
     fn inception_v3_loader_rejects_shape_mismatch() {
         probe_loader_rejects_shape_mismatch(&INCEPTION_V3_PROBE);
     }
 
     #[test]
-    #[ignore = "#993 Inception-V3 simplified impl"]
     fn inception_v3_loader_rejects_missing_bn_buffer() {
         probe_loader_rejects_missing_bn_buffer(&INCEPTION_V3_PROBE);
     }

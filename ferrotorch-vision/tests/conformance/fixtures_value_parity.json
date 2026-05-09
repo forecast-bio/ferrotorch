@@ -2733,7 +2733,7 @@
       ],
       "abs_tolerance": 0.001,
       "rel_tolerance": 0.01,
-      "note": "Reference produced via torchvision.models.inception_v3(weights=None, aux_logits=False). Eval-mode + default-BN-stats workaround per #984. 299x299 is Inception-V3's design input size. Ferrotorch's InceptionV3 is a 3-Inception-A simplified variant \u2014 see #993."
+      "note": "Reference produced via torchvision.models.inception_v3(weights=None, aux_logits=False). Eval-mode + default-BN-stats workaround per #984. 299x299 is Inception-V3's design input size. Ferrotorch's InceptionV3 is the full torchvision-parity rebuild \u2014 23,834,568 params (exact torchvision match), 11 Mixed modules + factorized 7\u00d77 stack, 284 named_parameters identical to the torchvision state_dict (Phase 10 #1012, closes #993)."
     },
     {
       "id": "mobilenet_v2_value_parity",

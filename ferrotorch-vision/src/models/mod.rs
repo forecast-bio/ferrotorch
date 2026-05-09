@@ -24,7 +24,10 @@ pub use detection::{
 };
 pub use efficientnet::{EfficientNet, efficientnet_b0};
 pub use feature_extractor::{FeatureExtractor, IntermediateFeatures, create_feature_extractor};
-pub use inception::{InceptionModule, InceptionV3, inception_v3};
+pub use inception::{
+    BasicConv2d as InceptionBasicConv2d, InceptionA, InceptionB, InceptionC, InceptionD,
+    InceptionE, InceptionV3, inception_v3,
+};
 pub use mobilenet::{MobileNetV2, MobileNetV3Small, mobilenet_v2, mobilenet_v3_small};
 pub use registry::{
     ModelConstructor, ModelRegistry, REGISTRY, get_model, list_models, register_model,

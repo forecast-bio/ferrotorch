@@ -610,7 +610,7 @@
         1,
         1000
       ],
-      "note": "torchvision.models.inception_v3(weights=None, aux_logits=False).eval()(randn(1,3,299,299)) -> [1, 1000]. ferrotorch InceptionV3 is a simplified 3-module variant (stem + 3 InceptionA blocks + AdaptiveAvgPool2d(1,1) + Linear). The 299x299 input (PyTorch canonical) flows through stride-2 stem -> 150x150 -> AdaptiveAvgPool2d -> 1x1. Output shape [1,1000] is spatially invariant.",
+      "note": "torchvision.models.inception_v3(weights=None, aux_logits=False).eval()(randn(1,3,299,299)) -> [1, 1000]. ferrotorch InceptionV3 (Phase 10 #993/#1012) is the full torchvision-parity architecture: stem (5 BasicConv2d + 2 MaxPool) + Mixed_5b/5c/5d (InceptionA) + Mixed_6a (InceptionB reduction) + Mixed_6b/6c/6d/6e (InceptionC factorized 7x7) + Mixed_7a (InceptionD reduction) + Mixed_7b/7c (InceptionE) + AdaptiveAvgPool2d + Dropout + Linear(2048, 1000). 23,834,568 params, exact torchvision match.",
       "torchvision_params": 23834568,
       "torchvision_output_shape": [
         1,
@@ -625,10 +625,10 @@
       "params": {
         "num_classes": 1000
       },
-      "expected_min_params": 400000,
-      "expected_max_params": 650000,
-      "ferrotorch_estimate": 510536,
-      "note": "ferrotorch simplified InceptionV3(1000): ~510,536 params (stem + 3x InceptionA + Linear classifier). Range 400K-650K. torchvision reference: 23,834,568 (full 11-module architecture)."
+      "expected_min_params": 23500000,
+      "expected_max_params": 24500000,
+      "ferrotorch_estimate": 23834568,
+      "note": "ferrotorch InceptionV3(1000) full torchvision-parity rebuild (#993, #1012): 23,834,568 params, exact match to torchvision.models.inception_v3(weights=None, aux_logits=False). Range 23.5M-24.5M brackets the exact 23,834,568 with margin. Architecture: stem (5x BasicConv2d + 2 maxpool) + 3x InceptionA (Mixed_5b/c/d) + InceptionB (Mixed_6a) + 4x InceptionC (Mixed_6b/c/d/e) + InceptionD (Mixed_7a) + 2x InceptionE (Mixed_7b/c) + AdaptiveAvgPool2d + Dropout + Linear(2048, 1000)."
     },
     {
       "id": "inception_v3_v4_custom_classes",
@@ -674,12 +674,12 @@
         "input_shape": [
           1,
           3,
-          32,
-          32
+          299,
+          299
         ]
       },
       "expected": "bit_identical_across_runs",
-      "note": "Two forward passes with same InceptionV3 weights and same input must produce bit-identical outputs. Uses 32x32 for test speed (AdaptiveAvgPool2d handles any spatial size)."
+      "note": "Two forward passes with same InceptionV3 weights and same input must produce bit-identical outputs. Uses 299x299 (Inception-V3's native input size) — the full torchvision-parity architecture (Mixed_6a/7a stride-2 reductions, factorized 7x7 stack) requires the canonical input shape; smaller inputs underflow the reduction blocks."
     }
   ]
 }
