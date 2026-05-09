@@ -1,0 +1,10 @@
+{
+  "uuid": "cacfaa46-03ab-439a-afcc-e955fe771f55",
+  "issue_uuid": "a89bd03c-cec7-474e-9a47-e2657f774990",
+  "author": "y4rr",
+  "content": "Plan (Level 2/3): Write new inception.rs with: BasicConv2d helper (Conv2d bias=false + BatchNorm2d eps=1e-3 + ReLU; children indexed conv/bn matching torchvision); 5 Mixed structs (InceptionA/B/C/D/E) using BasicConv2d sub-blocks with torchvision-exact branch names (branch1x1, branch5x5_1/2, branch3x3dbl_1/2/3, branch_pool, etc.); InceptionV3 with full stem (Conv2d_1a/2a/2b + maxpool1 + Conv2d_3b/4a + maxpool2) + 11 Mixed (5b/c/d, 6a-e, 7a-c) + avgpool + dropout + fc. Eval-mode forward path. Replace existing InceptionModule, update mod.rs/surface inventory. New value-parity test gated on regenerated fixture.",
+  "created_at": "2026-05-09T00:46:30.864171545Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAWW4RzVQnE2iBeQWVgqarRoX0BmiVm9F3g7xXrMOhGqViZKWvJWiqHViG5avFLLbVbTCHaVDlMLKlXI8MupgACQ=="
+}
