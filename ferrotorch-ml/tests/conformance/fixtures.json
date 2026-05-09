@@ -5,7 +5,7 @@
     "python_executable": "/usr/sbin/python3",
     "python_version": "3.13.13 (main, Apr  8 2026, 00:00:00) [GCC 15.2.1 20260123 (Red Hat 15.2.1-7)]",
     "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
-    "generated_at": "2026-05-07T13:48:13.376562+00:00",
+    "generated_at": "2026-05-09T13:37:08.906904+00:00",
     "random_state": 42,
     "description": "scikit-learn 1.5.x reference fixtures for ferrotorch-ml conformance. Tracking issue #840."
   },
@@ -1491,6 +1491,132 @@
         2
       ],
       "expected": 1.0,
+      "tol": 1e-12
+    },
+    {
+      "op": "normalized_mutual_info_score_mixed",
+      "labels_true": [
+        0,
+        0,
+        1,
+        1,
+        2,
+        2
+      ],
+      "labels_pred": [
+        0,
+        0,
+        0,
+        1,
+        1,
+        1
+      ],
+      "expected": 0.5158037429793889,
+      "tol": 1e-09
+    },
+    {
+      "op": "adjusted_mutual_info_score_mixed",
+      "labels_true": [
+        0,
+        0,
+        1,
+        1,
+        2,
+        2
+      ],
+      "labels_pred": [
+        0,
+        0,
+        0,
+        1,
+        1,
+        1
+      ],
+      "expected": 0.2987924581708903,
+      "tol": 1e-09
+    },
+    {
+      "op": "homogeneity_score_mixed",
+      "labels_true": [
+        0,
+        0,
+        1,
+        1,
+        2,
+        2
+      ],
+      "labels_pred": [
+        0,
+        0,
+        0,
+        1,
+        1,
+        1
+      ],
+      "expected": 0.420619835714305,
+      "tol": 1e-09
+    },
+    {
+      "op": "completeness_score_mixed",
+      "labels_true": [
+        0,
+        0,
+        1,
+        1,
+        2,
+        2
+      ],
+      "labels_pred": [
+        0,
+        0,
+        0,
+        1,
+        1,
+        1
+      ],
+      "expected": 0.6666666666666669,
+      "tol": 1e-09
+    },
+    {
+      "op": "v_measure_score_mixed",
+      "labels_true": [
+        0,
+        0,
+        1,
+        1,
+        2,
+        2
+      ],
+      "labels_pred": [
+        0,
+        0,
+        0,
+        1,
+        1,
+        1
+      ],
+      "expected": 0.5158037429793889,
+      "tol": 1e-09
+    },
+    {
+      "op": "fowlkes_mallows_score_mixed",
+      "labels_true": [
+        0,
+        0,
+        1,
+        1,
+        2,
+        2
+      ],
+      "labels_pred": [
+        0,
+        0,
+        0,
+        1,
+        1,
+        1
+      ],
+      "expected": 0.4714045207910317,
       "tol": 1e-12
     },
     {

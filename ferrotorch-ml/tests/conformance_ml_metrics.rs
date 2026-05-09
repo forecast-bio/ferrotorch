@@ -877,7 +877,12 @@ fn adjusted_rand_score_mixed_matches_sklearn() {
 }
 
 #[test]
-fn adjusted_mutual_info_score_matches_sklearn() {
+fn adjusted_mutual_info_score_perfect_is_one() {
+    // Renamed from `adjusted_mutual_info_score_matches_sklearn` for cluster
+    // naming consistency (Phase 2 audit-fix, #1064). Test body unchanged: the
+    // fixture op `adjusted_mutual_info_score` records labels_true == labels_pred,
+    // and sklearn's AMI on identical labels evaluates (very near) 1.0 modulo
+    // baseline correction. Pair tested by `adjusted_mutual_info_score_mixed_matches_sklearn`.
     let file = load_fixtures();
     let f = find(&file, "adjusted_mutual_info_score");
     let lt = tensor1d(&as_f64_vec(
@@ -970,6 +975,143 @@ fn fowlkes_mallows_score_perfect_is_one() {
     ));
     let actual = fowlkes_mallows_score(&lt, &lp).expect("fm");
     check_f64(actual, 1.0, 1e-12, "fm_perfect");
+}
+
+// ---------------------------------------------------------------------------
+// Mixed-label clustering tests — Phase 2 audit-fix (closes #1063-#1068).
+//
+// The *_perfect_is_one tests above pass against `labels_true == labels_pred`
+// fixtures asserting `expected = 1.0`. A stub returning 1.0 for identical
+// inputs trivially passes them. The tests below load sklearn-derived expected
+// values from non-trivial label pairs (3 true clusters merged into 2 predicted
+// clusters), forcing the implementation to actually compute the metric.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn normalized_mutual_info_score_mixed_matches_sklearn() {
+    let file = load_fixtures();
+    let f = find(&file, "normalized_mutual_info_score_mixed");
+    let lt = tensor1d(&as_f64_vec(
+        f.labels_true.as_ref().expect("labels_true"),
+        "nmi_mix/lt",
+    ));
+    let lp = tensor1d(&as_f64_vec(
+        f.labels_pred.as_ref().expect("labels_pred"),
+        "nmi_mix/lp",
+    ));
+    let actual = normalized_mutual_info_score(&lt, &lp).expect("nmi_mixed");
+    check_f64(
+        actual,
+        expected_f64(&f),
+        f.tol.unwrap_or(1e-9),
+        "nmi_mixed",
+    );
+}
+
+#[test]
+#[ignore = "#1073 ferrolearn-metrics AMI diverges from sklearn (0.225 vs 0.299 on mixed labels); #[ignore] until ferrolearn fix lands"]
+fn adjusted_mutual_info_score_mixed_matches_sklearn() {
+    let file = load_fixtures();
+    let f = find(&file, "adjusted_mutual_info_score_mixed");
+    let lt = tensor1d(&as_f64_vec(
+        f.labels_true.as_ref().expect("labels_true"),
+        "ami_mix/lt",
+    ));
+    let lp = tensor1d(&as_f64_vec(
+        f.labels_pred.as_ref().expect("labels_pred"),
+        "ami_mix/lp",
+    ));
+    let actual = adjusted_mutual_info_score(&lt, &lp).expect("ami_mixed");
+    check_f64(
+        actual,
+        expected_f64(&f),
+        f.tol.unwrap_or(1e-9),
+        "ami_mixed",
+    );
+}
+
+#[test]
+fn homogeneity_score_mixed_matches_sklearn() {
+    let file = load_fixtures();
+    let f = find(&file, "homogeneity_score_mixed");
+    let lt = tensor1d(&as_f64_vec(
+        f.labels_true.as_ref().expect("labels_true"),
+        "hom_mix/lt",
+    ));
+    let lp = tensor1d(&as_f64_vec(
+        f.labels_pred.as_ref().expect("labels_pred"),
+        "hom_mix/lp",
+    ));
+    let actual = homogeneity_score(&lt, &lp).expect("homogeneity_mixed");
+    check_f64(
+        actual,
+        expected_f64(&f),
+        f.tol.unwrap_or(1e-9),
+        "homogeneity_mixed",
+    );
+}
+
+#[test]
+fn completeness_score_mixed_matches_sklearn() {
+    let file = load_fixtures();
+    let f = find(&file, "completeness_score_mixed");
+    let lt = tensor1d(&as_f64_vec(
+        f.labels_true.as_ref().expect("labels_true"),
+        "comp_mix/lt",
+    ));
+    let lp = tensor1d(&as_f64_vec(
+        f.labels_pred.as_ref().expect("labels_pred"),
+        "comp_mix/lp",
+    ));
+    let actual = completeness_score(&lt, &lp).expect("completeness_mixed");
+    check_f64(
+        actual,
+        expected_f64(&f),
+        f.tol.unwrap_or(1e-9),
+        "completeness_mixed",
+    );
+}
+
+#[test]
+fn v_measure_score_mixed_matches_sklearn() {
+    let file = load_fixtures();
+    let f = find(&file, "v_measure_score_mixed");
+    let lt = tensor1d(&as_f64_vec(
+        f.labels_true.as_ref().expect("labels_true"),
+        "vmeas_mix/lt",
+    ));
+    let lp = tensor1d(&as_f64_vec(
+        f.labels_pred.as_ref().expect("labels_pred"),
+        "vmeas_mix/lp",
+    ));
+    let actual = v_measure_score(&lt, &lp).expect("v_measure_mixed");
+    check_f64(
+        actual,
+        expected_f64(&f),
+        f.tol.unwrap_or(1e-9),
+        "v_measure_mixed",
+    );
+}
+
+#[test]
+fn fowlkes_mallows_score_mixed_matches_sklearn() {
+    let file = load_fixtures();
+    let f = find(&file, "fowlkes_mallows_score_mixed");
+    let lt = tensor1d(&as_f64_vec(
+        f.labels_true.as_ref().expect("labels_true"),
+        "fm_mix/lt",
+    ));
+    let lp = tensor1d(&as_f64_vec(
+        f.labels_pred.as_ref().expect("labels_pred"),
+        "fm_mix/lp",
+    ));
+    let actual = fowlkes_mallows_score(&lt, &lp).expect("fm_mixed");
+    check_f64(
+        actual,
+        expected_f64(&f),
+        f.tol.unwrap_or(1e-12),
+        "fm_mixed",
+    );
 }
 
 #[test]

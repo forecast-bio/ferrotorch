@@ -456,6 +456,59 @@ add("fowlkes_mallows_score_perfect",
     labels_true=labels_cl, labels_pred=labels_cl,
     expected=1.0, tol=1e-12)
 
+# ---------------------------------------------------------------------------
+# Clustering metrics — mixed (non-trivial) label pairs.
+#
+# Phase 2 audit-fix (closes #1063-#1068, tracking #1015): the *_perfect_is_one
+# tests below run against `labels_true == labels_pred` and assert `expected =
+# 1.0`. A stub returning 1.0 for identical inputs trivially passes them. The
+# mixed pairs below provide sklearn-derived non-trivial expected values so the
+# implementation is forced to actually compute the metric.
+#
+# Label set: 3 true clusters merged into 2 predicted clusters. This produces
+# distinct values across H/C/V (Hom != Comp) and exercises the asymmetric
+# branch of the homogeneity/completeness pair.
+# ---------------------------------------------------------------------------
+
+_clu_mixed_true = [0, 0, 1, 1, 2, 2]
+_clu_mixed_pred = [0, 0, 0, 1, 1, 1]
+
+add("normalized_mutual_info_score_mixed",
+    labels_true=_clu_mixed_true, labels_pred=_clu_mixed_pred,
+    expected=float(normalized_mutual_info_score(
+        _clu_mixed_true, _clu_mixed_pred)),
+    tol=1e-9)
+
+add("adjusted_mutual_info_score_mixed",
+    labels_true=_clu_mixed_true, labels_pred=_clu_mixed_pred,
+    expected=float(adjusted_mutual_info_score(
+        _clu_mixed_true, _clu_mixed_pred)),
+    tol=1e-9)
+
+add("homogeneity_score_mixed",
+    labels_true=_clu_mixed_true, labels_pred=_clu_mixed_pred,
+    expected=float(homogeneity_score(
+        _clu_mixed_true, _clu_mixed_pred)),
+    tol=1e-9)
+
+add("completeness_score_mixed",
+    labels_true=_clu_mixed_true, labels_pred=_clu_mixed_pred,
+    expected=float(completeness_score(
+        _clu_mixed_true, _clu_mixed_pred)),
+    tol=1e-9)
+
+add("v_measure_score_mixed",
+    labels_true=_clu_mixed_true, labels_pred=_clu_mixed_pred,
+    expected=float(v_measure_score(
+        _clu_mixed_true, _clu_mixed_pred)),
+    tol=1e-9)
+
+add("fowlkes_mallows_score_mixed",
+    labels_true=_clu_mixed_true, labels_pred=_clu_mixed_pred,
+    expected=float(fowlkes_mallows_score(
+        _clu_mixed_true, _clu_mixed_pred)),
+    tol=1e-12)
+
 # Silhouette — well-separated 2-D clusters
 x_sil = np.array([
     [0.0, 0.0], [0.1, 0.1],
