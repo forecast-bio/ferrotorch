@@ -1,0 +1,10 @@
+{
+  "uuid": "89e6870e-bf49-437d-b1c4-78d6a2c4fa98",
+  "issue_uuid": "0113318b-ccfd-4c71-a0df-b6b68fb2b508",
+  "author": "y4rr",
+  "content": "Observation: BN1d/2d/3d fixtures all have running_mean=zeros, running_var=ones (BN default). LazyBN fixtures have non-default values from training-mode forward pass. Decision: For BN1d/2d/3d, pre-perturb stats to known-non-default sentinels (e.g., 7.5/3.5), then call setter with fixture values, then round-trip getter assert with tight tolerance. This makes the round-trip non-tautological even when fixture==default. For LazyBN, materialize via num_features (per pre-flight elision), run training-mode forward, switch to eval, run eval-mode forward, assert eval output AND assert post-train running stats match fixture's running_mean/var (which are non-trivial).",
+  "created_at": "2026-05-09T05:47:29.951100564Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA3WnmMmnfdXari+5TotS6cbMepbWbAik19fPHNJsCnDeWNYzf9gIH8Q0oXOCSNkSV4OjOqDYRsX3lszue4twgBQ=="
+}
