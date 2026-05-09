@@ -1,0 +1,10 @@
+{
+  "uuid": "a7a0b7c9-2c1a-486b-9256-ddfe634784bf",
+  "display_id": 1058,
+  "title": "BROKEN distributions: multivariate_normal_fixtures_log_prob_entropy_mean compares d.mean() to loc_v (conformance_distributions_continuous.rs:918) — self-referential, fixture mean key never read; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:34:42.062143010Z",
+  "updated_at": "2026-05-09T04:34:42.062143010Z"
+}
