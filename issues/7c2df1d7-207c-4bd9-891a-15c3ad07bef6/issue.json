@@ -1,0 +1,10 @@
+{
+  "uuid": "7c2df1d7-207c-4bd9-891a-15c3ad07bef6",
+  "display_id": 1053,
+  "title": "BROKEN xpu: make_xpu_tensor_errors_without_backend ends in unconditional cascade_skip (conformance_xpu.rs) — no path can reach an assertion; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:33:48.054159629Z",
+  "updated_at": "2026-05-09T04:33:48.054159629Z"
+}
