@@ -302,15 +302,61 @@ fn norm_batch_norm_1d_matches_pytorch() {
             .map(|v| v.as_f64().unwrap())
             .collect();
 
-        // Fixture uses running_mean=0, running_var=1 (BatchNorm default).
-        // Default constructor already sets those values; no mutation needed.
         let mut bn = BatchNorm1d::<f32>::new(num_features, eps, 0.1, true).unwrap();
-        // Load weights from fixture (default is ones/zeros, fixture confirms that).
         bn.weight = Some(Parameter::from_slice(&weight_data, &[num_features]).unwrap());
         bn.bias = Some(Parameter::from_slice(&bias_data, &[num_features]).unwrap());
-        // Confirm running stats match fixture expectations (read-only accessors).
-        let _ = running_mean; // consumed — default 0s match fixture
-        let _ = running_var; // consumed — default 1s match fixture
+
+        // Sabotage probe: pre-perturb running stats with non-default sentinels
+        // so that the round-trip assertion below is non-tautological even if
+        // the fixture's running_mean/var happen to equal BN's defaults
+        // (zeros / ones). If `set_running_*` were a no-op, the getter would
+        // return these sentinels and the round-trip assert would fail.
+        let sentinel_mean = vec![7.5f32; num_features];
+        let sentinel_var = vec![3.5f32; num_features];
+        bn.set_running_mean(&sentinel_mean).unwrap();
+        bn.set_running_var(&sentinel_var).unwrap();
+        assert_eq!(
+            bn.running_mean(),
+            vec![7.5f64; num_features],
+            "batch_norm_1d/{tag}: sabotage sentinel for running_mean did not stick \
+             (set_running_mean appears non-functional)"
+        );
+        assert_eq!(
+            bn.running_var(),
+            vec![3.5f64; num_features],
+            "batch_norm_1d/{tag}: sabotage sentinel for running_var did not stick \
+             (set_running_var appears non-functional)"
+        );
+
+        // Load fixture's running stats via the Phase 2 setter API. This
+        // must overwrite the sentinels.
+        let rm_f32: Vec<f32> = running_mean.iter().map(|&x| x as f32).collect();
+        let rv_f32: Vec<f32> = running_var.iter().map(|&x| x as f32).collect();
+        bn.set_running_mean(&rm_f32).unwrap();
+        bn.set_running_var(&rv_f32).unwrap();
+
+        // Round-trip: getter returns the loaded fixture values (not the
+        // sentinels, not the defaults). Tolerance 1e-9 since this is a
+        // direct copy widening f32 → f64.
+        let got_mean = bn.running_mean();
+        let got_var = bn.running_var();
+        assert_eq!(got_mean.len(), num_features);
+        assert_eq!(got_var.len(), num_features);
+        for (i, (&g, &e)) in got_mean.iter().zip(running_mean.iter()).enumerate() {
+            assert!(
+                (g - e).abs() <= 1e-9,
+                "batch_norm_1d/{tag}: running_mean[{i}] round-trip mismatch \
+                 (got={g}, expected={e})"
+            );
+        }
+        for (i, (&g, &e)) in got_var.iter().zip(running_var.iter()).enumerate() {
+            assert!(
+                (g - e).abs() <= 1e-9,
+                "batch_norm_1d/{tag}: running_var[{i}] round-trip mismatch \
+                 (got={g}, expected={e})"
+            );
+        }
+
         bn.eval();
 
         let out = bn.forward(&input).unwrap();
@@ -353,12 +399,54 @@ fn norm_batch_norm_2d_matches_pytorch() {
             .map(|v| v.as_f64().unwrap())
             .collect();
 
-        // Fixture uses running_mean=0, running_var=1 (BatchNorm default).
         let mut bn = BatchNorm2d::<f32>::new(num_features, eps, 0.1, true).unwrap();
         bn.weight = Some(Parameter::from_slice(&weight_data, &[num_features]).unwrap());
         bn.bias = Some(Parameter::from_slice(&bias_data, &[num_features]).unwrap());
-        let _ = running_mean;
-        let _ = running_var;
+
+        // Sabotage probe: pre-perturb with non-default sentinels so the
+        // round-trip assertion is non-tautological when the fixture's
+        // running_mean/var happen to equal BN defaults.
+        let sentinel_mean = vec![7.5f32; num_features];
+        let sentinel_var = vec![3.5f32; num_features];
+        bn.set_running_mean(&sentinel_mean).unwrap();
+        bn.set_running_var(&sentinel_var).unwrap();
+        assert_eq!(
+            bn.running_mean(),
+            vec![7.5f64; num_features],
+            "batch_norm_2d/{tag}: sabotage sentinel for running_mean did not stick"
+        );
+        assert_eq!(
+            bn.running_var(),
+            vec![3.5f64; num_features],
+            "batch_norm_2d/{tag}: sabotage sentinel for running_var did not stick"
+        );
+
+        // Load fixture stats via Phase 2 setter API.
+        let rm_f32: Vec<f32> = running_mean.iter().map(|&x| x as f32).collect();
+        let rv_f32: Vec<f32> = running_var.iter().map(|&x| x as f32).collect();
+        bn.set_running_mean(&rm_f32).unwrap();
+        bn.set_running_var(&rv_f32).unwrap();
+
+        // Round-trip via getter (1e-9 tolerance: direct f32→f64 widening).
+        let got_mean = bn.running_mean();
+        let got_var = bn.running_var();
+        assert_eq!(got_mean.len(), num_features);
+        assert_eq!(got_var.len(), num_features);
+        for (i, (&g, &e)) in got_mean.iter().zip(running_mean.iter()).enumerate() {
+            assert!(
+                (g - e).abs() <= 1e-9,
+                "batch_norm_2d/{tag}: running_mean[{i}] round-trip mismatch \
+                 (got={g}, expected={e})"
+            );
+        }
+        for (i, (&g, &e)) in got_var.iter().zip(running_var.iter()).enumerate() {
+            assert!(
+                (g - e).abs() <= 1e-9,
+                "batch_norm_2d/{tag}: running_var[{i}] round-trip mismatch \
+                 (got={g}, expected={e})"
+            );
+        }
+
         bn.eval();
 
         let out = bn.forward(&input).unwrap();
@@ -401,12 +489,52 @@ fn norm_batch_norm_3d_matches_pytorch() {
             .map(|v| v.as_f64().unwrap())
             .collect();
 
-        // Fixture uses running_mean=0, running_var=1 (BatchNorm default).
         let mut bn = BatchNorm3d::<f32>::new(num_features, eps, 0.1, true).unwrap();
         bn.weight = Some(Parameter::from_slice(&weight_data, &[num_features]).unwrap());
         bn.bias = Some(Parameter::from_slice(&bias_data, &[num_features]).unwrap());
-        let _ = running_mean;
-        let _ = running_var;
+
+        // Sabotage probe: pre-perturb with non-default sentinels.
+        let sentinel_mean = vec![7.5f32; num_features];
+        let sentinel_var = vec![3.5f32; num_features];
+        bn.set_running_mean(&sentinel_mean).unwrap();
+        bn.set_running_var(&sentinel_var).unwrap();
+        assert_eq!(
+            bn.running_mean(),
+            vec![7.5f64; num_features],
+            "batch_norm_3d/{tag}: sabotage sentinel for running_mean did not stick"
+        );
+        assert_eq!(
+            bn.running_var(),
+            vec![3.5f64; num_features],
+            "batch_norm_3d/{tag}: sabotage sentinel for running_var did not stick"
+        );
+
+        // Load fixture stats via Phase 2 setter API.
+        let rm_f32: Vec<f32> = running_mean.iter().map(|&x| x as f32).collect();
+        let rv_f32: Vec<f32> = running_var.iter().map(|&x| x as f32).collect();
+        bn.set_running_mean(&rm_f32).unwrap();
+        bn.set_running_var(&rv_f32).unwrap();
+
+        // Round-trip via getter (1e-9 tolerance: direct f32→f64 widening).
+        let got_mean = bn.running_mean();
+        let got_var = bn.running_var();
+        assert_eq!(got_mean.len(), num_features);
+        assert_eq!(got_var.len(), num_features);
+        for (i, (&g, &e)) in got_mean.iter().zip(running_mean.iter()).enumerate() {
+            assert!(
+                (g - e).abs() <= 1e-9,
+                "batch_norm_3d/{tag}: running_mean[{i}] round-trip mismatch \
+                 (got={g}, expected={e})"
+            );
+        }
+        for (i, (&g, &e)) in got_var.iter().zip(running_var.iter()).enumerate() {
+            assert!(
+                (g - e).abs() <= 1e-9,
+                "batch_norm_3d/{tag}: running_var[{i}] round-trip mismatch \
+                 (got={g}, expected={e})"
+            );
+        }
+
         bn.eval();
 
         let out = bn.forward(&input).unwrap();
@@ -1701,22 +1829,111 @@ fn lazy_norm_lazy_batch_norm_1d_matches_pytorch() {
         // LazyBatchNorm1d: materialize via first training forward (accumulates
         // running stats), then switch to eval. The fixture was generated by the
         // same sequence: one training forward, then eval forward.
-        let _ = num_features;
-        let _ = running_mean;
-        let _ = running_var;
+        //
+        // We assert TWO things now:
+        //   (a) The lazy module materializes with the fixture's num_features
+        //       (was elided as `let _ = num_features`).
+        //   (b) The fixture's accumulated running_mean / running_var (the
+        //       expected post-train stats) are exercisable via the Phase 2
+        //       setter API on a parallel BatchNorm1d, and that parallel BN1d
+        //       — once eval'd with those exact stats — produces output that
+        //       matches both the fixture's expected and the lazy module's
+        //       eval output. This validates the lazy module accumulated the
+        //       same running stats the fixture documents (we cannot directly
+        //       read the lazy module's inner running stats, since
+        //       LazyBatchNorm1d does not expose them — see #1027 follow-up).
         let mut lazy_m: LazyBatchNorm1d<f32> = LazyBatchNorm1d::new(1e-5, 0.1, true);
+        // Explicit materialization with fixture's num_features. This consumes
+        // num_features and lets us assert the lazy module's own num_features
+        // accessor agrees with the fixture before we ever call forward().
+        lazy_m.materialize(num_features).unwrap();
+        assert_eq!(
+            lazy_m.num_features(),
+            Some(num_features),
+            "lazy_batch_norm_1d/{tag}: lazy module did not materialize with \
+             fixture's num_features={num_features}"
+        );
+
         // Training forward: materializes the inner BN and updates running stats.
         lazy_m.forward(&input).unwrap();
         // Eval mode: subsequent forward uses accumulated running stats.
         lazy_m.eval();
-        let out = lazy_m.forward(&input).unwrap();
-        let actual = out.data_vec().unwrap();
+        let lazy_out = lazy_m.forward(&input).unwrap();
+        let lazy_actual = lazy_out.data_vec().unwrap();
 
+        // Parallel BN1d cross-check: load the fixture's running_mean / running_var
+        // (which are the expected post-training stats) via Phase 2 setters and
+        // run an eval-mode forward with the lazy module's default affine
+        // parameters (weight=1, bias=0). The output must equal the fixture's
+        // expected output and the lazy module's eval output.
+        let parallel = BatchNorm1d::<f32>::new(num_features, 1e-5, 0.1, true).unwrap();
+        // Sabotage probe: prove the setters are doing the work, not the
+        // BN defaults. Pre-perturb with sentinels distinct from fixture values.
+        let sentinel_mean = vec![9.25f32; num_features];
+        let sentinel_var = vec![4.75f32; num_features];
+        parallel.set_running_mean(&sentinel_mean).unwrap();
+        parallel.set_running_var(&sentinel_var).unwrap();
+        assert_eq!(
+            parallel.running_mean(),
+            vec![9.25f64; num_features],
+            "lazy_batch_norm_1d/{tag}: parallel BN1d sentinel running_mean did not stick"
+        );
+        assert_eq!(
+            parallel.running_var(),
+            vec![4.75f64; num_features],
+            "lazy_batch_norm_1d/{tag}: parallel BN1d sentinel running_var did not stick"
+        );
+
+        // Now load the fixture's actual running stats.
+        let rm_f32: Vec<f32> = running_mean.iter().map(|&x| x as f32).collect();
+        let rv_f32: Vec<f32> = running_var.iter().map(|&x| x as f32).collect();
+        parallel.set_running_mean(&rm_f32).unwrap();
+        parallel.set_running_var(&rv_f32).unwrap();
+
+        // Round-trip getter assertion (1e-9 since direct f32→f64 widening).
+        let got_mean = parallel.running_mean();
+        let got_var = parallel.running_var();
+        for (i, (&g, &e)) in got_mean.iter().zip(running_mean.iter()).enumerate() {
+            assert!(
+                (g - e).abs() <= 1e-9,
+                "lazy_batch_norm_1d/{tag}: parallel BN1d running_mean[{i}] \
+                 round-trip mismatch (got={g}, expected={e})"
+            );
+        }
+        for (i, (&g, &e)) in got_var.iter().zip(running_var.iter()).enumerate() {
+            assert!(
+                (g - e).abs() <= 1e-9,
+                "lazy_batch_norm_1d/{tag}: parallel BN1d running_var[{i}] \
+                 round-trip mismatch (got={g}, expected={e})"
+            );
+        }
+
+        let mut parallel = parallel;
+        parallel.eval();
+        let par_out = parallel.forward(&input).unwrap();
+        let par_actual = par_out.data_vec().unwrap();
+
+        // Both lazy and parallel BN1d must match the fixture's expected output.
         assert_close_f32(
-            &actual,
+            &lazy_actual,
             &expected,
             F32_NORM,
-            &format!("lazy_batch_norm_1d/{tag}"),
+            &format!("lazy_batch_norm_1d/{tag} (lazy module)"),
+        );
+        assert_close_f32(
+            &par_actual,
+            &expected,
+            F32_NORM,
+            &format!("lazy_batch_norm_1d/{tag} (parallel BN1d w/ fixture stats)"),
+        );
+        // Cross-check: lazy module and parallel BN1d agree element-wise.
+        // This is the strongest signal that the lazy module's accumulated
+        // running stats match the fixture's documented post-training stats.
+        assert_close_f32(
+            &lazy_actual,
+            &par_actual,
+            F32_NORM,
+            &format!("lazy_batch_norm_1d/{tag} (lazy vs parallel)"),
         );
         tested += 1;
     }
