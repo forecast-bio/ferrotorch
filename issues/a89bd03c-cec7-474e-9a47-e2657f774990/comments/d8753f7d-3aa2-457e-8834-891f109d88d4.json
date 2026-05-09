@@ -1,0 +1,10 @@
+{
+  "uuid": "d8753f7d-3aa2-457e-8834-891f109d88d4",
+  "issue_uuid": "a89bd03c-cec7-474e-9a47-e2657f774990",
+  "author": "y4rr",
+  "content": "Probe complete (Level 1): torchvision inception_v3 has 566 state_dict keys = 284 params + 188 BN buffers (run_mean/var) + 94 num_batches_tracked. 5 stem BasicConv2d (Conv2d_1a/2a/2b/3b/4a) + 11 Mixed (5b/c/d, 6a/b/c/d/e, 7a/b/c) + fc. F.avg_pool2d in branch_pool uses default count_include_pad=True — matches ferrotorch's hardcoded behaviour exactly. NO STOP-AND-REPORT for AvgPool. Pre-flight was wrong on this point — torchvision uses functional default not False. Saved keys+shapes to /tmp/inception_probe/.",
+  "created_at": "2026-05-09T00:45:37.082126973Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAJ3LNJasOPl4kvF8+J+FPRVsBbioqHLxe3OqwHyT78LwaFkjn+6YAr+Lm9CDy/cgCfzKed7Js1vpJgvjvpaBuBQ=="
+}
