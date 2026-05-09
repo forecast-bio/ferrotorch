@@ -6,10 +6,11 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-09T04:30:29.285385112Z",
-  "updated_at": "2026-05-09T04:30:33.108971502Z",
+  "updated_at": "2026-05-09T04:30:34.444331622Z",
   "labels": [
     "bug",
     "test",
-    "conformance"
+    "conformance",
+    "ferrotorch-jit"
   ]
 }
