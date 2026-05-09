@@ -1668,8 +1668,82 @@ fn make_add_graph_for_onnx() -> IrGraph {
     g
 }
 
+/// Assert ONNX byte-stream discrimination beyond `bytes[0] == 0x08`.
+///
+/// This is the canonical no-deps idiom mirrored from the src-side internal
+/// `test_roundtrip_structure` (`onnx_export.rs:1478-1524`): byte-window
+/// substring searches for known field-tag bytes, the configured model_name,
+/// the graph helper's value-name labels (`val_0`, `val_1`), and the
+/// `make_add_graph_for_onnx` op-type (`Add`). A 1-byte (or 200-byte all-0x08)
+/// stub fails every needle but the leading-tag check, locking in
+/// real-vs-stub discrimination without pulling `prost` or an ONNX schema crate
+/// into the workspace.
+///
+/// `expected_model_name` is the `OnnxExportConfig::model_name` value the
+/// caller passed (default: `"ferrotorch_model"`). `expected_op_type` is the
+/// emitted ONNX op string (`"Add"` for the helpers used here).
+fn assert_onnx_discriminating(bytes: &[u8], expected_model_name: &str, expected_op_type: &str) {
+    // Existing tautology check — retained, not replaced.
+    assert_eq!(
+        bytes[0], 0x08,
+        "first byte of ONNX ModelProto must be 0x08 (protobuf tag for ir_version)"
+    );
+    // ir_version value byte: `encode_model` writes `ir_version = 8`
+    // (`onnx_export.rs:1017`). Encoded as varint, value 8 fits in one byte.
+    assert_eq!(
+        bytes[1], 0x08,
+        "second byte must be 0x08 (varint value 8 for ir_version, per onnx_export.rs:1017)"
+    );
+    // Size floor: a real ONNX export of a 2-input, 1-op graph is hundreds of
+    // bytes. A trivial stub (`vec![0x08]` or `vec![0x08; N]` for small N) fails
+    // here. We pick 32 because that is far below any plausible real export
+    // and far above any plausible magic-byte stub.
+    assert!(
+        bytes.len() > 32,
+        "real ONNX export must exceed 32 bytes (stub guard); got {}",
+        bytes.len()
+    );
+    // Default OnnxExportConfig sets model_name = "ferrotorch_model"
+    // (`onnx_export.rs:67`). The string is embedded in the GraphProto.
+    let mn = expected_model_name.as_bytes();
+    assert!(
+        bytes.windows(mn.len()).any(|w| w == mn),
+        "ONNX bytes must contain configured model_name `{expected_model_name}`"
+    );
+    // Graph value names are `val_{id}` (`onnx_export.rs:738`). For a single
+    // Add node fed by one input, val_0 is the input and val_1 is the output.
+    assert!(
+        bytes.windows(5).any(|w| w == b"val_0"),
+        "ONNX bytes must contain input value name `val_0`"
+    );
+    assert!(
+        bytes.windows(5).any(|w| w == b"val_1"),
+        "ONNX bytes must contain output value name `val_1`"
+    );
+    // Op-type string for the emitted node. `IrOpKind::Add` maps to ONNX `Add`.
+    let op = expected_op_type.as_bytes();
+    assert!(
+        bytes.windows(op.len()).any(|w| w == op),
+        "ONNX bytes must contain op-type `{expected_op_type}`"
+    );
+    // Inline sabotage probe: a known-WRONG model_name string MUST NOT appear.
+    // This confirms the `windows().any()` discrimination idiom actually
+    // filters — if the substring matcher were broken (e.g. always-true),
+    // this assertion would catch it.
+    assert!(
+        !bytes
+            .windows(b"sabotage_marker".len())
+            .any(|w| w == b"sabotage_marker"),
+        "sabotage probe: bytes must NOT contain `sabotage_marker` \
+         (confirms substring matcher actually discriminates)"
+    );
+}
+
 /// ir_graph_to_onnx: returns Ok bytes; first byte is 0x08 (protobuf varint
-/// field tag for IR version in ModelProto — wire type 0, field 1).
+/// field tag for IR version in ModelProto — wire type 0, field 1). Beyond
+/// that magic-byte tautology, the bytes must contain the configured
+/// `model_name`, the graph value names (`val_0`, `val_1`), and the emitted
+/// op-type (`Add`); see `assert_onnx_discriminating`.
 #[test]
 fn onnx_ir_graph_to_onnx() {
     let graph = make_add_graph_for_onnx();
@@ -1677,29 +1751,30 @@ fn onnx_ir_graph_to_onnx() {
     let bytes = ir_graph_to_onnx(&graph, &config, 1 /* ONNX_FLOAT */)
         .expect("ir_graph_to_onnx must succeed on valid graph");
     assert!(!bytes.is_empty(), "ONNX output must be non-empty");
-    // ONNX ModelProto is a protobuf message. The first encoded field is
-    // ir_version (field 1, wire type 0) → tag byte 0x08.
-    assert_eq!(
-        bytes[0], 0x08,
-        "first byte of ONNX ModelProto must be 0x08 (protobuf tag for ir_version)"
-    );
+    assert_onnx_discriminating(&bytes, &config.model_name, "Add");
 }
 
-/// export_ir_graph_to_onnx: writes ONNX bytes to a temp file.
+/// export_ir_graph_to_onnx: writes ONNX bytes to a temp file. Discrimination
+/// guarantees: see `assert_onnx_discriminating`.
 #[test]
 fn onnx_export_ir_graph_to_onnx() {
     let graph = make_add_graph_for_onnx();
     let config = OnnxExportConfig::default();
+    let expected_model_name = config.model_name.clone();
     let dir = tempfile::tempdir().expect("tempdir must succeed");
     let path = dir.path().join("model.onnx");
     export_ir_graph_to_onnx(&graph, &path, config, 1 /* ONNX_FLOAT */)
         .expect("export_ir_graph_to_onnx must succeed");
     let written = std::fs::read(&path).expect("written ONNX file must be readable");
     assert!(!written.is_empty());
-    assert_eq!(written[0], 0x08);
+    assert_onnx_discriminating(&written, &expected_model_name, "Add");
 }
 
 /// export_onnx: trace-and-export via closure; writes valid ONNX to a file.
+/// The closure `inputs[0].clone().add(&inputs[0])` produces a tracer-built
+/// graph with a single ONNX `Add` op (`IrOpKind::Add` → ONNX op-type
+/// `"Add"`). Tracer-built value IDs start at 0, so the input is `val_0` and
+/// the Add output is `val_1`, matching `make_add_graph_for_onnx`.
 #[test]
 fn onnx_export_onnx() {
     use ferrotorch_core::TensorStorage;
@@ -1708,19 +1783,22 @@ fn onnx_export_onnx() {
     // example input with requires_grad=true so the autograd tracer captures ops.
     let x_storage = TensorStorage::cpu(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
     let x = Tensor::from_storage(x_storage, vec![2, 3], true).unwrap();
+    let config = OnnxExportConfig::default();
+    let expected_model_name = config.model_name.clone();
     export_onnx(
         |inputs: &[Tensor<f32>]| inputs[0].clone().add(&inputs[0]),
         &[x],
         &path,
-        OnnxExportConfig::default(),
+        config,
     )
     .expect("export_onnx must succeed");
     let written = std::fs::read(&path).expect("written ONNX file must be readable");
     assert!(!written.is_empty());
-    assert_eq!(written[0], 0x08);
+    assert_onnx_discriminating(&written, &expected_model_name, "Add");
 }
 
 /// export_from_program: build an ExportedProgram from an IrGraph and export.
+/// Discrimination guarantees: see `assert_onnx_discriminating`.
 #[test]
 fn onnx_export_from_program() {
     use ferrotorch_jit::export::{ExportedProgram, InputSpec};
@@ -1734,11 +1812,12 @@ fn onnx_export_from_program() {
     };
     let dir = tempfile::tempdir().expect("tempdir must succeed");
     let path = dir.path().join("program.onnx");
-    export_from_program(&program, &path, OnnxExportConfig::default())
-        .expect("export_from_program must succeed");
+    let config = OnnxExportConfig::default();
+    let expected_model_name = config.model_name.clone();
+    export_from_program(&program, &path, config).expect("export_from_program must succeed");
     let written = std::fs::read(&path).expect("written ONNX file must be readable");
     assert!(!written.is_empty());
-    assert_eq!(written[0], 0x08);
+    assert_onnx_discriminating(&written, &expected_model_name, "Add");
 }
 
 /// OnnxExportConfig: default construction and public field access.
