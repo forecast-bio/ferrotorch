@@ -1,0 +1,10 @@
+{
+  "uuid": "c45c70c6-22f4-4755-9a48-e3815d726cfb",
+  "display_id": 1080,
+  "title": "ferrotorch-core: conformance_flex_attention.rs deserializer missing 'slope' field; fixture parse fails with 'unknown field slope at line 813'",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T20:55:18.542006176Z",
+  "updated_at": "2026-05-09T20:55:18.542006176Z"
+}
