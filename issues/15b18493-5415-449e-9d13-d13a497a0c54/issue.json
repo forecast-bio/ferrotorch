@@ -1,0 +1,10 @@
+{
+  "uuid": "15b18493-5415-449e-9d13-d13a497a0c54",
+  "display_id": 1036,
+  "title": "BROKEN jit: export_single_input_produces_program asserts node_count >= 1 + shape (conformance_jit_export.rs:475) — graph with bookkeeping Output node only would pass; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:30:40.323042040Z",
+  "updated_at": "2026-05-09T04:30:40.323042040Z"
+}
