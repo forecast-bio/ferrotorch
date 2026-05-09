@@ -1,0 +1,10 @@
+{
+  "uuid": "0095ae27-a838-4f0f-bdbc-72ade58e0083",
+  "display_id": 1032,
+  "title": "BROKEN train: tensorboard_callback_new is assertion-free constructor (conformance_train.rs:1430) — passes if constructor doesn't panic; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:29:55.595841383Z",
+  "updated_at": "2026-05-09T04:29:55.595841383Z"
+}
