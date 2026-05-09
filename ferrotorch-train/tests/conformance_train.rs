@@ -1161,6 +1161,20 @@ fn early_stopping_accessors() {
 // ---------------------------------------------------------------------------
 
 /// Gradient accumulation: mean loss over N batches must match fixture.
+///
+/// Discrimination beyond the fixture-mean check:
+///
+/// - **Partial-compute check at k < n.** After feeding the first
+///   `k = n_accumulate / 2` batch losses (with `k >= 1`), `compute()` must
+///   equal `sum_partial / k` exactly. A stub `update` that fails to
+///   increment the count, or a `compute` that uses a hard-coded divisor,
+///   would fail here.
+/// - **Sabotage probe on the divisor.** After all `n` updates, the actual
+///   `compute()` must differ from `sum / (n + 1)` (and from `sum / (n - 1)`
+///   when `n > 1`). This pins the divisor to exactly `n`.
+///
+/// `LossMetric` exposes neither `count()` nor `sum()` accessors, so we
+/// recompute the partial sum locally — no src/ surface change required.
 #[test]
 fn grad_accum_mean_loss() {
     let file = load_fixtures();
@@ -1170,10 +1184,40 @@ fn grad_accum_mean_loss() {
         .find(|g| g.kind == "grad_accum_mean")
         .expect("grad_accum_mean fixture not found");
 
+    let n = f.batch_losses.len();
+    assert!(
+        n >= 2,
+        "[{}] grad_accum fixture must have at least 2 batches to support \
+         partial-compute discrimination (got {n})",
+        f.label,
+    );
+
     // Gradient accumulation in this crate is a LossMetric usage pattern: feed
     // each micro-batch loss into a LossMetric to compute the mean.
     let mut m = LossMetric::new();
-    for &loss in &f.batch_losses {
+
+    // (a) Partial-compute check: after k = n/2 (>= 1) updates, compute() must
+    //     equal sum_partial / k. This proves `update()` increments the
+    //     count per call and `compute()` divides by that running count —
+    //     not by the fixture-internal `n_accumulate`.
+    let k = n / 2;
+    assert!(k >= 1, "[{}] split point k must be >= 1", f.label);
+    let mut partial_sum = 0.0_f64;
+    for &loss in &f.batch_losses[..k] {
+        m.update(&loss);
+        partial_sum += loss;
+    }
+    let partial_expected = partial_sum / k as f64;
+    let partial_got = m.compute();
+    assert!(
+        (partial_got - partial_expected).abs() < 1e-12,
+        "[{}] partial compute after k={k} updates: expected {partial_expected}, \
+         got {partial_got} — count or sum is not being tracked correctly",
+        f.label,
+    );
+
+    // (b) Feed the remaining batches and check the fixture-mean.
+    for &loss in &f.batch_losses[k..] {
         m.update(&loss);
     }
     let got = m.compute();
@@ -1188,6 +1232,27 @@ fn grad_accum_mean_loss() {
         f.n_accumulate,
         "fixture n_accumulate matches batch count"
     );
+
+    // (c) Sabotage probe on the divisor. The full sum divided by (n + 1)
+    //     must NOT equal compute(); ditto for (n - 1) when n > 1. This
+    //     locks the divisor to exactly n and rules out off-by-one stubs.
+    let total_sum: f64 = f.batch_losses.iter().sum();
+    let off_by_plus_one = total_sum / (n as f64 + 1.0);
+    assert!(
+        (got - off_by_plus_one).abs() > 1e-9,
+        "[{}] sabotage probe: compute()={got} matches sum/(n+1)={off_by_plus_one} \
+         — divisor is not exactly n",
+        f.label,
+    );
+    if n > 1 {
+        let off_by_minus_one = total_sum / (n as f64 - 1.0);
+        assert!(
+            (got - off_by_minus_one).abs() > 1e-9,
+            "[{}] sabotage probe: compute()={got} matches sum/(n-1)={off_by_minus_one} \
+             — divisor is not exactly n",
+            f.label,
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1253,14 +1318,47 @@ fn checkpoint_sequential_single_module() {
 // ---------------------------------------------------------------------------
 
 /// The `checkpoint` re-export is accessible from ferrotorch-train.
+///
+/// Discrimination: a stub that drops the re-export, swaps it for a different
+/// item, or returns a value not derived from the input would fail this test.
+/// Compile-time: typed fn-pointer alias pins the exact signature
+/// `fn(F, &Tensor<f32>) -> FerrotorchResult<Tensor<f32>>` (Phase 4 style).
+/// Runtime: the function is actually invoked twice — identity (must return
+/// input verbatim) and addition (must return 2x). A no-op or constant-output
+/// stub fails the runtime asserts.
 #[test]
 fn checkpoint_reexport_accessible() {
     use ferrotorch_train::checkpoint;
+
+    // (a) Compile-time signature pin — same shape as Phase 4 typed-alias
+    // discrimination: any change to checkpoint's signature breaks this line.
     type _CheckpointFn = fn(
         fn(&Tensor<f32>) -> ferrotorch_core::FerrotorchResult<Tensor<f32>>,
         &Tensor<f32>,
     ) -> ferrotorch_core::FerrotorchResult<Tensor<f32>>;
     let _f: _CheckpointFn = checkpoint;
+
+    // (b) Runtime invocation — identity closure must return the input value.
+    let input = ferrotorch_core::scalar(2.0_f32).unwrap();
+    let identity_out = checkpoint(|x| Ok(x.clone()), &input)
+        .expect("checkpoint(identity) must succeed for a scalar input");
+    assert_eq!(
+        identity_out.item().unwrap(),
+        2.0_f32,
+        "checkpoint(identity, 2.0) must return 2.0",
+    );
+
+    // (c) Runtime invocation — non-trivial closure (x + x) must return 2*input.
+    // This rules out a stub that simply forwards the input without invoking
+    // the closure.
+    let doubled_out =
+        checkpoint(|x| ferrotorch_core::grad_fns::arithmetic::add(x, x), &input)
+            .expect("checkpoint(x + x) must succeed for a scalar input");
+    assert_eq!(
+        doubled_out.item().unwrap(),
+        4.0_f32,
+        "checkpoint(|x| x + x, 2.0) must return 4.0",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1410,6 +1508,11 @@ fn tensorboard_writer_new_and_add_scalar() {
 }
 
 /// TensorBoardWriter::add_scalars works.
+///
+/// Discrimination: a stub `add_scalars` that returns `Ok(())` without writing
+/// anything would fail the file-content asserts below. The sabotage probe
+/// (asserting absence of `b"sabotage_marker"`) ensures the substring matcher
+/// is not vacuous: a content-blind tautology assertion is rejected.
 #[test]
 fn tensorboard_writer_add_scalars() {
     let dir = tempfile::tempdir().expect("tempdir creation failed");
@@ -1423,14 +1526,138 @@ fn tensorboard_writer_add_scalars() {
         .add_scalars("loss", &vals, 0)
         .expect("add_scalars failed");
     writer.flush().expect("flush failed");
+
+    // Drop the writer so its BufWriter is closed (and any final bytes flushed
+    // to the OS) before we read the file back.
+    drop(writer);
+
+    // Locate the events file in the log directory. The filename embeds a
+    // dynamic timestamp (`events.out.tfevents.<ts>.ferrotorch`), so we
+    // discover it via `read_dir` rather than reconstructing the path.
+    let events_path = std::fs::read_dir(dir.path())
+        .expect("read_dir on log directory failed")
+        .map(|e| e.expect("dir entry failed").path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with("events.out.tfevents."))
+                .unwrap_or(false)
+        })
+        .expect("no events.out.tfevents.* file found in log directory");
+    assert!(
+        events_path.is_file(),
+        "events file path is not a regular file: {}",
+        events_path.display()
+    );
+
+    let bytes = std::fs::read(&events_path).expect("read events file failed");
+
+    // (a) tfrecord header floor: each record carries an 8-byte length, a
+    //     4-byte length-CRC, the payload, and a 4-byte data-CRC. A writer
+    //     that emits only the file_version event still produces well over
+    //     32 bytes; this rules out a no-op writer that left the file empty.
+    assert!(
+        bytes.len() > 32,
+        "events file too small ({} bytes) — expected at least one record",
+        bytes.len(),
+    );
+
+    // (b) Both `add_scalars` sub-tags must appear verbatim as the
+    //     `"{main_tag}/{sub_tag}"` strings in the encoded summary protobuf.
+    assert!(
+        bytes.windows(b"loss/train".len()).any(|w| w == b"loss/train"),
+        "events file does not contain `loss/train` tag — add_scalars did not write it",
+    );
+    assert!(
+        bytes.windows(b"loss/val".len()).any(|w| w == b"loss/val"),
+        "events file does not contain `loss/val` tag — add_scalars did not write it",
+    );
+
+    // (c) Sabotage probe: a marker we never wrote must NOT appear. This
+    //     locks in that the substring matcher above is actually scanning
+    //     content (not tautologically matching anything).
+    assert!(
+        !bytes.windows(b"sabotage_marker".len()).any(|w| w == b"sabotage_marker"),
+        "events file contains `sabotage_marker` — sabotage probe failed",
+    );
 }
 
 /// TensorBoardCallback::new creates a working callback.
+///
+/// Discrimination: a stub `TensorBoardCallback` whose `on_epoch_end` is a
+/// no-op (or which only constructs without ever writing) would leave the
+/// events file with no `train_loss` / `val_loss` / `lr` tags and fail the
+/// content asserts below. The sabotage probe ensures the substring matcher
+/// is real, not vacuous.
 #[test]
 fn tensorboard_callback_new() {
     let dir = tempfile::tempdir().expect("tempdir creation failed");
-    let _cb = ferrotorch_train::TensorBoardCallback::new(dir.path())
+    let mut cb = ferrotorch_train::TensorBoardCallback::new(dir.path())
         .expect("TensorBoardCallback::new failed");
+
+    // Drive the callback through the public Callback surface. The default
+    // `EpochResult::new_with_defaults` has empty metrics, so only
+    // `train_loss`, `val_loss`, and `lr` should be written.
+    let result = EpochResult::new_with_defaults(
+        /* epoch */ 0,
+        /* train_loss */ 0.5,
+        /* val_loss */ Some(0.3),
+        /* lr */ 0.001,
+    );
+    Callback::<f32>::on_epoch_end(&mut cb, 0, &result);
+
+    // Drop the callback so the inner BufWriter is closed before we read the
+    // file back. The `on_epoch_end` impl does call `writer.flush()` already,
+    // but dropping the BufWriter is what guarantees all bytes are observable.
+    drop(cb);
+
+    // Locate the events file in the log directory.
+    let events_path = std::fs::read_dir(dir.path())
+        .expect("read_dir on log directory failed")
+        .map(|e| e.expect("dir entry failed").path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with("events.out.tfevents."))
+                .unwrap_or(false)
+        })
+        .expect("no events.out.tfevents.* file found in log directory");
+    assert!(
+        events_path.is_file(),
+        "events file path is not a regular file: {}",
+        events_path.display()
+    );
+
+    let bytes = std::fs::read(&events_path).expect("read events file failed");
+
+    // (a) tfrecord header floor: writing file_version + 3 scalars must
+    //     produce well over 32 bytes.
+    assert!(
+        bytes.len() > 32,
+        "events file too small ({} bytes) — expected at least one record",
+        bytes.len(),
+    );
+
+    // (b) The three scalar tags the callback writes per epoch must all
+    //     appear in the encoded summary protobuf.
+    assert!(
+        bytes.windows(b"train_loss".len()).any(|w| w == b"train_loss"),
+        "events file does not contain `train_loss` tag — on_epoch_end did not write it",
+    );
+    assert!(
+        bytes.windows(b"val_loss".len()).any(|w| w == b"val_loss"),
+        "events file does not contain `val_loss` tag — on_epoch_end did not write it",
+    );
+    assert!(
+        bytes.windows(b"lr".len()).any(|w| w == b"lr"),
+        "events file does not contain `lr` tag — on_epoch_end did not write it",
+    );
+
+    // (c) Sabotage probe: a marker we never wrote must NOT appear.
+    assert!(
+        !bytes.windows(b"sabotage_marker".len()).any(|w| w == b"sabotage_marker"),
+        "events file contains `sabotage_marker` — sabotage probe failed",
+    );
 }
 
 // ---------------------------------------------------------------------------
