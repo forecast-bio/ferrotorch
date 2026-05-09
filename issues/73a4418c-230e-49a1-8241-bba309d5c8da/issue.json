@@ -1,0 +1,10 @@
+{
+  "uuid": "73a4418c-230e-49a1-8241-bba309d5c8da",
+  "display_id": 1023,
+  "title": "BROKEN nn: layernorm_backward_matches_reference silently drops bias grad (conformance_nn_attention.rs:1373) — let _expected_grad_bias never asserted; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:28:13.438765868Z",
+  "updated_at": "2026-05-09T04:28:13.438765868Z"
+}
