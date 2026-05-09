@@ -1,0 +1,10 @@
+{
+  "uuid": "664dd562-de52-4ca5-940d-6d7ba1853c20",
+  "display_id": 1047,
+  "title": "BROKEN cubecl: cube_device_ordinal_via_qualified_path discards return value (conformance_cubecl.rs) — let _ = CubeDevice::ordinal(&dev) is assertion-free; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:32:42.550591196Z",
+  "updated_at": "2026-05-09T04:32:42.550591196Z"
+}
