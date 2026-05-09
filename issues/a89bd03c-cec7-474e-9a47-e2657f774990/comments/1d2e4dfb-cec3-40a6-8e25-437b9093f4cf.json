@@ -1,0 +1,10 @@
+{
+  "uuid": "1d2e4dfb-cec3-40a6-8e25-437b9093f4cf",
+  "issue_uuid": "a89bd03c-cec7-474e-9a47-e2657f774990",
+  "author": "y4rr",
+  "content": "[action] Phase 10 dispatch: full Inception-V3 rebuild. BasicConv2d helper + 5 distinct Mixed types (A/B/C/D/E) + stem (Conv2d_1a-4a) + 11 Mixed (5b/c/d, 6a-e, 7a-c) + classifier. 3-level probe-before-fix. BN eps=1e-3, Conv bias=false, AvgPool count_include_pad=false. STOP-AND-REPORT on count_include_pad / 6th module / non-square kernel issues.",
+  "created_at": "2026-05-09T00:41:38.260095483Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA1WBauDV+ME1FxdoN6px8SPQcrAu4qCWj4Qp7aeViiEm/3N7WbnGl1l63RCk3ScnrgMYKYeU9WgVPTaxlMHFYAA=="
+}
