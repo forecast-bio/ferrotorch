@@ -1,0 +1,10 @@
+{
+  "uuid": "fc02c7da-d3bd-4ead-a8f3-79179e296df3",
+  "display_id": 1019,
+  "title": "BROKEN core: forward_only_helpers_smoke only checks finiteness+monotonicity, not values (conformance_reduction.rs:1381) — wrong logcumsumexp values pass; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:27:25.884642547Z",
+  "updated_at": "2026-05-09T04:27:25.884642547Z"
+}
