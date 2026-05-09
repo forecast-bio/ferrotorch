@@ -1,0 +1,10 @@
+{
+  "uuid": "989741c8-1e13-4c54-adc6-7c70c404ba58",
+  "display_id": 1037,
+  "title": "BROKEN jit: autotuner_result_winner_time_is_nonzero_or_zero is assertion-free (conformance_jit_export.rs:913) — both return values discarded with let _; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:30:50.961438515Z",
+  "updated_at": "2026-05-09T04:30:50.961438515Z"
+}
