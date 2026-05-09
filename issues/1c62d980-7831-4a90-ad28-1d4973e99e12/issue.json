@@ -1,0 +1,10 @@
+{
+  "uuid": "1c62d980-7831-4a90-ad28-1d4973e99e12",
+  "display_id": 1065,
+  "title": "BROKEN ml: homogeneity_score_perfect_is_one tautological perfect-fixture (conformance_ml_metrics.rs) — identical labels, expected=1.0; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:35:58.583585197Z",
+  "updated_at": "2026-05-09T04:35:58.583585197Z"
+}
