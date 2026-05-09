@@ -6,10 +6,11 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-09T04:34:09.721153461Z",
-  "updated_at": "2026-05-09T04:34:13.414574668Z",
+  "updated_at": "2026-05-09T04:34:14.595951543Z",
   "labels": [
     "bug",
     "test",
-    "conformance"
+    "conformance",
+    "ferrotorch-xpu"
   ]
 }
