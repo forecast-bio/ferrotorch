@@ -1,0 +1,10 @@
+{
+  "uuid": "82753a36-84b2-474c-a7b5-2d274e98745b",
+  "display_id": 1014,
+  "title": "Add autograd backward for roll, gather, and pad primitives so Swin-T trains end-to-end",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T03:09:32.839845408Z",
+  "updated_at": "2026-05-09T03:09:32.839845408Z"
+}
