@@ -1,0 +1,10 @@
+{
+  "uuid": "a727cb9b-2d35-4db2-99fa-6ab8fe955127",
+  "issue_uuid": "5cccc82d-a475-4411-af4a-64569912a9cf",
+  "author": "y4rr",
+  "content": "[action] Audit-Fix Phase 2 dispatch: ml clustering metric tautologies (#1063-#1068). Generator extension + 6 _mixed fixture entries via sklearn + 6 _mixed_matches_sklearn parallel tests + AMI rename for cluster naming consistency. Discrimination check: stub returning 1.0 must visibly fail. STOP-AND-REPORT if sklearn unavailable.",
+  "created_at": "2026-05-09T13:33:35.208601312Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAtoSCSx0NzysYrWk1DbMebNSIKOcJNt59gdP9fuXeExdKDD3lVDAHcPyYDHWF36A080S7huiloI0hEzdmt8c7Cw=="
+}
