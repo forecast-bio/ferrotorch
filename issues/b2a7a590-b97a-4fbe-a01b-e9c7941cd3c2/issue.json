@@ -1,0 +1,10 @@
+{
+  "uuid": "b2a7a590-b97a-4fbe-a01b-e9c7941cd3c2",
+  "display_id": 1039,
+  "title": "BROKEN jit-script: script_error_cases_are_cascade_skipped_in_fixtures is fixture metadata check (conformance_jit_script.rs:401) — never invokes the macro, only checks JSON strings; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:31:12.848087159Z",
+  "updated_at": "2026-05-09T04:31:12.848087159Z"
+}
