@@ -1,0 +1,10 @@
+{
+  "uuid": "57304ff8-64f6-4723-8069-ec354f106945",
+  "display_id": 1016,
+  "title": "BROKEN core: gpu_dispatch_module_query_apis discards is_some result (conformance_plumbing.rs:1390) — comment admits both Some/None are valid; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:26:53.500065021Z",
+  "updated_at": "2026-05-09T04:26:53.500065021Z"
+}
