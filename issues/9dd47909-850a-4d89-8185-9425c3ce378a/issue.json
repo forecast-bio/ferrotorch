@@ -1,0 +1,10 @@
+{
+  "uuid": "9dd47909-850a-4d89-8185-9425c3ce378a",
+  "display_id": 1020,
+  "title": "BROKEN core: profiler_hook_set_get_clear only checks profiler_current is_some/is_none (conformance_plumbing.rs:1652) — record_op could no-op; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:27:36.855454442Z",
+  "updated_at": "2026-05-09T04:27:36.855454442Z"
+}
