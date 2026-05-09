@@ -1,0 +1,10 @@
+{
+  "uuid": "ac35e76e-929f-4009-b57a-5d5f3341ce80",
+  "issue_uuid": "82753a36-84b2-474c-a7b5-2d274e98745b",
+  "author": "y4rr",
+  "content": "Follow-up to Phase 11 (#1013) Swin-T rebuild. Three primitives currently break training-mode gradient flow but not eval-mode value-parity. (1) ferrotorch-core/src/ops/tensor_ops.rs:167 roll<T> reconstructs Tensor::from_storage with requires_grad=false — no grad_fn registered. Required for cyclic-shift backward in ShiftedWindowAttention. (2) Differentiable index_select / gather over a 2-D table: ShiftedWindowAttention::build_relative_position_bias does a CPU data_vec gather of relative_position_bias_table by relative_position_index. Eval-mode flows through fine; training requires gradient flow back into the bias table. (3) Differentiable strided-slice + cat for PatchMerging::forward (the four-corner concat is currently CPU data_vec). For full Swin-T training, all three must be migrated to autograd-tracked primitives. None of these affect the eval-mode value-parity test which is the Phase 11 target.",
+  "created_at": "2026-05-09T03:09:46.802936232Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAfmGXJheutLk4LcvuYlSbQtapfMiyNzNjzbK3c0wbniu0yANmoPV1hRYcO4QNJbWyarJcPqMwZFlKk4EZH4sLAw=="
+}
