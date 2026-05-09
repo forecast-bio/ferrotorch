@@ -1,0 +1,10 @@
+{
+  "uuid": "42419d88-93a2-47b6-852e-a1d95553720e",
+  "display_id": 1044,
+  "title": "BROKEN serialize: onnx_export_from_program asserts only bytes[0] == 0x08 (conformance_serialize.rs:1725) — magic-byte-only; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:32:07.892387928Z",
+  "updated_at": "2026-05-09T04:32:07.892387928Z"
+}
