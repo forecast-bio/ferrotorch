@@ -6,10 +6,11 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-09T04:31:34.657018275Z",
-  "updated_at": "2026-05-09T04:31:38.280562052Z",
+  "updated_at": "2026-05-09T04:31:39.499109359Z",
   "labels": [
     "bug",
     "test",
-    "conformance"
+    "conformance",
+    "ferrotorch-serialize"
   ]
 }
