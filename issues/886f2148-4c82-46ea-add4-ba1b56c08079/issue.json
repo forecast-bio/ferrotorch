@@ -1,0 +1,10 @@
+{
+  "uuid": "886f2148-4c82-46ea-add4-ba1b56c08079",
+  "display_id": 1031,
+  "title": "BROKEN train: tensorboard_writer_add_scalars only checks is_ok (conformance_train.rs:1414) — no assertion that file was written or content is meaningful; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:29:44.854781376Z",
+  "updated_at": "2026-05-09T04:29:44.854781376Z"
+}
