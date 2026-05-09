@@ -43,6 +43,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - ferrotorch-core: `gelu()` (no-arg) default is now `GeluApproximate::None` (exact erf-based: `x * 0.5 * (1 + erf(x / √2))`), matching `torch.nn.GELU()`'s `approximate='none'` default. Previously the no-arg path defaulted to `GeluApproximate::Sigmoid` (`x * sigmoid(1.702 * x)`), producing ~6e-3 absolute deviation from PyTorch. **Migration**: callers relying on the historical fast-sigmoid default must opt in explicitly via `gelu_with(input, GeluApproximate::Sigmoid)` (LLM/transformer paths in `ferrotorch-llama` etc. will silently get the slower-but-more-precise erf path after upgrade — adjust if performance matters more than parity in your call site). `gelu_with(_, GeluApproximate::Tanh)` (PyTorch's `approximate='tanh'`) and `gelu_with(_, GeluApproximate::None)` are unchanged. The enum discriminant order is unchanged; only the `#[default]` attribute moved (closes #794).
 
 ### Fixed
+- BROKEN nn: lazy_norm_lazy_batch_norm_1d_matches_pytorch elides running_mean/var/num_features (conformance_nn_norm_activation_loss.rs:1679) — running stats updated by training fwd never checked; #1015 (#1027)
+- BROKEN nn: norm_batch_norm_3d_matches_pytorch elides running_mean/var (conformance_nn_norm_activation_loss.rs:379) — same elision pattern; #1015 (#1026)
+- BROKEN nn: norm_batch_norm_2d_matches_pytorch elides running_mean/var (conformance_nn_norm_activation_loss.rs:331) — same elision pattern; #1015 (#1025)
+- BROKEN nn: norm_batch_norm_1d_matches_pytorch elides running_mean/var (conformance_nn_norm_activation_loss.rs:280) — let _ = running_mean; let _ = running_var; #1015 (#1024)
 - Fix per-block dilation in DeepLabV3 ResNet50Dilated to mirror torchvision _make_layer (#1011)
 - Fix DeepLabV3 head structural divergence from torchvision (atrous_rates, head Sequential, classifier bias) (#1009)
 - Track DeepLabV3 segmentation-head naming divergence from torchvision: classifier.0.convs.<i>.<j>/project vs ferrotorch head.aspp.<i>/project (#1006)
