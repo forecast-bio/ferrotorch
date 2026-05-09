@@ -1,0 +1,10 @@
+{
+  "uuid": "afabf3d9-79c9-4a1a-ae7d-88b380c8b027",
+  "issue_uuid": "48437bba-bbfb-4ed8-b832-3a1e7d215b0c",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 3 APPROVE (clean). conformance_serialize.rs:1748 onnx_ir_graph_to_onnx now calls assert_onnx_discriminating which asserts ir_version value byte (0x08), size > 32, model_name substring (ferrotorch_model), value-name substrings (val_0/val_1), op-type substring (Add), and a sabotage-probe negative (sabotage_marker NOT in bytes). Existing bytes[0]==0x08 retained. Sabotage-probe demo: vec![0x08; 200] stub FAILS at model_name discriminator (line 1709). No src/ changes, no new workspace deps.",
+  "created_at": "2026-05-09T14:32:16.904488944Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAazRm9kEBTosmI/Lz01tM8kT4O/yACg+rqzEK/KKbL6OatV1uEWoNPOdW2+WxPIWdrlJ8yKmQzK6McAYC+c9LCw=="
+}
