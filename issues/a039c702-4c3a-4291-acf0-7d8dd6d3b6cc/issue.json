@@ -1,0 +1,10 @@
+{
+  "uuid": "a039c702-4c3a-4291-acf0-7d8dd6d3b6cc",
+  "display_id": 1035,
+  "title": "BROKEN jit: run_unchecked_executes_relu_graph zeros input + shape-only (conformance_jit_export.rs:431) — same trap as run_with_guards; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:30:29.285385112Z",
+  "updated_at": "2026-05-09T04:30:29.285385112Z"
+}
