@@ -1,0 +1,10 @@
+{
+  "uuid": "b7a74097-6388-421e-869e-51f216ee4986",
+  "display_id": 1070,
+  "title": "BROKEN ml: label_ranking_loss_matches_sklearn perfect-ranking fixture (conformance_ml_metrics.rs) — same fixture as lrap, expected=0.0; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:36:52.519037473Z",
+  "updated_at": "2026-05-09T04:36:52.519037473Z"
+}
