@@ -1,0 +1,10 @@
+{
+  "uuid": "62c177d7-aac8-45f0-8219-260442e17bf3",
+  "issue_uuid": "5e194c4f-b5cc-49d1-8f9f-c0a677647d98",
+  "author": "y4rr",
+  "content": "Decision: rebuild swin.rs from scratch (~1500 lines, Phase 10 inception pattern). Match torchvision swin_t named_parameters EXACTLY: features.0.{0,2}, features.{1,3,5,7}.{i}.{norm1,attn,norm2,mlp.{0,3}}, features.{2,4,6}.{norm,reduction}, norm, head. Fused QKV (no split). relative_position_index as Vec<i64> non-Module field (NOT Parameter, NOT named_parameter). Cyclic shift via ferrotorch_core::ops::tensor_ops::roll (eval-mode only — see issue). All structural ops via permute().contiguous().view(). Last stage shift_size=0 enforcement: window_size=7 == 7 (final spatial), shift_size>=H triggers force-zero (per torchvision's runtime guard). With H=W=7 stage-3 spatial, the runtime guard naturally produces shift_size=0. Pad path needed since 56/28 are divisible by 7 but mid-stage spatial (after 2 downsamples to 14, 7) all are divisible — so pad=0 always for swin_t input 224×224.",
+  "created_at": "2026-05-09T02:52:10.266417089Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA02mbZvPws7f3JMTO+dBqpy5gOh2xgKVUkqgklF9cqL4L3RTqupfdgrM9OMzRmnGtiychVwXrU5xc7gYCaFBGAw=="
+}
