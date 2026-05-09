@@ -1,0 +1,10 @@
+{
+  "uuid": "f2350e87-e9cb-41bf-89f6-9a86714f69cc",
+  "issue_uuid": "5ed767d5-29dd-488c-8e2d-a81fd605a17d",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 5 APPROVE (clean). 4 BROKEN tests (#1030-#1033) strengthened heterogeneously: typed-alias + real invocation (#1030), file-content byte-window verification + sabotage probe (#1031, #1032), partial-compute check + off-by-one divisor sabotage probe (#1033). Sabotage demo: m.update(&(loss * 2.0)) caught at partial-compute assertion line 1212 (expected 2.5, got 5). No src/ changes, no new workspace deps.",
+  "created_at": "2026-05-09T19:19:10.011366576Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADdE7o0Xy4ErQIVRMOoGws+MqW4jJ1xIFYBg6+sOwF5wdqDyuh5iqF7UeTKzy9Fkh7DqOC7ovdoCeiV6ZLHDNAQ=="
+}
