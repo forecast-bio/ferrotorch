@@ -1,0 +1,10 @@
+{
+  "uuid": "48437bba-bbfb-4ed8-b832-3a1e7d215b0c",
+  "display_id": 1041,
+  "title": "BROKEN serialize: onnx_ir_graph_to_onnx asserts only bytes[0] == 0x08 (conformance_serialize.rs:1674) — magic-byte-only, no graph re-parse; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:31:34.657018275Z",
+  "updated_at": "2026-05-09T04:31:34.657018275Z"
+}
