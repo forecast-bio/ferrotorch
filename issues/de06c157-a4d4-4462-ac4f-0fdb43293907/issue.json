@@ -6,9 +6,10 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-09T04:27:04.215478719Z",
-  "updated_at": "2026-05-09T04:27:06.779280648Z",
+  "updated_at": "2026-05-09T04:27:08.075430989Z",
   "labels": [
     "bug",
-    "test"
+    "test",
+    "conformance"
   ]
 }
