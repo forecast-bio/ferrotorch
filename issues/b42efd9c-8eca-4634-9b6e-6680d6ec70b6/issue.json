@@ -1,0 +1,10 @@
+{
+  "uuid": "b42efd9c-8eca-4634-9b6e-6680d6ec70b6",
+  "display_id": 1072,
+  "title": "ferrotorch-nn: LazyBatchNorm{1,2,3}d lacks running_mean()/running_var()/num_batches_tracked() accessors needed for direct conformance verification",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T05:55:53.175270920Z",
+  "updated_at": "2026-05-09T05:55:53.175270920Z"
+}
