@@ -1,0 +1,10 @@
+{
+  "uuid": "af0e1c55-0026-44ba-aae7-3f5475f30bf5",
+  "issue_uuid": "aa72f397-2ce3-4e06-aa4b-b2ccaf5a5f17",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 6 APPROVE (clean). Both BROKEN tests (#1034, #1035) strengthened: mixed-sign input via (0..N).map(|i| (i as f32) - N/2.0) replacing zeros(&[N, 10]); elementwise relu verification (out[i] == data[i].max(0.0)); three-part inline sabotage probe (input has negative, output has 0.0 from clamp, output has strictly positive from pass-through). Existing shape assertion retained. Sabotage demo: input[0] flip from -20.0 to 5.0 caught at line 486 (got=5, expected=0). No src/ changes, no new workspace deps.",
+  "created_at": "2026-05-09T20:08:51.658627090Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAZwyHGNtBBiGNBt33RFEtwg0wP65+XcbgEhyTX+bo8WYorxSp/e2ejHZ8CkOwsTcuNikvNyOSWvZEuZIxYeeRBg=="
+}
