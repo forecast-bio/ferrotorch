@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- Audit-Fix Phase 3: ONNX magic-byte tautologies in serialize crate (#1015 #1041 #1042 #1043 #1044) (#1074)
 - Phase 11: Swin-T shifted-window attention (#998) → 15/15 vision parity (#1013)
 - Add shifted-window attention so Swin-T matches torchvision parameter schema (#998)
 - Phase 11: Swin-T shifted-window attention rebuild (#998) → 15/15 vision parity (#1013)
@@ -43,6 +44,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - ferrotorch-core: `gelu()` (no-arg) default is now `GeluApproximate::None` (exact erf-based: `x * 0.5 * (1 + erf(x / √2))`), matching `torch.nn.GELU()`'s `approximate='none'` default. Previously the no-arg path defaulted to `GeluApproximate::Sigmoid` (`x * sigmoid(1.702 * x)`), producing ~6e-3 absolute deviation from PyTorch. **Migration**: callers relying on the historical fast-sigmoid default must opt in explicitly via `gelu_with(input, GeluApproximate::Sigmoid)` (LLM/transformer paths in `ferrotorch-llama` etc. will silently get the slower-but-more-precise erf path after upgrade — adjust if performance matters more than parity in your call site). `gelu_with(_, GeluApproximate::Tanh)` (PyTorch's `approximate='tanh'`) and `gelu_with(_, GeluApproximate::None)` are unchanged. The enum discriminant order is unchanged; only the `#[default]` attribute moved (closes #794).
 
 ### Fixed
+- BROKEN serialize: onnx_export_from_program asserts only bytes[0] == 0x08 (conformance_serialize.rs:1725) — magic-byte-only; #1015 (#1044)
+- BROKEN serialize: onnx_export_onnx asserts only bytes[0] == 0x08 (conformance_serialize.rs:1704) — magic-byte-only; #1015 (#1043)
+- BROKEN serialize: onnx_export_ir_graph_to_onnx asserts only bytes[0] == 0x08 (conformance_serialize.rs:1690) — magic-byte-only; #1015 (#1042)
+- BROKEN serialize: onnx_ir_graph_to_onnx asserts only bytes[0] == 0x08 (conformance_serialize.rs:1674) — magic-byte-only, no graph re-parse; #1015 (#1041)
 - BROKEN ml: fowlkes_mallows_score_perfect_is_one tautological perfect-fixture (conformance_ml_metrics.rs) — identical labels, expected=1.0; #1015 (#1068)
 - BROKEN ml: v_measure_score_perfect_is_one tautological perfect-fixture (conformance_ml_metrics.rs) — identical labels, expected=1.0; #1015 (#1067)
 - BROKEN ml: completeness_score_perfect_is_one tautological perfect-fixture (conformance_ml_metrics.rs) — identical labels, expected=1.0; #1015 (#1066)
