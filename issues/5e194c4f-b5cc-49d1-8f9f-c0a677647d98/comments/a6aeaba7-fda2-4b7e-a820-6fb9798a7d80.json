@@ -1,0 +1,10 @@
+{
+  "uuid": "a6aeaba7-fda2-4b7e-a820-6fb9798a7d80",
+  "issue_uuid": "5e194c4f-b5cc-49d1-8f9f-c0a677647d98",
+  "author": "y4rr",
+  "content": "Result: Swin-T value-parity PASSES — max_abs_err=3.502e-7 max_rel_err=1.967e-3 vs abs_tol=1e-3 rel_tol=1e-2 numel=1000. ferrotorch-vision/src/models/swin.rs rewritten as full torchvision-parity ShiftedWindowAttention + PatchMerging. named_parameters matches torchvision swin_t state_dict 1:1 (172 keys, zero diff). 4 #[ignore=#998 ...] markers removed. All 4 swin_t_* tests PASS (value_parity + 3 loader-rejection probes). 187/187 conformance_vision_models tests PASS — zero regression on 14 prior PASS-able models. cargo build --workspace clean; cargo clippy -p ferrotorch-vision --all-targets -- -D warnings clean. Vision parity 14/15 → 15/15 = 100%. roll<T> backward absent — STOP-AND-REPORT respected: training-mode autograd unsupported; eval-mode parity bit-faithful.",
+  "created_at": "2026-05-09T03:09:24.139994497Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAm86o43u7u88NQnSO+fG3K+E94mlQQoNRw3U609XWX4dKlVrCvbUpOoY0Qatl2r6reCGIieOe+kqigjAF7Y5YBw=="
+}
