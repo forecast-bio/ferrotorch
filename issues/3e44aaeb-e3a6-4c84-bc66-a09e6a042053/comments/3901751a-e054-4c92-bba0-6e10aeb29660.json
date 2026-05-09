@@ -1,0 +1,10 @@
+{
+  "uuid": "3901751a-e054-4c92-bba0-6e10aeb29660",
+  "issue_uuid": "3e44aaeb-e3a6-4c84-bc66-a09e6a042053",
+  "author": "y4rr",
+  "content": "[action] Workspace conformance audit dispatch: 17 parallel Sonnet subagents, one per crate (ferrotorch-{core,nn,optim,train,jit,jit-script,serialize,gpu,distributed,cubecl,xpu,distributions,hub,tokenize,llama,ml,mps}). Read-only, file:line citations required, fixed 7-bucket scheme (VALID/WEAK/BROKEN/HARDWARE-GATED/NETWORK-GATED/DEFERRED/TODO). Reports composed into workspace rollup.",
+  "created_at": "2026-05-09T04:13:38.886389313Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAlqQAoHgyaFkq5BCqduN7ynHQS3CsQZBDTv7QhBOBz3U+K8ESSA+5q5/CE0qrFuMdm6AXxwC+D1ZtGYudMGuJAA=="
+}
