@@ -1,0 +1,10 @@
+{
+  "uuid": "b945becc-7dfd-42bb-9099-0515d0ab80ca",
+  "issue_uuid": "0113318b-ccfd-4c71-a0df-b6b68fb2b508",
+  "author": "y4rr",
+  "content": "Result: All 4 elision sites fixed. BN1d/2d/3d (lines :280, :331, :379) now sabotage-prepopulate running stats with sentinels (7.5/3.5), confirm sabotage took, then load fixture values via set_running_mean/var, then round-trip getter assert with 1e-9 tolerance. LazyBN1d (line :1679) explicitly materializes with fixture's num_features (asserted via num_features() getter), runs training+eval forward (existing), and adds a parallel BN1d cross-check that loads the fixture's running_mean/var via setters and asserts both lazy and parallel produce the fixture's expected output element-wise. Elision lines all removed. cargo test -p ferrotorch-nn: 1509 passed, 0 failed. cargo clippy -p ferrotorch-nn --tests --all-targets -- -D warnings: clean. cargo test -p ferrotorch-vision: 100% green (no regressions). Sabotage probe: replaced set_running_mean call with no-op; BN1d test failed with 'running_mean[0] round-trip mismatch (got=7.5, expected=0)' confirming the round-trip assertion is non-tautological. Reverted. Diff scope: test file only (236 insertions, 19 deletions); 0 src/ changes; 0 fixture changes.",
+  "created_at": "2026-05-09T05:53:49.302345070Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA50B/k+zxEGSTyyb7z7ZVvN9zZW/AFzNC1ZCV+/2m9KAjcnk1F3408RSKhQI3zAye5bauJwWk3lLDh29LqqnACg=="
+}
