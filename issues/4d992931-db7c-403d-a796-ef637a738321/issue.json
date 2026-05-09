@@ -1,0 +1,10 @@
+{
+  "uuid": "4d992931-db7c-403d-a796-ef637a738321",
+  "display_id": 1048,
+  "title": "BROKEN cubecl: portable_add_shape_mismatch_returns_error guarded by try_wgpu_runtime (conformance_cubecl.rs) — CPU-side shape validation never tested on no-GPU CI; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:32:53.290312505Z",
+  "updated_at": "2026-05-09T04:32:53.290312505Z"
+}
