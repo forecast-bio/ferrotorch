@@ -1,0 +1,10 @@
+{
+  "uuid": "c26d0c82-e85d-48a5-b291-df39bdcd4a51",
+  "issue_uuid": "57304ff8-64f6-4723-8069-ec354f106945",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 7 APPROVE-WITH-FOLLOW-UPS. 5 BROKEN tests (#1016-#1020) strengthened heterogeneously: agreement assertion + fn-pointer pins (#1016), runtime Float probe per implementor (#1017), non-empty amax/amin discriminator (#1018), logcumsumexp value verification via assert_close_f32 (#1019), profile_op_scope invocation between set/clear (#1020). Sabotage demo: logcumsumexp expected[0] 1.0 → 1.5 caught at tolerance line. Plumbing 62 PASS, reduction 21 PASS. Follow-up #1080 filed for orthogonal flex_attention fixture-format mismatch surfaced during evidence verification (not introduced by Phase 7).",
+  "created_at": "2026-05-09T20:56:06.442354789Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAS22cYdb9+ALD8HMns9taEkmCL5Ji52e9CaySonfB0Fx+dR7ya3LO66yVTu1cMySGi5h1wXZ4+94ij+2zWKRzBQ=="
+}
