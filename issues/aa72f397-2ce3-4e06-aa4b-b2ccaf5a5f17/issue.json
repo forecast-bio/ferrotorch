@@ -1,0 +1,10 @@
+{
+  "uuid": "aa72f397-2ce3-4e06-aa4b-b2ccaf5a5f17",
+  "display_id": 1034,
+  "title": "BROKEN jit: run_with_guards_runs_valid_input zeros input + shape-only (conformance_jit_export.rs:414) — relu(0)=0 regardless of kernel correctness; #1015",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T04:30:17.199005362Z",
+  "updated_at": "2026-05-09T04:30:17.199005362Z"
+}
