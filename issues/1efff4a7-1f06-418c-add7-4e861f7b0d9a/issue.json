@@ -1,0 +1,10 @@
+{
+  "uuid": "1efff4a7-1f06-418c-add7-4e861f7b0d9a",
+  "display_id": 1074,
+  "title": "Audit-Fix Phase 3: ONNX magic-byte tautologies in serialize crate (#1015 #1041 #1042 #1043 #1044)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-09T13:59:03.211786344Z",
+  "updated_at": "2026-05-09T13:59:03.211786344Z"
+}
