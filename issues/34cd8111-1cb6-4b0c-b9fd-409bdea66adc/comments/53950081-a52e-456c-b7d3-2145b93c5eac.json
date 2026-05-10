@@ -1,0 +1,10 @@
+{
+  "uuid": "53950081-a52e-456c-b7d3-2145b93c5eac",
+  "issue_uuid": "34cd8111-1cb6-4b0c-b9fd-409bdea66adc",
+  "author": "y4rr",
+  "content": "Pass 5.A.2 closed APPROVE-WITH-FOLLOW-UPS.\n\nSource-doc reassessment caught 5 of 8 audit-cited STUBs as stale (already-correct fail-fast). Real fixes: 3 sites in lib.rs (MpsDevice::new, MpsDevice::count, mps_device_count) wired to is_mps_available()-conditional Metal discovery on cfg(target_os=\"macos\"); Linux/non-Apple contract preserved bit-for-bit.\n\nTest changes:\n- 3 lib.rs::tests fns split into _non_macos_* + _macos_* siblings\n- 3 conformance_mps.rs fixture tests cascade_skip-conditioned for macOS-vs-Linux-fixture divergence\n- 4 new lib.rs::tests + 3 new conformance tests (cfg-gated to macOS)\n\nVerification: cargo test 5/5 lib + 27/27 conformance + 1/1 surface; cargo build clean; clippy -D warnings clean; cargo check --target x86_64-apple-darwin failed environmentally (core-math-sys requires Apple SDK on Linux). macOS runtime sabotage capture deferred to Apple Silicon CI (#1131).\n\nStale-no-op acknowledgements (NOT modified):\n- backend.rs:494-497 (neg_f32) — follow-up #626\n- backend.rs:791-794 (gelu_f32) — follow-up #626\n- backend.rs:797-806 (dropout_f32) — follow-up #626\n- lib.rs:201-210 (init_mps_backend non-macOS) — by-design\n\nFollow-ups: #1131 (Apple Silicon CI runner).",
+  "created_at": "2026-05-10T10:15:06.681957879Z",
+  "kind": "resolution",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPJKy75MJgb6W0M2EwWQhq4U+mCuUqXG2FNKasmmCqdJecQq4p4mGqjOhsZIYnDUEZ3+sRtD6ea42tSHTJ5+iDA=="
+}
