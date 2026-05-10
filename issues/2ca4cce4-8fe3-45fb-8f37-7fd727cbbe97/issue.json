@@ -1,0 +1,12 @@
+{
+  "uuid": "2ca4cce4-8fe3-45fb-8f37-7fd727cbbe97",
+  "display_id": 1110,
+  "title": "Pass 5.C.3: ferrotorch-jit AotCompiledModule + GraphSegment::Eager + InductorBackend silent fallbacks",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-jit audit, STUB bucket (3 findings).\n\n- src/module.rs:344-355 — AotCompiledModule::forward_with_ctx docstring claims 'save intermediate tensors for backward', impl discards saved_tensor_indices and stores inputs.to_vec(). Self-admitting comment 'For now, save the inputs themselves'.\n- src/graph_break.rs:487-500 — GraphSegment::Eager closure ignores its 'input' argument and returns the cached output_tensor snapshot from trace time. Comment lines 488-492: 'In a full implementation this would re-execute … For now, return it.' Reachable via pub trace_with_breaks / SegmentedModule::run.\n- src/codegen.rs:1023 — InductorBackend::compile for CpuRust non-fusable path silently delegates to InterpreterBackend.compile(graph). 'Inductor as interpreter' for the long tail.\n\nAcceptance:\n- forward_with_ctx: implement real save-by-index from saved_tensor_indices, or fail-fast with clear error pointing at the unsupported case\n- GraphSegment::Eager: re-execute the unsupported op against the actual input, or fail-fast\n- InductorBackend: surface the fallback explicitly in the return type (not via silent delegation)\n- Discriminating tests that catch the cached-snapshot regression for graph_break.",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:23:12.056986311Z",
+  "updated_at": "2026-05-10T07:23:12.056986311Z"
+}
