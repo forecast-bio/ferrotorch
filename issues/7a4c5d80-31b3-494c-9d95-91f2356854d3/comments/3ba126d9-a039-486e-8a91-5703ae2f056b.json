@@ -1,0 +1,10 @@
+{
+  "uuid": "3ba126d9-a039-486e-8a91-5703ae2f056b",
+  "issue_uuid": "7a4c5d80-31b3-494c-9d95-91f2356854d3",
+  "author": "y4rr",
+  "content": "Pass 2A APPROVE (clean). GPU conv2d_f32 supports groups + dilation natively. CPU-detour gate at nn/src/conv.rs:583 removed. PTX kernel rewritten with channel_offset + dilation; driver loops per-group with reusable weight scratch (zero extra copies on dense path). New test conv2d_groups_dilation_native_gpu compares GPU output vs structurally-distinct CPU reference (direct nested loops, NOT shared im2col) at F32_ELEMENTWISE tolerance for groups=2 dilation=(2,2). Sabotage demos: dilation-ignore caught via shape mismatch [2,6,11,11] vs [2,6,9,9]; channel_offset=0 caught via element 243 diff=0.65 >> 1e-5. GPU: 723 PASS (was 722, +1). NN/core/vision all green. cargo build --workspace clean. No new deps.",
+  "created_at": "2026-05-10T05:35:31.205923954Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzlBfChUBFNMcNG95+FDGWaL8pULRnaZxh7u8J/cveU3cMNKDxBGrzwsLZxwLkgOcv+MvdN8DqJvshoSIKGe2AA=="
+}
