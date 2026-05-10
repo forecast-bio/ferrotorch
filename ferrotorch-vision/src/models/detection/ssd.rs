@@ -1049,18 +1049,17 @@ impl<T: Float> Ssd300<T> {
 
 impl<T: Float> Module<T> for Ssd300<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        // Module::forward is required for the registry.
-        // Returns the concatenated class logits for the first image: [8732, nc].
+        // Module::forward is required for the registry but the primary API is
+        // `Ssd300::forward` which returns `Vec<SsdDetections<T>>`.
+        // Convenience: return the per-anchor class scores for the first image
+        // (mirrors the FasterRcnn / MaskRcnn per-first-image convention).
         let dets = Ssd300::forward(self, input)?;
-        let _ = dets;
-        // Return a placeholder scores tensor [8732, num_classes] filled with zeros.
-        // Callers that need real detections should call `Ssd300::forward` directly.
-        let nc = self.num_classes;
-        Tensor::from_storage(
-            TensorStorage::cpu(vec![T::from(0.0f64).unwrap(); SSD_TOTAL_ANCHORS * nc]),
-            vec![SSD_TOTAL_ANCHORS, nc],
-            false,
-        )
+        if dets.is_empty() || dets[0].scores.shape()[0] == 0 {
+            // Return a [0, num_classes] tensor when no detections.
+            let nc = self.num_classes;
+            return Tensor::from_storage(TensorStorage::cpu(vec![]), vec![0, nc], false);
+        }
+        Ok(dets[0].scores.clone())
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
@@ -1538,5 +1537,61 @@ mod tests {
         .unwrap();
         let y = max_pool2d(&x, 2, 2).unwrap();
         assert_eq!(y.shape(), &[1, 3, 150, 150]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Module::forward parity guard (#1099 zero-stub regression trap)
+    // -----------------------------------------------------------------------
+
+    /// Verifies that `<Ssd300 as Module>::forward` returns the same per-anchor
+    /// class-score tensor that the inherent `Ssd300::forward` produces for the
+    /// first image in the batch. Prior to #1099 the trait impl returned an
+    /// all-zero stub `[SSD_TOTAL_ANCHORS, num_classes]` tensor — this test
+    /// exists to catch a regression to that zero-stub.
+    #[test]
+    fn ssd300_module_forward_matches_inherent_scores() {
+        let model = ssd300_vgg16::<f32>(21).unwrap();
+        assert!(!model.is_training(), "model should default to eval mode");
+
+        let x = no_grad(|| randn::<f32>(&[1, 3, 300, 300]).unwrap());
+
+        let module_out = no_grad(|| <Ssd300<f32> as Module<f32>>::forward(&model, &x).unwrap());
+        let inherent_dets = no_grad(|| model.forward(&x).unwrap());
+
+        assert_eq!(
+            inherent_dets.len(),
+            1,
+            "inherent forward should return one SsdDetections per batch image"
+        );
+
+        // Shape parity: Module::forward must emit the same scores tensor
+        // that the inherent path constructed for image 0.
+        assert_eq!(
+            module_out.shape(),
+            inherent_dets[0].scores.shape(),
+            "Module::forward shape diverged from inherent scores shape — \
+             zero-stub regression suspected (#1099)"
+        );
+
+        // Exact equality: both paths reuse the same `dets[0].scores` tensor
+        // (the trait impl just clones it), so byte-for-byte equality holds.
+        let module_data = module_out.data_vec().unwrap();
+        let inherent_data = inherent_dets[0].scores.data_vec().unwrap();
+        assert_eq!(
+            module_data, inherent_data,
+            "Module::forward data diverged from inherent scores data — \
+             zero-stub regression suspected (#1099)"
+        );
+
+        // Anti-zero-stub guard: even if shapes/data align, an all-zero tensor
+        // is the exact failure mode #1099 prevents. Only meaningful when NMS
+        // produced at least one detection (shape[0] > 0).
+        if module_out.shape().first().copied().unwrap_or(0) > 0 {
+            assert!(
+                module_data.iter().any(|&v| v.abs() > 1e-9),
+                "Module::forward returned all-zero scores — \
+                 regression to pre-#1099 zero-stub"
+            );
+        }
     }
 }

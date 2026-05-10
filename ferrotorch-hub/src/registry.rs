@@ -257,6 +257,20 @@ static MODELS: &[ModelInfo] = &[
         // ResNet-50 (~25.6M) + FCN head (~2.6M) + ResNet fc (~0.5M) ≈ 29M.
         num_parameters: 29_000_000,
     },
+    // #1099: SSD300 with VGG-16 backbone for object detection.
+    // No authoritative public SafeTensors checkpoint identified yet;
+    // SHA-256 is the all-zero placeholder — pretrained=true fails fast
+    // until a checkpoint is pinned (follow-up #1099-weights).
+    ModelInfo {
+        name: "ssd300_vgg16",
+        description: "SSD300 with VGG-16 backbone for object detection (#1099)",
+        weights_url: "https://huggingface.co/ferrotorch/ssd300_vgg16/resolve/main/model.safetensors",
+        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        format: WeightsFormat::SafeTensors,
+        // VGG-16 truncated backbone (~14.7M) + extras (~1.3M) + L2Norm (~0.5K)
+        // + SSD multibox head (~10.3M) ≈ 26M (torchvision ssd300_vgg16: 35.6M).
+        num_parameters: 26_000_000,
+    },
 ];
 
 /// List all available pretrained models.

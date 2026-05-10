@@ -301,6 +301,20 @@ fn default_registry() -> ModelRegistry<f32> {
         }),
     );
 
+    // #1099: SSD300 with VGG-16 backbone for object detection.
+    // `num_classes` includes background (index 0); COCO default is 91.
+    // Pretrained weights are not yet published to ferrotorch-hub;
+    // `pretrained=true` will return an `Err` with a clear message until a
+    // checkpoint is pinned (follow-up #1099-weights).
+    registry.register_model(
+        "ssd300_vgg16",
+        Box::new(|pretrained, num_classes| {
+            maybe_load_pretrained(pretrained, "ssd300_vgg16", || {
+                super::detection::ssd300_vgg16::<f32>(num_classes)
+            })
+        }),
+    );
+
     registry
 }
 
@@ -430,6 +444,7 @@ mod tests {
         assert!(names.contains(&"inception_v3".to_string()));
         assert!(names.contains(&"fasterrcnn_resnet50_fpn".to_string()));
         assert!(names.contains(&"maskrcnn_resnet50_fpn".to_string()));
+        assert!(names.contains(&"ssd300_vgg16".to_string()));
     }
 
     #[test]
@@ -486,6 +501,7 @@ mod tests {
             "maskrcnn_resnet50_fpn",
             "deeplabv3_resnet50",
             "fcn_resnet50",
+            "ssd300_vgg16",
         ];
         for name in canonical {
             let info = ferrotorch_hub::registry::get_model_info(name);
