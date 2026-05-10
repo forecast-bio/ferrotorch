@@ -6,5 +6,8 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-10T01:20:44.024027206Z",
-  "updated_at": "2026-05-10T01:20:44.024027206Z"
+  "updated_at": "2026-05-10T01:20:45.373999150Z",
+  "labels": [
+    "epic,audit,test"
+  ]
 }
