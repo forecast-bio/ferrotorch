@@ -1,0 +1,12 @@
+{
+  "uuid": "2627df18-e74e-4148-9eec-a538c29a4eff",
+  "display_id": 1126,
+  "title": "Pass 5.G.2: ferrotorch-data WeightedRandomSampler O(N²) + Fisher-Yates modulo bias",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-data audit, PERF_OBVIOUS.\n\n- src/sampler.rs:266-286 — WeightedRandomSampler without-replacement rebuilds the cumulative-weights vector from scratch for every draw (O(N²) for the sampler instead of O(N) reservoir or Walker's alias). With num_samples = N, this is quadratic in dataset size on the hot epoch path.\n- src/sampler.rs:24-30 — shuffle_with_seed uses `state as usize % (i+1)` Fisher-Yates, which has modulo bias for non-power-of-two i+1. Cheap fix (rejection sampling).\n\nAcceptance:\n- Walker's alias method for WeightedRandomSampler without-replacement (O(N) preprocess, O(1) per draw)\n- Rejection sampling for Fisher-Yates index\n- Distributional test: 10⁶ draws should pass chi-square against expected weights at 95%.",
+  "status": "open",
+  "priority": "medium",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:28:18.955549484Z",
+  "updated_at": "2026-05-10T07:28:18.955549484Z"
+}
