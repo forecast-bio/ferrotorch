@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- Audit-Fix Phase 15: fixture drift — flex_attention slope field + hub registry count (closes #1080 #1089) (#1091)
+- ferrotorch-hub: registry_list_models_count_matches_reference fixture drift (registry has 19, fixture says 18) (#1089)
+- ferrotorch-core: conformance_flex_attention.rs deserializer missing 'slope' field; fixture parse fails with 'unknown field slope at line 813' (#1080)
 - Audit-Fix Phase 14: fix ferrolearn AMI sklearn divergence (#1073) cross-repo (#1090)
 - Workspace conformance audit: per-crate paranoid review of test correctness (13 parallel Sonnet subagents) (#1015)
 - Audit-Fix Phase 13: hub+tokenize+mps cluster (#1015 #1059 #1060 #1061 #1062) — final audit-fix dispatch (#1088)
