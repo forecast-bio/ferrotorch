@@ -283,6 +283,15 @@ struct Fixture {
     /// Optional `[n_q, n_k]` additive bias (alibi variant only).
     #[serde(default)]
     bias: Option<F64ListSentinel>,
+    /// Optional alibi slope used to *generate* the precomputed `bias`
+    /// matrix above (alibi variant only). Test logic consumes the
+    /// flattened `bias` directly; this field is metadata documenting
+    /// how the matrix was produced and is preserved here so the
+    /// `#[serde(deny_unknown_fields)]` discipline still rejects
+    /// genuine schema drift.
+    #[serde(default)]
+    #[allow(dead_code, reason = "alibi metadata; bias matrix carries values")]
+    slope: Option<f64>,
     /// Optional `[n_q, n_k]` boolean mask, true => allowed (causal /
     /// block_diag / empty_mask variants).
     #[serde(default)]
