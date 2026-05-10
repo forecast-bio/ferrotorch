@@ -1,0 +1,10 @@
+{
+  "uuid": "2b77b1ad-1c1c-4a93-94e5-7c63b03f74d9",
+  "issue_uuid": "93d72c7d-f8af-4e29-a108-8da011da728c",
+  "author": "y4rr",
+  "content": "Full-scope CUDA forward kernel (f32+f64, arbitrary dim) + trait extension + downstream callsite cleanup (Swin CPU fallback removed; RandomHorizontalFlip CUDA verification added). Opus subagent. No follow-ups.",
+  "created_at": "2026-05-10T23:23:52.182563059Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAj/t56AiB6oCncUwxlhQra0LxsJCcJkETEzBWkuGN+y2gnnwd8HbfvwCM6+KMz9r8oywcJMUb7nyRz9Bqg8FACQ=="
+}
