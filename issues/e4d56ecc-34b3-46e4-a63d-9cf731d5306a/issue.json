@@ -6,5 +6,8 @@
   "priority": "medium",
   "created_by": "y4rr",
   "created_at": "2026-05-10T06:53:14.507383631Z",
-  "updated_at": "2026-05-10T06:53:14.507383631Z"
+  "updated_at": "2026-05-10T06:53:15.788327851Z",
+  "labels": [
+    "feature,gpu"
+  ]
 }
