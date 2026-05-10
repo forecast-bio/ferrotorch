@@ -1,0 +1,10 @@
+{
+  "uuid": "da83263e-092d-4cd7-8646-8b09d589b8b4",
+  "issue_uuid": "b237a574-e9a6-4a17-b3e6-4150f5a656f0",
+  "author": "y4rr",
+  "content": "Pattern B device-resident migration via existing autograd-aware ops. No new ferrotorch-core APIs added. Three transforms migrated; index_select_dim CUDA gap surfaces honestly via existing #1098.",
+  "created_at": "2026-05-10T17:08:08.039082946Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAmFl3NYKfCygxF/l5EH6UEwkcu990VGLiKCRyMPIqPQahfYtVZZKFdiAkCjgLjSIWTSEUPTp7tbbPFT5dYePZBA=="
+}
