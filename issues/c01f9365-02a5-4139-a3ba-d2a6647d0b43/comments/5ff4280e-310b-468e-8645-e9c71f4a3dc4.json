@@ -1,0 +1,10 @@
+{
+  "uuid": "5ff4280e-310b-468e-8645-e9c71f4a3dc4",
+  "issue_uuid": "c01f9365-02a5-4139-a3ba-d2a6647d0b43",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 16 APPROVE. Added #[cfg(not(feature = wgpu))] #[doc(hidden)] pub fn XpuDevice::new_for_testing(ordinal). New stub-mode conformance test exercises xpu_add/relu/chebyshev/make_xpu_tensor and asserts Err(DeviceUnavailable). Runs with cargo test -p ferrotorch-xpu --no-default-features (24 conformance PASS, was 23+1 new). Default-feature build unaffected (cfg-gated).",
+  "created_at": "2026-05-10T04:22:29.828484524Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAo1uMMBz1fvyoCuHN+WDZL0KkB7GHq+mgIDFlWs4vDzCa/Qb1gd6PRCWu1QEz8oxWEPYtOi6NsoTBy0SikYrlDA=="
+}
