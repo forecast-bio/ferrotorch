@@ -1236,7 +1236,8 @@ fn aot_graph_pair_structure() {
         .filter(|n| matches!(n.op, IrOpKind::Add))
         .count();
     assert_eq!(
-        forward_add_count, 1,
+        forward_add_count,
+        1,
         "forward graph must contain exactly one IrOpKind::Add node, got {forward_add_count}; \
          full forward op list: {:?}",
         pair.forward.nodes.iter().map(|n| &n.op).collect::<Vec<_>>()

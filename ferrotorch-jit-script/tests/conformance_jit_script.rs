@@ -415,8 +415,11 @@ fn script_error_cases_are_cascade_skipped_in_fixtures() {
         "spec_only_cases list must enumerate every script_error fixture; \
          update both the list and this count together"
     );
-    let fixture_script_error_count =
-        file.fixtures.iter().filter(|f| f.op == "script_error").count();
+    let fixture_script_error_count = file
+        .fixtures
+        .iter()
+        .filter(|f| f.op == "script_error")
+        .count();
     assert_eq!(
         fixture_script_error_count,
         spec_only_cases.len(),

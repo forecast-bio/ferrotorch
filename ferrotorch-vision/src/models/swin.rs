@@ -425,13 +425,7 @@ impl<T: Float> Module<T> for ShiftedWindowAttention<T> {
         //    fresh each forward call because it depends on (H, W, ws,
         //    shift_size) — all of which are runtime values.
         let attn = if effective_shift > 0 {
-            let mask = build_attn_mask::<T>(
-                height,
-                width,
-                ws,
-                effective_shift,
-                attn.device(),
-            )?;
+            let mask = build_attn_mask::<T>(height, width, ws, effective_shift, attn.device())?;
             // mask shape: [num_windows, N, N]. Reshape attn to
             //   [B, num_windows, num_heads, N, N], add mask broadcast across
             //   batch+heads via [1, num_windows, 1, N, N], reshape back to
@@ -461,10 +455,11 @@ impl<T: Float> Module<T> for ShiftedWindowAttention<T> {
         let context = matmul_differentiable(&attn, &v)?;
 
         // Reshape to [B*nW, N, C] via permute(0, 2, 1, 3) + contiguous + view.
-        let context = context
-            .permute(&[0, 2, 1, 3])?
-            .contiguous()?
-            .view(&[(batch * num_windows) as i64, n as i64, channels as i64])?;
+        let context = context.permute(&[0, 2, 1, 3])?.contiguous()?.view(&[
+            (batch * num_windows) as i64,
+            n as i64,
+            channels as i64,
+        ])?;
 
         // 8. Output projection.
         let context = self.proj.forward(&context)?;
@@ -633,12 +628,7 @@ fn unpad_bhwc<T: Float>(
             }
         }
     }
-    Tensor::from_storage(
-        TensorStorage::cpu(out),
-        vec![b, orig_h, orig_w, c],
-        false,
-    )?
-    .to(device)
+    Tensor::from_storage(TensorStorage::cpu(out), vec![b, orig_h, orig_w, c], false)?.to(device)
 }
 
 /// Compute torchvision's `relative_position_index` for a square window.
@@ -1035,8 +1025,7 @@ impl<T: Float> Module<T> for PatchMerging<T> {
 
         let device = padded.device();
         let in_data = padded.data_vec()?;
-        let mut out_data: Vec<T> =
-            Vec::with_capacity(batch * h2 * w2 * 4 * channels);
+        let mut out_data: Vec<T> = Vec::with_capacity(batch * h2 * w2 * 4 * channels);
 
         // The torchvision implementation:
         //   x0 = x[..., 0::2, 0::2, :]
@@ -1161,10 +1150,7 @@ impl<T: Float> FeatureChild<T> {
     fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
         match self {
             Self::PatchEmbed(m) => m.parameters_mut(),
-            Self::Stage(blocks) => blocks
-                .iter_mut()
-                .flat_map(|b| b.parameters_mut())
-                .collect(),
+            Self::Stage(blocks) => blocks.iter_mut().flat_map(|b| b.parameters_mut()).collect(),
             Self::PatchMerging(m) => m.parameters_mut(),
         }
     }
@@ -1349,8 +1335,7 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
     }
 
     fn parameters(&self) -> Vec<&Parameter<T>> {
-        let mut p: Vec<&Parameter<T>> =
-            self.features.iter().flat_map(|c| c.parameters()).collect();
+        let mut p: Vec<&Parameter<T>> = self.features.iter().flat_map(|c| c.parameters()).collect();
         p.extend(self.norm.parameters());
         p.extend(self.head.parameters());
         p

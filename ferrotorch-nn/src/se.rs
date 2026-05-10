@@ -133,8 +133,22 @@ impl<T: Float> SqueezeExcitation<T> {
         // 1×1 convolutions with bias — torchvision's `SqueezeExcitation`
         // uses bias=True for both fc1 and fc2 (they appear unset, which
         // defaults to True in `nn.Conv2d`).
-        let fc1 = Conv2d::new(input_channels, squeeze_channels, (1, 1), (1, 1), (0, 0), true)?;
-        let fc2 = Conv2d::new(squeeze_channels, input_channels, (1, 1), (1, 1), (0, 0), true)?;
+        let fc1 = Conv2d::new(
+            input_channels,
+            squeeze_channels,
+            (1, 1),
+            (1, 1),
+            (0, 0),
+            true,
+        )?;
+        let fc2 = Conv2d::new(
+            squeeze_channels,
+            input_channels,
+            (1, 1),
+            (1, 1),
+            (0, 0),
+            true,
+        )?;
         let avgpool = AdaptiveAvgPool2d::new((1, 1));
 
         Ok(Self {
@@ -261,11 +275,7 @@ mod tests {
     #[test]
     fn se_named_parameters_match_torchvision() {
         let se = SqueezeExcitation::<f32>::new(16, 4).unwrap();
-        let names: Vec<String> = se
-            .named_parameters()
-            .into_iter()
-            .map(|(n, _)| n)
-            .collect();
+        let names: Vec<String> = se.named_parameters().into_iter().map(|(n, _)| n).collect();
         assert_eq!(
             names,
             vec![
@@ -307,18 +317,26 @@ mod tests {
 
         // Replace fc1, fc2 weights with deterministic small values so the
         // intermediate magnitudes stay finite.
-        let fc1_weight =
-            Tensor::from_storage(TensorStorage::cpu(vec![0.05_f32; 2 * 8]), vec![2, 8, 1, 1], false)
-                .unwrap();
+        let fc1_weight = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.05_f32; 2 * 8]),
+            vec![2, 8, 1, 1],
+            false,
+        )
+        .unwrap();
         let fc1_bias =
             Tensor::from_storage(TensorStorage::cpu(vec![0.01_f32; 2]), vec![2], false).unwrap();
-        let fc2_weight =
-            Tensor::from_storage(TensorStorage::cpu(vec![0.07_f32; 8 * 2]), vec![8, 2, 1, 1], false)
-                .unwrap();
+        let fc2_weight = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.07_f32; 8 * 2]),
+            vec![8, 2, 1, 1],
+            false,
+        )
+        .unwrap();
         let fc2_bias =
             Tensor::from_storage(TensorStorage::cpu(vec![0.02_f32; 8]), vec![8], false).unwrap();
 
-        se.fc1.set_weight(Parameter::new(fc1_weight.clone())).unwrap();
+        se.fc1
+            .set_weight(Parameter::new(fc1_weight.clone()))
+            .unwrap();
         // Conv2d::set_weight only validates shape; bias is inaccessible
         // through the public API. Re-build fc1/fc2 from_parts to inject
         // bias deterministically.
@@ -375,14 +393,20 @@ mod tests {
         // After Sigmoid: [1,4,1,1] all 0.5.
         // Final: input * 0.5 = 0.5 everywhere.
         let mut se = SqueezeExcitation::<f32>::new(4, 2).unwrap();
-        let fc1_weight =
-            Tensor::from_storage(TensorStorage::cpu(vec![0.0_f32; 2 * 4]), vec![2, 4, 1, 1], false)
-                .unwrap();
+        let fc1_weight = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.0_f32; 2 * 4]),
+            vec![2, 4, 1, 1],
+            false,
+        )
+        .unwrap();
         let fc1_bias =
             Tensor::from_storage(TensorStorage::cpu(vec![0.0_f32; 2]), vec![2], false).unwrap();
-        let fc2_weight =
-            Tensor::from_storage(TensorStorage::cpu(vec![0.0_f32; 4 * 2]), vec![4, 2, 1, 1], false)
-                .unwrap();
+        let fc2_weight = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.0_f32; 4 * 2]),
+            vec![4, 2, 1, 1],
+            false,
+        )
+        .unwrap();
         let fc2_bias =
             Tensor::from_storage(TensorStorage::cpu(vec![0.0_f32; 4]), vec![4], false).unwrap();
         se.fc1 = Conv2d::from_parts(fc1_weight, Some(fc1_bias), (1, 1), (0, 0)).unwrap();
@@ -411,8 +435,8 @@ mod tests {
 
         let n = /* B*C*H*W = 1*4*4*4 */ 4 * 4 * 4;
         let data: Vec<f32> = (0..n).map(|i| ((i as f32) * 0.05).sin()).collect();
-        let x = Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![1, 4, 4, 4], true)
-            .unwrap();
+        let x =
+            Tensor::from_storage(TensorStorage::cpu(data.clone()), vec![1, 4, 4, 4], true).unwrap();
 
         let out = se.forward(&x).unwrap();
         let loss = sum(&out).unwrap();

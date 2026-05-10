@@ -1080,12 +1080,7 @@ fn normalized_mutual_info_score_mixed_matches_sklearn() {
         "nmi_mix/lp",
     ));
     let actual = normalized_mutual_info_score(&lt, &lp).expect("nmi_mixed");
-    check_f64(
-        actual,
-        expected_f64(&f),
-        f.tol.unwrap_or(1e-9),
-        "nmi_mixed",
-    );
+    check_f64(actual, expected_f64(&f), f.tol.unwrap_or(1e-9), "nmi_mixed");
 }
 
 #[test]
@@ -1101,12 +1096,7 @@ fn adjusted_mutual_info_score_mixed_matches_sklearn() {
         "ami_mix/lp",
     ));
     let actual = adjusted_mutual_info_score(&lt, &lp).expect("ami_mixed");
-    check_f64(
-        actual,
-        expected_f64(&f),
-        f.tol.unwrap_or(1e-9),
-        "ami_mixed",
-    );
+    check_f64(actual, expected_f64(&f), f.tol.unwrap_or(1e-9), "ami_mixed");
 }
 
 #[test]
@@ -1185,12 +1175,7 @@ fn fowlkes_mallows_score_mixed_matches_sklearn() {
         "fm_mix/lp",
     ));
     let actual = fowlkes_mallows_score(&lt, &lp).expect("fm_mixed");
-    check_f64(
-        actual,
-        expected_f64(&f),
-        f.tol.unwrap_or(1e-12),
-        "fm_mixed",
-    );
+    check_f64(actual, expected_f64(&f), f.tol.unwrap_or(1e-12), "fm_mixed");
 }
 
 #[test]

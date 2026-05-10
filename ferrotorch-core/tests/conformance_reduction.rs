@@ -1438,12 +1438,7 @@ fn forward_only_helpers_smoke() {
     // `[1.0, 1.5, 2.0, 2.5]` pass; pinning the values catches it.
     let lc = logcumsumexp_forward(&a, 0).expect("logcumsumexp_forward");
     let lc_v = read_back_f32(&lc);
-    let expected: [f32; 4] = [
-        1.0_f32,
-        2.313_261_7_f32,
-        3.407_606_1_f32,
-        4.440_19_f32,
-    ];
+    let expected: [f32; 4] = [1.0_f32, 2.313_261_7_f32, 3.407_606_1_f32, 4.440_19_f32];
     tolerance::assert_close_f32(
         &lc_v,
         &expected,

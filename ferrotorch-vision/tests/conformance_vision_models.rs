@@ -3428,12 +3428,11 @@ mod value_parity_pipeline {
         for k in keys {
             synth.insert(
                 k.clone(),
-                ferrotorch_core::zeros::<f32>(&[1])
-                    .expect("synth zeros for buffer-key remap"),
+                ferrotorch_core::zeros::<f32>(&[1]).expect("synth zeros for buffer-key remap"),
             );
         }
-        let remapped = remap(synth)
-            .unwrap_or_else(|e| panic!("{model_label}: buffer-key remap failed: {e}"));
+        let remapped =
+            remap(synth).unwrap_or_else(|e| panic!("{model_label}: buffer-key remap failed: {e}"));
         // Preserve the original descriptor ordering by re-applying the
         // remap to each input key in order.
         let mut out = Vec::with_capacity(keys.len());
@@ -3449,12 +3448,10 @@ mod value_parity_pipeline {
             let mut one: StateDict<f32> = StateDict::new();
             one.insert(
                 k.clone(),
-                ferrotorch_core::zeros::<f32>(&[1])
-                    .expect("synth zeros for single-key remap"),
+                ferrotorch_core::zeros::<f32>(&[1]).expect("synth zeros for single-key remap"),
             );
-            let single = remap(one).unwrap_or_else(|e| {
-                panic!("{model_label}: buffer-key single-remap failed: {e}")
-            });
+            let single = remap(one)
+                .unwrap_or_else(|e| panic!("{model_label}: buffer-key single-remap failed: {e}"));
             assert_eq!(
                 single.len(),
                 1,
@@ -4055,24 +4052,30 @@ mod value_parity_pipeline {
             if let Some(rest) = key.strip_prefix("classifier.0.convs.") {
                 // ASPP branches: classifier.0.convs.<i>.<j>.<tail>.
                 let mut parts = rest.splitn(3, '.');
-                let i = parts.next().ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "DeepLabV3 remap: malformed ASPP convs key {key:?} \
+                let i = parts
+                    .next()
+                    .ok_or_else(|| FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "DeepLabV3 remap: malformed ASPP convs key {key:?} \
                          — expected `classifier.0.convs.<i>.<j>.<...>`"
-                    ),
-                })?;
-                let j = parts.next().ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "DeepLabV3 remap: malformed ASPP convs key {key:?} \
+                        ),
+                    })?;
+                let j = parts
+                    .next()
+                    .ok_or_else(|| FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "DeepLabV3 remap: malformed ASPP convs key {key:?} \
                          — expected `classifier.0.convs.<i>.<j>.<...>`"
-                    ),
-                })?;
-                let tail = parts.next().ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "DeepLabV3 remap: malformed ASPP convs key {key:?} \
+                        ),
+                    })?;
+                let tail = parts
+                    .next()
+                    .ok_or_else(|| FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "DeepLabV3 remap: malformed ASPP convs key {key:?} \
                          — expected `classifier.0.convs.<i>.<j>.<tail>`"
-                    ),
-                })?;
+                        ),
+                    })?;
                 let mapped = match (i, j) {
                     // Branch 0 — ASPPConv1x1: [Conv2d(1×1), BN, ReLU].
                     ("0", "0") => format!("head.aspp.0.conv.{tail}"),

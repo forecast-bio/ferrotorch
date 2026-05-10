@@ -43,13 +43,13 @@
 //! arXiv:1706.05587. torchvision 0.21.x `deeplabv3_resnet50(weights=None,
 //! num_classes=21)`.
 
+use ferrotorch_core::grad_fns::activation::relu;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 use ferrotorch_nn::Conv2d;
 use ferrotorch_nn::module::Module;
 use ferrotorch_nn::norm::BatchNorm2d;
 use ferrotorch_nn::parameter::Parameter;
 use ferrotorch_nn::upsample::{InterpolateMode, interpolate};
-use ferrotorch_core::grad_fns::activation::relu;
 
 use super::aspp::Aspp;
 use crate::models::feature_extractor::IntermediateFeatures;
@@ -104,12 +104,11 @@ impl<T: Float> ResNet50Dilated<T> {
     /// inside `deeplabv3_resnet50`.
     pub fn forward_layer4(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let all_features = self.inner.forward_features(input)?;
-        all_features
-            .get("layer4")
-            .cloned()
-            .ok_or_else(|| ferrotorch_core::FerrotorchError::Internal {
+        all_features.get("layer4").cloned().ok_or_else(|| {
+            ferrotorch_core::FerrotorchError::Internal {
                 message: "ResNet50Dilated: backbone did not produce 'layer4' features".into(),
-            })
+            }
+        })
     }
 }
 

@@ -560,7 +560,8 @@ fn export_single_input_produces_program() {
         .filter(|n| matches!(n.op, IrOpKind::Relu))
         .count();
     assert_eq!(
-        relu_node_count, 1,
+        relu_node_count,
+        1,
         "expected exactly one IrOpKind::Relu node in the traced graph, got {relu_node_count}; \
          full op list: {:?}",
         program

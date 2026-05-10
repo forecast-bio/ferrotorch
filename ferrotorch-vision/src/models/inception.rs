@@ -750,7 +750,10 @@ impl<T: Float> Module<T> for InceptionD<T> {
 
     fn named_children(&self) -> Vec<(String, &dyn Module<T>)> {
         vec![
-            ("branch3x3_1".to_string(), &self.branch3x3_1 as &dyn Module<T>),
+            (
+                "branch3x3_1".to_string(),
+                &self.branch3x3_1 as &dyn Module<T>,
+            ),
             ("branch3x3_2".to_string(), &self.branch3x3_2),
             ("branch7x7x3_1".to_string(), &self.branch7x7x3_1),
             ("branch7x7x3_2".to_string(), &self.branch7x7x3_2),
@@ -1205,7 +1208,10 @@ impl<T: Float> Module<T> for InceptionV3<T> {
 
     fn named_children(&self) -> Vec<(String, &dyn Module<T>)> {
         vec![
-            ("Conv2d_1a_3x3".to_string(), &self.Conv2d_1a_3x3 as &dyn Module<T>),
+            (
+                "Conv2d_1a_3x3".to_string(),
+                &self.Conv2d_1a_3x3 as &dyn Module<T>,
+            ),
             ("Conv2d_2a_3x3".to_string(), &self.Conv2d_2a_3x3),
             ("Conv2d_2b_3x3".to_string(), &self.Conv2d_2b_3x3),
             ("maxpool1".to_string(), &self.maxpool1),
@@ -1405,12 +1411,28 @@ mod tests {
         let y = block.forward(&x).unwrap();
         assert_eq!(y.shape(), &[1, 256, 35, 35]);
 
-        let keys: Vec<String> = block.named_parameters().into_iter().map(|(n, _)| n).collect();
-        for sub in ["branch1x1", "branch5x5_1", "branch5x5_2",
-                    "branch3x3dbl_1", "branch3x3dbl_2", "branch3x3dbl_3",
-                    "branch_pool"] {
-            assert!(keys.contains(&format!("{sub}.conv.weight")), "missing {sub}.conv.weight");
-            assert!(keys.contains(&format!("{sub}.bn.weight")), "missing {sub}.bn.weight");
+        let keys: Vec<String> = block
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        for sub in [
+            "branch1x1",
+            "branch5x5_1",
+            "branch5x5_2",
+            "branch3x3dbl_1",
+            "branch3x3dbl_2",
+            "branch3x3dbl_3",
+            "branch_pool",
+        ] {
+            assert!(
+                keys.contains(&format!("{sub}.conv.weight")),
+                "missing {sub}.conv.weight"
+            );
+            assert!(
+                keys.contains(&format!("{sub}.bn.weight")),
+                "missing {sub}.bn.weight"
+            );
         }
     }
 
@@ -1424,9 +1446,21 @@ mod tests {
         let y = block.forward(&x).unwrap();
         assert_eq!(y.shape(), &[1, 768, 17, 17]);
 
-        let keys: Vec<String> = block.named_parameters().into_iter().map(|(n, _)| n).collect();
-        for sub in ["branch3x3", "branch3x3dbl_1", "branch3x3dbl_2", "branch3x3dbl_3"] {
-            assert!(keys.contains(&format!("{sub}.conv.weight")), "missing {sub}.conv.weight");
+        let keys: Vec<String> = block
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        for sub in [
+            "branch3x3",
+            "branch3x3dbl_1",
+            "branch3x3dbl_2",
+            "branch3x3dbl_3",
+        ] {
+            assert!(
+                keys.contains(&format!("{sub}.conv.weight")),
+                "missing {sub}.conv.weight"
+            );
         }
         // No branch_pool conv in InceptionB.
         assert!(!keys.iter().any(|k| k.starts_with("branch_pool.")));
@@ -1442,13 +1476,27 @@ mod tests {
         let y = block.forward(&x).unwrap();
         assert_eq!(y.shape(), &[1, 768, 17, 17]);
 
-        let keys: Vec<String> = block.named_parameters().into_iter().map(|(n, _)| n).collect();
-        for sub in ["branch1x1",
-                    "branch7x7_1", "branch7x7_2", "branch7x7_3",
-                    "branch7x7dbl_1", "branch7x7dbl_2", "branch7x7dbl_3",
-                    "branch7x7dbl_4", "branch7x7dbl_5",
-                    "branch_pool"] {
-            assert!(keys.contains(&format!("{sub}.conv.weight")), "missing {sub}.conv.weight");
+        let keys: Vec<String> = block
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        for sub in [
+            "branch1x1",
+            "branch7x7_1",
+            "branch7x7_2",
+            "branch7x7_3",
+            "branch7x7dbl_1",
+            "branch7x7dbl_2",
+            "branch7x7dbl_3",
+            "branch7x7dbl_4",
+            "branch7x7dbl_5",
+            "branch_pool",
+        ] {
+            assert!(
+                keys.contains(&format!("{sub}.conv.weight")),
+                "missing {sub}.conv.weight"
+            );
         }
     }
 
@@ -1462,11 +1510,23 @@ mod tests {
         let y = block.forward(&x).unwrap();
         assert_eq!(y.shape(), &[1, 1280, 8, 8]);
 
-        let keys: Vec<String> = block.named_parameters().into_iter().map(|(n, _)| n).collect();
-        for sub in ["branch3x3_1", "branch3x3_2",
-                    "branch7x7x3_1", "branch7x7x3_2",
-                    "branch7x7x3_3", "branch7x7x3_4"] {
-            assert!(keys.contains(&format!("{sub}.conv.weight")), "missing {sub}.conv.weight");
+        let keys: Vec<String> = block
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        for sub in [
+            "branch3x3_1",
+            "branch3x3_2",
+            "branch7x7x3_1",
+            "branch7x7x3_2",
+            "branch7x7x3_3",
+            "branch7x7x3_4",
+        ] {
+            assert!(
+                keys.contains(&format!("{sub}.conv.weight")),
+                "missing {sub}.conv.weight"
+            );
         }
     }
 
@@ -1480,13 +1540,26 @@ mod tests {
         let y = block.forward(&x).unwrap();
         assert_eq!(y.shape(), &[1, 2048, 8, 8]);
 
-        let keys: Vec<String> = block.named_parameters().into_iter().map(|(n, _)| n).collect();
-        for sub in ["branch1x1",
-                    "branch3x3_1", "branch3x3_2a", "branch3x3_2b",
-                    "branch3x3dbl_1", "branch3x3dbl_2",
-                    "branch3x3dbl_3a", "branch3x3dbl_3b",
-                    "branch_pool"] {
-            assert!(keys.contains(&format!("{sub}.conv.weight")), "missing {sub}.conv.weight");
+        let keys: Vec<String> = block
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        for sub in [
+            "branch1x1",
+            "branch3x3_1",
+            "branch3x3_2a",
+            "branch3x3_2b",
+            "branch3x3dbl_1",
+            "branch3x3dbl_2",
+            "branch3x3dbl_3a",
+            "branch3x3dbl_3b",
+            "branch_pool",
+        ] {
+            assert!(
+                keys.contains(&format!("{sub}.conv.weight")),
+                "missing {sub}.conv.weight"
+            );
         }
     }
 
@@ -1528,14 +1601,28 @@ mod tests {
     #[test]
     fn inception_v3_named_parameters_top_level_prefixes() {
         let model: InceptionV3<f32> = inception_v3(10).unwrap();
-        let names: Vec<String> =
-            model.named_parameters().into_iter().map(|(n, _)| n).collect();
+        let names: Vec<String> = model
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
         for prefix in [
-            "Conv2d_1a_3x3.", "Conv2d_2a_3x3.", "Conv2d_2b_3x3.",
-            "Conv2d_3b_1x1.", "Conv2d_4a_3x3.",
-            "Mixed_5b.", "Mixed_5c.", "Mixed_5d.",
-            "Mixed_6a.", "Mixed_6b.", "Mixed_6c.", "Mixed_6d.", "Mixed_6e.",
-            "Mixed_7a.", "Mixed_7b.", "Mixed_7c.",
+            "Conv2d_1a_3x3.",
+            "Conv2d_2a_3x3.",
+            "Conv2d_2b_3x3.",
+            "Conv2d_3b_1x1.",
+            "Conv2d_4a_3x3.",
+            "Mixed_5b.",
+            "Mixed_5c.",
+            "Mixed_5d.",
+            "Mixed_6a.",
+            "Mixed_6b.",
+            "Mixed_6c.",
+            "Mixed_6d.",
+            "Mixed_6e.",
+            "Mixed_7a.",
+            "Mixed_7b.",
+            "Mixed_7c.",
             "fc.",
         ] {
             assert!(

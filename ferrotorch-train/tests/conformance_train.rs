@@ -1351,9 +1351,8 @@ fn checkpoint_reexport_accessible() {
     // (c) Runtime invocation — non-trivial closure (x + x) must return 2*input.
     // This rules out a stub that simply forwards the input without invoking
     // the closure.
-    let doubled_out =
-        checkpoint(|x| ferrotorch_core::grad_fns::arithmetic::add(x, x), &input)
-            .expect("checkpoint(x + x) must succeed for a scalar input");
+    let doubled_out = checkpoint(|x| ferrotorch_core::grad_fns::arithmetic::add(x, x), &input)
+        .expect("checkpoint(x + x) must succeed for a scalar input");
     assert_eq!(
         doubled_out.item().unwrap(),
         4.0_f32,
@@ -1565,7 +1564,9 @@ fn tensorboard_writer_add_scalars() {
     // (b) Both `add_scalars` sub-tags must appear verbatim as the
     //     `"{main_tag}/{sub_tag}"` strings in the encoded summary protobuf.
     assert!(
-        bytes.windows(b"loss/train".len()).any(|w| w == b"loss/train"),
+        bytes
+            .windows(b"loss/train".len())
+            .any(|w| w == b"loss/train"),
         "events file does not contain `loss/train` tag — add_scalars did not write it",
     );
     assert!(
@@ -1577,7 +1578,9 @@ fn tensorboard_writer_add_scalars() {
     //     locks in that the substring matcher above is actually scanning
     //     content (not tautologically matching anything).
     assert!(
-        !bytes.windows(b"sabotage_marker".len()).any(|w| w == b"sabotage_marker"),
+        !bytes
+            .windows(b"sabotage_marker".len())
+            .any(|w| w == b"sabotage_marker"),
         "events file contains `sabotage_marker` — sabotage probe failed",
     );
 }
@@ -1641,7 +1644,9 @@ fn tensorboard_callback_new() {
     // (b) The three scalar tags the callback writes per epoch must all
     //     appear in the encoded summary protobuf.
     assert!(
-        bytes.windows(b"train_loss".len()).any(|w| w == b"train_loss"),
+        bytes
+            .windows(b"train_loss".len())
+            .any(|w| w == b"train_loss"),
         "events file does not contain `train_loss` tag — on_epoch_end did not write it",
     );
     assert!(
@@ -1655,7 +1660,9 @@ fn tensorboard_callback_new() {
 
     // (c) Sabotage probe: a marker we never wrote must NOT appear.
     assert!(
-        !bytes.windows(b"sabotage_marker".len()).any(|w| w == b"sabotage_marker"),
+        !bytes
+            .windows(b"sabotage_marker".len())
+            .any(|w| w == b"sabotage_marker"),
         "events file contains `sabotage_marker` — sabotage probe failed",
     );
 }

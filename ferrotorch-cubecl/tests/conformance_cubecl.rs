@@ -760,11 +760,12 @@ test_portable_poly_op!(
 /// op exposed by `ferrotorch-cubecl`. Used as a typed fn-pointer pin so that
 /// a silent arity / return-type drift fails compilation even when the
 /// behavioural assertion in the test body is short-circuited (no backend).
-type PortableBinaryOp = fn(
-    &ferrotorch_core::Tensor<f32>,
-    &ferrotorch_core::Tensor<f32>,
-    &CubeRuntime,
-) -> ferrotorch_core::FerrotorchResult<(cubecl::server::Handle, Vec<usize>)>;
+type PortableBinaryOp =
+    fn(
+        &ferrotorch_core::Tensor<f32>,
+        &ferrotorch_core::Tensor<f32>,
+        &CubeRuntime,
+    ) -> ferrotorch_core::FerrotorchResult<(cubecl::server::Handle, Vec<usize>)>;
 
 #[test]
 fn portable_add_shape_mismatch_returns_error() {
@@ -781,8 +782,8 @@ fn portable_add_shape_mismatch_returns_error() {
     // shape check fires before any kernel arm — Stub never reaches
     // dispatch. Fall back to a real wgpu runtime when one is available
     // so the live-path assertion still gets exercised on hardware.
-    let rt = try_wgpu_runtime()
-        .unwrap_or_else(|| CubeRuntime::new_for_testing(CubeDevice::Wgpu(0)));
+    let rt =
+        try_wgpu_runtime().unwrap_or_else(|| CubeRuntime::new_for_testing(CubeDevice::Wgpu(0)));
     let a = ferrotorch_core::tensor(&[1.0_f32, 2.0, 3.0]).expect("a");
     let b = ferrotorch_core::tensor(&[1.0_f32, 2.0]).expect("b");
     let err = ferrotorch_cubecl::ops::portable_add(&a, &b, &rt);
@@ -804,8 +805,8 @@ fn portable_matmul_inner_dim_mismatch_returns_error() {
     // unconditionally reachable via `CubeRuntime::new_for_testing` — the
     // Stub client never reaches kernel dispatch, so the shape check
     // fires deterministically in any backend configuration.
-    let rt = try_wgpu_runtime()
-        .unwrap_or_else(|| CubeRuntime::new_for_testing(CubeDevice::Wgpu(0)));
+    let rt =
+        try_wgpu_runtime().unwrap_or_else(|| CubeRuntime::new_for_testing(CubeDevice::Wgpu(0)));
     let a = ferrotorch_core::from_vec(vec![1.0_f32; 6], &[2, 3]).expect("a");
     let b = ferrotorch_core::from_vec(vec![1.0_f32; 8], &[4, 2]).expect("b");
     let err = ferrotorch_cubecl::ops::portable_matmul(&a, &b, &rt);

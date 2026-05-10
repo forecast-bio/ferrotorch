@@ -63,6 +63,8 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde::de::{self, Deserializer, SeqAccess, Visitor};
 
+#[cfg(feature = "gpu")]
+use ferrotorch_core::FerrotorchError;
 use ferrotorch_core::grad_fns::indexing::{
     GatherBackward, IndexSelectBackward, MaskedFillBackward, ScatterAddBackward, ScatterBackward,
     WhereCondBackward, index_select_1d, index_select_1d_it, masked_fill, masked_fill_bt,
@@ -88,8 +90,6 @@ use ferrotorch_core::{
     BoolTensor, Device, IntTensor, Tensor, TensorStorage, chunk_t, contiguous_t, permute_t,
     split_t, view_t,
 };
-#[cfg(feature = "gpu")]
-use ferrotorch_core::FerrotorchError;
 
 /// Free-function `narrow_t` is not re-exported at the crate root; the
 /// inherent `Tensor::narrow` method calls into it. Wrap so the tests can
