@@ -1,0 +1,10 @@
+{
+  "uuid": "93d72c7d-f8af-4e29-a108-8da011da728c",
+  "display_id": 1098,
+  "title": "ferrotorch-core: index_select_dim CUDA forward kernel (Pass 3 follow-up)",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T06:53:19.077656586Z",
+  "updated_at": "2026-05-10T06:53:19.077656586Z"
+}
