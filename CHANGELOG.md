@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- Audit-Fix Phase 14: fix ferrolearn AMI sklearn divergence (#1073) cross-repo (#1090)
 - Workspace conformance audit: per-crate paranoid review of test correctness (13 parallel Sonnet subagents) (#1015)
 - Audit-Fix Phase 13: hub+tokenize+mps cluster (#1015 #1059 #1060 #1061 #1062) — final audit-fix dispatch (#1088)
 - Audit-Fix Phase 12: optim+serialize+distributions cluster (#1015 #1028 #1029 #1040 #1058) (#1086)
@@ -55,6 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - ferrotorch-core: `gelu()` (no-arg) default is now `GeluApproximate::None` (exact erf-based: `x * 0.5 * (1 + erf(x / √2))`), matching `torch.nn.GELU()`'s `approximate='none'` default. Previously the no-arg path defaulted to `GeluApproximate::Sigmoid` (`x * sigmoid(1.702 * x)`), producing ~6e-3 absolute deviation from PyTorch. **Migration**: callers relying on the historical fast-sigmoid default must opt in explicitly via `gelu_with(input, GeluApproximate::Sigmoid)` (LLM/transformer paths in `ferrotorch-llama` etc. will silently get the slower-but-more-precise erf path after upgrade — adjust if performance matters more than parity in your call site). `gelu_with(_, GeluApproximate::Tanh)` (PyTorch's `approximate='tanh'`) and `gelu_with(_, GeluApproximate::None)` are unchanged. The enum discriminant order is unchanged; only the `#[default]` attribute moved (closes #794).
 
 ### Fixed
+- Fix AMI sklearn divergence (ferrolearn-metrics returns 0.225 vs sklearn 0.299 on mixed labels) (#1073)
 - BROKEN mps: mps_device_ordinal_structural checks fixture coherence not API (conformance_mps.rs) — assert_eq!(expected_ordinal, 0) on JSON field, MpsDevice::ordinal() never called; #1015 (#1062)
 - BROKEN tokenize: chat_template_round_trip_matches_minijinja is internal round-trip (conformance_encode_decode.rs:277) — no minijinja reference, asserts only that two Rust paths agree; #1015 (#1061)
 - BROKEN hub: hub_smoke_load_pretrained is eprintln-only stub (conformance_hub.rs:1216) — same pattern as download_weights; #1015 (#1060)
