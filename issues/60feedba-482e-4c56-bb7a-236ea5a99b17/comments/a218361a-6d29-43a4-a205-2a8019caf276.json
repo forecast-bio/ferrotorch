@@ -1,0 +1,10 @@
+{
+  "uuid": "a218361a-6d29-43a4-a205-2a8019caf276",
+  "issue_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "author": "y4rr",
+  "content": "Failure-mode #11 (stale source document) accreted hits — Pass 4 audit's MPS framing was severely overstated. Of the audit's '8 STUB cluster' (#1100), only 3 sites were real bugs; the other 5 are DEFERRED-WIRED-STUB:\n\n- ferrotorch-mps/src/backend.rs:494-497 (neg_f32) — already returns Err with follow-up #626\n- ferrotorch-mps/src/backend.rs:791-794 (gelu_f32) — already returns Err with follow-up #626\n- ferrotorch-mps/src/backend.rs:797-806 (dropout_f32) — already returns Err with follow-up #626\n- ferrotorch-mps/src/lib.rs:201-210 (init_mps_backend non-macOS branch) — by-design correct\n- ~70 GpuBackend trait methods inheriting default-method Errs — never silent stubs\n\nTally update: Pass 5.A.1 caught 1 stale audit finding (registry-asymmetry). Pass 5.A.2 caught 5. Pattern prediction for upcoming dispatches: assume ~30-50% of Pass 4 STUB findings are stale. Pre-flight source-document reassessment is mandatory and high-value.",
+  "created_at": "2026-05-10T10:14:49.988256735Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAH7S1fpkOyQE5XHWP3atnlWDR8z01AoBU/Fv08Fq2YgBpfMqWpnQnVXLIhkWyvFDEDSwaS5gOW5FCkOd+VRHTCg=="
+}
