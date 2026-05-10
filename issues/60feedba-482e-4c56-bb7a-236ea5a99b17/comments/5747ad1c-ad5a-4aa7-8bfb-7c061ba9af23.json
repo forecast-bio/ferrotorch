@@ -1,0 +1,10 @@
+{
+  "uuid": "5747ad1c-ad5a-4aa7-8bfb-7c061ba9af23",
+  "issue_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "author": "y4rr",
+  "content": "Pass 5.A.1 (#1099) closed APPROVE-WITH-FOLLOW-UPS. Behavioral fix mirrors FasterRcnn/MaskRcnn convention; vision + hub registries now have ssd300_vgg16 entries; discriminating test ssd300_module_forward_matches_inherent_scores added to ssd.rs::tests; sabotage probe confirmed regression-trap. Follow-up #1130 filed for SSD300 weight pin (parallel to #456-weights / #964-weights / #457-weights).",
+  "created_at": "2026-05-10T08:33:15.021384838Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA4t0c1m6deY50SrTr4l5A9cNdGOn8w5d+QK9r9X8K8vFEZHDticTnSPUH4wyTNMLDXJt6VPdyy0A8z45m9YqFBQ=="
+}
