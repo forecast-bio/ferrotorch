@@ -1,0 +1,10 @@
+{
+  "uuid": "39a01670-0adb-4dd2-bf52-cf8c9f59fe9b",
+  "issue_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "author": "y4rr",
+  "content": "Pass 4 fix-phase issues filed: 31 subissues #1099-#1129 spanning Pass 5.A through Pass 5.G.\n\nPhase index:\n- 5.A (P0 silent stubs): #1099-#1102\n- 5.B (P1 silent CPU demote): #1103-#1107\n- 5.C (P2 contract lies): #1108-#1113\n- 5.D (P3 test integrity): #1114-#1118\n- 5.E (P4 arch refactors): #1119-#1122\n- 5.F (P5 doc surface): #1123-#1124\n- 5.G (P6 perf footguns): #1125-#1129\n\nEach issue has acceptance criteria + sabotage-probe shape ready for the next architect dispatch. Recommended start: Pass 5.A.1 (#1099 vision SSD300 zero-stub) — highest blast radius (silent wrong output via pretrained registry).\n\n#982 audit phase complete. Closing-eligible once Pass 5.A through 5.G land.",
+  "created_at": "2026-05-10T07:29:10.617455026Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAxzltKSTbtPp74IlmP7SUXjwwKZgLh2CpMUaDrGO7f8U+nQwqn0X1JarccF53H21YsAqqfbYkcOxbLREanUG/Bw=="
+}
