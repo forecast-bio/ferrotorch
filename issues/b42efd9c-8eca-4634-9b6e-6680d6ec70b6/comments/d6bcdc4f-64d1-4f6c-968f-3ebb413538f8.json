@@ -1,0 +1,10 @@
+{
+  "uuid": "d6bcdc4f-64d1-4f6c-968f-3ebb413538f8",
+  "issue_uuid": "b42efd9c-8eca-4634-9b6e-6680d6ec70b6",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 16 APPROVE. Added pub fn running_mean() -> Option<Vec<f64>> and running_var() -> Option<Vec<f64>> to LazyBatchNorm{1,2,3}d via macro extension in lazy_norm.rs. Two internal tests verify materialization-aware semantics (None pre-materialize, Some(non-zero) post-training-forward). Phase 1 parallel BN cross-check intact. ferrotorch-nn: 1195 PASS (was 1193 + 2 new tests), clippy clean.",
+  "created_at": "2026-05-10T04:22:24.246459511Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAsd1RnloeFMQiYcKSm9zLnp4JI0XHp2dEkWq/yOo9WRbFMVqwZMhL4UGrVFB4Y/oXRN08wrhmA16BzYuzak8XDw=="
+}
