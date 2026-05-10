@@ -1,0 +1,10 @@
+{
+  "uuid": "5e5fff92-68dd-44f7-9602-8fb2e864e5f8",
+  "issue_uuid": "82753a36-84b2-474c-a7b5-2d274e98745b",
+  "author": "y4rr",
+  "content": "Pass 3 APPROVE-WITH-FOLLOW-UPS. Roll grad_fn-registered with RollBackward (inverse rotation). New pub fn index_select_dim<T, I>(input, dim, indices) with IndexSelectDimBackward (scatter-add, duplicate-index accumulation). Swin's relative_position_bias_table gather (swin.rs:257-270) migrated; last production hot-path CPU-pull in Swin eliminated. 14 new tests in core grad_fns + 1 Swin training-mode end-to-end test. Sabotage probe (negation removal in RollBackward) caught with grad[0]=4 expected 3. core: 1291 PASS (was 1278, +13). vision: 758 PASS (was 757, +1). swin_t_value_parity preserved. Follow-ups: #1097 (roll CUDA forward kernel), #1098 (index_select_dim CUDA forward kernel).",
+  "created_at": "2026-05-10T06:53:32.004908749Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAXQXhYBTuPmiqkK1IP1uUrh5a0O/cGgQqwEcziDJLo1kPDN8qUC18cJkFgyiLAupk6t4jez2MDIa5fJXytg+6Dw=="
+}
