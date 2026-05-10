@@ -1,0 +1,10 @@
+{
+  "uuid": "0e106f10-9c04-4649-b8d4-91695a5804c7",
+  "issue_uuid": "cce42f14-ebba-4fbb-8870-b53bd10a0bd3",
+  "author": "y4rr",
+  "content": "Pass 2B APPROVE (clean). 11 production CPU-pull sites migrated to on-device primitives in ViT (7 sites) + Swin (4 sites). Net -75 lines (manual loops replaced with primitives). vit_b_16_value_parity + swin_t_value_parity both green; vision 757 PASS / 0 fail (was 756, +1 autograd-preservation test for cls_token grad through ExpandBackward → CatBackward). Linear handles 3-D natively (V1 batched MLP unrolling eliminated). Sabotage demo: PatchMerging permute axis swap caught at element 0 with diff 2.078e-1 (80× tolerance). 3 deferred sites correctly justified: relative_position_bias gather (#1014), one-time mask construction (not hot-path), #[cfg(test)] helpers. No new deps, no public API change.",
+  "created_at": "2026-05-10T06:10:19.405502229Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABABhAx8Ni0VziJv8u9NNeN+xwh0JFI2DR8CmI6US//iwilHTJpM8p6FV9d3P654j+kEMYgHwz07x7ZR02uZcZBCw=="
+}
