@@ -1,0 +1,12 @@
+{
+  "uuid": "c9a04cab-60c8-47b1-b7a5-f160e88c579e",
+  "display_id": 1131,
+  "title": "Pass 5.A.2 follow-up: Apple Silicon CI runner for MPS runtime verification",
+  "description": "Follow-up to #1100 (Pass 5.A.2 closure): the 6 new `#[cfg(target_os = \"macos\")]` discriminating tests added to ferrotorch-mps (lib.rs::tests + conformance_mps.rs) compile but do not run on the current Linux WSL2 dev host. Until an Apple Silicon CI runner exists, these tests are reviewable in source only.\n\nExisting CI tests covered:\n- mps_device_new_macos_returns_ok_when_available (lib.rs:286-306)\n- mps_device_new_macos_rejects_nonzero_ordinal (lib.rs:314-329)\n- mps_device_count_macos_matches_metal_availability (lib.rs:344-350)\n- mps_device_count_macos_reflects_metal_availability (conformance_mps.rs:508)\n- mps_device_new_macos_ok_when_metal_present (conformance_mps.rs:519)\n- mps_device_new_macos_rejects_nonzero_ordinal_with_invalid_argument (conformance_mps.rs:536)\n\nAcceptance:\n- Add Apple Silicon target to CI matrix (e.g. macos-14 GitHub Actions runner) for ferrotorch-mps\n- All 6 tests must execute and either Ok-pass or cascade_skip when no Metal device — never silently skip\n\nNote: this consolidates with #451 (parent MPS kernel-layer issue). May be closed as duplicate if #451 already covers CI runners.",
+  "status": "open",
+  "priority": "low",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T10:14:35.748830414Z",
+  "updated_at": "2026-05-10T10:14:35.748830414Z"
+}
