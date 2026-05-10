@@ -1,0 +1,12 @@
+{
+  "uuid": "cc8c616c-ff5c-43c8-a4fa-f3d305fa195c",
+  "display_id": 1099,
+  "title": "Pass 5.A.1: ferrotorch-vision SSD300 Module::forward zero-stub silently registered",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-vision audit, STUB bucket.\n\nSSD300 `Module::forward` returns zeros (silent stub). The model is wired into the pretrained registry (`registry.rs`), so `load_pretrained::<f32>(\"ssd300\")` succeeds and downstream inference receives all-zero logits — silent wrong output.\n\nAcceptance:\n- Either implement SSD300 forward properly, OR\n- Remove the entry from registry.rs + return a documented `NotImplementedError` with crosslink follow-up.\n\nEither path: discriminating fixture test that catches the zero-tensor regression.",
+  "status": "open",
+  "priority": "critical",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:21:27.031789712Z",
+  "updated_at": "2026-05-10T07:21:27.031789712Z"
+}
