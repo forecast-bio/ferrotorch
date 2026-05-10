@@ -1,0 +1,10 @@
+{
+  "uuid": "d50784ae-be01-449f-bbdd-19aade50940c",
+  "issue_uuid": "f9bf17fa-ad7f-476d-9fc4-f2a5b0862a2d",
+  "author": "y4rr",
+  "content": "Pass 5.A.4 closed APPROVE-WITH-FOLLOW-UPS.\n\nSource-doc reassessment: all 3 audit-cited skeleton STUBs (gloo/mpi/ucc) + gpu_collective NCCL placeholder are stale-no-op (honest fail-fast feature-gated modules). Real bug: closed-tracker drift — citations to closed #459 and #668 across 4 source files + 6 ignored tests + Cargo.toml + error.rs.\n\nFix:\n- Filed 4 new live tracking issues: #1132 (gloo), #1133 (mpi), #1134 (ucc), #1135 (gpu_collective NCCL wiring)\n- Updated all 19 citation sites to cite live IDs (with historical 'replaces closed #459/#668' pointers preserved for traceability)\n- Added crate-root lib.rs docstring paragraph explicitly listing the skeleton backends as feature-gated (default off) with live tracker IDs\n- Tightened 3 skeleton tests with non-vacuous backend-name string discrimination\n\nVerification: 133/133 lib tests, 1/1 integration tests, build + clippy -D warnings clean. Behavioral surface unchanged.\n\nSubagent caught two architect-side pre-flight issues: (1) 'ZERO matches' grep floor was overly strict given legitimate historical pointers, (2) error.rs was missed in the explicit file list (same closed-tracker-drift pattern; architect-side oversight). Both adaptations were defensible.",
+  "created_at": "2026-05-10T16:34:47.684577163Z",
+  "kind": "resolution",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAOIS9Z+Y9oGd4/Z2lH6h/ogEy+yqWLXh4F+8oj/PB8aoITxlOCOKgCgQCiE3Uaz73KDav2qIjJeYxMWU/yBI0Cw=="
+}
