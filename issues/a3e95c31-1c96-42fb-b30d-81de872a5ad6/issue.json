@@ -1,0 +1,12 @@
+{
+  "uuid": "a3e95c31-1c96-42fb-b30d-81de872a5ad6",
+  "display_id": 1120,
+  "title": "Pass 5.E.2: ferrotorch-llama grammar/* (4097 LoC, 53% of crate) → split into ferrotorch-grammar",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-llama audit, ARCH_SMELL.\n\nsrc/grammar/ is 4097 LoC inside ferrotorch-llama — gpu_dispatch.rs alone is 1634 LoC, state.rs 1597. Constrained-decoding / JSON-grammar machinery has no Llama-specific coupling and would naturally live in a sibling crate (ferrotorch-grammar); its presence here makes ferrotorch-llama 53% non-Llama code.\n\nAcceptance:\n- Extract grammar/ into ferrotorch-grammar workspace member\n- ferrotorch-llama depends on it for constrained generation\n- Public API: re-export the Llama-facing entry points from ferrotorch-llama if needed for backwards compat, OR document the breaking move\n- No semantic change to grammar logic itself.",
+  "status": "open",
+  "priority": "medium",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:27:25.752842870Z",
+  "updated_at": "2026-05-10T07:27:25.752842870Z"
+}
