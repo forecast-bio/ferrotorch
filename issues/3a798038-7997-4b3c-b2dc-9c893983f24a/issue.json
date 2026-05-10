@@ -1,0 +1,12 @@
+{
+  "uuid": "3a798038-7997-4b3c-b2dc-9c893983f24a",
+  "display_id": 1113,
+  "title": "Pass 5.C.6: misc deferred-without-anchor stubs (llama HQQ, data ToTensor, profiler with_stack)",
+  "description": "Pass 4 finding (umbrella #982) — bundled minor STUBs.\n\n- ferrotorch-llama src/quant_loaders.rs:18 — module doc declares HQQ 'deferred — see follow-up issue' without an actual issue link. No HQQ struct or fn exists. Honest deferral but unanchored.\n- ferrotorch-data src/transforms.rs:187-201 — ToTensor self-described 'placeholder for a future image-to-tensor conversion' — pure identity. Listed in pub use exports and conformance fixtures as a real transform.\n- ferrotorch-profiler src/profiler.rs:17 — with_stack doc says 'not yet implemented' but maybe_capture_stack at line 220 IS implemented. Stale doc OR stale stub marker.\n\nAcceptance:\n- llama HQQ: file or anchor a tracking issue, link it from the doc, OR delete the stub mention\n- data ToTensor: implement real image-to-tensor (PIL-buffer / RGB normalize), OR remove from public exports\n- profiler with_stack: align doc and impl (one of them is stale).",
+  "status": "open",
+  "priority": "medium",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:23:40.588625192Z",
+  "updated_at": "2026-05-10T07:23:40.588625192Z"
+}
