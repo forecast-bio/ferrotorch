@@ -1,0 +1,12 @@
+{
+  "uuid": "f266b263-c14c-4639-9fbc-406ba69b968a",
+  "display_id": 1127,
+  "title": "Pass 5.G.3: ferrotorch-serialize sequential shard download / whole-file SHA before stream",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-serialize audit, PERF_OBVIOUS.\n\n- safetensors_io.rs:394-477 / 622-703 — sharded loaders are sequential per shard (no rayon). Single std::thread::spawn exists only in AsyncCheckpointer. For a 70B-model load this is straightforwardly slow.\n- safetensors_io.rs:262-280 — bf16/f16 upcast and F32→T narrowing use scalar for loops with per-element cast::<f32, T> + read_unaligned. For Llama-class checkpoints this is the hot path; chunks_exact_iter + f32::from_bits over &[u32] reinterpretation would auto-vectorize.\n- gguf.rs:516-800 — eight dequantize_q* routines push values one at a time into Vec::with_capacity; could SIMD via bytemuck.\n\nBundle adjacent — ferrotorch-hub:\n- download.rs:135-148 — whole-file SHA-256 over single Vec<u8> rather than streaming Sha256::update while reading; for 16 GB shards memory pressure + serialized I/O→hash.\n- download.rs:560-562 — sequential shard download loop in hub; same shape as safetensors_io.\n\nAcceptance:\n- rayon::par_iter over shards in safetensors_io::load_safetensors_sharded\n- Stream Sha256::update during download in hub::download_and_verify\n- Vectorize bf16/f16 upcast (chunks_exact_iter pattern).",
+  "status": "open",
+  "priority": "medium",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:28:30.462513267Z",
+  "updated_at": "2026-05-10T07:28:30.462513267Z"
+}
