@@ -1,0 +1,10 @@
+{
+  "uuid": "49540928-5ee2-4ec8-9a09-cc85196f2d75",
+  "issue_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "author": "y4rr",
+  "content": "Pass 5.B.4 (#1106) closure note — real-vs-stale signal-to-noise\n\nThe audit's GPU_CPU_MISMATCH bucket cited `ferrotorch-jit/src/fusion.rs::apply_fused` as 'silently downgrades CUDA inputs to CPU output'. Source-doc reassessment (consistent with prior Pass 5 patterns):\n\n- `Tensor::data()` already Errs on CUDA at `ferrotorch-core/src/tensor.rs:635-638` (`GpuTensorNotAccessible`). The original code was therefore NOT a silent demote — it was already fail-fast, just with a generic error.\n- Real bug: doc drift (claimed 'same device' output + aspirational PTX dispatch) plus an indistinct error type.\n- `codegen.rs:987-1017` is STALE-NO-OP (correctly returns `JitError::GpuBackendUnavailable` for GPU targets); audit's claim that `cuda = [\\\"dep:cudarc\\\"]` implies runtime support is doc-implication drift (jit Cargo.toml does NOT depend on ferrotorch-gpu).\n\nPer-dispatch signal-to-noise across this audit's GPU_CPU_MISMATCH cluster (1 of 2 cited findings → 0 silent demotes; both reduce to fail-fast-but-unclear). Pattern matches prior 5.B passes: audits over-index on 'CPU output observed' without verifying the path to that output. Pre-flight checklist 'verify Tensor::data() Errs on GPU first' should be standard for every gpu-cpu-mismatch finding.\n\nPattern B (route to PTX) deferred as #1138 — workspace-level jit↔gpu integration, structurally infeasible in a leaf-crate audit-fix.",
+  "created_at": "2026-05-10T18:49:27.598419363Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAJPMZXC3mIWaJWF5wByQNP8SPl00aVw+TGDFykb7xSpK4m3oLoX3LpKNfkon/BsNVhTAA7RQ1UYzD9DFTyQGPBg=="
+}
