@@ -1,0 +1,10 @@
+{
+  "uuid": "b1016245-ec57-4839-9e50-2108bf2858ed",
+  "issue_uuid": "5e3e8b31-091b-4113-811c-7e351f7d90d8",
+  "author": "y4rr",
+  "content": "Closed APPROVE — closed by the combined dispatch under #1137 that also covered #1136's Dirichlet migration.\n\nThe original deferral was based on a false premise: 'no GPU cholesky / lgamma / digamma kernels.' GPU cholesky DOES exist (verified at Pass 5.B.3 — linalg::cholesky → cuSOLVER potrf). lgamma/digamma genuinely don't have GPU vectorized kernels, but they compose at tensor level so a future GPU kernel slot-fills transparently; for now they CPU-execute internally via unary_map.\n\nDirichlet Pattern B applied to 6 methods:\n- log_prob: lgamma(sum(α)) - sum(lgamma(α)) + sum_dim((α-1) * log(x), -1) via tensor-level lgamma/digamma + grad-aware arithmetic\n- mean: concentration / sum_dim(concentration, -1, keepdim=true)\n- variance: composed sum_all/sub/mul/add/div over alpha + alpha_0 scalar\n- entropy: composed scalar formula on device\n- sample/rsample: scalar Gamma rejection sampling (intrinsic; no GPU Gamma kernel exists; result built directly via TensorStorage::on_device with no .to(device) round-trip)\n\nAll 6 fallback::check_gpu_fallback_opt_in gates stripped. All 6 out.to(device) recomposes stripped. Pattern B fully landed for the tensor-input hot paths.\n\nSee #1137 resolution comment for full evidence-floor outputs (369/369 lib + 60+41+1 integration tests pass; build + clippy clean; 2 sabotage probes captured + reverted).",
+  "created_at": "2026-05-10T21:43:28.223603597Z",
+  "kind": "resolution",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAL8iuY9ebWUfoGoT9o4HlRPXZLeYfQDLhszCSV20O5GW7XY9m8JFoUF0ZWCoBuCnuCv0SFHLw+uqKXVz4NuQxCg=="
+}
