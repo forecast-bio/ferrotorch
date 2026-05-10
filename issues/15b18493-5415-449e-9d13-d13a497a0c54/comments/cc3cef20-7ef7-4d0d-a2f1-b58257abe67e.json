@@ -1,0 +1,10 @@
+{
+  "uuid": "cc3cef20-7ef7-4d0d-a2f1-b58257abe67e",
+  "issue_uuid": "15b18493-5415-449e-9d13-d13a497a0c54",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 10 APPROVE (clean). 4 BROKEN tests (#1036-#1039) strengthened: op-type cardinality (#1036 Relu == 1, #1038 forward Add == 1), winner_time + all_timings + winner_name (#1037), backward output_values count + saved_tensor_indices count (#1038), description compile_error substring + case-list lock (#1039). Subagent probe-before-fix correctly identified that my pre-flight's saved_tensor_indices.len() == 0 was mathematical theory not matching ferrotorch's conservative-saving implementation (== 2 for Add); read src/aot_autograd.rs:107-122 and corrected with documentation. Sabotage demo: with_candidate('interpreter') → with_candidate('typo_name') caught at all_timings name assertion. No src/ changes, no new workspace deps.",
+  "created_at": "2026-05-10T01:17:37.648002380Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA3RpQxDxJcrQuX9C0azaCuuLSYpktTJlayJy6KltVc+AkPqb5xZf03jIotRhyCx+kVLGLZgCsGoTT+RPGDZF+DA=="
+}
