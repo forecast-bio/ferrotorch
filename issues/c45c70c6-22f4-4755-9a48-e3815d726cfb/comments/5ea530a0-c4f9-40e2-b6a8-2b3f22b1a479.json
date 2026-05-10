@@ -1,0 +1,10 @@
+{
+  "uuid": "5ea530a0-c4f9-40e2-b6a8-2b3f22b1a479",
+  "issue_uuid": "c45c70c6-22f4-4755-9a48-e3815d726cfb",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 15 APPROVE. Added #[serde(default)] slope: Option<f64> to Fixture struct in conformance_flex_attention.rs:294, preserving #[serde(deny_unknown_fields)] discipline. 3 previously-red flex_attention tests now pass. 6 PASS / 0 fail (was 3 PASS + 3 fail).",
+  "created_at": "2026-05-10T03:32:11.206387274Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAMRHoSgWISMnAM4Cu6DblGtfO/Fdlq5uw1rAkvRl9S2l3DaxBLQQN9srwdj2BmFwKIUH6vHtSlYOqkUDfrPlBCA=="
+}
