@@ -1,0 +1,10 @@
+{
+  "uuid": "86fd7325-3742-4121-ad46-14efbe2ff8ff",
+  "issue_uuid": "caacb042-093f-4573-91a8-ed4face9d8fb",
+  "author": "y4rr",
+  "content": "Pass 1 APPROVE (clean). 11 distributed surface-coverage gaps closed via real conformance tests using SimulatedBackend (no exclusions added — default-to-test-not-exclude held). 7 collective fns + 3 p2p fns + 1 enum (DistCheckpointError). conformance_distributed: 61 PASS (was 50, +11). Sabotage demo: identity stub on allreduce_with_timeout caught with diff=10 > tol=1e-6. No src/ changes, no new deps.",
+  "created_at": "2026-05-10T05:01:25.744970338Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAyO/06Pj6R3cWRguyAhsSmksL0TvZnDlpPIL8X+FaEyEWQa8LvgntwbcpdKTwV9DTQI01CKy8+KLL5BYNcbh7Dw=="
+}
