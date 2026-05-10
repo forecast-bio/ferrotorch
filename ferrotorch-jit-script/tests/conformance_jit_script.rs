@@ -70,7 +70,6 @@ struct FixtureMetadata {
 struct Fixture {
     case: String,
     op: String,
-    #[allow(dead_code, reason = "human-readable description in fixture file")]
     description: String,
 
     // Runtime fixtures (op == "script")
@@ -404,6 +403,29 @@ fn script_error_cases_are_cascade_skipped_in_fixtures() {
         "unrecognized_return_type_emits_compile_error",
         "missing_return_type_emits_compile_error",
     ];
+
+    // Lock the case-list cardinality. If a new `script_error` fixture is
+    // added without being explicitly listed here, the count of fixtures
+    // with op=="script_error" will exceed `spec_only_cases.len()` and
+    // the assertion below will fail — forcing a deliberate test update
+    // rather than silent drift.
+    assert_eq!(
+        spec_only_cases.len(),
+        2,
+        "spec_only_cases list must enumerate every script_error fixture; \
+         update both the list and this count together"
+    );
+    let fixture_script_error_count =
+        file.fixtures.iter().filter(|f| f.op == "script_error").count();
+    assert_eq!(
+        fixture_script_error_count,
+        spec_only_cases.len(),
+        "fixture file has {fixture_script_error_count} entries with op=script_error \
+         but the test enumerates {}; add the new case_name to spec_only_cases",
+        spec_only_cases.len()
+    );
+
+    let mut matched_count = 0_usize;
     for case_name in spec_only_cases {
         let fx = fixtures_for(&file, case_name)
             .unwrap_or_else(|| panic!("missing fixture for spec-only case {case_name:?}"));
@@ -421,5 +443,29 @@ fn script_error_cases_are_cascade_skipped_in_fixtures() {
             skip.contains("spec-only"),
             "{case_name}: cascade_skip must contain 'spec-only', got: {skip:?}"
         );
+
+        // Tighten the metadata contract: the description must explicitly
+        // reference `compile_error` so the fixture can never silently
+        // drift to a runtime fixture under the same case name. A stub
+        // fixture with `description: ""` or unrelated text would now
+        // fail rather than be quietly accepted.
+        assert!(
+            fx.description.contains("compile_error"),
+            "{case_name}: description must mention 'compile_error', got: {:?}",
+            fx.description
+        );
+
+        matched_count += 1;
     }
+
+    // Belt-and-suspenders: every entry in spec_only_cases must have been
+    // matched (loop iteration count == expected count). Catches a
+    // duplicate-case-name typo in the list that `spec_only_cases.len()`
+    // alone would miss.
+    assert_eq!(
+        matched_count,
+        spec_only_cases.len(),
+        "matched only {matched_count} of {} spec-only cases",
+        spec_only_cases.len()
+    );
 }

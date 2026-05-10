@@ -1225,6 +1225,47 @@ fn aot_graph_pair_structure() {
             g.nodes.len()
         );
     }
+
+    // Op-type discrimination on the forward graph: the input was an Add
+    // graph, so the forward output must contain exactly one Add node.
+    // A stub that returned an empty graph or an unrelated op would fail.
+    let forward_add_count = pair
+        .forward
+        .nodes
+        .iter()
+        .filter(|n| matches!(n.op, IrOpKind::Add))
+        .count();
+    assert_eq!(
+        forward_add_count, 1,
+        "forward graph must contain exactly one IrOpKind::Add node, got {forward_add_count}; \
+         full forward op list: {:?}",
+        pair.forward.nodes.iter().map(|n| &n.op).collect::<Vec<_>>()
+    );
+
+    // The decomposition is documented as conservative: every input to a
+    // backward-relevant op is marked saved, even when the op's gradient
+    // doesn't strictly need it (see ferrotorch-jit/src/aot_autograd.rs
+    // lines 107-122). Add consumes (a, b), so both inputs get saved →
+    // exactly 2 entries. A stub returning an empty `Vec` (or one
+    // saving extra/fewer values) would fail this exact-count check.
+    assert_eq!(
+        pair.saved_tensor_indices.len(),
+        2,
+        "Add forward pass must conservatively save both inputs (a, b); \
+         got {} saved indices",
+        pair.saved_tensor_indices.len()
+    );
+
+    // Backward graph must produce one gradient per forward input. The
+    // forward Add has two inputs (a, b), so the backward graph must
+    // expose two output values. A stub returning a single combined grad
+    // or zero outputs would fail this check.
+    assert_eq!(
+        pair.backward.output_values.len(),
+        2,
+        "backward graph must produce exactly 2 outputs (one grad per Add input), got {}",
+        pair.backward.output_values.len()
+    );
 }
 
 /// Unit: compile_aot end-to-end — trace + optimize + decompose.

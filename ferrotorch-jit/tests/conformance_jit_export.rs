@@ -548,12 +548,27 @@ fn export_single_input_produces_program() {
         .requires_grad_(true);
     let program = export(&module, &[example]).expect("export failed");
     assert_eq!(program.input_shapes, vec![vec![2, 4]]);
-    // The tracer emits at least one node for relu; the exact count may include
-    // bookkeeping nodes (e.g. an Output node) depending on tracer internals.
-    assert!(
-        program.graph.node_count() >= 1,
-        "expected at least 1 node, got {}",
-        program.graph.node_count()
+    // Op-type discrimination: ReluModule::forward calls x.relu(), so the
+    // traced graph must contain exactly one IrOpKind::Relu node. A stub
+    // tracer that returned an empty graph or a wrong-op graph (e.g.
+    // emitting Sigmoid/Identity/Add for relu) would fail this check; a
+    // floor like `node_count() >= 1` would pass even for those stubs.
+    let relu_node_count = program
+        .graph
+        .nodes
+        .iter()
+        .filter(|n| matches!(n.op, IrOpKind::Relu))
+        .count();
+    assert_eq!(
+        relu_node_count, 1,
+        "expected exactly one IrOpKind::Relu node in the traced graph, got {relu_node_count}; \
+         full op list: {:?}",
+        program
+            .graph
+            .nodes
+            .iter()
+            .map(|n| &n.op)
+            .collect::<Vec<_>>()
     );
     assert_eq!(program.output_shape, vec![2, 4]);
 }
@@ -978,7 +993,10 @@ fn autotuner_clear_cache_empties_cache() {
 
 #[test]
 fn autotuner_result_winner_time_is_nonzero_or_zero() {
-    // winner_time() just needs to be callable without panic.
+    // Verifies the AutotuneResult accessors expose values consistent with
+    // the candidates registered. A stub tuner that hardcoded a default
+    // result (e.g. `Default::default()` with empty timings or a winner
+    // name of `""`) would now fail rather than silently passing.
     let g = make_simple_graph();
     let tuner = Autotuner::new()
         .with_candidate("interpreter", Box::new(InterpreterBackend))
@@ -986,7 +1004,43 @@ fn autotuner_result_winner_time_is_nonzero_or_zero() {
         .with_warmup(0);
     let inputs: Vec<Vec<f64>> = vec![vec![0.0f64; 8]];
     let result = tuner.tune(&g, &inputs).expect("tune failed");
-    // Duration is non-negative; just verify the accessor doesn't panic.
-    let _ = result.winner_time();
-    let _ = result.all_timings();
+
+    // (1) Sanity bound on winner_time — anything ≥ 10s for a one-iteration
+    // run on a tiny graph indicates a broken accessor (e.g. returning a
+    // bogus `Duration::MAX` placeholder). Lower bound is implicit:
+    // `Duration` is non-negative by construction.
+    let winner_time_ns = result.winner_time().as_nanos();
+    assert!(
+        winner_time_ns < 10_000_000_000,
+        "winner_time() {winner_time_ns}ns exceeds 10s sanity ceiling — \
+         tuner did not measure a real timing"
+    );
+
+    // (2) Exactly one candidate registered → exactly one timing reported,
+    // and its name must match what we registered. A stub returning an
+    // empty `all_timings()` slice would fail length; one returning a
+    // mislabelled entry would fail the name check.
+    let timings = result.all_timings();
+    assert_eq!(
+        timings.len(),
+        1,
+        "expected exactly 1 timing entry for 1 registered candidate, got {}: {:?}",
+        timings.len(),
+        timings
+    );
+    assert_eq!(
+        timings[0].0, "interpreter",
+        "all_timings()[0] candidate name mismatch: got {:?}",
+        timings[0].0
+    );
+
+    // (3) Winner name must match the only candidate registered. This is
+    // the load-bearing behavioral check — the sabotage probe in the
+    // pre-flight (changing the registered name to "typo_name") trips
+    // exactly here.
+    assert_eq!(
+        result.winner_name(),
+        "interpreter",
+        "winner_name() must match the sole registered candidate"
+    );
 }
