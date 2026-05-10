@@ -1,0 +1,12 @@
+{
+  "uuid": "4ff9cc2c-b6b9-493d-b95d-387d62f9d7a2",
+  "display_id": 1106,
+  "title": "Pass 5.B.4: ferrotorch-jit fusion.rs apply_fused CPU-output silent demote",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-jit audit, GPU_CPU_MISMATCH bucket (1 of 2).\n\nsrc/fusion.rs:1081-1085 vs docstring at 1075-1080 — `apply_fused` doc says 'produces a new tensor on the same device' and 'When a CUDA device is available the chain could be dispatched via the PTX kernel'. Implementation: input.data()? (CPU readback) → chain.execute_cpu(data)? → TensorStorage::cpu(result). CUDA-input always silently downgraded to CPU output. The 'could be dispatched via PTX' is aspirational, not a code path.\n\nAlso: src/codegen.rs:987-1017 — cuda feature is codegen-only; compile() for GpuCuda/GpuPtx returns JitError::GpuBackendUnavailable regardless of feature. cuda = [\"dep:cudarc\"] in Cargo.toml:24 implies runtime support that doesn't exist.\n\nAcceptance:\n- Either route to PTX kernel when input.is_cuda() (real GPU dispatch), OR\n- Document the CPU-fallback explicitly + amend doc to remove the 'same device' claim\n- Discriminating test asserting fused-output device matches input device.",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:22:34.189256379Z",
+  "updated_at": "2026-05-10T07:22:34.189256379Z"
+}
