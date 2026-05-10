@@ -720,6 +720,58 @@ mod tests {
         assert_eq!(out.shape(), &[3, 4, 4]);
     }
 
+    // -- CUDA verification (#1098 continuation) -----------------------------
+    //
+    // The CUDA tests below are gated on the `cuda` feature of this crate,
+    // which transitively pulls in `ferrotorch-gpu` as a dev-dep so the GPU
+    // backend can register itself before `.cuda()` is called. Mirrors the
+    // ferrotorch-distributions Pattern B precedent.
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn random_horizontal_flip_preserves_device_for_cuda_input() {
+        // Initialise the CUDA backend. Idempotent on repeat calls; returns
+        // Ok if the backend is already registered. On a host without a
+        // visible CUDA device this returns Err, and the test exits early
+        // with a diagnostic (no fail) — mirrors the cascade_skip discipline
+        // used elsewhere in the workspace.
+        if ferrotorch_gpu::init_cuda_backend().is_err() {
+            eprintln!("[cascade_skip] CUDA backend init failed; skipping");
+            return;
+        }
+
+        // Build a [3, 4, 4] f32 tensor with sequential values so the
+        // expected per-row reverse is easy to eyeball, then upload to GPU.
+        let c = 3usize;
+        let h = 4usize;
+        let w = 4usize;
+        let numel = c * h * w;
+        let data: Vec<f32> = (0..numel).map(|i| i as f32).collect();
+        let cpu_input = Tensor::<f32>::from_storage(
+            TensorStorage::cpu(data.clone()),
+            vec![c, h, w],
+            false,
+        )
+        .unwrap();
+        let cuda_input = if let Ok(t) = cpu_input.cuda() {
+            t
+        } else {
+            eprintln!("[cascade_skip] no CUDA device available; skipping");
+            return;
+        };
+
+        let flip = RandomHorizontalFlip::<f32>::new(1.0).unwrap(); // always flip
+        let out = flip.apply(cuda_input.clone()).unwrap();
+        assert!(out.is_cuda(), "result must stay on CUDA");
+        assert_eq!(out.shape(), cuda_input.shape());
+
+        // Numerical: confirm reverse order along the last dim by downloading
+        // the CUDA output and comparing against the CPU reference produced
+        // by the same transform applied to the CPU input.
+        let cpu_out = out.cpu().unwrap().data_vec().unwrap();
+        let cpu_ref = flip.apply(cpu_input).unwrap().data_vec().unwrap();
+        assert_eq!(cpu_out, cpu_ref);
+    }
+
     #[test]
     fn random_horizontal_flip_index_select_matches_manual_reverse() {
         // Lock in numerical equivalence between the old chunks-based reverse

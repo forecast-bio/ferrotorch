@@ -1568,6 +1568,32 @@ impl GpuBackend for CudaBackendImpl {
         Ok(Self::wrap_buffer_f64(result, grad_output.device_ordinal()))
     }
 
+    fn index_select_dim_f64(
+        &self,
+        input: &GpuBufferHandle,
+        indices: &GpuBufferHandle,
+        outer: usize,
+        in_dim_size: usize,
+        out_dim_size: usize,
+        inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let input_buf = Self::unwrap_buffer_f64(input)?;
+        // indices are always f32-encoded
+        let idx_buf = Self::unwrap_buffer(indices)?;
+        let dev = self.device(input.device_ordinal())?;
+        let result = crate::kernels::gpu_index_select_dim_f64(
+            input_buf,
+            idx_buf,
+            outer,
+            in_dim_size,
+            out_dim_size,
+            inner,
+            dev,
+        )
+        .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer_f64(result, input.device_ordinal()))
+    }
+
     fn bmm_f64(
         &self,
         a: &GpuBufferHandle,
@@ -2902,6 +2928,31 @@ impl GpuBackend for CudaBackendImpl {
         let result = crate::kernels::gpu_scatter_add_1d(go_buf, idx_buf, input_len, dev)
             .map_err(Self::map_gpu_err)?;
         Ok(Self::wrap_buffer(result, grad_output.device_ordinal()))
+    }
+
+    fn index_select_dim_f32(
+        &self,
+        input: &GpuBufferHandle,
+        indices: &GpuBufferHandle,
+        outer: usize,
+        in_dim_size: usize,
+        out_dim_size: usize,
+        inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        let input_buf = Self::unwrap_buffer(input)?;
+        let idx_buf = Self::unwrap_buffer(indices)?;
+        let dev = self.device(input.device_ordinal())?;
+        let result = crate::kernels::gpu_index_select_dim(
+            input_buf,
+            idx_buf,
+            outer,
+            in_dim_size,
+            out_dim_size,
+            inner,
+            dev,
+        )
+        .map_err(Self::map_gpu_err)?;
+        Ok(Self::wrap_buffer(result, input.device_ordinal()))
     }
 
     fn masked_fill_f32(

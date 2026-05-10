@@ -4353,6 +4353,238 @@ DONE:
 ";
 
 // ---------------------------------------------------------------------------
+// Index-select-dim PTX kernel — N-D gather along an arbitrary axis
+// ---------------------------------------------------------------------------
+// Logical layout: input  = [outer, in_dim_size,  inner]  (flat in C-order)
+//                 output = [outer, out_dim_size, inner]  (flat in C-order)
+//                 indices: out_dim_size f32-encoded integer offsets
+//
+// Total threads = outer * out_dim_size * inner. Thread `t` decomposes as
+//     o   = t / (out_dim_size * inner)
+//     rem = t %  (out_dim_size * inner)
+//     i   = rem / inner
+//     k   = rem %  inner
+// and writes
+//     output[t] = input[o * in_dim_size * inner + indices[i] * inner + k]
+//
+// `outer == 1` (dim == 0) and `inner == 1` (dim == last) are valid edge
+// cases; `inner == 1` makes the kernel degenerate to a strided 1-D gather
+// that still matches the same `output[t] = input[indices[i]]` semantics as
+// `INDEX_SELECT_1D_PTX` when `outer == 1`.
+//
+// All caller-validated invariants:
+//   - `indices[i] < in_dim_size` for `i in [0, out_dim_size)` (OOB checked
+//     by `index_select_dim` in core).
+//   - `outer * out_dim_size * inner` fits in `u32` (enforced by
+//     `launch_cfg`).
+
+// NOTE on f64 rewriter compatibility: `ptx_f32_to_f64` promotes
+// `ld.global.f32`/`st.global.f32` to f64 and rewrites the canonical
+// `shl.b64 %off, %off, 2` (4-byte stride) to `shl.b64 %off, %off, 3`
+// (8-byte stride). The indices buffer in this kernel is *always*
+// f32-encoded (mirrors `INDEX_SELECT_1D_PTX`'s contract). To keep
+// the indices load on a 4-byte stride after the rewrite, we use a
+// dedicated `%idx_addr` byte-offset register and load the indices
+// with a `cvta`-style sequence that the rewriter does NOT touch:
+// specifically we compute `indices + (i * 4)` via `mad.wide.u32`
+// (which gives a 64-bit byte offset directly, no `shl.b64`), and
+// likewise read the index with a single `ld.global.f32 %idx_f,
+// [%idx_addr_64]` instruction (which IS rewritten to
+// `ld.global.f64` — that mis-reads 8 bytes for the index).
+//
+// Mitigation: read 32 bits explicitly via `ld.global.u32` of the
+// raw f32 bit-pattern, then `mov.b32` it into an f32 register —
+// the rewriter does not touch `ld.global.u32` and `mov.b32` is
+// rewritten to `mov.b64`, which would still operate on a 64-bit
+// register and read 64 bits. We need both the u32 load and the
+// reinterpretation to stay 32-bit. The cleanest path: do the
+// integer index conversion on the CPU side instead — upload
+// indices already as u32 directly. But the established backend
+// convention is f32-encoded indices (see INDEX_SELECT_1D_PTX,
+// SCATTER_ADD_ROWS_PTX, SCATTER_ADD_1D_PTX — all f32-encoded).
+//
+// Final approach: keep the f32-encoded indices contract, write
+// two distinct PTX kernels (one f32, one f64) by hand. The f64
+// kernel does the indices load via f32 explicitly and the data
+// loads via f64 explicitly — avoiding the rewriter entirely for
+// this op.
+
+#[cfg(feature = "cuda")]
+pub(crate) const INDEX_SELECT_DIM_PTX: &str = "\
+.version 7.0
+.target sm_52
+.address_size 64
+
+.visible .entry index_select_dim_kernel(
+    .param .u64 input_ptr,
+    .param .u64 indices_ptr,
+    .param .u64 out_ptr,
+    .param .u32 outer,
+    .param .u32 in_dim_size,
+    .param .u32 out_dim_size,
+    .param .u32 inner,
+    .param .u32 total
+) {
+    .reg .u32 %r_tid, %bid, %bdim;
+    .reg .u32 %outer_r, %in_dim_r, %out_dim_r, %inner_r, %total_r;
+    .reg .u32 %slab, %o, %rem, %i, %k, %idx;
+    .reg .u32 %src_flat, %tmp;
+    .reg .u64 %input, %indices, %out, %off, %addr;
+    .reg .f32 %idx_f, %val;
+    .reg .pred %p;
+
+    ld.param.u64 %input,   [input_ptr];
+    ld.param.u64 %indices, [indices_ptr];
+    ld.param.u64 %out,     [out_ptr];
+    ld.param.u32 %outer_r,   [outer];
+    ld.param.u32 %in_dim_r,  [in_dim_size];
+    ld.param.u32 %out_dim_r, [out_dim_size];
+    ld.param.u32 %inner_r,   [inner];
+    ld.param.u32 %total_r,   [total];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %total_r;
+    @%p bra DONE;
+
+    // slab = out_dim_size * inner
+    mul.lo.u32 %slab, %out_dim_r, %inner_r;
+    // o   = t / slab
+    div.u32 %o, %r_tid, %slab;
+    // rem = t % slab
+    rem.u32 %rem, %r_tid, %slab;
+    // i   = rem / inner
+    div.u32 %i, %rem, %inner_r;
+    // k   = rem % inner
+    rem.u32 %k, %rem, %inner_r;
+
+    // idx = indices[i]    (read f32, convert toward zero to u32)
+    cvt.u64.u32 %off, %i;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %indices, %off;
+    ld.global.f32 %idx_f, [%addr];
+    cvt.rzi.u32.f32 %idx, %idx_f;
+
+    // src_flat = o * (in_dim_size * inner) + idx * inner + k
+    mul.lo.u32 %tmp, %in_dim_r, %inner_r;
+    mul.lo.u32 %src_flat, %o, %tmp;
+    mad.lo.u32 %src_flat, %idx, %inner_r, %src_flat;
+    add.u32 %src_flat, %src_flat, %k;
+
+    cvt.u64.u32 %off, %src_flat;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %input, %off;
+    ld.global.f32 %val, [%addr];
+
+    // Write output[t]
+    cvt.u64.u32 %off, %r_tid;
+    shl.b64 %off, %off, 2;
+    add.u64 %addr, %out, %off;
+    st.global.f32 [%addr], %val;
+
+DONE:
+    ret;
+}
+";
+
+// Hand-written f64 PTX (NOT auto-derived from the f32 template).
+// The f64 rewriter at `ptx_f32_to_f64` cannot handle this kernel
+// because the indices buffer stays f32-encoded while the data
+// buffers become f64 — a single `%off` register cannot carry
+// two different element strides. We write the f64 variant by hand:
+//
+//   - `%off_d` register: 8-byte stride for f64 data accesses
+//     (input and output buffers).
+//   - `%off_i` register: 4-byte stride for f32 indices.
+//   - `.reg .f64 %val`: data register stays f64.
+//   - `.reg .f32 %idx_f`: index register stays f32.
+//
+// Target is `sm_60` to align with the rest of the f64 PTX surface
+// (`ptx_f32_to_f64` already lifts `.target sm_52` to `sm_60` for
+// the same reason: f64 atomics aren't available on sm_52).
+
+#[cfg(feature = "cuda")]
+pub(crate) const INDEX_SELECT_DIM_F64_PTX: &str = "\
+.version 7.0
+.target sm_60
+.address_size 64
+
+.visible .entry index_select_dim_f64_kernel(
+    .param .u64 input_ptr,
+    .param .u64 indices_ptr,
+    .param .u64 out_ptr,
+    .param .u32 outer,
+    .param .u32 in_dim_size,
+    .param .u32 out_dim_size,
+    .param .u32 inner,
+    .param .u32 total
+) {
+    .reg .u32 %r_tid, %bid, %bdim;
+    .reg .u32 %outer_r, %in_dim_r, %out_dim_r, %inner_r, %total_r;
+    .reg .u32 %slab, %o, %rem, %i, %k, %idx;
+    .reg .u32 %src_flat, %tmp;
+    .reg .u64 %input, %indices, %out, %off_d, %off_i, %addr;
+    .reg .f32 %idx_f;
+    .reg .f64 %val;
+    .reg .pred %p;
+
+    ld.param.u64 %input,   [input_ptr];
+    ld.param.u64 %indices, [indices_ptr];
+    ld.param.u64 %out,     [out_ptr];
+    ld.param.u32 %outer_r,   [outer];
+    ld.param.u32 %in_dim_r,  [in_dim_size];
+    ld.param.u32 %out_dim_r, [out_dim_size];
+    ld.param.u32 %inner_r,   [inner];
+    ld.param.u32 %total_r,   [total];
+
+    mov.u32 %bid, %ctaid.x;
+    mov.u32 %bdim, %ntid.x;
+    mov.u32 %r_tid, %tid.x;
+    mad.lo.u32 %r_tid, %bid, %bdim, %r_tid;
+
+    setp.ge.u32 %p, %r_tid, %total_r;
+    @%p bra DONE;
+
+    mul.lo.u32 %slab, %out_dim_r, %inner_r;
+    div.u32 %o, %r_tid, %slab;
+    rem.u32 %rem, %r_tid, %slab;
+    div.u32 %i, %rem, %inner_r;
+    rem.u32 %k, %rem, %inner_r;
+
+    // idx = indices[i]   (f32-encoded, 4-byte stride)
+    cvt.u64.u32 %off_i, %i;
+    shl.b64 %off_i, %off_i, 2;
+    add.u64 %addr, %indices, %off_i;
+    ld.global.f32 %idx_f, [%addr];
+    cvt.rzi.u32.f32 %idx, %idx_f;
+
+    // src_flat = o * (in_dim_size * inner) + idx * inner + k
+    mul.lo.u32 %tmp, %in_dim_r, %inner_r;
+    mul.lo.u32 %src_flat, %o, %tmp;
+    mad.lo.u32 %src_flat, %idx, %inner_r, %src_flat;
+    add.u32 %src_flat, %src_flat, %k;
+
+    // input[src_flat]   (f64, 8-byte stride)
+    cvt.u64.u32 %off_d, %src_flat;
+    shl.b64 %off_d, %off_d, 3;
+    add.u64 %addr, %input, %off_d;
+    ld.global.f64 %val, [%addr];
+
+    // output[t]  (f64, 8-byte stride)
+    cvt.u64.u32 %off_d, %r_tid;
+    shl.b64 %off_d, %off_d, 3;
+    add.u64 %addr, %out, %off_d;
+    st.global.f64 [%addr], %val;
+
+DONE:
+    ret;
+}
+";
+
+// ---------------------------------------------------------------------------
 // Scatter-add (1-D) PTX kernel — backward of index_select
 // ---------------------------------------------------------------------------
 // Thread i: atomicAdd(grad_input[indices[i]], grad_output[i])
@@ -13250,6 +13482,212 @@ pub fn gpu_scatter_add_1d(
             .arg(indices.inner())
             .arg(out.inner_mut())
             .arg(&n_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Public API -- Index-select-dim (N-D gather along arbitrary axis)
+// ---------------------------------------------------------------------------
+
+/// Gather slices along an arbitrary axis of `input`.
+///
+/// Reshapes the gather as `[outer, in_dim_size, inner] -> [outer,
+/// out_dim_size, inner]` (the standard "fold the leading and trailing
+/// axes" trick), then issues one PTX thread per output element. Each
+/// thread reads `indices[i]` (f32-encoded) and copies
+/// `input[o, indices[i], k]` into `output[o, i, k]`.
+///
+/// `indices` is a GPU buffer of `out_dim_size` f32 values encoding
+/// integer offsets. The output buffer has length
+/// `outer * out_dim_size * inner`.
+///
+/// Caller invariants (enforced by `index_select_dim` in
+/// `ferrotorch-core`):
+/// - `0 <= indices[i] < in_dim_size` for `i in [0, out_dim_size)`.
+/// - `input.len() == outer * in_dim_size * inner`.
+/// - `indices.len() == out_dim_size`.
+#[cfg(feature = "cuda")]
+pub fn gpu_index_select_dim(
+    input: &CudaBuffer<f32>,
+    indices: &CudaBuffer<f32>,
+    outer: usize,
+    in_dim_size: usize,
+    out_dim_size: usize,
+    inner: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_unary(input, device)?;
+    validate_device(indices, device)?;
+
+    let total = outer
+        .checked_mul(out_dim_size)
+        .and_then(|t| t.checked_mul(inner))
+        .ok_or(GpuError::ShapeMismatch {
+            op: "index_select_dim",
+            expected: vec![usize::MAX],
+            got: vec![outer, out_dim_size, inner],
+        })?;
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        INDEX_SELECT_DIM_PTX,
+        "index_select_dim_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "index_select_dim_kernel",
+                source: e,
+            });
+        }
+    };
+
+    let mut out = alloc_zeros_f32(total, device)?;
+    let cfg = launch_cfg(total)?;
+    let outer_u32 = outer as u32;
+    let in_dim_u32 = in_dim_size as u32;
+    let out_dim_u32 = out_dim_size as u32;
+    let inner_u32 = inner as u32;
+    let total_u32 = total as u32;
+
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` resolved via the
+    //   `module_cache::get_or_compile(ctx, INDEX_SELECT_DIM_PTX,
+    //   "index_select_dim_kernel", ...)` call earlier in this fn;
+    //   the entry-point ABI is `(input_ptr, indices_ptr, out_ptr,
+    //   outer, in_dim_size, out_dim_size, inner, total)`.
+    // - `input` and `indices` are on `device` (validated by
+    //   `validate_unary`/`validate_device` above).
+    // - `out` was freshly allocated by `alloc_zeros_f32(total,
+    //   device)?` immediately above with length `total`, so it
+    //   cannot alias `input` or `indices`. `out.inner_mut()` is the
+    //   only mutable borrow live for the launch.
+    // - The kernel writes one element per thread; the PTX bound
+    //   check `setp.ge.u32 %p, %r_tid, %total_r; @%p bra DONE`
+    //   skips OOB threads. Caller is responsible for ensuring
+    //   `indices[i] < in_dim_size` (mirrors `index_select_1d`'s
+    //   contract); out-of-range gather indices are caller-error,
+    //   not memory-unsafe in the launch itself.
+    // - `total_u32 = total as u32` is bounded by `launch_cfg(total)?`
+    //   above, which errors when `total > u32::MAX`. The other
+    //   `_u32` casts are likewise bounded (each individual
+    //   dim is <= total).
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(indices.inner())
+            .arg(out.inner_mut())
+            .arg(&outer_u32)
+            .arg(&in_dim_u32)
+            .arg(&out_dim_u32)
+            .arg(&inner_u32)
+            .arg(&total_u32)
+            .launch(cfg)?;
+    }
+
+    Ok(out)
+}
+
+/// f64 variant of [`gpu_index_select_dim`]. Indices remain f32-encoded.
+///
+/// Uses a hand-written PTX kernel ([`INDEX_SELECT_DIM_F64_PTX`]) instead
+/// of the auto-derived `ptx_f32_to_f64` rewriter: this kernel mixes f64
+/// data accesses with f32 index reads in a single thread, and the
+/// rewriter shares one `%off` register across both — promoting the
+/// indices stride from 4 to 8 bytes would mis-read indices.
+#[cfg(feature = "cuda")]
+pub fn gpu_index_select_dim_f64(
+    input: &CudaBuffer<f64>,
+    indices: &CudaBuffer<f32>,
+    outer: usize,
+    in_dim_size: usize,
+    out_dim_size: usize,
+    inner: usize,
+    device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    use cudarc::driver::PushKernelArg;
+
+    validate_device(input, device)?;
+    validate_device(indices, device)?;
+
+    let total = outer
+        .checked_mul(out_dim_size)
+        .and_then(|t| t.checked_mul(inner))
+        .ok_or(GpuError::ShapeMismatch {
+            op: "index_select_dim_f64",
+            expected: vec![usize::MAX],
+            got: vec![outer, out_dim_size, inner],
+        })?;
+
+    let ctx = device.context();
+    let stream = device.stream();
+
+    let f = match crate::module_cache::get_or_compile(
+        ctx,
+        INDEX_SELECT_DIM_F64_PTX,
+        "index_select_dim_f64_kernel",
+        device.ordinal() as u32,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(GpuError::PtxCompileFailed {
+                kernel: "index_select_dim_f64_kernel",
+                source: e,
+            });
+        }
+    };
+
+    let mut out = alloc_zeros_f64(total, device)?;
+    let cfg = launch_cfg(total)?;
+    let outer_u32 = outer as u32;
+    let in_dim_u32 = in_dim_size as u32;
+    let out_dim_u32 = out_dim_size as u32;
+    let inner_u32 = inner as u32;
+    let total_u32 = total as u32;
+
+    // SAFETY:
+    // - `f` is a valid PTX `CudaFunction` for the hand-written
+    //   `index_select_dim_f64_kernel` (target sm_60) loaded via
+    //   `module_cache::get_or_compile`. Its
+    //   `(in_ptr, idx_ptr, out_ptr, outer, in_dim_size,
+    //   out_dim_size, inner, total)` ABI matches the launch
+    //   args below.
+    // - `input: &CudaBuffer<f64>` and `indices: &CudaBuffer<f32>`
+    //   are on `device` (validated by `validate_device`).
+    // - `out` was freshly allocated by `alloc_zeros_f64(total,
+    //   device)?` immediately above with length `total`, so it
+    //   cannot alias `input` or `indices`.
+    // - `out.inner_mut()` is the only mutable borrow live for the
+    //   launch. The PTX uses distinct `%off_d` (8-byte f64 stride)
+    //   and `%off_i` (4-byte f32 stride) registers — see the PTX
+    //   source for the by-hand stride discipline.
+    // - The PTX bound check `setp.ge.u32 %p, %r_tid, %total_r;
+    //   @%p bra DONE` skips OOB threads. Caller is responsible
+    //   for ensuring `indices[i] < in_dim_size` (mirrors
+    //   `index_select_1d_f64`).
+    // - `total_u32 = total as u32` is bounded by
+    //   `launch_cfg(total)?` above.
+    unsafe {
+        stream
+            .launch_builder(&f)
+            .arg(input.inner())
+            .arg(indices.inner())
+            .arg(out.inner_mut())
+            .arg(&outer_u32)
+            .arg(&in_dim_u32)
+            .arg(&out_dim_u32)
+            .arg(&inner_u32)
+            .arg(&total_u32)
             .launch(cfg)?;
     }
 
@@ -22973,6 +23411,34 @@ pub fn gpu_scatter_add_1d(
 
 /// Stub -- always returns [`GpuError::NoCudaFeature`].
 #[cfg(not(feature = "cuda"))]
+pub fn gpu_index_select_dim(
+    _input: &CudaBuffer<f32>,
+    _indices: &CudaBuffer<f32>,
+    _outer: usize,
+    _in_dim_size: usize,
+    _out_dim_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f32>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
+pub fn gpu_index_select_dim_f64(
+    _input: &CudaBuffer<f64>,
+    _indices: &CudaBuffer<f32>,
+    _outer: usize,
+    _in_dim_size: usize,
+    _out_dim_size: usize,
+    _inner: usize,
+    _device: &GpuDevice,
+) -> GpuResult<CudaBuffer<f64>> {
+    Err(GpuError::NoCudaFeature)
+}
+
+/// Stub -- always returns [`GpuError::NoCudaFeature`].
+#[cfg(not(feature = "cuda"))]
 pub fn gpu_masked_fill(
     _input: &CudaBuffer<f32>,
     _mask: &CudaBuffer<f32>,
@@ -26774,5 +27240,257 @@ mod tests {
         let host: Vec<f32> = (0..10_000).map(|i| i as f32 * 0.5).collect();
         let (dev, buf) = setup(&host);
         assert!(!gpu_has_inf_nan(&buf, &dev).expect("kernel must succeed"));
+    }
+
+    // -- gpu_index_select_dim / gpu_index_select_dim_f64 (#1098) -------------
+    //
+    // Discriminating tests for the device-resident N-D gather kernels added
+    // to close #1098 (RandomHorizontalFlip + Swin relative-position-bias
+    // CUDA paths). Each test builds a CPU reference via the same
+    // `[outer, in_dim_size, inner]` contract the kernel implements, uploads
+    // the input + f32-encoded indices, launches the kernel, downloads, and
+    // compares element-wise.
+
+    /// CPU reference for the gather contract:
+    ///   out[o, i, k] = input[o, indices[i], k]
+    /// over outer * out_dim_size * inner elements. Mirrors the CPU fallback
+    /// in `ferrotorch_core::grad_fns::indexing::index_select_dim`.
+    fn cpu_ref_index_select_dim<T: Copy + Default>(
+        input: &[T],
+        indices: &[usize],
+        outer: usize,
+        in_dim_size: usize,
+        inner: usize,
+    ) -> Vec<T> {
+        let out_dim_size = indices.len();
+        let total = outer * out_dim_size * inner;
+        let mut out = vec![T::default(); total];
+        for o in 0..outer {
+            for i in 0..out_dim_size {
+                let src_i = indices[i];
+                let in_base = o * in_dim_size * inner + src_i * inner;
+                let out_base = o * out_dim_size * inner + i * inner;
+                out[out_base..out_base + inner]
+                    .copy_from_slice(&input[in_base..in_base + inner]);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn gpu_index_select_dim_f32_basic() {
+        // shape [2, 3, 4], dim=1, indices=[2, 0, 1] → output [2, 3, 4].
+        // Decomposes to outer=2, in_dim_size=3, out_dim_size=3, inner=4.
+        let outer = 2usize;
+        let in_dim_size = 3usize;
+        let inner = 4usize;
+        let indices_usize: Vec<usize> = vec![2, 0, 1];
+        let indices_f32: Vec<f32> = indices_usize.iter().map(|&u| u as f32).collect();
+
+        let numel = outer * in_dim_size * inner;
+        let input: Vec<f32> = (0..numel).map(|i| i as f32).collect();
+        let expected =
+            cpu_ref_index_select_dim(&input, &indices_usize, outer, in_dim_size, inner);
+
+        let (dev, in_buf) = setup(&input);
+        let idx_buf = cpu_to_gpu(&indices_f32, &dev).expect("cpu_to_gpu indices");
+        let out = gpu_index_select_dim(
+            &in_buf,
+            &idx_buf,
+            outer,
+            in_dim_size,
+            indices_usize.len(),
+            inner,
+            &dev,
+        )
+        .expect("gpu_index_select_dim");
+        assert_buf_eq(&out, &dev, &expected);
+    }
+
+    #[test]
+    fn gpu_index_select_dim_f64_basic() {
+        // f64 variant of `gpu_index_select_dim_f32_basic` with the same
+        // [2, 3, 4] / dim=1 shape and same indices.
+        let outer = 2usize;
+        let in_dim_size = 3usize;
+        let inner = 4usize;
+        let indices_usize: Vec<usize> = vec![2, 0, 1];
+        let indices_f32: Vec<f32> = indices_usize.iter().map(|&u| u as f32).collect();
+
+        let numel = outer * in_dim_size * inner;
+        let input: Vec<f64> = (0..numel).map(|i| i as f64 + 0.25).collect();
+        let expected =
+            cpu_ref_index_select_dim(&input, &indices_usize, outer, in_dim_size, inner);
+
+        let dev = GpuDevice::new(0).expect("CUDA device 0");
+        let in_buf = cpu_to_gpu(&input, &dev).expect("cpu_to_gpu input f64");
+        let idx_buf = cpu_to_gpu(&indices_f32, &dev).expect("cpu_to_gpu indices");
+        let out = gpu_index_select_dim_f64(
+            &in_buf,
+            &idx_buf,
+            outer,
+            in_dim_size,
+            indices_usize.len(),
+            inner,
+            &dev,
+        )
+        .expect("gpu_index_select_dim_f64");
+        let host = gpu_to_cpu(&out, &dev).expect("gpu_to_cpu");
+        assert_eq!(host.len(), expected.len(), "length mismatch");
+        for (i, (&got, &exp)) in host.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (got - exp).abs() < 1e-12,
+                "f64 element {i}: got {got}, expected {exp}",
+            );
+        }
+    }
+
+    #[test]
+    fn gpu_index_select_dim_f32_dim_0() {
+        // Gather along dim 0 of a [4, 3] input → outer=1, in_dim_size=4,
+        // inner=3. indices=[3, 1, 0] picks rows in reverse order
+        // (minus the middle).
+        let outer = 1usize;
+        let in_dim_size = 4usize;
+        let inner = 3usize;
+        let indices_usize: Vec<usize> = vec![3, 1, 0];
+        let indices_f32: Vec<f32> = indices_usize.iter().map(|&u| u as f32).collect();
+
+        let input: Vec<f32> = vec![
+            10.0, 11.0, 12.0, // row 0
+            20.0, 21.0, 22.0, // row 1
+            30.0, 31.0, 32.0, // row 2
+            40.0, 41.0, 42.0, // row 3
+        ];
+        let expected =
+            cpu_ref_index_select_dim(&input, &indices_usize, outer, in_dim_size, inner);
+
+        let (dev, in_buf) = setup(&input);
+        let idx_buf = cpu_to_gpu(&indices_f32, &dev).expect("cpu_to_gpu indices");
+        let out = gpu_index_select_dim(
+            &in_buf,
+            &idx_buf,
+            outer,
+            in_dim_size,
+            indices_usize.len(),
+            inner,
+            &dev,
+        )
+        .expect("gpu_index_select_dim dim_0");
+        // Expected order: [row3, row1, row0].
+        assert_buf_eq(
+            &out,
+            &dev,
+            &[40.0, 41.0, 42.0, 20.0, 21.0, 22.0, 10.0, 11.0, 12.0],
+        );
+        // Sanity: also matches the CPU reference computed above.
+        assert_buf_eq(&out, &dev, &expected);
+    }
+
+    #[test]
+    fn gpu_index_select_dim_f32_dim_last() {
+        // RandomHorizontalFlip's case: reverse along the LAST dim of a
+        // [2, 4] input. Decomposes to outer=2, in_dim_size=4,
+        // out_dim_size=4, inner=1. indices=[3, 2, 1, 0].
+        let outer = 2usize;
+        let in_dim_size = 4usize;
+        let inner = 1usize;
+        let indices_usize: Vec<usize> = vec![3, 2, 1, 0];
+        let indices_f32: Vec<f32> = indices_usize.iter().map(|&u| u as f32).collect();
+
+        let input: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let expected =
+            cpu_ref_index_select_dim(&input, &indices_usize, outer, in_dim_size, inner);
+        // Manual: each row reversed → [4,3,2,1, 8,7,6,5].
+        assert_eq!(expected, vec![4.0, 3.0, 2.0, 1.0, 8.0, 7.0, 6.0, 5.0]);
+
+        let (dev, in_buf) = setup(&input);
+        let idx_buf = cpu_to_gpu(&indices_f32, &dev).expect("cpu_to_gpu indices");
+        let out = gpu_index_select_dim(
+            &in_buf,
+            &idx_buf,
+            outer,
+            in_dim_size,
+            indices_usize.len(),
+            inner,
+            &dev,
+        )
+        .expect("gpu_index_select_dim dim_last");
+        assert_buf_eq(&out, &dev, &expected);
+    }
+
+    #[test]
+    fn gpu_index_select_dim_f32_repeated_indices() {
+        // Indices [0, 0, 1, 1] on a [3, 1] (dim 0) input → forward should
+        // duplicate rows; pins in scatter-style aliasing on forward without
+        // accumulation. Decomposes to outer=1, in_dim_size=3, inner=1.
+        let outer = 1usize;
+        let in_dim_size = 3usize;
+        let inner = 1usize;
+        let indices_usize: Vec<usize> = vec![0, 0, 1, 1];
+        let indices_f32: Vec<f32> = indices_usize.iter().map(|&u| u as f32).collect();
+
+        let input: Vec<f32> = vec![7.5, -3.0, 11.0];
+        let expected =
+            cpu_ref_index_select_dim(&input, &indices_usize, outer, in_dim_size, inner);
+        // Manual: indices 0,0,1,1 → [7.5, 7.5, -3.0, -3.0].
+        assert_eq!(expected, vec![7.5, 7.5, -3.0, -3.0]);
+
+        let (dev, in_buf) = setup(&input);
+        let idx_buf = cpu_to_gpu(&indices_f32, &dev).expect("cpu_to_gpu indices");
+        let out = gpu_index_select_dim(
+            &in_buf,
+            &idx_buf,
+            outer,
+            in_dim_size,
+            indices_usize.len(),
+            inner,
+            &dev,
+        )
+        .expect("gpu_index_select_dim repeated");
+        assert_buf_eq(&out, &dev, &expected);
+    }
+
+    #[test]
+    fn gpu_index_select_dim_f32_random_permutation() {
+        // Random permutation of a moderately large in_dim_size on dim 1 of
+        // a [2, 7, 5] input. Decomposes to outer=2, in_dim_size=7,
+        // out_dim_size=7, inner=5. Uses a fixed permutation so the test
+        // stays deterministic without seeded RNG plumbing.
+        let outer = 2usize;
+        let in_dim_size = 7usize;
+        let inner = 5usize;
+        let indices_usize: Vec<usize> = vec![4, 0, 6, 2, 5, 1, 3];
+        let indices_f32: Vec<f32> = indices_usize.iter().map(|&u| u as f32).collect();
+
+        let numel = outer * in_dim_size * inner;
+        let input: Vec<f32> = (0..numel).map(|i| (i as f32) * 0.5 - 1.25).collect();
+        let expected =
+            cpu_ref_index_select_dim(&input, &indices_usize, outer, in_dim_size, inner);
+
+        let (dev, in_buf) = setup(&input);
+        let idx_buf = cpu_to_gpu(&indices_f32, &dev).expect("cpu_to_gpu indices");
+        let out = gpu_index_select_dim(
+            &in_buf,
+            &idx_buf,
+            outer,
+            in_dim_size,
+            indices_usize.len(),
+            inner,
+            &dev,
+        )
+        .expect("gpu_index_select_dim random permutation");
+        let host = gpu_to_cpu(&out, &dev).expect("gpu_to_cpu");
+        assert_eq!(host.len(), expected.len(), "length mismatch");
+        // 1e-9 tolerance per the task spec; f32 round-trip on exact values
+        // far exceeds that.
+        for (i, (&got, &exp)) in host.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (got - exp).abs() < 1e-9,
+                "permutation element {i}: got {got}, expected {exp}",
+            );
+        }
+        // Device match: the output's device ordinal must equal the input's.
+        assert_eq!(out.device_ordinal(), in_buf.device_ordinal());
     }
 }

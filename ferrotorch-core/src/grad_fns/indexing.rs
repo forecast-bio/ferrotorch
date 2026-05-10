@@ -991,45 +991,69 @@ impl<T: Float> GradFn<T> for IndexSelectDimBackward<T> {
         // GPU path: scatter-add via the existing 1-D kernel. We compute the
         // flat destination index in input-space for every element of
         // grad_output (which is dense, in C-order, with shape replacing
-        // `dim` by `out_dim_size`), upload, and reuse `scatter_add_1d_f32`.
+        // `dim` by `out_dim_size`), upload, and reuse
+        // `scatter_add_1d_{f32,f64}`. f64 inputs now reach this path
+        // via #1098 (CUDA forward for `index_select_dim`); fall back to
+        // CPU only for non-{f32,f64} floats so we never silently demote
+        // an in-graph CUDA buffer.
         if grad_output.is_cuda() {
-            let ordinal = match grad_output.device() {
-                Device::Cuda(o) => o,
-                _ => unreachable!(),
-            };
-            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            use std::any::TypeId;
+            let is_t_f32 = TypeId::of::<T>() == TypeId::of::<f32>();
+            let is_t_f64 = TypeId::of::<T>() == TypeId::of::<f64>();
+            if is_t_f32 || is_t_f64 {
+                let ordinal = match grad_output.device() {
+                    Device::Cuda(o) => o,
+                    _ => unreachable!(),
+                };
+                let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
 
-            // Build flat destination indices, one per grad_output element.
-            //
-            // For grad_output with C-contiguous layout
-            //   [outer, out_dim_size, inner]
-            // and target buffer (= input space) with layout
-            //   [outer, in_dim_size, inner]
-            // a grad_output element at flat position
-            //   o * out_dim_size * inner + i * inner + k
-            // maps to flat dst position
-            //   o * in_dim_size * inner + indices[i] * inner + k
-            let go_numel = outer * out_dim_size * inner;
-            let mut dst_indices: Vec<f32> = Vec::with_capacity(go_numel);
-            for o in 0..outer {
-                for i in 0..out_dim_size {
-                    let dst_i = self.indices[i];
-                    let base = o * in_dim_size * inner + dst_i * inner;
-                    for k in 0..inner {
-                        dst_indices.push((base + k) as f32);
+                // Build flat destination indices, one per grad_output element.
+                //
+                // For grad_output with C-contiguous layout
+                //   [outer, out_dim_size, inner]
+                // and target buffer (= input space) with layout
+                //   [outer, in_dim_size, inner]
+                // a grad_output element at flat position
+                //   o * out_dim_size * inner + i * inner + k
+                // maps to flat dst position
+                //   o * in_dim_size * inner + indices[i] * inner + k
+                let go_numel = outer * out_dim_size * inner;
+                let mut dst_indices: Vec<f32> = Vec::with_capacity(go_numel);
+                for o in 0..outer {
+                    for i in 0..out_dim_size {
+                        let dst_i = self.indices[i];
+                        let base = o * in_dim_size * inner + dst_i * inner;
+                        for k in 0..inner {
+                            dst_indices.push((base + k) as f32);
+                        }
                     }
                 }
-            }
 
-            let idx_handle = upload_f32_to_gpu(&dst_indices, ordinal)?;
-            let result_handle =
-                backend.scatter_add_1d_f32(grad_output.gpu_handle()?, &idx_handle, input_numel)?;
-            let grad_tensor = Tensor::from_storage(
-                TensorStorage::gpu(result_handle),
-                input_shape.to_vec(),
-                false,
-            )?;
-            return Ok(vec![Some(grad_tensor)]);
+                let idx_handle = upload_f32_to_gpu(&dst_indices, ordinal)?;
+                let result_handle = if is_t_f32 {
+                    backend.scatter_add_1d_f32(
+                        grad_output.gpu_handle()?,
+                        &idx_handle,
+                        input_numel,
+                    )?
+                } else {
+                    backend.scatter_add_1d_f64(
+                        grad_output.gpu_handle()?,
+                        &idx_handle,
+                        input_numel,
+                    )?
+                };
+                let grad_tensor = Tensor::from_storage(
+                    TensorStorage::gpu(result_handle),
+                    input_shape.to_vec(),
+                    false,
+                )?;
+                return Ok(vec![Some(grad_tensor)]);
+            }
+            // Unsupported float dtype on CUDA: surface explicitly.
+            return Err(FerrotorchError::NotImplementedOnCuda {
+                op: "IndexSelectDimBackward",
+            });
         }
 
         // CPU path: scatter-add directly.
@@ -1080,16 +1104,6 @@ pub fn index_select_dim<T: Float, I: IntElement>(
     dim: usize,
     indices: &IntTensor<I>,
 ) -> FerrotorchResult<Tensor<T>> {
-    if input.is_cuda() {
-        // Pass 3 scope is CPU-correct + autograd-correct. A GPU forward
-        // would need a dedicated index_select_dim_f32 kernel; surface
-        // explicitly rather than silently CPU-pulling activations
-        // (failure mode #15).
-        return Err(FerrotorchError::NotImplementedOnCuda {
-            op: "index_select_dim",
-        });
-    }
-
     let input_shape = input.shape();
     let ndim = input_shape.len();
     if ndim == 0 {
@@ -1137,12 +1151,72 @@ pub fn index_select_dim<T: Float, I: IntElement>(
     // Compute output: same shape but axis `dim` replaced by indices.len().
     let mut output_shape = input_shape.to_vec();
     output_shape[dim] = idx_usize.len();
-    let out_numel: usize = output_shape.iter().product();
 
     let outer: usize = input_shape[..dim].iter().product();
     let inner: usize = input_shape[dim + 1..].iter().product();
     let out_dim_size = idx_usize.len();
 
+    // GPU path: route via TypeId to the f32/f64 device-resident gather
+    // kernel. The output buffer is allocated on-device; no host
+    // round-trip. Indices are f32-encoded (backend convention shared
+    // with `index_select_1d_f32`, `scatter_add_1d_f32`, etc.).
+    if input.is_cuda() {
+        use std::any::TypeId;
+        let is_t_f32 = TypeId::of::<T>() == TypeId::of::<f32>();
+        let is_t_f64 = TypeId::of::<T>() == TypeId::of::<f64>();
+        if is_t_f32 || is_t_f64 {
+            let ordinal = match input.device() {
+                Device::Cuda(o) => o,
+                _ => unreachable!("input.is_cuda() but device() not Cuda"),
+            };
+            let backend = gpu_backend().ok_or(FerrotorchError::DeviceUnavailable)?;
+            // Upload indices as f32 (the established encoding for
+            // index buffers across the GPU dispatch surface).
+            let indices_f32: Vec<f32> = idx_usize.iter().map(|&u| u as f32).collect();
+            let idx_handle = upload_f32_to_gpu(&indices_f32, ordinal)?;
+
+            let result_handle = if is_t_f32 {
+                backend.index_select_dim_f32(
+                    input.gpu_handle()?,
+                    &idx_handle,
+                    outer,
+                    in_dim_size,
+                    out_dim_size,
+                    inner,
+                )?
+            } else {
+                backend.index_select_dim_f64(
+                    input.gpu_handle()?,
+                    &idx_handle,
+                    outer,
+                    in_dim_size,
+                    out_dim_size,
+                    inner,
+                )?
+            };
+
+            let storage = TensorStorage::gpu(result_handle);
+            return if input.requires_grad() && is_grad_enabled() {
+                let grad_fn = Arc::new(IndexSelectDimBackward {
+                    input: input.clone(),
+                    dim,
+                    indices: idx_usize,
+                });
+                Tensor::from_operation(storage, output_shape, grad_fn)
+            } else {
+                Tensor::from_storage(storage, output_shape, false)
+            };
+        }
+        // Non-f32/f64 floats (e.g., bf16) still surface explicit
+        // NotImplementedOnCuda — preserves the "no silent fallback"
+        // contract for unsupported dtypes.
+        return Err(FerrotorchError::NotImplementedOnCuda {
+            op: "index_select_dim",
+        });
+    }
+
+    // CPU path: dense memcpy along axis.
+    let out_numel: usize = output_shape.iter().product();
     let in_data = input.data_vec()?;
     let mut out = vec![<T as num_traits::Zero>::zero(); out_numel];
     for o in 0..outer {

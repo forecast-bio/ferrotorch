@@ -1660,6 +1660,44 @@ pub trait GpuBackend: Send + Sync {
             message: "scatter_add_1d_f64 GPU op not yet implemented".into(),
         })
     }
+    // index_select_dim: gather slices along an arbitrary axis (N-D).
+    //
+    // Forward layout (contract):
+    //   `input`  has logical shape `[outer, in_dim_size, inner]` after
+    //   collapsing the axes before/after `dim`. `indices` is an
+    //   `out_dim_size`-long f32 buffer encoding integer offsets into
+    //   the `in_dim_size` axis (caller-validated, non-negative,
+    //   in-range). The kernel writes
+    //     `output[o, i, k] = input[o, indices[i], k]`
+    //   for `o in [0, outer), i in [0, out_dim_size), k in [0, inner)`.
+    // The output buffer has length `outer * out_dim_size * inner`.
+    //
+    // This subsumes the 1-D `index_select_1d_*` ops for ndim>=2 with
+    // arbitrary `dim`. The 1-D ops are kept for the
+    // `IndexSelectBackward` (single-axis 1-D index) call site, which
+    // predates this op.
+    fn index_select_dim_f32(
+        &self,
+        input: &GpuBufferHandle,
+        indices: &GpuBufferHandle,
+        outer: usize,
+        in_dim_size: usize,
+        out_dim_size: usize,
+        inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle>;
+    fn index_select_dim_f64(
+        &self,
+        _input: &GpuBufferHandle,
+        _indices: &GpuBufferHandle,
+        _outer: usize,
+        _in_dim_size: usize,
+        _out_dim_size: usize,
+        _inner: usize,
+    ) -> FerrotorchResult<GpuBufferHandle> {
+        Err(FerrotorchError::InvalidArgument {
+            message: "index_select_dim_f64 GPU op not yet implemented".into(),
+        })
+    }
     // masked_fill: out[i] = mask[i] ? value : input[i]  (mask stored as f32, 1.0/0.0)
     fn masked_fill_f32(
         &self,

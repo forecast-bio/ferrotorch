@@ -2525,6 +2525,7 @@ dependencies = [
  "arrow",
  "ferray-numpy-interop",
  "ferrotorch-core",
+ "ferrotorch-gpu",
  "num-traits",
  "polars",
  "quote",

@@ -245,18 +245,15 @@ impl<T: Float> ShiftedWindowAttention<T> {
     /// `relative_position_bias_table.grad()`. Closes the last hot-path
     /// `data_vec()` pull in this module (#1014).
     ///
-    /// CUDA fallback: `index_select_dim` only has a CPU forward today.
-    /// When the table parameter sits on CUDA we run the gather CPU-side
-    /// and ship the result back — preserving eval-mode value parity on
-    /// CUDA. Training on CUDA needs a GPU `index_select_dim` kernel
-    /// (separate follow-up); the CPU path covers the immediate
-    /// "Swin-T trains end-to-end" north-star contract.
+    /// `index_select_dim` is now device-resident on both CPU and CUDA
+    /// (#1098 closed the prior CUDA `NotImplementedOnCuda` gap), so
+    /// this fn runs entirely on the table's home device for both
+    /// forward and backward.
     fn build_relative_position_bias(&self) -> FerrotorchResult<Tensor<T>> {
         let ws = self.window_size;
         let n = ws * ws;
         let nh = self.num_heads;
         let table = self.relative_position_bias_table.tensor();
-        let table_device = table.device();
 
         // Build a 1-D IntTensor<i64> from the pre-computed index buffer
         // (length `n*n`, values in `0..(2*ws-1)^2`). The IntTensor wrapper
@@ -264,22 +261,10 @@ impl<T: Float> ShiftedWindowAttention<T> {
         let idx = IntTensor::<i64>::from_slice(&self.relative_position_index, &[n * n])?;
 
         // Differentiable index_select on dim=0: output shape
-        // [N*N, num_heads]. CPU-only forward; if the table is on CUDA we
-        // do the gather on a CPU mirror and ship back.
-        let gathered = if table.is_cuda() {
-            let cpu_table = table.to(ferrotorch_core::Device::Cpu)?;
-            // CPU-side gather; eval-mode parity preserved (no grad needed
-            // when the table lives on CUDA — that path is currently
-            // inference-only; CUDA training awaits a GPU kernel).
-            let g = index_select_dim(&cpu_table, 0, &idx)?;
-            g.to(table_device)?
-        } else {
-            // CPU table: fully autograd-routed. requires_grad on the
-            // Parameter propagates through index_select_dim into its
-            // IndexSelectDimBackward, then through the permute /
-            // contiguous / view chain that follows.
-            index_select_dim(table, 0, &idx)?
-        };
+        // [N*N, num_heads]. The kernel runs on whichever device `table`
+        // lives on — CUDA path uses `gpu_index_select_dim` (#1098),
+        // backward scatter-adds via `scatter_add_1d_{f32,f64}`.
+        let gathered = index_select_dim(table, 0, &idx)?;
 
         // gathered is laid out as [N*N, num_heads]. View as [N, N, num_heads]
         // then permute to [num_heads, N, N], then unsqueeze leading 1 →
