@@ -19,6 +19,22 @@ use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
+// CL-1105 note: Rprop uses element-wise sign(g_prev * g_t) and conditional
+// branches per element (zero out g on sign reversal). The available
+// device-aware ops in ferrotorch-core do not yet expose a GPU `sign` or
+// device-resident `where`/`where_bt` (they all do `data_vec()` round-trips
+// or are explicitly `require_cpu`). Implementing rprop's sign-product
+// branching purely from arithmetic primitives would either require new
+// GPU kernels in ferrotorch-core (out of scope for this dispatch) or
+// introduce arithmetic bias near zero via abs-division tricks
+// (numerically unsound for rprop's sign-detection step). Per the
+// dispatch directive ("MUST NOT add CPU silent-fallback for unsupported
+// chains"), Rprop joins SparseAdam and Adafactor in the
+// fail-fast-on-CUDA group: a CUDA parameter raises
+// `FerrotorchError::NotImplementedOnCuda` instead of silently
+// round-tripping to CPU. Lift this when ferrotorch-core gains
+// device-resident `sign` + `where_bt`.
+
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
 
 // ---------------------------------------------------------------------------
@@ -125,6 +141,12 @@ impl<T: Float> Rprop<T> {
 }
 
 impl<T: Float> Optimizer<T> for Rprop<T> {
+    /// Run one optimizer step.
+    ///
+    /// CL-1105: Rprop fails fast when any parameter lives on CUDA — see the
+    /// module-level note for why a fully device-resident step is not yet
+    /// expressible from ferrotorch-core's current op set. Joins SparseAdam
+    /// and Adafactor in the fail-fast-on-CUDA group; never silently demotes.
     fn step(&mut self) -> FerrotorchResult<()> {
         let (eta_minus, eta_plus) = self.config.etas;
         let (step_min, step_max) = self.config.step_sizes;
@@ -139,6 +161,10 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
                     Some(g) => g,
                     None => continue,
                 };
+
+                if tensor.is_cuda() {
+                    return Err(FerrotorchError::NotImplementedOnCuda { op: "Rprop" });
+                }
 
                 let key = Self::param_key(gi, pi);
 

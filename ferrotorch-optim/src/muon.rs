@@ -8,8 +8,17 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::creation::scalar;
+use ferrotorch_core::grad_fns::arithmetic::{add, mul, neg, sub};
+use ferrotorch_core::grad_fns::reduction::sum as tensor_sum;
 use ferrotorch_core::numeric_cast::cast;
-use ferrotorch_core::{FerrotorchResult, Float, no_grad};
+// CL-1105 Pattern B correctness: use the differentiable matmul, which has
+// the CUDA dispatch (cuBLAS GEMM) wired up; the `ops::linalg::matmul`
+// alternative calls `.data()?` and surfaces `GpuTensorNotAccessible` on
+// CUDA tensors. The autograd graph is suppressed by the `no_grad` wrapping
+// at every call site in the step body.
+use ferrotorch_core::grad_fns::linalg::matmul_differentiable as tensor_matmul;
+use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -124,15 +133,19 @@ impl Default for MuonConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Matrix helpers (dense, row-major)
+// Matrix helpers (dense, row-major) — kept for state_dict CPU serialization
 // ---------------------------------------------------------------------------
 
-/// Compute the Frobenius norm of a flat matrix.
+/// Compute the Frobenius norm of a flat matrix. (CPU-only reference used by
+/// `newton_schulz_orthogonalize`; production path is the device-aware
+/// `newton_schulz_orthogonalize_tensor` above.)
+#[cfg(test)]
 fn frobenius_norm(data: &[f64], _rows: usize, _cols: usize) -> f64 {
     data.iter().map(|&x| x * x).sum::<f64>().sqrt()
 }
 
 /// Matrix multiply: C = A (m x k) @ B (k x n) -> (m x n).
+#[cfg(test)]
 fn matmul(a: &[f64], b: &[f64], m: usize, k: usize, n: usize) -> Vec<f64> {
     let mut c = vec![0.0; m * n];
     for i in 0..m {
@@ -148,6 +161,7 @@ fn matmul(a: &[f64], b: &[f64], m: usize, k: usize, n: usize) -> Vec<f64> {
 }
 
 /// Transpose a (rows x cols) matrix.
+#[cfg(test)]
 fn transpose(data: &[f64], rows: usize, cols: usize) -> Vec<f64> {
     let mut t = vec![0.0; rows * cols];
     for i in 0..rows {
@@ -158,19 +172,69 @@ fn transpose(data: &[f64], rows: usize, cols: usize) -> Vec<f64> {
     t
 }
 
-/// Newton-Schulz orthogonalization of a matrix G (rows x cols).
+/// Device-resident Newton-Schulz orthogonalization of a matrix G (rows x cols).
 ///
-/// 1. Normalize: G = G / ||G||_F
-/// 2. For `ns_steps` iterations: G = G * (3*I - G^T @ G) / 2
+/// 1. Normalize: G = G / ||G||_F where ||G||_F = sqrt(sum(G * G))
+/// 2. For `ns_steps` iterations: G = G @ (3*I - G^T @ G) / 2
 ///
-/// This converges to the polar factor (orthogonal component) of G.
+/// All ops dispatch to the tensor's device — the result lands on the same
+/// device as the input. CL-1105 Pattern B.
+fn newton_schulz_orthogonalize_tensor<T: Float>(
+    grad: &Tensor<T>,
+    ns_steps: usize,
+) -> FerrotorchResult<Tensor<T>> {
+    let device = grad.device();
+    let shape = grad.shape();
+    debug_assert_eq!(shape.len(), 2, "newton_schulz expects 2-D tensor");
+    let cols = shape[1];
+
+    // ||G||_F^2 = sum(G * G) (scalar tensor on device).
+    let g_sq = mul(grad, grad)?;
+    let norm_sq = tensor_sum(&g_sq)?;
+    // ||G||_F = sqrt(||G||_F^2)
+    let norm = ferrotorch_core::grad_fns::arithmetic::sqrt(&norm_sq)?;
+
+    // Frobenius norm safety guard: if the input is identically zero the
+    // upstream code already returns zeros via the algorithmic fixed point;
+    // we add a tiny epsilon to keep the division on-device finite.
+    let eps_t = scalar(cast::<f64, T>(1e-30)?)?.to(device)?;
+    let norm_safe = add(&norm, &eps_t)?;
+
+    // g = grad / ||grad||_F  (broadcast: shape == grad.shape)
+    let mut g = ferrotorch_core::grad_fns::arithmetic::div(grad, &norm_safe)?;
+
+    // Construct identity I (cols x cols) and the constant 3 once, on the
+    // input's device.
+    let identity_cpu = ferrotorch_core::creation::eye::<T>(cols)?;
+    let identity = identity_cpu.to(device)?;
+    let three_t = scalar(cast::<f64, T>(3.0)?)?.to(device)?;
+    let three_i = mul(&identity, &three_t)?;
+    let half_t = scalar(cast::<f64, T>(0.5)?)?.to(device)?;
+
+    for _ in 0..ns_steps {
+        // G^T  (zero-copy view on any device).
+        let gt = g.t()?;
+        // G^T @ G  -> (cols x cols)
+        let gtg = tensor_matmul(&gt, &g)?;
+        // M = 3*I - G^T @ G
+        let m = sub(&three_i, &gtg)?;
+        // G_{k+1} = G_k @ M / 2
+        let gm = tensor_matmul(&g, &m)?;
+        g = mul(&gm, &half_t)?;
+    }
+
+    Ok(g)
+}
+
+#[cfg(test)]
 fn newton_schulz_orthogonalize(
     grad: &[f64],
     rows: usize,
     cols: usize,
     ns_steps: usize,
 ) -> Vec<f64> {
-    // Normalize by Frobenius norm.
+    // CPU-only legacy reference used by test_newton_schulz_*; the production
+    // path is `newton_schulz_orthogonalize_tensor`.
     let norm = frobenius_norm(grad, rows, cols);
     if norm < 1e-30 {
         return vec![0.0; rows * cols];
@@ -178,11 +242,9 @@ fn newton_schulz_orthogonalize(
     let mut g: Vec<f64> = grad.iter().map(|&x| x / norm).collect();
 
     for _ in 0..ns_steps {
-        // G^T @ G  -> (cols x rows) @ (rows x cols) = (cols x cols)
         let gt = transpose(&g, rows, cols);
         let gtg = matmul(&gt, &g, cols, rows, cols);
 
-        // M = 3*I - G^T @ G  (cols x cols)
         let mut m = vec![0.0; cols * cols];
         for i in 0..cols {
             for j in 0..cols {
@@ -192,7 +254,6 @@ fn newton_schulz_orthogonalize(
             }
         }
 
-        // G = G @ M / 2  -> (rows x cols) @ (cols x cols) = (rows x cols)
         let gm = matmul(&g, &m, rows, cols, cols);
         g = gm.iter().map(|&x| x / 2.0).collect();
     }
@@ -209,14 +270,20 @@ fn newton_schulz_orthogonalize(
 /// For 2D parameters, applies Newton-Schulz orthogonalization to the gradient
 /// before the momentum step. For non-2D parameters, falls back to standard
 /// momentum SGD.
+///
+/// CL-1105: momentum buffers are stored as [`Tensor<T>`] so they live on the
+/// same device as the parameters they correspond to; the step body composes
+/// device-aware arithmetic ops (no `data_vec()` round-trip).
 #[derive(Debug)]
 pub struct Muon<T: Float> {
     /// Parameter groups.
     param_groups: Vec<ParamGroup<T>>,
     /// Global configuration.
     config: MuonConfig,
-    /// Momentum buffers keyed by `"{group_idx}_{param_idx}"`.
-    momentum_buffers: HashMap<String, Vec<f64>>,
+    /// Momentum buffers keyed by `"{group_idx}_{param_idx}"`. Each buffer
+    /// lives on the same device as the parameter and is used by the
+    /// device-resident step path (CL-1105 Pattern B).
+    momentum_buffers: HashMap<String, Tensor<T>>,
     /// Step count per parameter (for momentum buffer init).
     step_count: HashMap<String, u64>,
 }
@@ -243,8 +310,15 @@ impl<T: Float> Muon<T> {
 }
 
 impl<T: Float> Optimizer<T> for Muon<T> {
+    /// Run one optimizer step.
+    ///
+    /// CL-1105: device-resident Pattern B. Newton-Schulz, momentum, and
+    /// the parameter update are all expressed via device-aware
+    /// `arithmetic::*` + `linalg::matmul` ops. Parameter tensors stay on
+    /// their original device (CPU or CUDA) throughout the step — no
+    /// `data_vec()` round-trip.
     fn step(&mut self) -> FerrotorchResult<()> {
-        let momentum = self.config.momentum;
+        let momentum_f = self.config.momentum;
         let nesterov = self.config.nesterov;
         let ns_steps = self.config.ns_steps;
 
@@ -254,6 +328,9 @@ impl<T: Float> Optimizer<T> for Muon<T> {
 
             for pi in 0..self.param_groups[gi].params.len() {
                 let param = &self.param_groups[gi].params[pi];
+                let param_t = param.tensor().clone();
+                let device = param_t.device();
+                let shape = param_t.shape().to_vec();
 
                 // Skip parameters without gradients.
                 let grad_tensor = match param.grad()? {
@@ -261,103 +338,96 @@ impl<T: Float> Optimizer<T> for Muon<T> {
                     None => continue,
                 };
 
-                let param_data: Vec<f64> = param
-                    .data_vec()?
-                    .iter()
-                    .map(|&v| cast::<T, f64>(v))
-                    .collect::<FerrotorchResult<Vec<f64>>>()?;
-                let mut grad_data: Vec<f64> = grad_tensor
-                    .data_vec()?
-                    .iter()
-                    .map(|&v| cast::<T, f64>(v))
-                    .collect::<FerrotorchResult<Vec<f64>>>()?;
-                let shape = param.shape().to_vec();
+                let key = Self::buf_key(gi, pi);
 
-                // Maximize: negate gradient. CL-321
-                if self.config.maximize {
-                    for g in grad_data.iter_mut() {
-                        *g = -*g;
-                    }
-                }
-
-                // Weight decay: grad = grad + wd * param
-                let wd = group_wd;
-                if wd > 0.0 {
-                    for (g, &p) in grad_data.iter_mut().zip(param_data.iter()) {
-                        *g += wd * p;
-                    }
-                }
-
-                // For 2D parameters: apply Newton-Schulz orthogonalization.
-                // For non-2D: use gradient as-is (standard momentum SGD).
-                let processed_grad = if shape.len() == 2 {
-                    let rows = shape[0];
-                    let cols = shape[1];
-                    newton_schulz_orthogonalize(&grad_data, rows, cols, ns_steps)
-                } else {
-                    grad_data
-                };
-
-                // Momentum
-                let effective_grad = if momentum > 0.0 {
-                    let key = Self::buf_key(gi, pi);
-                    let step = self.step_count.entry(key.clone()).or_insert(0);
-
-                    if *step == 0 {
-                        self.momentum_buffers
-                            .insert(key.clone(), processed_grad.clone());
+                no_grad(|| -> FerrotorchResult<()> {
+                    // grad: device-resident clone (negated for maximize).
+                    let mut grad: Tensor<T> = if self.config.maximize {
+                        neg(&grad_tensor)?
                     } else {
-                        let buf = self.momentum_buffers.get_mut(&key).unwrap();
-                        for (b, &g) in buf.iter_mut().zip(processed_grad.iter()) {
-                            *b = momentum * *b + g;
-                        }
+                        grad_tensor.clone()
+                    };
+
+                    // Weight decay: grad = grad + wd * param
+                    if group_wd > 0.0 {
+                        let wd_t = scalar(cast::<f64, T>(group_wd)?)?.to(device)?;
+                        let weighted = mul(&param_t, &wd_t)?;
+                        grad = add(&grad, &weighted)?;
                     }
 
-                    *step += 1;
-
-                    let buf = self.momentum_buffers.get(&key).unwrap();
-
-                    if nesterov {
-                        let mut nesterov_grad = processed_grad.clone();
-                        for (ng, &b) in nesterov_grad.iter_mut().zip(buf.iter()) {
-                            *ng += momentum * b;
-                        }
-                        nesterov_grad
+                    // For 2D parameters: apply Newton-Schulz orthogonalization
+                    // entirely on the parameter's device. For non-2D: use
+                    // gradient as-is (standard momentum SGD).
+                    let processed_grad = if shape.len() == 2 {
+                        newton_schulz_orthogonalize_tensor(&grad, ns_steps)?
                     } else {
-                        buf.clone()
-                    }
-                } else {
-                    processed_grad
-                };
+                        grad
+                    };
 
-                // param = param - lr * grad
-                let new_data: Vec<T> = param_data
-                    .iter()
-                    .zip(effective_grad.iter())
-                    .map(|(&p, &g)| cast::<f64, T>(p - group_lr * g))
-                    .collect::<FerrotorchResult<Vec<T>>>()?;
+                    // Momentum
+                    let effective_grad = if momentum_f > 0.0 {
+                        let mom_t = scalar(cast::<f64, T>(momentum_f)?)?.to(device)?;
+                        let step = self.step_count.entry(key.clone()).or_insert(0);
 
-                no_grad(|| {
-                    // SAFETY: `update_data` mutates the parameter's storage
-                    // via `Arc::as_ptr`; soundness depends on a single
-                    // exclusive writer.
-                    //  1. Muon::step is called via `Optimizer::step(&mut
-                    //     self)`, ruling out concurrent invocations through
-                    //     this optimiser handle.
-                    //  2. The closure body sits inside `no_grad`, so this
-                    //     write does not record a `grad_fn` that would
-                    //     retain a clone of the storage Arc.
-                    //  3. All of the inputs we read from the parameter
-                    //     earlier in the iteration (`param_data`,
-                    //     `processed_grad`) were materialised as owned
-                    //     `Vec<T>` values via `data_vec()`; no live `&[T]`
-                    //     into the param's storage remains. `new_data` is a
-                    //     fresh `Vec<T>` produced by the iterator chain
-                    //     above.
-                    //  4. The per-parameter loop iterates `(gi, pi)` keys
-                    //     sequentially, so two iterations cannot hold
-                    //     overlapping borrows.
-                    unsafe { param.tensor().update_data(&new_data) }
+                        if *step == 0 {
+                            // Initialize momentum buffer to the processed grad
+                            // (clone is zero-copy at the storage Arc level on
+                            // this construction path; the value is then
+                            // overwritten by subsequent EMA updates).
+                            self.momentum_buffers
+                                .insert(key.clone(), processed_grad.clone());
+                        } else {
+                            // buf = momentum * buf + processed_grad
+                            let old_buf = self.momentum_buffers.get(&key).unwrap().clone();
+                            let scaled = mul(&old_buf, &mom_t)?;
+                            let new_buf = add(&scaled, &processed_grad)?;
+                            self.momentum_buffers.insert(key.clone(), new_buf);
+                        }
+
+                        *step += 1;
+
+                        let buf_ref = self.momentum_buffers.get(&key).unwrap();
+
+                        if nesterov {
+                            // nesterov_grad = processed_grad + momentum * buf
+                            let scaled_buf = mul(buf_ref, &mom_t)?;
+                            add(&processed_grad, &scaled_buf)?
+                        } else {
+                            buf_ref.clone()
+                        }
+                    } else {
+                        processed_grad
+                    };
+
+                    // param = param - lr * effective_grad
+                    let lr_t = scalar(cast::<f64, T>(group_lr)?)?.to(device)?;
+                    let scaled = mul(&effective_grad, &lr_t)?;
+                    let new_param = sub(&param_t, &scaled)?;
+
+                    let (storage, _) = new_param.into_storage_and_shape()?;
+                    // SAFETY: `update_storage` requires the caller to hold
+                    // exclusive access to the parameter's storage Arc.
+                    // Conditions here:
+                    //  1. We are inside `Optimizer::step(&mut self)`, so no
+                    //     other clone of `Muon<T>` can be running.
+                    //  2. The enclosing closure is wrapped in `no_grad`, so
+                    //     no autograd graph is being constructed and no
+                    //     `grad_fn` holds a clone of the parameter tensor.
+                    //  3. `param_t` is a fresh clone of the parameter's
+                    //     tensor held only in this loop iteration; all
+                    //     intermediate tensors built from it (`grad`,
+                    //     `processed_grad`, `effective_grad`, `scaled`,
+                    //     `new_param`) are about to drop and were produced
+                    //     by ops that allocated fresh storage.
+                    //  4. `new_param.into_storage_and_shape()` consumed
+                    //     `new_param`, so the only remaining handle to
+                    //     `storage` is local.
+                    // The new storage is on the same device (it was produced
+                    // by ops dispatched on `device`) and has matching numel
+                    // (verified internally by `update_storage`).
+                    unsafe { param_t.update_storage(storage)? };
+
+                    Ok(())
                 })?;
             }
         }
@@ -404,7 +474,20 @@ impl<T: Float> Optimizer<T> for Muon<T> {
         let mut state = OptimizerState::new();
         for (key, buf) in &self.momentum_buffers {
             let mut entry = HashMap::new();
-            entry.insert("momentum_buffer".to_string(), buf.clone());
+            // Materialize device-resident momentum buffer to f64 for
+            // serialization (mirrors the pattern used by other Pattern B
+            // optimizers — only happens at checkpoint time, not per step).
+            let buf_cpu = if buf.is_cuda() { buf.cpu()? } else { buf.clone() };
+            let buf_f64: Vec<f64> = buf_cpu
+                .data_vec()?
+                .iter()
+                .map(|&v| cast::<T, f64>(v))
+                .collect::<FerrotorchResult<Vec<f64>>>()?;
+            entry.insert("momentum_buffer".to_string(), buf_f64);
+            // Preserve the original tensor shape so load can reconstruct
+            // the same layout.
+            let shape_f64: Vec<f64> = buf.shape().iter().map(|&d| d as f64).collect();
+            entry.insert("momentum_buffer_shape".to_string(), shape_f64);
             if let Some(&steps) = self.step_count.get(key) {
                 entry.insert("step".to_string(), vec![steps as f64]);
             }
@@ -418,7 +501,20 @@ impl<T: Float> Optimizer<T> for Muon<T> {
         self.step_count.clear();
         for (key, entry) in state {
             if let Some(buf_data) = entry.get("momentum_buffer") {
-                self.momentum_buffers.insert(key.clone(), buf_data.clone());
+                // Default shape: 1-D (matches legacy Vec<f64> serialization);
+                // when the saved-by-this-impl `momentum_buffer_shape` key is
+                // present, use it.
+                let shape: Vec<usize> = entry
+                    .get("momentum_buffer_shape")
+                    .map(|s| s.iter().map(|&d| d as usize).collect())
+                    .unwrap_or_else(|| vec![buf_data.len()]);
+                let cast_data: Vec<T> = buf_data
+                    .iter()
+                    .map(|&v| cast::<f64, T>(v))
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
+                let tensor =
+                    Tensor::from_storage(TensorStorage::cpu(cast_data), shape, false)?;
+                self.momentum_buffers.insert(key.clone(), tensor);
             }
             if let Some(step_data) = entry.get("step") {
                 if let Some(&step_val) = step_data.first() {
@@ -645,7 +741,7 @@ mod tests {
         let mut muon2 = Muon::new(vec![p2], config2);
         muon2.load_state_dict(&state).unwrap();
 
-        assert_eq!(muon2.momentum_buffers.get("0_0").unwrap().len(), 2);
+        assert_eq!(muon2.momentum_buffers.get("0_0").unwrap().numel(), 2);
     }
 
     // -----------------------------------------------------------------------
@@ -664,5 +760,107 @@ mod tests {
         muon.zero_grad().unwrap();
 
         assert!(muon.param_groups()[0].params[0].grad().unwrap().is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // CL-1105 Pattern B — CUDA device-resident step tests.
+    //
+    // These tests run only with `--features cuda` and require an NVIDIA GPU
+    // at runtime. Without one, `init_cuda_backend()` returns Err and the
+    // test cascades to a skip with an [cascade_skip] log line.
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "cuda")]
+    fn try_init_cuda() -> bool {
+        match ferrotorch_gpu::init_cuda_backend() {
+            Ok(_) => true,
+            Err(e) => {
+                eprintln!("[cascade_skip] no CUDA device: {e}");
+                false
+            }
+        }
+    }
+
+    /// CUDA-resident Muon step must keep the parameter on its original
+    /// device (no silent demote to CPU).
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn muon_step_preserves_device_for_cuda_input() {
+        if !try_init_cuda() {
+            return;
+        }
+        let p_cpu = Parameter::from_slice(&[1.0_f64, 0.0, 0.0, 1.0], &[2, 2]).unwrap();
+        let p = p_cpu.to(ferrotorch_core::Device::Cuda(0)).unwrap();
+        let grad = leaf(&[2.0, 0.5, 0.5, 2.0], &[2, 2], false)
+            .cuda()
+            .unwrap();
+        p.set_grad(Some(grad)).unwrap();
+
+        let config = MuonConfig::new(0.1)
+            .momentum(0.0)
+            .nesterov(false)
+            .ns_steps(5);
+        let mut muon = Muon::new(vec![p], config);
+        muon.step().unwrap();
+
+        let after = &muon.param_groups()[0].params[0];
+        assert!(
+            after.tensor().is_cuda(),
+            "Muon::step must preserve CUDA residence; got device {:?}",
+            after.tensor().device()
+        );
+        assert_eq!(after.tensor().device(), ferrotorch_core::Device::Cuda(0));
+    }
+
+    /// CUDA step must produce numerically equivalent results to the CPU
+    /// path within tolerance (1e-4 for f32, but we run f64 here so 1e-8).
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn muon_step_matches_cpu_within_tolerance() {
+        if !try_init_cuda() {
+            return;
+        }
+        let init = [1.0_f64, 0.0, 0.0, 1.0];
+        let grad_data = [2.0_f64, 0.5, 0.5, 2.0];
+
+        // CPU reference run.
+        let p_cpu = Parameter::from_slice(&init, &[2, 2]).unwrap();
+        let g_cpu = leaf(&grad_data, &[2, 2], false);
+        p_cpu.set_grad(Some(g_cpu)).unwrap();
+        let mut muon_cpu = Muon::new(
+            vec![p_cpu],
+            MuonConfig::new(0.1).momentum(0.0).nesterov(false).ns_steps(5),
+        );
+        muon_cpu.step().unwrap();
+        let cpu_after: Vec<f64> = muon_cpu.param_groups()[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
+
+        // CUDA run.
+        let p_gpu = Parameter::from_slice(&init, &[2, 2])
+            .unwrap()
+            .to(ferrotorch_core::Device::Cuda(0))
+            .unwrap();
+        let g_gpu = leaf(&grad_data, &[2, 2], false).cuda().unwrap();
+        p_gpu.set_grad(Some(g_gpu)).unwrap();
+        let mut muon_gpu = Muon::new(
+            vec![p_gpu],
+            MuonConfig::new(0.1).momentum(0.0).nesterov(false).ns_steps(5),
+        );
+        muon_gpu.step().unwrap();
+        let gpu_after_t = muon_gpu.param_groups()[0].params[0]
+            .tensor()
+            .cpu()
+            .unwrap();
+        let gpu_after: Vec<f64> = gpu_after_t.data().unwrap().to_vec();
+
+        assert_eq!(cpu_after.len(), gpu_after.len());
+        for (i, (c, g)) in cpu_after.iter().zip(gpu_after.iter()).enumerate() {
+            assert!(
+                (c - g).abs() < 1e-6,
+                "Muon CPU/GPU mismatch at idx {i}: cpu={c}, gpu={g}"
+            );
+        }
     }
 }

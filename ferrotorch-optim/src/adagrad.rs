@@ -293,9 +293,21 @@ impl<T: Float> Adagrad<T> {
 }
 
 impl<T: Float> Optimizer<T> for Adagrad<T> {
+    /// Run one optimizer step.
+    ///
+    /// CL-1105: When any parameter lives on CUDA we automatically take the
+    /// device-resident `step_foreach` path — the legacy `data_vec()`-based
+    /// loop below would silently demote the entire step to CPU, undoing the
+    /// caller's `param.to(Device::Cuda(_))`. The auto-route preserves device
+    /// residence; users who want the foreach path on CPU continue to opt in
+    /// via `config.foreach = true`.
     fn step(&mut self) -> FerrotorchResult<()> {
         // Foreach path: stay on-device throughout, no CPU roundtrip.
-        if self.config.foreach {
+        let any_cuda = self
+            .param_groups
+            .iter()
+            .any(|g| g.params.iter().any(|p| p.tensor().is_cuda()));
+        if self.config.foreach || any_cuda {
             return self.step_foreach();
         }
 
@@ -931,5 +943,63 @@ mod tests {
                 "adagrad maximize parity: legacy={a}, foreach={b}"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // CL-1105 — foreach auto-route on CUDA.
+    //
+    // With `config.foreach = false` but CUDA-resident parameters, the
+    // `any_cuda` detector in `step()` must still drive the call through
+    // `step_foreach`. We assert this by checking that the parameter
+    // remains CUDA-resident after the step (the legacy `data_vec()` path
+    // would have produced a CPU-resident tensor via `set_data`).
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "cuda")]
+    fn try_init_cuda() -> bool {
+        match ferrotorch_gpu::init_cuda_backend() {
+            Ok(_) => true,
+            Err(e) => {
+                eprintln!("[cascade_skip] no CUDA device: {e}");
+                false
+            }
+        }
+    }
+
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn foreach_auto_routes_cuda_params_without_explicit_flag() {
+        if !try_init_cuda() {
+            return;
+        }
+        let p = Parameter::<f32>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[4])
+            .unwrap()
+            .to(ferrotorch_core::Device::Cuda(0))
+            .unwrap();
+        let grad = ferrotorch_core::from_slice::<f32>(&[0.1, 0.2, -0.3, 0.4], &[4])
+            .unwrap()
+            .cuda()
+            .unwrap();
+        p.tensor().set_grad(Some(grad)).unwrap();
+
+        // foreach=false (default) — auto-route via any_cuda must take over.
+        let cfg = AdagradConfig {
+            lr: 0.1,
+            foreach: false,
+            ..Default::default()
+        };
+        assert!(!cfg.foreach, "test premise: foreach must be off");
+        let group = ParamGroup::new(vec![p], 0.1);
+        let mut opt = Adagrad::new(vec![group], cfg);
+        opt.step().unwrap();
+
+        let after = &opt.param_groups()[0].params[0];
+        assert!(
+            after.tensor().is_cuda(),
+            "auto-route must have driven step_foreach; parameter ended up on \
+             device {:?} (would be CPU under the legacy data_vec path)",
+            after.tensor().device()
+        );
+        assert_eq!(after.tensor().device(), ferrotorch_core::Device::Cuda(0));
     }
 }

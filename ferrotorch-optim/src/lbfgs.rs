@@ -14,8 +14,12 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::creation::scalar;
+use ferrotorch_core::grad_fns::arithmetic::{add, mul, neg, sub};
+use ferrotorch_core::grad_fns::reduction::sum as tensor_sum;
+use ferrotorch_core::grad_fns::shape::{cat as tensor_cat, flatten as tensor_flatten};
 use ferrotorch_core::numeric_cast::cast;
-use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
@@ -144,23 +148,29 @@ impl LbfgsConfig {
 // ---------------------------------------------------------------------------
 
 /// Mutable state maintained across L-BFGS iterations.
+///
+/// CL-1105 Pattern B: history slots and prev-step caches are 1-D
+/// device-resident [`Tensor<T>`] instead of flat `Vec<f64>` so the two-loop
+/// recursion runs entirely on the parameter's device.
 #[derive(Debug)]
-struct LbfgsState {
-    /// Parameter differences: s_k = x_{k+1} - x_k.
-    s_history: Vec<Vec<f64>>,
-    /// Gradient differences: y_k = g_{k+1} - g_k.
-    y_history: Vec<Vec<f64>>,
-    /// Cached 1 / (y_k . s_k) for each curvature pair.
+struct LbfgsState<T: Float> {
+    /// Parameter differences: s_k = x_{k+1} - x_k. 1-D tensors, on device.
+    s_history: Vec<Tensor<T>>,
+    /// Gradient differences: y_k = g_{k+1} - g_k. 1-D tensors, on device.
+    y_history: Vec<Tensor<T>>,
+    /// Cached 1 / (y_k . s_k) for each curvature pair. Stored as f64 so the
+    /// two-loop recursion's gamma/alpha/beta scalars retain precision when
+    /// T = f32.
     rho_history: Vec<f64>,
     /// Previous flat parameter vector (needed to compute s_k).
-    prev_flat_params: Option<Vec<f64>>,
+    prev_flat_params: Option<Tensor<T>>,
     /// Previous flat gradient vector (needed to compute y_k).
-    prev_flat_grad: Option<Vec<f64>>,
+    prev_flat_grad: Option<Tensor<T>>,
     /// Number of optimizer steps completed.
     n_iter: u64,
 }
 
-impl LbfgsState {
+impl<T: Float> LbfgsState<T> {
     fn new() -> Self {
         Self {
             s_history: Vec::new(),
@@ -186,7 +196,7 @@ impl LbfgsState {
 pub struct Lbfgs<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: LbfgsConfig,
-    state: LbfgsState,
+    state: LbfgsState<T>,
 }
 
 impl<T: Float> Lbfgs<T> {
@@ -202,62 +212,75 @@ impl<T: Float> Lbfgs<T> {
 
     // -- helpers ----------------------------------------------------------
 
-    /// Flatten all parameter data into a single `f64` vector, collecting
-    /// shapes along the way so we can scatter the results back.
-    fn gather_params(&self) -> FerrotorchResult<(Vec<f64>, Vec<Vec<usize>>)> {
-        let mut flat = Vec::new();
+    /// Flatten all parameter data into a single 1-D [`Tensor<T>`] on the
+    /// parameter's device. Returns the concatenated tensor plus the per-
+    /// parameter shapes (used by `scatter_params` to undo the flatten).
+    ///
+    /// CL-1105 Pattern B: composes `flatten` (zero-copy view) and `cat`
+    /// (GPU fast-path on CUDA) — no `data_vec()` round-trip.
+    fn gather_params(&self) -> FerrotorchResult<(Tensor<T>, Vec<Vec<usize>>)> {
+        let mut flats: Vec<Tensor<T>> = Vec::new();
         let mut shapes = Vec::new();
         for group in &self.param_groups {
             for param in &group.params {
                 let tensor = param.tensor();
-                let data = tensor.data_vec()?;
                 shapes.push(tensor.shape().to_vec());
-                let cast_data: Vec<f64> = data
-                    .iter()
-                    .map(|&v| cast::<T, f64>(v))
-                    .collect::<FerrotorchResult<Vec<f64>>>()?;
-                flat.extend(cast_data);
+                // `flatten` is a zero-copy view that works on any device.
+                // `contiguous()` ensures the storage layout matches the
+                // logical element order so the cat fast-path stays
+                // device-resident.
+                let contig = tensor.contiguous()?;
+                let flat_view = no_grad(|| tensor_flatten(&contig))?;
+                flats.push(flat_view);
             }
         }
-        Ok((flat, shapes))
+        let combined = no_grad(|| tensor_cat(&flats, 0))?;
+        Ok((combined, shapes))
     }
 
-    /// Flatten all parameter gradients into a single `f64` vector.
+    /// Flatten all parameter gradients into a single 1-D device-resident
+    /// [`Tensor<T>`].
     ///
     /// When `config.maximize` is set, the gradient is negated. CL-321
-    fn gather_grads(&self) -> FerrotorchResult<Vec<f64>> {
+    fn gather_grads(&self) -> FerrotorchResult<Tensor<T>> {
         let negate = self.config.maximize;
-        let mut flat = Vec::new();
+        let mut flats: Vec<Tensor<T>> = Vec::new();
         for group in &self.param_groups {
             for param in &group.params {
                 let tensor = param.tensor();
                 match tensor.grad()? {
                     Some(g) => {
-                        let g_data = g.data_vec()?;
-                        let cast_g: Vec<f64> = g_data
-                            .iter()
-                            .map(|&v| cast::<T, f64>(v))
-                            .collect::<FerrotorchResult<Vec<f64>>>()?;
+                        let g_contig = g.contiguous()?;
+                        let g_flat = no_grad(|| tensor_flatten(&g_contig))?;
                         if negate {
-                            flat.extend(cast_g.iter().map(|&v| -v));
+                            flats.push(no_grad(|| neg(&g_flat))?);
                         } else {
-                            flat.extend(cast_g);
+                            flats.push(g_flat);
                         }
                     }
                     None => {
-                        // No gradient: treat as zero.
+                        // No gradient: treat as zero on the parameter's
+                        // device.
                         let numel = tensor.numel();
-                        flat.extend(std::iter::repeat_n(0.0, numel));
+                        let device = tensor.device();
+                        let zeros =
+                            ferrotorch_core::creation::zeros::<T>(&[numel])?.to(device)?;
+                        flats.push(zeros);
                     }
                 }
             }
         }
-        Ok(flat)
+        let combined = no_grad(|| tensor_cat(&flats, 0))?;
+        Ok(combined)
     }
 
-    /// Scatter a flat `f64` vector back into the parameter tensors (inside
-    /// `no_grad`).
-    fn scatter_params(&mut self, flat: &[f64], shapes: &[Vec<usize>]) -> FerrotorchResult<()> {
+    /// Scatter a flat 1-D [`Tensor<T>`] back into the parameter tensors
+    /// (inside `no_grad`).
+    fn scatter_params(
+        &mut self,
+        flat: &Tensor<T>,
+        shapes: &[Vec<usize>],
+    ) -> FerrotorchResult<()> {
         let mut offset = 0usize;
         let mut shape_idx = 0usize;
 
@@ -270,38 +293,41 @@ impl<T: Float> Lbfgs<T> {
                     shape.iter().product()
                 };
 
-                let slice = &flat[offset..offset + numel];
-                let new_data: Vec<T> = slice
-                    .iter()
-                    .map(|&v| cast::<f64, T>(v))
-                    .collect::<FerrotorchResult<Vec<T>>>()?;
+                no_grad(|| -> FerrotorchResult<()> {
+                    // narrow gives us a zero-copy 1-D view over [offset,
+                    // offset+numel); reshape it back to the original
+                    // shape (also zero-copy when contiguous).
+                    let chunk = flat.narrow(0, offset, numel)?;
+                    let chunk_contig = chunk.contiguous()?;
+                    let reshaped: Vec<isize> =
+                        shape.iter().map(|&d| d as isize).collect();
+                    let chunk_reshaped = if shape.is_empty() {
+                        // 0-D scalar: leave as 1-element 1-D tensor and
+                        // reshape via `view_reshape` (handles empty shape).
+                        chunk_contig.view_reshape(vec![])?
+                    } else {
+                        chunk_contig.reshape_t(&reshaped)?
+                    };
 
-                no_grad(|| {
-                    // SAFETY: `update_data` writes through `Arc::as_ptr` to
-                    // the parameter's storage; sole-writer required.
-                    //  1. `scatter_params(&mut self, ..)` is called from
-                    //     L-BFGS internals (`take_step`, `step`,
-                    //     `step_with_closure`) which all hold `&mut self`
-                    //     on the Lbfgs optimizer, so no other handle into
-                    //     this optimizer can be running.
-                    //  2. The `no_grad` closure suppresses `grad_fn`
-                    //     recording for the write — no autograd node will
-                    //     retain a clone of the storage Arc.
-                    //  3. The flat `flat: &[f64]` argument is borrowed
-                    //     immutably; we materialised `new_data: Vec<T>` from
-                    //     it as an owned vector before this call, and the
-                    //     parameter's storage was previously read only via
-                    //     `gather_flat_grad` / `gather_flat` (returning
-                    //     owned `Vec<f64>`s), so no live `&[T]` / `&mut [T]`
-                    //     slice into the parameter's storage exists at this
-                    //     point.
-                    //  4. `(gi, pi)` indexing iterates each parameter
-                    //     exactly once per scatter call.
+                    let (storage, _) = chunk_reshaped.into_storage_and_shape()?;
+                    // SAFETY: same as Muon::step.
+                    //  1. `scatter_params(&mut self, ..)` holds `&mut
+                    //     self`; no other handle can call into this
+                    //     optimizer concurrently.
+                    //  2. We are inside `no_grad`, so no autograd node
+                    //     retains a clone of the parameter's storage Arc.
+                    //  3. The narrow + reshape produced a fresh tensor
+                    //     whose storage Arc we just consumed via
+                    //     `into_storage_and_shape`, so the only handle to
+                    //     `storage` is local.
+                    //  4. The (gi, pi) loop iterates each parameter
+                    //     exactly once per call.
                     unsafe {
                         self.param_groups[gi].params[pi]
                             .tensor()
-                            .update_data(&new_data)
+                            .update_storage(storage)?;
                     }
+                    Ok(())
                 })?;
 
                 offset += numel;
@@ -312,84 +338,83 @@ impl<T: Float> Lbfgs<T> {
         Ok(())
     }
 
-    /// L-BFGS two-loop recursion.
+    /// L-BFGS two-loop recursion (device-resident).
     ///
-    /// Given the current gradient `q` and the curvature history, returns the
-    /// search direction `d = -H_k * g` where `H_k` is the L-BFGS
-    /// approximation to the inverse Hessian.
-    fn two_loop_recursion(&self, grad: &[f64]) -> Vec<f64> {
+    /// Given the current gradient `q` (1-D tensor) and the curvature
+    /// history, returns the search direction `d = -H_k * g` where `H_k` is
+    /// the L-BFGS approximation to the inverse Hessian.
+    ///
+    /// CL-1105 Pattern B: dot products are `sum(s * q)`, scalar updates use
+    /// `mul`/`sub`/`add` over scalar tensors broadcast against the 1-D
+    /// flat tensor. All ops dispatch on the gradient's device.
+    fn two_loop_recursion(&self, grad: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let m = self.state.s_history.len();
-        let n = grad.len();
+        let device = grad.device();
 
         // If we have no history yet, fall back to steepest descent.
         if m == 0 {
-            return grad.iter().map(|&g| -g).collect();
+            return no_grad(|| neg(grad));
         }
 
-        let mut q = grad.to_vec();
-        let mut alpha = vec![0.0; m];
+        let mut q = grad.clone();
+        let mut alpha: Vec<f64> = vec![0.0; m];
 
         // ---- first loop (backward through history) ----
         for i in (0..m).rev() {
             let s = &self.state.s_history[i];
             let rho = self.state.rho_history[i];
-            let a = rho * dot(s, &q);
+            let s_dot_q = dot_tensor(s, &q)?;
+            let a = rho * s_dot_q;
             alpha[i] = a;
-            // q = q - alpha_i * y_i
+
+            // q = q - a * y_i
             let y = &self.state.y_history[i];
-            for j in 0..n {
-                q[j] -= a * y[j];
-            }
+            let a_t = scalar(cast::<f64, T>(a)?)?.to(device)?;
+            let scaled = no_grad(|| mul(y, &a_t))?;
+            q = no_grad(|| sub(&q, &scaled))?;
         }
 
         // ---- initial Hessian approximation H_0 = gamma * I ----
         let s_last = &self.state.s_history[m - 1];
         let y_last = &self.state.y_history[m - 1];
-        let y_dot_y = dot(y_last, y_last);
+        let y_dot_y = dot_tensor(y_last, y_last)?;
         let gamma = if y_dot_y.abs() > 1e-30 {
-            dot(s_last, y_last) / y_dot_y
+            dot_tensor(s_last, y_last)? / y_dot_y
         } else {
             1.0
         };
 
         // r = H_0 * q = gamma * q
-        let mut r: Vec<f64> = q.iter().map(|&v| gamma * v).collect();
+        let gamma_t = scalar(cast::<f64, T>(gamma)?)?.to(device)?;
+        let mut r = no_grad(|| mul(&q, &gamma_t))?;
 
         // ---- second loop (forward through history) ----
-        for (i, (y, (&rho, s))) in self
-            .state
-            .y_history
-            .iter()
-            .zip(
-                self.state
-                    .rho_history
-                    .iter()
-                    .zip(self.state.s_history.iter()),
-            )
-            .take(m)
-            .enumerate()
-        {
-            let beta = rho * dot(y, &r);
-            for (rj, &sj) in r.iter_mut().zip(s.iter()) {
-                *rj += sj * (alpha[i] - beta);
-            }
+        // `alpha[i]` is read-only here; `enumerate().take(m)` keeps the index
+        // available for the parallel `s_history[i]` / `y_history[i]` /
+        // `rho_history[i]` accesses while satisfying clippy::needless_range_loop.
+        for (i, &alpha_i) in alpha.iter().enumerate().take(m) {
+            let y = &self.state.y_history[i];
+            let s = &self.state.s_history[i];
+            let rho = self.state.rho_history[i];
+            let beta = rho * dot_tensor(y, &r)?;
+            // r = r + (alpha[i] - beta) * s
+            let coeff = alpha_i - beta;
+            let coeff_t = scalar(cast::<f64, T>(coeff)?)?.to(device)?;
+            let scaled = no_grad(|| mul(s, &coeff_t))?;
+            r = no_grad(|| add(&r, &scaled))?;
         }
 
         // Search direction = -r (descent direction).
-        for v in &mut r {
-            *v = -*v;
-        }
-
-        r
+        no_grad(|| neg(&r))
     }
 
-    /// Update the curvature history with a new (s, y) pair.
-    fn update_history(&mut self, s: Vec<f64>, y: Vec<f64>) {
-        let ys = dot(&s, &y);
+    /// Update the curvature history with a new (s, y) pair (1-D tensors).
+    fn update_history(&mut self, s: Tensor<T>, y: Tensor<T>) -> FerrotorchResult<()> {
+        let ys = dot_tensor(&s, &y)?;
 
         // Skip the update if curvature condition is not satisfied.
         if ys <= 1e-30 {
-            return;
+            return Ok(());
         }
 
         let rho = 1.0 / ys;
@@ -404,19 +429,39 @@ impl<T: Float> Lbfgs<T> {
         self.state.s_history.push(s);
         self.state.y_history.push(y);
         self.state.rho_history.push(rho);
+        Ok(())
     }
 }
 
-/// Dot product of two equal-length slices.
-#[inline]
-fn dot(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
+/// Dot product of two 1-D tensors via device-resident `sum(a * b)`.
+///
+/// Scalar result is downloaded once at the end so the recursion can use
+/// it as a regular f64; the heavy element-wise mul stays on device.
+fn dot_tensor<T: Float>(a: &Tensor<T>, b: &Tensor<T>) -> FerrotorchResult<f64> {
+    let prod = no_grad(|| mul(a, b))?;
+    let s = no_grad(|| tensor_sum(&prod))?;
+    let s_cpu = if s.is_cuda() { s.cpu()? } else { s };
+    let v = s_cpu.data()?[0];
+    cast::<T, f64>(v)
 }
 
-/// Infinity norm (max absolute value).
-#[inline]
-fn inf_norm(v: &[f64]) -> f64 {
-    v.iter().map(|x| x.abs()).fold(0.0_f64, f64::max)
+/// Infinity norm (max absolute value) of a 1-D tensor.
+///
+/// Currently dispatches to `data_vec()` for the final reduction because no
+/// device-resident `max(abs())` primitive exists yet; the per-step cost is
+/// O(n) and runs once per step. Lift this when a reduction-max GPU kernel
+/// lands.
+fn inf_norm<T: Float>(v: &Tensor<T>) -> FerrotorchResult<f64> {
+    let v_cpu = if v.is_cuda() { v.cpu()? } else { v.clone() };
+    let data = v_cpu.data_vec()?;
+    let mut m = 0.0_f64;
+    for x in data {
+        let xf = cast::<T, f64>(x)?;
+        if xf.abs() > m {
+            m = xf.abs();
+        }
+    }
+    Ok(m)
 }
 
 // ---------------------------------------------------------------------------
@@ -581,8 +626,9 @@ impl<T: Float> Lbfgs<T> {
 
         let (flat_params, shapes) = self.gather_params()?;
         let flat_grad = self.gather_grads()?;
+        let device = flat_params.device();
 
-        if inf_norm(&flat_grad) <= self.config.tolerance_grad {
+        if inf_norm(&flat_grad)? <= self.config.tolerance_grad {
             return Ok(loss0);
         }
 
@@ -591,18 +637,13 @@ impl<T: Float> Lbfgs<T> {
             self.state.prev_flat_params.take(),
             self.state.prev_flat_grad.take(),
         ) {
-            let n = flat_params.len();
-            let mut s = vec![0.0; n];
-            let mut y = vec![0.0; n];
-            for i in 0..n {
-                s[i] = flat_params[i] - prev_params[i];
-                y[i] = flat_grad[i] - prev_grad[i];
-            }
-            self.update_history(s, y);
+            let s = no_grad(|| sub(&flat_params, &prev_params))?;
+            let y = no_grad(|| sub(&flat_grad, &prev_grad))?;
+            self.update_history(s, y)?;
         }
 
-        let direction = self.two_loop_recursion(&flat_grad);
-        let g0_dot_d = dot(&flat_grad, &direction);
+        let direction = self.two_loop_recursion(&flat_grad)?;
+        let g0_dot_d = dot_tensor(&flat_grad, &direction)?;
 
         // Choose step size via line search or fixed lr.
         let alpha = if self.config.line_search_fn == Some(LineSearchFn::StrongWolfe) {
@@ -612,29 +653,25 @@ impl<T: Float> Lbfgs<T> {
             let dir_ref = &direction;
 
             strong_wolfe_search(loss0, g0_dot_d, max_evals, |alpha| {
-                let n = params_ref.len();
-                let mut candidate = vec![0.0; n];
-                for i in 0..n {
-                    candidate[i] = params_ref[i] + alpha * dir_ref[i];
-                }
+                let alpha_t = scalar(cast::<f64, T>(alpha)?)?.to(device)?;
+                let scaled = no_grad(|| mul(dir_ref, &alpha_t))?;
+                let candidate = no_grad(|| add(params_ref, &scaled))?;
                 self.scatter_params(&candidate, shapes_ref)?;
 
                 self.zero_grad()?;
                 let fi = closure()?;
                 let gi = self.gather_grads()?;
-                let gi_dot_d = dot(&gi, dir_ref);
+                let gi_dot_d = dot_tensor(&gi, dir_ref)?;
                 Ok((fi, gi_dot_d))
             })?
         } else {
             lr
         };
 
-        // Apply the chosen step size.
-        let n = flat_params.len();
-        let mut new_params = vec![0.0; n];
-        for i in 0..n {
-            new_params[i] = flat_params[i] + alpha * direction[i];
-        }
+        // Apply the chosen step size: new_params = flat_params + alpha * direction
+        let alpha_t = scalar(cast::<f64, T>(alpha)?)?.to(device)?;
+        let scaled_dir = no_grad(|| mul(&direction, &alpha_t))?;
+        let new_params = no_grad(|| add(&flat_params, &scaled_dir))?;
 
         self.state.prev_flat_params = Some(flat_params);
         self.state.prev_flat_grad = Some(flat_grad);
@@ -653,6 +690,12 @@ impl<T: Float> Lbfgs<T> {
 // ---------------------------------------------------------------------------
 
 impl<T: Float> Optimizer<T> for Lbfgs<T> {
+    /// Run one optimizer step.
+    ///
+    /// CL-1105: device-resident Pattern B. `gather_params`/`gather_grads`
+    /// produce a single 1-D tensor on the parameter's device via cat;
+    /// the two-loop recursion runs entirely on-device; the parameter
+    /// update commits via `scatter_params` -> `update_storage`.
     fn step(&mut self) -> FerrotorchResult<()> {
         if self.config.line_search_fn.is_some() {
             return Err(FerrotorchError::InvalidArgument {
@@ -670,8 +713,9 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
 
         let (flat_params, shapes) = self.gather_params()?;
         let flat_grad = self.gather_grads()?;
+        let device = flat_params.device();
 
-        if inf_norm(&flat_grad) <= self.config.tolerance_grad {
+        if inf_norm(&flat_grad)? <= self.config.tolerance_grad {
             return Ok(());
         }
 
@@ -679,23 +723,17 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
             self.state.prev_flat_params.take(),
             self.state.prev_flat_grad.take(),
         ) {
-            let n = flat_params.len();
-            let mut s = vec![0.0; n];
-            let mut y = vec![0.0; n];
-            for i in 0..n {
-                s[i] = flat_params[i] - prev_params[i];
-                y[i] = flat_grad[i] - prev_grad[i];
-            }
-            self.update_history(s, y);
+            let s = no_grad(|| sub(&flat_params, &prev_params))?;
+            let y = no_grad(|| sub(&flat_grad, &prev_grad))?;
+            self.update_history(s, y)?;
         }
 
-        let direction = self.two_loop_recursion(&flat_grad);
+        let direction = self.two_loop_recursion(&flat_grad)?;
 
-        let n = flat_params.len();
-        let mut new_params = vec![0.0; n];
-        for i in 0..n {
-            new_params[i] = flat_params[i] + lr * direction[i];
-        }
+        // new_params = flat_params + lr * direction
+        let lr_t = scalar(cast::<f64, T>(lr)?)?.to(device)?;
+        let scaled_dir = no_grad(|| mul(&direction, &lr_t))?;
+        let new_params = no_grad(|| add(&flat_params, &scaled_dir))?;
 
         self.state.prev_flat_params = Some(flat_params);
         self.state.prev_flat_grad = Some(flat_grad);
@@ -741,7 +779,9 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
     fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
 
-        // Serialize each curvature pair under its index key.
+        // Serialize each curvature pair under its index key. Tensors are
+        // downloaded once at checkpoint time and cast to f64 for a
+        // dtype-agnostic on-disk format.
         let mut meta = HashMap::new();
         meta.insert("n_iter".to_string(), vec![self.state.n_iter as f64]);
         meta.insert(
@@ -749,6 +789,14 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
             vec![self.state.s_history.len() as f64],
         );
         out.insert("meta".to_string(), meta);
+
+        let tensor_to_f64 = |t: &Tensor<T>| -> FerrotorchResult<Vec<f64>> {
+            let cpu = if t.is_cuda() { t.cpu()? } else { t.clone() };
+            cpu.data_vec()?
+                .iter()
+                .map(|&v| cast::<T, f64>(v))
+                .collect::<FerrotorchResult<Vec<f64>>>()
+        };
 
         for (i, ((s, y), &rho)) in self
             .state
@@ -759,21 +807,21 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
             .enumerate()
         {
             let mut entry = HashMap::new();
-            entry.insert("s".to_string(), s.clone());
-            entry.insert("y".to_string(), y.clone());
+            entry.insert("s".to_string(), tensor_to_f64(s)?);
+            entry.insert("y".to_string(), tensor_to_f64(y)?);
             entry.insert("rho".to_string(), vec![rho]);
             out.insert(format!("curvature_{i}"), entry);
         }
 
         if let Some(ref prev_p) = self.state.prev_flat_params {
             let mut entry = HashMap::new();
-            entry.insert("prev_flat_params".to_string(), prev_p.clone());
+            entry.insert("prev_flat_params".to_string(), tensor_to_f64(prev_p)?);
             out.insert("prev_params".to_string(), entry);
         }
 
         if let Some(ref prev_g) = self.state.prev_flat_grad {
             let mut entry = HashMap::new();
-            entry.insert("prev_flat_grad".to_string(), prev_g.clone());
+            entry.insert("prev_flat_grad".to_string(), tensor_to_f64(prev_g)?);
             out.insert("prev_grad".to_string(), entry);
         }
 
@@ -813,13 +861,13 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
                     message: format!("missing '{key}' in L-BFGS state dict"),
                 })?;
 
-            let s = entry
+            let s_f64 = entry
                 .get("s")
                 .cloned()
                 .ok_or_else(|| FerrotorchError::InvalidArgument {
                     message: format!("missing 's' in {key}"),
                 })?;
-            let y = entry
+            let y_f64 = entry
                 .get("y")
                 .cloned()
                 .ok_or_else(|| FerrotorchError::InvalidArgument {
@@ -833,18 +881,55 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
                     message: format!("missing 'rho' in {key}"),
                 })?;
 
-            self.state.s_history.push(s);
-            self.state.y_history.push(y);
+            let s_t: Vec<T> = s_f64
+                .iter()
+                .map(|&v| cast::<f64, T>(v))
+                .collect::<FerrotorchResult<Vec<T>>>()?;
+            let s_len = s_t.len();
+            let s_tensor =
+                Tensor::from_storage(TensorStorage::cpu(s_t), vec![s_len], false)?;
+            let y_t: Vec<T> = y_f64
+                .iter()
+                .map(|&v| cast::<f64, T>(v))
+                .collect::<FerrotorchResult<Vec<T>>>()?;
+            let y_len = y_t.len();
+            let y_tensor =
+                Tensor::from_storage(TensorStorage::cpu(y_t), vec![y_len], false)?;
+
+            self.state.s_history.push(s_tensor);
+            self.state.y_history.push(y_tensor);
             self.state.rho_history.push(rho);
         }
 
         // Load previous params/grad if present.
-        self.state.prev_flat_params = state
+        self.state.prev_flat_params = match state
             .get("prev_params")
-            .and_then(|e| e.get("prev_flat_params").cloned());
-        self.state.prev_flat_grad = state
+            .and_then(|e| e.get("prev_flat_params"))
+        {
+            Some(v) => {
+                let t: Vec<T> = v
+                    .iter()
+                    .map(|&x| cast::<f64, T>(x))
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
+                let n = t.len();
+                Some(Tensor::from_storage(TensorStorage::cpu(t), vec![n], false)?)
+            }
+            None => None,
+        };
+        self.state.prev_flat_grad = match state
             .get("prev_grad")
-            .and_then(|e| e.get("prev_flat_grad").cloned());
+            .and_then(|e| e.get("prev_flat_grad"))
+        {
+            Some(v) => {
+                let t: Vec<T> = v
+                    .iter()
+                    .map(|&x| cast::<f64, T>(x))
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
+                let n = t.len();
+                Some(Tensor::from_storage(TensorStorage::cpu(t), vec![n], false)?)
+            }
+            None => None,
+        };
 
         Ok(())
     }
@@ -1342,6 +1427,115 @@ mod tests {
         assert!(
             val.abs() < 1e-3,
             "closure fixed-step: expected x near 0, got {val}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // CL-1105 Pattern B — CUDA device-resident step tests.
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "cuda")]
+    fn try_init_cuda() -> bool {
+        match ferrotorch_gpu::init_cuda_backend() {
+            Ok(_) => true,
+            Err(e) => {
+                eprintln!("[cascade_skip] no CUDA device: {e}");
+                false
+            }
+        }
+    }
+
+    /// Construct a CUDA-resident parameter from a CPU scalar value.
+    #[cfg(feature = "cuda")]
+    fn cuda_scalar_param(val: f64) -> Parameter<f64> {
+        let t = Tensor::from_storage(TensorStorage::cpu(vec![val]), vec![], true).unwrap();
+        let t_gpu = t.cuda().unwrap();
+        Parameter::new(t_gpu)
+    }
+
+    /// L-BFGS step must keep CUDA-resident parameters on CUDA. The
+    /// two-loop recursion and `scatter_params` must commit on-device.
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn lbfgs_step_preserves_device_for_cuda_input() {
+        if !try_init_cuda() {
+            return;
+        }
+        let p = cuda_scalar_param(5.0);
+        let mut opt = Lbfgs::new(
+            vec![p],
+            LbfgsConfig {
+                lr: 0.5,
+                ..Default::default()
+            },
+        );
+
+        // One forward/backward/step cycle on CUDA.
+        opt.zero_grad().unwrap();
+        let x = opt.param_groups[0].params[0].tensor().clone();
+        let loss = pow(&x, 2.0).unwrap();
+        loss.backward().unwrap();
+        opt.step().unwrap();
+
+        let after = &opt.param_groups[0].params[0];
+        assert!(
+            after.tensor().is_cuda(),
+            "Lbfgs::step must preserve CUDA residence; got device {:?}",
+            after.tensor().device()
+        );
+        assert_eq!(after.tensor().device(), ferrotorch_core::Device::Cuda(0));
+    }
+
+    /// L-BFGS CUDA run must match CPU reference within tolerance.
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn lbfgs_step_matches_cpu_within_tolerance() {
+        if !try_init_cuda() {
+            return;
+        }
+        // CPU reference: minimize x^2 from x=5 for 20 steps.
+        let p_cpu = scalar_param(5.0);
+        let mut opt_cpu = Lbfgs::new(
+            vec![p_cpu],
+            LbfgsConfig {
+                lr: 0.5,
+                ..Default::default()
+            },
+        );
+        for _ in 0..20 {
+            opt_cpu.zero_grad().unwrap();
+            let x = opt_cpu.param_groups[0].params[0].tensor().clone();
+            let loss = pow(&x, 2.0).unwrap();
+            loss.backward().unwrap();
+            opt_cpu.step().unwrap();
+        }
+        let cpu_val = param_val(&opt_cpu, 0, 0);
+
+        // CUDA run with the same initial value and config.
+        let p_gpu = cuda_scalar_param(5.0);
+        let mut opt_gpu = Lbfgs::new(
+            vec![p_gpu],
+            LbfgsConfig {
+                lr: 0.5,
+                ..Default::default()
+            },
+        );
+        for _ in 0..20 {
+            opt_gpu.zero_grad().unwrap();
+            let x = opt_gpu.param_groups[0].params[0].tensor().clone();
+            let loss = pow(&x, 2.0).unwrap();
+            loss.backward().unwrap();
+            opt_gpu.step().unwrap();
+        }
+        let gpu_t = opt_gpu.param_groups[0].params[0]
+            .tensor()
+            .cpu()
+            .unwrap();
+        let gpu_val = gpu_t.data().unwrap()[0];
+
+        assert!(
+            (cpu_val - gpu_val).abs() < 1e-6,
+            "Lbfgs CPU/GPU mismatch: cpu={cpu_val}, gpu={gpu_val}"
         );
     }
 }

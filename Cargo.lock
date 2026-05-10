@@ -2720,6 +2720,7 @@ name = "ferrotorch-optim"
 version = "0.5.1"
 dependencies = [
  "ferrotorch-core",
+ "ferrotorch-gpu",
  "ferrotorch-nn",
  "num-traits",
  "serde",

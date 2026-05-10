@@ -12,9 +12,17 @@ keywords.workspace = true
 categories.workspace = true
 readme = "README.md"
 
+[features]
+# Enable CUDA-gated tests that require a real GPU and ferrotorch-gpu
+# initialised. CL-1105 Pattern B device-resident step paths are
+# exercised by these tests against an NVIDIA backend.
+# Usage: cargo test -p ferrotorch-optim --features cuda
+cuda = ["dep:ferrotorch-gpu"]
+
 [dependencies]
 ferrotorch-core = { workspace = true }
 ferrotorch-nn = { workspace = true }
+ferrotorch-gpu = { workspace = true, optional = true }
 num-traits = { workspace = true }
 tracing = { workspace = true }
 

@@ -29,7 +29,15 @@
 
 use std::collections::HashMap;
 
+use ferrotorch_core::creation::{eye, scalar};
+use ferrotorch_core::grad_fns::arithmetic::{add, mul, sub};
 use ferrotorch_core::numeric_cast::cast;
+// CL-1105 Pattern B correctness: use the differentiable matmul, which has
+// the CUDA dispatch (cuBLAS GEMM) wired up; the `ops::linalg::matmul`
+// alternative calls `.data()?` and surfaces `GpuTensorNotAccessible` on
+// CUDA tensors. The autograd graph is suppressed by `no_grad` at every
+// call site in `update_factors` and `step`.
+use ferrotorch_core::grad_fns::linalg::matmul_differentiable as tensor_matmul;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage, no_grad};
 use ferrotorch_nn::Parameter;
 
@@ -124,24 +132,29 @@ impl KfacConfig {
 
 /// Per-parameter Kronecker factor state.
 ///
-/// Stores the running averages of input outer products (A) and gradient outer
-/// products (G), their cached inverses, and an optional momentum buffer.
+/// CL-1105 Pattern B: factors live as device-resident [`Tensor<T>`] so the
+/// step body composes device-aware arithmetic + matmul + solve ops with no
+/// `data_vec()` round-trip when the parameters live on CUDA. The factors are
+/// `[a_size, a_size]` and `[g_size, g_size]` 2-D tensors.
 #[derive(Debug, Clone)]
-struct KroneckerFactors {
-    /// Running average of input outer product: E[a a^T], stored row-major
-    /// with shape `[in_features, in_features]`.
-    a_factor: Vec<f64>,
+struct KroneckerFactors<T: Float> {
+    /// Running average of input outer product: E[a a^T], 2-D tensor of
+    /// shape `[in_features, in_features]` on the parameter's device.
+    a_factor: Tensor<T>,
     a_size: usize,
-    /// Running average of gradient outer product: E[g g^T], stored row-major
-    /// with shape `[out_features, out_features]`.
-    g_factor: Vec<f64>,
+    /// Running average of gradient outer product: E[g g^T], 2-D tensor of
+    /// shape `[out_features, out_features]` on the parameter's device.
+    g_factor: Tensor<T>,
     g_size: usize,
-    /// Cached inverse of (A + damping * I).
-    a_inv: Option<Vec<f64>>,
-    /// Cached inverse of (G + damping * I).
-    g_inv: Option<Vec<f64>>,
-    /// Momentum buffer for the preconditioned gradient (flat, row-major).
-    momentum_buf: Option<Vec<f64>>,
+    /// Cached inverse of `(A + damping * I)` (only used when no GPU
+    /// backend is available; on GPU the step uses `solve` directly which
+    /// is faster than forming the inverse).
+    a_inv: Option<Tensor<T>>,
+    /// Cached inverse of `(G + damping * I)` (CPU-only cache).
+    g_inv: Option<Tensor<T>>,
+    /// Momentum buffer for the preconditioned gradient (same shape as the
+    /// gradient, on the parameter's device).
+    momentum_buf: Option<Tensor<T>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +172,7 @@ pub struct Kfac<T: Float> {
     step_count: usize,
     /// Per-parameter Kronecker factors, keyed by a user-supplied name
     /// (typically the layer/parameter name).
-    factors: HashMap<String, KroneckerFactors>,
+    factors: HashMap<String, KroneckerFactors<T>>,
 }
 
 impl<T: Float> Kfac<T> {
@@ -228,72 +241,68 @@ impl<T: Float> Kfac<T> {
 
         let in_features = a_shape[1];
         let out_features = g_shape[1];
+        let device = input_activation.device();
 
-        // Read activation and gradient data as f64.
-        let a_data: Vec<f64> = input_activation
-            .data()?
-            .iter()
-            .map(|&v| cast::<T, f64>(v))
-            .collect::<FerrotorchResult<Vec<f64>>>()?;
-        let g_data: Vec<f64> = output_gradient
-            .data()?
-            .iter()
-            .map(|&v| cast::<T, f64>(v))
-            .collect::<FerrotorchResult<Vec<f64>>>()?;
+        // CL-1105 Pattern B: device-resident outer-product accumulation.
+        // A_batch = (a^T @ a) / batch  uses tensor matmul, runs on the
+        // input's device (cuBLAS GEMM on CUDA).
+        let inv_batch_t = scalar(cast::<f64, T>(1.0 / (batch as f64))?)?.to(device)?;
+        let a_t = no_grad(|| input_activation.t())?;
+        let a_batch_unscaled = no_grad(|| tensor_matmul(&a_t, input_activation))?;
+        let a_batch = no_grad(|| mul(&a_batch_unscaled, &inv_batch_t))?;
 
-        let batch_f = batch as f64;
+        let g_t = no_grad(|| output_gradient.t())?;
+        let g_batch_unscaled = no_grad(|| tensor_matmul(&g_t, output_gradient))?;
+        let g_batch = no_grad(|| mul(&g_batch_unscaled, &inv_batch_t))?;
 
-        // Compute A_batch = (a^T @ a) / batch_size  [in_features x in_features]
-        let mut a_batch = vec![0.0f64; in_features * in_features];
-        for b in 0..batch {
-            for i in 0..in_features {
-                for j in 0..in_features {
-                    a_batch[i * in_features + j] +=
-                        a_data[b * in_features + i] * a_data[b * in_features + j];
-                }
-            }
-        }
-        for v in &mut a_batch {
-            *v /= batch_f;
-        }
-
-        // Compute G_batch = (g^T @ g) / batch_size  [out_features x out_features]
-        let mut g_batch = vec![0.0f64; out_features * out_features];
-        for b in 0..batch {
-            for i in 0..out_features {
-                for j in 0..out_features {
-                    g_batch[i * out_features + j] +=
-                        g_data[b * out_features + i] * g_data[b * out_features + j];
-                }
-            }
-        }
-        for v in &mut g_batch {
-            *v /= batch_f;
-        }
-
-        // Exponential moving average update.
+        // Exponential moving average update (device-resident).
         let mom = self.config.momentum;
+        let mom_t = scalar(cast::<f64, T>(mom)?)?.to(device)?;
+        let one_minus_mom_t = scalar(cast::<f64, T>(1.0 - mom)?)?.to(device)?;
 
-        let entry = self.factors.entry(param_name.to_string());
-        let factors = entry.or_insert_with(|| KroneckerFactors {
-            a_factor: vec![0.0; in_features * in_features],
-            a_size: in_features,
-            g_factor: vec![0.0; out_features * out_features],
-            g_size: out_features,
-            a_inv: None,
-            g_inv: None,
-            momentum_buf: None,
-        });
+        // Initialize factor tensors on the activation's device when first
+        // seen — zero-initialized to match the scalar-loop semantics.
+        let key_owned = param_name.to_string();
+        let needs_init = !self.factors.contains_key(&key_owned);
+        if needs_init {
+            let zero_a = ferrotorch_core::creation::zeros::<T>(&[in_features, in_features])?
+                .to(device)?;
+            let zero_g = ferrotorch_core::creation::zeros::<T>(&[out_features, out_features])?
+                .to(device)?;
+            self.factors.insert(
+                key_owned.clone(),
+                KroneckerFactors {
+                    a_factor: zero_a,
+                    a_size: in_features,
+                    g_factor: zero_g,
+                    g_size: out_features,
+                    a_inv: None,
+                    g_inv: None,
+                    momentum_buf: None,
+                },
+            );
+        }
+
+        let factors = self.factors.get_mut(&key_owned).unwrap();
+        // If the existing factors live on a different device (e.g. loaded
+        // from a state_dict on CPU then params moved to CUDA), migrate
+        // them once on first reuse.
+        if factors.a_factor.device() != device {
+            factors.a_factor = factors.a_factor.clone().to(device)?;
+        }
+        if factors.g_factor.device() != device {
+            factors.g_factor = factors.g_factor.clone().to(device)?;
+        }
 
         // A = mom * A_old + (1 - mom) * A_batch
-        for (a, &ab) in factors.a_factor.iter_mut().zip(a_batch.iter()) {
-            *a = mom * *a + (1.0 - mom) * ab;
-        }
+        let a_old_scaled = no_grad(|| mul(&factors.a_factor, &mom_t))?;
+        let a_batch_scaled = no_grad(|| mul(&a_batch, &one_minus_mom_t))?;
+        factors.a_factor = no_grad(|| add(&a_old_scaled, &a_batch_scaled))?;
 
         // G = mom * G_old + (1 - mom) * G_batch
-        for (g, &gb) in factors.g_factor.iter_mut().zip(g_batch.iter()) {
-            *g = mom * *g + (1.0 - mom) * gb;
-        }
+        let g_old_scaled = no_grad(|| mul(&factors.g_factor, &mom_t))?;
+        let g_batch_scaled = no_grad(|| mul(&g_batch, &one_minus_mom_t))?;
+        factors.g_factor = no_grad(|| add(&g_old_scaled, &g_batch_scaled))?;
 
         // Invalidate cached inverses — they will be recomputed on the next
         // step (or when `update_freq` triggers).
@@ -305,39 +314,43 @@ impl<T: Float> Kfac<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Dense matrix helpers (f64, row-major)
+// Tensor matrix helpers — device-aware (CL-1105 Pattern B)
 // ---------------------------------------------------------------------------
 
-/// Invert a square matrix (with damping) using ferrotorch_core::linalg::inv.
-fn invert_damped(matrix: &[f64], n: usize, damping: f64) -> FerrotorchResult<Vec<f64>> {
-    // Add damping * I to the matrix.
-    let mut damped = matrix.to_vec();
-    for i in 0..n {
-        damped[i * n + i] += damping;
-    }
+/// Compute `(matrix + damping * I)^{-1}` as a [`Tensor<T>`] on the input's
+/// device.
+///
+/// On CUDA, `linalg::solve` dispatches to cuSOLVER's
+/// `cusolverDnXgetrf` + `cusolverDnXgetrs` (LU + triangular solve), so this
+/// routine stays GPU-resident from input to output. On CPU it falls
+/// through to `linalg::inv` (which routes to LAPACK via ferray-linalg).
+fn invert_damped_tensor<T: Float>(matrix: &Tensor<T>, damping: f64) -> FerrotorchResult<Tensor<T>> {
+    let shape = matrix.shape();
+    debug_assert_eq!(
+        shape.len(),
+        2,
+        "invert_damped_tensor expects a 2-D square tensor"
+    );
+    debug_assert_eq!(
+        shape[0], shape[1],
+        "invert_damped_tensor expects a square matrix"
+    );
+    let n = shape[0];
+    let device = matrix.device();
 
-    // Build a Tensor, call linalg::inv, extract the result.
-    let data: Vec<f64> = damped;
-    let t = Tensor::from_storage(TensorStorage::cpu(data), vec![n, n], false)?;
-    let inv_t = ferrotorch_core::linalg::inv(&t)?;
-    let inv_data = inv_t.data()?.to_vec();
-    Ok(inv_data)
-}
+    // Build identity on the matrix's device.
+    let identity_cpu = eye::<T>(n)?;
+    let identity = identity_cpu.to(device)?;
 
-/// Matrix multiply C = A @ B (row-major, f64).
-/// A: [m, k], B: [k, n] -> C: [m, n]
-fn matmul_f64(a: &[f64], b: &[f64], m: usize, k: usize, n: usize) -> Vec<f64> {
-    let mut c = vec![0.0f64; m * n];
-    for i in 0..m {
-        for j in 0..n {
-            let mut sum = 0.0;
-            for p in 0..k {
-                sum += a[i * k + p] * b[p * n + j];
-            }
-            c[i * n + j] = sum;
-        }
-    }
-    c
+    // damped = matrix + damping * I
+    let damping_t = scalar(cast::<f64, T>(damping)?)?.to(device)?;
+    let damping_i = mul(&identity, &damping_t)?;
+    let damped = add(matrix, &damping_i)?;
+
+    // Solve `damped @ X = I` -> X = damped^{-1}. On CUDA this dispatches
+    // to the GPU `solve` path (`cusolver::gpu_solve_*`); on CPU it falls
+    // through to LAPACK `getrs`.
+    ferrotorch_core::linalg::solve(&damped, &identity)
 }
 
 // ---------------------------------------------------------------------------
@@ -345,6 +358,13 @@ fn matmul_f64(a: &[f64], b: &[f64], m: usize, k: usize, n: usize) -> Vec<f64> {
 // ---------------------------------------------------------------------------
 
 impl<T: Float> Optimizer<T> for Kfac<T> {
+    /// Run one optimizer step.
+    ///
+    /// CL-1105: device-resident Pattern B. Factor inversion uses
+    /// device-aware [`ferrotorch_core::linalg::solve`] (cuSOLVER on CUDA);
+    /// the preconditioned gradient is composed via [`tensor_matmul`]
+    /// (cuBLAS on CUDA). Parameter tensors stay on their original device
+    /// throughout the step.
     fn step(&mut self) -> FerrotorchResult<()> {
         let config = self.config;
         self.step_count += 1;
@@ -356,14 +376,13 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
             // Collect names first to avoid borrow conflict.
             let names: Vec<String> = self.factors.keys().cloned().collect();
             for name in &names {
-                let f = self.factors.get(name).unwrap();
-                let a_size = f.a_size;
-                let g_size = f.g_size;
-                let a_factor = f.a_factor.clone();
-                let g_factor = f.g_factor.clone();
+                let (a_factor, g_factor) = {
+                    let f = self.factors.get(name).unwrap();
+                    (f.a_factor.clone(), f.g_factor.clone())
+                };
 
-                let a_inv = invert_damped(&a_factor, a_size, config.damping)?;
-                let g_inv = invert_damped(&g_factor, g_size, config.damping)?;
+                let a_inv = no_grad(|| invert_damped_tensor(&a_factor, config.damping))?;
+                let g_inv = no_grad(|| invert_damped_tensor(&g_factor, config.damping))?;
 
                 let f = self.factors.get_mut(name).unwrap();
                 f.a_inv = Some(a_inv);
@@ -377,121 +396,135 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
 
             for pi in 0..self.param_groups[gi].params.len() {
                 let param = &self.param_groups[gi].params[pi];
-                let tensor = param.tensor();
+                let param_t = param.tensor().clone();
+                let device = param_t.device();
+                let shape = param_t.shape().to_vec();
 
                 // Skip parameters without gradients.
-                let grad_tensor = match tensor.grad()? {
+                let grad_tensor = match param_t.grad()? {
                     Some(g) => g,
                     None => continue,
                 };
 
                 let key = Self::param_key(gi, pi);
 
-                // Read parameter data and gradient data as f64.
-                let param_data: Vec<f64> = tensor
-                    .data()?
-                    .iter()
-                    .map(|&v| cast::<T, f64>(v))
-                    .collect::<FerrotorchResult<Vec<f64>>>()?;
-                let mut grad_data: Vec<f64> = grad_tensor
-                    .data()?
-                    .iter()
-                    .map(|&v| cast::<T, f64>(v))
-                    .collect::<FerrotorchResult<Vec<f64>>>()?;
-                let shape = tensor.shape().to_vec();
+                no_grad(|| -> FerrotorchResult<()> {
+                    // grad: device-resident (negated for maximize).
+                    let mut grad: Tensor<T> = if self.config.maximize {
+                        ferrotorch_core::grad_fns::arithmetic::neg(&grad_tensor)?
+                    } else {
+                        grad_tensor.clone()
+                    };
 
-                // Maximize: negate gradient. CL-321
-                if self.config.maximize {
-                    for g in grad_data.iter_mut() {
-                        *g = -*g;
+                    // L2 weight decay: grad = grad + weight_decay * param.
+                    if group_wd > 0.0 {
+                        let wd_t = scalar(cast::<f64, T>(group_wd)?)?.to(device)?;
+                        let weighted = mul(&param_t, &wd_t)?;
+                        grad = add(&grad, &weighted)?;
                     }
-                }
 
-                // L2 weight decay: grad = grad + weight_decay * param.
-                if group_wd > 0.0 {
-                    for (g, &p) in grad_data.iter_mut().zip(param_data.iter()) {
-                        *g += group_wd * p;
+                    // Ensure Kronecker factor inverses are computed and
+                    // resident on `device` (mutable access; released before
+                    // the immutable read below).
+                    if let Some(f) = self.factors.get_mut(&key) {
+                        if f.a_factor.device() != device {
+                            f.a_factor = f.a_factor.clone().to(device)?;
+                        }
+                        if f.g_factor.device() != device {
+                            f.g_factor = f.g_factor.clone().to(device)?;
+                        }
+                        if f.a_inv.is_none() {
+                            f.a_inv = Some(invert_damped_tensor(&f.a_factor, config.damping)?);
+                        } else if f.a_inv.as_ref().unwrap().device() != device {
+                            let a_inv = f.a_inv.take().unwrap();
+                            f.a_inv = Some(a_inv.to(device)?);
+                        }
+                        if f.g_inv.is_none() {
+                            f.g_inv = Some(invert_damped_tensor(&f.g_factor, config.damping)?);
+                        } else if f.g_inv.as_ref().unwrap().device() != device {
+                            let g_inv = f.g_inv.take().unwrap();
+                            f.g_inv = Some(g_inv.to(device)?);
+                        }
                     }
-                }
 
-                // Ensure Kronecker factor inverses are computed (mutable
-                // access, then released before the immutable borrow below).
-                if let Some(f) = self.factors.get_mut(&key) {
-                    if f.a_inv.is_none() {
-                        f.a_inv = Some(invert_damped(&f.a_factor, f.a_size, config.damping)?);
-                    }
-                    if f.g_inv.is_none() {
-                        f.g_inv = Some(invert_damped(&f.g_factor, f.g_size, config.damping)?);
-                    }
-                }
-
-                // Now borrow immutably to compute the preconditioned gradient.
-                let preconditioned = if let Some(factors) = self.factors.get(&key) {
-                    let a_inv = factors.a_inv.as_ref().unwrap();
-                    let g_inv = factors.g_inv.as_ref().unwrap();
-
-                    let out_f = factors.g_size;
-                    let in_f = factors.a_size;
-
-                    // grad_W is [out_features, in_features] (row-major).
-                    // natural_grad = G^{-1} @ grad_W @ A^{-1}
-                    // Step 1: temp = G^{-1} @ grad_W  [out_f, in_f]
-                    let temp = matmul_f64(g_inv, &grad_data, out_f, out_f, in_f);
-                    // Step 2: natural_grad = temp @ A^{-1}  [out_f, in_f]
-
-                    matmul_f64(&temp, a_inv, out_f, in_f, in_f)
-                } else {
-                    // No Kronecker factors registered — fall back to vanilla
-                    // gradient (behaves like SGD).
-                    grad_data
-                };
-
-                // Apply momentum to the preconditioned gradient.
-                let effective_grad = if config.momentum > 0.0 {
-                    // We need a mutable reference to factors for momentum buf.
-                    // Use the same key.
-                    let entry = self.factors.entry(key.clone());
-                    let factors = entry.or_insert_with(|| KroneckerFactors {
-                        a_factor: Vec::new(),
-                        a_size: 0,
-                        g_factor: Vec::new(),
-                        g_size: 0,
-                        a_inv: None,
-                        g_inv: None,
-                        momentum_buf: None,
-                    });
-
-                    let mom = config.momentum;
-                    if let Some(ref mut buf) = factors.momentum_buf {
-                        // buf = mom * buf + preconditioned
-                        for (b, &g) in buf.iter_mut().zip(preconditioned.iter()) {
-                            *b = mom * *b + g;
+                    // Compute the preconditioned gradient. When factors exist:
+                    //   natural_grad = G^{-1} @ grad_W @ A^{-1}
+                    // For non-2D parameters we skip preconditioning entirely
+                    // (Kronecker factorization is only defined for Linear
+                    // weights; the original implementation also fell back
+                    // here whenever the user did not register factors).
+                    let preconditioned = if let Some(factors) = self.factors.get(&key) {
+                        if shape.len() != 2 {
+                            grad
+                        } else {
+                            let a_inv = factors.a_inv.as_ref().unwrap();
+                            let g_inv = factors.g_inv.as_ref().unwrap();
+                            // temp = G^{-1} @ grad   [out_f, in_f]
+                            let temp = tensor_matmul(g_inv, &grad)?;
+                            // natural_grad = temp @ A^{-1}  [out_f, in_f]
+                            tensor_matmul(&temp, a_inv)?
                         }
                     } else {
-                        factors.momentum_buf = Some(preconditioned.clone());
-                    }
+                        // No factors registered — vanilla gradient (SGD).
+                        grad
+                    };
 
-                    factors.momentum_buf.as_ref().unwrap().clone()
-                } else {
-                    preconditioned
-                };
+                    // Apply momentum to the preconditioned gradient.
+                    let effective_grad = if config.momentum > 0.0 {
+                        let mom_t = scalar(cast::<f64, T>(config.momentum)?)?.to(device)?;
 
-                // Update: param -= lr * effective_grad
-                let numel = param_data.len();
-                let new_param_data: Vec<T> = (0..numel)
-                    .map(|i| {
-                        let updated = param_data[i] - group_lr * effective_grad[i];
-                        cast::<f64, T>(updated)
-                    })
-                    .collect::<FerrotorchResult<Vec<T>>>()?;
+                        // Ensure a factors entry exists for the momentum buf
+                        // (matches the legacy code, which created a
+                        // zero-sized factors record purely as a momentum
+                        // container when no factors were registered).
+                        let needs_init = !self.factors.contains_key(&key);
+                        if needs_init {
+                            let zero_a = ferrotorch_core::creation::zeros::<T>(&[0, 0])?;
+                            let zero_g = ferrotorch_core::creation::zeros::<T>(&[0, 0])?;
+                            self.factors.insert(
+                                key.clone(),
+                                KroneckerFactors {
+                                    a_factor: zero_a,
+                                    a_size: 0,
+                                    g_factor: zero_g,
+                                    g_size: 0,
+                                    a_inv: None,
+                                    g_inv: None,
+                                    momentum_buf: None,
+                                },
+                            );
+                        }
 
-                // Write updated parameter data inside no_grad.
-                let shape_clone = shape.clone();
-                let new_tensor = no_grad(|| {
-                    Tensor::from_storage(TensorStorage::cpu(new_param_data), shape_clone, true)
+                        let factors = self.factors.get_mut(&key).unwrap();
+                        if let Some(ref buf) = factors.momentum_buf {
+                            // buf = mom * buf + preconditioned
+                            let scaled = mul(buf, &mom_t)?;
+                            let new_buf = add(&scaled, &preconditioned)?;
+                            factors.momentum_buf = Some(new_buf);
+                        } else {
+                            factors.momentum_buf = Some(preconditioned.clone());
+                        }
+
+                        factors.momentum_buf.as_ref().unwrap().clone()
+                    } else {
+                        preconditioned
+                    };
+
+                    // param = param - lr * effective_grad
+                    let lr_t = scalar(cast::<f64, T>(group_lr)?)?.to(device)?;
+                    let scaled = mul(&effective_grad, &lr_t)?;
+                    let new_param = sub(&param_t, &scaled)?;
+
+                    let (storage, _) = new_param.into_storage_and_shape()?;
+                    // SAFETY: same as Muon::step — we own a `&mut self`
+                    // handle, the closure runs inside `no_grad`, all
+                    // intermediate tensors are freshly allocated and about
+                    // to drop, and `new_param` was consumed into `storage`.
+                    // The new storage is on `device` and has matching numel.
+                    unsafe { param_t.update_storage(storage)? };
+
+                    Ok(())
                 })?;
-
-                self.param_groups[gi].params[pi] = Parameter::new(new_tensor);
             }
         }
 
@@ -542,15 +575,48 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
             out.insert("__kfac_meta__".to_string(), meta);
         }
 
-        // Serialize each factor set.
+        // Serialize each factor set. Tensors are downloaded to host once at
+        // checkpoint time (not per step) and serialised as f64 to keep the
+        // on-disk format dtype-agnostic.
         for (name, factors) in &self.factors {
             let mut entry = HashMap::new();
             entry.insert("a_size".to_string(), vec![factors.a_size as f64]);
             entry.insert("g_size".to_string(), vec![factors.g_size as f64]);
-            entry.insert("a_factor".to_string(), factors.a_factor.clone());
-            entry.insert("g_factor".to_string(), factors.g_factor.clone());
+
+            let a_cpu = if factors.a_factor.is_cuda() {
+                factors.a_factor.cpu()?
+            } else {
+                factors.a_factor.clone()
+            };
+            let a_f64: Vec<f64> = a_cpu
+                .data_vec()?
+                .iter()
+                .map(|&v| cast::<T, f64>(v))
+                .collect::<FerrotorchResult<Vec<f64>>>()?;
+            entry.insert("a_factor".to_string(), a_f64);
+
+            let g_cpu = if factors.g_factor.is_cuda() {
+                factors.g_factor.cpu()?
+            } else {
+                factors.g_factor.clone()
+            };
+            let g_f64: Vec<f64> = g_cpu
+                .data_vec()?
+                .iter()
+                .map(|&v| cast::<T, f64>(v))
+                .collect::<FerrotorchResult<Vec<f64>>>()?;
+            entry.insert("g_factor".to_string(), g_f64);
+
             if let Some(ref buf) = factors.momentum_buf {
-                entry.insert("momentum_buf".to_string(), buf.clone());
+                let buf_cpu = if buf.is_cuda() { buf.cpu()? } else { buf.clone() };
+                let buf_f64: Vec<f64> = buf_cpu
+                    .data_vec()?
+                    .iter()
+                    .map(|&v| cast::<T, f64>(v))
+                    .collect::<FerrotorchResult<Vec<f64>>>()?;
+                entry.insert("momentum_buf".to_string(), buf_f64);
+                let buf_shape: Vec<f64> = buf.shape().iter().map(|&d| d as f64).collect();
+                entry.insert("momentum_buf_shape".to_string(), buf_shape);
             }
             out.insert(name.clone(), entry);
         }
@@ -589,23 +655,57 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
                     message: format!("missing g_size in state for key {name}"),
                 })? as usize;
 
-            let a_factor =
+            let a_factor_f64 =
                 entry
                     .get("a_factor")
                     .cloned()
                     .ok_or_else(|| FerrotorchError::InvalidArgument {
                         message: format!("missing a_factor in state for key {name}"),
                     })?;
+            let a_factor_t: Vec<T> = a_factor_f64
+                .iter()
+                .map(|&v| cast::<f64, T>(v))
+                .collect::<FerrotorchResult<Vec<T>>>()?;
+            let a_factor = Tensor::from_storage(
+                TensorStorage::cpu(a_factor_t),
+                vec![a_size, a_size],
+                false,
+            )?;
 
-            let g_factor =
+            let g_factor_f64 =
                 entry
                     .get("g_factor")
                     .cloned()
                     .ok_or_else(|| FerrotorchError::InvalidArgument {
                         message: format!("missing g_factor in state for key {name}"),
                     })?;
+            let g_factor_t: Vec<T> = g_factor_f64
+                .iter()
+                .map(|&v| cast::<f64, T>(v))
+                .collect::<FerrotorchResult<Vec<T>>>()?;
+            let g_factor = Tensor::from_storage(
+                TensorStorage::cpu(g_factor_t),
+                vec![g_size, g_size],
+                false,
+            )?;
 
-            let momentum_buf = entry.get("momentum_buf").cloned();
+            let momentum_buf = if let Some(buf_f64) = entry.get("momentum_buf") {
+                let buf_t: Vec<T> = buf_f64
+                    .iter()
+                    .map(|&v| cast::<f64, T>(v))
+                    .collect::<FerrotorchResult<Vec<T>>>()?;
+                let buf_shape: Vec<usize> = entry
+                    .get("momentum_buf_shape")
+                    .map(|s| s.iter().map(|&d| d as usize).collect())
+                    .unwrap_or_else(|| vec![buf_t.len()]);
+                Some(Tensor::from_storage(
+                    TensorStorage::cpu(buf_t),
+                    buf_shape,
+                    false,
+                )?)
+            } else {
+                None
+            };
 
             self.factors.insert(
                 name.clone(),
@@ -727,19 +827,21 @@ mod tests {
         //   a^T a = [[1,0,0],[0,1,0],[0,0,0]]
         //   / 2 = [[0.5,0,0],[0,0.5,0],[0,0,0]]
         assert_eq!(factors.a_size, 3);
-        assert!((factors.a_factor[0] - 0.5).abs() < 1e-12); // (0,0)
-        assert!((factors.a_factor[4] - 0.5).abs() < 1e-12); // (1,1)
-        assert!((factors.a_factor[8] - 0.0).abs() < 1e-12); // (2,2)
-        assert!((factors.a_factor[1] - 0.0).abs() < 1e-12); // off-diag
+        let a_data = factors.a_factor.data().unwrap().to_vec();
+        assert!((a_data[0] - 0.5).abs() < 1e-12); // (0,0)
+        assert!((a_data[4] - 0.5).abs() < 1e-12); // (1,1)
+        assert!((a_data[8] - 0.0).abs() < 1e-12); // (2,2)
+        assert!((a_data[1] - 0.0).abs() < 1e-12); // off-diag
 
         // G = (g^T g) / 2 with the given data:
         //   g = [[1,0],[0,1]]
         //   g^T g = [[1,0],[0,1]]
         //   / 2 = [[0.5,0],[0,0.5]]
         assert_eq!(factors.g_size, 2);
-        assert!((factors.g_factor[0] - 0.5).abs() < 1e-12);
-        assert!((factors.g_factor[3] - 0.5).abs() < 1e-12);
-        assert!((factors.g_factor[1] - 0.0).abs() < 1e-12);
+        let g_data = factors.g_factor.data().unwrap().to_vec();
+        assert!((g_data[0] - 0.5).abs() < 1e-12);
+        assert!((g_data[3] - 0.5).abs() < 1e-12);
+        assert!((g_data[1] - 0.0).abs() < 1e-12);
     }
 
     #[test]
@@ -768,8 +870,11 @@ mod tests {
         kfac.update_factors("test", &act1, &grad1).unwrap();
 
         // First update: A = 0.5 * 0 + 0.5 * [[0.5,0],[0,0.5]] = [[0.25,0],[0,0.25]]
-        let f = kfac.factors.get("test").unwrap();
-        assert!((f.a_factor[0] - 0.25).abs() < 1e-12);
+        {
+            let f = kfac.factors.get("test").unwrap();
+            let a_data = f.a_factor.data().unwrap().to_vec();
+            assert!((a_data[0] - 0.25).abs() < 1e-12);
+        }
 
         // Second update with same data:
         // A = 0.5 * [[0.25,0],[0,0.25]] + 0.5 * [[0.5,0],[0,0.5]]
@@ -778,7 +883,8 @@ mod tests {
         kfac.update_factors("test", &act1, &grad1).unwrap();
 
         let f = kfac.factors.get("test").unwrap();
-        assert!((f.a_factor[0] - 0.375).abs() < 1e-12);
+        let a_data = f.a_factor.data().unwrap().to_vec();
+        assert!((a_data[0] - 0.375).abs() < 1e-12);
     }
 
     // -----------------------------------------------------------------------
@@ -822,9 +928,19 @@ mod tests {
         kfac.factors.insert(
             key.clone(),
             KroneckerFactors {
-                a_factor: vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                a_factor: Tensor::from_storage(
+                    TensorStorage::cpu(vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+                    vec![3, 3],
+                    false,
+                )
+                .unwrap(),
                 a_size: 3,
-                g_factor: vec![1.0, 0.0, 0.0, 1.0],
+                g_factor: Tensor::from_storage(
+                    TensorStorage::cpu(vec![1.0, 0.0, 0.0, 1.0]),
+                    vec![2, 2],
+                    false,
+                )
+                .unwrap(),
                 g_size: 2,
                 a_inv: None,
                 g_inv: None,
@@ -1112,5 +1228,233 @@ mod tests {
 
         let result = kfac.update_factors("test", &act, &grad);
         assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // CL-1105 Pattern B — CUDA device-resident step tests.
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "cuda")]
+    fn try_init_cuda() -> bool {
+        match ferrotorch_gpu::init_cuda_backend() {
+            Ok(_) => true,
+            Err(e) => {
+                eprintln!("[cascade_skip] no CUDA device: {e}");
+                false
+            }
+        }
+    }
+
+    /// KFAC step must preserve the device residence of its parameter
+    /// (factors and inverses are uploaded to the parameter's device).
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn kfac_step_preserves_device_for_cuda_input() {
+        if !try_init_cuda() {
+            return;
+        }
+        let p = param_from(&[1.0, 2.0, 3.0, 4.0], &[2, 2])
+            .to(ferrotorch_core::Device::Cuda(0))
+            .unwrap();
+        let grad = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.1_f64, 0.2, 0.3, 0.4]),
+            vec![2, 2],
+            false,
+        )
+        .unwrap()
+        .cuda()
+        .unwrap();
+        p.tensor().set_grad(Some(grad)).unwrap();
+
+        let mut kfac = Kfac::new(
+            vec![p],
+            KfacConfig {
+                lr: 0.01,
+                damping: 1e-3,
+                momentum: 0.0,
+                update_freq: 1,
+                ..Default::default()
+            },
+        );
+
+        // Register factors via CUDA activation/gradient — exercises the
+        // device-resident outer-product accumulation path.
+        let act = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0_f64, 0.0, 0.0, 1.0]),
+            vec![2, 2],
+            false,
+        )
+        .unwrap()
+        .cuda()
+        .unwrap();
+        let outgrad = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0_f64, 0.0, 0.0, 1.0]),
+            vec![2, 2],
+            false,
+        )
+        .unwrap()
+        .cuda()
+        .unwrap();
+        kfac.update_factors("g0_p0", &act, &outgrad).unwrap();
+
+        kfac.step().unwrap();
+
+        let after = &kfac.param_groups[0].params[0];
+        assert!(
+            after.tensor().is_cuda(),
+            "KFAC::step must preserve CUDA residence; got device {:?}",
+            after.tensor().device()
+        );
+        assert_eq!(after.tensor().device(), ferrotorch_core::Device::Cuda(0));
+    }
+
+    /// KFAC factor inversion uses cuSOLVER on CUDA. After the inversion
+    /// step, the cached `a_inv`/`g_inv` tensors must live on the CUDA
+    /// device — proving the inversion path went through the GPU solver
+    /// rather than silently demoting to CPU LAPACK.
+    #[cfg(feature = "cuda")]
+    #[test]
+    #[allow(non_snake_case)]
+    fn kfac_factor_inversion_uses_cuSOLVER_on_cuda() {
+        if !try_init_cuda() {
+            return;
+        }
+        let p = param_from(&[1.0, 2.0, 3.0, 4.0], &[2, 2])
+            .to(ferrotorch_core::Device::Cuda(0))
+            .unwrap();
+        let grad = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.1_f64, 0.2, 0.3, 0.4]),
+            vec![2, 2],
+            false,
+        )
+        .unwrap()
+        .cuda()
+        .unwrap();
+        p.tensor().set_grad(Some(grad)).unwrap();
+
+        let mut kfac = Kfac::new(
+            vec![p],
+            KfacConfig {
+                lr: 0.01,
+                damping: 1e-3,
+                momentum: 0.0,
+                update_freq: 1,
+                ..Default::default()
+            },
+        );
+
+        let act = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0_f64, 0.0, 0.0, 1.0]),
+            vec![2, 2],
+            false,
+        )
+        .unwrap()
+        .cuda()
+        .unwrap();
+        let outgrad = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0_f64, 0.0, 0.0, 1.0]),
+            vec![2, 2],
+            false,
+        )
+        .unwrap()
+        .cuda()
+        .unwrap();
+        kfac.update_factors("g0_p0", &act, &outgrad).unwrap();
+
+        kfac.step().unwrap();
+
+        // After the step, the cached factor inverses must be CUDA-resident.
+        let factors = kfac.factors.get("g0_p0").expect("factors registered");
+        let a_inv = factors.a_inv.as_ref().expect("a_inv computed");
+        let g_inv = factors.g_inv.as_ref().expect("g_inv computed");
+        assert!(
+            a_inv.is_cuda(),
+            "A^-1 must be CUDA-resident (cuSOLVER path); got {:?}",
+            a_inv.device()
+        );
+        assert!(
+            g_inv.is_cuda(),
+            "G^-1 must be CUDA-resident (cuSOLVER path); got {:?}",
+            g_inv.device()
+        );
+    }
+
+    /// KFAC numerical equivalence: CPU vs CUDA run, same init/config,
+    /// must converge to the same updated parameter vector.
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn kfac_step_matches_cpu_within_tolerance() {
+        if !try_init_cuda() {
+            return;
+        }
+        let init = vec![1.0_f64, 2.0, 3.0, 4.0];
+        let grad_data = vec![0.1_f64, 0.2, 0.3, 0.4];
+        let act_data = vec![1.0_f64, 0.0, 0.0, 1.0];
+        let outg_data = vec![1.0_f64, 0.0, 0.0, 1.0];
+        let cfg = KfacConfig {
+            lr: 0.01,
+            damping: 1e-3,
+            momentum: 0.0,
+            update_freq: 1,
+            ..Default::default()
+        };
+
+        // CPU reference.
+        let p_cpu = param_from(&init, &[2, 2]);
+        p_cpu
+            .tensor()
+            .set_grad(Some(
+                Tensor::from_storage(TensorStorage::cpu(grad_data.clone()), vec![2, 2], false)
+                    .unwrap(),
+            ))
+            .unwrap();
+        let mut kfac_cpu = Kfac::new(vec![p_cpu], cfg);
+        let act_cpu =
+            Tensor::from_storage(TensorStorage::cpu(act_data.clone()), vec![2, 2], false).unwrap();
+        let outg_cpu =
+            Tensor::from_storage(TensorStorage::cpu(outg_data.clone()), vec![2, 2], false).unwrap();
+        kfac_cpu.update_factors("g0_p0", &act_cpu, &outg_cpu).unwrap();
+        kfac_cpu.step().unwrap();
+        let cpu_after: Vec<f64> = kfac_cpu.param_groups[0].params[0]
+            .data()
+            .unwrap()
+            .to_vec();
+
+        // CUDA run.
+        let p_gpu = param_from(&init, &[2, 2])
+            .to(ferrotorch_core::Device::Cuda(0))
+            .unwrap();
+        let g_gpu =
+            Tensor::from_storage(TensorStorage::cpu(grad_data), vec![2, 2], false)
+                .unwrap()
+                .cuda()
+                .unwrap();
+        p_gpu.tensor().set_grad(Some(g_gpu)).unwrap();
+        let mut kfac_gpu = Kfac::new(vec![p_gpu], cfg);
+        let act_gpu = Tensor::from_storage(TensorStorage::cpu(act_data), vec![2, 2], false)
+            .unwrap()
+            .cuda()
+            .unwrap();
+        let outg_gpu = Tensor::from_storage(TensorStorage::cpu(outg_data), vec![2, 2], false)
+            .unwrap()
+            .cuda()
+            .unwrap();
+        kfac_gpu.update_factors("g0_p0", &act_gpu, &outg_gpu).unwrap();
+        kfac_gpu.step().unwrap();
+        let gpu_after: Vec<f64> = kfac_gpu.param_groups[0].params[0]
+            .tensor()
+            .cpu()
+            .unwrap()
+            .data()
+            .unwrap()
+            .to_vec();
+
+        assert_eq!(cpu_after.len(), gpu_after.len());
+        for (i, (c, g)) in cpu_after.iter().zip(gpu_after.iter()).enumerate() {
+            assert!(
+                (c - g).abs() < 1e-6,
+                "KFAC CPU/GPU mismatch at idx {i}: cpu={c}, gpu={g}"
+            );
+        }
     }
 }

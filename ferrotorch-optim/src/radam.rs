@@ -299,8 +299,17 @@ impl<T: Float> RAdam<T> {
 }
 
 impl<T: Float> Optimizer<T> for RAdam<T> {
+    /// Run one optimizer step.
+    ///
+    /// CL-1105: When any parameter lives on CUDA we auto-route to
+    /// `step_foreach` (device-resident); the legacy `data_vec()` loop
+    /// below would silently demote the step to CPU.
     fn step(&mut self) -> FerrotorchResult<()> {
-        if self.config.foreach {
+        let any_cuda = self
+            .param_groups
+            .iter()
+            .any(|g| g.params.iter().any(|p| p.tensor().is_cuda()));
+        if self.config.foreach || any_cuda {
             return self.step_foreach();
         }
 
