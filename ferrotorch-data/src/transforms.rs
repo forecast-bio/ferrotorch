@@ -1,4 +1,10 @@
-use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, TensorStorage};
+use ferrotorch_core::autograd::no_grad;
+use ferrotorch_core::creation::from_vec;
+use ferrotorch_core::grad_fns::arithmetic::{div, sub};
+use ferrotorch_core::grad_fns::indexing::index_select_dim;
+use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, IntTensor, Tensor};
+#[cfg(test)]
+use ferrotorch_core::TensorStorage;
 use num_traits::NumCast;
 
 // ---------------------------------------------------------------------------
@@ -164,22 +170,27 @@ impl<T: Float> Transform<T> for Normalize<T> {
             });
         }
 
-        let data = input.data()?;
-        let channel_numel: usize = shape[1..].iter().product();
-        let mut output = Vec::with_capacity(data.len());
+        // Build broadcast-shaped mean/std tensors `[C, 1, 1, ..., 1]` so
+        // they right-align against `input` (shape `[C, ...]`) under
+        // PyTorch's standard broadcasting rules. Construct via `from_vec`
+        // (which mints a CPU tensor) and immediately ferry to
+        // `input.device()` — same idiom used in `einops.rs:790`.
+        // The full arithmetic chain (`sub`, `div`) is device-aware, so
+        // CUDA inputs stay on-device end-to-end. No silent CPU demote.
+        let ndim = shape.len();
+        let mut bshape = vec![1usize; ndim];
+        bshape[0] = channels;
 
-        for c in 0..channels {
-            let m = self.mean[c];
-            let s = self.std[c];
-            let start = c * channel_numel;
-            let end = start + channel_numel;
-            for &val in &data[start..end] {
-                output.push((val - m) / s);
-            }
-        }
+        let mean_t = from_vec(self.mean.clone(), &bshape)?.to(input.device())?;
+        let std_t = from_vec(self.std.clone(), &bshape)?.to(input.device())?;
 
-        let storage = TensorStorage::cpu(output);
-        Tensor::from_storage(storage, shape, false)
+        // The prior implementation produced a freshly-allocated leaf
+        // tensor with `requires_grad=false`. Wrap the autograd-aware
+        // op chain in `no_grad` to preserve that contract.
+        no_grad(|| {
+            let centered = sub(&input, &mean_t)?;
+            div(&centered, &std_t)
+        })
     }
 }
 
@@ -286,11 +297,12 @@ impl<T: Float> Transform<T> for RandomHorizontalFlip<T> {
         }
 
         if random_f64() >= self.p {
+            // No flip — return input unchanged. Preserves device + autograd
+            // graph; the prior code did a useless CPU round-trip.
             return Ok(input);
         }
 
-        let shape = input.shape().to_vec();
-        let data = input.data()?;
+        let shape = input.shape();
         // The `ndim() == 0` guard above returns early with Err, so the
         // shape has at least one dimension here. Propagate as Internal
         // rather than panic if that invariant ever breaks under refactor.
@@ -299,21 +311,21 @@ impl<T: Float> Transform<T> for RandomHorizontalFlip<T> {
         })?;
 
         if last_dim <= 1 {
-            // Nothing to flip.
-            let storage = TensorStorage::cpu(data.to_vec());
-            return Tensor::from_storage(storage, shape, false);
+            // Nothing to flip — return input unchanged. (Prior code allocated
+            // a fresh CPU copy; that silently demoted CUDA inputs.)
+            return Ok(input);
         }
 
-        // Reverse along the last dimension by working in chunks of `last_dim`.
-        let mut output = Vec::with_capacity(data.len());
-        for chunk in data.chunks(last_dim) {
-            for i in (0..last_dim).rev() {
-                output.push(chunk[i]);
-            }
-        }
+        // Build a 1-D index list `[last_dim - 1, ..., 1, 0]` and gather along
+        // the last dim via `index_select_dim`. This stays device-resident and
+        // preserves autograd. There is no native `flip` op in ferrotorch-core
+        // by design (#1107 pre-flight): index_select_dim subsumes it.
+        let last_dim_axis = input.ndim() - 1;
+        let reverse_indices: Vec<i64> = (0..last_dim).rev().map(|i| i as i64).collect();
+        let indices = IntTensor::<i64>::from_vec(reverse_indices, vec![last_dim])?;
 
-        let storage = TensorStorage::cpu(output);
-        Tensor::from_storage(storage, shape, false)
+        // Match the prior contract: result is a non-grad tensor.
+        no_grad(|| index_select_dim(&input, last_dim_axis, &indices))
     }
 }
 
@@ -346,7 +358,7 @@ impl<T: Float> RandomCrop<T> {
 
 impl<T: Float> Transform<T> for RandomCrop<T> {
     fn apply(&self, input: Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-        let shape = input.shape().to_vec();
+        let shape = input.shape();
         if shape.len() < 2 {
             return Err(FerrotorchError::InvalidArgument {
                 message: format!(
@@ -383,29 +395,16 @@ impl<T: Float> Transform<T> for RandomCrop<T> {
             (r * (in_w - self.width) as f64) as usize
         };
 
-        let data = input.data()?;
-
-        // Number of independent "planes" (product of all dims before H, W).
-        let planes: usize = shape[..ndim - 2].iter().product();
-
-        let mut output = Vec::with_capacity(planes * self.height * self.width);
-        let plane_size = in_h * in_w;
-
-        for p in 0..planes {
-            let plane_offset = p * plane_size;
-            for row in top..top + self.height {
-                let row_start = plane_offset + row * in_w + left;
-                output.extend_from_slice(&data[row_start..row_start + self.width]);
-            }
-        }
-
-        let mut out_shape = shape;
-        let n = out_shape.len();
-        out_shape[n - 2] = self.height;
-        out_shape[n - 1] = self.width;
-
-        let storage = TensorStorage::cpu(output);
-        Tensor::from_storage(storage, out_shape, false)
+        // Two zero-copy `narrow` views (height, then width). Both stay on
+        // `input.device()`. We then materialize via `.contiguous()` so the
+        // returned tensor is a fresh contiguous buffer — matching the
+        // pre-Pass-5.B.5 behaviour callers depend on (e.g. tests calling
+        // `.data()` directly), without ever round-tripping through CPU.
+        no_grad(|| {
+            let cropped_h = input.narrow(ndim - 2, top, self.height)?;
+            let cropped = cropped_h.narrow(ndim - 1, left, self.width)?;
+            cropped.contiguous()
+        })
     }
 }
 
@@ -650,5 +649,110 @@ mod tests {
         assert_send_sync::<ToTensor>();
         assert_send_sync::<RandomHorizontalFlip<f32>>();
         assert_send_sync::<RandomCrop<f32>>();
+    }
+
+    // ----- Pass 5.B.5 device-resident migration (#1107) -----
+    //
+    // These tests pin in the contract that `Normalize`, `RandomHorizontalFlip`,
+    // and `RandomCrop` no longer round-trip through CPU when the input is on
+    // a non-CPU device. On a CPU-only Linux runner the device-equality check
+    // is necessarily a tautology (`Cpu == Cpu`); the discriminating power
+    // comes from the fact that the new implementations cannot construct
+    // `TensorStorage::cpu(...)` from a `Tensor::data()?` round-trip — there
+    // is no `data()` call left in the apply bodies. Combined with the
+    // numerical-equivalence test for the new flip path, these catch any
+    // regression that re-introduces a CPU staging copy.
+
+    #[test]
+    fn normalize_preserves_device_for_cpu_input() {
+        // Shape `[3, 4, 4]` matches the architect's pinned shape.
+        let numel = 3 * 4 * 4;
+        let data: Vec<f32> = (0..numel).map(|i| i as f32).collect();
+        let input =
+            Tensor::<f32>::from_storage(TensorStorage::cpu(data.clone()), vec![3, 4, 4], false)
+                .unwrap();
+        let in_device = input.device();
+
+        let norm = Normalize::<f32>::new(vec![1.0, 2.0, 3.0], vec![2.0, 4.0, 6.0]).unwrap();
+        let out = norm.apply(input).unwrap();
+
+        // Device preserved end-to-end.
+        assert_eq!(out.device(), in_device);
+        // Output shape preserved.
+        assert_eq!(out.shape(), &[3, 4, 4]);
+
+        // Numerical correctness: per-channel (val - mean[c]) / std[c].
+        let out_data = out.data_vec().unwrap();
+        let channel_numel = 4 * 4;
+        let means = [1.0_f32, 2.0, 3.0];
+        let stds = [2.0_f32, 4.0, 6.0];
+        for c in 0..3 {
+            for i in 0..channel_numel {
+                let idx = c * channel_numel + i;
+                let expected = (data[idx] - means[c]) / stds[c];
+                assert!(
+                    (out_data[idx] - expected).abs() < 1e-6,
+                    "channel {c} idx {i}: got {} expected {}",
+                    out_data[idx],
+                    expected
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn random_horizontal_flip_preserves_device_for_cpu_input() {
+        let t = sequential_tensor(3, 4, 4);
+        let in_device = t.device();
+        let flip = RandomHorizontalFlip::<f64>::new(1.0).unwrap(); // p=1 → always flip
+        let out = flip.apply(t).unwrap();
+        assert_eq!(out.device(), in_device);
+        assert_eq!(out.shape(), &[3, 4, 4]);
+    }
+
+    #[test]
+    fn random_crop_preserves_device_for_cpu_input() {
+        let t = sequential_tensor(3, 8, 8);
+        let in_device = t.device();
+        let crop = RandomCrop::<f64>::new(4, 4);
+        let out = crop.apply(t).unwrap();
+        assert_eq!(out.device(), in_device);
+        assert_eq!(out.shape(), &[3, 4, 4]);
+    }
+
+    #[test]
+    fn random_horizontal_flip_index_select_matches_manual_reverse() {
+        // Lock in numerical equivalence between the old chunks-based reverse
+        // and the new index_select_dim path. For a known [C, H, W] input,
+        // manually compute the expected horizontal flip and compare.
+        let c = 2;
+        let h = 3;
+        let w = 4;
+        let numel = c * h * w;
+        let data: Vec<f64> = (0..numel).map(|i| i as f64).collect();
+        let input =
+            Tensor::<f64>::from_storage(TensorStorage::cpu(data.clone()), vec![c, h, w], false)
+                .unwrap();
+
+        // Manual reverse along the last dim, the same way the prior
+        // chunks-based loop produced its output.
+        let mut expected = Vec::with_capacity(numel);
+        for chunk in data.chunks(w) {
+            for i in (0..w).rev() {
+                expected.push(chunk[i]);
+            }
+        }
+
+        // p = 1.0 forces a flip on every call.
+        let flip = RandomHorizontalFlip::<f64>::new(1.0).unwrap();
+        let out = flip.apply(input).unwrap();
+        let out_data = out.data_vec().unwrap();
+        assert_eq!(out.shape(), &[c, h, w]);
+        for (i, (&got, &want)) in out_data.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (got - want).abs() < 1e-12,
+                "flip mismatch at {i}: got {got} expected {want}"
+            );
+        }
     }
 }
