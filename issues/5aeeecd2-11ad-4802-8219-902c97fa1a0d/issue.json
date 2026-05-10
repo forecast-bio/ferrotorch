@@ -8,5 +8,8 @@
   "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
   "created_by": "y4rr",
   "created_at": "2026-05-10T07:28:03.838182775Z",
-  "updated_at": "2026-05-10T07:28:03.838182775Z"
+  "updated_at": "2026-05-10T07:28:05.119229112Z",
+  "labels": [
+    "audit,doc-drift,distributions"
+  ]
 }
