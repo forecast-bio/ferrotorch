@@ -1,0 +1,10 @@
+{
+  "uuid": "9017d8a9-15d4-4162-be8f-571a3850926a",
+  "issue_uuid": "7205e6fc-043a-431d-9ed3-df9b35961886",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 12 APPROVE-WITH-FOLLOW-UPS. 4 BROKEN tests (#1028, #1029, #1040, #1058) strengthened: actual K-FAC off-diagonal walk (#1028), element-wise momentum buffer (#1029), variant inner-value destructure (#1040), case[mean] fixture anchor (#1058). Sabotage demo: muon momentum_buffer[0] += 1.0 caught at line 1688 with original=1 vs round-tripped=2. Follow-up #1087 filed for missing fixture field on multivariate_normal 3d_identity_scale case. No src/ changes, no new workspace deps.",
+  "created_at": "2026-05-10T02:30:59.122096097Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA9uv9JXg8ykbEEr9W9HR/qpe5lz1/g5RwGK6I4aZcQ+8QhGoFId9+nMy/Lu8SGH4b21VDSq7YJ/ZrNpx/DrkTAw=="
+}
