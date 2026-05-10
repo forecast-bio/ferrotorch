@@ -333,24 +333,27 @@ fn softmax_backward_f64_matches_reference() {
 #[test]
 fn log_softmax_backward_f64_matches_reference() {
     ensure_cuda();
-    // log-softmax backward: grad_input[i] = grad[i] - exp(output[i]) * sum(grad)
-    // where `output` is the *log_softmax* output (i.e., log probs).
+    // log-softmax backward: grad_input[i] = grad[i] - softmax[i] * sum(grad)
+    // Per kernel contract (kernels.rs:5400-5404 #820), the host saves
+    // softmax probabilities (post-exp) at forward time and passes them
+    // here — NOT log probabilities. Re-applying exp() inside the kernel
+    // was the original bug the contract was fixed against. This test
+    // matches the saved-softmax convention to mirror the autograd flow.
     let row_in = [1.0_f64, 2.0, 3.0];
     let m = row_in.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let exps: Vec<f64> = row_in.iter().map(|&x| (x - m).exp()).collect();
     let s: f64 = exps.iter().sum();
-    let log_s = s.ln();
-    let out_row: Vec<f64> = row_in.iter().map(|&x| x - m - log_s).collect();
+    let softmax_row: Vec<f64> = exps.iter().map(|&e| e / s).collect();
     let grad_out = [0.1_f64, 0.2, 0.3];
     let grad_sum: f64 = grad_out.iter().sum();
-    let want: Vec<f64> = out_row
+    let want: Vec<f64> = softmax_row
         .iter()
         .zip(grad_out.iter())
-        .map(|(&log_p, &g)| g - log_p.exp() * grad_sum)
+        .map(|(&p, &g)| g - p * grad_sum)
         .collect();
     let device = dev();
     let g_in = cpu_to_gpu(&grad_out, &device).expect("upload grad");
-    let o_in = cpu_to_gpu(&out_row, &device).expect("upload output");
+    let o_in = cpu_to_gpu(&softmax_row, &device).expect("upload softmax");
     let cols = 3usize;
     let out = kernels::gpu_log_softmax_backward_f64(&g_in, &o_in, cols, &device)
         .expect("log_softmax_bwd");
