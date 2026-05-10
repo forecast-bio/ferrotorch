@@ -179,6 +179,15 @@ pub fn upload_f32(
         CubeClient::Cuda(c) => c.create_from_slice(bytes),
         #[cfg(feature = "rocm")]
         CubeClient::Rocm(c) => c.create_from_slice(bytes),
+        // #1083: Stub is reserved for tests that exercise pre-dispatch
+        // paths only; uploading data through a Stub runtime would imply
+        // a kernel could subsequently consume the buffer, which the
+        // dispatch macros refuse.
+        CubeClient::Stub => unreachable!(
+            "CubeClient::Stub reached upload_f32 — Stub runtimes must not \
+             reach kernel buffers; shape check or signature pin should fire \
+             first (#1083)"
+        ),
     };
     Ok(CubeclStorageHandle::new(
         handle,

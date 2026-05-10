@@ -269,15 +269,23 @@ fn cube_runtime_new_without_backend_feature_errors() {
     let _new_signature: fn(CubeDevice) -> ferrotorch_core::FerrotorchResult<CubeRuntime> =
         CubeRuntime::new;
 
-    // The behavioural Err-path assertion below requires the *absence* of any
-    // backend feature, because a real wgpu/cuda/rocm backend would
-    // legitimately succeed for `Wgpu(0)`. Verifying the Err path with a
-    // backend compiled in needs `CubeRuntime::new_for_testing(device)` (or
-    // similar) in src/, which is out of scope for this test-only audit fix.
-    // Tracked in follow-up #1083.
+    // #1083: when no backend feature is compiled, `CubeRuntime::new` must
+    // return Err. When a backend IS compiled, exercising the Err-path of
+    // `CubeRuntime::new` directly is impossible (a real adapter would
+    // legitimately succeed) — but we still verify the contract structurally
+    // by constructing a stub runtime via `new_for_testing` and asserting
+    // it never claims a real backend.
     if CubeRuntime::is_available() {
-        // cascade_skip #1083: cannot exercise DeviceUnavailable with a real
-        // backend present without new test-only constructor in src/.
+        // Stub runtime path: confirm `new_for_testing` does not pretend
+        // to be a real backend. Reaching kernel dispatch with this
+        // runtime is a test-discipline bug; pre-dispatch paths (shape
+        // check, signature pin) must fire first.
+        let stub = CubeRuntime::new_for_testing(CubeDevice::Wgpu(0));
+        assert_eq!(*stub.device(), CubeDevice::Wgpu(0));
+        assert!(
+            matches!(stub.client(), ferrotorch_cubecl::CubeClient::Stub),
+            "new_for_testing must yield a Stub client, never a real backend"
+        );
         return;
     }
     let result = CubeRuntime::new(CubeDevice::Wgpu(0));
@@ -767,13 +775,14 @@ fn portable_add_shape_mismatch_returns_error() {
     // is short-circuited.
     let _add_signature: PortableBinaryOp = ferrotorch_cubecl::ops::portable_add;
 
-    // cascade_skip #1083: CPU-side shape validation in `portable_add` is only
-    // exercised when a runtime is constructible. Without `CubeRuntime::new_for_testing`
-    // in src/ (out of scope for Phase 9), this branch returns early on the dev
-    // box. Filed as follow-up.
-    let Some(rt) = try_wgpu_runtime() else {
-        return;
-    };
+    // #1083 closed: CPU-side shape validation in `portable_add` is now
+    // unconditionally reachable via `CubeRuntime::new_for_testing`, which
+    // returns a runtime backed by `CubeClient::Stub`. The pre-dispatch
+    // shape check fires before any kernel arm — Stub never reaches
+    // dispatch. Fall back to a real wgpu runtime when one is available
+    // so the live-path assertion still gets exercised on hardware.
+    let rt = try_wgpu_runtime()
+        .unwrap_or_else(|| CubeRuntime::new_for_testing(CubeDevice::Wgpu(0)));
     let a = ferrotorch_core::tensor(&[1.0_f32, 2.0, 3.0]).expect("a");
     let b = ferrotorch_core::tensor(&[1.0_f32, 2.0]).expect("b");
     let err = ferrotorch_cubecl::ops::portable_add(&a, &b, &rt);
@@ -791,13 +800,12 @@ fn portable_matmul_inner_dim_mismatch_returns_error() {
     // is short-circuited.
     let _matmul_signature: PortableBinaryOp = ferrotorch_cubecl::ops::portable_matmul;
 
-    // cascade_skip #1083: CPU-side inner-dim check in `portable_matmul` is
-    // only reachable with a constructible runtime. Without
-    // `CubeRuntime::new_for_testing` in src/ (out of scope for Phase 9), this
-    // branch returns early on the dev box. Filed as follow-up.
-    let Some(rt) = try_wgpu_runtime() else {
-        return;
-    };
+    // #1083 closed: CPU-side inner-dim check in `portable_matmul` is now
+    // unconditionally reachable via `CubeRuntime::new_for_testing` — the
+    // Stub client never reaches kernel dispatch, so the shape check
+    // fires deterministically in any backend configuration.
+    let rt = try_wgpu_runtime()
+        .unwrap_or_else(|| CubeRuntime::new_for_testing(CubeDevice::Wgpu(0)));
     let a = ferrotorch_core::from_vec(vec![1.0_f32; 6], &[2, 3]).expect("a");
     let b = ferrotorch_core::from_vec(vec![1.0_f32; 8], &[4, 2]).expect("b");
     let err = ferrotorch_cubecl::ops::portable_matmul(&a, &b, &rt);

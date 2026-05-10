@@ -980,6 +980,65 @@ fn live_xpu_make_xpu_tensor() {
 }
 
 // ---------------------------------------------------------------------------
+// Stub-mode runtime assertion (#1076)
+//
+// `XpuDevice::new_for_testing` lets the no-default-features build construct
+// an `XpuDevice` without probing for a wgpu adapter. The resulting device
+// dispatches every op through the `cfg(not(feature = "wgpu"))` stub branch,
+// which returns `Err(DeviceUnavailable)`. This test was previously deferred
+// in `make_xpu_tensor_errors_without_backend` / `binary_ops_api_shape` etc.
+// because no constructor existed for the stub mode — see Phase 4 (#1053).
+// ---------------------------------------------------------------------------
+
+/// Runs only with `cargo test -p ferrotorch-xpu --no-default-features` —
+/// when the `wgpu` feature is disabled the real `XpuDevice::new` path is
+/// inert and `new_for_testing` is the only way to obtain a device handle.
+/// In that mode every op must return `Err(DeviceUnavailable)`.
+#[cfg(not(feature = "wgpu"))]
+#[test]
+fn xpu_ops_return_device_unavailable_in_stub_mode() {
+    use ferrotorch_core::tensor;
+
+    let dev = XpuDevice::new_for_testing(0);
+    assert_eq!(dev.ordinal(), 0);
+    assert_eq!(dev.device(), Device::Xpu(0));
+    assert_eq!(format!("{dev}"), "xpu:0");
+
+    let a = tensor(&[1.0_f32, 2.0]).expect("CPU tensor a");
+    let b = tensor(&[3.0_f32, 4.0]).expect("CPU tensor b");
+
+    // Binary op stub.
+    let err = xpu_add(&a, &b, &dev).expect_err("xpu_add must error in stub mode");
+    assert!(
+        matches!(err, FerrotorchError::DeviceUnavailable),
+        "expected DeviceUnavailable, got {err:?}"
+    );
+
+    // Unary op stub.
+    let err = xpu_relu(&a, &dev).expect_err("xpu_relu must error in stub mode");
+    assert!(
+        matches!(err, FerrotorchError::DeviceUnavailable),
+        "expected DeviceUnavailable, got {err:?}"
+    );
+
+    // Polynomial op stub.
+    let err = xpu_chebyshev_polynomial_t(&a, 2, &dev)
+        .expect_err("xpu_chebyshev_polynomial_t must error in stub mode");
+    assert!(
+        matches!(err, FerrotorchError::DeviceUnavailable),
+        "expected DeviceUnavailable, got {err:?}"
+    );
+
+    // make_xpu_tensor stub.
+    let err = make_xpu_tensor(vec![1.0_f32, 2.0], &[2], &dev)
+        .expect_err("make_xpu_tensor must error in stub mode");
+    assert!(
+        matches!(err, FerrotorchError::DeviceUnavailable),
+        "expected DeviceUnavailable, got {err:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Force the use-imports to be referenced so the compiler resolves them and
 // any missing symbol causes a compile error, not a link error.
 // ---------------------------------------------------------------------------

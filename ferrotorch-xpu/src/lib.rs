@@ -173,6 +173,26 @@ impl XpuDevice {
     pub fn runtime(&self) -> &Arc<CubeRuntime> {
         &self.runtime
     }
+
+    /// Construct a stub-mode `XpuDevice` for tests in `--no-default-features`
+    /// builds where the `wgpu` feature is disabled.
+    ///
+    /// This bypasses the wgpu adapter probe in [`Self::new`] and yields a
+    /// device whose `ordinal` field is set; every public op then takes the
+    /// `cfg(not(feature = "wgpu"))` stub branch and returns
+    /// [`FerrotorchError::DeviceUnavailable`]. The constructor exists
+    /// only to unblock runtime stub-mode assertions in conformance
+    /// tests that previously had to settle for compile-time
+    /// signature pins (#1076).
+    ///
+    /// Only available when the `wgpu` feature is **disabled**; with
+    /// the default features the real runtime path
+    /// ([`Self::new`]) is the only constructor.
+    #[cfg(not(feature = "wgpu"))]
+    #[doc(hidden)]
+    pub fn new_for_testing(ordinal: usize) -> Self {
+        Self { ordinal }
+    }
 }
 
 impl core::fmt::Display for XpuDevice {

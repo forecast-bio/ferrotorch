@@ -90,6 +90,13 @@ macro_rules! dispatch_binary {
                     CubeClient::Cuda(c) => $launcher_handle(c, ah, bh, n),
                     #[cfg(feature = "rocm")]
                     CubeClient::Rocm(c) => $launcher_handle(c, ah, bh, n),
+                    // #1083: Stub is reserved for shape/signature tests; reaching
+                    // kernel dispatch is a test-discipline bug (a shape check or
+                    // signature pin should have fired before this arm).
+                    CubeClient::Stub => unreachable!(
+                        "test stub should not reach kernel dispatch — shape \
+                         check or signature pin should fire first (#1083)"
+                    ),
                 }
             }
             _ => {
@@ -102,6 +109,11 @@ macro_rules! dispatch_binary {
                     CubeClient::Cuda(c) => $launcher(c, &a_data, &b_data),
                     #[cfg(feature = "rocm")]
                     CubeClient::Rocm(c) => $launcher(c, &a_data, &b_data),
+                    // #1083: see Stub-arm comment above.
+                    CubeClient::Stub => unreachable!(
+                        "test stub should not reach kernel dispatch — shape \
+                         check or signature pin should fire first (#1083)"
+                    ),
                 }
             }
         }
@@ -124,6 +136,11 @@ macro_rules! dispatch_unary {
                     CubeClient::Cuda(c) => $launcher_handle(c, xh, n),
                     #[cfg(feature = "rocm")]
                     CubeClient::Rocm(c) => $launcher_handle(c, xh, n),
+                    // #1083: Stub never reaches kernel dispatch.
+                    CubeClient::Stub => unreachable!(
+                        "test stub should not reach kernel dispatch — shape \
+                         check or signature pin should fire first (#1083)"
+                    ),
                 }
             }
             None => {
@@ -135,6 +152,11 @@ macro_rules! dispatch_unary {
                     CubeClient::Cuda(c) => $launcher(c, &x_data),
                     #[cfg(feature = "rocm")]
                     CubeClient::Rocm(c) => $launcher(c, &x_data),
+                    // #1083: see Stub-arm comment above.
+                    CubeClient::Stub => unreachable!(
+                        "test stub should not reach kernel dispatch — shape \
+                         check or signature pin should fire first (#1083)"
+                    ),
                 }
             }
         }
@@ -160,6 +182,11 @@ macro_rules! dispatch_matmul {
                     CubeClient::Cuda(c) => kernels::run_matmul_handle(c, ah, bh, $m, $k, $n),
                     #[cfg(feature = "rocm")]
                     CubeClient::Rocm(c) => kernels::run_matmul_handle(c, ah, bh, $m, $k, $n),
+                    // #1083: Stub never reaches kernel dispatch.
+                    CubeClient::Stub => unreachable!(
+                        "test stub should not reach kernel dispatch — shape \
+                         check or signature pin should fire first (#1083)"
+                    ),
                 }
             }
             _ => {
@@ -172,6 +199,11 @@ macro_rules! dispatch_matmul {
                     CubeClient::Cuda(c) => kernels::run_matmul(c, &a_data, &b_data, $m, $k, $n),
                     #[cfg(feature = "rocm")]
                     CubeClient::Rocm(c) => kernels::run_matmul(c, &a_data, &b_data, $m, $k, $n),
+                    // #1083: see Stub-arm comment above.
+                    CubeClient::Stub => unreachable!(
+                        "test stub should not reach kernel dispatch — shape \
+                         check or signature pin should fire first (#1083)"
+                    ),
                 }
             }
         }
@@ -413,6 +445,11 @@ macro_rules! dispatch_unary_with_n {
                     CubeClient::Cuda(c) => $launcher_handle(c, xh, count, $n),
                     #[cfg(feature = "rocm")]
                     CubeClient::Rocm(c) => $launcher_handle(c, xh, count, $n),
+                    // #1083: Stub never reaches kernel dispatch.
+                    CubeClient::Stub => unreachable!(
+                        "test stub should not reach kernel dispatch — shape \
+                         check or signature pin should fire first (#1083)"
+                    ),
                 }
             }
             None => {
@@ -424,6 +461,11 @@ macro_rules! dispatch_unary_with_n {
                     CubeClient::Cuda(c) => $launcher(c, &x_data, $n),
                     #[cfg(feature = "rocm")]
                     CubeClient::Rocm(c) => $launcher(c, &x_data, $n),
+                    // #1083: see Stub-arm comment above.
+                    CubeClient::Stub => unreachable!(
+                        "test stub should not reach kernel dispatch — shape \
+                         check or signature pin should fire first (#1083)"
+                    ),
                 }
             }
         }

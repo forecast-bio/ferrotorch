@@ -72,6 +72,15 @@ impl fmt::Display for CubeDevice {
 /// The variant is determined by which runtime feature was compiled in and
 /// what [`CubeDevice`] the runtime was built for. `ops.rs` matches on this
 /// enum to dispatch generic CubeCL kernels to the correct backend.
+///
+/// The [`CubeClient::Stub`] variant is always present (no cfg gate) and
+/// is reserved for tests — it holds no client state and every kernel
+/// dispatch macro has a `Stub => unreachable!()` arm. Tests that want to
+/// exercise pre-dispatch paths (shape checks, signature pins) on a
+/// machine without a real backend can build a [`CubeRuntime`] via
+/// [`CubeRuntime::new_for_testing`], whose `client` field is `Stub`.
+/// Production code paths never construct or observe `Stub` because
+/// [`CubeRuntime::new`] only ever yields a real backend client. (#1083)
 #[derive(Clone)]
 pub enum CubeClient {
     /// A real Wgpu (Vulkan/Metal/DX12) compute client.
@@ -83,6 +92,15 @@ pub enum CubeClient {
     /// A real HIP/ROCm compute client.
     #[cfg(feature = "rocm")]
     Rocm(ComputeClient<HipRuntime>),
+    /// Test stub — every kernel dispatch panics; only pre-dispatch
+    /// paths (shape checks, signature pins) are reachable.
+    ///
+    /// This variant is always compiled in (no cfg gate) so tests in
+    /// any feature configuration can construct a runtime without a
+    /// real backend client. Reaching a kernel dispatch arm with
+    /// `Stub` is a test-discipline bug — the shape-mismatch test
+    /// must fire before dispatch. (#1083)
+    Stub,
 }
 
 impl fmt::Debug for CubeClient {
@@ -94,23 +112,10 @@ impl fmt::Debug for CubeClient {
             Self::Cuda(_) => f.write_str("CubeClient::Cuda(..)"),
             #[cfg(feature = "rocm")]
             Self::Rocm(_) => f.write_str("CubeClient::Rocm(..)"),
-            #[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "rocm")))]
-            _ => f.write_str("CubeClient::<no backend>"),
+            Self::Stub => f.write_str("CubeClient::Stub"),
         }
     }
 }
-
-// When no backend feature is enabled the enum has no variants and any
-// construction site would be unreachable; the compiler would reject it.
-// Keep an `_never` field in a ZST form so `CubeClient` still has a type, by
-// giving it an uninhabited variant behind the cfg. (rustc treats an enum
-// with zero variants as uninhabited, which is what we want.)
-#[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "rocm")))]
-const _: fn() = || {
-    // Just a compile-time check that CubeClient is still a valid type
-    // even with no variants.
-    let _ = std::mem::size_of::<CubeClient>();
-};
 
 // ---------------------------------------------------------------------------
 // CubeRuntime
@@ -131,6 +136,25 @@ impl CubeRuntime {
     pub fn new(device: CubeDevice) -> FerrotorchResult<Self> {
         let client = Self::make_client(device)?;
         Ok(Self { device, client })
+    }
+
+    /// Construct a `CubeRuntime` whose [`CubeClient`] is the test-only
+    /// [`CubeClient::Stub`] variant.
+    ///
+    /// Reserved for conformance tests that want to exercise CPU-side
+    /// pre-dispatch paths — shape validation, dtype checks, signature
+    /// pins — when the test environment has no usable wgpu/CUDA/ROCm
+    /// adapter. Reaching kernel dispatch with this runtime is a test
+    /// bug: every dispatch macro arm panics on `Stub`.
+    ///
+    /// Production code paths must use [`Self::new`] (which never
+    /// returns `Stub`) or [`Self::auto`] (likewise). (#1083)
+    #[doc(hidden)]
+    pub fn new_for_testing(device: CubeDevice) -> Self {
+        Self {
+            device,
+            client: CubeClient::Stub,
+        }
     }
 
     /// The device this runtime targets.
@@ -197,6 +221,15 @@ impl CubeRuntime {
             CubeClient::Cuda(c) => c.read_one(handle),
             #[cfg(feature = "rocm")]
             CubeClient::Rocm(c) => c.read_one(handle),
+            // #1083: the Stub variant is reserved for tests that exercise
+            // pre-dispatch paths only; reaching readback means a kernel
+            // would have already had to dispatch, which the dispatch
+            // macros refuse for Stub.
+            CubeClient::Stub => unreachable!(
+                "CubeClient::Stub reached read_f32s — Stub runtimes must not \
+                 reach kernel dispatch or readback; shape check or signature \
+                 pin should fire first (#1083)"
+            ),
         }
         .map_err(|e| ferrotorch_core::FerrotorchError::InvalidArgument {
             message: format!("cubecl read_one failed: {e}"),

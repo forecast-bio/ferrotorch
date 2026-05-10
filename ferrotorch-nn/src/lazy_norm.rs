@@ -77,6 +77,26 @@ macro_rules! lazy_batchnorm {
                 }
                 Ok(())
             }
+
+            /// Snapshot of the inner BN's running mean, or `None` if the
+            /// layer has not been materialized yet. Mirrors PyTorch's
+            /// `running_mean` attribute access on a lazy BN — `None`
+            /// before the first forward pass populates `num_features`,
+            /// `Some(vec)` afterwards. See [`norm`](crate::norm)'s
+            /// `BatchNorm*d::running_mean` for the underlying snapshot
+            /// semantics. (#1072)
+            ///
+            /// [`norm`]: crate::norm
+            pub fn running_mean(&self) -> Option<Vec<f64>> {
+                self.inner.get().map(|m| m.running_mean())
+            }
+
+            /// Snapshot of the inner BN's running variance, or `None`
+            /// if the layer has not been materialized yet. Counterpart
+            /// to [`running_mean`](Self::running_mean). (#1072)
+            pub fn running_var(&self) -> Option<Vec<f64>> {
+                self.inner.get().map(|m| m.running_var())
+            }
         }
 
         impl<T: Float> Module<T> for $name<T> {
@@ -288,6 +308,56 @@ mod tests {
         let inn: LazyInstanceNorm3d<f32> = LazyInstanceNorm3d::new(1e-5, true);
         inn.materialize(4).unwrap();
         assert!(inn.is_initialized());
+    }
+
+    #[test]
+    fn lazy_batchnorm_accessors_some_after_materialize() {
+        // #1072: pre-materialize, accessors return None.
+        let bn: LazyBatchNorm2d<f32> = LazyBatchNorm2d::new(1e-5, 0.1, true);
+        assert!(bn.running_mean().is_none());
+        assert!(bn.running_var().is_none());
+
+        // Materialize via a forward pass (channels=4).
+        let data: Vec<f32> = (0..72).map(|i| i as f32).collect();
+        let input = cpu_tensor(data, &[2, 4, 3, 3]);
+        let _out = bn.forward(&input).unwrap();
+
+        // Post-materialize: accessors must return Some(vec) of length C.
+        let rm = bn.running_mean().expect("running_mean Some after forward");
+        let rv = bn.running_var().expect("running_var Some after forward");
+        assert_eq!(rm.len(), 4, "running_mean length must equal num_features");
+        assert_eq!(rv.len(), 4, "running_var length must equal num_features");
+        // After one training-mode forward over non-zero input, mean drifts
+        // away from zero — discriminates against a stub returning zeros.
+        assert!(
+            rm.iter().any(|&v| v != 0.0),
+            "running_mean must update on training forward pass; got {rm:?}"
+        );
+        // BN running_var initial is 1.0; after a training forward with
+        // momentum 0.1 the per-channel variance estimate moves but stays
+        // positive. Discriminates against a stub returning all zeros or
+        // returning the initial 1.0 vector unchanged.
+        assert!(
+            rv.iter().all(|&v| v > 0.0),
+            "running_var must remain positive; got {rv:?}"
+        );
+    }
+
+    #[test]
+    fn lazy_batchnorm1d_and_3d_accessors_match_inner() {
+        // #1072: cross-check that LazyBN{1,3}d's accessors return values
+        // identical to the inner BatchNorm{1,3}d's accessors.
+        let bn1: LazyBatchNorm1d<f32> = LazyBatchNorm1d::new(1e-5, 0.1, true);
+        bn1.materialize(3).unwrap();
+        let rm1 = bn1.running_mean().expect("Some after materialize");
+        let rv1 = bn1.running_var().expect("Some after materialize");
+        assert_eq!(rm1, vec![0.0, 0.0, 0.0]);
+        assert_eq!(rv1, vec![1.0, 1.0, 1.0]);
+
+        let bn3: LazyBatchNorm3d<f32> = LazyBatchNorm3d::new(1e-5, 0.1, true);
+        bn3.materialize(2).unwrap();
+        assert_eq!(bn3.running_mean().unwrap(), vec![0.0, 0.0]);
+        assert_eq!(bn3.running_var().unwrap(), vec![1.0, 1.0]);
     }
 
     #[test]

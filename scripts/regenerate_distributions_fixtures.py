@@ -570,6 +570,7 @@ fixtures["multivariate_normal"].append({
     "scale_tril": st_3.tolist(),
     "x_points": x3.tolist(),
     "log_prob": safe_log_prob(d3, x3),
+    "mean": safe_mean(d3),
     "entropy": safe_entropy(d3),
 })
 

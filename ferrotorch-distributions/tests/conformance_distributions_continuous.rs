@@ -881,28 +881,22 @@ fn multivariate_normal_fixtures_log_prob_entropy_mean() {
         let n = loc_v.len();
         let loc_t = from_slice::<f64>(&loc_v, &[n]).unwrap();
 
-        // The fixture's `mean` field is the source of truth for the assertion
-        // below. Case `3d_identity_scale` is missing this field; tracked at
-        // #1087 (don't modify fixture files in this audit-fix). Fall back to
-        // `loc_v` only when absent — case `2d_cholesky` (with `mean` present)
-        // still discriminates against a stub that returns the constructor input.
-        let mean_expected: Vec<f64> = case
-            .get("mean")
-            .filter(|v| !v.is_null())
-            .map(fvec)
-            .unwrap_or_else(|| loc_v.clone());
+        // #1087 closed: every MVN fixture entry now records `mean`
+        // explicitly (see `scripts/regenerate_distributions_fixtures.py`).
+        // Read it directly — a missing field is now a fixture-regen bug
+        // rather than a known gap, and we want the test to fail loudly
+        // in that case rather than silently falling back to `loc_v`.
+        let mean_expected: Vec<f64> = fvec(&case["mean"]);
 
-        // Internal-consistency guard (only when both fields are present): a
-        // fixture where `loc` and `mean` disagree would be malformed for a
-        // MultivariateNormal (mean == loc analytically).
-        if case.get("mean").is_some_and(|v| !v.is_null()) {
-            assert_close_vec(
-                &loc_v,
-                &mean_expected,
-                TOL,
-                &format!("MultivariateNormal[{label}] fixture loc-mean consistency"),
-            );
-        }
+        // Internal-consistency guard: for a MultivariateNormal, the
+        // analytic mean equals `loc`; a fixture where they disagree is
+        // malformed regardless of which variant produced it.
+        assert_close_vec(
+            &loc_v,
+            &mean_expected,
+            TOL,
+            &format!("MultivariateNormal[{label}] fixture loc-mean consistency"),
+        );
 
         let tril_rows: Vec<f64> = case["scale_tril"]
             .as_array()
