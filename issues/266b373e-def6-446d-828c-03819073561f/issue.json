@@ -1,0 +1,12 @@
+{
+  "uuid": "266b373e-def6-446d-828c-03819073561f",
+  "display_id": 1104,
+  "title": "Pass 5.B.2: ferrotorch-train clip_grad_norm_/clip_grad_value_/EmaCallback CPU readback",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-train audit, GPU_CPU_MISMATCH bucket (3 findings).\n\n- src/grad_utils.rs:81-86,142-149 — clip_grad_norm_ calls grad.data_vec()? then rebuilds Tensor::from_storage(TensorStorage::cpu(...)). Silently moves CUDA gradients to CPU.\n- src/grad_utils.rs:198-214 — clip_grad_value_ same pattern.\n- src/callback.rs:328-362 — EmaCallback::init_from_params/update_from_params casts every param to f64 and stores in Vec<Vec<f64>>; runs decay/update in scalar f64 in a Rust loop regardless of T or device.\n\nHot training-loop ops with mandatory CPU detour. Acceptance:\n- Migrate to device-resident clamp/norm ops, OR\n- Provide foreach-style flag with explicit err on default CPU path for CUDA params\n- Discriminating test asserting grad.is_cuda() preserved across clip_grad_norm_.",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:22:09.693914348Z",
+  "updated_at": "2026-05-10T07:22:09.693914348Z"
+}
