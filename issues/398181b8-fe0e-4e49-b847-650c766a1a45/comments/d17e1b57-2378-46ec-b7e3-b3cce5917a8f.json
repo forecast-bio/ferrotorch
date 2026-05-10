@@ -1,0 +1,10 @@
+{
+  "uuid": "d17e1b57-2378-46ec-b7e3-b3cce5917a8f",
+  "issue_uuid": "398181b8-fe0e-4e49-b847-650c766a1a45",
+  "author": "y4rr",
+  "content": "Closed APPROVE (single-dispatch full-scope Pattern B; second clean APPROVE of Pass 5 series).\n\nAll 11 audit-cited sites migrated:\n- 7 foreach optimizers (rprop/adagrad/adadelta/radam/nadam/adamax/asgd) — auto-route on CUDA params via any_cuda predicate at step() entry.\n- Muon — Newton-Schulz iteration now device-resident: tensor_matmul + sub + mul with scalar tensors on input.device().\n- KFAC (natural_gradient.rs) — a_factor/g_factor migrated from Vec<f64> to Tensor<f64>; invert_damped_tensor uses ferrotorch_core::linalg::solve (cuSOLVER on CUDA).\n- LBFGS — gather_params/gather_grads + two-loop recursion migrated to Tensor-based flat history.\n- sparse_adam + adafactor verified STALE-NO-OP (already fail-fast on CUDA).\n\nferrotorch-optim/Cargo.toml: cuda feature added with ferrotorch-gpu optional dep (mirrors Pass 5.B.4-via-#1138 pattern).\n\nVerification: 330/330 lib + 3/3 integration tests pass with cuda feature; build + clippy -D warnings clean. 4 sabotage probes captured verbatim panics on discriminating tests (Muon matmul drop, KFAC solve bypass, LBFGS curvature zero, foreach auto-route disabled); all reverts verified by no 'SABOTAGE' grep hits + green re-run.\n\nDispatch required 3 invocations due to truncation (Stage 6 GPU tests in first; sabotage probe 1 revert in second; muon sabotage residue caught by architect via failing test, cleaned up in third). End state is clean.\n\nZero follow-ups filed per user directive.",
+  "created_at": "2026-05-10T21:08:17.593840633Z",
+  "kind": "resolution",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAE1hARQozXZn7ejLk4PgAIsl/XymhfCdnQBiPMt2wOGhR4rAtntIWWfWEE2IS+M80GVOXmq2dTKU22JKvRf09CA=="
+}
