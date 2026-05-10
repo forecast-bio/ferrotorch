@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- Bump workspace to v0.5.1 + cargo fmt (#1093)
 - Audit-Fix Phase 16: 4 ergonomic follow-ups (#1072 #1076 #1083 #1087) (#1092)
 - fixture: multivariate_normal case '3d_identity_scale' missing 'mean' field (#1087)
 - ferrotorch-cubecl: add `pub(crate) fn CubeRuntime::new_for_testing(device)` so shape-validation error paths can be verified without a real backend (Phase 9 follow-up) (#1083)
