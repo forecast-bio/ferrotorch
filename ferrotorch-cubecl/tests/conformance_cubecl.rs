@@ -245,14 +245,39 @@ fn cube_runtime_is_available_compile_flag_consistent() {
             is_none,
             "CubeRuntime::is_available() returned false but auto() returned Some"
         );
+    } else {
+        // Documented contract: is_available() == true ⇒ auto() = Some(_).
+        // Phase 9 (#1045): without this branch the test was a no-op when a
+        // backend feature was compiled; a stub `auto()` that returned None
+        // would have passed silently.
+        let rt = CubeRuntime::auto();
+        assert!(
+            rt.is_some(),
+            "CubeRuntime::is_available() returned true but auto() returned None"
+        );
     }
 }
 
 #[test]
 fn cube_runtime_new_without_backend_feature_errors() {
-    // Without any GPU feature compiled in, new() must return DeviceUnavailable.
+    // Phase 9 (#1046): pin the public signature of `CubeRuntime::new` at
+    // compile time so behavioural drift (e.g. an arity change, or a return-type
+    // swap that would silently bypass the error contract this test asserts) is
+    // caught regardless of whether a backend feature is compiled in. This
+    // assertion runs unconditionally — the typed fn-pointer cast is a
+    // compile-time check.
+    let _new_signature: fn(CubeDevice) -> ferrotorch_core::FerrotorchResult<CubeRuntime> =
+        CubeRuntime::new;
+
+    // The behavioural Err-path assertion below requires the *absence* of any
+    // backend feature, because a real wgpu/cuda/rocm backend would
+    // legitimately succeed for `Wgpu(0)`. Verifying the Err path with a
+    // backend compiled in needs `CubeRuntime::new_for_testing(device)` (or
+    // similar) in src/, which is out of scope for this test-only audit fix.
+    // Tracked in follow-up #1083.
     if CubeRuntime::is_available() {
-        // When a backend IS compiled, the error path is not reachable this way.
+        // cascade_skip #1083: cannot exercise DeviceUnavailable with a real
+        // backend present without new test-only constructor in src/.
         return;
     }
     let result = CubeRuntime::new(CubeDevice::Wgpu(0));
@@ -723,8 +748,29 @@ test_portable_poly_op!(
 // Shape-error conformance (no GPU execution needed for the error path)
 // ---------------------------------------------------------------------------
 
+/// Phase 9 (#1048, #1049): the structural shape of every binary `portable_*`
+/// op exposed by `ferrotorch-cubecl`. Used as a typed fn-pointer pin so that
+/// a silent arity / return-type drift fails compilation even when the
+/// behavioural assertion in the test body is short-circuited (no backend).
+type PortableBinaryOp = fn(
+    &ferrotorch_core::Tensor<f32>,
+    &ferrotorch_core::Tensor<f32>,
+    &CubeRuntime,
+) -> ferrotorch_core::FerrotorchResult<(cubecl::server::Handle, Vec<usize>)>;
+
 #[test]
 fn portable_add_shape_mismatch_returns_error() {
+    // Phase 9 (#1048): pin the public signature of `portable_add` at compile
+    // time so a silent arity / return-type drift (e.g. removing the `&CubeRuntime`
+    // arg, or returning `()` instead of `FerrotorchResult<...>`) is caught even
+    // in the no-backend test environment where the behavioural assertion below
+    // is short-circuited.
+    let _add_signature: PortableBinaryOp = ferrotorch_cubecl::ops::portable_add;
+
+    // cascade_skip #1083: CPU-side shape validation in `portable_add` is only
+    // exercised when a runtime is constructible. Without `CubeRuntime::new_for_testing`
+    // in src/ (out of scope for Phase 9), this branch returns early on the dev
+    // box. Filed as follow-up.
     let Some(rt) = try_wgpu_runtime() else {
         return;
     };
@@ -739,6 +785,16 @@ fn portable_add_shape_mismatch_returns_error() {
 
 #[test]
 fn portable_matmul_inner_dim_mismatch_returns_error() {
+    // Phase 9 (#1049): pin the public signature of `portable_matmul` at
+    // compile time so a silent arity / return-type drift is caught even in
+    // the no-backend test environment where the behavioural assertion below
+    // is short-circuited.
+    let _matmul_signature: PortableBinaryOp = ferrotorch_cubecl::ops::portable_matmul;
+
+    // cascade_skip #1083: CPU-side inner-dim check in `portable_matmul` is
+    // only reachable with a constructible runtime. Without
+    // `CubeRuntime::new_for_testing` in src/ (out of scope for Phase 9), this
+    // branch returns early on the dev box. Filed as follow-up.
     let Some(rt) = try_wgpu_runtime() else {
         return;
     };
@@ -764,9 +820,13 @@ fn cube_device_ordinal_via_qualified_path() {
     assert_eq!(CubeDevice::Cuda(5).ordinal(), 5);
     assert_eq!(CubeDevice::Wgpu(2).ordinal(), 2);
     assert_eq!(CubeDevice::Rocm(0).ordinal(), 0);
-    // Same calls written as CubeDevice::ordinal(&dev) to satisfy coverage grep.
+    // Same calls written as `CubeDevice::ordinal(&dev)` to satisfy the surface
+    // gate's substring matcher. Phase 9 (#1047): previously this was
+    // `let _ = CubeDevice::ordinal(&dev);` which discarded the return value
+    // and let stub implementations slip through silently. Now the assertion
+    // discriminates: a stub returning 0/usize::MAX/etc. for `Wgpu(1)` fails.
     let dev = CubeDevice::Wgpu(1);
-    let _ = CubeDevice::ordinal(&dev);
+    assert_eq!(CubeDevice::ordinal(&dev), 1);
 }
 
 #[test]
