@@ -137,6 +137,21 @@
 //!   either, they return `Err` (PyTorch parity). See [`gpu_collective`]
 //!   for details.
 //!
+//! - **Skeleton backends** ([`gloo_backend`] / [`mpi_backend`] /
+//!   [`ucc_backend`], requires `gloo-backend` / `mpi-backend` /
+//!   `ucc-backend` feature respectively, all default off) — API contracts
+//!   only. Construction returns
+//!   [`DistributedError::BackendUnavailable`](error::DistributedError::BackendUnavailable)
+//!   when the corresponding feature is off, and every
+//!   [`Backend`](backend::Backend) trait method also returns that error.
+//!   The features unlock real FFI bindings (Gloo: C++; MPI: C via the
+//!   `mpi` crate; UCC: C library) — tracked in #1132, #1133, #1134
+//!   respectively (replacing closed #459). Use
+//!   [`is_gloo_available`](gloo_backend::is_gloo_available),
+//!   [`is_mpi_available`](mpi_backend::is_mpi_available), and
+//!   [`is_ucc_available`](ucc_backend::is_ucc_available) to discriminate
+//!   at runtime.
+//!
 //! # Quick start
 //!
 //! ```ignore

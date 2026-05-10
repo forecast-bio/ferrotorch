@@ -18,12 +18,12 @@
 //! no PCIe round-trip. The caller must supply an `NcclBackend` — see the
 //! `nccl` feature gate section below.
 //!
-//! **TODO (Step 4 coordination — tracking issue #668):** The `nccl` fast path
-//! is scaffolded here but routing `GpuTensor<T>` → raw device pointer →
-//! `NcclBackend::allreduce_raw` requires glue that lives across the
-//! `ferrotorch-gpu` / `ferrotorch-distributed` crate boundary. That wiring
-//! is a follow-up; the `#[cfg(feature = "nccl")]` arms below are stubs that
-//! will be completed in issue #668.
+//! **TODO (Step 4 coordination — tracking issue #1135, replaces closed #668):**
+//! The `nccl` fast path is scaffolded here but routing `GpuTensor<T>` → raw
+//! device pointer → `NcclBackend::allreduce_raw` requires glue that lives
+//! across the `ferrotorch-gpu` / `ferrotorch-distributed` crate boundary.
+//! That wiring is a follow-up; the `#[cfg(feature = "nccl")]` arms below
+//! are stubs that will be completed in issue #1135.
 //!
 //! # Opt-in CPU fallback (Gloo-equivalent slow path)
 //!
@@ -108,7 +108,7 @@ fn cpu_path_broadcast<T: GpuFloat>(
 ///
 /// 1. **`nccl` feature (fast path):** delegates to [`NcclBackend`] for
 ///    GPU-native allreduce — no host round-trip.
-///    *(Not yet wired; see tracking issue #668.)*
+///    *(Not yet wired; see tracking issue #1135.)*
 /// 2. **`FERROTORCH_ENABLE_GPU_FALLBACK` set:** performs a host round-trip
 ///    (GPU → CPU → allreduce → GPU) and logs a `tracing::warn!` per call.
 /// 3. **Default:** returns `Err` — no silent detour.
@@ -125,7 +125,7 @@ pub fn gpu_allreduce<T: GpuFloat>(
     op: ReduceOp,
 ) -> FerrotorchResult<GpuTensor<T>> {
     // Fast path: NCCL GPU-native allreduce (no CPU round-trip).
-    // TODO(#668): wire GpuTensor<T> raw-pointer extraction + NcclBackend
+    // TODO(#1135): wire GpuTensor<T> raw-pointer extraction + NcclBackend
     // dispatch here once the cross-crate glue is ready.
     #[cfg(feature = "nccl")]
     let () = (); // placeholder so the cfg arm compiles
@@ -165,7 +165,7 @@ pub fn gpu_allreduce<T: GpuFloat>(
 ///
 /// 1. **`nccl` feature (fast path):** delegates to [`NcclBackend`] for
 ///    GPU-native broadcast — no host round-trip.
-///    *(Not yet wired; see tracking issue #668.)*
+///    *(Not yet wired; see tracking issue #1135.)*
 /// 2. **`FERROTORCH_ENABLE_GPU_FALLBACK` set:** performs a host round-trip
 ///    (GPU → CPU → broadcast → GPU) and logs a `tracing::warn!` per call.
 /// 3. **Default:** returns `Err` — no silent detour.
@@ -183,7 +183,7 @@ pub fn gpu_broadcast<T: GpuFloat>(
     root: usize,
 ) -> FerrotorchResult<GpuTensor<T>> {
     // Fast path: NCCL GPU-native broadcast (no CPU round-trip).
-    // TODO(#668): wire GpuTensor<T> raw-pointer extraction + NcclBackend
+    // TODO(#1135): wire GpuTensor<T> raw-pointer extraction + NcclBackend
     // dispatch here once the cross-crate glue is ready.
     #[cfg(feature = "nccl")]
     let () = (); // placeholder so the cfg arm compiles
@@ -233,14 +233,15 @@ mod tests {
     // fallback opt-in via FERROTORCH_ENABLE_GPU_FALLBACK. Without the `nccl`
     // feature or the env var, the functions return Err. These tests are
     // therefore marked #[ignore] until either:
-    //   (a) the NCCL wiring lands (tracking issue #668), OR
+    //   (a) the NCCL wiring lands (tracking issue #1135, replaces closed
+    //       #668), OR
     //   (b) a test harness that sets FERROTORCH_ENABLE_GPU_FALLBACK is added.
     //
     // Do NOT mark as "requires CUDA device" — the cause is the policy
     // migration, not hardware availability.
 
     #[test]
-    #[ignore = "tracking issue #668: opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
+    #[ignore = "tracking issue #1135 (replaces closed #668): opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
     fn test_gpu_allreduce_sum_2_ranks() {
         // Rank 0: [1.0, 2.0, 3.0], Rank 1: [4.0, 5.0, 6.0]
         // Sum: [5.0, 7.0, 9.0]
@@ -290,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "tracking issue #668: opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
+    #[ignore = "tracking issue #1135 (replaces closed #668): opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
     fn test_gpu_allreduce_mean_2_ranks() {
         // Rank 0: [2.0, 4.0], Rank 1: [6.0, 8.0]
         // Mean: [4.0, 6.0]
@@ -333,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "tracking issue #668: opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
+    #[ignore = "tracking issue #1135 (replaces closed #668): opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
     fn test_gpu_broadcast_from_rank_0() {
         // Rank 0: [42.0, 99.0], Rank 1: [0.0, 0.0]
         // After broadcast(root=0): both have [42.0, 99.0]
@@ -376,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "tracking issue #668: opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
+    #[ignore = "tracking issue #1135 (replaces closed #668): opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
     fn test_gpu_allreduce_single_rank() {
         // Single rank: allreduce should return the input unchanged.
         let group = SimulatedBackend::create_group(1).unwrap();
@@ -389,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "tracking issue #668: opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
+    #[ignore = "tracking issue #1135 (replaces closed #668): opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
     fn test_gpu_allreduce_preserves_shape() {
         // Verify shape [2, 3] is preserved through the round-trip.
         let group = SimulatedBackend::create_group(1).unwrap();
@@ -400,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "tracking issue #668: opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
+    #[ignore = "tracking issue #1135 (replaces closed #668): opt-in fallback now required; test must be updated once NCCL wiring or env-var harness is in place"]
     fn test_gpu_broadcast_invalid_root() {
         let group = SimulatedBackend::create_group(2).unwrap();
         let gt = gpu_from_slice(&[1.0, 2.0], &[2]);

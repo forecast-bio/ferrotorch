@@ -1,4 +1,4 @@
-//! MPI backend skeleton (#459).
+//! MPI backend skeleton (#1133, replaces closed #459).
 //!
 //! [MPI](https://www.mpi-forum.org/) (Message Passing Interface) is the
 //! HPC-standard collective library, with implementations like Open MPI,
@@ -11,7 +11,7 @@
 //! API-contract-only; `mpi-backend` feature flag is default off. The
 //! skeleton lets callers write `MpiBackend::new(...)` paths now; the
 //! real bindings via the `mpi` crate (which itself wraps Open MPI / MPICH
-//! C ABI) land in a follow-up.
+//! C ABI) land in #1133 (replaces closed #459).
 //!
 //! # Why a skeleton
 //!
@@ -93,11 +93,33 @@ impl Backend for MpiBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ferrotorch_core::FerrotorchError;
 
     #[test]
     fn mpi_unavailable_without_feature() {
-        if !is_mpi_available() {
-            assert!(MpiBackend::new(0, 2).is_err());
+        // Non-vacuous discrimination: when the `mpi-backend` feature is
+        // off (the default), construction must fail with a
+        // `DistributedError::BackendUnavailable { backend: "mpi" }`,
+        // which converts to `FerrotorchError::InvalidArgument { message }`
+        // whose `message` carries the backend name.
+        if is_mpi_available() {
+            return;
+        }
+        let err = MpiBackend::new(0, 2).expect_err("default build must err");
+        match err {
+            FerrotorchError::InvalidArgument { ref message } => {
+                assert!(
+                    message.contains("`mpi`"),
+                    "expected message to discriminate the mpi backend by name, got: {message}"
+                );
+                assert!(
+                    !message.contains("`gloo`") && !message.contains("`ucc`"),
+                    "message must not name a different backend, got: {message}"
+                );
+            }
+            other => panic!(
+                "expected FerrotorchError::InvalidArgument from BackendUnavailable, got {other:?}"
+            ),
         }
     }
 }

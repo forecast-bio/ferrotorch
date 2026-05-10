@@ -1,4 +1,4 @@
-//! Gloo backend skeleton (#459).
+//! Gloo backend skeleton (tracked in #1132).
 //!
 //! [Gloo](https://github.com/facebookincubator/gloo) is the standard
 //! CPU-only collective-communication library used by PyTorch's
@@ -25,7 +25,8 @@
 //! 3. CI coverage on Linux + macOS — Gloo doesn't ship Windows officially.
 //!
 //! That's a 2000+ LOC effort with a real C++ dep, so this skeleton lets
-//! the public API stabilise first. Tracked separately as #459 follow-up.
+//! the public API stabilise first. Tracked separately as #1132
+//! (replaces closed #459).
 
 use std::time::Duration;
 
@@ -95,11 +96,34 @@ impl Backend for GlooBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ferrotorch_core::FerrotorchError;
 
     #[test]
     fn gloo_unavailable_without_feature() {
-        if !is_gloo_available() {
-            assert!(GlooBackend::new(0, 2).is_err());
+        // Non-vacuous discrimination: when the `gloo-backend` feature is
+        // off (the default), construction must fail with a
+        // `DistributedError::BackendUnavailable { backend: "gloo" }`,
+        // which converts to `FerrotorchError::InvalidArgument { message }`
+        // whose `message` carries the backend name.
+        if is_gloo_available() {
+            // Feature is on; the unavailable contract doesn't apply.
+            return;
+        }
+        let err = GlooBackend::new(0, 2).expect_err("default build must err");
+        match err {
+            FerrotorchError::InvalidArgument { ref message } => {
+                assert!(
+                    message.contains("`gloo`"),
+                    "expected message to discriminate the gloo backend by name, got: {message}"
+                );
+                assert!(
+                    !message.contains("`mpi`") && !message.contains("`ucc`"),
+                    "message must not name a different backend, got: {message}"
+                );
+            }
+            other => panic!(
+                "expected FerrotorchError::InvalidArgument from BackendUnavailable, got {other:?}"
+            ),
         }
     }
 

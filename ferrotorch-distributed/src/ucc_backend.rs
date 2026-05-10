@@ -1,4 +1,4 @@
-//! UCC backend skeleton (#459).
+//! UCC backend skeleton (#1134, replaces closed #459).
 //!
 //! [UCC](https://github.com/openucx/ucc) (Unified Collective Communication)
 //! is NVIDIA / Mellanox's modern unified collectives library, optimised for
@@ -84,11 +84,33 @@ impl Backend for UccBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ferrotorch_core::FerrotorchError;
 
     #[test]
     fn ucc_unavailable_without_feature() {
-        if !is_ucc_available() {
-            assert!(UccBackend::new(0, 2).is_err());
+        // Non-vacuous discrimination: when the `ucc-backend` feature is
+        // off (the default), construction must fail with a
+        // `DistributedError::BackendUnavailable { backend: "ucc" }`,
+        // which converts to `FerrotorchError::InvalidArgument { message }`
+        // whose `message` carries the backend name.
+        if is_ucc_available() {
+            return;
+        }
+        let err = UccBackend::new(0, 2).expect_err("default build must err");
+        match err {
+            FerrotorchError::InvalidArgument { ref message } => {
+                assert!(
+                    message.contains("`ucc`"),
+                    "expected message to discriminate the ucc backend by name, got: {message}"
+                );
+                assert!(
+                    !message.contains("`gloo`") && !message.contains("`mpi`"),
+                    "message must not name a different backend, got: {message}"
+                );
+            }
+            other => panic!(
+                "expected FerrotorchError::InvalidArgument from BackendUnavailable, got {other:?}"
+            ),
         }
     }
 }
