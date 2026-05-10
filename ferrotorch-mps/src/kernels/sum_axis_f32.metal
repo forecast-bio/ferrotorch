@@ -7,7 +7,14 @@
 // inner  = product of dims after axis
 //
 // Each threadgroup handles one (outer, inner) output cell.
-// Grid: (outer * inner,) threadgroups of min(axis_len, 1024) threads.
+// Grid: (outer * inner,) threadgroups of `next_pow2(min(axis_len, 1024))`
+// threads. The in-kernel tree reduction (`stride = tcount / 2; stride >>= 1`)
+// requires a pow-2 threadgroup width; the dispatcher rounds the width up.
+// Inactive threads (`tid >= axis_len`) keep the sentinel `local = 0.0f`
+// because the strided init loop short-circuits for them — the reduction
+// reads those sentinels but `0.0f` is the identity element for sum so it
+// doesn't affect the result. See #1101 and
+// `ferrotorch_mps::backend::pow2_tg_width` for the dispatcher contract.
 //
 // Matches PyTorch's torch.sum(x, dim=axis) on MPS device (f32).
 

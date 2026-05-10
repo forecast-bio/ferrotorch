@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- Pass 5.A.3: fix MPS softmax_f32 + sum_axis_f32 silent miscompute for non-pow-2 reduction widths via dispatcher-side `pow2_tg_width` rounding (#1101)
 - Pass 5.A.2: wire MpsDevice::new + mps_device_count to real Metal device discovery on macOS; Linux/non-Apple contract preserved (#1100, follow-up #1131)
 - Pass 5.A.1: SSD300 Module::forward returns real per-anchor scores (was unconditional zeros); register ssd300_vgg16 in vision + hub registries (#1099, follow-up #1130)
 - Add groups + dilation parameters to ferrotorch-gpu conv2d_f32 backend signature (#1003)

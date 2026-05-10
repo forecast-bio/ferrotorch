@@ -139,6 +139,39 @@ fn compile_pipeline(device: &MTLDevice, source: &str, fn_name: &str) -> Ferrotor
 }
 
 // ---------------------------------------------------------------------------
+// Threadgroup-width helper (#1101)
+// ---------------------------------------------------------------------------
+
+// Power-of-two threadgroup width is required by the in-kernel
+// `stride = tcount / 2; stride >>= 1` reduction (softmax_f32, sum_axis_f32).
+//
+// The reduction loop in those MSL kernels assumes `tcount` is a power of two.
+// When `tcount` is not pow-2, the first stride `tcount / 2` rounds *down*, so
+// elements in the upper half (indices `2 * stride .. tcount`) are silently
+// dropped — producing wrong-but-not-NaN row maxes and partial sums on Apple
+// Silicon. PyTorch parity (§3) forbids that silent corruption, so the
+// dispatcher rounds the threadgroup width *up* to the next power of two and
+// caps it at the Metal threadgroup limit of 1024. The kernel side then
+// handles inactive threads (`tid >= cols` / `tid >= axis_len`) by leaving
+// the per-thread sentinels untouched (`-INFINITY` for max, `0.0` for sum)
+// — the strided init loop short-circuits for those threads and the reduction
+// reads the sentinels but they are identity elements for the operation.
+//
+// Behavioural contract:
+//   pow2_tg_width(0)    = 1     // sentinel: zero-width dispatch is a bug
+//                                // upstream; we still return a valid Metal
+//                                // threadgroup width.
+//   pow2_tg_width(1)    = 1
+//   pow2_tg_width(13)   = 16
+//   pow2_tg_width(257)  = 512
+//   pow2_tg_width(1023) = 1024
+//   pow2_tg_width(1024) = 1024
+//   pow2_tg_width(2000) = 1024  // capped
+fn pow2_tg_width(n: usize) -> u64 {
+    n.min(1024).next_power_of_two() as u64
+}
+
+// ---------------------------------------------------------------------------
 // MtlBackend
 // ---------------------------------------------------------------------------
 
@@ -672,8 +705,11 @@ impl GpuBackend for MtlBackend {
 
         let rows_u32 = rows as u32;
         let cols_u32 = cols as u32;
-        // Each threadgroup handles one row; thread count = min(cols, 1024).
-        let tg_w = cols.min(1024) as u64;
+        // Each threadgroup handles one row. The kernel's tree reduction
+        // (`stride = tcount / 2; stride >>= 1`) requires a pow-2 threadgroup
+        // width; pow2_tg_width rounds up and caps at the Metal limit. See
+        // pow2_tg_width docs and #1101 for the bug this fixes.
+        let tg_w = pow2_tg_width(cols);
 
         unsafe {
             enc.setComputePipelineState(&self.pipelines.softmax_f32.state);
@@ -743,7 +779,10 @@ impl GpuBackend for MtlBackend {
         let outer_u32 = outer as u32;
         let axis_u32 = axis_len as u32;
         let inner_u32 = inner as u32;
-        let tg_w = axis_len.min(1024) as u64;
+        // The kernel's tree reduction (`stride = tcount / 2; stride >>= 1`)
+        // requires a pow-2 threadgroup width; pow2_tg_width rounds up and
+        // caps at the Metal limit. See pow2_tg_width docs and #1101.
+        let tg_w = pow2_tg_width(axis_len);
 
         unsafe {
             enc.setComputePipelineState(&self.pipelines.sum_axis_f32.state);
@@ -835,6 +874,40 @@ mod tests {
 
     // These tests are macOS-only (entire module is cfg(target_os = "macos")).
     // On CI without Apple hardware they are excluded by the cfg gate.
+    //
+    // Note: the `pow2_tg_width_*` tests below are pure-Rust and have no
+    // Metal dependency, but they live here because the helper is module-
+    // private. They compile and run on macOS only by virtue of the parent
+    // `cfg(target_os = "macos")` gate on `pub mod backend` in `lib.rs`.
+
+    /// Pow-2 round-up contract for the threadgroup-width helper (#1101):
+    /// non-pow-2 inputs must round up so the in-kernel `stride = tcount/2`
+    /// reduction does not silently drop upper-half elements. Cap at 1024
+    /// (Metal threadgroup limit).
+    #[test]
+    fn pow2_tg_width_rounds_up_for_non_powers_of_two() {
+        assert_eq!(pow2_tg_width(0), 1);
+        assert_eq!(pow2_tg_width(1), 1);
+        assert_eq!(pow2_tg_width(2), 2);
+        assert_eq!(pow2_tg_width(13), 16);
+        assert_eq!(pow2_tg_width(257), 512);
+        assert_eq!(pow2_tg_width(1023), 1024);
+        assert_eq!(pow2_tg_width(1024), 1024);
+        assert_eq!(pow2_tg_width(2000), 1024);
+    }
+
+    /// Pow-2 inputs must round-trip unchanged — the helper is idempotent
+    /// for already-pow-2 widths within the [1, 1024] Metal cap.
+    #[test]
+    fn pow2_tg_width_passes_through_powers_of_two() {
+        for &n in &[1usize, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024] {
+            assert_eq!(
+                pow2_tg_width(n),
+                n as u64,
+                "pow-2 input {n} must round-trip unchanged"
+            );
+        }
+    }
 
     /// Verify MtlBackend::new() either succeeds or returns DeviceUnavailable.
     /// Never panics, never returns an unexpected error variant.

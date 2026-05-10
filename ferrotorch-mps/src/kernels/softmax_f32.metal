@@ -2,7 +2,14 @@
 //
 // Input layout: [rows, cols] contiguous f32.
 // Each threadgroup handles one row (one softmax vector).
-// Grid: (rows,) threadgroups of min(cols, 1024) threads.
+// Grid: (rows,) threadgroups of `next_pow2(min(cols, 1024))` threads. The
+// in-kernel tree reduction (`stride = tcount / 2; stride >>= 1`) requires
+// a pow-2 threadgroup width; the dispatcher rounds the width up. Inactive
+// threads (`tid >= cols`) keep the sentinel `local_max = -INFINITY` /
+// `local_sum = 0.0f` because the strided init loop short-circuits for
+// them — the reduction reads those sentinels but they are identity
+// elements for max / sum so they don't affect the result. See #1101 and
+// `ferrotorch_mps::backend::pow2_tg_width` for the dispatcher contract.
 //
 // Numerically stable: subtract row max before exp.
 // Matches PyTorch's torch.softmax(x, dim=-1) on MPS device.

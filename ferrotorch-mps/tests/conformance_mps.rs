@@ -762,3 +762,196 @@ fn live_mps_sum_axis_f32() {
         "no Apple Silicon on test box; sum_axis_f32 MSL kernel deferred — tracking issue #626"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Pass 5.A.3 — pow-2 threadgroup-width regression tests for #1101
+//
+// These tests verify that softmax_f32 / sum_axis_f32 produce correct results
+// for non-power-of-two reduction widths (where the in-kernel
+// `stride = tcount / 2; stride >>= 1` reduction would silently drop upper-half
+// elements if `tcount` is not pow-2). They cascade_skip on non-Apple boxes
+// (no Metal device); on Apple Silicon CI they execute against the real GPU.
+// ---------------------------------------------------------------------------
+
+/// On macOS hosts with a live Metal device, softmax_f32 must produce results
+/// matching a CPU reference even when `cols` is not a power of two — the
+/// dispatcher must round the threadgroup width up so the in-kernel pow-2
+/// tree reduction does not drop upper-half elements (#1101).
+#[cfg(target_os = "macos")]
+#[test]
+fn softmax_f32_matches_cpu_reference_at_non_pow2_cols() {
+    use ferrotorch_core::gpu_dispatch::GpuBackend;
+    use ferrotorch_mps::MtlBackend;
+
+    let backend = match MtlBackend::new() {
+        Ok(b) => b,
+        Err(FerrotorchError::DeviceUnavailable) => cascade_skip!(
+            "no Metal device available; softmax_f32 non-pow2 regression \
+             (#1101) requires live Metal — tracking issue #626"
+        ),
+        Err(e) => panic!("MtlBackend::new() unexpected error: {e:?}"),
+    };
+
+    for &cols in &[13usize, 257, 1023] {
+        let rows: usize = 2;
+        // Deterministic input in [-1, +1) range.
+        let input: Vec<f32> = (0..rows * cols)
+            .map(|i| (i as f32) * 0.01_f32 - 1.0_f32)
+            .collect();
+
+        let bytes: Vec<u8> = input.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let handle = backend
+            .cpu_to_gpu(&bytes, 4, 0)
+            .expect("cpu_to_gpu input");
+        let out_handle = backend
+            .softmax_f32(&handle, rows, cols)
+            .expect("softmax_f32 dispatch");
+        let out_bytes = backend.gpu_to_cpu(&out_handle).expect("gpu_to_cpu output");
+        let out: Vec<f32> = out_bytes
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        assert_eq!(out.len(), rows * cols, "output length parity, cols={cols}");
+
+        // CPU reference: numerically stable softmax per row.
+        for r in 0..rows {
+            let row = &input[r * cols..(r + 1) * cols];
+            let max = row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let exps: Vec<f32> = row.iter().map(|x| (x - max).exp()).collect();
+            let sum: f32 = exps.iter().sum();
+            let ref_row: Vec<f32> = exps.iter().map(|e| e / sum).collect();
+
+            // Per-row sum-to-one
+            let gpu_sum: f32 = out[r * cols..(r + 1) * cols].iter().sum();
+            assert!(
+                (gpu_sum - 1.0).abs() < 1e-5,
+                "softmax row sum must be 1.0; cols={cols}, row={r}, got {gpu_sum}"
+            );
+
+            // Element-wise parity vs CPU reference.
+            for (j, (&g, &c)) in out[r * cols..(r + 1) * cols]
+                .iter()
+                .zip(ref_row.iter())
+                .enumerate()
+            {
+                assert!(
+                    (g - c).abs() < 1e-5,
+                    "softmax mismatch at cols={cols}, row={r}, col={j}: gpu={g}, cpu_ref={c}"
+                );
+            }
+        }
+    }
+}
+
+/// On macOS hosts with a live Metal device, sum_axis_f32 must produce results
+/// matching a CPU reference for non-power-of-two `axis_len` — same #1101
+/// regression as the softmax test above, on the sibling reduction kernel.
+#[cfg(target_os = "macos")]
+#[test]
+fn sum_axis_f32_matches_cpu_reference_at_non_pow2_axis_len() {
+    use ferrotorch_core::gpu_dispatch::GpuBackend;
+    use ferrotorch_mps::MtlBackend;
+
+    let backend = match MtlBackend::new() {
+        Ok(b) => b,
+        Err(FerrotorchError::DeviceUnavailable) => cascade_skip!(
+            "no Metal device available; sum_axis_f32 non-pow2 regression \
+             (#1101) requires live Metal — tracking issue #626"
+        ),
+        Err(e) => panic!("MtlBackend::new() unexpected error: {e:?}"),
+    };
+
+    for &axis_len in &[13usize, 257, 1023] {
+        // Case A: all-ones — expected sum is exactly axis_len.
+        let ones = vec![1.0_f32; axis_len];
+        let bytes: Vec<u8> = ones.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let handle = backend
+            .cpu_to_gpu(&bytes, 4, 0)
+            .expect("cpu_to_gpu ones input");
+        let out_handle = backend
+            .sum_axis_f32(&handle, &[axis_len], 0)
+            .expect("sum_axis_f32 dispatch");
+        let out_bytes = backend
+            .gpu_to_cpu(&out_handle)
+            .expect("gpu_to_cpu ones output");
+        let out: Vec<f32> = out_bytes
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        assert_eq!(out.len(), 1, "sum-to-scalar shape; axis_len={axis_len}");
+        // 1e-3 slack to allow f32 accumulation noise at axis_len=1023.
+        assert!(
+            (out[0] - axis_len as f32).abs() < 1e-3,
+            "sum_axis_f32 ones-sum mismatch: axis_len={axis_len}, got {got}",
+            got = out[0]
+        );
+
+        // Case B: deterministic non-uniform input vs iter().sum() reference.
+        let input: Vec<f32> = (0..axis_len).map(|i| (i as f32) * 0.001_f32).collect();
+        let bytes: Vec<u8> = input.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let handle = backend
+            .cpu_to_gpu(&bytes, 4, 0)
+            .expect("cpu_to_gpu det input");
+        let out_handle = backend
+            .sum_axis_f32(&handle, &[axis_len], 0)
+            .expect("sum_axis_f32 det dispatch");
+        let out_bytes = backend
+            .gpu_to_cpu(&out_handle)
+            .expect("gpu_to_cpu det output");
+        let out: Vec<f32> = out_bytes
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        let cpu_ref: f32 = input.iter().sum();
+        assert!(
+            (out[0] - cpu_ref).abs() < 1e-3,
+            "sum_axis_f32 det mismatch: axis_len={axis_len}, gpu={got}, cpu_ref={cpu_ref}",
+            got = out[0]
+        );
+    }
+}
+
+/// On macOS hosts with a live Metal device, all-zero softmax input at a
+/// non-power-of-two `cols=13` must produce a uniform `1/13` distribution.
+/// This is the simplest discriminator for the #1101 pow-2 reduction bug:
+/// dropped upper-half elements would skew the per-row sum away from 1.0.
+#[cfg(target_os = "macos")]
+#[test]
+fn softmax_f32_uniform_input_at_non_pow2_cols() {
+    use ferrotorch_core::gpu_dispatch::GpuBackend;
+    use ferrotorch_mps::MtlBackend;
+
+    let backend = match MtlBackend::new() {
+        Ok(b) => b,
+        Err(FerrotorchError::DeviceUnavailable) => cascade_skip!(
+            "no Metal device available; softmax_f32 uniform-non-pow2 regression \
+             (#1101) requires live Metal — tracking issue #626"
+        ),
+        Err(e) => panic!("MtlBackend::new() unexpected error: {e:?}"),
+    };
+
+    let cols: usize = 13;
+    let rows: usize = 1;
+    let zeros = vec![0.0_f32; rows * cols];
+    let bytes: Vec<u8> = zeros.iter().flat_map(|f| f.to_le_bytes()).collect();
+    let handle = backend
+        .cpu_to_gpu(&bytes, 4, 0)
+        .expect("cpu_to_gpu zeros");
+    let out_handle = backend
+        .softmax_f32(&handle, rows, cols)
+        .expect("softmax_f32 zeros");
+    let out_bytes = backend.gpu_to_cpu(&out_handle).expect("gpu_to_cpu zeros");
+    let out: Vec<f32> = out_bytes
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+        .collect();
+    assert_eq!(out.len(), rows * cols);
+
+    let expected = 1.0_f32 / cols as f32;
+    for (i, &g) in out.iter().enumerate() {
+        assert!(
+            (g - expected).abs() < 1e-5,
+            "uniform softmax mismatch at cols={cols}, i={i}: got {g}, expected {expected}"
+        );
+    }
+}
