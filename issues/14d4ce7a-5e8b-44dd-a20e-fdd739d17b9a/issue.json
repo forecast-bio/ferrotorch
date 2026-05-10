@@ -1,0 +1,12 @@
+{
+  "uuid": "14d4ce7a-5e8b-44dd-a20e-fdd739d17b9a",
+  "display_id": 1114,
+  "title": "Pass 5.D.1: ferrotorch-ml 39 perfect-prediction tautologies in src/metrics.rs::tests",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-ml audit, TEST_INTEGRITY.\n\nsrc/metrics.rs::tests (lines 1177-1578) — **39 inline tests are tautologies**: r2_perfect_prediction_is_one, accuracy_score_perfect_match, matthews_corrcoef_perfect_is_one, cohen_kappa_perfect_is_one, roc_auc_perfect_separation, d2_brier_perfect_score_is_one, ndcg_perfect_ranking_is_one, nmi_perfect_clustering_is_one, homogeneity_completeness_v_measure_consistent, fowlkes_mallows_perfect_match_is_one. All compute metric(y, y) and assert ≈ 1.0/0.0. A constant-returning stub passes them.\n\nNote #1015 closed the *conformance-file* discrimination guards; the *in-src* tautologies were not in scope and remain.\n\nAcceptance:\n- For each metric, add at least one mixed-fixture discriminating test (sklearn-fixture pattern). Keep the perfect-fixture sanity check but rename to *_sanity to disambiguate.\n- Sabotage probe: confirm a constant-returning impl breaks the new test.",
+  "status": "open",
+  "priority": "medium",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:23:57.881895641Z",
+  "updated_at": "2026-05-10T07:23:57.881895641Z"
+}
