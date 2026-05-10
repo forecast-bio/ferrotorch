@@ -1,0 +1,11 @@
+{
+  "uuid": "a27300f9-48f2-4d17-ae52-27555b40260a",
+  "display_id": 1087,
+  "title": "fixture: multivariate_normal case '3d_identity_scale' missing 'mean' field",
+  "description": "The MultivariateNormal conformance fixture in ferrotorch-distributions/tests/conformance/fixtures.json has a 'mean' field for case '2d_cholesky' but not for '3d_identity_scale'. Tracked from Audit-Fix Phase 12 (#1086). When fixed, the conformance test 'multivariate_normal_fixtures_log_prob_entropy_mean' should assert against case['mean'] for both cases (currently falls back to loc for the case missing 'mean').",
+  "status": "open",
+  "priority": "low",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T02:27:14.579942068Z",
+  "updated_at": "2026-05-10T02:27:14.579942068Z"
+}
