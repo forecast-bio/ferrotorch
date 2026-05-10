@@ -1,0 +1,12 @@
+{
+  "uuid": "142ba887-83c6-4513-827c-e51ebb6d9c25",
+  "display_id": 1133,
+  "title": "Pass 5.A.4 follow-up: implement mpi backend FFI bindings",
+  "description": "Replaces closed #459 (Add additional distributed backends: Gloo, MPI, UCC). The mpi_backend.rs module is currently a fail-fast skeleton (every Backend method returns Err(BackendUnavailable { backend: \"mpi\" })). Real implementation requires:\n\n- The `mpi` Rust crate (wraps Open MPI / MPICH C ABI)\n- A working MPI install at compile time (`mpicc` on PATH) and `libmpi.so` at runtime\n- CI infrastructure with multiple MPI processes — substantially different from typical cargo-test setups\n\nAdding the dep unconditionally would break workspace builds on systems without MPI. Gated behind `mpi-backend` feature (default off).",
+  "status": "open",
+  "priority": "low",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T16:28:00.280074866Z",
+  "updated_at": "2026-05-10T16:28:00.280074866Z"
+}
