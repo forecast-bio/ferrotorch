@@ -1,0 +1,12 @@
+{
+  "uuid": "5e3e8b31-091b-4113-811c-7e351f7d90d8",
+  "display_id": 1136,
+  "title": "Pass 5.B.1 follow-up: dirichlet sample/log_prob/entropy fail-fast on CUDA via fallback.rs (Pattern A)",
+  "description": "Pass 5.B.1 (#1103) migrated transforms.rs to device-resident ops (Pattern B). dirichlet.rs cannot follow Pattern B in this dispatch because its scalar bodies depend on `lgamma_t` and `digamma_t` (special_fns.rs), which have no GPU equivalent in ferrotorch-core.\n\nThe fallback.rs gate is already wired into every dirichlet method, so on Linux/CPU runs nothing changes. The remaining work is to keep the fallback.rs guards in place and document that full Pattern B migration is blocked on GPU lgamma/digamma kernels. PyTorch parity: torch.distributions.Dirichlet on CUDA also routes through CPU; we just want the error to be loud (already is).\n\nSites already guarded by check_gpu_fallback_opt_in (Pattern A is in place):\n- dirichlet.rs:124 Dirichlet::sample (alpha readback at line 128, recompose at 147)\n- dirichlet.rs:156 Dirichlet::rsample (alpha at 160, recompose at 180-184)\n- dirichlet.rs:203 Dirichlet::log_prob (alpha+value at 210-211, recompose at 254)\n- dirichlet.rs:265 Dirichlet::mean (alpha at 267, recompose at 272)\n- dirichlet.rs:286 Dirichlet::variance (alpha at 288, recompose at 299)\n- dirichlet.rs:311 Dirichlet::entropy (alpha at 317, recompose at 336)\n\nAcceptance:\n- New finding documents that Pattern A is the production posture for dirichlet until GPU lgamma/digamma kernels land.\n- When ferrotorch-core grows lgamma/digamma kernels (separate work), revisit this issue and migrate to Pattern B.\n- No code change in this issue beyond verifying the existing fallback.rs guards remain.\n\nRelated:\n- #982 audit umbrella\n- #1103 transforms.rs Pattern B migration (this issue's parent dispatch)",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T17:26:24.916851443Z",
+  "updated_at": "2026-05-10T17:26:24.916851443Z"
+}
