@@ -1,0 +1,12 @@
+{
+  "uuid": "b001b64c-5999-4325-865f-60def2b1dd49",
+  "display_id": 1116,
+  "title": "Pass 5.D.3: ferrotorch-train Learner LossFn returns pred unchanged across 8 tests",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-train audit, TEST_INTEGRITY.\n\nsrc/learner.rs:540, 552, 568, 584, 596, 612, 623, 635 — every Learner test installs LossFn = Box::new(|pred, _target| Ok(pred.clone())) — returns prediction unchanged, ignores target. Construction-only coverage; no test in this file exercises fit() / evaluate() against real loss arithmetic.\n\nAcceptance:\n- Replace at least 2-3 tests with a real loss (mse_loss + ground-truth target) to verify gradient flow\n- Discriminating sabotage probe: a fit() that overwrites grad with zeros must fail the new test.",
+  "status": "open",
+  "priority": "medium",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:24:14.001298108Z",
+  "updated_at": "2026-05-10T07:24:14.001298108Z"
+}
