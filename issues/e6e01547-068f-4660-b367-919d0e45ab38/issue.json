@@ -1,0 +1,12 @@
+{
+  "uuid": "e6e01547-068f-4660-b367-919d0e45ab38",
+  "display_id": 1119,
+  "title": "Pass 5.E.1: ferrotorch-distributions consolidate 6 lgamma/digamma duplicate impls into special_fns.rs",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-distributions audit, ARCH_SMELL.\n\nsrc/special_fns.rs (Lanczos), src/dirichlet.rs:357 (NumRec coeffs), src/multinomial.rs:333, src/kl.rs:501 (Stirling), src/kumaraswamy.rs:260, src/weibull.rs:251 — six independent implementations of the same scalar special functions, each with its own approximation and accuracy. special_fns.rs exists for exactly this purpose.\n\nTest suite tolerances are masking the duplication: kl.rs tests at 1e-3 / 2e-3 ascribe slack to 'Stirling approximation' but kl.rs::ln_gamma_f64 is the *less accurate* of the duplicates while special_fns.rs has Lanczos at 1e-12.\n\nAcceptance:\n- Centralize on special_fns.rs::ln_gamma + ::digamma; delete the 5 in-module copies\n- Tighten test tolerances to special_fns.rs accuracy (1e-9 or better)\n- No public API change.",
+  "status": "open",
+  "priority": "medium",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:27:21.644285828Z",
+  "updated_at": "2026-05-10T07:27:21.644285828Z"
+}
