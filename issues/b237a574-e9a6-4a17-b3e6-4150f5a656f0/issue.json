@@ -1,0 +1,12 @@
+{
+  "uuid": "b237a574-e9a6-4a17-b3e6-4150f5a656f0",
+  "display_id": 1107,
+  "title": "Pass 5.B.5: ferrotorch-data transforms Normalize/RandomCrop/RandomHorizontalFlip CPU readback",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-data audit, GPU_CPU_MISMATCH bucket (3 findings).\n\nsrc/transforms.rs:147-184, 280-318, 347-410 — Normalize, RandomHorizontalFlip, RandomCrop all unconditionally call input.data() (host pull) and TensorStorage::cpu(output). CUDA tensor is silently downloaded, transformed on CPU, returned as CPU. No is_cuda() guard or NotImplementedOnCuda error (compare interop.rs which guards correctly).\n\nAcceptance:\n- Migrate transforms to device-resident ops, OR\n- Gate by is_cuda() and Err NotImplementedOnCuda\n- Discriminating test asserting result.is_cuda() preserved when input is CUDA.\n- Bundle: collate.rs:18-25 default_collate doc claim about cross-device check is unverified at this layer (separate sub-finding).",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:22:38.300279258Z",
+  "updated_at": "2026-05-10T07:22:38.300279258Z"
+}
