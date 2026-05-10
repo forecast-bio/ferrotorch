@@ -3,12 +3,13 @@
   "display_id": 1105,
   "title": "Pass 5.B.3: ferrotorch-optim Muon/KFAC/LBFGS/SparseAdam silent CPU round-trip",
   "description": "Pass 4 finding (umbrella #982) — ferrotorch-optim audit, GPU_CPU_MISMATCH bucket (4 findings).\n\n- lbfgs.rs:213,236 (gather_params/gather_grads) — always data_vec()?, operates in f64 on CPU, no is_cuda() guard, no GPU path. 1347 LoC optimizer is fully CPU-only.\n- natural_gradient.rs:234,239,323,392,397 — KFAC update_factors/step always read via data()?, runs O(batch · in² + batch · out²) triple loops in CPU f64.\n- muon.rs:265,270 — Muon step reads data_vec()? unconditionally; silent demotion on CUDA.\n- rprop.rs:146,151 + adagrad/adadelta/radam/nadam/adamax/asgd — pub foreach: bool exists but default path is pure CPU f64 (silent demote unless user opts in). Compare sparse_adam.rs:120 + adafactor.rs:174 which honestly Err NotImplementedOnCuda.\n\nAcceptance:\n- Add is_cuda() guard + NotImplementedOnCuda error to non-foreach path, OR\n- Wire foreach as default for CUDA params\n- Discriminating test per optimizer asserting err on CUDA when no foreach path exists.",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
   "created_by": "y4rr",
   "created_at": "2026-05-10T07:22:18.548219624Z",
-  "updated_at": "2026-05-10T07:22:19.827249002Z",
+  "updated_at": "2026-05-10T21:08:20.362807482Z",
+  "closed_at": "2026-05-10T21:08:20.362807482Z",
   "labels": [
     "audit,gpu-cpu-mismatch,optim"
   ]
