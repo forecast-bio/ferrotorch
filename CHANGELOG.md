@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- Add groups + dilation parameters to ferrotorch-gpu conv2d_f32 backend signature (#1003)
 - ferrotorch-distributed: 11 public items lack conformance reference (surface-coverage gate failure) (#1096)
 - Hardware testing: exercise cascade_skip'd CUDA paths on RTX 3090 (#1095)
 - Persist audit-fix series lessons to MEMORY.md (#1094)
