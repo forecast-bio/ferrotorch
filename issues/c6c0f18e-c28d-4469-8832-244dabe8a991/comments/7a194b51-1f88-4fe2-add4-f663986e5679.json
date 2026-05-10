@@ -1,0 +1,10 @@
+{
+  "uuid": "7a194b51-1f88-4fe2-add4-f663986e5679",
+  "issue_uuid": "c6c0f18e-c28d-4469-8832-244dabe8a991",
+  "author": "y4rr",
+  "content": "Pattern B device-resident migration scoped to transforms.rs. Dirichlet/MVN deferred via 2 filed follow-ups (Pattern A; blocked on GPU lgamma/digamma/cholesky kernels). Numerical sabotage as primary discriminator (Pass 5.B.5 lesson).",
+  "created_at": "2026-05-10T17:35:38.864487645Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAIwAALTYYfSJOwL3f8dHjxGEhZ4ghfpAw26fl2lKRPI0GTf6gweRzXZldDf6nEXwStuNqNRsNrlNDL/gGe0rTAg=="
+}
