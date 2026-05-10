@@ -1,0 +1,10 @@
+{
+  "uuid": "cf27f4d1-5ab8-48a6-b9d8-4b3251b125dc",
+  "issue_uuid": "266b373e-def6-446d-828c-03819073561f",
+  "author": "y4rr",
+  "content": "Reframe from migration to deduplication. Train's clip_grad_norm_/clip_grad_value_ are duplicates of ferrotorch-nn's device-dispatching versions. Delete bodies + re-export. EmaCallback acknowledged STALE-NO-OP.",
+  "created_at": "2026-05-10T18:02:00.930153163Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAv3zo9THHj+7z7TKUbhGqc78oKMvx3c/GuZsww6ih+RXVaVIzO5SSuYsh4xEAsyqxLWIiohBPtFN81vg3YskoCQ=="
+}
