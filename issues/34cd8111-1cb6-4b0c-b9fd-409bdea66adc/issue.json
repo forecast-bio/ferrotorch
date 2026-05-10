@@ -3,12 +3,13 @@
   "display_id": 1100,
   "title": "Pass 5.A.2: ferrotorch-mps MpsDevice + 8 op STUBs (Apple-silicon inference blocker)",
   "description": "Pass 4 finding (umbrella #982) — ferrotorch-mps audit, STUB bucket (8 findings).\n\nCluster of stubs that make the MPS backend unusable end-to-end:\n- `MpsDevice::new` always returns Err\n- `mps_device_count` always returns 0\n- `neg_f32`, `gelu_f32`, `dropout_f32`, ... 8 op-level stubs\n\nNet effect: no Apple-silicon user can construct an MPS device; even if they could, hot ops silently err. All 8 stubs are reachable from public API.\n\nAcceptance:\n- Wire MpsDevice::new + device_count to real Metal device discovery, OR\n- Mark crate `#[deprecated]` and remove from default features with crosslink follow-up\n- Implement or honestly Err on the 8 stub op kernels with discriminating fixtures.",
-  "status": "open",
+  "status": "closed",
   "priority": "critical",
   "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
   "created_by": "y4rr",
   "created_at": "2026-05-10T07:21:37.487567564Z",
-  "updated_at": "2026-05-10T07:21:38.648718510Z",
+  "updated_at": "2026-05-10T10:15:16.807781609Z",
+  "closed_at": "2026-05-10T10:15:16.807781609Z",
   "labels": [
     "audit,stub,mps"
   ]
