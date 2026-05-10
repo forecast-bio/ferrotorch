@@ -1,0 +1,12 @@
+{
+  "uuid": "eeba7958-5f59-410d-96ac-5b89d6659495",
+  "display_id": 1111,
+  "title": "Pass 5.C.4: ferrotorch-tokenize strftime_now hardcoded empty string",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch-tokenize audit, STUB.\n\nsrc/lib.rs:247-250 — strftime_now is a hardcoded stub returning String::new(). Comment ('callers wanting real dates should preprocess') openly acknowledges the stub. Llama 3.1 system templates that reference strftime_now('%d %b %Y') silently render an empty date — wrong output, no error.\n\nAcceptance:\n- Implement strftime_now using chrono::Local::now().format(...) (chrono is already a workspace dep)\n- Fixture that asserts a non-empty rendered date for a Llama 3.1 system message containing strftime_now.",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:23:16.292830574Z",
+  "updated_at": "2026-05-10T07:23:16.292830574Z"
+}
