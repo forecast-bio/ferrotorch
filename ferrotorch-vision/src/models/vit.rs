@@ -13,7 +13,8 @@
 //! autograd handles the backward pass automatically.
 
 use ferrotorch_core::grad_fns::arithmetic::add;
-use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage};
+use ferrotorch_core::grad_fns::shape::{cat, expand};
+use ferrotorch_core::{FerrotorchResult, Float, Tensor};
 
 use ferrotorch_nn::activation::GELU;
 use ferrotorch_nn::attention::MultiheadAttention;
@@ -189,10 +190,14 @@ impl<T: Float> TransformerBlock<T> {
         })
     }
 
-    /// Forward pass for the MLP sub-block on a single batch slice.
+    /// Forward pass for the MLP sub-block.
     ///
-    /// Input: `[seq_len, embed_dim]` (2-D)
-    /// Output: `[seq_len, embed_dim]` (2-D)
+    /// Linear accepts arbitrary leading dims (it flattens to 2-D internally
+    /// and reshapes back), so this is rank-polymorphic. Pass 2B (#1000)
+    /// migrated callers from per-batch slicing to a single 3-D dispatch.
+    ///
+    /// Input: `[*, embed_dim]` — typically `[B, seq_len, embed_dim]`
+    /// Output: same leading dims as input, last dim `embed_dim`.
     fn mlp_forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let x = self.mlp_fc1.forward(input)?;
         let x = self.gelu.forward(&x)?;
@@ -203,11 +208,6 @@ impl<T: Float> TransformerBlock<T> {
 impl<T: Float> Module<T> for TransformerBlock<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // input: [B, seq_len, embed_dim]
-        let shape = input.shape();
-        let batch = shape[0];
-        let seq_len = shape[1];
-        let embed_dim = shape[2];
-        let device = input.device();
 
         // --- Sub-block 1: LayerNorm -> MultiheadAttention -> residual add ---
         let normed1 = self.norm1.forward(input)?;
@@ -215,35 +215,14 @@ impl<T: Float> Module<T> for TransformerBlock<T> {
         let x = add(input, &attn_out)?;
 
         // --- Sub-block 2: LayerNorm -> MLP -> residual add ---
+        // Pass 2B (#1000): Linear accepts arbitrary leading dims, so the MLP
+        // takes the 3-D `[B, seq_len, embed_dim]` tensor directly. The prior
+        // implementation pulled `normed2` to host RAM, sliced per batch,
+        // re-uploaded to device, ran 2-D MLP, then concatenated — a
+        // round-trip per block. The 3-D dispatch stays on `input.device()`
+        // end-to-end and preserves grad_fn through `mm_differentiable`.
         let normed2 = self.norm2.forward(&x)?;
-
-        // MLP expects 2-D [seq_len, embed_dim] input (Linear is 2-D only).
-        // Process each batch element independently.
-        let normed2_data = normed2.data_vec()?;
-        let slice_size = seq_len * embed_dim;
-        let mut mlp_out_data = Vec::with_capacity(batch * slice_size);
-
-        for b in 0..batch {
-            let start = b * slice_size;
-            let end = start + slice_size;
-            let slice_data = normed2_data[start..end].to_vec();
-            let slice_tensor = Tensor::from_storage(
-                TensorStorage::cpu(slice_data),
-                vec![seq_len, embed_dim],
-                normed2.requires_grad(),
-            )?
-            .to(device)?;
-            let mlp_result = self.mlp_forward(&slice_tensor)?;
-            let result_data = mlp_result.data_vec()?;
-            mlp_out_data.extend_from_slice(&result_data);
-        }
-
-        let mlp_out = Tensor::from_storage(
-            TensorStorage::cpu(mlp_out_data),
-            vec![batch, seq_len, embed_dim],
-            normed2.requires_grad(),
-        )?
-        .to(device)?;
+        let mlp_out = self.mlp_forward(&normed2)?;
 
         add(&x, &mlp_out)
     }
@@ -348,6 +327,14 @@ pub struct VisionTransformer<T: Float> {
     norm: LayerNorm<T>,
     head: Linear<T>,
     embed_dim: usize,
+    /// Number of patches the input image is split into.
+    ///
+    /// Recorded at construction so the constructor can size `pos_embed` to
+    /// `[1, num_patches+1, embed_dim]`. After Pass 2B (#1000) the forward
+    /// path no longer reads this directly — `cat`/`expand` derive the
+    /// sequence length from the patch tensor itself — but it remains part
+    /// of the model's documented architecture for inspection/debugging.
+    #[allow(dead_code)]
     num_patches: usize,
     training: bool,
 }
@@ -415,56 +402,26 @@ impl<T: Float> VisionTransformer<T> {
 impl<T: Float> Module<T> for VisionTransformer<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         let batch = input.shape()[0];
-        let device = input.device();
 
         // 1. Patch embedding: [B, 3, H, W] -> [B, num_patches, embed_dim]
         let x = self.patch_embed.forward(input)?;
 
         // 2. Prepend CLS token: [B, num_patches, embed_dim] -> [B, num_patches+1, embed_dim]
-        let cls_data = self.cls_token.data_vec()?;
-        let x_data = x.data_vec()?;
-
-        let seq_len = self.num_patches + 1;
-        let mut prepended = Vec::with_capacity(batch * seq_len * self.embed_dim);
-
-        for b in 0..batch {
-            // CLS token: [1, embed_dim]
-            prepended.extend_from_slice(&cls_data);
-            // Patches for this batch: [num_patches, embed_dim]
-            let start = b * self.num_patches * self.embed_dim;
-            let end = start + self.num_patches * self.embed_dim;
-            prepended.extend_from_slice(&x_data[start..end]);
-        }
-
-        let x = Tensor::from_storage(
-            TensorStorage::cpu(prepended),
-            vec![batch, seq_len, self.embed_dim],
-            input.requires_grad(),
-        )?
-        .to(device)?;
+        // Pass 2B (#1000): broadcast cls_token from `[1, 1, embed_dim]` to
+        // `[B, 1, embed_dim]` via `expand`, then `cat` along axis=1. Stays
+        // on `input.device()` end-to-end and preserves grad_fn so the
+        // `cls_token` Parameter accumulates gradient through CatBackward.
+        let cls_expanded = expand(self.cls_token.tensor(), &[batch, 1, self.embed_dim])?;
+        let x = cat(&[cls_expanded, x], 1)?;
 
         // 3. Add position embedding: [B, seq_len, embed_dim] + [1, seq_len, embed_dim]
-        // Broadcast pos_embed across batch dimension.
-        let pos_data = self.pos_embed.data_vec()?;
-        let x_data = x.data_vec()?;
-        let total = batch * seq_len * self.embed_dim;
-        let pos_size = seq_len * self.embed_dim;
-        let mut pos_added = Vec::with_capacity(total);
-
-        for b in 0..batch {
-            for (i, &pd) in pos_data.iter().enumerate().take(pos_size) {
-                pos_added.push(x_data[b * pos_size + i] + pd);
-            }
-        }
-
-        let mut x = Tensor::from_storage(
-            TensorStorage::cpu(pos_added),
-            vec![batch, seq_len, self.embed_dim],
-            input.requires_grad(),
-        )?
-        .to(device)?;
+        // Pass 2B (#1000): `add` broadcasts the leading batch dim natively
+        // (BroadcastAddBackward reduces along it for pos_embed.grad). No
+        // host detour, autograd-correct.
+        let x = add(&x, self.pos_embed.tensor())?;
 
         // 4. Transformer encoder blocks.
+        let mut x = x;
         for block in &self.blocks {
             x = block.forward(&x)?;
         }
@@ -473,21 +430,11 @@ impl<T: Float> Module<T> for VisionTransformer<T> {
         let x = self.norm.forward(&x)?;
 
         // 6. Extract CLS token: take [:, 0, :] -> [B, embed_dim]
-        let x_data = x.data_vec()?;
-        let mut cls_out = Vec::with_capacity(batch * self.embed_dim);
-
-        for b in 0..batch {
-            let start = b * seq_len * self.embed_dim;
-            let end = start + self.embed_dim;
-            cls_out.extend_from_slice(&x_data[start..end]);
-        }
-
-        let cls_features = Tensor::from_storage(
-            TensorStorage::cpu(cls_out),
-            vec![batch, self.embed_dim],
-            x.requires_grad(),
-        )?
-        .to(device)?;
+        // Pass 2B (#1000): `narrow(dim=1, start=0, length=1)` → `squeeze(1)`
+        // is the device-resident analog of the prior `data_vec()`+slice
+        // loop. NarrowBackward fills the unsliced positions with zeros on
+        // backward, matching torchvision's slice semantics.
+        let cls_features = x.narrow(1, 0, 1)?.squeeze_t(1)?;
 
         // 7. Classification head: Linear(embed_dim, num_classes)
         self.head.forward(&cls_features)
@@ -596,46 +543,17 @@ impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for Vis
     ) -> FerrotorchResult<std::collections::HashMap<String, Tensor<T>>> {
         let mut out = std::collections::HashMap::new();
         let batch = input.shape()[0];
-        let device = input.device();
 
         // 1. Patch embedding.
         let x = self.patch_embed.forward(input)?;
         out.insert("patch_embed".to_string(), x.clone());
 
-        // 2. Prepend CLS token.
-        let cls_data = self.cls_token.data_vec()?;
-        let x_data = x.data_vec()?;
-        let seq_len = self.num_patches + 1;
-        let mut prepended = Vec::with_capacity(batch * seq_len * self.embed_dim);
-        for b in 0..batch {
-            prepended.extend_from_slice(&cls_data);
-            let start = b * self.num_patches * self.embed_dim;
-            let end = start + self.num_patches * self.embed_dim;
-            prepended.extend_from_slice(&x_data[start..end]);
-        }
-        let x = Tensor::from_storage(
-            TensorStorage::cpu(prepended),
-            vec![batch, seq_len, self.embed_dim],
-            input.requires_grad(),
-        )?
-        .to(device)?;
+        // 2. Prepend CLS token. (Pass 2B #1000 — see `forward` for rationale.)
+        let cls_expanded = expand(self.cls_token.tensor(), &[batch, 1, self.embed_dim])?;
+        let x = cat(&[cls_expanded, x], 1)?;
 
-        // 3. Add position embedding.
-        let pos_data = self.pos_embed.data_vec()?;
-        let x_data = x.data_vec()?;
-        let pos_size = seq_len * self.embed_dim;
-        let mut pos_added = Vec::with_capacity(batch * pos_size);
-        for b in 0..batch {
-            for (i, &pd) in pos_data.iter().enumerate().take(pos_size) {
-                pos_added.push(x_data[b * pos_size + i] + pd);
-            }
-        }
-        let mut x = Tensor::from_storage(
-            TensorStorage::cpu(pos_added),
-            vec![batch, seq_len, self.embed_dim],
-            input.requires_grad(),
-        )?
-        .to(device)?;
+        // 3. Add position embedding (broadcasts the leading batch dim).
+        let mut x = add(&x, self.pos_embed.tensor())?;
         out.insert("embedded".to_string(), x.clone());
 
         // 4. Transformer encoder blocks.
@@ -648,20 +566,8 @@ impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for Vis
         let x = self.norm.forward(&x)?;
         out.insert("norm".to_string(), x.clone());
 
-        // 6. Extract CLS token.
-        let x_data = x.data_vec()?;
-        let mut cls_out = Vec::with_capacity(batch * self.embed_dim);
-        for b in 0..batch {
-            let start = b * seq_len * self.embed_dim;
-            let end = start + self.embed_dim;
-            cls_out.extend_from_slice(&x_data[start..end]);
-        }
-        let cls_features = Tensor::from_storage(
-            TensorStorage::cpu(cls_out),
-            vec![batch, self.embed_dim],
-            x.requires_grad(),
-        )?
-        .to(device)?;
+        // 6. Extract CLS token: [:, 0, :] -> [B, embed_dim].
+        let cls_features = x.narrow(1, 0, 1)?.squeeze_t(1)?;
 
         // 7. Classification head.
         let logits = self.head.forward(&cls_features)?;
@@ -917,5 +823,56 @@ mod tests {
         for &v in data.iter() {
             assert!(v.is_finite(), "output contains non-finite value: {v}");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Pass 2B (#1000) autograd preservation probe
+    //
+    // After the migration the cls_token concat path is `expand` + `cat` (no
+    // `data_vec()` round-trip). Both ops have grad_fns, so the cls_token
+    // Parameter must still receive a non-zero gradient on backward.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_vit_cls_token_grad_flows_through_cat() {
+        use ferrotorch_core::grad_fns::reduction::sum;
+
+        let model = VisionTransformer::<f32>::new(
+            32, // image_size
+            16, // patch_size
+            3,  // in_channels
+            10, // num_classes
+            64, // embed_dim
+            1,  // depth (one block)
+            4,  // num_heads
+            4,  // mlp_ratio
+        )
+        .unwrap();
+
+        // Input: requires_grad=true so autograd graph is constructed
+        // (cls_token is itself a Parameter so always has requires_grad=true).
+        let input = leaf_4d(&vec![0.1; 3 * 32 * 32], [1, 3, 32, 32], true);
+        let output = model.forward(&input).unwrap();
+        let loss = sum(&output).unwrap();
+        loss.backward().unwrap();
+
+        // cls_token must have a non-None gradient (was reachable through
+        // ExpandBackward -> CatBackward in the graph).
+        let cls_grad = model
+            .cls_token
+            .grad()
+            .expect("cls_token grad accessor")
+            .expect("cls_token must have a gradient after backward");
+        assert_eq!(cls_grad.shape(), model.cls_token.shape());
+
+        // And at least one element of the gradient must be non-zero — a
+        // zero-only grad would be indistinguishable from the path being
+        // detached from autograd.
+        let g = cls_grad.data().unwrap();
+        let any_nonzero = g.iter().any(|x| x.abs() > 0.0);
+        assert!(
+            any_nonzero,
+            "cls_token gradient was all zeros — autograd path appears detached"
+        );
     }
 }

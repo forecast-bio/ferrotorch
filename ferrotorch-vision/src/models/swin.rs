@@ -57,9 +57,12 @@
 //! (#1014); see `ShiftedWindowAttention::forward` for the load-bearing
 //! call site.
 
+use ferrotorch_core::creation::zeros;
 use ferrotorch_core::grad_fns::activation::softmax;
 use ferrotorch_core::grad_fns::arithmetic::{add, mul};
 use ferrotorch_core::grad_fns::linalg::matmul_differentiable;
+use ferrotorch_core::grad_fns::reduction::mean_dim;
+use ferrotorch_core::grad_fns::shape::cat;
 use ferrotorch_core::ops::tensor_ops::roll;
 use ferrotorch_core::{FerrotorchResult, Float, Tensor, TensorStorage};
 
@@ -574,6 +577,13 @@ impl<T: Float> Module<T> for ShiftedWindowAttention<T> {
 /// divisible by ws=7), so this is exercised only by the small-input
 /// shape tests where padding actually fires. Tracked alongside the
 /// other Phase-11 pure-CPU helpers under the same #1014 follow-up.
+/// Pad a `[B, H, W, C]` tensor with zeros on the bottom (`pad_b` rows) and
+/// right (`pad_r` columns).
+///
+/// Pass 2B (#1000): rebuilt as two `cat`s of small zero tensors instead
+/// of a `data_vec()` round trip + indexed write back. Stays on
+/// `input.device()` end-to-end; on GPU the cats hit `strided_cat`'s
+/// device-resident fast path (see `grad_fns::shape::cat`).
 fn pad_bhwc_zero<T: Float>(
     input: &Tensor<T>,
     pad_b: usize,
@@ -584,51 +594,55 @@ fn pad_bhwc_zero<T: Float>(
     let h = shape[1];
     let w = shape[2];
     let c = shape[3];
-    let new_h = h + pad_b;
-    let new_w = w + pad_r;
-    let device = input.device();
-    let in_data = input.data_vec()?;
-    let zero = <T as num_traits::Zero>::zero();
-    let mut out = vec![zero; b * new_h * new_w * c];
-    for bi in 0..b {
-        for hi in 0..h {
-            for wi in 0..w {
-                let src = ((bi * h + hi) * w + wi) * c;
-                let dst = ((bi * new_h + hi) * new_w + wi) * c;
-                out[dst..dst + c].copy_from_slice(&in_data[src..src + c]);
-            }
-        }
+    if pad_b == 0 && pad_r == 0 {
+        return Ok(input.clone());
     }
-    Tensor::from_storage(TensorStorage::cpu(out), vec![b, new_h, new_w, c], false)?.to(device)
+    let device = input.device();
+
+    // Pad bottom: cat(input, zeros[B, pad_b, W, C], axis=1).
+    let with_bottom = if pad_b > 0 {
+        let zb = zeros::<T>(&[b, pad_b, w, c])?.to(device)?;
+        cat(&[input.clone(), zb], 1)?
+    } else {
+        input.clone()
+    };
+
+    // Pad right: cat(with_bottom, zeros[B, H+pad_b, pad_r, C], axis=2).
+    if pad_r > 0 {
+        let zr = zeros::<T>(&[b, h + pad_b, pad_r, c])?.to(device)?;
+        cat(&[with_bottom, zr], 2)
+    } else {
+        Ok(with_bottom)
+    }
 }
 
 /// Inverse of [`pad_bhwc_zero`]: drop the bottom and right padding rows
 /// to restore an input's original `[B, orig_h, orig_w, C]` shape.
+///
+/// Pass 2B (#1000): rebuilt as two `narrow` views (zero-copy) instead of
+/// a `data_vec()` + per-element copy. NarrowBackward zero-fills the
+/// dropped rows on backward, matching the slice semantics.
 fn unpad_bhwc<T: Float>(
     input: &Tensor<T>,
     orig_h: usize,
     orig_w: usize,
 ) -> FerrotorchResult<Tensor<T>> {
     let shape = input.shape();
-    let b = shape[0];
     let h = shape[1];
     let w = shape[2];
-    let c = shape[3];
     if h == orig_h && w == orig_w {
         return Ok(input.clone());
     }
-    let device = input.device();
-    let in_data = input.data_vec()?;
-    let mut out = Vec::with_capacity(b * orig_h * orig_w * c);
-    for bi in 0..b {
-        for hi in 0..orig_h {
-            for wi in 0..orig_w {
-                let src = ((bi * h + hi) * w + wi) * c;
-                out.extend_from_slice(&in_data[src..src + c]);
-            }
-        }
+    let mut x = input.clone();
+    if h != orig_h {
+        x = x.narrow(1, 0, orig_h)?;
     }
-    Tensor::from_storage(TensorStorage::cpu(out), vec![b, orig_h, orig_w, c], false)?.to(device)
+    if w != orig_w {
+        x = x.narrow(2, 0, orig_w)?;
+    }
+    // narrow returns a non-contiguous view; subsequent cats / reshapes
+    // that follow PatchMerging require contiguous memory.
+    x.contiguous()
 }
 
 /// Compute torchvision's `relative_position_index` for a square window.
@@ -1023,38 +1037,35 @@ impl<T: Float> Module<T> for PatchMerging<T> {
         let h2 = height / 2;
         let w2 = width / 2;
 
-        let device = padded.device();
-        let in_data = padded.data_vec()?;
-        let mut out_data: Vec<T> = Vec::with_capacity(batch * h2 * w2 * 4 * channels);
-
-        // The torchvision implementation:
-        //   x0 = x[..., 0::2, 0::2, :]
-        //   x1 = x[..., 1::2, 0::2, :]
-        //   x2 = x[..., 0::2, 1::2, :]
-        //   x3 = x[..., 1::2, 1::2, :]
-        //   x = torch.cat([x0, x1, x2, x3], -1)
+        // Pass 2B (#1000): replace the per-element CPU gather with a
+        // view → permute → view trick that stays on `input.device()`
+        // end-to-end and preserves grad_fn.
         //
-        // For each output position (b, ih, iw) we emit 4*channels values
-        // in the order x0_chans | x1_chans | x2_chans | x3_chans.
-        for b in 0..batch {
-            for ih in 0..h2 {
-                for iw in 0..w2 {
-                    for (dh, dw) in [(0usize, 0usize), (1, 0), (0, 1), (1, 1)] {
-                        let h = 2 * ih + dh;
-                        let w = 2 * iw + dw;
-                        let base = ((b * height + h) * width + w) * channels;
-                        out_data.extend_from_slice(&in_data[base..base + channels]);
-                    }
-                }
-            }
-        }
-
-        let merged = Tensor::from_storage(
-            TensorStorage::cpu(out_data),
-            vec![batch, h2, w2, 4 * channels],
-            false,
-        )?
-        .to(device)?;
+        // torchvision's PatchMerging is:
+        //   x0 = x[..., 0::2, 0::2, :]   (dh=0, dw=0)
+        //   x1 = x[..., 1::2, 0::2, :]   (dh=1, dw=0)
+        //   x2 = x[..., 0::2, 1::2, :]   (dh=0, dw=1)
+        //   x3 = x[..., 1::2, 1::2, :]   (dh=1, dw=1)
+        //   merged = cat([x0, x1, x2, x3], dim=-1)
+        //
+        // Equivalently: reshape `[B, H, W, C]` into `[B, h2, 2, w2, 2, C]`
+        // exposing the inner `(dh, dw)` pair, permute to
+        // `[B, h2, w2, dw, dh, C]`, then flatten the last three dims into
+        // `4*C`. Because torchvision's block order is `[(0,0),(1,0),(0,1),(1,1)]`,
+        // the block index `k = dw*2 + dh` — i.e. `dw` is the outermost
+        // sub-axis, hence the permutation `[0, 1, 3, 4, 2, 5]`.
+        let merged = padded
+            .view(&[
+                batch as i64,
+                h2 as i64,
+                2,
+                w2 as i64,
+                2,
+                channels as i64,
+            ])?
+            .permute(&[0, 1, 3, 4, 2, 5])?
+            .contiguous()?
+            .view(&[batch as i64, h2 as i64, w2 as i64, (4 * channels) as i64])?;
 
         let merged = self.norm.forward(&merged)?;
         self.reduction.forward(&merged)
@@ -1290,6 +1301,10 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
         let x = self.norm.forward(&x)?;
 
         // Spatial average pool: mean over H and W → [B, C].
+        // Pass 2B (#1000): replace the manual sum+scale CPU reduction with
+        // the autograd-aware `mean_dim` primitive. The reshape to
+        // `[B, H*W, C]` lets us reduce on a single (token) axis, matching
+        // torchvision's `flatten(1).mean(1)` arithmetic exactly.
         let shape = x.shape();
         let batch = shape[0];
         let height = shape[1];
@@ -1297,38 +1312,8 @@ impl<T: Float> Module<T> for SwinTransformer<T> {
         let channels = shape[3];
         let n_tokens = height * width;
 
-        // [B, H, W, C] → [B, H*W, C]
         let x = x.view(&[batch as i64, n_tokens as i64, channels as i64])?;
-        // Mean reduce over the token (middle) dim. We use a sum-then-scale
-        // composition rather than a direct mean primitive so the reduction
-        // remains autograd-correct on every supported device. For eval-mode
-        // value parity, what matters is that the arithmetic matches
-        // torchvision exactly: mean over the spatial dim.
-        let summed_data = {
-            let device = x.device();
-            let data = x.data_vec()?;
-            let mut out = vec![<T as num_traits::Zero>::zero(); batch * channels];
-            for b in 0..batch {
-                for c in 0..channels {
-                    let mut s = <T as num_traits::Zero>::zero();
-                    for t in 0..n_tokens {
-                        s += data[(b * n_tokens + t) * channels + c];
-                    }
-                    out[b * channels + c] = s;
-                }
-            }
-            let inv = T::from(1.0 / n_tokens as f64).unwrap();
-            for v in out.iter_mut() {
-                *v = *v * inv;
-            }
-            (out, device)
-        };
-        let pooled = Tensor::from_storage(
-            TensorStorage::cpu(summed_data.0),
-            vec![batch, channels],
-            false,
-        )?
-        .to(summed_data.1)?;
+        let pooled = mean_dim(&x, 1, false)?;
 
         // Classification head.
         self.head.forward(&pooled)
@@ -1420,37 +1405,20 @@ impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for Swi
         let x = self.norm.forward(&x)?;
         out.insert("norm".to_string(), x.clone());
 
-        // Pool to [B, C]. Same arithmetic as forward() — we keep this
-        // duplicated rather than refactor to a private helper to avoid
-        // smearing autograd-relevant code paths across files.
+        // Pool to [B, C]. Pass 2B (#1000): same migration as `forward` —
+        // reshape to `[B, H*W, C]` and reduce the token axis with
+        // `mean_dim`. Stays on `input.device()` end-to-end.
         let shape = x.shape();
         let batch = shape[0];
         let height = shape[1];
         let width = shape[2];
         let channels = shape[3];
         let n_tokens = height * width;
-        let device = x.device();
-        let data = x.data_vec()?;
-        let mut pooled_data = vec![<T as num_traits::Zero>::zero(); batch * channels];
-        for b in 0..batch {
-            for c in 0..channels {
-                let mut s = <T as num_traits::Zero>::zero();
-                for t in 0..n_tokens {
-                    s += data[(b * n_tokens + t) * channels + c];
-                }
-                pooled_data[b * channels + c] = s;
-            }
-        }
-        let inv = T::from(1.0 / n_tokens as f64).unwrap();
-        for v in pooled_data.iter_mut() {
-            *v = *v * inv;
-        }
-        let pooled = Tensor::from_storage(
-            TensorStorage::cpu(pooled_data),
-            vec![batch, channels],
+        let pooled = mean_dim(
+            &x.view(&[batch as i64, n_tokens as i64, channels as i64])?,
+            1,
             false,
-        )?
-        .to(device)?;
+        )?;
         out.insert("avgpool".to_string(), pooled.clone());
 
         let logits = self.head.forward(&pooled)?;
