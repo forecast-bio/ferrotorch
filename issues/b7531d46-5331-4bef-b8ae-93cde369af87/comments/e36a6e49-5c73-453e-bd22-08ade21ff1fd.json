@@ -1,0 +1,10 @@
+{
+  "uuid": "e36a6e49-5c73-453e-bd22-08ade21ff1fd",
+  "issue_uuid": "b7531d46-5331-4bef-b8ae-93cde369af87",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 13 APPROVE-WITH-FOLLOW-UPS (FINAL DISPATCH). 4 BROKEN tests (#1059, #1060, #1061, #1062) strengthened: typed fn-pointer pins + real download_weights/load_pretrained invocations under --ignored (#1059/#1060), hand-computed minijinja EXPECTED_RENDERED string assertion (#1061), real Device::Mps(0) Display invocation through core enum + typed fn-pointer pins for MpsDevice::new/ordinal (#1062). Sabotage demo: helpful → helpfuL caught by assert_eq! at line 310. Follow-up #1089 filed for orthogonal pre-existing registry_list_models_count_matches_reference fixture drift (registry has 19 entries, fixture says 18). No src/ changes, no new workspace deps. Audit-fix series COMPLETE: 56/56 BROKEN tests closed.",
+  "created_at": "2026-05-10T02:46:35.765459391Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAbHNocqe0SZa9KAEPJ/8AFYI+ljjWE9YSeC5cWL19v4frYqrOMwFxUggaf+xfX2Tz2SRTAG7b344Rgi7pi6lIBQ=="
+}
