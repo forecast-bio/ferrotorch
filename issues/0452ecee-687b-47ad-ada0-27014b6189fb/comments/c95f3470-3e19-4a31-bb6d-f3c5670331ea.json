@@ -1,0 +1,10 @@
+{
+  "uuid": "c95f3470-3e19-4a31-bb6d-f3c5670331ea",
+  "issue_uuid": "0452ecee-687b-47ad-ada0-27014b6189fb",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 9 APPROVE-WITH-FOLLOW-UPS. 5 BROKEN tests (#1045-#1049) strengthened (Phase 4 xpu pattern): else-branch asserts auto().is_some() when available (#1045), typed fn-pointer pins for CubeRuntime::new (#1046) and portable_add/matmul via shared PortableBinaryOp alias (#1048/#1049), assert_eq! replacing discarded let _ (#1047 substring preserved for surface-gate). Sabotage demo: ordinal value 1 → 99 caught at line 829. Follow-up #1083 filed for pub(crate) fn CubeRuntime::new_for_testing src/ change. No src/ changes, no new workspace deps.",
+  "created_at": "2026-05-10T00:42:49.265548217Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA6Rsa1n1EQYO5U4lvUEXKY2hwFhHp92y9g8C6O1Xc0ZhnWWSdqaA882Igv6G73XUUQ/vilNmp4qDfLINv5xCaBw=="
+}
