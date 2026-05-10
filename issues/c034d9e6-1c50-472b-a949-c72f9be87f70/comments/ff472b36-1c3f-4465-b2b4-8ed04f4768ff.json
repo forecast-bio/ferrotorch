@@ -1,0 +1,10 @@
+{
+  "uuid": "ff472b36-1c3f-4465-b2b4-8ed04f4768ff",
+  "issue_uuid": "c034d9e6-1c50-472b-a949-c72f9be87f70",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 11 APPROVE (clean). 3 BROKEN ml ranking-metric tests (#1069-#1071) strengthened via Phase 2 sklearn-fixture pattern: imperfect siblings for LRAP (expected≈0.3333) and LRL (expected=1.0) with sklearn-derived values via regenerate_ml_fixtures.py extension; inline cross-discrimination on NDCG perfect (shuffled-score < perfect, < 0.99). No ferrolearn divergence surfaced — all 3 metrics agree with sklearn 1.5.2 within 1e-9. Sabotage demo: LRAP imperfect expected 0.3333 → 0.5 caught by check_f64 with 1.667e-1 diff. No src/ changes, no new workspace deps.",
+  "created_at": "2026-05-10T01:27:44.790609235Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAtPhleHsY+VSP09Mf0Nn//jQxGXRal99/6vMEeEIPazHdcVOm0tNpfS2rh45jFAFfI+GXEEbUhCc0E1jD0qE0CQ=="
+}
