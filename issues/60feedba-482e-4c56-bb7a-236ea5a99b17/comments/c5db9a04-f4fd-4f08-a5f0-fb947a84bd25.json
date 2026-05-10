@@ -1,0 +1,10 @@
+{
+  "uuid": "c5db9a04-f4fd-4f08-a5f0-fb947a84bd25",
+  "issue_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "author": "y4rr",
+  "content": "Pass 5.A.4 surfaced 'closed-tracker drift' as a new accreted failure mode for the series:\n\n- Skeleton modules (gloo/mpi/ucc) cited closed #459 in source/test docstrings + Cargo.toml comments\n- gpu_collective NCCL placeholder cited closed #668 in 7 source sites + 6 #[ignore] attributes\n- All 4 fix-phase audit-cited STUBs (Pass 5.A.4 #1102) were stale-no-op (correct fail-fast contract); the real bug was untracked deferred work, not silent corruption.\n\nPattern prediction: any audit finding citing 'STUB' in a feature-gated module is suspect; verify (a) is the feature-off path silent or fail-fast, (b) does the deferred-work tracker exist and stay open. If (a) is fail-fast and (b) is closed/missing, it's closed-tracker drift, not a STUB.\n\nTally: Pass 5 has now caught 1 missing test, 5 stale-MPS findings, 1 cfg-gate-vs-Linux-runnable architect oversight, 2 architect-side pre-flight issues (ZERO-match floor + missed file). Audit signal-to-noise on STUB findings is approximately 30-40% real bugs (Pass 5.A.1 SSD300 was real; 5.A.2 was 3/8 real; 5.A.3 was 1/1 real; 5.A.4 was 0/3 real but surfaced closed-tracker drift).",
+  "created_at": "2026-05-10T16:34:40.338648545Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA8UNKBr8CByNhUBXbnmGaSExLHP/nKVI8UGusKUljA4QrPxcS5DqcI/VCMus7Te7GehOUQz7dNVfiGj+TLSrGCw=="
+}
