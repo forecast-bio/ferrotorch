@@ -3,12 +3,13 @@
   "display_id": 1103,
   "title": "Pass 5.B.1: ferrotorch-distributions transforms.rs unconditional CPU readback (5 sites)",
   "description": "Pass 4 finding (umbrella #982) — ferrotorch-distributions audit, GPU_CPU_MISMATCH bucket (5 findings).\n\nEvery `Transform` impl unconditionally calls `data_vec()` then `TensorStorage::cpu(...)`; result tensor is CPU regardless of input device. `TransformedDistribution::log_prob` (transforms.rs:473-505) loses CUDA placement entirely. Same shape in dirichlet.rs (5 sites at lines 147-152, 195-200, 254-259, 271-280, 297-307, 336-341) and multivariate_normal.rs (140-177, 179-228, 482-511).\n\nAcceptance:\n- Migrate transforms to device-resident ops (no `data_vec()`), OR\n- Gate by `is_cuda()` and Err with NotImplementedOnCuda matching the rest of the crate (see fallback.rs:115-202 pattern)\n- Discriminating test that asserts result.is_cuda() when input.is_cuda().",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
   "created_by": "y4rr",
   "created_at": "2026-05-10T07:22:02.441595847Z",
-  "updated_at": "2026-05-10T07:22:03.749814587Z",
+  "updated_at": "2026-05-10T17:35:40.276209270Z",
+  "closed_at": "2026-05-10T17:35:40.276209270Z",
   "labels": [
     "audit,gpu-cpu-mismatch,distributions"
   ]
