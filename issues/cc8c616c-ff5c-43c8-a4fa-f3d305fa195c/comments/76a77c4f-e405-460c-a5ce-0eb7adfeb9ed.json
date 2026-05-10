@@ -1,0 +1,10 @@
+{
+  "uuid": "76a77c4f-e405-460c-a5ce-0eb7adfeb9ed",
+  "issue_uuid": "cc8c616c-ff5c-43c8-a4fa-f3d305fa195c",
+  "author": "y4rr",
+  "content": "Pass 5.A.1 closed via APPROVE-WITH-FOLLOW-UPS.\n\nBehavioral fix landed:\n- ssd.rs:1050-1063 — Module::forward returns dets[0].scores.clone() w/ [0, num_classes] empty-fallback (mirrors FasterRcnn/MaskRcnn convention)\n- vision/registry.rs — ssd300_vgg16 registered in default_registry()\n- hub/registry.rs — ModelInfo added with placeholder SHA, pretrained=true fails fast through the same path as fasterrcnn/maskrcnn\n- ssd.rs:1542-1597 — discriminating test ssd300_module_forward_matches_inherent_scores added; sabotage probe confirmed it panics on the original zero-stub regression\n\nTests: vision/lib/ssd 12/12; hub/lib 94/94; vision/lib/registry 7/7. Build + clippy clean.\n\nFollow-up filed: #1130 (pin SSD300 weights).",
+  "created_at": "2026-05-10T08:30:35.400753932Z",
+  "kind": "resolution",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAk1o/CZchyauLQOC+EobWJHa3o5VbPIK75mZp+t00tf0TX4Wn16246STCp1rI6EeDU/ByO4BSieRRcvMjzJJVDQ=="
+}
