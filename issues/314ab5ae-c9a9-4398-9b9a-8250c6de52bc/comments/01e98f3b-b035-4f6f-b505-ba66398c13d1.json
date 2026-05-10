@@ -1,0 +1,10 @@
+{
+  "uuid": "01e98f3b-b035-4f6f-b505-ba66398c13d1",
+  "issue_uuid": "314ab5ae-c9a9-4398-9b9a-8250c6de52bc",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 15 APPROVE. Hub fixture drift fixed: registry_list_models_count.expected_count 18→19 (matches registry source-of-truth), registry_known_models extended with 4 missing models (deeplabv3_resnet50, fasterrcnn_resnet50_fpn, fcn_resnet50, maskrcnn_resnet50_fpn) with verbatim num_parameters from registry.rs. 34 PASS / 0 fail (was 33 + 1 fail). Sabotage probe (count=99) caught by failing test, then reverted by architect after subagent truncation.",
+  "created_at": "2026-05-10T03:32:14.652311785Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAtTiRv5YwmmLztiEQ6rTq4gjeNyfj5CU7UevJZdLTkEL/cxc8agdAdElvPG+343Ze6PBZ37XqNo4f7qXvk4BMBg=="
+}
