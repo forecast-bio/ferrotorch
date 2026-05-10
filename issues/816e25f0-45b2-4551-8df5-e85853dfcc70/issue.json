@@ -1,0 +1,12 @@
+{
+  "uuid": "816e25f0-45b2-4551-8df5-e85853dfcc70",
+  "display_id": 1115,
+  "title": "Pass 5.D.2: ferrotorch (umbrella) pythia_real missing #[ignore]; validate_vs_pytorch zero assertions",
+  "description": "Pass 4 finding (umbrella #982) — ferrotorch (umbrella) audit, TEST_INTEGRITY.\n\n- tests/pythia_real.rs:184 — #[test] fn test_pythia_70m_training_benchmark not #[ignore]-gated despite header line 8 saying users should opt in with --ignored. Default cargo test triggers ~26M-param Pythia-70M autograd at every step → CI OOM/timeout risk.\n- tests/pythia_real.rs:1-5 docstring is fully aspirational: claims to load HF safetensors and compare against PyTorch reference; line 196 actually builds PythiaModel::new with random init.\n- tests/validate_vs_pytorch.rs:446-542 — test_speed_comparison has zero assertions; prints ratio table to stderr and exits success regardless of measured perf. NOT registered in Cargo.toml as [[test]] but still discovered by Cargo's filename-based discovery.\n\nAcceptance:\n- pythia_real: add #[ignore = \"...\"] OR rename file/function to require --ignored; align doc with what the test actually does (random-init or real-load — pick one)\n- validate_vs_pytorch: replace prints with hard assertions on perf-ratio thresholds; OR move to benches/ if perf-only.\n- Register or remove validate_vs_pytorch from Cargo.toml [[test]] block.",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T07:24:09.922758997Z",
+  "updated_at": "2026-05-10T07:24:09.922758997Z"
+}
