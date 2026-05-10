@@ -1,0 +1,10 @@
+{
+  "uuid": "482f3920-24bc-4706-8336-3dd3ad99e870",
+  "issue_uuid": "4ff9cc2c-b6b9-493d-b95d-387d62f9d7a2",
+  "author": "y4rr",
+  "content": "Reframe from 'silent demote' to 'doc drift + clearer Err on CUDA'. Tensor::data() already Errs on CUDA — no silent demote. Pattern A (explicit is_cuda guard + doc rewrite + 1 follow-up for PTX runtime). codegen.rs untouched (STALE-NO-OP).",
+  "created_at": "2026-05-10T18:52:33.124168658Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA/3/OhKa562NxSYA/Bpl78RqtRP/Gev/5k9pWTUGCE7fXbN7DglcopRDdt3lcdw/bfc8Pegg1toWBRoioEGczBQ=="
+}
