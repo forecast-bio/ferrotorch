@@ -2,11 +2,12 @@
   "uuid": "ee094ae1-c2d6-4f65-b82e-406a35d1d5ea",
   "display_id": 1073,
   "title": "Fix AMI sklearn divergence (ferrolearn-metrics returns 0.225 vs sklearn 0.299 on mixed labels)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-09T13:38:58.866604902Z",
-  "updated_at": "2026-05-09T13:39:00.189340350Z",
+  "updated_at": "2026-05-10T03:19:25.682571027Z",
+  "closed_at": "2026-05-10T03:19:25.682571027Z",
   "labels": [
     "bug"
   ]
