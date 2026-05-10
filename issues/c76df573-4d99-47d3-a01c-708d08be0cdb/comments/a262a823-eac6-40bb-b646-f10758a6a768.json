@@ -1,0 +1,10 @@
+{
+  "uuid": "a262a823-eac6-40bb-b646-f10758a6a768",
+  "issue_uuid": "c76df573-4d99-47d3-a01c-708d08be0cdb",
+  "author": "y4rr",
+  "content": "Audit-Fix Phase 16 APPROVE. Added CubeClient::Stub variant (always-present, additive) + CubeRuntime::new_for_testing(device). unreachable! arms added in dispatch_binary!/dispatch_unary!/dispatch_matmul!/dispatch_unary_with_n! and Debug/read_one/upload_f32 sites. Phase 9 shape-mismatch tests refactored to use new_for_testing as primary; cascade_skip #1083 references removed. cubecl: 21+62+1+1 PASS. Pre-1.0 (v0.5.0) additive enum variant with all internal match sites updated.",
+  "created_at": "2026-05-10T04:22:34.500384608Z",
+  "kind": "note",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA2tOU+ykhuBsaQBsSxWubbF2Mox4PZY3Yu2ABXYBF4wvv/s7tRWi5LOrlMhKex6J5BfNX4XYbTfvSAqPI+elHAA=="
+}
