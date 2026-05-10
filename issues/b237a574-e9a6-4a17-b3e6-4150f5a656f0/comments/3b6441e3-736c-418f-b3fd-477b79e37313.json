@@ -1,0 +1,10 @@
+{
+  "uuid": "3b6441e3-736c-418f-b3fd-477b79e37313",
+  "issue_uuid": "b237a574-e9a6-4a17-b3e6-4150f5a656f0",
+  "author": "y4rr",
+  "content": "Pass 5.B.5 closed APPROVE-WITH-FOLLOW-UPS.\n\nPattern B (device-resident migration) applied to all 3 transforms:\n- Normalize::apply: from_vec(...).to(input.device()) for mean/std + sub + div\n- RandomHorizontalFlip::apply: index_select_dim with reverse i64 indices\n- RandomCrop::apply: narrow x2 + .contiguous()\n\nAll 3 now device-resident through their entire chain. All 4 discriminating tests added (preserves device + numerical correctness). 162/162 lib tests, build + clippy -D warnings clean.\n\nCUDA dependency: RandomHorizontalFlip routes through index_select_dim, which lacks a CUDA forward kernel (already tracked as #1098, Pass 3 follow-up). On CUDA inputs it now returns Err(NotImplementedOnCuda) instead of silently demoting — correct PyTorch-faithful surface per the no-silent-fallback north star.\n\nSubagent honest catches: (1) architect's sabotage probe was tautological on Linux (CPU==CPU passes either way); subagent added a stronger numerical sabotage (drop-the-divide) that hard-panics on Linux. (2) An optional 5th test was structurally unreachable (no_grad-wrapped apply body) and was honestly omitted with documented reason.",
+  "created_at": "2026-05-10T17:08:06.569423304Z",
+  "kind": "resolution",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA/dyjqbFb1Vb0awK9nUxCH1y10uITQfcZkg4c9+OG7Q/vSGy52eeDHWArL0eRp6yHoP68F6f/kZ3SFq2YAtVhCw=="
+}
