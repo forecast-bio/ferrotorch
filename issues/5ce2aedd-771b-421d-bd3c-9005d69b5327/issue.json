@@ -1,0 +1,12 @@
+{
+  "uuid": "5ce2aedd-771b-421d-bd3c-9005d69b5327",
+  "display_id": 1132,
+  "title": "Pass 5.A.4 follow-up: implement gloo backend FFI bindings",
+  "description": "Replaces closed #459 (Add additional distributed backends: Gloo, MPI, UCC). The gloo_backend.rs module is currently a fail-fast skeleton (every Backend method returns Err(BackendUnavailable { backend: \"gloo\" })). Real implementation requires:\n\n- gloo-sys crate with C++ FFI (Gloo is C++; needs bindgen + cmake-driven build of libgloo)\n- Rust wrapper exposing allreduce / allgather / broadcast / barrier / send / recv\n- CI coverage on Linux + macOS (Gloo doesn't ship Windows officially)\n\nEstimated 2000+ LoC + new C++ dep. Gated behind `gloo-backend` feature (default off).",
+  "status": "open",
+  "priority": "low",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-10T16:27:49.533645139Z",
+  "updated_at": "2026-05-10T16:27:49.533645139Z"
+}
