@@ -1,0 +1,10 @@
+{
+  "uuid": "6fce3e59-486c-47ef-87a0-7c45e9f3216f",
+  "issue_uuid": "386b9324-7324-46db-b5d7-dcf26d994018",
+  "author": "y4rr",
+  "content": "Plan: per-stage probes for SSD300 (VGG features, L2Norm, cls/loc heads, default boxes, softmax, NMS) and DeepLabV3 (backbone layers, ASPP branches, classifier, upsample). Fix all diagnosed bugs in one pass; re-upload all 5 models to HF (bucket cleared); update conformance tests broken by #1141 signature change.",
+  "created_at": "2026-05-11T12:39:21.817682057Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABABwW/j07QNRJvpeEYTlKHaET6gwp2sN69pPJ35T6nGqPvpYghfXjEtl5kjkQ6tlyzajJM5ku9z1MKfwR1+KHzCg=="
+}
