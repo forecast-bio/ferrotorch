@@ -1,0 +1,10 @@
+{
+  "uuid": "a74fa8bd-af84-4506-b074-26e4f3786f3c",
+  "display_id": 1155,
+  "title": "optimizer step parity vs torch.optim",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-11T22:44:23.367972623Z",
+  "updated_at": "2026-05-11T22:44:23.367972623Z"
+}
