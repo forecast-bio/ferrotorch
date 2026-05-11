@@ -1,0 +1,10 @@
+{
+  "uuid": "a00947f2-1c76-441f-977d-f514e78c415e",
+  "issue_uuid": "f404b4d9-8ba9-4de8-8b05-307f801bdbea",
+  "author": "y4rr",
+  "content": "Closed APPROVE-WITH-FOLLOW-UPS — measurement dispatch produced 0 PASS / 5 FAIL with concrete diagnoses.\n\nArtifacts added:\n- ferrotorch-vision/examples/inference_dump.rs — Rust binary loads pretrained model + runs forward + dumps output tensor.\n- scripts/verify_pretrained_inference.py — Python orchestrator runs torchvision reference + invokes Rust binary + compares within per-output-type tolerances.\n- ferrotorch-vision/tests/probe_pretrained_inference_1139.rs — #[ignore]-gated wrapper test.\n\nPer-model verdicts:\n- SSD300: FAIL (max_abs_score=0.054; missing NMS top-k caps; HIGH-confidence diagnosis)\n- FasterRCNN: FAIL (forward discards box_deltas, returns RPN proposals; structural postprocess gap; HIGH)\n- MaskRCNN: FAIL (inherits FasterRCNN + missing mask postprocess; HIGH)\n- DeepLabV3: FAIL (half-magnitude logits with sign flips; argmax 67-96%; MED — needs per-layer bisect)\n- FCN: FAIL (same as DeepLabV3; MED)\n\nSabotage probe validated comparison framework (class-axis-roll caught; uniform halve preserved argmax correctly).\n\nFollow-on dispatches filed:\n- #1140 — SSD300 NMS top-k caps (MED)\n- #1141 — FasterRCNN/MaskRCNN RoIHeads postprocess (HIGH, ~1000-1500 LoC)\n- #1142 — DeepLabV3/FCN logit-magnitude bisection (MED, investigation)\n\nUser directive: take all three in sequence.",
+  "created_at": "2026-05-11T07:38:35.378543112Z",
+  "kind": "resolution",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA8VeOFECSpu45HGS5gOxf+7IDSnGMAD/VjkMQqxzcSlwlYbDQr0lCNgbQHDfghaPw8ddVGYesA9lOi+VnpF9UBw=="
+}
