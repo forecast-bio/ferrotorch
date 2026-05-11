@@ -1,0 +1,10 @@
+{
+  "uuid": "63cc56ce-1831-4fd0-b0fa-eae9895345c8",
+  "issue_uuid": "202535d8-29ae-4b4b-9abf-8f84d38a50cc",
+  "author": "y4rr",
+  "content": "ferrotorch-diffusion CLIP text encoder added (clip_text_encoder.rs ~800 LoC). 12-layer transformer with QuickGELU MLP, causal attention mask, learned absolute position embeddings (77 positions), vocab=49408, hidden=768. PASS first-try with bit-level parity: cosine_sim=1.0, max_abs=1.9e-5, ||rust||=||ref||=246.74 exact. Pinned to ferrotorch/sd-v1-5-clip-text-encoder (SHA 52de4b2426c9). 55 lib tests (was 39, +16 CLIP).",
+  "created_at": "2026-05-11T21:56:20.730593161Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAuu3etP5yUf3l//EwcP3uMUGnaPJJEM4HlPnot+jd5DFCBYPFH0jsgz3oyTevv99vrmaPE4SfhBtOVC59zPX5CA=="
+}
