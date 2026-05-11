@@ -1,0 +1,10 @@
+{
+  "uuid": "4e6820c8-ad1b-4a9e-a12d-5d4cb27b1e68",
+  "issue_uuid": "8b56c6ab-9de2-46e5-b588-586f9a62da4b",
+  "author": "y4rr",
+  "content": "Plan: FCOS architecture per torchvision/models/detection/fcos.py:\n- Backbone: ResNet-50 → FPN P3..P7 with LastLevelP6P7 — IDENTICAL to RetinaNet (#1143).\n- Heads (NUM_ANCHORS_PER_LOC = 1): \n  - FCOSClassificationHead: 4× (Conv2d(256→256) + GroupNorm(32) + ReLU), final Conv2d(256→91).\n  - FCOSRegressionHead: 4× (Conv2d(256→256) + GroupNorm(32) + ReLU), then TWO heads sharing trunk: bbox_reg Conv2d(256→4) and bbox_ctrness Conv2d(256→1).\n  - bbox_regression goes through ReLU (line 251 of fcos.py); NOT exp.\n- NO per-level learned scales. The task description was WRONG. Confirmed by inspecting state_dict — there are 319 keys, 32,269,600 params, zero scale entries. Pretrained weight names: head.classification_head.conv.{0,3,6,9}.{weight,bias} (Conv) + .{1,4,7,10}.{weight,bias} (GN), final cls_logits/.bbox_reg/.bbox_ctrness.{weight,bias}.\n- AnchorGenerator with sizes=((8,),(16,),(32,),(64,),(128,)) and aspect_ratios=((1.0,),)*5 → each level has anchor [-s/2,-s/2,+s/2,+s/2] rounded, applied at cell-center (col*stride, row*stride) using shifts_x = arange(grid_w)*stride_w (NO +0.5 offset).\n- BoxLinearCoder(normalize_by_size=True) decode: pred = (ctr_x - l*w, ctr_y - t*h, ctr_x + r*w, ctr_y + b*h).\n- Postprocess: score = sqrt(sigmoid(cls) * sigmoid(centerness)) (per-class, broadcasting centerness across classes); filter > 0.2; per-level top-K=1000; per-class NMS at IoU=0.6; cross-class top-K=100.",
+  "created_at": "2026-05-11T13:18:16.114126689Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAMTQXqN7Sr21cO0/BCMK6Ajd9lFY6ZRC/dxhD6eoDHHA2at6LWj1FpGsWo3csBfrcrdEhHbUk4hO7TG6+10WFBw=="
+}
