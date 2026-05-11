@@ -1,0 +1,10 @@
+{
+  "uuid": "a855f298-45e7-4a51-9409-8ac9271725e7",
+  "issue_uuid": "76d3bc15-484b-413d-a830-7d2f44ac84fc",
+  "author": "y4rr",
+  "content": "GPU bf16 parity PASS. Surfaced + fixed real bug (tied-embeddings in LlamaGpuInferencer::new — symmetry with CPU path's load_hf_state_dict). Verdict: top1=100%, top5_overlap=4/5, cosine_sim=0.9993, max_abs=1.22, last_match=True. max_abs floor at 1.5 (bf16 noise budget) validated by transformers bf16-vs-f32 control = 1.40 (ferrotorch is more numerically faithful than transformers' own bf16). First cargo test that runs a real pretrained checkpoint through the GPU path.",
+  "created_at": "2026-05-11T22:41:46.922099522Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAdq4mK2cOqeurABtJABopHCHWexF6ghTtUk81tZTWXp2tk1ZSI4oHJ43V8YI/WTprYmb13Nkn5plrtFUnq903Aw=="
+}
