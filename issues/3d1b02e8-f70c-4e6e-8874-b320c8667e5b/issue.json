@@ -1,0 +1,10 @@
+{
+  "uuid": "3d1b02e8-f70c-4e6e-8874-b320c8667e5b",
+  "display_id": 1157,
+  "title": "GCN on Cora real-artifact harness vs torch_geometric",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-11T23:36:49.968766050Z",
+  "updated_at": "2026-05-11T23:36:49.968766050Z"
+}
