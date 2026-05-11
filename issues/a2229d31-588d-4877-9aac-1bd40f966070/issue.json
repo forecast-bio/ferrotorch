@@ -1,0 +1,10 @@
+{
+  "uuid": "a2229d31-588d-4877-9aac-1bd40f966070",
+  "display_id": 1156,
+  "title": "DataLoader iteration parity vs torch.utils.data",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-11T23:02:33.931554956Z",
+  "updated_at": "2026-05-11T23:02:33.931554956Z"
+}
