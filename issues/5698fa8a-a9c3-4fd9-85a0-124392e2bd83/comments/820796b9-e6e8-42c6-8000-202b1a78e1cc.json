@@ -1,0 +1,10 @@
+{
+  "uuid": "820796b9-e6e8-42c6-8000-202b1a78e1cc",
+  "issue_uuid": "5698fa8a-a9c3-4fd9-85a0-124392e2bd83",
+  "author": "y4rr",
+  "content": "Resume dispatch: HF token now has ferrotorch org with repo.write scope. hf auth whoami confirms user=dollspace, orgs=ferrotorch. Proceeding Stage 1 -> Stage 8 per pre-flight.",
+  "created_at": "2026-05-11T00:23:23.623110466Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAB1IdXhRcklV6QtteI7hqliFNzPfJwiRr+BSsvc6yeexoD7ZXxelKkH6GaW1yCg9dB4qYN15HFfqNS3f/wXajCg=="
+}
