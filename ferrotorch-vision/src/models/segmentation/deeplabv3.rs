@@ -563,4 +563,57 @@ mod tests {
         model.eval();
         assert!(!model.is_training());
     }
+
+    /// #1142 regression lock: `named_descendants_dyn` paths for DeepLabV3
+    /// must NOT start with a leading `.`.
+    ///
+    /// `DeepLabV3::named_children` exposes its `backbone: ResNet50Dilated`
+    /// at path `""` (transparent wrapper) and `ResNet50Dilated::named_children`
+    /// exposes its inner `ResNet` at path `"backbone"`. Pre-#1142 the
+    /// descendant walker composed those as `"" + "." + "backbone"` =
+    /// `".backbone"`, mismatching the safetensors keys (`backbone.bn1.X`)
+    /// in `apply_bn_buffers_from_state_dict`. The loader's
+    /// `path_to_module.get("backbone.bn1")` silently missed every
+    /// backbone BN, leaving running stats at their default values and
+    /// poisoning every downstream activation by 60-99×.
+    #[test]
+    fn deeplabv3_named_descendants_no_leading_dot() {
+        let model = deeplabv3_resnet50::<f32>(21).unwrap();
+        let descendants: Vec<String> = model
+            .named_descendants_dyn()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        // The very first child IS exposed at path `""` (the transparent
+        // backbone wrapper). Inspect everything *under* the backbone for
+        // leading dots — those are what the BN-buffer loader resolves
+        // against the state-dict keys.
+        let backbone_descendants: Vec<&String> = descendants
+            .iter()
+            .filter(|n| !n.is_empty())
+            .collect();
+        assert!(
+            !backbone_descendants.is_empty(),
+            "DeepLabV3 should expose backbone descendants",
+        );
+        for path in &backbone_descendants {
+            assert!(
+                !path.starts_with('.'),
+                "named_descendants_dyn path '{}' starts with '.' — \
+                 the transparent-wrapper branch in \
+                 ferrotorch_nn::Module::named_descendants_dyn has \
+                 regressed. This breaks BN-buffer loading for any \
+                 model whose `backbone` is exposed at path `\"\"`.",
+                path
+            );
+        }
+        // Sanity: the canonical `backbone.layer1.0.bn1` path must be
+        // reachable, since that's what `apply_bn_buffers_from_state_dict`
+        // looks up.
+        assert!(
+            descendants.iter().any(|p| p == "backbone.layer1.0.bn1"),
+            "missing canonical path 'backbone.layer1.0.bn1' in descendant \
+             walk; got: {descendants:?}"
+        );
+    }
 }

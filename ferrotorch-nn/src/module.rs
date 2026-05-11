@@ -187,6 +187,15 @@ pub trait Module<T: Float>: Send + Sync {
             for (sub_name, sub_module) in child.named_descendants_dyn() {
                 let full = if sub_name.is_empty() {
                     name.clone()
+                } else if name.is_empty() {
+                    // Transparent wrapper: parent exposes child under "" so
+                    // the child's own naming (e.g. `("backbone", inner)`)
+                    // becomes the canonical path. Without this branch the
+                    // walker would produce `".backbone.X"` (leading dot),
+                    // mismatching state-dict keys like `"backbone.X"`.
+                    // See #1142 for the DeepLabV3 BN-buffer routing bug
+                    // that this branch fixes.
+                    sub_name
                 } else {
                     format!("{name}.{sub_name}")
                 };
@@ -714,6 +723,67 @@ mod tests {
         let nd = m.named_descendants_dyn();
         assert_eq!(nd.len(), 1);
         assert_eq!(nd[0].0, "child");
+    }
+
+    /// #1142 regression lock: a transparent wrapper module that exposes
+    /// its inner child at path `""` must NOT prepend a leading `.` to
+    /// the child's own descendant paths.
+    ///
+    /// The DeepLabV3 model uses this idiom — `DeepLabV3::named_children`
+    /// returns `("", &backbone)` and `ResNet50Dilated::named_children`
+    /// returns `("backbone", &inner)`. Pre-#1142 the walker produced
+    /// `".backbone"`, mismatching state-dict keys like `"backbone.bn1.X"`
+    /// and silently failing every BN-buffer load on DeepLabV3's backbone.
+    #[test]
+    fn module_named_descendants_dyn_empty_parent_no_leading_dot() {
+        /// Wraps a `ParentModule` at the empty path. The descendant walker
+        /// must reach `ParentModule`'s `("child", _)` entry as the bare
+        /// path `"child"`, not `".child"`.
+        struct TransparentWrapper<T: Float> {
+            inner: ParentModule<T>,
+        }
+        impl<T: Float> Module<T> for TransparentWrapper<T> {
+            fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+                self.inner.forward(input)
+            }
+            fn parameters(&self) -> Vec<&Parameter<T>> {
+                self.inner.parameters()
+            }
+            fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+                self.inner.parameters_mut()
+            }
+            fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+                self.inner.named_parameters()
+            }
+            fn children(&self) -> Vec<&dyn Module<T>> {
+                vec![&self.inner]
+            }
+            fn named_children(&self) -> Vec<(String, &dyn Module<T>)> {
+                vec![(String::new(), &self.inner)]
+            }
+            fn train(&mut self) {
+                self.inner.train();
+            }
+            fn eval(&mut self) {
+                self.inner.eval();
+            }
+            fn is_training(&self) -> bool {
+                self.inner.is_training()
+            }
+        }
+        let m = TransparentWrapper::<f32> {
+            inner: ParentModule::new().unwrap(),
+        };
+        let nd: Vec<String> = m.named_descendants_dyn().into_iter().map(|(n, _)| n).collect();
+        // 2 entries: ("" -> inner) and ("child" -> grandchild).
+        assert_eq!(nd, vec![String::new(), "child".to_string()]);
+        for p in &nd {
+            assert!(
+                !p.starts_with('.'),
+                "transparent-wrapper descendant path '{p}' starts with '.'; \
+                 the empty-parent branch in named_descendants_dyn has regressed",
+            );
+        }
     }
 
     // -------------------------------------------------------------------

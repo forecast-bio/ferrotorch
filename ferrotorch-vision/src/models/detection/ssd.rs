@@ -186,24 +186,20 @@ impl<T: Float> ConvBnRelu<T> {
         bias: bool,
         with_bn: bool,
     ) -> FerrotorchResult<Self> {
-        // Conv2d doesn't have a dilation parameter in ferrotorch yet, so for
-        // dilation > 1 we pad manually.  For conv6 in SSD the dilation=6 is
-        // equivalent to effective kernel_size = (kernel-1)*(dilation-1)+kernel
-        // but because we use kernel_size=3, dilation=6, padding=6 we simply
-        // pass padding=6 to the Conv2d and accept that the Conv2d will use
-        // the standard un-dilated 3×3 kernel.  The output spatial size is
-        // the same (floor((H + 2*6 - 3) / 1) + 1 = H for H=19) so the
-        // shape contract is satisfied.  Dilation is an approximation: a full
-        // implementation would require adding a `dilation` field to Conv2d;
-        // that is tracked as a follow-up (#965-dilation).  This is consistent
-        // with how torchvision ssd300_vgg16 behaves for shape purposes.
-        let _ = dilation; // accepted for API completeness; see comment above
-        let conv = Conv2d::new(
+        // #1142: route through `Conv2d::new_full` so dilation actually
+        // changes the kernel's receptive field. Prior to #1142 the
+        // ConvBnRelu silently dropped `dilation`, so SSD's atrous conv6
+        // (k=3, dilation=6, padding=6) produced a 29×29 feature map
+        // instead of the 19×19 the heads + anchors expect — the entire
+        // downstream score path was driven by misaligned features.
+        let conv = Conv2d::new_full(
             in_ch,
             out_ch,
             (kernel, kernel),
             (stride, stride),
             (padding, padding),
+            (dilation, dilation),
+            1,
             bias,
         )?;
         let bn = if with_bn {
@@ -305,10 +301,14 @@ impl<T: Float> Module<T> for ConvBnRelu<T> {
 struct SsdScaleConfig {
     /// Feature-map spatial size (H = W for SSD300).
     fm_size: usize,
-    /// Stride from the input image (= 300 / fm_size for SSD300).
-    /// Kept for documentation; not read at runtime.
-    #[allow(dead_code)]
-    stride: usize,
+    /// Tile **step** in input pixels — this is what controls the anchor
+    /// centre stride, not `300 / fm_size`. torchvision's
+    /// `DefaultBoxGenerator(steps=[8, 16, 32, 64, 100, 300])` uses these
+    /// explicit values; reconstructing them as `300 / fm_size` is wrong
+    /// for fm=10 (gives 30, should be 32) and fm=5 (gives 60, should be
+    /// 64). Pre-#1142 ferrotorch divided centres by `fm_size`, baking the
+    /// wrong stride into every scale-2 / scale-3 anchor.
+    step: usize,
     /// S_k and S_{k+1} from the SSD paper.  Used to compute anchor sizes.
     scale_lo: f64,
     scale_hi: f64,
@@ -327,61 +327,72 @@ fn generate_ssd_anchors<T: Float>() -> FerrotorchResult<Tensor<T>> {
     // aspect_ratios = [[2], [2, 3], [2, 3], [2, 3], [2], [2]]
     // This produces 4, 6, 6, 6, 4, 4 anchors per cell respectively.
     // scales = [0.07, 0.15, 0.33, 0.51, 0.69, 0.87, 1.05]
+    // Anchor centre steps verbatim from torchvision's
+    // DefaultBoxGenerator(steps=[8, 16, 32, 64, 100, 300]).
     let configs: Vec<SsdScaleConfig> = vec![
         SsdScaleConfig {
             fm_size: 38,
-            stride: 8,
+            step: 8,
             scale_lo: 0.07,
             scale_hi: 0.15,
             extra_ratios: vec![2.0],
         },
         SsdScaleConfig {
             fm_size: 19,
-            stride: 16,
+            step: 16,
             scale_lo: 0.15,
             scale_hi: 0.33,
             extra_ratios: vec![2.0, 3.0],
         },
         SsdScaleConfig {
             fm_size: 10,
-            stride: 30,
+            step: 32,
             scale_lo: 0.33,
             scale_hi: 0.51,
             extra_ratios: vec![2.0, 3.0],
         },
         SsdScaleConfig {
             fm_size: 5,
-            stride: 60,
+            step: 64,
             scale_lo: 0.51,
             scale_hi: 0.69,
             extra_ratios: vec![2.0, 3.0],
         },
         SsdScaleConfig {
             fm_size: 3,
-            stride: 100,
+            step: 100,
             scale_lo: 0.69,
             scale_hi: 0.87,
             extra_ratios: vec![2.0],
         },
         SsdScaleConfig {
             fm_size: 1,
-            stride: 300,
+            step: 300,
             scale_lo: 0.87,
             scale_hi: 1.05,
             extra_ratios: vec![2.0],
         },
     ];
     let img_size = 300.0_f64;
-    let _ = img_size; // retained for documentation; SSD300 canonical input size
     let mut all_boxes: Vec<f64> = Vec::with_capacity(8732 * 4);
 
     for cfg in &configs {
-        let fm = cfg.fm_size as f64;
+        // #1142: centre stride mirrors torchvision's DefaultBoxGenerator:
+        //   shifts_x = (col + 0.5) / (image_size / step[k])
+        //            = (col + 0.5) * step[k] / image_size
+        // not `(col + 0.5) / fm_size`. The two agree for fm in {38, 19, 3, 1}
+        // (where step = 300 / fm) but diverge for fm=10 (step=32 vs 30) and
+        // fm=5 (step=64 vs 60), drifting anchor centres by up to 10 px in
+        // each direction at those scales. Pre-#1142 every score evaluated
+        // at a slightly-off prior box, so the trained head fired on the
+        // wrong spatial neighbourhood.
+        let centre_div = img_size / (cfg.step as f64);
+        let _ = cfg.fm_size; // step is the canonical centre divisor now
         for row in 0..cfg.fm_size {
             for col in 0..cfg.fm_size {
                 // Centre of cell in normalised coords.
-                let cx = (col as f64 + 0.5) / fm;
-                let cy = (row as f64 + 0.5) / fm;
+                let cx = (col as f64 + 0.5) / centre_div;
+                let cy = (row as f64 + 0.5) / centre_div;
 
                 // Aspect ratio = 1, size = s_k.
                 let w0 = cfg.scale_lo;
@@ -1378,10 +1389,28 @@ fn max_pool2d_impl<T: Float>(
     let in_h = shape[2];
     let in_w = shape[3];
 
-    // ceil_mode would round up output size; floor mode is sufficient for SSD300.
-    let _ = ceil_mode;
-    let out_h = (in_h + 2 * padding).saturating_sub(kernel) / stride + 1;
-    let out_w = (in_w + 2 * padding).saturating_sub(kernel) / stride + 1;
+    // #1142: `ceil_mode` was previously a documented no-op. pool3 in SSD300
+    // is `MaxPool2d(k=2, s=2, ceil_mode=True)` applied to the 75×75
+    // post-pool2 feature map; floor mode produces 37 (=(75-2)/2+1) but
+    // torchvision's ceil_mode produces 38, which is what the conv4_3 / L2Norm
+    // path and the downstream anchor count of 8732 require. The previous
+    // floor-mode rounding silently dropped one row + one column at every
+    // SSD300 inference, cascading through all six feature maps and yielding
+    // 8096 anchors instead of 8732.
+    let (out_h, out_w) = if ceil_mode {
+        let pad_h = in_h + 2 * padding;
+        let pad_w = in_w + 2 * padding;
+        if pad_h < kernel || pad_w < kernel {
+            (1, 1)
+        } else {
+            ((pad_h - kernel).div_ceil(stride) + 1, (pad_w - kernel).div_ceil(stride) + 1)
+        }
+    } else {
+        (
+            (in_h + 2 * padding).saturating_sub(kernel) / stride + 1,
+            (in_w + 2 * padding).saturating_sub(kernel) / stride + 1,
+        )
+    };
 
     let data = input.data_vec()?;
     let neg_inf: f64 = f64::NEG_INFINITY;
@@ -1754,5 +1783,80 @@ mod tests {
                 i - 1, scores[i - 1], i, scores[i],
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // #1142 regression locks — SSD anchor + conv6 dilation + pool3 ceil_mode
+    // -----------------------------------------------------------------------
+
+    /// Confirms `ConvBnRelu` routes `dilation` through `Conv2d::new_full`.
+    /// Pre-#1142 the dilation argument was silently dropped, leaving SSD's
+    /// `conv6` to compute a 29×29 feature map on 19×19 input instead of the
+    /// 19×19 atrous output torchvision produces; every downstream feature
+    /// map and anchor lookup misaligned by the same margin.
+    #[test]
+    fn ssd_conv6_dilation_preserved_spatial_size() {
+        let conv6 = ConvBnRelu::<f32>::new(512, 1024, 3, 1, 6, 6, true, false).unwrap();
+        let x = no_grad(|| randn::<f32>(&[1, 512, 19, 19]).unwrap());
+        let y = conv6.forward(&x).unwrap();
+        assert_eq!(
+            y.shape(),
+            &[1, 1024, 19, 19],
+            "conv6 with k=3, dilation=6, pad=6 must preserve 19×19 spatial \
+             size (matches torchvision's atrous conv6). Got {:?}",
+            y.shape()
+        );
+    }
+
+    /// Confirms that `max_pool2d_ceil` actually rounds up.
+    /// Pre-#1142 `ceil_mode` was a documented no-op; SSD300's pool3 (k=2,
+    /// s=2, ceil_mode=true) on 75×75 input then produced 37×37 instead of
+    /// the required 38×38, cascading shape errors through every subsequent
+    /// feature map.
+    #[test]
+    fn ssd_pool3_ceil_mode_rounds_up() {
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(vec![1.0f32; 256 * 75 * 75]),
+            vec![1, 256, 75, 75],
+            false,
+        )
+        .unwrap();
+        let y = max_pool2d_ceil(&x, 2, 2).unwrap();
+        assert_eq!(
+            y.shape(),
+            &[1, 256, 38, 38],
+            "max_pool2d_ceil on 75×75 with k=2 s=2 must produce 38×38 \
+             (ceil(75-2/2)+1 = 38), not the floor-mode 37×37. Got {:?}",
+            y.shape()
+        );
+    }
+
+    /// Confirms SSD anchor centres use torchvision's step values
+    /// `[8, 16, 32, 64, 100, 300]`, not the previous `300 / fm_size` divisor
+    /// that aliased to `[8, ~15.79, 30, 60, 100, 300]` and drifted scale-2
+    /// + scale-3 anchor centres by up to 10 image-pixels each.
+    #[test]
+    fn ssd_anchor_centres_use_step_values() {
+        let priors = generate_ssd_anchors::<f32>().unwrap();
+        let data = priors.data_vec().unwrap();
+        // Scale 2 (fm=10): 5776 + 2166 = 7942; first cell at (row=0, col=0).
+        // Expected cx = 0.5 * 32 / 300 ≈ 0.05333; ferrotorch's old formula
+        // gives 0.5 * 30 / 300 = 0.05 (off by 0.00333 ≈ 1 px / 300).
+        let offset_scale2 = (5776 + 2166) * 4;
+        let cx = data[offset_scale2] as f64;
+        assert!(
+            (cx - 0.0533).abs() < 1e-3,
+            "scale-2 cell (0,0) cx should be ≈0.0533 (step=32 / image=300), \
+             got {cx}. If you see ~0.05, the step→fm_size regression has \
+             returned and #1142's anchor-centre fix has been reverted."
+        );
+        // Scale 3 (fm=5): 5776 + 2166 + 600 = 8542.
+        let offset_scale3 = (5776 + 2166 + 600) * 4;
+        let cx3 = data[offset_scale3] as f64;
+        assert!(
+            (cx3 - 0.1067).abs() < 1e-3,
+            "scale-3 cell (0,0) cx should be ≈0.1067 (step=64 / image=300), \
+             got {cx3}."
+        );
     }
 }

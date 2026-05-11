@@ -152,6 +152,12 @@ fn test_fasterrcnn_named_parameter_prefixes() {
 // ===========================================================================
 
 /// P1 - Single-image 64x64 forward: output structure is correct.
+///
+/// Post-#1141 contract: `Detections` mirrors `torchvision`'s
+/// `RoIHeads.postprocess_detections` output — one (box, score, label) per
+/// surviving post-NMS detection. Per-class softmax is an internal intermediate
+/// and is no longer exposed through `FasterRcnn::forward`. (Use
+/// `TwoMlpHead::forward` for the pre-softmax class logits.)
 #[test]
 fn test_forward_64x64_output_structure() {
     let model = fasterrcnn_resnet50_fpn::<f32>(91).unwrap();
@@ -160,11 +166,15 @@ fn test_forward_64x64_output_structure() {
 
     assert_eq!(dets.len(), 1, "one detection list per image");
     let d = &dets[0];
+    let n = d.boxes.shape()[0];
     assert_eq!(d.boxes.shape().len(), 2, "boxes must be 2-D");
     assert_eq!(d.boxes.shape()[1], 4, "boxes must have 4 coords");
-    assert_eq!(d.scores.shape().len(), 2, "scores must be 2-D");
-    assert_eq!(d.scores.shape()[1], 91, "scores must have 91 classes");
-    let n = d.boxes.shape()[0];
+    assert_eq!(d.scores.shape().len(), 1, "scores must be 1-D (one per detection)");
+    assert_eq!(
+        d.scores.shape()[0],
+        n,
+        "scores count must match box count"
+    );
     assert_eq!(d.labels.len(), n, "label count must match box count");
 }
 
@@ -181,7 +191,12 @@ fn test_forward_batch2_returns_two_detection_lists() {
     );
 }
 
-/// P3 - Score tensor values are valid probabilities: each row sums to ~1.
+/// P3 - Score values are valid probabilities in `[0, 1]`.
+///
+/// Post-#1141: `Detections.scores` is `[N_det]` — the softmax probability of
+/// the predicted class for each surviving detection. Background (class 0) is
+/// dropped, so scores are bounded by `1.0` from above and `score_thresh` from
+/// below.
 #[test]
 fn test_forward_scores_are_probabilities() {
     let model = fasterrcnn_resnet50_fpn::<f32>(91).unwrap();
@@ -190,13 +205,10 @@ fn test_forward_scores_are_probabilities() {
     let d = &dets[0];
     if d.scores.shape()[0] > 0 {
         let data = d.scores.data_vec().unwrap();
-        let n = d.scores.shape()[0];
-        let nc = d.scores.shape()[1];
-        for i in 0..n {
-            let row_sum: f32 = data[i * nc..(i + 1) * nc].iter().sum();
+        for (i, &s) in data.iter().enumerate() {
             assert!(
-                (row_sum - 1.0).abs() < 1e-3,
-                "row {i} scores sum = {row_sum}, expected ~1.0"
+                (0.0..=1.0).contains(&s),
+                "score[{i}] = {s} is not a valid probability in [0, 1]"
             );
         }
     }
@@ -263,10 +275,12 @@ fn test_forward_512x512_end_to_end() {
 
     assert_eq!(dets.len(), 1);
     let d = &dets[0];
+    let n = d.boxes.shape()[0];
     assert_eq!(d.boxes.shape().len(), 2);
     assert_eq!(d.boxes.shape()[1], 4);
-    assert_eq!(d.scores.shape()[1], 91);
-    assert_eq!(d.labels.len(), d.boxes.shape()[0]);
+    assert_eq!(d.scores.shape().len(), 1);
+    assert_eq!(d.scores.shape()[0], n);
+    assert_eq!(d.labels.len(), n);
 }
 
 // ===========================================================================
@@ -384,11 +398,18 @@ fn test_mask_predictor_output_shape() {
 
 /// M3 - Full Mask R-CNN forward: output structure is correct.
 ///
-/// boxes [N,4], scores [N,91], labels [N], masks [N,91,28,28].
+/// Post-#1141 contract (matches torchvision's `model(img)[0]` after
+/// `GeneralizedRCNNTransform.postprocess` + `paste_masks_in_image`):
+/// - boxes  [N_det, 4]
+/// - scores [N_det]               (1-D top-1 softmax probability per detection)
+/// - labels [N_det]               (top-1 class per detection)
+/// - masks  [N_det, 1, H_img, W_img]  (sigmoid + class-select + paste-back)
 #[test]
 fn test_maskrcnn_forward_output_structure() {
+    let h = 64usize;
+    let w = 64usize;
     let model = maskrcnn_resnet50_fpn::<f32>(91).unwrap();
-    let img = no_grad(|| randn(&[1, 3, 64, 64]).unwrap());
+    let img = no_grad(|| randn(&[1, 3, h, w]).unwrap());
     let dets = no_grad(|| model.forward(&img).unwrap());
 
     assert_eq!(dets.len(), 1, "one MaskDetections per image");
@@ -396,17 +417,21 @@ fn test_maskrcnn_forward_output_structure() {
     let n = d.boxes.shape()[0];
     assert_eq!(d.boxes.shape().len(), 2, "boxes must be 2-D");
     assert_eq!(d.boxes.shape()[1], 4, "boxes must have 4 coords");
-    assert_eq!(d.scores.shape().len(), 2, "scores must be 2-D");
-    assert_eq!(d.scores.shape()[1], 91, "scores must have 91 classes");
+    assert_eq!(d.scores.shape().len(), 1, "scores must be 1-D");
+    assert_eq!(d.scores.shape()[0], n, "scores count must match box count");
     assert_eq!(d.labels.len(), n, "label count must match box count");
     assert_eq!(
         d.masks.shape()[0],
         n,
-        "mask batch dim must match proposal count"
+        "mask batch dim must match detection count"
     );
-    assert_eq!(d.masks.shape()[1], 91, "masks must have 91 class channels");
-    assert_eq!(d.masks.shape()[2], 28, "mask height must be 28");
-    assert_eq!(d.masks.shape()[3], 28, "mask width must be 28");
+    assert_eq!(
+        d.masks.shape()[1],
+        1,
+        "post-paste masks have a single class channel (class-selected)"
+    );
+    assert_eq!(d.masks.shape()[2], h, "pasted mask height must equal image height");
+    assert_eq!(d.masks.shape()[3], w, "pasted mask width must equal image width");
 }
 
 /// M4 - Batch of 2 images returns two MaskDetections entries.
@@ -512,21 +537,25 @@ fn test_maskrcnn_train_eval_toggle() {
 /// M11 - 512×512 end-to-end forward completes without error.
 ///
 /// Uses synthetic random weights (no pretrained download). Asserts
-/// structure only, not numerical values.
+/// structure only, not numerical values. Matches the post-paste output
+/// contract (`[N_det, 1, H_img, W_img]`) introduced in #1141.
 #[test]
 fn test_maskrcnn_forward_512x512_end_to_end() {
+    let h = 512usize;
+    let w = 512usize;
     let model = maskrcnn_resnet50_fpn::<f32>(91).unwrap();
-    let img = no_grad(|| randn(&[1, 3, 512, 512]).unwrap());
+    let img = no_grad(|| randn(&[1, 3, h, w]).unwrap());
     let dets = no_grad(|| model.forward(&img).unwrap());
 
     assert_eq!(dets.len(), 1);
     let d = &dets[0];
     let n = d.boxes.shape()[0];
     assert_eq!(d.boxes.shape()[1], 4);
-    assert_eq!(d.scores.shape()[1], 91);
+    assert_eq!(d.scores.shape().len(), 1);
+    assert_eq!(d.scores.shape()[0], n);
     assert_eq!(d.labels.len(), n);
     assert_eq!(d.masks.shape()[0], n);
-    assert_eq!(d.masks.shape()[1], 91);
-    assert_eq!(d.masks.shape()[2], 28);
-    assert_eq!(d.masks.shape()[3], 28);
+    assert_eq!(d.masks.shape()[1], 1);
+    assert_eq!(d.masks.shape()[2], h);
+    assert_eq!(d.masks.shape()[3], w);
 }

@@ -489,6 +489,21 @@ def verify_one(model_name: str, image_id: int, verbose: bool) -> CompareResult:
     img_path = CACHE_DIR / f"coco_{image_id:012d}.jpg"
     dump_path = CACHE_DIR / f"dump_{model_name}_{image_id:012d}.bin"
 
+    # #1142: convert JPEG to PNG once so both pipelines decode the same
+    # exact bytes. JPEG decoding differs between PIL (libjpeg-turbo)
+    # and Rust's `image` crate (zune-jpeg) by ±2 / 255 at some pixels
+    # — pure chroma-upsampling-precision noise that propagates to ~1e-3
+    # score drift through SSD's 13-deep VGG backbone. This is an IO
+    # divergence unrelated to model correctness; we eliminate it by
+    # routing both sides through PNG. PNG decoding is deterministic
+    # across decoders (no lossy filter / no chroma subsampling). The
+    # rust binary's `--image` flag accepts PNG via the image crate's
+    # format auto-detection; PIL's `Image.open` likewise.
+    png_path = img_path.with_suffix(".png")
+    if not png_path.exists():
+        Image.open(img_path).convert("RGB").save(png_path)
+    img_path = png_path
+
     # 1) Build the preprocessed tensor (same for both sides).
     chw = load_image_chw(img_path)
     input_bchw = preprocess(model_name, chw)
